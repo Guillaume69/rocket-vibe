@@ -31,7 +31,7 @@ two-way parity tracker is [../parity.md](../parity.md). Back to
 | Doc | What's here |
 |---|---|
 | [composer.md](composer.md) | Where a send goes (outbox, upload queue, `commands.run`), drafts per room and thread, quote replies, `@` mentions, editing, GTK formatting and spell check, staged attachments. |
-| [slash-commands.md](slash-commands.md) | `commands.list` with i18n keys, completion filtered by permissions, `commands.run`, unknown names sent as text, the private answer above the composer. |
+| [slash-commands.md](slash-commands.md) | `commands.list` with i18n keys, the RocketVibe server's commands, text commands written by the client, the command panel, `commands.run`, unknown names sent as text, the private answer above the composer. |
 | [uploads.md](uploads.md) | `rooms.media` then `rooms.mediaConfirm` behind a persisted queue, the saved `fileId` and the local check that avoids duplicates, re-arming after a kill, retries, progress, validation, protected downloads. |
 | [voice-messages.md](voice-messages.md) | AAC `.m4a` on mobile and SwiftUI, Ogg/Opus through GStreamer on GTK, replay and caption before sending, playback. |
 | [message-actions.md](message-actions.md) | Which actions show (time limits, permissions, encrypted and system messages), the endpoints, the menus per app, pinned and starred lists. |
@@ -42,6 +42,11 @@ two-way parity tracker is [../parity.md](../parity.md). Back to
 |---|---|
 | [notifications.md](notifications.md) | Mobile FCM chain (native token, patched server bundle, data-only push, `push.get` for hidden content, WorkManager catch-up, inline reply, iOS extension, badge); desktop notifier on D-Bus, WinRT or UserNotifications, and badge. |
 | [e2ee.md](e2ee.md) | Encrypted rooms for the user: lock tile, placeholders, unlock, key kept across launches, encrypted sends and media, notifications without ciphertext. |
+| [e2ee-history.md](e2ee-history.md) | RocketVibe server: encrypted history requested by a new device, reviewed and shared by another device of the account, imported page by page. |
+| [e2ee-delegation.md](e2ee-delegation.md) | RocketVibe server: the controller hands the account root to another registered device inside a history share, adopted only if it is the account's own. |
+| [e2ee-storage-keys.md](e2ee-storage-keys.md) | RocketVibe server: storage key renewal (state and blocks re-sealed, old key destroyed, resumable), expired KeyPackage keys destroyed. |
+| [e2ee-private-files.md](e2ee-private-files.md) | RocketVibe server: files sealed on the device (`rv-file-v1`), the key only in the encrypted message, opened into the private cache while a view shows them. |
+| [e2ee-private-actions.md](e2ee-private-actions.md) | RocketVibe server: encrypted amendments (the author's edits and deletions, any member's reactions) shown pending until accepted, and private search on the device. |
 | [calls.md](calls.md) | Jitsi over `video-conference.*`, availability probe, the mobile WebView exception and its origin lock, desktop call windows per platform. |
 | [sharing-and-links.md](sharing-and-links.md) | `rocketvibe://room/<rid>?host=` deep links, the incoming share screen, the outgoing-link guard, desktop drag and paste. |
 | [desktop-updates.md](desktop-updates.md) | GitHub release discovery, cached check and dismissal, in-place replacement on Linux, installer on Windows, DMG on macOS. |

@@ -68,6 +68,12 @@ export function stripQuotePrefix(text: string): string {
   }
 }
 
+/** Native references are typed metadata: their source text has no RC quote prefix. */
+export function quoteText(attachment:{text?:string;native_reference?:unknown}):string {
+  const native=attachment.native_reference!==null && typeof attachment.native_reference==='object' && !Array.isArray(attachment.native_reference);
+  return native?attachment.text??'':stripQuotePrefix(attachment.text??'');
+}
+
 /**
  * The server criterion (`isQuoteAttachment`): an attachment carrying
  * `message_link` is a quote. Everything else (image, audio, file) is not.

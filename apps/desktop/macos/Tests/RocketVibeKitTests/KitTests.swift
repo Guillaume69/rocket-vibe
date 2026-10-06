@@ -162,3 +162,27 @@ final class LiveTests: XCTestCase {
         XCTAssertTrue(condition())
     }
 }
+
+final class PeerGuidanceTests: XCTestCase {
+    private func state(_ trust: NativePeerTrust, _ approved: [Bool]) -> NativePeerState {
+        NativePeerState(
+            user: "bob", fingerprint: "fp", previousFingerprint: "", trust: trust,
+            devices: approved.enumerated().map {
+                NativePeerDevice(id: "d\($0.offset)", incarnation: "01", fingerprint: "f", expiresAt: 1, approved: $0.element)
+            },
+            approval: nil, revision: 1)
+    }
+    func testTheIdentityCheckSaysTheNextStep() {
+        setFrench(french: false)
+        XCTAssertEqual(peerNextStep(state(.unknown, [false])), L("crypto.peer_next_pin"))
+        XCTAssertEqual(peerNextStep(state(.unverified, [true, false])), L("crypto.peer_next_devices"))
+        XCTAssertEqual(peerNextStep(state(.verified, [true])), L("crypto.peer_all_approved"))
+        XCTAssertEqual(peerNextStep(state(.unverified, [])), L("crypto.peer_no_devices"))
+        XCTAssertNil(peerNextStep(state(.changed, [true])))
+    }
+    func testAnUntrustedMemberIsExplainedOtherFailuresStayGeneric() {
+        setFrench(french: false)
+        XCTAssertEqual(cryptoFailure(RvError.Local(message: "crypto_peer_untrusted")), L("crypto.group_untrusted"))
+        XCTAssertEqual(cryptoFailure(RvError.Local(message: "crypto_operation_failed")), L("crypto.failed"))
+    }
+}

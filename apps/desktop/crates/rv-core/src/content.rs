@@ -10,12 +10,14 @@ pub const QUOTE_DEPTH: usize = 2;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Quote {
+    pub unavailable: bool,
     pub link: String,
     pub author: Option<String>,
     pub text: String,
     /// The quoted message's parsed markdown, serialized.
     pub md: Option<String>,
     pub images: Vec<ImageAttachment>,
+    pub files: Vec<FileAttachment>,
     pub quotes: Vec<Quote>,
 }
 
@@ -106,14 +108,24 @@ fn is_quote(a: &Value) -> bool {
 }
 
 fn quote_of(a: &Value, depth: usize) -> Quote {
+    let unavailable = a.get("native_unavailable").and_then(Value::as_bool) == Some(true);
     let inner = a.get("attachments").map(|v| v.to_string());
+    let source = a.get("text").and_then(Value::as_str).unwrap_or_default();
     Quote {
-        link: text(a, "message_link").unwrap_or_default(),
-        author: text(a, "author_name"),
-        text: crate::actions::strip_quote_prefix(a.get("text").and_then(Value::as_str).unwrap_or_default()).to_owned(),
-        md: a.get("md").filter(|v| v.is_array()).map(Value::to_string),
-        images: image_attachments(inner.as_deref()),
-        quotes: if depth < QUOTE_DEPTH { quotes_at(inner.as_deref(), depth + 1) } else { Vec::new() },
+        unavailable,
+        link: if unavailable { String::new() } else { text(a, "message_link").unwrap_or_default() },
+        author: if unavailable { None } else { text(a, "author_name") },
+        text: if unavailable {
+            String::new()
+        } else if a.get("native_reference").is_some_and(Value::is_object) {
+            source.to_owned()
+        } else {
+            crate::actions::strip_quote_prefix(source).to_owned()
+        },
+        md: if unavailable { None } else { a.get("md").filter(|v| v.is_array()).map(Value::to_string) },
+        images: if unavailable { Vec::new() } else { image_attachments(inner.as_deref()) },
+        files: if unavailable { Vec::new() } else { files(inner.as_deref()) },
+        quotes: if !unavailable && depth < QUOTE_DEPTH { quotes_at(inner.as_deref(), depth + 1) } else { Vec::new() },
     }
 }
 
@@ -163,25 +175,34 @@ pub fn cards(attachments: Option<&str>) -> Vec<CardAttachment> {
         .iter()
         .filter(|a| !is_quote(a) && ["image_url", "audio_url", "video_url"].iter().all(|k| a.get(*k).is_none()))
         .filter(|a| !text(a, "title_link").is_some_and(|link| is_upload(a, &link)))
-        .map(|a| CardAttachment {
-            author: text(a, "author_name"),
-            title: text(a, "title"),
-            link: text(a, "title_link"),
-            text: text(a, "text"),
-            color: text(a, "color"),
-            fields: a
-                .get("fields")
-                .and_then(Value::as_array)
-                .map(|fields| {
-                    fields
-                        .iter()
-                        .filter_map(|f| {
-                            let short = f.get("short").and_then(Value::as_bool).unwrap_or(false);
-                            Some((text(f, "title")?, text(f, "value").unwrap_or_default(), short))
-                        })
-                        .collect()
-                })
-                .unwrap_or_default(),
+        .map(|a| {
+            let read = |v: &Value, key: &str| {
+                if a.get("native_card").and_then(Value::as_bool) == Some(true) {
+                    v.get(key).and_then(Value::as_str).map(|s| s.trim().to_owned()).filter(|s| !s.is_empty())
+                } else {
+                    text(v, key)
+                }
+            };
+            CardAttachment {
+                author: read(a, "author_name"),
+                title: read(a, "title"),
+                link: read(a, "title_link"),
+                text: read(a, "text"),
+                color: read(a, "color"),
+                fields: a
+                    .get("fields")
+                    .and_then(Value::as_array)
+                    .map(|fields| {
+                        fields
+                            .iter()
+                            .filter_map(|f| {
+                                let short = f.get("short").and_then(Value::as_bool).unwrap_or(false);
+                                Some((read(f, "title")?, read(f, "value").unwrap_or_default(), short))
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+            }
         })
         .filter(|c| c.title.is_some() || c.text.is_some() || !c.fields.is_empty())
         .collect()
@@ -233,7 +254,20 @@ pub fn link_previews(urls: Option<&str>, max: usize) -> Vec<LinkPreview> {
         if seen.iter().any(|s| s == url) || video_id(url).is_some() {
             continue;
         }
-        let preview = if is_image(&entry, url) {
+        let preview = if entry.get("native_preview").is_some() {
+            crate::native::link_previews::from_entry(&entry).and_then(|(p, image)| match p.kind {
+                rv_protocol::link_previews::PreviewKind::Image => {
+                    (!image.is_empty()).then_some(LinkPreview::Image { url: image })
+                }
+                rv_protocol::link_previews::PreviewKind::Page => Some(LinkPreview::Card {
+                    url: p.url,
+                    title: p.title,
+                    description: p.description,
+                    image: (!image.is_empty()).then_some(image),
+                    site: p.site,
+                }),
+            })
+        } else if is_image(&entry, url) {
             Some(LinkPreview::Image { url: url.to_owned() })
         } else if let Some(meta) = entry.get("meta").and_then(Value::as_object) {
             let title = first(meta, &["ogTitle", "oembedTitle", "twitterTitle", "pageTitle"]);
@@ -302,10 +336,16 @@ fn video_id(link: &str) -> Option<(&'static str, String)> {
 
 /// Video links in the text, in order, titled from the server's `urls` when it has them.
 pub fn video_links(text: &str, urls: Option<&str>, max: usize) -> Vec<VideoLink> {
-    let titles: Vec<(String, Option<String>, Option<String>)> = list(urls)
+    let entries = list(urls);
+    let native = entries.iter().any(|e| e.get("native_message").is_some());
+    let titles: Vec<(String, Option<String>, Option<String>)> = entries
         .iter()
         .filter_map(|e| {
             let (_, id) = video_id(e.get("url")?.as_str()?)?;
+            if e.get("native_preview").is_some() {
+                let (preview, _) = crate::native::link_previews::from_entry(e)?;
+                return Some((id, preview.title, preview.site));
+            }
             let meta = e.get("meta")?.as_object()?;
             Some((
                 id,
@@ -336,6 +376,18 @@ pub fn video_links(text: &str, urls: Option<&str>, max: usize) -> Vec<VideoLink>
         };
         let (title, author) =
             titles.iter().find(|(i, _, _)| *i == id).map(|(_, t, a)| (t.clone(), a.clone())).unwrap_or_default();
+        let thumbnail = if native {
+            entries.iter().find_map(|e| {
+                let (_, found) = video_id(e.get("url")?.as_str()?)?;
+                if found != id {
+                    return None;
+                }
+                let (_, image) = crate::native::link_previews::from_entry(e)?;
+                (!image.is_empty()).then_some(image)
+            })
+        } else {
+            thumbnail
+        };
         out.push(VideoLink { provider, id, url, thumbnail, title, author });
     }
     out
@@ -345,6 +397,27 @@ pub fn video_links(text: &str, urls: Option<&str>, max: usize) -> Vec<VideoLink>
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn native_quotes_preserve_literal_legacy_like_prefixes_without_changing_official_quotes() {
+        let source = "[ ](https://example.test/channel/general?msg=source) mots";
+        let local = json!([{"message_link":"","text":source,"native_reference":{"message_id":"source","room_id":"origin","revision":"1"}}]).to_string();
+        assert_eq!(quotes(Some(&local))[0].text, source);
+        let official =
+            json!([{"message_link":"https://example.test/channel/general?msg=source","text":source}]).to_string();
+        assert_eq!(quotes(Some(&official))[0].text, "mots");
+        assert!(!quotes(Some(&official))[0].unavailable);
+        let unavailable=json!([{"message_link":"https://private.invalid","native_unavailable":true,"text":"private words","author_name":"private author","attachments":[{"image_url":"/private.png"}],"native_reference":{"message_id":"source","room_id":"origin","revision":"1"}}]).to_string();
+        let censored = quotes(Some(&unavailable)).remove(0);
+        assert!(censored.unavailable);
+        assert!(
+            censored.author.is_none()
+                && censored.text.is_empty()
+                && censored.link.is_empty()
+                && censored.images.is_empty()
+                && censored.quotes.is_empty()
+        );
+    }
 
     #[test]
     fn quotes_nest_up_to_the_limit() {

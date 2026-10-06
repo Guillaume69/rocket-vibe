@@ -1,11 +1,12 @@
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
-import { and, count, desc, eq, gte, isNull, lte, or } from 'drizzle-orm';
+import { and, count, eq, gte, isNull, lte, or } from 'drizzle-orm';
 import { useCoalescedLiveQuery } from '../../ui/liveQuery.ts';
-import { Redirect, Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { Redirect, Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -25,7 +26,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { LocalDatabase } from '../../db/client.ts';
 import type { DraftStore } from '../../db/store.ts';
-import { subscriptions, messages, rooms, outbox, uploads } from '../../db/schema.ts';
+import { subscriptions, messages, rooms, outbox, uploads, nativeRoomAccess,nativePositions } from '../../db/schema.ts';
 import type { ActivityEngine } from '../../lib/activity.ts';
 import type {
   ProviderActions,
@@ -37,13 +38,19 @@ import type {
 import type { RestClient } from '../../lib/rest.ts';
 import { TypingEngine, summarizeTyping } from '../../lib/typing.ts';
 import { useDraft } from '../../ui/drafts.ts';
-import { useFileProgress } from '../../ui/fileProgress.ts';
+import {useEncryptedConversation,privateRow,privateInterrupted} from '../../ui/encryptedConversation.ts';
+import {privateRows} from '../../providers/rocketvibe/cryptoProjection.ts';
+import {usePrivateQuotes} from '../../ui/privateQuotes.ts';
+import {CryptoNative} from '../../modules/crypto-native/index.ts';
+import {RoomMembershipBound} from '../../ui/roomMembership.tsx';
+import { UploadBands } from '../../ui/uploadBands.tsx';
 import { KeyboardAvoidingContainer } from '../../ui/keyboard.tsx';
 import { useMentionCandidates } from '../../ui/mentionCompletion.tsx';
 import { Composer } from '../../ui/composer.tsx';
 import { RoomHeader } from '../../ui/roomHeader.tsx';
 import { sessionToken } from '../../ui/sessionToken.ts';
-import { insertUnreadBar, type BarRow } from '../../ui/unreadBar.ts';
+import { insertUnreadBar,insertNativeUnreadBar, type BarRow } from '../../ui/unreadBar.ts';
+import {ObservedRead} from '../../ui/observedRead.ts';
 import { useSmoothedData } from '../../ui/smoothedData.ts';
 import { repeatedTimeIds, continuationIds } from '../../ui/messageGrouping.ts';
 import { insertDaySeparators, type DayRow } from '../../ui/daySeparator.ts';
@@ -56,20 +63,21 @@ import {
   onBackToLatestSwipe,
 } from '../../ui/backToLatest.ts';
 import { keepWarm, roomCovered } from '../../ui/hotRooms.ts';
-import { consumeJump, useJump } from '../../ui/messageJump.ts';
+import { consumeJump, requestJump, useJump } from '../../ui/messageJump.ts';
 import { ContextWindow, type HistoryReader, type WindowItem } from '../../lib/contextWindow.ts';
 import type { LocalMessage } from '../../lib/normalize.ts';
 import { notify } from '../../ui/toast.tsx';
 import { markRoomLoaded, roomLoadedUnder } from '../../ui/loadedRooms.ts';
 import { PrimaryButton, TypingIndicator, DaySeparator } from '../../ui/kit.tsx';
 import { Tappable } from '../../ui/tappable.tsx';
-import { sameOrigin, originOf } from '../../lib/origin.ts';
+import {parseRoomLink,roomLinkMatches,roomLinkUrl,serviceUrl,type RoomLink} from '../../lib/roomLinks.ts';
 import { SyncEngine } from '../../lib/sync.ts';
 import { MessageRow, type MessageRowData } from '../../ui/messageRow.tsx';
 import { usePresence } from '../../ui/presence.ts';
-import { useT } from '../../ui/i18n.ts';
+import { useT,translateCurrent } from '../../ui/i18n.ts';
 import { useSession } from '../../ui/session.tsx';
 import { useSync } from '../../ui/sync.tsx';
+import { messageOrder } from '../../ui/messageOrder.ts';
 import { type Colors, FONTS, useColors } from '../../ui/theme.ts';
 
 /**
@@ -118,7 +126,17 @@ export default function RoomScreen() {
   // `host` comes from a notification's deep link (native or expo): it says
   // WHICH server this message is about. Absent for any internal navigation;
   // the behaviour is then exactly as before.
-  const { rid, host } = useLocalSearchParams<{ rid: string; host?: string }>();
+  const { rid, host, nativeScope, roomLink } = useLocalSearchParams<{ rid: string; host?: string; nativeScope?:string;roomLink?:string }>();
+  const external=roomLink!==undefined||host!==undefined||nativeScope!==undefined;
+  const linkTarget=useMemo(()=>{
+    if(roomLink!==undefined)return parseRoomLink(roomLink);
+    if(!external)return null;
+    if(typeof rid!=='string'||host!==undefined&&typeof host!=='string'||nativeScope!==undefined&&typeof nativeScope!=='string')return null;
+    const url=new URL(`rocketvibe://room/${encodeURIComponent(rid)}`);
+    if(host!==undefined)url.searchParams.set('host',host);
+    if(nativeScope!==undefined)url.searchParams.set('nativeScope',nativeScope);
+    return parseRoomLink(url.toString());
+  },[roomLink,external,rid,host,nativeScope]);
   const { state } = useSession();
   const sync = useSync();
   const c = useColors();
@@ -154,12 +172,11 @@ export default function RoomScreen() {
   // any app can emit. What is not a web URL is not a Rocket.Chat server; we
   // ignore it, and the behaviour goes back to exactly as before rather than
   // showing arbitrary text of arbitrary length in the foreground.
-  const hostOrigin = typeof host === 'string' ? originOf(host) : null;
-  if (hostOrigin !== null && !sameOrigin(host!, state.session.baseUrl)) {
-    return <OtherServer c={c} host={hostOrigin} rid={rid} />;
-  }
+  if(external&&(!linkTarget||linkTarget.rid!==rid))return <View style={[styles.center,{backgroundColor:c.background}]}><Text style={[styles.error,{color:c.errorText}]}>{translateCurrent('room.linkUnavailable')}</Text></View>;
+  if(linkTarget?.host&&linkTarget.host!==serviceUrl(state.session.baseUrl))return <OtherServer c={c} target={linkTarget} />;
+  if(linkTarget&&!roomLinkMatches(linkTarget,state.session))return <View style={[styles.center,{backgroundColor:c.background}]}><Text style={[styles.error,{color:c.errorText}]}>{translateCurrent('room.linkUnavailable')}</Text></View>;
 
-  return (
+  const content = (membership?:string|null)=>(
     <Room
       c={c}
       rid={rid}
@@ -176,8 +193,11 @@ export default function RoomScreen() {
       declareOpenRoom={sync.declareOpenRoom}
       activity={sync.activity}
       generation={sync.generation}
+      membership={membership}
+      linkTarget={linkTarget}
     />
   );
+  return sync.provider.native?<RoomMembershipBound key={JSON.stringify(sync.provider.identity)+rid} base={sync.base} rid={rid}>{content}</RoomMembershipBound>:content();
 }
 
 /**
@@ -187,22 +207,23 @@ export default function RoomScreen() {
  * notification must not trigger all that unasked. An explicit gesture,
  * then, and the label says where we are going.
  */
-function OtherServer({ c, host, rid }: { c: Colors; host: string; rid: string }) {
+function OtherServer({ c, target }: { c: Colors; target:RoomLink }) {
   const t = useT();
   const router = useRouter();
   const { switchServer } = useSession();
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState(false);
+  const host=target.host!;
 
   const toggle = useCallback(() => {
     setBusy(true);
     setFailure(false);
-    switchServer(host).then(
+    switchServer(host,target).then(
       (ok) => {
         // Success: `replace` removes the `host` from the URL. Leaving it would replay
         // this same screen if the user later came back to the other server.
         // No `setState` on this path: the screen is already leaving.
-        if (ok) router.replace({ pathname: '/room/[rid]', params: { rid } });
+        if (ok) router.replace({ pathname: '/room/[rid]', params: { rid:target.rid, roomLink:roomLinkUrl(target) } });
         else {
           setBusy(false);
           setFailure(true);
@@ -213,7 +234,7 @@ function OtherServer({ c, host, rid }: { c: Colors; host: string; rid: string })
         setFailure(true);
       },
     );
-  }, [switchServer, host, rid, router]);
+  }, [switchServer, host, target, router]);
 
   return (
     <View style={[styles.center, { backgroundColor: c.background }]}>
@@ -254,6 +275,8 @@ function Room({
   declareOpenRoom,
   activity,
   generation,
+  membership,
+  linkTarget,
 }: {
   c: Colors;
   rid: string;
@@ -271,9 +294,70 @@ function Room({
   declareOpenRoom: (rid: string) => () => void;
   activity: ActivityEngine;
   generation: number;
+  membership?:string|null;
+  linkTarget:RoomLink|null;
 }) {
   const t = useT();
   const [limit, setLimit] = useState(PAGE);
+  const native=provider.identity.kind==='rocketvibe';
+  const { data: roomRows } = useCoalescedLiveQuery(
+    base.select().from(rooms).where(eq(rooms.rid, rid)).limit(1), [rid],
+  );
+  const room = roomRows?.[0];
+  const protectedRoom=native && room?.encrypted===true;
+  const router=useRouter();
+  const nativeChat=provider.native?.chat;
+  const cryptoAvailable=!!CryptoNative && nativeChat?.capabilities?.e2ee===true && nativeChat.capabilities.device_sessions===true;
+  const conversation=useEncryptedConversation(nativeChat,rid,membership,protectedRoom && cryptoAvailable);
+  const online=useSyncExternalStore(useCallback(fn=>nativeChat?.subscribe(fn)??(()=>{}),[nativeChat]),()=>nativeChat?.status.online??true);
+  const consumedLink=useRef<RoomLink|null>(null);
+  useEffect(()=>{
+    if(!linkTarget||!online||consumedLink.current===linkTarget||!nativeChat)return;
+    let canceled=false;
+    void nativeChat.resolveRoomLink(linkTarget).then(({link,message})=>{
+      if(canceled)return;
+      consumedLink.current=linkTarget;
+      if(link.root){router.push({pathname:'/thread/[id]',params:{id:link.root,...(link.message?{message:link.message}:{})}});}
+      else if(link.message&&message)requestJump(rid,{id:link.message});
+    }).catch(()=>{if(!canceled){consumedLink.current=linkTarget;notify(t('room.linkUnavailable'));}});
+    return()=>{canceled=true;};
+  },[linkTarget,online,nativeChat,rid,router,t,membership]);
+  type ListRow = MessageRowData | BarRow | DayRow;
+  const list = useRef<FlashListRef<ListRow>>(null);
+  const readVisible=useRef(()=>{});
+  const focused=useRef(false);
+  const [openingPosition,setOpeningPosition]=useState<string|null|undefined>(undefined);
+  const {data:nativePositionMap}=useCoalescedLiveQuery(base.select().from(nativePositions).where(eq(nativePositions.rid,native?rid:'__unused__')),[rid,native]);
+  const positions=useMemo(()=>new Map(nativePositionMap.map(row=>[row.id,row.position])),[nativePositionMap]);
+  useEffect(()=>{
+    if(!native)return;
+    let active=true;
+    void actions.roomReadState?.(rid).then(state=>{
+      if(active)setOpeningPosition(state && state.adhesion===membership?state.rootPosition:null);
+    }).catch(()=>{if(active)setOpeningPosition(null);});
+    return()=>{active=false;};
+  },[actions,rid,native,membership]);
+  const request=useMemo(()=>new ObservedRead(async messageId=>{
+    if(membership!=null)await actions.markRead(rid,{messageId,adhesion:membership});
+  }),[actions,rid,membership]);
+  const nativeReads=native && !protectedRoom && provider.capabilities.roomReads===true && typeof openingPosition==='string' && membership!=null;
+  useEffect(()=>()=>request.close(),[request]);
+  useFocusEffect(useCallback(()=>{
+    focused.current=true;request.activate(nativeReads && AppState.currentState==='active');
+    const frame=requestAnimationFrame(()=>readVisible.current());
+    return()=>{cancelAnimationFrame(frame);focused.current=false;request.activate(false);};
+  },[request,nativeReads]));
+  useEffect(()=>{
+    const subscription=AppState.addEventListener('change',state=>{
+      request.activate(nativeReads && focused.current && state==='active');
+      if(state==='active')requestAnimationFrame(()=>readVisible.current());
+    });
+    return()=>subscription.remove();
+  },[request,nativeReads]);
+  const nativeViewability=useMemo(()=>({itemVisiblePercentThreshold:1,minimumViewTime:250}),[]);
+  const onNativeViewables=useCallback(({viewableItems}:{viewableItems:readonly {isViewable:boolean}[]})=>{
+    if(viewableItems.some(item=>item.isViewable))readVisible.current();
+  },[]);
   // Until the first history pass has settled, an empty database means
   // "loading", not "empty room".
   // A room already loaded under this generation has no first pass to wait
@@ -283,15 +367,22 @@ function Room({
     roomLoadedUnder(rid, generation),
   );
 
-  const { data: roomRows } = useCoalescedLiveQuery(
-    base.select().from(rooms).where(eq(rooms.rid, rid)).limit(1),
-    [rid],
-  );
-  const room = roomRows?.[0];
+  const {data:nativePermissions}=useCoalescedLiveQuery(base.select().from(nativeRoomAccess).where(eq(nativeRoomAccess.rid,rid)).limit(1),[rid]);
+  const permissionsRevision=nativePermissions?.[0]?.revision;
+  const canWrite=nativePermissions?.[0]?.canSend;
+  useEffect(()=>{
+    const chat=provider.native?.chat;
+    if(!chat || canWrite!=null)return;
+    let active=true;
+    const refresh=()=>{if(active && chat.status.online)void chat.refreshRoomAccess(rid).catch(()=>{});};
+    refresh();
+    const unsubscribe=chat.subscribe(refresh);
+    return ()=>{active=false;unsubscribe();};
+  },[provider,rid,permissionsRevision,canWrite]);
   const insets = useSafeAreaInsets();
   // HONEST header subtitle: the number of online members is not in the
   // schema, but the presence of a DM's other party is; otherwise, nothing.
-  const dmStatus = usePresence(room?.dmOtherUid ?? null);
+  const dmStatus = usePresence(room?.dmOtherUid ?? null,room?.type==='d'?rid:undefined);
 
   const { data: raw } = useCoalescedLiveQuery(
     base
@@ -310,7 +401,7 @@ function Room({
       // DETERMINISTIC, identical whatever the loading.
       // (Rocket.Chat exposes no sub-millisecond signal: the exact order of a true
       // tie stays undecidable, but at least it is stable.)
-      .orderBy(desc(messages.ts), desc(messages.id))
+      .orderBy(...messageOrder(provider.messageOrder))
       .limit(limit),
     [rid, limit],
   );
@@ -333,12 +424,10 @@ function Room({
     [rid],
   );
   const filesInProgress = uploadRows ?? [];
-  // The progress fraction only lives in the engine's memory: no SQLite write
-  // carries it, so `useCoalescedLiveQuery` would never see it move.
-  const progressions = useFileProgress(files);
   // Decisions (pagination) are made on the FRESH value; only the display is
   // smoothed.
-  const fresh = useMemo(() => raw ?? [], [raw]);
+  const self=client.auth?.userId?{id:client.auth.userId,username:me}:undefined;
+  const fresh = useMemo(() => protectedRoom ? privateRows(conversation.view,rid,false,self) : raw ?? [], [protectedRoom,conversation.view,rid,raw,self?.id,self?.username]);
   // Smoothing of incoming messages (200 ms): at offset 0, the inversion absorbs
   // prepends natively, but a burst would re-render the screen on every write,
   // and SCROLLED UP in history, each prepend shifts the content by its height
@@ -367,7 +456,11 @@ function Room({
     const stored = new Map((storedInContext ?? []).map((m) => [m.id, m]));
     return context.rows.map((m): MessageRowData => stored.get(m.id) ?? m);
   }, [context, storedInContext]);
-  const data = useSmoothedData(contextData ?? fresh, 200);
+  const ordinaryData = useSmoothedData(contextData ?? raw ?? [], 200);
+  const quotes=usePrivateQuotes(nativeChat,rid,membership,!protectedRoom && cryptoAvailable,ordinaryData);
+  const quotesToSend=quotes.send;
+  const quotedData=quotes.rows;
+  const data = protectedRoom ? fresh : quotedData;
 
   // Unread (8.1). The "new messages" bar is placed on a SNAPSHOT of `ls` taken
   // on mount: if it followed the live value, the `subscriptions.read` that
@@ -404,6 +497,7 @@ function Room({
   const readTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastRead = useRef(0);
   useEffect(() => {
+    if(native)return;
     if (lastReceivedId === undefined) return;
     if (readTimer.current !== null) return;
     const rest = lastRead.current + READ_FLOOR_MS - Date.now();
@@ -412,7 +506,7 @@ function Room({
       lastRead.current = Date.now();
       actions.markRead(rid).catch(() => {});
     }, Math.max(READ_DEBOUNCE_MS, rest));
-  }, [actions, rid, lastReceivedId]);
+  }, [actions, rid, lastReceivedId,native]);
 
   // The PENDING call fires right away when the screen closes or the app goes
   // to the background: deferred by the floor, it would otherwise be lost
@@ -420,12 +514,13 @@ function Room({
   // stay "unread" on the other devices. Nothing pending -> nothing to send:
   // leaving an already marked room costs no request.
   const flushRead = useCallback(() => {
+    if(native)return;
     if (readTimer.current === null) return;
     clearTimeout(readTimer.current);
     readTimer.current = null;
     lastRead.current = Date.now();
     actions.markRead(rid).catch(() => {});
-  }, [actions, rid]);
+  }, [actions, rid,native]);
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (next) => {
       if (next !== 'active') flushRead();
@@ -439,15 +534,30 @@ function Room({
   // The list's data: the "new messages" bar then the day separators, inserted
   // by the `ui/` projections (tested under Node). Order matters: separators go
   // above the bar.
-  type ListRow = MessageRowData | BarRow | DayRow;
   const dataWithBar = useMemo(
-    () => insertUnreadBar(data, lastSeen, client.auth?.userId),
-    [data, lastSeen, client],
+    () => protectedRoom ? data : native?insertNativeUnreadBar(data,openingPosition,positions,provider.identity.accountId):insertUnreadBar(data, lastSeen, client.auth?.userId),
+    [data, lastSeen, client,native,openingPosition,positions,provider.identity.accountId,protectedRoom],
   );
   const listData = useMemo<ListRow[]>(
     () => insertDaySeparators(dataWithBar, 'newest-first'),
     [dataWithBar],
   );
+  useLayoutEffect(()=>{
+    readVisible.current=()=>{
+    if(!nativeReads || !focused.current || AppState.currentState!=='active')return;
+    let range:{startIndex:number;endIndex:number}|undefined;
+    try{range=list.current?.computeVisibleIndices();}catch{return;}
+    if(!range || range.startIndex<0)return;
+    // DESC data: the first confirmed visible row has the greatest sequence.
+    for(let index=range.startIndex;index<=range.endIndex;index++) {
+      const row=listData[index];
+      if(row && !('barre' in row) && !('day' in row) && positions.has(row.id)) {
+        request.observer(row.id);break;
+      }
+    }
+    };
+    return()=>{readVisible.current=()=>{};};
+  },[request,nativeReads,listData,positions]);
 
   // Grouping of bursts by the same author (`ui/messageGrouping`): computed
   // AFTER the insertions; bar and separator break groups. DESC data.
@@ -461,7 +571,6 @@ function Room({
   // shows on its own, natively. Slightly scrolled up, we snap to the bottom if
   // the message is mine or if we were near the bottom; in the middle of reading
   // history, we do not move. Refs: scrolling re-renders nothing.
-  const list = useRef<FlashListRef<ListRow>>(null);
   const nearBottom = useRef(true);
   const lastTracked = useRef<{ id: string; ts: number } | null>(null);
   const listHeight = useRef(0);
@@ -547,8 +656,9 @@ function Room({
     };
   }, [ddp, provider, rid, declareOpenRoom]);
 
-  // Typing indicator (8.6): volatile, specific to the screen; listening only,
-  // see lib/typing.ts for the recorded deviation on emitting.
+  // Typing indicator: the existing indicator consumes provider events; the
+  // Rocket.Chat emission stays as recorded in lib/typing.ts.
+  const onInput=useCallback((active:boolean)=>{void provider.native?.chat.setTyping(rid,active,undefined,membership??undefined);},[provider,rid,membership]);
   const typingEngine = useMemo(() => new TypingEngine({ rid, me }), [rid, me]);
   useEffect(() => {
     const detach = ddp.onEvent((event) => typingEngine.apply(event));
@@ -573,7 +683,20 @@ function Room({
 
   // Persistent draft (8.7): the hook lives HERE: the composer only mounts
   // once the initial value is read.
-  const persistence = useDraft(drafts, rid);
+  const observedStore=useMemo(()=>provider.native && membership!==undefined?provider.native.chat.store.drafts({room:rid,membership}):drafts,[provider,drafts,rid,membership]);
+  const observedSend=useMemo<Outbox>(()=>{
+    if(protectedRoom)return conversation.outbox;
+    const chat=provider.native?.chat;
+    if(!chat || membership===undefined)return outboxQueue;
+    return {retry:outboxQueue.retry?.bind(outboxQueue),process:()=>outboxQueue.process(),discard:id=>outboxQueue.discard(id),send:(target,text,thread,_attachments,quotes=[])=>{
+      if(target!==rid || thread)throw new Error('Room unavailable in this composer');
+      return quotesToSend(text,quotes);
+    }};
+  },[outboxQueue,provider,rid,membership,protectedRoom,conversation.outbox,quotesToSend]);
+  const ordinaryPersistence = useDraft(observedStore, protectedRoom ? null : rid);
+  const savePrivate=conversation.save;
+  const clearPrivate=useCallback(()=>savePrivate(''),[savePrivate]);
+  const persistence = protectedRoom ? {initial:conversation.initial,save:conversation.save,clear:clearPrivate} : ordinaryPersistence;
 
   // Mention candidates (@): the hook lives HERE, where `base` is in scope; the
   // composer receives the ready-made list, like the draft.
@@ -609,7 +732,7 @@ function Room({
   //    `catchUpRoom` cover). See `ui/loadedRooms.ts`.
   const type = room?.type;
   useEffect(() => {
-    if (type === undefined) return;
+    if (type === undefined || protectedRoom) return;
     let canceled = false;
     const token = sessionToken();
     // Catch-up SKIPPED when the room stayed listened to without interruption:
@@ -647,7 +770,7 @@ function Room({
     return () => {
       canceled = true;
     };
-  }, [type, loadHistory, generation, activity, rid, provider, engine]);
+  }, [type, loadHistory, generation, activity, rid, provider, engine,protectedRoom]);
 
   // The context window reads the server without storing; each document keeps
   // its raw form, ingested once the window reaches the local history.
@@ -763,6 +886,7 @@ function Room({
   // pages, pagination no longer advances, whatever the responses contain.
   const previousBound = useRef<{ id: string; pages: number } | null>(null);
   const loadMore = useCallback(() => {
+    if(protectedRoom)return;
     if (detached.current) {
       contextPage(false);
       return;
@@ -786,8 +910,8 @@ function Room({
     }
     inFlight.current = true;
     loadHistory(type, new Date(older.ts).toISOString())
-      .then(({ oldest }) => {
-        if (pageMovedBack(oldest, older.ts)) {
+      .then(({ oldest, movedBack }) => {
+        if (movedBack ?? pageMovedBack(oldest, older.ts)) {
           setLimit((l) => l + PAGE);
         } else {
           passExhausted.current = true;
@@ -797,7 +921,7 @@ function Room({
       .finally(() => {
         inFlight.current = false;
       });
-  }, [fresh, limit, type, loadHistory, rid, contextPage]);
+  }, [fresh, limit, type, loadHistory, rid, protectedRoom, contextPage]);
 
   // Jump to a message chosen in the pinned or starred list or a search
   // (`ui/messageJump.ts`): one already in the list is scrolled to and
@@ -813,6 +937,14 @@ function Room({
       consumeJump(rid, target.id);
       notify(t('room.jumpFailed'));
     };
+    if(provider.native){
+      void provider.native.store.messageRank(rid,target.id).then(rank=>{
+        if(canceled)return;
+        if(rank===null){fail();return;}
+        consumeJump(rid,target.id);setLimit(l=>Math.max(l,rank+PAGE));setTargetJump(target.id);
+      },fail);
+      return()=>{canceled=true;};
+    }
     const shown = data.some((m) => m.id === target.id);
     (shown
       ? Promise.resolve('shown' as const)
@@ -832,7 +964,7 @@ function Room({
     };
     // `data` read once, when the target arrives: following it would restart the jump.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jumpTarget, reader, rid, t, localOldest, showContext]);
+  }, [jumpTarget, reader, rid, t, localOldest, showContext, provider]);
   const jumpIndex = useMemo(
     () =>
       targetJump === null
@@ -871,30 +1003,29 @@ function Room({
     };
   }, [targetJump, jumpIndex]);
 
-  const router = useRouter();
   const openActions = useCallback(
     (id: string) => {
       // "Pop" when the sheet opens: confirms the long press registered.
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      router.push({ pathname: '/message-actions', params: { id } });
+      router.push({ pathname: '/message-actions', params: { id, ...(protectedRoom?{isPrivate:'1',rid}:{}) } });
     },
-    [router],
+    [router,protectedRoom,rid],
   );
   const openThread = useCallback(
     (id: string) => {
-      router.push({ pathname: '/thread/[id]', params: { id } });
+      router.push({ pathname: '/thread/[id]', params: { id, ...(protectedRoom?{rid}:{}) } });
     },
-    [router],
+    [router,protectedRoom,rid],
   );
 
-  const retry = useCallback(() => {
-    outboxQueue.process().catch(() => {});
-  }, [outboxQueue]);
+  const retry = useCallback((id?: string) => {
+    (id && observedSend.retry ? observedSend.retry(id) : observedSend.process()).catch(() => {});
+  }, [observedSend]);
   const discard = useCallback(
     (id: string) => {
-      outboxQueue.discard(id).catch(() => {});
+      observedSend.discard(id).catch(() => {});
     },
-    [outboxQueue],
+    [observedSend],
   );
   // Fire-and-forget: the stream's echo rewrites `messages.reactions`, and the
   // live query re-renders the chip; no optimistic state to hold here.
@@ -925,6 +1056,8 @@ function Room({
         return <DaySeparator c={c} ts={item.ts} />;
       }
       const sendState = outboxById.get(item.id);
+      const isPrivate=protectedRoom?privateRow(conversation.view,item.id):undefined;
+      const interrupted=isPrivate && privateInterrupted(isPrivate);
       return (
         <View
           style={[
@@ -936,23 +1069,26 @@ function Room({
             c={c}
             message={item}
             client={client}
-            sendStatus={sendState?.status ?? null}
-            onRetry={sendState?.status === 'failed' ? retry : null}
-            onDiscard={sendState?.status === 'failed' ? discard : null}
+            sendStatus={protectedRoom ? interrupted ? 'failed' : isPrivate?.status==='accepted' ? 'pending' : null : sendState?.status ?? null}
+            failureLabel={interrupted?t(isPrivate.status==='cancelled'?'conversation.cancelled':'conversation.pending'):undefined}
+            onRetry={(protectedRoom ? interrupted && !conversation.busy : sendState?.status === 'failed') ? () => retry(item.id) : null}
+            onDiscard={(protectedRoom ? interrupted && isPrivate.status!=='cancelled' && !conversation.busy : sendState?.status === 'failed') ? discard : null}
             // No actions on an outbox row: its client `_id` has not been accepted by
             // the server; `chat.delete`/`chat.update` on it can only fail. Its real
             // actions are retry/discard.
-            onLongPress={sendState === undefined ? openActions : null}
-            onOpenThread={openThread}
+            onLongPress={protectedRoom?isPrivate?.status==='journaled' && !isPrivate.amendment?openActions:null:sendState === undefined ? openActions : null}
+            onOpenThread={(protectedRoom?isPrivate?.status!=='journaled':provider.capabilities.threads===false)?null:openThread}
+            threadLabel={protectedRoom?t(item.threadCount>0?'conversation.retainedReplies':'thread.reply',{n:item.threadCount}):undefined}
             me={me}
-            onReact={sendState === undefined ? react : null}
+            onReact={protectedRoom ? isPrivate?.status==='journaled' && !isPrivate.amendment && !conversation.busy ? (_rid,id,code,put)=>conversation.react(id,code,put) : null
+              : sendState === undefined && provider.capabilities.reactions !== false ? react : null}
             continuation={continuations.has(item.id)}
             repeatedTime={repeatedTimes.has(item.id)}
           />
         </View>
       );
     },
-    [c, client, outboxById, retry, discard, openActions, openThread, t, me, react, continuations, repeatedTimes, highlighted],
+    [c, client, outboxById, retry, discard, openActions, openThread, t, me, react, continuations, repeatedTimes, highlighted, provider,protectedRoom,conversation.view,conversation.busy],
   );
 
   return (
@@ -963,6 +1099,7 @@ function Room({
         rid={rid}
         room={room}
         client={client}
+        membership={membership}
         dmStatus={dmStatus}
         insetTop={insets.top}
         // Fallback if the room is the ROOT (cold deep link): `back()` then has no
@@ -970,13 +1107,21 @@ function Room({
         onBack={() => (router.canGoBack() ? router.back() : router.replace('/'))}
         onSearch={() => router.push({ pathname: '/message-search', params: { rid } })}
         onMarked={() => router.push({ pathname: '/marked-messages', params: { rid } })}
+        availableMessageActions={!protectedRoom}
+        privateSearch={protectedRoom}
       />
+      {protectedRoom && <View style={styles.privateNotice}>
+        <Text style={[styles.privateText,{color:c.dimmed}]}>{t(conversation.failed || !cryptoAvailable?'conversation.failed':'conversation.observed')}</Text>
+        <Tappable onPress={conversation.reload} disabled={conversation.busy || !cryptoAvailable} accessibilityRole="button">
+          <Text style={{color:c.cyan}}>{t('devices.refresh')}</Text>
+        </Tappable>
+      </View>}
       {listData.length === 0 ? (
         // Empty: indicator, then an explicit notice. (The old mVCP trap "viewport
         // below the content" went away with the inversion; waiting for the first
         // batch remains the right UX, a flickering list does not.)
         <View style={styles.center}>
-          {firstPassDone ? (
+          {(protectedRoom ? conversation.view!==null || conversation.failed || !cryptoAvailable : firstPassDone) ? (
             <Text style={[styles.empty, { color: c.dimmed }]}>{t('room.noMessages')}</Text>
           ) : (
             <ActivityIndicator />
@@ -996,6 +1141,8 @@ function Room({
               returnState.current = onBackToLatestSwipe(returnState.current);
             }}
             data={listData}
+            onViewableItemsChanged={nativeReads?onNativeViewables:undefined}
+            viewabilityConfig={nativeReads?nativeViewability:undefined}
             // Off: at offset 0, a prepend shows by itself, and the native readjustment
             // fired before the JS snap and overwrote it.
             // Detached, nothing snaps to the present, and newer pages of the window
@@ -1047,39 +1194,7 @@ function Room({
           )}
         </View>
       )}
-      {filesInProgress.map((upload) => {
-        const failed = upload.status === 'failed';
-        const label = failed
-          ? t('room.fileNotSent', { name: upload.name })
-          : upload.status === 'sending'
-            ? t('room.fileSending', {
-                name: upload.name,
-                percent: String(Math.round((progressions.get(upload.id) ?? 0) * 100)),
-              })
-            : t('room.filePending', { name: upload.name });
-        return (
-          <View key={upload.id} style={styles.fileFailureBand}>
-            <Text
-              style={[styles.time, { color: failed ? c.errorText : c.dimmed }]}
-              numberOfLines={1}
-            >
-              {label}
-            </Text>
-            {/* "Retry" only makes sense on a failure, and it needs the id: the
-                automatic replay no longer sees failed rows, a plain `process()`
-                would miss it. A `pending` or `sending` row goes out on its
-                own already. */}
-            {failed && (
-              <Pressable onPress={() => void files.retry(upload.id)}>
-                <Text style={[styles.time, { color: c.accent }]}>{t('room.retry')}</Text>
-              </Pressable>
-            )}
-            <Pressable onPress={() => void files.discard(upload.id, upload.uri)}>
-              <Text style={[styles.time, { color: c.dimmed }]}>{t('room.discard')}</Text>
-            </Pressable>
-          </View>
-        );
-      })}
+      <UploadBands c={c} rows={filesInProgress} files={files} />
       {/* A refused THREAD reply has no row in this stream (filtered by
           threadId): without this banner, its failure would only be visible by
           reopening that exact thread, i.e. silently never, in practice. */}
@@ -1095,7 +1210,7 @@ function Room({
                 {t('room.threadReplyNotSent')}
               </Text>
             </Pressable>
-            <Pressable onPress={retry}>
+            <Pressable onPress={() => retry()}>
               <Text style={[styles.time, { color: c.accent }]}>{t('room.retry')}</Text>
             </Pressable>
             <Pressable onPress={() => discard(s.id)}>
@@ -1117,18 +1232,22 @@ function Room({
             one room's text into another. */}
         {room !== undefined && persistence.initial !== null && (
           <Composer
-            key={rid}
+            key={protectedRoom?`${rid}:${conversation.view?.admission}:${conversation.composer}`:rid}
             c={c}
             rid={rid}
-            outbox={outboxQueue}
-            files={files}
+            outbox={observedSend}
+            files={provider.capabilities.files === false ? null : protectedRoom ? conversation.files : files}
             client={client}
             mentionCandidates={mentionCandidates}
-            readOnly={room.readOnly}
+            readOnly={protectedRoom ? canWrite!==true || conversation.view?.can_send!==true || conversation.view.catching_up : provider.native && provider.capabilities.roomInfo ? canWrite!==true : room.readOnly}
             encrypted={room.encrypted}
+            nativeEncryptedReady={protectedRoom && conversation.view!==null}
+            catchingUp={protectedRoom && conversation.view?.catching_up===true}
+            availableQuotes={!protectedRoom || conversation.view!==null}
             placeholder={t('room.messagePlaceholder')}
             initialDraft={persistence.initial}
             saveDraft={persistence.save}
+            onInput={onInput}
             clearDraft={persistence.clear}
           />
         )}
@@ -1140,6 +1259,8 @@ function Room({
 type ContextItem = WindowItem & { raw: Record<string, unknown>; message: LocalMessage };
 
 const styles = StyleSheet.create({
+  privateNotice: {paddingHorizontal:16,paddingVertical:8,flexDirection:'row',alignItems:'center',gap:10},
+  privateText: {flex:1,fontSize:11,fontFamily:FONTS.body},
   full: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   content: { paddingHorizontal: 16, paddingVertical: 8 },

@@ -35,6 +35,7 @@ import Animated, {
 import type { RestClient } from '../lib/rest.ts';
 import { avatarUrl } from '../lib/upload.ts';
 import { useAvatarEtags } from './identities.tsx';
+import {useNativeAvatar} from './nativeAvatar.ts';
 import { useDayFormatter } from './i18n.ts';
 import { type Colors, avatarGradient, type Gradient, FONTS } from './theme.ts';
 
@@ -102,7 +103,7 @@ export function Brand({
 /**
  * Avatar tile: rounded gradient square, with an initial or a child (lock emoji
  * of an encrypted room, "+" of a new conversation). The colour is STABLE per
- * `key`: the same person keeps their hue everywhere.
+ * `hueKey`: the same person keeps their hue everywhere.
  *
  * If `uri` is given, the REAL photo goes on top of the tile: it serves as the
  * background while loading, and as the fallback if the photo does not exist
@@ -111,7 +112,7 @@ export function Brand({
  */
 export function AvatarTile({
   c,
-  key,
+  hueKey,
   initial,
   size = 44,
   radius = 15,
@@ -123,13 +124,14 @@ export function AvatarTile({
   style,
 }: {
   c: Colors;
-  /** Key (name, id) that sets the hue. Optional if `deg` or `neutral` is given. */
-  key?: string;
+  /** Key (name, id) that sets the hue. Optional if `deg` or `neutral` is given.
+   * Not `key`: React keeps that one for itself, the tile would never see it. */
+  hueKey?: string;
   initial?: string;
   size?: number;
   radius?: number;
   neutral?: boolean;
-  /** IMPOSED gradient (2FA shield, etc.), bypasses the choice by `key`. */
+  /** IMPOSED gradient (2FA shield, etc.), bypasses the choice by `hueKey`. */
   deg?: Gradient;
   textColor?: string;
   child?: ReactNode;
@@ -138,18 +140,19 @@ export function AvatarTile({
   style?: StyleProp<ViewStyle>;
 }) {
   const gradient: Gradient =
-    deg ?? (neutral ? c.neutralGradient : avatarGradient(key ?? '', c.avatarGradients));
+    deg ?? (neutral ? c.neutralGradient : avatarGradient(hueKey ?? '', c.avatarGradients));
 
   // A failed photo (SVG placeholder, network) falls back to the tile. Re-armed
   // on every `uri` change (recycled list rows) via the "adjust state during
   // render" pattern (React docs), not an effect.
+  const source=useNativeAvatar(uri);
   const [photoFailed, setPhotoFailed] = useState(false);
-  const [trackedUri, setTrackedUri] = useState(uri);
-  if (uri !== trackedUri) {
-    setTrackedUri(uri);
+  const [trackedUri, setTrackedUri] = useState(source);
+  if (source !== trackedUri) {
+    setTrackedUri(source);
     setPhotoFailed(false);
   }
-  const photo = typeof uri === 'string' && uri !== '' && !photoFailed ? uri : null;
+  const photo = typeof source === 'string' && source !== '' && !photoFailed ? source : null;
 
   return (
     <LinearGradient
@@ -256,7 +259,7 @@ export function RoomAvatar({
   return (
     <AvatarTile
       c={c}
-      key={name}
+      hueKey={name}
       initial={isDM ? name.charAt(0) || '?' : '#'}
       uri={uri}
       size={size}

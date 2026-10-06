@@ -38,9 +38,10 @@ export const PRESENCE_KEYS: Record<PresenceStatus, TranslationKey> = {
  * (degradation: beyond ~200 connections the server stops broadcasting, and
  * the UI must never depend on it).
  */
-export function usePresence(uid: string | null): PresenceStatus | null {
+export function usePresence(uid: string | null,roomId?:string): PresenceStatus | null {
   const sync = useSync();
   const presence = sync.phase === 'ready' ? sync.presence : null;
+  const native=sync.phase==='ready'?sync.provider.native?.chat.live:undefined;
 
   // STABLE identities: a `subscribe` recreated on every render would
   // unsubscribe/resubscribe every row on every list re-render. And a row
@@ -48,12 +49,18 @@ export function usePresence(uid: string | null): PresenceStatus | null {
   // presence event would wake every visible row.
   const subscribe = useCallback(
     (reread: () => void) =>
-      presence === null || uid === null ? NOTHING : presence.onChange(reread),
-    [presence, uid],
+      native && roomId?native.subscribe(reread):presence === null || uid === null ? NOTHING : presence.onChange(reread),
+    [presence, uid,native,roomId],
   );
   const read = useCallback(
-    () => (uid === null || presence === null ? null : presence.statusOf(uid)),
-    [presence, uid],
+    () => {
+      if(native && roomId){
+        const state=native.state,peer=state?.rooms.find(r=>r.room_id===roomId)?.direct_peer;
+        return peer?state?.presence.find(p=>p.user.id===peer.id)?.status??'offline':null;
+      }
+      return uid === null || presence === null ? null : presence.statusOf(uid);
+    },
+    [presence, uid,native,roomId],
   );
   return useSyncExternalStore(subscribe, read);
 }

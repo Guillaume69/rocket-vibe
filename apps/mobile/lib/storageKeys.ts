@@ -37,6 +37,19 @@ export async function sessionStorageKey(baseUrl: string, hash: Hasher): Promise<
   return `session-${(await hash(withoutTrailingSlash(baseUrl))).slice(0, 32)}`;
 }
 
+/** Pre-authentication has its own namespace, keyed by server AND username.
+ * JSON tuple framing prevents delimiter/path ambiguities; nothing secret is a key. */
+export async function nativeAuthenticationKey(baseUrl:string,username:string,hash:Hasher):Promise<string> {
+  const canonical=withoutTrailingSlash(new URL(baseUrl).toString());
+  return `native-auth-${(await hash(JSON.stringify(['native-auth-v1',canonical,username]))).slice(0,32)}`;
+}
+
+/** An anonymous recovery delivery is neither a login proof nor an active account. */
+export async function nativeEmailRecoveryKey(baseUrl:string,username:string,hash:Hasher):Promise<string> {
+  const canonical=withoutTrailingSlash(new URL(baseUrl).toString());
+  return `native-recovery-email-${await hash(JSON.stringify(['native-recovery-email-v1',canonical,username]))}`;
+}
+
 /**
  * E2EE private key, specific to the (server, account) pair.
  *

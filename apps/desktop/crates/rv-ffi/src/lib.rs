@@ -3,8 +3,18 @@
 
 mod accounts;
 mod context;
+mod links;
 pub mod markup;
 pub mod model;
+mod native;
+mod native_auth;
+mod native_crypto;
+mod native_emojis;
+mod native_files;
+mod native_profiles;
+mod native_recovery;
+mod native_rooms;
+mod native_security;
 pub mod people;
 pub mod writing;
 
@@ -130,23 +140,36 @@ impl Client {
         blocking(move || accounts::load_all(&dirs)).await.iter().map(account).collect()
     }
 
-    pub async fn probe(&self, server: String) -> Result<ServerProfile, RvError> {
+    pub async fn probe(&self, server: String, kind: ServerChoice) -> Result<ServerProfile, RvError> {
         let url = session::normalize_server(&server).ok_or_else(|| RvError::local("invalid server address"))?;
-        Ok(on_tokio(async move { rv_core::server::probe(&url).await }).await?.into())
+        Ok(on_tokio(async move { rv_core::server::probe_as(&url, kind.into()).await }).await?.into())
     }
 
     /// With `code`, the answer to the `method` challenge a previous attempt raised.
+    #[allow(clippy::too_many_arguments)] // The form, its code answer and the chosen kind.
     pub async fn login(
         &self,
         server: String,
+        kind: ServerChoice,
         user: String,
         password: String,
         method: Option<String>,
         code: Option<String>,
     ) -> Result<Arc<Chat>, RvError> {
         let url = session::normalize_server(&server).ok_or_else(|| RvError::local("invalid server address"))?;
+        let kind: rv_core::native::ServerKind = kind.into();
+        if on_tokio({
+            let url = url.clone();
+            async move { rv_core::native::probe_as(&url, kind).await }
+        })
+        .await
+        .map_err(RvError::local)?
+        .is_some()
+        {
+            return Err(RvError::local("Use native_login for the native pilot"));
+        }
         let two_factor = method.zip(code).map(|(m, c)| session::two_factor_code(&m, &c));
-        let info = on_tokio(async move { session::login(&url, &user, &password, two_factor).await }).await?;
+        let info = on_tokio(async move { session::login_as(&url, kind, &user, &password, two_factor).await }).await?;
         let (dirs, saved) = (self.dirs.clone(), info.clone());
         blocking(move || {
             accounts::remember_server(&dirs, &saved.base_url);
@@ -204,6 +227,7 @@ impl Client {
 
 fn account(info: &SessionInfo) -> Account {
     Account {
+        genre: if info.native.is_some() { "rocketvibe" } else { "rocketchat" }.into(),
         key: accounts::key(info),
         base_url: info.base_url.clone(),
         user_id: info.user_id.clone(),
@@ -243,6 +267,8 @@ pub struct Upload {
     pub progress: Option<f64>,
     /// Waiting for the connection, retried by itself.
     pub retrying: bool,
+    /// The thread the file answers; `None` in the room.
+    pub thread: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
@@ -308,6 +334,13 @@ fn event(e: SessionEvent) -> Event {
 
 #[uniffi::export]
 impl Chat {
+    /// Stop this account's event forwarding and transport when switching providers.
+    pub fn shutdown(&self) {
+        if let Some(task) = self.forward.lock().unwrap().take() {
+            task.abort();
+        }
+        self.session.shutdown();
+    }
     pub fn account(&self) -> Account {
         account(&self.session.info)
     }
@@ -448,6 +481,10 @@ impl Chat {
     pub async fn mark_read(&self, rid: String) {
         let s = self.session.clone();
         on_tokio(async move { s.mark_read(&rid).await }).await
+    }
+    pub async fn set_favorite(&self, rid: String, present: bool) -> Result<(), RvError> {
+        let s = self.session.clone();
+        Ok(on_tokio(async move { s.set_favorite(&rid, present).await }).await?)
     }
 
     pub async fn send(&self, rid: String, text: String, thread_id: Option<String>) {
@@ -598,6 +635,9 @@ impl Chat {
     pub fn custom_emoji(&self, code: String) -> Option<String> {
         self.session.custom_emoji(&code)
     }
+    pub fn custom_emoji_names(&self) -> Vec<String> {
+        self.session.custom_emoji_names()
+    }
 
     /// `thread_id` None for the room's own composer.
     pub fn draft(&self, rid: String, thread_id: Option<String>) -> String {
@@ -614,10 +654,13 @@ impl Chat {
         self.session.typing(&rid)
     }
 
-    /// Queues a file for the room; the refusal says why the server's rules reject it.
+    /// Queues a file for the room, or for its thread `thread`; the refusal
+    /// says why the server's rules reject it.
+    #[allow(clippy::too_many_arguments)] // The file, its caption and where it goes.
     pub async fn attach(
         &self,
         rid: String,
+        thread: Option<String>,
         path: String,
         name: String,
         mime: String,
@@ -626,7 +669,16 @@ impl Chat {
     ) -> Result<(), RvError> {
         let s = self.session.clone();
         on_tokio(async move {
-            s.attach(&rid, std::path::Path::new(&path), &name, &mime, caption.as_deref(), temporary).await
+            s.attach_in(
+                &rid,
+                thread.as_deref(),
+                std::path::Path::new(&path),
+                &name,
+                &mime,
+                caption.as_deref(),
+                temporary,
+            )
+            .await
         })
         .await
         .map_err(|r| match r {
@@ -648,6 +700,7 @@ impl Chat {
                 id: u.id,
                 name: u.name,
                 mime: u.mime,
+                thread: u.tmid,
             })
             .collect()
     }

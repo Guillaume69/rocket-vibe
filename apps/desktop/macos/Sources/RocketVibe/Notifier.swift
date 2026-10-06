@@ -10,8 +10,8 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     static let category = "message"
     static let replyAction = "reply"
 
-    var onOpen: ((String, String) -> Void)?
-    var onReply: ((String, String) -> Void)?
+    var onOpen: ((String, String, String?) -> Void)?
+    var onReply: ((String, String, String?, String) -> Void)?
 
     /// Unbundled (a bare `swift run`), there is no notification center to ask.
     var center: UNUserNotificationCenter? {
@@ -30,7 +30,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         center.requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
     }
 
-    func show(_ incoming: Incoming) {
+    func show(_ incoming: Incoming, scope: String? = nil) {
         guard let center else { return }
         let content = UNMutableNotificationContent()
         content.title = incoming.direct ? incoming.author : incoming.roomName
@@ -38,9 +38,10 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         content.body = incoming.direct ? body : "\(incoming.author): \(body)"
         content.sound = .default
         content.categoryIdentifier = Self.category
-        content.threadIdentifier = incoming.rid
+        content.threadIdentifier = scope ?? incoming.rid
         content.userInfo = ["rid": incoming.rid, "id": incoming.id]
-        center.add(UNNotificationRequest(identifier: incoming.id, content: content, trigger: nil))
+        if let scope { content.userInfo["scope"] = scope }
+        center.add(UNNotificationRequest(identifier: (scope.map { $0 + ":" } ?? "") + incoming.id, content: content, trigger: nil))
     }
 
     func test() {
@@ -55,7 +56,15 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     func withdraw(rid: String) {
         guard let center else { return }
         center.getDeliveredNotifications { delivered in
-            let ids = delivered.filter { $0.request.content.threadIdentifier == rid }.map(\.request.identifier)
+            let ids = delivered.filter { $0.request.content.userInfo["rid"] as? String == rid }.map(\.request.identifier)
+            center.removeDeliveredNotifications(withIdentifiers: ids)
+        }
+    }
+
+    func withdraw(scope: String) {
+        guard let center else { return }
+        center.getDeliveredNotifications { delivered in
+            let ids = delivered.filter { $0.request.content.threadIdentifier == scope }.map(\.request.identifier)
             center.removeDeliveredNotifications(withIdentifiers: ids)
         }
     }
@@ -66,11 +75,12 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         let info = response.notification.request.content.userInfo
         guard let rid = info["rid"] as? String, let id = info["id"] as? String else { return }
         let reply = (response as? UNTextInputNotificationResponse)?.userText
+        let scope = info["scope"] as? String
         await MainActor.run {
             if let reply, !reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                onReply?(rid, reply)
+                onReply?(rid, id, scope, reply)
             } else {
-                onOpen?(rid, id)
+                onOpen?(rid, id, scope)
             }
         }
     }

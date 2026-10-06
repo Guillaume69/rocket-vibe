@@ -1,0 +1,3 @@
+[D-BUS Service]
+Name=com.rocketvibe.app
+Exec=rocket-vibe-gtk --gapplication-service

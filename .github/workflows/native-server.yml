@@ -1,0 +1,490 @@
+name: native-server
+
+on:
+  push:
+    branches: [master, 'feature/rocketvibe-server']
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'apps/server/**'
+      - 'crates/**'
+      - 'apps/mobile/**'
+      - 'apps/desktop/**'
+      - 'docs/protocol/**'
+      - 'docker/compose.rocketvibe.yml'
+      - 'docker/compose.native-pilot.yml'
+      - 'docker/compose.native-security-pilot.yml'
+      - 'scripts/*native*'
+      - 'scripts/inventory-rocketchat.mjs'
+      - '.github/workflows/native-server.yml'
+  pull_request:
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'apps/server/**'
+      - 'crates/**'
+      - 'apps/mobile/**'
+      - 'apps/desktop/**'
+      - 'docs/protocol/**'
+      - 'docker/compose.native-pilot.yml'
+      - 'docker/compose.native-security-pilot.yml'
+      - 'scripts/*native*'
+      - 'scripts/inventory-rocketchat.mjs'
+      - '.github/workflows/native-server.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: native-server-${{ github.ref }}
+  # Finish this RFC branch's benches and their reusable caches. A new lot can
+  # queue while the independent macOS workflow qualifies its UI immediately.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/feature/rocketvibe-server' }}
+
+permissions:
+  contents: read
+
+jobs:
+  scope:
+    runs-on: ubuntu-24.04
+    outputs:
+      clients: ${{ steps.changed.outputs.clients }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+      - id: changed
+        env:
+          BEFORE: ${{ github.event.before }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          # Manual/unknown bases run every client. Only disconnected crypto and
+          # documentation changes can skip the long installed-provider pilots.
+          base="${PR_BASE:-$BEFORE}"
+          if [[ ! "$base" =~ ^[a-f0-9]{40}$ ]] || [[ "$base" = 0000000000000000000000000000000000000000 ]]; then
+            echo 'clients=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            if ! git fetch --no-tags --depth=1 origin "$base"; then
+              echo 'clients=true' >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          changed=$(mktemp)
+          trap 'rm -f "$changed"' EXIT
+          git diff --name-only "$base" HEAD -- > "$changed"
+          clients=false
+          if grep -Evq '^(crates/(rv-crypto|rv-crypto-spike)/|docs/.*\.md$|[^/]+\.md$)' "$changed"; then
+            clients=true
+          fi
+          # Once another crate consumes the shared engine, its changes require
+          # full regressions as well as the crypto matrix (including indirect users).
+          # Match the exact private dependency, including renamed/table forms.
+          # rv-crypto-public only verifies public proofs and consumes no vault.
+          if grep -Eq '^crates/rv-crypto/' "$changed" && git grep -Eq '(^|[[:space:].])"?rv-crypto"?([[:space:]]*=|\])|package[[:space:]]*=[[:space:]]*"rv-crypto"' -- ':(glob)**/Cargo.toml'; then
+            clients=true
+          fi
+          echo "clients=$clients" >> "$GITHUB_OUTPUT"
+
+  native-crypto:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025, macos-15]
+    runs-on: ${{ matrix.os }}
+    # Windows runs the whole suite in about 15 minutes before the protected smoke build.
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: rustfmt, clippy
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/native-crypto
+          key: native-crypto-${{ runner.os }}-${{ hashFiles('crates/rv-crypto/Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            native-crypto-${{ runner.os }}-${{ hashFiles('crates/rv-crypto/Cargo.lock') }}-
+            native-crypto-${{ runner.os }}-
+      - run: cargo fmt --manifest-path crates/rv-crypto/Cargo.toml -- --check
+      - run: cargo clippy --locked --manifest-path crates/rv-crypto/Cargo.toml --features system-keystore,native-http --target-dir target/native-crypto --all-targets -- -D warnings
+      - run: cargo test --locked --manifest-path crates/rv-crypto/Cargo.toml --features system-keystore,native-http --target-dir target/native-crypto
+      - name: Public vectors, verified independently with Node/OpenSSL
+        if: runner.os == 'Linux'
+        run: |
+          for vector in archive group history history-backup file; do
+            node "crates/rv-crypto-public/scripts/verify-$vector-vector.mjs"
+          done
+      - name: Mobile private bridge format, strict checks and lifetime tests
+        run: |
+          cargo fmt --manifest-path crates/rv-crypto-mobile/Cargo.toml -- --check
+          cargo clippy --locked --manifest-path crates/rv-crypto-mobile/Cargo.toml --target-dir target/native-crypto --all-targets -- -D warnings
+          cargo test --locked --manifest-path crates/rv-crypto-mobile/Cargo.toml --target-dir target/native-crypto --lib
+      - run: cargo build --locked --manifest-path crates/rv-crypto/Cargo.toml --features system-keystore --target-dir target/native-crypto --example protected_smoke
+      - name: Real Linux Secret Service, restart and forced process termination
+        if: runner.os == 'Linux'
+        env:
+          RV_CRYPTO_SMOKE_BINARY: ${{ github.workspace }}/target/native-crypto/debug/examples/protected_smoke
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends gnome-keyring dbus-daemon
+          bash crates/rv-crypto/scripts/keystore-smoke.sh
+
+  native-crypto-http:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: rocketvibe
+          POSTGRES_PASSWORD: crypto-http-ci-disposable-password
+          POSTGRES_DB: rocketvibe
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U rocketvibe -d rocketvibe"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+    env:
+      DATABASE_URL: postgres://rocketvibe:crypto-http-ci-disposable-password@localhost/rocketvibe
+      RV_CRYPTO_HTTP_SMOKE_BINARY: ${{ github.workspace }}/target/native-crypto/debug/examples/delivery_smoke
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@1.97.1
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: native-crypto-http-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'crates/rv-crypto/Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            native-crypto-http-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'crates/rv-crypto/Cargo.lock') }}-
+            native-crypto-http-${{ runner.os }}-
+            native-server-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            native-server-${{ runner.os }}-
+      - name: Build the separate private HTTP worker fixture
+        run: cargo build --locked --manifest-path crates/rv-crypto/Cargo.toml --features native-http --target-dir target/native-crypto --example delivery_smoke
+      - name: Run the private worker against real HTTP and PostgreSQL
+        run: cargo test --locked -p rv-server --lib protected_http_worker_publishes_joins_rotates_and_reconciles_real_postgres -- --ignored --nocapture
+
+  verify:
+    needs: scope
+    if: needs.scope.outputs.clients == 'true'
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: rocketvibe
+          POSTGRES_PASSWORD: native-ci-disposable-password
+          POSTGRES_DB: rocketvibe
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U rocketvibe -d rocketvibe"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+    env:
+      DATABASE_URL: postgres://rocketvibe:native-ci-disposable-password@localhost/rocketvibe
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: rustfmt, clippy
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: native-server-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            native-server-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            native-server-${{ runner.os }}-
+      - name: Install locked mobile dependencies
+        working-directory: apps/mobile
+        run: npm ci --no-audit --no-fund
+      - run: bash apps/server/scripts/check.sh
+      - name: Typecheck mobile app
+        working-directory: apps/mobile
+        run: npm run typecheck
+      - name: Mobile regression tests
+        working-directory: apps/mobile
+        run: npm test
+      - name: Export Android JavaScript bundle
+        working-directory: apps/mobile
+        run: npx expo export --platform android --output-dir ../../artifacts/native-mobile-android
+
+  native-desktop:
+    needs: scope
+    if: needs.scope.outputs.clients == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install mobile provider dependencies for the integration peer
+        working-directory: apps/mobile
+        run: npm ci --no-audit --no-fund
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .cache/native-desktop-cargo
+            apps/desktop/target
+          key: native-desktop-fedora-${{ hashFiles('apps/desktop/Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            native-desktop-fedora-${{ hashFiles('apps/desktop/Cargo.lock') }}-
+            native-desktop-fedora-
+      - uses: docker/setup-buildx-action@v4
+      - name: Load cached Fedora toolchain
+        uses: docker/build-push-action@v7
+        with:
+          context: apps/desktop/docker
+          load: true
+          tags: rocket-vibe-rs-build
+          cache-from: type=gha,scope=native-fedora-image
+          cache-to: type=gha,scope=native-fedora-image,mode=max,ignore-error=true
+      - name: Load cached disposable native server
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: apps/server/Dockerfile
+          load: true
+          tags: rocketvibe-native-server
+          cache-from: type=gha,scope=native-server-image
+          cache-to: type=gha,scope=native-server-image,mode=max,ignore-error=true
+      - name: Load cached native check toolchain
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: apps/server/docker/Dockerfile.check
+          load: true
+          tags: rocketvibe-native-check
+          cache-from: type=gha,scope=native-check-image
+          cache-to: type=gha,scope=native-check-image,mode=max,ignore-error=true
+      - name: Desktop workspace checks and pilot binaries
+        run: |
+          mkdir -p .cache/native-desktop-cargo artifacts
+          docker run --rm -v "$PWD:/workspace" -v "$PWD/.cache/native-desktop-cargo:/cargo" \
+            -w /workspace/apps/desktop rocket-vibe-rs-build bash -ec '
+              cargo fmt --all -- --check
+              cargo clippy --locked --workspace --all-targets -- -D warnings
+              cargo test --locked --workspace
+              xvfb-run -a cargo test --locked -p rocket-vibe-gtk native_link_previews_paint -- --ignored --test-threads=1
+              xvfb-run -a cargo test --locked -p rocket-vibe-gtk native_activity_uses_existing_join_and_info_buttons -- --ignored --test-threads=1
+              xvfb-run -a cargo test --locked -p rocket-vibe-gtk native_group_review_uses_existing_controls_and_requires_confirmation -- --ignored --test-threads=1
+              xvfb-run -a cargo test --locked -p rocket-vibe-gtk identity_settings_render_existing_preferences_and_clear_on_close -- --ignored --test-threads=1
+              cargo build --locked -p rv-core --example native-smoke --example native-files-smoke
+              cargo build --locked -p rocket-vibe-gtk
+              timeout 30s bash scripts/check-notification-activation.sh
+            '
+      - name: Actual mobile SQLite runner and GTK desktop against PostgreSQL
+        run: |
+          docker compose -f docker/compose.native-pilot.yml up -d postgres bootstrap server mobile factor-seed factor-proxy
+          docker compose -f docker/compose.native-pilot.yml run --rm --no-deps desktop
+          docker compose -f docker/compose.native-pilot.yml run --rm --no-deps factor-check
+          test "$(docker inspect -f '{{.State.ExitCode}}' rocketvibe-pilot-mobile-1)" = 0
+          test "$(docker inspect -f '{{.State.Running}}' rocketvibe-pilot-mobile-1)" = false
+          docker compose -f docker/compose.native-pilot.yml run --rm --no-deps session-check
+      - name: Existing GTK quote composer, native threads and unavailable cards
+        run: |
+          docker compose -f docker/compose.native-pilot.yml run --rm --no-deps mobile node scripts/native-quotes-gtk-seed.ts
+          docker compose -f docker/compose.native-pilot.yml run --rm --no-deps --user nobody desktop bash scripts/native-quotes-smoke.sh
+      - name: Native streamed files and existing GTK attachment controls
+        run: |
+          docker compose -f docker/compose.native-files-pilot.yml up -d postgres bootstrap server
+          docker compose -f docker/compose.native-files-pilot.yml exec -T server sh /src/apps/server/scripts/seed-test-emoji.sh
+          docker compose -f docker/compose.native-files-pilot.yml run --rm --no-deps desktop
+          docker compose -f docker/compose.native-files-pilot.yml run --rm --no-deps mobile-emojis
+          docker compose -f docker/compose.native-files-pilot.yml run --rm --no-deps -e RV_SMOKE_NATIVE_EMOJIS=1 gtk
+      - name: Existing GTK security settings and private receipt after restart
+        run: |
+          docker compose -p rocketvibe-security-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml up -d factor-proxy
+          docker compose -p rocketvibe-security-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml run --rm --no-deps security-desktop
+          docker compose -p rocketvibe-security-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml run --rm --no-deps security-check
+      - name: GTK email OTP login and identity proof across three real processes
+        run: |
+          docker compose -p rocketvibe-gtk-email-otp-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml -f docker/compose.native-email-otp-pilot.yml up -d factor-proxy
+          docker compose -p rocketvibe-gtk-email-otp-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml -f docker/compose.native-email-otp-pilot.yml run --rm --no-deps otp-desktop
+          docker compose -p rocketvibe-gtk-email-otp-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml -f docker/compose.native-email-otp-pilot.yml run --rm --no-deps otp-check
+      - name: GTK and mobile email profile receipts across three processes
+        run: |
+          files='-f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml -f docker/compose.native-email-otp-pilot.yml -f docker/compose.native-email-settings-pilot.yml'
+          docker compose -p rocketvibe-email-settings-gtk $files up -d factor-proxy
+          docker compose -p rocketvibe-email-settings-gtk $files run --rm --no-deps email-settings-desktop
+          docker compose -p rocketvibe-email-settings-gtk $files run --rm --no-deps email-settings-check
+          docker compose -p rocketvibe-email-settings-mobile $files up -d factor-proxy
+          docker compose -p rocketvibe-email-settings-mobile $files run --rm --no-deps email-settings-mobile
+          docker compose -p rocketvibe-email-settings-mobile $files run --rm --no-deps email-settings-check
+      - name: Integration logs and cleanup
+        if: always()
+        run: |
+          docker compose -f docker/compose.native-files-pilot.yml logs --no-color > artifacts/native-files-pilot.log
+          docker compose -f docker/compose.native-files-pilot.yml down -v
+          docker compose -f docker/compose.native-pilot.yml logs --no-color > artifacts/native-pilot.log
+          docker compose -f docker/compose.native-pilot.yml down -v
+          docker compose -p rocketvibe-security-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml logs --no-color > artifacts/native-security-pilot.log
+          docker compose -p rocketvibe-security-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml down -v
+          docker compose -p rocketvibe-gtk-email-otp-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml -f docker/compose.native-email-otp-pilot.yml logs --no-color > artifacts/native-email-otp-pilot.log
+          docker compose -p rocketvibe-gtk-email-otp-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml -f docker/compose.native-email-otp-pilot.yml down -v
+          files='-f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml -f docker/compose.native-email-otp-pilot.yml -f docker/compose.native-email-settings-pilot.yml'
+          for project in rocketvibe-email-settings-gtk rocketvibe-email-settings-mobile; do
+            docker compose -p "$project" $files logs --no-color > "artifacts/native-$project.log"
+            docker compose -p "$project" $files down -v
+          done
+          # Docker's Rust compiler creates owner-only incremental lock files.
+          # Return generated caches to the runner before actions/cache archives them.
+          for path in .cache/native-desktop-cargo apps/desktop/target; do
+            if [ -d "$path" ]; then sudo chown -R "$(id -u):$(id -g)" "$path"; fi
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-desktop-pilot
+          path: artifacts/native-*
+          if-no-files-found: error
+
+  native-desktop-core-windows:
+    needs: scope
+    if: needs.scope.outputs.clients == 'true'
+    runs-on: windows-2025
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            apps/desktop/target
+          key: native-desktop-core-windows-${{ hashFiles('apps/desktop/Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            native-desktop-core-windows-${{ hashFiles('apps/desktop/Cargo.lock') }}-
+            native-desktop-core-windows-
+      - run: cargo test --locked -p rv-core
+      - name: Windows notification bridge and real COM process callback
+        run: |
+          cargo clippy --locked -p rv-native --all-targets -- -D warnings
+          cargo test --locked -p rv-native
+
+  native-swift-models:
+    needs: scope
+    if: needs.scope.outputs.clients == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .cache/native-swift-cargo
+            apps/desktop/target/swift-linux
+          key: native-swift-rust-v2-${{ hashFiles('apps/desktop/Cargo.lock', 'apps/desktop/macos/Package.swift') }}-${{ github.sha }}
+          restore-keys: |
+            native-swift-rust-v2-${{ hashFiles('apps/desktop/Cargo.lock', 'apps/desktop/macos/Package.swift') }}-
+            native-swift-rust-v2-
+      - uses: actions/cache@v4
+        with:
+          path: apps/desktop/macos/.build/linux
+          # Generated UniFFI records can change Swift layouts. Reuse compiled
+          # objects only for the exact sources, without an older fallback.
+          key: native-swift-objects-${{ hashFiles('Cargo.lock', 'apps/desktop/Cargo.lock', 'apps/desktop/macos/Package.swift', 'apps/desktop/macos/docker/Dockerfile', 'apps/desktop/macos/scripts/generate.sh', 'apps/desktop/crates/**/*.rs', 'crates/**/*.rs', 'apps/desktop/macos/Sources/**/*.swift', 'apps/desktop/macos/Tests/**/*.swift') }}
+      - uses: docker/setup-buildx-action@v4
+      - name: Load cached Swift toolchain
+        uses: docker/build-push-action@v7
+        with:
+          context: apps/desktop/macos/docker
+          load: true
+          tags: rocket-vibe-swift
+          cache-from: type=gha,scope=native-swift-image
+          cache-to: type=gha,scope=native-swift-image,mode=max,ignore-error=true
+      - name: Load cached disposable native server
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: apps/server/Dockerfile
+          load: true
+          tags: rocketvibe-native-server
+          cache-from: type=gha,scope=native-server-image
+          cache-to: type=gha,scope=native-server-image,mode=max,ignore-error=true
+      - name: Load cached native check toolchain
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: apps/server/docker/Dockerfile.check
+          load: true
+          tags: rocketvibe-native-check
+          cache-from: type=gha,scope=native-check-image
+          cache-to: type=gha,scope=native-check-image,mode=max,ignore-error=true
+      - name: Generate actual bindings and test shared view models
+        run: |
+          mkdir -p .cache/native-swift-cargo artifacts
+          docker run --rm -v "$PWD:/workspace" -v "$PWD/.cache/native-swift-cargo:/cargo" \
+            -w /workspace/apps/desktop -e CARGO_HOME=/cargo \
+            -e CARGO_TARGET_DIR=/workspace/apps/desktop/target/swift-linux \
+            -e CC=clang -e CXX=clang++ -e CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=clang \
+            rocket-vibe-swift bash -ec '
+              lib=$(macos/scripts/generate.sh | tail -1)
+              cd macos
+              export RV_FFI_LIB_DIR="$lib"
+              swift build --scratch-path .build/linux
+              swift test --scratch-path .build/linux
+            '
+      - name: Swift models against PostgreSQL with real secure storage
+        run: |
+          docker compose -f docker/compose.native-pilot.yml up -d postgres bootstrap server factor-seed factor-proxy
+          docker compose -f docker/compose.native-pilot.yml run --rm --no-deps swift
+          docker compose -f docker/compose.native-pilot.yml run --rm --no-deps -e 'PGOPTIONS=-c rocketvibe.pilot_factor_user=swift-factor' factor-check
+          docker compose -f docker/compose.native-pilot.yml run --rm --no-deps session-check
+      - name: Native files in existing Swift room and media models
+        run: |
+          docker compose -f docker/compose.native-files-pilot.yml up -d postgres bootstrap server
+          docker compose -f docker/compose.native-files-pilot.yml exec -T server sh /src/apps/server/scripts/seed-test-emoji.sh
+          docker compose -f docker/compose.native-files-pilot.yml run --rm --no-deps swift
+      - name: Swift security settings and private receipt after process restart
+        run: |
+          docker compose -p rocketvibe-swift-security-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml up -d factor-proxy
+          docker compose -p rocketvibe-swift-security-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml run --rm --no-deps security-swift
+          docker compose -p rocketvibe-swift-security-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml run --rm --no-deps security-swift-check
+      - name: Swift email OTP login and identity proof across three real processes
+        run: |
+          docker compose -p rocketvibe-swift-email-otp-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml -f docker/compose.native-email-otp-pilot.yml -f docker/compose.native-swift-email-otp-pilot.yml up -d factor-proxy
+          docker compose -p rocketvibe-swift-email-otp-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml -f docker/compose.native-email-otp-pilot.yml -f docker/compose.native-swift-email-otp-pilot.yml run --rm --no-deps otp-swift
+          docker compose -p rocketvibe-swift-email-otp-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml -f docker/compose.native-email-otp-pilot.yml -f docker/compose.native-swift-email-otp-pilot.yml run --rm --no-deps otp-swift-check
+      - name: Swift email profile receipts across three real keyring processes
+        run: |
+          files='-f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml -f docker/compose.native-email-otp-pilot.yml -f docker/compose.native-swift-email-otp-pilot.yml -f docker/compose.native-email-settings-pilot.yml'
+          docker compose -p rocketvibe-email-settings-swift $files up -d factor-proxy
+          docker compose -p rocketvibe-email-settings-swift $files run --rm --no-deps email-settings-swift
+          docker compose -p rocketvibe-email-settings-swift $files run --rm --no-deps -e 'PGOPTIONS=-c rocketvibe.pilot_email_settings_user=swift-email' email-settings-check
+      - name: Integration logs and cleanup
+        if: always()
+        run: |
+          docker compose -f docker/compose.native-pilot.yml logs --no-color > artifacts/native-swift-pilot.log
+          docker compose -f docker/compose.native-files-pilot.yml logs --no-color > artifacts/native-swift-files-pilot.log
+          docker compose -f docker/compose.native-files-pilot.yml down -v
+          docker compose -f docker/compose.native-pilot.yml down -v
+          docker compose -p rocketvibe-swift-security-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml logs --no-color > artifacts/native-swift-security-pilot.log
+          docker compose -p rocketvibe-swift-security-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml down -v
+          docker compose -p rocketvibe-swift-email-otp-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml -f docker/compose.native-email-otp-pilot.yml -f docker/compose.native-swift-email-otp-pilot.yml logs --no-color > artifacts/native-swift-email-otp-pilot.log
+          docker compose -p rocketvibe-swift-email-otp-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml -f docker/compose.native-email-otp-pilot.yml -f docker/compose.native-swift-email-otp-pilot.yml down -v
+          files='-f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml -f docker/compose.native-email-otp-pilot.yml -f docker/compose.native-swift-email-otp-pilot.yml -f docker/compose.native-email-settings-pilot.yml'
+          docker compose -p rocketvibe-email-settings-swift $files logs --no-color > artifacts/native-swift-email-settings.log
+          docker compose -p rocketvibe-email-settings-swift $files down -v
+          # Swift's Docker compiler creates private ModuleCache/index directories.
+          # Let the runner save its generated build cache after successful tests.
+          for path in .cache/native-swift-cargo apps/desktop/target/swift-linux apps/desktop/macos/.build/linux; do
+            if [ -d "$path" ]; then sudo chown -R "$(id -u):$(id -g)" "$path"; fi
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-swift-pilot
+          path: artifacts/native-swift-*

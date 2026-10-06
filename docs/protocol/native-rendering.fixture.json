@@ -1,0 +1,1677 @@
+{
+  "cases": [
+    {
+      "contains": [
+        "Bonjour",
+        "café"
+      ],
+      "document": {
+        "format": "native1",
+        "nodes": [
+          {
+            "children": [
+              {
+                "kind": "text",
+                "text": "Bonjour 🚀 café"
+              }
+            ],
+            "kind": "paragraph"
+          }
+        ]
+      },
+      "id": "unicode",
+      "local_tree": [
+        {
+          "type": "PARAGRAPH",
+          "value": [
+            {
+              "type": "PLAIN_TEXT",
+              "value": "Bonjour 🚀 café"
+            }
+          ]
+        }
+      ],
+      "mentions": [],
+      "source": "Bonjour 🚀 café"
+    },
+    {
+      "contains": [
+        "gras",
+        "imbriqué",
+        "barré",
+        "gras simple"
+      ],
+      "document": {
+        "format": "native1",
+        "nodes": [
+          {
+            "children": [
+              {
+                "children": [
+                  {
+                    "kind": "text",
+                    "text": "gras "
+                  },
+                  {
+                    "children": [
+                      {
+                        "kind": "text",
+                        "text": "imbriqué"
+                      }
+                    ],
+                    "kind": "italic"
+                  }
+                ],
+                "kind": "bold"
+              },
+              {
+                "kind": "text",
+                "text": " "
+              },
+              {
+                "children": [
+                  {
+                    "kind": "text",
+                    "text": "barré"
+                  }
+                ],
+                "kind": "strike"
+              },
+              {
+                "kind": "text",
+                "text": " et "
+              },
+              {
+                "children": [
+                  {
+                    "kind": "text",
+                    "text": "gras simple"
+                  }
+                ],
+                "kind": "bold"
+              }
+            ],
+            "kind": "paragraph"
+          }
+        ]
+      },
+      "id": "styles",
+      "local_tree": [
+        {
+          "type": "PARAGRAPH",
+          "value": [
+            {
+              "type": "BOLD",
+              "value": [
+                {
+                  "type": "PLAIN_TEXT",
+                  "value": "gras "
+                },
+                {
+                  "type": "ITALIC",
+                  "value": [
+                    {
+                      "type": "PLAIN_TEXT",
+                      "value": "imbriqué"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "PLAIN_TEXT",
+              "value": " "
+            },
+            {
+              "type": "STRIKE",
+              "value": [
+                {
+                  "type": "PLAIN_TEXT",
+                  "value": "barré"
+                }
+              ]
+            },
+            {
+              "type": "PLAIN_TEXT",
+              "value": " et "
+            },
+            {
+              "type": "BOLD",
+              "value": [
+                {
+                  "type": "PLAIN_TEXT",
+                  "value": "gras simple"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "mentions": [],
+      "source": "**gras _imbriqué_** ~~barré~~ et *gras simple*"
+    },
+    {
+      "contains": [
+        "alice",
+        "all",
+        "general",
+        "@here"
+      ],
+      "document": {
+        "format": "native1",
+        "nodes": [
+          {
+            "children": [
+              {
+                "kind": "text",
+                "text": "Salut "
+              },
+              {
+                "kind": "mention",
+                "name": "alice"
+              },
+              {
+                "kind": "text",
+                "text": " "
+              },
+              {
+                "kind": "mention",
+                "name": "alice"
+              },
+              {
+                "kind": "text",
+                "text": ", "
+              },
+              {
+                "kind": "mention",
+                "name": "all"
+              },
+              {
+                "kind": "text",
+                "text": " et "
+              },
+              {
+                "kind": "room_mention",
+                "name": "general"
+              },
+              {
+                "kind": "text",
+                "text": ". "
+              },
+              {
+                "kind": "mention",
+                "name": "here"
+              },
+              {
+                "kind": "text",
+                "text": " reste réservé."
+              }
+            ],
+            "kind": "paragraph"
+          }
+        ]
+      },
+      "id": "mentions",
+      "local_tree": [
+        {
+          "type": "PARAGRAPH",
+          "value": [
+            {
+              "type": "PLAIN_TEXT",
+              "value": "Salut "
+            },
+            {
+              "type": "MENTION_USER",
+              "value": {
+                "type": "PLAIN_TEXT",
+                "value": "alice"
+              }
+            },
+            {
+              "type": "PLAIN_TEXT",
+              "value": " "
+            },
+            {
+              "type": "MENTION_USER",
+              "value": {
+                "type": "PLAIN_TEXT",
+                "value": "alice"
+              }
+            },
+            {
+              "type": "PLAIN_TEXT",
+              "value": ", "
+            },
+            {
+              "type": "MENTION_USER",
+              "value": {
+                "type": "PLAIN_TEXT",
+                "value": "all"
+              }
+            },
+            {
+              "type": "PLAIN_TEXT",
+              "value": " et "
+            },
+            {
+              "type": "MENTION_CHANNEL",
+              "value": {
+                "type": "PLAIN_TEXT",
+                "value": "general"
+              }
+            },
+            {
+              "type": "PLAIN_TEXT",
+              "value": ". "
+            },
+            {
+              "type": "PLAIN_TEXT",
+              "value": "@here"
+            },
+            {
+              "type": "PLAIN_TEXT",
+              "value": " reste réservé."
+            }
+          ]
+        }
+      ],
+      "mentions": [
+        "alice",
+        "all",
+        "here"
+      ],
+      "source": "Salut @alice @alice, @all et #general. @here reste réservé."
+    },
+    {
+      "contains": [
+        "@inline",
+        "@wide`@code",
+        "@first @second",
+        "@fenced :smile:",
+        "@quote"
+      ],
+      "document": {
+        "format": "native1",
+        "nodes": [
+          {
+            "children": [
+              {
+                "kind": "mention",
+                "name": "outside"
+              },
+              {
+                "kind": "text",
+                "text": " "
+              },
+              {
+                "kind": "inline_code",
+                "text": "@inline"
+              },
+              {
+                "kind": "text",
+                "text": " "
+              },
+              {
+                "kind": "inline_code",
+                "text": "@wide`@code"
+              },
+              {
+                "kind": "text",
+                "text": " "
+              },
+              {
+                "kind": "inline_code",
+                "text": "@first @second"
+              }
+            ],
+            "kind": "paragraph"
+          },
+          {
+            "kind": "code_block",
+            "language": "rust",
+            "text": "@fenced :smile:\n"
+          },
+          {
+            "kind": "code_block",
+            "language": "",
+            "text": "@tilde\n"
+          },
+          {
+            "children": [
+              {
+                "children": [
+                  {
+                    "kind": "text",
+                    "text": "@quote "
+                  },
+                  {
+                    "children": [
+                      {
+                        "kind": "text",
+                        "text": "texte"
+                      }
+                    ],
+                    "kind": "bold"
+                  }
+                ],
+                "kind": "paragraph"
+              }
+            ],
+            "kind": "quote"
+          },
+          {
+            "kind": "code_block",
+            "language": "",
+            "text": "@indent\n@tab"
+          }
+        ]
+      },
+      "id": "excluded-mentions",
+      "local_tree": [
+        {
+          "type": "PARAGRAPH",
+          "value": [
+            {
+              "type": "MENTION_USER",
+              "value": {
+                "type": "PLAIN_TEXT",
+                "value": "outside"
+              }
+            },
+            {
+              "type": "PLAIN_TEXT",
+              "value": " "
+            },
+            {
+              "type": "INLINE_CODE",
+              "value": {
+                "type": "PLAIN_TEXT",
+                "value": "@inline"
+              }
+            },
+            {
+              "type": "PLAIN_TEXT",
+              "value": " "
+            },
+            {
+              "type": "INLINE_CODE",
+              "value": {
+                "type": "PLAIN_TEXT",
+                "value": "@wide`@code"
+              }
+            },
+            {
+              "type": "PLAIN_TEXT",
+              "value": " "
+            },
+            {
+              "type": "INLINE_CODE",
+              "value": {
+                "type": "PLAIN_TEXT",
+                "value": "@first @second"
+              }
+            }
+          ]
+        },
+        {
+          "type": "CODE",
+          "value": [
+            {
+              "type": "CODE_LINE",
+              "value": {
+                "type": "PLAIN_TEXT",
+                "value": "@fenced :smile:"
+              }
+            }
+          ]
+        },
+        {
+          "type": "CODE",
+          "value": [
+            {
+              "type": "CODE_LINE",
+              "value": {
+                "type": "PLAIN_TEXT",
+                "value": "@tilde"
+              }
+            }
+          ]
+        },
+        {
+          "type": "QUOTE",
+          "value": [
+            {
+              "type": "PARAGRAPH",
+              "value": [
+                {
+                  "type": "PLAIN_TEXT",
+                  "value": "@quote "
+                },
+                {
+                  "type": "BOLD",
+                  "value": [
+                    {
+                      "type": "PLAIN_TEXT",
+                      "value": "texte"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "CODE",
+          "value": [
+            {
+              "type": "CODE_LINE",
+              "value": {
+                "type": "PLAIN_TEXT",
+                "value": "@indent"
+              }
+            },
+            {
+              "type": "CODE_LINE",
+              "value": {
+                "type": "PLAIN_TEXT",
+                "value": "@tab"
+              }
+            }
+          ]
+        }
+      ],
+      "mentions": [
+        "outside"
+      ],
+      "source": "@outside `@inline` ``@wide`@code`` `@first\n@second`\n\n```rust\n@fenced :smile:\n```\n\n~~~\n@tilde\n~~~\n\n> @quote **texte**\n\n    @indent\n\t@tab"
+    },
+    {
+      "contains": [
+        "@escaped",
+        "user@host.tld",
+        "@label",
+        "@real"
+      ],
+      "document": {
+        "format": "native1",
+        "nodes": [
+          {
+            "children": [
+              {
+                "kind": "text",
+                "text": "@escaped user@host.tld "
+              },
+              {
+                "children": [
+                  {
+                    "kind": "text",
+                    "text": "https://a.test/@path?x=@query"
+                  }
+                ],
+                "href": "https://a.test/@path?x=@query",
+                "kind": "link"
+              },
+              {
+                "kind": "text",
+                "text": " FTP://a/@ftp mailto:@mail www.a.test/@www "
+              },
+              {
+                "children": [
+                  {
+                    "kind": "text",
+                    "text": "https://a/@angle"
+                  }
+                ],
+                "href": "https://a/@angle",
+                "kind": "link"
+              },
+              {
+                "kind": "text",
+                "text": " "
+              },
+              {
+                "children": [
+                  {
+                    "kind": "text",
+                    "text": "@label"
+                  }
+                ],
+                "href": "https://a/(@nested)",
+                "kind": "link"
+              },
+              {
+                "kind": "text",
+                "text": " "
+              },
+              {
+                "kind": "mention",
+                "name": "real"
+              }
+            ],
+            "kind": "paragraph"
+          }
+        ]
+      },
+      "id": "escaped-mentions",
+      "local_tree": [
+        {
+          "type": "PARAGRAPH",
+          "value": [
+            {
+              "type": "PLAIN_TEXT",
+              "value": "@escaped user@host.tld "
+            },
+            {
+              "type": "LINK",
+              "value": {
+                "label": [
+                  {
+                    "type": "PLAIN_TEXT",
+                    "value": "https://a.test/@path?x=@query"
+                  }
+                ],
+                "src": {
+                  "type": "PLAIN_TEXT",
+                  "value": "https://a.test/@path?x=@query"
+                }
+              }
+            },
+            {
+              "type": "PLAIN_TEXT",
+              "value": " FTP://a/@ftp mailto:@mail www.a.test/@www "
+            },
+            {
+              "type": "LINK",
+              "value": {
+                "label": [
+                  {
+                    "type": "PLAIN_TEXT",
+                    "value": "https://a/@angle"
+                  }
+                ],
+                "src": {
+                  "type": "PLAIN_TEXT",
+                  "value": "https://a/@angle"
+                }
+              }
+            },
+            {
+              "type": "PLAIN_TEXT",
+              "value": " "
+            },
+            {
+              "type": "LINK",
+              "value": {
+                "label": [
+                  {
+                    "type": "PLAIN_TEXT",
+                    "value": "@label"
+                  }
+                ],
+                "src": {
+                  "type": "PLAIN_TEXT",
+                  "value": "https://a/(@nested)"
+                }
+              }
+            },
+            {
+              "type": "PLAIN_TEXT",
+              "value": " "
+            },
+            {
+              "type": "MENTION_USER",
+              "value": {
+                "type": "PLAIN_TEXT",
+                "value": "real"
+              }
+            }
+          ]
+        }
+      ],
+      "mentions": [
+        "real"
+      ],
+      "source": "\\@escaped user@host.tld https://a.test/@path?x=@query FTP://a/@ftp mailto:@mail www.a.test/@www <https://a/@angle> [@label](https://a/(@nested)) @real"
+    },
+    {
+      "contains": [
+        "@alice",
+        "@bob",
+        "@böb",
+        "@alice.org",
+        "@aliceé"
+      ],
+      "document": {
+        "format": "native1",
+        "nodes": [
+          {
+            "children": [
+              {
+                "kind": "text",
+                "text": "@ali"
+              },
+              {
+                "kind": "text",
+                "text": "c"
+              },
+              {
+                "kind": "text",
+                "text": "e "
+              },
+              {
+                "kind": "text",
+                "text": "@"
+              },
+              {
+                "kind": "text",
+                "text": "bob @b"
+              },
+              {
+                "kind": "text",
+                "text": "ö"
+              },
+              {
+                "kind": "text",
+                "text": "b @alice.org @aliceé"
+              }
+            ],
+            "kind": "paragraph"
+          }
+        ]
+      },
+      "id": "encoded-names",
+      "local_tree": [
+        {
+          "type": "PARAGRAPH",
+          "value": [
+            {
+              "type": "PLAIN_TEXT",
+              "value": "@ali"
+            },
+            {
+              "type": "PLAIN_TEXT",
+              "value": "c"
+            },
+            {
+              "type": "PLAIN_TEXT",
+              "value": "e "
+            },
+            {
+              "type": "PLAIN_TEXT",
+              "value": "@"
+            },
+            {
+              "type": "PLAIN_TEXT",
+              "value": "bob @b"
+            },
+            {
+              "type": "PLAIN_TEXT",
+              "value": "ö"
+            },
+            {
+              "type": "PLAIN_TEXT",
+              "value": "b @alice.org @aliceé"
+            }
+          ]
+        }
+      ],
+      "mentions": [],
+      "source": "@ali&#99;e &#64;bob @b&ouml;b @alice.org @aliceé"
+    },
+    {
+      "contains": [
+        "italic",
+        "bold",
+        "strike",
+        "@reference",
+        "![@image](url)"
+      ],
+      "document": {
+        "format": "native1",
+        "nodes": [
+          {
+            "children": [
+              {
+                "children": [
+                  {
+                    "kind": "mention",
+                    "name": "italic"
+                  }
+                ],
+                "kind": "italic"
+              },
+              {
+                "kind": "text",
+                "text": " "
+              },
+              {
+                "children": [
+                  {
+                    "kind": "mention",
+                    "name": "bold"
+                  }
+                ],
+                "kind": "bold"
+              },
+              {
+                "kind": "text",
+                "text": " "
+              },
+              {
+                "children": [
+                  {
+                    "kind": "mention",
+                    "name": "strike"
+                  }
+                ],
+                "kind": "strike"
+              },
+              {
+                "kind": "text",
+                "text": " "
+              },
+              {
+                "children": [
+                  {
+                    "kind": "text",
+                    "text": "@reference"
+                  }
+                ],
+                "href": "https://example.test",
+                "kind": "link"
+              },
+              {
+                "kind": "text",
+                "text": " "
+              },
+              {
+                "kind": "text",
+                "text": "![@image](url)"
+              }
+            ],
+            "kind": "paragraph"
+          }
+        ]
+      },
+      "id": "styled-mentions",
+      "local_tree": [
+        {
+          "type": "PARAGRAPH",
+          "value": [
+            {
+              "type": "ITALIC",
+              "value": [
+                {
+                  "type": "MENTION_USER",
+                  "value": {
+                    "type": "PLAIN_TEXT",
+                    "value": "italic"
+                  }
+                }
+              ]
+            },
+            {
+              "type": "PLAIN_TEXT",
+              "value": " "
+            },
+            {
+              "type": "BOLD",
+              "value": [
+                {
+                  "type": "MENTION_USER",
+                  "value": {
+                    "type": "PLAIN_TEXT",
+                    "value": "bold"
+                  }
+                }
+              ]
+            },
+            {
+              "type": "PLAIN_TEXT",
+              "value": " "
+            },
+            {
+              "type": "STRIKE",
+              "value": [
+                {
+                  "type": "MENTION_USER",
+                  "value": {
+                    "type": "PLAIN_TEXT",
+                    "value": "strike"
+                  }
+                }
+              ]
+            },
+            {
+              "type": "PLAIN_TEXT",
+              "value": " "
+            },
+            {
+              "type": "LINK",
+              "value": {
+                "label": [
+                  {
+                    "type": "PLAIN_TEXT",
+                    "value": "@reference"
+                  }
+                ],
+                "src": {
+                  "type": "PLAIN_TEXT",
+                  "value": "https://example.test"
+                }
+              }
+            },
+            {
+              "type": "PLAIN_TEXT",
+              "value": " "
+            },
+            {
+              "type": "PLAIN_TEXT",
+              "value": "![@image](url)"
+            }
+          ]
+        }
+      ],
+      "mentions": [
+        "bold",
+        "italic",
+        "strike"
+      ],
+      "source": "_@italic_ **@bold** ~~@strike~~ [@reference][ref] ![@image](url)\n\n[ref]: https://example.test"
+    },
+    {
+      "contains": [
+        "premier",
+        "second",
+        "sous-liste",
+        "fait",
+        "à faire",
+        "citation",
+        "imbriquée"
+      ],
+      "document": {
+        "format": "native1",
+        "nodes": [
+          {
+            "children": [
+              {
+                "checked": null,
+                "children": [
+                  {
+                    "kind": "text",
+                    "text": "premier"
+                  }
+                ],
+                "kind": "list_item"
+              },
+              {
+                "checked": null,
+                "children": [
+                  {
+                    "kind": "text",
+                    "text": "second"
+                  },
+                  {
+                    "children": [
+                      {
+                        "checked": null,
+                        "children": [
+                          {
+                            "kind": "text",
+                            "text": "sous-liste"
+                          }
+                        ],
+                        "kind": "list_item"
+                      }
+                    ],
+                    "kind": "list",
+                    "start": null
+                  }
+                ],
+                "kind": "list_item"
+              }
+            ],
+            "kind": "list",
+            "start": 3
+          },
+          {
+            "children": [
+              {
+                "checked": true,
+                "children": [
+                  {
+                    "kind": "text",
+                    "text": "fait"
+                  }
+                ],
+                "kind": "list_item"
+              },
+              {
+                "checked": false,
+                "children": [
+                  {
+                    "kind": "text",
+                    "text": "à faire"
+                  }
+                ],
+                "kind": "list_item"
+              }
+            ],
+            "kind": "list",
+            "start": null
+          },
+          {
+            "children": [
+              {
+                "children": [
+                  {
+                    "kind": "text",
+                    "text": "citation"
+                  }
+                ],
+                "kind": "paragraph"
+              },
+              {
+                "children": [
+                  {
+                    "children": [
+                      {
+                        "kind": "text",
+                        "text": "imbriquée"
+                      }
+                    ],
+                    "kind": "paragraph"
+                  }
+                ],
+                "kind": "quote"
+              }
+            ],
+            "kind": "quote"
+          }
+        ]
+      },
+      "id": "tasks-and-nesting",
+      "local_tree": [
+        {
+          "type": "ORDERED_LIST",
+          "value": [
+            {
+              "number": 3,
+              "type": "LIST_ITEM",
+              "value": [
+                {
+                  "type": "PLAIN_TEXT",
+                  "value": "premier"
+                }
+              ]
+            },
+            {
+              "number": 4,
+              "type": "LIST_ITEM",
+              "value": [
+                {
+                  "type": "PLAIN_TEXT",
+                  "value": "second"
+                },
+                {
+                  "type": "PLAIN_TEXT",
+                  "value": "\n• "
+                },
+                {
+                  "type": "PLAIN_TEXT",
+                  "value": "sous-liste"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "TASKS",
+          "value": [
+            {
+              "status": true,
+              "type": "LIST_ITEM",
+              "value": [
+                {
+                  "type": "PLAIN_TEXT",
+                  "value": "fait"
+                }
+              ]
+            },
+            {
+              "status": false,
+              "type": "LIST_ITEM",
+              "value": [
+                {
+                  "type": "PLAIN_TEXT",
+                  "value": "à faire"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "QUOTE",
+          "value": [
+            {
+              "type": "PARAGRAPH",
+              "value": [
+                {
+                  "type": "PLAIN_TEXT",
+                  "value": "citation"
+                }
+              ]
+            },
+            {
+              "type": "QUOTE",
+              "value": [
+                {
+                  "type": "PARAGRAPH",
+                  "value": [
+                    {
+                      "type": "PLAIN_TEXT",
+                      "value": "imbriquée"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "mentions": [],
+      "source": "3. premier\n4. second\n   - sous-liste\n\n- [x] fait\n- [ ] à faire\n\n> citation\n>\n> > imbriquée"
+    },
+    {
+      "contains": [
+        "🚀",
+        "😄",
+        ":rv_custom_missing:",
+        ":smile:"
+      ],
+      "document": {
+        "format": "native1",
+        "nodes": [
+          {
+            "children": [
+              {
+                "kind": "emoji",
+                "shortcode": "rocket"
+              },
+              {
+                "kind": "text",
+                "text": " "
+              },
+              {
+                "kind": "emoji",
+                "shortcode": "smile"
+              },
+              {
+                "kind": "text",
+                "text": " "
+              },
+              {
+                "kind": "emoji",
+                "shortcode": "rv_custom_missing"
+              },
+              {
+                "kind": "text",
+                "text": " et "
+              },
+              {
+                "kind": "inline_code",
+                "text": ":smile:"
+              }
+            ],
+            "kind": "paragraph"
+          }
+        ]
+      },
+      "id": "emojis",
+      "local_tree": [
+        {
+          "type": "PARAGRAPH",
+          "value": [
+            {
+              "shortCode": "rocket",
+              "type": "EMOJI",
+              "value": {
+                "type": "PLAIN_TEXT",
+                "value": "rocket"
+              }
+            },
+            {
+              "type": "PLAIN_TEXT",
+              "value": " "
+            },
+            {
+              "shortCode": "smile",
+              "type": "EMOJI",
+              "value": {
+                "type": "PLAIN_TEXT",
+                "value": "smile"
+              }
+            },
+            {
+              "type": "PLAIN_TEXT",
+              "value": " "
+            },
+            {
+              "shortCode": "rv_custom_missing",
+              "type": "EMOJI",
+              "value": {
+                "type": "PLAIN_TEXT",
+                "value": "rv_custom_missing"
+              }
+            },
+            {
+              "type": "PLAIN_TEXT",
+              "value": " et "
+            },
+            {
+              "type": "INLINE_CODE",
+              "value": {
+                "type": "PLAIN_TEXT",
+                "value": ":smile:"
+              }
+            }
+          ]
+        }
+      ],
+      "mentions": [],
+      "source": ":rocket: :smile: :rv_custom_missing: et `:smile:`"
+    },
+    {
+      "contains": [
+        "<script>",
+        "<b>texte</b>",
+        "![photo](https://outside.test/private.png)"
+      ],
+      "document": {
+        "format": "native1",
+        "nodes": [
+          {
+            "children": [
+              {
+                "kind": "text",
+                "text": "<script>alert('x')</script> & <b>texte</b>\n"
+              }
+            ],
+            "kind": "paragraph"
+          },
+          {
+            "children": [
+              {
+                "kind": "text",
+                "text": "![photo](https://outside.test/private.png)"
+              }
+            ],
+            "kind": "paragraph"
+          }
+        ]
+      },
+      "id": "literal-html-images",
+      "local_tree": [
+        {
+          "type": "PARAGRAPH",
+          "value": [
+            {
+              "type": "PLAIN_TEXT",
+              "value": "<script>alert('x')</script> & <b>texte</b>\n"
+            }
+          ]
+        },
+        {
+          "type": "PARAGRAPH",
+          "value": [
+            {
+              "type": "PLAIN_TEXT",
+              "value": "![photo](https://outside.test/private.png)"
+            }
+          ]
+        }
+      ],
+      "mentions": [],
+      "source": "<script>alert('x')</script> & <b>texte</b>\n\n![photo](https://outside.test/private.png)"
+    },
+    {
+      "contains": [
+        "projet",
+        "https://example.org/fin",
+        "dangereux"
+      ],
+      "document": {
+        "format": "native1",
+        "nodes": [
+          {
+            "children": [
+              {
+                "children": [
+                  {
+                    "kind": "text",
+                    "text": "projet"
+                  }
+                ],
+                "href": "https://example.org/rocket",
+                "kind": "link"
+              },
+              {
+                "kind": "text",
+                "text": " et "
+              },
+              {
+                "children": [
+                  {
+                    "kind": "text",
+                    "text": "https://example.org/fin"
+                  }
+                ],
+                "href": "https://example.org/fin",
+                "kind": "link"
+              },
+              {
+                "kind": "text",
+                "text": ". "
+              },
+              {
+                "children": [
+                  {
+                    "kind": "text",
+                    "text": "dangereux"
+                  }
+                ],
+                "href": "javascript:alert(1)",
+                "kind": "link"
+              }
+            ],
+            "kind": "paragraph"
+          }
+        ]
+      },
+      "id": "links",
+      "local_tree": [
+        {
+          "type": "PARAGRAPH",
+          "value": [
+            {
+              "type": "LINK",
+              "value": {
+                "label": [
+                  {
+                    "type": "PLAIN_TEXT",
+                    "value": "projet"
+                  }
+                ],
+                "src": {
+                  "type": "PLAIN_TEXT",
+                  "value": "https://example.org/rocket"
+                }
+              }
+            },
+            {
+              "type": "PLAIN_TEXT",
+              "value": " et "
+            },
+            {
+              "type": "LINK",
+              "value": {
+                "label": [
+                  {
+                    "type": "PLAIN_TEXT",
+                    "value": "https://example.org/fin"
+                  }
+                ],
+                "src": {
+                  "type": "PLAIN_TEXT",
+                  "value": "https://example.org/fin"
+                }
+              }
+            },
+            {
+              "type": "PLAIN_TEXT",
+              "value": ". "
+            },
+            {
+              "type": "LINK",
+              "value": {
+                "label": [
+                  {
+                    "type": "PLAIN_TEXT",
+                    "value": "dangereux"
+                  }
+                ],
+                "src": {
+                  "type": "PLAIN_TEXT",
+                  "value": "javascript:alert(1)"
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "mentions": [],
+      "source": "[projet](https://example.org/rocket) et https://example.org/fin. [dangereux](javascript:alert(1))"
+    },
+    {
+      "contains": [
+        "https://example.org/channel/general?msg=quoted",
+        "Ma réponse"
+      ],
+      "document": {
+        "format": "native1",
+        "nodes": [
+          {
+            "children": [
+              {
+                "children": [
+                  {
+                    "kind": "text",
+                    "text": " "
+                  }
+                ],
+                "href": "https://example.org/channel/general?msg=quoted",
+                "kind": "link"
+              },
+              {
+                "kind": "text",
+                "text": " Ma réponse"
+              }
+            ],
+            "kind": "paragraph"
+          }
+        ]
+      },
+      "id": "unresolved-permalink",
+      "local_tree": [
+        {
+          "type": "PARAGRAPH",
+          "value": [
+            {
+              "type": "LINK",
+              "value": {
+                "label": [
+                  {
+                    "type": "PLAIN_TEXT",
+                    "value": "https://example.org/channel/general?msg=quoted"
+                  }
+                ],
+                "src": {
+                  "type": "PLAIN_TEXT",
+                  "value": "https://example.org/channel/general?msg=quoted"
+                }
+              }
+            },
+            {
+              "type": "PLAIN_TEXT",
+              "value": " Ma réponse"
+            }
+          ]
+        }
+      ],
+      "mentions": [],
+      "source": "[ ](https://example.org/channel/general?msg=quoted) Ma réponse"
+    },
+    {
+      "contains": [
+        "Titre six",
+        "Une ligne",
+        "et la suivante",
+        "---"
+      ],
+      "document": {
+        "format": "native1",
+        "nodes": [
+          {
+            "children": [
+              {
+                "kind": "text",
+                "text": "Titre six"
+              }
+            ],
+            "kind": "heading",
+            "level": 6
+          },
+          {
+            "children": [
+              {
+                "kind": "text",
+                "text": "Une ligne"
+              },
+              {
+                "kind": "break"
+              },
+              {
+                "kind": "text",
+                "text": "et la suivante"
+              }
+            ],
+            "kind": "paragraph"
+          },
+          {
+            "kind": "rule"
+          }
+        ]
+      },
+      "id": "headings-and-lines",
+      "local_tree": [
+        {
+          "level": 4,
+          "type": "HEADING",
+          "value": [
+            {
+              "type": "PLAIN_TEXT",
+              "value": "Titre six"
+            }
+          ]
+        },
+        {
+          "type": "PARAGRAPH",
+          "value": [
+            {
+              "type": "PLAIN_TEXT",
+              "value": "Une ligne"
+            },
+            {
+              "type": "PLAIN_TEXT",
+              "value": "\n"
+            },
+            {
+              "type": "PLAIN_TEXT",
+              "value": "et la suivante"
+            }
+          ]
+        },
+        {
+          "type": "PARAGRAPH",
+          "value": [
+            {
+              "type": "PLAIN_TEXT",
+              "value": "---"
+            }
+          ]
+        }
+      ],
+      "mentions": [],
+      "source": "###### Titre six\n\nUne ligne  \net la suivante\n\n---"
+    },
+    {
+      "contains": [
+        "🚀",
+        "😄"
+      ],
+      "document": {
+        "format": "native1",
+        "nodes": [
+          {
+            "children": [
+              {
+                "kind": "emoji",
+                "shortcode": "rocket"
+              },
+              {
+                "kind": "text",
+                "text": " "
+              },
+              {
+                "kind": "emoji",
+                "shortcode": "smile"
+              }
+            ],
+            "kind": "paragraph"
+          }
+        ]
+      },
+      "id": "large-standard-emoji",
+      "local_tree": [
+        {
+          "type": "BIG_EMOJI",
+          "value": [
+            {
+              "shortCode": "rocket",
+              "type": "EMOJI",
+              "value": {
+                "type": "PLAIN_TEXT",
+                "value": "rocket"
+              }
+            },
+            {
+              "shortCode": "smile",
+              "type": "EMOJI",
+              "value": {
+                "type": "PLAIN_TEXT",
+                "value": "smile"
+              }
+            }
+          ]
+        }
+      ],
+      "mentions": [],
+      "source": ":rocket: :smile:"
+    },
+    {
+      "contains": [
+        "gras",
+        "italique",
+        "barré",
+        "italique double"
+      ],
+      "document": {
+        "format": "native1",
+        "nodes": [
+          {
+            "children": [
+              {
+                "children": [
+                  {
+                    "kind": "text",
+                    "text": "gras"
+                  }
+                ],
+                "kind": "bold"
+              },
+              {
+                "kind": "text",
+                "text": " "
+              },
+              {
+                "children": [
+                  {
+                    "kind": "text",
+                    "text": "italique"
+                  }
+                ],
+                "kind": "italic"
+              },
+              {
+                "kind": "text",
+                "text": " "
+              },
+              {
+                "children": [
+                  {
+                    "kind": "text",
+                    "text": "barré"
+                  }
+                ],
+                "kind": "strike"
+              },
+              {
+                "kind": "text",
+                "text": " "
+              },
+              {
+                "children": [
+                  {
+                    "kind": "text",
+                    "text": "italique double"
+                  }
+                ],
+                "kind": "italic"
+              }
+            ],
+            "kind": "paragraph"
+          }
+        ]
+      },
+      "id": "existing-composer-markers",
+      "local_tree": [
+        {
+          "type": "PARAGRAPH",
+          "value": [
+            {
+              "type": "BOLD",
+              "value": [
+                {
+                  "type": "PLAIN_TEXT",
+                  "value": "gras"
+                }
+              ]
+            },
+            {
+              "type": "PLAIN_TEXT",
+              "value": " "
+            },
+            {
+              "type": "ITALIC",
+              "value": [
+                {
+                  "type": "PLAIN_TEXT",
+                  "value": "italique"
+                }
+              ]
+            },
+            {
+              "type": "PLAIN_TEXT",
+              "value": " "
+            },
+            {
+              "type": "STRIKE",
+              "value": [
+                {
+                  "type": "PLAIN_TEXT",
+                  "value": "barré"
+                }
+              ]
+            },
+            {
+              "type": "PLAIN_TEXT",
+              "value": " "
+            },
+            {
+              "type": "ITALIC",
+              "value": [
+                {
+                  "type": "PLAIN_TEXT",
+                  "value": "italique double"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "mentions": [],
+      "source": "*gras* _italique_ ~barré~ __italique double__"
+    }
+  ],
+  "format": 1
+}

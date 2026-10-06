@@ -1,12 +1,24 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { UNREAD_BAR_ID, insertUnreadBar } from './unreadBar.ts';
+import { UNREAD_BAR_ID, insertUnreadBar,insertNativeUnreadBar } from './unreadBar.ts';
+
+test('native system activity never opens an unread divider',()=>{
+  const rows=[{id:'system',authorId:'other',systemType:'room_changed_topic'}];
+  assert.equal(insertNativeUnreadBar(rows,'1',new Map([['system','2']]),'me'),rows);
+});
 
 /** A minimal message. DESC: build from newest to oldest. */
 const m = (id: string, ts: number, authorId: string) => ({ id, ts, authorId });
 
 const ids = (rows: { id: string }[]): string[] => rows.map((l) => l.id);
+
+test('native opening divider uses exact sequence rather than clocks and ignores own and pending messages',()=>{
+  const rows=[m('pending',100,'other'),m('newest',200,'other'),m('first',300,'other'),m('own',400,'me'),m('read',500,'other')];
+  const positions=new Map([['read','9007199254740992'],['own','9007199254740993'],['first','9007199254740994'],['newest','9007199254740995']]);
+  assert.deepEqual(ids(insertNativeUnreadBar(rows,'9007199254740992',positions,'me')),['pending','newest','first',UNREAD_BAR_ID,'own','read']);
+  assert.equal(insertNativeUnreadBar(rows,null,positions,'me'),rows);
+});
 
 describe('insertUnreadBar', () => {
   test('the bar goes on the OLDEST unread from others: the last occurrence, not the first', () => {

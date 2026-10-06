@@ -30,17 +30,29 @@ struct RocketVibeApp: App {
     @MainActor
     func start() async {
         let notifier = Notifier.shared
-        notifier.onOpen = { [app] rid, message in
+        notifier.onOpen = { [app] rid, message, scope in
+            if let scope {
+                NSApp.activate()
+                Task { await app.notificationAction(key:scope,message:message) }
+                return
+            }
+            guard app.native == nil else { return }
             NSApp.activate()
             Task { await app.open(rid, message: message) }
         }
-        notifier.onReply = { [app] rid, text in
-            Task { await app.chat?.send(rid: rid, text: text, threadId: nil) }
+        notifier.onReply = { [app] rid, message, scope, text in
+            if let scope {
+                Task { await app.notificationAction(key:scope,message:message,text:text) }
+                return
+            }
+            guard app.native == nil else { return }
+            Task { try? await app.provider?.send(rid: rid, text: text) }
         }
         app.onIncoming = { [app] incoming in
             let watching = NSApp.isActive && app.room?.rid == incoming.rid
-            if !watching { notifier.show(incoming) }
+            if !watching { notifier.show(incoming, scope: app.native?.notificationKey(rid: incoming.rid)) }
         }
+        app.onWithdraw = { key in notifier.withdraw(scope: key) }
         app.onAttention = { count in
             NSApp.dockTile.badgeLabel = count > 0 ? String(count) : nil
         }
@@ -48,25 +60,11 @@ struct RocketVibeApp: App {
         if app.screen == .starting && !SmokeGallery.requested { await app.start() }
     }
 
-    /// `rocketvibe://room/<rid>?host=<server>`, from the Android app's links.
+    /// `rocketvibe://room/<rid>?host=<server>`, from the Android app's links;
+    /// the core resolves provider, full service URL, instance and account scope.
     @MainActor
     func open(_ url: URL) {
-        guard url.scheme == "rocketvibe", ["salon", "room"].contains(url.host() ?? "") else { return }
-        guard let rid = url.pathComponents.first(where: { $0 != "/" }) else { return }
-        let host = URLComponents(url: url, resolvingAgainstBaseURL: false)?
-            .queryItems?.first { $0.name == "host" }?.value
-        if let host, let base = app.account?.baseUrl, let ours = URL(string: base)?.host(),
-           let theirs = (URL(string: host)?.host() ?? URL(string: "https://" + host)?.host()),
-           ours.lowercased() != theirs.lowercased() {
-            if let other = app.accounts.first(where: { URL(string: $0.baseUrl)?.host()?.lowercased() == theirs.lowercased() }) {
-                Task {
-                    await app.resume(other)
-                    app.open(rid)
-                }
-            }
-            return
-        }
-        app.open(rid)
+        Task { await app.openLink(url.absoluteString) }
     }
 }
 

@@ -4,7 +4,7 @@
 //! groups the window under it.
 #![allow(unsafe_code)]
 
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicIsize, Ordering};
 use windows::Data::Xml::Dom::XmlDocument;
@@ -31,7 +31,9 @@ const GROUP: &str = "rooms";
 
 struct State {
     app_id: HSTRING,
-    handler: Handler,
+    handler: Arc<dyn Fn(Event) + Send + Sync>,
+    /// COM retains the registered factory until the process exits.
+    toast_registration: Option<u32>,
 }
 
 static STATE: OnceLock<State> = OnceLock::new();
@@ -40,36 +42,48 @@ pub(crate) fn wide(text: &str) -> Vec<u16> {
     text.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
-fn set_value(key: &str, name: &str, value: &str) {
+pub(crate) fn set_value(key: &str, name: &str, value: &str) -> windows::core::Result<()> {
     let (key, name, value) = (wide(key), wide(name), wide(value));
     // SAFETY: NUL-terminated UTF-16 buffers that outlive the call; the size is in bytes.
     unsafe {
-        let _ = RegSetKeyValueW(
+        RegSetKeyValueW(
             HKEY_CURRENT_USER,
             PCWSTR(key.as_ptr()),
             PCWSTR(name.as_ptr()),
             REG_SZ.0,
             Some(value.as_ptr().cast()),
             (value.len() * 2) as u32,
-        );
+        )
+        .ok()
     }
 }
 
 /// Registers the app id (its display name, and the installed icon when there
 /// is one) and routes toast clicks and replies to `handler`.
 pub fn init(app_id: &str, display_name: &str, handler: Handler) {
+    if STATE.get().is_some() {
+        return;
+    }
     let key = format!("Software\\Classes\\AppUserModelId\\{app_id}");
-    set_value(&key, "DisplayName", display_name);
+    let _ = set_value(&key, "DisplayName", display_name);
     if let Ok(exe) = std::env::current_exe()
         && let Some(icon) = exe.parent().and_then(|bin| bin.parent()).map(|root| root.join("rocket-vibe.ico"))
         && icon.exists()
     {
-        set_value(&key, "IconUri", &icon.to_string_lossy());
+        let _ = set_value(&key, "IconUri", &icon.to_string_lossy());
     }
     let id = wide(app_id);
     // SAFETY: a NUL-terminated UTF-16 string that outlives the call.
     let _ = unsafe { SetCurrentProcessExplicitAppUserModelID(PCWSTR(id.as_ptr())) };
-    let _ = STATE.set(State { app_id: HSTRING::from(app_id), handler });
+    let handler: Arc<dyn Fn(Event) + Send + Sync> = Arc::from(handler);
+    let toast_registration = match crate::windows_toast::register(app_id, handler.clone()) {
+        Ok(cookie) => Some(cookie),
+        Err(error) => {
+            eprintln!("Notification COM activation unavailable: {error}");
+            None
+        }
+    };
+    let _ = STATE.set(State { app_id: HSTRING::from(app_id), handler, toast_registration });
 }
 
 pub fn available() -> bool {
@@ -101,12 +115,16 @@ fn try_show(toast: &Toast) -> windows::core::Result<()> {
     let notification = ToastNotification::CreateToastNotification(&doc)?;
     notification.SetTag(&HSTRING::from(tag(toast.room)))?;
     notification.SetGroup(&HSTRING::from(GROUP))?;
-    notification.Activated(&TypedEventHandler::<ToastNotification, IInspectable>::new(|_, args| {
-        if let Ok(args) = args.ok() {
-            activated(args);
-        }
-        Ok(())
-    }))?;
+    // COM handles both warm and cold activations. Keeping a second callback
+    // would submit a live inline reply twice for the Rocket.Chat provider.
+    if state.toast_registration.is_none() {
+        notification.Activated(&TypedEventHandler::<ToastNotification, IInspectable>::new(|_, args| {
+            if let Ok(args) = args.ok() {
+                activated(args);
+            }
+            Ok(())
+        }))?;
+    }
     ToastNotificationManager::CreateToastNotifierWithId(&state.app_id)?.Show(&notification)
 }
 

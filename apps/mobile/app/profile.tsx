@@ -13,12 +13,17 @@
  */
 
 import { Stack, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import type {ReactNode} from 'react';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import {EncryptedTrustSection} from '../ui/encryptedTrust.tsx';
+import {EncryptedGroupSection} from '../ui/encryptedGroup.tsx';
+import {RoomMembershipBound} from '../ui/roomMembership.tsx';
+import {CryptoNative} from '../modules/crypto-native/index.ts';
 
-import { memoizedCallAvailable, startConference, probeCallAvailable } from '../lib/call.ts';
+import { memoizedCallAvailable, callContext, startConference, probeCallAvailable } from '../lib/call.ts';
 import type { PresenceStatus } from '../lib/presence.ts';
-import { readPreloadedProfile, type ProfileError } from '../lib/profilePreload.ts';
+import { loadProfile,readPreloadedProfile, type ProfileError } from '../lib/profilePreload.ts';
 import type { RestClient } from '../lib/rest.ts';
 import { avatarUrl } from '../lib/upload.ts';
 import { translateCurrent, useT } from '../ui/i18n.ts';
@@ -94,7 +99,7 @@ export default function ProfileScreen() {
   const bottomMargin = useSheetBottomMargin();
   // `username` (mentions, message rows) OR `uid` (DM header, where only
   // `dmOtherUid` is known locally): `users.info` accepts both.
-  const { username, uid } = useLocalSearchParams<{ username?: string; uid?: string }>();
+  const { username, uid, cryptoRoom } = useLocalSearchParams<{ username?: string; uid?: string; cryptoRoom?:string }>();
   const { state } = useSession();
   const sync = useSync();
   const c = useColors();
@@ -105,8 +110,10 @@ export default function ProfileScreen() {
 
   const client: RestClient | null = state.phase === 'connected' ? state.client : null;
   const me = state.phase === 'connected' ? state.session.username : null;
+  const myId=state.phase==='connected'?state.session.userId:null;
   const engine = sync.phase === 'ready' ? sync.engine : null;
   const actions = sync.phase === 'ready' ? sync.actions : null;
+  const chat=sync.phase==='ready'?sync.provider.native?.chat:null;
   const etags = useAvatarEtags();
 
   // Profile preloaded BEFORE opening (`lib/profilePreload`): if present, we
@@ -118,53 +125,75 @@ export default function ProfileScreen() {
   const [profile, setProfile] = useState<Profile | null>(() =>
     preloaded !== undefined ? profileOf(preloaded.user) : null,
   );
+  const profileTarget=uid??username??'';
+  const profileUid=profile?.uid??uid??null;
+  const subscribeProfiles=useCallback((fn:()=>void)=>chat?.subscribe(fn)??(()=>{}),[chat]);
+  const snapshotProfiles=useCallback(()=>chat?.profileVersionFor(profileUid)??'', [chat,profileUid]);
+  const profileVersion=useSyncExternalStore(subscribeProfiles,snapshotProfiles,snapshotProfiles);
+  const preloadVersion=useRef(profileVersion);
+  const resolvedIdentity=useRef({target:profileTarget,uid:profile?.uid??null});
+  const subscribePresence=useCallback((fn:()=>void)=>chat?.live.subscribe(fn)??(()=>{}),[chat]);
+  const snapshotPresence=useCallback(()=>{
+    const state=chat?.live.state,id=profileUid;
+    return state&&id?state.presence.find(p=>p.user.id===id)?.status??(state.profiles?.some(p=>p.user.id===id)?'offline':null):null;
+  },[chat,profileUid]);
+  const presenceNative=useSyncExternalStore(subscribePresence,snapshotPresence,snapshotPresence);
+  const displayedStatus=client?.kind==='rocketvibe'?presenceNative:profile?.status??null;
   const [error, setError] = useState<string | null>(() =>
     preloaded !== undefined && preloaded.user === undefined
       ? profileErrorText(preloaded.error)
       : null,
   );
-  const [callAvailable, setCallAvailable] = useState(() =>
-    client !== null ? memoizedCallAvailable(client) : false,
-  );
-  const [busy, setBusy] = useState(false);
-  const inFlight = useRef(false);
+  const porteeAction=useMemo(()=>({client,profileTarget}),[client,profileTarget]);
+  const [availability,setAvailability]=useState(()=>({scope:porteeAction,available:client!==null&&memoizedCallAvailable(client)}));
+  const callsAllowed=sync.phase==='ready'&&sync.capabilities.videoCall!==false;
+  const callAvailable=callsAllowed&&availability.scope===porteeAction&&availability.available;
+  const visible=useRef<typeof porteeAction|null>(porteeAction);
+  useEffect(()=>{visible.current=porteeAction;return()=>{if(visible.current===porteeAction)visible.current=null;};},[porteeAction]);
+  const [actionInFlight,setActionInFlight]=useState<typeof porteeAction|null>(null);
+  const busy=actionInFlight===porteeAction;
+  const inFlight = useRef<typeof porteeAction|null>(null);
+
+  useEffect(()=>{
+    if(client===null||!callsAllowed)return;
+    let alive=true;
+    void probeCallAvailable(client).then(available=>{if(alive)setAvailability({scope:porteeAction,available});});
+    return()=>{alive=false;};
+  },[client,callsAllowed,porteeAction]);
 
   useEffect(() => {
     // Already preloaded: reload nothing; a second render would move the height again.
-    if (preloaded !== undefined) return;
+    if (preloaded !== undefined && preloadVersion.current===profileVersion) return;
+    const stableUid=client?.kind==='rocketvibe'&&resolvedIdentity.current.target===profileTarget?resolvedIdentity.current.uid:null;
     const params =
-      typeof username === 'string' && username !== ''
+      stableUid?{uid:stableUid}:typeof username === 'string' && username !== ''
         ? { username }
         : typeof uid === 'string' && uid !== ''
-          ? { userId: uid }
+          ? { uid }
           : null;
     if (client === null || params === null) return;
     let alive = true;
-    void client
-      .get<{ user?: Record<string, unknown> }>('users.info', { params })
-      .then((r) => {
+    void loadProfile(client,params)
+      .then((user) => {
         if (!alive) return;
-        const p = profileOf(r.user);
+        const p = profileOf(user);
         if (p === null) setError(translateCurrent('profile.profileUnreadable'));
-        else setProfile(p);
+        else {resolvedIdentity.current={target:profileTarget,uid:p.uid};setProfile(p);setError(null);}
       })
       .catch((e: unknown) => {
-        if (alive) setError(e instanceof Error ? e.message : translateCurrent('profile.profileNotFound'));
+        if (alive){setProfile(null);setError(client.kind==='rocketvibe'?translateCurrent('native.error'):e instanceof Error ? e.message : translateCurrent('profile.profileNotFound'));}
       });
-    void probeCallAvailable(client).then((ok) => {
-      if (alive) setCallAvailable(ok);
-    });
     return () => {
       alive = false;
     };
-  }, [client, username, uid, preloaded]);
+  }, [client, username, uid, preloaded,profileVersion,profileTarget]);
 
   // What the profile just learned benefits the rest of the app: current
   // username and photo version stored in the database, so the room list and
   // the messages show the SAME photo, right away. The SQL only touches the row
   // if something really changed (see `UPSERT_IDENTITY`).
   useEffect(() => {
-    if (profile === null || engine === null) return;
+    if (profile === null || engine === null || client?.kind==='rocketvibe') return;
     void engine.syncStore
       .saveIdentity({
         uid: profile.uid,
@@ -174,26 +203,30 @@ export default function ProfileScreen() {
       .catch(() => {
         // An unavailable database must not prevent showing the profile.
       });
-  }, [profile, engine]);
+  }, [profile, engine,client]);
 
   /** Opens (or creates) the DM, then goes there: the sheet is REPLACED by the room. */
   const openDm = useCallback(
     async (toCall: boolean) => {
-      if (client === null || actions === null || profile === null || inFlight.current) return;
-      inFlight.current = true;
-      setBusy(true);
+      if (client === null || actions === null || profile === null || inFlight.current===porteeAction) return;
+      const account=callContext(client),alive=()=>visible.current===porteeAction&&callContext(client)===account;
+      inFlight.current = porteeAction;
+      setActionInFlight(porteeAction);
       setError(null);
       try {
-        const { rid, rawRoom } = await actions.openOrCreateDm(profile.username);
+        const { rid, rawRoom } = await actions.openOrCreateDm(profile.username,profile.uid);
+        if(!alive())return;
         if (engine !== null) await engine.ingestRooms([rawRoom]);
+        if(!alive())return;
         if (toCall) {
           // `start` creates the conference and posts the call message in the DM;
           // the call screen does the `join`. On return (back), we land where
           // the profile was opened.
-          const callId = await startConference(client, rid);
+          const callId = await startConference(client, rid,{alive});
+          if(!alive())return;
           router.replace({
             pathname: '/call/[callId]',
-            params: { callId, title: profile.name ?? profile.username },
+            params: { callId, title: profile.name ?? profile.username,rid,account },
           });
         } else {
           // `im.create` is idempotent: opened from a DM, the profile returns the
@@ -221,13 +254,14 @@ export default function ProfileScreen() {
           else router.replace({ pathname: '/room/[rid]', params: { rid } });
         }
       } catch (e) {
+        if(!alive())return;
         setError(e instanceof Error ? e.message : t('profile.actionFailed'));
-        inFlight.current = false;
-        setBusy(false);
+        inFlight.current = null;
+        setActionInFlight(null);
       }
       // Success: we navigated, the screen unmounts; do not set state again.
     },
-    [client, actions, profile, engine, router, navigation, t],
+    [client, actions, profile, engine, router, navigation, t,porteeAction],
   );
 
   // What we know AS SOON AS the tap happens (avatar + @username, or uid for a
@@ -250,20 +284,20 @@ export default function ProfileScreen() {
       ? avatarUrl(client, {
           username: shownUsername,
           uid: uid ?? profile?.uid,
-          etag: profile?.avatarEtag ?? knownEtag,
+          etag: client.kind==='rocketvibe'?knownEtag??profile?.avatarEtag:profile?.avatarEtag??knownEtag,
         })
       : null;
-  const isMe = shownUsername !== null && shownUsername === me;
+  const isMe = profile?.uid?profile.uid===myId:shownUsername !== null && shownUsername === me;
   const errorBeforeProfile = profile === null && error !== null;
 
   return (
-    <View style={[styles.sheet, { backgroundColor: c.deepCard, paddingBottom: bottomMargin }]}>
+    <ProfileBody c={c} bottom={bottomMargin} scrollable={client?.kind==='rocketvibe' && CryptoNative!==null && chat?.capabilities?.e2ee===true && chat.capabilities.device_sessions===true}>
       <Stack.Screen options={{ headerShown: false }} />
 
       <View style={styles.header}>
         <AvatarTile
           c={c}
-          key={shownUsername ?? '?'}
+          hueKey={shownUsername ?? '?'}
           initial={(shownUsername ?? '?').charAt(0)}
           size={72}
           radius={22}
@@ -284,11 +318,11 @@ export default function ProfileScreen() {
             <View
               style={[
                 styles.badge,
-                { backgroundColor: profile !== null ? presenceColors(c)[profile.status] : c.dimmed },
+                { backgroundColor: displayedStatus !== null ? presenceColors(c)[displayedStatus] : c.dimmed },
               ]}
             />
             <Text style={[styles.presenceSentence, { color: c.dimmed }]}>
-              {profile !== null ? t(PRESENCE_KEYS[profile.status]) : '…'}
+              {displayedStatus !== null ? t(PRESENCE_KEYS[displayedStatus]) : '…'}
             </Text>
           </View>
         </View>
@@ -318,6 +352,9 @@ export default function ProfileScreen() {
       {error !== null && (
         <Text style={[styles.error, { color: c.errorText }]}>{error}</Text>
       )}
+      {client?.kind==='rocketvibe' && profile && <EncryptedTrustSection c={c} user={profile.uid}/>}
+      {client?.kind==='rocketvibe' && typeof cryptoRoom==='string' && sync.phase==='ready' && chat?.capabilities?.e2ee &&
+        <RoomMembershipBound base={sync.base} rid={cryptoRoom}>{membership=>membership?<EncryptedGroupSection c={c} room={cryptoRoom} membership={membership}/>:null}</RoomMembershipBound>}
 
       {/* Actions present from the skeleton on (Message disabled while
           loading): their height does not change when the data arrives.
@@ -362,8 +399,16 @@ export default function ProfileScreen() {
           )}
         </View>
       )}
-    </View>
+    </ProfileBody>
   );
+}
+
+function ProfileBody({c,bottom,scrollable,children}:{c:ReturnType<typeof useColors>;bottom:number;scrollable:boolean;children:ReactNode}) {
+  const content=[styles.sheet,{backgroundColor:c.deepCard,paddingBottom:bottom}];
+  // Capped like the room info: a sheet fitted to a long content would not scroll.
+  const maxHeight=useWindowDimensions().height*0.9;
+  return scrollable ? <ScrollView style={{backgroundColor:c.deepCard,maxHeight}} contentContainerStyle={content} keyboardShouldPersistTaps="handled">{children}</ScrollView>
+    : <View style={content}>{children}</View>;
 }
 
 const styles = StyleSheet.create({

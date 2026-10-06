@@ -21,6 +21,8 @@ import type { RestClient, TwoFactorCode } from './rest.ts';
 export type DefaultStatus = 'online' | 'away' | 'busy' | 'offline';
 
 export type MyProfile = {
+  /** Present for the native provider's conditional writes. */
+  revision?: string;
   username: string;
   name: string;
   email: string;

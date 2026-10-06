@@ -6,20 +6,21 @@
  *
  * The skeleton (name, type, encrypted/read-only) comes from the local
  * database, shown immediately, even offline. Description, topic, announcement
- * and member count come from `rooms.info` (not stored locally: they are only
- * used here) and arrive later.
+ * and member count come from the active provider (not stored locally: they
+ * are only used here) and arrive later.
  */
 
 import { eq } from 'drizzle-orm';
 import { useCoalescedLiveQuery } from '../ui/liveQuery.ts';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import type { LocalDatabase } from '../db/client.ts';
 import { subscriptions, rooms } from '../db/schema.ts';
 import type { E2EEngine } from '../lib/e2e/engine.ts';
 import type { RestClient } from '../lib/rest.ts';
+import type { ProviderActions, RoomInformation } from '../lib/provider.ts';
 import { useE2EUnlocked } from '../ui/e2e.ts';
 import { translateCurrent, useT } from '../ui/i18n.ts';
 import { Tappable } from '../ui/tappable.tsx';
@@ -29,17 +30,10 @@ import { useSession } from '../ui/session.tsx';
 import { useSync } from '../ui/sync.tsx';
 import { FONTS, useColors } from '../ui/theme.ts';
 import { useSheetBottomMargin } from '../ui/sheetMargin.ts';
-
-type RoomExtras = {
-  description: string | null;
-  topic: string | null;
-  announcement: string | null;
-  members: number | null;
-};
-
-function asString(v: unknown): string | null {
-  return typeof v === 'string' && v !== '' ? v : null;
-}
+import {RoomCommands} from '../ui/roomManagement.tsx';
+import {RoomMembershipBound} from '../ui/roomMembership.tsx';
+import {NativeRoomFavorite} from '../ui/nativeRoomFavorite.tsx';
+import {EncryptedGroupSection} from '../ui/encryptedGroup.tsx';
 
 const TYPE_SENTENCE: Record<string, TranslationKey> = {
   c: 'roomInfo.typePublicChannel',
@@ -59,21 +53,30 @@ export default function RoomInfoScreen() {
   if (state.phase !== 'connected' || sync.phase !== 'ready' || typeof rid !== 'string') {
     return null;
   }
-  return (
-    <RoomInfoContent rid={rid} base={sync.base} client={state.client} e2e={sync.e2e} c={c} />
+  const content=(membership?:string|null)=>(
+    <RoomInfoContent key={JSON.stringify(sync.provider.identity)+rid} membership={membership} rid={rid} base={sync.base} client={state.client} actions={sync.actions} native={sync.provider.identity.kind==='rocketvibe'} favorites={sync.capabilities.roomFavorites!==false} e2e={sync.e2e} c={c} />
   );
+  return sync.provider.native?<RoomMembershipBound key={JSON.stringify(sync.provider.identity)+rid} base={sync.base} rid={rid}>{content}</RoomMembershipBound>:content();
 }
 
 function RoomInfoContent({
   rid,
   base,
   client,
+  actions,
+  native,
+  favorites,
+  membership,
   e2e,
   c,
 }: {
   rid: string;
   base: LocalDatabase;
   client: RestClient;
+  actions: ProviderActions;
+  native: boolean;
+  favorites: boolean;
+  membership?:string|null;
   e2e: E2EEngine;
   c: ReturnType<typeof useColors>;
 }) {
@@ -85,6 +88,7 @@ function RoomInfoContent({
     [rid],
   );
   const room = (rows ?? [])[0];
+  const roomPresent = room !== undefined;
   const { data: subscriptionRows } = useCoalescedLiveQuery(
     base.select().from(subscriptions).where(eq(subscriptions.rid, rid)),
     [rid],
@@ -98,54 +102,58 @@ function RoomInfoContent({
     if (favoriteToggle) return;
     setFavoriteToggle(true);
     setFavoriteError(false);
-    void client
-      .post('rooms.favorite', { body: { roomId: rid, favorite: !favorite } })
+    void (actions.roomFavorite?.edit(rid,!favorite)??Promise.reject(new Error('Favorite unavailable')))
       .then(() => base.update(subscriptions).set({ favorite: !favorite }).where(eq(subscriptions.rid, rid)))
       .catch(() => setFavoriteError(true))
       .finally(() => setFavoriteToggle(false));
   };
 
-  const [extras, setExtras] = useState<RoomExtras | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const version = `${rid}:${room?.updatedAt ?? 0}`;
+  const [details, setDetails] = useState<{version:string;value:RoomInformation} | null>(null);
+  const [incident, setIncident] = useState<{version:string;message:string} | null>(null);
+  const [refreshing,setRefreshing]=useState(0);
+  const extras = details?.version === version ? details.value : null;
+  const error = incident?.version === version ? incident.message : null;
 
   useEffect(() => {
     let alive = true;
-    void client
-      .get<{ room?: Record<string, unknown> }>('rooms.info', { params: { roomId: rid } })
+    if(native && !roomPresent)return;
+    void actions
+      .roomInfo(rid)
       .then((r) => {
         if (!alive) return;
-        setExtras({
-          description: asString(r.room?.description),
-          topic: asString(r.room?.topic),
-          announcement: asString(r.room?.announcement),
-          members: typeof r.room?.usersCount === 'number' ? r.room.usersCount : null,
-        });
+        setDetails({version,value:r});
       })
       .catch((e: unknown) => {
         // The local database already filled in the essentials: failure only costs
         // the extra sections.
-        if (alive) setError(e instanceof Error ? e.message : translateCurrent('roomInfo.detailsUnavailable'));
+        if (alive) setIncident({version,message:e instanceof Error ? e.message : translateCurrent('roomInfo.detailsUnavailable')});
       });
     return () => {
       alive = false;
     };
-  }, [client, rid]);
+  }, [actions, rid, native, roomPresent, version,refreshing]);
 
-  const name = room?.displayName ?? room?.name ?? '?';
-  const typeKey = TYPE_SENTENCE[room?.type ?? ''];
+  const name = extras?.name || room?.displayName || room?.name || '?';
+  const typeKey = TYPE_SENTENCE[extras?.type ?? room?.type ?? ''];
   const subtitle = [
     typeKey !== undefined ? t(typeKey) : null,
     extras?.members !== null && extras !== null
       ? t('roomInfo.members', { n: extras.members })
       : null,
     room?.encrypted === true ? t('roomInfo.encrypted') : null,
-    room?.readOnly === true ? t('roomInfo.readOnly') : null,
+    (extras?.readOnly ?? room?.readOnly) === true ? t('roomInfo.readOnly') : null,
   ]
     .filter((x): x is string => x !== null)
     .join(' · ');
 
+  const sheetHeight = useWindowDimensions().height * 0.9;
+  if(native && !room)return null;
   return (
-    <View style={[styles.sheet, { backgroundColor: c.deepCard, paddingBottom: bottomMargin }]}>
+    // `maxHeight`: the sheet fits its content, so a ScrollView as tall as its
+    // content never scrolls and the end of a long section (the encrypted
+    // group's review) would sit below the screen, out of reach.
+    <ScrollView style={{ backgroundColor: c.deepCard, maxHeight: sheetHeight }} contentContainerStyle={[styles.sheet, { paddingBottom: bottomMargin }]}>
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.header}>
         <RoomAvatar
@@ -173,7 +181,8 @@ function RoomInfoContent({
         </View>
       </View>
 
-      <Tappable
+      {favorites && native && membership && actions.roomFavorite && <NativeRoomFavorite rid={rid} adhesion={membership} base={base} actions={actions.roomFavorite} c={c} button={(label,action,disabled)=><Tappable onPress={action} disabled={disabled} accessibilityRole="button" android_ripple={{color:c.ripple}} style={[styles.favorite,{backgroundColor:c.card}]}><Text style={[styles.favoriteText,{color:c.text}]}>{label}</Text></Tappable>} />}
+      {favorites && !native && <Tappable
         onPress={toggleFavorite}
         disabled={favoriteToggle}
         accessibilityRole="button"
@@ -183,10 +192,13 @@ function RoomInfoContent({
         <Text style={[styles.favoriteText, { color: c.text }]}>
           {favorite ? '★ ' + t('roomInfo.removeFavorite') : '☆ ' + t('roomInfo.addFavorite')}
         </Text>
-      </Tappable>
+      </Tappable>}
       {favoriteError && (
         <Text style={[styles.empty, { color: c.errorText }]}>{t('roomInfo.favoriteFailed')}</Text>
       )}
+
+      {extras?.management && actions.roomManagement && <RoomCommands rid={rid} base={base} details={extras.management} actions={actions.roomManagement} c={c} refresh={()=>setRefreshing(value=>value+1)} />}
+      {native && membership && <EncryptedGroupSection c={c} room={rid} membership={membership}/>}
 
       {extras?.announcement !== null && extras !== null && (
         <Section c={c} title={t('roomInfo.announcement')} text={extras.announcement} />
@@ -206,7 +218,7 @@ function RoomInfoContent({
           </Text>
         )}
       {error !== null && <Text style={[styles.empty, { color: c.errorText }]}>{error}</Text>}
-    </View>
+    </ScrollView>
   );
 }
 

@@ -5,28 +5,52 @@ import RocketVibeCore
 /// token) once each, however many rows ask at the same time.
 @MainActor
 public final class MediaStore {
-    let chat: Chat
+    let chat: Chat?
+    let native:NativeChat?
+    var generation=0
     var done: [String: MediaData] = [:]
     var coming: [String: Task<MediaData?, Never>] = [:]
 
     init(chat: Chat) {
         self.chat = chat
+        self.native=nil
     }
+    init(native:NativeChat){self.chat=nil;self.native=native}
 
     public func cached(_ path: String) -> MediaData? {
-        done[path]
+        if native != nil && (path.hasPrefix("rv-file:")||path.hasPrefix("rv-emoji:")||path.hasPrefix("rv-preview:")){return nil}
+        return current(path) ? done[path] : nil
     }
+    public func current(_ path:String)->Bool{guard let native else{return true};if path.hasPrefix("rv-preview:"){return native.previewCurrent(path:path)};if path.hasPrefix("rv-file:"){return native.fileCurrent(path:path)};if path.hasPrefix("rv-emoji:"){return native.emojiCurrent(path:path)};guard path.hasPrefix("rv-avatar:")else{return false};return native.profileAvatarCurrent(id:String(path.dropFirst("rv-avatar:".count)))}
+    public func scope(_ path:String)->String?{path.hasPrefix("rv-preview:") ? native?.previewScope(path:path) : nil}
 
     public func load(_ path: String) async -> MediaData? {
-        if let hit = done[path] { return hit }
-        if let task = coming[path] { return await task.value }
-        let chat = chat
-        let task = Task<MediaData?, Never> { try? await chat.media(path: path) }
+        let authority=scope(path)
+        guard current(path) else{return nil}
+        if let hit = done[path], native == nil || (!path.hasPrefix("rv-file:") && !path.hasPrefix("rv-emoji:") && !path.hasPrefix("rv-preview:")) { return hit }
+        if let task = coming[path] {
+            let version=generation
+            let media=await task.value
+            return version==generation && current(path) && authority==scope(path) ? media : nil
+        }
+        let (chat,native,version) = (chat,self.native,generation)
+        let task = Task<MediaData?, Never> {
+            if let native {
+                if path.hasPrefix("rv-file:"){return try? await native.media(path:path)}
+                if path.hasPrefix("rv-preview:"){return try? await native.previewMedia(path:path)}
+                if path.hasPrefix("rv-emoji:"){return try? await native.emojiMedia(path:path)}
+                guard path.hasPrefix("rv-avatar:") else{return nil}
+                return try? await native.profileAvatar(id:String(path.dropFirst("rv-avatar:".count)))
+            }
+            return try? await chat?.media(path: path)
+        }
         coming[path] = task
         let media = await task.value
-        coming[path] = nil
+        if version == generation { coming[path] = nil }
+        guard version==generation,current(path),authority==scope(path) else{return nil}
         if let media {
-            if done.count > 400 { done.removeAll() }
+            let byteCount=done.values.reduce(0){$0+$1.bytes.count}
+            if done.count > (native == nil ? 400 : 127)||native != nil&&byteCount+media.bytes.count>32*1024*1024 { done.removeAll() }
             done[path] = media
         }
         return media
@@ -34,18 +58,28 @@ public final class MediaStore {
 
     /// A photo changed somewhere: fetch everything again.
     func forget() {
+        generation+=1
         done.removeAll()
+        for task in coming.values{task.cancel()};coming.removeAll()
     }
 
     public func avatar(user: String) -> String {
-        chat.userAvatar(username: user)
+        chat?.userAvatar(username: user) ?? native?.userAvatar(username:user) ?? ""
     }
 
     public func customEmoji(_ code: String) -> String? {
-        chat.customEmoji(code: code)
+        chat?.customEmoji(code: code) ?? native?.customEmoji(code:code)
     }
 
     public func download(_ path: String, to destination: String) async throws {
-        try await chat.download(path: path, destination: destination)
+        if let chat{try await chat.download(path: path, destination: destination)}
+        else if let native{try await native.download(path:path,destination:destination)}
+        else{throw RvError.Local(message:"unsupported_feature")}
+    }
+    public func localCopy(_ path:String,name:String) async throws -> URL {
+        if let native{return URL(fileURLWithPath:try await native.localFile(path:path))}
+        let local=FileManager.default.temporaryDirectory.appendingPathComponent("rv-\(abs(path.hashValue))-\(name)")
+        if !FileManager.default.fileExists(atPath:local.path){try await download(path,to:local.path)}
+        return local
     }
 }

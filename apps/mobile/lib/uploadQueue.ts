@@ -30,6 +30,8 @@ export type UploadRow = {
   name: string;
   type: string;
   caption: string | null;
+  /** The thread the file answers, sent as `tmid` with the confirmation; null in the room. */
+  tmid: string | null;
   status: 'pending' | 'sending' | 'failed';
   /** Returned by `rooms.media`. Non-null = the bytes are already on the server. */
   fileId: string | null;
@@ -303,6 +305,7 @@ export class UploadEngine {
     rid: string,
     file: FileToSend & { size: number | null },
     caption?: string,
+    thread?: string | null,
   ): Promise<void> {
     const encrypted = (await this.encryption?.roomEncrypted(rid)) === true;
     validateFile(await this.uploadRules(), file, encrypted);
@@ -314,6 +317,7 @@ export class UploadEngine {
       name: file.name,
       type: file.type,
       caption: caption ?? null,
+      tmid: thread ?? null,
     });
     await this.process();
   }
@@ -427,6 +431,7 @@ export class UploadEngine {
       rid: row.rid,
       fileId,
       message: row.caption ?? undefined,
+      tmid: row.tmid,
     });
     await this.settle(row);
     if (!this.discarded.has(row.id)) await this.ingest(message);
@@ -509,7 +514,7 @@ export class UploadEngine {
       client: this.client,
       rid: row.rid,
       fileId,
-      body: { msg: '', t: 'e2e', content, fileContent },
+      body: { msg: '', t: 'e2e', content, fileContent, ...(row.tmid === null ? {} : { tmid: row.tmid }) },
     });
     this.encrypted.delete(row.id);
     await this.settle(row);

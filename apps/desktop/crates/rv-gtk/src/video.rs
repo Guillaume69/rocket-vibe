@@ -3,12 +3,10 @@
 //! bar, and fullscreen on demand.
 
 use std::rc::Rc;
-use std::sync::Arc;
 
 use adw::prelude::*;
 use gtk::{gdk, glib, pango};
 use rv_core::content::{FileAttachment, human_size};
-use rv_core::session::Session;
 
 use crate::cards::{cache_path, local_copy_with, open_file, progress_text};
 use crate::i18n::t;
@@ -46,7 +44,7 @@ struct Player {
     /// Clicked while downloading: plays once the file is there.
     play_when_fetched: std::cell::Cell<bool>,
     stream: std::cell::RefCell<Option<gtk::MediaStream>>,
-    session: Arc<Session>,
+    session: crate::media::Provider,
     file: FileAttachment,
 }
 
@@ -159,7 +157,7 @@ fn detail(f: &FileAttachment) -> String {
     [f.size.map(human_size), f.mime.clone()].into_iter().flatten().collect::<Vec<_>>().join(" · ")
 }
 
-pub fn card(session: &Arc<Session>, f: &FileAttachment) -> gtk::Widget {
+pub fn card_provider(session: crate::media::Provider, f: &FileAttachment) -> gtk::Widget {
     let frame = widgets::media_frame(360, 203, &["video-frame"]);
     frame.set_cursor(gdk::Cursor::from_name("pointer", None).as_ref());
     let picture = gtk::Picture::builder().content_fit(gtk::ContentFit::Contain).can_shrink(true).build();
@@ -233,6 +231,17 @@ pub fn card(session: &Arc<Session>, f: &FileAttachment) -> gtk::Widget {
         stream: Default::default(),
         session: session.clone(),
         file: f.clone(),
+    });
+    let weak = Rc::downgrade(&player);
+    session.watch(&frame, &f.url, move |_| {
+        if let Some(p) = weak.upgrade() {
+            if let Some(stream) = p.stream.borrow().as_ref() {
+                stream.pause();
+            }
+            p.picture.set_paintable(None::<&gtk::gdk::Texture>);
+            p.badge.set_visible(false);
+            p.bar.set_visible(false);
+        }
     });
     let click = gtk::GestureClick::new();
     let p = player.clone();

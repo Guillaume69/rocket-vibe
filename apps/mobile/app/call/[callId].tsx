@@ -12,19 +12,20 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 
-import { joinConference } from '../../lib/call.ts';
+import { callContext, joinConference } from '../../lib/call.ts';
 import { sameOrigin, originOf } from '../../lib/origin.ts';
 import type { RestClient } from '../../lib/rest.ts';
 import { useT } from '../../ui/i18n.ts';
 import { useSession } from '../../ui/session.tsx';
+import {useSync} from '../../ui/sync.tsx';
 import { type Colors, FONTS, useColors } from '../../ui/theme.ts';
 
 /**
  * Call screen: the Jitsi conference in a full-screen WebView.
  *
- * Jitsi is a web app: we load the URL returned by `video-conference.join`
- * (JWT included) rather than embedding the native SDK (peer RN ~0.79 vs
- * 0.86, fragile New Arch). The WebView stays STRICTLY confined to the call:
+ * Jitsi is a web app: we load the private URL returned by the provider (JWT
+ * included) rather than embedding the native SDK (peer RN ~0.79 vs 0.86,
+ * fragile New Arch). The WebView stays STRICTLY confined to the call:
  * elsewhere it is forbidden (ROADMAP §4.2) and the app renders everything
  * natively.
  *
@@ -93,23 +94,30 @@ const UA_MOBILE =
 export default function CallScreen() {
   const c = useColors();
   const { state } = useSession();
-  const { callId, title } = useLocalSearchParams<{ callId: string; title?: string }>();
+  useSync();
+  const { callId, title,rid,adhesion,account } = useLocalSearchParams<{ callId: string; title?: string;rid?:string;adhesion?:string;account?:string }>();
   const t = useT();
   // Reached from a logged-in room; a logged-out state (expired session)
   // sends back to login rather than crashing on `client`.
   if (state.phase !== 'connected') return <Redirect href="/login" />;
-  return <Call c={c} client={state.client} callId={callId} title={title ?? t('call.videoCall')} />;
+  const current=callContext(state.client);
+  if(account!==undefined&&account!==current)return <Redirect href="/" />;
+  return <Call key={`${current}#${callId}#${rid??''}#${adhesion??''}`} c={c} client={state.client} callId={callId} rid={rid} membership={adhesion} title={title ?? t('call.videoCall')} />;
 }
 
 function Call({
   c,
   client,
   callId,
+  rid,
+  membership,
   title,
 }: {
   c: Colors;
   client: RestClient;
   callId: string;
+  rid?:string;
+  membership?:string;
   title: string;
 }) {
   const router = useRouter();
@@ -130,7 +138,7 @@ function Call({
     void (async () => {
       try {
         await requestCameraMic();
-        const u = await joinConference(client, callId);
+        const u = await joinConference(client, callId,undefined,{room:rid,membership,alive:()=>alive});
         // A conference URL without a readable origin (exotic scheme, truncated
         // response) would give no lock to put on the WebView: we refuse rather
         // than load without a guard.
@@ -145,7 +153,7 @@ function Call({
     return () => {
       alive = false;
     };
-  }, [client, callId, attempt, t]);
+  }, [client, callId, rid,membership,attempt, t]);
 
   // Handler (outside the effect): resetting the state there is legitimate.
   const retry = useCallback(() => {

@@ -91,6 +91,15 @@ fn inlines(chars: &[char]) -> Vec<Value> {
     while i < chars.len() {
         let c = chars[i];
         let boundary = i == 0 || !is_word(chars[i - 1]);
+        // `\_` is a literal `_`, as in Rocket.Chat's parser: `¯\_(ツ)_/¯`.
+        if c == '\\'
+            && let Some(&next) = chars.get(i + 1)
+            && next.is_ascii_punctuation()
+        {
+            text.push(next);
+            i += 2;
+            continue;
+        }
         if c == '`'
             && let Some(end) = (i + 1..chars.len()).find(|&j| chars[j] == '`')
             && end > i + 1
@@ -308,6 +317,13 @@ mod tests {
         );
         assert_eq!(nodes[8]["value"]["value"], "bob");
         assert_eq!(nodes[11]["value"], " mail@x.y 2*3*4");
+    }
+
+    #[test]
+    fn a_backslash_keeps_a_marker_literal() {
+        let t = tree(r"ok ¯\_(ツ)_/¯ \*not bold\* a\b");
+        assert_eq!(types(t[0]["value"].as_array().unwrap()), ["PLAIN_TEXT"]);
+        assert_eq!(t[0]["value"][0]["value"], r"ok ¯_(ツ)_/¯ *not bold* a\b");
     }
 
     #[test]

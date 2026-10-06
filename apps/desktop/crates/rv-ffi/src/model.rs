@@ -14,7 +14,14 @@ use crate::markup::{self, BodyBlock};
 pub enum RvError {
     /// `status` 0: no answer at all. `two_factor`: the method the server asks a code for.
     #[error("{message}")]
-    Server { status: u16, message: String, error: Option<String>, two_factor: Option<TwoFactor> },
+    Server {
+        status: u16,
+        message: String,
+        error: Option<String>,
+        two_factor: Option<TwoFactor>,
+        request_id: Option<String>,
+        retry_after: Option<u64>,
+    },
     #[error("{message}")]
     Local { message: String },
 }
@@ -34,12 +41,32 @@ pub struct TwoFactor {
     pub code_generated: bool,
 }
 
+/// The kind of server the user says is at an address (`ServerKind`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum ServerChoice {
+    Auto,
+    RocketChat,
+    RocketVibe,
+}
+
+impl From<ServerChoice> for rv_core::native::ServerKind {
+    fn from(choice: ServerChoice) -> Self {
+        match choice {
+            ServerChoice::Auto => Self::Auto,
+            ServerChoice::RocketChat => Self::RocketChat,
+            ServerChoice::RocketVibe => Self::RocketVibe,
+        }
+    }
+}
+
 impl From<RestError> for RvError {
     fn from(e: RestError) -> Self {
         RvError::Server {
             status: e.status,
             message: e.message,
             error: e.error,
+            request_id: e.request_id,
+            retry_after: e.retry_after,
             two_factor: e.two_factor.map(|c| TwoFactor {
                 method: c.method,
                 methods: c.methods,
@@ -57,6 +84,7 @@ impl RvError {
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct Account {
+    pub genre: String,
     pub key: String,
     pub base_url: String,
     pub user_id: String,
@@ -65,23 +93,35 @@ pub struct Account {
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct ServerProfile {
+    pub genre: String,
     pub base_url: String,
     pub version: String,
     pub password_login: bool,
     pub two_factor: bool,
     pub e2e: bool,
     pub oauth: Vec<String>,
+    pub account_invitations: bool,
+    pub account_recovery: bool,
+    pub email_recovery: bool,
+    pub instance_id: Option<String>,
+    pub data_epoch: Option<String>,
 }
 
 impl From<rv_core::server::ServerProfile> for ServerProfile {
     fn from(p: rv_core::server::ServerProfile) -> Self {
         ServerProfile {
+            genre: p.genre,
             base_url: p.base_url,
             version: p.version,
             password_login: p.password_login,
             two_factor: p.two_factor,
             e2e: p.e2e,
             oauth: p.oauth,
+            account_invitations: p.account_invitations,
+            account_recovery: p.account_recovery,
+            email_recovery: p.email_recovery,
+            instance_id: p.native_identity.as_ref().map(|i| i.instance_id.clone()),
+            data_epoch: p.native_identity.map(|i| i.data_epoch),
         }
     }
 }
@@ -229,17 +269,36 @@ pub struct FileItem {
     pub description: Option<String>,
 }
 
+impl From<content::FileAttachment> for FileItem {
+    fn from(f: content::FileAttachment) -> Self {
+        Self {
+            kind: match f.kind {
+                FileKind::Audio => FileType::Audio,
+                FileKind::Video => FileType::Video,
+                FileKind::Other => FileType::Other,
+            },
+            url: f.url,
+            title: f.title,
+            size: f.size.map(content::human_size),
+            mime: f.mime,
+            description: f.description,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct Quote {
+    pub unavailable: bool,
     pub link: String,
     pub author: Option<String>,
     pub body: Vec<BodyBlock>,
     pub images: Vec<ImageItem>,
+    pub files: Vec<FileItem>,
     /// What the quoted message quoted in turn.
     pub quotes: Vec<Quote>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, uniffi::Record)]
 pub struct Card {
     pub url: String,
     pub title: Option<String>,
@@ -250,6 +309,16 @@ pub struct Card {
     pub video: bool,
     /// The video's player page, loaded at `player_origin()`: the card plays it in place.
     pub player: Option<String>,
+    pub integration: bool,
+    pub color: Option<String>,
+    pub fields: Vec<CardField>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct CardField {
+    pub title: String,
+    pub value: String,
+    pub short: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
@@ -306,10 +375,12 @@ pub struct MessageItem {
 pub fn quote(q: content::Quote, me: &str) -> Quote {
     let ctx = markdown::Context { me };
     Quote {
+        unavailable: q.unavailable,
         link: q.link,
         author: q.author,
         body: markup::blocks(markdown::render(q.md.as_deref(), Some(&q.text), &ctx)),
         images: q.images.into_iter().map(ImageItem::from).collect(),
+        files: q.files.into_iter().map(FileItem::from).collect(),
         quotes: q.quotes.into_iter().map(|inner| quote(inner, me)).collect(),
     }
 }
@@ -343,21 +414,24 @@ pub fn message(d: Display, me_id: &str, me: &str) -> MessageItem {
             site: Some(v.provider.to_owned()),
             video: true,
             player: rv_core::player::page(v.provider, &v.id),
+            ..Default::default()
         })
         .collect();
     cards.extend(content::link_previews(row.urls.as_deref(), 3).into_iter().map(|p| match p {
-        LinkPreview::Image { url } => Card {
-            image: Some(url.clone()),
-            url,
-            title: None,
-            description: None,
-            site: None,
-            video: false,
-            player: None,
-        },
+        LinkPreview::Image { url } => Card { image: Some(url.clone()), url, ..Default::default() },
         LinkPreview::Card { url, title, description, image, site } => {
-            Card { url, title, description, image, site, video: false, player: None }
+            Card { url, title, description, image, site, ..Default::default() }
         }
+    }));
+    cards.extend(content::cards(attachments).into_iter().map(|c| Card {
+        url: c.link.unwrap_or_default(),
+        title: c.title,
+        description: c.text,
+        site: c.author,
+        color: c.color,
+        integration: true,
+        fields: c.fields.into_iter().map(|(title, value, short)| CardField { title, value, short }).collect(),
+        ..Default::default()
     }));
     let author = row.author.clone().unwrap_or_default();
     MessageItem {
@@ -375,21 +449,7 @@ pub fn message(d: Display, me_id: &str, me: &str) -> MessageItem {
         text,
         quotes: content::quotes(attachments).into_iter().map(|q| quote(q, me)).collect(),
         images: media::image_attachments(attachments).into_iter().map(ImageItem::from).collect(),
-        files: content::files(attachments)
-            .into_iter()
-            .map(|f| FileItem {
-                kind: match f.kind {
-                    FileKind::Audio => FileType::Audio,
-                    FileKind::Video => FileType::Video,
-                    FileKind::Other => FileType::Other,
-                },
-                url: f.url,
-                title: f.title,
-                size: f.size.map(content::human_size),
-                mime: f.mime,
-                description: f.description,
-            })
-            .collect(),
+        files: content::files(attachments).into_iter().map(FileItem::from).collect(),
         cards,
         reactions: rv_core::actions::reactions(row.reactions.as_deref(), me)
             .into_iter()
@@ -420,6 +480,28 @@ pub fn message(d: Display, me_id: &str, me: &str) -> MessageItem {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn provider_error_retains_native_diagnostics_in_the_exported_error() {
+        let error = RestError {
+            status: 429,
+            message: "service busy".into(),
+            error: Some("service_busy".into()),
+            error_type: None,
+            understood: true,
+            two_factor: None,
+            request_id: Some("request-fixture".into()),
+            retry_after: Some(12),
+        };
+        match RvError::from(error) {
+            RvError::Server { status, request_id, retry_after, two_factor, .. } => {
+                assert_eq!(status, 429);
+                assert_eq!(request_id.as_deref(), Some("request-fixture"));
+                assert_eq!(retry_after, Some(12));
+                assert!(two_factor.is_none());
+            }
+            _ => panic!("native error lost its server envelope"),
+        }
+    }
     use super::*;
 
     fn display(row: MessageRow) -> Display {
@@ -456,6 +538,19 @@ mod tests {
         );
         assert_eq!(m.reactions[1].glyph, None);
         assert!(matches!(&m.body[0], BodyBlock::Paragraph { runs } if runs[0].text == "look"));
+    }
+
+    #[test]
+    fn integration_cards_reach_existing_swift_cards_with_full_fields() {
+        let row=MessageRow{attachments:Some(serde_json::json!([{"native_card":true,"author_name":"CI","title":"Build &amp; ready","title_link":"https://example.org/build","text":"Details","color":"#1177aa","fields":[{"title":"Commit","value":"abcdef","short":true}]}]).to_string()),..Default::default()};
+        let m = message(display(row), "alice-id", "alice");
+        assert_eq!(m.cards.len(), 1);
+        let card = &m.cards[0];
+        assert!(card.integration);
+        assert_eq!(card.title.as_deref(), Some("Build &amp; ready"));
+        assert_eq!(card.site.as_deref(), Some("CI"));
+        assert_eq!(card.fields[0].value, "abcdef");
+        assert!(card.fields[0].short);
     }
 
     #[test]

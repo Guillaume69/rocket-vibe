@@ -1,0 +1,8 @@
+{
+  "host": "smtp.example.test",
+  "port": 587,
+  "from": "service@example.test",
+  "tls": "starttls",
+  "username": "replace-with-relay-account",
+  "password": "replace-with-relay-password"
+}

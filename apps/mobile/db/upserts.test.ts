@@ -446,8 +446,8 @@ describe('outbox', () => {
  * tests instead of corrupting the database.
  */
 function upload(o: Partial<Record<string, unknown>> & { id: string }) {
-  const v = { rid: 'r1', uri: 'file:///a.png', name: 'a.png', type: 'image/png', caption: null, createdAt: 1000, ...o };
-  return [v.id, v.rid, v.uri, v.name, v.type, v.caption, v.createdAt] as const;
+  const v = { rid: 'r1', uri: 'file:///a.png', name: 'a.png', type: 'image/png', caption: null, createdAt: 1000, tmid: null, ...o };
+  return [v.id, v.rid, v.uri, v.name, v.type, v.caption, v.createdAt, v.tmid ?? null] as const;
 }
 
 describe('upload queue', () => {
@@ -466,6 +466,7 @@ describe('upload queue', () => {
       name: 'a.png',
       type: 'image/png',
       caption: 'my caption',
+      tmid: null,
       status: 'pending',
       // SNAKE column: `db/store.ts` must map it to `fileId`, as it already does
       // for `thread_id` in the outbox.
@@ -713,7 +714,7 @@ describe('purge of ghost rooms (reconciliation)', () => {
       db.prepare(UPSERT_ROOM).run(...room({ rid, updatedAt: 100 }));
       db.prepare(INSERT_OUTBOX).run(`${rid}-outbox`, rid, 'hey', null, 1000);
       db.prepare(INSERT_UPLOAD).run(
-        `${rid}-tlv`, rid, 'file:///a.jpg', 'a.jpg', 'image/jpeg', null, 1000,
+        `${rid}-tlv`, rid, 'file:///a.jpg', 'a.jpg', 'image/jpeg', null, 1000, null,
       );
       db.prepare(UPSERT_DRAFT).run(rid, 'room draft', 1000);
       db.prepare(UPSERT_DRAFT).run(`${rid}:tmid`, 'thread draft', 1000);
@@ -768,7 +769,7 @@ describe('leaving a room: the satellite tables go with it', () => {
     for (const rid of ['r1', 'r2']) {
       db.prepare(INSERT_OUTBOX).run(`${rid}-outbox`, rid, 'hey', null, 1000);
       db.prepare(INSERT_UPLOAD).run(
-        `${rid}-tlv`, rid, 'file:///a.jpg', 'a.jpg', 'image/jpeg', null, 1000,
+        `${rid}-tlv`, rid, 'file:///a.jpg', 'a.jpg', 'image/jpeg', null, 1000, null,
       );
       db.prepare(UPSERT_DRAFT).run(rid, 'draft', 1000);
       db.prepare(UPSERT_DRAFT).run(`${rid}:tmid`, 'thread draft', 1000);

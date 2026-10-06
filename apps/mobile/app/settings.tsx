@@ -20,6 +20,10 @@ import { useSync } from '../ui/sync.tsx';
 import { useE2EUnlocked } from '../ui/e2e.ts';
 import { type Colors, LIST_PRESS_DELAY, FONTS, useColors } from '../ui/theme.ts';
 import { Tappable } from '../ui/tappable.tsx';
+import {DevicesSection} from '../ui/devices.tsx';
+import {NativeSecuritySection} from '../ui/nativeSecurity.tsx';
+import {EncryptedIdentitySection} from '../ui/encryptedIdentity.tsx';
+import {useNativePreferences} from '../ui/nativePreferences.ts';
 
 /**
  * "Settings" screen: what used to sit at the bottom of the conversation list
@@ -66,13 +70,14 @@ type MeResponse = { settings?: { preferences?: { pushNotifications?: string } } 
  * The write is OPTIMISTIC: we switch the UI right away and roll back if the
  * server refuses; a setting must respond to the finger, not to the network.
  */
-function usePreferencePush(client: RestClient) {
+function usePreferencePush(client: RestClient,natives:ReturnType<typeof useNativePreferences>) {
   const [value, setValue] = useState<string | null>(null);
   // The error is stored as a translation KEY, not a sentence: the component
   // translates it at render, in the current language.
   const [error, setError] = useState<TranslationKey | null>(null);
 
   useEffect(() => {
+    if (client.kind === 'rocketvibe') return;
     let alive = true;
     client
       .get<MeResponse>('me')
@@ -99,6 +104,10 @@ function usePreferencePush(client: RestClient) {
       setValue(next);
       setError(null);
       try {
+        if(client.kind==='rocketvibe'){
+          await natives.change({push_enabled:next!=='nothing',push_mentions_only:next==='mention'});
+          return;
+        }
         await client.post('users.setPreferences', {
           body: { data: { pushNotifications: next } },
         });
@@ -108,10 +117,13 @@ function usePreferencePush(client: RestClient) {
         setError('settings.saveFailed');
       }
     },
-    [client, value],
+    [client, value,natives],
   );
 
-  return { value, error, set };
+  const p=natives.preferences;
+  return { value:client.kind==='rocketvibe'?(p?(!p.push_enabled?'nothing':p.push_mentions_only?'mention':'all'):null):value,
+    error:client.kind==='rocketvibe'?(natives.error?'settings.saveFailed' as const:null):error,
+    disabled:client.kind==='rocketvibe'&&(natives.busy||natives.intention!==null),set };
 }
 
 function Settings({
@@ -128,7 +140,10 @@ function Settings({
   const router = useRouter();
   const t = useT();
   const { logOut } = useSession();
-  const push = usePreferencePush(client);
+  const sync=useSync();
+  const chat=sync.phase==='ready'?sync.provider.native?.chat:null;
+  const natives=useNativePreferences(chat,sync.phase==='ready'?sync.generation:0);
+  const push = usePreferencePush(client,natives);
   const [logout, setLogout] = useState(false);
   // Version of MY photo: without it, the profile card would keep the old
   // image even after changing it in "My profile" (frozen image cache).
@@ -153,6 +168,7 @@ function Settings({
       <Stack.Screen options={{ title: t('settings.title') }} />
 
       <Tappable
+        disabled={client.kind==='rocketvibe'&&(sync.phase!=='ready'||!sync.provider.native?.chat.capabilities?.profiles)}
         onPress={() => router.push('/my-profile')}
         android_ripple={{ color: c.ripple }}
         unstable_pressDelay={LIST_PRESS_DELAY}
@@ -165,7 +181,7 @@ function Settings({
       >
         <AvatarTile
           c={c}
-          key={username}
+          hueKey={username}
           initial={username.charAt(0)}
           uri={avatarUrl(client, { username, etag: etags.byUsername.get(username) })}
         />
@@ -178,6 +194,7 @@ function Settings({
         <Text style={[styles.chevron, { color: c.dimmed }]}>›</Text>
       </Tappable>
 
+      {(client.kind !== 'rocketvibe'||sync.phase==='ready'&&sync.capabilities.push) && <>
       <Text style={[styles.sectionTitle, { color: c.dimmed }]}>{t('settings.sectionNotifications')}</Text>
       <View style={[styles.card, { backgroundColor: c.deepCard, borderColor: c.border }]}>
         <Text style={[styles.settingTitle, { color: c.text }]}>{t('settings.push')}</Text>
@@ -187,23 +204,35 @@ function Settings({
           <Text style={[styles.error, { color: c.errorText }]}>{t(push.error)}</Text>
         )}
       </View>
+      </>}
 
       <Text style={[styles.sectionTitle, { color: c.dimmed }]}>{t('settings.sectionLanguage')}</Text>
       <View style={[styles.card, { backgroundColor: c.deepCard, borderColor: c.border }]}>
         <Text style={[styles.settingHelp, { color: c.dimmed }]}>{t('settings.languageHelp')}</Text>
-        <LanguagePicker c={c} t={t} />
+        <LanguagePicker c={c} t={t} natives={client.kind==='rocketvibe'?natives:undefined} />
+        {client.kind==='rocketvibe'&&natives.error&&<Text style={[styles.error,{color:c.errorText}]}>{t('native.error')}</Text>}
+        {client.kind==='rocketvibe'&&natives.intention&&<>
+          <Text style={[styles.settingHelp,{color:c.dimmed}]}>{t(natives.intention.phase==='failed'?'native.profileRefused':'native.pending')}</Text>
+          <Tappable disabled={natives.busy} onPress={()=>void(natives.intention?.phase==='failed'?natives.discard():natives.resume())}>
+            <Text style={[styles.action,{color:c.cyan}]}>{t(natives.intention.phase==='failed'?'common.cancel':'common.retry')}</Text>
+          </Tappable>
+        </>}
       </View>
 
-      <SectionE2E c={c} t={t} />
+      {client.kind !== 'rocketvibe' && <SectionE2E c={c} t={t} />}
+
+      {client.kind === 'rocketvibe' && <><NativeSecuritySection c={c}/><DevicesSection c={c}/><EncryptedIdentitySection c={c}/></>}
 
       <Text style={[styles.sectionTitle, { color: c.dimmed }]}>{t('settings.sectionAccount')}</Text>
       <View style={[styles.card, { backgroundColor: c.deepCard, borderColor: c.border }]}>
-        <Pair c={c} key={t('settings.signedIn')} value={`@${username}`} />
-        <Pair c={c} key={t('settings.server')} value={baseUrl} />
+        <Pair c={c} label={t('settings.signedIn')} value={`@${username}`} />
+        <Pair c={c} label={t('settings.server')} value={baseUrl} />
       </View>
 
-      <Text style={[styles.sectionTitle, { color: c.dimmed }]}>{t('settings.sectionDiagnostics')}</Text>
-      <FcmTokenSection c={c} t={t} />
+      {client.kind !== 'rocketvibe' && <>
+        <Text style={[styles.sectionTitle, { color: c.dimmed }]}>{t('settings.sectionDiagnostics')}</Text>
+        <FcmTokenSection c={c} t={t} />
+      </>}
 
       <Link href="/login?change=1" style={[styles.link, { color: c.cyan }]}>
         {t('settings.switchServer')}
@@ -250,7 +279,7 @@ function NotificationChoice({
           <View key={o.value} style={styles.optionWrapper}>
             <Tappable
               onPress={() => void push.set(o.value)}
-              disabled={push.value === null}
+              disabled={push.value === null||push.disabled}
               android_ripple={{ color: c.ripple }}
               unstable_pressDelay={LIST_PRESS_DELAY}
               accessibilityRole="radio"
@@ -287,8 +316,10 @@ function NotificationChoice({
  * (`setLanguage` pushes into the subscribable store): the whole screen, title
  * included, re-renders in the new language without a reload.
  */
-function LanguagePicker({ c, t }: { c: Colors; t: TranslateFn }) {
+function LanguagePicker({ c, t,natives }: { c: Colors; t: TranslateFn;natives?:ReturnType<typeof useNativePreferences> }) {
   const preference = useLanguagePreference();
+  const language=natives?.preferences?.language;
+  useEffect(()=>{if(language!==undefined)setLanguage(language==='fr'||language==='en'?language:'auto');},[language]);
   const options: { pref: LanguagePreference; label: string; help?: string }[] = [
     { pref: 'auto', label: t('language.auto'), help: t('language.autoHelp') },
     ...LANGUAGES.map((l) => ({ pref: l, label: LANGUAGE_NAMES[l] })),
@@ -300,7 +331,8 @@ function LanguagePicker({ c, t }: { c: Colors; t: TranslateFn }) {
         return (
           <View key={o.pref} style={styles.optionWrapper}>
             <Tappable
-              onPress={() => setLanguage(o.pref)}
+              disabled={natives!==undefined&&(!natives.preferences||natives.busy||natives.intention!==null)}
+              onPress={() => {setLanguage(o.pref);if(natives)void natives.change({language:o.pref});}}
               android_ripple={{ color: c.ripple }}
               unstable_pressDelay={LIST_PRESS_DELAY}
               accessibilityRole="radio"
@@ -430,10 +462,11 @@ function SectionE2E({ c, t }: { c: Colors; t: TranslateFn }) {
   );
 }
 
-function Pair({ c, key, value }: { c: Colors; key: string; value: string }) {
+// `label`, never `key`: React keeps that prop to itself, the label showed empty.
+function Pair({ c, label, value }: { c: Colors; label: string; value: string }) {
   return (
     <View style={styles.pair}>
-      <Text style={[styles.key, { color: c.dimmed }]}>{key}</Text>
+      <Text style={[styles.key, { color: c.dimmed }]}>{label}</Text>
       <Text style={[styles.value, { color: c.text }]} selectable>
         {value}
       </Text>

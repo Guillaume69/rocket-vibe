@@ -487,8 +487,8 @@ DELETE FROM messages WHERE id = ? AND updated_at = 0
 // ---------------------------------------------------------------------------
 
 export const INSERT_UPLOAD = `
-INSERT INTO uploads (id, rid, uri, name, type, caption, status, last_error, file_id, created_at)
-VALUES (?, ?, ?, ?, ?, ?, 'pending', NULL, NULL, ?)
+INSERT INTO uploads (id, rid, uri, name, type, caption, status, last_error, file_id, created_at, tmid)
+VALUES (?, ?, ?, ?, ?, ?, 'pending', NULL, NULL, ?, ?)
 `;
 
 /**
@@ -503,7 +503,7 @@ VALUES (?, ?, ?, ?, ?, ?, 'pending', NULL, NULL, ?)
  * in flight, listing it again would upload it twice in parallel.
  */
 export const LIST_UPLOADS_TO_SEND = `
-SELECT id, rid, uri, name, type, caption, status, file_id FROM uploads
+SELECT id, rid, uri, name, type, caption, tmid, status, file_id FROM uploads
 WHERE status = 'pending' ORDER BY created_at, id
 `;
 

@@ -1,0 +1,175 @@
+{
+  "start_meeting": { "operation_id": "meeting-operation", "membership_version": "membership-version", "data_epoch": "fixture-epoch" },
+  "join_meeting": { "membership_version": "membership-version", "data_epoch": "fixture-epoch" },
+  "meeting": { "id": "meeting-id", "room_id": "room-id", "public_url": "https://meet.example.test/rvconference", "created_by": "alice-id", "expires_at": "2026-10-03T12:00:00Z", "ended": false },
+  "meeting_join": { "meeting": { "id": "meeting-id", "room_id": "room-id", "public_url": "https://meet.example.test/rvconference", "created_by": "alice-id", "expires_at": "2026-10-03T12:00:00Z", "ended": false }, "url": "https://meet.example.test/rvconference?jwt=fixture-only-token", "expires_at": "2026-10-03T10:02:00Z" },
+  "own_profile": { "profile": { "user": { "id": "alice-id", "username": "alice", "display_name": "Alice" }, "revision": "profile-revision", "bio": "Salut", "status": "away", "status_text": "Disponible", "avatar_file_id": null }, "preferences": { "revision": "preferences-revision", "language": "fr", "clock_24h": true, "push_enabled": true, "push_mentions_only": false, "desktop_notifications": "mention" }, "email": null },
+  "update_profile": { "operation_id": "profile-operation", "expected_revision": "profile-revision", "username": "alice", "display_name": "Alice", "bio": "Salut", "status": "away", "status_text": "Disponible" },
+  "update_preferences": { "operation_id": "preferences-operation", "expected_revision": "preferences-revision", "language": "auto", "clock_24h": true, "push_enabled": false, "push_mentions_only": true, "desktop_notifications": "nothing" },
+  "avatar_command": { "operation_id": "avatar-operation", "expected_revision": "profile-revision" },
+  "profile_receipt": { "operation_id": "profile-operation", "applied_revision": "next-profile-revision" },
+  "discovery": {
+    "product": "rocketvibe",
+    "instance_id": "fixture-instance",
+    "data_epoch": "fixture-epoch",
+    "server_version": "0.1.0",
+    "protocol_versions": [1],
+    "api_path": "/api/v1",
+    "capabilities": {
+      "text_messages": true, "private_rooms": true, "direct_messages": true,
+      "durable_sync": true, "threads": false, "reactions": false,
+      "uploads": false, "push": false, "e2ee": false, "calls": false
+    }
+  },
+  "login": { "username": "alice", "password": "fixture-only-not-a-credential" },
+  "session": {
+    "token": "fixture-token",
+    "expires_at": "2026-10-30T12:00:00+00:00",
+    "user": { "id": "alice-id", "username": "alice", "display_name": "Alice" }
+  },
+  "room": { "id": "room-id", "name": "A room", "kind": "private", "revision": "9007199254740993" },
+  "create_room": { "name": "A room", "private": true },
+  "public_room_page": { "rooms": [{ "room": { "id": "public-room-id", "name": "Public room", "kind": "public", "revision": "9007199254740993" }, "joined": false }], "next": null },
+  "direct_message": { "user_id": "bob-id" },
+  "send_message": { "operation_id": "message-id", "text": "Bonjour 🚀" },
+  "message": {
+    "id": "message-id", "room_id": "room-id",
+    "author": { "id": "alice-id", "username": "alice", "display_name": "Alice" },
+    "text": "Bonjour 🚀", "created_at": "2026-09-30T12:00:00+00:00",
+    "position": "9007199254740993", "revision": "9007199254740993"
+  },
+  "message_page": { "messages": [], "has_more": false },
+  "snapshot": { "protocol_version": 1, "rooms": [], "messages": [], "cursor": "opaque-fixture" },
+  "snapshot_page": { "protocol_version": 1, "snapshot_id": "opaque-snapshot", "page_index": 0, "rooms": [], "messages": [], "next": null, "cursor": "opaque-fixture" },
+  "sync_batch": { "protocol_version": 1, "changes": [{ "type": "room_removed", "data": { "room_id": "room-id" } }], "cursor": "opaque-fixture", "has_more": false },
+  "socket_ticket": { "ticket": "fixture-ticket", "expires_at": "2026-09-30T12:00:30+00:00" },
+  "error": { "code": "session_rejected", "request_id": "fixture-request" },
+  "command_list": { "commands": [{ "command": "shrug", "params": "your_message_optional", "description": "Slash_Shrug_Description", "client_side": true }, { "command": "topic", "params": "Slash_Topic_Params", "description": "Slash_Topic_Description", "client_side": false }] },
+  "run_command": { "room_id": "fixture-room", "command": "topic", "params": "Plans for the week" },
+  "parity": {
+    "e2ee_root_backup_settlement": {"kind":"cancelled","data":{"scope":{"instance_id":"fixture-instance","data_epoch":"fixture-epoch"},"operation_id":"fixture-root-backup","device_id":"fixture-controller","incarnation":"0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b","device_revision":"9007199254740993","root_fingerprint":"c337515fcd903cefa08ddc531ce8cecf1c491d45b7bc2d2888fed2e8753d77dd","backup_id":"13131313131313131313131313131313","packet_digest":"7df4cea31d551252c3e589c9a23c79f591b10ae7244afd524b70d8dca73068c4","expected_revision":"9007199254740992"}},
+    "e2ee_publish_root_backup": {"scope":{"instance_id":"fixture-instance","data_epoch":"fixture-epoch"},"operation_id":"fixture-root-backup","publication":"eyJib2R5Ijp7InZlcnNpb24iOjEsInNjb3BlIjp7Imluc3RhbmNlIjoiZml4dHVyZS1pbnN0YW5jZSIsImRhdGFfZXBvY2giOiJmaXh0dXJlLWVwb2NoIn0sIm9wZXJhdGlvbiI6ImZpeHR1cmUtcm9vdC1iYWNrdXAiLCJkZXZpY2UiOiJmaXh0dXJlLWNvbnRyb2xsZXIiLCJpbmNhcm5hdGlvbiI6WzExLDExLDExLDExLDExLDExLDExLDExLDExLDExLDExLDExLDExLDExLDExLDExXSwiZGV2aWNlX3JldmlzaW9uIjoiOTAwNzE5OTI1NDc0MDk5MyIsImV4cGVjdGVkX3JldmlzaW9uIjoiOTAwNzE5OTI1NDc0MDk5MiIsInBhY2tldF9kaWdlc3QiOlsxMjUsMjQ0LDIwNiwxNjMsMjksODUsMTgsODIsMTk1LDIyOSwxMzcsMjAxLDE2Miw2MCwxMjEsMjQ1LDE0NSwxNzcsMTAsMjMxLDM2LDc0LDI1Myw4Miw3NSwxMTIsMjE2LDIyMCwxNjcsNDgsMTA0LDE5Nl19LCJwYWNrZXQiOnsiaGVhZGVyIjp7InZlcnNpb24iOjEsInJvb3QiOnsidmVyc2lvbiI6MSwiaW5zdGFuY2UiOiJmaXh0dXJlLWluc3RhbmNlIiwidXNlciI6ImJhY2t1cC1maXh0dXJlLXVzZXIiLCJnZW5lcmF0aW9uIjpbMzcsMzcsMzcsMzcsMzcsMzcsMzcsMzcsMzcsMzcsMzcsMzcsMzcsMzcsMzcsMzddLCJwdWJsaWNfa2V5IjpbMjI2LDEzOCwxMzcsMTEyLDExNyw1MSw1MCwxODksMTE0LDI1NCwyNDQsMTksMjMwLDE3NiwxNzgsMjM5LDI3LDc0LDE3MywyMTgsMTIyLDE2MiwxOTMsNjUsMjQyLDUxLDExMyw0MiwxMDQsMTE4LDE3OSw4MV19LCJiYWNrdXBfaWQiOlsxOSwxOSwxOSwxOSwxOSwxOSwxOSwxOSwxOSwxOSwxOSwxOSwxOSwxOSwxOSwxOV0sImNyZWF0ZWRfYXQiOjE5MDAwMDAwMDB9LCJub25jZSI6WzI5LDI5LDI5LDI5LDI5LDI5LDI5LDI5LDI5LDI5LDI5LDI5LDI5LDI5LDI5LDI5LDI5LDI5LDI5LDI5LDI5LDI5LDI5LDI5XSwiY2lwaGVydGV4dCI6WzEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3XX0sInNpZ25hdHVyZSI6WzE5MSwxNDcsMTA4LDExNiw1NiwxNTYsMTI2LDYxLDE5MSwxOSwxOTMsMTUzLDc1LDMwLDIxNCwxMCwxMDUsNjUsNzQsNjgsMzIsNjYsMTU0LDE0OCwxMzcsMTAxLDE2NCwxNjEsMTQsNTMsMTM3LDcwLDE0LDE4MCw1Nyw3NiwxMzIsMTIxLDI0MCwxODAsMTM4LDIzOSw2MywyNDUsMTc5LDExLDIyOCw5NCwxOTcsMTA2LDE2MiwyNDksNTYsMTYzLDE5Niw1MCwxMjQsMjQsMTg1LDk4LDE2MiwxMjEsODQsMTJdfQ"},
+    "e2ee_root_backup": {"scope":{"instance_id":"fixture-instance","data_epoch":"fixture-epoch"},"active":{"publication":"eyJib2R5Ijp7InZlcnNpb24iOjEsInNjb3BlIjp7Imluc3RhbmNlIjoiZml4dHVyZS1pbnN0YW5jZSIsImRhdGFfZXBvY2giOiJmaXh0dXJlLWVwb2NoIn0sIm9wZXJhdGlvbiI6ImZpeHR1cmUtcm9vdC1iYWNrdXAiLCJkZXZpY2UiOiJmaXh0dXJlLWNvbnRyb2xsZXIiLCJpbmNhcm5hdGlvbiI6WzExLDExLDExLDExLDExLDExLDExLDExLDExLDExLDExLDExLDExLDExLDExLDExXSwiZGV2aWNlX3JldmlzaW9uIjoiOTAwNzE5OTI1NDc0MDk5MyIsImV4cGVjdGVkX3JldmlzaW9uIjoiOTAwNzE5OTI1NDc0MDk5MiIsInBhY2tldF9kaWdlc3QiOlsxMjUsMjQ0LDIwNiwxNjMsMjksODUsMTgsODIsMTk1LDIyOSwxMzcsMjAxLDE2Miw2MCwxMjEsMjQ1LDE0NSwxNzcsMTAsMjMxLDM2LDc0LDI1Myw4Miw3NSwxMTIsMjE2LDIyMCwxNjcsNDgsMTA0LDE5Nl19LCJwYWNrZXQiOnsiaGVhZGVyIjp7InZlcnNpb24iOjEsInJvb3QiOnsidmVyc2lvbiI6MSwiaW5zdGFuY2UiOiJmaXh0dXJlLWluc3RhbmNlIiwidXNlciI6ImJhY2t1cC1maXh0dXJlLXVzZXIiLCJnZW5lcmF0aW9uIjpbMzcsMzcsMzcsMzcsMzcsMzcsMzcsMzcsMzcsMzcsMzcsMzcsMzcsMzcsMzcsMzddLCJwdWJsaWNfa2V5IjpbMjI2LDEzOCwxMzcsMTEyLDExNyw1MSw1MCwxODksMTE0LDI1NCwyNDQsMTksMjMwLDE3NiwxNzgsMjM5LDI3LDc0LDE3MywyMTgsMTIyLDE2MiwxOTMsNjUsMjQyLDUxLDExMyw0MiwxMDQsMTE4LDE3OSw4MV19LCJiYWNrdXBfaWQiOlsxOSwxOSwxOSwxOSwxOSwxOSwxOSwxOSwxOSwxOSwxOSwxOSwxOSwxOSwxOSwxOV0sImNyZWF0ZWRfYXQiOjE5MDAwMDAwMDB9LCJub25jZSI6WzI5LDI5LDI5LDI5LDI5LDI5LDI5LDI5LDI5LDI5LDI5LDI5LDI5LDI5LDI5LDI5LDI5LDI5LDI5LDI5LDI5LDI5LDI5LDI5XSwiY2lwaGVydGV4dCI6WzEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3LDEzNywxMzcsMTM3XX0sInNpZ25hdHVyZSI6WzE5MSwxNDcsMTA4LDExNiw1NiwxNTYsMTI2LDYxLDE5MSwxOSwxOTMsMTUzLDc1LDMwLDIxNCwxMCwxMDUsNjUsNzQsNjgsMzIsNjYsMTU0LDE0OCwxMzcsMTAxLDE2NCwxNjEsMTQsNTMsMTM3LDcwLDE0LDE4MCw1Nyw3NiwxMzIsMTIxLDI0MCwxODAsMTM4LDIzOSw2MywyNDUsMTc5LDExLDIyOCw5NCwxOTcsMTA2LDE2MiwyNDksNTYsMTYzLDE5Niw1MCwxMjQsMjQsMTg1LDk4LDE2MiwxMjEsODQsMTJdfQ","receipt":{"scope":{"instance_id":"fixture-instance","data_epoch":"fixture-epoch"},"operation_id":"fixture-root-backup","device_id":"fixture-controller","incarnation":"0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b","device_revision":"9007199254740993","root_fingerprint":"c337515fcd903cefa08ddc531ce8cecf1c491d45b7bc2d2888fed2e8753d77dd","backup_id":"13131313131313131313131313131313","backup_revision":"9007199254740993","packet_digest":"7df4cea31d551252c3e589c9a23c79f591b10ae7244afd524b70d8dca73068c4"}}},
+    "e2ee_application_submission": {"scope":{"instance_id":"fixture-instance","data_epoch":"fixture-epoch"},"operation_id":"fixture-encrypted-message","proof":"Aw","ciphertext":"Bg"},
+    "e2ee_application_settlement": {"kind":"cancelled","data":{"scope":{"instance_id":"fixture-instance","data_epoch":"fixture-epoch"},"room_id":"fixture-room","operation_id":"fixture-encrypted-message","header":"eyJ2ZXJzaW9uIjoxLCJzY29wZSI6eyJpbnN0YW5jZSI6ImZpeHR1cmUtaW5zdGFuY2UiLCJkYXRhX2Vwb2NoIjoiZml4dHVyZS1lcG9jaCIsInJvb20iOiJmaXh0dXJlLXJvb20iLCJpbmNhcm5hdGlvbiI6WzUsNSw1LDUsNSw1LDUsNSw1LDUsNSw1LDUsNSw1LDVdfSwib3BlcmF0aW9uIjoiZml4dHVyZS1lbmNyeXB0ZWQtbWVzc2FnZSIsImdyb3VwX3JldmlzaW9uIjoxLCJlcG9jaCI6MSwiZ3JvdXBfZmluZ2VycHJpbnQiOls4LDgsOCw4LDgsOCw4LDgsOCw4LDgsOCw4LDgsOCw4LDgsOCw4LDgsOCw4LDgsOCw4LDgsOCw4LDgsOCw4LDhdLCJhdXRob3IiOiJmaXh0dXJlLXVzZXIiLCJkZXZpY2UiOiJmaXh0dXJlLWRldmljZSIsImluY2FybmF0aW9uIjpbMiwyLDIsMiwyLDIsMiwyLDIsMiwyLDIsMiwyLDIsMl0sImNlcnRpZmljYXRlIjpbNyw3LDcsNyw3LDcsNyw3LDcsNyw3LDcsNyw3LDcsNyw3LDcsNyw3LDcsNyw3LDcsNyw3LDcsNyw3LDcsNyw3XSwia2luZCI6ImNoYXQiLCJ0aHJlYWQiOm51bGx9","fingerprint":"0808080808080808080808080808080808080808080808080808080808080808"}},
+    "e2ee_application_receipt": {"scope":{"instance_id":"fixture-instance","data_epoch":"fixture-epoch"},"room_id":"fixture-room","operation_id":"fixture-encrypted-message","header":"eyJ2ZXJzaW9uIjoxLCJzY29wZSI6eyJpbnN0YW5jZSI6ImZpeHR1cmUtaW5zdGFuY2UiLCJkYXRhX2Vwb2NoIjoiZml4dHVyZS1lcG9jaCIsInJvb20iOiJmaXh0dXJlLXJvb20iLCJpbmNhcm5hdGlvbiI6WzUsNSw1LDUsNSw1LDUsNSw1LDUsNSw1LDUsNSw1LDVdfSwib3BlcmF0aW9uIjoiZml4dHVyZS1lbmNyeXB0ZWQtbWVzc2FnZSIsImdyb3VwX3JldmlzaW9uIjoxLCJlcG9jaCI6MSwiZ3JvdXBfZmluZ2VycHJpbnQiOls4LDgsOCw4LDgsOCw4LDgsOCw4LDgsOCw4LDgsOCw4LDgsOCw4LDgsOCw4LDgsOCw4LDgsOCw4LDgsOCw4LDhdLCJhdXRob3IiOiJmaXh0dXJlLXVzZXIiLCJkZXZpY2UiOiJmaXh0dXJlLWRldmljZSIsImluY2FybmF0aW9uIjpbMiwyLDIsMiwyLDIsMiwyLDIsMiwyLDIsMiwyLDIsMl0sImNlcnRpZmljYXRlIjpbNyw3LDcsNyw3LDcsNyw3LDcsNyw3LDcsNyw3LDcsNyw3LDcsNyw3LDcsNyw3LDcsNyw3LDcsNyw3LDcsNyw3XSwia2luZCI6ImNoYXQiLCJ0aHJlYWQiOm51bGx9","fingerprint":"0808080808080808080808080808080808080808080808080808080808080808","message_id":"fixture-encrypted-id","position":"9007199254740995"},
+    "e2ee_delivery_page": {"scope":{"instance_id":"fixture-instance","data_epoch":"fixture-epoch"},"room_id":"fixture-room","incarnation":"05050505050505050505050505050505","after":"9007199254740992","through":"9007199254740996","events":[{"position":"9007199254740994","content":{"kind":"group","data":{"receipt":{"scope":{"instance_id":"fixture-instance","data_epoch":"fixture-epoch"},"room_id":"fixture-room","incarnation":"05050505050505050505050505050505","operation_id":"fixture-transition","revision":"9007199254740993","epoch":"9007199254740992","fingerprint":"0808080808080808080808080808080808080808080808080808080808080808"},"transition":"Aw","commit":"BA","welcome":{"device_id":"fixture-device","incarnation":"02020202020202020202020202020202","key_package_ref":"AQ","payload":"Ag"}}}},{"position":"9007199254740995","content":{"kind":"message","data":{"receipt":{"scope":{"instance_id":"fixture-instance","data_epoch":"fixture-epoch"},"room_id":"fixture-room","operation_id":"fixture-encrypted-message","header":"eyJ2ZXJzaW9uIjoxLCJzY29wZSI6eyJpbnN0YW5jZSI6ImZpeHR1cmUtaW5zdGFuY2UiLCJkYXRhX2Vwb2NoIjoiZml4dHVyZS1lcG9jaCIsInJvb20iOiJmaXh0dXJlLXJvb20iLCJpbmNhcm5hdGlvbiI6WzUsNSw1LDUsNSw1LDUsNSw1LDUsNSw1LDUsNSw1LDVdfSwib3BlcmF0aW9uIjoiZml4dHVyZS1lbmNyeXB0ZWQtbWVzc2FnZSIsImdyb3VwX3JldmlzaW9uIjoxLCJlcG9jaCI6MSwiZ3JvdXBfZmluZ2VycHJpbnQiOls4LDgsOCw4LDgsOCw4LDgsOCw4LDgsOCw4LDgsOCw4LDgsOCw4LDgsOCw4LDgsOCw4LDgsOCw4LDgsOCw4LDhdLCJhdXRob3IiOiJmaXh0dXJlLXVzZXIiLCJkZXZpY2UiOiJmaXh0dXJlLWRldmljZSIsImluY2FybmF0aW9uIjpbMiwyLDIsMiwyLDIsMiwyLDIsMiwyLDIsMiwyLDIsMl0sImNlcnRpZmljYXRlIjpbNyw3LDcsNyw3LDcsNyw3LDcsNyw3LDcsNyw3LDcsNyw3LDcsNyw3LDcsNyw3LDcsNyw3LDcsNyw3LDcsNyw3XSwia2luZCI6ImNoYXQiLCJ0aHJlYWQiOm51bGx9","fingerprint":"0808080808080808080808080808080808080808080808080808080808080808","message_id":"fixture-encrypted-id","position":"9007199254740995"},"proof":"Aw","ciphertext":"Bg"}}}],"next":"9007199254740995"},
+    "e2ee_group_roster": {"scope":{"instance_id":"fixture-instance","data_epoch":"fixture-epoch"},"room_id":"fixture-room","authority_version":"fixture-authority","members":[{"user_id":"fixture-user","access_version":"fixture-access","activation_version":"fixture-activation"}],"group":{"scope":{"instance_id":"fixture-instance","data_epoch":"fixture-epoch"},"room_id":"fixture-room","incarnation":"05050505050505050505050505050505","operation_id":"fixture-transition","revision":"9007199254740993","epoch":"9007199254740992","fingerprint":"0808080808080808080808080808080808080808080808080808080808080808"}},
+    "e2ee_group_submission": {"scope":{"instance_id":"fixture-instance","data_epoch":"fixture-epoch"},"operation_id":"fixture-transition","transition":"Aw","commit":"BA","tree":"BQ","welcomes":[{"device_id":"fixture-device","incarnation":"02020202020202020202020202020202","key_package_ref":"AQ","payload":"Ag"}]},
+    "e2ee_group_settlement": {"kind":"cancelled","data":{"scope":{"instance_id":"fixture-instance","data_epoch":"fixture-epoch"},"room_id":"fixture-room","incarnation":"05050505050505050505050505050505","operation_id":"fixture-transition","device_id":"fixture-device","fingerprint":"0808080808080808080808080808080808080808080808080808080808080808"}},
+    "e2ee_group_state": {"receipt":{"scope":{"instance_id":"fixture-instance","data_epoch":"fixture-epoch"},"room_id":"fixture-room","incarnation":"05050505050505050505050505050505","operation_id":"fixture-transition","revision":"9007199254740993","epoch":"9007199254740992","fingerprint":"0808080808080808080808080808080808080808080808080808080808080808"},"needs_rekey":false,"transition":"Aw","tree":"BQ"},
+    "e2ee_group_events": {"events":[{"receipt":{"scope":{"instance_id":"fixture-instance","data_epoch":"fixture-epoch"},"room_id":"fixture-room","incarnation":"05050505050505050505050505050505","operation_id":"fixture-transition","revision":"9007199254740993","epoch":"9007199254740992","fingerprint":"0808080808080808080808080808080808080808080808080808080808080808"},"transition":"Aw","commit":"BA","welcome":{"device_id":"fixture-device","incarnation":"02020202020202020202020202020202","key_package_ref":"AQ","payload":"Ag"}}],"next":"9007199254740993"},
+    "e2ee_available_key_package": {"scope":{"instance_id":"fixture-instance","data_epoch":"fixture-epoch"},"user_id":"fixture-user","device_id":"fixture-device","incarnation":"02020202020202020202020202020202","reference":"AQ","wire":"Bg"},
+    "e2ee_revoke_device": {"scope":{"instance_id":"fixture-instance","data_epoch":"fixture-epoch"},"operation_id":"revoke-fixture","device_revision":"9007199254740993","incarnation":"02020202020202020202020202020202","signed":"eyJyb290Ijp7InZlcnNpb24iOjEsImluc3RhbmNlIjoiZml4dHVyZS1pbnN0YW5jZSIsInVzZXIiOiJmaXh0dXJlLXVzZXIiLCJnZW5lcmF0aW9uIjpbOSw5LDksOSw5LDksOSw5LDksOSw5LDksOSw5LDksOV0sInB1YmxpY19rZXkiOlsyMzQsNzQsMTA4LDk5LDIyNiwxNTYsODIsMTAsMTkwLDI0NSw4MCwxMjMsMTksNDYsMTk3LDI0OSwxNDksNzEsMTE4LDE3NCwxOTAsMTkwLDEyMywxNDYsNjYsMzAsMjM0LDEwNSwyMCw3MCwyMTAsNDRdfSwiZGV2aWNlIjoiZml4dHVyZS1yZXZva2VkLXBlZXIiLCJpbmNhcm5hdGlvbiI6WzMsMywzLDMsMywzLDMsMywzLDMsMywzLDMsMywzLDNdLCJzaWduYXR1cmUiOls5NCwxMzgsMzcsMjUyLDIxNCwyMTQsMTM1LDEyMCw0Miw1OSwyNTIsMjAzLDE4OSw1NCwyMTUsNDYsMTA4LDE5NSw2NSwxNDYsMjYsMjcsMTkzLDQ3LDIzMCwxNjEsMTU4LDIzMywxOTEsMTc0LDcwLDEyMywxNSw3LDI0MywyMTEsMjQsMTAyLDEyOSwxODUsMTk5LDE0MywxNjYsNDQsMTYyLDcxLDk4LDUyLDEwNiwxODksMTk1LDEzLDI0LDQ4LDE2MSwxMzUsNDEsMTM1LDE3NywxMjUsMTYyLDUzLDcwLDExXX0"},
+    "e2ee_register_device": {"scope":{"instance_id":"fixture-instance","data_epoch":"fixture-epoch"},"operation_id":"register-fixture","expected_root_fingerprint":null,"expected_device_revision":null,"request":"eyJib2R5Ijp7InZlcnNpb24iOjEsInJvb3QiOnsidmVyc2lvbiI6MSwiaW5zdGFuY2UiOiJmaXh0dXJlLWluc3RhbmNlIiwidXNlciI6ImZpeHR1cmUtdXNlciIsImdlbmVyYXRpb24iOls5LDksOSw5LDksOSw5LDksOSw5LDksOSw5LDksOSw5XSwicHVibGljX2tleSI6WzIzNCw3NCwxMDgsOTksMjI2LDE1Niw4MiwxMCwxOTAsMjQ1LDgwLDEyMywxOSw0NiwxOTcsMjQ5LDE0OSw3MSwxMTgsMTc0LDE5MCwxOTAsMTIzLDE0Niw2NiwzMCwyMzQsMTA1LDIwLDcwLDIxMCw0NF19LCJkZXZpY2UiOiJmaXh0dXJlLWRldmljZSIsImluY2FybmF0aW9uIjpbMiwyLDIsMiwyLDIsMiwyLDIsMiwyLDIsMiwyLDIsMl0sInJlcXVlc3RfaWQiOls1LDUsNSw1LDUsNSw1LDUsNSw1LDUsNSw1LDUsNSw1LDUsNSw1LDUsNSw1LDUsNSw1LDUsNSw1LDUsNSw1LDVdLCJzaWduYXR1cmVfa2V5IjpbMTAyLDE5MCwxMjYsNTEsNDQsMTIyLDY5LDUxLDUwLDE4OSwxNTcsMTAsMTI3LDEyNSwxNzYsODUsMjQ1LDE5NywyMzksMjYsNiwxNzMsMTY2LDEwOSwxNTIsMTc5LDE1OSwxODIsMTI5LDEyLDcxLDU4XSwiaXNzdWVkX2F0IjoxOTAwMDAwMDAwLCJleHBpcmVzX2F0IjoxOTAwMDAwNjAwfSwic2lnbmF0dXJlIjpbMjQ2LDIzMCwxMDksNzUsNTgsNjMsMTY2LDMxLDUxLDIzMiwxMzIsMTIyLDYzLDQ1LDE0OSwyMDAsMTgyLDIyNyw2NiwyMzEsMTU5LDE2MiwyMTEsMjgsMTcyLDk5LDE5MSwyNDMsMjAyLDg4LDI2LDE4MSw5MCw5OCw5LDE5OCw5NCwxODEsMTg1LDE5OSwxNzgsMjU1LDYwLDExNiwxNTYsOTMsMjI4LDExNCwxNyw4MiwxNTksMTUzLDI1NCw0MywzMiwxNjUsMzYsNTgsMTczLDE3NywxMSwyNDYsMjA5LDExXX0","grant":"eyJyZXF1ZXN0IjpbNjgsNTYsMTcxLDI0MCwyNiwzOCwxOTUsMjM5LDE0Nyw2MCwxMzcsMjU1LDEyNiwyMDUsMTYwLDIxMywxMDUsMTk0LDIwNSwyMjIsOTksMjUxLDEyOCwyMjIsMjAzLDI0MywxNDMsMTIsMTc3LDE3MSwyNTEsMjMwXSwiY2VydGlmaWNhdGUiOnsiZGV2aWNlIjp7InZlcnNpb24iOjEsInJvb3QiOnsidmVyc2lvbiI6MSwiaW5zdGFuY2UiOiJmaXh0dXJlLWluc3RhbmNlIiwidXNlciI6ImZpeHR1cmUtdXNlciIsImdlbmVyYXRpb24iOls5LDksOSw5LDksOSw5LDksOSw5LDksOSw5LDksOSw5XSwicHVibGljX2tleSI6WzIzNCw3NCwxMDgsOTksMjI2LDE1Niw4MiwxMCwxOTAsMjQ1LDgwLDEyMywxOSw0NiwxOTcsMjQ5LDE0OSw3MSwxMTgsMTc0LDE5MCwxOTAsMTIzLDE0Niw2NiwzMCwyMzQsMTA1LDIwLDcwLDIxMCw0NF19LCJkZXZpY2UiOiJmaXh0dXJlLWRldmljZSIsImluY2FybmF0aW9uIjpbMiwyLDIsMiwyLDIsMiwyLDIsMiwyLDIsMiwyLDIsMl0sInNlcmlhbCI6WzMsMywzLDMsMywzLDMsMywzLDMsMywzLDMsMywzLDNdLCJzdWl0ZSI6MSwic2lnbmF0dXJlX2tleSI6WzEwMiwxOTAsMTI2LDUxLDQ0LDEyMiw2OSw1MSw1MCwxODksMTU3LDEwLDEyNywxMjUsMTc2LDg1LDI0NSwxOTcsMjM5LDI2LDYsMTczLDE2NiwxMDksMTUyLDE3OSwxNTksMTgyLDEyOSwxMiw3MSw1OF0sImlzc3VlZF9hdCI6MTkwMDAwMDAwMCwiZXhwaXJlc19hdCI6MTkwMDAwMzYwMH0sInNpZ25hdHVyZSI6WzIzNCwxMTcsMTkzLDk3LDIwOCwxNzcsMjE2LDE5MSwxNDksNjksNjgsNTQsNCwxOTksMTA1LDQyLDE2NiwxNzAsMTE1LDIxMCwxNTYsMjU0LDUsNjcsMjI5LDE5Miw2NiwyNywyMzMsMTEyLDczLDU2LDE1LDIwNiw1OCw3MSw5OSwxMSwxNTgsMTc1LDEyMSwxNTIsMjM1LDE5NCw1NywyMTIsMTA3LDIzMSwxMjIsMTQyLDE3MSwxMTUsMTAsMTI3LDk4LDM0LDE2MiwxOTcsMjExLDE2OCwxNTAsMzYsMjUzLDE1XX0sInNpZ25hdHVyZSI6WzEzNCwzNiw2LDEzLDEzMSwxOTQsMjAzLDE1LDEyNCw0NCwxMTksMTU0LDE5MywxOTcsNjYsNzIsMTY0LDEzLDQxLDI4LDEwMiwyMDUsMywyNDAsODQsMjYsMTQ4LDkzLDM4LDE5Miw5LDI0MSwyMTYsMTQzLDE3MiwxMjYsNzEsNzAsMjE1LDIzNSwyNTUsMTE1LDE3MSwyMSw2NSwxNTcsMTU1LDI1NCw5MywxNzYsMjksNDYsMjMyLDEwMywyMTAsMTU5LDEsMTU0LDgyLDcwLDM3LDIyMCwyMjQsMTBdfQ","revoke_previous":null},
+    "e2ee_directory": {"scope":{"instance_id":"fixture-instance","data_epoch":"fixture-epoch"},"identity":{"user_id":"fixture-user","root":"eyJ2ZXJzaW9uIjoxLCJpbnN0YW5jZSI6ImZpeHR1cmUtaW5zdGFuY2UiLCJ1c2VyIjoiZml4dHVyZS11c2VyIiwiZ2VuZXJhdGlvbiI6WzksOSw5LDksOSw5LDksOSw5LDksOSw5LDksOSw5LDldLCJwdWJsaWNfa2V5IjpbMjM0LDc0LDEwOCw5OSwyMjYsMTU2LDgyLDEwLDE5MCwyNDUsODAsMTIzLDE5LDQ2LDE5NywyNDksMTQ5LDcxLDExOCwxNzQsMTkwLDE5MCwxMjMsMTQ2LDY2LDMwLDIzNCwxMDUsMjAsNzAsMjEwLDQ0XX0","fingerprint":"837ffbe5d443671cb497cce8f7f49132a0edb125442ca6234463e42e8ca39b02","revision":"9007199254740993"},"devices":[{"device_id":"fixture-device","incarnation":"02020202020202020202020202020202","certificate":"eyJkZXZpY2UiOnsidmVyc2lvbiI6MSwicm9vdCI6eyJ2ZXJzaW9uIjoxLCJpbnN0YW5jZSI6ImZpeHR1cmUtaW5zdGFuY2UiLCJ1c2VyIjoiZml4dHVyZS11c2VyIiwiZ2VuZXJhdGlvbiI6WzksOSw5LDksOSw5LDksOSw5LDksOSw5LDksOSw5LDldLCJwdWJsaWNfa2V5IjpbMjM0LDc0LDEwOCw5OSwyMjYsMTU2LDgyLDEwLDE5MCwyNDUsODAsMTIzLDE5LDQ2LDE5NywyNDksMTQ5LDcxLDExOCwxNzQsMTkwLDE5MCwxMjMsMTQ2LDY2LDMwLDIzNCwxMDUsMjAsNzAsMjEwLDQ0XX0sImRldmljZSI6ImZpeHR1cmUtZGV2aWNlIiwiaW5jYXJuYXRpb24iOlsyLDIsMiwyLDIsMiwyLDIsMiwyLDIsMiwyLDIsMiwyXSwic2VyaWFsIjpbMywzLDMsMywzLDMsMywzLDMsMywzLDMsMywzLDMsM10sInN1aXRlIjoxLCJzaWduYXR1cmVfa2V5IjpbMTAyLDE5MCwxMjYsNTEsNDQsMTIyLDY5LDUxLDUwLDE4OSwxNTcsMTAsMTI3LDEyNSwxNzYsODUsMjQ1LDE5NywyMzksMjYsNiwxNzMsMTY2LDEwOSwxNTIsMTc5LDE1OSwxODIsMTI5LDEyLDcxLDU4XSwiaXNzdWVkX2F0IjoxOTAwMDAwMDAwLCJleHBpcmVzX2F0IjoxOTAwMDAzNjAwfSwic2lnbmF0dXJlIjpbMjM0LDExNywxOTMsOTcsMjA4LDE3NywyMTYsMTkxLDE0OSw2OSw2OCw1NCw0LDE5OSwxMDUsNDIsMTY2LDE3MCwxMTUsMjEwLDE1NiwyNTQsNSw2NywyMjksMTkyLDY2LDI3LDIzMywxMTIsNzMsNTYsMTUsMjA2LDU4LDcxLDk5LDExLDE1OCwxNzUsMTIxLDE1MiwyMzUsMTk0LDU3LDIxMiwxMDcsMjMxLDEyMiwxNDIsMTcxLDExNSwxMCwxMjcsOTgsMzQsMTYyLDE5NywyMTEsMTY4LDE1MCwzNiwyNTMsMTVdfQ","revision":"9007199254740993","expires_at":"1900003600"}],"revocations":[],"next_revocation":null},
+    "e2ee_operation_receipt": {"scope":{"instance_id":"fixture-instance","data_epoch":"fixture-epoch"},"operation_id":"register-fixture","kind":"register_device","device_id":"fixture-device","incarnation":"02020202020202020202020202020202","device_revision":"9007199254740993","root_fingerprint":"837ffbe5d443671cb497cce8f7f49132a0edb125442ca6234463e42e8ca39b02","key_package_refs":[]},
+    "auth_challenge": { "challenge_id": "fixture-challenge", "methods": ["totp", "email", "recovery_code"], "expires_at": "2026-10-01T12:05:00Z", "resend_after_seconds": 30 },
+    "verify_factor": { "challenge_id": "fixture-challenge", "method": "totp", "code": "123456" },
+    "account_permissions": { "create_public_room": true, "create_private_room": true, "manage_accounts": false, "manage_instance": false },
+    "room_permissions": { "room_id": "room-id", "revision": "9007199254740993", "role": "member", "read": true, "send": true, "invite": false, "remove_member": false, "change_settings": false, "pin": false, "upload": true, "start_call": false },
+    "room_details": { "room": { "id": "room-id", "name": "A room", "kind": "private", "revision": "9007199254740993" }, "revision": "details-version", "topic": "Sujet 🚀", "description": "Description", "announcement": "Annonce", "read_only": false, "member_count": 1, "permissions": { "room_id": "room-id", "revision": "authority:grant", "role": "owner", "read": true, "send": true, "invite": true, "remove_member": true, "change_settings": true, "pin": true, "upload": true, "start_call": true } },
+    "room_members": { "room_id": "room-id", "revision": "details-version", "members": [{ "user": { "id": "alice-id", "username": "alice", "display_name": "Alice" }, "role": "owner", "disabled": false }], "next": null },
+    "update_room": { "operation_id": "settings-id", "expected_revision": "details-version", "name": "A room", "private": true, "topic": "Sujet 🚀", "description": "Description", "announcement": "Annonce", "read_only": false },
+    "change_room_role": { "operation_id": "role-id", "expected_revision": "details-version", "role": "moderator" },
+    "leave_room": { "operation_id": "leave-id", "expected_revision": "details-version" },
+    "room_command_receipt": { "operation_id": "settings-id", "room_id": "room-id", "applied_revision": "details-version-after" },
+    "message_permissions": { "message_id": "message-id", "revision": "9007199254740993", "edit": true, "delete": true, "react": true, "pin": false, "star": true, "edit_until": "2026-10-01T12:15:00Z" },
+    "read_state": { "room_id": "room-id", "revision": "9007199254740993", "root_position": "9007199254740993", "reply_position": "9007199254740994", "unread_roots": "2", "unread_replies": "3", "mentions": "1", "group_mentions": "0", "favorite": true },
+    "mark_read": { "root_position": "9007199254740993", "reply_position": "9007199254740994" },
+    "edit_message": { "operation_id": "edit-id", "expected_revision": "9007199254740993", "content": { "kind": "plain", "markdown": "Bonjour *Alice*", "mentions": ["alice-id"], "quotes": [{ "room_id": "room-id", "message_id": "quoted-id", "revision": "9007199254740993" }], "files": [] } },
+    "delete_message": { "operation_id": "delete-id", "expected_revision": "9007199254740993" },
+    "reaction": { "operation_id": "reaction-id", "emoji": "rocket", "present": true },
+    "mark": { "operation_id": "mark-id", "present": false },
+    "profile": { "user": { "id": "alice-id", "username": "alice", "display_name": "Alice" }, "revision": "9007199254740993", "bio": "Salut 🚀", "status_text": "Disponible", "avatar_file_id": "avatar-id" },
+    "preferences": { "revision": "9007199254740993", "language": "fr", "clock_24h": true, "push_enabled": true, "push_mentions_only": true },
+    "file": { "id": "file-id", "room_id": "room-id", "bytes": "9007199254740993", "sha256": "fixture-sha256", "media_type": "application/octet-stream", "filename": null, "encrypted": true },
+    "prepare_upload": { "operation_id": "upload-id", "room_id": "room-id", "bytes": "1024", "sha256": "fixture-sha256", "media_type": "application/octet-stream", "filename": null, "encrypted": true },
+    "upload": { "id": "upload-id", "file": { "id": "upload-id", "room_id": "room-id", "bytes": "1024", "sha256": "0000000000000000000000000000000000000000000000000000000000000000", "media_type": "application/octet-stream", "filename": "fixture.bin", "encrypted": false }, "state": "prepared", "expires_at": "2026-10-04T12:00:00Z", "message_id": null },
+    "complete_upload": { "operation_id": "upload-confirm-id", "content": { "kind": "encrypted", "format": "fixture-opaque-not-a-crypto-protocol", "key_version": "9007199254740993", "payload": "fixture-ciphertext" }, "reply_to": null },
+    "public_device_key": { "user_id": "alice-id", "device_id": "device-id", "format": "fixture-opaque-not-a-crypto-protocol", "public_key": "fixture-public", "fingerprint": "fixture-fingerprint", "revision": "9007199254740993" },
+    "key_backup": { "user_id": "alice-id", "format": "fixture-opaque-not-a-crypto-protocol", "revision": "9007199254740993", "ciphertext": "fixture-ciphertext", "crypto_identity": "historical-uid-preserved", "kdf": "fixture-legacy-parameters" },
+    "room_key_envelope": { "room_id": "room-id", "key_version": "9007199254740993", "recipient_user_id": "alice-id", "recipient_device_id": "device-id", "sender_device_id": "sender-device", "format": "fixture-opaque-not-a-crypto-protocol", "ciphertext": "fixture-ciphertext" }
+  },
+  "thread_page": {
+    "root": {
+      "id": "message-id",
+      "room_id": "room-id",
+      "author": {
+        "id": "alice-id",
+        "username": "alice",
+        "display_name": "Alice"
+      },
+      "text": "Bonjour 🚀",
+      "created_at": "2026-09-30T12:00:00+00:00",
+      "position": "9007199254740993",
+      "revision": "9007199254740993",
+      "thread": {
+        "replies": "2",
+        "last_reply_at": "2026-09-30T12:00:00+00:00"
+      }
+    },
+    "messages": [
+      {
+        "id": "thread-reply-second",
+        "room_id": "room-id",
+        "author": {
+          "id": "alice-id",
+          "username": "alice",
+          "display_name": "Alice"
+        },
+        "text": "Thread reply",
+        "created_at": "2026-09-30T12:00:00+00:00",
+        "position": "9007199254740995",
+        "revision": "9007199254740995",
+        "reply_to": "message-id"
+      },
+      {
+        "id": "thread-reply-first",
+        "room_id": "room-id",
+        "author": {
+          "id": "alice-id",
+          "username": "alice",
+          "display_name": "Alice"
+        },
+        "text": "Thread reply",
+        "created_at": "2026-09-30T12:00:00+00:00",
+        "position": "9007199254740994",
+        "revision": "9007199254740994",
+        "reply_to": "message-id"
+      }
+    ],
+    "has_more": false,
+    "read_state": {
+      "root_id": "message-id",
+      "room_id": "room-id",
+      "membership_version": "fixture-membership",
+      "position": "0",
+      "revision": "9007199254740996",
+      "unread": "2"
+    }
+  },
+  "live_frame": {
+    "type":"live",
+    "data":{"ttl_ms":8000,"limited":false,"presence":[],"rooms":[],"emoji_catalog_revision":"3"}
+  },
+  "set_presence":{"status":"online"},
+  "set_typing":{"active":true,"membership_version":"current-grant"},
+  "search_messages":{"q":"hello","limit":50},
+  "search_page":{"membership_version":"current-grant","messages":[],"has_more":false},
+  "mark_thread_read": {
+    "position": "9007199254740995"
+  },
+  "emoji_catalog": {
+    "revision": "3",
+    "items": [{
+      "id": "custom-parrot", "name": "party_parrot", "aliases": ["vibe_parrot"],
+      "file_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "media_type": "image/gif", "bytes": "42", "revision": "3"
+    }]
+  },
+  "register_push": {"token":"fixture-fcm-registration-token"},
+  "push_registration": {"device_id":"fixture-device","instance_id":"fixture-instance","data_epoch":"fixture-epoch"},
+  "push_content": {"notification_id":"fixture-notification","device_id":"fixture-device","instance_id":"fixture-instance","data_epoch":"fixture-epoch","room":{"id":"room-id","name":"A room","kind":"private","revision":"9007199254740993"},"message":{"id":"message-id","room_id":"room-id","author":{"id":"alice-id","username":"alice","display_name":"Alice"},"text":"Bonjour 🚀","created_at":"2026-09-30T12:00:00+00:00","position":"9007199254740993","revision":"9007199254740993"}}
+}

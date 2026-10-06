@@ -1,0 +1,32 @@
+# Fresh project per client: native + security + OTP overlays precede this one.
+services:
+  factor-seed:
+    environment: {RV_PILOT_EMAIL_SETTINGS: '1'}
+  factor-proxy:
+    environment: {RV_PILOT_EMAIL_SETTINGS: '1'}
+  email-settings-desktop:
+    extends:
+      file: compose.native-security-pilot.yml
+      service: security-desktop
+    environment:
+      HOME: /tmp/rv-native-email-settings-home
+    command: [bash, scripts/native-email-settings-smoke.sh]
+  email-settings-swift:
+    extends:
+      file: compose.native-security-pilot.yml
+      service: security-swift
+    environment:
+      RV_NATIVE_EMAIL_SETTINGS_SERVER: http://factor-proxy:3401
+      RV_NATIVE_EMAIL_SETTINGS_PASSWORD: native-pilot-test-password
+    command: [bash, macos/scripts/native-email-settings-smoke.sh]
+  email-settings-mobile:
+    image: rocketvibe-native-check
+    working_dir: /src
+    volumes: ['..:/src', 'pilot-invitations:/pilot-invitations']
+    command: [bash, -ec, 'for phase in enable resume-disable resume-disabled; do RV_EMAIL_SETTINGS_PHASE=$$phase node scripts/native-email-settings-mobile-pilot.ts; done']
+    depends_on: [factor-proxy]
+  email-settings-check:
+    image: postgres:18-alpine
+    environment: {PGPASSWORD: native-pilot-disposable-db-password}
+    volumes: ['../scripts/native-email-settings-pilot-check.sql:/check.sql:ro']
+    command: [psql, -h, postgres, -U, pilot, -d, pilot, -v, ON_ERROR_STOP=1, -f, /check.sql]

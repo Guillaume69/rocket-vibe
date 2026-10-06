@@ -19,7 +19,7 @@
  * indexed at a time: the active session's, set by `setCustomEmojis`.
  */
 
-export type CustomEmoji = { name: string; extension: string; aliases: string[] };
+export type CustomEmoji = { name: string; extension: string; aliases: string[]; uri?:string };
 
 /** Custom emoji persistence. Implemented on SQLite (`db/store.ts`). */
 export interface EmojiStore {
@@ -28,7 +28,7 @@ export interface EmojiStore {
   list(): Promise<CustomEmoji[]>;
 }
 
-type Target = { name: string; extension: string };
+type Target = { name: string; extension: string; uri?:string };
 
 /** An `unknown` (network or database JSON) to a clean alias list. */
 export function filterAliases(v: unknown): string[] {
@@ -47,12 +47,12 @@ export function buildIndex(entries: CustomEmoji[]): Map<string, Target> {
     (e) => typeof e?.name === 'string' && typeof e.extension === 'string',
   );
   for (const e of valid) {
-    if (!index.has(e.name)) index.set(e.name, { name: e.name, extension: e.extension });
+    if (!index.has(e.name)) index.set(e.name, { name: e.name, extension: e.extension, ...(e.uri?{uri:e.uri}:{}) });
   }
   for (const e of valid) {
     for (const alias of e.aliases ?? []) {
       if (typeof alias === 'string' && !index.has(alias)) {
-        index.set(alias, { name: e.name, extension: e.extension });
+        index.set(alias, { name: e.name, extension: e.extension, ...(e.uri?{uri:e.uri}:{}) });
       }
     }
   }
@@ -108,7 +108,7 @@ export function clearCustomEmojis(): void {
 export function customEmojiUrl(shortCode: string): string | null {
   const target = index.get(shortCode);
   if (target === undefined || activeBase === null) return null;
-  return `${activeBase}/emoji-custom/${encodeURIComponent(target.name)}.${encodeURIComponent(target.extension)}`;
+  return target.uri??`${activeBase}/emoji-custom/${encodeURIComponent(target.name)}.${encodeURIComponent(target.extension)}`;
 }
 
 /**

@@ -1,0 +1,3 @@
+# The native verification script runs in Linux containers even from Windows checkouts.
+apps/server/scripts/*.sh text eol=lf
+apps/desktop/macos/scripts/*.sh text eol=lf

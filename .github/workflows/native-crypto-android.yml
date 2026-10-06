@@ -1,0 +1,96 @@
+name: native-crypto-android
+
+on:
+  push:
+    branches: [master, 'feature/rocketvibe-server']
+    paths:
+      - 'crates/rv-crypto*/**'
+      - 'crates/rv-protocol/**'
+      - 'apps/mobile/modules/crypto-native/**'
+      - 'apps/mobile/app.json'
+      - 'apps/mobile/package*.json'
+      - '.github/workflows/native-crypto-android.yml'
+  pull_request:
+    paths:
+      - 'crates/rv-crypto*/**'
+      - 'crates/rv-protocol/**'
+      - 'apps/mobile/modules/crypto-native/**'
+      - 'apps/mobile/app.json'
+      - 'apps/mobile/package*.json'
+      - '.github/workflows/native-crypto-android.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: native-crypto-android-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  android-keystore:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/mobile-crypto
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: crypto-android-${{ hashFiles('crates/rv-crypto-mobile/Cargo.lock', 'apps/mobile/package-lock.json') }}-${{ github.sha }}
+          restore-keys: |
+            crypto-android-${{ hashFiles('crates/rv-crypto-mobile/Cargo.lock', 'apps/mobile/package-lock.json') }}-
+            crypto-android-
+      - name: Android build dependencies
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006"
+          npm ci --no-audit --no-fund --prefix apps/mobile
+      - name: Generate an isolated instrumentation host
+        working-directory: apps/mobile
+        env:
+          CI: 1
+        run: |
+          # Only the local library is instrumented. This temporary runner copy
+          # needs neither the app's Firebase credentials nor its release key.
+          node -e "const fs=require('node:fs');const c=JSON.parse(fs.readFileSync('app.json'));delete c.expo.android.googleServicesFile;fs.writeFileSync('app.json',JSON.stringify(c));"
+          npx expo prebuild --platform android --no-install
+      - name: Build both native ABIs and compile the actual Kotlin test APK
+        working-directory: apps/mobile/android
+        run: ./gradlew :crypto-native:assembleDebugAndroidTest --console=plain
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Real Keystore, generated ABI, Rust vault and retained OS lease
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -no-audio -no-boot-anim -no-snapshot-save -gpu swiftshader_indirect
+          script: cd apps/mobile/android && ./gradlew :crypto-native:connectedDebugAndroidTest --console=plain
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: crypto-android-test-results
+          path: |
+            apps/mobile/modules/crypto-native/android/build/outputs/androidTest-results
+            apps/mobile/modules/crypto-native/android/build/reports/androidTests

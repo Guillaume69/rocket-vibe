@@ -1,0 +1,534 @@
+//! A separate protected index admits only documents from verified journal pages.
+//! Observing an own echo alone cannot publish it in the journal projection.
+use super::*;
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Index {
+    version: u8,
+    binding: Binding,
+    index: u64,
+    receipt: packet::Receipt,
+    document: Reference,
+    jumps: Vec<Reference>,
+}
+fn key(binding: &Binding) -> Result<String> {
+    Ok(format!(
+        "crypto-journal-archive-v1/{}",
+        HEXLOWER.encode(&fingerprint(
+            "rocketvibe-observed-archive-binding-v1",
+            binding
+        )?)
+    ))
+}
+fn head(records: &Records, binding: &Binding) -> Result<Option<Head>> {
+    let Some(bytes) = records.get(&key(binding)?) else {
+        return Ok(None);
+    };
+    if bytes.len() > 4096 {
+        return Err(Error::Limit);
+    }
+    let head: Head = serde_json::from_slice(bytes).map_err(|_| Error::Changed)?;
+    if head.version != 1
+        || head.binding != *binding
+        || !head.ordered
+        || head.count == 0
+        || head.count > i64::MAX as u64
+        || head.position == 0
+        || head.position > i64::MAX as u64
+    {
+        return Err(Error::Changed);
+    }
+    Ok(Some(head))
+}
+fn index(blocks: &Access<'_>, reference: &Reference, binding: &Binding) -> Result<Index> {
+    let bytes = blocks.read(reference)?;
+    let value: Index = serde_json::from_slice(&bytes).map_err(|_| Error::Changed)?;
+    let levels = (u64::BITS - value.index.saturating_sub(1).leading_zeros()) as usize;
+    if value.version != 1
+        || value.binding != *binding
+        || value.index == 0
+        || value.index > i64::MAX as u64
+        || value.jumps.len() != levels
+        || value.receipt.header.scope != binding.scope
+    {
+        return Err(Error::Changed);
+    }
+    value.receipt.validate()?;
+    Ok(value)
+}
+fn start(blocks: &Access<'_>, header: &Head) -> Result<Index> {
+    let entry = index(blocks, &header.reference, &header.binding)?;
+    if entry.index != header.count || entry.receipt.position != header.position {
+        return Err(Error::Changed);
+    }
+    Ok(entry)
+}
+fn previous(blocks: &Access<'_>, value: &Index, level: usize) -> Result<Index> {
+    let old = index(
+        blocks,
+        value.jumps.get(level).ok_or(Error::Changed)?,
+        &value.binding,
+    )?;
+    if value
+        .index
+        .checked_sub(1_u64.checked_shl(level as u32).ok_or(Error::Changed)?)
+        != Some(old.index)
+        || old.receipt.position >= value.receipt.position
+    {
+        return Err(Error::Changed);
+    }
+    Ok(old)
+}
+fn document(blocks: &Access<'_>, entry: &Index) -> Result<ProjectedMessage> {
+    let value = super::node(blocks, &entry.document, &entry.binding)?;
+    if value.receipt != entry.receipt {
+        return Err(Error::Changed);
+    }
+    super::projected(&value)
+}
+/// A verified journaled document, ready to be sealed as a portable packet.
+pub(in super::super) struct ArchivedDocument {
+    pub origin: packet::Receipt,
+    /// The author's certificate from the original MLS proof.
+    pub certificate: identity::Certificate,
+    /// The author's membership at reception; absent on older nodes.
+    pub author: Option<Member>,
+    pub message: rv_protocol::SendMessage,
+    /// Local protected observation time of this device.
+    pub observed_at: u64,
+}
+fn archived(blocks: &Access<'_>, entry: &Index) -> Result<ArchivedDocument> {
+    let value = super::node(blocks, &entry.document, &entry.binding)?;
+    if value.receipt != entry.receipt {
+        return Err(Error::Changed);
+    }
+    super::authenticate_entry(&value)?;
+    let proof = value.submission.checked_at(value.observed_at, true)?;
+    Ok(ArchivedDocument {
+        message: messages::decode(&value.plaintext, &value.receipt.header)?,
+        origin: value.receipt,
+        certificate: proof.certificate,
+        author: value.author,
+        observed_at: value.observed_at,
+    })
+}
+fn binding(scope: &Scope, grant: &Member, admission: Fingerprint) -> Binding {
+    Binding {
+        scope: scope.clone(),
+        grant: grant.clone(),
+        admission,
+    }
+}
+impl Coordinator {
+    pub(in super::super) fn has_journal_archive(
+        &self,
+        records: &Records,
+        scope: &Scope,
+        grant: &Member,
+        admission: Fingerprint,
+    ) -> Result<bool> {
+        Ok(head(records, &binding(scope, grant, admission))?.is_some())
+    }
+    /// Every journal index of this vault that is not retired: its binding and
+    /// how many documents it holds.
+    pub(in super::super) fn journal_archive_periods(
+        &self,
+        records: &Records,
+    ) -> Result<Vec<(Scope, Member, Fingerprint, u64)>> {
+        let mut periods = Vec::new();
+        for (name, bytes) in records.range("crypto-journal-archive-v1/".to_string()..) {
+            if !name.starts_with("crypto-journal-archive-v1/") {
+                break;
+            }
+            let parsed: Head = serde_json::from_slice(bytes).map_err(|_| Error::Changed)?;
+            let header = head(records, &parsed.binding)?.ok_or(Error::Changed)?;
+            if !header.retired {
+                let Binding {
+                    scope,
+                    grant,
+                    admission,
+                } = header.binding;
+                periods.push((scope, grant, admission, header.count));
+            }
+        }
+        Ok(periods)
+    }
+    /// Documents of ranks `from..=to` (from 1) of a journal index, in position
+    /// order, each with its original proof re-verified.
+    #[allow(clippy::too_many_arguments)]
+    pub(in super::super) fn journal_archive_documents(
+        &self,
+        records: &Records,
+        blocks: &Access<'_>,
+        scope: &Scope,
+        grant: &Member,
+        admission: Fingerprint,
+        from: u64,
+        to: u64,
+    ) -> Result<Vec<ArchivedDocument>> {
+        let header = head(records, &binding(scope, grant, admission))?.ok_or(Error::NotReady)?;
+        if header.retired {
+            return Err(Error::MessageRetired);
+        }
+        if from == 0 || to < from || to > header.count {
+            return Err(Error::Limit);
+        }
+        let mut entry = start(blocks, &header)?;
+        while entry.index > to {
+            let distance = entry.index - to;
+            let level = (u64::BITS - 1 - distance.leading_zeros()) as usize;
+            let level = level.min(entry.jumps.len().saturating_sub(1));
+            entry = previous(blocks, &entry, level)?;
+        }
+        let mut documents = Vec::with_capacity((to - from + 1) as usize);
+        loop {
+            documents.push(archived(blocks, &entry)?);
+            if entry.index == from {
+                break;
+            }
+            entry = previous(blocks, &entry, 0)?;
+        }
+        documents.reverse();
+        Ok(documents)
+    }
+    /// Position of the oldest indexed document: recovered history shows only
+    /// before it, never inside this device's own range. None when empty or
+    /// retired.
+    pub(in super::super) fn journal_archive_first(
+        &self,
+        records: &Records,
+        blocks: &Access<'_>,
+        scope: &Scope,
+        grant: &Member,
+        admission: Fingerprint,
+    ) -> Result<Option<u64>> {
+        match head(records, &binding(scope, grant, admission))? {
+            Some(header) if !header.retired && header.count > 0 => Ok(self
+                .journal_archive_documents(records, blocks, scope, grant, admission, 1, 1)?
+                .first()
+                .map(|d| d.origin.position)),
+            _ => Ok(None),
+        }
+    }
+    /// Position of the newest indexed document; none once retired.
+    pub(in super::super) fn journal_archive_position(
+        &self,
+        records: &Records,
+        scope: &Scope,
+        grant: &Member,
+        admission: Fingerprint,
+    ) -> Result<Option<u64>> {
+        Ok(head(records, &binding(scope, grant, admission))?
+            .filter(|h| !h.retired)
+            .map(|h| h.position))
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub(in super::super) fn index_archive_message(
+        &self,
+        records: &mut Records,
+        blocks: &mut Access<'_>,
+        reference: Reference,
+        scope: &Scope,
+        grant: &Member,
+        admission: Fingerprint,
+    ) -> Result<()> {
+        let binding = binding(scope, grant, admission);
+        let doc = super::node(blocks, &reference, &binding)?;
+        let prior = head(records, &binding)?;
+        if prior.as_ref().is_some_and(|h| h.retired) {
+            return Err(Error::MessageRetired);
+        }
+        if prior
+            .as_ref()
+            .is_some_and(|h| h.position >= doc.receipt.position)
+        {
+            return Err(Error::JournalOrder);
+        }
+        let count = prior.as_ref().map_or(1, |h| h.count.saturating_add(1));
+        if count > i64::MAX as u64 {
+            return Err(Error::Limit);
+        }
+        let mut jumps = Vec::new();
+        if let Some(prior) = prior {
+            let mut old = start(blocks, &prior)?;
+            jumps.push(prior.reference);
+            for level in 1..(u64::BITS - (count - 1).leading_zeros()) as usize {
+                let next = *old.jumps.get(level - 1).ok_or(Error::Changed)?;
+                old = previous(blocks, &old, level - 1)?;
+                jumps.push(next);
+            }
+        }
+        let position = doc.receipt.position;
+        let item = Index {
+            version: 1,
+            binding: binding.clone(),
+            index: count,
+            receipt: doc.receipt,
+            document: reference,
+            jumps,
+        };
+        let bytes = Zeroizing::new(serde_json::to_vec(&item).map_err(|_| Error::Changed)?);
+        let reference = blocks.put(&bytes)?;
+        let header = Head {
+            version: 1,
+            binding,
+            count,
+            position,
+            reference,
+            ordered: true,
+            retired: false,
+        };
+        records.insert(
+            key(&header.binding)?,
+            serde_json::to_vec(&header).map_err(|_| Error::Changed)?,
+        );
+        Ok(())
+    }
+    pub(in super::super) fn retire_observed_archive(
+        &self,
+        records: &mut Records,
+        room: &str,
+    ) -> Result<()> {
+        let mut changed = Vec::new();
+        for (name, bytes) in records.iter().filter(|(name, _)| {
+            name.starts_with("crypto-observed-archive-v1/")
+                || name.starts_with("crypto-journal-archive-v1/")
+        }) {
+            let mut head: Head = serde_json::from_slice(bytes).map_err(|_| Error::Changed)?;
+            if head.binding.scope.room == room {
+                head.retired = true;
+                changed.push((
+                    name.clone(),
+                    serde_json::to_vec(&head).map_err(|_| Error::Changed)?,
+                ));
+            }
+        }
+        records.extend(changed);
+        Ok(())
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub(in super::super) fn archive_journal_projection(
+        &self,
+        records: &Records,
+        blocks: &Access<'_>,
+        scope: &Scope,
+        grant: &Member,
+        admission: Fingerprint,
+        through: u64,
+        query: &ProjectionQuery,
+    ) -> Result<Option<super::super::journal::RetainedProjection>> {
+        let Some(header) = head(records, &binding(scope, grant, admission))? else {
+            return Ok(None);
+        };
+        let mut projection = super::super::journal::RetainedProjection {
+            messages: Vec::new(),
+            has_older: false,
+            root: None,
+            replies: BTreeMap::new(),
+            amendments: Default::default(),
+        };
+        if header.retired {
+            return Ok(Some(projection));
+        }
+        let mut entry = start(blocks, &header)?;
+        loop {
+            // Amendments (newer than their targets, so met first) are never rows;
+            // a deleted message leaves the page, its thread and the reply counts.
+            let skip = entry.receipt.position > through
+                || projection.amendments.observe(&entry.receipt, || {
+                    let doc = document(blocks, &entry)?;
+                    Ok((doc.message, doc.observed_at))
+                })?
+                || projection.amendments.deleted(&entry.receipt);
+            if !skip {
+                if let Some(thread) = &entry.receipt.header.thread {
+                    let count = projection.replies.entry(thread.clone()).or_insert(0u32);
+                    *count = count.checked_add(1).ok_or(Error::Limit)?;
+                } else if query.thread.as_ref() == Some(&entry.receipt.message) {
+                    if projection.root.is_some() {
+                        return Err(Error::JournalOrder);
+                    }
+                    projection.root = Some(projection.amendments.apply(document(blocks, &entry)?));
+                }
+                if query.before.is_none_or(|p| entry.receipt.position < p)
+                    && entry.receipt.header.thread == query.thread
+                {
+                    if projection.messages.len() < query.limit {
+                        let doc = projection.amendments.apply(document(blocks, &entry)?);
+                        projection.messages.push(doc);
+                    } else {
+                        projection.has_older = true
+                    }
+                }
+            }
+            if entry.jumps.is_empty() {
+                break;
+            }
+            entry = previous(blocks, &entry, 0)?;
+        }
+        projection.messages.reverse();
+        Ok(Some(projection))
+    }
+    /// The receipt of an indexed document by its message id, newest first.
+    pub(in super::super) fn journal_archive_find(
+        &self,
+        records: &Records,
+        blocks: &Access<'_>,
+        scope: &Scope,
+        grant: &Member,
+        admission: Fingerprint,
+        id: &str,
+    ) -> Result<Option<packet::Receipt>> {
+        let Some(header) = head(records, &binding(scope, grant, admission))? else {
+            return Ok(None);
+        };
+        if header.retired {
+            return Ok(None);
+        }
+        let mut entry = start(blocks, &header)?;
+        loop {
+            if entry.receipt.message == id {
+                return Ok(Some(entry.receipt));
+            }
+            if entry.jumps.is_empty() {
+                return Ok(None);
+            }
+            entry = previous(blocks, &entry, 0)?;
+        }
+    }
+    /// The newest `limit` documents up to `through` whose shown text contains
+    /// `needle`, newest first; whether more match; and the amendments met,
+    /// complete when not truncated.
+    #[allow(clippy::too_many_arguments, clippy::type_complexity)]
+    pub(in super::super) fn archive_journal_search(
+        &self,
+        records: &Records,
+        blocks: &Access<'_>,
+        scope: &Scope,
+        grant: &Member,
+        admission: Fingerprint,
+        through: u64,
+        needle: &str,
+        limit: usize,
+    ) -> Result<
+        Option<(
+            Vec<ProjectedMessage>,
+            bool,
+            super::super::amendments::Amendments,
+        )>,
+    > {
+        let mut amendments = super::super::amendments::Amendments::default();
+        let Some(header) = head(records, &binding(scope, grant, admission))? else {
+            return Ok(None);
+        };
+        if header.retired {
+            return Ok(Some((Vec::new(), false, amendments)));
+        }
+        let mut found = Vec::new();
+        let mut entry = start(blocks, &header)?;
+        loop {
+            if entry.receipt.position <= through
+                && !amendments.observe(&entry.receipt, || {
+                    let doc = document(blocks, &entry)?;
+                    Ok((doc.message, doc.observed_at))
+                })?
+                && !amendments.deleted(&entry.receipt)
+            {
+                let doc = amendments.apply(document(blocks, &entry)?);
+                if super::super::journal::matches(&doc.message, doc.edit.as_ref(), needle)? {
+                    if found.len() == limit {
+                        return Ok(Some((found, true, amendments)));
+                    }
+                    found.push(doc);
+                }
+            }
+            if entry.jumps.is_empty() {
+                break;
+            }
+            entry = previous(blocks, &entry, 0)?;
+        }
+        Ok(Some((found, false, amendments)))
+    }
+    /// Every indexed document up to `through`, oldest first: quote sources
+    /// outlive the hot cache. Each one revalidates its original proof.
+    pub(in super::super) fn archive_journal_sources(
+        &self,
+        records: &Records,
+        blocks: &Access<'_>,
+        scope: &Scope,
+        grant: &Member,
+        admission: Fingerprint,
+        through: u64,
+    ) -> Result<Option<Vec<ProjectedMessage>>> {
+        let Some(header) = head(records, &binding(scope, grant, admission))? else {
+            return Ok(None);
+        };
+        if header.retired {
+            return Ok(Some(Vec::new()));
+        }
+        let mut sources = Vec::new();
+        let mut amendments = super::super::amendments::Amendments::default();
+        let mut entry = start(blocks, &header)?;
+        loop {
+            if entry.receipt.position <= through
+                && !amendments.observe(&entry.receipt, || {
+                    let doc = document(blocks, &entry)?;
+                    Ok((doc.message, doc.observed_at))
+                })?
+                && !amendments.deleted(&entry.receipt)
+            {
+                sources.push(amendments.apply(document(blocks, &entry)?));
+            }
+            if entry.jumps.is_empty() {
+                break;
+            }
+            entry = previous(blocks, &entry, 0)?;
+        }
+        sources.reverse();
+        Ok(Some(sources))
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub(in super::super) fn archive_journal_clear(
+        &self,
+        records: &Records,
+        blocks: &Access<'_>,
+        scope: &Scope,
+        grant: &Member,
+        admission: Fingerprint,
+        positions: &[u64],
+    ) -> Result<Option<Vec<ClearMessage>>> {
+        let Some(header) = head(records, &binding(scope, grant, admission))? else {
+            return Ok(None);
+        };
+        if header.retired {
+            return Err(Error::MessageRetired);
+        }
+        let mut output = Vec::with_capacity(positions.len());
+        for position in positions {
+            let mut entry = start(blocks, &header)?;
+            while entry.receipt.position > *position {
+                let mut advanced = false;
+                for level in (0..entry.jumps.len()).rev() {
+                    let old = previous(blocks, &entry, level)?;
+                    if old.receipt.position >= *position {
+                        entry = old;
+                        advanced = true;
+                        break;
+                    }
+                }
+                if !advanced {
+                    if entry.jumps.is_empty() {
+                        return Err(Error::MessageNotRetained);
+                    }
+                    entry = previous(blocks, &entry, 0)?;
+                }
+            }
+            if entry.receipt.position != *position {
+                return Err(Error::MessageNotRetained);
+            }
+            output.push(document(blocks, &entry)?.message);
+        }
+        Ok(Some(output))
+    }
+}

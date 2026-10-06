@@ -2,6 +2,7 @@
 //! Port of the Android app's `lib/`, whose tests are the spec.
 
 pub mod account;
+pub mod account_unread;
 pub mod actions;
 pub mod animation;
 pub mod call;
@@ -20,6 +21,7 @@ pub mod links;
 pub mod live;
 pub mod markdown;
 pub mod media;
+pub mod native;
 pub mod normalize;
 pub mod notify;
 pub mod outbox;
@@ -33,5 +35,6 @@ pub mod session;
 pub mod store;
 pub mod sync;
 pub mod timeline;
+pub mod tls;
 pub mod update;
 pub mod uploads;

@@ -383,6 +383,7 @@ type RawUpload = {
   name: string;
   type: string;
   caption: string | null;
+  tmid: string | null;
   status: 'pending' | 'sending' | 'failed';
   file_id: string | null;
 };
@@ -403,6 +404,7 @@ export function createUploadStore(
             row.type,
             row.caption,
             Date.now(),
+            row.tmid,
           ])
           .then(() => {}),
       );
@@ -416,6 +418,7 @@ export function createUploadStore(
         name: l.name,
         type: l.type,
         caption: l.caption,
+        tmid: l.tmid,
         status: l.status,
         fileId: l.file_id,
       }));

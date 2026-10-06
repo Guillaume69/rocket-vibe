@@ -6,8 +6,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 image=rocket-vibe-rs-build
+repo=$(cd ../.. && pwd)
 in_image() {
-  docker run --rm --network host -u "$(id -u):$(id -g)" -v "$PWD:/src" -v rv-cargo:/cargo -w /src "$image" bash -c "
+  docker run --rm --network host -u "$(id -u):$(id -g)" -v "$repo:/workspace" -v rv-cargo:/cargo -w /workspace/apps/desktop "$image" bash -c "
     set -euo pipefail
     eval \"\$(cargo llvm-cov show-env --export-prefix 2>/dev/null)\"
     $1"
@@ -15,7 +16,7 @@ in_image() {
 
 in_image 'cargo llvm-cov clean --workspace; cargo test -q --workspace >/dev/null; cargo build -q -p rocket-vibe-gtk'
 if [ "${1:-}" = "--e2e" ]; then
-  bin=$(in_image 'echo "${CARGO_LLVM_COV_TARGET_DIR:-$CARGO_TARGET_DIR}/debug/rocket-vibe-gtk" | sed "s|^/src/||"')
+  bin=$(in_image 'echo "${CARGO_LLVM_COV_TARGET_DIR:-$CARGO_TARGET_DIR}/debug/rocket-vibe-gtk" | sed "s|^/workspace/apps/desktop/||"')
   profile=$(in_image 'echo "$LLVM_PROFILE_FILE"')
   RV_BIN="$bin" RV_PROFILE="$profile" scripts/e2e.sh
 fi

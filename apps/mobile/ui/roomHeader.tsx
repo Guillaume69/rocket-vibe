@@ -8,11 +8,11 @@
  */
 
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { rooms } from '../db/schema.ts';
-import { startConference, probeCallAvailable } from '../lib/call.ts';
+import { callContext, startConference, probeCallAvailable } from '../lib/call.ts';
 import type { PresenceStatus } from '../lib/presence.ts';
 import { openProfileCard } from '../lib/profilePreload.ts';
 import type { RestClient } from '../lib/rest.ts';
@@ -24,6 +24,7 @@ import { PRESENCE_KEYS, presenceColors } from './presence.ts';
 import { useSync } from './sync.tsx';
 import { type Colors, FONTS } from './theme.ts';
 import { Tappable } from './tappable.tsx';
+import {CryptoNative} from '../modules/crypto-native/index.ts';
 
 type RoomRow = typeof rooms.$inferSelect;
 
@@ -33,22 +34,29 @@ export function RoomHeader({
   rid,
   room,
   client,
+  membership,
   dmStatus,
   insetTop,
   onBack,
   onSearch,
   onMarked,
+  availableMessageActions = true,
+  privateSearch = false,
 }: {
   c: Colors;
   rid: string;
   room: RoomRow | undefined;
   client: RestClient;
+  membership?:string|null;
   dmStatus: PresenceStatus | null;
   insetTop: number;
   onBack: () => void;
   onSearch: () => void;
   /** Opens the room's pinned and starred messages. */
   onMarked: () => void;
+  availableMessageActions?: boolean;
+  /** An encrypted room is searched on the device, whatever the server offers. */
+  privateSearch?: boolean;
 }) {
   const name = room ? (room.displayName ?? room.name ?? room.rid) : '…';
   const isDM = room?.type === 'd';
@@ -58,38 +66,46 @@ export function RoomHeader({
   const router = useRouter();
   const t = useT();
   const sync = useSync();
+  const capabilities = sync.phase === 'ready' ? sync.capabilities : null;
   const unlocked = useE2EUnlocked(sync.phase === 'ready' ? sync.e2e : null);
 
   // Video conference availability: hides the button where no provider is
   // configured (local Docker), shows it on the target (Jitsi).
-  const [callAvailable, setCallAvailable] = useState(false);
-  const [starting, setStarting] = useState(false);
+  const scope=useMemo(()=>({client,rid,membership}),[client,rid,membership]);
+  const [availability,setAvailability]=useState<{scope:typeof scope;available:boolean}|null>(null);
+  const callAvailable=capabilities?.videoCall!==false && availability?.scope===scope && availability.available;
+  const visible=useRef<typeof scope|null>(scope);
+  useEffect(()=>{visible.current=scope;return()=>{if(visible.current===scope)visible.current=null;};},[scope]);
+  const [callInFlight,setCallInFlight]=useState<typeof scope|null>(null);
+  const starting=callInFlight===scope;
   useEffect(() => {
+    if (capabilities?.videoCall === false) return;
     let alive = true;
-    void probeCallAvailable(client).then((ok) => {
-      if (alive) setCallAvailable(ok);
+    void probeCallAvailable(client,rid,membership).then((ok) => {
+      if (alive) setAvailability({scope,available:ok});
     });
     return () => {
       alive = false;
     };
-  }, [client]);
+  }, [client,rid,membership,room?.readOnly,capabilities?.videoCall,scope]);
 
   const startCall = useCallback(() => {
     if (starting) return;
-    setStarting(true);
+    const alive=()=>visible.current===scope;
+    setCallInFlight(scope);
     void (async () => {
       try {
         // `start` creates the conference, posts the call message in the room, and
         // returns the callId; the call screen handles `join` + WebView.
-        const callId = await startConference(client, rid);
-        router.push({ pathname: '/call/[callId]', params: { callId, title: name } });
+        const callId = await startConference(client, rid,{membership,alive});
+        if(alive())router.push({ pathname: '/call/[callId]', params: { callId, title: name,rid,account:callContext(client),...(membership==null?{}:{adhesion:membership}) } });
       } catch {
-        Alert.alert(t('room.callTitle'), t('room.callStartFailed'));
+        if(alive())Alert.alert(t('room.callTitle'), t('room.callStartFailed'));
       } finally {
-        setStarting(false);
+        if(alive())setCallInFlight(null);
       }
     })();
-  }, [starting, client, rid, router, name, t]);
+  }, [starting, client, rid, router, name, t,membership,scope]);
 
   return (
     <View style={[styles.header, { paddingTop: insetTop + 6, borderBottomColor: c.softBorder }]}>
@@ -100,9 +116,10 @@ export function RoomHeader({
           `dmOtherUid`, a DM's `name` is null locally), the room's otherwise. */}
       <View style={styles.headerWrapper}>
         <Tappable
+          disabled={capabilities?.roomInfo === false}
           onPress={() =>
-            isDM && room?.dmOtherUid != null
-              ? void openProfileCard({ uid: room.dmOtherUid })
+            isDM && capabilities?.profile !== false && room?.dmOtherUid != null
+              ? void openProfileCard({ uid: room.dmOtherUid,...(room.encrypted && CryptoNative && sync.phase==='ready' && sync.provider.native?.chat.capabilities?.e2ee ? {cryptoRoom:rid} : {}) })
               : router.push({ pathname: '/room-info', params: { rid } })
           }
           android_ripple={{ color: c.ripple, borderless: false }}
@@ -154,6 +171,7 @@ export function RoomHeader({
       )}
       <Tappable
         onPress={onMarked}
+        disabled={!availableMessageActions || capabilities?.marks === false}
         hitSlop={8}
         android_ripple={{ color: c.ripple, borderless: true }}
         accessibilityRole="button"
@@ -163,6 +181,7 @@ export function RoomHeader({
       </Tappable>
       <Tappable
         onPress={onSearch}
+        disabled={!privateSearch && (!availableMessageActions || capabilities?.search === false)}
         hitSlop={8}
         android_ripple={{ color: c.ripple, borderless: true }}
       >

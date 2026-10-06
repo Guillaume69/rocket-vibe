@@ -194,5 +194,6 @@ mod tests {
         assert_eq!(preview("hi @bob\n\n- one\n- two"), "hi @bob • one • two");
         assert_eq!(preview(":kkk::smile:"), ":kkk: 😄");
         assert_eq!(preview("# Title :party:"), "Title :party:");
+        assert_eq!(preview(r"ok ¯\_(ツ)_/¯"), "ok ¯_(ツ)_/¯");
     }
 }

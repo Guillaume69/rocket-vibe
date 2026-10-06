@@ -11,8 +11,16 @@ import {
   firstAttachmentImage,
   withoutQuoteLinks,
   stripQuotePrefix,
+  quoteText,
 } from './quote.ts';
 import { textOf } from './markdown.ts';
+
+test('native quote cards preserve literal RC-like source prefixes while official quotes still strip them',()=>{
+  const text='[ ](https://example.test/channel/general?msg=source) mots';
+  assert.equal(quoteText({text,native_reference:{room_id:'origin',message_id:'source',revision:'1'}}),text);
+  assert.equal(quoteText({text}),'mots');
+  assert.equal(quoteText({text,native_reference:null}),'mots');
+});
 
 describe('messagePermalink', () => {
   test('canonical path by room type', () => {

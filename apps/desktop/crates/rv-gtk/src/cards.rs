@@ -15,7 +15,7 @@ use rv_core::session::Session;
 use sha2::{Digest, Sha256};
 
 use crate::i18n::{t, tf};
-use crate::rows::{OnRowEvent, RowEvent, image_widget};
+use crate::rows::{OnRowEvent, RowEvent, image_provider};
 use crate::{markdown_view, media, on_tokio, widgets};
 
 fn label(text: &str, classes: &[&str]) -> gtk::Label {
@@ -50,21 +50,35 @@ fn on_click(widget: &impl IsA<gtk::Widget>, f: impl Fn(&gtk::Widget) + 'static) 
 }
 
 /// The quoted message: author, words, images, and the message it quoted in turn.
-pub fn quote(session: &Arc<Session>, q: &Quote, me: &str) -> gtk::Widget {
+pub fn quote(provider: Option<&media::Provider>, q: &Quote, me: &str) -> gtk::Widget {
     let card =
         gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(3).css_classes(["quote-card"]).build();
+    if q.unavailable {
+        card.append(&label(t("quote.unavailable"), &["quote-text"]));
+        return card.upcast();
+    }
     if let Some(author) = &q.author {
         card.append(&label(author, &["quote-author"]));
     }
     for nested in &q.quotes {
-        card.append(&quote(session, nested, me));
+        card.append(&quote(provider, nested, me));
     }
     if !q.text.trim().is_empty() {
         let blocks = markdown::render(q.md.as_deref(), Some(&q.text), &markdown::Context { me });
         card.append(&markdown_view::view(&blocks, &["quote-text"]));
     }
-    for image in &q.images {
-        card.append(&image_widget(session, image));
+    if let Some(provider) = provider {
+        for image in &q.images {
+            card.append(&image_provider(provider.clone(), image));
+        }
+    }
+    for file in &q.files {
+        let glyph = match file.kind {
+            FileKind::Audio => "🎵",
+            FileKind::Video => "🎬",
+            FileKind::Other => "📎",
+        };
+        card.append(&label(&format!("{glyph} {}", file.title), &["quote-text"]));
     }
     card.upcast()
 }
@@ -79,13 +93,13 @@ pub fn cache_path(file: &FileAttachment) -> PathBuf {
 }
 
 /// The file on disk, fetched the first time.
-pub async fn local_copy(session: Arc<Session>, file: FileAttachment) -> Option<PathBuf> {
-    local_copy_with(session, file, |_| {}).await
+pub async fn legacy_local_copy(session: Arc<Session>, file: FileAttachment) -> Option<PathBuf> {
+    legacy_local_copy_with(session, file, |_| {}).await
 }
 
-/// `local_copy`, with `progress` told the bytes received (on the main thread)
-/// as the file comes in.
-pub async fn local_copy_with(
+/// `legacy_local_copy`, with `progress` told the bytes received (on the main
+/// thread) as the file comes in.
+pub async fn legacy_local_copy_with(
     session: Arc<Session>,
     file: FileAttachment,
     progress: impl Fn(u64) + 'static,
@@ -111,6 +125,21 @@ pub async fn local_copy_with(
     };
     on_tokio(async move { session.download_with_progress(&file.url, &dest, report).await.ok() }).await?;
     Some(path)
+}
+pub async fn local_copy(session: impl Into<media::Provider>, file: FileAttachment) -> Option<PathBuf> {
+    local_copy_with(session, file, |_| {}).await
+}
+
+/// `local_copy` with download progress; a native file reports none.
+pub async fn local_copy_with(
+    session: impl Into<media::Provider>,
+    file: FileAttachment,
+    progress: impl Fn(u64) + 'static,
+) -> Option<PathBuf> {
+    match session.into() {
+        media::Provider::RocketChat(s) => legacy_local_copy_with(s, file, progress).await,
+        native => native.local(&file).await,
+    }
 }
 
 /// How far a download of `size` bytes has come.
@@ -168,7 +197,7 @@ pub fn open_file(widget: &impl IsA<gtk::Widget>, path: &std::path::Path, failed:
     });
 }
 
-fn audio_player(path: &std::path::Path) -> gtk::Widget {
+fn audio_player(path: &std::path::Path, provider: &media::Provider, source: &str) -> gtk::Widget {
     let stream = crate::gst_stream::for_file(path);
     let player = gtk::Box::new(gtk::Orientation::Vertical, 4);
     player.append(&gtk::MediaControls::new(Some(&stream)));
@@ -177,14 +206,21 @@ fn audio_player(path: &std::path::Path) -> gtk::Widget {
     player.append(&failed);
     stream.connect_error_notify(move |s| failed.set_visible(s.error().is_some()));
     stream.play();
+    provider.watch(&player, source, move |widget| {
+        stream.pause();
+        widget.set_sensitive(false);
+    });
     player.upcast()
 }
 
 /// A file: its name and size, and what can be done with it. Audio and video
 /// play in place; anything else opens in the desktop's default application.
 pub fn file(session: &Arc<Session>, f: &FileAttachment) -> gtk::Widget {
+    file_provider(media::Provider::RocketChat(session.clone()), f)
+}
+pub fn file_provider(session: media::Provider, f: &FileAttachment) -> gtk::Widget {
     if f.kind == FileKind::Video {
-        return crate::video::card(session, f);
+        return crate::video::card_provider(session, f);
     }
     let card =
         gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(6).css_classes(["file-card"]).build();
@@ -228,17 +264,23 @@ pub fn file(session: &Arc<Session>, f: &FileAttachment) -> gtk::Widget {
         status_.set_label(t("file.loading"));
         let (s, file, button, status) = (s.clone(), file.clone(), button.clone(), status_.clone());
         glib::spawn_future_local(async move {
-            let name = file.title.clone();
-            let (shown, size) = (status.clone(), file.size);
-            let saved = match local_copy_with(s, file, move |n| shown.set_label(&progress_text(n, size))).await {
-                Some(cached) => {
-                    on_tokio(async move {
-                        let path = download_path(&name);
-                        std::fs::copy(&cached, &path).ok().map(|_| path)
-                    })
-                    .await
+            let saved = if matches!(s, media::Provider::RocketChat(_)) {
+                let name = file.title.clone();
+                let (shown, size) = (status.clone(), file.size);
+                match local_copy_with(s, file, move |n| shown.set_label(&progress_text(n, size))).await {
+                    Some(cached) => {
+                        on_tokio(async move {
+                            let path = download_path(&name);
+                            std::fs::copy(&cached, &path).ok().map(|_| path)
+                        })
+                        .await
+                    }
+                    None => None,
                 }
-                None => None,
+            } else {
+                // A native file goes straight to Downloads, never through the shared cache.
+                let path = download_path(&file.title);
+                on_tokio(async move { s.download(&file.url, &path).await.then_some(path) }).await
             };
             button.set_sensitive(true);
             match saved {
@@ -259,8 +301,9 @@ pub fn file(session: &Arc<Session>, f: &FileAttachment) -> gtk::Widget {
             (session.clone(), f.clone(), button.clone(), status.clone(), detail.clone(), weak.clone());
         glib::spawn_future_local(async move {
             let kind = f.kind;
+            let source = f.url.clone();
             let (shown, size) = (status.clone(), f.size);
-            let path = local_copy_with(session, f, move |n| shown.set_label(&progress_text(n, size))).await;
+            let path = local_copy_with(session.clone(), f, move |n| shown.set_label(&progress_text(n, size))).await;
             button.set_sensitive(true);
             let Some(path) = path else {
                 status.set_label(t("file.failed"));
@@ -271,7 +314,7 @@ pub fn file(session: &Arc<Session>, f: &FileAttachment) -> gtk::Widget {
                 (FileKind::Other, _) => open_file(&button, &path, move || status.set_label(t("file.no_app"))),
                 (_, Some(card)) => {
                     button.set_visible(false);
-                    card.append(&audio_player(&path));
+                    card.append(&audio_player(&path, &session, &source));
                 }
                 _ => {}
             }
@@ -280,10 +323,11 @@ pub fn file(session: &Arc<Session>, f: &FileAttachment) -> gtk::Widget {
     card.upcast()
 }
 
-fn external_image(session: &Arc<Session>, url: &str, width: i32, height: i32) -> gtk::Overlay {
+fn external_image(provider: media::Provider, url: &str, width: i32, height: i32) -> gtk::Overlay {
     let frame = widgets::media_frame(width, height, &["preview-image"]);
     let weak = frame.downgrade();
-    media::load(session, url, move |texture| {
+    let (watch, source) = (provider.clone(), url.to_owned());
+    media::load_provider(provider, url, move |texture| {
         if let Some(frame) = weak.upgrade() {
             let picture =
                 gtk::Picture::builder().paintable(texture).content_fit(gtk::ContentFit::Cover).can_shrink(true).build();
@@ -293,6 +337,11 @@ fn external_image(session: &Arc<Session>, url: &str, width: i32, height: i32) ->
                 .filter(|w| Some(w) != frame.child().as_ref())
                 .collect();
             frame.add_overlay(&picture);
+            watch.watch(&picture, &source, |widget| {
+                if let Some(picture) = widget.downcast_ref::<gtk::Picture>() {
+                    picture.set_paintable(None::<&gdk::Texture>);
+                }
+            });
             for widget in above {
                 frame.remove_overlay(&widget);
                 frame.add_overlay(&widget);
@@ -305,13 +354,25 @@ fn external_image(session: &Arc<Session>, url: &str, width: i32, height: i32) ->
 /// A link the server fetched: an image shown as such, or a card with the
 /// page's title, description and picture.
 pub fn link_preview(session: &Arc<Session>, preview: &LinkPreview) -> gtk::Widget {
+    link_preview_provider(media::Provider::RocketChat(session.clone()), preview)
+}
+pub fn link_preview_provider(provider: media::Provider, preview: &LinkPreview) -> gtk::Widget {
     match preview {
         LinkPreview::Image { url } => {
-            let image = external_image(session, url, 280, 180);
+            let image = external_image(provider.clone(), url, 280, 180);
             image.set_halign(gtk::Align::Start);
             image.set_margin_top(4);
             let url = url.clone();
-            on_click(&image, move |w| open_uri(w, &url));
+            on_click(&image, move |w| {
+                if url.starts_with("rv-preview:") {
+                    let (widget, authority) = (w.clone(), (provider.clone(), url.clone()));
+                    media::load_provider(provider.clone(), &url, move |texture| {
+                        crate::rows::open_viewer_provider(&widget, texture, t("message.image"), None, Some(authority))
+                    });
+                } else {
+                    open_uri(w, &url);
+                }
+            });
             image.upcast()
         }
         LinkPreview::Card { url, title, description, image, site } => {
@@ -334,7 +395,7 @@ pub fn link_preview(session: &Arc<Session>, preview: &LinkPreview) -> gtk::Widge
                 card.append(&text);
             }
             if let Some(image) = image {
-                let picture = external_image(session, image, 300, 160);
+                let picture = external_image(provider.clone(), image, 300, 160);
                 picture.set_margin_top(4);
                 card.append(&picture);
             }
@@ -400,6 +461,9 @@ pub fn stop_players(message_ids: &HashSet<&str>) {
 /// A YouTube, Dailymotion or Vimeo link: thumbnail and title. The thumbnail
 /// plays the video in the card, the title opens it in the browser.
 pub fn video_link(session: &Arc<Session>, message_id: &str, video: &VideoLink) -> gtk::Widget {
+    video_link_provider(media::Provider::RocketChat(session.clone()), message_id, video)
+}
+pub fn video_link_provider(provider: media::Provider, message_id: &str, video: &VideoLink) -> gtk::Widget {
     let card = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
         .spacing(3)
@@ -431,7 +495,7 @@ pub fn video_link(session: &Arc<Session>, message_id: &str, video: &VideoLink) -
     top.append(&stop);
     card.append(&top);
     let frame = match &video.thumbnail {
-        Some(thumbnail) => external_image(session, thumbnail, 300, 169),
+        Some(thumbnail) => external_image(provider, thumbnail, 300, 169),
         None => widgets::media_frame(300, 169, &["preview-image"]),
     };
     frame.add_overlay(&widgets::play_badge(56));
@@ -619,3 +683,11 @@ fn color_class(color: &str) -> Option<String> {
     }
     Some(class)
 }
+
+#[cfg(test)]
+#[path = "tests/link_previews.rs"]
+mod preview_tests;
+
+#[cfg(test)]
+#[path = "tests/meetings.rs"]
+mod meeting_tests;

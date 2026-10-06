@@ -1,0 +1,79 @@
+# Disposable file bench, using the current binaries; no host ports or real account.
+name: rocketvibe-files-pilot
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: files
+      POSTGRES_PASSWORD: disposable-native-files-password
+      POSTGRES_DB: files
+    tmpfs: [/var/lib/postgresql]
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U files -d files]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  bootstrap:
+    image: rocketvibe-native-server
+    working_dir: /src
+    volumes: ['..:/src:ro']
+    environment:
+      DATABASE_URL: postgres://files:disposable-native-files-password@postgres/files
+      RV_USER_PASSWORD: disposable-native-files-password
+    entrypoint: [/bin/sh, -ec]
+    command: ['rv-server create-user desktop-files && rv-server create-user files-outsider']
+    depends_on:
+      postgres: {condition: service_healthy}
+  server:
+    image: rocketvibe-native-server
+    working_dir: /src
+    volumes: ['..:/src:ro']
+    environment:
+      DATABASE_URL: postgres://files:disposable-native-files-password@postgres/files
+      RV_BIND: 0.0.0.0:3400
+      RV_OBJECTS_DIR: /tmp/native-files-objects
+    command: [serve]
+    depends_on:
+      bootstrap: {condition: service_completed_successfully}
+  desktop:
+    image: rocket-vibe-rs-build
+    working_dir: /workspace/apps/desktop
+    volumes: ['..:/workspace:ro']
+    environment:
+      RV_FILE_TEST_SERVER: http://server:3400
+      RV_FILE_TEST_PASSWORD: disposable-native-files-password
+    command: [target/debug/examples/native-files-smoke]
+    depends_on: [server]
+  mobile-emojis:
+    image: rocketvibe-native-check
+    working_dir: /src
+    volumes: ['..:/src:ro']
+    environment:
+      RV_FILE_TEST_SERVER: http://server:3400
+      RV_FILE_TEST_PASSWORD: disposable-native-files-password
+    command: [node, scripts/native-custom-emojis-smoke.ts]
+    depends_on: [server]
+  gtk:
+    image: rocket-vibe-rs-build
+    cap_add: [IPC_LOCK]
+    working_dir: /workspace/apps/desktop
+    volumes: ['..:/workspace:ro']
+    environment:
+      RV_FILE_TEST_SERVER: http://server:3400
+      RV_FILE_TEST_PASSWORD: disposable-native-files-password
+      LANG: fr_FR.UTF-8
+      LANGUAGE: fr
+    command: [bash, scripts/native-files-smoke.sh]
+    depends_on:
+      desktop: {condition: service_completed_successfully}
+  swift:
+    image: rocket-vibe-swift
+    cap_add: [IPC_LOCK]
+    working_dir: /workspace/apps/desktop
+    volumes: ['..:/workspace']
+    environment:
+      RV_FILE_TEST_SERVER: http://server:3400
+      RV_FILE_TEST_PASSWORD: disposable-native-files-password
+      RV_FFI_LIB_DIR: /workspace/apps/desktop/target/swift-linux/release
+    command: [bash, macos/scripts/native-files-smoke.sh]
+    depends_on: [server]

@@ -24,6 +24,18 @@ import {
 } from './storageKeys.ts';
 import type { PendingLogout } from './deferredLogout.ts';
 import { parsePendingLogouts, parseSession } from './storedRecords.ts';
+import {renewCredentials,renewalDue,validRenewal,type CredentialRecord} from '../providers/rocketvibe/renewal.ts';
+import {checkIdentity,transportFor} from '../providers/rocketvibe/auth.ts';
+import {NativeError} from '../providers/rocketvibe/transport.ts';
+
+const transactionsSession=new Map<string,Promise<void>>();
+function transactionSession<T>(baseUrl:string,action:()=>Promise<T>):Promise<T> {
+  const key=withoutTrailingSlash(baseUrl);
+  const result=(transactionsSession.get(key)??Promise.resolve()).then(action);
+  const done=result.then(()=>{},()=>{});transactionsSession.set(key,done);
+  void done.then(()=>{if(transactionsSession.get(key)===done)transactionsSession.delete(key);});
+  return result;
+}
 
 /** Hex SHA-256: the app-side implementation of `Hasher`. */
 export function hash(text: string): Promise<string> {
@@ -54,7 +66,51 @@ const PUSH_EXTENSION_ACCESS: SecureStore.SecureStoreOptions = {
 };
 
 export async function saveSession(session: Session): Promise<void> {
+  return transactionSession(session.baseUrl,()=>writeSession(session));
+}
+
+export function rememberNativePushDevice(expected:Session,deviceId:string):Promise<void> {
+  return transactionSession(expected.baseUrl,async()=>{
+    const current=await readSession(expected.baseUrl);
+    if(!current || current.kind!=='rocketvibe' || current.authToken!==expected.authToken || current.userId!==expected.userId || current.nativeInstanceId!==expected.nativeInstanceId || current.nativeDataEpoch!==expected.nativeDataEpoch)throw new NativeError(0,'session_closed');
+    await writeSession({...current,nativePushDeviceId:deviceId});
+  });
+}
+async function writeSession(session:Session):Promise<void> {
   await SecureStore.setItemAsync(await key(session.baseUrl), JSON.stringify(session), PUSH_EXTENSION_ACCESS);
+}
+
+/** Hold the account lease through durable intent, network confirmation and save. */
+export function prepareNativeSession(expected:Session):Promise<Session> {
+  return transactionSession(expected.baseUrl,async()=>{
+    const stored=await readSession(expected.baseUrl);
+    if (!stored || stored.userId!==expected.userId || stored.kind!=='rocketvibe') throw new NativeError(0,'session_closed');
+    if(stored.nativeRenewal!==undefined && !validRenewal(stored.nativeRenewal,stored.authToken))throw new NativeError(0,'invalid_native_credentials');
+    const transport=transportFor(stored);const discovery=await transport.discover();
+    checkIdentity(expected,discovery);checkIdentity(stored,discovery);
+    if (!discovery.capabilities.session_rotation) return stored;
+    let record:CredentialRecord={session:stored,pending:stored.nativeRenewal??null,expires_at:stored.nativeExpiresAt??null};
+    let previous=stored.authToken;
+    const save=async(update:CredentialRecord)=>{
+      const current=await readSession(expected.baseUrl);
+      if (!current || current.userId!==stored.userId || current.authToken!==previous || current.nativeInstanceId!==stored.nativeInstanceId || current.nativeDataEpoch!==stored.nativeDataEpoch) throw new NativeError(0,'session_closed');
+      const session={...update.session};delete session.nativeRenewal;
+      if (update.pending) session.nativeRenewal=update.pending;
+      if (update.expires_at) session.nativeExpiresAt=update.expires_at;
+      await writeSession(session);previous=session.authToken;
+    };
+    if (!record.pending && (!record.expires_at || !Number.isFinite(Date.parse(record.expires_at)))) {
+      const devices=await transport.deviceSessions();const active=devices.filter(d=>d.current);
+      if (active.length!==1 || !Number.isFinite(Date.parse(active[0].expires_at))) throw new NativeError(502,'invalid_native_session');
+      record={...record,expires_at:active[0].expires_at};await save(record);
+    }
+    if (renewalDue(record)) {
+      record=await renewCredentials(record,{save,token:async()=>Array.from(Crypto.getRandomBytes(32),b=>b.toString(16).padStart(2,'0')).join('')});
+    }
+    const fresh={...record.session};delete fresh.nativeRenewal;
+    if(record.expires_at)fresh.nativeExpiresAt=record.expires_at;
+    return fresh;
+  });
 }
 
 export async function readSession(baseUrl: string): Promise<Session | null> {
@@ -64,7 +120,7 @@ export async function readSession(baseUrl: string): Promise<Session | null> {
 }
 
 export async function clearSession(baseUrl: string): Promise<void> {
-  await SecureStore.deleteItemAsync(await key(baseUrl));
+  await transactionSession(baseUrl,async()=>{await SecureStore.deleteItemAsync(await key(baseUrl));});
 }
 
 /**

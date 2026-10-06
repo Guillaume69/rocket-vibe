@@ -4,6 +4,7 @@ How a user signs in to a Rocket.Chat server (password, then a second factor when
 
 ## The shared flow
 
+0. **Server type.** Under the address, a selector offers Automatic (the default), Rocket.Chat or RocketVibe. Automatic asks `/.well-known/rocketvibe` first and treats only a 2xx naming the product as RocketVibe; any other answer (404, or the 403 of a proxy that forbids `/.well-known/`, as on chat.barrut.me) falls through to the Rocket.Chat probe below. Rocket.Chat skips the native discovery; RocketVibe requires it and never falls back ("no RocketVibe server at this address"). Changing the choice probes again. Core: `ServerKind`, `native::probe_as`, `server::probe_as`, `session::login_as` (`rv-core`); `ServerChoice` over `rv-ffi` (`Client.probe`, `login`, `is_native_server`); mobile `discoverServer(..., kind)` and `NotRocketVibeError` (`lib/serverKind.ts`).
 1. **Probe.** Before any credential, the client reads two anonymous routes in parallel: `GET /api/info` (outside `/api/v1/`, it returns the minor version only, `8.5`, and proves the server is a Rocket.Chat) and `GET /api/v1/settings.public?count=0` (`count=0` disables paging). From the settings it learns whether the password form is offered (`Accounts_ShowFormLogin`), whether 2FA and E2EE are on, and which OAuth providers are configured. The server address is normalised first: `https://` is assumed when no scheme is typed, a trailing slash is dropped, and a sub-path (a server behind a proxy at `/chat`) is kept.
 2. **Login.** `POST /api/v1/login` with `{user, password}`, sent anonymously. The answer carries `authToken`, `userId` and `me.username`. A body without token or user id is treated as a failure, not a session.
 3. **Second factor.** When 2FA is required the server answers with a `totp-required` error whose `details.method` names what it wants: `totp`, `email` or `password`. The client does not guess the method; it reads it. The code is resent with the same login, in the `x-2fa-code` / `x-2fa-method` headers. For `email`, a `codeGenerated: false` flag means no mail left yet, so the client calls `users.2fa.sendEmailCode` first. For `password`, the expected code is the SHA-256 hex of the password, never the clear password.
@@ -30,6 +31,8 @@ How a user signs in to a Rocket.Chat server (password, then a second factor when
 
 **Several servers.** Each server keeps its own session; the local database is per (server, account) (`db/fileName.ts`: `rocket-vibe-<host slug>-<uid>.db`). Settings has a "change server" link to `/login?change=1`, which lists the known servers; tapping one calls `switchServer`, which reads the target session before moving the resume pointer (so a server without a session never strands the user signed out) and validates it in the background. A notification deep link carrying `?host=` for another server lands on an explicit "switch to that server" screen in `app/room/[rid].tsx` (`OtherServer`) rather than switching silently. See [sharing-and-links.md](sharing-and-links.md).
 
+**Server rail.** The home screen draws a column down its left edge (`ui/serverRail.tsx`, in `app/index.tsx`): a tile per known server that still has a session (`listKnownServers` then `readSession`), the open one outlined, then "+" to `/login?change=1`. A tap calls `switchServer`. Only the open server is connected; while the home screen is focused and the app in the foreground, each other server is read once a minute and at each return to the foreground: `subscriptions.get` for Rocket.Chat, `GET /api/v1/rooms` after `prepareNativeSession` (which renews the token under its lease) for RocketVibe, judged by `lib/accountUnread.ts` (the desktop rule: an open subscription with unread or an alert; a read state with `readBadges(..).alert`). A token refused there never signs anything out. A push for another server that reaches JS (`setNotificationHandler`, so iOS in the foreground) lights the dot at once through `ui/serverDots.ts`; Android message pushes are posted by our Kotlin service and never reach JS, so there the dot waits for the next read.
+
 ## Desktop
 
 **Core.** `rv-core/src/server.rs` (`probe`, `ServerProfile`) and `rv-core/src/session.rs` (`normalize_server`, `login`, `two_factor_code`, `request_email_code`) implement the same contract. `normalize_server` rejects input without a host. `SessionInfo` holds base URL, user id, username and token. `Session::start` opens the store, starts DDP with the token and spawns `watch_token`, which turns a token refusal from `RestClient::token_rejected` into `SessionEvent::Expired` only when the refused token is the session's own.
@@ -39,6 +42,8 @@ How a user signs in to a Rocket.Chat server (password, then a second factor when
 **Storage.** `rv-gtk/src/secrets.rs` keeps one keychain item per **account** (`account_key` = `<base_url>|<user_id>`): Secret Service via `oo7` on Linux, Credential Manager or Keychain via the `keyring` crate elsewhere, with an index file because those cannot list items. Plain files under the config dir `rocket-vibe-rs/` hold the active account (`active-account`), the known servers (`servers`, most recent first, capped at 8) and `last-server`. Keychain calls time out after 5 s so a silent keyring cannot freeze the splash screen. The E2EE key (JWK) rides in the same item while unlocked. The database is `<host>[_port]-<uid>.sqlite` in the data dir (`database_path`).
 
 **Several accounts.** Because the key includes the user id, desktop can hold two accounts on one server, which mobile cannot. Settings (`settings.rs`, `accounts_group`) lists every keychain account, switches on a click (`switch_to`) and offers "add account" (`add_account`), which keeps the current account as `previous` so the login page can cancel back to it. Sign-out removes the keychain item, sends `logout`, deletes the database files (`stop_session(true)`) and hands over to the next stored account if any. An expired session does the same and shows the login page with an "expired" message. `open_link` switches to the account whose server fits a link.
+
+**Server rail.** `rv-gtk/src/rail.rs` puts a column left of the chat page (`window.rs` wraps the chat widget with it): a tile per keychain account, the open one outlined in pink, "+" (`add_account`), and a yellow dot on an account with unread messages. `refresh_rail` rebuilds it after every session start. Every 60 s it reads each account that is not open with `rv_core::account_unread` (`subscriptions.get`, or the native rooms' read states after `credentials::Provider::resume`); a failure leaves the dot as it was, an answer about an older account list is dropped (`generation`). SwiftUI repeats it in `ChatView.swift` (`ServerRail`) over `Client.accountUnread` (`rv-ffi/src/native.rs`) and `AppModel.pollAccounts`.
 
 **SwiftUI (macOS).** `LoginView` and `RocketVibeKit/LoginModel.swift` repeat the GTK flow over `rv-ffi` (`Client.probe`, `login`, `requestEmailCode`). `rv-ffi/src/accounts.rs` stores accounts exactly where rv-gtk keeps them on macOS (same Keychain service, same files, same database names), so the two macOS apps share sessions. `AppModel` resumes the first account and falls back to the next on sign-out or expiry.
 
@@ -58,6 +63,9 @@ How a user signs in to a Rocket.Chat server (password, then a second factor when
 - apps/mobile/lib/storageKeys.ts
 - apps/mobile/lib/deferredLogout.ts
 - apps/mobile/ui/session.tsx
+- apps/mobile/ui/serverRail.tsx
+- apps/mobile/ui/serverDots.ts
+- apps/mobile/lib/accountUnread.ts
 - apps/mobile/db/fileName.ts
 - apps/mobile/db/migrate.ts
 - apps/desktop/crates/rv-core/src/server.rs
@@ -67,6 +75,9 @@ How a user signs in to a Rocket.Chat server (password, then a second factor when
 - apps/desktop/crates/rv-gtk/src/window.rs
 - apps/desktop/crates/rv-gtk/src/secrets.rs
 - apps/desktop/crates/rv-gtk/src/settings.rs
+- apps/desktop/crates/rv-gtk/src/rail.rs
+- apps/desktop/crates/rv-core/src/account_unread.rs
+- apps/desktop/macos/Sources/RocketVibe/ChatView.swift
 - apps/desktop/crates/rv-ffi/src/accounts.rs
 - apps/desktop/macos/Sources/RocketVibeKit/LoginModel.swift
 - apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift

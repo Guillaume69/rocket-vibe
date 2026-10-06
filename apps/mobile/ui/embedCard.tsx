@@ -9,9 +9,9 @@
  * (YouTube/Dailymotion) or the browser through `Linking`. No WebView, no
  * stream to extract.
  *
- * The thumbnail is a PUBLIC URL (not a protected Rocket.Chat file): a plain
- * `Image`, without `rc_uid`/`rc_token`. If it is missing (Vimeo, or 404), we
- * fall back to the "aurora" gradient banner.
+ * Rocket.Chat thumbnails stay public. RocketVibe uses the message's private
+ * image, through the same reader as article cards. Without an available image,
+ * the "aurora" gradient banner stays the existing fallback.
  */
 
 import { LinearGradient } from 'expo-linear-gradient';
@@ -19,6 +19,9 @@ import { useMemo, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { videoMetas, type VideoMeta } from '../lib/linkPreview.ts';
+import type {RestClient} from '../lib/rest.ts';
+import {nativePreviewUri} from '../lib/nativePreviews.ts';
+import {useNativePreview} from './nativePreview.ts';
 import { detectVideoLinks, type VideoLink } from '../lib/videoLinks.ts';
 import { useT } from './i18n.ts';
 import { openExternalLink } from './externalLink.ts';
@@ -29,16 +32,18 @@ export function EmbedLinks({
   c,
   text,
   urls,
+  client,
   onLongPress,
 }: {
   c: Colors;
   text: string | null;
   /** `message.urls`: the video title is there, harvested by the server. */
   urls: string | null;
+  client?:RestClient;
   onLongPress?: (() => void) | undefined;
 }) {
   const links = useMemo(() => detectVideoLinks(text), [text]);
-  const metas = useMemo(() => videoMetas(urls), [urls]);
+  const metas = useMemo(() => videoMetas(urls,client?.kind==='rocketvibe'?(message,image)=>nativePreviewUri(client,message,image):undefined), [urls,client]);
   if (links.length === 0) return null;
   return (
     <View style={styles.list}>
@@ -48,6 +53,7 @@ export function EmbedLinks({
           c={c}
           link={link}
           meta={metas.get(link.id) ?? null}
+          native={client?.kind==='rocketvibe'}
           onLongPress={onLongPress}
         />
       ))}
@@ -59,17 +65,20 @@ function EmbedCard({
   c,
   link,
   meta,
+  native,
   onLongPress,
 }: {
   c: Colors;
   link: VideoLink;
   /** `null` as long as the server has not described the link (yet). */
   meta: VideoMeta | null;
+  native:boolean;
   onLongPress?: (() => void) | undefined;
 }) {
   const t = useT();
-  const [thumbnailError, setThumbnailError] = useState(false);
-  const showsThumbnail = link.thumbnail !== null && !thumbnailError;
+  const [thumbnailError, setThumbnailError] = useState<string|null>(null);
+  const image=useNativePreview(native?meta?.image??null:link.thumbnail);
+  const showsThumbnail = !!image && thumbnailError!==image;
 
   const title = meta?.title ?? null;
 
@@ -85,10 +94,10 @@ function EmbedCard({
       <View style={styles.media}>
       {showsThumbnail ? (
         <Image
-          source={{ uri: link.thumbnail! }}
+          source={{ uri: image! }}
           style={StyleSheet.absoluteFill}
           resizeMode="cover"
-          onError={() => setThumbnailError(true)}
+          onError={() => setThumbnailError(image??null)}
         />
       ) : (
         <LinearGradient

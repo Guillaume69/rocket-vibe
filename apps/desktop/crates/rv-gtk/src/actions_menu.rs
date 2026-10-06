@@ -229,7 +229,7 @@ fn menu(
     column.upcast()
 }
 
-fn confirm_delete(parent: Option<&gtk::Widget>, delete: impl Fn() + 'static) {
+pub(super) fn confirm_delete(parent: Option<&gtk::Widget>, delete: impl Fn() + 'static) {
     let dialog = adw::AlertDialog::builder()
         .heading(t("actions.delete_title"))
         .body(t("actions.delete_body"))

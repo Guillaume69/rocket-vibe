@@ -30,6 +30,7 @@ export function hashCodeJava(s: string): number {
 }
 
 /** The expo identifier of a room's conversation notification. */
-export function roomNotificationId(rid: string): string {
-  return `expo-notifications://foreign_notifications?id=${hashCodeJava(rid)}`;
+export function roomNotificationId(rid: string,scope?:{kind:string;userId:string;nativeInstanceId?:string;nativeDataEpoch?:string}): string {
+  const key=scope?.kind==='rocketvibe'?`rocketvibe:${scope.nativeInstanceId}:${scope.nativeDataEpoch}:${scope.userId}:${rid}`:rid;
+  return `expo-notifications://foreign_notifications?id=${hashCodeJava(key)}`;
 }

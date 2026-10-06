@@ -45,14 +45,26 @@ pub struct RestError {
     pub message: String,
     pub error: Option<String>,
     pub error_type: Option<String>,
-    /// The body carried a Rocket.Chat envelope, as opposed to a proxy's page.
+    /// The body carried a recognized provider envelope, rather than a proxy's page.
     pub understood: bool,
     pub two_factor: Option<TwoFactorChallenge>,
+    /// Provider diagnostics, independent of the server's user-facing message.
+    pub request_id: Option<String>,
+    pub retry_after: Option<u64>,
 }
 
 impl RestError {
     fn network(message: String) -> Self {
-        RestError { status: 0, message, error: None, error_type: None, understood: false, two_factor: None }
+        RestError {
+            status: 0,
+            message,
+            error: None,
+            error_type: None,
+            understood: false,
+            two_factor: None,
+            request_id: None,
+            retry_after: None,
+        }
     }
 
     /// A success whose body lacks what the call exists for.
@@ -64,6 +76,8 @@ impl RestError {
             error_type: None,
             understood: true,
             two_factor: None,
+            request_id: None,
+            retry_after: None,
         }
     }
 }
@@ -370,6 +384,8 @@ fn interpret(path: &str, status: u16, text: &str) -> Result<Value, RestError> {
                 error_type: None,
                 understood: false,
                 two_factor: None,
+                request_id: None,
+                retry_after: None,
             });
         }
     };
@@ -403,6 +419,8 @@ fn interpret(path: &str, status: u16, text: &str) -> Result<Value, RestError> {
             error_type: Some("totp-required".into()),
             understood: true,
             two_factor: Some(TwoFactorChallenge { method, methods, code_generated }),
+            request_id: None,
+            retry_after: None,
         });
     }
 
@@ -424,6 +442,8 @@ fn interpret(path: &str, status: u16, text: &str) -> Result<Value, RestError> {
             error_type,
             understood,
             two_factor: None,
+            request_id: None,
+            retry_after: None,
         });
     }
     Ok(json)

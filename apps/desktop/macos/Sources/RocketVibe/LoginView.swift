@@ -1,3 +1,4 @@
+import RocketVibeCore
 import RocketVibeKit
 import SwiftUI
 
@@ -6,7 +7,7 @@ struct LoginView: View {
     @FocusState var focus: Field?
 
     enum Field {
-        case server, user, password, code
+        case server, user, password, code, invitation
     }
 
     var body: some View {
@@ -23,8 +24,26 @@ struct LoginView: View {
 
             Form {
                 if let method = login.method {
+                    if login.nativeMethods.count > 1 {
+                        Picker("", selection: Binding(get: { login.method ?? "totp" }, set: { login.selectNativeMethod($0) })) {
+                            ForEach(login.nativeMethods, id: \.self) { offered in
+                                Text(nativeFactorTitle(offered)).tag(offered)
+                            }
+                        }.labelsHidden()
+                    }
                     Text(L("login.intro_\(method)"))
                         .fixedSize(horizontal: false, vertical: true)
+                    if method == "email", let email = login.nativeEmail {
+                        Text(factorEmailStatus(email)).font(.caption).foregroundStyle(.secondary)
+                        Button(L(email.requested ? "email.resume_delivery" : "email.send_code")) {
+                            Task { await login.sendNativeEmail(resend: false, revision: email.viewRevision) }
+                        }.disabled(!email.requested && !email.canDeliver)
+                        if email.delivery != nil {
+                            Button(L("email.resend_code")) {
+                                Task { await login.sendNativeEmail(resend: true, revision: email.viewRevision) }
+                            }.disabled(!email.canDeliver)
+                        }
+                    }
                     SecureField(L("login.code_\(method)"), text: $login.code)
                         .focused($focus, equals: .code)
                         .onSubmit(submit)
@@ -32,6 +51,13 @@ struct LoginView: View {
                     TextField(L("login.server"), text: $login.server)
                         .focused($focus, equals: .server)
                         .textContentType(.URL)
+                    // Found by probing; forced when the probe gets it wrong.
+                    Picker(L("login.kind"), selection: $login.kind) {
+                        Text(L("login.kind_auto")).tag(ServerChoice.auto)
+                        Text(L("login.kind_rocketchat")).tag(ServerChoice.rocketChat)
+                        Text(L("login.kind_rocketvibe")).tag(ServerChoice.rocketVibe)
+                    }
+                    .pickerStyle(.segmented)
                     if let probe = login.probeLine {
                         Text(probe)
                             .font(.caption)
@@ -46,13 +72,54 @@ struct LoginView: View {
                     TextField(L("login.user"), text: $login.user)
                         .focused($focus, equals: .user)
                         .textContentType(.username)
-                    SecureField(L("login.password"), text: $login.password)
+                    SecureField(L(login.recovering ? "login.new_password" : "login.password"), text: $login.password)
                         .focused($focus, equals: .password)
                         .textContentType(.password)
                         .onSubmit(submit)
+                    if login.pendingConfirmation { Text(L("login.factor_resume")).font(.caption) }
+                    if login.canRegister {
+                        Toggle(L("login.create_account"), isOn: $login.registering)
+                            .onChange(of: login.registering) { _, active in if active { login.recovering = false }; login.invitation = "" }
+                        if login.registering {
+                            Text(L("login.invitation_help")).font(.caption)
+                            SecureField(L("login.invitation"), text: $login.invitation)
+                                .focused($focus, equals: .invitation)
+                                .onSubmit(submit)
+                        }
+                    }
+                    if login.canRecover {
+                        Toggle(L("login.recover_account"), isOn: $login.recovering)
+                            .onChange(of: login.recovering) { _, active in if active { login.registering = false }; login.invitation = "" }
+                        if login.recovering {
+                            Text(L("login.recovery_help")).font(.caption)
+                            if login.canEmailRecover, let email = login.recoveryEmail {
+                                Text(L(email.identityChanged ? "recovery_email.changed" : email.expired ? "recovery_email.expired"
+                                    : email.accepted ? "recovery_email.accepted" : email.requested ? "recovery_email.pending" : "recovery_email.help"))
+                                    .font(.caption).fixedSize(horizontal: false, vertical: true)
+                                if email.retryAfterSeconds > 0 {
+                                    Text(L("recovery_email.wait", ["seconds": String(email.retryAfterSeconds)])).font(.caption)
+                                }
+                                if !email.accepted && !email.expired && !email.identityChanged {
+                                    Button(L(email.requested ? "recovery_email.retry" : "recovery_email.send")) {
+                                        Task { await login.sendRecoveryEmail(forget: false, revision: email.viewRevision) }
+                                    }.disabled(email.retryAfterSeconds > 0)
+                                }
+                                if email.requested {
+                                    Button(L("recovery_email.forget")) {
+                                        Task { await login.sendRecoveryEmail(forget: true, revision: email.viewRevision) }
+                                    }
+                                    Text(L("recovery_email.forget_help")).font(.caption)
+                                }
+                            }
+                            SecureField(L("login.recovery_code"), text: $login.invitation)
+                                .focused($focus, equals: .invitation)
+                                .onSubmit(submit)
+                        }
+                    }
                 }
             }
             .formStyle(.grouped)
+            .disabled(login.busy)
             .scrollContentBackground(.hidden)
             .frame(maxWidth: 400)
             .fixedSize(horizontal: false, vertical: true)
@@ -67,10 +134,12 @@ struct LoginView: View {
             HStack {
                 if login.method != nil {
                     Button(L("actions.cancel")) { login.cancelCode() }
-                } else if app.chat != nil {
+                        .disabled(login.busy)
+                } else if app.signedIn {
                     Button(L("login.cancel_add")) { app.cancelLogin() }
+                        .disabled(login.busy)
                 }
-                Button(login.busy ? L("login.signing_in") : (login.method == nil ? L("login.sign_in") : L("login.confirm")), action: submit)
+                Button(login.busy ? L("login.signing_in") : (login.method == nil ? L(login.recovering && login.canRecover ? "login.reset_password" : login.registering && login.canRegister ? "login.create_account" : "login.sign_in") : L("login.confirm")), action: submit)
                     .buttonStyle(VibeButtonStyle())
                     .keyboardShortcut(.defaultAction)
                     .disabled(login.busy)
@@ -80,10 +149,20 @@ struct LoginView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background { LoginSky() }
         .onAppear { focus = login.user.isEmpty ? .user : .password }
+        .onDisappear { login.leave() }
         .onChange(of: login.method) { _, method in if method != nil { focus = .code } }
-        .task(id: login.server) {
+        .onChange(of: login.server) { _, _ in login.registering = false; login.recovering = false; login.invitation = "" }
+        .task(id: "\(login.server)|\(login.kind)") {
             try? await Task.sleep(nanoseconds: 600_000_000)
             if !Task.isCancelled { await login.probe(client: app.client) }
+        }
+        .task(id: "\(login.server)|\(login.user)|\(login.recovering)|\(login.canEmailRecover)") {
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            if !Task.isCancelled { await login.loadRecoveryEmail(client: app.client) }
+            while !Task.isCancelled && login.recovering && login.canEmailRecover {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                if !Task.isCancelled { login.refreshRecoveryEmail() }
+            }
         }
     }
 

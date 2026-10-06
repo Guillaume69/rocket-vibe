@@ -14,6 +14,7 @@ use gtk::{gio, glib};
 use rv_core::notify::Incoming;
 
 use crate::i18n::{t, tf};
+mod portal;
 
 const BUS: &str = "org.freedesktop.Notifications";
 const PATH: &str = "/org/freedesktop/Notifications";
@@ -22,6 +23,8 @@ pub struct Notifier {
     app: gio::Application,
     connection: Option<gio::DBusConnection>,
     inline_reply: Cell<bool>,
+    portal_reply: Cell<bool>,
+    portal: Option<Rc<portal::Backend>>,
     /// Notification id → (rid, message id), to route clicks and replies.
     shown: RefCell<HashMap<u32, (String, String)>>,
     /// rid → the notification it has on screen, replaced by the next one.
@@ -38,7 +41,7 @@ fn session_bus() -> Option<gio::DBusConnection> {
 }
 
 type OnOpen = Rc<dyn Fn(String, String)>;
-type OnReply = Rc<dyn Fn(String, String)>;
+type OnReply = Rc<dyn Fn(String, String, String)>;
 
 thread_local! {
     static CURRENT: RefCell<std::rc::Weak<Notifier>> = RefCell::default();
@@ -55,7 +58,7 @@ fn native_event(event: rv_native::Event) {
     let Some((open, reply)) = NATIVE.with_borrow(Clone::clone) else { return };
     match event {
         rv_native::Event::Open { room, message } => open(room, message),
-        rv_native::Event::Reply { room, text, .. } => reply(room, text),
+        rv_native::Event::Reply { room, message, text } => reply(room, message, text),
     }
 }
 
@@ -79,7 +82,7 @@ impl Notifier {
     pub fn new(
         app: &impl IsA<gio::Application>,
         open: impl Fn(String, String) + 'static,
-        reply: impl Fn(String, String) + 'static,
+        reply: impl Fn(String, String, String) + 'static,
     ) -> Rc<Self> {
         let (open, reply): (OnOpen, OnReply) = (Rc::new(open), Rc::new(reply));
         let app = app.clone().upcast::<gio::Application>();
@@ -93,17 +96,12 @@ impl Notifier {
             );
         }
         let Some(connection) = session_bus() else {
-            let action = gio::SimpleAction::new("open-message", Some(&glib::VariantType::new("(ss)").expect("type")));
-            action.connect_activate(move |_, target| {
-                if let Some((rid, id)) = target.and_then(|v| v.get::<(String, String)>()) {
-                    open(rid, id);
-                }
-            });
-            app.add_action(&action);
             let this = Rc::new(Notifier {
                 app,
                 connection: None,
                 inline_reply: Cell::new(false),
+                portal_reply: Cell::new(false),
+                portal: None,
                 shown: RefCell::default(),
                 by_room: RefCell::default(),
                 subscriptions: RefCell::default(),
@@ -115,6 +113,8 @@ impl Notifier {
             app,
             connection: Some(connection.clone()),
             inline_reply: Cell::new(false),
+            portal_reply: Cell::new(false),
+            portal: Some(portal::Backend::new(connection.clone())),
             shown: RefCell::default(),
             by_room: RefCell::default(),
             subscriptions: RefCell::default(),
@@ -151,8 +151,8 @@ impl Notifier {
                 let Some((id, text)) = signal.parameters.get::<(u32, String)>() else { return };
                 let Some(this) = weak.upgrade() else { return };
                 let target = this.shown.borrow().get(&id).cloned();
-                if let Some((rid, _)) = target {
-                    reply(rid, text);
+                if let Some((rid, message)) = target {
+                    reply(rid, message, text);
                 }
             },
         );
@@ -177,6 +177,10 @@ impl Notifier {
         CURRENT.with_borrow_mut(|c| *c = Rc::downgrade(&this));
         let weak = Rc::downgrade(&this);
         glib::spawn_future_local(async move {
+            let portal_reply = portal::supports_reply(&connection).await;
+            if let Some(this) = weak.upgrade() {
+                this.portal_reply.set(portal_reply);
+            }
             let capabilities = connection
                 .call_future(Some(BUS), PATH, BUS, "GetCapabilities", None, None, gio::DBusCallFlags::NONE, 2000)
                 .await;
@@ -206,6 +210,13 @@ impl Notifier {
 
     /// What shows our notifications, in words.
     pub fn describe(self: &Rc<Self>, done: impl FnOnce(String) + 'static) {
+        if self.portal_reply.get() {
+            done(tf(
+                "notify.backend_server",
+                &[("name", "XDG Desktop Portal"), ("version", "2"), ("reply", t("notify.reply_yes"))],
+            ));
+            return;
+        }
         let Some(connection) = self.connection.clone() else {
             done(t(if cfg!(windows) { "notify.backend_windows" } else { "notify.backend_macos" }).to_owned());
             return;
@@ -235,6 +246,19 @@ impl Notifier {
             format!("{} · #{}", incoming.author, incoming.room_name)
         };
         let body = incoming.body.clone().unwrap_or_else(|| t("message.encrypted").to_owned());
+        if incoming.rid.starts_with("rv-native:")
+            && self.portal_reply.get()
+            && let Some(portal) = &self.portal
+        {
+            portal.show(incoming, &summary, &body);
+            return;
+        }
+        // GApplication notifications retain an action target across restarts on
+        // GNOME. Keep KDE's existing inline reply when that service offers it.
+        if self.connection.is_some() && incoming.rid.starts_with("rv-native:") && !self.inline_reply.get() {
+            self.show_gio(incoming, &summary, &body);
+            return;
+        }
         let Some(connection) = self.connection.clone() else {
             if rv_native::available() {
                 let labels =
@@ -244,15 +268,13 @@ impl Notifier {
                     message: &incoming.id,
                     title: &summary,
                     body: &body,
+                    activation_link: rv_core::native::notifications::notification_url(&incoming.rid, &incoming.id)
+                        .as_deref(),
                     reply: Some(labels),
                 });
                 return;
             }
-            let notification = gio::Notification::new(&summary);
-            notification.set_body(Some(&body));
-            let target = (incoming.rid.as_str(), incoming.id.as_str()).to_variant();
-            notification.set_default_action_and_target_value("app.open-message", Some(&target));
-            self.app.send_notification(Some(&incoming.rid), &notification);
+            self.show_gio(incoming, &summary, &body);
             return;
         };
         let mut actions = vec!["default".to_owned(), t("notify.open").to_owned()];
@@ -292,6 +314,12 @@ impl Notifier {
 
     /// Opening a room clears what it had on screen.
     pub fn withdraw(&self, rid: &str) {
+        if rid.starts_with("rv-native:") {
+            self.app.withdraw_notification(rid);
+            if let Some(portal) = &self.portal {
+                portal.withdraw(rid);
+            }
+        }
         let Some(connection) = self.connection.clone() else {
             if rv_native::available() {
                 rv_native::withdraw(rid);
@@ -316,5 +344,14 @@ impl Notifier {
                 )
                 .await;
         });
+    }
+
+    fn show_gio(&self, incoming: &Incoming, summary: &str, body: &str) {
+        let notification = gio::Notification::new(summary);
+        notification.set_body(Some(body));
+        let target = (incoming.rid.as_str(), incoming.id.as_str()).to_variant();
+        notification.set_default_action_and_target_value("app.open-message", Some(&target));
+        notification.add_button_with_target_value(t("notify.reply"), "app.open-message", Some(&target));
+        self.app.send_notification(Some(&incoming.rid), &notification);
     }
 }

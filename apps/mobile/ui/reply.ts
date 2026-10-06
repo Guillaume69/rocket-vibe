@@ -34,6 +34,8 @@ export type ReplyTarget = {
   localAttachment: string;
   /** (Relative) URL of the quoted message's first image: the banner thumbnail. */
   previewImage: string | null;
+  native?: import('../providers/rocketvibe/quotes.ts').NativeQuoteSelection;
+  nativeUnavailable?: boolean;
 };
 
 const targets = new Map<string, ReplyTarget>();
@@ -50,6 +52,32 @@ export function requestReply(key: string, target: ReplyTarget): void {
 
 export function cancelReply(key: string): void {
   if (targets.delete(key)) notify();
+}
+export function readReply(key:string):ReplyTarget|null { return targets.get(key)??null; }
+/** Only the still-selected private reference may recover a fresh preview. */
+export function refreshPrivateReply(key:string,target:ReplyTarget,preview:{author:string;text:string}):void {
+  if(!target.native?.crypto_admission)return;
+  refreshNativeReply(key,target,preview);
+}
+/** Refresh either kind of reference inside the protected conversation. */
+export function refreshNativeReply(key:string,target:ReplyTarget,preview:{author:string;text:string}):void {
+  const current=targets.get(key);
+  if(!target.native || current?.native!==target.native)return;
+  const previewText=preview.text.trim()||null;
+  if(current.author===preview.author && current.preview===previewText && !current.nativeUnavailable)return;
+  requestReply(key,{...current,author:preview.author,preview:previewText,previewImage:null,localAttachment:'[]',nativeUnavailable:false});
+}
+
+/** A delayed enqueue must not consume a target selected in the meantime. */
+export function cancelReplyIf(key: string, target: ReplyTarget): void {
+  const current = targets.get(key);
+  if (current === target || target.native !== undefined && current?.native === target.native) cancelReply(key);
+}
+
+/** Keep the selection for validation, while discarding its private preview. */
+export function invalidateNativeReply(key: string, target: ReplyTarget): void {
+  if (targets.get(key) !== target || target.nativeUnavailable) return;
+  requestReply(key, {...target, author:null, preview:null, previewImage:null, localAttachment:'[]', nativeUnavailable:true});
 }
 
 /** End of session / server switch: no quote crosses over. */

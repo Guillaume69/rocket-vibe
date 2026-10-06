@@ -1,12 +1,11 @@
 /**
  * Link previews in the timeline: direct image, or "unfurl" card
  * (title/description/thumbnail/site) from server metadata
- * (`lib/linkPreview.ts`). No WebView, no scraping: we project what
- * Rocket.Chat already parsed into `message.urls`.
+ * (`lib/linkPreview.ts`). No WebView, no scraping: we project what the
+ * provider already projected into `message.urls`.
  *
- * A preview image is a PUBLIC URL (og:image, oEmbed thumbnail, or direct
- * image link): plain `Image`, no `rc_uid`/`rc_token`, unlike attachments,
- * which are protected server files.
+ * Rocket.Chat images stay public; RocketVibe previews go through the private
+ * reader bound to the message, including in the viewer.
  */
 
 import { useEffect, useMemo, useState } from 'react';
@@ -21,6 +20,9 @@ import {
 } from 'react-native';
 
 import { linkPreviews, type LinkPreview } from '../lib/linkPreview.ts';
+import type {RestClient} from '../lib/rest.ts';
+import {nativePreviewUri} from '../lib/nativePreviews.ts';
+import {useNativePreview} from './nativePreview.ts';
 import { useT } from './i18n.ts';
 import { openExternalLink } from './externalLink.ts';
 import { type Colors, availableBodyWidth, FONTS } from './theme.ts';
@@ -30,14 +32,16 @@ import { useImageViewer } from './imageViewer.tsx';
 export function LinkPreviews({
   c,
   urls,
+  client,
   onLongPress,
 }: {
   c: Colors;
   urls: string | null;
+  client?:RestClient;
   onLongPress?: (() => void) | undefined;
 }) {
   const { width: screenWidth } = useWindowDimensions();
-  const previews = useMemo(() => linkPreviews(urls), [urls]);
+  const previews = useMemo(() => linkPreviews(urls,3,client?.kind==='rocketvibe'?(message,image)=>nativePreviewUri(client,message,image):undefined), [urls,client]);
   if (previews.length === 0) return null;
 
   // Same available width as attached images, see `availableBodyWidth`.
@@ -82,29 +86,30 @@ function ImagePreview({
 }) {
   const t = useT();
   const viewer = useImageViewer();
-  const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
-  const [error, setError] = useState(false);
+  const [measure, setMeasure] = useState<{ uri:string; w: number; h: number } | null>(null);
+  const [error, setError] = useState<string|null>(null);
+  const local=useNativePreview(url),native=url.startsWith('rv-preview:');
+  const dims=measure?.uri===local?measure:null;
 
   useEffect(() => {
     let alive = true;
-    setDims(null);
-    setError(false);
+    if(!local)return()=>{alive=false;};
     Image.getSize(
-      url,
+      local,
       (w, h) => {
-        if (alive) setDims({ w, h });
+        if (alive) setMeasure({ uri:local,w, h });
       },
       () => {
-        if (alive) setError(true);
+        if (alive) setError(local);
       },
     );
     return () => {
       alive = false;
     };
-  }, [url]);
+  }, [local]);
 
   // A broken image link (404, unreachable host) leaves nothing on screen.
-  if (error) return null;
+  if (error===local || native&&!local) return null;
 
   // No upscaling past the native size; a floor to stay tappable. Default
   // ratio until the real dimensions are known.
@@ -115,7 +120,7 @@ function ImagePreview({
   return (
     <Pressable
       onPress={() =>
-        viewer.open({ uri: url, width: dims?.w ?? null, height: dims?.h ?? null, title: null })
+        local&&viewer.open({ uri: native?url:local, width: dims?.w ?? null, height: dims?.h ?? null, title: null,type:native?'image/png':null })
       }
       onLongPress={onLongPress}
       delayLongPress={350}
@@ -134,13 +139,13 @@ function ImagePreview({
         </View>
       ) : (
         <Image
-          source={{ uri: url }}
+          source={local?{ uri: local }:undefined}
           style={[
             styles.image,
             { width, height, backgroundColor: c.pendingImageBackground },
           ]}
           resizeMode="cover"
-          onError={() => setError(true)}
+          onError={() => setError(local??null)}
         />
       )}
     </Pressable>
@@ -160,8 +165,9 @@ function CardPreview({
   onLongPress: (() => void) | undefined;
 }) {
   const t = useT();
-  const [imageError, setImageError] = useState(false);
-  const showsBanner = preview.image !== null && !imageError;
+  const [imageError, setImageError] = useState<string|null>(null);
+  const local=useNativePreview(preview.image);
+  const showsBanner = !!local && imageError!==local;
   const accessibleName = preview.title ?? preview.site ?? t('linkCard.defaultLink');
 
   return (
@@ -175,10 +181,10 @@ function CardPreview({
     >
       {showsBanner && (
         <Image
-          source={{ uri: preview.image! }}
+          source={{ uri: local! }}
           style={[styles.banner, { backgroundColor: c.pendingImageBackground }]}
           resizeMode="cover"
-          onError={() => setImageError(true)}
+            onError={() => setImageError(local??null)}
         />
       )}
       <View style={styles.cardText}>

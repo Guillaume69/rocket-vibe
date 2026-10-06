@@ -6,6 +6,8 @@
 //!   RV_SMOKE_EXPECT        `|`-separated texts the open room must show by then
 //!   RV_SMOKE_EXPECT_ABSENT `|`-separated texts it must NOT show
 //!   RV_SMOKE_SIZE          `WIDTHxHEIGHT` of the window
+//!   RV_SMOKE_NATIVE=1      asserts the native provider in the existing chat UI
+//!   RV_SMOKE_QUOTES=1      checks native references through the existing reply bar and composer
 //!   RV_SMOKE_COMPOSER=1    checks the composer: no window handle around it, a scrollbar
 //!                          only once it overflows, one line high when short
 //!   RV_SMOKE_ACTIONS=<tag>  reacts to bob's last message, quotes it, edits my last one,
@@ -67,6 +69,14 @@ use gtk::glib;
 
 use crate::window::AppWindow;
 
+mod email_factor;
+mod email_settings;
+mod native_files;
+mod native_quotes;
+mod native_reads;
+mod room_management;
+mod security;
+
 static FAILED: AtomicBool = AtomicBool::new(false);
 
 thread_local! {
@@ -105,12 +115,22 @@ pub fn install_early() {
 
 pub fn install(window: &Rc<AppWindow>) {
     SMOKE_WINDOW.with_borrow_mut(|w| *w = Rc::downgrade(window));
+    security::install(window);
+    room_management::install(window);
+    native_reads::install(window);
+    native_quotes::install(window);
+    native_files::install(window);
+    email_factor::install(window);
+    email_settings::install(window);
     let login = std::env::var("RV_SMOKE_LOGIN").unwrap_or_default();
     let room = std::env::var("RV_SMOKE_ROOM").unwrap_or_default();
     let text = std::env::var("RV_SMOKE_SEND").unwrap_or_default();
     let shot = std::env::var("RV_SMOKE_SHOT").unwrap_or_default();
     let parts: Vec<String> = login.split('|').map(str::to_owned).collect();
     let server = parts.first().cloned().unwrap_or_default();
+    if let Ok(path) = std::env::var("RV_SMOKE_FACTOR_FILE") {
+        factor_flow(window, &path);
+    }
     if let Some((w, h)) = std::env::var("RV_SMOKE_SIZE").ok().and_then(|s| {
         let (w, h) = s.split_once('x')?;
         Some((w.parse().ok()?, h.parse().ok()?))
@@ -125,7 +145,64 @@ pub fn install(window: &Rc<AppWindow>) {
             let Some(w) = weak.upgrade() else { return };
             if !tried.replace(true) {
                 w.login.fill(&parts[0], &parts[1], &parts[2]);
-                glib::idle_add_local_once(move || w.submit_login());
+                if let Ok(action) = std::env::var("RV_SMOKE_EMAIL_RECOVERY_FORM") {
+                    let requested = Rc::new(Cell::new(false));
+                    let mut polls = 0;
+                    glib::timeout_add_local(Duration::from_millis(250), move || {
+                        polls += 1;
+                        if w.login.recovery_code().is_none() {
+                            w.login.fill_recovery("");
+                        }
+                        if let Some(view) = w.login.recovery_email_view() {
+                            if action == "request" && !requested.get() {
+                                requested.set(w.login.request_recovery_email());
+                            } else if action != "request" || view.accepted {
+                                w.login.focus_recovery_email();
+                                check(
+                                    "recovery form keeps received code empty",
+                                    w.login.code().is_empty() && w.login.recovery_code().as_deref() == Some(""),
+                                    polls,
+                                );
+                                check(
+                                    "recovery mail does not activate an account",
+                                    crate::secrets::active().is_none(),
+                                    polls,
+                                );
+                                return glib::ControlFlow::Break;
+                            }
+                        }
+                        if polls >= 80 {
+                            check("anonymous recovery form is available", false, polls);
+                            return glib::ControlFlow::Break;
+                        }
+                        glib::ControlFlow::Continue
+                    });
+                    return;
+                }
+                let recovering = std::env::var_os("RV_SMOKE_RECOVERY_FILE").is_some();
+                if let Ok(path) =
+                    std::env::var("RV_SMOKE_RECOVERY_FILE").or_else(|_| std::env::var("RV_SMOKE_INVITATION_FILE"))
+                {
+                    let data: serde_json::Value =
+                        serde_json::from_str(&std::fs::read_to_string(path).expect("pilot invitation file"))
+                            .expect("pilot invitation JSON");
+                    let token = data["token"].as_str().expect("pilot invitation token").to_owned();
+                    let mut polls = 0;
+                    glib::timeout_add_local(Duration::from_millis(250), move || {
+                        polls += 1;
+                        if if recovering { w.login.fill_recovery(&token) } else { w.login.fill_invitation(&token) } {
+                            w.submit_login();
+                            return glib::ControlFlow::Break;
+                        }
+                        if polls >= 40 {
+                            check("account-code form offered by native discovery", false, polls);
+                            return glib::ControlFlow::Break;
+                        }
+                        glib::ControlFlow::Continue
+                    });
+                } else {
+                    glib::idle_add_local_once(move || w.submit_login());
+                }
             }
         });
     }
@@ -138,6 +215,7 @@ pub fn install(window: &Rc<AppWindow>) {
         second_account(window, server, user, password);
     }
 
+    let native = std::env::var("RV_SMOKE_NATIVE").as_deref() == Ok("1");
     if !room.is_empty() {
         let weak = Rc::downgrade(window);
         let opened = Rc::new(Cell::new(false));
@@ -149,6 +227,10 @@ pub fn install(window: &Rc<AppWindow>) {
             let Some(rid) = w.chat.room_named(&room) else { return };
             opened.set(true);
             w.chat.open_room(&rid);
+            if std::env::var("RV_SMOKE_DEVICES").as_deref() == Ok("1") {
+                let w = w.clone();
+                glib::timeout_add_local_once(Duration::from_millis(1500), move || native_devices_checks(w));
+            }
             if std::env::var("RV_SMOKE_COMPOSER").as_deref() == Ok("1") {
                 let chat = w.chat.clone();
                 glib::timeout_add_local_once(Duration::from_millis(2000), move || composer_checks(chat));
@@ -208,6 +290,23 @@ pub fn install(window: &Rc<AppWindow>) {
                         if let Some(room) = room {
                             chat.go_to(room);
                         }
+                    });
+                });
+            }
+            if native
+                && std::env::var("RV_SMOKE_DETAILS").as_deref() == Ok("room")
+                && let Some(session) = w.chat.native_session()
+            {
+                let (chat, rid) = (w.chat.clone(), rid.clone());
+                glib::timeout_add_local_once(Duration::from_millis(1500), move || {
+                    glib::spawn_future_local(async move {
+                        let info = crate::on_tokio(async move { session.room_info(&rid).await }).await;
+                        check(
+                            "native room info read",
+                            info.as_ref().is_ok_and(|i| i.members.is_some()),
+                            info.as_ref().map(|i| i.members),
+                        );
+                        chat.show_room_info();
                     });
                 });
             }
@@ -375,6 +474,48 @@ pub fn install(window: &Rc<AppWindow>) {
             w.chat.has_new_marker()
         );
         let texts = w.chat.message_texts();
+        if native {
+            check("native session", w.chat.native_session().is_some(), texts.len());
+            if std::env::var("RV_SMOKE_RENDERING").as_deref() == Ok("1") {
+                check(
+                    "native source reaches existing message widgets",
+                    texts
+                        .iter()
+                        .any(|t| t.contains("Un seul client") && t.contains("@desktop") && t.contains("Rocket.Chat")),
+                    texts.len(),
+                );
+                check(
+                    "native code and mention retain their visible text",
+                    texts.iter().any(|t| t.contains("Bonjour @desktop") && t.contains("let texte = \"<>&\";")),
+                    texts.len(),
+                );
+                let cached =
+                    w.chat.native_session().unwrap().store.messages(&w.chat.current_rid().unwrap(), 10).unwrap();
+                check(
+                    "native canonical body is persisted",
+                    cached.len() == 2 && cached.iter().all(|m| m.body.is_some()),
+                    cached.len(),
+                );
+            }
+            if std::env::var_os("RV_SMOKE_INVITATION_FILE").is_some()
+                || std::env::var_os("RV_SMOKE_RECOVERY_FILE").is_some()
+            {
+                check(
+                    "account-code form clears transient secrets",
+                    w.login.invitation().is_none()
+                        && w.login.recovery_code().is_none()
+                        && w.login.password().is_empty(),
+                    0,
+                );
+            }
+            if w.chat.shows_room() {
+                let root = w.chat.composer_rc().root.clone();
+                let fits = root
+                    .compute_bounds(&w.window)
+                    .is_some_and(|r| r.x() >= 0.0 && r.x() + r.width() <= w.window.width() as f32);
+                check("composer fits window", fits, root.width() as usize);
+            }
+        }
         for wanted in list("RV_SMOKE_EXPECT") {
             let found = texts.iter().filter(|t| t.contains(&wanted)).count();
             println!(
@@ -394,6 +535,15 @@ pub fn install(window: &Rc<AppWindow>) {
         }
         let width = w.window.width();
         let height = w.window.height();
+        if std::env::var_os("RV_SMOKE_SECURITY").is_some()
+            && find_by_class(w.window.upcast_ref(), "native-security-codes")
+                .and_downcast::<gtk::Label>()
+                .is_some_and(|codes| !codes.text().is_empty())
+        {
+            check("private security bag closed before screenshot", false, 0);
+            w.window.application().expect("application").quit();
+            return;
+        }
         let paintable = gtk::WidgetPaintable::new(Some(&w.window));
         let snapshot = gtk::Snapshot::new();
         paintable.snapshot(&snapshot, width as f64, height as f64);
@@ -405,7 +555,82 @@ pub fn install(window: &Rc<AppWindow>) {
             gtk::gdk::Display::default().is_some_and(|d| gtk::IconTheme::for_display(&d).has_icon(crate::APP_ID));
         println!("smoke: app icon found {icon}");
         println!("smoke: screenshot saved {}", saved.unwrap_or(false));
+        if native && !saved.unwrap_or(false) {
+            FAILED.store(true, Ordering::SeqCst);
+        }
         w.window.application().expect("application").quit();
+    });
+}
+
+/// Only the disposable pilot mounts this private code file. Never print its
+/// contents; exercise the actual widgets, HTTP and Secret Service namespace.
+fn factor_flow(window: &Rc<AppWindow>, path: &str) {
+    let value: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(path).expect("pilot factor file")).expect("pilot factor JSON");
+    let backup = value["codes"][0].as_str().expect("pilot backup code").to_owned();
+    let weak = Rc::downgrade(window);
+    let mut stage = 0;
+    let mut polls = 0;
+    glib::timeout_add_local(Duration::from_millis(250), move || {
+        let Some(w) = weak.upgrade() else {
+            return glib::ControlFlow::Break;
+        };
+        polls += 1;
+        if polls > 52 {
+            check("native factor flow completed", false, stage);
+            return glib::ControlFlow::Break;
+        }
+        if w.login.is_busy() {
+            return glib::ControlFlow::Continue;
+        }
+        match stage {
+            0 if w.login.native_method().is_some() => {
+                check("factor form clears transient password", w.login.password().is_empty(), 0);
+                stage = 1;
+                let w = w.clone();
+                glib::spawn_future_local(async move {
+                    let accounts = crate::on_tokio(crate::secrets::load_all()).await;
+                    check("pre-auth proof excluded from active accounts", accounts.is_empty(), accounts.len());
+                    check(
+                        "backup method offered in existing form",
+                        w.login.fill_factor("recovery_code", "INVALID-BACKUP"),
+                        0,
+                    );
+                    w.submit_login();
+                });
+            }
+            1 if w.login.has_error() && w.login.native_method().is_some() => {
+                check("incorrect factor leaves account inactive", w.chat.native_session().is_none(), 0);
+                check("backup field accepts retry", w.login.fill_factor("recovery_code", &backup), 0);
+                w.submit_login();
+                stage = 2;
+            }
+            2 if w.login.has_error() && w.login.native_method().is_some() => {
+                check("lost factor ACK leaves account inactive", w.chat.native_session().is_none(), 0);
+                check("durable factor permits blank retry", w.login.fill_factor("recovery_code", ""), 0);
+                w.submit_login();
+                stage = 3;
+            }
+            3 if w.chat.native_session().is_some() => {
+                check(
+                    "factor confirmation clears transient code",
+                    w.login.code().is_empty() && w.login.password().is_empty(),
+                    0,
+                );
+                let session = w.chat.native_session().unwrap();
+                let info = session.info.clone();
+                glib::spawn_future_local(async move {
+                    let pending = crate::on_tokio(async move {
+                        crate::secrets::authentication_vault().load(&info.base_url, &info.username).await
+                    })
+                    .await;
+                    check("accepted proof cleared after credential commit", matches!(pending, Ok(None)), 0);
+                });
+                return glib::ControlFlow::Break;
+            }
+            _ => {}
+        }
+        glib::ControlFlow::Continue
     });
 }
 
@@ -888,8 +1113,79 @@ fn edit_checks(chat: Rc<crate::chat::ChatPage>, tag: String) {
             list.set_edit_text(&format!("{tag} after"));
             glib::timeout_add_local_once(Duration::from_millis(save_after), move || {
                 chat.play(crate::rows::RowEvent::SaveEdit, false);
+                if chat.native_session().is_some() {
+                    native_reaction_checks(chat, format!("{tag} after"));
+                }
             });
         });
+    });
+}
+
+fn native_reaction_checks(chat: Rc<crate::chat::ChatPage>, text: String) {
+    glib::spawn_future_local(async move {
+        let Some(session) = chat.native_session() else { return };
+        let Some(rid) = chat.current_rid() else { return };
+        let mut id = None;
+        for _ in 0..100 {
+            id = session
+                .store
+                .messages(&rid, 100)
+                .ok()
+                .and_then(|rows| rows.into_iter().find(|r| r.text == text && r.edited).map(|r| r.id));
+            if id.is_some() {
+                break;
+            }
+            glib::timeout_future(Duration::from_millis(20)).await;
+        }
+        let Some(id) = id else {
+            check("reaction edited target", false, 0);
+            return;
+        };
+        for (shortcode, add) in [(":+1:", true), (":thumbsup:", false)] {
+            chat.play(crate::rows::RowEvent::React { id: id.clone(), shortcode: shortcode.into(), add }, false);
+            let mut rendered = false;
+            for _ in 0..100 {
+                let row = chat.room_list().row(&id);
+                let reactions = rv_core::actions::reactions(
+                    row.as_ref().and_then(|r| r.reactions.as_deref()),
+                    &session.info.username,
+                );
+                rendered =
+                    row.is_some() && if add { reactions.len() == 1 && reactions[0].mine } else { reactions.is_empty() };
+                if rendered {
+                    break;
+                }
+                glib::timeout_future(Duration::from_millis(20)).await;
+            }
+            check(
+                if add { "native GTK reaction chip" } else { "native GTK reaction removal" },
+                rendered,
+                usize::from(rendered),
+            );
+        }
+        for present in [true, false] {
+            let (s, room, target) = (session.clone(), rid.clone(), id.clone());
+            let result = crate::on_tokio(async move {
+                s.set_mark(&room, &target, present, true).await?;
+                s.marked(&room, true).await
+            })
+            .await;
+            let listed = result.is_ok_and(|messages| messages.iter().any(|m| m.id == id) == present);
+            check("native GTK private star list", listed, usize::from(listed));
+            let mut rendered = false;
+            for _ in 0..100 {
+                let row = chat.room_list().row(&id);
+                rendered = row.is_some_and(|r| {
+                    r.starred.as_deref().is_some_and(|uids| uids.split(',').any(|u| u == session.info.user_id))
+                        == present
+                });
+                if rendered {
+                    break;
+                }
+                glib::timeout_future(Duration::from_millis(20)).await;
+            }
+            check("native GTK private star projection", rendered, usize::from(rendered));
+        }
     });
 }
 
@@ -1027,6 +1323,7 @@ pub fn gallery(app: &adw::Application) -> bool {
         message: "1",
         title: "bob",
         body: "A native notification 🎉",
+        activation_link: None,
         reply: Some(rv_native::ReplyLabels { placeholder: "Reply", send: "Send" }),
     });
     println!("smoke: native notifications available {}", rv_native::available());
@@ -1125,6 +1422,7 @@ fn soak(column: gtk::Box, samples: Vec<crate::rows::Display>, seconds: u32) {
                 message: "1",
                 title: "bob",
                 body: &body,
+                activation_link: None,
                 reply: Some(rv_native::ReplyLabels { placeholder: "Reply", send: "Send" }),
             });
         }
@@ -1136,6 +1434,60 @@ fn soak(column: gtk::Box, samples: Vec<crate::rows::Display>, seconds: u32) {
             return glib::ControlFlow::Break;
         }
         glib::ControlFlow::Continue
+    });
+}
+
+fn native_devices_checks(window: Rc<AppWindow>) {
+    let Some(session) = window.chat.native_session() else {
+        check("native devices provider", false, 0);
+        return;
+    };
+    crate::settings::open_native(window.chat.widget(), session.clone(), None, || {});
+    glib::spawn_future_local(async move {
+        let root = window.window.upcast_ref::<gtk::Widget>();
+        let button = find_by_class(root, "native-devices-open").and_downcast::<adw::ButtonRow>();
+        check("native device settings entry", button.is_some(), usize::from(button.is_some()));
+        let Some(button) = button else { return };
+        button.emit_by_name::<()>("activated", &[]);
+        let mut entry = None;
+        for _ in 0..100 {
+            entry = find_by_class(root, "native-device-current-name").and_downcast::<adw::EntryRow>();
+            if entry.is_some() {
+                break;
+            }
+            glib::timeout_future(Duration::from_millis(25)).await;
+        }
+        check("native current device entry", entry.is_some(), usize::from(entry.is_some()));
+        let Some(entry) = entry else { return };
+        let mut ancestor = entry.parent();
+        while let Some(widget) = ancestor {
+            if let Some(row) = widget.downcast_ref::<adw::ExpanderRow>() {
+                row.set_expanded(true);
+                break;
+            }
+            ancestor = widget.parent();
+        }
+        entry.set_text("GTK pilot device");
+        entry.emit_by_name::<()>("apply", &[]);
+        let mut saved = false;
+        for _ in 0..100 {
+            let s = session.clone();
+            saved = crate::on_tokio(async move { s.device_sessions().await })
+                .await
+                .is_ok_and(|devices| devices.iter().any(|d| d.current && d.label == "GTK pilot device"));
+            if saved && entry.is_sensitive() {
+                break;
+            }
+            glib::timeout_future(Duration::from_millis(25)).await;
+        }
+        check("native GTK device name saved", saved && entry.is_sensitive(), usize::from(saved));
+        glib::timeout_future(Duration::from_millis(300)).await;
+        let fits = find_by_class(root, "native-devices-dialog").is_some_and(|dialog| {
+            entry
+                .compute_bounds(&dialog)
+                .is_some_and(|bounds| bounds.y() >= 0.0 && bounds.y() + bounds.height() <= dialog.height() as f32)
+        });
+        check("native device editor fits dialog", fits, usize::from(fits));
     });
 }
 

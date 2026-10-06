@@ -6,11 +6,15 @@ on:
     tags: ['mobile-v*']
     paths:
       - 'apps/mobile/**'
+      - 'crates/rv-crypto*/**'
+      - 'crates/rv-protocol/**'
       - 'scripts/version.mjs'
       - '.github/workflows/mobile.yml'
   pull_request:
     paths:
       - 'apps/mobile/**'
+      - 'crates/rv-crypto*/**'
+      - 'crates/rv-protocol/**'
       - 'scripts/version.mjs'
       - '.github/workflows/mobile.yml'
   workflow_dispatch:
@@ -70,6 +74,19 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
+      - uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          targets: aarch64-linux-android
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/mobile-crypto
+          key: mobile-crypto-android-${{ hashFiles('crates/rv-crypto-mobile/Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            mobile-crypto-android-${{ hashFiles('crates/rv-crypto-mobile/Cargo.lock') }}-
+            mobile-crypto-android-
       - name: Android SDK pieces the RN 0.86 template requires
         working-directory: /
         run: >

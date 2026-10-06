@@ -16,6 +16,9 @@ use crate::i18n::{t, tf, tn};
 use crate::rows::{label, local, presence_dot, room_tile, with_photo};
 use crate::widgets::{self, TileSize};
 use crate::{markdown_view, on_tokio};
+mod native_favorites;
+mod native_rooms;
+pub(crate) use native_favorites::menu as native_favorite_menu;
 
 fn dialog(title: &str, content: &gtk::Widget, height: i32) -> adw::Dialog {
     let view = adw::ToolbarView::new();
@@ -84,7 +87,16 @@ pub fn room_info(
 }
 
 fn fill_room(content: &gtk::Box, info: &RoomInfo, me: &str) {
-    let mut facts = vec![t(if info.kind == "p" { "info.private" } else { "info.public" }).to_owned()];
+    let mut facts = vec![
+        t(if info.kind == "d" {
+            "native.direct"
+        } else if info.kind == "p" {
+            "info.private"
+        } else {
+            "info.public"
+        })
+        .to_owned(),
+    ];
     if let Some(n) = info.members {
         facts.push(tn("info.members", n));
     }
@@ -113,26 +125,253 @@ fn fill_room(content: &gtk::Box, info: &RoomInfo, me: &str) {
     }
 }
 
+/// Same information dialog, fed by the native provider. A room removal or an
+/// account switch closes it; the original invitation form remains accessible.
+pub fn native_room_info(
+    parent: &impl IsA<gtk::Widget>,
+    session: Arc<rv_core::native::NativeSession>,
+    rid: &str,
+    invite: Rc<dyn Fn()>,
+) {
+    use tokio::sync::broadcast::error::RecvError;
+    let membership = session.store.read_state(rid).ok().flatten().and_then(|s| s.membership_version);
+    let content = column();
+    loading(&content);
+    let dialog = dialog(t("info.room"), content.upcast_ref(), 600);
+    let active = Rc::new(Cell::new(true));
+    let (tx, rx) = async_channel::bounded(1);
+    let (mut changes, mut events) = (session.store.changes(), session.events());
+    tx.try_send(()).ok();
+    let forward = crate::runtime().spawn(async move {
+        loop {
+            let update = tokio::select! { result = changes.recv() => result, result = events.recv() => result };
+            if matches!(update, Err(RecvError::Closed)) {
+                return;
+            }
+            if let Err(async_channel::TrySendError::Closed(_)) = tx.try_send(()) {
+                return;
+            }
+        }
+    });
+    let abort = forward.abort_handle();
+    let live = active.clone();
+    dialog.connect_closed(move |_| {
+        live.set(false);
+        abort.abort();
+    });
+    dialog.present(Some(parent));
+    let rid = rid.to_owned();
+    glib::spawn_future_local(async move {
+        let mut displayed = None;
+        let mut cached: Option<rv_core::native::RoomDetails> = None;
+        while rx.recv().await.is_ok() && active.get() {
+            let room = session.store.rooms().ok().and_then(|rooms| rooms.into_iter().find(|r| r.id == rid));
+            if session.is_closed()
+                || room.is_none()
+                || session.store.read_state(&rid).ok().flatten().and_then(|s| s.membership_version) != membership
+            {
+                dialog.close();
+                break;
+            }
+            let room = room.unwrap();
+            let personal = room.read_state.as_ref().map(|s| s.revision.clone());
+            let favorite =
+                session.store.favorite_intent(&rid).ok().flatten().map(|s| (s.input.operation_id, s.phase, s.error));
+            let revision = room.revision;
+            let intention = session
+                .store
+                .room_operation(&rid)
+                .ok()
+                .flatten()
+                .map(|saved| (saved.command.id().to_owned(), saved.failed, saved.error));
+            let display_key = (revision.clone(), intention, personal, favorite);
+            if displayed.as_ref() == Some(&display_key) {
+                continue;
+            }
+            let (s, r) = (session.clone(), rid.clone());
+            let result = if session.status().connection != rv_core::session::Connection::Online {
+                cached
+                    .clone()
+                    .filter(|details| details.room.revision == revision)
+                    .ok_or(rv_core::native::Error::Protocol("offline"))
+            } else {
+                on_tokio(async move { s.room_details(&r).await }).await
+            };
+            if !active.get() {
+                break;
+            }
+            if session.is_closed()
+                || session.store.rooms().is_ok_and(|rooms| !rooms.iter().any(|r| r.id == rid))
+                || session.store.read_state(&rid).ok().flatten().and_then(|s| s.membership_version) != membership
+            {
+                dialog.close();
+                break;
+            }
+            while let Some(child) = content.first_child() {
+                content.remove(&child);
+            }
+            match result {
+                Ok(details) => {
+                    cached = Some(details.clone());
+                    let can_invite = details.permissions.invite;
+                    let info = rv_core::info::native_room_info(details.clone());
+                    let tile = room_tile(&info.name, &info.kind, false, TileSize::Profile);
+                    tile.set_halign(gtk::Align::Center);
+                    content.append(&tile);
+                    content.append(&centered(&info.name, &["details-name"]));
+                    fill_room(&content, &info, &session.info.username);
+                    native_favorites::controls(&content, session.clone(), &rid, active.clone());
+                    if session.crypto_settings_supported() {
+                        crate::native_crypto::room_button(&content, &dialog, session.clone(), rid.clone());
+                    }
+                    if can_invite {
+                        let button = gtk::Button::builder().label(t("native.invite")).build();
+                        let (callback, live) = (invite.clone(), active.clone());
+                        button.connect_clicked(move |_| {
+                            if live.get() {
+                                callback();
+                            }
+                        });
+                        content.append(&button);
+                    }
+                    native_rooms::controls(&content, &dialog, session.clone(), details, active.clone());
+                    displayed = Some(display_key);
+                }
+                Err(_) => {
+                    displayed = None;
+                    content.append(&centered(t("info.failed"), &["details-sub"]));
+                }
+            }
+        }
+    });
+}
+
 /// What the profile's buttons do.
 pub struct ProfileActions {
-    pub message: Box<dyn Fn(String)>,
-    pub call: Box<dyn Fn(String)>,
+    pub message: Box<dyn Fn(rv_core::rooms::Found)>,
+    pub call: Box<dyn Fn(rv_core::rooms::Found)>,
 }
 
 /// A person, from `users.info`: by username, or by id when `by_id`.
 pub fn profile(parent: &impl IsA<gtk::Widget>, session: Arc<Session>, key: &str, by_id: bool, actions: ProfileActions) {
+    profile_with_source(parent, ProfileSource::Legacy(session), key, by_id, actions);
+}
+pub fn profile_native(
+    parent: &impl IsA<gtk::Widget>,
+    session: Arc<rv_core::native::NativeSession>,
+    key: &str,
+    by_id: bool,
+    actions: ProfileActions,
+) {
+    profile_with_source(parent, ProfileSource::Native(session), key, by_id, actions);
+}
+#[derive(Clone)]
+enum ProfileSource {
+    Legacy(Arc<Session>),
+    Native(Arc<rv_core::native::NativeSession>),
+}
+impl ProfileSource {
+    fn username(&self) -> &str {
+        match self {
+            Self::Legacy(s) => &s.info.username,
+            Self::Native(s) => &s.info.username,
+        }
+    }
+    fn user_id(&self) -> &str {
+        match self {
+            Self::Legacy(s) => &s.info.user_id,
+            Self::Native(s) => &s.info.user_id,
+        }
+    }
+    fn version(&self) -> Option<String> {
+        match self {
+            Self::Legacy(_) => None,
+            Self::Native(s) => Some(s.profile_version()),
+        }
+    }
+    fn closed(&self) -> bool {
+        matches!(self,Self::Native(s) if s.is_closed())
+    }
+    async fn read(&self, key: &str, by_id: bool) -> Result<Profile, rv_core::rest::RestError> {
+        match self {
+            Self::Legacy(s) => s.profile(key, by_id).await,
+            Self::Native(s) => {
+                s.profile(key, by_id).await.map(|p| s.profile_presentation(&p)).map_err(rv_core::native::rest_error)
+            }
+        }
+    }
+}
+fn profile_with_source(
+    parent: &impl IsA<gtk::Widget>,
+    source: ProfileSource,
+    key: &str,
+    by_id: bool,
+    actions: ProfileActions,
+) {
     let content = column();
-    let spinner = loading(&content);
+    loading(&content);
     let dialog = dialog(t("info.profile"), content.upcast_ref(), 520);
+    dialog.add_css_class("user-profile-dialog");
     dialog.present(Some(parent));
-    let (key, s) = (key.to_owned(), session.clone());
+    let (mut key, mut by_id) = (key.to_owned(), by_id);
     let actions = Rc::new(actions);
+    let active = Rc::new(Cell::new(true));
+    let (tx, rx) = async_channel::bounded(1);
+    tx.try_send(()).ok();
+    let forward = if let ProfileSource::Native(s) = &source {
+        let (mut changes, mut events) = (s.store.changes(), s.events());
+        Some(crate::runtime().spawn(async move {
+            loop {
+                tokio::select! {_=changes.recv()=>{},_=events.recv()=>{}};
+                if tx.try_send(()).is_err_and(|e| matches!(e, async_channel::TrySendError::Closed(_))) {
+                    return;
+                }
+            }
+        }))
+    } else {
+        None
+    };
+    let live = active.clone();
+    dialog.connect_closed(move |_| {
+        live.set(false);
+        if let Some(task) = &forward {
+            task.abort();
+        }
+    });
     glib::spawn_future_local(async move {
-        let found = on_tokio(async move { s.profile(&key, by_id).await }).await;
-        spinner.set_visible(false);
-        match found {
-            Ok(p) => fill_profile(&content, &dialog, &session, &p, actions),
-            Err(_) => content.append(&centered(t("info.failed"), &["details-sub"])),
+        let mut displayed = None;
+        while rx.recv().await.is_ok() && active.get() {
+            if source.closed() {
+                dialog.close();
+                return;
+            }
+            let version = source.version();
+            if displayed.as_ref() == Some(&version) {
+                continue;
+            }
+            let (s, k) = (source.clone(), key.clone());
+            let found = on_tokio(async move { s.read(&k, by_id).await }).await;
+            if !active.get() {
+                return;
+            }
+            if source.closed() {
+                dialog.close();
+                return;
+            }
+            while let Some(child) = content.first_child() {
+                content.remove(&child);
+            }
+            match found {
+                Ok(p) => {
+                    key = p.id.clone();
+                    by_id = true;
+                    fill_profile(&content, &dialog, &source, &p, actions.clone());
+                    displayed = Some(source.version());
+                }
+                Err(_) => {
+                    content.append(&centered(t("info.failed"), &["details-sub"]));
+                }
+            }
         }
     });
 }
@@ -140,18 +379,25 @@ pub fn profile(parent: &impl IsA<gtk::Widget>, session: Arc<Session>, key: &str,
 fn fill_profile(
     content: &gtk::Box,
     dialog: &adw::Dialog,
-    session: &Arc<Session>,
+    session: &ProfileSource,
     p: &Profile,
     actions: Rc<ProfileActions>,
 ) {
     let tile = widgets::tile(&p.username, &widgets::initial(&p.username), TileSize::Profile, false);
-    let tile =
-        with_photo(tile, Some(session), Some(avatar_path(AvatarTarget::User(&p.username), p.avatar_etag.as_deref())));
+    let tile = match session {
+        ProfileSource::Legacy(s) => {
+            with_photo(tile, Some(s), Some(avatar_path(AvatarTarget::User(&p.username), p.avatar_etag.as_deref())))
+        }
+        ProfileSource::Native(s) => crate::rows::with_native_photo(tile, s, p.avatar_etag.clone()),
+    };
     tile.set_halign(gtk::Align::Center);
     content.append(&tile);
     content.append(&centered(p.name.as_deref().unwrap_or(&p.username), &["details-name"]));
     content.append(&centered(&format!("@{}", p.username), &["details-sub"]));
-    if let Some(presence) = session.presence(&p.id).or(p.presence) {
+    if let Some(presence) = match session {
+        ProfileSource::Legacy(s) => s.presence(&p.id).or(p.presence),
+        ProfileSource::Native(_) => p.presence,
+    } {
         let line = gtk::Box::builder().spacing(6).halign(gtk::Align::Center).build();
         let dot = presence_dot(presence, &[]);
         dot.set_valign(gtk::Align::Center);
@@ -177,24 +423,42 @@ fn fill_profile(
         ));
     }
     if let Some(bio) = &p.bio {
-        section(content, t("info.bio"), bio, &session.info.username);
+        section(content, t("info.bio"), bio, session.username());
     }
-    if p.username != session.info.username {
+    if let ProfileSource::Native(native) = session
+        && native.crypto_settings_supported()
+    {
+        crate::native_crypto::profile_button(content, dialog, native.clone(), p.id.clone());
+    }
+    if p.id != session.user_id() {
         let buttons = gtk::Box::builder().spacing(10).halign(gtk::Align::Center).margin_top(12).build();
         let message = gtk::Button::builder().label(t("info.message")).css_classes(["file-action"]).build();
         let call = gtk::Button::builder().label(t("info.call")).css_classes(["flat"]).build();
-        let (a, d, username) = (actions.clone(), dialog.clone(), p.username.clone());
+        let (a, d, found) = (
+            actions.clone(),
+            dialog.clone(),
+            rv_core::rooms::Found::User { id: p.id.clone(), username: p.username.clone(), name: p.name.clone() },
+        );
         message.connect_clicked(move |_| {
             d.close();
-            (a.message)(username.clone());
+            (a.message)(found.clone());
         });
-        let (a, d, username) = (actions, dialog.clone(), p.username.clone());
+        let (a, d, found) = (
+            actions,
+            dialog.clone(),
+            rv_core::rooms::Found::User { id: p.id.clone(), username: p.username.clone(), name: p.name.clone() },
+        );
         call.connect_clicked(move |_| {
             d.close();
-            (a.call)(username.clone());
+            (a.call)(found.clone());
         });
         buttons.append(&message);
-        buttons.append(&call);
+        if match session {
+            ProfileSource::Legacy(_) => true,
+            ProfileSource::Native(session) => session.supported_features().iter().any(|f| f == "calls"),
+        } {
+            buttons.append(&call);
+        }
         content.append(&buttons);
     }
 }
@@ -207,6 +471,77 @@ pub fn search(
     rid: &str,
     go: impl Fn(String, Option<String>) + 'static,
 ) {
+    search_with_source(parent, SearchSource::Legacy(session), rid, go);
+}
+/// The native provider's search, with the same dialog and `go`.
+pub fn search_native(
+    parent: &impl IsA<gtk::Widget>,
+    session: Arc<rv_core::native::NativeSession>,
+    rid: &str,
+    go: impl Fn(String, Option<String>) + 'static,
+) -> adw::Dialog {
+    search_with_source(parent, SearchSource::Native(session), rid, go)
+}
+/// Private search of an encrypted RocketVibe room, on this device only.
+pub fn search_private(
+    parent: &impl IsA<gtk::Widget>,
+    access: rv_core::native::crypto::enrollment::rooms::messages::Access,
+    username: String,
+    rid: &str,
+    go: impl Fn(String, Option<String>) + 'static,
+) -> adw::Dialog {
+    search_with_source(parent, SearchSource::Private(access, username), rid, go)
+}
+#[derive(Clone)]
+enum SearchSource {
+    Legacy(Arc<Session>),
+    Native(Arc<rv_core::native::NativeSession>),
+    Private(rv_core::native::crypto::enrollment::rooms::messages::Access, String),
+}
+impl SearchSource {
+    fn username(&self) -> &str {
+        match self {
+            Self::Legacy(s) => &s.info.username,
+            Self::Native(s) => &s.info.username,
+            Self::Private(_, username) => username,
+        }
+    }
+    fn version(&self) -> Option<String> {
+        match self {
+            Self::Legacy(_) | Self::Private(..) => None,
+            Self::Native(s) => Some(s.search_version().unwrap_or_else(|_| "unavailable".into())),
+        }
+    }
+    async fn search(&self, rid: &str, text: &str) -> Result<Vec<rv_core::normalize::Message>, ()> {
+        match self {
+            Self::Legacy(s) => s.search(rid, text).await.map_err(|_| ()),
+            Self::Native(s) => s.search(rid, text).await.map_err(|_| ()),
+            Self::Private(access, _) => Ok(access
+                .search(text.to_owned())
+                .await
+                .map_err(|_| ())?
+                .into_iter()
+                .map(|m| rv_core::normalize::Message {
+                    id: m.row.id,
+                    rid: m.row.rid,
+                    text: m.row.text,
+                    ts: m.row.ts,
+                    author_id: m.row.author_id,
+                    author_name: m.row.author,
+                    thread_id: m.row.thread_id,
+                    md: m.row.md,
+                    ..Default::default()
+                })
+                .collect()),
+        }
+    }
+}
+fn search_with_source(
+    parent: &impl IsA<gtk::Widget>,
+    session: SearchSource,
+    rid: &str,
+    go: impl Fn(String, Option<String>) + 'static,
+) -> adw::Dialog {
     let entry = gtk::SearchEntry::builder().placeholder_text(t("search.placeholder")).build();
     let results = gtk::Box::builder().orientation(gtk::Orientation::Vertical).build();
     let status = gtk::Label::builder().css_classes(["details-sub"]).visible(false).margin_top(10).build();
@@ -225,7 +560,33 @@ pub fn search(
         go(id, thread);
     });
     let generation = Rc::new(Cell::new(0u64));
+    if matches!(&session, SearchSource::Native(_)) {
+        let (source, generation, results, status) =
+            (session.clone(), generation.clone(), results.clone(), status.clone());
+        let dialog = dialog.downgrade();
+        let mut version = source.version();
+        glib::timeout_add_local(std::time::Duration::from_millis(200), move || {
+            let Some(dialog) = dialog.upgrade() else { return glib::ControlFlow::Break };
+            if !dialog.is_visible() {
+                return glib::ControlFlow::Break;
+            }
+            let next = source.version();
+            if next != version {
+                version = next;
+                generation.set(generation.get() + 1);
+                while let Some(child) = results.first_child() {
+                    results.remove(&child);
+                }
+                status.set_visible(true);
+                status.set_label(t("search.changed"));
+            }
+            glib::ControlFlow::Continue
+        });
+    }
     let rid = rid.to_owned();
+    entry.connect_activate(|entry| {
+        entry.emit_by_name::<()>("search-changed", &[]);
+    });
     entry.connect_search_changed(move |entry| {
         let query = entry.text().trim().to_owned();
         let current = generation.get() + 1;
@@ -243,10 +604,12 @@ pub fn search(
                 status.set_visible(false);
                 return;
             }
-            let me = session.info.username.clone();
+            let me = session.username().to_owned();
+            let version = session.version();
             glib::spawn_future_local(async move {
-                let found = on_tokio(async move { session.search(&rid, &query).await }).await;
-                if generation.get() != current {
+                let request = session.clone();
+                let found = on_tokio(async move { request.search(&rid, &query).await }).await;
+                if generation.get() != current || session.version() != version {
                     return;
                 }
                 match found {
@@ -282,4 +645,5 @@ pub fn search(
             });
         });
     });
+    dialog
 }

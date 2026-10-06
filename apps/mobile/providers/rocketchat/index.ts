@@ -8,7 +8,9 @@
 
 import type { Session } from '../../lib/auth.ts';
 import { PRIVATE_MESSAGE_EVENT, privateMessage } from '../../lib/commands.ts';
+import { describeProviderError } from '../../lib/providerError.ts';
 import { ClientDdp } from '../../lib/ddp.ts';
+import {toMessage,type LocalMessage} from '../../lib/normalize.ts';
 import { OutboxEngine } from '../../lib/outbox.ts';
 import { UploadEngine } from '../../lib/uploadQueue.ts';
 import {
@@ -43,7 +45,14 @@ export function createRcProvider(
   const actions = new ActionsRC(client);
 
   return {
+    identity:{kind:'rocketchat',origin:session.baseUrl,accountId:session.userId,instanceId:null,generation:null},
+    describeError:describeProviderError,
     capabilities: ROCKETCHAT_CAPABILITIES,
+    readProfile:async target=>(await client.get<{user?:Record<string,unknown>}>('users.info',{params:target.uid?{userId:target.uid}:{username:target.username}})).user,
+    searchMessages:async(rid,text)=>{
+      const r=await client.get<{messages?:Record<string,unknown>[]}>('chat.search',{params:{roomId:rid,searchText:text,count:50}});
+      return (r.messages??[]).map(toMessage).filter((m):m is LocalMessage=>m!==null);
+    },
     listener,
     translator,
     actions,

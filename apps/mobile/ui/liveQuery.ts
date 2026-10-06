@@ -75,15 +75,16 @@ function queryFile(query: unknown): string | null {
 export function useCoalescedLiveQuery<L>(
   query: PromiseLike<L[]>,
   deps: DependencyList = [],
-): { data: L[] } {
+): { data: L[]; loaded:boolean } {
   const [data, setData] = useState<L[]>([]);
+  const [loaded,setLoaded]=useState(false);
 
   useEffect(() => {
     let canceled = false;
     const reread = () => {
       query.then(
         (rows) => {
-          if (!canceled) setData(rows);
+          if (!canceled) {setData(rows);setLoaded(true);}
         },
         () => {
           // A read failure (database closed mid-unmount) must not propagate: the
@@ -136,5 +137,5 @@ export function useCoalescedLiveQuery<L>(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
 
-  return { data };
+  return { data,loaded };
 }

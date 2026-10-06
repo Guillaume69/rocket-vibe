@@ -5,8 +5,11 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
+  AppState,
   Pressable,
   Share,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -16,6 +19,10 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { subscriptions, messages, rooms } from '../db/schema.ts';
+import { nativeReactions } from '../providers/rocketvibe/store.ts';
+import { canonicalEmoji } from '../providers/rocketvibe/emojis.ts';
+import { NativeError } from '../providers/rocketvibe/transport.ts';
+import {nativeRoomPermalink} from '../lib/roomLinks.ts';
 import {
   possibleActions,
   messageGoneFromServer,
@@ -45,6 +52,10 @@ import { useSession } from '../ui/session.tsx';
 import { useSync } from '../ui/sync.tsx';
 import { LIST_PRESS_DELAY, FONTS, useColors } from '../ui/theme.ts';
 import { Tappable } from '../ui/tappable.tsx';
+import {CryptoNative} from '../modules/crypto-native/index.ts';
+import type {CryptoConversationAccess} from '../providers/rocketvibe/cryptoConversations.ts';
+import {privateRow} from '../providers/rocketvibe/cryptoProjection.ts';
+import type {NativeChat} from '../providers/rocketvibe/chat.ts';
 
 /**
  * Message actions sheet (8.2), `presentation: 'formSheet'` declared in
@@ -101,12 +112,15 @@ type Payload = {
   /** What is needed to build a quote's permalink (`lib/quote.ts`). */
   room: { type: string; name: string | null };
   actions: ActionMessage[];
+  revision?: string;
+  editDraft?: string | null;
+  privateOwner?:NativeChat;
 };
 
 export default function MessageActionsScreen() {
   // `thread`: present when the sheet is opened FROM a thread screen; the reply
   // target is then addressed to that thread's composer, not the room's.
-  const { id, thread } = useLocalSearchParams<{ id: string; thread?: string }>();
+  const { id, thread, isPrivate, rid } = useLocalSearchParams<{ id: string; thread?: string; isPrivate?:string;rid?:string }>();
   const { state } = useSession();
   const sync = useSync();
   const router = useRouter();
@@ -125,11 +139,20 @@ export default function MessageActionsScreen() {
   const [editing, setEditing] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [destinations,setDestinations]=useState<{rid:string;name:string;encrypted:boolean}[]|null>(null);
+  const [destinationFilter,setDestinationFilter]=useState('');
 
   const ready = sync.phase === 'ready' && state.phase === 'connected' && typeof id === 'string';
   const base = sync.phase === 'ready' ? sync.base : null;
   const engine = sync.phase === 'ready' ? sync.engine : null;
   const trigger = sync.phase === 'ready' ? sync.actions : null;
+  const provider = sync.phase === 'ready' ? sync.provider : null;
+  const viewGeneration = useRef(0);
+  const privateAccess=useRef<CryptoConversationAccess|null>(null);
+  useEffect(() => {
+    viewGeneration.current += 1;
+    return () => { viewGeneration.current += 1; };
+  }, [provider,id,isPrivate,rid,thread]);
   const e2e = sync.phase === 'ready' ? sync.e2e : null;
   const client = state.phase === 'connected' ? state.client : null;
   const me = state.phase === 'connected' ? state.session.userId : null;
@@ -141,12 +164,42 @@ export default function MessageActionsScreen() {
   useEffect(() => {
     if (!ready || base === null || client === null || me === null) return;
     let canceled = false;
+    let unsubscribe=()=>{},appSubscription:{remove:()=>void}|null=null;
     (async () => {
+      if(isPrivate==='1') {
+        const native=provider?.native;
+        if(!native || !CryptoNative || typeof rid!=='string')throw Error('Private source unavailable');
+        const scope=await native.store.cryptoRoomAccess(rid);
+        if(!scope?.encrypted || scope.membership===null)throw Error('Private source unavailable');
+        let withdrawn=false;
+        const alive=()=>!canceled && !withdrawn && AppState.currentState==='active';
+        const actor=await native.chat.cryptoConversation(CryptoNative,rid,scope.membership,alive,typeof thread==='string'?thread:null);
+        if(!alive()){await actor.close();return;}privateAccess.current=actor;
+        const discard=()=>{if(canceled)return;withdrawn=true;void actor.close();privateAccess.current=null;setPayload(null);setError(t('messageActions.messageNotFound'));};
+        const invalidate=()=>{
+          if(!alive() || actor.isClosed){discard();return;}
+          void native.store.cryptoRoomAccess(rid).then(current=>{
+            if(!current?.encrypted || current.membership!==scope.membership)discard();
+          }).catch(discard);
+        };
+        unsubscribe=native.chat.subscribe(invalidate);appSubscription=AppState.addEventListener('change',invalidate);
+        let view=await actor.refresh();
+        for(let n=0;n<8 && view.catching_up;n++)view=await actor.refresh();
+        const message=[...(view.root?[view.root]:[]),...view.messages].find(m=>m.id===id && m.status==='journaled' && !m.amendment);
+        if(!alive() || actor.isClosed)return;if(!message)throw Error('Private source unavailable');
+        const shown=privateRow(message,rid,0,null,me && myUsername?{id:me,username:myUsername}:undefined);
+        setPayload({privateOwner:native.chat,message:{id,rid,threadId:message.document.reply_to??null,systemType:null,text:message.document.text,
+          authorName:message.author,attachments:null,reactions:shown.reactions,pinned:false,starred:null},
+          room:{type:'p',name:null},actions:['reply',...(message.document.text?['copy'] as const:[]),
+            ...(view.can_send?['react'] as const:[]),
+            ...(message.author===me && view.can_send?['edit','delete'] as const:[])]});
+        return;
+      }
       // The rules depend on nothing local: the request goes out right
       // away, in parallel with the SQLite reads.
-      const rulesPromise = readRules(client);
+      const rulesPromise = client.kind === 'rocketvibe' ? Promise.resolve(rulesFromSettings([])) : readRules(client);
       // Offline or refused: `null`, the rights of a plain member.
-      const sourcesPromise = sourcesPermissions(client).catch(() => null);
+      const sourcesPromise = client.kind === 'rocketvibe' ? Promise.resolve(null) : sourcesPermissions(client).catch(() => null);
       const rows = await base.select().from(messages).where(eq(messages.id, id)).limit(1);
       const raw = rows[0];
       if (canceled) return;
@@ -165,24 +218,39 @@ export default function MessageActionsScreen() {
         rulesPromise,
         sourcesPromise,
       ]);
+      // A revision belongs to the opened editor. Never refresh it when saving a draft.
+      const nativeContext = provider?.native
+        ? await provider.native.chat.actionContext(raw.id).catch(() => null)
+        : null;
+      const nativePermissions = nativeContext?.permissions;
       if (canceled) return;
       setPayload({
+        revision:nativePermissions?.revision,
+        editDraft:nativeContext?.draft,
         message: {
           id: raw.id,
           rid: raw.rid,
           threadId: raw.threadId,
           systemType: raw.systemType,
-          text: raw.text,
+          text: nativeContext?.message.text ?? raw.text,
           authorName: raw.authorName,
           attachments: raw.attachments,
-          reactions: raw.reactions,
-          pinned: raw.pinned,
-          starred: raw.starred,
+          reactions: nativeContext ? nativeReactions(nativeContext.message.reactions) : raw.reactions,
+          pinned: nativeContext?.message.pinned ?? raw.pinned,
+          starred: nativeContext ? (nativeContext.message.personal_star?.present ? JSON.stringify([me]) : null) : raw.starred,
         },
         // Room row missing (deep link before sync): fall back to `c`/rid; the
         // server only reads the permalink's `?msg=` anyway.
         room: { type: roomRows[0]?.type ?? 'c', name: roomRows[0]?.name ?? null },
-        actions: possibleActions({
+        actions: client.kind === 'rocketvibe' ? [
+          ...(nativeContext && provider?.capabilities.quotes ? ['reply'] as const : []),
+          ...(raw.text ? ['copy', 'share'] as const : []),
+          ...(nativePermissions?.edit && provider?.capabilities.editing ? ['edit'] as const : []),
+          ...(nativePermissions?.delete && provider?.capabilities.deletion ? ['delete'] as const : []),
+          ...(nativePermissions?.react && provider?.capabilities.reactions ? ['react'] as const : []),
+          ...(nativePermissions?.pin && provider?.capabilities.marks ? [nativeContext?.message.pinned?'unpin':'pin'] as const : []),
+          ...(nativePermissions?.star && provider?.capabilities.marks ? [nativeContext?.message.personal_star?.present?'unstar':'star'] as const : []),
+        ] : possibleActions({
           message: {
             authorId: raw.authorId,
             ts: raw.ts,
@@ -205,12 +273,15 @@ export default function MessageActionsScreen() {
         }),
       });
     })().catch(() => {
+      if(isPrivate==='1' && !canceled){void privateAccess.current?.close();privateAccess.current=null;setPayload(null);}
       if (!canceled) setError(t('messageActions.loadFailed'));
     });
     return () => {
       canceled = true;
+      unsubscribe();appSubscription?.remove();
+      if(isPrivate==='1'){void privateAccess.current?.close();privateAccess.current=null;setPayload(null);}
     };
-  }, [ready, id, thread, base, client, me, t]);
+  }, [ready, id, thread, base, client, provider, me, t,isPrivate,rid]);
 
   // My reactions already set on this message: accented outline, and the tap
   // REMOVES instead of adding. `chat.react` does both; hard-wiring it to add
@@ -220,15 +291,27 @@ export default function MessageActionsScreen() {
       new Set(
         reactionList(payload?.message.reactions ?? null, myUsername)
           .filter((r) => r.byMe)
-          .map((r) => r.code),
+          .map((r) => client?.kind==='rocketvibe' ? canonicalEmoji(r.code) ?? r.code : r.code),
       ),
-    [payload, myUsername],
+    [payload, myUsername, client],
   );
 
   // Reentrancy guard in a ref: the React state of a past render would let
   // a double tap trigger the action twice, and two `router.back()`, the
   // second of which ejects from the room.
   const inFlight = useRef(false);
+  // An encrypted reaction or its withdrawal, through the sheet's actor.
+  const privateReact = (target: string, code: string, present: boolean) => {
+    const actor = privateAccess.current;
+    if (!actor) throw Error('Private source unavailable');
+    return actor.react(target, code, present);
+  };
+  // An encrypted edit (text) or deletion (null), through the sheet's actor.
+  const privateAmend = (target: string, text: string | null) => {
+    const actor = privateAccess.current;
+    if (!actor) throw Error('Private source unavailable');
+    return actor.amend(target, text);
+  };
   const act = useCallback(
     async (action: () => Promise<unknown>) => {
       if (inFlight.current) return;
@@ -242,16 +325,23 @@ export default function MessageActionsScreen() {
         await action();
         router.back();
       } catch (e) {
-        setError(e instanceof Error ? e.message : t('messageActions.actionRejected'));
+        if (provider?.native) {
+          const diagnostic=provider.describeError(e,true);
+          setError(t(diagnostic.code==='revision_conflict'?'messageActions.messageChanged'
+            :diagnostic.code==='message_action_pending'?'messageActions.actionPending'
+            :diagnostic.status===0 || diagnostic.status===429 || diagnostic.status>=500?'messageActions.actionResumed'
+            :'messageActions.actionRejected'));
+        } else setError(e instanceof Error ? e.message : t('messageActions.actionRejected'));
       } finally {
         inFlight.current = false;
         setBusy(false);
       }
     },
-    [router, t],
+    [router, provider, t],
   );
 
-  if (!ready || client === null || engine === null || trigger === null || payload === null) {
+  if (!ready || client === null || engine === null || trigger === null || payload === null || payload.message.id!==id
+    || isPrivate==='1' && (payload.message.rid!==rid || payload.privateOwner!==provider?.native?.chat)) {
     return (
       <View style={[styles.sheet, styles.center, { paddingBottom: bottom }]}>
         {error !== null ? (
@@ -267,8 +357,47 @@ export default function MessageActionsScreen() {
 
   // Arms the reply target for the originating composer (room or thread), then
   // closes; the send itself happens there, with the text typed next.
-  const reply = () => {
+  const reply = async (destination?:string) => {
+    const generation = viewGeneration.current;
     void Haptics.selectionAsync();
+    const target=destination??message.rid;
+    const key=target===message.rid && typeof thread==='string'?`${target}:${thread}`:target;
+    const finish=()=>{
+      router.back();
+      if(target!==message.rid)router.push({pathname:'/room/[rid]',params:{rid:target}});
+    };
+    if(destination!==undefined) {
+      try {
+        const access=await provider?.native?.store.cryptoRoomAccess(target);
+        if(!access?.canSend || access.membership===null)throw Error('Quote destination unavailable');
+        if(viewGeneration.current!==generation)return;
+      } catch {if(viewGeneration.current===generation)setError(t('quote.selectionChanged'));return;}
+    }
+    if(isPrivate==='1') {
+      try {
+        const actor=privateAccess.current;if(!actor)throw Error('Private source unavailable');
+        const selected=await actor.selectQuote(message.id);
+        if(viewGeneration.current!==generation || actor.isClosed)return;
+        // The origin view re-resolves this reference after regaining focus.
+        requestReply(key,{id:message.id,author:null,preview:null,
+          permalink:'',localAttachment:'[]',previewImage:null,native:selected.selection,nativeUnavailable:true});
+        finish();
+      } catch {if(viewGeneration.current===generation)setError(t('quote.selectionChanged'));}
+      return;
+    }
+    if (provider?.native) {
+      try {
+        const selection = await provider.native.store.quoteSelection(message.rid, message.id);
+        if (selection.reference.revision !== payload.revision) throw new NativeError(409,'quote_revision_conflict');
+        if (viewGeneration.current !== generation) return;
+        requestReply(key, {
+          id:message.id, author:message.authorName, preview:message.text?.trim() || null,
+          permalink:'', localAttachment:'[]', previewImage:null, native:selection,
+        });
+        finish();
+      } catch { if (viewGeneration.current === generation) setError(t('quote.selectionChanged')); }
+      return;
+    }
     const permalink = messagePermalink({
       baseUrl: client.baseUrl,
       siteUrl,
@@ -291,6 +420,20 @@ export default function MessageActionsScreen() {
       previewImage: firstAttachmentImage(message.attachments),
     });
     router.back();
+  };
+  const chooseDestination=async()=>{
+    const native=provider?.native;if(!native)return;
+    const generation=viewGeneration.current;setBusy(true);setError(null);
+    try {
+      const rooms=await native.store.rooms();
+      const candidates=await Promise.all(rooms.map(async room=>{
+        const access=await native.store.cryptoRoomAccess(room.rid);
+        return access?.canSend && access.membership!==null?
+          {rid:room.rid,name:room.name,encrypted:access.encrypted}:null;
+      }));
+      if(viewGeneration.current===generation){setDestinationFilter('');setDestinations(candidates.filter((r):r is NonNullable<typeof r>=>r!==null));}
+    } catch {if(viewGeneration.current===generation)setError(t('quote.selectionChanged'));}
+    finally {if(viewGeneration.current===generation)setBusy(false);}
   };
 
   // An attached file goes out AS a file; otherwise the text. An image's
@@ -324,10 +467,12 @@ export default function MessageActionsScreen() {
   const pin = async (put: boolean) => {
     if (put) await trigger.pin(message.rid, message.id);
     else await trigger.unpin(message.rid, message.id);
+    if (provider?.native) return;
     await engine.syncStore.updateMessageMarks(message.id, put, message.starred);
   };
   const star = async (put: boolean) => {
     await trigger.star(message.rid, message.id, put);
+    if (provider?.native) return;
     if (me === null) return;
     await engine.syncStore.updateMessageMarks(
       message.id,
@@ -341,7 +486,7 @@ export default function MessageActionsScreen() {
       {!isEditing && actions.includes('react') && (
         <View style={styles.emojiRow}>
           {CODES_REACTION.map((code) => {
-            const alreadySet = myReactions.has(code);
+            const alreadySet = myReactions.has(client?.kind==='rocketvibe' ? canonicalEmoji(code) ?? code : code);
             return (
               <Tappable
                 key={code}
@@ -360,7 +505,9 @@ export default function MessageActionsScreen() {
                   },
                 ]}
                 onPress={() =>
-                  void act(() => trigger.react(message.rid, message.id, code, !alreadySet))
+                  void act(() => isPrivate === '1'
+                    ? privateReact(message.id, code, !alreadySet)
+                    : trigger.react(message.rid, message.id, code, !alreadySet))
                 }
               >
                 <Text style={styles.emoji}>{unicodeOfShortcode(code) ?? `:${code}:`}</Text>
@@ -370,7 +517,20 @@ export default function MessageActionsScreen() {
         </View>
       )}
 
-      {isEditing ? (
+      {destinations!==null ? (
+        <View style={styles.actionList}>
+          <Text style={[styles.rowText,{color:c.text}]}>{t('messageActions.replyIn')}</Text>
+          <TextInput value={destinationFilter} onChangeText={setDestinationFilter} placeholder={t('common.search')}
+            placeholderTextColor={c.tertiaryText} style={[styles.field,{color:c.text,backgroundColor:c.card,borderColor:c.border}]} />
+          <ScrollView style={{maxHeight:Math.max(100,maxHeight-160)}} keyboardShouldPersistTaps="handled">
+            {destinations.filter(r=>r.name.toLocaleLowerCase().includes(destinationFilter.toLocaleLowerCase())).map(r=>(
+              <ActionRow key={r.rid} c={c} disabled={busy} icon={r.encrypted?'🔒':'↩️'} label={r.name}
+                onPress={()=>{if(busy)return;setBusy(true);void reply(r.rid).finally(()=>setBusy(false));}} />
+            ))}
+          </ScrollView>
+          <ActionRow c={c} disabled={busy} icon="←" label={t('common.cancel')} onPress={()=>setDestinations(null)} />
+        </View>
+      ) : isEditing ? (
         <View style={styles.editBlock}>
           <TextInput
             value={editing}
@@ -392,12 +552,15 @@ export default function MessageActionsScreen() {
               disabled={busy}
               onPress={() =>
                 void act(() =>
-                  trigger.edit(
-                    message.rid,
-                    message.id,
-                    editing ?? '',
-                    message.systemType === ENCRYPTED_TYPE ? (e2e ?? undefined) : undefined,
-                  ),
+                  isPrivate === '1'
+                    ? privateAmend(message.id, editing ?? '')
+                    : trigger.edit(
+                        message.rid,
+                        message.id,
+                        editing ?? '',
+                        message.systemType === ENCRYPTED_TYPE ? (e2e ?? undefined) : undefined,
+                        payload.revision,
+                      ),
                 )
               }
               style={({ pressed }) => [
@@ -426,8 +589,12 @@ export default function MessageActionsScreen() {
               disabled={busy}
               icon="↩️"
               label={t('messageActions.reply')}
-              onPress={reply}
+              onPress={()=>void reply()}
             />
+          )}
+          {actions.includes('reply') && provider?.native && (
+            <ActionRow c={c} disabled={busy} icon="↪️" label={t('messageActions.replyIn')}
+              onPress={()=>void chooseDestination()} />
           )}
           {actions.includes('replyInThread') && (
             <ActionRow
@@ -448,10 +615,23 @@ export default function MessageActionsScreen() {
               disabled={busy}
               icon="📋"
               label={t('messageActions.copy')}
-              onPress={() => void act(() => Clipboard.setStringAsync(textToCopy(message.text) ?? ''))}
+              onPress={() => void act(async()=>{
+                const text=isPrivate==='1'?await privateAccess.current?.readMessage(message.id).then(v=>v?.document.text):textToCopy(message.text);
+                if(isPrivate==='1' && text===undefined)throw Error('Private source unavailable');
+                await Clipboard.setStringAsync(text??'');
+              })}
             />
           )}
           {actions.includes('share') && (
+            <>
+              {provider?.native&&payload.revision&&state.phase==='connected'&&(
+                <ActionRow c={c} disabled={busy} icon="🔗" label={t('messageActions.copyLink')}
+                  onPress={()=>void act(()=>{
+                    const link=nativeRoomPermalink(state.session,message.rid,message.id,message.threadId);
+                    if(!link)throw new NativeError(400,'invalid_link');
+                    return Clipboard.setStringAsync(link);
+                  })}/>
+              )}
             <ActionRow
               c={c}
               disabled={busy}
@@ -459,6 +639,7 @@ export default function MessageActionsScreen() {
               label={t('messageActions.share')}
               onPress={() => void act(share)}
             />
+            </>
           )}
           {actions.includes('save') && (
             <ActionRow
@@ -477,7 +658,7 @@ export default function MessageActionsScreen() {
               label={t('messageActions.edit')}
               onPress={() => {
                 void Haptics.selectionAsync();
-                setEditing(message.text ?? '');
+                setEditing(payload.editDraft ?? message.text ?? '');
               }}
             />
           )}
@@ -524,20 +705,35 @@ export default function MessageActionsScreen() {
               icon="🗑"
               label={t('common.delete')}
               destructive
+              // A deletion is for everyone and cannot be undone: confirmed,
+              // as on desktop, in a native dialog over the sheet.
               onPress={() =>
-                void act(async () => {
-                  try {
-                    await trigger.delete(message.rid, message.id);
-                    // The local row will go via the `deleteMessage` stream.
-                  } catch (e) {
-                    // Ghost: already deleted from ANOTHER client while
-                    // the app was closed; the server no longer knows it,
-                    // only the local row remains. Purging it IS the
-                    // requested deletion; any other error stays fatal.
-                    if (!(await messageGoneFromServer(client, message.id))) throw e;
-                    await engine.syncStore.deleteMessage(message.id);
-                  }
-                })
+                Alert.alert(t('messageActions.deleteTitle'), t('messageActions.deleteBody'), [
+                  { text: t('common.cancel'), style: 'cancel' },
+                  {
+                    text: t('common.delete'),
+                    style: 'destructive',
+                    onPress: () =>
+                      void act(async () => {
+                        if (isPrivate === '1') {
+                          await privateAmend(message.id, null);
+                          return;
+                        }
+                        try {
+                          await trigger.delete(message.rid, message.id, payload.revision);
+                          // The local row will go via the `deleteMessage` stream.
+                        } catch (e) {
+                          if (client.kind === 'rocketvibe') throw e;
+                          // Ghost: already deleted from ANOTHER client while
+                          // the app was closed; the server no longer knows it,
+                          // only the local row remains. Purging it IS the
+                          // requested deletion; any other error stays fatal.
+                          if (!(await messageGoneFromServer(client, message.id))) throw e;
+                          await engine.syncStore.deleteMessage(message.id);
+                        }
+                      }),
+                  },
+                ])
               }
             />
           )}

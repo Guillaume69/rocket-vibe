@@ -9,11 +9,12 @@
  */
 
 import * as ImagePicker from 'expo-image-picker';
+import {manipulateAsync,SaveFormat} from 'expo-image-manipulator';
 
 import type { FileToSend } from '../lib/upload.ts';
 import { launchPickerWithRetry } from './launchPicker.ts';
 
-export async function pickAvatar(): Promise<FileToSend | null> {
+export async function pickAvatar(native=false): Promise<FileToSend | null> {
   const res = await launchPickerWithRetry(() =>
     ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
@@ -26,6 +27,10 @@ export async function pickAvatar(): Promise<FileToSend | null> {
   );
   if (res.canceled || res.assets.length === 0) return null;
   const a = res.assets[0]!;
+  if(native){
+    const image=await manipulateAsync(a.uri,[{resize:{width:Math.min(512,a.width||512),height:Math.min(512,a.height||512)}}],{format:SaveFormat.PNG});
+    return {uri:image.uri,name:'avatar.png',type:'image/png'};
+  }
   const type = a.mimeType ?? 'image/jpeg';
   // Extension consistent with the MIME: the server sometimes trusts the name.
   const ext = type.includes('png') ? 'png' : type.includes('webp') ? 'webp' : 'jpg';

@@ -14,6 +14,7 @@ bin_dir=${XDG_BIN_HOME:-$HOME/.local/bin}
 data_dir=${XDG_DATA_HOME:-$HOME/.local/share}
 appimage=$bin_dir/rocket-vibe.AppImage
 desktop=$data_dir/applications/$app_id.desktop
+service=$data_dir/dbus-1/services/$app_id.service
 icons=$data_dir/icons/hicolor
 sizes="32x32 48x48 64x64 128x128 256x256 512x512"
 
@@ -40,7 +41,7 @@ refresh_caches() {
 }
 
 uninstall() {
-  rm -f "$appimage" "$desktop"
+  rm -f "$appimage" "$desktop" "$service"
   for size in $sizes; do
     rm -f "$icons/$size/apps/$app_id.png"
   done
@@ -75,6 +76,8 @@ install() {
   raw="https://raw.githubusercontent.com/$repo/$tag/apps/desktop/data"
   fetch "$raw/$app_id.desktop" "$work/entry.desktop" || fail "cannot fetch the launcher entry"
   sed -e "s|^Exec=.*|Exec=\"$appimage\" %u|" -e "/^TryExec=/d" "$work/entry.desktop" > "$desktop"
+  mkdir -p "$data_dir/dbus-1/services"
+  printf '[D-BUS Service]\nName=%s\nExec="%s" --gapplication-service\n' "$app_id" "$appimage" > "$service"
   for size in $sizes; do
     mkdir -p "$icons/$size/apps"
     fetch "$raw/icons/hicolor/$size/apps/$app_id.png" "$icons/$size/apps/$app_id.png" || true

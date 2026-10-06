@@ -20,6 +20,7 @@ import {
   type DisplayedSection,
 } from '../ui/homeSections.ts';
 import { toggleCollapsedSection, useCollapsedSections } from '../ui/collapsedSections.ts';
+import { ServerRail } from '../ui/serverRail.tsx';
 import { useSession } from '../ui/session.tsx';
 import { useSync } from '../ui/sync.tsx';
 import { useE2EUnlocked } from '../ui/e2e.ts';
@@ -53,8 +54,13 @@ export default function HomeScreen() {
       {/* Logo header drawn by the screen: the native header cannot
           render the gradient wordmark. */}
       <Stack.Screen options={{ headerShown: false }} />
-      <ListHeader c={c} />
-      <RoomList c={c} client={state.client} />
+      <View style={styles.withRail}>
+        <ServerRail c={c} />
+        <View style={styles.full}>
+          <ListHeader c={c} />
+          <RoomList c={c} client={state.client} />
+        </View>
+      </View>
     </SafeAreaView>
   );
 }
@@ -232,7 +238,7 @@ function RoomRow({
   // Presence dot (8.4), two-person DMs only (`dmOtherUid` is null elsewhere).
   // Unknown status, or broadcast turned off server-side
   // (Presence_broadcast_disabled): nothing; the UI never depends on it.
-  const status = usePresence(room.dmOtherUid);
+  const status = usePresence(room.dmOtherUid,room.type==='d'?room.rid:undefined);
   const name = room.displayName ?? room.name ?? room.rid;
   const unread = subscription?.unread ?? 0;
   const alerting = subscription?.alert === true || unread > 0;
@@ -338,6 +344,7 @@ function NewConversationRow({ c }: { c: Colors }) {
 
 const styles = StyleSheet.create({
   full: { flex: 1 },
+  withRail: { flex: 1, flexDirection: 'row' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   header: {
     flexDirection: 'row',

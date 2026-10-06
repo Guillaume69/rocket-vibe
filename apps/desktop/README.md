@@ -27,6 +27,11 @@ never on disk.
 
 What the Android app does and where this one stands: `brain/parity.md`.
 
+An experimental [native-server pilot](../../docs/NATIVE_DESKTOP_PILOT.md) is also
+available: discovery selects Rocket.Chat or RocketVibe per account in the same
+GTK chat interface, with an isolated native cache, durable outbox and drafts. The Rust engine is exposed
+through an explicit UniFFI API; its SwiftUI screens are not connected yet.
+
 ## Desktop integration
 
 Calls open in a window of the app, locked on the meeting's origin: WebView2 on

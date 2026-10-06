@@ -57,7 +57,7 @@ fn media_then_confirm(r: &Request) -> Response {
 #[tokio::test]
 async fn two_steps_then_the_message() {
     let f = fixture(media_then_confirm).await;
-    f.uploads.enqueue("r", &f.path, "a.txt", "text/plain", Some(" a caption "), false);
+    f.uploads.enqueue("r", &f.path, "a.txt", "text/plain", Some(" a caption "), false, None);
     f.uploads.process().await;
     let media = calls(&f.server, "rooms.media/r");
     assert_eq!(media.len(), 1);
@@ -69,6 +69,18 @@ async fn two_steps_then_the_message() {
     assert!(f.store.uploads("r").is_empty());
     assert!(f.store.file_posted("r", FILE_ID));
     assert!(std::path::Path::new(&f.path).exists(), "a file the user picked is never deleted");
+}
+
+#[tokio::test]
+async fn a_file_in_a_thread_is_confirmed_with_its_tmid() {
+    let f = fixture(media_then_confirm).await;
+    f.uploads.enqueue("r", &f.path, "a.txt", "text/plain", Some("in the thread"), false, Some("root1"));
+    f.uploads.process().await;
+    let confirm = calls(&f.server, &format!("rooms.mediaConfirm/r/{FILE_ID}"));
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&confirm[0].body).unwrap(),
+        json!({"msg": "in the thread", "tmid": "root1"})
+    );
 }
 
 #[tokio::test]
@@ -89,7 +101,7 @@ async fn a_known_file_id_already_posted_is_not_confirmed_again() {
             ..Default::default()
         })
     });
-    f.uploads.enqueue("r", &f.path, "a.txt", "text/plain", None, true);
+    f.uploads.enqueue("r", &f.path, "a.txt", "text/plain", None, true, None);
     let id = f.store.uploads("r")[0].id.clone();
     f.store.write(|w| w.set_upload_file_id(&id, FILE_ID));
     f.uploads.process().await;
@@ -109,12 +121,12 @@ async fn refused_fails_and_offline_waits() {
         }
     })
     .await;
-    f.uploads.enqueue("r", &f.path, "a.txt", "text/plain", None, false);
+    f.uploads.enqueue("r", &f.path, "a.txt", "text/plain", None, false, None);
     f.uploads.process().await;
     assert_eq!(f.store.uploads("r")[0].status, "failed");
 
     let g = fixture(|_| dropped()).await;
-    g.uploads.enqueue("r", &g.path, "a.txt", "text/plain", None, false);
+    g.uploads.enqueue("r", &g.path, "a.txt", "text/plain", None, false, None);
     g.uploads.process().await;
     assert_eq!(g.store.uploads("r")[0].status, "pending");
 }
@@ -130,7 +142,7 @@ async fn a_lost_connection_is_retried_without_waiting_for_the_socket() {
         }
     })
     .await;
-    f.uploads.enqueue("r", &f.path, "a.txt", "text/plain", None, false);
+    f.uploads.enqueue("r", &f.path, "a.txt", "text/plain", None, false, None);
     f.uploads.process().await;
     assert_eq!(f.store.uploads("r")[0].status, "pending");
     assert!(f.uploads.reconnecting());
@@ -148,7 +160,7 @@ async fn a_lost_connection_is_retried_without_waiting_for_the_socket() {
 #[tokio::test]
 async fn discard_removes_the_row() {
     let f = fixture(media_then_confirm).await;
-    f.uploads.enqueue("r", &f.path, "a.txt", "text/plain", None, false);
+    f.uploads.enqueue("r", &f.path, "a.txt", "text/plain", None, false, None);
     let id = f.store.uploads("r")[0].id.clone();
     f.uploads.discard(&id);
     f.uploads.process().await;
@@ -171,7 +183,7 @@ async fn encrypted_room_sends_the_file_encrypted_under_a_hashed_name() {
         seen.lock().unwrap().push(payload.clone());
         Some(json!({"sealed": true}))
     });
-    f.uploads.enqueue("r", &f.path, "a.txt", "text/plain", Some("the caption"), false);
+    f.uploads.enqueue("r", &f.path, "a.txt", "text/plain", Some("the caption"), false, None);
     f.uploads.process().await;
 
     let media = calls(&f.server, "rooms.media/r");
@@ -200,7 +212,7 @@ async fn locked_encrypted_room_holds_the_file() {
     let f = fixture(media_then_confirm).await;
     encrypted_room(&f.store);
     f.uploads.set_encryptor(|_, _| None);
-    f.uploads.enqueue("r", &f.path, "a.txt", "text/plain", None, false);
+    f.uploads.enqueue("r", &f.path, "a.txt", "text/plain", None, false, None);
     f.uploads.process().await;
     assert!(calls(&f.server, "rooms.media").is_empty());
     assert_eq!(f.store.uploads("r").len(), 1);

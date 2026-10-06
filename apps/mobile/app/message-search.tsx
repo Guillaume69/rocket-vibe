@@ -1,7 +1,8 @@
 import { Redirect, Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
   ActivityIndicator,
+  AppState,
   FlatList,
   StyleSheet,
   Text,
@@ -9,38 +10,49 @@ import {
   View,
 } from 'react-native';
 
-import { toMessage, type LocalMessage } from '../lib/normalize.ts';
+import { CryptoNative } from '../modules/crypto-native/index.ts';
+import type { CryptoConversationAccess } from '../providers/rocketvibe/cryptoConversations.ts';
+import { privateRow } from '../providers/rocketvibe/cryptoProjection.ts';
+import type { LocalMessage } from '../lib/normalize.ts';
+import type { Provider } from '../lib/provider.ts';
 import type { RestClient } from '../lib/rest.ts';
 import { KeyboardAvoidingContainer } from '../ui/keyboard.tsx';
 import { useT } from '../ui/i18n.ts';
-import { MessageRow } from '../ui/messageRow.tsx';
+import { MessageRow, type MessageRowData } from '../ui/messageRow.tsx';
 import { useDebouncedSearch } from '../ui/debouncedSearch.ts';
 import { requestJump } from '../ui/messageJump.ts';
 import { useSession } from '../ui/session.tsx';
+import {useSync} from '../ui/sync.tsx';
 import { useColors, type Colors, FONTS } from '../ui/theme.ts';
 
 /**
- * Message search within ONE room (8.5): `chat.search` requires a `roomId`.
- * Results are EPHEMERAL: rendered straight from the response (normalised by
- * `toMessage`, like any server document), never written to the database;
- * isolated messages outside the window have no business there. A tap goes
- * back to the room at the message (a context window when it is old), or
- * opens the thread of a reply that lives there.
+ * Message search within one room, through its provider. Results are
+ * temporary: rendered straight from the response (normalised by `toMessage`,
+ * like any server document), never written to the database; isolated
+ * messages outside the window have no business there. A tap goes back to the
+ * room at the message (a context window when it is old), or opens the thread
+ * of a reply that lives there.
+ * An encrypted RocketVibe room is searched on the device only, through its
+ * private journal (`CryptoConversationAccess.search`); the server sees nothing.
  */
 
 /** Stable (module-level): a value recreated on every render would rerun the effect. */
-const NO_MESSAGE: LocalMessage[] = [];
+const NO_MESSAGE: MessageRowData[] = [];
+const NO_RESULT:{version:string|null;revision:number;messages:MessageRowData[]}={version:null,revision:-1,messages:NO_MESSAGE};
+function versionOf(f:Provider):string {return JSON.stringify([f.identity,f.native?.chat.searchVersion??null]);}
 
 export default function MessageSearchScreen() {
   const { rid } = useLocalSearchParams<{ rid: string }>();
   const { state } = useSession();
+  const sync=useSync();
   const c = useColors();
   const t = useT();
 
   // Same gatekeeper as the room: a deep link can land here without a session.
   if (state.phase === 'disconnected') return <Redirect href="/login" />;
+  if(sync.phase==='error')return <View style={[styles.center,{backgroundColor:c.background}]}><Text style={[styles.errorMessage,{color:c.errorText}]}>{sync.message}</Text></View>;
 
-  if (state.phase !== 'connected' || typeof rid !== 'string') {
+  if (state.phase !== 'connected' || sync.phase!=='ready' || typeof rid !== 'string') {
     return (
       <View style={[styles.center, { backgroundColor: c.background }]}>
         <Stack.Screen options={{ title: t('common.search') }} />
@@ -48,21 +60,30 @@ export default function MessageSearchScreen() {
       </View>
     );
   }
-  return <MessageSearch c={c} client={state.client} rid={rid} />;
+  return <MessageSearch c={c} client={state.client} rid={rid} provider={sync.provider} username={state.session.username} />;
 }
 
 function MessageSearch({
   c,
   client,
   rid,
+  provider,
+  username,
 }: {
   c: Colors;
   client: RestClient;
   rid: string;
+  provider:Provider;
+  username:string;
 }) {
   const t = useT();
   const router = useRouter();
   const [query, setQuery] = useState('');
+  const [requestRevision,setRequestRevision]=useState(0);
+  const version=useSyncExternalStore(
+    useCallback(listen=>provider.native?.chat.subscribe(listen)??(()=>{}),[provider]),
+    ()=>versionOf(provider),
+  );
   const open = useCallback(
     (m: LocalMessage) => {
       router.back();
@@ -77,27 +98,47 @@ function MessageSearch({
 
   // Results are normalised on arrival (`toMessage`, like any server
   // document), never written to the database; see the file header.
+  // An encrypted room's own actor, closed with the screen or in background.
+  // This view's token for the encrypted files it opens, drawn once.
+  const [viewToken]=useState(()=>Math.floor(Math.random()*2**52));
+  const privateAccess=useRef<CryptoConversationAccess|null>(null),token=useRef(viewToken);
+  useEffect(()=>{
+    const close=()=>{void privateAccess.current?.close();privateAccess.current=null;provider.native?.chat.forgetPrivateFiles(token.current);};
+    const sub=AppState.addEventListener('change',state=>{if(state!=='active')close();});
+    return()=>{sub.remove();close();};
+  },[provider]);
+  const searchPrivately=useCallback(async(clean:string):Promise<MessageRowData[]|null>=>{
+    const native=provider.native;
+    const scope=native?await native.store.cryptoRoomAccess(rid):null;
+    if(!native || !scope?.encrypted)return null;
+    if(scope.membership===null || !CryptoNative)throw new Error('unsupported_feature');
+    if(!privateAccess.current || privateAccess.current.isClosed)
+      privateAccess.current=await native.chat.cryptoConversation(CryptoNative,rid,scope.membership,()=>AppState.currentState==='active',null);
+    const found=await privateAccess.current.search(clean);
+    // Their encrypted files open while the results are shown (E2EE_FILES.md).
+    native.chat.showPrivateFiles(token.current,rid,found.messages.flatMap(m=>m.document.files??[]));
+    const self=client.auth?.userId?{id:client.auth.userId,username}:undefined;
+    return found.messages.map(m=>privateRow(m,rid,0,null,self));
+  },[provider,rid,client,username]);
   const searchMessages = useCallback(
-    (clean: string) =>
-      client
-        .get<{ messages?: Record<string, unknown>[] }>('chat.search', {
-          params: { roomId: rid, searchText: clean, count: 50 },
-        })
-        .then((r) =>
-          (r.messages ?? [])
-            .map((raw) => toMessage(raw))
-            .filter((m): m is LocalMessage => m !== null),
-        ),
-    [client, rid],
+    async(clean: string) => {
+      const version=versionOf(provider);
+      const found=await searchPrivately(clean);
+      if(found)return {version,revision:requestRevision,messages:found};
+      if(!provider.capabilities.search || !provider.searchMessages)throw new Error('unsupported_feature');
+      return {version,revision:requestRevision,messages:await provider.searchMessages(rid,clean) as MessageRowData[]};
+    },
+    [provider, rid,requestRevision,searchPrivately],
   );
   const { results, message, answered } = useDebouncedSearch(
     query,
-    NO_MESSAGE,
+    NO_RESULT,
     searchMessages,
     t('messageSearch.searchFailed'),
   );
   const clean = query.trim();
-  const searching = clean !== '' && answered !== clean;
+  const searching = clean !== '' && message===null && (answered !== clean || results.revision!==requestRevision);
+  const expired=results.version!==null && results.version!==version && answered===clean;
 
   return (
     <KeyboardAvoidingContainer>
@@ -106,6 +147,8 @@ function MessageSearch({
         <TextInput
           value={query}
           onChangeText={setQuery}
+          onSubmitEditing={()=>setRequestRevision(v=>v+1)}
+          returnKeyType="search"
           placeholder={t('messageSearch.placeholder')}
           placeholderTextColor={c.dimmed}
           autoCapitalize="none"
@@ -118,7 +161,7 @@ function MessageSearch({
         <Text style={[styles.errorMessage, { color: c.errorText }]}>{message}</Text>
       )}
       <FlatList
-        data={results}
+        data={results.version===version && results.revision===requestRevision && answered===clean?results.messages:NO_MESSAGE}
         keyExtractor={(m) => m.id}
         renderItem={({ item }) => (
           <View style={styles.result}>
@@ -150,6 +193,8 @@ function MessageSearch({
             <View style={styles.center}>
               <ActivityIndicator />
             </View>
+          ) : expired ? (
+            <Text style={[styles.empty,{color:c.dimmed}]}>{t('messageSearch.edited')}</Text>
           ) : (
             <Text style={[styles.empty, { color: c.dimmed }]}>{t('messageSearch.noMessages')}</Text>
           )

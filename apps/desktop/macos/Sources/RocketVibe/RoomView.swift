@@ -14,7 +14,7 @@ struct RoomView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            MessageList(model: model)
+            MessageList(model: model,readAllowed:panel == nil)
             if !model.typing.isEmpty {
                 Text(typingLine)
                     .font(.vibe(11.5, .semibold))
@@ -24,7 +24,7 @@ struct RoomView: View {
                     .padding(.bottom, 2)
             }
             UploadsView(model: model)
-            if model.room.encrypted && !app.e2eUnlocked {
+            if model.room.encrypted && !app.e2eUnlocked && !model.privateReady {
                 LockedBanner()
             } else if model.room.readOnly {
                 Text(L("room.read_only"))
@@ -36,7 +36,7 @@ struct RoomView: View {
         }
         .onDrop(of: [.fileURL, .plainText], isTargeted: nil) { providers in
             for provider in providers {
-                if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+                if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) && model.supportsFiles {
                     _ = provider.loadObject(ofClass: URL.self) { url, _ in
                         if let url { DispatchQueue.main.async { staged.append(url) } }
                     }
@@ -51,6 +51,7 @@ struct RoomView: View {
         .environment(\.openURL, OpenURLAction { url in handle(url) })
         .sheet(item: $panel) { PanelView(panel: $0, model: model) }
         .navigationSubtitle(subtitle)
+        .onChange(of: model.error) { _, error in if let error { app.notice = error } }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 if model.loading || app.connection != .online {
@@ -60,14 +61,22 @@ struct RoomView: View {
                     Button(action: call) { Image(systemName: "video") }.help(L("room.call"))
                 }
                 Button { panel = .marked } label: { Image(systemName: "pin") }.help(L("marked.title"))
+                    .disabled(!model.supportsMarks)
                 Button { panel = .search } label: { Image(systemName: "magnifyingglass") }.help(L("search.title"))
                     .keyboardShortcut("f", modifiers: .command)
-                Button { panel = .info } label: { Image(systemName: "info.circle") }.help(L("info.room"))
+                    .disabled(!model.supportsSearch)
+                Button {
+                    if let uid = model.directPeerId { panel = .profileId(uid) }
+                    else { panel = .info }
+                } label: { Image(systemName: "info.circle") }.help(L("info.room"))
+                    .disabled(!model.supportsRoomInfo)
             }
         }
         .task(id: model.rid) {
             callable = false
-            if !model.room.readOnly, let chat = app.chat { callable = await chat.callAvailable() }
+            let expected = app.account?.key
+            let available = await model.callAvailable()
+            if !Task.isCancelled, expected == app.account?.key { callable = available }
         }
     }
 
@@ -84,8 +93,10 @@ struct RoomView: View {
 
     func call() {
         Task {
-            guard let chat = app.chat else { return }
-            if let link = try? await chat.startCall(rid: model.rid), let url = URL(string: link) {
+            let expected = app.sessionId
+            let link = try? await model.startCall()
+            guard !Task.isCancelled, app.sessionId == expected, model.membershipIsCurrent else { return }
+            if let link, let url = URL(string: link) {
                 CallWindow.show(url, title: L("call.window_title", ["room": model.room.name]))
             } else {
                 app.notice = L("call.failed")
@@ -106,6 +117,7 @@ struct RoomView: View {
     func handle(_ url: URL) -> OpenURLAction.Result {
         let text = url.absoluteString
         if text.hasPrefix("rv-user:") {
+            guard app.provider?.supportsProfiles == true else { return .handled }
             panel = .profile(String(text.dropFirst("rv-user:".count)))
             return .handled
         }
@@ -138,7 +150,9 @@ struct LockedBanner: View {
             Image(systemName: "lock.fill")
             Text(L("e2e.read_only"))
             Spacer()
-            Button(L("e2e.unlock")) { asking = true }.buttonStyle(VibeButtonStyle())
+            if app.chat != nil {
+                Button(L("e2e.unlock")) { asking = true }.buttonStyle(VibeButtonStyle())
+            }
         }
         .padding(12)
         .background(Vibe.card)
@@ -183,13 +197,19 @@ struct UnlockSheet: View {
 
 struct MessageList: View {
     @Environment(AppModel.self) var app
+    @Environment(\.controlActiveState) private var controlActive
     let model: RoomModel
+    var readAllowed = true
     @State var pinned = true
     @State var farFromBottom = false
     @State var editing: String?
     @State var deleting: MessageItem?
     /// Once the room has loaded, new messages arrive with a spring.
     @State var settled = false
+    @State private var visibleNative:Set<String> = []
+    @State private var lastObserved:String?
+    @State private var readTask:Task<Void,Never>?
+    @State private var windowActive = NSApp.isActive
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -210,6 +230,11 @@ struct MessageList: View {
                         )
                         .equatable()
                         .id(message.id)
+                        .onScrollVisibilityChange(threshold:0.01) { visible in
+                            guard model.provider.native != nil, message.delivery == .sent else { return }
+                            if visible {visibleNative.insert(message.id)} else {visibleNative.remove(message.id)}
+                            scheduleObservedRead()
+                        }
                     }
                     if model.hasNewer {
                         ProgressView()
@@ -240,6 +265,30 @@ struct MessageList: View {
             .onChange(of: model.messages.last?.id) { _, _ in
                 if pinned && model.context == nil { proxy.scrollTo("bottom", anchor: .bottom) }
             }
+            .onChange(of:pinned) { _,value in
+                if value {scheduleObservedRead()} else {cancelObservedRead()}
+            }
+            .onChange(of:model.supportsObservedReads) { _,value in
+                if value {scheduleObservedRead()} else {cancelObservedRead()}
+            }
+            .onChange(of:readAllowed) { _,value in
+                if value {scheduleObservedRead()} else {cancelObservedRead()}
+                updateQuoteActivity()
+            }
+            .onChange(of:controlActive) { _,value in
+                if value == .key {scheduleObservedRead()} else {cancelObservedRead()}
+                updateQuoteActivity()
+            }
+            .onReceive(NotificationCenter.default.publisher(for:NSApplication.didBecomeActiveNotification)) { _ in
+                windowActive=true;scheduleObservedRead()
+                updateQuoteActivity()
+            }
+            .onReceive(NotificationCenter.default.publisher(for:NSApplication.didResignActiveNotification)) { _ in
+                windowActive=false;cancelObservedRead()
+                updateQuoteActivity()
+            }
+            .onAppear { updateQuoteActivity() }
+            .onDisappear { cancelObservedRead();visibleNative.removeAll();model.quoteActivity(false) }
             .onChange(of: model.reveal) { _, id in
                 guard let id else { return }
                 withAnimation { proxy.scrollTo(id, anchor: .center) }
@@ -249,10 +298,11 @@ struct MessageList: View {
                 }
             }
             .task(id: model.messages.last?.id) {
+                guard model.provider.legacy != nil else {return}
                 try? await Task.sleep(nanoseconds: 1_500_000_000)
-                if pinned && model.context == nil && NSApp.isActive && model.threadId == nil
+                if !Task.isCancelled && pinned && model.context == nil && NSApp.isActive && model.threadId == nil
                     && (model.room.unread > 0 || model.room.alert) {
-                    await app.markRead()
+                    await model.markLegacyRead()
                     Notifier.shared.withdraw(rid: model.rid)
                 }
             }
@@ -282,7 +332,7 @@ struct MessageList: View {
                 Button(L("actions.delete"), role: .destructive) {
                     if let message = deleting {
                         Task {
-                            do { try await model.delete(message) } catch { app.notice = L("actions.refused") }
+                            do { try await model.delete(message) } catch { app.notice = model.mutationError(error) }
                         }
                     }
                     deleting = nil
@@ -292,6 +342,33 @@ struct MessageList: View {
                 Text(L("actions.delete_body"))
             }
         }
+    }
+
+    private func updateQuoteActivity() {
+        model.quoteActivity(readAllowed && controlActive == .key && windowActive)
+    }
+    var visibleObservedId:String? {
+        model.messages.last(where:{$0.delivery == .sent && visibleNative.contains($0.id)})?.id
+    }
+    /// The pending task retains its original displayed ID while newer visible
+    /// messages wait for the next task, rather than rearming this delay.
+    func scheduleObservedRead() {
+        guard model.supportsObservedReads, readAllowed, controlActive == .key, pinned, windowActive, readTask == nil,
+              let id=visibleObservedId, id != lastObserved else {return}
+        let account=app.account?.key
+        readTask=Task {
+            try? await Task.sleep(nanoseconds:1_500_000_000)
+            guard !Task.isCancelled else {return}
+            if readAllowed && controlActive == .key && pinned && windowActive && account == app.account?.key {
+                do {try model.markObservedRead(messageId:id);lastObserved=id}
+                catch {}
+            }
+            readTask=nil
+            if visibleObservedId != id {scheduleObservedRead()}
+        }
+    }
+    func cancelObservedRead() {
+        readTask?.cancel();readTask=nil
     }
 
     func older(_ proxy: ScrollViewProxy) {
@@ -317,6 +394,8 @@ struct MessageRow: View, Equatable {
     let askDelete: (MessageItem) -> Void
     @State var draft = ""
     @State var viewing: ImageItem?
+    @State private var choosingQuote = false
+    @State private var quoteSearch = ""
 
     nonisolated static func == (a: MessageRow, b: MessageRow) -> Bool {
         a.message == b.message && a.editing == b.editing && a.revealed == b.revealed && a.model === b.model
@@ -347,6 +426,7 @@ struct MessageRow: View, Equatable {
                                 .font(.vibe(13.5, .heavy))
                                 .foregroundStyle(message.mine ? Vibe.pink : Vibe.text)
                             Text(Formatting.time(message.ts)).font(.vibe(11, .semibold)).foregroundStyle(Vibe.faint)
+                                .help(model?.messageTimeHelp ?? "")
                         }
                     }
                     content
@@ -363,6 +443,30 @@ struct MessageRow: View, Equatable {
         .sheet(item: Binding(get: { viewing.map(Viewing.init) }, set: { viewing = $0?.image })) { v in
             ImageViewer(path: v.image.source, title: v.image.title)
         }
+        .sheet(isPresented: $choosingQuote) {
+            VStack(alignment:.leading, spacing:12) {
+                Text(L("quote.destination")).font(.headline)
+                TextField(L("spotlight.placeholder"), text:$quoteSearch)
+                ScrollView {
+                    VStack(alignment:.leading, spacing:4) {
+                        let joined = Set((try? app.native?.quoteDestinations()) ?? [])
+                        let candidates = app.rooms.filter { room in
+                            room.rid != model?.rid && joined.contains(room.rid)
+                                && (quoteSearch.isEmpty || room.name.localizedCaseInsensitiveContains(quoteSearch))
+                        }
+                        if candidates.isEmpty { Text(L("quote.destination_empty")).foregroundStyle(Vibe.faint) }
+                        ForEach(candidates, id: \.rid) { destination in
+                            Button(destination.name) {
+                                choosingQuote = false
+                                let id = message.id
+                                if let model { Task { await app.quoteElsewhere(source:model,message:id,destination:destination.rid) } }
+                            }.buttonStyle(.plain).padding(.vertical,6)
+                        }
+                    }.frame(maxWidth:.infinity,alignment:.leading)
+                }
+                Button(L("actions.cancel")) { choosingQuote = false }
+            }.padding(20).frame(width:380,height:360)
+        }
     }
 
     @ViewBuilder var gutter: some View {
@@ -370,6 +474,7 @@ struct MessageRow: View, Equatable {
             Avatar(path: message.avatar, name: message.author, size: 34)
         } else {
             Text(message.gutterTime ? Formatting.time(message.ts) : "")
+                .help(model?.messageTimeHelp ?? "")
                 .font(.vibe(10, .semibold))
                 .foregroundStyle(Vibe.faint)
                 .frame(width: 34)
@@ -379,7 +484,7 @@ struct MessageRow: View, Equatable {
     @ViewBuilder var content: some View {
         if let system = message.system {
             if let callId = message.callId {
-                CallCard(callId: callId)
+                CallCard(callId: callId, model: model)
             } else {
                 Text("\(message.author) \(systemMessage(kind: system, param: message.param))")
                     .italic()
@@ -450,7 +555,7 @@ struct MessageRow: View, Equatable {
         if message.edited || message.delivery != .sent || message.threadCount > 0 {
             HStack(spacing: 10) {
                 if message.threadCount > 0 {
-                    Button("💬 " + L("message.replies", count: Int(message.threadCount))) { app.openThread(message.id) }
+                    Button("💬 " + (model?.repliesTitle(message.threadCount) ?? L("message.replies", count: Int(message.threadCount)))) { app.openThread(message.id) }
                         .buttonStyle(.link)
                         .foregroundStyle(Vibe.pinkSoft)
                 }
@@ -483,15 +588,15 @@ struct MessageRow: View, Equatable {
                 Button(L("actions.save"), action: save).keyboardShortcut(.defaultAction)
             }
         }
-        .onAppear { draft = message.text ?? "" }
+        .onAppear { draft = model?.editingText(message) ?? message.text ?? "" }
     }
 
     func save() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         setEditing(nil)
-        guard !text.isEmpty, text != message.text else { return }
+        guard !text.isEmpty, text != (model?.editingOriginalText(message) ?? message.text) else { return }
         Task {
-            do { try await model?.edit(message, text: text) } catch { app.notice = L("actions.refused") }
+            do { try await model?.edit(message, text: text) } catch { app.notice = model?.mutationError(error) ?? L("actions.refused") }
         }
     }
 
@@ -501,13 +606,29 @@ struct MessageRow: View, Equatable {
             Menu("😀") {
                 ForEach(model?.quickReactions ?? [], id: \.self) { code in
                     Button(replaceShortcodes(text: code)) {
-                        Task { await model?.react(message, shortcode: code, add: true) }
+                        Task { await model?.react(message, shortcode: code, add: !(model?.quickReactionIsMine(message, shortcode: code) ?? false)) }
                     }
                 }
             }
         }
         ForEach(actions.filter { $0 != .react }, id: \.self) { action in
             Button(title(action), role: action == .delete ? .destructive : nil) { run(action) }
+        }
+        if actions.contains(.reply), model?.provider.native != nil {
+            Button(L("quote.elsewhere")) { quoteSearch = ""; choosingQuote = true }
+        }
+        if message.delivery == .sent, model?.membershipIsCurrent == true,
+           let link = app.native?.permalink(room: message.rid, message: message.id, root: message.threadId) {
+            Button(L("actions.copy_link")) {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(link, forType: .string)
+            }
+        }
+        if model?.canResumePrivate(message.id) == true {
+            Button(L("native.retry")) { Task { await model?.retry(message.id) } }
+            Button(L("native.abandon")) { model?.abandon(message.id) }
+        } else if message.delivery == .failed, model?.canAbandon == true {
+            Button(L("native.abandon")) { model?.abandon(message.id) }
         }
     }
 
@@ -541,8 +662,13 @@ struct MessageRow: View, Equatable {
                 let name = message.files.first?.title ?? message.images.first?.title ?? "file"
                 Task { await download(path: path, name: name, app: app) }
             }
-        case .edit: setEditing(message.id)
-        case .delete: askDelete(message)
+        case .edit, .delete:
+            Task {
+                do {
+                    try await model?.prepareMutation(message, editing: action == .edit)
+                    if action == .edit { setEditing(message.id) } else { askDelete(message) }
+                } catch { app.notice = L("actions.refused") }
+            }
         case .pin, .unpin:
             Task {
                 do {
@@ -623,11 +749,16 @@ struct QuoteCard: View {
         HStack(alignment: .top, spacing: 8) {
             RoundedRectangle(cornerRadius: 2).fill(LinearGradient(colors: [Vibe.violet, Vibe.pink], startPoint: .top, endPoint: .bottom)).frame(width: 3)
             VStack(alignment: .leading, spacing: 3) {
+                if quote.unavailable { Text(L("quote.unavailable")).foregroundStyle(Vibe.muted) }
                 if let author = quote.author { Text(author).font(.vibe(13, .heavy)) }
                 BodyView(blocks: quote.body)
                 ForEach(Array(quote.images.enumerated()), id: \.offset) { _, image in
                     let size = displaySize(width: image.width, height: image.height, maxWidth: 240, maxHeight: 180)
                     RemoteImage(path: image.source, width: size.width, height: size.height)
+                }
+                ForEach(Array(quote.files.enumerated()), id: \.offset) { _, file in
+                    Text("\(file.kind == .audio ? "🎵" : file.kind == .video ? "🎬" : "📎") \(file.title)")
+                        .font(.vibe(12)).foregroundStyle(Vibe.muted).lineLimit(1)
                 }
                 ForEach(Array(quote.quotes.enumerated()), id: \.offset) { _, inner in
                     AnyView(QuoteCard(quote: inner))
@@ -670,6 +801,7 @@ struct FileCard: View {
         .sheet(item: Binding(get: { playing.map(Playing.init) }, set: { playing = $0?.url })) { p in
             PlayerView(url: p.url)
         }
+        .onChange(of:app.imagesVersion){if app.media?.current(file.url)==false{playing=nil}}
     }
 
     var icon: String {
@@ -685,15 +817,8 @@ struct FileCard: View {
         guard let media = app.media else { return }
         loading = true
         defer { loading = false }
-        let local = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "rv-\(abs(file.url.hashValue))-\(file.title)")
-        if !FileManager.default.fileExists(atPath: local.path) {
-            do { try await media.download(file.url, to: local.path) } catch {
-                app.notice = L("file.failed")
-                return
-            }
-        }
-        playing = local
+        do {playing=try await media.localCopy(file.url,name:file.title)}
+        catch{app.notice=L("file.failed")}
     }
 }
 
@@ -705,10 +830,12 @@ struct Playing: Identifiable {
 struct LinkCard: View {
     @Environment(\.openURL) var openURL
     let card: Card
+    @State private var viewing=false
 
     var body: some View {
         Button {
-            if let url = URL(string: card.url) { openURL(url) }
+            if card.url.hasPrefix("rv-preview:"){viewing=true}
+            else if !card.url.isEmpty, let url = URL(string: card.url) { openURL(url) }
         } label: {
             HStack(alignment: .top, spacing: 10) {
                 if let image = card.image {
@@ -719,12 +846,24 @@ struct LinkCard: View {
                         }
                     }
                 }
-                if card.title != nil || card.description != nil {
+                if card.title != nil || card.description != nil || !card.fields.isEmpty {
                     VStack(alignment: .leading, spacing: 3) {
                         if let site = card.site { Text(site).font(.vibe(11.5, .bold)).foregroundStyle(Vibe.muted) }
-                        if let title = card.title { Text(title).font(.vibe(13.5, .heavy)).lineLimit(2) }
+                        if let title = card.title { Text(title).font(.vibe(13.5, .heavy)).lineLimit(card.integration ? nil : 2) }
                         if let description = card.description {
-                            Text(description).font(.vibe(12)).foregroundStyle(Vibe.soft).lineLimit(3)
+                            Text(description).font(.vibe(12)).foregroundStyle(Vibe.soft).lineLimit(card.integration ? nil : 3)
+                        }
+                        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
+                            ForEach(Array(fieldRows.enumerated()),id: \.offset) { _, fields in
+                                GridRow {
+                                    ForEach(Array(fields.enumerated()),id: \.offset) { _, field in
+                                        VStack(alignment: .leading,spacing: 2) {
+                                            Text(field.title).font(.vibe(11,.bold)).foregroundStyle(Vibe.muted)
+                                            Text(field.value).font(.vibe(12)).foregroundStyle(Vibe.soft)
+                                        }.gridCellColumns(field.short ? 1 : 2)
+                                    }
+                                }
+                            }
                         }
                     }
                     .multilineTextAlignment(.leading)
@@ -733,8 +872,24 @@ struct LinkCard: View {
             .padding(8)
             .frame(maxWidth: 420, alignment: .leading)
             .vibeCard()
+            .overlay(alignment: .leading) {
+                if card.integration {
+                    RoundedRectangle(cornerRadius: 2).fill(card.color.flatMap{UInt32($0.dropFirst(),radix:16)}.map{Color(hex:$0)} ?? Vibe.pink)
+                        .frame(width: 3).padding(.vertical,8)
+                }
+            }
         }
         .buttonStyle(.plain)
+        .sheet(isPresented:$viewing){ImageViewer(path:card.url,title:card.title)}
+    }
+
+    var fieldRows:[[CardField]] {
+        var rows:[[CardField]]=[]
+        for field in card.fields {
+            if field.short,let last=rows.last,last.count==1,last[0].short { rows[rows.count-1].append(field) }
+            else { rows.append([field]) }
+        }
+        return rows
     }
 }
 
@@ -742,6 +897,7 @@ struct CallCard: View {
     @Environment(AppModel.self) var app
     @Environment(\.openURL) var openURL
     let callId: String
+    let model: RoomModel?
     @State var link: String?
 
     var body: some View {
@@ -750,8 +906,11 @@ struct CallCard: View {
             Text(L("message.call")).font(.vibe(13.5, .bold))
             Button(L("message.join")) {
                 Task {
-                    guard let chat = app.chat else { return }
-                    if let link = try? await chat.joinCall(callId: callId), let url = URL(string: link) {
+                    guard let model else { return }
+                    let expected = app.sessionId
+                    let link = try? await model.joinCall(callId:callId)
+                    guard !Task.isCancelled, expected == app.sessionId, model.membershipIsCurrent else { return }
+                    if let link, let url = URL(string: link) {
                         CallWindow.show(url, title: L("message.call"))
                     } else {
                         app.notice = L("call.failed")
@@ -761,8 +920,11 @@ struct CallCard: View {
             .buttonStyle(VibeButtonStyle())
             Button {
                 Task {
-                    guard let chat = app.chat else { return }
-                    if let found = try? await chat.callLink(callId: callId) {
+                    guard let model else { return }
+                    let expected = app.sessionId
+                    let found = try? await model.callLink(callId:callId)
+                    guard !Task.isCancelled, expected == app.sessionId, model.membershipIsCurrent else { return }
+                    if let found {
                         link = found
                     } else {
                         app.notice = L("call.failed")

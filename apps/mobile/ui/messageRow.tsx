@@ -7,6 +7,8 @@
  */
 
 import { useRouter } from 'expo-router';
+import {callContext} from '../lib/call.ts';
+import {useSession} from './session.tsx';
 import { memo, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -24,11 +26,12 @@ import type { messages } from '../db/schema.ts';
 import {
   isQuoteAttachment,
   MAX_QUOTE_DEPTH,
-  stripQuotePrefix,
+  quoteText,
 } from '../lib/quote.ts';
 import { attachmentEncryption, type FileEncryption } from '../lib/e2e/crypto.ts';
 import { unicodeOfShortcode } from '../lib/emojis.ts';
 import { customEmojiUrl } from '../lib/customEmojis.ts';
+import {ImageEmoji,useCatalogueEmojis} from './emojiImage.tsx';
 import { messageTree } from '../lib/markdown.ts';
 import { systemText } from '../lib/systemMessages.ts';
 import { reactionList, type DisplayedReaction } from '../lib/reactions.ts';
@@ -37,9 +40,12 @@ import type { RestClient } from '../lib/rest.ts';
 import { avatarUrl, protectedFileUrl } from '../lib/upload.ts';
 import { EmbedLinks } from './embedCard.tsx';
 import { LinkPreviews } from './linkCard.tsx';
+import {integrationCard} from '../lib/integrationCards.ts';
+import {IntegrationCard} from './integrationCard.tsx';
 import { offerDownloadOrShare } from './attachmentActions.ts';
 import { TransferBar } from './transferBar.tsx';
 import { decryptedFile } from './attachment.ts';
+import {subscribeNativeFile} from '../lib/nativeFiles.ts';
 import { useAvatarEtags, useIdentities } from './identities.tsx';
 import { useTimeFormatter, useT } from './i18n.ts';
 import { AvatarTile } from './kit.tsx';
@@ -74,6 +80,8 @@ export const MessageRow = memo(function MessageRow({
   onReact,
   continuation,
   repeatedTime,
+  failureLabel,
+  threadLabel,
 }: {
   c: Colors;
   message: MessageRowData;
@@ -102,6 +110,9 @@ export const MessageRow = memo(function MessageRow({
    * logic as for the avatar: what is on screen is not rewritten.
    */
   repeatedTime: boolean;
+  failureLabel?: string;
+  /** Enables starting a retained private thread, also before its first reply. */
+  threadLabel?: string;
 }) {
   const formatTime = useTimeFormatter();
   const time = formatTime(message.ts);
@@ -191,7 +202,7 @@ export const MessageRow = memo(function MessageRow({
         >
           <AvatarTile
             c={c}
-            key={author}
+            hueKey={author}
             initial={author.charAt(0) || '?'}
             // Avatar addressed by the CURRENT username (`identities`), uid as fallback.
             // By uid alone, the URI `/avatar/uid/<uid>` NEVER changes: RN's image
@@ -247,10 +258,10 @@ export const MessageRow = memo(function MessageRow({
           <MessageContent c={c} message={message} />
         </MessageLongPress.Provider>
         {message.systemType === null && (
-          <EmbedLinks c={c} text={message.text} urls={message.urls} onLongPress={longPress} />
+            <EmbedLinks c={c} client={client} text={message.text} urls={message.urls} onLongPress={longPress} />
         )}
         {message.systemType === null && (
-          <LinkPreviews c={c} urls={message.urls} onLongPress={longPress} />
+          <LinkPreviews c={c} client={client} urls={message.urls} onLongPress={longPress} />
         )}
         {attachedFiles.length > 0 && (
           <Attachments
@@ -278,13 +289,13 @@ export const MessageRow = memo(function MessageRow({
             ))}
           </View>
         )}
-        {onOpenThread !== null && message.threadCount > 0 && (
+        {onOpenThread !== null && (message.threadCount > 0 || threadLabel !== undefined) && (
           <Pressable
             onPress={() => onOpenThread(message.id)}
             style={[styles.threadBullet, { backgroundColor: c.card, borderColor: c.border }]}
           >
             <Text style={[styles.threadBulletText, { color: c.cyan }]}>
-              💬 {t('messageRow.replies', { n: message.threadCount })}
+              💬 {threadLabel ?? t('messageRow.replies', { n: message.threadCount })}
               {message.threadLast !== null && ` · ${formatTime(message.threadLast)}`}
             </Text>
           </Pressable>
@@ -292,11 +303,11 @@ export const MessageRow = memo(function MessageRow({
         {sendStatus === 'failed' && (
           <View style={styles.failureActions}>
             <Pressable onPress={onRetry ?? undefined}>
-              <Text style={[styles.time, { color: c.errorText }]}>{t('messageRow.failedRetry')}</Text>
+              <Text style={[styles.time, { color: c.errorText }]}>{failureLabel ?? t('messageRow.failedRetry')}</Text>
             </Pressable>
-            <Pressable onPress={() => onDiscard?.(message.id)}>
+            {onDiscard && <Pressable onPress={() => onDiscard(message.id)}>
               <Text style={[styles.time, { color: c.dimmed }]}>{t('messageRow.discard')}</Text>
-            </Pressable>
+            </Pressable>}
           </View>
         )}
       </View>
@@ -329,7 +340,7 @@ function MessageContent({ c, message }: { c: Colors; message: MessageRowData }) 
     return <Placeholder c={c} text={t('messageRow.encrypted')} />;
   }
   if (message.systemType === 'videoconf') {
-    return <CallCard c={c} callId={message.callId} />;
+    return <CallCard c={c} callId={message.callId} rid={message.rid} />;
   }
   if (message.systemType !== null && !decryptedEncrypted) {
     // The sentence follows the author name shown just above: "bob joined the
@@ -378,6 +389,7 @@ function ReactionChip({
   reaction: DisplayedReaction;
   onPress: (() => void) | undefined;
 }) {
+  useCatalogueEmojis();
   const glyph = unicodeOfShortcode(reaction.code);
   const uri = glyph === null ? customEmojiUrl(reaction.code) : null;
   return (
@@ -400,7 +412,7 @@ function ReactionChip({
       {glyph !== null ? (
         <Text style={styles.reactionEmoji}>{glyph}</Text>
       ) : uri !== null ? (
-        <Image source={{ uri }} style={styles.reactionImage} resizeMode="contain" />
+        <ImageEmoji uri={uri} style={styles.reactionImage} code={reaction.code}/>
       ) : (
         <Text style={[styles.reactionCode, { color: c.dimmed }]} numberOfLines={1}>
           :{reaction.code}:
@@ -439,8 +451,11 @@ function Quote({
   const t = useT();
   // The quoted message may itself be a reply: show only its words, not its
   // quote permalink; its quote shows as a nested block.
-  const text = stripQuotePrefix(attachment.text ?? '').trim();
-  const author = typeof attachment.author_name === 'string' ? attachment.author_name : null;
+  const text = quoteText(attachment).trim();
+  // A private source names its author by uid: shown as the rows show it.
+  const identities = useIdentities();
+  const named = typeof attachment.author_name === 'string' ? attachment.author_name : null;
+  const author = named === null ? null : (identities.get(named) ?? named);
   const nested = Array.isArray(attachment.attachments) ? attachment.attachments : [];
   const subQuotes =
     depth < MAX_QUOTE_DEPTH ? nested.filter((j) => isQuoteAttachment(j)) : [];
@@ -477,7 +492,7 @@ function Quote({
       ))}
       {empty && (
         <Text style={[styles.text, styles.italic, { color: c.dimmed }]}>
-          📎 {t('common.attachment')}
+          {attachment.native_unavailable === true ? t('quote.unavailable') : `📎 ${t('common.attachment')}`}
         </Text>
       )}
     </Pressable>
@@ -502,6 +517,7 @@ function QuotedFile({
 }) {
   const t = useT();
   if (typeof attachment.image_url === 'string') {
+    if(attachment.native_file)return <NativeAttachment c={c} attachment={attachment} client={client} maxWidth={QUOTED_IMAGE_WIDTH} onLongPress={onLongPress} quoted/>;
     // Equal bounds = FIXED width: a thumbnail, not the full-frame attachment.
     return (
       <AttachedImage
@@ -572,11 +588,14 @@ function AttachedImage({
   const viewer = useImageViewer();
   const t = useT();
   const c = useColors();
+  // Without announced dimensions (a private file's descriptor carries none),
+  // the decoded picture gives them: a square frame cropped it.
+  const [measured, setMeasured] = useState<{ width: number; height: number } | null>(null);
   if (typeof attachment.image_url !== 'string') return null;
   const source = typeof attachment.title_link === 'string' ? attachment.title_link : attachment.image_url;
   const url = local ?? protectedFileUrl(client, source);
-  const realWidth = attachment.image_dimensions?.width ?? null;
-  const realHeight = attachment.image_dimensions?.height ?? null;
+  const realWidth = attachment.image_dimensions?.width ?? measured?.width ?? null;
+  const realHeight = attachment.image_dimensions?.height ?? measured?.height ?? null;
   const width = Math.max(Math.min(realWidth ?? maxWidth, maxWidth), minWidth);
   const ratio = (realHeight ?? width) / Math.max(realWidth ?? width, 1);
   const height = Math.min(Math.max(Math.round(width * ratio), minHeight), maxHeight);
@@ -602,8 +621,16 @@ function AttachedImage({
         source={{ uri: url }}
         style={[style, { width, height }]}
         resizeMode="cover"
+        onLoad={
+          attachment.image_dimensions
+            ? undefined
+            : (e) => {
+                const { width: w, height: h } = e.nativeEvent.source;
+                if (w > 0 && h > 0) setMeasured((m) => (m?.width === w && m.height === h ? m : { width: w, height: h }));
+              }
+        }
       />
-      <TransferBar key={source} c={c} radius={10} />
+      <TransferBar transfer={source} c={c} radius={10} />
     </Pressable>
   );
 }
@@ -614,15 +641,16 @@ function AttachedImage({
  * from before the block was persisted, or an unreadable block) no join is
  * offered, just the label: better than a button that would not know where to go.
  */
-function CallCard({ c, callId }: { c: Colors; callId: string | null }) {
+function CallCard({ c, callId,rid }: { c: Colors; callId: string | null;rid:string }) {
   const router = useRouter();
   const t = useT();
+  const {state}=useSession();
   return (
     <View style={[styles.callCard, { backgroundColor: c.card, borderColor: c.border }]}>
       <Text style={[styles.callCardTitle, { color: c.text }]}>{t('messageRow.videoCall')}</Text>
       {callId !== null && (
         <Tappable
-          onPress={() => router.push({ pathname: '/call/[callId]', params: { callId } })}
+          onPress={() => {if(state.phase==='connected')router.push({ pathname: '/call/[callId]', params: { callId,rid,account:callContext(state.client) } });}}
           android_ripple={{ color: c.ripple }}
           unstable_pressDelay={LIST_PRESS_DELAY}
           accessibilityRole="button"
@@ -640,6 +668,8 @@ function CallCard({ c, callId }: { c: Colors; callId: string | null }) {
 }
 
 type Attachment = {
+  native_file?: unknown;
+  native_unavailable?: boolean;
   title?: string;
   title_link?: string;
   image_url?: string;
@@ -702,6 +732,8 @@ function Attachments({
   return (
     <View style={styles.attachments}>
       {attachments.map((attachment, i) => {
+        const card=integrationCard(attachment);
+        if(card)return <IntegrationCard key={i} c={c} card={card} onLongPress={onLongPress}/>;
         const encryption = attachmentEncryption(attachment);
         if (encryption !== null) {
           return (
@@ -715,6 +747,9 @@ function Attachments({
               onLongPress={onLongPress}
             />
           );
+        }
+        if(client.kind==='rocketvibe'&&typeof attachment.title_link==='string'){
+          return <NativeAttachment key={i} c={c} attachment={attachment} client={client} maxWidth={availableWidth} onLongPress={onLongPress}/>;
         }
         if (typeof attachment?.image_url === 'string') {
           return (
@@ -756,7 +791,7 @@ function Attachments({
               title={attachment.title ?? null}
               onLongPress={onLongPress}
               overlay={
-                <TransferBar key={attachment.title_link ?? attachment.video_url} c={c} radius={14} />
+                <TransferBar transfer={attachment.title_link ?? attachment.video_url} c={c} radius={14} />
               }
             />
           );
@@ -789,6 +824,33 @@ function Attachments({
  * process: it used to be handed to \`Linking.openURL\`, so to Chrome, its
  * history and its sync, and an \`rc_token\` is worth the whole account.
  */
+/** Resolve a private local file, then use exactly the existing media components. */
+function NativeAttachment({c,attachment,client,maxWidth,onLongPress,quoted=false}:{c:Colors;attachment:Attachment;client:RestClient;maxWidth:number;onLongPress:(()=>void)|undefined;quoted?:boolean}){
+  const source=attachment.title_link!,kind=attachment.image_url?'image':attachment.audio_url?'audio':attachment.video_url?'video':null;
+  const url=protectedFileUrl(client,source);
+  const [loaded,setLoaded]=useState<{url:string;local:string|null;failed:boolean}|null>(null);
+  const local=loaded?.url===url?loaded.local:null,failed=loaded?.url===url&&loaded.failed;
+  useEffect(()=>{
+    if(!kind)return;
+    let active=true;
+    let attempt=0;
+    const load=()=>{
+      const current=++attempt;
+      decryptedFile({url,title:attachment.title,type:attachment.image_type??attachment.audio_type??attachment.video_type,size:attachment.size})
+        .then(value=>{if(active&&current===attempt)setLoaded({url,local:value,failed:false});},()=>{if(active&&current===attempt)setLoaded({url,local:null,failed:true});});
+    };
+    load();
+    const stop=subscribeNativeFile(url,()=>{setLoaded({url,local:null,failed:false});load();});
+    return()=>{active=false;stop();};
+  },[kind,url,attachment.title,attachment.image_type,attachment.audio_type,attachment.video_type,attachment.size]);
+  if(quoted&&failed)return <Text style={[styles.text,styles.italic,{color:c.dimmed}]} numberOfLines={1}>📎 {attachment.title}</Text>;
+  if(!kind||failed)return <FileAttachment c={c} client={client} path={source} title={attachment.title??null} size={attachment.size??null} onLongPress={onLongPress}/>;
+  if(!local)return <ActivityIndicator color={c.accent}/>;
+  if(kind==='image')return <AttachedImage attachment={attachment} client={client} local={local} minWidth={quoted?QUOTED_IMAGE_WIDTH:120} maxWidth={maxWidth} minHeight={quoted?72:0} maxHeight={quoted?200:400} style={quoted?styles.quotedImage:styles.attachedImage} onLongPress={onLongPress}/>;
+  if(kind==='audio')return <AudioPlayer c={c} url={local} title={attachment.title??null} onLongPress={onLongPress}/>;
+  return <VideoPlayer c={c} url={local} title={attachment.title??null} onLongPress={onLongPress}/>;
+}
+
 function FileAttachment({
   c,
   client,
@@ -820,7 +882,7 @@ function FileAttachment({
       <Text style={[styles.text, { color: c.accent }]} numberOfLines={2}>
         📄 {title ?? t('messageRow.file')}
       </Text>
-      <TransferBar key={path} c={c} />
+      <TransferBar transfer={path} c={c} />
     </Pressable>
   );
 }

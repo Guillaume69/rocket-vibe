@@ -21,6 +21,8 @@ import * as Sharing from 'expo-sharing';
 import { decryptFile, type FileEncryption } from '../lib/e2e/crypto.ts';
 import { downloadedFraction, downloadAttachment, toGallery } from '../lib/attachment.ts';
 import { Downloads } from '../modules/downloads/index.ts';
+import {loadNativeFile} from '../lib/nativeFiles.ts';
+import {exportNativePreview} from '../lib/nativePreviews.ts';
 import type { Progress } from './transfers.ts';
 
 /** Thrown when nothing can open the file: the caller tells the screen. */
@@ -48,6 +50,7 @@ type AttachmentOptions = {
  * COMPLETE. Sharing after saving downloads nothing again.
  */
 async function toCache(options: AttachmentOptions): Promise<string> {
+  if(options.url.startsWith('rv-file:'))return loadNativeFile(options.url,options.onProgress);
   const folder = FileSystem.cacheDirectory;
   if (folder === null) {
     throw new FileOpenError('No cache directory available.');
@@ -138,6 +141,20 @@ export type SaveLocation = 'gallery' | 'downloads' | 'share';
  * through MediaStore, without permission since Android 10.
  */
 export async function saveProtectedAttachment(options: AttachmentOptions): Promise<SaveLocation> {
+  if(options.url.startsWith('rv-preview:'))return exportNativePreview(options.url,async(bytes,valid)=>{
+    const directory=FileSystem.cacheDirectory;if(!directory)throw new FileOpenError('Aucun dossier de cache disponible.');
+    const local=`${directory}preview-${options.url.slice(options.url.lastIndexOf('/')+1)}-${Date.now().toString(36)}.png`;
+    try{
+      await FileSystem.writeAsStringAsync(local,Buffer.from(bytes).toString('base64'),{encoding:FileSystem.EncodingType.Base64});
+      if(!await valid())throw new FileOpenError('Accès retiré.');
+      try{await Asset.create(local);}catch{
+        const permission=await requestPermissionsAsync(true);
+        if(!permission.granted||!await valid())throw new FileOpenError('Accès retiré.');
+        await Asset.create(local);
+      }
+      return 'gallery' as const;
+    }finally{await FileSystem.deleteAsync(local,{idempotent:true});}
+  });
   const local = await toCache(options);
   const name = local.slice(local.lastIndexOf('/') + 1);
 

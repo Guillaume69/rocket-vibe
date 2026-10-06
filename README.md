@@ -1,7 +1,8 @@
 # rocket-vibe
 
 Third-party **Rocket.Chat** clients, faster and more reliable than the official ones, for
-self-hosted servers running Rocket.Chat **8** or later.
+self-hosted servers running Rocket.Chat **8** or later. The `feature/rocketvibe-server`
+branch adds a **RocketVibe** server in Rust; both providers use the existing interfaces.
 
 | App | Where | Tech | Version |
 |---|---|---|---|
@@ -13,6 +14,14 @@ mobile is tracked in [`brain/parity.md`](brain/parity.md).
 
 ## Shared
 
+- [Native RocketVibe server, experimental](apps/server/README.md): a Rust server
+  independent of Rocket.Chat; [progress log](docs/NATIVE_SERVER_EXECUTION.md).
+- [Two providers on mobile](docs/NATIVE_MOBILE_PILOT.md): shared screens, rooms / DMs,
+  drafts and durable resumption in SQLite.
+- [Two providers on desktop](docs/NATIVE_DESKTOP_PILOT.md): Rust engine, the existing GTK
+  app, SQLite cache / outbox and UniFFI bindings.
+- [RFC 0001: a standalone RocketVibe server in Rust](docs/rfcs/0001-rocketvibe-rust-server.md):
+  the server, protocol, client parity and migration from Rocket.Chat.
 - [`ROADMAP.md`](ROADMAP.md): the product decisions and their justification.
 - [`docs/`](docs): the development environment and the survey of the target server
   (`DEV.md`), push (`PUSH.md`).

@@ -36,7 +36,8 @@ import {
 } from 'react-native';
 
 import { quote } from '../lib/quote.ts';
-import { splitCommand, runCommand } from '../lib/commands.ts';
+import { commandErrorKey, splitCommand, runCommand, textCommand } from '../lib/commands.ts';
+import { NativeError } from '../providers/rocketvibe/transport.ts';
 import type { MentionCandidate } from '../lib/mentionCompletion.ts';
 import type { Outbox, FileOutbox } from '../lib/provider.ts';
 import type { RestClient } from '../lib/rest.ts';
@@ -58,7 +59,7 @@ import { PrivateNote, usePrivateNote } from './privateNotes.tsx';
 import { StagedAttachments, type StagedAttachment } from './stagedAttachments.tsx';
 import { compressAttachment } from './prepareAttachment.ts';
 import { compressionOffered, type SendQuality } from './attachmentQuality.ts';
-import { cancelReply, useReply } from './reply.ts';
+import { cancelReply, cancelReplyIf, invalidateNativeReply, useReply } from './reply.ts';
 import { useHardwareBack } from './hardwareBack.ts';
 import { requestSource, isSheetMounted } from './attachmentSource.ts';
 import { useSync } from './sync.tsx';
@@ -91,12 +92,16 @@ export function Composer({
   client,
   mentionCandidates,
   readOnly,
+  catchingUp = false,
   encrypted,
   placeholder,
   afterSend,
   initialDraft,
   saveDraft,
   clearDraft,
+  onInput,
+  nativeEncryptedReady = false,
+  availableQuotes = true,
 }: {
   c: Colors;
   rid: string;
@@ -110,6 +115,8 @@ export function Composer({
   /** Recent authors of the room (`useMentionCandidates`), computed by the parent. */
   mentionCandidates: MentionCandidate[];
   readOnly: boolean;
+  /** Writing pauses while the encrypted view catches up: said as such, not as read-only. */
+  catchingUp?: boolean;
   encrypted: boolean;
   /** Placeholder of the empty field: a pending attachment replaces it. */
   placeholder: string;
@@ -119,8 +126,12 @@ export function Composer({
   initialDraft: string;
   saveDraft: (text: string) => void;
   clearDraft: () => void;
+  onInput?: (active:boolean)=>void;
+  nativeEncryptedReady?: boolean;
+  availableQuotes?: boolean;
 }) {
   const sync = useSync();
+  useEffect(()=>()=>onInput?.(false),[onInput]);
   const unlocked = useE2EUnlocked(sync.phase === 'ready' ? sync.e2e : null);
   const [draft, setDraft] = useState(initialDraft);
   // The CURRENT text, readable from an async continuation. An upload takes
@@ -140,7 +151,7 @@ export function Composer({
   // everything goes on ➤. Nothing is sent on pick.
   const parkingKey = `${rid}:${threadId ?? ''}`;
   const [parked] = useState(() => {
-    const p = parkedAttachments.get(parkingKey);
+    const p = nativeEncryptedReady ? undefined : parkedAttachments.get(parkingKey);
     parkedAttachments.delete(parkingKey);
     return p;
   });
@@ -219,7 +230,25 @@ export function Composer({
   // see `ui/reply.ts`. Declared AFTER the attachment handler: registered last,
   // back closes the reply banner first.
   const replyKey = threadId === null ? rid : `${rid}:${threadId}`;
-  const response = useReply(replyKey);
+  const observedReply = useReply(replyKey);
+  const response = availableQuotes ? observedReply : null;
+  const [nativeSend, setNativeSend] = useState(false);
+  useEffect(() => {
+    const native = sync.phase === 'ready' ? sync.provider.native : undefined;
+    if (!native || !response?.native || response.nativeUnavailable || response.native.crypto_admission) return;
+    let active = true;
+    const selected = response.native;
+    const check = async () => {
+      try {
+        const fresh = await native.store.quoteSelection(selected.reference.room_id,selected.reference.message_id);
+        if (fresh.reference.revision === selected.reference.revision && fresh.membership_version === selected.membership_version && fresh.instance_id === selected.instance_id && fresh.data_epoch === selected.data_epoch) return;
+      } catch { /* Purge the preview when the source is no longer current. */ }
+      if (active) invalidateNativeReply(replyKey,response);
+    };
+    void check();
+    const unsubscribe = native.chat.subscribe(() => { void check(); });
+    return () => { active=false; unsubscribe(); };
+  }, [sync,response,replyKey]);
   const cancelQuote = useCallback(() => cancelReply(replyKey), [replyKey]);
   useHardwareBack(response !== null, cancelQuote);
   // The sheet closes on the armed target: the keyboard opens on the field,
@@ -232,15 +261,55 @@ export function Composer({
     (text: string) => {
       setDraft(text);
       saveDraft(text);
+      onInput?.(text.trim().length>0);
     },
-    [saveDraft],
+    [saveDraft,onInput],
   );
 
   const send = useCallback(() => {
     const caption = draft.trim();
     // An armed quote prefixes the text with its permalink `[ ](…)`: the server
     // will turn it into the quote attachment (lib/quote.ts).
-    const textToSend = response === null ? caption : quote(response.permalink, caption);
+    let textToSend = response === null || response.native ? caption : quote(response.permalink, caption);
+    // Staged attachments take the files path below, the caption with the first:
+    // this text path dropped them.
+    if (client.kind === 'rocketvibe' && pending.length === 0) {
+      if (nativeSend || caption === '' && !response?.native) return;
+      // A slash command the server lists: a text command (`/shrug`) is written
+      // here and goes out below, encrypted or not; another runs on the server,
+      // a refusal putting it back. A quote leads the message: what follows is text.
+      const split = response === null ? splitCommand(caption) : null;
+      const native = sync.phase === 'ready' ? sync.provider.native : undefined;
+      if (split !== null && native !== undefined && commands.some((c) => c.name === split.name)) {
+        const written = textCommand(split.name, split.params);
+        if (written === null || written.kind === 'done') {
+          setDraft(''); reset(); clearDraft(); onInput?.(false);
+          if (written !== null) return;
+          void native.chat.runSlashCommand(rid, split.name, split.params).catch((e: unknown) => {
+            if (unmounted.current) return;
+            if (draftRef.current === '') { setDraft(caption); saveDraft(caption); }
+            const key = e instanceof NativeError ? commandErrorKey(e.code) : null;
+            notify(t('room.commandRejected', { error: key !== null ? t(key) : t('native.error') }));
+          });
+          return;
+        }
+        textToSend = written.text;
+      }
+      setNativeSend(true);
+      onInput?.(false);
+      setFileError(null);
+      void outbox.send(rid,textToSend,threadId,null,response?.native?[response.native]:[]).then(idMessage => {
+        if (unmounted.current) return;
+        if (draftRef.current === draft) {
+          setDraft(''); reset(); clearDraft();
+        }
+        if (response) cancelReplyIf(replyKey,response);
+        afterSend?.(idMessage);
+      }).catch(() => {
+        if (!unmounted.current) setFileError(t(response?.native?'quote.selectionChanged':'native.error'));
+      }).finally(() => { if (!unmounted.current) setNativeSend(false); });
+      return;
+    }
     // Pending attachments go one by one, in order; the caption (quote included)
     // goes with the FIRST: repeated under each attachment, it would show as many
     // times. (`files` cannot be null here: without it, neither 📎 nor 🎤, nothing
@@ -270,7 +339,7 @@ export function Composer({
                 : original;
             const captionCarrier = i === 0 && textToSend !== '';
             try {
-              await files.send(rid, ready, captionCarrier ? textToSend : undefined);
+              await files.send(rid, ready, captionCarrier ? textToSend : undefined, threadId);
             } catch (e) {
               handedOff.current.delete(original.key);
               // Validation refusal: the attachment (the original) stays in place; the
@@ -317,10 +386,10 @@ export function Composer({
     // know stays an ordinary message. Refused, it comes back to the field.
     if (response === null && splitCommand(caption) !== null) {
       void runCommand(client, rid, caption, threadId)
-        .then((launched) => {
-          if (launched) return;
+        .then((run) => {
+          if (run?.kind === 'done') return;
           outbox
-            .send(rid, caption, threadId, null)
+            .send(rid, run === null ? caption : run.text, threadId, null)
             .then((idMessage) => afterSend?.(idMessage))
             .catch((e: unknown) => console.warn('send: local failure', e));
         })
@@ -348,6 +417,8 @@ export function Composer({
       .catch((e: unknown) => console.warn('send: local failure', e));
   }, [
     draft,
+    client.kind,
+    nativeSend,
     pending,
     quality,
     outbox,
@@ -360,8 +431,11 @@ export function Composer({
     clearDraft,
     saveDraft,
     client,
+    onInput,
     reset,
     t,
+    commands,
+    sync,
   ]);
 
   // Stages the picked media/files as chips, waiting for a caption and ➤. Each
@@ -561,13 +635,13 @@ export function Composer({
 
   // Locked encrypted room: without a key nothing can be sent, so offer to
   // unlock. Unlocked, it is the ordinary composer, and the outbox encrypts.
-  if (encrypted && !unlocked) {
+  if (encrypted && !nativeEncryptedReady && !unlocked) {
     return <LockedComposer c={c} />;
   }
   if (readOnly) {
     return (
       <View style={[styles.composer, { borderTopColor: c.softBorder }]}>
-        <Text style={[styles.noteComposer, { color: c.dimmed }]}>{t('room.readOnly')}</Text>
+        <Text style={[styles.noteComposer, { color: c.dimmed }]}>{t(catchingUp ? 'room.catchingUp' : 'room.readOnly')}</Text>
       </View>
     );
   }
@@ -576,7 +650,7 @@ export function Composer({
   // The send button replaces the mic as soon as there is text OR a pending
   // attachment, but NEVER while recording, where the button must stay "stop"
   // (⏹), even if text was typed in the meantime.
-  const showSend = (!emptyDraft || pending.length > 0) && !recording;
+  const showSend = (!emptyDraft || pending.length > 0 || response?.native !== undefined) && !recording;
 
   return (
     <View>
@@ -668,6 +742,7 @@ export function Composer({
           onSelectionChange={onSelection}
           // Touching the field closes the panel: the keyboard takes its place back.
           onFocus={emoji.onFocus}
+          onBlur={()=>onInput?.(false)}
           placeholder={pending.length > 0 ? t('room.addCaption') : placeholder}
           placeholderTextColor={c.tertiaryText}
           multiline
@@ -676,8 +751,10 @@ export function Composer({
         {showSend ? (
           <Pressable
             onPress={send}
-            disabled={fileSend}
-            style={({ pressed }) => ({ opacity: pressed || fileSend ? 0.7 : 1 })}
+            disabled={fileSend || nativeSend}
+            // An encrypted send takes a few seconds: the dimmed button says it
+            // is under way, instead of a tap that seems lost.
+            style={({ pressed }) => ({ opacity: pressed || fileSend || nativeSend ? 0.5 : 1 })}
             accessibilityLabel={t('common.send')}
           >
             <AvatarTile

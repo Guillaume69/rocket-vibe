@@ -32,6 +32,14 @@ export type Session = {
    * `baseUrl`, the historical behaviour.
    */
   siteUrl: string | null;
+  /** Identity pinned during native login; never infer it from a stored URL. */
+  nativeInstanceId?: string;
+  nativeDataEpoch?: string;
+  /** Session family registered for Android push, persisted for the native receiver. */
+  nativePushDeviceId?: string;
+  nativeExpiresAt?: string;
+  /** Exists only in SecureStore while an opaque-session renewal is unresolved. */
+  nativeRenewal?: {operation_id:string;next_token:string};
 };
 
 /** Hex SHA-256, lowercase. */

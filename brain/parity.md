@@ -25,8 +25,10 @@ beta does.
 | 2FA by email: send and resend the code | done | partial | partial | Desktop requests the code automatically when the server has not sent one, with no resend control. |
 | Session in the system keychain, resumed at launch; a 401 on an authenticated call signs out | done | done | done | |
 | Server probe before login (`/api/info`, `settings.public`) | done | done | done | |
+| Choose the server type at sign-in (automatic, Rocket.Chat, RocketVibe) | done | done | done | SwiftUI checked by the Linux build of RocketVibeKit and the macOS CI build only. |
 | Known servers offered on the login screen | done | done | done | |
 | Several servers side by side, switch without signing out | done | done | done | One database per (server, account) everywhere. |
+| Server rail: a button per account, "+" to add one, a dot on another account with unread | done | done | done | Other accounts read once a minute (mobile: in the foreground only). Mobile: a push lights the dot at once only where it reaches JS (iOS); Android waits for the next read. SwiftUI checked by the Linux build only. |
 | Several accounts on the same server | missing | done | done | Mobile holds one account per server. |
 | Sign out: `logout` sent, keychain item and local data removed | done | done | partial | Mobile keeps the account's SQLite file on purpose; GTK deletes `.sqlite`, `-wal` and `-shm`; SwiftUI deletes the `.sqlite` only, leaving `-wal` and `-shm`. |
 | Replay of a sign-out that failed offline | done | missing | missing | Mobile retries it at the next start. Desktop has no push token to remove, but the server session stays open. |
@@ -99,8 +101,10 @@ beta does.
 | Checks against `FileUpload_MaxFileSize` and `FileUpload_MediaTypeWhiteList` | done | done | done | |
 | Two-step upload (`rooms.media`, `rooms.mediaConfirm`) with progress | done | done | done | |
 | Voice recording | done | done | done | Mobile and SwiftUI send AAC `.m4a`, GTK Ogg/Opus. |
-| Replay and caption a voice message before sending | done | missing | missing | |
+| Replay and caption a voice message before sending | done | done | done | SwiftUI checked by the macOS CI build only. |
 | Slash commands (`commands.list`, `commands.run`) and their private answers | done | done | done | |
+| Slash commands on a RocketVibe server (`/api/v1/commands`), text commands written by the client so they work in encrypted rooms | done | done | done | SwiftUI checked by the Linux build of RocketVibeKit and the macOS CI build only. |
+| Every command listed after `/` in a titled panel, narrowed as one types, completed with a tap or Tab/Enter | done | done | done | SwiftUI checked by the macOS CI build only. |
 
 ## 5. Message actions - [message-actions](features/message-actions.md)
 
@@ -112,7 +116,7 @@ beta does.
 | Share an attachment | done | mapped | mapped | Desktop: download or open. |
 | Edit within the server's time limit and permissions (`chat.update`) | done | done | done | |
 | Delete (`chat.delete`) | done | done | done | |
-| Confirmation before deleting | missing | done | done | |
+| Confirmation before deleting | done | done | done | |
 | Pin (`chat.pinMessage`) | done | done | done | |
 | Pinned and starred lists, jump to the message | done | done | done | |
 | Jump to a message of any age (the history around it) | done | done | done | A context window around the message ([room-view](features/room-view.md), "Jumps"). |
@@ -122,7 +126,7 @@ beta does.
 | Feature | Mobile | GTK | SwiftUI | Notes |
 |---|---|---|---|---|
 | Thread view: root and replies, live, composer targeting the thread | done | done | done | |
-| Files and voice messages in a thread | missing | partial | partial | Mobile hides attach and microphone there; the GTK thread composer shows both but drops picked files and deletes the recording; SwiftUI posts them to the room. |
+| Files and voice messages in a thread | done | done | done | Encrypted RocketVibe threads included. SwiftUI checked by the macOS CI build only. |
 | List of a room's threads, following a thread, "also send to the room" | missing | missing | missing | |
 
 ## 7. Search - [search](features/search.md)
@@ -175,6 +179,16 @@ beta does.
 | Encrypted files, both directions | done | done | done | |
 | Key kept across launches | done | done | done | Keystore on mobile, system keychain on desktop. |
 | Create an encrypted room | missing | missing | missing | |
+| RocketVibe server: create an encrypted room (MLS group): prepare the device for invitations, review and confirm creation, admission and device changes | done | done | done | From any native room the user belongs to, before the group exists too; the server allows creation to the owner (any member of a DM) in a room with no plaintext history. Mobile from the room info, GTK and SwiftUI from the room details. SwiftUI checked by the macOS CI build only. |
+| RocketVibe server: a new device asks for history, another device of the account reviews and shares it, the new device imports it ([e2ee-history](features/e2ee-history.md)) | done | done | done | Same settings block in all three; SwiftUI checked by the macOS CI build only. |
+| RocketVibe server: history backup with a separate code (enable, join, continuous upload, restore) | done | done | done | Same settings block in all three; SwiftUI checked by the macOS CI build only. |
+| RocketVibe server: edit and delete own private messages, pending on the target until accepted ([e2ee-private-actions](features/e2ee-private-actions.md)) | done | done | done | Text only. Mobile from the long-press sheet, GTK and SwiftUI from the message menu and Up in an empty composer; SwiftUI checked by the macOS CI build only. |
+| RocketVibe server: react to private messages, pending on the target until accepted ([e2ee-private-actions](features/e2ee-private-actions.md)) | done | done | done | Standard and catalog emojis. Mobile: long-press sheet and reaction chips; GTK: quick reactions in the message menu and chips; SwiftUI: the react action and chips. SwiftUI checked by the macOS CI build only. |
+| RocketVibe server: search an encrypted room on the device ([e2ee-private-actions](features/e2ee-private-actions.md)) | done | done | done | Same search screen as ordinary rooms; nothing goes to the server. SwiftUI checked by the macOS CI build only. |
+| RocketVibe server: send and open encrypted files in private rooms ([e2ee-private-files](features/e2ee-private-files.md)) | done | done | done | In the room and from a thread, voice messages included. Mobile compresses on request, desktop sends originals. SwiftUI checked by the macOS CI build only. |
+| RocketVibe server: storage key renewed every 30 days and on request, old keys destroyed ([e2ee-storage-keys](features/e2ee-storage-keys.md)) | done | done | done | Same settings block in all three; background check after private refreshes. SwiftUI checked by the macOS CI build only. |
+| RocketVibe server: hand control of the account to another device with a history share ([e2ee-delegation](features/e2ee-delegation.md)) | done | done | done | Destructive second confirmation in the share review of all three; cannot be taken back. SwiftUI checked by the macOS CI build only. |
+| RocketVibe server: recovered history shown in conversations | done | done | done | The shared projection continues into recovered messages past the device's own oldest one; all three read it unchanged. Reply counts of recovered roots and quotes of recovered messages stay own-only. |
 
 ## 12. Calls - [calls](features/calls.md)
 
@@ -208,10 +222,9 @@ gaps, listed last.
 
 - **Mobile**: several accounts per server; time and `@n` badge in the room list;
   `mailto:` links; mentions of me highlighted; formatting toolbar; list
-  continuation; delete confirmation; removing my photo; logs folder; meeting information.
+  continuation; removing my photo; logs folder; meeting information.
 - **GTK**: email 2FA resend; replay of an offline sign-out; padlock tile once
-  unlocked; DM avatar versions in the list; video reduction; voice replay before
-  sending; files and voice in a thread; reconciliation snapshot; catch-up of
+  unlocked; DM avatar versions in the list; video reduction; reconciliation snapshot; catch-up of
   deletions in rooms already caught up; message retention.
 - **SwiftUI**: everything GTK owes, plus `-wal` / `-shm` cleanup on sign-out;
   formatting toolbar; list continuation; notification check; logs folder; new

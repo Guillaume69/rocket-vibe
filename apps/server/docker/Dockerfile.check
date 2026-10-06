@@ -1,0 +1,4 @@
+FROM rust:1.97-bookworm
+COPY --from=node:24-bookworm /usr/local/bin/node /usr/local/bin/node
+RUN rustup component add rustfmt clippy
+WORKDIR /src/apps/server

@@ -13,14 +13,21 @@ import type { Session } from '../lib/auth.ts';
 import type { Provider } from '../lib/provider.ts';
 import type { RestClient } from '../lib/rest.ts';
 import { createRcProvider } from './rocketchat/index.ts';
+import { createRocketVibeProvider } from './rocketvibe/index.ts';
+import type { NativeStore } from './rocketvibe/store.ts';
 
 export function createProvider(
   session: Session,
   client: RestClient,
   generateId: () => string,
+  nativeStore?: NativeStore,
+  nativeOptions:Parameters<typeof createRocketVibeProvider>[4]={},
 ): Provider {
   switch (session.kind) {
     case 'rocketchat':
       return createRcProvider(session, client, generateId);
+    case 'rocketvibe':
+      if (!nativeStore) throw new Error('Native provider requires its account store');
+      return createRocketVibeProvider(session,client,generateId,nativeStore,nativeOptions);
   }
 }

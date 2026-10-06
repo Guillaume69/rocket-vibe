@@ -212,6 +212,7 @@ pub struct MessageList {
     settling: Rc<Cell<u32>>,
     on_event: Handler<RowEvent>,
     on_top: Handler<()>,
+    on_visible: Handler<()>,
     on_bottom: Handler<()>,
     on_latest: Handler<()>,
     /// Showing a stretch of history away from the present: never pinned, the
@@ -226,9 +227,56 @@ pub struct MessageList {
     revealing: RefCell<Option<String>>,
     /// The message marked by the last reveal.
     highlighted: RefCell<Option<String>>,
+    native_me: RefCell<String>,
+    native_provider: RefCell<Option<Arc<rv_core::native::NativeSession>>>,
+    native_images: RefCell<String>,
 }
 
 impl MessageList {
+    pub fn set_native_provider(&self, session: Arc<rv_core::native::NativeSession>) {
+        self.native_provider.replace(Some(session));
+    }
+    /// The existing renderer, preserving native server sequence order.
+    pub fn set_native_rows(self: &Rc<Self>, fresh: Vec<Display>, me: &str) {
+        let version = self
+            .native_provider
+            .borrow()
+            .as_ref()
+            .map(|s| format!("{}:{}:{}", s.profile_version(), s.file_version(), s.emoji_version()))
+            .unwrap_or_default();
+        let images_changed = self.native_images.replace(version.clone()) != version;
+        if *self.rows.borrow() == fresh && !images_changed {
+            return;
+        }
+        self.native_me.replace(me.to_owned());
+        let old = self.rows.replace(fresh.clone());
+        let prefix = if images_changed { 0 } else { old.iter().zip(&fresh).take_while(|(a, b)| a == b).count() };
+        let suffix = if images_changed {
+            0
+        } else {
+            old[prefix..].iter().rev().zip(fresh[prefix..].iter().rev()).take_while(|(a, b)| a == b).count()
+        };
+        let objects: Vec<_> =
+            fresh[prefix..fresh.len() - suffix].iter().cloned().map(glib::BoxedAnyObject::new).collect();
+        self.settling.set(self.settling.get() + 1);
+        self.store.splice(prefix as u32, (old.len() - prefix - suffix) as u32, &objects);
+        if self.pinned.get() {
+            self.scroll_to_bottom();
+        }
+        let (view, store, pinned, settling) =
+            (self.view.clone(), self.store.clone(), self.pinned.clone(), self.settling.clone());
+        let weak = Rc::downgrade(self);
+        glib::timeout_add_local_once(std::time::Duration::from_millis(120), move || {
+            let n = store.n_items();
+            if pinned.get() && n > 0 {
+                view.scroll_to(n - 1, gtk::ListScrollFlags::NONE, None);
+            }
+            settling.set(settling.get() - 1);
+            if let Some(this) = weak.upgrade() {
+                this.notify_visible();
+            }
+        });
+    }
     pub fn new(session: Shared<Arc<Session>>) -> Rc<Self> {
         let store = gio::ListStore::new::<glib::BoxedAnyObject>();
         let view = gtk::ListView::new(Some(gtk::NoSelection::new(Some(store.clone()))), None::<gtk::ListItemFactory>);
@@ -266,6 +314,7 @@ impl MessageList {
             settling: Rc::new(Cell::new(0)),
             on_event: RefCell::default(),
             on_top: RefCell::default(),
+            on_visible: RefCell::default(),
             on_bottom: RefCell::default(),
             on_latest: RefCell::default(),
             detached: Cell::new(false),
@@ -274,6 +323,9 @@ impl MessageList {
             editing: RefCell::default(),
             revealing: RefCell::default(),
             highlighted: RefCell::default(),
+            native_me: RefCell::default(),
+            native_provider: RefCell::default(),
+            native_images: RefCell::default(),
         });
         this.wire_selection();
         this.wire(session);
@@ -294,7 +346,10 @@ impl MessageList {
             let item = item.downcast_ref::<gtk::ListItem>().expect("list item");
             let object = item.item().and_downcast::<glib::BoxedAnyObject>().expect("message");
             let session = session.borrow().clone();
-            let my_id = session.as_ref().map(|s| s.info.user_id.clone()).unwrap_or_default();
+            let my_id = session
+                .as_ref()
+                .map(|s| s.info.user_id.clone())
+                .unwrap_or_else(|| w.upgrade().map(|this| this.native_me.borrow().clone()).unwrap_or_default());
             let w2 = w.clone();
             let on_event: rows::OnRowEvent = Rc::new(move |event| {
                 if let Some(handler) = w2.upgrade().and_then(|this| this.on_event.borrow().clone()) {
@@ -305,7 +360,12 @@ impl MessageList {
             let editing = w.upgrade().and_then(|this| {
                 this.editing.borrow().as_ref().filter(|(id, _)| *id == display.row.id).map(|(_, b)| b.clone())
             });
-            let widget = rows::message_widget(&display, &my_id, session.as_ref(), editing.as_ref(), on_event);
+            let native = w.upgrade().and_then(|this| this.native_provider.borrow().clone()).filter(|s| !s.is_closed());
+            let widget = if let Some(native) = native.filter(|_| session.is_none()) {
+                rows::native_message_widget(&display, &my_id, &native, editing.as_ref(), on_event)
+            } else {
+                rows::message_widget(&display, &my_id, session.as_ref(), editing.as_ref(), on_event)
+            };
             if let Some(this) = w.upgrade() {
                 this.bound.borrow_mut().insert(display.row.id.clone(), widget.clone());
                 this.seen.borrow_mut().insert(display.row.id.clone(), texts(&widget).iter().map(segment).collect());
@@ -338,6 +398,7 @@ impl MessageList {
                 this.pinned.set(!this.detached.get() && adj.value() + adj.page_size() >= adj.upper() - 48.0);
             }
             this.jump.set_visible(this.detached.get() || adj.upper() - adj.value() - adj.page_size() > adj.page_size());
+            this.notify_visible();
         });
         let w = weak.clone();
         adjustment.connect_changed(move |adj| {
@@ -635,8 +696,45 @@ impl MessageList {
         self.on_event.replace(Some(Rc::new(f)));
     }
 
+    /// The currently bound row, for anchoring actions and inspecting rendered content.
+    pub fn row_widget(&self, id: &str) -> Option<gtk::Widget> {
+        self.bound.borrow().get(id).cloned()
+    }
+
     pub fn connect_top_reached(&self, f: impl Fn() + 'static) {
         self.on_top.replace(Some(Rc::new(move |()| f())));
+    }
+    pub fn connect_visible(&self, f: impl Fn() + 'static) {
+        self.on_visible.replace(Some(Rc::new(move |()| f())));
+    }
+    pub fn notify_visible(&self) {
+        if self.settling.get() == 0
+            && let Some(f) = self.on_visible.borrow().clone()
+        {
+            f(());
+        }
+    }
+    /// ListView binds prefetched rows too; only viewport intersections count.
+    pub fn visible_confirmed_id(&self) -> Option<String> {
+        let height = self.scroll.height() as f32;
+        if !self.scroll.is_mapped() || height <= 0.0 {
+            return None;
+        }
+        let bound = self.bound.borrow();
+        self.rows
+            .borrow()
+            .iter()
+            .rev()
+            .find(|row| {
+                row.row.outbox_status.is_none()
+                    && bound.get(&row.row.id).is_some_and(|widget| {
+                        widget.is_mapped()
+                            && widget.compute_bounds(&self.scroll).is_some_and(|rect| {
+                                rect.height() > 0.0 && rect.y() < height && rect.y() + rect.height() > 0.0
+                            })
+                    })
+            })
+            .map(|row| row.row.id.clone())
     }
 
     pub fn connect_bottom_reached(&self, f: impl Fn() + 'static) {
@@ -784,6 +882,11 @@ impl MessageList {
                 this.refresh(&id);
             }
         });
+    }
+
+    /// Drops a reveal waiting for a message that never came.
+    pub fn forget_reveal(&self) {
+        self.revealing.replace(None);
     }
 
     /// A reveal is under way: the list must not jump to the bottom meanwhile.

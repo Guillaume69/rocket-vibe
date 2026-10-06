@@ -12,6 +12,13 @@ struct ChatView: View {
     }
 
     var body: some View {
+        HStack(spacing: 0) {
+            ServerRail()
+            split
+        }
+    }
+
+    var split: some View {
         NavigationSplitView {
             RoomListView()
                 .navigationSplitViewColumnWidth(min: 220, ideal: 280, max: 400)
@@ -19,7 +26,7 @@ struct ChatView: View {
             ZStack {
                 if let room = app.room {
                     RoomView(model: room)
-                        .id(room.rid)
+                        .id(ObjectIdentifier(room))
                         .transition(.opacity.combined(with: .offset(y: 8)))
                         .inspector(isPresented: Binding(get: { app.thread != nil }, set: { if !$0 { app.closeThread() } })) {
                             if let thread = app.thread {
@@ -52,6 +59,65 @@ struct ChatView: View {
             }
         }
         .overlay(alignment: .bottom) { NoticeView().animation(Vibe.spring, value: app.notice) }
+    }
+}
+
+/// The server rail: a button per signed-in account down the window's left
+/// edge, the open one outlined, a dot on another one with unread messages, and
+/// "+" to add an account. The others are checked every minute.
+struct ServerRail: View {
+    @Environment(AppModel.self) var app
+
+    /// What the rail shows of a server: its host, without `www.`.
+    static func host(_ account: Account) -> String {
+        let host = URL(string: account.baseUrl)?.host() ?? account.baseUrl
+        return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+    }
+
+    var body: some View {
+        VStack(spacing: 10) {
+            ForEach(app.accounts, id: \.key) { account in
+                let open = account.key == app.account?.key
+                let host = Self.host(account)
+                Button { Task { await app.switchAccount(account) } } label: {
+                    Text(host.prefix(1).uppercased())
+                        .font(.vibeTitle(17, .bold))
+                        .foregroundStyle(Vibe.ink)
+                        .frame(width: 44, height: 44)
+                        .background(LinearGradient(colors: Vibe.tile(for: account.key), startPoint: .topLeading, endPoint: .bottomTrailing),
+                                    in: RoundedRectangle(cornerRadius: 15))
+                        .overlay(RoundedRectangle(cornerRadius: 15).strokeBorder(open ? Vibe.pink : .clear, lineWidth: 2))
+                        .overlay(alignment: .topTrailing) {
+                            if !open && app.unreadAccounts.contains(account.key) {
+                                Circle().fill(Vibe.sun).frame(width: 12, height: 12)
+                                    .overlay(Circle().strokeBorder(Vibe.ink, lineWidth: 2))
+                                    .offset(x: 3, y: -3)
+                            }
+                        }
+                }
+                .buttonStyle(.plain)
+                .help("\(host) · @\(account.username)")
+            }
+            Button { app.showLogin(error: nil) } label: {
+                Image(systemName: "plus").font(.system(size: 18, weight: .bold)).foregroundStyle(Vibe.mint)
+                    .frame(width: 44, height: 44)
+                    .background(Vibe.card, in: RoundedRectangle(cornerRadius: 15))
+            }
+            .buttonStyle(.plain)
+            .help(L("rail.add"))
+            Spacer()
+        }
+        .padding(.vertical, 12)
+        .padding(.horizontal, 10)
+        .frame(maxHeight: .infinity)
+        .background(Vibe.ink)
+        .task(id: app.account?.key) {
+            await app.refreshAccounts()
+            while !Task.isCancelled {
+                await app.pollAccounts()
+                try? await Task.sleep(nanoseconds: 60_000_000_000)
+            }
+        }
     }
 }
 
@@ -112,6 +178,7 @@ struct RoomListView: View {
         .background(Vibe.deep.opacity(0.78))
         .searchable(text: $query, placement: .sidebar, prompt: L("spotlight.placeholder"))
         .task(id: query) { await search() }
+        .task(id: app.account?.key) { query = ""; found = [] }
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
                 Wordmark(size: 21)
@@ -126,7 +193,7 @@ struct RoomListView: View {
 
     func search() async {
         let q = query.trimmingCharacters(in: .whitespaces)
-        guard !q.isEmpty, let chat = app.chat else {
+        guard !q.isEmpty, let provider = app.provider else {
             found = []
             return
         }
@@ -134,9 +201,13 @@ struct RoomListView: View {
         guard !Task.isCancelled else { return }
         searching = true
         defer { searching = false }
+        let expected = app.account?.key
         do {
-            found = try await chat.spotlight(query: q)
+            let results = try await provider.spotlight(query: q)
+            guard !Task.isCancelled, expected == app.account?.key else { return }
+            found = results
         } catch {
+            guard !Task.isCancelled, expected == app.account?.key else { return }
             found = []
             app.notice = L("spotlight.failed")
         }
@@ -267,6 +338,20 @@ struct RoomRow: View {
         }
         .padding(.vertical, 4)
         .animation(Vibe.spring, value: room.unread)
+        .contextMenu {
+            let accountKey=app.account?.key
+            if let native=app.native, native.supportedFeatures().contains("favorites") {
+                NativeFavoriteMenu(native:native,room:room,accountKey:accountKey)
+            } else if let chat=app.chat {
+                Button(L(room.favorite ? "rooms.favorite_remove" : "rooms.favorite_add")) {
+                    Task {
+                        guard accountKey == app.account?.key else {return}
+                        do {try await chat.setFavorite(rid:room.rid,present:!room.favorite)}
+                        catch {if accountKey == app.account?.key {app.notice=L("rooms.failed")}}
+                    }
+                }
+            }
+        }
     }
 
     var preview: String {

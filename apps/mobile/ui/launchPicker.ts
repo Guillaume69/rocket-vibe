@@ -30,6 +30,8 @@
  * refusal is never replayed.
  */
 
+import { withSystemPicker } from './roomCover.ts';
+
 const VIEW_TREE_NPE_MARKER = 'dispatchCancelPendingInputEvents';
 
 /**
@@ -44,16 +46,20 @@ export function isViewTreeRejection(e: unknown): boolean {
   return e instanceof Error && e.message.includes(VIEW_TREE_NPE_MARKER);
 }
 
-export async function launchPickerWithRetry<T>(
+export function launchPickerWithRetry<T>(
   launch: () => Promise<T>,
   waitFor: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
 ): Promise<T> {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      return await launch();
-    } catch (e) {
-      if (!isViewTreeRejection(e) || attempt >= RETRIES_MS.length) throw e;
-      await waitFor(RETRIES_MS[attempt]);
+  // The picker's activity sends the app to the background: the open room is
+  // still being composed in (`ui/roomCover.ts`).
+  return withSystemPicker(async () => {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await launch();
+      } catch (e) {
+        if (!isViewTreeRejection(e) || attempt >= RETRIES_MS.length) throw e;
+        await waitFor(RETRIES_MS[attempt]);
+      }
     }
-  }
+  });
 }

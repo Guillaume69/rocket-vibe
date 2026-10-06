@@ -40,6 +40,7 @@ import { saveInBackground } from './attachmentActions.ts';
 import { useT } from './i18n.ts';
 import { FONTS, useColors } from './theme.ts';
 import { progressLabel, useProgress } from './transfers.ts';
+import {useNativePreview} from './nativePreview.ts';
 
 export type ImageTarget = {
   /** Absolute, already authenticated URL (rc_uid/rc_token included). */
@@ -97,6 +98,7 @@ function tighten(value: number, min: number, max: number): number {
 }
 
 function ImageModal({ target, onClose }: { target: ImageTarget | null; onClose: () => void }) {
+  const imageUri=useNativePreview(target?.uri);
   const t = useT();
   const c = useColors();
   const insets = useSafeAreaInsets();
@@ -227,7 +229,7 @@ function ImageModal({ target, onClose }: { target: ImageTarget | null; onClose: 
               <GestureDetector gesture={gestures}>
                 <Animated.View style={[styles.frame, styleImage]}>
                   <Image
-                    source={{ uri: target.uri }}
+                    source={imageUri?{ uri: imageUri }:undefined}
                     style={styles.image}
                     resizeMode="contain"
                     // Full-resolution decode then GPU scaling: zoom reveals real detail. Safe:
@@ -256,7 +258,7 @@ function ImageModal({ target, onClose }: { target: ImageTarget | null; onClose: 
         {target?.local !== true && (
           <Pressable
             onPress={save}
-            disabled={progress !== undefined}
+            disabled={progress !== undefined || !!target?.uri.startsWith('rv-preview:')&&!imageUri}
             hitSlop={12}
             style={[styles.save, { top: insets.top + 8, backgroundColor: c.card + 'D9' }]}
             accessibilityRole="button"

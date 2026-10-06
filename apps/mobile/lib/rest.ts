@@ -197,6 +197,7 @@ function cancelError(): Error {
 }
 
 export class RestClient {
+  kind: import('./provider.ts').ProviderKind = 'rocketchat';
   readonly baseUrl: string;
   auth: RestAuth | null = null;
 

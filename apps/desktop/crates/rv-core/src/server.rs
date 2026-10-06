@@ -7,6 +7,7 @@ use crate::rest::{CallOptions, RestClient, RestError};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServerProfile {
+    pub genre: String,
     pub base_url: String,
     /// Minor version only when anonymous (`8.5`).
     pub version: String,
@@ -15,6 +16,10 @@ pub struct ServerProfile {
     pub e2e: bool,
     /// Providers configured, not supported here: shown so their absence is explained.
     pub oauth: Vec<String>,
+    pub account_invitations: bool,
+    pub account_recovery: bool,
+    pub email_recovery: bool,
+    pub native_identity: Option<crate::native::Identity>,
 }
 
 pub fn profile_from(base_url: &str, info: &Value, settings: &Value) -> Option<ServerProfile> {
@@ -31,18 +36,46 @@ pub fn profile_from(base_url: &str, info: &Value, settings: &Value) -> Option<Se
         .collect();
     oauth.sort();
     Some(ServerProfile {
+        genre: "rocketchat".into(),
         base_url: base_url.to_owned(),
         version,
         password_login: get("Accounts_ShowFormLogin").and_then(Value::as_bool).unwrap_or(true),
         two_factor: on("Accounts_TwoFactorAuthentication_Enabled"),
         e2e: on("E2E_Enable"),
         oauth,
+        account_invitations: false,
+        account_recovery: false,
+        email_recovery: false,
+        native_identity: None,
     })
 }
 
 /// `/api/info` for the version (proof it is a Rocket.Chat), `settings.public`
 /// (every page: `count=0`, `query` is ignored since 7.0) for the rest.
 pub async fn probe(base: &Url) -> Result<ServerProfile, RestError> {
+    probe_as(base, crate::native::ServerKind::Auto).await
+}
+
+/// `probe` under the user's choice of server kind (`native::probe_as`).
+pub async fn probe_as(base: &Url, kind: crate::native::ServerKind) -> Result<ServerProfile, RestError> {
+    if let Some(native) = crate::native::probe_as(base, kind).await.map_err(crate::native::rest_error)? {
+        return Ok(ServerProfile {
+            genre: "rocketvibe".into(),
+            base_url: base.as_str().trim_end_matches('/').into(),
+            version: native.server_version,
+            password_login: true,
+            two_factor: native.capabilities.second_factors,
+            e2e: native.capabilities.e2ee,
+            oauth: vec![],
+            account_invitations: native.capabilities.account_invitations,
+            account_recovery: native.capabilities.account_recovery,
+            email_recovery: native.capabilities.email_recovery,
+            native_identity: Some(crate::native::Identity {
+                instance_id: native.instance_id,
+                data_epoch: native.data_epoch,
+            }),
+        });
+    }
     let rest = RestClient::new(base.clone());
     let info = CallOptions { anonymous: true, outside_api_v1: true, ..Default::default() };
     let settings = CallOptions { anonymous: true, ..CallOptions::params([("count", "0")]) };

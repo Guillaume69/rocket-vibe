@@ -10,7 +10,7 @@
  * ambiguity.
  */
 
-import { index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 /** Rocket.Chat room type: c=channel, p=private group, d=direct, l=livechat. */
 export type RoomType = 'c' | 'p' | 'd' | 'l';
@@ -204,6 +204,8 @@ export const uploads = sqliteTable(
     name: text('name').notNull(),
     type: text('type').notNull(),
     caption: text('caption'),
+    /** The thread the file answers (`rooms.mediaConfirm` `tmid`); null in the room. */
+    tmid: text('tmid'),
     status: text('status')
       .$type<'pending' | 'sending' | 'failed'>()
       .notNull()
@@ -290,3 +292,152 @@ export const cursors = sqliteTable(
   },
   (t) => [primaryKey({ columns: [t.scope, t.stream] })],
 );
+
+/** Native cursors and sequence numbers are opaque / decimal strings, never JS numbers. */
+export const nativeSyncState = sqliteTable('native_sync_state', {
+  singleton: integer('singleton').primaryKey(),
+  instanceId: text('instance_id').notNull(),
+  dataEpoch: text('data_epoch').notNull(),
+  cursor: text('cursor').notNull(),
+});
+
+export const nativePositions = sqliteTable('native_positions', {
+  id: text('id').primaryKey(),
+  rid: text('rid').notNull(),
+  position: text('position').notNull(),
+  revision: text('revision').notNull(),
+  replyTo: text('reply_to'),
+}, (t) => [index('idx_native_positions_room').on(t.rid)]);
+
+/** Personal state has its own revision and is never overwritten by public upserts. */
+export const nativeStarStates = sqliteTable('native_star_states', {
+  id: text('id').primaryKey(),
+  rid: text('rid').notNull(),
+  revision: text('revision').notNull(),
+  present: integer('present',{mode:'boolean'}).notNull(),
+}, (t) => [index('idx_native_star_room').on(t.rid)]);
+
+export const nativeRoomCreations = sqliteTable('native_room_creations', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  privateRoom: integer('private', {mode:'boolean'}).notNull(),
+}, (t) => [uniqueIndex('idx_native_room_creation_form').on(t.name,t.privateRoom)]);
+
+/** An unresolved action keeps its original revision across receipt/journal races. */
+export const nativeMessageCommands = sqliteTable('native_commands', {
+  id: text('id').primaryKey(),
+  rid: text('rid').notNull(),
+  messageId: text('message_id').notNull(),
+  kind: text('kind').notNull(),
+  expectedRevision: text('expected_revision').notNull(),
+  text: text('text').notNull(),
+  quotes: text('quotes'),
+  state: text('state').notNull().default('pending'),
+  error: text('error'),
+}, (t) => [uniqueIndex('idx_native_command_message').on(t.messageId)]);
+
+/** One meeting start keeps its original membership and operation until acknowledged. */
+export const nativeMeetingIntents = sqliteTable('native_meeting_intents', {
+  id: text('id').primaryKey(),
+  rid: text('rid').notNull(),
+  payload: text('payload').notNull(),
+}, (t) => [uniqueIndex('idx_native_meeting_intent_room').on(t.rid)]);
+
+/** One unresolved room form keeps its original nonce and version until acknowledged. */
+export const nativeRoomOperations = sqliteTable('native_room_operations', {
+  id: text('id').primaryKey(),
+  rid: text('rid').notNull(),
+  payload: text('payload').notNull(),
+  state: text('state').notNull().default('pending'),
+  error: text('error'),
+}, (t) => [uniqueIndex('idx_native_room_operation_room').on(t.rid)]);
+
+/** One immutable attempt per profile field family, with no saved password. */
+export const nativeProfileOperations = sqliteTable('native_profile_operations', {
+  id: text('id').primaryKey(),
+  slot: text('slot').notNull(),
+  payload: text('payload').notNull(),
+  state: text('state').notNull().default('pending'),
+  error: text('error'),
+}, (t) => [uniqueIndex('idx_native_profile_operation_slot').on(t.slot)]);
+
+/** Immutable bytes, original membership and both operation IDs survive restart. */
+export const nativeUploadIntents = sqliteTable('native_upload_intents', {
+  id: text('id').primaryKey(),
+  rid: text('rid').notNull(),
+  payload: text('payload').notNull(),
+  phase: text('phase').notNull().default('pending'),
+});
+
+/** Room version is persisted even before its effective actor rights are read. */
+export const nativeRoomAccess = sqliteTable('native_room_access', {
+  rid: text('rid').primaryKey(),
+  revision: text('revision').notNull(),
+  readOnly: integer('read_only',{mode:'boolean'}),
+  canSend: integer('can_send',{mode:'boolean'}),
+  role: text('role'),
+});
+
+/** Personal read/favorite revision is independent from metadata and actor rights. */
+export const nativeReadStates = sqliteTable('native_read_states', {
+  rid: text('rid').primaryKey(),
+  payload: text('payload').notNull(),
+});
+
+/** Observed confirmed positions coalesce without using the newest cached message. */
+export const nativeReadIntents = sqliteTable('native_read_intents', {
+  rid: text('rid').primaryKey(),
+  membership: text('membership').notNull(),
+  rootPosition: text('root_position').notNull(),
+});
+
+export const nativeThreadStates = sqliteTable('native_thread_states', {
+  root: text('root').primaryKey(),rid:text('rid').notNull(),payload:text('payload').notNull(),
+});
+export const nativeThreadReadIntents = sqliteTable('native_thread_read_intents', {
+  root:text('root').primaryKey(),rid:text('rid').notNull(),membership:text('membership').notNull(),position:text('position').notNull(),
+});
+
+/** A receipt is a version floor, never a historical favorite value to project. */
+export const nativeFavoriteIntents = sqliteTable('native_favorite_intents', {
+  rid: text('rid').primaryKey(),
+  id: text('id').notNull(),
+  membership: text('membership').notNull(),
+  payload: text('payload').notNull(),
+  phase: text('phase').notNull().default('pending'),
+  receiptRevision: text('receipt_revision'),
+  error: text('error'),
+}, (t) => [uniqueIndex('idx_native_favorite_operation').on(t.id)]);
+
+/** Typed reply references are independent from the reader's current source view. */
+export const nativeQuoteReferences = sqliteTable('native_quote_references', {
+  messageId: text('message_id').notNull(),
+  rid: text('rid').notNull(),
+  ordinal: integer('ordinal').notNull(),
+  sourceId: text('source_id').notNull(),
+  sourceRoom: text('source_room').notNull(),
+  observedRevision: text('observed_revision').notNull(),
+}, (t) => [primaryKey({columns:[t.messageId,t.ordinal]}),index('idx_native_quote_origins').on(t.sourceRoom,t.sourceId)]);
+
+/** Unavailable views keep their exact read watermark, with no author or source text. */
+export const nativeQuoteSources = sqliteTable('native_quote_sources', {
+  id: text('id').primaryKey(),
+  rid: text('rid').notNull(),
+  membership: text('membership'),
+  viewPosition: text('view_position').notNull(),
+  payload: text('payload'),
+}, (t) => [index('idx_native_quote_source_rooms').on(t.rid)]);
+
+/** Durable native send body; separate from Rocket.Chat's existing outbox. */
+export const nativeOutboxQuotes = sqliteTable('native_outbox_quotes', {
+  id: text('id').primaryKey(),
+  rid: text('rid').notNull(),
+  payload: text('payload').notNull(),
+});
+
+/** A newer live revision hides obsolete names until its full catalogue arrives. */
+export const nativeEmojiCatalog = sqliteTable('native_emoji_catalog', {
+  singleton: integer('singleton').primaryKey(),
+  revision: text('revision').notNull(),
+  payload: text('payload'),
+});

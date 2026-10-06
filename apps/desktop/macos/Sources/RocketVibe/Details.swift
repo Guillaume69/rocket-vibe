@@ -9,6 +9,7 @@ enum Panel: Identifiable, Equatable {
     case search
     case marked
     case profile(String)
+    case profileId(String)
 
     var id: String {
         switch self {
@@ -16,6 +17,7 @@ enum Panel: Identifiable, Equatable {
         case .search: return "search"
         case .marked: return "marked"
         case let .profile(username): return "profile:\(username)"
+        case let .profileId(uid): return "profile-id:\(uid)"
         }
     }
 }
@@ -30,6 +32,7 @@ struct PanelView: View {
         case .search: SearchView(model: model)
         case .marked: MarkedView(model: model)
         case let .profile(username): ProfileView(username: username)
+        case let .profileId(uid): ProfileView(username: uid, byId: true)
         }
     }
 }
@@ -57,9 +60,11 @@ struct SheetFrame<Content: View>: View {
 }
 
 struct RoomInfoView: View {
+    @Environment(\.dismiss) var dismiss
     @Environment(AppModel.self) var app
     let model: RoomModel
     @State var details: RoomDetails?
+    @State var management: NativeRoomManagement?
     @State var failed = false
 
     var body: some View {
@@ -85,17 +90,28 @@ struct RoomInfoView: View {
                 } else {
                     ProgressView()
                 }
+                if model.supportsRoomManagement { NativeRoomControls(model: model, details: management, refreshed: { fresh in management = fresh; details = fresh.info }) }
+            if app.native?.cryptoSettingsSupported() == true { CryptoRoomSection(room: model.room.rid) }
             }
             .formStyle(.grouped)
         }
-        .task {
-            guard let chat = app.chat else { return }
-            do { details = try await chat.roomDetails(rid: model.rid) } catch { failed = true }
+        .task(id: "\(model.roomInformationRevision):\(app.connection)") {
+            guard model.supportsRoomInfo else { dismiss(); return }
+            details = nil; management = nil; failed = false
+            do {
+                if model.supportsRoomManagement {
+                    let fresh = try await model.roomManagement()
+                    if !Task.isCancelled { management = fresh; details = fresh.info }
+                } else {
+                    let fresh = try await model.roomDetails()
+                    if !Task.isCancelled { details = fresh }
+                }
+            } catch { if !Task.isCancelled { failed = true } }
         }
     }
 
     func flags(_ d: RoomDetails) -> String {
-        var out = [d.kind == "c" ? L("info.public") : L("info.private")]
+        var out = [d.kind == "d" ? L("native.direct") : d.kind == "c" ? L("info.public") : L("info.private")]
         if d.readOnly { out.append(L("info.read_only")) }
         if d.encrypted { out.append(L("info.encrypted")) }
         if d.archived { out.append(L("info.archived")) }
@@ -109,13 +125,15 @@ struct ProfileView: View {
     @Environment(\.dismiss) var dismiss
     @Environment(\.openURL) var openURL
     let username: String
+    var byId = false
     @State var person: Person?
     @State var failed = false
+    @State var shownAccount:UUID?
 
     var body: some View {
         SheetFrame(title: L("info.profile")) {
             Form {
-                if let p = person {
+                if let p = person,shownAccount==app.sessionId,app.provider?.supportsProfiles==true {
                     HStack(spacing: 12) {
                         ZStack(alignment: .bottomTrailing) {
                             Avatar(path: p.avatar, name: p.name ?? p.username, size: 56)
@@ -130,16 +148,17 @@ struct ProfileView: View {
                     if !p.roles.isEmpty { LabeledContent(L("info.roles"), value: p.roles.joined(separator: ", ")) }
                     if let time = p.localTime { LabeledContent(L("info.local_time"), value: time) }
                     if let bio = p.bio, !bio.isEmpty { LabeledContent(L("info.bio"), value: bio) }
-                    if p.username != app.account?.username {
+                    if app.native?.cryptoSettingsSupported() == true { PeerIdentitySection(user: p.id) }
+                    if p.id != app.account?.userId {
                         HStack {
                             Button(L("info.message")) {
                                 dismiss()
                                 Task { await app.go(to: .user(id: p.id, username: p.username, name: p.name)) }
                             }
-                            Button(L("info.call")) {
+                            if app.provider?.supportsCalls == true {Button(L("info.call")) {
                                 dismiss()
                                 Task { await call(p) }
-                            }
+                            }}
                         }
                     }
                 } else if failed {
@@ -150,18 +169,24 @@ struct ProfileView: View {
             }
             .formStyle(.grouped)
         }
-        .task {
-            guard let chat = app.chat else { return }
-            do { person = try await chat.person(key: username, byId: false) } catch { failed = true }
+        .task(id:"\(app.sessionId)#\(app.imagesVersion)#\(app.native?.profileVersion() ?? username)") {
+            guard let provider=app.provider,provider.supportsProfiles else { return }
+            let account=app.sessionId
+            do {
+                let previous=shownAccount==account ? person : nil
+                let loaded=try await provider.person(key:previous?.id ?? username,byId:previous != nil || byId)
+                guard app.sessionId==account,!Task.isCancelled else{return}
+                person=loaded;shownAccount=account;failed=false
+            } catch {if app.sessionId==account,!Task.isCancelled{person=nil;failed=true}}
         }
     }
 
     func call(_ p: Person) async {
-        guard let chat = app.chat, let rid = try? await chat.openDm(username: p.username) else {
-            app.notice = L("call.failed")
-            return
-        }
-        if let link = try? await chat.startCall(rid: rid), let url = URL(string: link) {
+        guard let provider = app.provider else { return }
+        let expected = app.sessionId
+        let link = try? await provider.startPersonCall(username:p.username,userId:p.id)
+        guard expected == app.sessionId, !Task.isCancelled else { return }
+        if let link, let url = URL(string: link) {
             CallWindow.show(url, title: L("call.window_title", ["room": p.username]))
         } else {
             app.notice = L("call.failed")
@@ -177,14 +202,17 @@ struct SearchView: View {
     @State var hits: [SearchHit] = []
     @State var failed = false
     @State var searched = false
+    @State var hitsVersion = ""
+    @State var requestRevision = 0
 
     var body: some View {
         SheetFrame(title: L("search.title")) {
             VStack(spacing: 0) {
                 TextField(L("search.placeholder"), text: $query)
+                    .onSubmit {requestRevision &+= 1}
                     .textFieldStyle(.roundedBorder)
                     .padding(12)
-                List(hits, id: \.id) { hit in
+                List(hitsVersion == model.searchVersion ? hits : [], id: \.id) { hit in
                     VStack(alignment: .leading, spacing: 3) {
                         HStack {
                             Text(hit.author).fontWeight(.semibold)
@@ -200,13 +228,14 @@ struct SearchView: View {
                 }
                 .overlay {
                     if failed { Text(L("search.failed")).foregroundStyle(.secondary) }
+                    else if searched && hitsVersion != model.searchVersion {Text(L("search.changed")).foregroundStyle(.secondary)}
                     else if searched && hits.isEmpty { Text(L("search.none")).foregroundStyle(.secondary) }
                 }
             }
         }
-        .task(id: query) {
+        .task(id: "\(model.searchContext):\(query):\(requestRevision)") {
             let q = query.trimmingCharacters(in: .whitespaces)
-            guard !q.isEmpty, let chat = app.chat else {
+            guard !q.isEmpty, model.supportsSearch else {
                 hits = []
                 searched = false
                 return
@@ -214,13 +243,20 @@ struct SearchView: View {
             try? await Task.sleep(nanoseconds: 300_000_000)
             guard !Task.isCancelled else { return }
             do {
-                hits = try await chat.search(rid: model.rid, text: q)
+                let version=model.searchVersion
+                let found = try await model.search(text:q)
+                guard !Task.isCancelled,query.trimmingCharacters(in:.whitespaces)==q,model.searchVersion==version else {return}
+                hits = found
+                hitsVersion=version
                 failed = false
             } catch {
+                guard !Task.isCancelled else {return}
+                hits=[]
                 failed = true
             }
             searched = true
         }
+        .onChange(of:app.connection) { _,state in if app.native != nil && state != .online {hits=[]} }
     }
 }
 
@@ -272,24 +308,27 @@ struct MarkedView: View {
         }
         .task(id: starred) {
             messages = nil
-            messages = (try? await app.chat?.marked(rid: model.rid, starred: starred)) ?? []
+            messages = (try? await model.marked(starred: starred)) ?? []
         }
     }
 }
 
 /// The picker's pages, then search by shortcode.
 struct EmojiPicker: View {
+    @Environment(AppModel.self) var app
     let pick: (String, String) -> Void
     @State var category = 0
     @State var query = ""
     let categories = emojiCategories()
+    var customs:[String]{_ = app.imagesVersion;return app.chat?.customEmojiNames() ?? app.native?.customEmojiNames() ?? []}
 
     var shown: [(String, String)] {
         if query.isEmpty {
+            if category==categories.count{return customs.map{(":\($0):", ":\($0):")}}
             let c = categories[category]
             return Array(zip(c.shortcodes, c.glyphs))
         }
-        return completeEmoji(prefix: query, limit: 180).map { (":\($0.shortcode):", $0.glyph) }
+        return customs.filter{$0.hasPrefix(query.lowercased())}.map{(":\($0):", ":\($0):")} + completeEmoji(prefix: query, limit: 180).map { (":\($0.shortcode):", $0.glyph) }
     }
 
     var body: some View {
@@ -301,6 +340,7 @@ struct EmojiPicker: View {
                     ForEach(Array(categories.enumerated()), id: \.offset) { i, c in
                         Text(c.glyphs.first ?? c.name).tag(i)
                     }
+                    if !customs.isEmpty{Text("⭐").tag(categories.count)}
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
@@ -308,7 +348,10 @@ struct EmojiPicker: View {
             ScrollView {
                 LazyVGrid(columns: Array(repeating: GridItem(.fixed(30), spacing: 4), count: 9), spacing: 4) {
                     ForEach(shown, id: \.0) { code, glyph in
-                        Button { pick(code, glyph) } label: { Text(glyph).font(.system(size: 22)) }
+                        Button { pick(code, glyph) } label: {
+                            if let path=app.media?.customEmoji(code){RemoteImage(path:path,width:22,height:22)}
+                            else{Text(glyph).font(.system(size: 22))}
+                        }
                             .buttonStyle(.plain)
                             .help(code)
                     }

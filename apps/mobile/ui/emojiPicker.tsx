@@ -23,7 +23,6 @@ import {
 } from 'react';
 import {
   FlatList,
-  Image,
   InteractionManager,
   Keyboard,
   Pressable,
@@ -52,6 +51,7 @@ import {
 } from '../lib/emojiCompletion.ts';
 import { codesEmojiStandard, emojisByCategory, type EmojiCategory } from '../lib/emojis.ts';
 import { customEmojiCodes, onCustomEmojisChange } from '../lib/customEmojis.ts';
+import {ImageEmoji} from './emojiImage.tsx';
 import { resolve } from './emojiCompletion.tsx';
 import { useT } from './i18n.ts';
 import type { TranslationKey } from './messages.ts';
@@ -330,7 +330,7 @@ export function EmojiPicker({
               accessibilityLabel={`:${suggestion.code}:`}
             >
               {uri !== null ? (
-                <Image source={{ uri }} style={styles.customImage} resizeMode="contain" />
+                <ImageEmoji uri={uri} style={styles.customImage} code={suggestion.code}/>
               ) : (
                 <Text style={styles.glyph}>{glyph}</Text>
               )}

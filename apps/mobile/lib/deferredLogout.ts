@@ -19,6 +19,8 @@
 
 import { unregisterToken } from './pushToken.ts';
 import { RestClient, isTokenRejected } from './rest.ts';
+import { logoutSession } from './sessionTransport.ts';
+import type { ProviderKind } from './provider.ts';
 
 export type PendingLogout = {
   baseUrl: string;
@@ -26,6 +28,9 @@ export type PendingLogout = {
   authToken: string;
   /** FCM token to remove. `null` if the device had none to register. */
   pushToken: string | null;
+  kind?: ProviderKind;
+  nativeInstanceId?: string;
+  nativeDataEpoch?: string;
 };
 
 export type LogoutQueue = {
@@ -57,6 +62,10 @@ export async function finishPendingLogouts(
   const entries = await file.list();
   for (const entry of entries) {
     const client = createClient(entry);
+    if (entry.kind === 'rocketvibe') {
+      if (await logoutSession(client, {...entry,username:'',kind:'rocketvibe',siteUrl:null})) await file.remove(entry.baseUrl);
+      continue;
+    }
     let networkFailure = false;
     // Sequential, not `Promise.all`: `logout` invalidates the token the
     // `DELETE` needs. Same order as the nominal logout.

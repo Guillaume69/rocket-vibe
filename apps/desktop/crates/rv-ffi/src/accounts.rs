@@ -38,6 +38,10 @@ impl Dirs {
     }
 
     pub fn database(&self, info: &SessionInfo) -> PathBuf {
+        if info.native.is_some() {
+            let _ = std::fs::create_dir_all(&self.data);
+            return self.data.join(rv_core::native::database_name(info));
+        }
         let url: url::Url = info.base_url.parse().expect("base URL");
         let host = match url.port() {
             Some(port) => format!("{}_{port}", url.host_str().unwrap_or_default()),
@@ -64,14 +68,7 @@ fn entry(key: &str) -> keyring::Result<keyring::Entry> {
 
 fn parse(secret: &str) -> Option<SessionInfo> {
     let v: Value = serde_json::from_str(secret).ok()?;
-    let field = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or_default().to_owned();
-    let info = SessionInfo {
-        base_url: field("baseUrl"),
-        user_id: field("userId"),
-        username: field("username"),
-        auth_token: field("authToken"),
-    };
-    (!info.base_url.is_empty() && !info.auth_token.is_empty() && !info.user_id.is_empty()).then_some(info)
+    SessionInfo::from_secret(&v)
 }
 
 /// Every account signed in on this machine, the active one first. Blocking.
@@ -93,12 +90,12 @@ pub fn load_all(dirs: &Dirs) -> Vec<SessionInfo> {
 /// Blocking. `e2e_key`: my E2E private key (a JWK) while unlocked, kept
 /// beside the session as the GTK app keeps it.
 pub fn save(dirs: &Dirs, info: &SessionInfo, e2e_key: Option<&str>) -> Result<(), String> {
-    let mut secret = json!({
-        "baseUrl": info.base_url,
-        "userId": info.user_id,
-        "username": info.username,
-        "authToken": info.auth_token,
-    });
+    let _lease = if info.native.is_some() {
+        Some(rv_core::native::credentials::lease_blocking(&dirs.config, info).map_err(|e| e.to_string())?)
+    } else {
+        None
+    };
+    let mut secret = info.secret();
     if let Some(jwk) = e2e_key {
         secret["e2eKey"] = json!(jwk);
     }
@@ -128,6 +125,12 @@ pub fn set_active(dirs: &Dirs, info: &SessionInfo) {
 
 /// Blocking.
 pub fn remove(dirs: &Dirs, info: &SessionInfo) {
+    let _lease = if info.native.is_some() {
+        let Ok(lease) = rv_core::native::credentials::lease_blocking(&dirs.config, info) else { return };
+        Some(lease)
+    } else {
+        None
+    };
     let k = key(info);
     if let Ok(e) = entry(&k) {
         let _ = e.delete_credential();
@@ -136,6 +139,126 @@ pub fn remove(dirs: &Dirs, info: &SessionInfo) {
     let mut all = lines(&index);
     all.retain(|l| *l != k);
     let _ = std::fs::write(index, all.join("\n"));
+}
+
+/// Caller holds the shared file lease across the entire renewal transaction.
+pub fn native_record(info: &SessionInfo) -> Result<rv_core::native::credentials::Record, String> {
+    let secret =
+        entry(&key(info)).and_then(|e| e.get_password()).map_err(|_| "secure_storage_unavailable".to_owned())?;
+    let value: Value = serde_json::from_str(&secret).map_err(|_| "invalid_native_credentials".to_owned())?;
+    rv_core::native::credentials::Record::from_secret(&value).ok_or_else(|| "invalid_native_credentials".to_owned())
+}
+
+/// Blocking, fallible credential commit; no active-account pointer is changed.
+pub fn save_native_record(dirs: &Dirs, record: &rv_core::native::credentials::Record) -> Result<(), String> {
+    let _lease = rv_core::native::credentials::lease_blocking(&dirs.config, &record.info)
+        .map_err(|_| "secure_storage_unavailable".to_owned())?;
+    let k = key(&record.info);
+    let item = entry(&k).map_err(|_| "secure_storage_unavailable".to_owned())?;
+    let mut secret = record.secret();
+    match item.get_password() {
+        Ok(raw) => {
+            let old: Value = serde_json::from_str(&raw).map_err(|_| "invalid_native_credentials".to_owned())?;
+            let prior = SessionInfo::from_secret(&old).ok_or_else(|| "invalid_native_credentials".to_owned())?;
+            if key(&prior) != k {
+                return Err("credentials_changed".into());
+            }
+            if prior.native == record.info.native
+                && let Some(jwk) = old.get("e2eKey")
+            {
+                secret["e2eKey"] = jwk.clone();
+            }
+        }
+        Err(keyring::Error::NoEntry) => {}
+        Err(_) => return Err("secure_storage_unavailable".into()),
+    }
+    item.set_password(&secret.to_string()).map_err(|_| "secure_storage_unavailable".to_owned())?;
+    let index = dirs.file("accounts");
+    let mut all = lines(&index);
+    if !all.contains(&k) {
+        all.push(k);
+        std::fs::write(index, all.join("\n")).map_err(|_| "secure_storage_unavailable".to_owned())?;
+    }
+    Ok(())
+}
+
+struct AuthenticationStorage;
+pub fn authentication_vault(dirs: &Dirs) -> rv_core::native::authentication_vault::Vault {
+    rv_core::native::authentication_vault::Vault::new(dirs.config.clone(), std::sync::Arc::new(AuthenticationStorage))
+}
+pub fn security_vault(dirs: &Dirs) -> rv_core::native::security::Vault {
+    rv_core::native::security::Vault::new(dirs.config.clone(), std::sync::Arc::new(AuthenticationStorage))
+}
+pub fn email_recovery_vault(dirs: &Dirs) -> rv_core::native::email_recovery::Vault {
+    rv_core::native::email_recovery::Vault::new(dirs.config.clone(), std::sync::Arc::new(AuthenticationStorage))
+}
+async fn authentication_operation<T: Send + 'static>(
+    lease: std::sync::Arc<std::fs::File>,
+    operation: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, rv_core::native::Error> {
+    use rv_core::native::Error;
+    let mut task = crate::runtime().spawn_blocking(move || {
+        // The actual keyring job keeps the lease after foreign cancellation.
+        let _lease = lease;
+        operation().map_err(|_| Error::Protocol("secure_storage_unavailable"))
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(5), &mut task)
+        .await
+        .map_err(|_| Error::Protocol("secure_storage_unavailable"))?
+        .map_err(|_| Error::Protocol("secure_storage_unavailable"))?
+}
+impl rv_core::native::authentication_vault::Storage for AuthenticationStorage {
+    fn read(
+        &self,
+        key: String,
+        lease: std::sync::Arc<std::fs::File>,
+    ) -> rv_core::native::authentication_vault::StorageFuture<Option<String>> {
+        Box::pin(authentication_operation(lease, move || match entry(&key).and_then(|e| e.get_password()) {
+            Ok(value) => Ok(Some(value)),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(_) => Err("secure_storage_unavailable".into()),
+        }))
+    }
+    fn write(
+        &self,
+        key: String,
+        value: String,
+        lease: std::sync::Arc<std::fs::File>,
+    ) -> rv_core::native::authentication_vault::StorageFuture<()> {
+        Box::pin(authentication_operation(lease, move || {
+            entry(&key).and_then(|e| e.set_password(&value)).map_err(|_| "secure_storage_unavailable".into())
+        }))
+    }
+    fn remove(
+        &self,
+        key: String,
+        lease: std::sync::Arc<std::fs::File>,
+    ) -> rv_core::native::authentication_vault::StorageFuture<()> {
+        Box::pin(authentication_operation(lease, move || match entry(&key).and_then(|e| e.delete_credential()) {
+            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+            Err(_) => Err("secure_storage_unavailable".into()),
+        }))
+    }
+}
+pub fn replace_native_record(
+    record: &rv_core::native::credentials::Record,
+    expected_token: &str,
+) -> Result<(), String> {
+    let item = entry(&key(&record.info)).map_err(|_| "secure_storage_unavailable".to_owned())?;
+    let raw = item.get_password().map_err(|_| "secure_storage_unavailable".to_owned())?;
+    let old: Value = serde_json::from_str(&raw).map_err(|_| "invalid_native_credentials".to_owned())?;
+    let previous = SessionInfo::from_secret(&old).ok_or_else(|| "invalid_native_credentials".to_owned())?;
+    if previous.auth_token != expected_token
+        || previous.native != record.info.native
+        || key(&previous) != key(&record.info)
+    {
+        return Err("credentials_changed".into());
+    }
+    let mut secret = record.secret();
+    if let Some(jwk) = old.get("e2eKey") {
+        secret["e2eKey"] = jwk.clone();
+    }
+    item.set_password(&secret.to_string()).map_err(|_| "secure_storage_unavailable".to_owned())
 }
 
 /// Servers signed in to before, most recent first.
@@ -167,6 +290,7 @@ mod tests {
             user_id: "U1".into(),
             username: "me".into(),
             auth_token: "t".into(),
+            native: None,
         };
         assert_eq!(dirs.database(&info("https://chat.example.com")), dirs.data.join("chat.example.com-U1.sqlite"));
         assert_eq!(dirs.database(&info("http://localhost:3000")), dirs.data.join("localhost_3000-U1.sqlite"));

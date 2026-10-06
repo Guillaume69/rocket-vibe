@@ -7,6 +7,12 @@
  * reply (error, `/help`) arrives as a private message on
  * `stream-notify-user` / `<uid>/message`, never in the REST response (probed on
  * 8.5). Same logic as `apps/desktop/crates/rv-core/src/commands.rs`.
+ *
+ * A RocketVibe server lists its commands in the same shape
+ * (`GET /api/v1/commands`, `rv_protocol::commands`) and runs the server ones
+ * (`NativeChat.runSlashCommand`). On both, the text commands (`/shrug`...)
+ * are written here (`textCommand`) and sent as a message, so they work in an
+ * encrypted room.
  */
 
 import type { RestClient } from './rest.ts';
@@ -72,8 +78,11 @@ const WORDS: readonly (readonly [string, string, string])[] = [
 export function words(key: string, language: Language): string {
   const known = WORDS.find(([k]) => k === key);
   if (known !== undefined) return language === 'fr' ? known[1] : known[2];
-  const looksLikeKey = !/\s/.test(key) && key.includes('_') && /[A-Z]/.test(key);
-  return looksLikeKey ? key.replaceAll('_', ' ') : key;
+  // A Rocket.Chat app namespaces its keys: `app-<id>.GIPHY_Search_Term`.
+  const dot = key.indexOf('.');
+  const own = key.startsWith('app-') && dot > 0 && !/\s/.test(key.slice(0, dot)) ? key.slice(dot + 1) : key;
+  const looksLikeKey = !/\s/.test(own) && own.includes('_') && /[A-Z]/.test(own);
+  return looksLikeKey ? own.replaceAll('_', ' ') : own;
 }
 
 const asString = (v: unknown): string => (typeof v === 'string' ? v : '');
@@ -143,6 +152,55 @@ export function splitCommand(text: string): { name: string; params: string } | n
   return { name, params: firstSpace === -1 ? '' : body.slice(firstSpace).trim() };
 }
 
+/** What running a draft as a command left to do. */
+export type CommandRun = { kind: 'message'; text: string } | { kind: 'done' };
+
+/**
+ * The message a text command writes, as Rocket.Chat's own does (port of
+ * `rv_protocol::commands::decorate`): `done` when there is nothing to send
+ * (`/me` alone), `null` for any other command.
+ */
+export function textCommand(name: string, params: string): CommandRun | null {
+  const p = params.trim();
+  const around = (before: string, after: string): CommandRun => ({
+    kind: 'message',
+    text: [before, p, after].filter((s) => s !== '').join(' '),
+  });
+  switch (name) {
+    case 'me':
+      return p === '' ? { kind: 'done' } : { kind: 'message', text: `_${p}_` };
+    case 'gimme':
+      return around('༼ つ ◕_◕ ༽つ', '');
+    case 'lennyface':
+      return around('', '( ͡° ͜ʖ ͡°)');
+    case 'shrug':
+      return around('', '¯\\_(ツ)_/¯');
+    case 'tableflip':
+      return around('', '(╯°□°）╯︵ ┻━┻');
+    case 'unflip':
+      return around('', '┬─┬ ノ( ゜-゜ノ)');
+    default:
+      return null;
+  }
+}
+
+/** The message key of what a RocketVibe server's refusal of a command means. */
+export function commandErrorKey(code: string): 'command.notFound' | 'command.forbidden' | 'command.invalid' | 'command.encrypted' | null {
+  switch (code) {
+    case 'not_found':
+    case 'unknown_command':
+      return 'command.notFound';
+    case 'permission_denied':
+      return 'command.forbidden';
+    case 'invalid_request':
+      return 'command.invalid';
+    case 'crypto_required':
+      return 'command.encrypted';
+    default:
+      return null;
+  }
+}
+
 /** Event key of private messages, on `stream-notify-user`. */
 export const PRIVATE_MESSAGE_EVENT = 'message';
 
@@ -169,7 +227,7 @@ export function rawList(client: Pick<RestClient, 'get' | 'baseUrl' | 'auth'>): P
 }
 
 /**
- * Runs `text` as a command when it names one the server knows: `false` when it
+ * Runs `text` as a command when it names one the server knows: `null` when it
  * is a message to send. Rejects if the server refuses it.
  */
 export async function runCommand(
@@ -177,16 +235,18 @@ export async function runCommand(
   rid: string,
   text: string,
   threadId: string | null,
-): Promise<boolean> {
+): Promise<CommandRun | null> {
   const split = splitCommand(text);
-  if (split === null) return false;
+  if (split === null) return null;
   let known: Command[];
   try {
     known = readCommands(await rawList(client), 'en');
   } catch {
-    return false;
+    return null;
   }
-  if (!known.some((c) => c.name === split.name)) return false;
+  if (!known.some((c) => c.name === split.name)) return null;
+  const written = textCommand(split.name, split.params);
+  if (written !== null) return written;
   const body: Record<string, string> = {
     command: split.name,
     roomId: rid,
@@ -195,5 +255,5 @@ export async function runCommand(
   };
   if (threadId !== null) body.tmid = threadId;
   await client.post('commands.run', { body });
-  return true;
+  return { kind: 'done' };
 }

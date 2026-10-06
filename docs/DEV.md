@@ -3,6 +3,7 @@
 ## Getting started
 
 ```sh
+git config core.hooksPath .githooks # once per clone, see below
 source apps/mobile/scripts/env.sh   # RV_ENV_VERBOSE=1 to see what is exported
 java -version                  # 17.0.19
 adb devices
@@ -20,6 +21,8 @@ Overrides:
 | `RV_ANDROID_HOME` | Bypasses SDK detection. |
 | `RV_ROOT_URL` | Pins `ROOT_URL` instead of deriving it from the LAN IP. |
 | `RV_ENV_VERBOSE=1` | Prints what is exported. |
+
+The `.githooks/pre-commit` hook regenerates the Rocket.Chat inventory (`docs/protocol/rocketchat-inventory.*`) whenever a commit touches a file it scans, from the staged content only, and adds it to the commit: CI's `inventory-rocketchat.mjs --check` fails on an inventory a moved line made stale. It needs `apps/mobile/node_modules` (`npm ci`); without it, it warns and lets the commit through.
 
 `ROOT_URL` is **recomputed on every source**, because the LAN IP changes (DHCP, VPN, Wi-Fi to Ethernet) and a stale `ROOT_URL` would silently point at the old network. Without a default route, it is **left undefined**, rather than being `http://:3000`.
 

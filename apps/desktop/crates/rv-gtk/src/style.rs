@@ -101,6 +101,12 @@ button.cta:active, button.cta:disabled { opacity: 0.75; }
 .tile-g6 { background-image: linear-gradient(135deg, #FFD34E, #FF5FA2); }
 .tile-neutral { background-image: linear-gradient(135deg, #8F89AB, #5A5573); }
 
+.server-rail { background: #08070F; padding: 12px 10px; border-right: 1px solid #1E1B33; }
+.rail-button { padding: 0; margin: 0; min-width: 0; min-height: 0; background: none; border: none; box-shadow: none; border-radius: 15px; }
+.rail-button:hover .tile-room, .rail-button:hover .rail-add { box-shadow: 0 0 0 2px #3A3560; }
+.rail-button.rail-active .tile-room { box-shadow: 0 0 0 2px #FF5FA2; }
+.rail-dot { min-width: 12px; min-height: 12px; border-radius: 6px; background: #FFD34E; border: 2px solid #08070F; margin: -3px -3px 0 0; }
+.rail-add { border-radius: 15px; background: #171529; color: #34E1D0; }
 .badge { border-radius: 11px; min-width: 22px; min-height: 22px; padding: 0 7px; font-weight: 800; font-size: 12px; }
 .badge-unread { background: #FFD34E; color: #0B0913; }
 .badge-mention { background: #FF5FA2; color: #0B0913; }
@@ -252,13 +258,18 @@ button.edit-button.save { background: linear-gradient(135deg, #FF5FA2, #A78BFA);
 .marked-row { padding: 8px 10px; }
 .completion { background: #171529; border-radius: 12px; padding: 4px; }
 .completion row { border-radius: 8px; padding: 4px 10px; }
-.completion row:selected { background: #2C2946; }
+.completion row:hover { background: #211E38; }
+.completion row:selected { background: #2C2946; box-shadow: inset 3px 0 0 #FF5FA2; }
+.completion-header { padding: 8px 12px 7px; margin-bottom: 4px; border-bottom: 1px solid #2C2946; }
+.completion-title { font-size: 11px; font-weight: 800; letter-spacing: 1px; color: #FF5FA2; }
+.completion-keys { font-size: 11.5px; color: #6E6890; }
+.command-name { font-size: 14px; }
 .completion-item { font-size: 14px; }
 .player-frame, .player-holder { background: #000; }
 .video-progress trough { min-height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.25); }
 .video-progress progress { min-height: 6px; border-radius: 3px; background: linear-gradient(90deg, #FF5FA2, #A78BFA); }
-.command-choice { padding: 2px 0; }
-.command-description { color: #8F89AB; font-size: 12.5px; }
+.command-choice { padding: 3px 2px; }
+.command-description { color: #8F89AB; font-size: 13px; }
 .private-note { border-left-color: #34E1D0; }
 .private-note .reply-title { color: #34E1D0; }
 menubutton.emoji-button > button { min-width: 28px; min-height: 24px; padding: 0 2px; color: #8F89AB; background: transparent; }

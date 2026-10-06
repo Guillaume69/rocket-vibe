@@ -8,6 +8,7 @@ import {
   runCommand,
   readCommands,
   privateMessage,
+  textCommand,
   words,
 } from './commands.ts';
 
@@ -37,6 +38,7 @@ describe('readCommands', () => {
   test('in French', () => {
     assert.equal(readCommands(LIST, 'fr')[1]!.description, "Retirer quelqu'un du salon");
     assert.equal(words('Slash_Topic_Params', 'fr'), 'sujet');
+    assert.equal(words('app-8b88-42.GIPHY_Search_Term', 'en'), 'GIPHY Search Term');
   });
 
   test('a response without a list yields nothing', () => {
@@ -114,12 +116,12 @@ describe('runCommand', () => {
 
   test('runs a known command, in the thread if any', async () => {
     const { client, posts } = fakeClient();
-    assert.equal(await runCommand(client, 'R1', '/shrug lol', 'F1'), true);
+    assert.deepEqual(await runCommand(client, 'R1', '/kick @bob', 'F1'), { kind: 'done' });
     assert.equal(posts.length, 1);
     const body = posts[0]!.body as Record<string, string>;
     assert.equal(posts[0]!.path, 'commands.run');
-    assert.equal(body.command, 'shrug');
-    assert.equal(body.params, 'lol');
+    assert.equal(body.command, 'kick');
+    assert.equal(body.params, '@bob');
     assert.equal(body.roomId, 'R1');
     assert.equal(body.tmid, 'F1');
     assert.ok(body.triggerId !== undefined && body.triggerId.length > 0);
@@ -127,8 +129,14 @@ describe('runCommand', () => {
 
   test('an unknown name or plain text stays a message', async () => {
     const { client, posts } = fakeClient();
-    assert.equal(await runCommand(client, 'R1', '/unknown', null), false);
-    assert.equal(await runCommand(client, 'R1', 'hello', null), false);
+    assert.equal(await runCommand(client, 'R1', '/unknown', null), null);
+    assert.equal(await runCommand(client, 'R1', 'hello', null), null);
+    assert.equal(posts.length, 0);
+  });
+
+  test('a text command is written here, never run by the server', async () => {
+    const { client, posts } = fakeClient();
+    assert.deepEqual(await runCommand(client, 'R1', '/shrug lol', null), { kind: 'message', text: 'lol ¯\\_(ツ)_/¯' });
     assert.equal(posts.length, 0);
   });
 
@@ -138,5 +146,16 @@ describe('runCommand', () => {
       throw new Error('refused');
     };
     await assert.rejects(runCommand(client, 'R1', '/kick @bob', null), /refused/);
+  });
+});
+
+describe('textCommand', () => {
+  test('writes what Rocket.Chat writes', () => {
+    assert.deepEqual(textCommand('shrug', ''), { kind: 'message', text: '¯\\_(ツ)_/¯' });
+    assert.deepEqual(textCommand('gimme', ' coffee '), { kind: 'message', text: '༼ つ ◕_◕ ༽つ coffee' });
+    assert.deepEqual(textCommand('tableflip', 'argh'), { kind: 'message', text: 'argh (╯°□°）╯︵ ┻━┻' });
+    assert.deepEqual(textCommand('me', 'waves'), { kind: 'message', text: '_waves_' });
+    assert.deepEqual(textCommand('me', '  '), { kind: 'done' });
+    assert.equal(textCommand('topic', 'x'), null);
   });
 });

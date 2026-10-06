@@ -26,7 +26,7 @@ import { probeCallAvailable } from './call.ts';
 import type { RestClient } from './rest.ts';
 
 /** One of the two forms `users.info` accepts (never both at once). */
-export type ProfileParams = { username?: string; uid?: string };
+export type ProfileParams = { username?: string; uid?: string; cryptoRoom?:string };
 
 /**
  * Why `user` is missing: a catalogue key (translated at DISPLAY time, this
@@ -60,9 +60,23 @@ const INDICATOR_THRESHOLD_MS = 450;
 const MIN_VISIBLE_MS = 400;
 
 let activeClient: RestClient | null = null;
+let generation=0;
+const readers=new WeakMap<RestClient,(p:ProfileParams)=>Promise<Record<string,unknown>|undefined>>();
+
+export function setProfileReader(client:RestClient,read:(p:ProfileParams)=>Promise<Record<string,unknown>|undefined>):()=>void {
+  readers.set(client,read);
+  return()=>{if(readers.get(client)===read){readers.delete(client);if(activeClient===client)forgetProfileCards();}};
+}
+export function loadProfile(client:RestClient,p:ProfileParams):Promise<Record<string,unknown>|undefined> {
+  const read=readers.get(client);
+  if(read)return read(p);
+  if(client.kind==='rocketvibe')return Promise.reject(new Error('profile_provider_unavailable'));
+  return client.get<{user?:Record<string,unknown>}>('users.info',{params:p.uid?{userId:p.uid}:{username:p.username}}).then(r=>r.user);
+}
 
 /** Set by `SessionProvider` on every session change. */
 export function setProfileClient(client: RestClient | null): void {
+  if(client!==activeClient)forgetProfileCards();
   activeClient = client;
 }
 
@@ -124,8 +138,10 @@ export function readPreloadedProfile(p: ProfileParams): RawProfile | undefined {
  * is enough to display them.
  */
 export function forgetProfileCards(): void {
+  generation++;
   cache.clear();
   currentKey = null;
+  setBusy(false);
 }
 
 const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
@@ -152,6 +168,7 @@ let currentKey: string | null = null;
  * the previous behaviour.
  */
 export async function openProfileCard(p: ProfileParams): Promise<void> {
+  const version=generation;
   const k = key(p);
   if (currentKey === k) return;
   currentKey = k;
@@ -159,12 +176,13 @@ export async function openProfileCard(p: ProfileParams): Promise<void> {
     await preloadThenOpen(p);
   } finally {
     // A more recent opening took over: do not clear ITS key.
-    if (currentKey === k) currentKey = null;
+    if (generation===version && currentKey === k) currentKey = null;
   }
 }
 
 async function preloadThenOpen(p: ProfileParams): Promise<void> {
   const client = activeClient;
+  const version=generation;
   const k = key(p);
 
   // No client (unlikely: before the session is set): open directly, the screen
@@ -180,23 +198,21 @@ async function preloadThenOpen(p: ProfileParams): Promise<void> {
     typeof p.username === 'string' && p.username !== ''
       ? { username: p.username }
       : { uid: p.uid ?? '' };
-  const rest = params.username !== undefined ? { username: params.username } : { userId: params.uid };
-
-  const rawFetch = client
-    .get<{ user?: Record<string, unknown> }>('users.info', { params: rest })
-    .then<RawProfile>((r) => ({
-      user: r.user,
-      error: r.user ? null : { key: 'profile.profileUnreadable' },
+  const rawFetch = loadProfile(client,params)
+    .then<RawProfile>((user) => ({
+      user,
+      error: user ? null : { key: 'profile.profileUnreadable' },
     }))
     .catch<RawProfile>((e: unknown) => ({
       user: undefined,
-      error: e instanceof Error ? { message: e.message } : { key: 'profile.profileNotFound' },
+      error: client.kind==='rocketvibe'?{key:'native.error'}:e instanceof Error ? { message: e.message } : { key: 'profile.profileNotFound' },
     }));
 
   // Deferred indicator: shows ONLY if the wait exceeds the threshold, and then
   // stays visible a minimum time (anti-flash, see the constants).
   let shownAt: number | null = null;
   const timer = setTimeout(() => {
+    if(version!==generation || client!==activeClient)return;
     setBusy(true);
     shownAt = Date.now();
   }, INDICATOR_THRESHOLD_MS);
@@ -216,10 +232,12 @@ async function preloadThenOpen(p: ProfileParams): Promise<void> {
       const remainingMs = MIN_VISIBLE_MS - (Date.now() - shownAt);
       if (remainingMs > 0) await delay(remainingMs);
     }
-    setBusy(false);
+    if(version===generation)setBusy(false);
   }
 
+  if(version!==generation || client!==activeClient)return;
   if (raw !== null) {
+    if(cache.size>=64)cache.delete(cache.keys().next().value!);
     cache.set(k, raw);
   } else {
     // Cap exceeded: open without serving a stale earlier entry; the screen

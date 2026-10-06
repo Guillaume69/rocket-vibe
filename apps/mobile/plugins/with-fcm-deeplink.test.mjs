@@ -36,7 +36,7 @@ const {
   SERVICE_CLASS,
 } = plugin.internals;
 
-const DEPS = ['com.google.firebase:firebase-messaging:25.0.1', 'androidx.work:work-runtime:2.10.1'];
+const DEPS = ['com.google.firebase:firebase-messaging:25.0.1', 'androidx.work:work-runtime:2.10.1', 'com.google.guava:guava:33.3.1-android'];
 
 /** An app/build.gradle cut down to what matters: one root block, one nested. */
 const GRADLE = `apply plugin: "com.android.application"
@@ -74,7 +74,7 @@ describe('addDependencies', () => {
     }
   });
 
-  it('declares each of the two artifacts exactly once', () => {
+  it('declares each artifact exactly once', () => {
     const output = addDependencies(GRADLE, DEPS);
     for (const dep of DEPS) {
       assert.equal(output.split(`implementation("${dep}")`).length - 1, 1);

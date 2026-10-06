@@ -30,6 +30,7 @@
 
 import { isWebLink } from './externalLink.ts';
 import { isVideoLink, videoId } from './videoLinks.ts';
+import {linkPreview} from '../providers/rocketvibe/linkPreviews.ts';
 
 export type LinkPreview =
   | { type: 'image'; url: string }
@@ -45,6 +46,8 @@ export type LinkPreview =
     };
 
 type UrlEntry = {
+  native_preview?:unknown;
+  native_message?:unknown;
   url?: unknown;
   meta?: Record<string, unknown>;
   headers?: { contentType?: unknown };
@@ -119,7 +122,7 @@ function cardFromMeta(url: string, meta: Record<string, unknown>): LinkPreview |
 }
 
 /** What the server knows about a video, for the embed card. */
-export type VideoMeta = { title: string | null; author: string | null };
+export type VideoMeta = { title: string | null; author: string | null; image?:string|null };
 
 /**
  * The metas of the VIDEO links in `urls`, keyed by video id: the counterpart
@@ -128,7 +131,7 @@ export type VideoMeta = { title: string | null; author: string | null };
  * already has the title: YouTube goes through oEmbed (`oembedTitle`,
  * `oembedAuthorName`), the others through OpenGraph.
  */
-export function videoMetas(urlsJson: string | null | undefined): Map<string, VideoMeta> {
+export function videoMetas(urlsJson: string | null | undefined, native?: (message:string,image:string)=>string|null): Map<string, VideoMeta> {
   const byId = new Map<string, VideoMeta>();
   let raw: unknown;
   try {
@@ -143,6 +146,14 @@ export function videoMetas(urlsJson: string | null | undefined): Map<string, Vid
     if (typeof entry?.url !== 'string') continue;
     const id = videoId(entry.url);
     if (id === null || byId.has(id)) continue;
+    if(entry.native_preview!==undefined){
+      try{
+        const p=linkPreview(entry.native_preview);
+        if(!native||typeof entry.native_message!=='string'||p.url!==entry.url)continue;
+        byId.set(id,{title:p.title??null,author:p.site??null,image:p.image?native(entry.native_message,p.image.file_id):null});
+      }catch{ /* Malformed native metadata cannot fall back to a public image. */ }
+      continue;
+    }
     const meta = entry.meta;
     if (!meta || typeof meta !== 'object') continue;
     const title = first(meta, ['oembedTitle', 'ogTitle', 'twitterTitle', 'pageTitle']);
@@ -158,7 +169,7 @@ export function videoMetas(urlsJson: string | null | undefined): Map<string, Vid
  * Dedupes by URL, skips video links (dedicated card), and caps at `max` so a
  * message stuffed with links does not drown the timeline.
  */
-export function linkPreviews(urlsJson: string | null | undefined, max = 3): LinkPreview[] {
+export function linkPreviews(urlsJson: string | null | undefined, max = 3, native?: (message:string,image:string)=>string|null): LinkPreview[] {
   if (urlsJson === null || urlsJson === undefined || urlsJson === '') return [];
   let raw: unknown;
   try {
@@ -182,6 +193,18 @@ export function linkPreviews(urlsJson: string | null | undefined, max = 3): Link
     const url = isWebLink(rawUrl) ? rawUrl : null;
     if (url === null || seen.has(url)) continue;
     if (isVideoLink(url)) continue; // already rendered by the video card
+
+    if(entry.native_preview!==undefined){
+      try{
+        const p=linkPreview(entry.native_preview);
+        if(!native||typeof entry.native_message!=='string'||p.url!==url)continue;
+        const image=p.image?native(entry.native_message,p.image.file_id):null;
+        if(p.kind==='image'){if(image)previews.push({type:'image',url:image});}
+        else previews.push({type:'card',url:p.url,title:p.title??null,description:p.description??null,image,site:p.site??null});
+        seen.add(url);
+      }catch{ /* Reject a malformed native manifest without a public-image fallback. */ }
+      continue;
+    }
 
     let preview: LinkPreview | null = null;
     if (isImage(entry, url)) {

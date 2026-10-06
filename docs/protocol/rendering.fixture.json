@@ -1,0 +1,27 @@
+{
+  "format": 1,
+  "markdown": [
+    { "id": "unicode", "source": "Bonjour 🚀 café", "nodes": ["PARAGRAPH"], "contains": ["Bonjour", "café"] },
+    { "id": "emphasis", "source": "*gras* _italique_ ~barré~", "nodes": ["BOLD", "ITALIC", "STRIKE"], "contains": ["gras", "italique", "barré"] },
+    { "id": "nested", "source": "**gras _imbriqué_**", "nodes": ["BOLD", "ITALIC"], "contains": ["imbriqué"] },
+    { "id": "inline-code", "source": "Lire `a < b && c` maintenant", "nodes": ["INLINE_CODE"], "contains": ["a < b && c"] },
+    { "id": "fenced-code", "source": "```rust\nlet x = \"<>&\";\n```", "nodes": ["CODE"], "contains": ["let x"] },
+    { "id": "quote", "source": "> citation *forte*\n> deuxième ligne", "nodes": ["QUOTE", "BOLD"], "contains": ["citation", "deuxième"] },
+    { "id": "unordered", "source": "- premier\n- second", "nodes": ["UNORDERED_LIST"], "contains": ["premier", "second"] },
+    { "id": "ordered", "source": "1. un\n2. deux", "nodes": ["ORDERED_LIST"], "contains": ["un", "deux"] },
+    { "id": "heading", "source": "## Titre", "nodes": ["HEADING"], "contains": ["Titre"] },
+    { "id": "mentions", "source": "Salut @alice et #general", "nodes": ["MENTION_USER", "MENTION_CHANNEL"], "contains": ["alice", "general"] },
+    { "id": "links", "source": "[projet](https://example.org/rocket) et https://example.org/fin.", "nodes": ["LINK"], "contains": ["projet", "https://example.org/fin"] },
+    { "id": "emoji", "source": ":rocket: :smile:", "nodes": ["EMOJI"], "contains": ["🚀", "😄"] },
+    { "id": "custom-emoji", "source": "Bravo :rv_custom_missing: !", "nodes": ["EMOJI"], "contains": [":rv_custom_missing:"] },
+    { "id": "literal-html", "source": "<script>alert('x')</script> & <b>texte</b>", "nodes": ["PARAGRAPH"], "contains": ["alert", "texte"] },
+    { "id": "quote-permalink", "source": "[ ](https://example.org/channel/general?msg=quoted) Ma réponse", "nodes": ["PARAGRAPH"], "contains": ["Ma réponse"], "hidden": ["https://example.org/channel/general?msg=quoted"] }
+  ],
+  "attachments": [
+    { "id": "photo", "items": [{ "title": "photo.png", "title_link": "/file-upload/photo/photo.png", "image_url": "/file-upload/photo/thumb.png", "image_dimensions": { "width": 640, "height": 480 } }], "image": "/file-upload/photo/thumb.png", "image_full": "/file-upload/photo/photo.png", "files": 0, "quotes": 0 },
+    { "id": "document", "items": [{ "title": "rapport.pdf", "title_link": "/file-upload/doc/rapport.pdf", "size": 1024, "format": "application/pdf" }], "image": null, "files": 1, "quotes": 0, "share": "/file-upload/doc/rapport.pdf" },
+    { "id": "voice", "items": [{ "title": "vocal.m4a", "audio_url": "/file-upload/voice/vocal.m4a", "audio_size": 2048, "audio_type": "audio/mp4" }], "image": null, "files": 1, "quotes": 0, "share": "/file-upload/voice/vocal.m4a" },
+    { "id": "video", "items": [{ "title": "video.mp4", "video_url": "/file-upload/video/video.mp4", "video_size": 4096, "video_type": "video/mp4" }], "image": null, "files": 1, "quotes": 0, "share": "/file-upload/video/video.mp4" },
+    { "id": "quoted-file", "items": [{ "message_link": "https://example.org/channel/general?msg=quoted", "author_name": "alice", "text": "Texte cité", "attachments": [{ "title": "secret.pdf", "title_link": "/file-upload/secret/secret.pdf" }] }], "image": null, "files": 0, "quotes": 1 }
+  ]
+}

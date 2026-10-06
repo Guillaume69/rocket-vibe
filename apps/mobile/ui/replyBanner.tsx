@@ -10,6 +10,7 @@ import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { RestClient } from '../lib/rest.ts';
 import { protectedFileUrl } from '../lib/upload.ts';
 import { useT } from './i18n.ts';
+import { useIdentities } from './identities.tsx';
 import type { ReplyTarget } from './reply.ts';
 import { FONTS, type Colors } from './theme.ts';
 
@@ -26,6 +27,9 @@ export function ReplyBanner({
   onCancel: () => void;
 }) {
   const t = useT();
+  // A private source names its author by uid: shown as the rows show it.
+  const identities = useIdentities();
+  const author = target.author === null ? '?' : (identities.get(target.author) ?? target.author);
   const preview = target.preview?.trim() ?? '';
   return (
     <View style={[styles.banner, { borderTopColor: c.softBorder }]}>
@@ -39,10 +43,10 @@ export function ReplyBanner({
       )}
       <View style={styles.body}>
         <Text style={[styles.title, { color: c.accent }]} numberOfLines={1}>
-          {t('room.replyingTo', { name: target.author ?? '?' })}
+          {target.nativeUnavailable ? t('quote.unavailable') : t('room.replyingTo', { name: author })}
         </Text>
         <Text style={[styles.excerpt, { color: c.dimmed }]} numberOfLines={1}>
-          {preview !== '' ? preview : t('common.attachment')}
+          {target.nativeUnavailable ? t('quote.selectionChanged') : preview !== '' ? preview : t('common.attachment')}
         </Text>
       </View>
       <Pressable

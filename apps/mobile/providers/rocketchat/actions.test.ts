@@ -17,6 +17,12 @@ function fakeClient(response: unknown = {}) {
 }
 
 describe('ActionsRC', () => {
+  test('infosSalon preserves the official rooms.info route and neutral fields',async()=>{
+    const calls:unknown[]=[];
+    const client={get:async(path:string,options:unknown)=>{calls.push([path,options]);return {room:{_id:'r1',name:'room',fname:'A room',t:'p',description:'Description',topic:'Sujet',announcement:'Annonce',usersCount:4,ro:true}};}} as unknown as RestClient;
+    assert.deepEqual(await new ActionsRC(client).roomInfo('r1'),{id:'r1',name:'A room',type:'p',description:'Description',topic:'Sujet',announcement:'Annonce',members:4,readOnly:true});
+    assert.deepEqual(calls,[['rooms.info',{params:{roomId:'r1'}}]]);
+  });
   test('react wraps the shortname in :code: and passes shouldReact', async () => {
     const { client, calls } = fakeClient();
     await new ActionsRC(client).react('r1', 'm1', '+1', true);

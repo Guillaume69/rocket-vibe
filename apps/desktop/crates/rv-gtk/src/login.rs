@@ -26,12 +26,25 @@ pub struct LoginPage {
     pub widget: gtk::Overlay,
     credentials: gtk::Box,
     server: gtk::Entry,
+    kind: gtk::DropDown,
     user: gtk::Entry,
     password: gtk::Entry,
+    signup: gtk::CheckButton,
+    recovery: gtk::CheckButton,
+    recovery_email: std::rc::Rc<crate::login_recovery::RecoveryEmail>,
+    invitation: gtk::Entry,
     code_step: gtk::Box,
     code_intro: gtk::Label,
     code_caption: gtk::Label,
     code: gtk::Entry,
+    factor_selector: gtk::DropDown,
+    native_methods: std::rc::Rc<std::cell::RefCell<Vec<String>>>,
+    factor_resume: gtk::Label,
+    factor_mail: gtk::Box,
+    factor_mail_send: gtk::Button,
+    factor_mail_resend: gtk::Button,
+    factor_mail_status: gtk::Label,
+    mail_known: std::rc::Rc<std::cell::Cell<bool>>,
     error: gtk::Label,
     submit: gtk::Button,
     back: gtk::Button,
@@ -75,15 +88,57 @@ fn starry(page: &gtk::Widget) -> gtk::Overlay {
     overlay.add_overlay(page);
     overlay
 }
+fn code_fields(code: &gtk::Entry, caption: &gtk::Label, intro: &gtk::Label, method: Option<&str>) {
+    let (label, help, secret) = match method {
+        Some("email") => (t("login.code_email"), t("login.intro_email"), false),
+        Some("password") => (t("login.code_password"), t("login.intro_password"), true),
+        Some("recovery_code") => (t("login.code_recovery_code"), t("login.intro_recovery_code"), true),
+        _ => (t("login.code_totp"), t("login.intro_totp"), false),
+    };
+    caption.set_label(label);
+    intro.set_label(help);
+    code.set_text("");
+    code.set_visibility(!secret);
+    code.set_input_purpose(if secret { gtk::InputPurpose::FreeForm } else { gtk::InputPurpose::Digits });
+    if secret {
+        code.remove_css_class("code");
+        code.set_placeholder_text(None);
+    } else {
+        code.add_css_class("code");
+        code.set_placeholder_text(Some(if method == Some("email") { "12345678" } else { "123456" }));
+    }
+}
+
+fn server_kind(kind: &gtk::DropDown) -> rv_core::native::ServerKind {
+    use rv_core::native::ServerKind;
+    match kind.selected() {
+        1 => ServerKind::RocketChat,
+        2 => ServerKind::RocketVibe,
+        _ => ServerKind::Auto,
+    }
+}
 
 impl LoginPage {
     pub fn new() -> Self {
         let (server_group, server) = widgets::pill_field(t("login.server"), "chat.example.com", false);
         let (user_group, user) = widgets::pill_field(t("login.user"), "jane.doe", false);
         let (password_group, password) = widgets::pill_field(t("login.password"), "", true);
+        let password_caption = password_group.first_child().and_downcast::<gtk::Label>().expect("password caption");
         let credentials = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(14).build();
         credentials.append(&hero());
         credentials.append(&server_group);
+        // Found by probing; forced when the probe gets it wrong behind an
+        // unusual proxy.
+        let kind = gtk::DropDown::from_strings(&[
+            t("login.kind_auto"),
+            t("login.kind_rocketchat"),
+            t("login.kind_rocketvibe"),
+        ]);
+        kind.set_tooltip_text(Some(t("login.kind")));
+        let kind_row = gtk::Box::builder().spacing(10).margin_start(14).build();
+        kind_row.append(&gtk::Label::builder().label(t("login.kind")).css_classes(["file-detail"]).build());
+        kind_row.append(&kind);
+        credentials.append(&kind_row);
         let probe =
             gtk::Label::builder().css_classes(["probe"]).xalign(0.0).wrap(true).visible(false).margin_start(14).build();
         credentials.append(&probe);
@@ -97,6 +152,18 @@ impl LoginPage {
         credentials.append(&known);
         credentials.append(&user_group);
         credentials.append(&password_group);
+        let signup = gtk::CheckButton::builder().label(t("login.create_account")).visible(false).build();
+        credentials.append(&signup);
+        let recovery = gtk::CheckButton::builder().label(t("login.recover_account")).visible(false).build();
+        credentials.append(&recovery);
+        let (invitation_group, invitation) = widgets::pill_field(t("login.invitation"), "", true);
+        let invitation_caption =
+            invitation_group.first_child().and_downcast::<gtk::Label>().expect("invitation caption");
+        invitation_group.set_visible(false);
+        let invitation_help =
+            gtk::Label::builder().label(t("login.invitation_help")).wrap(true).xalign(0.0).visible(false).build();
+        credentials.append(&invitation_group);
+        credentials.append(&invitation_help);
 
         let back = gtk::Button::builder().css_classes(["flat", "back-link"]).halign(gtk::Align::Start).build();
         let back_content = gtk::Box::builder().spacing(8).build();
@@ -116,11 +183,101 @@ impl LoginPage {
         code_step.append(&gtk::Label::builder().label("🛡️").css_classes(["shield"]).margin_top(6).build());
         code_step.append(&gtk::Label::builder().label(t("login.magic")).css_classes(["step-title"]).build());
         code_step.append(&code_intro);
+        let factor_selector = gtk::DropDown::builder().visible(false).build();
+        let native_methods = std::rc::Rc::new(std::cell::RefCell::new(Vec::<String>::new()));
+        let methods = native_methods.clone();
+        let factor_mail = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(6).visible(false).build();
+        let factor_mail_send = gtk::Button::builder().label(t("email.send_code")).build();
+        let factor_mail_resend = gtk::Button::builder().label(t("email.resend_code")).visible(false).build();
+        let factor_mail_status = gtk::Label::builder().wrap(true).xalign(0.0).build();
+        let mail_known = std::rc::Rc::new(std::cell::Cell::new(false));
+        factor_mail.append(&factor_mail_send);
+        factor_mail.append(&factor_mail_resend);
+        factor_mail.append(&factor_mail_status);
+        factor_selector.connect_selected_notify(glib::clone!(
+            #[weak]
+            code,
+            #[weak]
+            code_caption,
+            #[weak]
+            code_intro,
+            #[weak]
+            factor_mail,
+            move |selector| {
+                if let Some(method) = methods.borrow().get(selector.selected() as usize) {
+                    code_fields(&code, &code_caption, &code_intro, Some(method));
+                    factor_mail.set_visible(method == "email");
+                }
+            }
+        ));
+        code_step.append(&factor_selector);
+        code_step.append(&factor_mail);
         code_group.set_margin_top(14);
         code_step.append(&code_group);
+        let factor_resume = gtk::Label::builder().label(t("login.factor_resume")).wrap(true).visible(false).build();
+        code_step.append(&factor_resume);
 
         let error = gtk::Label::builder().css_classes(["login-error"]).wrap(true).xalign(0.0).visible(false).build();
         let submit = widgets::cta(t("login.sign_in"));
+        let recovery_email =
+            crate::login_recovery::RecoveryEmail::new(&server, &user, &recovery, &credentials, &submit);
+        credentials.append(&recovery_email.widget);
+        signup.connect_toggled(glib::clone!(
+            #[weak]
+            recovery,
+            #[weak]
+            invitation_caption,
+            #[weak]
+            password_caption,
+            #[weak]
+            invitation_group,
+            #[weak]
+            invitation_help,
+            #[weak]
+            invitation,
+            #[weak]
+            submit,
+            move |button| {
+                if button.is_active() {
+                    recovery.set_active(false);
+                }
+                invitation_caption.set_label(t("login.invitation"));
+                password_caption.set_label(t("login.password"));
+                invitation_help.set_label(t("login.invitation_help"));
+                invitation_group.set_visible(button.is_active());
+                invitation_help.set_visible(button.is_active());
+                invitation.set_text("");
+                submit.set_label(t(if button.is_active() { "login.create_account" } else { "login.sign_in" }));
+            }
+        ));
+        recovery.connect_toggled(glib::clone!(
+            #[weak]
+            signup,
+            #[weak]
+            invitation_group,
+            #[weak]
+            invitation_help,
+            #[weak]
+            invitation,
+            #[weak]
+            invitation_caption,
+            #[weak]
+            password_caption,
+            #[weak]
+            submit,
+            move |button| {
+                if button.is_active() {
+                    signup.set_active(false);
+                }
+                invitation_group.set_visible(button.is_active());
+                invitation_help.set_visible(button.is_active());
+                invitation.set_text("");
+                invitation_caption.set_label(t("login.recovery_code"));
+                password_caption.set_label(t(if button.is_active() { "login.new_password" } else { "login.password" }));
+                invitation_help.set_label(t("login.recovery_help"));
+                submit.set_label(t(if button.is_active() { "login.reset_password" } else { "login.sign_in" }));
+            }
+        ));
         let cancel = gtk::Button::builder().label(t("login.cancel_add")).css_classes(["flat"]).visible(false).build();
 
         let column = gtk::Box::builder()
@@ -159,14 +316,33 @@ impl LoginPage {
         ));
 
         let generation = std::rc::Rc::new(std::cell::Cell::new(0u64));
+        // Another kind asks the probe again, under that kind.
+        kind.connect_selected_notify(glib::clone!(
+            #[weak]
+            server,
+            move |_| server.emit_by_name::<()>("changed", &[])
+        ));
         server.connect_changed(glib::clone!(
             #[weak]
+            kind,
+            #[weak]
+            recovery_email,
+            #[weak]
             probe,
+            #[weak]
+            signup,
+            #[weak]
+            recovery,
             move |entry| {
+                signup.set_active(false);
+                signup.set_visible(false);
+                recovery.set_active(false);
+                recovery.set_visible(false);
                 let current = generation.get() + 1;
                 generation.set(current);
                 let text = entry.text().to_string();
                 let generation = generation.clone();
+                let recovery_email = recovery_email.clone();
                 glib::timeout_add_local_once(std::time::Duration::from_millis(600), move || {
                     if generation.get() != current {
                         return;
@@ -175,8 +351,9 @@ impl LoginPage {
                         probe.set_visible(false);
                         return;
                     };
+                    let chosen = server_kind(&kind);
                     glib::spawn_future_local(async move {
-                        let found = crate::on_tokio(async move { rv_core::server::probe(&url).await }).await;
+                        let found = crate::on_tokio(async move { rv_core::server::probe_as(&url, chosen).await }).await;
                         if generation.get() != current {
                             return;
                         }
@@ -188,7 +365,11 @@ impl LoginPage {
                                 probe.set_label(t("login.probe_no_password"));
                             }
                             Ok(p) => {
-                                let mut facts = vec![format!("Rocket.Chat {}", p.version)];
+                                recovery_email.profile(&p);
+                                signup.set_visible(p.genre == "rocketvibe" && p.account_invitations);
+                                recovery.set_visible(p.genre == "rocketvibe" && p.account_recovery);
+                                let product = if p.genre == "rocketvibe" { "RocketVibe" } else { "Rocket.Chat" };
+                                let mut facts = vec![format!("{product} {}", p.version)];
                                 if p.two_factor {
                                     facts.push(t("login.probe_2fa").to_owned());
                                 }
@@ -197,9 +378,13 @@ impl LoginPage {
                                 }
                                 probe.set_label(&facts.join(" · "));
                             }
-                            Err(_) => {
+                            Err(e) => {
                                 probe.add_css_class("bad");
-                                probe.set_label(t("login.probe_failed"));
+                                probe.set_label(t(if e.error.as_deref() == Some("not_native") {
+                                    "login.not_rocketvibe"
+                                } else {
+                                    "login.probe_failed"
+                                }));
                             }
                         }
                     });
@@ -211,12 +396,25 @@ impl LoginPage {
             widget: starry(page.upcast_ref()),
             credentials,
             server,
+            kind,
             user,
             password,
+            signup,
+            recovery,
+            recovery_email,
+            invitation,
             code_step,
             code_intro,
             code_caption,
             code,
+            factor_selector,
+            native_methods,
+            factor_resume,
+            factor_mail,
+            factor_mail_send,
+            factor_mail_resend,
+            factor_mail_status,
+            mail_known,
             error,
             submit,
             back,
@@ -266,9 +464,33 @@ impl LoginPage {
     pub fn connect_back(&self, f: impl Fn() + 'static) {
         self.back.connect_clicked(move |_| f());
     }
+    pub fn connect_mail(&self, f: impl Fn(bool) + Clone + 'static) {
+        let resend = f.clone();
+        self.factor_mail_send.connect_clicked(move |_| f(false));
+        self.factor_mail_resend.connect_clicked(move |_| resend(true));
+    }
+    pub fn request_native_mail(&self, resend: bool) -> bool {
+        if self.is_busy() || !self.factor_mail.is_visible() || (resend && !self.mail_known.get()) {
+            return false;
+        }
+        if resend {
+            self.factor_mail_resend.emit_clicked();
+        } else {
+            self.factor_mail_send.emit_clicked();
+        }
+        true
+    }
+    pub fn native_mail_known(&self) -> bool {
+        self.mail_known.get()
+    }
 
     pub fn server(&self) -> String {
         self.server.text().into()
+    }
+
+    /// The kind of server chosen under the address.
+    pub fn server_kind(&self) -> rv_core::native::ServerKind {
+        server_kind(&self.kind)
     }
 
     pub fn set_server(&self, server: &str) {
@@ -282,9 +504,60 @@ impl LoginPage {
     pub fn password(&self) -> String {
         self.password.text().into()
     }
+    pub fn invitation(&self) -> Option<String> {
+        (self.signup.is_visible() && self.signup.is_active()).then(|| self.invitation.text().trim().to_owned())
+    }
+    pub fn fill_invitation(&self, token: &str) -> bool {
+        if !self.signup.is_visible() {
+            return false;
+        }
+        self.signup.set_active(true);
+        self.invitation.set_text(token);
+        true
+    }
+    pub fn recovery_code(&self) -> Option<String> {
+        (self.recovery.is_visible() && self.recovery.is_active()).then(|| self.invitation.text().trim().to_owned())
+    }
+    pub fn fill_recovery(&self, token: &str) -> bool {
+        if !self.recovery.is_visible() {
+            return false;
+        }
+        self.recovery.set_active(true);
+        self.invitation.set_text(token);
+        true
+    }
+    pub fn clear_secrets(&self) {
+        self.recovery_email.close();
+        self.password.set_text("");
+        self.invitation.set_text("");
+        self.signup.set_active(false);
+        self.recovery.set_active(false);
+        self.code.set_text("");
+    }
+    pub fn close_recovery_email(&self) {
+        self.recovery_email.close();
+    }
+    pub fn recovery_email_view(&self) -> Option<rv_core::native::email_recovery::FormView> {
+        self.recovery_email.view()
+    }
+    pub fn request_recovery_email(&self) -> bool {
+        self.recovery_email.request()
+    }
+    pub fn focus_recovery_email(&self) {
+        self.recovery_email.focus();
+    }
+    pub fn is_busy(&self) -> bool {
+        !self.submit.is_sensitive()
+    }
 
     pub fn code(&self) -> String {
         self.code.text().into()
+    }
+    pub fn clear_factor_code(&self) {
+        self.code.set_text("");
+    }
+    pub fn has_error(&self) -> bool {
+        self.error.is_visible()
     }
 
     pub fn fill(&self, server: &str, user: &str, password: &str) {
@@ -295,11 +568,20 @@ impl LoginPage {
 
     pub fn set_busy(&self, busy: bool) {
         self.submit.set_sensitive(!busy);
+        self.credentials.set_sensitive(!busy);
+        self.code_step.set_sensitive(!busy);
+        self.cancel.set_sensitive(!busy);
         let asking = self.code_step.is_visible();
         self.submit.set_label(match (busy, asking) {
             (true, _) => t("login.signing_in"),
             (false, true) => t("login.confirm"),
-            (false, false) => t("login.sign_in"),
+            (false, false) => t(if self.recovery.is_active() {
+                "login.reset_password"
+            } else if self.signup.is_active() {
+                "login.create_account"
+            } else {
+                "login.sign_in"
+            }),
         });
     }
 
@@ -313,15 +595,13 @@ impl LoginPage {
         let asking = method.is_some();
         self.credentials.set_visible(!asking);
         self.code_step.set_visible(asking);
-        self.code.set_text("");
-        let (caption, intro, secret) = match method {
-            Some("email") => (t("login.code_email"), t("login.intro_email"), false),
-            Some("password") => (t("login.code_password"), t("login.intro_password"), true),
-            _ => (t("login.code_totp"), t("login.intro_totp"), false),
-        };
-        self.code_caption.set_label(caption);
-        self.code_intro.set_label(intro);
-        self.code.set_visibility(!secret);
+        self.native_methods.borrow_mut().clear();
+        self.factor_selector.set_visible(false);
+        self.factor_resume.set_visible(false);
+        self.factor_mail.set_visible(false);
+        self.factor_mail_status.set_label("");
+        self.mail_known.set(false);
+        code_fields(&self.code, &self.code_caption, &self.code_intro, method);
         self.set_busy(false);
         if asking {
             self.code.grab_focus();
@@ -331,4 +611,66 @@ impl LoginPage {
             self.password.grab_focus();
         }
     }
+    pub fn ask_native_code(&self, saved: &rv_core::native::authentication::LoginChallenge) -> bool {
+        use rv_core::native::authentication::method_name;
+        let selected = self.native_method();
+        let methods = saved.challenge.methods.iter().map(|m| method_name(*m).to_owned()).collect::<Vec<_>>();
+        let Some(first) = methods.iter().find(|m| Some(*m) == selected.as_ref()).or_else(|| methods.first()) else {
+            return false;
+        };
+        self.ask_code(Some(first));
+        let labels = methods
+            .iter()
+            .map(|method| {
+                t(match method.as_str() {
+                    "recovery_code" => "login.factor_backup",
+                    "email" => "login.factor_email",
+                    _ => "login.factor_totp",
+                })
+            })
+            .collect::<Vec<_>>();
+        let model = gtk::StringList::new(&labels);
+        let index = methods.iter().position(|m| m == first).unwrap();
+        let is_email = first == "email";
+        self.native_methods.replace(methods);
+        self.factor_selector.set_model(Some(&model));
+        self.factor_selector.set_selected(index as u32);
+        self.factor_selector.set_visible(labels.len() > 1);
+        self.factor_resume.set_visible(saved.pending.is_some());
+        self.factor_mail.set_visible(is_email);
+        self.mail_known.set(saved.email.as_ref().is_some_and(|i| i.status.is_some()));
+        self.factor_mail_send.set_label(t(if saved.email.is_some() {
+            "email.resume_delivery"
+        } else {
+            "email.send_code"
+        }));
+        self.factor_mail_resend.set_visible(self.mail_known.get());
+        self.factor_mail_status.set_label(email_delivery_text(saved.email.as_ref()));
+        true
+    }
+    pub fn native_method(&self) -> Option<String> {
+        self.native_methods.borrow().get(self.factor_selector.selected() as usize).cloned()
+    }
+    pub fn fill_factor(&self, method: &str, code: &str) -> bool {
+        let selected = self.native_methods.borrow().iter().position(|m| m == method);
+        let Some(selected) = selected else { return false };
+        self.factor_selector.set_selected(selected as u32);
+        self.code.set_text(code);
+        true
+    }
+}
+
+pub(crate) fn email_delivery_text(intent: Option<&rv_core::native::factor_email::Intent>) -> &'static str {
+    use rv_core::native::security::email::EmailDeliveryState;
+    t(match intent {
+        None => "email.request_code",
+        Some(intent) => match intent.status.as_ref().map(|s| &s.delivery) {
+            None => "email.delivery_unknown",
+            Some(EmailDeliveryState::Queued) => "email.queued",
+            Some(EmailDeliveryState::Sending) => "email.sending",
+            Some(EmailDeliveryState::Deferred) => "email.deferred",
+            Some(EmailDeliveryState::Accepted) => "email.accepted",
+            Some(EmailDeliveryState::Exhausted) => "email.exhausted",
+        },
+    })
 }

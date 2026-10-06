@@ -22,8 +22,10 @@ import { Platform } from 'react-native';
 
 import { rooms, subscriptions } from '../db/schema.ts';
 import { isRoomEncrypted, setEncryptedRooms } from './notificationState.ts';
+import { markServerUnread } from './serverDots.ts';
 import { roomNotificationId } from '../lib/notificationId.ts';
 import { translateCurrent } from './i18n.ts';
+import {useSession} from './session.tsx';
 import { useSync } from './sync.tsx';
 
 /** A push's room, and the server it comes from (multi-session). */
@@ -44,6 +46,8 @@ function notificationTarget(content: Notifications.NotificationContent): Notific
 Notifications.setNotificationHandler({
   handleNotification: async (notification) => {
     const target = notificationTarget(notification.request.content);
+    // Another server's push lights its dot in the rail; the open one ignores it.
+    if (target?.host != null) markServerUnread(target.host);
     if (target !== null && isRoomEncrypted(target.rid)) {
       // Never show the ciphertext: repost a generic text.
       Notifications.scheduleNotificationAsync({
@@ -121,11 +125,12 @@ export function NotificationHandler() {
   }, [router]);
 
   if (sync.phase !== 'ready') return null;
-  return <BadgeAndEncryptedTracking />;
+  return <BadgeAndEncryptedTracking key={JSON.stringify(sync.provider.identity)} />;
 }
 
 /** Lives only once the database is ready: badge, removal of read ones, encrypted. */
 function BadgeAndEncryptedTracking() {
+  const session=useSession().state;
   const sync = useSync();
   const base = sync.phase === 'ready' ? sync.base : null;
 
@@ -150,8 +155,13 @@ function BadgeAndEncryptedTracking() {
   // notification pending in the bar. Removing an absent notification is a
   // `NotificationManagerCompat.cancel` on an unknown id: no effect.
   const removed = useRef(new Set<string>());
+  const observedRooms=useRef(new Set<string>());
   useEffect(() => {
+    if(subscriptionRows===undefined)return;
     const toRemove: string[] = [];
+    const present=new Set(subscriptionRows.map(a=>a.rid));
+    if(session.phase==='connected'&&session.session.kind==='rocketvibe')for(const rid of observedRooms.current)if(!present.has(rid))toRemove.push(rid);
+    observedRooms.current=present;
     for (const a of subscriptionRows ?? []) {
       if (a.unread > 0) {
         removed.current.delete(a.rid);
@@ -161,8 +171,8 @@ function BadgeAndEncryptedTracking() {
       removed.current.add(a.rid);
       toRemove.push(a.rid);
     }
-    if (toRemove.length > 0) removeRoomNotifications(toRemove);
-  }, [subscriptionRows]);
+    if (toRemove.length > 0) removeRoomNotifications(toRemove,session.phase==='connected'?session.session:undefined);
+  }, [subscriptionRows,session]);
 
   useEffect(() => {
     setEncryptedRooms((roomRows ?? []).filter((s) => s.encrypted).map((s) => s.rid));
@@ -176,10 +186,10 @@ function BadgeAndEncryptedTracking() {
  * each push is its own notification, grouped by `threadIdentifier`; the
  * room's ones are found by the `rid` the extension stored in `ejson`.
  */
-function removeRoomNotifications(rids: string[]): void {
+function removeRoomNotifications(rids: string[],scope?:import('../lib/auth.ts').Session): void {
   if (Platform.OS !== 'ios') {
     for (const rid of rids) {
-      Notifications.dismissNotificationAsync(roomNotificationId(rid)).catch(() => {});
+      Notifications.dismissNotificationAsync(roomNotificationId(rid,scope)).catch(() => {});
     }
     return;
   }

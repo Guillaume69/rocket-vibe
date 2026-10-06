@@ -1,13 +1,13 @@
 /**
- * Contract of a chat provider. Rocket.Chat is its only implementation; kChat
- * (Mattermost) is the second target. Everything in the app that names a
- * `/api/v1/*` endpoint or a `stream-*` stream must eventually go through here;
- * the rest (`db/`, `Store`, rendering, `Reconnector`) is already neutral.
+ * Contract of a chat provider. Rocket.Chat is its first implementation,
+ * RocketVibe the second. Everything in the app that names a `/api/v1/*`
+ * endpoint or a `stream-*` stream must eventually go through here; the rest
+ * (`db/`, `Store`, rendering, `Reconnector`) is already neutral.
  *
  * Load-bearing choice: the sync core does not speak a server's wire format.
- * Each provider TRANSLATES its raw real-time feed into a neutral `SyncChange`;
- * `SyncEngine` applies it blindly. So Mattermost data is never poured into the
- * Rocket.Chat shape.
+ * Each provider translates its feed into a neutral local projection.
+ * Rocket.Chat uses `SyncChange`; RocketVibe applies its journal and cursor
+ * atomically. No Rocket.Chat document is ever requested from the native server.
  */
 
 import type { DdpEvent, DdpState } from './ddp.ts';
@@ -40,12 +40,29 @@ export type SyncChange =
 
 /**
  * A session's server type. Persisted with it: it decides which driver to
- * instantiate at startup. A single member today; `mattermost` comes with its
- * driver (kChat).
+ * instantiate at startup. Older sessions stay Rocket.Chat.
  */
-export type ProviderKind = 'rocketchat';
+export type ProviderKind = 'rocketchat' | 'rocketvibe';
 
-const KINDS: readonly ProviderKind[] = ['rocketchat'];
+export type ProviderIdentity = {
+  kind: ProviderKind;
+  origin: string;
+  accountId: string;
+  instanceId: string | null;
+  generation: string | null;
+};
+
+/** Neutral diagnostic. A 2FA challenge or a proxy response does not revoke the session. */
+export type ProviderError = {
+  code: string;
+  status: number;
+  requestId: string | null;
+  retryAfter: number | null;
+  rejectsSession: boolean;
+  twoFactorChallenge: boolean;
+};
+
+const KINDS: readonly ProviderKind[] = ['rocketchat', 'rocketvibe'];
 
 /**
  * Brings a stored value back to a known `ProviderKind`. Sessions from before
@@ -66,6 +83,20 @@ export function normalizeProviderKind(value: unknown): ProviderKind {
  * Mattermost flattens by `root_id`; both reduce to "id of the parent post".
  */
 export type Capabilities = {
+  editing?: boolean;
+  deletion?: boolean;
+  files?: boolean;
+  threads?: boolean;
+  reactions?: boolean;
+  marks?: boolean;
+  profile?: boolean;
+  roomInfo?: boolean;
+  roomSettings?: boolean;
+  roomRoleList?: boolean;
+  leaveRoom?: boolean;
+  roomFavorites?: boolean;
+  roomReads?: boolean;
+  quotes?: boolean;
   typing: boolean;
   presence: boolean;
   push: boolean;
@@ -139,10 +170,15 @@ export interface Translator {
  * when their screens are routed; they carry DTOs we don't define in advance.
  */
 export interface ProviderActions {
+  /** Decimal positions stay strings; a timer captures this opening membership. */
+  roomReadState?(rid:string):Promise<RoomReadState|null>;
+  roomFavorite?: RoomFavorite;
+  roomInfo(rid: string): Promise<RoomInformation>;
+  roomManagement?: RoomManagement;
   react(rid: string, mid: string, emoji: string, put: boolean): Promise<void>;
   /** `encryptor`: the message is encrypted, so is its new version. */
-  edit(rid: string, mid: string, text: string, encryptor?: OutboxEncryptor): Promise<void>;
-  delete(rid: string, mid: string): Promise<void>;
+  edit(rid: string, mid: string, text: string, encryptor?: OutboxEncryptor, revision?: string): Promise<void>;
+  delete(rid: string, mid: string, revision?: string): Promise<void>;
   pin(rid: string, mid: string): Promise<void>;
   unpin(rid: string, mid: string): Promise<void>;
   star(rid: string, mid: string, put: boolean): Promise<void>;
@@ -150,18 +186,59 @@ export interface ProviderActions {
   listPinned(rid: string): Promise<LocalMessage[]>;
   /** My starred messages in a room, newest first. */
   listStarred(rid: string): Promise<LocalMessage[]>;
-  markRead(rid: string): Promise<void>;
+  markRead(rid: string, observation?:ReadObservation): Promise<void>;
   /**
    * Opens (or creates, idempotent server-side) the DM with `username`. Returns
    * the `rid` and the raw room document, to ingest so we can navigate without
    * waiting for the stream. Was written twice (profile card, search), with two
    * different validations of the response.
    */
-  openOrCreateDm(username: string): Promise<{ rid: string; rawRoom: Record<string, unknown> }>;
+  openOrCreateDm(username: string,uid?:string): Promise<{ rid: string; rawRoom: Record<string, unknown> }>;
 }
+
+export type ReadObservation={messageId:string;adhesion:string};
+export type RoomReadState={adhesion:string;rootPosition:string;replyPosition:string;unreadRoots:string;unreadReplies:string;mentions:string;groupMentions:string};
+export type RoomFavoriteState={adhesion:string;revision:string;present:boolean;intention:{key:string;present:boolean;failed:boolean;error:string|null}|null};
+export interface RoomFavorite {
+  read?: (rid:string)=>Promise<RoomFavoriteState|null>;
+  edit:(rid:string,present:boolean,state?:Pick<RoomFavoriteState,'adhesion'|'revision'>)=>Promise<void>;
+  resume?:(rid:string,key:string)=>Promise<void>;
+  clear?:(rid:string,key:string)=>Promise<boolean>;
+}
+
+/** Data of the existing info sheet, independent of the server protocol. */
+export type RoomInformation = {
+  id: string;
+  name: string;
+  type: string;
+  description: string | null;
+  topic: string | null;
+  announcement: string | null;
+  members: number | null;
+  readOnly: boolean;
+  management?: RoomSettings;
+};
+
+export type RoomRole = 'owner'|'moderator'|'member';
+export type RoomFields = {name:string;isPrivate:boolean;topic:string;description:string;announcement:string;readOnly:boolean};
+export type RoomSettings = RoomFields & {revision:string;canEdit:boolean;canChangeRoles:boolean;canLeave:boolean;role:RoomRole};
+export type ProviderRoomMember = {id:string;username:string;name:string|null;role:RoomRole;deactivated:boolean};
+export type ProviderRoomMemberPage = {revision:string;members:ProviderRoomMember[];continuation:string|null};
+export type RoomIntent = {key:string;type:'settings'|'role'|'leave';settings:RoomFields|null;target:string|null;role:RoomRole|null;failed:boolean;error:string|null};
+export type RoomManagement = {
+  members(rid:string,continuation:string|null,revision:string):Promise<ProviderRoomMemberPage>;
+  edit(rid:string,revision:string,fields:RoomFields):Promise<void>;
+  changeRole(rid:string,revision:string,target:string,role:RoomRole):Promise<void>;
+  leave(rid:string,revision:string):Promise<void>;
+  intention(rid:string):Promise<RoomIntent|null>;
+  resume(rid:string):Promise<void>;
+  clear(rid:string,key:string):Promise<boolean>;
+};
 
 /** Rocket.Chat capabilities. E2EE degraded (read-only), gateway push out of scope. */
 export const ROCKETCHAT_CAPABILITIES: Capabilities = {
+  editing: true,
+  deletion: true,
   typing: true,
   presence: true,
   push: true,
@@ -177,6 +254,7 @@ export type Ingest = (doc: Record<string, unknown>) => Promise<void>;
 
 /** Persisted text send queue (outbox), replayed on reconnection. */
 export interface Outbox {
+  retry?(id: string): Promise<void>;
   /** Returns the client `_id` of the posted message. `threadId` = parent post (thread), or null.
    *  `localAttachments`: attachments (JSON) for the optimistic display only
    *  (quote preview), never sent, overwritten by the server echo. */
@@ -185,6 +263,7 @@ export interface Outbox {
     text: string,
     threadId?: string | null,
     localAttachments?: string | null,
+    quotes?: readonly import('../providers/rocketvibe/quotes.ts').NativeQuoteSelection[],
   ): Promise<string>;
   process(): Promise<void>;
   discard(id: string): Promise<void>;
@@ -192,6 +271,7 @@ export interface Outbox {
 
 /** Persisted file send queue. `progress`: 0..1 per id, for the UI. */
 export interface FileOutbox {
+  close?():void;
   readonly progress: Map<string, number>;
   /** Subscribe to `progress` changes; returns the unsubscribe. */
   subscribe(listener: () => void): () => void;
@@ -201,6 +281,8 @@ export interface FileOutbox {
     rid: string,
     file: FileToSend & { size: number | null },
     caption?: string,
+    /** The thread the file answers; null or absent in the room itself. */
+    thread?: string | null,
   ): Promise<void>;
   process(): Promise<void>;
   /**
@@ -220,7 +302,15 @@ export interface FileOutbox {
  * outside this facade in 4a, guarded by `capabilities`, to absorb later.
  */
 export interface Provider {
+  readonly identity: ProviderIdentity;
+  describeError(error: unknown, authenticated: boolean): ProviderError;
+  readonly messageOrder?: 'sequence';
+  readonly native?: { chat: import('../providers/rocketvibe/chat.ts').NativeChat; store: import('../providers/rocketvibe/store.ts').NativeStore };
   readonly capabilities: Capabilities;
+  /** Temporary results, normalised for the existing renderer. */
+  searchMessages?(rid:string,text:string):Promise<LocalMessage[]>;
+  /** Presentation data of the existing info sheet, supplied by each protocol. */
+  readProfile?(target:import('./profilePreload.ts').ProfileParams):Promise<Record<string,unknown>|undefined>;
   /** Real-time transport (RC: DDP; MM: JSON WebSocket). */
   readonly listener: Listener;
   /** Decoder from raw `DdpEvent`s/documents to neutral shapes. */
@@ -253,7 +343,7 @@ export interface Provider {
     rid: string,
     type: string,
     latest?: string,
-  ): Promise<{ oldest: number | null }>;
+  ): Promise<{ oldest: number | null; movedBack?: boolean }>;
   /**
    * The history between two instants (epoch ms), bounds included, NOT
    * ingested; `null` = unbounded. The server answers the NEWEST
@@ -286,6 +376,7 @@ export interface Provider {
      * on a lost `mediaConfirm`).
      */
     hooks?: {
+      nativeFiles?:import('../providers/rocketvibe/uploads.ts').NativeFileIO;
       deleteLocalFile?: (uri: string) => Promise<void>;
       refreshRoom?: (rid: string) => Promise<void>;
       /** Sending into an encrypted room: without it, a file waits there forever. */

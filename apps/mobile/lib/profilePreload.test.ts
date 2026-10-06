@@ -20,6 +20,7 @@ import { beforeEach, describe, test, type TestContext } from 'node:test';
 import { forgetCallAvailability } from './call.ts';
 import {
   setProfileClient,
+  setProfileReader,
   setProfileNavigator,
   readPreloadedProfile,
   forgetProfileCards,
@@ -30,6 +31,24 @@ import {
 import type { RestClient } from './rest.ts';
 
 const USER = { _id: 'u1', username: 'alice' };
+
+test('native preload uses its provider, and an account change fences late cache and navigation',async(t)=>{
+  t.mock.timers.enable({apis:['setTimeout','Date']});
+  const c={kind:'rocketvibe',baseUrl:'http://native.local',get:()=>{throw new Error('Unexpected RC request');}} as unknown as RestClient;
+  const other={...c,baseUrl:'http://other.local'} as unknown as RestClient;
+  const navigations:ProfileParams[]=[];
+  setProfileNavigator(p=>navigations.push(p));setProfileClient(c);
+  let pending=deferred<Record<string,unknown>>();
+  const allRows=setProfileReader(c,async()=>pending.promise);
+  try{
+    const first=openProfileCard({uid:'u1'});pending.resolve(USER);await drain();await first;
+    assert.deepEqual(readPreloadedProfile({uid:'u1'})?.user,USER);assert.equal(navigations.length,1);
+    pending=deferred<Record<string,unknown>>();const late=openProfileCard({username:'alice'});
+    setProfileClient(other);pending.resolve(USER);await drain();await late;
+    assert.equal(readPreloadedProfile({uid:'u1'}),undefined);assert.equal(readPreloadedProfile({username:'alice'}),undefined);
+    assert.equal(navigations.length,1);
+  }finally{allRows();setProfileClient(null);setProfileNavigator(null);}
+});
 
 function deferred<T>(): { promise: Promise<T>; resolve: (v: T) => void } {
   let resolve!: (v: T) => void;

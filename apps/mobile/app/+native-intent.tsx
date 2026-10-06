@@ -1,4 +1,5 @@
 import { getShareExtensionKey } from 'expo-share-intent';
+import {systemRoomPath} from '../lib/roomLinks.ts';
 
 import { withEnglishRoomPath } from '../lib/roomLink.ts';
 
@@ -12,7 +13,7 @@ import { withEnglishRoomPath } from '../lib/roomLink.ts';
 export function redirectSystemPath({ path }: { path: string | null; initial: boolean }): string | null {
   try {
     if (path?.includes(`dataUrl=${getShareExtensionKey()}`)) return null;
-    return path === null ? null : withEnglishRoomPath(path);
+    return systemRoomPath(path === null ? null : withEnglishRoomPath(path));
   } catch {
     return path === null ? null : withEnglishRoomPath(path);
   }

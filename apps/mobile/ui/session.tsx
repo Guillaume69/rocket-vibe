@@ -10,11 +10,13 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
-import { applySession, resumeSession, logOut, type Session } from '../lib/auth.ts';
+import type { Session } from '../lib/auth.ts';
+import {roomLinkMatches,type RoomLink} from '../lib/roomLinks.ts';
 import { finishPendingLogouts } from '../lib/deferredLogout.ts';
 import { setProfileClient } from '../lib/profilePreload.ts';
 import { unregisterToken } from '../lib/pushToken.ts';
-import { RestClient, isTokenRejected } from '../lib/rest.ts';
+import { RestClient } from '../lib/rest.ts';
+import { clientForSession, resumeSession, logoutSession, sessionRejected } from '../lib/sessionTransport.ts';
 import {
   addPendingLogout,
   clearE2EPrivateKey,
@@ -47,7 +49,7 @@ type SessionContext = {
    * under its own key. Returns true if a session existed there; otherwise the
    * state falls back to "disconnected" and the login screen is prefilled.
    */
-  switchServer: (baseUrl: string) => Promise<boolean>;
+  switchServer: (baseUrl: string,target?:RoomLink) => Promise<boolean>;
   /**
    * Updates the profile info CARRIED by the session (the username) after a
    * successful edit, and persists again. The session's username feeds Settings
@@ -55,6 +57,7 @@ type SessionContext = {
    * keep the old username until a logout/login.
    */
   updateSessionProfile: (update: { username?: string }) => Promise<void>;
+  adoptRenewedSession:(previous:Session,fresh:Session)=>boolean;
 };
 
 const Context = createContext<SessionContext | null>(null);
@@ -66,10 +69,7 @@ const Context = createContext<SessionContext | null>(null);
  * site.
  */
 function clientFor(session: Session, onTokenRejected: (token: string) => void): RestClient {
-  const client = new RestClient(session.baseUrl);
-  client.onTokenRejected = onTokenRejected;
-  applySession(client, session);
-  return client;
+  return clientForSession(session, onTokenRejected);
 }
 
 /**
@@ -98,8 +98,10 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   // (logout then login while the request was in flight) would clear the
   // brand-new session, same server, hence same storage key.
   const currentToken = useRef<string | null>(null);
+  const currentSession=useRef<Session|null>(null);
   useEffect(() => {
     currentToken.current = state.phase === 'connected' ? state.session.authToken : null;
+    currentSession.current=state.phase==='connected'?state.session:null;
     // Profile preloading (`lib/profilePreload`) opens `/profile` from render
     // functions with no client at hand: we set the active client on it.
     setProfileClient(state.phase === 'connected' ? state.client : null);
@@ -181,7 +183,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         // (renamed from another device, or while the app was closed), adopt it;
         // otherwise the old stored value would stay shown in Settings until a
         // login. The token and uid do not move, so the `client` stays valid as is.
-        const fresh = await resumeSession(client, session.authToken);
+        const fresh = await resumeSession(client, session);
         if (
           !discarded &&
           currentToken.current === session.authToken &&
@@ -201,7 +203,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         // hook does not cover it; this validation keeps its own detection, and it
         // must be the same. A proxy 401 in HTML landed right here, and logged out a
         // valid session.
-        if (discarded || expired || !isTokenRejected(e)) return;
+        if (discarded || expired || !sessionRejected(e)) return;
         // The E2EE private key leaves with the session: stored by (server, account),
         // it no longer has an account to belong to.
         await clearTraces(session);
@@ -237,13 +239,13 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     });
   }, [revoke]);
 
-  const switchServer = useCallback(async (baseUrl: string) => {
+  const switchServer = useCallback(async (baseUrl: string,target?:RoomLink) => {
     // Read BEFORE writing anything: if there is no session over there, move
     // neither the state nor the pointer. Logging the user out and moving the
     // resume pointer to a server without a session would start the app logged
     // out while a valid session exists elsewhere.
     const session = await readSession(baseUrl);
-    if (session === null) return false;
+    if (session === null || target && !roomLinkMatches(target,session)) return false;
 
     await saveLastServer(baseUrl);
     const client = clientFor(session, (token) => revoke(session, token));
@@ -251,8 +253,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
     // Same rule as at startup: background validation, only a 401 (revoked
     // token) logs out, and only if this session is still the one shown.
-    resumeSession(client, session.authToken).catch(async (e: unknown) => {
-      if (isTokenRejected(e) && currentToken.current === session.authToken) {
+    resumeSession(client, session).catch(async (e: unknown) => {
+      if (sessionRejected(e) && currentToken.current === session.authToken) {
         await clearTraces(session);
         if (currentToken.current === session.authToken) setState({ phase: 'disconnected' });
       }
@@ -276,8 +278,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       // Unregister the push token BEFORE logout: the call still requires
       // authentication. A 404 is a success (`lib/pushToken.ts`).
       const pushRemoved =
-        pushToken === null ? true : await unregisterToken(client, pushToken).then(() => true, () => false);
-      const closedSession = await logOut(client);
+        session.kind === 'rocketvibe' || pushToken === null ? true : await unregisterToken(client, pushToken).then(() => true, () => false);
+      const closedSession = await logoutSession(client, session);
 
       // What the network did not let through is replayed at the next startup.
       // Without this queue, an offline logout left the session open server-side
@@ -289,6 +291,9 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
           userId: session.userId,
           authToken: session.authToken,
           pushToken: pushRemoved ? null : pushToken,
+          kind: session.kind,
+          nativeInstanceId: session.nativeInstanceId,
+          nativeDataEpoch: session.nativeDataEpoch,
         });
       }
 
@@ -315,6 +320,13 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     [state],
   );
 
+  const adoptRenewedSession=useCallback((previous:Session,fresh:Session)=>{
+    const current=currentSession.current;
+    if(!current || currentToken.current!==previous.authToken || current.baseUrl!==previous.baseUrl || current.userId!==previous.userId || current.kind!=='rocketvibe' || fresh.baseUrl!==current.baseUrl || fresh.userId!==current.userId || fresh.nativeInstanceId!==current.nativeInstanceId || fresh.nativeDataEpoch!==current.nativeDataEpoch)return false;
+    currentToken.current=fresh.authToken;currentSession.current=fresh;
+    const client=clientFor(fresh,token=>revoke(fresh,token));
+    setState({phase:'connected',session:fresh,client});return true;
+  },[revoke]);
   const value = useMemo(
     () => ({
       state,
@@ -322,8 +334,9 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       logOut: handleLogOut,
       switchServer,
       updateSessionProfile,
+      adoptRenewedSession,
     }),
-    [state, connect, handleLogOut, switchServer, updateSessionProfile],
+    [state, connect, handleLogOut, switchServer, updateSessionProfile, adoptRenewedSession],
   );
 
   return <Context.Provider value={value}>{children}</Context.Provider>;

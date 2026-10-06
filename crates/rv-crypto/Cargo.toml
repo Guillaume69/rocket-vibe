@@ -1,0 +1,70 @@
+[package]
+name = "rv-crypto"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+# Avoid unoptimized curve arithmetic dominating durable crypto tests. The
+# coordinator and its debug assertions retain the normal test profile.
+[profile.test.package.curve25519-dalek]
+opt-level = 3
+
+# The real HTTP worker fixture is built as an example in the dev profile.
+# Keep its coordinator/debug assertions intact, but use the same curve
+# arithmetic as tests so the full crash/retry scenario fits its deadline.
+[profile.dev.package.curve25519-dalek]
+opt-level = 3
+
+[features]
+system-keystore = ["dep:keyring"]
+native-http = ["dep:rv-client", "dep:tokio"]
+
+[[example]]
+name = "protected_smoke"
+required-features = ["system-keystore"]
+
+[[example]]
+name = "delivery_smoke"
+required-features = ["native-http"]
+
+[dependencies]
+rv-crypto-public = { path = "../rv-crypto-public" }
+rv-protocol = { path = "../rv-protocol" }
+rv-client = { path = "../rv-client", optional = true }
+tokio = { version = "1", optional = true, features = ["rt-multi-thread", "sync", "macros"] }
+chacha20poly1305 = "=0.10.1"
+data-encoding = "2"
+ed25519-dalek = { version = "=2.2.0", default-features = false, features = ["std", "fast", "zeroize"] }
+getrandom = "0.4"
+openmls = { version = "=0.9.0", default-features = false }
+openmls_rust_crypto = "=0.6.0"
+openmls_traits = "=0.6.0"
+rusqlite = { version = "=0.40.2", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.11"
+thiserror = "2"
+zeroize = "1"
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1", default-features = false, features = ["process"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+# std::fs::File locking is unsupported on Android in Rust 1.97. Use the
+# same kernel flock lease through rustix's safe API, without weakening it.
+rustix = { version = "1", default-features = false, features = ["fs"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "=3.6.3", optional = true, features = ["sync-secret-service", "crypto-rust", "vendored"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "=3.6.3", optional = true, features = ["apple-native"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "=3.6.3", optional = true, features = ["windows-native"] }
+
+[dev-dependencies]
+openmls_basic_credential = "=0.6.0"
+tempfile = "3"

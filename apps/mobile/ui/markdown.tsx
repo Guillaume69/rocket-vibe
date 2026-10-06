@@ -17,9 +17,10 @@
 
 import type { BigEmoji, Blocks, Inlines, Paragraph } from '@rocket.chat/message-parser';
 import { Component, createContext, useContext, type ReactElement, type ReactNode } from 'react';
-import { Image, Platform, StyleSheet, Text, View } from 'react-native';
+import { Platform, StyleSheet, Text, View } from 'react-native';
 
 import { customEmojiUrl } from '../lib/customEmojis.ts';
+import {ImageEmoji,useCatalogueEmojis} from './emojiImage.tsx';
 import { textOf, emojiUnicode, type Root } from '../lib/markdown.ts';
 import { openProfileCard } from '../lib/profilePreload.ts';
 import { openExternalLink } from './externalLink.ts';
@@ -102,6 +103,7 @@ function Mention({ username, c }: { username: string; c: Colors }) {
 }
 
 export function MessageBody({ tree, c }: { tree: Root; c: Colors }) {
+  useCatalogueEmojis();
   return (
     <View style={styles.body}>
       {tree.map((block, i) => (
@@ -304,14 +306,13 @@ function renderEmoji(
   const uri = customEmojiUrl(shortCode);
   if (uri === null) return null;
   return (
-    <Image
+    <ImageEmoji
       key={key}
-      source={{ uri }}
+      uri={uri}
       style={size === 'large' ? styles.largeCustomEmoji : styles.emojiCustomInline}
       // `contain`: a non-square emoji (banner, wide mascot) must fit whole in
       // its box, not be cropped by the default `cover`.
-      resizeMode="contain"
-      accessibilityLabel={`:${shortCode}:`}
+      code={shortCode}
     />
   );
 }

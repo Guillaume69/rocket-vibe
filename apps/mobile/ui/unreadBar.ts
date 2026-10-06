@@ -18,6 +18,18 @@ export type BarRow = { bar: true; id: string };
 
 export const UNREAD_BAR_ID = 'unread-bar';
 
+/** Same divider and inverted layout, using the opening native sequence. */
+export function insertNativeUnreadBar<M extends {id:string;authorId:string;systemType?:string|null}>(dataDesc:M[],position:string|null|undefined,positions:ReadonlyMap<string,string>,me:string):(M|BarRow)[] {
+  if(position==null)return dataDesc;
+  const seen=BigInt(position);
+  let first=-1;
+  for(let i=0;i<dataDesc.length;i++) {
+    const row=dataDesc[i],value=positions.get(row.id);
+    if(value!==undefined && row.systemType==null && row.authorId!==me && BigInt(value)>seen)first=i;
+  }
+  return first===-1?dataDesc:[...dataDesc.slice(0,first+1),{bar:true,id:UNREAD_BAR_ID},...dataDesc.slice(first+1)];
+}
+
 /**
  * `dataDesc`: the room's messages, newest to oldest.
  * `lastSeen`: the `ls` snapshot taken at mount; `undefined` (not read from

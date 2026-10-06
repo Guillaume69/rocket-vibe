@@ -15,6 +15,8 @@
 
 import { sameOrigin } from './origin.ts';
 import type { RestClient } from './rest.ts';
+import {nativeAvatarUri} from './nativeAvatars.ts';
+import {nativeFileUri} from './nativeFiles.ts';
 
 export type FileToSend = {
   uri: string;
@@ -118,12 +120,15 @@ export async function confirmMedia(options: {
   rid: string;
   fileId: string;
   message?: string;
+  /** The thread the file answers: `sendFileMessage` validates `tmid` (8.5). */
+  tmid?: string | null;
   /** Full body, instead of `message`: the one of an encrypted file. */
   body?: Record<string, unknown>;
 }): Promise<Record<string, unknown>> {
-  const { client, rid, fileId, message } = options;
+  const { client, rid, fileId, message, tmid } = options;
+  const thread = tmid === undefined || tmid === null ? {} : { tmid };
   const confirmation = await client.post<ConfirmResponse>(`rooms.mediaConfirm/${rid}/${fileId}`, {
-    body: options.body ?? (message === undefined || message === '' ? {} : { msg: message }),
+    body: options.body ?? (message === undefined || message === '' ? thread : { msg: message, ...thread }),
   });
   if (confirmation.message === undefined) {
     throw new UploadError('rooms.mediaConfirm: no message in the response.');
@@ -183,6 +188,7 @@ export async function setAvatar(options: {
  * failure.
  */
 export function protectedFileUrl(client: RestClient, path: string): string {
+  if(client.kind==='rocketvibe')return nativeFileUri(client,path);
   const absolute = path.startsWith('http') ? path : `${client.baseUrl}${path}`;
   if (client.auth === null) return absolute;
   if (!sameOrigin(absolute, client.baseUrl)) return absolute;
@@ -233,6 +239,7 @@ export function avatarUrl(
     etag?: string | null;
   },
 ): string | null {
+  if (client.kind === 'rocketvibe') return target.rid?null:nativeAvatarUri(client,target.etag);
   const { uid, username, rid, etag } = target;
   let path: string;
   if (typeof username === 'string' && username !== '') {

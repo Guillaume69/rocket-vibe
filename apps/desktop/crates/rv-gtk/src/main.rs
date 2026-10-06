@@ -17,6 +17,7 @@ mod gst_stream;
 mod i18n;
 mod icon;
 mod login;
+mod login_recovery;
 mod logs;
 #[cfg(target_os = "macos")]
 mod macos;
@@ -24,8 +25,12 @@ mod markdown_view;
 mod marked;
 mod media;
 mod message_list;
+mod native_crypto;
+mod native_quote_cards;
+mod native_security;
 mod notifier;
 mod player;
+mod rail;
 mod recorder;
 mod rows;
 mod secrets;
@@ -117,6 +122,33 @@ fn main() -> glib::ExitCode {
             windows::input_method();
         }
         background::install(app);
+        // Register the notification action during GApplication startup, before
+        // activation: the OS can launch us directly with this target.
+        let action = gtk::gio::SimpleAction::new("open-message", Some(&glib::VariantType::new("(ss)").expect("type")));
+        let weak = app.downgrade();
+        action.connect_activate(move |_, target| {
+            if let (Some(app), Some((key, message))) =
+                (weak.upgrade(), target.and_then(|v| v.get::<(String, String)>()))
+            {
+                window_of(&app).open_notification(key, message);
+            }
+        });
+        app.add_action(&action);
+        // Notification v2 passes [target, reply] through ActivateAction; GLib
+        // 2.86 marshals those two values into this exact nested tuple.
+        let reply = gtk::gio::SimpleAction::new(
+            "reply-native-notification",
+            Some(&glib::VariantType::new("((ss)s)").expect("type")),
+        );
+        let weak = app.downgrade();
+        reply.connect_activate(move |_, target| {
+            if let (Some(app), Some(((key, message), text))) =
+                (weak.upgrade(), target.and_then(|v| v.get::<((String, String), String)>()))
+            {
+                window_of(&app).reply_notification(key, message, text);
+            }
+        });
+        app.add_action(&reply);
         style::load();
         if let Some(display) = gtk::gdk::Display::default() {
             icon::register(&display);
@@ -141,6 +173,8 @@ fn main() -> glib::ExitCode {
     if !rv_native::claim_instance(&args) {
         return glib::ExitCode::SUCCESS;
     }
+    #[cfg(windows)]
+    rv_native::take_notification_flags(&mut args);
     background::take_flag(&mut args);
     let code = app.run_with_args(&args);
     updater::exec_if_relaunching();

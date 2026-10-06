@@ -22,7 +22,6 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import {
-  Image,
   ScrollView,
   StyleSheet,
   Text,
@@ -38,7 +37,8 @@ import {
   type SuggestionEmoji,
 } from '../lib/emojiCompletion.ts';
 import { codesEmojiStandard, unicodeOfShortcode } from '../lib/emojis.ts';
-import { customEmojiCodes, customEmojiUrl } from '../lib/customEmojis.ts';
+import { customEmojiUrl } from '../lib/customEmojis.ts';
+import {ImageEmoji,useCatalogueEmojis} from './emojiImage.tsx';
 import { type Colors, LIST_PRESS_DELAY } from './theme.ts';
 import { Tappable } from './tappable.tsx';
 
@@ -159,21 +159,18 @@ export function EmojiCompletionBanner({
   /** Receives the text to insert and the `start` of the token detected at that moment. */
   onPick: (insertion: string, start: number) => void;
 }) {
+  const customs=useCatalogueEmojis();
   const result = useMemo(() => {
     const token = detectEmojiToken(text, cursor);
     if (token === null) return null;
-    // Depends on (text, cursor) only. A refresh of the customs mid-typing (sync
-    // once per session, at connection setup) is not reflected until typing
-    // resumes. Accepted blind spot: the sync lands before composing, and the next
-    // keystroke recomputes.
     const suggestions = completeEmoji(
       token.query,
       codesEmojiStandard(),
-      customEmojiCodes(),
+      customs,
     );
     if (suggestions.length === 0) return null;
     return { start: token.start, items: suggestions.map(resolve) };
-  }, [text, cursor]);
+  }, [text, cursor,customs]);
 
   if (result === null) return null;
 
@@ -195,7 +192,7 @@ export function EmojiCompletionBanner({
             accessibilityLabel={`:${suggestion.code}:`}
           >
             {uri !== null ? (
-              <Image source={{ uri }} style={styles.image} resizeMode="contain" />
+              <ImageEmoji uri={uri} style={styles.image} code={suggestion.code}/>
             ) : (
               <Text style={styles.glyph}>{glyph}</Text>
             )}

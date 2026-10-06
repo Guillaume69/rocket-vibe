@@ -89,6 +89,16 @@ export class PresenceEngine {
     this.sequences.clear();
     if (hadSomething) this.notify();
   }
+  /** Provider photo already authenticated and fenced, with a receiver-relative expiry. */
+  replace(photo:ReadonlyArray<{user:{id:string};status:PresenceStatus}>|null):void {
+    if(photo===null){this.invalidate();return;}
+    this.epoch++;
+    const previous=this.statuses;
+    const next=new Map<string,PresenceStatus>(photo.map(p=>[p.user.id,p.status]));
+    for(const uid of previous.keys())if(!next.has(uid))next.set(uid,'offline');
+    if(next.size===previous.size && [...next].every(([id,status])=>previous.get(id)===status))return;
+    this.statuses=next;this.sequences.clear();this.notify();
+  }
 
   /** Routes a DDP event. Anything that is not presence is ignored. */
   apply(event: DdpEvent): void {

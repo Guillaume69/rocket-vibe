@@ -102,6 +102,29 @@ pub fn with_photo(tile: gtk::Widget, session: Option<&Arc<Session>>, path: Optio
     }
     tile
 }
+pub fn with_native_photo(
+    tile: gtk::Widget,
+    session: &Arc<rv_core::native::NativeSession>,
+    id: Option<String>,
+) -> gtk::Widget {
+    if let Some(id) = id {
+        let (weak, s) = (tile.downgrade(), session.clone());
+        glib::spawn_future_local(async move {
+            let key = id.clone();
+            let reader = s.clone();
+            let bytes = crate::on_tokio(async move { reader.profile_avatar(&key).await }).await;
+            if s.is_closed() || !s.store.avatar_current(&id).unwrap_or(false) {
+                return;
+            }
+            if let (Some(tile), Ok(bytes)) = (weak.upgrade(), bytes)
+                && let Ok(texture) = gdk::Texture::from_bytes(&glib::Bytes::from_owned(bytes))
+            {
+                widgets::set_photo(&tile, &texture);
+            }
+        });
+    }
+    tile
+}
 
 /// A click on an author's photo or name opens their profile.
 fn opens_profile(widget: &impl IsA<gtk::Widget>, on_event: OnRowEvent, username: &str) {
@@ -121,6 +144,15 @@ pub fn room_tile(name: &str, kind: &str, encrypted: bool, size: TileSize) -> gtk
 }
 
 pub fn open_viewer(parent: &gtk::Widget, texture: &gdk::Texture, title: &str, frames: Option<media::Frames>) {
+    open_viewer_provider(parent, texture, title, frames, None)
+}
+pub(crate) fn open_viewer_provider(
+    parent: &gtk::Widget,
+    texture: &gdk::Texture,
+    title: &str,
+    frames: Option<media::Frames>,
+    authority: Option<(media::Provider, String)>,
+) {
     let picture = gtk::Picture::builder().paintable(texture).content_fit(gtk::ContentFit::Contain).build();
     if let Some(frames) = frames {
         media::play(&picture, frames);
@@ -147,6 +179,17 @@ pub fn open_viewer(parent: &gtk::Widget, texture: &gdk::Texture, title: &str, fr
     viewer_menu(&picture, texture, title);
     dialog.present(Some(parent));
     close_on_backdrop(&dialog);
+    if let Some((provider, path)) = authority {
+        let weak = dialog.downgrade();
+        provider.watch(&picture, &path, move |widget| {
+            if let Some(p) = widget.downcast_ref::<gtk::Picture>() {
+                p.set_paintable(None::<&gdk::Texture>);
+            }
+            if let Some(dialog) = weak.upgrade() {
+                dialog.close();
+            }
+        });
+    }
 }
 
 /// The dimmed backdrop around a dialog is a window handle: a click there
@@ -236,13 +279,17 @@ fn viewer_menu(picture: &gtk::Picture, texture: &gdk::Texture, title: &str) {
 }
 
 pub fn image_widget(session: &Arc<Session>, image: &ImageAttachment) -> gtk::Widget {
+    image_provider(media::Provider::RocketChat(session.clone()), image)
+}
+pub fn image_provider(session: media::Provider, image: &ImageAttachment) -> gtk::Widget {
     let (w, h) = display_size(image.width, image.height, 120, 360, 300);
     let frame = widgets::media_frame(w, h, &["image-attachment"]);
     frame.set_cursor(gdk::Cursor::from_name("pointer", None).as_ref());
     frame.set_margin_top(4);
     let weak = frame.downgrade();
     let (source, sized) = (image.source.clone(), image.width.is_some());
-    media::load(session, &image.source, move |texture| {
+    let animation_provider = session.clone();
+    media::load_provider(session.clone(), &image.source, move |texture| {
         let Some(frame) = weak.upgrade() else { return };
         if !sized && let Some(sizer) = frame.child().and_downcast::<crate::sizer::Sizer>() {
             let (w, h) = display_size(Some(texture.width().into()), Some(texture.height().into()), 120, 360, 300);
@@ -251,7 +298,13 @@ pub fn image_widget(session: &Arc<Session>, image: &ImageAttachment) -> gtk::Wid
         let picture =
             gtk::Picture::builder().paintable(texture).content_fit(gtk::ContentFit::Cover).can_shrink(true).build();
         frame.add_overlay(&picture);
-        if let Some(frames) = media::frames(&source) {
+        let weak = picture.downgrade();
+        animation_provider.watch(&frame, &source, move |_| {
+            if let Some(p) = weak.upgrade() {
+                p.set_paintable(None::<&gdk::Texture>);
+            }
+        });
+        if let Some(frames) = media::provider_frames(&animation_provider, &source) {
             media::play(&picture, frames);
         }
     });
@@ -264,8 +317,11 @@ pub fn image_widget(session: &Arc<Session>, image: &ImageAttachment) -> gtk::Wid
     click.connect_released(move |gesture, _, _, _| {
         let Some(widget) = gesture.widget() else { return };
         let title = title.clone();
-        let frames = media::frames(&source);
-        media::load(&session, &source, move |texture| open_viewer(&widget, texture, &title, frames));
+        let frames = media::provider_frames(&session, &source);
+        let authority = (session.clone(), source.clone());
+        media::load_provider(session.clone(), &source, move |texture| {
+            open_viewer_provider(&widget, texture, &title, frames, Some(authority))
+        });
     });
     frame.add_controller(click);
     let Some(link) = &image.link else { return frame.upcast() };
@@ -277,13 +333,31 @@ pub fn image_widget(session: &Arc<Session>, image: &ImageAttachment) -> gtk::Wid
         .ellipsize(pango::EllipsizeMode::End)
         .css_classes(["attachment-title"])
         .build();
+    if link.starts_with("rv-file:") {
+        title.connect_activate_link(|_, _| glib::Propagation::Stop);
+    }
     let column = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(2).margin_top(4).build();
     column.append(&title);
     column.append(&frame);
     column.upcast()
 }
 
-pub fn room_widget(r: &RoomRow, session: Option<&Arc<Session>>) -> gtk::Widget {
+pub fn room_widget_with_presence(
+    r: &RoomRow,
+    session: Option<&Arc<Session>>,
+    native_presence: Option<rv_core::live::Presence>,
+) -> gtk::Widget {
+    room_widget(r, session, native_presence, None)
+}
+pub fn native_room_widget(r: &RoomRow, session: &Arc<rv_core::native::NativeSession>) -> gtk::Widget {
+    room_widget(r, None, session.room_presence(&r.rid), Some(session))
+}
+fn room_widget(
+    r: &RoomRow,
+    session: Option<&Arc<Session>>,
+    native_presence: Option<rv_core::live::Presence>,
+    native: Option<&Arc<rv_core::native::NativeSession>>,
+) -> gtk::Widget {
     let unread = r.unread > 0 || r.alert;
     let name = label(&r.name, &["room-name"]);
     name.set_hexpand(true);
@@ -327,8 +401,13 @@ pub fn room_widget(r: &RoomRow, session: Option<&Arc<Session>>) -> gtk::Widget {
     column.append(&bottom);
 
     let row = gtk::Box::builder().spacing(12).margin_top(9).margin_bottom(9).margin_start(10).margin_end(10).build();
-    let tile = with_photo(room_tile(&r.name, &r.kind, r.encrypted, TileSize::Room), session, room_avatar_path(r));
-    let presence = r.dm_other_uid.as_deref().zip(session).and_then(|(uid, s)| s.presence(uid));
+    let tile = room_tile(&r.name, &r.kind, r.encrypted, TileSize::Room);
+    let tile = match native {
+        Some(native) => with_native_photo(tile, native, r.avatar_etag.clone()),
+        None => with_photo(tile, session, room_avatar_path(r)),
+    };
+    let presence =
+        native_presence.or_else(|| r.dm_other_uid.as_deref().zip(session).and_then(|(uid, s)| s.presence(uid)));
     let tile = match presence {
         Some(p) => {
             let holder = gtk::Overlay::builder().child(&tile).build();
@@ -430,6 +509,25 @@ pub fn message_widget(
     editing: Option<&gtk::TextBuffer>,
     on_event: OnRowEvent,
 ) -> gtk::Widget {
+    message_from_provider(d, my_id, session, None, editing, on_event)
+}
+pub fn native_message_widget(
+    d: &Display,
+    my_id: &str,
+    session: &Arc<rv_core::native::NativeSession>,
+    editing: Option<&gtk::TextBuffer>,
+    on_event: OnRowEvent,
+) -> gtk::Widget {
+    message_from_provider(d, my_id, None, Some(session), editing, on_event)
+}
+fn message_from_provider(
+    d: &Display,
+    my_id: &str,
+    session: Option<&Arc<Session>>,
+    native: Option<&Arc<rv_core::native::NativeSession>>,
+    editing: Option<&gtk::TextBuffer>,
+    on_event: OnRowEvent,
+) -> gtk::Widget {
     let row = &d.row;
     let outer = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
@@ -477,6 +575,12 @@ pub fn message_widget(
     if d.show_header {
         let tile = widgets::tile(&author, &widgets::initial(&author), TileSize::Message, false);
         let tile = with_photo(tile, session, session.filter(|_| !author.is_empty()).map(|s| s.user_avatar(&author)));
+        let tile = if let Some(native) = native {
+            let id = native.store.profile_identity(&row.author_id).ok().flatten().and_then(|p| p.avatar_file_id);
+            with_native_photo(tile, native, id)
+        } else {
+            tile
+        };
         opens_profile(&tile, on_event.clone(), &author);
         line.append(&tile);
     } else {
@@ -524,10 +628,11 @@ pub fn message_widget(
     } else {
         markdown::render(row.md.as_deref(), row.text.as_deref(), &markdown::Context { me: &me })
     };
-    if let Some(session) = session {
-        for q in content::quotes(row.attachments.as_deref()) {
-            column.append(&cards::quote(session, &q, &me));
-        }
+    let quote_provider = session
+        .map(|s| media::Provider::RocketChat(s.clone()))
+        .or_else(|| native.map(|s| media::Provider::RocketVibe(s.clone())));
+    for q in content::quotes(row.attachments.as_deref()) {
+        column.append(&cards::quote(quote_provider.as_ref(), &q, &me));
     }
     let state: &[&str] = match (pending, failed) {
         (true, _) => &["pending"],
@@ -559,6 +664,24 @@ pub fn message_widget(
         }
         for preview in content::link_previews(row.urls.as_deref(), 3) {
             column.append(&cards::link_preview(session, &preview));
+        }
+    }
+    if let Some(native) = native {
+        let provider = media::Provider::RocketVibe(native.clone());
+        for image in image_attachments(row.attachments.as_deref()) {
+            column.append(&image_provider(provider.clone(), &image));
+        }
+        for file in content::files(row.attachments.as_deref()) {
+            column.append(&cards::file_provider(provider.clone(), &file));
+        }
+        for card in content::cards(row.attachments.as_deref()) {
+            column.append(&cards::attachment_card(&card));
+        }
+        for video in content::video_links(row.text.as_deref().unwrap_or_default(), row.urls.as_deref(), 3) {
+            column.append(&cards::video_link_provider(provider.clone(), &row.id, &video));
+        }
+        for preview in content::link_previews(row.urls.as_deref(), 3) {
+            column.append(&cards::link_preview_provider(provider.clone(), &preview));
         }
     }
     if is_call {
@@ -630,8 +753,9 @@ pub fn message_widget(
         column.append(&footer);
     }
 
+    // An icon, not "⋯": that glyph is missing from many systems' fonts (WSLg).
     let more = gtk::Button::builder()
-        .label("⋯")
+        .icon_name("view-more-horizontal-symbolic")
         .css_classes(["flat", "row-more"])
         .valign(gtk::Align::Start)
         .tooltip_text(t("actions.more"))

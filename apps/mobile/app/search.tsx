@@ -9,7 +9,7 @@ import {
   View,
 } from 'react-native';
 
-import type { ProviderActions } from '../lib/provider.ts';
+import type { ProviderActions, Provider } from '../lib/provider.ts';
 import type { SyncEngine } from '../lib/sync.ts';
 import type { RestClient } from '../lib/rest.ts';
 import { KeyboardAvoidingContainer } from '../ui/keyboard.tsx';
@@ -55,7 +55,7 @@ export default function SearchScreen() {
     );
   }
   return (
-    <Search c={c} client={state.client} engine={sync.engine} actions={sync.actions} />
+    <Search c={c} client={state.client} engine={sync.engine} actions={sync.actions} provider={sync.provider} />
   );
 }
 
@@ -64,11 +64,13 @@ function Search({
   client,
   engine,
   actions,
+  provider,
 }: {
   c: Colors;
   client: RestClient;
   engine: SyncEngine;
   actions: ProviderActions;
+  provider: Provider;
 }) {
   const router = useRouter();
   const t = useT();
@@ -77,8 +79,15 @@ function Search({
   const inFlight = useRef(false);
 
   const searchSpotlight = useCallback(
-    (clean: string) => client.get<SpotlightResponse>('spotlight', { params: { query: clean } }),
-    [client],
+    async (clean: string): Promise<SpotlightResponse> => {
+      if (!provider.native) return client.get<SpotlightResponse>('spotlight', { params: { query: clean } });
+      const [users,page] = await Promise.all([provider.native.chat.users(),provider.native.chat.publicRooms(clean)]);
+      return {users: users.filter(user => user.id !== client.auth?.userId &&
+        (user.username + ' ' + user.display_name).toLowerCase().includes(clean.toLowerCase()))
+        .slice(0,20).map(user => ({_id:user.id,username:user.username,name:user.display_name})),
+        rooms:page.rooms.map(hit => ({_id:hit.room.id,name:hit.room.name,fname:hit.room.name,t:'c'}))};
+    },
+    [client,provider],
   );
   const { results, message, setMessage } = useDebouncedSearch(
     query,
@@ -122,6 +131,10 @@ function Search({
       setBusy(true);
       setMessage(null);
       try {
+        if (provider.native) {
+          const rid=await provider.native.chat.joinPublic(room._id);
+          await openRoom(undefined,rid); return;
+        }
         const response = await client.post<{ channel?: Record<string, unknown> }>('channels.join', {
           body: { roomId: room._id },
         });
@@ -133,7 +146,7 @@ function Search({
         setBusy(false);
       }
     },
-    [client, openRoom, setMessage, t],
+    [client, provider, openRoom, setMessage, t],
   );
 
   type Row =

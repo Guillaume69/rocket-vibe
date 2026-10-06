@@ -1,0 +1,29 @@
+/** Destruction of old keys (E2EE_STORAGE.md): the storage key of the private
+ * vault is renewed every 30 days or on request, destroying the old one and the
+ * expired publication keys. Only dates cross the bridge. */
+import type {CryptoStorageKeyBridge} from '../../modules/crypto-native/index.ts';
+import type {CryptoIdentityAccess} from './cryptoIdentity.ts';
+import {NativeError} from './transport.ts';
+
+export type StorageKeyStatus={rotated_at:string|null;due_at:string|null;renewed:boolean};
+const time=(v:unknown):v is string|null=>v===null||typeof v==='string'&&/^(0|[1-9]\d{0,15})$/.test(v);
+function status(json:unknown):StorageKeyStatus {
+  if(typeof json!=='string'||json.length>256)throw new NativeError(0,'crypto_integrity_failed');
+  const v=JSON.parse(json) as Record<string,unknown>;
+  if(!v||typeof v!=='object'||!time(v.rotated_at)||!time(v.due_at)||typeof v.renewed!=='boolean')throw new NativeError(0,'crypto_integrity_failed');
+  return {rotated_at:v.rotated_at,due_at:v.due_at,renewed:v.renewed};
+}
+export class CryptoStorageKeyAccess {
+  private readonly identity:CryptoIdentityAccess;
+  private readonly bridge:CryptoStorageKeyBridge;
+  constructor(identity:CryptoIdentityAccess,bridge:CryptoStorageKeyBridge){this.identity=identity;this.bridge=bridge;}
+  private action(action:'view'|'renew'|'renew_if_due'):Promise<StorageKeyStatus> {
+    return this.identity.withIdentity(async(handle,own,_read,check)=>{
+      await check();const json=await this.bridge.storageAction(handle,own,JSON.stringify({action}));await check();
+      return status(json);
+    });
+  }
+  view():Promise<StorageKeyStatus>{return this.action('view');}
+  renew():Promise<StorageKeyStatus>{return this.action('renew');}
+  renewIfDue():Promise<StorageKeyStatus>{return this.action('renew_if_due');}
+}

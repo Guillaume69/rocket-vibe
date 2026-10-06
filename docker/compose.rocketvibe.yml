@@ -1,0 +1,52 @@
+# Experimental native server, completely separate from the Rocket.Chat bench.
+name: rocketvibe-native
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: rocketvibe
+      POSTGRES_USER: rocketvibe
+      POSTGRES_PASSWORD: ${RV_DATABASE_PASSWORD:?Set RV_DATABASE_PASSWORD in docker/.env.native}
+    volumes:
+      - native-postgres:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rocketvibe -d rocketvibe"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  server:
+    build:
+      context: ..
+      dockerfile: apps/server/Dockerfile
+    environment:
+      DATABASE_URL: postgres://rocketvibe:${RV_DATABASE_PASSWORD}@postgres/rocketvibe
+      RV_BIND: 0.0.0.0:3400
+      RV_OBJECTS_DIR: /var/lib/rocketvibe/objects
+      # Native E2EE, on by default; false turns it off (apps/server/README.md).
+      RV_E2EE: ${RV_E2EE:-true}
+    volumes:
+      - native-objects:/var/lib/rocketvibe/objects
+    ports:
+      - "127.0.0.1:3400:3400"
+    depends_on:
+      postgres:
+        condition: service_healthy
+  check:
+    profiles: ["check"]
+    image: rocketvibe-native-check
+    build:
+      context: ../apps/server/docker
+      dockerfile: Dockerfile.check
+    working_dir: /src
+    environment:
+      DATABASE_URL: postgres://rocketvibe:${RV_DATABASE_PASSWORD}@postgres/rocketvibe
+    volumes:
+      - ..:/src
+      - native-cargo:/usr/local/cargo
+    depends_on:
+      postgres:
+        condition: service_healthy
+volumes:
+  native-objects:
+  native-postgres:
+  native-cargo:

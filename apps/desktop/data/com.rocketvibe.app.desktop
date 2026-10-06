@@ -9,4 +9,6 @@ Terminal=false
 Categories=Network;InstantMessaging;Chat;
 MimeType=x-scheme-handler/rocketvibe;
 StartupNotify=true
+DBusActivatable=true
+X-GNOME-UsesNotifications=true
 StartupWMClass=com.rocketvibe.app

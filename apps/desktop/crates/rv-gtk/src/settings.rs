@@ -19,6 +19,214 @@ use crate::widgets::{self, TileSize};
 
 const NOTIFICATION_CHOICES: [&str; 4] = ["default", "all", "mention", "nothing"];
 const LANGUAGE_CHOICES: [&str; 3] = ["auto", "fr", "en"];
+mod native_profiles;
+
+#[derive(Clone)]
+enum ProfileSource {
+    Legacy(Arc<Session>),
+    Native(Arc<rv_core::native::NativeSession>, Rc<RefCell<rv_core::native::profiles::OwnProfile>>),
+}
+
+/// Account selection and local preferences are shared by both providers.
+pub fn open_native(
+    parent: &impl IsA<gtk::Widget>,
+    session: Arc<rv_core::native::NativeSession>,
+    accounts: Option<Rc<AccountActions>>,
+    sign_out: impl Fn() + 'static,
+) {
+    let info = &session.info;
+    let dialog = adw::PreferencesDialog::builder().title(t("settings.title")).build();
+    dialog.add_css_class("native-profile-settings");
+    let page = adw::PreferencesPage::builder().title(t("settings.title")).icon_name("emblem-system-symbolic").build();
+    let profile = adw::PreferencesGroup::new();
+    let row = adw::ActionRow::builder().title(&info.username).subtitle(&info.base_url).build();
+    row.add_prefix(&widgets::tile(&info.username, &widgets::initial(&info.username), TileSize::Room, false));
+    profile.add(&row);
+    page.add(&profile);
+    if let Some(actions) = accounts {
+        page.add(&accounts_group(&dialog, info, actions));
+    }
+    if session.supported_features().iter().any(|f| f == "device_sessions") {
+        page.add(&native_devices_group(&dialog, session.clone()));
+    }
+    if session.security_supported() {
+        page.add(&crate::native_security::group(&dialog, session.clone()));
+    }
+    if session.crypto_settings_supported() {
+        page.add(&crate::native_crypto::group(&dialog, session.clone()));
+    }
+    if crate::background::SUPPORTED {
+        page.add(&background_group(&dialog));
+    }
+    native_profiles::settings(&dialog, &page, &row, session.clone());
+    let group = adw::PreferencesGroup::builder().title(t("settings.account")).build();
+    let logout = adw::ButtonRow::builder().title(t("rooms.sign_out")).css_classes(["destructive-action"]).build();
+    let d = dialog.clone();
+    logout.connect_activated(move |_| {
+        d.close();
+        sign_out();
+    });
+    group.add(&logout);
+    page.add(&group);
+    dialog.add(&page);
+    dialog.present(Some(parent));
+}
+
+fn device_error(error: &rv_core::native::Error) -> &'static str {
+    if error.code() == "reauthentication_required" { t("devices.reauth") } else { t("devices.failed") }
+}
+
+fn native_devices_group(
+    dialog: &adw::PreferencesDialog,
+    session: Arc<rv_core::native::NativeSession>,
+) -> adw::PreferencesGroup {
+    let group = adw::PreferencesGroup::builder().title(t("devices.title")).build();
+    let load = adw::ButtonRow::builder().title(t("devices.title")).css_classes(["native-devices-open"]).build();
+    group.add(&load);
+    let parent = dialog.downgrade();
+    load.connect_activated(move |_| {
+        let Some(parent) = parent.upgrade() else { return };
+        let dialog = adw::PreferencesDialog::builder()
+            .title(t("devices.title"))
+            .content_width(560)
+            .content_height(560)
+            .css_classes(["native-devices-dialog"])
+            .build();
+        let page = adw::PreferencesPage::new();
+        let group = adw::PreferencesGroup::new();
+        let status = adw::ActionRow::builder().title(t("devices.loading")).build();
+        group.add(&status);
+        page.add(&group);
+        dialog.add(&page);
+        if session.security_supported() {
+            let reauth =
+                adw::ButtonRow::builder().title(t("security.verify")).css_classes(["native-devices-reauth"]).build();
+            group.add(&reauth);
+            let (parent, s) = (dialog.downgrade(), session.clone());
+            reauth.connect_activated(move |_| {
+                if let Some(parent) = parent.upgrade() {
+                    crate::native_security::open_dialog(&parent, s.clone());
+                }
+            });
+        }
+        dialog.present(Some(&parent));
+        let weak = dialog.downgrade();
+        let session = session.clone();
+        glib::spawn_future_local(async move {
+            let s = session.clone();
+            let result = on_tokio(async move { s.device_sessions().await }).await;
+            let Some(dialog) = weak.upgrade() else { return };
+            group.remove(&status);
+            match result {
+                Err(error) => group.add(&adw::ActionRow::builder().title(device_error(&error)).build()),
+                Ok(devices) => {
+                    for device in devices {
+                        let title = if device.label.is_empty() { t("devices.unnamed") } else { &device.label };
+                        let row = adw::ExpanderRow::builder()
+                            .title(glib::markup_escape_text(title))
+                            .subtitle(if device.current { t("devices.current") } else { "" })
+                            .build();
+                        let name = adw::EntryRow::builder()
+                            .title(t("devices.name"))
+                            .text(&device.label)
+                            .show_apply_button(true)
+                            .build();
+                        if device.current {
+                            name.add_css_class("native-device-current-name");
+                        }
+                        row.add_row(&name);
+                        for (key, value) in [
+                            ("devices.created", &device.created_at),
+                            ("devices.seen", &device.last_seen_at),
+                            ("devices.expires", &device.expires_at),
+                        ] {
+                            row.add_row(&adw::ActionRow::builder().title(t(key)).subtitle(value).build());
+                        }
+                        let (weak_dialog, weak_row) = (dialog.downgrade(), row.downgrade());
+                        let (s, id) = (session.clone(), device.id.clone());
+                        name.connect_apply(move |entry| {
+                            let (s, id, label, entry, parent, row) = (
+                                s.clone(),
+                                id.clone(),
+                                entry.text().to_string(),
+                                entry.clone(),
+                                weak_dialog.clone(),
+                                weak_row.clone(),
+                            );
+                            entry.set_sensitive(false);
+                            glib::spawn_future_local(async move {
+                                let saved = label.clone();
+                                let result = on_tokio(async move { s.rename_device(&id, &saved).await }).await;
+                                entry.set_sensitive(true);
+                                if let Some(dialog) = parent.upgrade() {
+                                    match result {
+                                        Ok(()) => {
+                                            if let Some(row) = row.upgrade() {
+                                                row.set_title(&glib::markup_escape_text(if label.is_empty() {
+                                                    t("devices.unnamed")
+                                                } else {
+                                                    &label
+                                                }));
+                                            }
+                                        }
+                                        Err(error) => toast_of(&dialog, device_error(&error)),
+                                    }
+                                }
+                            });
+                        });
+                        if !device.current {
+                            let revoke = adw::ButtonRow::builder()
+                                .title(t("devices.revoke"))
+                                .css_classes(["destructive-action"])
+                                .build();
+                            let (s, id, parent, weak_row, weak_group) =
+                                (session.clone(), device.id, dialog.downgrade(), row.downgrade(), group.downgrade());
+                            revoke.connect_activated(move |_| {
+                                let Some(parent) = parent.upgrade() else { return };
+                                let confirm = adw::AlertDialog::builder()
+                                    .heading(t("devices.confirm"))
+                                    .body(t("devices.confirm_body"))
+                                    .default_response("cancel")
+                                    .close_response("cancel")
+                                    .build();
+                                confirm
+                                    .add_responses(&[("cancel", t("actions.cancel")), ("revoke", t("devices.revoke"))]);
+                                confirm.set_response_appearance("revoke", adw::ResponseAppearance::Destructive);
+                                let (s, id, response_parent, row, group) =
+                                    (s.clone(), id.clone(), parent.downgrade(), weak_row.clone(), weak_group.clone());
+                                confirm.connect_response(Some("revoke"), move |_, _| {
+                                    let (s, id, parent, row, group) =
+                                        (s.clone(), id.clone(), response_parent.clone(), row.clone(), group.clone());
+                                    if let Some(row) = row.upgrade() {
+                                        row.set_sensitive(false);
+                                    }
+                                    glib::spawn_future_local(async move {
+                                        let result = on_tokio(async move { s.revoke_device(&id).await }).await;
+                                        if let (Some(dialog), Some(row), Some(group)) =
+                                            (parent.upgrade(), row.upgrade(), group.upgrade())
+                                        {
+                                            match result {
+                                                Ok(()) => group.remove(&row),
+                                                Err(error) => {
+                                                    row.set_sensitive(true);
+                                                    toast_of(&dialog, device_error(&error));
+                                                }
+                                            }
+                                        }
+                                    });
+                                });
+                                confirm.present(Some(&parent));
+                            });
+                            row.add_row(&revoke);
+                        }
+                        group.add(&row);
+                    }
+                }
+            }
+        });
+    });
+    group
+}
 
 fn combo(title: &str, labels: &[&str], selected: usize) -> adw::ComboRow {
     let model = gtk::StringList::new(labels);
@@ -151,7 +359,7 @@ pub fn open(
     ));
 
     if let Some(actions) = accounts {
-        page.add(&accounts_group(&dialog, &session, actions));
+        page.add(&accounts_group(&dialog, &session.info, actions));
     }
 
     let account = adw::PreferencesGroup::builder().title(t("settings.account")).build();
@@ -315,11 +523,11 @@ fn background_group(dialog: &adw::PreferencesDialog) -> adw::PreferencesGroup {
 
 fn accounts_group(
     dialog: &adw::PreferencesDialog,
-    session: &Arc<Session>,
+    info: &rv_core::session::SessionInfo,
     actions: Rc<AccountActions>,
 ) -> adw::PreferencesGroup {
     let group = adw::PreferencesGroup::builder().title(t("settings.accounts")).build();
-    let current = crate::secrets::account_key(&session.info);
+    let current = crate::secrets::account_key(info);
     let list = gtk::ListBox::builder().selection_mode(gtk::SelectionMode::None).css_classes(["boxed-list"]).build();
     group.add(&list);
     let add = adw::ButtonRow::builder().title(t("settings.add_account")).start_icon_name("list-add-symbolic").build();
@@ -382,14 +590,21 @@ fn wire_status(dialog: &adw::PreferencesDialog, session: &Arc<Session>, status: 
 /// Name, username, email, bio and photo. Username and email changes ask for
 /// the current password, and maybe a second factor.
 fn edit_profile(parent: &adw::PreferencesDialog, session: Arc<Session>, me: Me) {
+    edit_profile_for(parent, ProfileSource::Legacy(session), me);
+}
+fn edit_profile_for(parent: &adw::PreferencesDialog, source: ProfileSource, me: Me) {
     let page = adw::PreferencesPage::new();
     let photo_group = adw::PreferencesGroup::new();
     let photo_row = adw::ActionRow::builder().title(t("settings.photo")).build();
-    let photo = with_photo(
-        widgets::tile(&me.username, &widgets::initial(&me.username), TileSize::Room, false),
-        Some(&session),
-        Some(avatar_path(AvatarTarget::User(&me.username), me.avatar_etag.as_deref())),
-    );
+    let tile = widgets::tile(&me.username, &widgets::initial(&me.username), TileSize::Room, false);
+    let photo = match &source {
+        ProfileSource::Legacy(session) => with_photo(
+            tile,
+            Some(session),
+            Some(avatar_path(AvatarTarget::User(&me.username), me.avatar_etag.as_deref())),
+        ),
+        ProfileSource::Native(session, _) => crate::rows::with_native_photo(tile, session, me.avatar_etag.clone()),
+    };
     photo.set_margin_top(6);
     photo.set_margin_bottom(6);
     photo_row.add_prefix(&photo);
@@ -436,6 +651,18 @@ fn edit_profile(parent: &adw::PreferencesDialog, session: Arc<Session>, me: Me) 
     view.set_content(Some(&page));
     let subpage = adw::NavigationPage::builder().title(t("settings.edit_profile")).child(&view).build();
     parent.push_subpage(&subpage);
+
+    if let ProfileSource::Native(session, current) = source {
+        native_profiles::editor(
+            parent,
+            &subpage,
+            session,
+            current,
+            native_profiles::Fields { name, username, email, bio, save, change, remove, photo_row, photo },
+        );
+        return;
+    }
+    let ProfileSource::Legacy(session) = source else { unreachable!() };
 
     let changes = {
         let (me, name, username, email, bio) = (me.clone(), name.clone(), username.clone(), email.clone(), bio.clone());

@@ -66,7 +66,7 @@ Each feature doc covers mobile and desktop, and says where they differ.
 | [room-list.md](features/room-list.md) | Unread / Favourites / Channels / DMs sections, ordering, previews, badges, presence. |
 | [room-view.md](features/room-view.md) | History paging, live messages, grouping, markdown, system messages, cards, jumps, unread bar. |
 | [composer.md](features/composer.md) | Where a send goes, drafts, quote replies, mentions, editing, formatting, staged attachments. |
-| [slash-commands.md](features/slash-commands.md) | `commands.list` / `commands.run`, completion, the server's private answers. |
+| [slash-commands.md](features/slash-commands.md) | `commands.list` / `commands.run`, the RocketVibe server's commands, the command panel, the server's private answers. |
 | [uploads.md](features/uploads.md) | The two-step upload behind a persisted queue, local dedup, retries, progress, protected downloads. |
 | [voice-messages.md](features/voice-messages.md) | Recording and playback, and why the formats differ per app. |
 | [message-actions.md](features/message-actions.md) | Which actions show, the endpoints, the menus, pinned and starred lists. |
@@ -79,6 +79,11 @@ Each feature doc covers mobile and desktop, and says where they differ.
 | [settings.md](features/settings.md) | What each setting is and where it is stored, per app. |
 | [notifications.md](features/notifications.md) | Mobile FCM push with hidden content, the native service, desktop notifier and badge. |
 | [e2ee.md](features/e2ee.md) | Encrypted rooms as the user sees them: lock, unlock, sends, media, notifications. |
+| [e2ee-history.md](features/e2ee-history.md) | RocketVibe server: a new device recovers encrypted history from another device of the account. |
+| [e2ee-delegation.md](features/e2ee-delegation.md) | RocketVibe server: control of the account (its root) handed to another device with a history share. |
+| [e2ee-storage-keys.md](features/e2ee-storage-keys.md) | RocketVibe server: the vault's storage key renewed every 30 days, old keys destroyed. |
+| [e2ee-private-files.md](features/e2ee-private-files.md) | RocketVibe server: files of private rooms sealed on the device, opaque to the server. |
+| [e2ee-private-actions.md](features/e2ee-private-actions.md) | RocketVibe server: encrypted edits, deletions and reactions of private messages, and private search on the device. |
 | [calls.md](features/calls.md) | Jitsi calls, the mobile WebView exception, desktop call windows. |
 | [sharing-and-links.md](features/sharing-and-links.md) | `rocketvibe://` deep links, the incoming share screen, outgoing-link guard, drag and paste. |
 | [desktop-updates.md](features/desktop-updates.md) | The desktop self-update from GitHub releases, per platform. |

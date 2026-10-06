@@ -18,16 +18,17 @@ const NOTHING = () => {};
 export function useActivity(key: string): boolean {
   const sync = useSync();
   const activity = sync.phase === 'ready' ? sync.activity : null;
+  const native = sync.phase === 'ready' && key === 'global' ? sync.provider.native?.chat : undefined;
 
   // STABLE identities (see usePresence): a `subscribe` recreated on every render
   // would unsubscribe/resubscribe the header on every re-render.
   const subscribe = useCallback(
-    (reread: () => void) => (activity === null ? NOTHING : activity.onChange(reread)),
-    [activity],
+    (reread: () => void) => (native ? native.subscribe(reread) : activity === null ? NOTHING : activity.onChange(reread)),
+    [activity,native],
   );
   const read = useCallback(
-    () => (activity === null ? false : activity.active(key)),
-    [activity, key],
+    () => (native ? !native.status.online : activity === null ? false : activity.active(key)),
+    [activity, key,native],
   );
   return useSyncExternalStore(subscribe, read);
 }

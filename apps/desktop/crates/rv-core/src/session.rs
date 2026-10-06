@@ -27,12 +27,26 @@ use crate::uploads::{self, Uploads};
 
 const MAX_RECONNECT_DELAY_MS: u64 = 30_000;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct SessionInfo {
     pub base_url: String,
     pub user_id: String,
     pub username: String,
     pub auth_token: String,
+    /// None for legacy Rocket.Chat accounts; pinned for the native pilot.
+    pub native: Option<crate::native::Identity>,
+}
+
+impl std::fmt::Debug for SessionInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SessionInfo")
+            .field("base_url", &self.base_url)
+            .field("user_id", &self.user_id)
+            .field("username", &self.username)
+            .field("auth_token", &"[redacted]")
+            .field("native", &self.native)
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -96,6 +110,20 @@ pub async fn login(
     password: &str,
     two_factor: Option<TwoFactorCode>,
 ) -> Result<SessionInfo, RestError> {
+    login_as(server, crate::native::ServerKind::Auto, user, password, two_factor).await
+}
+
+/// `login` under the user's choice of server kind (`native::probe_as`).
+pub async fn login_as(
+    server: &Url,
+    kind: crate::native::ServerKind,
+    user: &str,
+    password: &str,
+    two_factor: Option<TwoFactorCode>,
+) -> Result<SessionInfo, RestError> {
+    if let Some(discovery) = crate::native::probe_as(server, kind).await.map_err(crate::native::rest_error)? {
+        return crate::native::login(server, &discovery, user, password).await.map_err(crate::native::rest_error);
+    }
     let rest = RestClient::new(server.clone());
     let options = CallOptions {
         anonymous: true,
@@ -111,6 +139,7 @@ pub async fn login(
         user_id: field("/userId"),
         username: field("/me/username"),
         auth_token: field("/authToken"),
+        native: None,
     };
     if info.auth_token.is_empty() || info.user_id.is_empty() {
         return Err(RestError {
@@ -120,6 +149,8 @@ pub async fn login(
             error_type: None,
             understood: false,
             two_factor: None,
+            request_id: None,
+            retry_after: None,
         });
     }
     Ok(info)
@@ -182,6 +213,10 @@ pub enum UnlockError {
 impl Session {
     /// Must run inside a tokio runtime.
     pub fn start(info: SessionInfo, db_path: &Path) -> rusqlite::Result<Arc<Session>> {
+        // A native account must never enter the Rocket.Chat REST/DDP engine.
+        if info.native.is_some() {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
         let base: Url = info.base_url.parse().expect("stored base URL");
         let store = Arc::new(Store::open(db_path)?);
         let rest = RestClient::new(base.clone());
@@ -644,9 +679,24 @@ impl Session {
         caption: Option<&str>,
         temporary: bool,
     ) -> Result<(), uploads::Refusal> {
+        self.attach_in(rid, None, file, name, mime, caption, temporary).await
+    }
+
+    /// `attach`, answering the thread `tmid` when there is one.
+    #[allow(clippy::too_many_arguments)] // The file, its caption and where it goes.
+    pub async fn attach_in(
+        self: &Arc<Self>,
+        rid: &str,
+        tmid: Option<&str>,
+        file: &std::path::Path,
+        name: &str,
+        mime: &str,
+        caption: Option<&str>,
+        temporary: bool,
+    ) -> Result<(), uploads::Refusal> {
         let size = std::fs::metadata(file).map(|m| m.len()).unwrap_or(0);
         uploads::validate(self.settings().await, size, mime, self.store.room_encrypted(rid))?;
-        self.uploads.enqueue(rid, &file.to_string_lossy(), name, mime, caption, temporary);
+        self.uploads.enqueue(rid, &file.to_string_lossy(), name, mime, caption, temporary, tmid);
         let uploads = self.uploads.clone();
         tokio::spawn(async move { uploads.process().await });
         Ok(())
@@ -793,12 +843,21 @@ impl Session {
 
     /// Runs `text` as a slash command when it names one the server knows;
     /// None when it is a message to send. Its answer, if any, comes as
-    /// `SessionEvent::Private`.
+    /// `SessionEvent::Private`. A text command (`/shrug`) is written here and
+    /// sent as a message, which an encrypted room accepts.
     pub async fn run_command(&self, rid: &str, text: &str, thread_id: Option<&str>) -> Option<Result<(), RestError>> {
         let (name, params) = crate::commands::split(text)?;
         let known = self.commands().await.ok()?.iter().any(|c| c.name == name);
         if !known {
             return None;
+        }
+        match crate::commands::text(name, params) {
+            Some(crate::commands::Run::Message(message)) => {
+                self.send_in(rid, &message, thread_id).await;
+                return Some(Ok(()));
+            }
+            Some(crate::commands::Run::Done) => return Some(Ok(())),
+            None => {}
         }
         let mut body = json!({
             "command": name,

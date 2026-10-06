@@ -22,6 +22,8 @@ struct ThreadView: View {
             } else {
                 MessageList(model: model)
             }
+            // This thread's files waiting to go, with Retry when refused.
+            UploadsView(model: model)
             Composer(model: model, staged: $staged)
         }
         .background(Vibe.night)

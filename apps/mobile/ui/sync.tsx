@@ -20,8 +20,15 @@
  */
 
 import * as Crypto from 'expo-crypto';
+import {NativeError} from '../providers/rocketvibe/transport.ts';
+import {mountProviderProfiles} from '../lib/providerProfiles.ts';
+import {mountProviderCalls} from '../lib/providerCalls.ts';
+import {mountProviderEmojis} from '../lib/providerEmojis.ts';
+import {mountNativePreviews} from '../lib/nativePreviews.ts';
 import { createContext, useContext, useEffect, useState } from 'react';
-import { AppState } from 'react-native';
+import { afterSystemPicker } from './roomCover.ts';
+import { AppState, Platform } from 'react-native';
+import {registerNativePush} from '../providers/rocketvibe/push.ts';
 
 import type { LocalDatabase } from '../db/client.ts';
 import { openDatabase } from '../db/client.ts';
@@ -64,6 +71,8 @@ import {
   readE2EPrivateKey,
   purgeLegacyE2EKey,
   rememberPushToken,
+  prepareNativeSession,
+  rememberNativePushDevice,
 } from '../lib/sessionStore.ts';
 import { forgetCallAvailability } from '../lib/call.ts';
 import { forgetProfileCards } from '../lib/profilePreload.ts';
@@ -81,6 +90,9 @@ import { createOpenRoomsStack } from './openRooms.ts';
 import { encryptLocalFile, hashedName } from './fileEncryption.ts';
 import { deleteIfTemporary } from './temporaryFiles.ts';
 import { transportExpo } from './transportUpload.ts';
+import { NativeStore } from '../providers/rocketvibe/store.ts';
+import {createNativeFilesIO,mountNativeFiles} from './nativeFiles.ts';
+import { notify } from './toast.tsx';
 
 export type SyncState =
   | { phase: 'idle' }
@@ -144,22 +156,115 @@ export type SyncState =
 const Context = createContext<SyncState | null>(null);
 
 export function SyncProvider({ children }: { children: React.ReactNode }) {
-  const { state } = useSession();
+  const { state,adoptRenewedSession } = useSession();
   const [sync, setSync] = useState<SyncState>({ phase: 'idle' });
 
   useEffect(() => {
     if (state.phase !== 'connected') {
       // The emoji index of the server left behind must not serve the next one.
       clearCustomEmojis();
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- The external account closed: clear its projection before another account can render it.
       setSync({ phase: 'idle' });
       return;
     }
     const { session, client } = state;
+    if (session.kind === 'rocketvibe') {
+      clearCustomEmojis();
+      forgetIdentities();
+      forgetLoadedThreads();
+      releaseHotRooms();
+      forgetLoadedRooms();
+      forgetReplies();
+      setSync({phase:'preparing'});
+      let alive = true;
+      let stop: (() => void) | undefined;
+      let runner: import('../providers/rocketvibe/chat.ts').NativeChat | undefined;
+      const appState = AppState.addEventListener('change',state => {
+        if (state === 'active') {runner?.resume();return;}
+        // The composer's system picker is an activity of its own: suspending
+        // then closed the room's private view and lost the pick. Suspend only
+        // if the app is still away once the picker has returned (its result
+        // can arrive just before the app is active again).
+        afterSystemPicker(() => setTimeout(() => { if (AppState.currentState !== 'active') runner?.suspend(); }, 1000));
+      });
+      void (async () => {
+        const {base,raw,writeQueue} = openDatabase(session.baseUrl,session.userId);
+        await migrateDatabase(session.baseUrl,session.userId);
+        if (!alive) return;
+        const store = new NativeStore(raw,writeQueue,session);
+        await store.prepare();
+        if (!alive) return;
+        const provider = createProvider(session,client,() => idFromBytes(Crypto.getRandomBytes(12)),store,{
+          pushAndroid:Platform.OS==='android',
+          credentials:async(previous)=>{
+            const fresh=await prepareNativeSession(previous);
+            if(!alive)throw new NativeError(0,'session_closed');
+            if(fresh.authToken!==previous.authToken && !adoptRenewedSession(previous,fresh))throw new NativeError(0,'session_closed');
+            return fresh;
+          },
+        });
+        const chat = provider.native!.chat;
+        const nativeFiles=await createNativeFilesIO(provider);
+        if(!alive){chat.stop();return;}
+        const unprofile=mountProviderProfiles(client,provider);
+        const uncalls=mountProviderCalls(client,provider);
+        const unemojis=mountProviderEmojis(client,provider);
+        const unpreviews=mountNativePreviews(client,provider);
+        const unfiles=mountNativeFiles(client,provider);
+        const files=provider.createUploadQueue(createUploadStore(raw,writeQueue),transportExpo,async()=>{},{nativeFiles});
+        runner = chat;
+        const engine = new SyncEngine(createStore(raw,writeQueue),provider.translator);
+        const outbox = provider.createOutbox(createOutboxStore(raw,writeQueue),async () => {});
+        // Passive legacy read models; native networking stays in the provider.
+        const e2e = new E2EEngine({client,uid:session.userId,storage:{read:async () => null,save:async () => {},clear:async () => {}}});
+        const activity = new ActivityEngine();
+        const presence = new PresenceEngine();
+        const unlive=chat.live.subscribe(()=>presence.replace(chat.live.state?.presence??null));
+        const openRooms = createOpenRoomsStack();
+        let online = false;
+        let pushCommands:Promise<void>=Promise.resolve();
+        const registerPush=(token:string)=>{
+          pushCommands=pushCommands.catch(()=>{}).then(async()=>{
+            if(!alive || !chat.status.online || !provider.capabilities.push)return;
+            const fresh=await prepareNativeSession(session);
+            if(!alive)return;
+            await registerNativePush(fresh,token,rememberNativePushDevice);
+            await rememberPushToken(token);
+          }).catch(()=>{});
+        };
+        const unpush=Platform.OS==='android'?onTokenRotation(registerPush):()=>{};
+        let lastError: string | null = null;
+        const unlisten = chat.subscribe(() => {
+          if (!alive) return;
+          if (chat.status.online && !online){
+            setSync(s => s.phase === 'ready' ? {...s,capabilities:provider.capabilities,generation:s.generation+1} : s);
+            if(provider.capabilities.push)void getFcmToken().then(result=>{if(alive && result.ok)registerPush(result.token);}).catch(()=>{});
+          }
+          online = chat.status.online;
+          if (chat.status.error && chat.status.error !== lastError) {
+            notify(translateCurrent(chat.status.error === 'server_identity_changed' ? 'native.identityChanged' : 'native.error'));
+          }
+          lastError = chat.status.error;
+        });
+        stop = () => { unlisten();unpush();unlive();unprofile();uncalls();unemojis();unpreviews();unfiles();files.close?.();presence.invalidate();chat.stop(); };
+        setSync({
+          phase:'ready',base,drafts:store.drafts(),engine,outbox,
+          files,
+          ddp:provider.listener,provider,actions:provider.actions,capabilities:provider.capabilities,
+          declareOpenRoom:openRooms.declare,presence,activity,e2e,
+          unlockE2E:async () => { throw new Error('Unsupported native feature'); },lockE2E:async () => {},generation:0,
+        });
+        if (AppState.currentState === 'active') chat.start(); else chat.suspend();
+      })().catch(() => { if (alive) setSync({phase:'error',message:translateCurrent('native.error')}); });
+      return () => { alive = false; appState.remove(); stop?.(); };
+    }
     let discarded = false;
     const isDiscarded = () => discarded;
     const provider = createProvider(session, client, () =>
       idFromBytes(Crypto.getRandomBytes(12)),
     );
+    const unprofile=mountProviderProfiles(client,provider);
+    const uncalls=mountProviderCalls(client,provider);
     const ddp = provider.listener;
     let reconnector: Reconnector | null = null;
     let onAbort: (() => void) | null = null;
@@ -595,10 +700,12 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       forgetCallAvailability();
       forgetNotificationState();
       forgetProfileCards();
+      unprofile();
+      uncalls();
       ddp.close();
       ddp.reset();
     };
-  }, [state]);
+  }, [state,adoptRenewedSession]);
 
   return <Context.Provider value={sync}>{children}</Context.Provider>;
 }

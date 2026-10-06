@@ -15,6 +15,8 @@ use crate::on_tokio;
 use crate::widgets::{self, Handler};
 
 const MAX_HEIGHT: i32 = 160;
+#[path = "composer_quotes.rs"]
+mod quote_author;
 
 pub struct Composer {
     pub root: gtk::Box,
@@ -25,9 +27,18 @@ pub struct Composer {
     reply_preview: gtk::Label,
     /// The quoted message's permalink, put before the text on send.
     reply_link: RefCell<Option<String>>,
+    native_reply: RefCell<Option<rv_core::native::store::QuoteSelection>>,
+    private_reply: RefCell<Option<rv_core::native::crypto::enrollment::rooms::messages::QuoteSelection>>,
+    private_access: RefCell<Option<rv_core::native::crypto::enrollment::rooms::messages::Access>>,
+    quote_author: quote_author::State,
     on_changed: Handler<String>,
     completion: gtk::Popover,
     choices: gtk::ListBox,
+    /// "Commands" and the keys, over the list while it offers commands.
+    completion_header: gtk::Box,
+    completion_scroll: gtk::ScrolledWindow,
+    /// The field the choices open over: the command list takes its width.
+    completion_anchor: gtk::Box,
     /// (trigger start, text inserted) of each offered choice.
     offered: RefCell<Vec<(usize, String)>>,
     mentions: RefCell<Option<MentionSource>>,
@@ -38,10 +49,11 @@ pub struct Composer {
     record_bar: gtk::Box,
     record_time: gtk::Label,
     recorder: RefCell<Option<crate::recorder::Recorder>>,
-    on_voice: Handler<std::path::PathBuf>,
     on_error: Handler<String>,
     on_edit_last: Handler<()>,
     staged: Rc<crate::staged::Staged>,
+    attach: gtk::Button,
+    mic: gtk::Button,
     on_send_files: Handler<Outgoing>,
     commands: RefCell<Commands>,
     note_bar: gtk::Box,
@@ -184,8 +196,32 @@ impl Composer {
         ));
         let choices =
             gtk::ListBox::builder().selection_mode(gtk::SelectionMode::Single).css_classes(["completion"]).build();
-        let completion = gtk::Popover::builder()
+        // A click on a choice completes it, like Tab.
+        choices.set_cursor_from_name(Some("pointer"));
+        // Every command shows after `/` alone, so the list scrolls past a few.
+        let completion_scroll = gtk::ScrolledWindow::builder()
             .child(&choices)
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .propagate_natural_height(true)
+            .max_content_height(340)
+            .build();
+        let completion_header =
+            gtk::Box::builder().spacing(12).css_classes(["completion-header"]).visible(false).build();
+        completion_header.append(
+            &gtk::Label::builder()
+                .label(t("command.title"))
+                .xalign(0.0)
+                .hexpand(true)
+                .css_classes(["completion-title"])
+                .build(),
+        );
+        completion_header
+            .append(&gtk::Label::builder().label(t("command.keys")).css_classes(["completion-keys"]).build());
+        let completion_panel = gtk::Box::builder().orientation(gtk::Orientation::Vertical).build();
+        completion_panel.append(&completion_header);
+        completion_panel.append(&completion_scroll);
+        let completion = gtk::Popover::builder()
+            .child(&completion_panel)
             .autohide(false)
             .has_arrow(false)
             .position(gtk::PositionType::Top)
@@ -213,9 +249,10 @@ impl Composer {
         let record_time =
             gtk::Label::builder().label("0:00").css_classes(["record-time"]).hexpand(true).xalign(0.0).build();
         let record_cancel = gtk::Button::builder().label(t("voice.cancel")).css_classes(["flat"]).build();
+        // Stopping stages the recording, to be listened to before it goes.
         let record_send = gtk::Button::builder()
-            .child(&widgets::send_arrow())
-            .tooltip_text(t("voice.send"))
+            .icon_name("media-playback-stop-symbolic")
+            .tooltip_text(t("voice.stop"))
             .css_classes(["send"])
             .build();
         let record_bar = gtk::Box::builder().spacing(10).css_classes(["record-bar"]).visible(false).build();
@@ -234,8 +271,11 @@ impl Composer {
         let reply_text = gtk::Box::builder().orientation(gtk::Orientation::Vertical).hexpand(true).build();
         reply_text.append(&reply_title);
         reply_text.append(&reply_preview);
-        let reply_close =
-            gtk::Button::builder().label("✕").css_classes(["flat", "circular"]).valign(gtk::Align::Center).build();
+        let reply_close = gtk::Button::builder()
+            .icon_name("window-close-symbolic")
+            .css_classes(["flat", "circular"])
+            .valign(gtk::Align::Center)
+            .build();
         let reply_bar = gtk::Box::builder().spacing(8).css_classes(["reply-bar"]).visible(false).build();
         reply_bar.append(&reply_text);
         reply_bar.append(&reply_close);
@@ -246,8 +286,11 @@ impl Composer {
             &gtk::Label::builder().label(t("command.only_you")).xalign(0.0).css_classes(["reply-title"]).build(),
         );
         note_text.append(&note_body);
-        let note_close =
-            gtk::Button::builder().label("✕").css_classes(["flat", "circular"]).valign(gtk::Align::Start).build();
+        let note_close = gtk::Button::builder()
+            .icon_name("window-close-symbolic")
+            .css_classes(["flat", "circular"])
+            .valign(gtk::Align::Start)
+            .build();
         let note_bar = gtk::Box::builder().spacing(8).css_classes(["reply-bar", "private-note"]).visible(false).build();
         note_bar.append(&note_text);
         note_bar.append(&note_close);
@@ -270,7 +313,14 @@ impl Composer {
         root.append(&reply_bar);
         root.append(&staged.root);
         root.append(&field);
-        root.append(&toolbar(&text));
+        root.append(
+            &gtk::ScrolledWindow::builder()
+                .hscrollbar_policy(gtk::PolicyType::External)
+                .vscrollbar_policy(gtk::PolicyType::Never)
+                .propagate_natural_width(false)
+                .child(&toolbar(&text))
+                .build(),
+        );
         root.append(&record_bar);
 
         let this = Rc::new(Composer {
@@ -281,9 +331,16 @@ impl Composer {
             reply_title,
             reply_preview,
             reply_link: RefCell::default(),
+            native_reply: RefCell::default(),
+            private_reply: RefCell::default(),
+            private_access: RefCell::default(),
+            quote_author: quote_author::State::default(),
             on_changed: RefCell::default(),
             completion,
             choices,
+            completion_header,
+            completion_scroll,
+            completion_anchor: pill.clone(),
             offered: RefCell::default(),
             mentions: RefCell::default(),
             on_files: RefCell::default(),
@@ -293,10 +350,11 @@ impl Composer {
             record_bar,
             record_time,
             recorder: RefCell::default(),
-            on_voice: RefCell::default(),
             on_error: RefCell::default(),
             on_edit_last: RefCell::default(),
             staged,
+            attach: attach.clone(),
+            mic: mic.clone(),
             on_send_files: RefCell::default(),
             commands: RefCell::default(),
             note_bar,
@@ -437,6 +495,7 @@ impl Composer {
             glib::Propagation::Stop
         });
         this.text.add_controller(keys);
+        this.watch_ordinary_quotes();
         this
     }
 
@@ -460,11 +519,6 @@ impl Composer {
         self.on_changed.replace(Some(Rc::new(f)));
     }
 
-    /// A finished voice message, ready to upload.
-    pub fn connect_voice(&self, f: impl Fn(std::path::PathBuf) + 'static) {
-        self.on_voice.replace(Some(Rc::new(f)));
-    }
-
     /// Up with nothing typed: the page edits my last message.
     pub fn connect_edit_last(&self, f: impl Fn() + 'static) {
         self.on_edit_last.replace(Some(Rc::new(move |()| f())));
@@ -481,6 +535,9 @@ impl Composer {
     }
 
     pub fn start_recording(self: &Rc<Self>) {
+        if !self.mic.is_sensitive() {
+            return;
+        }
         if self.recorder.borrow().is_some() {
             return;
         }
@@ -514,21 +571,23 @@ impl Composer {
         self.record_bar.is_visible()
     }
 
-    /// `send`: the recording goes out; otherwise it is thrown away.
-    pub fn stop_recording(&self, send: bool) {
+    /// `keep`: the recording joins the files waiting to go, where it can be
+    /// listened to and captioned; otherwise it is thrown away.
+    pub fn stop_recording(&self, keep: bool) {
         let Some(recorder) = self.recorder.take() else { return };
         self.record_bar.set_visible(false);
         self.field.set_visible(true);
-        if !send {
+        if !keep {
             recorder.cancel();
             return;
         }
-        match (recorder.finish(), self.on_voice.borrow().clone()) {
-            (Some(path), Some(f)) => f(path),
-            (Some(path), None) => {
-                let _ = std::fs::remove_file(path);
+        match recorder.finish() {
+            Some(path) => {
+                let name = format!("{}-{}.ogg", t("voice.file_name"), chrono::Local::now().format("%Y%m%d-%H%M%S"));
+                self.staged.add(vec![Picked { path, name, temporary: true }]);
+                self.grab_focus();
             }
-            (None, _) => self.report(t("voice.empty").to_owned()),
+            None => self.report(t("voice.empty").to_owned()),
         }
     }
 
@@ -538,6 +597,9 @@ impl Composer {
     }
 
     pub fn emit_files(&self, picked: Vec<Picked>) {
+        if !self.attach.is_sensitive() {
+            return;
+        }
         if let Some(f) = self.on_files.borrow().clone() {
             f(picked);
         }
@@ -546,6 +608,9 @@ impl Composer {
     /// Ties the composer to a room (`thread` None) or a thread: restores its
     /// draft, saves it as it changes, and offers the room's authors after `@`.
     pub fn bind(self: &Rc<Self>, session: &Arc<Session>, rid: &str, thread: Option<&str>) {
+        self.unbind_native();
+        self.attach.set_sensitive(true);
+        self.mic.set_sensitive(true);
         let key = match thread {
             Some(tmid) => format!("{rid}:{tmid}"),
             None => rid.to_owned(),
@@ -576,6 +641,114 @@ impl Composer {
         self.custom_emoji.replace(Some(Rc::new(move |prefix: &str| s.custom_emoji_codes(prefix))));
         let s = session.clone();
         self.custom_names.replace(Some(Rc::new(move || s.custom_emoji_names())));
+    }
+
+    pub fn bind_native(&self, session: &Arc<rv_core::native::NativeSession>, rid: &str) {
+        self.unbind_native();
+        let files = session.supported_features().iter().any(|f| f == "uploads");
+        self.quote_author.files.set(files);
+        self.attach.set_sensitive(files);
+        self.mic.set_sensitive(files);
+        self.staged.switch(rid);
+        self.on_changed.replace(None);
+        let membership = session.store.read_state(rid).ok().flatten().and_then(|s| s.membership_version);
+        self.set_text(&session.store.draft_from_membership(rid, membership.as_deref()).unwrap_or_default());
+        self.completion.popdown();
+        self.mentions.replace(None);
+        let s = session.clone();
+        self.custom_emoji.replace(Some(Rc::new(move |prefix: &str| s.custom_emoji_codes(prefix))));
+        let s = session.clone();
+        self.custom_names.replace(Some(Rc::new(move || s.custom_emoji_names())));
+        let (store, rid, session) = (session.store.clone(), rid.to_owned(), session.clone());
+        self.connect_changed(move |text| {
+            let _ = store.set_draft_from_membership(&rid, &text, membership.as_deref());
+            let (session, rid, membership) = (session.clone(), rid.clone(), membership.clone());
+            crate::runtime().spawn(async move {
+                let _ = session
+                    .set_typing_from_membership(&rid, None, !text.trim().is_empty(), membership.as_deref())
+                    .await;
+            });
+        });
+    }
+    pub fn unbind_native(&self) {
+        self.close_ordinary_quote();
+        self.quote_author.binding.set(self.quote_author.binding.get().wrapping_add(1));
+        self.quote_author.sending.set(false);
+        if let Some(access) = self.private_access.take() {
+            access.cancel_quote();
+        }
+        self.on_changed.replace(None);
+        self.completion.popdown();
+        // A RocketVibe room gets its commands again with `load_native_commands`;
+        // private notes belong to a Rocket.Chat room.
+        self.note_bar.set_visible(false);
+        self.commands.replace(Commands::default());
+    }
+    pub fn bind_private(
+        &self,
+        access: rv_core::native::crypto::enrollment::rooms::messages::Access,
+        rid: &str,
+        draft: &str,
+    ) {
+        self.unbind_native();
+        // Encrypted files (E2EE_FILES.md) and voice messages, in the room or a thread.
+        self.attach.set_sensitive(access.files_available());
+        self.mic.set_sensitive(access.files_available());
+        self.staged.switch(rid);
+        self.clear_reply();
+        self.private_access.replace(Some(access.clone()));
+        self.set_text(draft);
+        self.connect_changed(move |text| {
+            let access = access.clone();
+            crate::runtime().spawn(async move {
+                let _ = access.set_draft(text).await;
+            });
+        });
+    }
+    pub fn bind_native_thread(
+        &self,
+        session: &Arc<rv_core::native::NativeSession>,
+        rid: &str,
+        root: &str,
+        membership: Option<String>,
+    ) {
+        self.bind_native(session, rid);
+        self.on_changed.replace(None);
+        self.set_text(
+            &session.store.thread_draft_from_membership(rid, root, membership.as_deref()).unwrap_or_default(),
+        );
+        let (store, rid, root, session) = (session.store.clone(), rid.to_owned(), root.to_owned(), session.clone());
+        self.connect_changed(move |text| {
+            let _ = store.set_thread_draft_from_membership(&rid, &root, &text, membership.as_deref());
+            let (session, rid, root, membership) = (session.clone(), rid.clone(), root.clone(), membership.clone());
+            crate::runtime().spawn(async move {
+                let _ = session
+                    .set_typing_from_membership(&rid, Some(&root), !text.trim().is_empty(), membership.as_deref())
+                    .await;
+            });
+        });
+    }
+
+    /// The commands a RocketVibe server offers after `/`; it checks rights
+    /// when one runs, so none are left out here.
+    pub fn load_native_commands(self: &Rc<Self>, session: &Arc<rv_core::native::NativeSession>, rid: &str) {
+        let key = format!("native:{rid}");
+        self.commands.replace(Commands { key: key.clone(), ..Default::default() });
+        let (weak, s) = (Rc::downgrade(self), session.clone());
+        glib::spawn_future_local(async move {
+            let list = on_tokio(async move { s.commands().await.map(<[_]>::to_vec) }).await;
+            let Some(this) = weak.upgrade() else { return };
+            if this.commands.borrow().key != key {
+                return;
+            }
+            this.commands.replace(Commands { key, list: list.unwrap_or_default(), granted: None });
+            this.update_completion();
+        });
+    }
+
+    /// Whether `name` is one of the commands offered here.
+    pub fn knows_command(&self, name: &str) -> bool {
+        self.commands.borrow().list.iter().any(|c| c.name == name)
     }
 
     /// Fetches the commands offered after `/`, and my permissions in the room
@@ -625,10 +798,11 @@ impl Composer {
         let buffer = self.text.buffer();
         let cursor = buffer.iter_at_mark(&buffer.get_insert());
         let before = buffer.text(&buffer.start_iter(), &cursor, false).to_string();
+        let commanding = rv_core::commands::query(&before).is_some();
         let offered: Vec<(String, usize, String, Option<gtk::Widget>)> =
             if let Some(prefix) = rv_core::commands::query(&before) {
                 let commands = self.commands.borrow();
-                rv_core::commands::complete(&commands.list, prefix, commands.granted.as_deref(), 8)
+                rv_core::commands::complete(&commands.list, prefix, commands.granted.as_deref(), usize::MAX)
                     .into_iter()
                     .map(|c| (format!("/{}", c.name), 0, format!("/{} ", c.name), Some(command_choice(c))))
                     .collect()
@@ -688,13 +862,26 @@ impl Composer {
             }
         }
         self.offered.replace(offered.into_iter().map(|(_, start, insert, _)| (start, insert)).collect());
+        // Commands spread over the field's width, under their title.
+        self.completion_header.set_visible(commanding);
+        let width = if commanding { (self.completion_anchor.width() - 8).max(360) } else { -1 };
+        self.completion_scroll.set_width_request(width);
+        self.completion_scroll.vadjustment().set_value(0.0);
         self.select(0);
         self.completion.popup();
     }
 
     fn select(&self, index: i32) {
-        if let Some(row) = self.choices.row_at_index(index) {
-            self.choices.select_row(Some(&row));
+        let Some(row) = self.choices.row_at_index(index) else { return };
+        self.choices.select_row(Some(&row));
+        // Keep the chosen row in sight as the arrows walk a long list.
+        let Some(bounds) = row.compute_bounds(&self.choices) else { return };
+        let adjustment = self.completion_scroll.vadjustment();
+        let (top, bottom) = (bounds.y() as f64, (bounds.y() + bounds.height()) as f64);
+        if top < adjustment.value() {
+            adjustment.set_value(top);
+        } else if bottom > adjustment.value() + adjustment.page_size() {
+            adjustment.set_value(bottom - adjustment.page_size());
         }
     }
 
@@ -724,6 +911,9 @@ impl Composer {
 
     /// Arms a reply: the bar shows who and what, the send carries the quote.
     pub fn set_reply(&self, name: &str, preview: &str, permalink: String) {
+        self.close_ordinary_quote();
+        self.native_reply.replace(None);
+        self.private_reply.replace(None);
         self.reply_title.set_label(&tf("composer.replying", &[("name", name)]));
         self.reply_preview.set_label(preview);
         self.reply_link.replace(Some(permalink));
@@ -732,8 +922,62 @@ impl Composer {
     }
 
     pub fn clear_reply(&self) {
+        self.close_ordinary_quote();
+        if let Some(access) = self.private_access.borrow().as_ref() {
+            access.cancel_quote();
+        }
         self.reply_link.replace(None);
+        self.native_reply.replace(None);
+        self.private_reply.replace(None);
+        self.reply_title.set_label("");
+        self.reply_preview.set_label("");
         self.reply_bar.set_visible(false);
+    }
+
+    pub fn set_native_reply(&self, name: &str, preview: &str, selection: rv_core::native::store::QuoteSelection) {
+        self.set_reply(name, preview, String::new());
+        self.reply_link.replace(None);
+        self.native_reply.replace(Some(selection));
+    }
+
+    pub fn native_reply(&self) -> Option<rv_core::native::store::QuoteSelection> {
+        self.native_reply.borrow().clone()
+    }
+    pub fn set_private_reply(&self, preview: rv_core::native::crypto::enrollment::rooms::messages::QuotePreview) {
+        self.set_reply(&preview.author, &preview.text, String::new());
+        self.reply_link.replace(None);
+        self.private_reply.replace(Some(preview.selection));
+    }
+    pub fn private_reply(&self) -> Option<rv_core::native::crypto::enrollment::rooms::messages::QuoteSelection> {
+        self.private_reply.borrow().clone()
+    }
+    pub fn quote_generation(&self) -> u64 {
+        self.quote_author.epoch.get()
+    }
+    pub fn refresh_private_reply(
+        &self,
+        preview: Option<rv_core::native::crypto::enrollment::rooms::messages::QuotePreview>,
+    ) {
+        let Some(selected) = self.private_reply() else { return };
+        match preview {
+            Some(value) if value.selection == selected => {
+                self.reply_title.set_label(&tf("composer.replying", &[("name", &value.author)]));
+                self.reply_preview.set_label(&value.text);
+            }
+            None => self.clear_reply(),
+            _ => (),
+        }
+    }
+
+    pub fn validate_native_reply(self: &Rc<Self>, store: &rv_core::native::store::NativeStore) {
+        self.refresh_ordinary_quote();
+        if let Some(selected) = self.native_reply()
+            && store.quote_selection(&selected.reference.room_id, &selected.reference.message_id).ok().as_ref()
+                != Some(&selected)
+        {
+            self.reply_title.set_label(t("quote.unavailable"));
+            self.reply_preview.set_label("");
+        }
     }
 
     /// Sends as the Enter key would.
@@ -742,13 +986,24 @@ impl Composer {
     }
 
     fn submit(&self) {
+        if self.quote_author.sending.get()
+            || (self.quote_author.busy.get() && self.quote_author.actor.borrow().is_none())
+        {
+            return;
+        }
         let mut text = self.text();
         let files = !self.staged.is_empty();
-        if text.trim().is_empty() && !files {
+        if text.trim().is_empty()
+            && !files
+            && self.native_reply.borrow().is_none()
+            && self.private_reply.borrow().is_none()
+        {
             return;
         }
         self.completion.popdown();
-        self.text.buffer().set_text("");
+        if self.private_reply.borrow().is_none() || self.private_access.borrow().is_some() {
+            self.text.buffer().set_text("");
+        }
         if let Some(link) = self.reply_link.take() {
             text = rv_core::actions::quote(&link, text.trim());
             self.reply_bar.set_visible(false);
@@ -772,6 +1027,9 @@ impl Composer {
 
     /// Adds files to those waiting to be sent.
     pub fn stage(&self, picked: Vec<Picked>) {
+        if !self.attach.is_sensitive() {
+            return;
+        }
         self.staged.add(picked);
         self.grab_focus();
     }
@@ -821,21 +1079,20 @@ fn command_choice(command: &rv_core::commands::Command) -> gtk::Widget {
             glib::markup_escape_text(params)
         ),
     };
-    let choice = gtk::Box::builder().orientation(gtk::Orientation::Vertical).css_classes(["command-choice"]).build();
+    // The name and what to type after it, then what it does, on one line.
+    let choice = gtk::Box::builder().spacing(24).css_classes(["command-choice"]).build();
     choice.append(
-        &gtk::Label::builder().label(markup).use_markup(true).xalign(0.0).css_classes(["completion-item"]).build(),
+        &gtk::Label::builder().label(markup).use_markup(true).xalign(0.0).css_classes(["command-name"]).build(),
     );
-    if !command.description.is_empty() {
-        choice.append(
-            &gtk::Label::builder()
-                .label(&command.description)
-                .xalign(0.0)
-                .ellipsize(gtk::pango::EllipsizeMode::End)
-                .max_width_chars(48)
-                .css_classes(["command-description"])
-                .build(),
-        );
-    }
+    choice.append(
+        &gtk::Label::builder()
+            .label(&command.description)
+            .xalign(1.0)
+            .hexpand(true)
+            .ellipsize(gtk::pango::EllipsizeMode::End)
+            .css_classes(["command-description"])
+            .build(),
+    );
     choice.upcast()
 }
 

@@ -7,7 +7,7 @@
 
 import { mentionsE2E } from '../../lib/e2e/mentions.ts';
 import type { OutboxEncryptor } from '../../lib/outbox.ts';
-import type { ProviderActions } from '../../lib/provider.ts';
+import type { ProviderActions, RoomInformation } from '../../lib/provider.ts';
 import { toMessage, type LocalMessage } from '../../lib/normalize.ts';
 import type { RestClient } from '../../lib/rest.ts';
 
@@ -18,6 +18,17 @@ export class ActionsRC implements ProviderActions {
 
   constructor(client: RestClient) {
     this.client = client;
+  }
+  roomFavorite={edit:async(rid:string,present:boolean):Promise<void>=>{
+    await this.client.post('rooms.favorite',{body:{roomId:rid,favorite:present}});
+  }};
+
+  async roomInfo(rid: string): Promise<RoomInformation> {
+    const response=await this.client.get<{room?:Record<string,unknown>}>('rooms.info',{params:{roomId:rid}});
+    const room=response.room;
+    if(!room || room._id!==rid)throw new Error('Invalid room details');
+    const text=(key:string)=>typeof room[key]==='string' && room[key]!=='' ? room[key] as string : null;
+    return {id:rid,name:text('fname')??text('name')??'',type:text('t')??'c',description:text('description'),topic:text('topic'),announcement:text('announcement'),members:typeof room.usersCount==='number'?room.usersCount:null,readOnly:room.ro===true};
   }
 
   /**

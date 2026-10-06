@@ -77,13 +77,13 @@ struct RunsText: View {
                 }
                 return text + Text(StyledText.of([run]))
             }
-            .task(id: runs.compactMap(\.customEmoji).joined(separator: ",")) { await load() }
+            .task(id: "\(app.sessionId)#\(app.imagesVersion)#\(runs.compactMap(\.customEmoji).joined(separator: ","))") { await load() }
         }
     }
 
     func picture(_ code: String) -> NSImage? {
         _ = loaded
-        guard let path = app.media?.customEmoji(code) else { return nil }
+        guard let media=app.media,let path = media.customEmoji(code),media.current(path) else { return nil }
         return Pictures.cached(path, pixels: Pictures.pixels(size))
     }
 

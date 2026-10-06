@@ -40,6 +40,8 @@ pub struct UploadRow {
     pub status: String,
     /// The file is our own copy (a reduced image, a pasted picture): deleted once settled.
     pub temporary: bool,
+    /// The thread the file answers (`tmid` of the confirmation); `None` in the room.
+    pub tmid: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -202,6 +204,7 @@ const MIGRATIONS: &[&str] = &[
     "ALTER TABLE subscriptions ADD COLUMN e2e_key TEXT; ALTER TABLE rooms ADD COLUMN last_encrypted TEXT",
     "ALTER TABLE messages ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0; ALTER TABLE messages ADD COLUMN starred TEXT",
     "ALTER TABLE subscriptions ADD COLUMN roles TEXT; DELETE FROM cursors WHERE stream = 'subscriptions'",
+    "ALTER TABLE uploads ADD COLUMN tmid TEXT",
 ];
 
 pub struct Store {
@@ -273,7 +276,7 @@ impl Store {
 
     fn upload_rows(&self, filter: &str, key: &str) -> Vec<UploadRow> {
         let sql = format!(
-            "SELECT id, rid, path, name, mime, caption, file_id, status, temporary FROM uploads
+            "SELECT id, rid, path, name, mime, caption, file_id, status, temporary, tmid FROM uploads
              WHERE {filter} ORDER BY created_at, id"
         );
         self.read(|c| {
@@ -289,6 +292,7 @@ impl Store {
                     file_id: r.get(6)?,
                     status: r.get(7)?,
                     temporary: r.get(8)?,
+                    tmid: r.get(9)?,
                 })
             })?
             .collect()
@@ -701,9 +705,9 @@ impl Writer<'_> {
     pub fn insert_upload(&mut self, u: &UploadRow, now: i64) {
         self.conn
             .execute(
-                "INSERT INTO uploads (id, rid, path, name, mime, caption, file_id, status, temporary, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-                params![u.id, u.rid, u.path, u.name, u.mime, u.caption, u.file_id, u.status, u.temporary, now],
+                "INSERT INTO uploads (id, rid, path, name, mime, caption, file_id, status, temporary, created_at, tmid)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                params![u.id, u.rid, u.path, u.name, u.mime, u.caption, u.file_id, u.status, u.temporary, now, u.tmid],
             )
             .expect("insert upload");
         self.touch_messages(&u.rid);

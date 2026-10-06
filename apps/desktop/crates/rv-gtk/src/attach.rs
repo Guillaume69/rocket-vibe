@@ -3,11 +3,9 @@
 
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::Arc;
 
 use adw::prelude::*;
 use gtk::{gdk, gdk_pixbuf, gio, glib};
-use rv_core::session::Session;
 use rv_core::uploads::Refusal;
 
 use crate::i18n::{t, tf};
@@ -38,8 +36,11 @@ fn scratch_file(name: &str) -> PathBuf {
 pub fn mime_of(path: &Path) -> String {
     let data = std::fs::read(path).ok().map(|b| b.into_iter().take(4096).collect::<Vec<u8>>());
     let (content_type, _) = gio::content_type_guess(Some(path), data.as_deref());
-    gio::content_type_get_mime_type(&content_type)
-        .map_or_else(|| "application/octet-stream".to_owned(), |m| m.to_string())
+    let mime = gio::content_type_get_mime_type(&content_type)
+        .map_or_else(|| "application/octet-stream".to_owned(), |m| m.to_string());
+    // Shared MIME info names Ogg by its codec (`audio/x-opus+ogg`): servers
+    // and the other apps know `audio/ogg`, which plays as audio everywhere.
+    if mime.starts_with("audio/x-") && mime.ends_with("+ogg") { "audio/ogg".to_owned() } else { mime }
 }
 
 fn reducible(mime: &str) -> bool {
@@ -102,13 +103,16 @@ fn refusal_text(refusal: &Refusal, name: &str) -> String {
     }
 }
 
-pub fn send_all(
-    session: Arc<Session>,
+#[allow(clippy::too_many_arguments)] // The batch, where it goes, and how to report.
+pub fn send_all_provider(
+    session: crate::media::Provider,
     rid: String,
+    thread: Option<String>,
     items: Vec<(Picked, String)>,
     caption: String,
     reduce_images: bool,
     toast: Rc<dyn Fn(String)>,
+    membership: Option<String>,
 ) {
     glib::spawn_future_local(async move {
         for (i, (item, mime)) in items.into_iter().enumerate() {
@@ -127,13 +131,39 @@ pub fn send_all(
             };
             let caption = (i == 0 && !caption.trim().is_empty()).then(|| caption.clone());
             let (s, r, p, n) = (session.clone(), rid.clone(), path.clone(), name.clone());
-            let result =
-                on_tokio(async move { s.attach(&r, &p, &n, &mime, caption.as_deref(), temporary).await }).await;
-            if let Err(refusal) = result {
+            let membership = membership.clone();
+            let thread = thread.clone();
+            let result = on_tokio(async move {
+                match s {
+                    crate::media::Provider::RocketChat(s) => s
+                        .attach_in(&r, thread.as_deref(), &p, &n, &mime, caption.as_deref(), temporary)
+                        .await
+                        .map_err(|e| refusal_text(&e, &n)),
+                    crate::media::Provider::RocketVibe(s) => s
+                        .attach_file_in(
+                            &r,
+                            thread.as_deref(),
+                            &p,
+                            &n,
+                            &mime,
+                            caption.as_deref(),
+                            temporary,
+                            membership.as_deref().unwrap_or(""),
+                        )
+                        .await
+                        .map_err(|e| match e.code() {
+                            "too-large:100" => refusal_text(&Refusal::TooLarge { max_mb: "100".into() }, &n),
+                            "type-not-allowed" => refusal_text(&Refusal::TypeNotAllowed { mime }, &n),
+                            _ => t("file.failed").into(),
+                        }),
+                }
+            })
+            .await;
+            if let Err(text) = result {
                 if temporary {
                     let _ = std::fs::remove_file(&path);
                 }
-                toast(refusal_text(&refusal, &name));
+                toast(text);
             }
         }
     });

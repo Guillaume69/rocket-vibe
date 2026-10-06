@@ -12,6 +12,13 @@ struct ChatView: View {
     }
 
     var body: some View {
+        HStack(spacing: 0) {
+            ServerRail()
+            split
+        }
+    }
+
+    var split: some View {
         NavigationSplitView {
             RoomListView()
                 .navigationSplitViewColumnWidth(min: 220, ideal: 280, max: 400)
@@ -52,6 +59,65 @@ struct ChatView: View {
             }
         }
         .overlay(alignment: .bottom) { NoticeView().animation(Vibe.spring, value: app.notice) }
+    }
+}
+
+/// The server rail: a button per signed-in account down the window's left
+/// edge, the open one outlined, a dot on another one with unread messages, and
+/// "+" to add an account. The others are checked every minute.
+struct ServerRail: View {
+    @Environment(AppModel.self) var app
+
+    /// What the rail shows of a server: its host, without `www.`.
+    static func host(_ account: Account) -> String {
+        let host = URL(string: account.baseUrl)?.host() ?? account.baseUrl
+        return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+    }
+
+    var body: some View {
+        VStack(spacing: 10) {
+            ForEach(app.accounts, id: \.key) { account in
+                let open = account.key == app.account?.key
+                let host = Self.host(account)
+                Button { Task { await app.switchAccount(account) } } label: {
+                    Text(host.prefix(1).uppercased())
+                        .font(.vibeTitle(17, .bold))
+                        .foregroundStyle(Vibe.ink)
+                        .frame(width: 44, height: 44)
+                        .background(LinearGradient(colors: Vibe.tile(for: account.key), startPoint: .topLeading, endPoint: .bottomTrailing),
+                                    in: RoundedRectangle(cornerRadius: 15))
+                        .overlay(RoundedRectangle(cornerRadius: 15).strokeBorder(open ? Vibe.pink : .clear, lineWidth: 2))
+                        .overlay(alignment: .topTrailing) {
+                            if !open && app.unreadAccounts.contains(account.key) {
+                                Circle().fill(Vibe.sun).frame(width: 12, height: 12)
+                                    .overlay(Circle().strokeBorder(Vibe.ink, lineWidth: 2))
+                                    .offset(x: 3, y: -3)
+                            }
+                        }
+                }
+                .buttonStyle(.plain)
+                .help("\(host) · @\(account.username)")
+            }
+            Button { app.showLogin(error: nil) } label: {
+                Image(systemName: "plus").font(.system(size: 18, weight: .bold)).foregroundStyle(Vibe.mint)
+                    .frame(width: 44, height: 44)
+                    .background(Vibe.card, in: RoundedRectangle(cornerRadius: 15))
+            }
+            .buttonStyle(.plain)
+            .help(L("rail.add"))
+            Spacer()
+        }
+        .padding(.vertical, 12)
+        .padding(.horizontal, 10)
+        .frame(maxHeight: .infinity)
+        .background(Vibe.ink)
+        .task(id: app.account?.key) {
+            await app.refreshAccounts()
+            while !Task.isCancelled {
+                await app.pollAccounts()
+                try? await Task.sleep(nanoseconds: 60_000_000_000)
+            }
+        }
     }
 }
 

@@ -20,6 +20,10 @@ public final class AppModel {
     public var signedIn: Bool { provider != nil }
     public private(set) var account: Account?
     public private(set) var accounts: [Account] = []
+    /// Accounts other than the open one with unread messages: the dots of the
+    /// server rail. Only the open account is connected; `pollAccounts` checks
+    /// the others with one read each.
+    public private(set) var unreadAccounts: Set<String> = []
     public private(set) var groups: [RoomGroup] = []
     public private(set) var connection = ConnectionState.offline
     /// Encrypted rooms readable and writable (my E2E key unlocked).
@@ -124,6 +128,28 @@ public final class AppModel {
             accounts = fresh
             begin(chat)
         }
+    }
+
+    /// The signed-in accounts again, for the server rail.
+    public func refreshAccounts() async {
+        accounts = await client.accounts()
+    }
+
+    /// One read per account that is not the open one; an account it cannot
+    /// tell about (offline, refused) keeps its dot as it was.
+    public func pollAccounts() async {
+        for other in accounts where other.key != account?.key {
+            guard let unread = await client.accountUnread(key: other.key) else { continue }
+            if other.key == account?.key { continue }
+            if unread { unreadAccounts.insert(other.key) } else { unreadAccounts.remove(other.key) }
+        }
+    }
+
+    /// From the server rail: the account opens, unless it is the open one.
+    public func switchAccount(_ target: Account) async {
+        guard target.key != account?.key else { return }
+        unreadAccounts.remove(target.key)
+        await resume(target)
     }
 
     public func showLogin(error: String?) {

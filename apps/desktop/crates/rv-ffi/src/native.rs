@@ -173,6 +173,25 @@ impl Drop for NativeChat {
 
 #[uniffi::export]
 impl Client {
+    /// Whether the signed-in account `key` (not the open one) has unread
+    /// messages, for the dot in the server rail: one read, never its store.
+    /// `None` when it cannot tell (offline, refused, unknown key).
+    pub async fn account_unread(&self, key: String) -> Option<bool> {
+        let dirs = self.dirs.clone();
+        let info = blocking(move || {
+            crate::accounts::load_all(&dirs).into_iter().find(|info| crate::accounts::key(info) == key)
+        })
+        .await?;
+        let store = Arc::new(CredentialStore { dirs: self.dirs.clone() });
+        on_tokio(async move {
+            if info.native.is_some() {
+                rv_core::account_unread::native(info, Some(store)).await.ok()
+            } else {
+                rv_core::account_unread::rocket_chat(&info).await.ok()
+            }
+        })
+        .await
+    }
     /// Whether the address is a RocketVibe server, under the user's choice of kind.
     pub async fn is_native_server(&self, server: String, kind: crate::model::ServerChoice) -> Result<bool, RvError> {
         let url =

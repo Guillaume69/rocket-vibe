@@ -753,8 +753,9 @@ fn message_from_provider(
         column.append(&footer);
     }
 
+    // An icon, not "⋯": that glyph is missing from many systems' fonts (WSLg).
     let more = gtk::Button::builder()
-        .label("⋯")
+        .icon_name("view-more-horizontal-symbolic")
         .css_classes(["flat", "row-more"])
         .valign(gtk::Align::Start)
         .tooltip_text(t("actions.more"))

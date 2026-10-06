@@ -242,8 +242,11 @@ impl Composer {
         let reply_text = gtk::Box::builder().orientation(gtk::Orientation::Vertical).hexpand(true).build();
         reply_text.append(&reply_title);
         reply_text.append(&reply_preview);
-        let reply_close =
-            gtk::Button::builder().label("✕").css_classes(["flat", "circular"]).valign(gtk::Align::Center).build();
+        let reply_close = gtk::Button::builder()
+            .icon_name("window-close-symbolic")
+            .css_classes(["flat", "circular"])
+            .valign(gtk::Align::Center)
+            .build();
         let reply_bar = gtk::Box::builder().spacing(8).css_classes(["reply-bar"]).visible(false).build();
         reply_bar.append(&reply_text);
         reply_bar.append(&reply_close);
@@ -254,8 +257,11 @@ impl Composer {
             &gtk::Label::builder().label(t("command.only_you")).xalign(0.0).css_classes(["reply-title"]).build(),
         );
         note_text.append(&note_body);
-        let note_close =
-            gtk::Button::builder().label("✕").css_classes(["flat", "circular"]).valign(gtk::Align::Start).build();
+        let note_close = gtk::Button::builder()
+            .icon_name("window-close-symbolic")
+            .css_classes(["flat", "circular"])
+            .valign(gtk::Align::Start)
+            .build();
         let note_bar = gtk::Box::builder().spacing(8).css_classes(["reply-bar", "private-note"]).visible(false).build();
         note_bar.append(&note_text);
         note_bar.append(&note_close);

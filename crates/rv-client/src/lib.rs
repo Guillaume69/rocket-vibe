@@ -539,6 +539,15 @@ impl NativeClient {
     pub async fn leave_voice(&self) -> Result<(), Error> {
         self.empty(Method::POST, "/api/v1/voice/leave", false).await
     }
+    /// Claims the room's one screen share (`409 screen_taken` while another holds it).
+    pub async fn claim_screen(&self) -> Result<(), Error> {
+        self.empty(Method::POST, "/api/v1/voice/screen", false)
+            .await
+    }
+    pub async fn release_screen(&self) -> Result<(), Error> {
+        self.empty(Method::DELETE, "/api/v1/voice/screen", false)
+            .await
+    }
     pub async fn voice_ring(&self, id: &str) -> Result<rv_protocol::voice::VoiceRing, Error> {
         if !path_segment(id) {
             return Err(Error::InvalidUrl);

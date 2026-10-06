@@ -79,6 +79,25 @@ Who is **speaking** is not in the snapshot: two seconds is too slow. A connected
 client reads it from LiveKit (active speakers), so it shows for the session it
 is in.
 
+## Camera and screen share
+
+A grant lets a member who may speak publish their **camera** too; it starts
+off, each client turns it on. The live snapshot marks `camera: true` on a
+participant publishing an unmuted camera.
+
+A room has **one screen share at a time**. The grant does not include the
+screen: a connected participant claims it first.
+
+- `POST /api/v1/voice/screen` (no body, `204`) claims the room's share for the
+  account's session. The server then widens that participant's LiveKit
+  permission to `screen_share` and `screen_share_audio`; the client publishes
+  once its permission changed. `409 screen_taken` while another participant
+  holds it, `409 voice_not_connected` before the SFU reports the session.
+- `DELETE /api/v1/voice/screen` (`204`) releases it; the SFU unpublishes the
+  screen. Leaving the session or joining another room releases it too.
+- The snapshot marks the holder with `screen: true`. The worker keeps every
+  participant's permission in line with these rules on each pass.
+
 ## Ringing (direct rooms)
 
 A join with `ring:true` in a direct room creates a ring and the room's

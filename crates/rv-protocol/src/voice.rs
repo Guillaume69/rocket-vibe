@@ -42,6 +42,12 @@ pub struct VoiceParticipant {
     pub user: User,
     pub muted: bool,
     pub deafened: bool,
+    /// Publishing an unmuted camera.
+    #[serde(default, skip_serializing_if = "crate::is_false")]
+    pub camera: bool,
+    /// Holds the room's screen share (one per room, `POST /api/v1/voice/screen`).
+    #[serde(default, skip_serializing_if = "crate::is_false")]
+    pub screen: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

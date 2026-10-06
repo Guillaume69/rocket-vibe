@@ -6830,10 +6830,18 @@
     "VoiceParticipant": {
       "description": "One account connected to a room's voice session, as the SFU last reported it.",
       "properties": {
+        "camera": {
+          "description": "Publishing an unmuted camera.",
+          "type": "boolean"
+        },
         "deafened": {
           "type": "boolean"
         },
         "muted": {
+          "type": "boolean"
+        },
+        "screen": {
+          "description": "Holds the room's screen share (one per room, `POST /api/v1/voice/screen`).",
           "type": "boolean"
         },
         "user": {

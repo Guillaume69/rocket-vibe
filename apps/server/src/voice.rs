@@ -238,7 +238,7 @@ pub(crate) async fn join(
             .fetch_optional(&mut *tx)
             .await?;
     // Rejoining the same session keeps what the SFU reported; another room starts over.
-    sqlx::query("INSERT INTO voice_sessions(user_id,room_id,data_epoch,state,expires_at) VALUES($1,$2,$3,'joining',clock_timestamp()+make_interval(secs => $4)) ON CONFLICT(user_id) DO UPDATE SET state=CASE WHEN voice_sessions.room_id=EXCLUDED.room_id AND voice_sessions.data_epoch=EXCLUDED.data_epoch THEN voice_sessions.state ELSE 'joining' END,joined_at=CASE WHEN voice_sessions.room_id=EXCLUDED.room_id THEN voice_sessions.joined_at ELSE clock_timestamp() END,room_id=EXCLUDED.room_id,data_epoch=EXCLUDED.data_epoch,expires_at=GREATEST(voice_sessions.expires_at,EXCLUDED.expires_at)")
+    sqlx::query("INSERT INTO voice_sessions(user_id,room_id,data_epoch,state,expires_at) VALUES($1,$2,$3,'joining',clock_timestamp()+make_interval(secs => $4)) ON CONFLICT(user_id) DO UPDATE SET state=CASE WHEN voice_sessions.room_id=EXCLUDED.room_id AND voice_sessions.data_epoch=EXCLUDED.data_epoch THEN voice_sessions.state ELSE 'joining' END,screen=voice_sessions.screen AND voice_sessions.room_id=EXCLUDED.room_id,joined_at=CASE WHEN voice_sessions.room_id=EXCLUDED.room_id THEN voice_sessions.joined_at ELSE clock_timestamp() END,room_id=EXCLUDED.room_id,data_epoch=EXCLUDED.data_epoch,expires_at=GREATEST(voice_sessions.expires_at,EXCLUDED.expires_at)")
         .bind(&actor.id).bind(room).bind(&scope.epoch).bind(SESSION_SECONDS).execute(&mut *tx).await?;
     let mut ring_id = None;
     if scope.direct {
@@ -370,6 +370,69 @@ pub(crate) async fn decline(app: &App, actor: &Account, id: &str) -> Result<()> 
     Ok(())
 }
 
+/// Claims the room's one screen share for the account's session, then lets
+/// the SFU take its screen. `409 screen_taken` while someone else shares.
+pub(crate) async fn claim_screen(app: &App, actor: &Account) -> Result<()> {
+    share(app, actor, true).await
+}
+pub(crate) async fn release_screen(app: &App, actor: &Account) -> Result<()> {
+    share(app, actor, false).await
+}
+async fn share(app: &App, actor: &Account, on: bool) -> Result<()> {
+    let livekit = livekit(app)?;
+    let mut tx = app.pool.begin().await?;
+    auth::lock_active(&mut tx, actor).await?;
+    let session: Option<(String, String, String)> = sqlx::query_as(
+        "SELECT room_id,data_epoch,state FROM voice_sessions WHERE user_id=$1 FOR UPDATE",
+    )
+    .bind(&actor.id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some((room, epoch, state)) = session else {
+        return Err(Error::new(StatusCode::CONFLICT, "voice_not_connected"));
+    };
+    let grant: Option<(String, bool)> = sqlx::query_as("SELECT m.role,r.read_only FROM members m JOIN rooms r ON r.id=m.room_id WHERE m.room_id=$1 AND m.user_id=$2 FOR SHARE OF m")
+        .bind(&room).bind(&actor.id).fetch_optional(&mut *tx).await?;
+    let (role, read_only) = grant.ok_or_else(Error::missing)?;
+    if on {
+        if state != "connected" {
+            return Err(Error::new(StatusCode::CONFLICT, "voice_not_connected"));
+        }
+        if !may_publish(&role, read_only) {
+            return Err(Error::forbidden());
+        }
+        // Claims of one room queue here; the unique index is the last word.
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtext('voice-screen:'||$1))")
+            .bind(&room)
+            .execute(&mut *tx)
+            .await?;
+        let taken: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM voice_sessions WHERE room_id=$1 AND screen AND user_id<>$2)",
+        )
+        .bind(&room)
+        .bind(&actor.id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if taken {
+            return Err(Error::new(StatusCode::CONFLICT, "screen_taken"));
+        }
+    }
+    sqlx::query("UPDATE voice_sessions SET screen=$2 WHERE user_id=$1")
+        .bind(&actor.id)
+        .bind(on)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    // The worker repeats it if the SFU misses this one.
+    livekit
+        .permit(
+            &sfu_room(&epoch, &room),
+            &actor.id,
+            &livekit::sources(may_publish(&role, read_only), on),
+        )
+        .await
+}
+
 /// One pass of the voice worker. Several processes may run it; one polls.
 pub async fn reconcile(app: &App) -> Result<()> {
     let Some(livekit) = app.livekit.as_deref() else {
@@ -440,8 +503,8 @@ async fn pass(app: &App, livekit: &LiveKit) -> Result<()> {
         let rooms: Vec<&str> = seen.iter().map(|s| s.room.as_str()).collect();
         let grants: Vec<(String, String, String, bool)> = sqlx::query_as("SELECT o.user_id,o.room_id,m.role,r.read_only FROM unnest($1::text[],$2::text[]) AS o(user_id,room_id) JOIN users u ON u.id=o.user_id AND NOT u.disabled JOIN members m ON m.user_id=o.user_id AND m.room_id=o.room_id JOIN rooms r ON r.id=o.room_id WHERE NOT EXISTS(SELECT 1 FROM e2ee_groups g WHERE g.room_id=r.id)")
             .bind(&users).bind(&rooms).fetch_all(&mut *tx).await?;
-        let sessions: Vec<(String, String, String)> = sqlx::query_as(
-            "SELECT user_id,room_id,data_epoch FROM voice_sessions ORDER BY user_id FOR UPDATE",
+        let sessions: Vec<(String, String, String, bool)> = sqlx::query_as(
+            "SELECT user_id,room_id,data_epoch,screen FROM voice_sessions ORDER BY user_id FOR UPDATE",
         )
         .fetch_all(&mut *tx)
         .await?;
@@ -454,17 +517,21 @@ async fn pass(app: &App, livekit: &LiveKit) -> Result<()> {
             // A join elsewhere wins over this connection.
             let moved = sessions
                 .iter()
-                .any(|(u, r, e)| u == identity && (*r != s.room || *e != s.epoch));
+                .any(|(u, r, e, _)| u == identity && (*r != s.room || *e != s.epoch));
+            let screen = sessions
+                .iter()
+                .any(|(u, r, _, screen)| u == identity && *r == s.room && *screen);
             let Some((_, _, role, read_only)) = grant.filter(|_| s.epoch == epoch && !moved) else {
                 evictions.push((s.sfu_room.clone(), identity.clone()));
                 continue;
             };
-            sqlx::query("INSERT INTO voice_sessions(user_id,room_id,data_epoch,state,muted,deafened,expires_at) VALUES($1,$2,$3,'connected',$4,$5,clock_timestamp()+make_interval(secs => $6)) ON CONFLICT(user_id) DO UPDATE SET state='connected',muted=EXCLUDED.muted,deafened=EXCLUDED.deafened,expires_at=EXCLUDED.expires_at,joined_at=CASE WHEN voice_sessions.room_id=EXCLUDED.room_id THEN voice_sessions.joined_at ELSE clock_timestamp() END,room_id=EXCLUDED.room_id,data_epoch=EXCLUDED.data_epoch")
-                .bind(identity).bind(&s.room).bind(&s.epoch).bind(s.participant.muted).bind(s.participant.deafened).bind(SESSION_SECONDS)
+            sqlx::query("INSERT INTO voice_sessions(user_id,room_id,data_epoch,state,muted,deafened,camera,expires_at) VALUES($1,$2,$3,'connected',$4,$5,$6,clock_timestamp()+make_interval(secs => $7)) ON CONFLICT(user_id) DO UPDATE SET state='connected',muted=EXCLUDED.muted,deafened=EXCLUDED.deafened,camera=EXCLUDED.camera,expires_at=EXCLUDED.expires_at,joined_at=CASE WHEN voice_sessions.room_id=EXCLUDED.room_id THEN voice_sessions.joined_at ELSE clock_timestamp() END,room_id=EXCLUDED.room_id,data_epoch=EXCLUDED.data_epoch")
+                .bind(identity).bind(&s.room).bind(&s.epoch).bind(s.participant.muted).bind(s.participant.deafened).bind(s.participant.camera).bind(SESSION_SECONDS)
                 .execute(&mut *tx).await?;
             kept.insert(identity.clone());
-            let allowed = may_publish(role, *read_only);
-            if allowed != s.participant.can_publish {
+            // The SFU's permissions follow the room's rights and the screen claim.
+            let allowed = livekit::sources(may_publish(role, *read_only), screen);
+            if allowed != s.participant.sources {
                 permissions.push((s.sfu_room.clone(), identity.clone(), allowed));
             }
         }
@@ -499,7 +566,7 @@ async fn pass(app: &App, livekit: &LiveKit) -> Result<()> {
         }
     }
     for (room, identity, allowed) in permissions {
-        if let Err(error) = livekit.allow_publish(&room, &identity, allowed).await {
+        if let Err(error) = livekit.permit(&room, &identity, &allowed).await {
             tracing::warn!(code = error.code, "voice permission update failed");
         }
     }

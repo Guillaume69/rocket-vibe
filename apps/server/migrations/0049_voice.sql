@@ -18,10 +18,14 @@ CREATE UNLOGGED TABLE voice_sessions (
     state TEXT NOT NULL CHECK (state IN ('joining','connected')),
     muted BOOLEAN NOT NULL DEFAULT true,
     deafened BOOLEAN NOT NULL DEFAULT false,
+    camera BOOLEAN NOT NULL DEFAULT false,
+    -- The room's one screen share, claimed before the SFU lets it publish.
+    screen BOOLEAN NOT NULL DEFAULT false,
     joined_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
     expires_at TIMESTAMPTZ NOT NULL
 );
 CREATE INDEX voice_sessions_room ON voice_sessions(room_id);
+CREATE UNIQUE INDEX voice_sessions_one_screen ON voice_sessions(room_id) WHERE screen;
 
 -- A direct call ringing the other member, then its outcome, kept with the
 -- call_started row it revises.

@@ -193,7 +193,7 @@ pub(crate) async fn state(app: &App, actor: &Account) -> Result<LiveState> {
     let typists:Vec<(String,String,String,String,String)>=sqlx::query_as("SELECT DISTINCT t.room_id,t.root_key,u.id,u.username,u.display_name FROM typing_leases t JOIN members m ON m.room_id=t.room_id AND m.user_id=t.user_id JOIN room_read_states g ON g.room_id=m.room_id AND g.user_id=m.user_id AND g.membership_version=t.membership_version JOIN users u ON u.id=t.user_id JOIN rooms r ON r.id=t.room_id CROSS JOIN instance i WHERE t.room_id=ANY($1) AND t.expires_at>clock_timestamp() AND t.data_epoch=i.data_epoch AND NOT u.disabled AND (NOT r.read_only OR m.role IN ('owner','moderator')) AND EXISTS(SELECT 1 FROM sessions s WHERE s.device_id=t.device_id AND s.expires_at>clock_timestamp()) AND (t.root_key='' OR EXISTS(SELECT 1 FROM messages q WHERE q.id=t.root_key AND q.room_id=t.room_id AND NOT q.deleted)) ORDER BY t.room_id,t.root_key,u.id LIMIT 513")
         .bind(&ids).fetch_all(&mut *tx).await?;
     #[allow(clippy::type_complexity)]
-    let voices:Vec<(String,String,String,String,bool,bool)>=sqlx::query_as("SELECT s.room_id,u.id,u.username,u.display_name,s.muted,s.deafened FROM voice_sessions s JOIN users u ON u.id=s.user_id JOIN members m ON m.room_id=s.room_id AND m.user_id=s.user_id CROSS JOIN instance i WHERE s.room_id=ANY($1) AND s.state='connected' AND s.data_epoch=i.data_epoch AND NOT u.disabled ORDER BY s.room_id,s.joined_at,u.id LIMIT 513")
+    let voices:Vec<(String,String,String,String,bool,bool,bool,bool)>=sqlx::query_as("SELECT s.room_id,u.id,u.username,u.display_name,s.muted,s.deafened,s.camera,s.screen FROM voice_sessions s JOIN users u ON u.id=s.user_id JOIN members m ON m.room_id=s.room_id AND m.user_id=s.user_id CROSS JOIN instance i WHERE s.room_id=ANY($1) AND s.state='connected' AND s.data_epoch=i.data_epoch AND NOT u.disabled ORDER BY s.room_id,s.joined_at,u.id LIMIT 513")
         .bind(&ids).fetch_all(&mut *tx).await?;
     if people.len() > MAX_OBSERVATIONS
         || typists.len() > MAX_OBSERVATIONS
@@ -235,7 +235,7 @@ pub(crate) async fn state(app: &App, actor: &Account) -> Result<LiveState> {
             voice: vec![],
         })
         .collect();
-    for (room, id, username, display_name, muted, deafened) in voices {
+    for (room, id, username, display_name, muted, deafened, camera, screen) in voices {
         if let Some(room) = state.rooms.iter_mut().find(|r| r.room_id == room) {
             room.voice.push(VoiceParticipant {
                 user: User {
@@ -245,6 +245,8 @@ pub(crate) async fn state(app: &App, actor: &Account) -> Result<LiveState> {
                 },
                 muted,
                 deafened,
+                camera,
+                screen,
             });
         }
     }

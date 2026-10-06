@@ -28,6 +28,10 @@ pub fn router(app: App) -> Router {
     Router::new()
         .route("/api/v1/rooms/{room}/voice/join", post(join_voice))
         .route("/api/v1/voice/leave", post(leave_voice))
+        .route(
+            "/api/v1/voice/screen",
+            post(claim_screen).delete(release_screen),
+        )
         .route("/api/v1/voice/rings/{id}", get(voice_ring))
         .route("/api/v1/voice/rings/{id}/accept", post(accept_ring))
         .route("/api/v1/voice/rings/{id}/decline", post(decline_ring))
@@ -455,6 +459,14 @@ async fn join_voice(
 }
 async fn leave_voice(State(app): State<App>, headers: HeaderMap) -> Result<StatusCode> {
     crate::voice::leave(&app, &account(&app, &headers).await?).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+async fn claim_screen(State(app): State<App>, headers: HeaderMap) -> Result<StatusCode> {
+    crate::voice::claim_screen(&app, &account(&app, &headers).await?).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+async fn release_screen(State(app): State<App>, headers: HeaderMap) -> Result<StatusCode> {
+    crate::voice::release_screen(&app, &account(&app, &headers).await?).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 async fn voice_ring(

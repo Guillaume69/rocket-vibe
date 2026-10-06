@@ -45,7 +45,22 @@ pub(crate) struct Participant {
     pub identity: String,
     pub muted: bool,
     pub deafened: bool,
-    pub can_publish: bool,
+    pub camera: bool,
+    /// The sources it may publish, as protojson names, sorted; empty when it may not publish.
+    pub sources: Vec<String>,
+}
+
+/// What a participant may publish: microphone and camera for a member allowed
+/// to speak, and the screen for the one holding the room's share.
+pub(crate) fn sources(speak: bool, screen: bool) -> Vec<String> {
+    let mut sources = Vec::new();
+    if speak {
+        sources.extend(["CAMERA", "MICROPHONE"]);
+        if screen {
+            sources.extend(["SCREEN_SHARE", "SCREEN_SHARE_AUDIO"]);
+        }
+    }
+    sources.into_iter().map(str::to_owned).collect()
 }
 
 impl LiveKit {
@@ -145,7 +160,7 @@ impl LiveKit {
             "nbf": now.timestamp() - 5, "exp": expires.timestamp(),
             "video": {
                 "room": room, "roomJoin": true, "canSubscribe": true,
-                "canPublish": can_publish, "canPublishSources": ["microphone"],
+                "canPublish": can_publish, "canPublishSources": ["microphone", "camera"],
                 "canPublishData": false, "canUpdateOwnMetadata": true,
             },
         });
@@ -233,18 +248,19 @@ impl LiveKit {
         .map(drop)
     }
 
-    pub(crate) async fn allow_publish(
+    /// Sets what the participant may publish; the SFU unpublishes the rest.
+    pub(crate) async fn permit(
         &self,
         room: &str,
         identity: &str,
-        allowed: bool,
+        sources: &[String],
     ) -> Result<()> {
         self.call(
             "UpdateParticipant",
             Some(room),
             json!({"room": room, "identity": identity, "permission": {
-                "can_subscribe": true, "can_publish": allowed, "can_publish_data": false,
-                "can_publish_sources": ["MICROPHONE"], "can_update_metadata": true,
+                "can_subscribe": true, "can_publish": !sources.is_empty(), "can_publish_data": false,
+                "can_publish_sources": sources, "can_update_metadata": true,
             }}),
         )
         .await
@@ -264,23 +280,56 @@ fn participant(value: &Value) -> Option<Participant> {
             v.clone()
         }
     };
-    let microphone = value["tracks"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .find(|track| {
-            matches!(track["source"].as_str(), Some("MICROPHONE"))
-                || track["source"].as_i64() == Some(2)
-        });
+    // TrackSource: CAMERA = 1, MICROPHONE = 2, SCREEN_SHARE = 3, SCREEN_SHARE_AUDIO = 4.
+    const NAMES: [&str; 5] = [
+        "UNKNOWN",
+        "CAMERA",
+        "MICROPHONE",
+        "SCREEN_SHARE",
+        "SCREEN_SHARE_AUDIO",
+    ];
+    let name = |v: &Value| {
+        v.as_str().map(str::to_owned).or_else(|| {
+            v.as_u64()
+                .and_then(|n| NAMES.get(n as usize))
+                .map(|n| (*n).to_owned())
+        })
+    };
+    let unmuted = |source: &str| {
+        value["tracks"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|track| {
+                name(&track["source"]).as_deref() == Some(source)
+                    && !track["muted"].as_bool().unwrap_or(false)
+            })
+    };
     let permission = &value["permission"];
     let can_publish = field(permission, "can_publish", "canPublish")
         .as_bool()
         .unwrap_or(false);
+    let mut sources: Vec<String> = if can_publish {
+        field(permission, "can_publish_sources", "canPublishSources")
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(name)
+            .collect()
+    } else {
+        Vec::new()
+    };
+    // An empty list grants every source: say so explicitly.
+    if can_publish && sources.is_empty() {
+        sources = NAMES[1..].iter().map(|n| (*n).to_owned()).collect();
+    }
+    sources.sort();
     Some(Participant {
         identity,
-        muted: microphone.is_none_or(|track| track["muted"].as_bool().unwrap_or(false)),
+        muted: !unmuted("MICROPHONE"),
         deafened: value["attributes"][DEAFENED].as_str() == Some("1"),
-        can_publish,
+        camera: unmuted("CAMERA"),
+        sources,
     })
 }
 
@@ -354,7 +403,10 @@ mod tests {
         assert_eq!(claims["iss"], "rv");
         assert_eq!(claims["video"]["room"], "rv:e:r1");
         assert_eq!(claims["video"]["canPublish"], false);
-        assert_eq!(claims["video"]["canPublishSources"], json!(["microphone"]));
+        assert_eq!(
+            claims["video"]["canPublishSources"],
+            json!(["microphone", "camera"])
+        );
         assert_eq!(claims["exp"], expires.timestamp());
         let mut mac = Hmac::<Sha256>::new_from_slice(&[b's'; 32]).unwrap();
         mac.update(format!("{}.{}", parts[0], parts[1]).as_bytes());
@@ -377,11 +429,16 @@ mod tests {
                 identity: "u1".into(),
                 muted: false,
                 deafened: true,
-                can_publish: true
+                camera: false,
+                sources: sources(true, true),
             }
         );
         let p = participant(&json!({"identity":"u2","tracks":[{"source":2,"muted":true}],"permission":{"can_publish":false}})).unwrap();
-        assert!(p.muted && !p.deafened && !p.can_publish);
+        assert!(p.muted && !p.deafened && p.sources.is_empty());
+        let p = participant(&json!({"identity":"u4","tracks":[{"source":"CAMERA"},{"source":"MICROPHONE","muted":true}],
+            "permission":{"can_publish":true,"can_publish_sources":["MICROPHONE","CAMERA"]}})).unwrap();
+        assert!(p.camera && p.muted);
+        assert_eq!(p.sources, sources(true, false));
         // No microphone track yet: shown muted.
         assert!(participant(&json!({"identity":"u3"})).unwrap().muted);
         assert!(participant(&json!({"tracks":[]})).is_none());

@@ -31,7 +31,8 @@ const PASSWORD: &str = "native-voice-disposable-password";
 struct Sfu {
     rooms: BTreeMap<String, Vec<Value>>,
     removed: Vec<(String, String)>,
-    permissions: Vec<(String, String, bool)>,
+    /// (room, identity, sources) of each UpdateParticipant, sources sorted.
+    permissions: Vec<(String, String, Vec<String>)>,
 }
 type Shared = Arc<Mutex<Sfu>>;
 
@@ -84,15 +85,22 @@ async fn twirp(
         }
         "UpdateParticipant" => {
             let identity = body["identity"].as_str().unwrap().to_owned();
-            let allowed = body["permission"]["can_publish"].as_bool().unwrap();
+            let mut sources: Vec<String> = body["permission"]["can_publish_sources"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_str().unwrap().to_owned())
+                .collect();
+            sources.sort();
+            assert_eq!(body["permission"]["can_publish"], !sources.is_empty());
             if let Some(p) = sfu
                 .rooms
                 .get_mut(&room)
                 .and_then(|list| list.iter_mut().find(|p| p["identity"] == identity.as_str()))
             {
-                p["permission"]["canPublish"] = json!(allowed);
+                p["permission"] = json!({"can_publish": !sources.is_empty(), "can_publish_sources": sources});
             }
-            sfu.permissions.push((room, identity, allowed));
+            sfu.permissions.push((room, identity, sources));
             Json(json!({})).into_response()
         }
         _ => StatusCode::NOT_IMPLEMENTED.into_response(),
@@ -100,7 +108,7 @@ async fn twirp(
 }
 
 fn participant(identity: &str, muted: bool, deafened: bool) -> Value {
-    let mut p = json!({"identity": identity, "permission": {"canPublish": true},
+    let mut p = json!({"identity": identity, "permission": {"canPublish": true, "canPublishSources": ["MICROPHONE", "CAMERA"]},
         "tracks": [{"source": "MICROPHONE", "type": "AUDIO", "muted": muted}]});
     if deafened {
         p["attributes"] = json!({"rv.deafened": "1"});
@@ -235,7 +243,10 @@ async fn members_get_a_microphone_grant_and_the_worker_mirrors_the_sfu(pool: PgP
     assert_eq!(token["sub"], alice_id.as_str());
     assert_eq!(token["iss"], "rocketvibe");
     assert_eq!(token["video"]["room"], sfu_room.as_str());
-    assert_eq!(token["video"]["canPublishSources"], json!(["microphone"]));
+    assert_eq!(
+        token["video"]["canPublishSources"],
+        json!(["microphone", "camera"])
+    );
     assert_eq!(token["video"]["canPublishData"], false);
 
     // A non-member gets nothing; stale grants are refused.
@@ -354,7 +365,7 @@ async fn joining_another_room_moves_the_account_and_read_only_rooms_listen(pool:
     );
     b.reconcile().await;
     let permissions = b.sfu.lock().unwrap().permissions.clone();
-    assert!(permissions.contains(&(format!("rv:{epoch}:{second}"), bob_id.clone(), false)));
+    assert!(permissions.contains(&(format!("rv:{epoch}:{second}"), bob_id.clone(), vec![])));
     // The settings change kept the voice flag of a room that never had one.
     assert!(!alice.room_details(&second).await.unwrap().voice);
 }
@@ -572,4 +583,77 @@ async fn voice_flag_follows_settings_and_old_commands_keep_it(pool: PgPool) {
         409,
         "operation_conflict",
     );
+}
+
+#[sqlx::test]
+async fn one_screen_share_per_room_and_the_sfu_follows_the_claim(pool: PgPool) {
+    let b = Bench::new(pool).await;
+    let (alice, alice_id) = b.user("screen-alice").await;
+    let (bob, bob_id) = b.user("screen-bob").await;
+    let room = b.room(&alice, true).await;
+    alice.add_member(&room, &bob_id).await.unwrap();
+    let epoch = b.epoch(&alice).await;
+    let sfu_room = format!("rv:{epoch}:{room}");
+    // Only a connected session shares.
+    refused(alice.claim_screen().await, 409, "voice_not_connected");
+    for (client, id) in [(&alice, &alice_id), (&bob, &bob_id)] {
+        client
+            .join_voice(&room, &b.input(client, &room, false).await)
+            .await
+            .unwrap();
+        let mut p = participant(id, false, false);
+        if id == &alice_id {
+            p["tracks"]
+                .as_array_mut()
+                .unwrap()
+                .push(json!({"source": "CAMERA", "type": "VIDEO"}));
+        }
+        b.connect(&sfu_room, p);
+    }
+    b.reconcile().await;
+    alice.claim_screen().await.unwrap();
+    let share = vec![
+        "CAMERA".to_owned(),
+        "MICROPHONE".into(),
+        "SCREEN_SHARE".into(),
+        "SCREEN_SHARE_AUDIO".into(),
+    ];
+    assert!(b.sfu.lock().unwrap().permissions.contains(&(
+        sfu_room.clone(),
+        alice_id.clone(),
+        share
+    )));
+    refused(bob.claim_screen().await, 409, "screen_taken");
+    // Claiming again is harmless; the live snapshot shows who shares and who films.
+    alice.claim_screen().await.unwrap();
+    b.reconcile().await;
+    let state = live(&bob).await;
+    let voice = &state
+        .rooms
+        .iter()
+        .find(|r| r.room_id == room)
+        .unwrap()
+        .voice;
+    let alice_live = voice.iter().find(|v| v.user.id == alice_id).unwrap();
+    assert!(alice_live.screen && alice_live.camera);
+    assert!(
+        voice
+            .iter()
+            .find(|v| v.user.id == bob_id)
+            .is_some_and(|v| !v.screen && !v.camera)
+    );
+    // Released, the screen goes to whoever asks next; the SFU takes it back.
+    alice.release_screen().await.unwrap();
+    bob.claim_screen().await.unwrap();
+    let permissions = b.sfu.lock().unwrap().permissions.clone();
+    assert!(permissions.contains(&(
+        sfu_room.clone(),
+        alice_id.clone(),
+        vec!["CAMERA".into(), "MICROPHONE".into()]
+    )));
+    // Leaving drops the claim.
+    bob.leave_voice().await.unwrap();
+    b.disconnect(&sfu_room, &bob_id);
+    b.reconcile().await;
+    alice.claim_screen().await.unwrap();
 }

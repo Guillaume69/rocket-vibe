@@ -240,6 +240,13 @@
         "author": {
           "$ref": "#/$defs/User"
         },
+        "author_revision": {
+          "description": "The author's account revision, to deactivate it directly; absent for a\ndeleted author.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "created_at": {
           "type": "string"
         },
@@ -274,7 +281,7 @@
           "type": "string"
         },
         "text": {
-          "description": "Empty once the message is deleted.",
+          "description": "The text as the newest report saw it, even after an edit or a deletion.",
           "type": "string"
         }
       },
@@ -625,6 +632,7 @@
           "type": "array"
         },
         "next": {
+          "description": "Opaque cursor carrying the last sort key, stable across renames.",
           "type": [
             "string",
             "null"

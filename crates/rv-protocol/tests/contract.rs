@@ -310,6 +310,12 @@ fn administration_marks_deleted_authors_and_rejects_forged_inputs() {
     let admin = contract.administration;
     let author = &admin.reported_messages.items[0].author;
     assert!(author.deleted && author.display_name.is_empty());
+    // A deleted author cannot be deactivated; a live one carries its revision.
+    assert!(admin.reported_messages.items[0].author_revision.is_none());
+    assert_eq!(
+        admin.reported_messages.items[1].author_revision.as_deref(),
+        Some("bob-activation")
+    );
     assert_eq!(
         admin.reported_messages.next.as_deref(),
         Some("9007199254740993")

@@ -1802,8 +1802,14 @@ impl NativeClient {
         limit: Option<u32>,
         q: Option<&str>,
     ) -> Result<String, Error> {
-        if after.is_some_and(|s| !path_segment(s)) || limit.is_some_and(|n| !(1..=100).contains(&n))
-        {
+        // Cursors are opaque: hexadecimal sort keys or report IDs, never a path.
+        let cursor = |s: &str| {
+            !s.is_empty()
+                && s.len() <= 1100
+                && s.bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b))
+        };
+        if after.is_some_and(|s| !cursor(s)) || limit.is_some_and(|n| !(1..=100).contains(&n)) {
             return Err(Error::InvalidUrl);
         }
         let mut url = Url::parse(&format!("{}{path}", self.base)).map_err(|_| Error::InvalidUrl)?;

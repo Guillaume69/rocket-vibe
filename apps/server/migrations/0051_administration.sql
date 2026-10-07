@@ -1,5 +1,5 @@
 -- In-app administration: tombstoned accounts, member reports and the acting
--- account of each audited change. 0049 is reserved by the Rocket.Chat import.
+-- account of each audited change.
 ALTER TABLE users ADD COLUMN deleted boolean NOT NULL DEFAULT false;
 ALTER TABLE users ADD CONSTRAINT users_deleted_disabled CHECK (NOT deleted OR disabled);
 -- Known only from the audit for older accounts; new rows get their creation time.
@@ -14,20 +14,44 @@ ALTER TABLE rooms ADD COLUMN created_at timestamptz;
 UPDATE rooms r SET created_at=(SELECT min(m.created_at) FROM messages m WHERE m.room_id=r.id);
 ALTER TABLE rooms ALTER COLUMN created_at SET DEFAULT clock_timestamp();
 
--- Orders the heirs of a deleted last owner. Existing memberships share the
--- migration instant; their user ID breaks the tie.
-ALTER TABLE members ADD COLUMN joined_at timestamptz NOT NULL DEFAULT clock_timestamp();
+-- Orders the heirs of a deleted last owner. Existing memberships share one
+-- instant, the migration's (a stable default, no per-row value); their user ID
+-- breaks the tie. New memberships get their own join time.
+ALTER TABLE members ADD COLUMN joined_at timestamptz NOT NULL DEFAULT now();
+ALTER TABLE members ALTER COLUMN joined_at SET DEFAULT clock_timestamp();
+
+-- A deleted account's username (lower case) is never taken again, so its old
+-- mentions and links cannot come to name someone else. Checked on every
+-- insert or rename, the CLI and the import included.
+CREATE TABLE retired_usernames (
+    username text PRIMARY KEY CHECK (username=lower(username)),
+    user_id text NOT NULL REFERENCES users(id),
+    retired_at timestamptz NOT NULL DEFAULT clock_timestamp()
+);
+CREATE FUNCTION refuse_retired_username() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF NOT NEW.deleted AND (TG_OP='INSERT' OR NEW.username IS DISTINCT FROM OLD.username)
+       AND EXISTS(SELECT 1 FROM retired_usernames WHERE username=lower(NEW.username)) THEN
+        RAISE EXCEPTION 'retired username' USING ERRCODE='unique_violation';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+CREATE TRIGGER user_username_retired BEFORE INSERT OR UPDATE OF username ON users
+    FOR EACH ROW EXECUTE FUNCTION refuse_retired_username();
 
 -- NULL for the operator CLI, the account for an in-app administrator or reporter.
 ALTER TABLE operator_audit ADD COLUMN actor_id text;
 
 -- One open report per reporter and target: reporting again replaces it.
--- Closed reports stay for the audit trail; no message text is copied here.
+-- Closed reports stay for the audit trail. A message report keeps the text
+-- its reporter saw, which is what the administrators are shown.
 CREATE TABLE message_reports (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     message_id text NOT NULL REFERENCES messages(id),
     reporter_id text NOT NULL REFERENCES users(id),
     reason text NOT NULL CHECK (char_length(reason) BETWEEN 1 AND 1000),
+    message_text text NOT NULL,
     created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
     closed_at timestamptz,
     closed_by text,
@@ -36,6 +60,7 @@ CREATE TABLE message_reports (
 );
 CREATE UNIQUE INDEX message_reports_open ON message_reports(message_id,reporter_id) WHERE closed_at IS NULL;
 CREATE INDEX message_reports_pending ON message_reports(message_id,id) WHERE closed_at IS NULL;
+CREATE INDEX message_reports_reporter ON message_reports(reporter_id) WHERE closed_at IS NULL;
 CREATE TABLE user_reports (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     user_id text NOT NULL REFERENCES users(id),
@@ -49,6 +74,7 @@ CREATE TABLE user_reports (
 );
 CREATE UNIQUE INDEX user_reports_open ON user_reports(user_id,reporter_id) WHERE closed_at IS NULL;
 CREATE INDEX user_reports_pending ON user_reports(user_id,id) WHERE closed_at IS NULL;
+CREATE INDEX user_reports_reporter ON user_reports(reporter_id) WHERE closed_at IS NULL;
 
 -- Receipts of in-app administration and reports, bound to the acting account.
 -- Fingerprints only; kept seven days.

@@ -223,6 +223,16 @@ pub async fn accept(app: &App, input: AcceptInvitation, peer: Option<IpAddr>) ->
             display_name: input.username.clone(),
             ..Default::default()
         };
+        // A deleted account's name stays retired (the users trigger also refuses it).
+        let retired: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM retired_usernames WHERE username=lower($1))",
+        )
+        .bind(&user.username)
+        .fetch_one(&mut *tx)
+        .await?;
+        if retired {
+            return Err(rejected());
+        }
         let inserted = sqlx::query("INSERT INTO users(id,username,display_name,password_hash,admin) VALUES($1,$2,$3,$4,false) ON CONFLICT DO NOTHING")
             .bind(&user.id).bind(&user.username).bind(&user.display_name).bind(new_hash.ok_or_else(rejected)?)
             .execute(&mut *tx).await?;

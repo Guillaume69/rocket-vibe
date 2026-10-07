@@ -32,7 +32,9 @@ snapshots / cursors and invalidates the authentication challenges. The account
 lock waits for the end of an already authorized HTTP / WebSocket delivery. Password,
 factors, verified address, identity, memberships and history are kept.
 Reactivating the account requires a new login and its usual factors;
-no old bearer is reactivated.
+no old bearer is reactivated. The instance keeps an active administrator:
+demoting or disabling the last one gives `409 last_administrator`, from the
+CLI as from the app.
 
 ## Rooms and members
 
@@ -108,7 +110,9 @@ reported message.
   counts opaque private messages. Uploads are the completed ones. Reports count
   reported messages and accounts with an open report.
 - `GET /admin/users?q=&after=&limit=` pages accounts by username (`limit`
-  1-100, 50 by default, `after` the previous `next`, an account ID). `q` is a
+  1-100, 50 by default, `after` the previous `next`). The cursor is opaque: it
+  carries the last row's sort key and ID, so a rename or deletion between two
+  pages neither skips nor repeats an account. `q` is a
   literal, case-insensitive substring of the username or display name. Deleted
   accounts never appear; a disabled account has no `avatar_file_id`, its avatar
   being no longer served. `last_seen_at` comes from the account's devices, so a
@@ -123,12 +127,17 @@ reported message.
   conversations included: kind, name, topic, member and message counts, last
   message (plain or encrypted), creation, read-only, encryption, and for a
   direct conversation its pair (`direct_members`, deleted accounts included).
-  Rooms older than migration 0051 date from their first message.
+  Rooms older than migration 0051 date from their first message. Its cursor,
+  like the accounts', carries the last name and ID.
 - `GET /admin/reports/messages?after=&limit=` and `/admin/reports/users` group
   the open reports by target, the most recently reported first (`after` is a
   report ID). Each item carries its count, its latest report and up to 20
   reports, newest first, with reporter and reason. A reported message also
-  carries its room, author and text (empty once deleted).
+  carries its room, its author with `author_revision` (to deactivate the
+  author directly; absent once the author is deleted), and the text the newest
+  reporter saw: each report keeps the message text at report time, so a later
+  edit or deletion cannot hide what was reported. `deleted` tells whether the
+  message is a tombstone now.
 - `POST /admin/reports/messages/{message}/dismiss` closes its open reports.
   `.../delete` tombstones the message exactly as its author's deletion would
   (journal events, stars, pins and reactions erased) and closes its reports; an
@@ -144,9 +153,13 @@ private messages are not in `messages`, so they cannot be reported.
 `POST /users/{user}/report` refuses oneself (`409 self_report`) and a deleted
 account (`404`). Both take `ReportInput {operation_id, reason}`, the reason
 trimmed to 1-1,000 characters. A reporter keeps one open report per target:
-reporting again replaces it with the new reason. Reports share the 30 actions
-per minute of message actions. Closed reports stay in PostgreSQL with their
-resolution and closing account; no message text is copied into them.
+reporting again replaces it with the new reason and the current text. Reports
+share the 30 actions per minute of message actions, and a reporter keeps at
+most 200 open reports, messages and accounts together: beyond, `429
+report_limit` (`Retry-After` one hour, the limit lifting as administrators close
+reports); replacing an open report stays possible. Closed reports stay in
+PostgreSQL with their resolution and closing account; a message report keeps
+the text its reporter disclosed.
 
 ### Receipts, guards and audit
 
@@ -156,10 +169,9 @@ without reapplying anything, a PATCH answering the current state; the same
 identity with other content gives `409 operation_conflict`. A stale revision
 gives `409 revision_conflict`. An administrator cannot change their own admin
 right or activation, nor delete themselves (`409 self_administration`). Account
-changes queue behind each other under an advisory lock, so two administrators
-demoting each other cannot both succeed; removing or deleting the last active
-administrator gives `409 last_administrator`, which also covers a concurrent
-CLI change.
+changes, in the app or the CLI, queue behind each other under an advisory
+lock, so two administrators demoting each other cannot both succeed; removing
+or deleting the last active administrator gives `409 last_administrator`.
 
 Every change and report is recorded in `operator_audit` with its
 `operation_id` and the acting account in `actor_id` (`NULL` for the CLI):
@@ -174,11 +186,14 @@ their author. The deletion first applies the deactivation of `set-user`
 (admin right and creation rights removed): devices go, and with them sessions,
 WebSocket tickets, push registrations, presence and E2EE devices (their
 fences retired), then cursors, snapshots and challenges. The account is
-marked `deleted`, its username becomes `deleted-<id>` (the old one is free
-again), its display name, bio, status text and avatar are cleared, its status
-is offline, its password unusable, its TOTP / e-mail factors, backup codes and
+marked `deleted`, its username becomes `deleted-<id>`, its display name, bio,
+status text and avatar are cleared (the avatar object removed), its status is
+offline, its password unusable, its TOTP / e-mail factors, backup codes and
 verified address deleted, its factor and contact versions rotated and its
-unused recovery codes revoked. Open reports about it are closed. Its
+unused recovery codes revoked. A pending e-mail recovery keeps only its opaque
+no-op receipt, as for a removed account. Its E2EE root backup, history key and
+history backup are deleted: sealed for devices that no longer exist, nobody
+can open them. Open reports about it are closed. Its
 memberships are removed, each with the personal `RoomRemoved` and a
 `RoomUpsert` for the remaining members; a room whose last owner it was gets
 its earliest remaining member as owner (active members first, by join time).
@@ -190,18 +205,29 @@ member lists and therefore mention completion. Neither the app nor
 `deleted`. Usernames starting with `deleted-` (any case) are refused at
 creation, invitation registration and rename.
 
-What a deletion leaves: its public E2EE identity stays in the directory; the
+The former username is retired (`retired_usernames`, lower case): no later
+account may take it, in any case, through creation, invitation, rename or a
+future import, so old mentions, links and screenshots never come to name
+someone else. A trigger on `users` enforces it for every writer; creation
+answers `409`, a rename `409 username_taken`, an invitation
+`400 invitation_rejected`.
+
+What a deletion leaves, and why: its public E2EE identity stays in the
+directory, so members can still verify its past signatures; the
 MLS group of an encrypted room still lists the account's leaves until a
 remaining member's client commits their removal (the roster no longer lists the
 account and `needs_rekey` asks for it), although the server delivers nothing
 more to its retired devices. A direct conversation keeps its name, made of the
 usernames at its creation, and its pair. Audit details written before the
-deletion keep the old username.
+deletion keep the old username. Its messages, reactions, stars it gave and
+reports it filed stay: they belong to the conversations and to the moderation
+record, not to the account.
 
 Migration 0051 adds `users.deleted` and `users.created_at` (backfilled from
 the `user.created` audit rows, otherwise unknown), `rooms.created_at`,
-`members.joined_at`, `operator_audit.actor_id`, the report tables and the
-receipts.
+`members.joined_at` (existing memberships share the migration instant, a
+single stable default; new ones get their own time), `operator_audit.actor_id`,
+the retired usernames, the report tables and the receipts.
 
 ## Validation
 
@@ -212,7 +238,9 @@ without secrets. One scenario also launches the real CLI binary on the isolated 
 of the test to verify the arguments, receipts, exit codes and JSON.
 `tests/admin.rs` covers the in-app routes: refusal of a member, overview
 counts, paging and search, revisions, replays and self / concurrent guards,
-deletion as a tombstone, rooms with direct conversations, reports, dismissal
-and moderation deletion, and the actor of each audit row.
+deletion as a tombstone and its retired username, the last administrator kept
+from the CLI, cursors stable across a rename or deletion, rooms with direct
+conversations, reports (refusals, kept text, cap), dismissal and moderation
+deletion, and the actor of each audit row.
 These scenarios complement the P04 validations of the journeys in the apps; the
 qualification on installed applications and J5 operations remain open.

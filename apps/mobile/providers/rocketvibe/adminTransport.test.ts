@@ -27,7 +27,7 @@ test('administration reads and commands use typed authenticated routes', async()
   });
   client.restore('saved-token');
   assert.equal((await client.adminOverview()).users.admins,2);
-  assert.equal((await client.adminUsers({after:'bob-id',limit:2,q:'Bo b'})).next,'dave-id');
+  assert.equal((await client.adminUsers({after:'bob-id',limit:2,q:'Bo b'})).next,fixture.user_page.next);
   assert.equal((await client.updateAdminUser('dave-id',update)).disabled,true);
   await client.deleteAdminUser('carol-id',remove);
   const rooms=await client.adminRooms({q:'  '});
@@ -79,4 +79,31 @@ test('administration payloads are validated and forged fields are refused',()=>{
   assert.throws(()=>decodeNative('UpdateAdminUser',{...update,deleted:true}));
   assert.throws(()=>decodeNative('ReportInput',{...report,reporter_id:'forged'}));
   assert.throws(()=>decodeNative('AdminOperation',{...operation,message_id:'forged'}));
+});
+
+test('a report cooldown holds both report routes and spares other commands', async t=>{
+  t.mock.timers.enable({apis:['Date']});
+  let reports=0;
+  const client = new NativeTransport('https://example.org',async(url,options)=>{
+    const path=new URL(String(url)).pathname;
+    if(path.endsWith('/report')){reports++;return Response.json({code:'report_limit',request_id:'cap'},{status:429,headers:{'retry-after':'120'}});}
+    return options?.method==='POST'?new Response(null,{status:204}):Response.json(fixture.overview);
+  });
+  client.restore('saved-token');
+  const limited=(error:unknown)=>error instanceof NativeError && error.code==='report_limit' && error.retryAfter===120;
+  await assert.rejects(client.reportMessage('message-id',report),limited);
+  await assert.rejects(client.reportUser('bob-id',report),limited);
+  assert.equal(reports,1);
+  await client.dismissUserReports('bob-id',operation);
+  await client.adminOverview();
+  t.mock.timers.tick(120_000);
+  await assert.rejects(client.reportUser('bob-id',report),limited);
+  assert.equal(reports,2);
+});
+
+test('a reported message names its author revision unless the author is deleted', ()=>{
+  const page=decodeNative('AdminReportedMessagePage',fixture.reported_messages);
+  assert.equal(page.items[0].author_revision,null);
+  assert.equal(page.items[1].author_revision,'bob-activation');
+  assert.throws(()=>decodeNative('AdminReportedMessage',{...fixture.reported_messages.items[1],author_revision:undefined}));
 });

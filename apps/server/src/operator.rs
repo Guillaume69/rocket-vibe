@@ -258,6 +258,14 @@ pub async fn apply(app: &App, operation: &str, command: Command) -> Result<Recei
     tx.commit().await?;
     Ok(receipt)
 }
+/// Serializes account changes, CLI and in-app alike, so the last-administrator
+/// check sees every concurrent demotion. Taken before any account row lock.
+pub(crate) async fn administration_lock(tx: &mut Transaction<'_, Postgres>) -> Result<()> {
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('rv-administration',0))")
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
 pub(crate) async fn set_user(
     tx: &mut Transaction<'_, Postgres>,
     id: &str,
@@ -267,6 +275,7 @@ pub(crate) async fn set_user(
     if !auth::identifier(id) || expected.is_some_and(|e| !auth::identifier(e)) {
         return Err(Error::invalid());
     }
+    administration_lock(tx).await?;
     let before: User = sqlx::query_as(&format!("{USERS} WHERE id=$1 FOR UPDATE"))
         .bind(id)
         .fetch_optional(&mut **tx)
@@ -293,6 +302,18 @@ pub(crate) async fn set_user(
             before.create_public_room,
             before.create_private_room,
         );
+    if before.admin && !before.disabled && (!admin || disabled) {
+        // The instance keeps an active administrator, whoever asks.
+        let others: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM users WHERE admin AND NOT disabled AND id<>$1)",
+        )
+        .bind(id)
+        .fetch_one(&mut **tx)
+        .await?;
+        if !others {
+            return Err(Error::new(StatusCode::CONFLICT, "last_administrator"));
+        }
+    }
     if changed {
         sqlx::query("UPDATE users SET disabled=$2,admin=$3,create_public_room=$4,create_private_room=$5 WHERE id=$1")
             .bind(id).bind(disabled).bind(admin).bind(public).bind(private).execute(&mut **tx).await?;

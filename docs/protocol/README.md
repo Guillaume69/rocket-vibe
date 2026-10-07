@@ -74,12 +74,12 @@ presence does not declare the corresponding endpoints available.
 | POST | `/auth/logout` | Revoke this session and its WebSocket tickets |
 | GET | `/me`, `/users` | Current account; instance directory limited to 100 entries |
 | GET | `/me/permissions` | Effective creation and administration rights |
-| GET | `/admin/overview`, `/admin/users?q=…&after=…&limit=…`, `/admin/rooms?q=…&after=…&limit=…` | [In-app administration](ADMINISTRATION.md#in-app-administration): counts / versions, accounts and rooms; `users.admin` only, `no-store` |
+| GET | `/admin/overview`, `/admin/users?q=…&after=…&limit=…`, `/admin/rooms?q=…&after=…&limit=…` | [In-app administration](ADMINISTRATION.md#in-app-administration): counts / versions, accounts and rooms (opaque cursors); `users.admin` only, `no-store` |
 | PATCH | `/admin/users/{id}` | `UpdateAdminUser` admin / disabled with expected revision → `AdminUser`; never my own account |
 | POST | `/admin/users/{id}/delete` | `DeleteAdminUser`: tombstone, messages kept under a deleted author |
-| GET | `/admin/reports/messages?after=…`, `/admin/reports/users?after=…` | Open reports grouped by target, latest first |
+| GET | `/admin/reports/messages?after=…`, `/admin/reports/users?after=…` | Open reports grouped by target, latest first; the text each reporter saw, `author_revision` |
 | POST | `/admin/reports/messages/{message}/dismiss`, `/admin/reports/messages/{message}/delete`, `/admin/reports/users/{user}/dismiss` | `{ operation_id }`; deletion only of a reported message |
-| POST | `/messages/{message}/report`, `/users/{user}/report` | `ReportInput { operation_id, reason }` by a member; read access required, never oneself |
+| POST | `/messages/{message}/report`, `/users/{user}/report` | `ReportInput { operation_id, reason }` by a member; read access required, never oneself, 200 open at most |
 | GET | `/rooms/{room}/permissions`, `/messages/{message}/permissions` | Fine-grained rights for a current member; otherwise `404` |
 | GET / POST | `/rooms` | Rooms I am a member of; create `{ name, private, operation_id? }` |
 | GET | `/rooms/discover?q=…&after=…`, `/rooms/public?q=…&after=…` | Names of public rooms, 20 entries, `PublicRoomPage`; identical aliases |

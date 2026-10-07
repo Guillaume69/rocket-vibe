@@ -92,6 +92,7 @@ pub struct AdminUser {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct AdminUserPage {
     pub items: Vec<AdminUser>,
+    /// Opaque cursor carrying the last sort key, stable across renames.
     pub next: Option<String>,
 }
 
@@ -153,7 +154,10 @@ pub struct AdminReportedMessage {
     pub room_kind: RoomKind,
     pub room_name: String,
     pub author: User,
-    /// Empty once the message is deleted.
+    /// The author's account revision, to deactivate it directly; absent for a
+    /// deleted author.
+    pub author_revision: Option<String>,
+    /// The text as the newest report saw it, even after an edit or a deletion.
     pub text: String,
     pub created_at: String,
     pub deleted: bool,

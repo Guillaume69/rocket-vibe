@@ -4,7 +4,10 @@ use rv_protocol::{
     admin::{AdminOperation, DeleteAdminUser, ReportInput, UpdateAdminUser},
     live::PresenceStatus,
 };
-use rv_server::{App, auth, operator};
+use rv_server::{
+    App, auth,
+    operator::{self, Command, UserChanges},
+};
 use sqlx::PgPool;
 
 const PASSWORD: &str = "administration-test-password";
@@ -507,11 +510,31 @@ async fn deletion_tombstones_the_account_and_keeps_its_messages(pool: PgPool) {
         (404, "not_found".into())
     );
 
-    // The name is free again; `deleted-` names stay reserved.
-    let again = auth::create_user(&bench.app, "alice", PASSWORD.into(), false)
-        .await
-        .unwrap();
-    assert_ne!(again.id, alice_id);
+    // The name stays retired, in any case; `deleted-` names stay reserved.
+    for name in ["alice", "ALICE"] {
+        assert_eq!(
+            auth::create_user(&bench.app, name, PASSWORD.into(), false)
+                .await
+                .unwrap_err()
+                .code,
+            "operation_conflict"
+        );
+    }
+    let profile = bob.own_profile().await.unwrap().profile;
+    let taken = rv_protocol::profiles::UpdateProfile {
+        operation_id: "take-alice".into(),
+        expected_revision: profile.revision,
+        username: "Alice".into(),
+        display_name: "Bob".into(),
+        bio: String::new(),
+        status: PresenceStatus::Online,
+        status_text: String::new(),
+    };
+    // A rename needs a recent login: Bob's is.
+    assert_eq!(
+        refused(bob.update_profile(&taken).await),
+        (409, "username_taken".into())
+    );
     assert!(
         auth::create_user(&bench.app, "Deleted-someone", PASSWORD.into(), false)
             .await
@@ -779,4 +802,326 @@ async fn reports_reach_the_administrators_who_dismiss_or_delete(pool: PgPool) {
         std::slice::from_ref(&root_id)
     );
     assert_eq!(actor("user.reports_closed"), [root_id]);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn the_last_active_administrator_is_kept_whoever_asks(pool: PgPool) {
+    let bench = Bench::start(pool).await;
+    let (_, root_id) = bench.user("root", true).await;
+    let (_, alice_id) = bench.user("alice", false).await;
+    for (operation, changes) in [
+        (
+            "cli-demote",
+            UserChanges {
+                admin: Some(false),
+                ..Default::default()
+            },
+        ),
+        (
+            "cli-disable",
+            UserChanges {
+                disabled: Some(true),
+                ..Default::default()
+            },
+        ),
+    ] {
+        let error = operator::apply(
+            &bench.app,
+            operation,
+            Command::User {
+                id: root_id.clone(),
+                expected: None,
+                changes,
+            },
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(
+            (error.status.as_u16(), error.code),
+            (409, "last_administrator")
+        );
+    }
+    // With a second administrator, the first may go.
+    operator::apply(
+        &bench.app,
+        "grant-alice",
+        Command::User {
+            id: alice_id.clone(),
+            expected: None,
+            changes: UserChanges {
+                admin: Some(true),
+                ..Default::default()
+            },
+        },
+    )
+    .await
+    .unwrap();
+    operator::apply(
+        &bench.app,
+        "demote-root",
+        Command::User {
+            id: root_id,
+            expected: None,
+            changes: UserChanges {
+                admin: Some(false),
+                ..Default::default()
+            },
+        },
+    )
+    .await
+    .unwrap();
+    let alice = bench.login("alice").await.unwrap();
+    assert_eq!(alice.admin_overview().await.unwrap().users.admins, 1);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn pages_resume_after_their_last_row_across_renames_and_deletions(pool: PgPool) {
+    let bench = Bench::start(pool.clone()).await;
+    let (root, _) = bench.user("root", true).await;
+    let mut ids = Vec::new();
+    for name in ["anna", "bruno", "carla", "dora"] {
+        ids.push(
+            auth::create_user(&bench.app, name, PASSWORD.into(), false)
+                .await
+                .unwrap()
+                .id,
+        );
+    }
+    let first = root.admin_users(None, Some(2), None).await.unwrap();
+    assert_eq!(
+        first
+            .items
+            .iter()
+            .map(|u| u.username.as_str())
+            .collect::<Vec<_>>(),
+        ["anna", "bruno"]
+    );
+    // The last row of the page moves to the end, the first one disappears.
+    sqlx::query("UPDATE users SET username='zed' WHERE id=$1")
+        .bind(&ids[1])
+        .execute(&pool)
+        .await
+        .unwrap();
+    let anna = bench.revision(&root, &ids[0]).await;
+    root.delete_admin_user(
+        &ids[0],
+        &DeleteAdminUser {
+            operation_id: "delete-anna".into(),
+            revision: anna,
+        },
+    )
+    .await
+    .unwrap();
+    let second = root
+        .admin_users(first.next.as_deref(), Some(2), None)
+        .await
+        .unwrap();
+    assert_eq!(
+        second
+            .items
+            .iter()
+            .map(|u| u.username.as_str())
+            .collect::<Vec<_>>(),
+        ["carla", "dora"]
+    );
+    assert_eq!(
+        refused(root.admin_users(Some("not-a-cursor"), None, None).await).0,
+        400
+    );
+
+    let owner = bench.login("carla").await.unwrap();
+    let mut rooms = Vec::new();
+    for name in ["Alpha", "Beta", "Gamma"] {
+        rooms.push(
+            owner
+                .create_room(&room(name, false, name))
+                .await
+                .unwrap()
+                .id,
+        );
+    }
+    let first = root.admin_rooms(None, Some(2), None).await.unwrap();
+    assert_eq!(first.items[1].id, rooms[1]);
+    sqlx::query("UPDATE rooms SET name='Aardvark' WHERE id=$1")
+        .bind(&rooms[1])
+        .execute(&pool)
+        .await
+        .unwrap();
+    let second = root
+        .admin_rooms(first.next.as_deref(), Some(2), None)
+        .await
+        .unwrap();
+    assert_eq!(
+        second
+            .items
+            .iter()
+            .map(|r| r.id.clone())
+            .collect::<Vec<_>>(),
+        [rooms[2].clone()]
+    );
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn reports_keep_what_the_reporter_saw_and_are_bounded(pool: PgPool) {
+    let bench = Bench::start(pool.clone()).await;
+    let (root, _) = bench.user("root", true).await;
+    let (alice, alice_id) = bench.user("alice", false).await;
+    let (bob, bob_id) = bench.user("bob", false).await;
+    let (_, carol_id) = bench.user("carol", false).await;
+    let team = alice
+        .create_room(&room("Team", false, "team"))
+        .await
+        .unwrap();
+    bob.join_public(&team.id).await.unwrap();
+    let said = bob
+        .send(&team.id, &send("Original insult", "said"))
+        .await
+        .unwrap();
+    alice
+        .report_message(&said.id, &report("r1", "Insult"))
+        .await
+        .unwrap();
+    // The author softens the message afterwards: the report keeps what was seen.
+    let edit: rv_protocol::parity::EditMessage = serde_json::from_value(serde_json::json!({
+        "operation_id":"soften","expected_revision":said.revision,
+        "content":{"kind":"plain","markdown":"Polite words","mentions":[],"quotes":[],"files":[]}
+    }))
+    .unwrap();
+    bob.edit_message(&said.id, &edit).await.unwrap();
+    let page = root.admin_reported_messages(None, None).await.unwrap();
+    assert_eq!(page.items[0].text, "Original insult");
+    assert!(page.items[0].author_revision.is_some());
+    assert_eq!(
+        page.items[0].author_revision,
+        Some(bench.revision(&root, &bob_id).await)
+    );
+
+    // The author deletes it: no new report, but the admin can still close them.
+    let current = alice.message(&said.id).await.unwrap();
+    let delete: rv_protocol::parity::DeleteMessage = serde_json::from_value(
+        serde_json::json!({"operation_id":"remove","expected_revision":current.revision}),
+    )
+    .unwrap();
+    bob.delete_message(&said.id, &delete).await.unwrap();
+    assert_eq!(
+        refused(alice.report_message(&said.id, &report("r2", "Again")).await),
+        (410, "message_deleted".into())
+    );
+    let page = root.admin_reported_messages(None, None).await.unwrap();
+    assert!(page.items[0].deleted);
+    assert_eq!(page.items[0].text, "Original insult");
+    root.delete_reported_message(&said.id, &operation("close"))
+        .await
+        .unwrap();
+    assert!(
+        root.admin_reported_messages(None, None)
+            .await
+            .unwrap()
+            .items
+            .is_empty()
+    );
+    let closed: Option<String> =
+        sqlx::query_scalar("SELECT resolution FROM message_reports WHERE message_id=$1")
+            .bind(&said.id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(closed.as_deref(), Some("deleted"));
+
+    // Room activity and deleted accounts cannot be reported.
+    let activity = alice
+        .history(&team.id, None)
+        .await
+        .unwrap()
+        .messages
+        .into_iter()
+        .find(|m| m.system.is_some())
+        .expect("join activity");
+    assert_eq!(
+        refused(
+            alice
+                .report_message(&activity.id, &report("r3", "Odd"))
+                .await
+        ),
+        (403, "permission_denied".into())
+    );
+    let carol = bench.revision(&root, &carol_id).await;
+    root.delete_admin_user(
+        &carol_id,
+        &DeleteAdminUser {
+            operation_id: "delete-carol".into(),
+            revision: carol,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        refused(alice.report_user(&carol_id, &report("r4", "Gone")).await),
+        (404, "not_found".into())
+    );
+    // A deleted author has no revision to act on.
+    let gone = bob.send(&team.id, &send("Bye", "bye")).await.unwrap();
+    alice
+        .report_message(&gone.id, &report("r5", "Rude"))
+        .await
+        .unwrap();
+    let bob_revision = bench.revision(&root, &bob_id).await;
+    root.delete_admin_user(
+        &bob_id,
+        &DeleteAdminUser {
+            operation_id: "delete-bob".into(),
+            revision: bob_revision,
+        },
+    )
+    .await
+    .unwrap();
+    let page = root.admin_reported_messages(None, None).await.unwrap();
+    assert!(page.items[0].author.deleted && page.items[0].author_revision.is_none());
+
+    // At most 200 open reports per reporter; replacing one stays possible.
+    let (filler, _) = bench.user("filler", false).await;
+    filler.join_public(&team.id).await.unwrap();
+    sqlx::query("INSERT INTO messages(id,room_id,author_id,operation_id,text) SELECT 'cap'||g,$1,$2,'cap'||g,'filler' FROM generate_series(1,199) g")
+        .bind(&team.id)
+        .bind(&alice_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let (_, filler_id): (String, String) =
+        sqlx::query_as("SELECT username,id FROM users WHERE username='filler'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    sqlx::query("INSERT INTO message_reports(message_id,reporter_id,reason,message_text) SELECT 'cap'||g,$1,'Spam','filler' FROM generate_series(1,199) g")
+        .bind(&filler_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    filler
+        .report_user(&alice_id, &report("f1", "Spam"))
+        .await
+        .unwrap();
+    assert_eq!(
+        refused(
+            filler
+                .report_user(&root_id_of(&pool).await, &report("f2", "Spam"))
+                .await
+        ),
+        (429, "report_limit".into())
+    );
+    filler
+        .report_message("cap1", &report("f3", "Still spam"))
+        .await
+        .unwrap();
+    filler
+        .report_user(&alice_id, &report("f4", "Still rude"))
+        .await
+        .unwrap();
+}
+
+async fn root_id_of(pool: &PgPool) -> String {
+    sqlx::query_scalar("SELECT id FROM users WHERE username='root'")
+        .fetch_one(pool)
+        .await
+        .unwrap()
 }

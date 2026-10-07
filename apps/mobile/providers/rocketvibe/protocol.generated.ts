@@ -7,7 +7,7 @@ export type AdminOperation = { "operation_id": string; };
 export type AdminOverview = { "data_epoch": string; "instance_id": string; "messages": AdminMessageCounts; "migration_version"?: string | null; "postgres_version": string; "reports": AdminReportCounts; "rooms": AdminRoomCounts; "server_version": string; "started_at": string; "uploads": AdminUploadCounts; "users": AdminUserCounts; };
 export type AdminReport = { "created_at": string; "reason": string; "reporter": User; };
 export type AdminReportCounts = { "messages": number; "users": number; };
-export type AdminReportedMessage = { "author": User; "created_at": string; "deleted": boolean; "latest_report_at": string; "message_id": string; "report_count": number; "reports": (AdminReport)[]; "room_id": string; "room_kind": RoomKind; "room_name": string; "text": string; };
+export type AdminReportedMessage = { "author": User; "author_revision"?: string | null; "created_at": string; "deleted": boolean; "latest_report_at": string; "message_id": string; "report_count": number; "reports": (AdminReport)[]; "room_id": string; "room_kind": RoomKind; "room_name": string; "text": string; };
 export type AdminReportedMessagePage = { "items": (AdminReportedMessage)[]; "next"?: string | null; };
 export type AdminReportedUser = { "latest_report_at": string; "report_count": number; "reports": (AdminReport)[]; "user": AdminUser; };
 export type AdminReportedUserPage = { "items": (AdminReportedUser)[]; "next"?: string | null; };
@@ -460,6 +460,13 @@ export const nativeSchema = {
         "author": {
           "$ref": "#/$defs/User"
         },
+        "author_revision": {
+          "description": "The author's account revision, to deactivate it directly; absent for a\ndeleted author.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "created_at": {
           "type": "string"
         },
@@ -494,7 +501,7 @@ export const nativeSchema = {
           "type": "string"
         },
         "text": {
-          "description": "Empty once the message is deleted.",
+          "description": "The text as the newest report saw it, even after an edit or a deletion.",
           "type": "string"
         }
       },
@@ -845,6 +852,7 @@ export const nativeSchema = {
           "type": "array"
         },
         "next": {
+          "description": "Opaque cursor carrying the last sort key, stable across renames.",
           "type": [
             "string",
             "null"

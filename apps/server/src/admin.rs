@@ -30,6 +30,8 @@ const PRESENCE: &str = "WITH presence AS (SELECT p.user_id,min(CASE p.status WHE
 /// A disabled account's avatar is no longer served, so it is not advertised.
 const USER_COLUMNS: &str = "u.id,u.username,u.display_name,CASE WHEN u.disabled THEN NULL ELSE u.avatar_file_id END AS avatar_file_id,u.admin,u.disabled,COALESCE(CASE p.priority WHEN 0 THEN 'busy' WHEN 1 THEN 'online' WHEN 2 THEN 'away' END,'offline') AS status,u.created_at,(SELECT max(d.last_seen_at) FROM session_devices d WHERE d.user_id=u.id) AS last_seen_at,u.activation_version AS revision";
 const REPORTS_SHOWN: i64 = 20;
+/// Open reports one account may have at once, messages and accounts together.
+const OPEN_REPORTS: i64 = 200;
 
 #[derive(FromRow)]
 struct UserRow {
@@ -71,11 +73,35 @@ fn limit(value: Option<u32>) -> Result<i64> {
     }
     Ok(i64::from(value))
 }
-fn cursor(after: Option<&str>) -> Result<Option<&str>> {
-    if after.is_some_and(|v| !identifier(v)) {
-        return Err(Error::invalid());
+fn hex(value: &str) -> String {
+    value.bytes().map(|b| format!("{b:02x}")).collect()
+}
+fn unhex(value: &str) -> Option<String> {
+    if value.is_empty() || !value.len().is_multiple_of(2) {
+        return None;
     }
-    Ok(after)
+    let bytes = (0..value.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(value.get(i..i + 2)?, 16).ok())
+        .collect::<Option<Vec<u8>>>()?;
+    String::from_utf8(bytes).ok()
+}
+/// An opaque keyset cursor: the last row's sort key and ID, so a rename or a
+/// deletion between two pages neither skips nor repeats a row.
+fn cursor_after(key: &str, id: &str) -> String {
+    format!("{}-{}", hex(key), hex(id))
+}
+fn cursor(after: Option<&str>) -> Result<(Option<String>, Option<String>)> {
+    let Some(after) = after else {
+        return Ok((None, None));
+    };
+    let decoded = (after.len() <= 1100)
+        .then(|| after.split_once('-'))
+        .flatten()
+        .and_then(|(key, id)| Some((unhex(key)?, unhex(id)?)))
+        .filter(|(_, id)| identifier(id));
+    let (key, id) = decoded.ok_or_else(Error::invalid)?;
+    Ok((Some(key), Some(id)))
 }
 /// Report pages go from the newest report back; the cursor is a report ID.
 fn report_cursor(after: Option<&str>) -> Result<Option<i64>> {
@@ -221,13 +247,15 @@ pub(crate) async fn users(
     q: Option<&str>,
 ) -> Result<AdminUserPage> {
     let size = limit(size)?;
-    let rows: Vec<UserRow> = sqlx::query_as(&format!("{PRESENCE} SELECT {USER_COLUMNS} FROM users u LEFT JOIN presence p ON p.user_id=u.id WHERE NOT u.deleted AND ($1::text IS NULL OR (u.username,u.id)>(SELECT a.username,a.id FROM users a WHERE a.id=$1)) AND ($2::text IS NULL OR strpos(lower(u.username),lower($2))>0 OR strpos(lower(u.display_name),lower($2))>0) ORDER BY u.username,u.id LIMIT $3"))
-        .bind(cursor(after)?)
+    let (key, id) = cursor(after)?;
+    let rows: Vec<UserRow> = sqlx::query_as(&format!("{PRESENCE} SELECT {USER_COLUMNS} FROM users u LEFT JOIN presence p ON p.user_id=u.id WHERE NOT u.deleted AND ($1::text IS NULL OR (u.username,u.id)>($1::text,$2::text)) AND ($3::text IS NULL OR strpos(lower(u.username),lower($3))>0 OR strpos(lower(u.display_name),lower($3))>0) ORDER BY u.username,u.id LIMIT $4"))
+        .bind(key)
+        .bind(id)
         .bind(search(q)?)
         .bind(size + 1)
         .fetch_all(&app.pool)
         .await?;
-    let (items, next) = page(rows, size, |u| u.id.clone());
+    let (items, next) = page(rows, size, |u| cursor_after(&u.username, &u.id));
     Ok(AdminUserPage {
         items: items.into_iter().map(UserRow::wire).collect(),
         next,
@@ -262,9 +290,7 @@ async fn admit(
     if administration {
         // Account changes queue behind each other: two administrators demoting
         // each other can neither deadlock nor both succeed.
-        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('rv-administration',0))")
-            .execute(&mut *tx)
-            .await?;
+        operator::administration_lock(&mut tx).await?;
     }
     auth::lock_active(&mut tx, actor).await?;
     // The activation version also covers the admin right: lock_active proved it current.
@@ -313,14 +339,15 @@ fn self_administration() -> Error {
     Error::new(StatusCode::CONFLICT, "self_administration")
 }
 
-/// Locks a live (not deleted) account and checks the expected revision.
+/// Locks a live (not deleted) account and checks the expected revision. Its
+/// username and avatar are what a deletion retires.
 async fn target(
     tx: &mut Transaction<'_, Postgres>,
     id: &str,
     revision: &str,
-) -> Result<(bool, bool)> {
-    let (admin, disabled, current): (bool, bool, String) = sqlx::query_as(
-        "SELECT admin,disabled,activation_version FROM users WHERE id=$1 AND NOT deleted FOR UPDATE",
+) -> Result<(String, Option<String>)> {
+    let (username, avatar, current): (String, Option<String>, String) = sqlx::query_as(
+        "SELECT username,avatar_file_id,activation_version FROM users WHERE id=$1 AND NOT deleted FOR UPDATE",
     )
     .bind(id)
     .fetch_optional(&mut **tx)
@@ -329,21 +356,7 @@ async fn target(
     if current != revision {
         return Err(Error::new(StatusCode::CONFLICT, "revision_conflict"));
     }
-    Ok((admin, disabled))
-}
-/// The instance keeps at least one active administrator. The advisory lock of
-/// `admit` serializes in-app changes; this also covers a concurrent CLI change.
-async fn require_other_admin(tx: &mut Transaction<'_, Postgres>, id: &str) -> Result<()> {
-    let others: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM users WHERE admin AND NOT disabled AND id<>$1)",
-    )
-    .bind(id)
-    .fetch_one(&mut **tx)
-    .await?;
-    if !others {
-        return Err(Error::new(StatusCode::CONFLICT, "last_administrator"));
-    }
-    Ok(())
+    Ok((username, avatar))
 }
 
 pub(crate) async fn update_user(
@@ -371,12 +384,9 @@ pub(crate) async fn update_user(
     if id == actor.id {
         return Err(self_administration());
     }
-    let (admin, disabled) = target(&mut tx, id, &input.revision).await?;
-    let demoted = input.admin == Some(false) || input.disabled == Some(true);
-    if admin && !disabled && demoted {
-        require_other_admin(&mut tx, id).await?;
-    }
-    // The CLI's own change: revokes devices, cursors, snapshots and challenges.
+    target(&mut tx, id, &input.revision).await?;
+    // The CLI's own change: revokes devices, cursors, snapshots and challenges,
+    // and keeps an active administrator (`last_administrator`).
     operator::set_user(
         &mut tx,
         id,
@@ -413,12 +423,10 @@ pub(crate) async fn delete_user(
     if id == actor.id {
         return Err(self_administration());
     }
-    let (admin, disabled) = target(&mut tx, id, &input.revision).await?;
-    if admin && !disabled {
-        require_other_admin(&mut tx, id).await?;
-    }
+    let (username, avatar) = target(&mut tx, id, &input.revision).await?;
     // Deactivation first: devices (and with them sessions, tickets, push
-    // registrations, presence and E2EE devices), cursors, snapshots, challenges.
+    // registrations, presence and E2EE devices), cursors, snapshots, challenges;
+    // it refuses to remove the last active administrator.
     operator::set_user(
         &mut tx,
         id,
@@ -441,10 +449,22 @@ pub(crate) async fn delete_user(
         "DELETE FROM account_emails WHERE user_id=$1",
         "UPDATE account_recovery_codes SET revoked_at=clock_timestamp() WHERE user_id=$1 AND revoked_at IS NULL AND consumed_at IS NULL",
         "UPDATE user_reports SET closed_at=clock_timestamp(),closed_by=current_setting('rocketvibe.operator_actor',true),resolution='deleted' WHERE user_id=$1 AND closed_at IS NULL",
+        // Pending e-mail recovery keeps only its opaque no-op receipt, as for a removed account.
+        "UPDATE email_recovery_outbox SET payload_cipher=NULL,lease_id=NULL,lease_expires_at=NULL WHERE request_hash IN (SELECT operation_hash FROM email_recovery_requests WHERE user_id=$1)",
+        "UPDATE email_recovery_requests SET user_id=NULL,activation_version=NULL,email_version=NULL,address=NULL,token_hash=NULL WHERE user_id=$1",
+        // Sealed key material nobody can open any more: the account has no device left.
+        "DELETE FROM e2ee_root_backups WHERE user_id=$1",
+        "DELETE FROM e2ee_history_keys WHERE user_id=$1",
+        "DELETE FROM e2ee_history_key_generations WHERE user_id=$1",
     ] {
         sqlx::query(query).bind(id).execute(&mut *tx).await?;
     }
-    // The username is freed for a new account; `deleted-` names are reserved.
+    // The username is retired: no later account may take it.
+    sqlx::query("INSERT INTO retired_usernames(username,user_id) VALUES(lower($1),$2) ON CONFLICT DO NOTHING")
+        .bind(&username)
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
     sqlx::query("UPDATE users SET deleted=true,username='deleted-'||id,display_name='',bio='',status_text='',chosen_status='offline',avatar_file_id=NULL,password_hash='',factor_version=gen_random_uuid()::text,email_version=gen_random_uuid()::text WHERE id=$1")
         .bind(id)
         .execute(&mut *tx)
@@ -494,7 +514,12 @@ pub(crate) async fn delete_user(
         json!({"rooms":rooms.len(),"heirs":heirs}),
     )
     .await?;
-    settle(tx, actor, &input.operation_id, &hash).await
+    settle(tx, actor, &input.operation_id, &hash).await?;
+    // The avatar is unreferenced now; collection would also reclaim it later.
+    if let (Some(store), Some(avatar)) = (&app.objects, avatar) {
+        let _ = store.remove(&avatar).await;
+    }
+    Ok(())
 }
 
 #[derive(FromRow)]
@@ -520,13 +545,15 @@ pub(crate) async fn rooms(
     q: Option<&str>,
 ) -> Result<AdminRoomPage> {
     let size = limit(size)?;
-    let rows: Vec<RoomRow> = sqlx::query_as("SELECT r.id,r.kind,r.name,r.topic,r.read_only,r.created_at,r.direct_pair,EXISTS(SELECT 1 FROM e2ee_groups g WHERE g.room_id=r.id) AS encrypted,(SELECT count(*) FROM members m WHERE m.room_id=r.id) AS member_count,(SELECT count(*) FROM messages m WHERE m.room_id=r.id AND NOT m.deleted AND m.system IS NULL)+(SELECT count(*) FROM e2ee_application_messages e WHERE e.room_id=r.id) AS message_count,GREATEST((SELECT max(m.created_at) FROM messages m WHERE m.room_id=r.id AND NOT m.deleted AND m.system IS NULL),(SELECT max(e.created_at) FROM e2ee_application_messages e WHERE e.room_id=r.id)) AS last_message_at FROM rooms r WHERE ($1::text IS NULL OR (r.name,r.id)>(SELECT a.name,a.id FROM rooms a WHERE a.id=$1)) AND ($2::text IS NULL OR strpos(lower(r.name),lower($2))>0) ORDER BY r.name,r.id LIMIT $3")
-        .bind(cursor(after)?)
+    let (key, id) = cursor(after)?;
+    let rows: Vec<RoomRow> = sqlx::query_as("SELECT r.id,r.kind,r.name,r.topic,r.read_only,r.created_at,r.direct_pair,EXISTS(SELECT 1 FROM e2ee_groups g WHERE g.room_id=r.id) AS encrypted,(SELECT count(*) FROM members m WHERE m.room_id=r.id) AS member_count,(SELECT count(*) FROM messages m WHERE m.room_id=r.id AND NOT m.deleted AND m.system IS NULL)+(SELECT count(*) FROM e2ee_application_messages e WHERE e.room_id=r.id) AS message_count,GREATEST((SELECT max(m.created_at) FROM messages m WHERE m.room_id=r.id AND NOT m.deleted AND m.system IS NULL),(SELECT max(e.created_at) FROM e2ee_application_messages e WHERE e.room_id=r.id)) AS last_message_at FROM rooms r WHERE ($1::text IS NULL OR (r.name,r.id)>($1::text,$2::text)) AND ($3::text IS NULL OR strpos(lower(r.name),lower($3))>0) ORDER BY r.name,r.id LIMIT $4")
+        .bind(key)
+        .bind(id)
         .bind(search(q)?)
         .bind(size + 1)
         .fetch_all(&app.pool)
         .await?;
-    let (rows, next) = page(rows, size, |r| r.id.clone());
+    let (rows, next) = page(rows, size, |r| cursor_after(&r.name, &r.id));
     let pairs: Vec<String> = rows
         .iter()
         .filter_map(|r| r.direct_pair.as_deref())
@@ -604,7 +631,8 @@ async fn reasons(
 }
 
 /// Open reports by message, the most recently reported first. The text shown
-/// is the one the reporters disclosed; a deleted message shows none.
+/// is the one the newest reporter saw and disclosed, kept with the report, so
+/// a later edit or deletion cannot hide what was reported.
 pub(crate) async fn reported_messages(
     app: &App,
     after: Option<&str>,
@@ -623,12 +651,13 @@ pub(crate) async fn reported_messages(
         username: String,
         display_name: String,
         author_deleted: bool,
+        author_revision: Option<String>,
         text: String,
         created_at: DateTime<Utc>,
         deleted: bool,
     }
     let size = limit(size)?;
-    let rows: Vec<Row> = sqlx::query_as("WITH open AS (SELECT message_id,count(*) AS report_count,max(id) AS latest_id,max(created_at) AS latest_at FROM message_reports WHERE closed_at IS NULL GROUP BY message_id) SELECT o.message_id,o.report_count,o.latest_id,o.latest_at,m.room_id,r.kind AS room_kind,r.name AS room_name,m.author_id,u.username,u.display_name,u.deleted AS author_deleted,m.text,m.created_at,m.deleted FROM open o JOIN messages m ON m.id=o.message_id JOIN rooms r ON r.id=m.room_id JOIN users u ON u.id=m.author_id WHERE ($1::bigint IS NULL OR o.latest_id<$1) ORDER BY o.latest_id DESC LIMIT $2")
+    let rows: Vec<Row> = sqlx::query_as("WITH open AS (SELECT message_id,count(*) AS report_count,max(id) AS latest_id,max(created_at) AS latest_at,(array_agg(message_text ORDER BY id DESC))[1] AS text FROM message_reports WHERE closed_at IS NULL GROUP BY message_id) SELECT o.message_id,o.report_count,o.latest_id,o.latest_at,o.text,m.room_id,r.kind AS room_kind,r.name AS room_name,m.author_id,u.username,u.display_name,u.deleted AS author_deleted,CASE WHEN u.deleted THEN NULL ELSE u.activation_version END AS author_revision,m.created_at,m.deleted FROM open o JOIN messages m ON m.id=o.message_id JOIN rooms r ON r.id=m.room_id JOIN users u ON u.id=m.author_id WHERE ($1::bigint IS NULL OR o.latest_id<$1) ORDER BY o.latest_id DESC LIMIT $2")
         .bind(report_cursor(after)?)
         .bind(size + 1)
         .fetch_all(&app.pool)
@@ -645,7 +674,8 @@ pub(crate) async fn reported_messages(
             room_kind: room_kind(&r.room_kind),
             room_name: r.room_name,
             author: wire_user(r.author_id, r.username, r.display_name, r.author_deleted),
-            text: if r.deleted { String::new() } else { r.text },
+            author_revision: r.author_revision,
+            text: r.text,
             created_at: r.created_at.to_rfc3339(),
             deleted: r.deleted,
             report_count: count(r.report_count),
@@ -829,13 +859,14 @@ pub(crate) async fn report_message(
         tx.commit().await?;
         return Ok(());
     }
-    let (room, author, deleted, system): (String, String, bool, bool) = sqlx::query_as(
-        "SELECT room_id,author_id,deleted,system IS NOT NULL FROM messages WHERE id=$1",
-    )
-    .bind(message)
-    .fetch_optional(&mut *tx)
-    .await?
-    .ok_or_else(Error::missing)?;
+    let (room, author, deleted, system, snapshot): (String, String, bool, bool, String) =
+        sqlx::query_as(
+            "SELECT room_id,author_id,deleted,system IS NOT NULL,text FROM messages WHERE id=$1",
+        )
+        .bind(message)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(Error::missing)?;
     store::require_member(&mut tx, &room, &actor.id).await?;
     if system {
         return Err(Error::forbidden());
@@ -847,15 +878,7 @@ pub(crate) async fn report_message(
         return Err(self_report());
     }
     crate::limits::message_action(&mut tx, &actor.id).await?;
-    replace_report(
-        &mut tx,
-        "message_reports",
-        "message_id",
-        message,
-        actor,
-        text,
-    )
-    .await?;
+    replace_report(&mut tx, Target::Message(&snapshot), message, actor, text).await?;
     operator::record(
         &mut tx,
         "message.reported",
@@ -895,33 +918,59 @@ pub(crate) async fn report_user(
         return Err(Error::missing());
     }
     crate::limits::message_action(&mut tx, &actor.id).await?;
-    replace_report(&mut tx, "user_reports", "user_id", user, actor, text).await?;
+    replace_report(&mut tx, Target::User, user, actor, text).await?;
     operator::record(&mut tx, "user.reported", user, json!({})).await?;
     settle(tx, actor, &input.operation_id, &hash).await
 }
+enum Target<'a> {
+    /// With the text the reporter sees now.
+    Message(&'a str),
+    User,
+}
 /// One open report per reporter and target: a new one replaces the old, so the
-/// report ID still orders targets by their latest report.
+/// report ID still orders targets by their latest report. A reporter keeps at
+/// most `OPEN_REPORTS` open; the message-action window serializes its reports.
 async fn replace_report(
     tx: &mut Transaction<'_, Postgres>,
-    table: &str,
-    column: &str,
-    target: &str,
+    target: Target<'_>,
+    id: &str,
     actor: &Account,
     reason: &str,
 ) -> Result<()> {
+    let (table, column) = match target {
+        Target::Message(_) => ("message_reports", "message_id"),
+        Target::User => ("user_reports", "user_id"),
+    };
     sqlx::query(&format!(
         "DELETE FROM {table} WHERE {column}=$1 AND reporter_id=$2 AND closed_at IS NULL"
     ))
-    .bind(target)
+    .bind(id)
     .bind(&actor.id)
     .execute(&mut **tx)
     .await?;
-    sqlx::query(&format!(
-        "INSERT INTO {table}({column},reporter_id,reason) VALUES($1,$2,$3)"
-    ))
-    .bind(target)
-    .bind(&actor.id)
-    .bind(reason)
+    let open: i64 = sqlx::query_scalar("SELECT (SELECT count(*) FROM message_reports WHERE reporter_id=$1 AND closed_at IS NULL)+(SELECT count(*) FROM user_reports WHERE reporter_id=$1 AND closed_at IS NULL)")
+        .bind(&actor.id)
+        .fetch_one(&mut **tx)
+        .await?;
+    if open >= OPEN_REPORTS {
+        // Lifted only as administrators close reports: no meaningful delay to promise.
+        return Err(Error::throttled("report_limit", 3600));
+    }
+    match target {
+        Target::Message(text) => sqlx::query(
+            "INSERT INTO message_reports(message_id,reporter_id,reason,message_text) VALUES($1,$2,$3,$4)",
+        )
+        .bind(id)
+        .bind(&actor.id)
+        .bind(reason)
+        .bind(text),
+        Target::User => {
+            sqlx::query("INSERT INTO user_reports(user_id,reporter_id,reason) VALUES($1,$2,$3)")
+                .bind(id)
+                .bind(&actor.id)
+                .bind(reason)
+        }
+    }
     .execute(&mut **tx)
     .await?;
     Ok(())

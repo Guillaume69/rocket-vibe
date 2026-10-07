@@ -25,7 +25,7 @@ Three read-on-demand views and one editor: a room's information sheet, a person'
 - **Profile** (`details.rs::profile`): by username or by id. Avatar, name, `@username`, presence (live presence from the session first, then `users.info`'s) with status text, role chips, local time (`info::local_time`), bio. Message and Call buttons for anyone but me (`ProfileActions`), and below them **Report this user** (Rocket.Chat always, RocketVibe when `reports_supported`), which closes the profile and asks the reason in `admin::report` ([administration.md](administration.md)). Opened from avatars and names (`RowEvent::Profile`), mentions, and DM headers.
 - **Favourite**: toggled from the room list's context menu (`chat.rs`, `actions::favorite`), not from the info dialog.
 - **My profile** (`rv-gtk/src/settings.rs`): the My account category shows a profile card, a status group (presence combo and a status text entry, saved on change through `Session` with both fields) and an "Edit profile" subpage: photo change (file dialog, `users.setAvatar`) or removal (`users.resetAvatar`), name, username, email, bio, with the current password and 2FA code rows revealed only when needed (`rv-core/src/account.rs`: `basic_info_changes`, `needs_password`; `two_factor_code`).
-- **SwiftUI**: `RoomInfoView` and `ProfileView` in `macos/Sources/RocketVibe/Details.swift`; `MyProfileSection` in `SettingsView.swift` (My account category) edits photo, presence and the basic fields. `ProfileView` offers **Report this user** (not mine, when reports are supported): the profile sheet closes, then `ReportSheet` opens on the window about 0.35 s later, one sheet at a time. A deleted RocketVibe account's profile reads "Deleted user" with no `@username`, presence or buttons.
+- **SwiftUI**: `RoomInfoView` and `ProfileView` in `macos/Sources/RocketVibe/Details.swift`; `MyProfileSection` in `SettingsView.swift` (My account category) edits photo, presence and the basic fields. `ProfileView` offers **Report this user** (not mine, when reports are supported): the profile closes and `ReportSheet` opens in its place, a modal overlay of the window (`modalOverlay`, `Modals.swift`) like the profile itself, which a click outside or Escape closes. A deleted RocketVibe account's profile reads "Deleted user" with no `@username`, presence or buttons.
 
 ## Parity
 
@@ -56,3 +56,4 @@ Room info, profile with Message and Call, my profile with password and 2FA, live
 - apps/desktop/crates/rv-gtk/src/admin.rs
 - apps/desktop/macos/Sources/RocketVibe/Details.swift
 - apps/desktop/macos/Sources/RocketVibe/SettingsView.swift
+- apps/desktop/macos/Sources/RocketVibe/Modals.swift

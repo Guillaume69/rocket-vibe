@@ -7,8 +7,53 @@ section here.
 
 ## [Unreleased]
 
+### Added
+
+- React with any emoji (GTK and SwiftUI): the message menu offers the 5 emoji you react with
+  most on this account (counted on this computer only, shared by both apps on a Mac), then
+  "+" (SwiftUI: "React with another emoji…") opens the emoji picker, the server's custom
+  emoji included (standard emoji only in a private RocketVibe conversation). On Rocket.Chat a
+  reaction goes out under a name the server accepts, and the picker hides the emoji it
+  refuses.
+- Server administration for administrators, from the settings or the open account's button
+  in the rail (GTK: right click or long press; SwiftUI: its context menu): a dashboard
+  (version and whether a newer release exists, uptime, database, users, rooms, messages,
+  uploads, open reports) in two columns, the moderation of reported messages and accounts
+  (reasons, dismiss, delete the message, deactivate), every room, discussions and teams
+  included, and every account with its actions (admin right, activation, deletion). On
+  Rocket.Chat and RocketVibe.
+- Rocket.Chat administration: the dashboard opens on the server's last computed figures,
+  dated, and a refresh asks for new ones; a figure the account may not read shows as
+  unknown instead of failing the dashboard. Deactivating or deleting the last owner of rooms
+  asks again, naming the rooms that will be deleted and those whose owner changes; deleting
+  says that the person's direct messages go too. A reported message the administrator
+  cannot reach offers Rocket.Chat's own deletion of all that author's reported messages,
+  explicitly. A message from an encrypted room reads "Encrypted message".
+- Report a message from its menu, or a user from their profile, with a reason the
+  administrators read.
+- RocketVibe: a deleted account's messages stay, signed "Deleted user".
+
+### Changed
+
+- Settings in a large window-sized dialog with clickable categories on the left (My account,
+  Notifications, Language, Voice, Encryption, Security, Devices, Accounts, App), closed by
+  Escape, its close button or a click outside it; voice, security, encryption and devices
+  are categories instead of sections or separate dialogs (GTK). SwiftUI: the settings are
+  an overlay of the main window with the same categories, opened by Command-comma or the
+  gear, closed the same ways.
+- A click outside any dialog closes it like Cancel, never running its confirming action.
+  GTK: every dialog and alert. SwiftUI: sheets, alerts and confirmations are now overlays
+  of the window (new room, screen share picker and incoming call included); a modal's first
+  field takes the keyboard, and window shortcuts wait while a panel or modal is open.
+- A click outside the incoming call, or Escape, ignores it: the ringing stops but the call
+  is not declined.
+
 ### Fixed
 
+- GTK: alert dialogs have their padding back, with room between their buttons; the
+  settings and administration pages get more space.
+- GTK: the recovery and history backup codes are cleared as soon as the Encryption page
+  is left, not only when the settings close.
 - GTK: in a narrow window, a room's composer, its send button and the window's buttons
   no longer run past the right edge (the voice page, hidden, made the room wider).
 
@@ -16,24 +61,6 @@ section here.
 
 ### Added
 
-- React with any emoji (GTK and SwiftUI): the message menu offers the 5 emoji you react with
-  most on this account (counted on this computer only, shared by both apps on a Mac), then
-  "+" (SwiftUI: "React with another emoji…") opens the emoji picker, the server's custom
-  emoji included (standard emoji only in a private RocketVibe conversation).
-- Settings in a large window-sized dialog with clickable categories on the left (My account,
-  Notifications, Language, Encryption, Security, Devices, Accounts, App), closed by Escape,
-  its close button or a click outside it; security, encryption and devices are categories
-  instead of separate dialogs (GTK). SwiftUI: the settings are an overlay of the main window
-  with the same categories, opened by Command-comma or the gear, closed the same ways.
-- Server administration for administrators, from the settings or the open account's button
-  in the rail (GTK: right click or long press; SwiftUI: its context menu): a dashboard (version and whether a newer
-  release exists, uptime, database, users, rooms, messages, uploads, open reports), the
-  moderation of reported messages and accounts (reasons, dismiss, delete the message,
-  deactivate), every room, and every account with its actions (admin right, activation,
-  deletion). On Rocket.Chat and RocketVibe.
-- Report a message from its menu, or a user from their profile, with a reason the
-  administrators read.
-- RocketVibe: a deleted account's messages stay, signed "Deleted user".
 - Slash commands on a RocketVibe server (GTK and SwiftUI): /topic, /invite, /kick,
   /leave, /join, /msg and /status run on the server; /me, /shrug, /tableflip,
   /unflip, /lennyface and /gimme are written by the app, so they also work in

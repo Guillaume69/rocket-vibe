@@ -170,11 +170,14 @@ All code, comments and docs are in English. French survives in two places only: 
 | Amendment | An encrypted edit, deletion or reaction of a private message on the RocketVibe server: an ordinary MLS message whose header names its target, applied at projection time ([e2ee-private-actions](features/e2ee-private-actions.md)). |
 | Bench | The local Rocket.Chat 8.5.1 test server in `docker/`. |
 | Controller | The device of a RocketVibe account holding its private E2EE root: it approves and withdraws devices; control can be delegated ([e2ee-delegation](features/e2ee-delegation.md)). |
-| Deleted user, tombstoned account | A RocketVibe account deleted by an administrator: its row stays, marked `deleted`, its username becomes `deleted-<id>` (a reserved prefix) and everything personal is cleared, so its messages, reactions and quotes keep an author, which the apps show as "Deleted user". Rocket.Chat deletes for real, its messages following the server's erasure setting. |
+| Deleted user, tombstoned account | A RocketVibe account deleted by an administrator: its row stays, marked `deleted`, its username becomes `deleted-<id>` (a reserved prefix) and its former username is retired, never to be taken again (`retired_usernames`), and everything personal is cleared, so its messages, reactions and quotes keep an author, which the apps show as "Deleted user". Rocket.Chat deletes for real, its messages following the server's erasure setting. |
 | Deliberate deviation | A documented departure from the audit's prescribed fix, with its reason (`apps/mobile/WORKSTREAMS.md`). |
+| Ignore (an incoming call) | What a click or tap outside the incoming call prompt, Escape or Back does in all three apps: the prompt hides and the local ringtone stops, but nothing is sent, so the caller hears it ring until it times out as a missed call. Decline is the explicit button. |
 | Kill gate | Phase 1 of `ROADMAP.md`: the binary proof that a self-built APK receives pushes when killed. |
-| Moderation delete | An administrator's deletion of a REPORTED message (RocketVibe allows no other), tombstoning it like its author's own deletion and closing its reports; on Rocket.Chat `chat.delete` then the dismissal. |
-| Open report | A member's report of a message or an account not yet dismissed or acted on. On RocketVibe it is the only way an administrator reads a message's text, the reporter having disclosed it; a reporter keeps one open report per target. |
+| Last owner | Rocket.Chat's `user-last-owner` refusal when an account to deactivate or delete is the last owner of rooms: the apps ask a second time, naming the rooms deleted with it and those whose owner changes, then confirm with `confirmRelinquish`. |
+| Modal overlay | A SwiftUI modal drawn in the window over a dimmed backdrop (`modalOverlay`, `confirmOverlay`, `Modals.swift`) instead of a macOS sheet or alert, so that a click outside closes it like Cancel. |
+| Moderation delete | An administrator's deletion of a REPORTED message (RocketVibe allows no other), tombstoning it like its author's own deletion and closing its reports; on Rocket.Chat `chat.delete` then the dismissal. When `chat.delete` cannot reach the room, the only Rocket.Chat way is the bulk delete, `moderation.user.deleteReportedMessages`, which removes ALL that author's reported messages and is only offered explicitly. |
+| Open report | A member's report of a message or an account not yet dismissed or acted on. On RocketVibe it is the only way an administrator reads a message's text, the reporter having disclosed it; a reporter keeps one open report per target. Each report keeps a snapshot of the text at report time, and the admin reads what the reporters saw, not the live message; a reporter holds at most 200 open reports. |
 | Proof by removal | Delete the fix, check that the expected tests fail, restore. A removal that changes nothing is an empty test. |
 | Quick reactions | The emoji the message menu offers first: the 5 this account reacts with most, counted on the device, filled with `+1 heart joy tada open_mouth pray`; then "+" for any emoji. |
 | Step | A step of the (frozen) construction checklist `apps/mobile/EXECUTION.md`, e.g. "8.3". |
@@ -225,3 +228,4 @@ The code had French names until the English rename. These are the only French wo
 - `apps/desktop/crates/rv-core/src/session.rs`
 - `apps/desktop/crates/rv-native/src/lib.rs`
 - `apps/desktop/docs/MACOS-SWIFTUI.md`
+- `apps/desktop/macos/Sources/RocketVibe/Modals.swift`

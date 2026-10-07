@@ -42,7 +42,15 @@ The operator service account is configured with `RV_FCM_CONFIG_FILE`; without th
 file, push stays disabled. Firebase / phone qualification is still open.
 [Operator administration](../../docs/protocol/ADMINISTRATION.md) provides
 accounts / rights / deactivation, rooms / members / settings, command receipts,
-transactional audit and diagnostics (`health`). The [file lifecycle](../../docs/protocol/FILES.md)
+transactional audit and diagnostics (`health`). Its [in-app administration](../../docs/protocol/ADMINISTRATION.md#in-app-administration)
+(`administration` capability, `/api/v1/admin/*`) gives an account with `users.admin`
+an overview, the users, rooms and reports in the three apps, with the same guards as
+the CLI (own account, last active administrator, revisions, receipts) and no access to
+private content: an admin reads a message only through an open report, as its reporters
+saw it. Members report messages and accounts (`reports` capability), at most 200 open
+reports each. Deleting an account tombstones it: its messages, reactions and quotes stay
+under "Deleted user", everything personal and its access are removed, and its former
+username is retired for good (`retired_usernames`). The [file lifecycle](../../docs/protocol/FILES.md)
 offers preparation, streamed transfer, idempotent confirmation and protected
 download / Range. Outboxes and readers are wired to the existing clients.
 [Voice](../../docs/protocol/VOICE.md) runs over an operator LiveKit SFU

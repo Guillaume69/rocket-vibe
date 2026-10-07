@@ -84,7 +84,7 @@ Screens read SQLite through `ui/liveQuery.ts#useCoalescedLiveQuery`, a drop-in f
 
 ## The native-components rule
 
-From `ROADMAP.md` §4.2 and `CLAUDE.md`: RN primitives first; level-1 native bindings (react-native-screens, safe-area-context, gesture-handler, expo-haptics) are allowed; named exceptions are `@shopify/flash-list`, `react-native-keyboard-controller`, `@rocket.chat/message-parser` and `react-native-webview` (only in `app/call/[callId].tsx`). Forbidden: any UI kit (NativeBase, Tamagui, gluestack, RN Paper), any other WebView, `react-native-markdown-display`, `@gorhom/bottom-sheet`. Bottom sheets are react-native-screens `formSheet`; markdown is rendered in nested `<Text>` by `ui/markdown.tsx` from the server's `md` AST, with a local `@rocket.chat/message-parser` parse as fallback when `md` is missing (`lib/markdown.ts`). Any new UI dependency must be justified against §4.2 in its commit. Rationale: [../decisions.md](../decisions.md).
+From `ROADMAP.md` §4.2 and `CLAUDE.md`: RN primitives first; level-1 native bindings (react-native-screens, safe-area-context, gesture-handler, expo-haptics) are allowed; named exceptions are `@shopify/flash-list`, `react-native-keyboard-controller`, `@rocket.chat/message-parser` and `react-native-webview` (only in `app/call/[callId].tsx`). Forbidden: any UI kit (NativeBase, Tamagui, gluestack, RN Paper), any other WebView, `react-native-markdown-display`, `@gorhom/bottom-sheet`. Bottom sheets are react-native-screens `formSheet`; markdown is rendered in nested `<Text>` by `ui/markdown.tsx` from the server's `md` AST, with a local `@rocket.chat/message-parser` parse as fallback when `md` is missing (`lib/markdown.ts`). Any new UI dependency must be justified against §4.2 in its commit. Native dialogs follow the click-outside rule: every `Alert.alert` takes `dismissible()` (`ui/alerts.ts`: `cancelable`, the dismissal running what Cancel runs), and sheets close on a tap outside; an action that finishes after its sheet closed must not navigate back again. Rationale: [../decisions.md](../decisions.md).
 
 ## Sources
 
@@ -118,3 +118,4 @@ From `ROADMAP.md` §4.2 and `CLAUDE.md`: RN primitives first; level-1 native bin
 - apps/mobile/ui/theme.ts
 - apps/mobile/ui/kit.tsx
 - ROADMAP.md
+- apps/mobile/ui/alerts.ts

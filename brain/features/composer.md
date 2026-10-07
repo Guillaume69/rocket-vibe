@@ -40,7 +40,7 @@ A reply uses Rocket.Chat's native quote: the text is prefixed by an invisible li
 
 ## Editing
 
-Editing is a message action, not a composer mode. Mobile edits in the action sheet's own text field ([message actions](message-actions.md)). GTK edits in place in the message list (`MessageList::start_edit`), and **Up in an empty composer** edits my last message when the server still allows it (else a "too late" toast). SwiftUI opens an edit sheet on Up and edits in place from the menu.
+Editing is a message action, not a composer mode. Mobile edits in the action sheet's own text field ([message actions](message-actions.md)). GTK edits in place in the message list (`MessageList::start_edit`), and **Up in an empty composer** edits my last message when the server still allows it (else a "too late" toast). SwiftUI opens an edit card in a modal overlay on Up (`Composer.swift`) and edits in place from the menu.
 
 ## Formatting (desktop)
 

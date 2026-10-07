@@ -108,7 +108,10 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
   handler and Reanimated). A direct call over gives its chat back (`router.dismissTo`). Call rows
   (`rv-call-<state>`, from `Message.call`) show the outcome and offer join or call back
   (`ui/messageRow.tsx`, `lib/systemMessages.ts`). `app/new-room.tsx` creates rooms and voice
-  channels.
+  channels. The room information's edit form (`ui/roomManagement.tsx`) shows a "Voice channel"
+  switch when the provider fills `RoomFields.voice`: an owner, a room that is not direct, a
+  server announcing voice (`providers/rocketvibe/index.ts`); it is sent as `UpdateRoom.voice`,
+  absent otherwise so the flag stays, and a saved form differs by it (`sameRoomForm`).
 - **Ringing in the background**: the FCM service's RocketVibe branch
   (`plugins/native-push-source.js`) reads the ring authenticated, then
   `VoiceRinging.show` posts an incoming `CallStyle` notification with a ringtone channel and
@@ -342,6 +345,8 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
 - apps/mobile/app/voice/[rid].tsx
 - apps/mobile/app/voice-ring/[id].tsx
 - apps/mobile/app/new-room.tsx
+- apps/mobile/ui/roomManagement.tsx
+- apps/mobile/providers/rocketvibe/roomOperations.ts
 - apps/mobile/plugins/native-push-source.js
 - apps/mobile/providers/rocketvibe/chat.ts
 - apps/desktop/voice/src/main.rs

@@ -46,6 +46,7 @@ beta does.
 | Presence dot on DMs (`users.presence`, `user-status`) | done | done | done | |
 | System and video-call messages translated in previews | done | done | done | |
 | New conversation: `spotlight`, open a DM (`im.create`), join a channel (`channels.join`) | done | done | done | |
+| Rocket.Chat: create a channel or a private group (`channels.create`, `groups.create`) | missing | missing | missing | On a RocketVibe server the apps create rooms; on Rocket.Chat none does. Set aside by the user on 2026-10-07. |
 | Unread total on the app | done | done | done | Mobile: launcher badge; GTK: window title, Windows tray, macOS Dock; SwiftUI: Dock. |
 
 ## 3. Room view - [room-view](features/room-view.md), [media-playback](features/media-playback.md), [avatars](features/avatars.md), [emoji](features/emoji.md)
@@ -271,6 +272,7 @@ gaps, listed last.
   folder; new versions; running with the window closed and starting at login;
   meeting information.
 - **All three**: thread list, following and "also send to the room"; search across
-  rooms; room members, settings and roles; creating an encrypted room; "Deleted
+  rooms; room members, settings and roles; creating an encrypted room; creating a
+  channel or private group on Rocket.Chat; "Deleted
   user" on messages ingested before the deletion, on server-computed names and in
   private conversations.

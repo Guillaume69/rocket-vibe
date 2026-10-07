@@ -659,9 +659,9 @@ struct SharePicker: View {
                 Spacer()
                 Button(L("actions.cancel")) { dismiss() }
                 Button(L("voice_share.start")) {
-                    let (source, height, fps) = (chosen, height, fps)
+                    let (source, lines, rate) = (chosen, height, fps)
                     dismiss()
-                    Task { await voice.share(source: source, height: height, fps: fps) }
+                    Task { await voice.share(source: source, height: lines, fps: rate) }
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(sources == nil)

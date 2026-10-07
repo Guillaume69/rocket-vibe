@@ -261,7 +261,8 @@ export function membershipCounts(channel: Record<string, unknown>, member: Recor
   const unread = useRoot
     ? num(rootTotal) - num(member.msg_count_root)
     : num(channel.total_msg_count) - num(member.msg_count);
-  return { unread: Math.max(0, unread), mentions: num(member.mention_count) };
+  // Mattermost counts every message of a DM as a mention; the list shows a DM's unread count instead.
+  return { unread: Math.max(0, unread), mentions: channel.type === 'D' ? 0 : num(member.mention_count) };
 }
 
 /** Mattermost OpenGraph embeds to the `urls` shape `lib/linkPreview.ts` reads. */

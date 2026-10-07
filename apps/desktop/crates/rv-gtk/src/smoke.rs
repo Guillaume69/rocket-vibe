@@ -70,7 +70,8 @@
 //!                          changes, then typing (`unpinned`: without pinning the input method)
 //!   RV_SMOKE_CALL=<url>    with the gallery: the call window opened on <url>
 //!   RV_SMOKE_UPDATE=1      the update card must offer a newer release (RV_SMOKE_UPDATE_FROM plays an
-//!                          older version); `install`: its Update button must replace the binary
+//!                          older version); `install`: its Update button must replace the binary,
+//!                          which must still be found to restart
 //! A failed expectation makes the process exit with status 1.
 
 use std::cell::Cell;
@@ -1705,8 +1706,9 @@ fn update_checks(chat: Rc<crate::chat::ChatPage>, install: bool) {
         let failed = label.as_deref() == Some(crate::i18n::t("update.failed"));
         waited.set(waited.get() + 1);
         if done || failed || waited.get() > 90 {
-            println!("smoke: update installed={done} label={label:?}");
-            if !done {
+            let restartable = crate::updater::can_relaunch();
+            println!("smoke: update installed={done} label={label:?} restartable={restartable}");
+            if !done || !restartable {
                 FAILED.store(true, Ordering::SeqCst);
             }
             return glib::ControlFlow::Break;

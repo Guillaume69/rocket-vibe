@@ -11,7 +11,7 @@ use rv_core::diff::diff_sorted;
 use rv_core::session::Session;
 use rv_core::store::MessageRow;
 
-use crate::i18n::t;
+use crate::i18n::{t, tn};
 use crate::rows::{self, Display, RowEvent};
 use crate::widgets::Handler;
 
@@ -220,6 +220,10 @@ pub struct MessageList {
     detached: Cell<bool>,
     /// (last seen, my uid): the first later message from someone else gets the marker.
     unread_after: RefCell<Option<(i64, String)>>,
+    /// Over the top of the list while the new-messages marker is above the view.
+    new_pill: gtk::Button,
+    /// The marker has been on screen, or the pill clicked: the pill is done.
+    marker_seen: Cell<bool>,
     session: Shared<Arc<Session>>,
     /// The message being edited in place and its draft, kept across row rebuilds.
     editing: RefCell<Option<(String, gtk::TextBuffer)>>,
@@ -275,6 +279,7 @@ impl MessageList {
             }
             settling.set(settling.get() - 1);
             if let Some(this) = weak.upgrade() {
+                this.update_new_pill();
                 this.notify_visible();
             }
         });
@@ -295,8 +300,16 @@ impl MessageList {
             .margin_bottom(12)
             .visible(false)
             .build();
+        let new_pill = gtk::Button::builder()
+            .css_classes(["new-pill", "pill"])
+            .halign(gtk::Align::Center)
+            .valign(gtk::Align::Start)
+            .margin_top(10)
+            .visible(false)
+            .build();
         let root = gtk::Overlay::builder().child(&scroll).build();
         root.add_overlay(&jump);
+        root.add_overlay(&new_pill);
         let this = Rc::new(MessageList {
             root,
             scroll,
@@ -321,6 +334,8 @@ impl MessageList {
             on_latest: RefCell::default(),
             detached: Cell::new(false),
             unread_after: RefCell::default(),
+            new_pill,
+            marker_seen: Cell::new(false),
             session,
             editing: RefCell::default(),
             revealing: RefCell::default(),
@@ -450,7 +465,24 @@ impl MessageList {
                 this.pinned.set(!this.detached.get() && adj.value() + adj.page_size() >= adj.upper() - 48.0);
             }
             this.jump.set_visible(this.detached.get() || adj.upper() - adj.value() - adj.page_size() > adj.page_size());
+            this.update_new_pill();
             this.notify_visible();
+        });
+        let w = weak.clone();
+        self.new_pill.connect_clicked(move |_| {
+            let Some(this) = w.upgrade() else { return };
+            let marker = this.rows.borrow().iter().find(|d| d.new_marker).map(|d| d.row.id.clone());
+            this.marker_seen.set(true);
+            this.new_pill.set_visible(false);
+            if let Some(id) = marker {
+                this.reveal(&id);
+            }
+        });
+        let w = weak.clone();
+        adjustment.connect_changed(move |adj| {
+            if w.upgrade().is_some_and(|this| this.pinned.get()) {
+                adj.set_value(adj.upper() - adj.page_size());
+            }
         });
         let w = weak.clone();
         self.jump.connect_clicked(move |_| {
@@ -812,6 +844,7 @@ impl MessageList {
         self.rows.replace(Vec::new());
         self.store.remove_all();
         self.pinned.set(true);
+        self.new_pill.set_visible(false);
     }
 
     fn stop_players(&self) {
@@ -857,12 +890,16 @@ impl MessageList {
         self.settling.set(self.settling.get() + 1);
         let (view, store, pinned, settling) =
             (self.view.clone(), self.store.clone(), self.pinned.clone(), self.settling.clone());
+        let weak = Rc::downgrade(self);
         glib::timeout_add_local_once(std::time::Duration::from_millis(120), move || {
             let n = store.n_items();
             if pinned.get() && n > 0 {
                 view.scroll_to(n - 1, gtk::ListScrollFlags::NONE, None);
             }
             settling.set(settling.get() - 1);
+            if let Some(this) = weak.upgrade() {
+                this.update_new_pill();
+            }
         });
         let waiting = self.revealing.borrow().clone();
         if let Some(id) = waiting.filter(|id| self.rows.borrow().iter().any(|d| d.row.id == *id)) {
@@ -872,6 +909,41 @@ impl MessageList {
 
     pub fn set_unread_after(&self, after: Option<(i64, String)>) {
         self.unread_after.replace(after);
+        self.marker_seen.set(false);
+        self.new_pill.set_visible(false);
+    }
+
+    /// The pill shows while the marker is above the view, until it has been seen.
+    fn update_new_pill(&self) {
+        if self.marker_seen.get() || self.settling.get() > 0 {
+            return;
+        }
+        let rows = self.rows.borrow();
+        let Some(at) = rows.iter().position(|d| d.new_marker) else {
+            self.new_pill.set_visible(false);
+            return;
+        };
+        let height = self.scroll.height() as f32;
+        let on_screen = self.bound.borrow().get(&rows[at].row.id).is_some_and(|widget| {
+            widget.is_mapped() && widget.compute_bounds(&self.scroll).is_some_and(|rect| rect.y() + rect.height() > 0.0)
+        });
+        if on_screen || height <= 0.0 {
+            self.marker_seen.set(on_screen);
+            self.new_pill.set_visible(false);
+            return;
+        }
+        let me = self.unread_after.borrow().as_ref().map(|(_, me)| me.clone()).unwrap_or_default();
+        let since = self.unread_after.borrow().as_ref().map(|(seen, _)| *seen).unwrap_or(rows[at].row.ts);
+        let count = rows[at..].iter().filter(|d| d.row.author_id != me && d.row.outbox_status.is_none()).count();
+        self.new_pill.set_label(&format!(
+            "↑ {}",
+            tn("room.new_since", count as i64).replace("{time}", &rows::short_time(since))
+        ));
+        self.new_pill.set_visible(true);
+    }
+
+    pub fn new_pill_shown(&self) -> bool {
+        self.new_pill.is_visible()
     }
 
     /// Every row built again, same data.

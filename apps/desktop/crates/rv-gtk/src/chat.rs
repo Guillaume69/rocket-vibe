@@ -2541,6 +2541,10 @@ impl ChatPage {
         self.list.has_new_marker()
     }
 
+    pub fn new_pill_shown(&self) -> bool {
+        self.list.new_pill_shown()
+    }
+
     pub fn message_texts(&self) -> Vec<String> {
         self.list.texts()
     }

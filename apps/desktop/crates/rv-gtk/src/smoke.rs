@@ -552,10 +552,11 @@ pub fn install(window: &Rc<AppWindow>) {
         println!("smoke: rooms {} messages {}", w.chat.room_count(), w.chat.message_count());
         println!("smoke: composer {:?}", w.chat.composer().text());
         println!(
-            "smoke: typing {:?} presence {:?} new-marker {}",
+            "smoke: typing {:?} presence {:?} new-marker {} new-pill {}",
             w.chat.typing_text(),
             w.chat.header_presence(),
-            w.chat.has_new_marker()
+            w.chat.has_new_marker(),
+            w.chat.new_pill_shown()
         );
         let texts = w.chat.message_texts();
         if native {

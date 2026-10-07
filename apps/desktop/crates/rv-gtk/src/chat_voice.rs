@@ -1536,9 +1536,12 @@ impl ChatPage {
             return;
         }
         let window = gtk::Window::builder().decorated(false).css_classes(["voice-fullscreen"]).build();
-        if let Some(root) = self.split.root().and_downcast::<gtk::Window>() {
-            window.set_transient_for(Some(&root));
+        let root = self.split.root().and_downcast::<gtk::Window>();
+        if let Some(root) = &root {
+            window.set_transient_for(Some(root));
         }
+        // On the screen the app's window is on, not the primary one.
+        let monitor = root.as_ref().and_then(|r| r.surface()).and_then(|s| s.display().monitor_at_surface(&s));
         let overlay = gtk::Overlay::new();
         overlay.set_child(Some(&following_view(
             &session,
@@ -1594,8 +1597,11 @@ impl ChatPage {
             glib::Propagation::Proceed
         });
         self.voice.fullscreen.replace(Some(window.clone()));
-        window.fullscreen();
         window.present();
+        match monitor {
+            Some(monitor) => window.fullscreen_on_monitor(&monitor),
+            None => window.fullscreen(),
+        }
     }
 
     /// A direct call: over, it gives the chat back; the other person gone (a
@@ -1662,6 +1668,21 @@ impl ChatPage {
             "leave" => self.voice.page_controls.leave.emit_clicked(),
             "join" => self.voice.join.emit_clicked(),
             _ => {}
+        }
+    }
+
+    /// Smoke: the stage full screen, then whether its window shows a frame.
+    pub fn voice_fullscreen(self: &Rc<Self>) {
+        self.fullscreen_stage();
+    }
+    pub fn voice_fullscreen_summary(&self) -> (bool, bool) {
+        fn framed(widget: &gtk::Widget) -> bool {
+            widget.downcast_ref::<gtk::Picture>().is_some_and(|p| p.paintable().is_some())
+                || std::iter::successors(widget.first_child(), |c| c.next_sibling()).any(|c| framed(&c))
+        }
+        match self.voice.fullscreen.borrow().as_ref() {
+            Some(window) => (true, window.child().is_some_and(|c| framed(&c))),
+            None => (false, false),
         }
     }
 

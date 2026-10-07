@@ -25,7 +25,8 @@
 //!                          (RV_VOICE_FAKE_VIDEO=pattern without devices); `camera`: the camera
 //!                          only, and no stage; `picker`, `menu`: opens the share picker or the
 //!                          microphone's menu, for a screenshot; `again`: leaves, then joins
-//!                          again from the page's Join button; `declined`: a direct call the
+//!                          again from the page's Join button; `fullscreen`: shares, then the
+//!                          stage full screen must show it; `declined`: a direct call the
 //!                          other side declines must hang up
 //!   RV_SMOKE_UPLOAD="<path>|<caption>"  stages the file in the composer, types the caption and
 //!                          sends (RV_SMOKE_UPLOAD_HOLD=1: left staged, for a screenshot)
@@ -286,6 +287,17 @@ pub fn install(window: &Rc<AppWindow>) {
                             });
                         } else if video == "picker" || video == "menu" {
                             chat.voice_open(&video);
+                        } else if video == "fullscreen" {
+                            // Shares, then shows the stage full screen: a frame must reach it.
+                            chat.voice_video_on(true);
+                            glib::timeout_add_local_once(Duration::from_millis(5000), move || {
+                                chat.voice_fullscreen();
+                                glib::timeout_add_local_once(Duration::from_millis(3000), move || {
+                                    let (open, framed) = chat.voice_fullscreen_summary();
+                                    check("voice full screen open", open, open);
+                                    check("voice full screen shows the screen", framed, framed);
+                                });
+                            });
                         } else if video == "declined" {
                             // A direct call the other side declines (RV_SMOKE_JOIN_VOICE in a DM): it hangs up.
                             glib::timeout_add_local_once(Duration::from_millis(12000), move || {

@@ -162,8 +162,12 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
   the output volume; the mix is the echo canceller's reference. **Who speaks** comes from the
   sound: this side from RNNoise's voice probability above a floor (the level without
   RNNoise), others from their track's level above -52 dBFS (screen sound excluded), 350 ms
-  hangover; a 100 ms tick sends the participants and `InputLevel`. A device that fails gives
-  way to the default (`device_lost`). It is a separate process because libwebrtc
+  hangover; a 100 ms tick sends the participants and `InputLevel`. Devices are opened by
+  their id, the default included: on WASAPI a stream on "the default" dies at every
+  default-device notification, which a virtual surround headset's driver sends in bursts
+  (it reopened ten times a second and crackled); a real change of default is followed every
+  3 s instead, and a stream that dies reopens the chosen devices at most every 2 s
+  (`device_lost`). It is a separate process because libwebrtc
   exists only for MSVC on Windows (the GTK app builds with MSYS2) and must stay out of
   rv-ffi's static library. Linux builds it in ubuntu:22.04 with clang 21 (glibc floor
   2.35); Windows needs the static C runtime and a short target path

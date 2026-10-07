@@ -468,18 +468,40 @@ pub fn devices() -> (Vec<Device>, Vec<Device>) {
     (inputs, outputs)
 }
 
-/// A device by the id `devices` gave it, the default when empty; None when
-/// it is gone (the default then stands in).
-fn device(id: &str, input: bool) -> (Option<cpal::Device>, bool) {
+/// The current default microphone's or speakers' id.
+fn default_id(input: bool) -> Option<String> {
     let host = cpal::default_host();
-    let fallback = || if input { host.default_input_device() } else { host.default_output_device() };
-    if id.is_empty() {
-        return (fallback(), true);
+    let device = if input { host.default_input_device() } else { host.default_output_device() }?;
+    device.id().ok().map(|id| id.to_string())
+}
+
+/// A device by the id `devices` gave it, the default when empty, and whether
+/// it was found (the default stands in for one gone). The default is opened by
+/// its own id: a stream on "the default" dies at every default-device
+/// notification, which some drivers (a virtual surround headset) send in bursts;
+/// a real change of default is followed by `Audio::follow_defaults`.
+fn device(id: &str, input: bool) -> (Option<(cpal::Device, String)>, bool) {
+    let host = cpal::default_host();
+    let by_id = |id: &str| {
+        let device = cpal::DeviceId::from_str(id).ok().and_then(|parsed| host.device_by_id(&parsed))?;
+        Some((device, id.to_owned()))
+    };
+    if !id.is_empty()
+        && let Some(found) = by_id(id)
+    {
+        return (Some(found), true);
     }
-    let found = cpal::DeviceId::from_str(id).ok().and_then(|id| host.device_by_id(&id));
-    match found {
-        Some(device) => (Some(device), true),
-        None => (fallback(), false),
+    (default_id(input).and_then(|id| by_id(&id)), id.is_empty())
+}
+
+/// A stream error: rebuilt only when the stream is gone (a device unplugged, an
+/// invalidated stream), never for news it survives.
+fn failed(mix: &Mix, side: &str, error: cpal::Error) {
+    if std::env::var("RV_VOICE_DEBUG").as_deref() == Ok("1") {
+        crate::diagnose(&format!("{side}: {:?} {error}", error.kind()));
+    }
+    if !matches!(error.kind(), cpal::ErrorKind::DeviceChanged | cpal::ErrorKind::RealtimeDenied) {
+        mix.broken.store(true, Ordering::Relaxed);
     }
 }
 
@@ -490,6 +512,9 @@ pub struct Audio {
     frames: mpsc::UnboundedSender<Vec<i16>>,
     input: Option<cpal::Stream>,
     output: Option<cpal::Stream>,
+    /// The devices asked for (empty: the default), and the ids opened.
+    choices: (String, String),
+    opened: (Option<String>, Option<String>),
     fake: bool,
     tasks: Vec<tokio::task::JoinHandle<()>>,
 }
@@ -528,7 +553,17 @@ impl Audio {
             }
         })];
         mix.broken.store(false, Ordering::Relaxed);
-        let mut audio = Self { mix, source, frames, input: None, output: None, fake, tasks: vec![] };
+        let mut audio = Self {
+            mix,
+            source,
+            frames,
+            input: None,
+            output: None,
+            choices: Default::default(),
+            opened: Default::default(),
+            fake,
+            tasks: vec![],
+        };
         let found = if fake {
             tasks.push(tokio::spawn(sine(audio.mix.clone(), audio.frames.clone())));
             true
@@ -547,8 +582,10 @@ impl Audio {
             return true;
         }
         self.input = None;
+        self.choices.0 = id.to_owned();
         let (device, found) = device(id, true);
-        self.input = device.and_then(|d| match capture(&d, self.mix.clone(), self.frames.clone()) {
+        self.opened.0 = device.as_ref().map(|(_, id)| id.clone());
+        self.input = device.and_then(|(d, _)| match capture(&d, self.mix.clone(), self.frames.clone()) {
             Ok(stream) => Some(stream),
             Err(error) => {
                 eprintln!("rv-voice: microphone unavailable: {error}");
@@ -558,13 +595,35 @@ impl Audio {
         found && self.input.is_some()
     }
 
+    /// Opens the chosen devices again (a stream died): the default stands in for one gone.
+    pub fn recover(&mut self) {
+        let (input, output) = self.choices.clone();
+        self.set_input(&input);
+        self.set_output(&output);
+    }
+
+    /// Reopens a side that follows the default when the system's default changed.
+    pub fn follow_defaults(&mut self) {
+        if self.fake {
+            return;
+        }
+        if self.choices.0.is_empty() && default_id(true).is_some_and(|id| self.opened.0.as_ref() != Some(&id)) {
+            self.set_input("");
+        }
+        if self.choices.1.is_empty() && default_id(false).is_some_and(|id| self.opened.1.as_ref() != Some(&id)) {
+            self.set_output("");
+        }
+    }
+
     pub fn set_output(&mut self, id: &str) -> bool {
         if self.fake {
             return true;
         }
         self.output = None;
+        self.choices.1 = id.to_owned();
         let (device, found) = device(id, false);
-        self.output = device.and_then(|d| match play(&d, self.mix.clone()) {
+        self.opened.1 = device.as_ref().map(|(_, id)| id.clone());
+        self.output = device.and_then(|(d, _)| match play(&d, self.mix.clone()) {
             Ok(stream) => Some(stream),
             Err(error) => {
                 eprintln!("rv-voice: speakers unavailable: {error}");
@@ -663,10 +722,7 @@ fn play_as<T: SizedSample + FromSample<f32>>(
                     }
                 }
             },
-            move |error| {
-                eprintln!("rv-voice: speakers: {error}");
-                broken.broken.store(true, Ordering::Relaxed);
-            },
+            move |error| failed(&broken, "speakers", error),
             None,
         )
         .map_err(|e| e.to_string())
@@ -747,10 +803,7 @@ where
                     previous = mono;
                 }
             },
-            move |error| {
-                eprintln!("rv-voice: microphone: {error}");
-                broken.broken.store(true, Ordering::Relaxed);
-            },
+            move |error| failed(&broken, "microphone", error),
             None,
         )
         .map_err(|e| e.to_string())

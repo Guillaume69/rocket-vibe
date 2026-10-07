@@ -216,6 +216,9 @@ section here.
 - A declined or unanswered call no longer leaves you alone in it, and calling again rings
   the other person instead of reopening the empty call.
 - Clicking "Join voice" on a voice page no longer crashes the app.
+- Calls no longer crackle with headsets whose driver keeps announcing the default audio
+  device (a virtual surround headset): the app reopened the microphone and the speakers
+  many times a second.
 
 - RocketVibe: confirming an encrypted group review (creation, update, admission) no longer
   fails now and then with "the operation did not succeed" while the room is open.

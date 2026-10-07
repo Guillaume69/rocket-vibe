@@ -34,6 +34,8 @@ use video::{Capture, Frames, Internal};
 const AEC_SETTLE: Duration = Duration::from_millis(1000);
 /// Who speaks and the microphone's level are read this often.
 const ACTIVITY: Duration = Duration::from_millis(100);
+/// Devices are reopened after a failure at most this often.
+const RECOVERY: Duration = Duration::from_secs(2);
 /// LiveKit's `TrackSource::SCREEN_SHARE` in a permission's publish sources.
 const SCREEN_SHARE_SOURCE: i32 = 3;
 
@@ -189,6 +191,8 @@ struct Voice {
     heard: HashMap<TrackSid, tokio::task::JoinHandle<()>>,
     input_level: f32,
     ticks: u64,
+    /// When the devices were last reopened after a stream died.
+    recovered: Option<Instant>,
     track: Option<LocalAudioTrack>,
     microphone: bool,
     deafened: bool,
@@ -233,6 +237,7 @@ impl Voice {
             heard: HashMap::new(),
             input_level: 0.0,
             ticks: 0,
+            recovered: None,
             track: None,
             microphone: true,
             deafened: false,
@@ -526,18 +531,25 @@ impl Voice {
     /// Who speaks and the microphone's level, from the sound itself; a device
     /// that failed (unplugged) gives way to the default.
     fn tick(&mut self) {
-        if std::env::var("RV_VOICE_DEBUG").as_deref() == Ok("1") {
-            self.ticks += 1;
-            if self.ticks.is_multiple_of(50) {
-                diagnose(&format!("5 s: {}", self.mix.stats.report()));
-            }
+        if std::env::var("RV_VOICE_DEBUG").as_deref() == Ok("1") && self.ticks.is_multiple_of(50) {
+            diagnose(&format!("5 s: {}", self.mix.stats.report()));
         }
-        if self.mix.broken.swap(false, std::sync::atomic::Ordering::Relaxed)
+        // A stream died: the chosen devices again, at most every 2 s (a failing
+        // device must not be reopened in a loop, each reopening a gap).
+        let due = self.recovered.is_none_or(|at| at.elapsed() >= RECOVERY);
+        if due
+            && self.mix.broken.swap(false, std::sync::atomic::Ordering::Relaxed)
             && let Some(audio) = &mut self.audio
         {
-            audio.set_input("");
-            audio.set_output("");
+            self.recovered = Some(Instant::now());
+            audio.recover();
             error("device_lost");
+        }
+        self.ticks += 1;
+        if self.ticks.is_multiple_of(30)
+            && let Some(audio) = &mut self.audio
+        {
+            audio.follow_defaults();
         }
         let level = (self.mix.input_level() * 50.0).round() / 50.0;
         if level != self.input_level {

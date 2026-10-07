@@ -96,6 +96,19 @@ Creates `alice` and `bob`, the public channel `test-public`, the private group `
 
 The script is **idempotent, even after an interruption**. Each seeded message carries a `[seed i/12]` marker: a rerun reads the history, computes the missing indices and posts only those. All-or-nothing idempotence ("this room already has messages, skip it") would freeze a room interrupted at 7 messages out of 12 forever.
 
+## Mattermost development server
+
+The Mattermost (kChat) provider has its own bench: the `mattermost-preview` image, which bundles its database.
+
+```sh
+docker compose -f docker/compose.mattermost.yml up -d    # http://localhost:8065
+node scripts/seed-mattermost.mjs
+```
+
+The seed creates `rvadmin` (the first account, so system admin), `bob` and `carol`, all with the password `Rv-bench-2026!` (override with `MM_PASSWORD`, the URL with `MM_URL`); the team `rv` with its default channels plus `dev` (public) and `secret` (private); a DM between `rvadmin` and `bob`; 12 posts per room and a thread of 3 replies. Idempotent like `seed.mjs`: `[seed i/12]` markers, accounts, team and channels looked up before being created. From the emulator the server is `http://10.0.2.2:8065`, typed with its `http://` (without a scheme the login assumes `https://`).
+
+There is no kChat bench: Infomaniak's server is not public. kChat is exercised by its unit tests and by a real kSuite account.
+
 ## DDP spike verdict (step 1.7, uncertainty #2)
 
 `node scripts/spike-ddp.mjs` against the 8.5 Docker server, two WebSocket connections (one anonymous, one authenticated):

@@ -1,0 +1,13 @@
+# Mattermost test server for the Mattermost (kChat) provider.
+#
+#   docker compose -f docker/compose.mattermost.yml up -d
+#   node scripts/seed-mattermost.mjs
+#
+# The preview image bundles its own database: disposable, never exposed beyond
+# the LAN bench.
+services:
+  mattermost:
+    image: mattermost/mattermost-preview:latest
+    ports:
+      - "8065:8065"
+    restart: unless-stopped

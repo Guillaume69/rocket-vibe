@@ -9,8 +9,8 @@ section here.
 
 ### Added
 
-- GTK: a pill over the top of a room, "N new messages since HH:MM", while the first
-  unread message is above the view; a click jumps to it.
+- A pill over the top of a room (GTK and SwiftUI), "N new messages since HH:MM", while the
+  first unread message is above the view; a click jumps to it.
 
 ### Fixed
 
@@ -19,6 +19,10 @@ section here.
   edits it.
 - GTK: flinging up through the history with a touchpad no longer jumps to older
   messages when the next page loads.
+- SwiftUI: loading an older page keeps the message you were reading in place, instead of
+  flashing the older page and snapping back.
+- SwiftUI: decrypted quote cards in a RocketVibe room no longer blink out on every
+  reaction or every ten seconds.
 
 ## [0.11.0] - 2026-10-08
 

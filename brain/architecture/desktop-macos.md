@@ -47,6 +47,7 @@ All `@MainActor`; the models are `@Observable`.
 - `LoginModel`: server probe as the address is typed, credentials, then the 2FA code step.
 - `RoomModel`: one room or one thread. `reload()` re-reads the store through rv-ffi and publishes only when the list differs (rows are `Equatable`, so unchanged rows are not redrawn); paging back, jump-to-message, drafts saved 400 ms after the last keystroke, send or run a slash command, quote, edit-last, typing and uploads.
 - `MediaStore`: protected files and photos fetched once each through rv-ffi, shared by concurrent requests, forgotten on avatar changes.
+- `VoiceModel` (RocketVibe servers offering voice, the sidecar shipped): the voice session, rings and listening choices read from rv-ffi on each `Event::Voice`, the cues and tones it derives (played by the app through `onVoiceCue`/`onVoiceTone`), the incoming ring, the room whose voice page shows (`shown`). See [voice](../features/voice.md#desktop).
 - `Strings` reads the language saved by either app (`auto`, `fr`, `en`) and calls into the Rust catalog; `Formatting` formats times as the GTK app does.
 
 ## The SwiftUI app
@@ -59,8 +60,8 @@ Differences from GTK that are by design: voice messages are AAC, not Ogg/Opus (A
 
 - `scripts/generate.sh` (from `apps/desktop`): `cargo build --release -p rv-ffi --lib` with `MACOSX_DEPLOYMENT_TARGET=15.0`, then `uniffi-bindgen-swift --swift-sources --headers` on the dylib (`.so` on Linux), copying the header and Swift file into the package. Prints the target dir; callers export `RV_FFI_LIB_DIR` from it. `Package.swift` links `librv_ffi.a` by path (no xcframework: one arm64 target needs none, and it keeps the linker off the dylib beside it) plus Security, SystemConfiguration and CoreFoundation on macOS.
 - `scripts/check-linux.sh` builds and tests every target but the app in `macos/docker/Dockerfile` (`swift:6.1-noble`), with its own cargo volume and `CARGO_TARGET_DIR=target/swift-linux`. `RV_TEST_SERVER` enables the live tests (`KitTests.testSignInOpenARoomAndSend`, and `cargo test -p rv-ffi --test live` on the Rust side).
-- `scripts/package.sh <version>` builds the `RocketVibe` product in release, lays out `dist/rocket-vibe SwiftUI.app` (Info.plist, fonts, icon from `apps/mobile/assets/icon.png`), fails if the binary links anything under `/opt` or `/usr/local`, signs it (Developer ID with hardened runtime when `MACOS_SIGN_IDENTITY` is set, ad hoc otherwise) and builds `rocket-vibe-desktop-<version>-macos-swiftui-arm64.dmg`. The bundle carries no GTK, GStreamer or fontconfig.
-- CI: `.github/workflows/desktop-swiftui.yml` on `macos-15`, triggered by feature-branch pushes touching `macos/` or `rv-ffi`, manual runs, and as a reusable workflow from `desktop.yml` on tags and manual runs (so a desktop release carries the SwiftUI DMG). It runs `swift build`, `swift test`, `swift run rv-rooms` (offline self-check), packages, signs and notarizes, then launches the app: login screenshot, the sample-message gallery (`RV_SMOKE_GALLERY=1`, no server), a 45 s soak that must log "soak survived", and a 400-row scroll benchmark (`RV_SMOKE_SCROLL=1`) reported in the job summary as a trend, not a gate.
+- `scripts/package.sh <version>` builds the `RocketVibe` product in release, lays out `dist/rocket-vibe SwiftUI.app` (Info.plist, fonts, icon from `apps/mobile/assets/icon.png`), fails if the binary links anything under `/opt` or `/usr/local`, signs it (Developer ID with hardened runtime when `MACOS_SIGN_IDENTITY` is set, ad hoc otherwise) and builds `rocket-vibe-desktop-<version>-macos-swiftui-arm64.dmg`. The bundle carries no GTK, GStreamer or fontconfig. It carries the voice sidecar (`$RV_VOICE`, else `apps/desktop/dist/voice/rv-voice`, into `Contents/MacOS`, signed with the app's entitlements; `RV_VOICE_REQUIRED=1` makes its absence an error) and the voice sounds, rendered by `scripts/sounds/generate.mjs` and encoded to AAC by `afconvert` into `Resources/sounds`.
+- CI: `.github/workflows/desktop-swiftui.yml` on `macos-15`, triggered by feature-branch pushes touching `macos/` or `rv-ffi`, manual runs, and as a reusable workflow from `desktop.yml` on tags and manual runs (so a desktop release carries the SwiftUI DMG). It runs `swift build`, `swift test`, `swift run rv-rooms` (offline self-check), takes the `rv-voice-macos-arm64` artifact when `desktop.yml` calls it (`voice-artifact`) or builds the sidecar itself, packages, signs and notarizes, then launches the app: login screenshot, the sample-message gallery (`RV_SMOKE_GALLERY=1`, no server), a 45 s soak that must log "soak survived", and a 400-row scroll benchmark (`RV_SMOKE_SCROLL=1`) reported in the job summary as a trend, not a gate.
 
 ## Status
 
@@ -76,6 +77,7 @@ On master. [Parity](../parity.md) tracks it as its own column: it matches the GT
 - apps/desktop/crates/rv-ffi/src/markup.rs
 - apps/desktop/crates/rv-ffi/src/people.rs
 - apps/desktop/crates/rv-ffi/src/writing.rs
+- apps/desktop/crates/rv-ffi/src/native_voice.rs
 - apps/desktop/crates/rv-ffi/src/bin/uniffi-bindgen-swift.rs
 - apps/desktop/crates/rv-ffi/tests/live.rs
 - apps/desktop/crates/rv-gtk/src/macos.rs

@@ -90,6 +90,13 @@ The non-obvious choices behind rocket-vibe and why they were made, grouped by ar
   libwebrtc, which ships only for MSVC on Windows while the GTK app builds with MSYS2, and
   it must stay out of rv-ffi's static library. A separate process also keeps a WebRTC crash
   from taking the window down.
+- **The SwiftUI app reuses that sidecar rather than LiveKit's Swift SDK** (the first plan).
+  The listening features (each person's volume, mute here, input volume and level, RNNoise
+  and the voice gate, devices by id) live in the sidecar's own audio path; the Swift SDK
+  would have meant writing them a third time, in Swift, and keeping two engines in step on
+  the desktop. rv-ffi exports rv-core's `VoiceController` instead, with a supervisor task
+  doing what GTK's UI loop does (hang up a declined ring, a direct call left alone), so
+  Swift only draws.
 - **Presence comes from the SFU, polled.** The server polls LiveKit every 2 s rather than
   trusting client heartbeats (Android suspends JS timers in the background) or webhooks
   (an inbound endpoint for under 2 s gained). Who speaks stays client-side: too fast for a

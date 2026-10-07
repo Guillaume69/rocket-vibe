@@ -272,7 +272,28 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
   its session.
 - **Packaging**: every desktop package carries `rv-voice` next to the app (`desktop.yml` calls
   `desktop-voice.yml`); see [desktop-gtk](../architecture/desktop-gtk.md#packaging).
-- **SwiftUI**: not yet; the plan is LiveKit's Swift SDK in the macOS-only target.
+- **SwiftUI** (`apps/desktop/macos`): the same `rv-voice` sidecar through rv-core, exported by
+  rv-ffi's `native_voice.rs` (`NativeChat.voiceState`, `voiceMembers`, `joinVoice`,
+  `answerCall`, `voiceFrame`, `voiceDevices`, `setPersonVolume`, ...; frames handed as RGBA,
+  only when newer than the caller's serial). A supervisor task in rv-ffi does what GTK's UI
+  loop does: it hangs up an outgoing ring declined or missed while alone, hangs up a direct
+  call 2 s after the other person left, and sends `Event::Voice` (at most every 100 ms) when
+  the session, the listening choices or the rings change. The choices are shared with GTK
+  through `rv_core::voice_prefs` (one file each in `~/.config/rocket-vibe-rs`). Kit's
+  `VoiceModel` follows the state and derives the cues, the ringtone or ringback and the
+  incoming ring; `AppModel.select` joins a voice channel picked in the list. Views in
+  `Sources/RocketVibe/Voice.swift`: occupants under each row (ring lit while speaking, a
+  context menu with mute here and a volume from 0 to 200 %), the voice page (16:9 tiles,
+  the stage and a column of people while a screen is shared, Join or the controls), the
+  stage full screen in its own window, the "Voice connected" panel above the account bar,
+  the menu beside the microphone (devices, volumes, live level, noise remover, deafen,
+  settings), the share picker (screens and windows with thumbnails, resolution, frame
+  rate), the header's call button, the call rows' Join or Call back, an alert to accept or
+  decline a ring, a "Voice" section in the settings. No camera button: the sidecar captures
+  none on macOS; others' cameras show. Sounds: `scripts/package.sh` renders the WAV masters
+  (`scripts/sounds/generate.mjs`) and encodes them to AAC in `Resources/sounds` for
+  `AVAudioPlayer`; the bundle carries `rv-voice` in `Contents/MacOS`, signed with the app's
+  entitlements. Checked by the macOS CI build only.
 
 ## Sources
 
@@ -298,6 +319,11 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
 - apps/mobile/modules/voice/index.ts
 - apps/mobile/modules/voice/android/src/main/java/com/rocketvibe/voice/Denoiser.kt
 - apps/mobile/modules/voice/build-android.mjs
+- apps/desktop/crates/rv-core/src/voice_prefs.rs
+- apps/desktop/crates/rv-ffi/src/native_voice.rs
+- apps/desktop/macos/Sources/RocketVibeKit/VoiceModel.swift
+- apps/desktop/macos/Sources/RocketVibe/Voice.swift
+- apps/desktop/macos/scripts/package.sh
 - crates/rv-voice-mobile/src/lib.rs
 - apps/mobile/lib/voiceGrid.ts
 - apps/mobile/ui/slider.tsx

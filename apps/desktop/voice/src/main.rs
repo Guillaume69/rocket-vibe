@@ -52,6 +52,22 @@ fn emit(event: Event) {
     let _ = out.flush();
 }
 
+/// A diagnostics line (`RV_VOICE_DEBUG=1`): appended to the file `RV_VOICE_LOG`
+/// names (the app gives the sidecar no stderr), else to stderr.
+fn diagnose(line: &str) {
+    use std::io::Write as _;
+    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    let line = format!("{stamp} rv-voice: {line}\n");
+    match std::env::var_os("RV_VOICE_LOG") {
+        Some(path) => {
+            if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+                let _ = file.write_all(line.as_bytes());
+            }
+        }
+        None => eprint!("{line}"),
+    }
+}
+
 fn error(code: &str) {
     emit(Event::Error { code: code.into() });
 }
@@ -513,8 +529,7 @@ impl Voice {
         if std::env::var("RV_VOICE_DEBUG").as_deref() == Ok("1") {
             self.ticks += 1;
             if self.ticks.is_multiple_of(50) {
-                let (dry, cut, waited) = self.mix.diagnostics();
-                eprintln!("rv-voice: 5 s: {dry} dry, {cut} cut, lock wait up to {waited} µs");
+                diagnose(&format!("5 s: {}", self.mix.stats.report()));
             }
         }
         if self.mix.broken.swap(false, std::sync::atomic::Ordering::Relaxed)

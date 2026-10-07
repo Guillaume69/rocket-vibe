@@ -19,9 +19,9 @@
 //! opens no device: a tone stands for the microphone, and remote tracks are
 //! still read, for who speaks.
 //!
-//! Diagnostics: `RV_VOICE_DEBUG=1` prints the devices' formats and, every 5 s,
-//! the tracks that ran dry, the backlogs cut and the longest lock wait on the
-//! speakers' side; `RV_VOICE_RECORD=<dir>` writes each remote track as received
+//! Diagnostics: `RV_VOICE_DEBUG=1` reports the devices' formats and, every
+//! 5 s, the audio threads' [`Stats`] (to stderr, or appended to the file
+//! `RV_VOICE_LOG` names); `RV_VOICE_RECORD=<dir>` writes each remote track as received
 //! (raw 48 kHz stereo 16-bit); `RV_VOICE_TEST_TONE=1` replaces the microphone's
 //! samples with a 440 Hz tone, through the whole path.
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -209,11 +209,51 @@ pub struct Mix {
     input_delay: AtomicU32,
     /// A device stream failed (unplugged): the main loop reopens the default.
     pub broken: AtomicBool,
-    /// Diagnostics (`RV_VOICE_DEBUG=1`): tracks that ran dry, backlogs cut,
-    /// the longest wait for the processing lock in the speakers' callback (µs).
+    /// Diagnostics (`RV_VOICE_DEBUG=1`).
+    pub stats: Stats,
+}
+
+/// What the audio threads did since the last report: 10 ms frames received,
+/// mixed and captured (100 a second each when the clocks agree), tracks that
+/// ran dry, backlogs cut, and the longest wait for the processing lock, gap
+/// between two speakers' or microphone's callbacks, and microphone frame's
+/// processing (µs).
+#[derive(Default)]
+pub struct Stats {
+    received: AtomicU32,
+    mixed: AtomicU32,
+    captured: AtomicU32,
     dry: AtomicU32,
     cut: AtomicU32,
     waited: AtomicU32,
+    output_gap: AtomicU32,
+    input_gap: AtomicU32,
+    processing: AtomicU32,
+}
+
+impl Stats {
+    fn count(counter: &AtomicU32) {
+        counter.fetch_add(1, Ordering::Relaxed);
+    }
+    fn longest(counter: &AtomicU32, since: Instant) {
+        counter.fetch_max(since.elapsed().as_micros() as u32, Ordering::Relaxed);
+    }
+    /// One line, and the counters start again.
+    pub fn report(&self) -> String {
+        let take = |c: &AtomicU32| c.swap(0, Ordering::Relaxed);
+        format!(
+            "received {} mixed {} captured {} dry {} cut {} | longest: lock {} µs, speakers gap {} µs, microphone gap {} µs, processing {} µs",
+            take(&self.received),
+            take(&self.mixed),
+            take(&self.captured),
+            take(&self.dry),
+            take(&self.cut),
+            take(&self.waited),
+            take(&self.output_gap),
+            take(&self.input_gap),
+            take(&self.processing),
+        )
+    }
 }
 
 impl Mix {
@@ -232,19 +272,8 @@ impl Mix {
             output_delay: AtomicU32::new(20),
             input_delay: AtomicU32::new(20),
             broken: AtomicBool::new(false),
-            dry: AtomicU32::new(0),
-            cut: AtomicU32::new(0),
-            waited: AtomicU32::new(0),
+            stats: Stats::default(),
         })
-    }
-
-    /// The diagnostics since the last call: dry tracks, backlogs cut, longest lock wait (µs).
-    pub fn diagnostics(&self) -> (u32, u32, u32) {
-        (
-            self.dry.swap(0, Ordering::Relaxed),
-            self.cut.swap(0, Ordering::Relaxed),
-            self.waited.swap(0, Ordering::Relaxed),
-        )
     }
 
     pub fn set_sending(&self, on: bool) {
@@ -301,6 +330,7 @@ impl Mix {
                 let _ = file.write_all(&bytes);
             }
         }
+        Stats::count(&self.stats.received);
         let floats = samples.iter().map(|&s| s as f32 / 32_768.0);
         let db = decibels(floats.clone());
         let mut remotes = lock(&self.remotes);
@@ -317,7 +347,7 @@ impl Mix {
             if remote.buffer.len() > BACKLOG {
                 let extra = remote.buffer.len() - PRIME;
                 remote.buffer.drain(..extra);
-                self.cut.fetch_add(1, Ordering::Relaxed);
+                Stats::count(&self.stats.cut);
             }
         }
     }
@@ -329,6 +359,7 @@ impl Mix {
     /// The next 10 ms of everything the call plays (48 kHz stereo, -1..1),
     /// also handed to the echo canceller.
     fn next(&self) -> Vec<f32> {
+        Stats::count(&self.stats.mixed);
         let mut out = vec![0f32; FRAME * 2];
         let deafened = self.deafened.load(Ordering::Relaxed);
         {
@@ -345,7 +376,7 @@ impl Mix {
                     // Ran dry (loss, a late packet): wait for a cushion again.
                     remote.playing = false;
                     remote.buffer.clear();
-                    self.dry.fetch_add(1, Ordering::Relaxed);
+                    Stats::count(&self.stats.dry);
                     continue;
                 }
                 let gain = gains.get(&remote.identity).copied().unwrap_or(Gain { volume: 1.0, muted: false });
@@ -362,7 +393,7 @@ impl Mix {
         let mut reference: Vec<i16> = out.iter().map(|&s| (s * 32_767.0) as i16).collect();
         let asked = Instant::now();
         let mut processing = lock(&self.processing);
-        self.waited.fetch_max(asked.elapsed().as_micros() as u32, Ordering::Relaxed);
+        Stats::longest(&self.stats.waited, asked);
         let _ = processing.module.process_reverse_stream(&mut reference, RATE as i32, 2);
         out
     }
@@ -370,6 +401,8 @@ impl Mix {
     /// One 10 ms microphone frame (48 kHz mono, -1..1) through the processing;
     /// what the room hears, or None while not sending.
     fn capture(&self, frame: &[f32], denoiser: &mut DenoiseState, gate: &mut Gate) -> Option<Vec<i16>> {
+        let began = Instant::now();
+        Stats::count(&self.stats.captured);
         let mut pcm: Vec<i16> = frame.iter().map(|&s| (s * 32_767.0).clamp(-32_768.0, 32_767.0) as i16).collect();
         let denoise = self.denoise.load(Ordering::Relaxed);
         {
@@ -406,6 +439,7 @@ impl Mix {
         let mut local = lock(&self.local);
         local.frame(db, speech);
         self.input_level.set(local.level);
+        Stats::longest(&self.stats.processing, began);
         Some(pcm)
     }
 }
@@ -569,7 +603,7 @@ fn play(device: &cpal::Device, mix: Arc<Mix>) -> Result<cpal::Stream, String> {
     let supported = device.default_output_config().map_err(|e| e.to_string())?;
     let config = supported.config();
     if std::env::var("RV_VOICE_DEBUG").as_deref() == Ok("1") {
-        eprintln!("rv-voice: speakers {:?} {:?}", supported.sample_format(), config);
+        crate::diagnose(&format!("speakers {:?} {:?}", supported.sample_format(), config));
     }
     let stream = match supported.sample_format() {
         SampleFormat::F32 => play_as::<f32>(device, &config, mix),
@@ -590,11 +624,16 @@ fn play_as<T: SizedSample + FromSample<f32>>(
     let channels = config.channels as usize;
     let step = RATE as f64 / config.sample_rate as f64;
     let (mut pending, mut position) = (VecDeque::<[f32; 2]>::new(), 0f64);
+    let mut last: Option<Instant> = None;
     let broken = mix.clone();
     device
         .build_output_stream(
             *config,
             move |data: &mut [T], info: &cpal::OutputCallbackInfo| {
+                if let Some(at) = last {
+                    Stats::longest(&mix.stats.output_gap, at);
+                }
+                last = Some(Instant::now());
                 let stamp = info.timestamp();
                 let ahead = stamp.playback.saturating_duration_since(stamp.callback);
                 let queued = pending.len() as u64 * 1000 / RATE as u64;
@@ -642,7 +681,7 @@ fn capture(
     let supported = device.default_input_config().map_err(|e| e.to_string())?;
     let config = supported.config();
     if std::env::var("RV_VOICE_DEBUG").as_deref() == Ok("1") {
-        eprintln!("rv-voice: microphone {:?} {:?}", supported.sample_format(), config);
+        crate::diagnose(&format!("microphone {:?} {:?}", supported.sample_format(), config));
     }
     let stream = match supported.sample_format() {
         SampleFormat::F32 => capture_as::<f32>(device, &config, mix, frames),
@@ -670,6 +709,7 @@ where
     let mut frame = Vec::with_capacity(FRAME);
     let mut denoiser = DenoiseState::new();
     let mut gate = Gate::default();
+    let mut last: Option<Instant> = None;
     let broken = mix.clone();
     // Diagnostics: a 440 Hz tone in place of the microphone, through the whole path.
     let tone = std::env::var("RV_VOICE_TEST_TONE").as_deref() == Ok("1");
@@ -678,6 +718,10 @@ where
         .build_input_stream(
             *config,
             move |data: &[T], info: &cpal::InputCallbackInfo| {
+                if let Some(at) = last {
+                    Stats::longest(&mix.stats.input_gap, at);
+                }
+                last = Some(Instant::now());
                 let stamp = info.timestamp();
                 let behind = stamp.callback.saturating_duration_since(stamp.capture);
                 mix.input_delay.store(behind.as_millis() as u32 + 10, Ordering::Relaxed);

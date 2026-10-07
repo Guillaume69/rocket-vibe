@@ -188,7 +188,7 @@ impl Controller {
         }
     }
     fn recovery_confirmation(self: &Rc<Self>, title: &str, body: String, cancel_backup: bool) {
-        let Some(parent) = self.dialog.upgrade() else {
+        let Some(parent) = self.host.widget() else {
             self.recovery.clear_sensitive();
             return;
         };
@@ -224,7 +224,7 @@ impl Controller {
         });
         alert.present(Some(&parent));
     }
-    pub(super) fn connect_recovery(self: &Rc<Self>) {
+    pub(super) fn connect_recovery(self: &Rc<Self>, page: &adw::PreferencesPage) {
         for (index, row) in self.recovery.rows.iter().enumerate() {
             let weak = Rc::downgrade(self);
             row.connect_activated(move |_| {
@@ -253,28 +253,32 @@ impl Controller {
                 c.run(super::Action::Recovery(action));
             });
         }
-        // Closing the sensitive child dialog on application focus loss also
-        // invalidates an async result or a confirmation still held by Rust.
+        // Closing the settings on application focus loss while this page
+        // shows also invalidates an async result or a confirmation still held
+        // by Rust.
         let weak = Rc::downgrade(self);
-        if let Some(dialog) = self.dialog.upgrade() {
-            dialog.connect_map(move |dialog| {
-                let Some(c) = weak.upgrade() else {
-                    return;
-                };
+        page.connect_map(move |page| {
+            let Some(c) = weak.upgrade() else {
+                return;
+            };
+            c.recovery.detach_focus();
+            if let Some(window) = page.root().and_downcast::<gtk::Window>() {
+                let weak = weak.clone();
+                let signal = window.connect_is_active_notify(move |window| {
+                    if !window.is_active()
+                        && let Some(c) = weak.upgrade()
+                    {
+                        c.host.close();
+                    }
+                });
+                c.recovery.focus.replace(Some((window.downgrade(), signal)));
+            }
+        });
+        let weak = Rc::downgrade(self);
+        page.connect_unmap(move |_| {
+            if let Some(c) = weak.upgrade() {
                 c.recovery.detach_focus();
-                if let Some(window) = dialog.root().and_downcast::<gtk::Window>() {
-                    let weak = weak.clone();
-                    let signal = window.connect_is_active_notify(move |window| {
-                        if !window.is_active()
-                            && let Some(c) = weak.upgrade()
-                            && let Some(dialog) = c.dialog.upgrade()
-                        {
-                            dialog.force_close();
-                        }
-                    });
-                    c.recovery.focus.replace(Some((window.downgrade(), signal)));
-                }
-            });
-        }
+            }
+        });
     }
 }

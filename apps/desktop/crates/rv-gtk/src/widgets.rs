@@ -5,7 +5,8 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use gtk::prelude::*;
+use adw::prelude::*;
+use gtk::glib;
 
 /// A replaceable callback slot on a component.
 pub type Handler<T> = RefCell<Option<Rc<dyn Fn(T)>>>;
@@ -262,6 +263,34 @@ pub fn sparkle() -> gtk::DrawingArea {
 /// Thin brand-gradient comet sweeping the window's top edge while syncing.
 pub fn comet() -> gtk::Box {
     gtk::Box::builder().css_classes(["comet"]).height_request(3).valign(gtk::Align::Start).can_target(false).build()
+}
+
+/// The dimmed backdrop around a dialog is a window handle: a click there
+/// started a window drag and a double click maximized the window. A click on
+/// it closes the dialog instead.
+pub fn close_on_backdrop(dialog: &adw::Dialog) {
+    let weak = dialog.downgrade();
+    glib::idle_add_local_once(move || {
+        let Some(dialog) = weak.upgrade() else { return };
+        fn find(widget: &gtk::Widget) -> Option<gtk::Widget> {
+            if widget.css_name() == "dimming" {
+                return Some(widget.clone());
+            }
+            std::iter::successors(widget.first_child(), |w| w.next_sibling()).find_map(|child| find(&child))
+        }
+        let Some(dimming) = find(dialog.upcast_ref()) else { return };
+        let click = gtk::GestureClick::builder().button(0).propagation_phase(gtk::PropagationPhase::Capture).build();
+        click.connect_pressed(|gesture, _, _, _| {
+            gesture.set_state(gtk::EventSequenceState::Claimed);
+        });
+        let weak = dialog.downgrade();
+        click.connect_released(move |_, _, _, _| {
+            if let Some(dialog) = weak.upgrade() {
+                dialog.close();
+            }
+        });
+        dimming.add_controller(click);
+    });
 }
 
 #[cfg(test)]

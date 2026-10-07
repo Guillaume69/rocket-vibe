@@ -959,6 +959,9 @@ impl ChatPage {
         match event {
             RowEvent::Retry(id) => self.retry(id),
             RowEvent::React { id, shortcode, add } => {
+                if add {
+                    crate::reactions::record(&session.info.base_url, &session.info.user_id, &shortcode);
+                }
                 let weak = Rc::downgrade(self);
                 glib::spawn_future_local(async move {
                     if on_tokio(async move { session.react(&id, &shortcode, add).await }).await.is_err()

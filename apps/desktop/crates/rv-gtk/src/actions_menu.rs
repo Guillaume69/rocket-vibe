@@ -1,12 +1,13 @@
-//! The actions menu of a message: quick reactions, then what the server's
-//! rules allow (rv-core's `possible_actions`), editing in place.
+//! The actions menu of a message: quick reactions (my most used, then any
+//! emoji through the picker), then what the server's rules allow (rv-core's
+//! `possible_actions`), editing in place.
 
 use std::rc::Rc;
 use std::sync::Arc;
 
 use adw::prelude::*;
 use gtk::{gdk, glib};
-use rv_core::actions::{self, Action, ActionContext, QUICK_REACTIONS};
+use rv_core::actions::{self, Action, ActionContext};
 use rv_core::session::Session;
 use rv_core::store::MessageRow;
 use serde_json::Value;
@@ -122,26 +123,23 @@ fn menu(
             .filter(|r| r.mine)
             .map(|r| r.shortcode)
             .collect();
-        let quick = gtk::Box::builder().spacing(4).margin_bottom(4).build();
-        for shortcode in QUICK_REACTIONS {
-            let glyph = rv_core::emoji::unicode(shortcode).unwrap_or(shortcode);
-            let is_mine = mine.iter().any(|m| m == shortcode);
-            let button = gtk::Button::builder()
-                .label(glyph)
-                .css_classes(if is_mine { vec!["quick-reaction", "mine"] } else { vec!["quick-reaction"] })
-                .build();
-            let (s, id, p, toast) = (session.clone(), row.id.clone(), popover.clone(), handlers.clone());
-            button.connect_clicked(move |_| {
-                p.popdown();
-                let (s, id, toast) = (s.clone(), id.clone(), toast.clone());
-                glib::spawn_future_local(async move {
-                    if on_tokio(async move { s.react(&id, shortcode, !is_mine).await }).await.is_err() {
-                        (toast.toast)(t("actions.refused").to_owned());
-                    }
-                });
+        let usage = crate::reactions::usage(&session.info.base_url, &session.info.user_id);
+        let (s, id, toast, counts) = (session.clone(), row.id.clone(), handlers.clone(), usage.clone());
+        let react: crate::reactions::React = Rc::new(move |code, add| {
+            if add {
+                counts.record(&code);
+            }
+            let (s, id, toast) = (s.clone(), id.clone(), toast.clone());
+            glib::spawn_future_local(async move {
+                let shortcode = format!(":{code}:");
+                if on_tokio(async move { s.react(&id, &shortcode, add).await }).await.is_err() {
+                    (toast.toast)(t("actions.refused").to_owned());
+                }
             });
-            quick.append(&button);
-        }
+        });
+        let s = session.clone();
+        let custom: crate::emoji_picker::CustomSource = Rc::new(move || s.custom_emoji_names());
+        let quick = crate::reactions::row(popover, &usage, &mine, Some(custom), react);
         column.append(&quick);
     }
 

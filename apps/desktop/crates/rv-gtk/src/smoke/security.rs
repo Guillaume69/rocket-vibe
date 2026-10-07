@@ -82,18 +82,18 @@ async fn confirm(root: &gtk::Widget, class: &str) -> bool {
     button.emit_clicked();
     idle(root).await
 }
-async fn open(root: &gtk::Widget) -> bool {
-    if wait(root, "native-security-open", |_| true).await.is_none() {
+async fn open(root: &gtk::Widget, settings: &crate::sidebar_dialog::SidebarDialog) -> bool {
+    if wait(root, "sidebar-category-security", |_| true).await.is_none() {
         return false;
     }
-    activate(root, "native-security-open");
+    settings.select("security");
     wait(root, "native-security-page", |_| true).await.is_some() && idle(root).await
 }
 async fn run(window: Rc<AppWindow>, phase: String) {
     let session = window.chat.native_session().unwrap();
-    crate::settings::open_native(window.chat.widget(), session.clone(), None, || {});
+    let settings = crate::settings::open_native(window.chat.widget(), session.clone(), None, || {});
     let root = window.window.upcast_ref::<gtk::Widget>();
-    if !open(root).await {
+    if !open(root, &settings).await {
         return;
     }
     let codes = find_by_class(root, "native-security-codes").and_downcast::<gtk::Label>().unwrap();
@@ -377,8 +377,7 @@ async fn run(window: Rc<AppWindow>, phase: String) {
             0,
         );
     }
-    let dialog = find_by_class(root, "native-security-dialog").and_downcast::<adw::PreferencesDialog>().unwrap();
-    dialog.close();
+    settings.dialog().close();
     glib::timeout_future(Duration::from_millis(500)).await;
     check("closing security removes private visible code bag", codes.text().is_empty(), 0);
     check(
@@ -387,7 +386,8 @@ async fn run(window: Rc<AppWindow>, phase: String) {
         0,
     );
     if phase == "removal-restart-ack-disable" {
-        let _ = open(root).await;
+        let settings = crate::settings::open_native(window.chat.widget(), session.clone(), None, || {});
+        let _ = open(root, &settings).await;
     }
     println!("smoke: native security phase {phase} completed");
 }

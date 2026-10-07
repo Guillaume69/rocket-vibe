@@ -1,6 +1,7 @@
-//! The emoji picker: search, categories, a grid; picking inserts at the
-//! cursor and leaves the picker open for the next one. The server's own
-//! emoji have a tab of their own and come first in a search.
+//! The emoji picker: search, categories, a grid. In the composer, picking
+//! inserts at the cursor and leaves the picker open for the next one; for a
+//! reaction, one pick closes it. The server's own emoji have a tab of their
+//! own and come first in a search.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -47,6 +48,13 @@ fn drawable(widget: &impl IsA<gtk::Widget>, glyph: &'static str) -> bool {
 /// The server's emoji, by name.
 pub type CustomSource = Rc<dyn Fn() -> Vec<String>>;
 
+/// What was picked: a standard emoji (its shortcode and glyph) or one of the
+/// server's, by name.
+pub enum Pick {
+    Standard(&'static str, &'static str),
+    Custom(String),
+}
+
 fn clear(grid: &gtk::FlowBox) {
     while let Some(child) = grid.first_child() {
         grid.remove(&child);
@@ -60,7 +68,7 @@ fn custom_image(code: &str) -> Option<gtk::Widget> {
     Some(image)
 }
 
-fn add_custom(grid: &gtk::FlowBox, codes: &[String], pick: &Rc<dyn Fn(&str)>) {
+fn add_custom(grid: &gtk::FlowBox, codes: &[String], pick: &Rc<dyn Fn(Pick)>) {
     for code in codes {
         let Some(image) = custom_image(code) else { continue };
         let button = gtk::Button::builder()
@@ -68,13 +76,13 @@ fn add_custom(grid: &gtk::FlowBox, codes: &[String], pick: &Rc<dyn Fn(&str)>) {
             .tooltip_text(format!(":{code}:"))
             .css_classes(["picker-emoji"])
             .build();
-        let (pick, text) = (pick.clone(), format!(":{code}: "));
-        button.connect_clicked(move |_| pick(&text));
+        let (pick, code) = (pick.clone(), code.clone());
+        button.connect_clicked(move |_| pick(Pick::Custom(code.clone())));
         grid.insert(&button, -1);
     }
 }
 
-fn add_unicode(grid: &gtk::FlowBox, codes: &[&'static str], pick: &Rc<dyn Fn(&str)>) {
+fn add_unicode(grid: &gtk::FlowBox, codes: &[&'static str], pick: &Rc<dyn Fn(Pick)>) {
     for code in codes {
         let Some(glyph) = emoji::unicode(code) else { continue };
         if !drawable(grid, glyph) {
@@ -82,8 +90,8 @@ fn add_unicode(grid: &gtk::FlowBox, codes: &[&'static str], pick: &Rc<dyn Fn(&st
         }
         let button =
             gtk::Button::builder().label(glyph).tooltip_text(format!(":{code}:")).css_classes(["picker-emoji"]).build();
-        let pick = pick.clone();
-        button.connect_clicked(move |_| pick(glyph));
+        let (pick, code) = (pick.clone(), *code);
+        button.connect_clicked(move |_| pick(Pick::Standard(code, glyph)));
         grid.insert(&button, -1);
     }
 }
@@ -91,7 +99,34 @@ fn add_unicode(grid: &gtk::FlowBox, codes: &[&'static str], pick: &Rc<dyn Fn(&st
 /// The 😊 button opening the picker; `pick` receives the chosen glyph, or a
 /// server emoji's `:code:`.
 pub fn button(pick: impl Fn(&str) + 'static, custom: CustomSource) -> gtk::MenuButton {
-    let pick: Rc<dyn Fn(&str)> = Rc::new(pick);
+    let popover = popover(
+        move |chosen| match chosen {
+            Pick::Standard(_, glyph) => pick(glyph),
+            Pick::Custom(code) => pick(&format!(":{code}: ")),
+        },
+        Some(custom),
+        false,
+    );
+    gtk::MenuButton::builder()
+        .icon_name("face-smile-symbolic")
+        .popover(&popover)
+        .css_classes(["flat", "emoji-button"])
+        .valign(gtk::Align::End)
+        .build()
+}
+
+/// The picker itself. Without `custom`, standard emoji only (a private
+/// conversation reacts with nothing else); `once` closes it after a pick.
+pub fn popover(pick: impl Fn(Pick) + 'static, custom: Option<CustomSource>, once: bool) -> gtk::Popover {
+    let popover = gtk::Popover::builder().css_classes(["emoji-picker"]).build();
+    let closing = popover.downgrade();
+    let pick: Rc<dyn Fn(Pick)> = Rc::new(move |chosen| {
+        if once && let Some(popover) = closing.upgrade() {
+            popover.popdown();
+        }
+        pick(chosen);
+    });
+    let custom: CustomSource = custom.unwrap_or_else(|| Rc::new(Vec::new));
     let search = gtk::SearchEntry::builder().placeholder_text(":").build();
     let grid = gtk::FlowBox::builder()
         .selection_mode(gtk::SelectionMode::None)
@@ -163,7 +198,7 @@ pub fn button(pick: impl Fn(&str) + 'static, custom: CustomSource) -> gtk::MenuB
     column.append(&search);
     column.append(&tabs);
     column.append(&scroll);
-    let popover = gtk::Popover::builder().child(&column).css_classes(["emoji-picker"]).build();
+    popover.set_child(Some(&column));
     let filled = std::cell::Cell::new(false);
     popover.connect_show(move |_| {
         let icon = custom().first().and_then(|code| custom_image(code));
@@ -173,10 +208,5 @@ pub fn button(pick: impl Fn(&str) + 'static, custom: CustomSource) -> gtk::MenuB
             add_unicode(&grid, emoji::category("people"), &pick);
         }
     });
-    gtk::MenuButton::builder()
-        .icon_name("face-smile-symbolic")
-        .popover(&popover)
-        .css_classes(["flat", "emoji-button"])
-        .valign(gtk::Align::End)
-        .build()
+    popover
 }

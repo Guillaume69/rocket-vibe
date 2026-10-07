@@ -160,7 +160,7 @@ impl Controller {
             .join("\n")
     }
     fn confirm_history(self: &Rc<Self>, approval: HistoryApproval) {
-        let Some(parent) = self.dialog.upgrade() else { return };
+        let Some(parent) = self.host.widget() else { return };
         let empty = approval.periods.is_empty();
         let body = if empty {
             t("crypto.history_nothing").to_owned()

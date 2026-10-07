@@ -15,6 +15,7 @@ pub mod ddp;
 pub mod diff;
 pub mod e2e;
 pub mod emoji;
+pub mod emoji_usage;
 pub mod i18n;
 pub mod info;
 pub mod links;

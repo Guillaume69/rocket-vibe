@@ -125,7 +125,7 @@ async fn run(window: Rc<AppWindow>) {
     }
     check("native profile uses existing GTK dialog", profile.is_some(), ());
     profile.unwrap().downcast::<adw::Dialog>().unwrap().close();
-    crate::settings::open_native(window.chat.widget(), session.clone(), None, || {});
+    let settings = crate::settings::open_native(window.chat.widget(), session.clone(), None, || {});
     let mut edit = None;
     for _ in 0..200 {
         edit = super::find_by_class(window.window.upcast_ref(), "native-profile-edit")
@@ -160,11 +160,13 @@ async fn run(window: Rc<AppWindow>) {
         glib::timeout_future(Duration::from_millis(20)).await;
     }
     check("existing GTK personal form saves native profile", saved, ());
-    super::find_by_class(window.window.upcast_ref(), "native-profile-settings")
-        .unwrap()
-        .downcast::<adw::PreferencesDialog>()
-        .unwrap()
-        .close();
+    check(
+        "native settings are the sidebar dialog",
+        super::find_by_class(window.window.upcast_ref(), "native-profile-settings")
+            .is_some_and(|w| w.is::<adw::Dialog>()),
+        (),
+    );
+    settings.dialog().close();
     let rid = window.chat.current_rid().unwrap();
     let activity = session
         .store

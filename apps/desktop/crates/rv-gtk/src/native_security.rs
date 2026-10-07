@@ -1,8 +1,9 @@
-//! Native security within the existing preferences dialog. No active account
+//! Native security, the Security category of the settings. No active account
 //! is written; cancelled views retain private durable intents for recovery.
 use crate::{
     i18n::{t, tn},
     on_tokio, secrets,
+    sidebar_dialog::Host,
 };
 use adw::prelude::*;
 use email::{EmailDeliveryState, EmailStatus};
@@ -21,27 +22,12 @@ use std::{
     sync::Arc,
 };
 
-pub fn group(parent: &adw::PreferencesDialog, session: Arc<NativeSession>) -> adw::PreferencesGroup {
-    let group = adw::PreferencesGroup::builder().title(t("security.title")).build();
-    let open = adw::ButtonRow::builder().title(t("security.title")).css_classes(["native-security-open"]).build();
-    group.add(&open);
-    let weak = parent.downgrade();
-    open.connect_activated(move |_| {
-        if let Some(parent) = weak.upgrade() {
-            open_dialog(&parent, session.clone());
-        }
-    });
-    group
-}
-pub fn open_dialog(parent: &impl IsA<gtk::Widget>, session: Arc<NativeSession>) {
-    let dialog = adw::PreferencesDialog::builder()
-        .title(t("security.title"))
-        .content_width(560)
-        .content_height(650)
-        .css_classes(["native-security-dialog"])
-        .build();
+/// The category's page; it loads the account's state as it is built, and
+/// forgets what it showed when the settings close.
+pub fn page(host: &Host, session: Arc<NativeSession>) -> adw::PreferencesPage {
     let page = adw::PreferencesPage::new();
     page.add_css_class("native-security-page");
+    page.add_css_class("native-security-dialog");
     let status_group = adw::PreferencesGroup::new();
     let status = adw::ActionRow::builder().title(t("security.loading")).css_classes(["native-security-status"]).build();
     status_group.add(&status);
@@ -148,13 +134,12 @@ pub fn open_dialog(parent: &impl IsA<gtk::Widget>, session: Arc<NativeSession>) 
     let refresh = button("security.refresh", "native-security-refresh");
     refresh_group.add(&refresh);
     page.add(&refresh_group);
-    dialog.add(&page);
     let state = Rc::new(Controller {
-        dialog: dialog.downgrade(),
+        host: host.clone(),
         session,
         guard: Guard::new(),
         busy: Cell::new(false),
-        page,
+        page: page.clone(),
         status,
         password_group,
         password,
@@ -197,25 +182,15 @@ pub fn open_dialog(parent: &impl IsA<gtk::Widget>, session: Arc<NativeSession>) 
         scope: RefCell::new(None),
     });
     let close = state.clone();
-    dialog.connect_closed(move |_| close.cancel());
-    let weak = Rc::downgrade(&state);
-    dialog.connect_visible_notify(move |dialog| {
-        if !dialog.is_visible()
-            && let Some(state) = weak.upgrade()
-        {
-            state.cancel();
-        }
-    });
-    if let Some(window) = parent.root().and_downcast::<gtk::Window>() {
+    host.connect_closed(move || close.cancel());
+    if let Some(window) = host.widget().and_then(|dialog| dialog.root()).and_downcast::<gtk::Window>() {
         let weak = Rc::downgrade(&state);
         window.connect_visible_notify(move |window| {
             if !window.is_visible()
                 && let Some(state) = weak.upgrade()
             {
                 state.cancel();
-                if let Some(dialog) = state.dialog.upgrade() {
-                    dialog.close();
-                }
+                state.host.close();
             }
         });
     }
@@ -327,7 +302,7 @@ pub fn open_dialog(parent: &impl IsA<gtk::Widget>, session: Arc<NativeSession>) 
             if !state.guard.alive() || state.busy.get() {
                 return;
             }
-            let Some(parent) = state.dialog.upgrade() else { return };
+            let Some(parent) = state.host.widget() else { return };
             let alert = adw::AlertDialog::builder()
                 .heading(t(key))
                 .body(t(body))
@@ -368,7 +343,7 @@ pub fn open_dialog(parent: &impl IsA<gtk::Widget>, session: Arc<NativeSession>) 
         }
         let expected = EmailFactorExpectation { contact, factors, enabled };
         let revision = state.email_revision.get();
-        let Some(parent) = state.dialog.upgrade() else { return };
+        let Some(parent) = state.host.widget() else { return };
         let key = if enabled { "email.factor_enable" } else { "email.factor_disable" };
         let body = if enabled { "email.factor_enable_body" } else { "email.factor_disable_body" };
         let alert = adw::AlertDialog::builder()
@@ -423,7 +398,7 @@ pub fn open_dialog(parent: &impl IsA<gtk::Widget>, session: Arc<NativeSession>) 
             return;
         };
         let revision = state.email_revision.get();
-        let Some(parent) = state.dialog.upgrade() else { return };
+        let Some(parent) = state.host.widget() else { return };
         let alert = adw::AlertDialog::builder()
             .heading(t("email.remove"))
             .body(format!("{}\n\n{}", expected.address.as_deref().unwrap_or(""), t("email.remove_body")))
@@ -478,8 +453,8 @@ pub fn open_dialog(parent: &impl IsA<gtk::Widget>, session: Arc<NativeSession>) 
         }
     });
     state.render();
-    dialog.present(Some(parent));
     state.run(Work::Refresh);
+    page
 }
 fn button(key: &str, class: &str) -> adw::ButtonRow {
     adw::ButtonRow::builder().title(t(key)).css_classes([class]).build()
@@ -528,7 +503,7 @@ struct Loaded {
     email: Option<email::View>,
 }
 struct Controller {
-    dialog: glib::WeakRef<adw::PreferencesDialog>,
+    host: Host,
     session: Arc<NativeSession>,
     guard: Guard,
     busy: Cell<bool>,
@@ -929,9 +904,7 @@ impl Controller {
                     if loaded.access.check().is_err() {
                         if state.session.is_closed() {
                             state.cancel();
-                            if let Some(dialog) = state.dialog.upgrade() {
-                                dialog.close();
-                            }
+                            state.host.close();
                         } else {
                             state.clear();
                             state.render();
@@ -954,10 +927,10 @@ impl Controller {
                     }
                     state.render();
                     if let Some(value) = loaded.clipboard
-                        && let Some(dialog) = state.dialog.upgrade()
+                        && let Some(dialog) = state.host.widget()
                     {
                         dialog.clipboard().set_text(&value);
-                        dialog.add_toast(adw::Toast::new(t("security.copied")));
+                        state.host.toast(t("security.copied"));
                     }
                 }
                 Err(error) => {
@@ -975,9 +948,7 @@ impl Controller {
                         || (error.code() == "session_closed" && state.session.is_closed())
                     {
                         state.cancel();
-                        if let Some(dialog) = state.dialog.upgrade() {
-                            dialog.close();
-                        }
+                        state.host.close();
                         return;
                     }
                     if error.code() == "session_closed" {
@@ -988,8 +959,8 @@ impl Controller {
                         state.clear();
                     }
                     state.render();
-                    if let Some(dialog) = state.dialog.upgrade() {
-                        dialog.add_toast(adw::Toast::new(t(if error.code() == "invalid_email_address" {
+                    if state.host.alive() {
+                        state.host.toast(t(if error.code() == "invalid_email_address" {
                             "email.invalid"
                         } else if error.code() == "email_verification_rejected" {
                             "email.rejected"
@@ -1006,7 +977,7 @@ impl Controller {
                             "security.required"
                         } else {
                             "security.failed"
-                        })));
+                        }));
                     }
                     if refresh_mail && state.guard.alive() {
                         state.run(Work::Refresh);

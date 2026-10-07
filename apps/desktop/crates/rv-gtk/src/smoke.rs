@@ -11,7 +11,9 @@
 //!   RV_SMOKE_COMPOSER=1    checks the composer: no window handle around it, a scrollbar
 //!                          only once it overflows, one line high when short
 //!   RV_SMOKE_ACTIONS=<tag>  reacts to bob's last message, quotes it, edits my last one,
-//!                          replies in a thread, then opens the actions menu; texts carry <tag>
+//!                          replies in a thread, then opens the actions menu, reacts through its
+//!                          emoji picker and opens the menu again (RV_SMOKE_MENU_SHOT: a PNG of
+//!                          it); texts carry <tag>
 //!   RV_SMOKE_DRAFTS=<other room>  completes `@bo` and `:smil`, leaves a draft, opens the
 //!                          other room and comes back: the draft must be restored
 //!   RV_SMOKE_COMMANDS=<tag>  completes `/shr`, runs `/join` on a missing channel (the
@@ -769,6 +771,8 @@ fn action_checks(chat: std::rc::Rc<crate::chat::ChatPage>, tag: String) {
     );
     let Some(theirs) = theirs else { return FAILED.store(true, Ordering::SeqCst) };
     chat.play(RowEvent::React { id: theirs.id.clone(), shortcode: ":+1:".into(), add: true }, false);
+    let (picker, target) = (chat.clone(), theirs.clone());
+    glib::timeout_add_local_once(Duration::from_millis(4500), move || reaction_checks(picker, target));
     chat.start_quote(theirs.clone());
     let quoted = chat.clone();
     let reply = format!("{tag} reply");
@@ -799,6 +803,98 @@ fn action_checks(chat: std::rc::Rc<crate::chat::ChatPage>, tag: String) {
         if let Some(thread) = menu.thread() {
             println!("smoke: thread shows {} message(s): {:?}", thread.list.len(), thread.list.texts().last());
         }
+    });
+}
+
+/// The menu's quick reactions (my most used, then "+"), the picker reacting
+/// with any emoji in one pick, and both reactions counted on the device.
+fn reaction_checks(chat: Rc<crate::chat::ChatPage>, row: rv_core::store::MessageRow) {
+    use crate::rows::RowEvent;
+    let Some(session) = chat.session() else { return };
+    let anchor: gtk::Widget = chat.widget().clone().upcast();
+    let menu = |chat: &Rc<crate::chat::ChatPage>, anchor: &gtk::Widget, row: &rv_core::store::MessageRow| {
+        let event =
+            RowEvent::Menu { row: Box::new(row.clone()), anchor: anchor.clone(), x: 320.0, y: 240.0, link: None };
+        chat.play(event, false);
+    };
+    menu(&chat, &anchor, &row);
+    glib::timeout_add_local_once(Duration::from_millis(1200), move || {
+        let quick = find_by_class(&anchor, "quick-reactions");
+        let shown = quick.as_ref().map_or(0, |q| {
+            std::iter::successors(q.first_child(), |w| w.next_sibling())
+                .filter(|w| w.has_css_class("quick-reaction") && !w.has_css_class("more-reactions"))
+                .count()
+        });
+        check("quick reactions: my five, then +", shown == rv_core::emoji_usage::QUICK_COUNT, shown);
+        let Some(more) = find_by_class(&anchor, "more-reactions").and_downcast::<gtk::Button>() else {
+            return check("more reactions button", false, ());
+        };
+        more.emit_clicked();
+        glib::timeout_add_local_once(Duration::from_millis(800), move || {
+            let Some(picker) = find_by_class(&anchor, "reaction-picker").and_downcast::<gtk::Popover>() else {
+                return check("reaction picker opens", false, ());
+            };
+            fn search(widget: &gtk::Widget) -> Option<gtk::SearchEntry> {
+                widget.clone().downcast::<gtk::SearchEntry>().ok().or_else(|| {
+                    std::iter::successors(widget.first_child(), |w| w.next_sibling()).find_map(|c| search(&c))
+                })
+            }
+            let Some(entry) = search(picker.upcast_ref()) else { return check("picker search", false, ()) };
+            entry.set_text("rocket");
+            glib::timeout_add_local_once(Duration::from_millis(1000), move || {
+                fn rocket(widget: &gtk::Widget) -> Option<gtk::Button> {
+                    if widget.has_css_class("picker-emoji") && widget.tooltip_text().as_deref() == Some(":rocket:") {
+                        return widget.clone().downcast::<gtk::Button>().ok();
+                    }
+                    std::iter::successors(widget.first_child(), |w| w.next_sibling()).find_map(|c| rocket(&c))
+                }
+                let Some(button) = rocket(picker.upcast_ref()) else {
+                    return check("picker finds :rocket:", false, ());
+                };
+                button.emit_clicked();
+                check("one pick closes the reaction picker", !picker.is_visible(), ());
+                glib::timeout_add_local_once(Duration::from_millis(2500), move || {
+                    let rows = session.store.messages(&row.rid, 200);
+                    let reacted = rows.iter().find(|r| r.id == row.id).is_some_and(|r| {
+                        rv_core::actions::reactions(r.reactions.as_deref(), &session.info.username)
+                            .iter()
+                            .any(|r| r.mine && r.shortcode == ":rocket:")
+                    });
+                    check("picked emoji reacted", reacted, ());
+                    let host = url::Url::parse(&session.info.base_url)
+                        .ok()
+                        .and_then(|u| u.host_str().map(str::to_owned))
+                        .unwrap_or_default();
+                    let file = rv_core::emoji_usage::EmojiUsage::path_for(
+                        &glib::user_config_dir().join("rocket-vibe-rs"),
+                        &format!("{host}-{}", session.info.user_id),
+                    );
+                    let saved = std::fs::read_to_string(&file).unwrap_or_default();
+                    check(
+                        "reactions counted on the device",
+                        saved.lines().any(|l| l.starts_with("+1\t"))
+                            && saved.lines().any(|l| l.starts_with("rocket\t")),
+                        &saved,
+                    );
+                    let top = crate::reactions::usage(&session.info.base_url, &session.info.user_id)
+                        .top(rv_core::emoji_usage::QUICK_COUNT);
+                    check("used emoji lead the quick reactions", top.iter().any(|c| c == "rocket"), &top);
+                    menu(&chat, &anchor, &row);
+                    glib::timeout_add_local_once(Duration::from_millis(1000), move || {
+                        let Ok(path) = std::env::var("RV_SMOKE_MENU_SHOT") else { return };
+                        let Some(popover) = find_by_class(&anchor, "actions-menu") else { return };
+                        let (width, height) = (popover.width(), popover.height());
+                        let snapshot = gtk::Snapshot::new();
+                        gtk::WidgetPaintable::new(Some(&popover)).snapshot(&snapshot, width as f64, height as f64);
+                        let saved = snapshot
+                            .to_node()
+                            .zip(popover.native().and_then(|n| n.renderer()))
+                            .map(|(node, renderer)| renderer.render_texture(&node, None).save_to_png(&path).is_ok());
+                        println!("smoke: menu screenshot saved {saved:?}");
+                    });
+                });
+            });
+        });
     });
 }
 
@@ -1506,13 +1602,15 @@ fn native_devices_checks(window: Rc<AppWindow>) {
         check("native devices provider", false, 0);
         return;
     };
-    crate::settings::open_native(window.chat.widget(), session.clone(), None, || {});
+    let settings = crate::settings::open_native(window.chat.widget(), session.clone(), None, || {});
     glib::spawn_future_local(async move {
         let root = window.window.upcast_ref::<gtk::Widget>();
-        let button = find_by_class(root, "native-devices-open").and_downcast::<adw::ButtonRow>();
-        check("native device settings entry", button.is_some(), usize::from(button.is_some()));
-        let Some(button) = button else { return };
-        button.emit_by_name::<()>("activated", &[]);
+        let category = find_by_class(root, "sidebar-category-devices");
+        check("native device settings entry", category.is_some(), usize::from(category.is_some()));
+        if category.is_none() {
+            return;
+        }
+        settings.select("devices");
         let mut entry = None;
         for _ in 0..100 {
             entry = find_by_class(root, "native-device-current-name").and_downcast::<adw::EntryRow>();

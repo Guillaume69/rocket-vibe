@@ -53,12 +53,12 @@ async fn run(window: Rc<AppWindow>, phase: &str) {
     }
     let session = window.chat.native_session().unwrap();
     check("disposable GTK settings account", session.info.username == "gtk-email", 0);
-    crate::settings::open_native(window.chat.widget(), session, None, || {});
+    let settings = crate::settings::open_native(window.chat.widget(), session, None, || {});
     let root = window.window.upcast_ref::<gtk::Widget>();
-    if !until(|| find_by_class(root, "native-security-open").is_some()).await {
+    if !until(|| find_by_class(root, "sidebar-category-security").is_some()).await {
         return;
     }
-    activate(root, "native-security-open");
+    settings.select("security");
     if !idle(root).await {
         return;
     }

@@ -245,6 +245,8 @@ button.thread-chip { background: transparent; min-height: 0; }
 .actions-menu contents { padding: 8px; background: #171529; border-radius: 14px; }
 button.quick-reaction { font-size: 20px; min-width: 40px; min-height: 40px; padding: 0; border-radius: 999px; background: transparent; }
 button.quick-reaction.mine { background: rgba(255, 95, 162, 0.18); box-shadow: inset 0 0 0 1.5px #FF5FA2; }
+button.quick-reaction.more-reactions { font-size: 16px; color: alpha(currentColor, 0.7); }
+.sidebar-footer button { padding: 8px 6px; }
 button.menu-action { padding: 6px 10px; min-height: 0; }
 button.menu-action.destructive { color: #FF7A8A; }
 .edit-field textview, .edit-field text { background: transparent; color: #F3F0FF; font-size: 14px; }

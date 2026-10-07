@@ -186,7 +186,7 @@ public final class RoomModel {
     public var reveal: String?
     /// What the server told me alone here, such as a slash command's answer.
     public var note: String?
-    let unreadAfter: Int64?
+    public let unreadAfter: Int64?
     /// The decrypted quote cards last projected, by message: a reload keeps
     /// them until the next projection, or they would blink out each time.
     private var projectedQuotes: [String: [Quote]] = [:]

@@ -368,14 +368,24 @@ fn real_welcome_retry_and_ack_keep_the_same_mls_group_after_reopening() {
             Ok(())
         })
         .unwrap();
-    assert_eq!(bob.reopened().voice_key("room").err(), Some(Error::NotReady));
+    assert_eq!(
+        bob.reopened().voice_key("room").err(),
+        Some(Error::NotReady)
+    );
     assert_ne!(voice.as_slice(), secret.as_slice());
-    assert_eq!(alice.reopened().voice_key("another-room").err(), Some(Error::NotReady));
+    assert_eq!(
+        alice.reopened().voice_key("another-room").err(),
+        Some(Error::NotReady)
+    );
     for path in fs::read_dir(alice.directory.path()).unwrap() {
         let path = path.unwrap().path();
         if path.extension().is_some_and(|e| e == "sqlite") {
             let database = fs::read(path).unwrap();
-            for private in [b"crypto-group-v1/room".as_slice(), secret.as_slice(), voice.as_slice()] {
+            for private in [
+                b"crypto-group-v1/room".as_slice(),
+                secret.as_slice(),
+                voice.as_slice(),
+            ] {
                 assert!(!database.windows(private.len()).any(|w| w == private));
             }
         }

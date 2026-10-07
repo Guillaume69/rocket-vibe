@@ -151,6 +151,14 @@ impl super::Access {
     }
 }
 impl Access {
+    /// This room's voice key (docs/protocol/VOICE.md), None while this device
+    /// is behind the group's head.
+    pub async fn voice_key(&self) -> Result<Option<crate::voice::VoiceKey>> {
+        self.check()?;
+        let key = self.0.crypto.voice_key(&self.0.id).await?;
+        self.check()?;
+        Ok(key)
+    }
     pub fn close(&self) {
         self.0.closed.store(true, Ordering::SeqCst);
         self.0.crypto.stop();

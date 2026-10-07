@@ -177,6 +177,8 @@ section here.
   and in the room list, with "Join" while the call goes on and "Call back" once it ended.
 - Voice settings (GTK): a "Voice" group chooses the microphone and the speakers, remembered
   on this computer; an owner can turn a room into a voice channel, or back, in its settings.
+- Voice in encrypted rooms (GTK), end-to-end encrypted: the server relays sound it cannot
+  hear, under a key only the room's devices share, renewed when its members change.
 - The Linux tarball and AppImage, the Windows installer and the macOS app now ship the voice
   helper (`rv-voice`) next to the app, so voice is offered in released builds.
 

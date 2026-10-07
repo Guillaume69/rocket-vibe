@@ -4,6 +4,8 @@
 //!
 //! `RV_VOICE_FAKE_AUDIO=sine` publishes a synthetic tone instead of opening the
 //! microphone and speakers, for headless tests.
+use livekit::e2ee::key_provider::{KeyProvider, KeyProviderOptions};
+use livekit::e2ee::{E2eeOptions, EncryptionType};
 use livekit::options::TrackPublishOptions;
 use livekit::prelude::*;
 use livekit::webrtc::audio_frame::AudioFrame;
@@ -86,13 +88,20 @@ async fn run() {
                     emit(Event::Disconnected { reason: "client_initiated".into() });
                     return;
                 }
-                Some(Ok(Command::Connect { url, token })) => {
+                Some(Ok(Command::Connect { url, token, e2ee_key })) => {
                     if voice.room.is_some() {
                         error("already_connected");
                         continue;
                     }
                     emit(Event::State { state: State::Connecting });
-                    match Room::connect(&url, &token, RoomOptions::default()).await {
+                    // LiveKit's frame encryption under the group's key: the same
+                    // shared key, index and defaults as the Android engine.
+                    let mut options = RoomOptions::default();
+                    options.encryption = e2ee_key.map(|key| E2eeOptions {
+                        encryption_type: EncryptionType::Gcm,
+                        key_provider: KeyProvider::with_shared_key(KeyProviderOptions::default(), key.into_bytes()),
+                    });
+                    match Room::connect(&url, &token, options).await {
                         Ok((room, receiver)) => {
                             events = Some(receiver);
                             voice.room = Some(Arc::new(room));
@@ -221,6 +230,10 @@ impl Voice {
                     error("device_not_found");
                 }
             }
+            Command::SetKey { key } => match self.room.as_ref().and_then(|r| r.e2ee_manager().key_provider()) {
+                Some(keys) => keys.set_shared_key(key.into_bytes(), 0),
+                None => error("not_encrypted"),
+            },
             Command::Connect { .. } | Command::Disconnect => {}
         }
     }
@@ -333,6 +346,11 @@ impl Voice {
                 if permission.is_some_and(|p| p.can_publish) && self.track.is_none() {
                     self.start_audio().await;
                 }
+            }
+            // Diagnostics only (stderr): a key mismatch silences someone without
+            // any other trace. Identities are account ids, never content.
+            RoomEvent::E2eeStateChanged { participant, state } => {
+                eprintln!("rv-voice: e2ee {} {state:?}", participant.identity());
             }
             _ => {}
         }

@@ -2,6 +2,7 @@
 //! current member, the `rv-voice` sidecar carries the media (`crate::voice`).
 //! The grant's token stays in memory, on its way to the sidecar.
 use super::{Error, NativeSession};
+use crate::voice::{VoiceError, VoiceKey, VoiceKeys};
 use rv_protocol::voice::{AnswerRing, JoinVoice, VoiceGrant, VoiceParticipant, VoiceRing};
 use std::sync::atomic::Ordering;
 
@@ -58,12 +59,13 @@ impl NativeSession {
         self.info.native.as_ref().map(|i| i.data_epoch.clone()).unwrap_or_default()
     }
     /// A LiveKit grant for the room's session; `ring` rings the other member of a direct room.
-    pub async fn join_voice(&self, room: &str, ring: bool) -> Result<VoiceGrant, Error> {
+    pub async fn join_voice(&self, room: &str, ring: bool, e2ee: bool) -> Result<VoiceGrant, Error> {
         let result = async {
             let scope = self.voice_scope(room)?;
             self.identity().await?;
             self.check_voice_scope(&scope, room)?;
-            let input = JoinVoice { membership_version: scope.membership.clone(), data_epoch: self.data_epoch(), ring, e2ee: false };
+            let input =
+                JoinVoice { membership_version: scope.membership.clone(), data_epoch: self.data_epoch(), ring, e2ee };
             let grant = self.client.join_voice(room, &input).await?;
             self.check_voice_scope(&scope, room)?;
             valid_grant(grant, room)
@@ -92,7 +94,7 @@ impl NativeSession {
         Ok(ring)
     }
     /// Answers a ring: a grant for its room.
-    pub async fn accept_ring(&self, id: &str) -> Result<VoiceGrant, Error> {
+    pub async fn accept_ring(&self, id: &str, e2ee: bool) -> Result<VoiceGrant, Error> {
         let result = async {
             let known = self.rings().into_iter().find(|r| r.id == id);
             let ring = match known {
@@ -102,7 +104,8 @@ impl NativeSession {
             let scope = self.voice_scope(&ring.room_id)?;
             self.identity().await?;
             self.check_voice_scope(&scope, &ring.room_id)?;
-            let input = AnswerRing { membership_version: scope.membership.clone(), data_epoch: self.data_epoch(), e2ee: false };
+            let input =
+                AnswerRing { membership_version: scope.membership.clone(), data_epoch: self.data_epoch(), e2ee };
             let grant = self.client.accept_ring(id, &input).await?;
             self.check_voice_scope(&scope, &ring.room_id)?;
             valid_grant(grant, &ring.room_id)
@@ -136,14 +139,42 @@ impl NativeSession {
     }
     /// Joins the room's session and hands the grant to the sidecar; the media
     /// state then follows `voice().changes()`.
-    pub async fn connect_voice(&self, room: &str, ring: bool) -> Result<(), Error> {
-        let grant = self.join_voice(room, ring).await?;
-        self.voice.connect(&grant).await.map_err(|e| Error::Protocol(e.code()))
+    /// `keys` gives an encrypted room's voice key (the app opens its crypto
+    /// access); without it, voice in an encrypted room is refused.
+    pub async fn connect_voice(&self, room: &str, ring: bool, keys: Option<VoiceKeys>) -> Result<(), Error> {
+        let key = self.voice_key(room, keys.as_ref()).await?;
+        let grant = self.join_voice(room, ring, key.is_some()).await?;
+        self.connect_grant(grant, key, keys).await
     }
     /// Accepts a ring and connects to its room.
-    pub async fn answer_ring(&self, id: &str) -> Result<(), Error> {
-        let grant = self.accept_ring(id).await?;
-        self.voice.connect(&grant).await.map_err(|e| Error::Protocol(e.code()))
+    pub async fn answer_ring(&self, id: &str, room: &str, keys: Option<VoiceKeys>) -> Result<(), Error> {
+        let key = self.voice_key(room, keys.as_ref()).await?;
+        let grant = self.accept_ring(id, key.is_some()).await?;
+        if grant.room_id != room {
+            return Err(Error::Protocol("invalid_voice_grant"));
+        }
+        self.connect_grant(grant, key, keys).await
+    }
+    /// The key of an encrypted room, None in a plaintext one.
+    async fn voice_key(&self, room: &str, keys: Option<&VoiceKeys>) -> Result<Option<VoiceKey>, Error> {
+        if !self.store.rooms()?.iter().any(|r| r.id == room && r.encrypted) {
+            return Ok(None);
+        }
+        let keys = keys.ok_or(Error::Protocol("voice_key_unavailable"))?;
+        keys().await.map(Some).ok_or(Error::Protocol("voice_key_unavailable"))
+    }
+    async fn connect_grant(
+        &self,
+        grant: VoiceGrant,
+        key: Option<VoiceKey>,
+        keys: Option<VoiceKeys>,
+    ) -> Result<(), Error> {
+        let result = self.voice.connect(&grant, key, keys).await;
+        // The room became encrypted after its key was asked for: never in clear.
+        if result == Err(VoiceError::Unencrypted) {
+            let _ = self.leave_voice().await;
+        }
+        result.map_err(|e| Error::Protocol(e.code()))
     }
     /// Leaves the media at once, then tells the server (best effort: the SFU
     /// drops a client that vanished anyway).

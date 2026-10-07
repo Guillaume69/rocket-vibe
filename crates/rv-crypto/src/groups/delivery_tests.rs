@@ -1313,6 +1313,39 @@ async fn lost_rotation_ack_preserves_parent_until_exact_receipt_and_peer_catchup
 }
 
 #[tokio::test]
+async fn voice_keys_match_at_the_head_and_a_device_behind_it_has_none() {
+    let (alice, bob) = accounts();
+    let (server, _book) = server(&alice, &bob, false);
+    let (author, peer) = joined_workers(&server, &alice, &bob).await;
+    let (epoch, key) = author.voice_key("room").await.unwrap().unwrap();
+    assert_eq!(
+        peer.voice_key("room").await.unwrap().unwrap(),
+        (epoch, key.clone())
+    );
+    // The author rotates: the peer is behind the head until it accepts the commit.
+    let prepared = author
+        .preview_change("room", "voice-rotation".into(), vec![], vec![])
+        .await
+        .unwrap();
+    let fingerprint = prepared.preview.fingerprint;
+    author.prepare_change(prepared, fingerprint).await.unwrap();
+    let (next, rotated) = author.voice_key("room").await.unwrap().unwrap();
+    assert!(next > epoch && rotated != key);
+    assert!(peer.voice_key("room").await.unwrap().is_none());
+    let batch = peer.events("room").await.unwrap();
+    let prepared = peer
+        .preview_event(batch.page.events[0].clone())
+        .await
+        .unwrap();
+    let fingerprint = prepared.preview.fingerprint;
+    peer.accept_event(prepared, fingerprint).await.unwrap();
+    assert_eq!(
+        peer.voice_key("room").await.unwrap().unwrap(),
+        (next, rotated)
+    );
+}
+
+#[tokio::test]
 async fn wrong_operation_receipt_and_changed_roster_never_merge_or_consume_a_welcome() {
     let (alice, bob) = accounts();
     let (server, book) = server(&alice, &bob, true);

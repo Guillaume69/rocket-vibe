@@ -481,9 +481,15 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ),
     (
         "voice_session.encrypted",
-        "Le vocal n’est pas encore disponible dans les salons chiffrés.",
-        "Voice is not available in encrypted rooms yet.",
+        "Cet appareil ne sait pas chiffrer le vocal de ce salon.",
+        "This device cannot encrypt this room’s voice.",
     ),
+    (
+        "voice_session.key_unavailable",
+        "Cet appareil n’a pas encore la clé actuelle de ce salon chiffré : acceptez le changement en attente dans son chiffrement, puis réessayez.",
+        "This device does not have this encrypted room’s current key yet: accept the pending change in its encryption, then try again.",
+    ),
+    ("voice_session.secure", "🔒 {status} · chiffré de bout en bout", "🔒 {status} · end-to-end encrypted"),
     ("voice_session.moved", "Le vocal continue sur un autre appareil.", "Voice continues on another device."),
     ("voice_session.removed", "Vous avez été retiré du vocal.", "You were removed from voice."),
     ("voice_session.lost", "Le vocal a été interrompu.", "Voice was interrupted."),

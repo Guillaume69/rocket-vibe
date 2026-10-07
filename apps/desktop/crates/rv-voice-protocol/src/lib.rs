@@ -10,7 +10,8 @@
 use serde::{Deserialize, Serialize};
 
 /// Bumped on any incompatible change; the app refuses another version.
-pub const VERSION: u32 = 1;
+/// 2: `Connect.e2ee_key`, which a version 1 sidecar would ignore and connect in clear.
+pub const VERSION: u32 = 2;
 
 /// The participant attribute through which a client reports being deafened.
 pub const DEAFENED_ATTRIBUTE: &str = "rv.deafened";
@@ -22,6 +23,14 @@ pub enum Command {
     Connect {
         url: String,
         token: String,
+        /// An encrypted room's voice key (VOICE.md): its standard base64, whose
+        /// ASCII bytes are LiveKit's shared key, index 0. Absent in clear.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        e2ee_key: Option<String>,
+    },
+    /// The room's group reached a new epoch: frames from now on use its key.
+    SetKey {
+        key: String,
     },
     SetMicrophone {
         enabled: bool,
@@ -46,7 +55,12 @@ pub enum Command {
 impl std::fmt::Debug for Command {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Connect { url, .. } => f.debug_struct("Connect").field("url", url).finish_non_exhaustive(),
+            Self::Connect { url, e2ee_key, .. } => f
+                .debug_struct("Connect")
+                .field("url", url)
+                .field("encrypted", &e2ee_key.is_some())
+                .finish_non_exhaustive(),
+            Self::SetKey { .. } => f.write_str("SetKey"),
             Self::SetMicrophone { enabled } => f.debug_struct("SetMicrophone").field("enabled", enabled).finish(),
             Self::SetDeafened { deafened } => f.debug_struct("SetDeafened").field("deafened", deafened).finish(),
             Self::ListDevices => f.write_str("ListDevices"),
@@ -139,9 +153,14 @@ mod tests {
     fn commands_round_trip_with_snake_case_tags() {
         let cases = [
             (
-                Command::Connect { url: "wss://lk".into(), token: "t".into() },
+                Command::Connect { url: "wss://lk".into(), token: "t".into(), e2ee_key: None },
                 json!({"type":"connect","url":"wss://lk","token":"t"}),
             ),
+            (
+                Command::Connect { url: "wss://lk".into(), token: "t".into(), e2ee_key: Some("a2V5".into()) },
+                json!({"type":"connect","url":"wss://lk","token":"t","e2ee_key":"a2V5"}),
+            ),
+            (Command::SetKey { key: "a2V5".into() }, json!({"type":"set_key","key":"a2V5"})),
             (Command::SetMicrophone { enabled: false }, json!({"type":"set_microphone","enabled":false})),
             (Command::SetDeafened { deafened: true }, json!({"type":"set_deafened","deafened":true})),
             (Command::ListDevices, json!({"type":"list_devices"})),
@@ -154,7 +173,9 @@ mod tests {
             assert_eq!(serde_json::from_value::<Command>(wire).unwrap(), command);
         }
         assert!(serde_json::from_str::<Command>(r#"{"type":"call"}"#).is_err());
-        assert!(!format!("{:?}", Command::Connect { url: "u".into(), token: "secret".into() }).contains("secret"));
+        let connect = Command::Connect { url: "u".into(), token: "secret".into(), e2ee_key: Some("key".into()) };
+        assert!(!format!("{connect:?}").contains("secret") && !format!("{connect:?}").contains("key\""));
+        assert!(!format!("{:?}", Command::SetKey { key: "secret".into() }).contains("secret"));
     }
 
     #[test]
@@ -172,7 +193,7 @@ mod tests {
         let cases = [
             (
                 Event::Hello { version: VERSION, sidecar: "0.9.0".into() },
-                json!({"type":"hello","version":1,"sidecar":"0.9.0"}),
+                json!({"type":"hello","version":2,"sidecar":"0.9.0"}),
             ),
             (Event::State { state: ConnectionState::Reconnecting }, json!({"type":"state","state":"reconnecting"})),
             (

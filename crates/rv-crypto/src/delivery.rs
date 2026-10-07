@@ -1037,6 +1037,35 @@ impl Worker {
         })
         .await
     }
+    /// The room's voice frame key (docs/protocol/VOICE.md) with its epoch, when
+    /// this device's group is at the server's head. `None` while it is not:
+    /// not welcomed yet, or a change the user has not accepted.
+    pub async fn voice_key(
+        &self,
+        room: &str,
+    ) -> Result<Option<(u64, zeroize::Zeroizing<Vec<u8>>)>> {
+        let _dispatch = self.dispatch.lock().await;
+        self.scope().await?;
+        let remote = self.client.crypto_group_state(room).await?;
+        let head = groups::Receipt::from_state(&remote)?;
+        if head.scope.room != room
+            || head.scope.instance != self.manager.scope().instance
+            || head.scope.data_epoch != self.manager.scope().data_epoch
+        {
+            return Err(Error::Scope);
+        }
+        let room = room.to_owned();
+        let key = self
+            .owned(move |manager, root, _| {
+                match groups::Coordinator::new(manager, root)?.voice_key(&room) {
+                    Ok(key) => Ok(Some(key)),
+                    Err(groups::Error::NotReady) => Ok(None),
+                    Err(error) => Err(error.into()),
+                }
+            })
+            .await?;
+        Ok(key.filter(|(epoch, _)| *epoch == head.epoch))
+    }
     pub async fn events(&self, room: &str) -> Result<Batch> {
         let _dispatch = self.dispatch.lock().await;
         self.scope().await?;

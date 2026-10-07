@@ -3,7 +3,9 @@
 use super::*;
 use crate::sounds::{self, Sound};
 use rv_core::native::NativeSession;
-use rv_core::voice::{ConnectionState, Ended, Snapshot};
+use rv_core::native::crypto::enrollment::rooms;
+use rv_core::native::security::Guard;
+use rv_core::voice::{ConnectionState, Ended, Snapshot, VoiceKeys};
 use tokio::sync::broadcast::error::RecvError;
 
 /// Someone in a room's voice session, as a row or a card shows them.
@@ -94,9 +96,43 @@ fn ring_state(state: serde_json::Result<serde_json::Value>) -> String {
 fn refusal(code: &str) -> &'static str {
     match code {
         "voice_encrypted_room" => "voice_session.encrypted",
+        "voice_key_unavailable" => "voice_session.key_unavailable",
         "voice_unavailable" | "unsupported_feature" => "voice_session.unavailable",
         _ => "voice_session.join_failed",
     }
+}
+
+/// An encrypted room's voice keys, from this installation's crypto vault: the
+/// room's access opens at the first ask and stays while the session asks again.
+/// rv-core asks only in an encrypted room.
+fn voice_keys(session: &Arc<NativeSession>, room: &str) -> VoiceKeys {
+    let (session, room) = (Arc::downgrade(session), room.to_owned());
+    let path = glib::user_data_dir().join("rocket-vibe-rs/native-crypto");
+    let cached: Arc<tokio::sync::Mutex<Option<rooms::Access>>> = Arc::default();
+    Arc::new(move || {
+        let (session, room, path, cached) = (session.clone(), room.clone(), path.clone(), cached.clone());
+        Box::pin(async move {
+            let mut cached = cached.lock().await;
+            if cached.is_none() {
+                let session = session.upgrade()?;
+                let settings = session
+                    .crypto_settings(Guard::new(), path, Arc::new(rv_crypto::protected::system::Keyring))
+                    .await
+                    .ok()?;
+                *cached = Some(settings.room(room).await.ok()?);
+            }
+            match cached.as_ref()?.voice_key().await {
+                Ok(key) => key,
+                // A closed access opens again at the next ask.
+                Err(_) => {
+                    if let Some(access) = cached.take() {
+                        access.close();
+                    }
+                    None
+                }
+            }
+        })
+    })
 }
 
 fn display(display_name: &str, username: &str) -> String {
@@ -596,7 +632,12 @@ impl ChatPage {
             (false, _) if joining => Some("voice_session.connecting"),
             (false, _) => None,
         };
-        voice.page_status.set_label(status.map(t).unwrap_or_default());
+        let label = match status {
+            Some(key) if mine && snapshot.encrypted => tf("voice_session.secure", &[("status", t(key))]),
+            Some(key) => t(key).to_owned(),
+            None => String::new(),
+        };
+        voice.page_status.set_label(&label);
         voice.page_status.set_visible(status.is_some());
         if mine && snapshot.state == ConnectionState::Connected {
             voice.page_status.add_css_class("connected");
@@ -661,10 +702,11 @@ impl ChatPage {
         }
         self.voice.joining.replace(Some(rid.to_owned()));
         self.refresh_voice();
+        let keys = voice_keys(&session, rid);
         let (weak, expected, room) = (Rc::downgrade(self), session.clone(), rid.to_owned());
         glib::spawn_future_local(async move {
             let r = room.clone();
-            let result = on_tokio(async move { session.connect_voice(&r, ring).await }).await;
+            let result = on_tokio(async move { session.connect_voice(&r, ring, Some(keys)).await }).await;
             let Some(this) = weak.upgrade() else { return };
             this.voice.joining.replace(None);
             if this.native_session().is_none_or(|s| !Arc::ptr_eq(&s, &expected)) {
@@ -680,7 +722,7 @@ impl ChatPage {
     /// A click on a voice channel of the list joins its session.
     pub(super) fn voice_channel_opened(self: &Rc<Self>, rid: &str) {
         let Some(session) = self.native_session() else { return };
-        let channel = self.rooms.borrow().iter().any(|r| r.rid == rid && r.voice && !r.encrypted);
+        let channel = self.rooms.borrow().iter().any(|r| r.rid == rid && r.voice);
         if channel && session.voice_supported() {
             self.join_voice(rid, false);
         }
@@ -709,7 +751,7 @@ impl ChatPage {
         } else {
             "voice_session.join"
         })));
-        self.call_button.set_visible(session.voice_supported() && !open.encrypted);
+        self.call_button.set_visible(session.voice_supported());
     }
 
     /// An incoming call rings with a dialog and the ringtone, an outgoing one
@@ -791,9 +833,10 @@ impl ChatPage {
             }
             this.show_voice(&room);
             this.voice.joining.replace(Some(room.clone()));
-            let (weak, expected, ring) = (Rc::downgrade(&this), session.clone(), ring.clone());
+            let keys = voice_keys(&session, &room);
+            let (weak, expected, ring, room) = (Rc::downgrade(&this), session.clone(), ring.clone(), room.clone());
             glib::spawn_future_local(async move {
-                let result = on_tokio(async move { session.answer_ring(&ring).await }).await;
+                let result = on_tokio(async move { session.answer_ring(&ring, &room, Some(keys)).await }).await;
                 let Some(this) = weak.upgrade() else { return };
                 this.voice.joining.replace(None);
                 if this.native_session().is_none_or(|s| !Arc::ptr_eq(&s, &expected)) {

@@ -2,7 +2,8 @@
 //! Argument `old`: announce another protocol version; `silent`: never say hello.
 //! Connect URLs: `fake://crash` exits without a word, `fake://refused` fails to
 //! connect, `fake://moved` is taken over by another device right after joining.
-//! The token is used as the local identity.
+//! The token is used as the local identity, followed by `#<key>` in an
+//! encrypted session (the key `SetKey` replaces), so tests see what it got.
 use rv_voice_protocol::{Command, ConnectionState, Device, Event, Participant, VERSION};
 use std::io::{BufRead, Write};
 
@@ -52,13 +53,16 @@ fn main() {
             continue;
         };
         match command {
-            Command::Connect { url, token } => {
+            Command::Connect { url, token, e2ee_key } => {
                 match url.as_str() {
                     "fake://crash" => std::process::exit(3),
                     "fake://refused" => return ended("connect_failed"),
                     _ => {}
                 }
-                me.identity = token;
+                me.identity = match e2ee_key {
+                    Some(key) => format!("{token}#{key}"),
+                    None => token,
+                };
                 emit(Event::State { state: ConnectionState::Connecting });
                 emit(Event::State { state: ConnectionState::Connected });
                 connected = true;
@@ -87,6 +91,14 @@ fn main() {
                 if !["", "mic-1", "spk-1"].contains(&device.as_str()) {
                     emit(Event::Error { code: "device_not_found".into() });
                 }
+            }
+            Command::SetKey { key } => {
+                let Some((token, _)) = me.identity.split_once('#') else {
+                    emit(Event::Error { code: "not_encrypted".into() });
+                    continue;
+                };
+                me.identity = format!("{token}#{key}");
+                publish(&me);
             }
             Command::Disconnect => return ended("client_initiated"),
         }

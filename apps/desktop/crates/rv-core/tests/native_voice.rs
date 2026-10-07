@@ -113,7 +113,7 @@ async fn joining_ringing_and_leaving_go_through_the_grant_and_the_sidecar() {
     assert!(session.supported_features().iter().any(|f| f == "voice"));
     assert!(!session.supported_features().iter().any(|f| f == "calls"));
     let mut changes = session.voice().changes();
-    session.connect_voice(&room, true).await.unwrap();
+    session.connect_voice(&room, true, None).await.unwrap();
     assert_eq!(joins.load(Ordering::SeqCst), 1);
     let snapshot = tokio::time::timeout(Duration::from_secs(10), async {
         loop {
@@ -159,7 +159,7 @@ async fn without_a_sidecar_voice_is_not_offered_but_rings_can_be_declined() {
     let session = session(&server).await;
     assert!(!session.voice_supported());
     assert!(!session.supported_features().iter().any(|f| f == "voice"));
-    assert_eq!(session.join_voice(&room, false).await.err().unwrap().code(), "unsupported_feature");
+    assert_eq!(session.join_voice(&room, false, false).await.err().unwrap().code(), "unsupported_feature");
     session.decline_ring("ring1").await.unwrap();
     assert_eq!(declines.load(Ordering::SeqCst), 1);
     session.create_room("Lounge", false, true).await.unwrap();

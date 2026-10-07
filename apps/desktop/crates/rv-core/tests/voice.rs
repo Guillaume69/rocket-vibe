@@ -1,7 +1,8 @@
 //! The voice controller against a fake sidecar (tests/support/fake_voice_sidecar.rs).
-use rv_core::voice::{ConnectionState, Ended, Snapshot, VoiceController, VoiceError};
+use rv_core::voice::{ConnectionState, Ended, Snapshot, VoiceController, VoiceError, VoiceKey, VoiceKeys};
 use rv_protocol::voice::VoiceGrant;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 fn fake(args: &[&str]) -> VoiceController {
@@ -42,7 +43,7 @@ async fn until(voice: &VoiceController, done: impl Fn(&Snapshot) -> bool) -> Sna
 async fn a_session_reports_participants_choices_and_leaving() {
     let voice = fake(&[]);
     voice.set_microphone(false).await;
-    voice.connect(&grant("r1", "wss://lk")).await.unwrap();
+    voice.connect(&grant("r1", "wss://lk"), None, None).await.unwrap();
     let snapshot = until(&voice, |s| s.state == ConnectionState::Connected && s.participants.len() == 2).await;
     assert_eq!(snapshot.room.as_deref(), Some("r1"));
     assert!(snapshot.can_publish);
@@ -68,7 +69,7 @@ async fn a_session_reports_participants_choices_and_leaving() {
 #[tokio::test]
 async fn joining_elsewhere_ends_as_moved_to_another_device() {
     let voice = fake(&[]);
-    voice.connect(&grant("r1", "fake://moved")).await.unwrap();
+    voice.connect(&grant("r1", "fake://moved"), None, None).await.unwrap();
     let snapshot = until(&voice, |s| s.ended.is_some()).await;
     assert!(snapshot.moved_elsewhere());
     assert_eq!(snapshot.room, None);
@@ -79,10 +80,10 @@ async fn joining_elsewhere_ends_as_moved_to_another_device() {
 #[tokio::test]
 async fn a_crashed_or_refused_sidecar_ends_the_session() {
     let voice = fake(&[]);
-    voice.connect(&grant("r1", "fake://crash")).await.unwrap();
+    voice.connect(&grant("r1", "fake://crash"), None, None).await.unwrap();
     let snapshot = until(&voice, |s| s.ended.is_some()).await;
     assert_eq!(snapshot.ended, Some(Ended::Failed("sidecar_exited".into())));
-    voice.connect(&grant("r2", "fake://refused")).await.unwrap();
+    voice.connect(&grant("r2", "fake://refused"), None, None).await.unwrap();
     let snapshot = until(&voice, |s| s.ended.is_some()).await;
     assert_eq!(snapshot.ended, Some(Ended::Failed("connect_failed".into())));
 }
@@ -90,9 +91,9 @@ async fn a_crashed_or_refused_sidecar_ends_the_session() {
 #[tokio::test]
 async fn a_new_connection_replaces_the_previous_one() {
     let voice = fake(&[]);
-    voice.connect(&grant("r1", "wss://lk")).await.unwrap();
+    voice.connect(&grant("r1", "wss://lk"), None, None).await.unwrap();
     until(&voice, |s| s.state == ConnectionState::Connected).await;
-    voice.connect(&grant("r2", "wss://lk")).await.unwrap();
+    voice.connect(&grant("r2", "wss://lk"), None, None).await.unwrap();
     let snapshot = until(&voice, |s| s.state == ConnectionState::Connected).await;
     assert_eq!(snapshot.room.as_deref(), Some("r2"));
     assert_eq!(snapshot.ended, None, "the old sidecar's farewell is not this session's end");
@@ -100,9 +101,9 @@ async fn a_new_connection_replaces_the_previous_one() {
 
 #[tokio::test]
 async fn the_handshake_rejects_another_protocol_or_silence() {
-    assert_eq!(fake(&["old"]).connect(&grant("r1", "wss://lk")).await, Err(VoiceError::Incompatible));
+    assert_eq!(fake(&["old"]).connect(&grant("r1", "wss://lk"), None, None).await, Err(VoiceError::Incompatible));
     let silent = fake(&["silent"]);
-    assert_eq!(silent.connect(&grant("r1", "wss://lk")).await, Err(VoiceError::Timeout));
+    assert_eq!(silent.connect(&grant("r1", "wss://lk"), None, None).await, Err(VoiceError::Timeout));
     assert_eq!(silent.snapshot().ended, Some(Ended::Failed("voice_timeout".into())));
     assert_eq!(fake(&["old"]).devices().await, Err(VoiceError::Incompatible));
 }
@@ -114,12 +115,49 @@ async fn devices_are_listed_with_or_without_a_session_and_choices_kept() {
     assert_eq!(inputs[0].id, "mic-1");
     assert_eq!(outputs[0].id, "spk-1");
     voice.select_input("mic-1").await;
-    voice.connect(&grant("r1", "wss://lk")).await.unwrap();
+    voice.connect(&grant("r1", "wss://lk"), None, None).await.unwrap();
     until(&voice, |s| s.state == ConnectionState::Connected).await;
     assert_eq!(voice.devices().await.unwrap().0[0].name, "Fake microphone");
     assert_eq!(voice.snapshot().error, None, "the kept input was accepted at connection");
     voice.select_output("gone").await;
     until(&voice, |s| s.error.as_deref() == Some("device_not_found")).await;
     assert_eq!(voice.selected_devices(), (Some("mic-1".into()), Some("gone".into())));
+    voice.disconnect().await;
+}
+
+#[tokio::test]
+async fn an_encrypted_session_connects_with_its_key_and_follows_new_epochs() {
+    let voice = fake(&[]).with_key_refresh(Duration::from_millis(50));
+    let encrypted = VoiceGrant { e2ee: true, ..grant("vault", "wss://lk") };
+    // Never in clear: an encrypted grant without its key does not connect.
+    assert_eq!(voice.connect(&encrypted, None, None).await, Err(VoiceError::Unencrypted));
+    assert_eq!(voice.snapshot().room, None);
+
+    let current = Arc::new(Mutex::new(Some(VoiceKey::new(4, b"four"))));
+    let source = current.clone();
+    let keys: VoiceKeys = Arc::new(move || {
+        let key = source.lock().unwrap().clone();
+        Box::pin(async move { key })
+    });
+    let first = current.lock().unwrap().clone();
+    voice.connect(&encrypted, first, Some(keys)).await.unwrap();
+    let local = |s: &Snapshot| s.local().map(|p| p.identity.clone()).unwrap_or_default();
+    let snapshot = until(&voice, |s| s.state == ConnectionState::Connected && !local(s).is_empty()).await;
+    assert!(snapshot.encrypted);
+    assert_eq!(local(&snapshot), "me#Zm91cg==");
+    // Unreadable for a while: the key stays.
+    *current.lock().unwrap() = None;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(local(&voice.snapshot()), "me#Zm91cg==");
+    // A new epoch: its key replaces the current one.
+    *current.lock().unwrap() = Some(VoiceKey::new(5, b"five"));
+    until(&voice, |s| local(s) == "me#Zml2ZQ==").await;
+    voice.disconnect().await;
+
+    // A plaintext grant ignores a key: the room is not encrypted.
+    voice.connect(&grant("lounge", "wss://lk"), Some(VoiceKey::new(1, b"one")), None).await.unwrap();
+    let snapshot = until(&voice, |s| s.state == ConnectionState::Connected && !local(s).is_empty()).await;
+    assert!(!snapshot.encrypted);
+    assert_eq!(local(&snapshot), "me");
     voice.disconnect().await;
 }

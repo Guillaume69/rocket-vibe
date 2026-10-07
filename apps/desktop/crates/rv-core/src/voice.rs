@@ -6,7 +6,9 @@
 use rv_protocol::voice::VoiceGrant;
 use rv_voice_protocol::{Command, Event, VERSION};
 pub use rv_voice_protocol::{ConnectionState, Device, Participant};
+use std::future::Future;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
@@ -20,6 +22,31 @@ pub type Devices = (Vec<Device>, Vec<Device>);
 
 const BINARY: &str = if cfg!(windows) { "rv-voice.exe" } else { "rv-voice" };
 const HELLO_TIMEOUT: Duration = Duration::from_secs(5);
+/// How often an encrypted session checks its room's group for a new epoch.
+const KEY_REFRESH: Duration = Duration::from_secs(15);
+
+/// An encrypted room's voice key (docs/protocol/VOICE.md): exported from its
+/// MLS group at `epoch`, as standard base64, whose ASCII bytes LiveKit takes.
+#[derive(Clone, PartialEq, Eq)]
+pub struct VoiceKey {
+    pub epoch: u64,
+    pub key: zeroize::Zeroizing<String>,
+}
+impl VoiceKey {
+    pub fn new(epoch: u64, secret: &[u8]) -> Self {
+        use base64::Engine;
+        Self { epoch, key: zeroize::Zeroizing::new(base64::engine::general_purpose::STANDARD.encode(secret)) }
+    }
+}
+impl std::fmt::Debug for VoiceKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VoiceKey").field("epoch", &self.epoch).finish_non_exhaustive()
+    }
+}
+/// Where an encrypted room's voice key comes from: the app's crypto access,
+/// asked again while the session lasts. `None` when this device cannot derive
+/// the current one (not welcomed, a group change not accepted yet).
+pub type VoiceKeys = Arc<dyn Fn() -> Pin<Box<dyn Future<Output = Option<VoiceKey>> + Send>> + Send + Sync>;
 const EXIT_TIMEOUT: Duration = Duration::from_secs(4);
 
 /// `RV_VOICE_BIN`, else `rv-voice` next to the running executable, else in the
@@ -56,6 +83,9 @@ pub enum VoiceError {
     Exited,
     #[error("voice_timeout")]
     Timeout,
+    /// An encrypted room's grant without its key: never connected in clear.
+    #[error("voice_key_unavailable")]
+    Unencrypted,
 }
 impl VoiceError {
     pub fn code(&self) -> &'static str {
@@ -65,6 +95,7 @@ impl VoiceError {
             Self::Incompatible => "voice_sidecar_incompatible",
             Self::Exited => "voice_sidecar_exited",
             Self::Timeout => "voice_timeout",
+            Self::Unencrypted => "voice_key_unavailable",
         }
     }
 }
@@ -103,6 +134,8 @@ pub struct Snapshot {
     pub participants: Vec<Participant>,
     /// False in a read-only room for a plain member: listening only.
     pub can_publish: bool,
+    /// Frames are end-to-end encrypted with the room's group key.
+    pub encrypted: bool,
     /// The user's choices; they carry over to the next connection.
     pub microphone: bool,
     pub deafened: bool,
@@ -117,6 +150,7 @@ impl Default for Snapshot {
             state: ConnectionState::Disconnected,
             participants: vec![],
             can_publish: false,
+            encrypted: false,
             microphone: true,
             deafened: false,
             ended: None,
@@ -159,6 +193,7 @@ struct Inner {
     changes: broadcast::Sender<()>,
     process: tokio::sync::Mutex<Option<Sidecar>>,
     generation: AtomicU64,
+    key_refresh: Duration,
 }
 
 #[derive(Clone)]
@@ -189,8 +224,16 @@ impl VoiceController {
                 changes,
                 process: tokio::sync::Mutex::new(None),
                 generation: AtomicU64::new(0),
+                key_refresh: KEY_REFRESH,
             }),
         }
+    }
+    /// How often an encrypted session asks for its group's key (tests shorten it).
+    pub fn with_key_refresh(mut self, every: Duration) -> Self {
+        if let Some(inner) = Arc::get_mut(&mut self.inner) {
+            inner.key_refresh = every;
+        }
+        self
     }
     pub fn changes(&self) -> broadcast::Receiver<()> {
         self.inner.changes.subscribe()
@@ -200,7 +243,18 @@ impl VoiceController {
     }
     /// Replaces any current connection with the grant's room. Returns once the
     /// sidecar took the command; the outcome arrives through the snapshot.
-    pub async fn connect(&self, grant: &VoiceGrant) -> Result<(), VoiceError> {
+    /// An encrypted grant needs `key`, then follows the group's new keys from `keys`.
+    pub async fn connect(
+        &self,
+        grant: &VoiceGrant,
+        key: Option<VoiceKey>,
+        keys: Option<VoiceKeys>,
+    ) -> Result<(), VoiceError> {
+        let key = match (grant.e2ee, key) {
+            (true, None) => return Err(VoiceError::Unencrypted),
+            (true, key) => key,
+            (false, _) => None,
+        };
         let mut process = self.inner.process.lock().await;
         // A new generation first: the old sidecar's last words are ignored.
         let generation = self.inner.generation.fetch_add(1, Ordering::SeqCst) + 1;
@@ -212,6 +266,7 @@ impl VoiceController {
                 room: Some(grant.room_id.clone()),
                 state: ConnectionState::Connecting,
                 can_publish: grant.can_publish,
+                encrypted: key.is_some(),
                 microphone: s.snapshot.microphone,
                 deafened: s.snapshot.deafened,
                 ..Snapshot::default()
@@ -220,7 +275,11 @@ impl VoiceController {
             commands.extend(s.output.iter().map(|d| Command::SetOutput { device: d.clone() }));
             commands.push(Command::SetMicrophone { enabled: s.snapshot.microphone });
             commands.push(Command::SetDeafened { deafened: s.snapshot.deafened });
-            commands.push(Command::Connect { url: grant.url.clone(), token: grant.token.clone() });
+            commands.push(Command::Connect {
+                url: grant.url.clone(),
+                token: grant.token.clone(),
+                e2ee_key: key.as_ref().map(|k| k.key.to_string()),
+            });
             commands
         });
         let started = async {
@@ -236,6 +295,10 @@ impl VoiceController {
             Ok((sidecar, lines)) => {
                 tokio::spawn(read(Arc::downgrade(&self.inner), generation, lines));
                 *process = Some(sidecar);
+                if let (Some(key), Some(keys)) = (key, keys) {
+                    let every = self.inner.key_refresh;
+                    tokio::spawn(follow(Arc::downgrade(&self.inner), generation, key.epoch, keys, every));
+                }
                 Ok(())
             }
             Err(error) => {
@@ -321,10 +384,34 @@ impl VoiceController {
         found
     }
     async fn command(&self, command: Command) {
-        let mut process = self.inner.process.lock().await;
-        if let Some(sidecar) = process.as_mut() {
-            // A dead sidecar is reported by its reader; nothing to add here.
-            let _ = send(&mut sidecar.stdin, &command).await;
+        command_to(&self.inner, None, command).await;
+    }
+}
+
+async fn command_to(inner: &Inner, generation: Option<u64>, command: Command) {
+    let mut process = inner.process.lock().await;
+    if let Some(sidecar) = process.as_mut()
+        && generation.is_none_or(|g| g == sidecar.generation)
+    {
+        // A dead sidecar is reported by its reader; nothing to add here.
+        let _ = send(&mut sidecar.stdin, &command).await;
+    }
+}
+
+/// While the encrypted session `generation` lasts: a member or device added or
+/// removed moves the group to a new epoch, whose key replaces the current one.
+async fn follow(inner: Weak<Inner>, generation: u64, mut epoch: u64, keys: VoiceKeys, every: Duration) {
+    let live = |inner: &Weak<Inner>| inner.upgrade().filter(|i| i.generation.load(Ordering::SeqCst) == generation);
+    loop {
+        tokio::time::sleep(every).await;
+        if live(&inner).is_none() {
+            return;
+        }
+        let Some(next) = keys().await else { continue };
+        let Some(current) = live(&inner) else { return };
+        if next.epoch != epoch {
+            epoch = next.epoch;
+            command_to(&current, Some(generation), Command::SetKey { key: next.key.to_string() }).await;
         }
     }
 }
@@ -455,7 +542,7 @@ mod tests {
             ring: None,
             e2ee: false,
         };
-        assert_eq!(voice.connect(&grant).await, Err(VoiceError::Spawn));
+        assert_eq!(voice.connect(&grant, None, None).await, Err(VoiceError::Spawn));
         let snapshot = voice.snapshot();
         assert_eq!(snapshot.room, None);
         assert_eq!(snapshot.ended, Some(Ended::Failed("voice_sidecar_failed".into())));

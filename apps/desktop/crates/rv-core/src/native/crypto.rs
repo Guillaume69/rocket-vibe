@@ -238,6 +238,11 @@ impl Access {
     pub async fn cancel_group(&self, room: &str, operation: &str) -> Result<groups::GroupSettlement> {
         self.call(|worker| async move { worker.cancel_group(room, operation).await }).await
     }
+    /// The room's voice key at the server's group head, None while behind it.
+    pub async fn voice_key(&self, room: &str) -> Result<Option<crate::voice::VoiceKey>> {
+        let key = self.call(|worker| async move { worker.voice_key(room).await }).await?;
+        Ok(key.map(|(epoch, secret)| crate::voice::VoiceKey::new(epoch, &secret)))
+    }
     pub async fn events(&self, room: &str) -> Result<Batch> {
         self.call(|worker| async move { worker.events(room).await }).await
     }

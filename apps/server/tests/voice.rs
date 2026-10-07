@@ -623,29 +623,27 @@ async fn one_screen_share_per_room_and_the_sfu_follows_the_claim(pool: PgPool) {
     assert!(b.sfu.lock().unwrap().permissions.contains(&(
         sfu_room.clone(),
         alice_id.clone(),
-        share
+        share.clone()
     )));
-    refused(bob.claim_screen().await, 409, "screen_taken");
     // Claiming again is harmless; the live snapshot shows who shares and who films.
     alice.claim_screen().await.unwrap();
     b.reconcile().await;
-    let state = live(&bob).await;
-    let voice = &state
-        .rooms
-        .iter()
-        .find(|r| r.room_id == room)
-        .unwrap()
-        .voice;
-    let alice_live = voice.iter().find(|v| v.user.id == alice_id).unwrap();
-    assert!(alice_live.screen && alice_live.camera);
-    assert!(
+    let shares = |state: &rv_protocol::live::LiveState, id: &str| {
+        let voice = &state
+            .rooms
+            .iter()
+            .find(|r| r.room_id == room)
+            .unwrap()
+            .voice;
         voice
             .iter()
-            .find(|v| v.user.id == bob_id)
-            .is_some_and(|v| !v.screen && !v.camera)
-    );
-    // Released, the screen goes to whoever asks next; the SFU takes it back.
-    alice.release_screen().await.unwrap();
+            .find(|v| v.user.id == id)
+            .map(|v| (v.screen, v.camera))
+    };
+    let state = live(&bob).await;
+    assert_eq!(shares(&state, &alice_id), Some((true, true)));
+    assert_eq!(shares(&state, &bob_id), Some((false, false)));
+    // A new share replaces the current one: alice's screen source goes at once.
     bob.claim_screen().await.unwrap();
     let permissions = b.sfu.lock().unwrap().permissions.clone();
     assert!(permissions.contains(&(
@@ -653,6 +651,13 @@ async fn one_screen_share_per_room_and_the_sfu_follows_the_claim(pool: PgPool) {
         alice_id.clone(),
         vec!["CAMERA".into(), "MICROPHONE".into()]
     )));
+    assert!(permissions.contains(&(sfu_room.clone(), bob_id.clone(), share.clone())));
+    let state = live(&bob).await;
+    assert_eq!(shares(&state, &alice_id), Some((false, true)));
+    assert_eq!(shares(&state, &bob_id), Some((true, false)));
+    // Releasing someone else's share is not a thing: alice's release is hers only.
+    alice.release_screen().await.unwrap();
+    assert_eq!(shares(&live(&bob).await, &bob_id), Some((true, false)));
     // Leaving drops the claim.
     bob.leave_voice().await.unwrap();
     b.disconnect(&sfu_room, &bob_id);

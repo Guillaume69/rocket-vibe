@@ -113,8 +113,13 @@ screen: a connected participant claims it first.
 - `POST /api/v1/voice/screen` (no body, `204`) claims the room's share for the
   account's session. The server then widens that participant's LiveKit
   permission to `screen_share` and `screen_share_audio`; the client publishes
-  once its permission changed. `409 screen_taken` while another participant
-  holds it, `409 voice_not_connected` before the SFU reports the session.
+  once its permission changed. `409 voice_not_connected` before the SFU reports
+  the session.
+- **A new share replaces the current one**: claiming while someone else
+  shares moves the claim, and the previous holder loses the screen sources at
+  once (the SFU unpublishes the screen). Its client stops capturing when its
+  screen is unpublished or its permission no longer lists `screen_share`, and
+  gives nothing back: a release only ever releases the caller's own claim.
 - `DELETE /api/v1/voice/screen` (`204`) releases it; the SFU unpublishes the
   screen. Leaving the session or joining another room releases it too.
 - The snapshot marks the holder with `screen: true`. The worker keeps every

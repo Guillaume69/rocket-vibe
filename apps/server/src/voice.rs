@@ -413,6 +413,7 @@ async fn share(app: &App, actor: &Account, on: bool) -> Result<()> {
     let grant: Option<(String, bool)> = sqlx::query_as("SELECT m.role,r.read_only FROM members m JOIN rooms r ON r.id=m.room_id WHERE m.room_id=$1 AND m.user_id=$2 FOR SHARE OF m")
         .bind(&room).bind(&actor.id).fetch_optional(&mut *tx).await?;
     let (role, read_only) = grant.ok_or_else(Error::missing)?;
+    let mut taken: Vec<(String, String)> = Vec::new();
     if on {
         if state != "connected" {
             return Err(Error::new(StatusCode::CONFLICT, "voice_not_connected"));
@@ -425,16 +426,9 @@ async fn share(app: &App, actor: &Account, on: bool) -> Result<()> {
             .bind(&room)
             .execute(&mut *tx)
             .await?;
-        let taken: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM voice_sessions WHERE room_id=$1 AND screen AND user_id<>$2)",
-        )
-        .bind(&room)
-        .bind(&actor.id)
-        .fetch_one(&mut *tx)
-        .await?;
-        if taken {
-            return Err(Error::new(StatusCode::CONFLICT, "screen_taken"));
-        }
+        // A new share replaces the current one: its holder loses the claim.
+        taken = sqlx::query_as("UPDATE voice_sessions s SET screen=false FROM members m WHERE s.room_id=$1 AND s.screen AND s.user_id<>$2 AND m.room_id=s.room_id AND m.user_id=s.user_id RETURNING s.user_id,m.role")
+            .bind(&room).bind(&actor.id).fetch_all(&mut *tx).await?;
     }
     sqlx::query("UPDATE voice_sessions SET screen=$2 WHERE user_id=$1")
         .bind(&actor.id)
@@ -442,10 +436,18 @@ async fn share(app: &App, actor: &Account, on: bool) -> Result<()> {
         .execute(&mut *tx)
         .await?;
     tx.commit().await?;
-    // The worker repeats it if the SFU misses this one.
+    // The SFU unpublishes the previous screen as its source is revoked; the
+    // worker repeats both if the SFU misses them.
+    let sfu = sfu_room(&epoch, &room, e2ee);
+    for (holder, holder_role) in taken {
+        let sources = livekit::sources(may_publish(&holder_role, read_only), false);
+        if let Err(error) = livekit.permit(&sfu, &holder, &sources).await {
+            tracing::debug!(code = error.code, "screen takeover deferred to the worker");
+        }
+    }
     livekit
         .permit(
-            &sfu_room(&epoch, &room, e2ee),
+            &sfu,
             &actor.id,
             &livekit::sources(may_publish(&role, read_only), on),
         )

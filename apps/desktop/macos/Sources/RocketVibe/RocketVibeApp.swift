@@ -19,12 +19,8 @@ struct RocketVibeApp: App {
         }
         .defaultSize(width: 1100, height: 720)
         .commands { AppCommands(app: app) }
-
-        Settings {
-            SettingsView()
-                .environment(app)
-                .vibe()
-        }
+        // No Settings scene: the settings are an overlay of this window,
+        // which the app menu's Settings item (Command-comma) opens.
     }
 
     @MainActor
@@ -88,6 +84,12 @@ struct RootView: View {
             GalleryView()
         } else {
             screen
+                .overlay {
+                    if app.settingsShown {
+                        SettingsOverlay().transition(.opacity)
+                    }
+                }
+                .animation(.easeOut(duration: 0.16), value: app.settingsShown)
         }
     }
 
@@ -111,6 +113,10 @@ struct AppCommands: Commands {
     let app: AppModel
 
     var body: some Commands {
+        CommandGroup(replacing: .appSettings) {
+            Button(L("settings.title") + "…") { app.openSettings() }
+                .keyboardShortcut(",", modifiers: .command)
+        }
         CommandGroup(after: .toolbar) {
             Button(L("nav.back")) { app.goBack() }
                 .keyboardShortcut(.leftArrow, modifiers: .option)

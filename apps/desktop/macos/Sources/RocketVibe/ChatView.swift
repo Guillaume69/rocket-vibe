@@ -432,7 +432,6 @@ struct PresenceDot: View {
 /// Me, the connection, the way to settings.
 struct AccountBar: View {
     @Environment(AppModel.self) var app
-    @Environment(\.openSettings) var openSettings
 
     var body: some View {
         HStack(spacing: 8) {
@@ -450,7 +449,7 @@ struct AccountBar: View {
             }
             .buttonStyle(.plain)
             .help(connectionHelp)
-            Button { openSettings() } label: { Image(systemName: "gearshape") }
+            Button { app.openSettings() } label: { Image(systemName: "gearshape") }
                 .buttonStyle(.borderless)
                 .help(L("settings.title"))
         }

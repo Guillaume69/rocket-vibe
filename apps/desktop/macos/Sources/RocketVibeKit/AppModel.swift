@@ -38,6 +38,10 @@ public final class AppModel {
     public private(set) var voice: VoiceModel?
     /// A short message for the window's toast.
     public var notice: String?
+    /// The settings overlay over the window, and the category it shows
+    /// (`shownSettingsCategory` falls back when it has nothing here).
+    public internal(set) var settingsShown = false
+    public var settingsCategory = SettingsCategory.account
 
     /// Room ids opened, for back and forward.
     var history: [String] = []
@@ -158,6 +162,7 @@ public final class AppModel {
     }
 
     public func showLogin(error: String?) {
+        settingsShown = false
         selectionId = UUID()
         login.reset(known: client.knownServers(), error: error)
         screen = .login

@@ -313,14 +313,16 @@ struct MarkedView: View {
     }
 }
 
-/// The picker's pages, then search by shortcode.
+/// The picker's pages, then search by shortcode. Without `custom` (a
+/// reaction in a private conversation), no server emoji.
 struct EmojiPicker: View {
     @Environment(AppModel.self) var app
     let pick: (String, String) -> Void
+    var custom = true
     @State var category = 0
     @State var query = ""
     let categories = emojiCategories()
-    var customs:[String]{_ = app.imagesVersion;return app.chat?.customEmojiNames() ?? app.native?.customEmojiNames() ?? []}
+    var customs:[String]{_ = app.imagesVersion;guard custom else {return []};return app.chat?.customEmojiNames() ?? app.native?.customEmojiNames() ?? []}
 
     var shown: [(String, String)] {
         if query.isEmpty {

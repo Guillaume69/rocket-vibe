@@ -98,6 +98,7 @@ pub struct NativePrivateConversation {
 #[derive(uniffi::Object)]
 pub struct NativeCryptoMessages {
     access: messages::Access,
+    usage: Arc<rv_core::emoji_usage::EmojiUsage>,
     user: String,
     username: String,
     thread: Option<String>,
@@ -118,6 +119,7 @@ impl NativeCryptoMessages {
             .await?;
         Ok(Arc::new(Self {
             access: settings.messages(room, thread.clone()).await?,
+            usage: crate::reactions::usage(&dirs.config, &session.info),
             user: session.info.user_id.clone(),
             username: session.info.username.clone(),
             thread,
@@ -262,6 +264,9 @@ impl NativeCryptoMessages {
     }
     /// Reacts to a journaled message (`present`) or withdraws the reaction.
     pub async fn react(&self, message_id: String, emoji: String, present: bool) -> Result<(), RvError> {
+        if present {
+            self.usage.record(&emoji);
+        }
         let access = self.access.clone();
         on_tokio(async move { access.react(message_id, emoji, present).await }).await.map_err(error)
     }

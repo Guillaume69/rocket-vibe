@@ -397,6 +397,8 @@ struct MessageRow: View, Equatable {
     @State var viewing: ImageItem?
     @State private var choosingQuote = false
     @State private var quoteSearch = ""
+    /// The emoji picker, to react with any emoji.
+    @State private var reacting = false
 
     nonisolated static func == (a: MessageRow, b: MessageRow) -> Bool {
         a.message == b.message && a.editing == b.editing && a.revealed == b.revealed && a.model === b.model
@@ -440,6 +442,13 @@ struct MessageRow: View, Equatable {
             .background(revealed ? Vibe.pink.opacity(0.14) : .clear)
             .animation(.easeOut(duration: 0.3), value: revealed)
             .contextMenu { menu }
+            // A context menu cannot hold the picker: its item opens it here.
+            .popover(isPresented: $reacting, arrowEdge: .bottom) {
+                EmojiPicker(pick: { code, _ in
+                    reacting = false
+                    Task { await model?.reactWithPick(message, code: code) }
+                }, custom: model?.customReactionsAllowed ?? false)
+            }
         }
         .sheet(item: Binding(get: { viewing.map(Viewing.init) }, set: { viewing = $0?.image })) { v in
             ImageViewer(path: v.image.source, title: v.image.title)
@@ -606,13 +615,16 @@ struct MessageRow: View, Equatable {
     @ViewBuilder var menu: some View {
         let actions = model?.actions(for: message) ?? []
         if actions.contains(.react) {
+            // The emoji I react with most, mine ticked (choosing one withdraws it).
             Menu("😀") {
                 ForEach(model?.quickReactions ?? [], id: \.self) { code in
-                    Button(replaceShortcodes(text: code)) {
-                        Task { await model?.react(message, shortcode: code, add: !(model?.quickReactionIsMine(message, shortcode: code) ?? false)) }
-                    }
+                    Toggle(replaceShortcodes(text: code), isOn: Binding(
+                        get: { model?.quickReactionIsMine(message, shortcode: code) ?? false },
+                        set: { _ in Task { await model?.quickReact(message, shortcode: code) } }
+                    ))
                 }
             }
+            Button(L("actions.react_more") + "…") { reacting = true }
         }
         ForEach(actions.filter { $0 != .react }, id: \.self) { action in
             Button(title(action), role: action == .delete ? .destructive : nil) { run(action) }

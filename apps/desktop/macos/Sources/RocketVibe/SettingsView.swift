@@ -5,91 +5,90 @@ import RocketVibeKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-struct SettingsView: View {
+/// The settings over the main window: a dimmed backdrop (a click on it
+/// closes), and the panel sized from the window (`SettingsLayout`).
+struct SettingsOverlay: View {
     @Environment(AppModel.self) var app
-    @State var language = "auto"
-    @State private var profile: MyProfileModel?
 
     var body: some View {
-        Form {
-            Section(L("settings.accounts")) {
-                ForEach(app.accounts, id: \.key) { account in
-                    HStack {
-                        Avatar(path: nil, name: account.username, size: 22)
-                        Text(account.username)
-                        Text(URL(string: account.baseUrl)?.host() ?? account.baseUrl).foregroundStyle(.secondary)
-                        Spacer()
-                        if account.key == app.account?.key {
-                            Text(L("settings.current")).foregroundStyle(.secondary)
-                        } else {
-                            Button(L("notify.open")) { Task { await app.resume(account) } }
-                        }
-                    }
+        GeometryReader { geometry in
+            let size = SettingsLayout.panel(width: Double(geometry.size.width), height: Double(geometry.size.height))
+            ZStack {
+                Color.black.opacity(0.5)
+                    .contentShape(Rectangle())
+                    .onTapGesture { app.closeSettings() }
+                SettingsView(singlePane: SettingsLayout.singlePane(panelWidth: size.width))
+                    .frame(width: CGFloat(size.width), height: CGFloat(size.height))
+                    .background(Vibe.night)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                    .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Vibe.line))
+                    .shadow(color: .black.opacity(0.5), radius: 24, y: 10)
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+        }
+    }
+}
+
+extension SettingsCategory {
+    var symbol: String {
+        switch self {
+        case .account: return "person.crop.circle"
+        case .notifications: return "bell"
+        case .language: return "globe"
+        case .encryption: return "lock"
+        case .security: return "checkmark.shield"
+        case .devices: return "laptopcomputer"
+        case .accounts: return "person.2"
+        case .app: return "gearshape"
+        }
+    }
+}
+
+/// The categories on the left (the GTK app's, `SettingsCategory`), Sign out
+/// under them, the chosen one's sections on the right. Narrow, one pane: the
+/// list, then the page with a way back.
+struct SettingsView: View {
+    @Environment(AppModel.self) var app
+    let singlePane: Bool
+    @State var language = "auto"
+    @State private var profile: MyProfileModel?
+    @State private var unlocking = false
+    /// One pane: the page shows instead of the list.
+    @State private var paging = false
+    @FocusState private var listFocused: Bool
+
+    var body: some View {
+        let shown = app.shownSettingsCategory
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                if singlePane && paging {
+                    Button { paging = false } label: { Image(systemName: "chevron.left") }
+                        .buttonStyle(.borderless)
+                        .help(L("nav.back"))
                 }
-                HStack {
-                    Button(L("settings.add_account")) { app.showLogin(error: nil) }
-                    Spacer()
-                    Button(L("rooms.sign_out"), role: .destructive) { Task { await app.signOut() } }
-                        .disabled(!app.signedIn)
+                Text(singlePane && !paging ? L("settings.title") : shown?.title ?? L("settings.title"))
+                    .font(.vibeTitle(18, .bold))
+                Spacer()
+                Button { app.closeSettings() } label: { Image(systemName: "xmark") }
+                    .buttonStyle(.borderless)
+                    .keyboardShortcut(.cancelAction)
+            }
+            .padding(14)
+            Divider()
+            HStack(spacing: 0) {
+                if !singlePane {
+                    sidebar(shown).frame(width: 230)
+                    Divider()
+                    page(shown)
+                } else if paging {
+                    page(shown)
+                } else {
+                    sidebar(shown)
                 }
-            }
-            if let profile, app.provider?.supportsProfiles == true {
-                MyProfileSection(model: profile)
-            }
-            if app.native?.supportedFeatures().contains("device_sessions") == true {
-                DevicesSection()
-            }
-            if app.native?.securitySupported() == true {
-                SecuritySection()
-            }
-            if app.native?.cryptoSettingsSupported() == true {
-                CryptoSection()
-            }
-            if let voice = app.voice {
-                VoiceSettings(voice: voice)
-            }
-            if app.chat != nil {
-                Section(L("e2e.status")) {
-                    HStack {
-                        Text(app.e2eUnlocked ? L("e2e.unlocked") : L("e2e.locked"))
-                        Spacer()
-                        if app.e2eUnlocked {
-                            Button(L("e2e.lock")) { app.lock() }
-                        }
-                    }
-                }
-            }
-            Section(L("settings.language")) {
-                Picker(L("settings.language"), selection: Binding(get: { profile?.native == true ? profile?.language ?? language : language }, set: { choice in
-                    if let profile, profile.native { Task { await profile.setLanguage(choice) } }
-                    else {
-                        language = choice
-                        try? choice.write(toFile: app.client.configDir() + "/language", atomically: true, encoding: .utf8)
-                    }
-                })) {
-                    Text(L("settings.lang_auto")).tag("auto")
-                    Text(L("settings.lang_fr")).tag("fr")
-                    Text(L("settings.lang_en")).tag("en")
-                }
-                .disabled(profile?.native == true && profile?.preferencesEditable != true)
-                Text(L("settings.language_restart")).font(.caption).foregroundStyle(.secondary)
-            }
-            Section(L("settings.notifications")) {
-                if let profile, profile.saved != nil { NotificationPreference(model: profile) }
-                Button(L("notify.test")) { Notifier.shared.test() }
-                Button(L("notify.system_settings")) {
-                    if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") {
-                        NSWorkspace.shared.open(url)
-                    }
-                }
-            }
-            Section(L("settings.about")) {
-                LabeledContent(L("settings.version"), value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev")
             }
         }
-        .formStyle(.grouped)
-        .frame(width: 480)
         .onAppear {
+            listFocused = true
             language = (try? String(contentsOfFile: app.client.configDir() + "/language", encoding: .utf8))?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? "auto"
         }
@@ -99,6 +98,164 @@ struct SettingsView: View {
             await fresh.load()
         }
         .onDisappear { profile?.close() }
+        .sheet(isPresented: $unlocking) { UnlockSheet() }
+    }
+
+    func sidebar(_ shown: SettingsCategory?) -> some View {
+        // One pane: nothing selected, so a click on any category opens it.
+        let selection = Binding<SettingsCategory?>(get: { singlePane ? nil : shown }, set: { picked in
+            guard let picked else { return }
+            app.settingsCategory = picked
+            paging = true
+        })
+        return VStack(spacing: 0) {
+            List(selection: selection) {
+                ForEach(app.settingsCategories) { category in
+                    Label(category.title, systemImage: category.symbol).tag(category)
+                }
+            }
+            .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
+            .focused($listFocused)
+            Divider()
+            Button(role: .destructive) {
+                app.closeSettings()
+                Task { await app.signOut() }
+            } label: {
+                Label(L("rooms.sign_out"), systemImage: "rectangle.portrait.and.arrow.right")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.red)
+            .padding(12)
+            .disabled(!app.signedIn)
+        }
+        .background(Vibe.deep)
+    }
+
+    func page(_ shown: SettingsCategory?) -> some View {
+        Form {
+            if let shown {
+                switch shown {
+                case .account: account
+                case .notifications: notifications
+                case .language: languageSection
+                case .encryption: encryption
+                case .security: SecuritySection()
+                case .devices: DevicesSection()
+                case .accounts: accounts
+                case .app: about
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// The profile card, then my photo, presence, status and fields.
+    @ViewBuilder var account: some View {
+        if let me = app.account {
+            let name = profile?.saved?.name ?? ""
+            let host = URL(string: me.baseUrl)?.host() ?? me.baseUrl
+            Section {
+                HStack(spacing: 12) {
+                    Avatar(path: app.media?.avatar(user: me.username), name: me.username, size: 48)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(name.isEmpty ? me.username : name).font(.title3.bold())
+                        Text("@\(me.username) · \(host)").foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+        if let profile, app.provider?.supportsProfiles == true {
+            MyProfileSection(model: profile)
+        }
+    }
+
+    var notifications: some View {
+        Section(L("settings.notifications")) {
+            if let profile, profile.saved != nil { NotificationPreference(model: profile) }
+            Button(L("notify.test")) { Notifier.shared.test() }
+            Button(L("notify.system_settings")) {
+                if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") {
+                    NSWorkspace.shared.open(url)
+                }
+            }
+        }
+    }
+
+    var languageSection: some View {
+        Section(L("settings.language")) {
+            Picker(L("settings.language"), selection: Binding(get: { profile?.native == true ? profile?.language ?? language : language }, set: { choice in
+                if let profile, profile.native { Task { await profile.setLanguage(choice) } }
+                else {
+                    language = choice
+                    try? choice.write(toFile: app.client.configDir() + "/language", atomically: true, encoding: .utf8)
+                }
+            })) {
+                Text(L("settings.lang_auto")).tag("auto")
+                Text(L("settings.lang_fr")).tag("fr")
+                Text(L("settings.lang_en")).tag("en")
+            }
+            .disabled(profile?.native == true && profile?.preferencesEditable != true)
+            Text(L("settings.language_restart")).font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    /// Rocket.Chat: my E2E key, locked or not; RocketVibe: this device's encryption.
+    @ViewBuilder var encryption: some View {
+        if app.chat != nil {
+            Section(L("e2e.status")) {
+                HStack {
+                    Text(app.e2eUnlocked ? L("e2e.unlocked") : L("e2e.locked"))
+                    Spacer()
+                    if app.e2eUnlocked {
+                        Button(L("e2e.lock")) { app.lock() }
+                    } else {
+                        Button(L("e2e.unlock")) { unlocking = true }
+                    }
+                }
+            }
+        }
+        if app.native?.cryptoSettingsSupported() == true {
+            CryptoSection()
+        }
+    }
+
+    /// The accounts on this machine (opening one leaves the settings), then the open one's server.
+    @ViewBuilder var accounts: some View {
+        Section(L("settings.accounts")) {
+            ForEach(app.accounts, id: \.key) { account in
+                HStack {
+                    Avatar(path: nil, name: account.username, size: 22)
+                    Text(account.username)
+                    Text(URL(string: account.baseUrl)?.host() ?? account.baseUrl).foregroundStyle(.secondary)
+                    Spacer()
+                    if account.key == app.account?.key {
+                        Text(L("settings.current")).foregroundStyle(.secondary)
+                    } else {
+                        Button(L("notify.open")) {
+                            app.closeSettings()
+                            Task { await app.resume(account) }
+                        }
+                    }
+                }
+            }
+            Button(L("settings.add_account")) { app.showLogin(error: nil) }
+        }
+        if let account = app.account {
+            Section(L("settings.account")) {
+                LabeledContent(L("settings.server"), value: account.baseUrl)
+            }
+        }
+    }
+
+    var about: some View {
+        Section(L("settings.about")) {
+            LabeledContent(L("settings.version"), value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev")
+        }
     }
 }
 

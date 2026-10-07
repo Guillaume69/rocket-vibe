@@ -49,12 +49,13 @@ All `@MainActor`; the models are `@Observable`.
 - `RoomModel`: one room or one thread. `reload()` re-reads the store through rv-ffi and publishes only when the list differs (rows are `Equatable`, so unchanged rows are not redrawn); paging back, jump-to-message, drafts saved 400 ms after the last keystroke, send or run a slash command, quote, edit-last, typing and uploads.
 - `MediaStore`: protected files and photos fetched once each through rv-ffi, shared by concurrent requests, forgotten on avatar changes.
 - `VoiceModel` (RocketVibe servers offering voice, the sidecar shipped): the voice session, rings and listening choices read from rv-ffi on each `Event::Voice`, the cues and tones it derives (played by the app through `onVoiceCue`/`onVoiceTone`), the incoming ring, the room whose voice page shows (`shown`). See [voice](../features/voice.md#desktop).
+- `AdminModel.swift`: the server administration (`AdminCategory`, `AdminText`, `AdminList` with its generation counter and 250 ms search debounce, `AdminModel`) and the report flow (`ReportTarget`, `ReportDraft`); `AppModel` holds `administrator` (asked at session start and when the settings open, since a context menu is built synchronously), `admin` and `reporting`. Over rv-ffi's `ServerAdmin` (`admin.rs`, from `Chat::admin()` / `NativeChat::admin()`). See [../features/administration.md](../features/administration.md).
 - `Settings.swift`: `SettingsCategory` (the GTK app's categories and their visibility per account), `SettingsLayout` (85 % of the window clamped to 360 x 360 .. 1100 x 800, one pane under 640), and the `AppModel` extension that opens and closes the overlay ([../features/settings.md](../features/settings.md)).
 - `Strings` reads the language saved by either app (`auto`, `fr`, `en`) and calls into the Rust catalog; `Formatting` formats times as the GTK app does.
 
 ## The SwiftUI app
 
-`RocketVibeApp` is a SwiftPM `@main` executable (no Xcode project): a `Window` scene with `RootView` and, over it, the settings overlay (`SettingsOverlay`; the `Settings` scene is gone, a `CommandGroup` replacing `.appSettings` binds Command-comma to `AppModel.openSettings`), `onOpenURL` for `rocketvibe://room/<rid>?host=`, the `Notifier` (`UNUserNotificationCenter`, click opens the message, inline Reply sends) and `NSApp.dockTile.badgeLabel` for attention. Notable views: `ChatView` (sidebar sections and account bar), `RoomView` (`ScrollView` + `LazyVStack` in a `ScrollViewReader`, `.contextMenu` actions, locked banner and unlock sheet, quote/file/link/call cards), `BodyView` (`AttributedString` from rv-ffi runs), `Composer` (an `NSTextView` wrapper with the system spell checker, staged chips, completion list, voice recording through `AVAudioRecorder` to AAC `.m4a` sent as `audio/mp4`), `PlayerView` (AVKit `VideoPlayer` on a local copy), `Player` (WKWebView for YouTube/Dailymotion/Vimeo links), `CallWindow` (WKWebView locked on the call's origin), `Details` (room info, profile, search, pinned/starred, emoji picker), `Pictures` (images decoded off the main thread at drawn size, cached), `Theme` (the night palette, Baloo 2 and Nunito via `ATSApplicationFontsPath`).
+`RocketVibeApp` is a SwiftPM `@main` executable (no Xcode project): a `Window` scene with `RootView` and, over it, the settings or the administration overlay (`SettingsOverlay`, `AdminOverlay`, both in the shared `PanelOverlay`) and the window's `ReportSheet` (the the `Settings` scene is gone, a `CommandGroup` replacing `.appSettings` binds Command-comma to `AppModel.openSettings`), `onOpenURL` for `rocketvibe://room/<rid>?host=`, the `Notifier` (`UNUserNotificationCenter`, click opens the message, inline Reply sends) and `NSApp.dockTile.badgeLabel` for attention. Notable views: `ChatView` (sidebar sections and account bar), `RoomView` (`ScrollView` + `LazyVStack` in a `ScrollViewReader`, `.contextMenu` actions, locked banner and unlock sheet, quote/file/link/call cards), `BodyView` (`AttributedString` from rv-ffi runs), `Composer` (an `NSTextView` wrapper with the system spell checker, staged chips, completion list, voice recording through `AVAudioRecorder` to AAC `.m4a` sent as `audio/mp4`), `PlayerView` (AVKit `VideoPlayer` on a local copy), `Player` (WKWebView for YouTube/Dailymotion/Vimeo links), `CallWindow` (WKWebView locked on the call's origin), `Details` (room info, profile, search, pinned/starred, emoji picker), `Pictures` (images decoded off the main thread at drawn size, cached), `Theme` (the night palette, Baloo 2 and Nunito via `ATSApplicationFontsPath`).
 
 Differences from GTK that are by design: voice messages are AAC, not Ogg/Opus (AVFoundation does not write Opus; the mobile app sends AAC too); the system's Emoji & Symbols panel also works; there is no self-update (rv-ffi does not export `rv_core::update`).
 
@@ -78,6 +79,7 @@ On master. [Parity](../parity.md) tracks it as its own column: it matches the GT
 - apps/desktop/crates/rv-ffi/src/context.rs
 - apps/desktop/crates/rv-ffi/src/markup.rs
 - apps/desktop/crates/rv-ffi/src/reactions.rs
+- apps/desktop/crates/rv-ffi/src/admin.rs
 - apps/desktop/crates/rv-ffi/src/people.rs
 - apps/desktop/crates/rv-ffi/src/writing.rs
 - apps/desktop/crates/rv-ffi/src/native_voice.rs
@@ -93,6 +95,8 @@ On master. [Parity](../parity.md) tracks it as its own column: it matches the GT
 - apps/desktop/macos/scripts/package.sh
 - apps/desktop/macos/Sources/RocketVibeKit/
 - apps/desktop/macos/Sources/RocketVibeKit/Settings.swift
+- apps/desktop/macos/Sources/RocketVibeKit/AdminModel.swift
+- apps/desktop/macos/Sources/RocketVibe/AdminView.swift
 - apps/desktop/macos/Sources/RocketVibe/RocketVibeApp.swift
 - apps/desktop/macos/Sources/RocketVibe/SettingsView.swift
 - apps/desktop/macos/Sources/RocketVibe/

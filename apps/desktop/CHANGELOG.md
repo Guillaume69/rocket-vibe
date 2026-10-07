@@ -25,14 +25,14 @@ section here.
   its close button or a click outside it; security, encryption and devices are categories
   instead of separate dialogs (GTK). SwiftUI: the settings are an overlay of the main window
   with the same categories, opened by Command-comma or the gear, closed the same ways.
-- Server administration for administrators (GTK), from the settings or a right click / long
-  press on the open account's button in the rail: a dashboard (version and whether a newer
+- Server administration for administrators, from the settings or the open account's button
+  in the rail (GTK: right click or long press; SwiftUI: its context menu): a dashboard (version and whether a newer
   release exists, uptime, database, users, rooms, messages, uploads, open reports), the
   moderation of reported messages and accounts (reasons, dismiss, delete the message,
   deactivate), every room, and every account with its actions (admin right, activation,
   deletion). On Rocket.Chat and RocketVibe.
 - Report a message from its menu, or a user from their profile, with a reason the
-  administrators read (GTK).
+  administrators read.
 - RocketVibe: a deleted account's messages stay, signed "Deleted user".
 - Slash commands on a RocketVibe server (GTK and SwiftUI): /topic, /invite, /kick,
   /leave, /join, /msg and /status run on the server; /me, /shrug, /tableflip,

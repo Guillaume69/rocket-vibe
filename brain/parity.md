@@ -112,7 +112,7 @@ beta does.
 |---|---|---|---|---|
 | Quick reactions and removing mine | done | done | done | The 5 emoji this account reacts with most, counted on the device (every reaction added, from the menu, the picker or a chip), filled with `+1 heart joy tada open_mouth pray`; aliases count as one emoji ([emoji](features/emoji.md#quick-reactions-and-reacting-with-any-emoji)). Mobile counts in the account's SQLite; GTK and SwiftUI share one file per account. |
 | React with any emoji (picker from the menu, the server's custom emoji included) | done | done | done | Mobile: "+" swaps the sheet's actions for the picker grid; GTK: "+" opens the picker in a popover; SwiftUI: "React with another emoji…" opens it in a popover on the row. Private RocketVibe conversations: standard emoji only. |
-| Report a message to the administrators (`chat.reportMessage`, RocketVibe `reports`) | done | done | missing | Someone else's non-system message, never a private conversation; a required reason of at most 1,000 characters ([administration](features/administration.md)). |
+| Report a message to the administrators (`chat.reportMessage`, RocketVibe `reports`) | done | done | done | Someone else's non-system message, never a private conversation; a required reason of at most 1,000 characters ([administration](features/administration.md)). SwiftUI checked by the Linux build of RocketVibeKit and the macOS CI build only. |
 | Reply (quote), reply in thread | done | done | done | |
 | Copy text | done | done | done | |
 | Share an attachment | done | mapped | mapped | Desktop: download or open. |
@@ -149,7 +149,7 @@ beta does.
 | My profile: avatar, status, name, bio, email and username (with password and 2FA) | done | done | done | |
 | Remove my photo (`users.resetAvatar`) | missing | done | done | |
 | Live avatar changes (`updateAvatar`) | done | done | done | |
-| Report a user from the profile (`moderation.reportUser`, RocketVibe `reports`) | done | done | missing | Not on my own profile ([administration](features/administration.md)). |
+| Report a user from the profile (`moderation.reportUser`, RocketVibe `reports`) | done | done | done | Not on my own profile ([administration](features/administration.md)). SwiftUI checked by the Linux build of RocketVibeKit and the macOS CI build only. |
 | Room members, room settings, roles | missing | missing | missing | |
 
 ## 9. Settings - [settings](features/settings.md)
@@ -249,11 +249,11 @@ beta does.
 
 | Feature | Mobile | GTK | SwiftUI | Notes |
 |---|---|---|---|---|
-| Server administration for an administrator only: Dashboard (deployment, latest published version, users, rooms, messages, uploads, open reports) | done | done | missing | Rocket.Chat: `me.roles` has `admin`; RocketVibe: `administration` capability and `manage_accounts` or `manage_instance`. Entry: a link under the settings and the open server's rail menu (mobile long press, GTK right click or long press). |
-| Moderation: reported messages and accounts, reasons, dismiss, delete the message, deactivate the author or account | done | done | missing | Rocket.Chat reasons read lazily per item; RocketVibe gives up to 20 with the list. The open message report count differs: mobile sums report counts, GTK counts reported authors on Rocket.Chat. |
-| Rooms list: every room, direct conversations included, searched by the server | done | done | missing | Read only: kind, counts, creation, read-only and encrypted marks; no last-message date on Rocket.Chat. |
-| Users list with actions: admin right, activation, deletion (confirmed); none on my own account | done | done | missing | Bot badge on Rocket.Chat. RocketVibe deletion keeps the messages under "Deleted user"; Rocket.Chat follows its erasure setting. |
-| Deleted RocketVibe account shown as "Deleted user" (author, reactions, quotes, notifications) | partial | partial | partial | All three: messages ingested before the deletion keep the old name until the server sends them again, and names the server computes (DM names) keep it. Mobile covers authors and quote authors; GTK and SwiftUI get authors, reactions, quotes and notifications from rv-core's native projection, GTK also the admin lists. |
+| Server administration for an administrator only: Dashboard (deployment, latest published version, users, rooms, messages, uploads, open reports) | done | done | done | Rocket.Chat: `me.roles` has `admin`; RocketVibe: `administration` capability and `manage_accounts` or `manage_instance`. Entry: a link under the settings and the open server's rail menu (mobile long press, GTK right click or long press, SwiftUI context menu). SwiftUI checked by the Linux build of RocketVibeKit and the macOS CI build only. |
+| Moderation: reported messages and accounts, reasons, dismiss, delete the message, deactivate the author or account | done | done | done | Rocket.Chat reasons read lazily per item; RocketVibe gives up to 20 with the list. The open Rocket.Chat message report count is the sum of the per-author counts of the first 100 authors, in all three. SwiftUI checked by the Linux build of RocketVibeKit and the macOS CI build only. |
+| Rooms list: every room, direct conversations included, searched by the server | done | done | done | Read only: kind, counts, creation, read-only and encrypted marks; no last-message date on Rocket.Chat. SwiftUI checked by the Linux build of RocketVibeKit and the macOS CI build only. |
+| Users list with actions: admin right, activation, deletion (confirmed); none on my own account | done | done | done | Bot badge on Rocket.Chat. RocketVibe deletion keeps the messages under "Deleted user"; Rocket.Chat follows its erasure setting. SwiftUI checked by the Linux build of RocketVibeKit and the macOS CI build only. |
+| Deleted RocketVibe account shown as "Deleted user" (author, reactions, quotes, notifications) | partial | partial | partial | All three: messages ingested before the deletion keep the old name until the server sends them again, names the server computes (DM names) keep it, and private (E2EE) conversations do not apply it (desktop shows the author's raw id, mobile the username its `users` table knows). Mobile covers authors and quote authors; GTK and SwiftUI get authors, reactions, quotes and notifications from rv-core's native projection, plus the admin lists; SwiftUI's profile of a deleted account reads "Deleted user". |
 
 ## Open debt
 
@@ -269,8 +269,8 @@ gaps, listed last.
 - **SwiftUI**: everything GTK owes, plus `-wal` / `-shm` cleanup on sign-out;
   formatting toolbar; list continuation; notification backend description; logs
   folder; new versions; running with the window closed and starting at login;
-  meeting information; server administration (dashboard, moderation, rooms,
-  users); reporting a message or a user.
+  meeting information.
 - **All three**: thread list, following and "also send to the room"; search across
   rooms; room members, settings and roles; creating an encrypted room; "Deleted
-  user" on messages ingested before the deletion and on server-computed names.
+  user" on messages ingested before the deletion, on server-computed names and in
+  private conversations.

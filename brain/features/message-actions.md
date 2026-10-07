@@ -58,11 +58,11 @@ Mobile wraps them in `ActionsRC` (`providers/rocketchat/actions.ts`, behind the 
 
 ## Desktop (SwiftUI)
 
-The same actions come from `rv-ffi` (`Chat::actions`, cached per message per list version in `RoomModel.actionsOf`). The context menu's emoji submenu lists the quick reactions as toggles, mine ticked (`RoomModel.quickReactions` from `Chat::quick_reactions` or the native `quick_reactions(custom:)`; `quickReact` withdraws mine under the code the server keyed), and "React with another emoji…" opens `EmojiPicker` in a popover on the row, a context menu being unable to host one (`reactWithPick`, through rv-ffi's `reaction_emoji`). No Report action yet. Reply puts the quote link in the draft, edit is in place (Up opens an edit sheet), delete asks through a `confirmationDialog`, download goes to Downloads. `MarkedView` in `Details.swift` shows the two lists.
+The same actions come from `rv-ffi` (`Chat::actions`, cached per message per list version in `RoomModel.actionsOf`). The context menu's emoji submenu lists the quick reactions as toggles, mine ticked (`RoomModel.quickReactions` from `Chat::quick_reactions` or the native `quick_reactions(custom:)`; `quickReact` withdraws mine under the code the server keyed), and "React with another emoji…" opens `EmojiPicker` in a popover on the row, a context menu being unable to host one (`reactWithPick`, through rv-ffi's `reaction_emoji`). **Report** (someone else's delivered message, not a system line, never a private conversation: `RoomModel.canReport`) opens `ReportSheet` on the window. Reply puts the quote link in the draft, edit is in place (Up opens an edit sheet), delete asks through a `confirmationDialog`, download goes to Downloads. `MarkedView` in `Details.swift` shows the two lists.
 
 ## Parity
 
-Same rule set in all three apps, delete confirmation included. Desktop adds Up-to-edit; mobile adds the ghost-delete purge and Share. Quick reactions (my top 5) and reacting with any emoji through the picker are in all three. Reporting a message is on Android and GTK; SwiftUI owes it ([parity](../parity.md) §5).
+Same rule set in all three apps, delete confirmation included. Desktop adds Up-to-edit; mobile adds the ghost-delete purge and Share. Quick reactions (my top 5) and reacting with any emoji through the picker are in all three. Reporting a message is in all three ([parity](../parity.md) §5).
 
 ## Sources
 
@@ -95,4 +95,5 @@ Same rule set in all three apps, delete confirmation included. Desktop adds Up-t
 - apps/desktop/crates/rv-ffi/src/reactions.rs
 - apps/desktop/macos/Sources/RocketVibe/RoomView.swift
 - apps/desktop/macos/Sources/RocketVibe/Details.swift
+- apps/desktop/macos/Sources/RocketVibe/AdminView.swift
 - apps/desktop/macos/Sources/RocketVibeKit/RoomModel.swift

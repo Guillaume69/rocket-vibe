@@ -72,17 +72,23 @@ Clients: mobile `providers/rocketvibe/admin.ts` (`NativeAdmin`, `nativeReports`)
 
 ### SwiftUI
 
-Not yet: the administration screen and the report actions are being built over rv-ffi. Deleted authors already read "Deleted user" in native rooms, because the label is applied by rv-core's native projection, which rv-ffi uses (`read_presentation::group` in `rv-ffi/src/native.rs`).
+- **rv-ffi** (`rv-ffi/src/admin.rs`): `ServerAdmin`, one per open account from `Chat::admin()` or `NativeChat::admin()`, wraps rv-core's `Admin` with async exports for every read and action (`is_admin`, `overview`, `latest_version`, `users`, `set_admin`, `set_active`, `delete_user`, `rooms`, the report lists, reasons, dismissals, moderation delete, `deactivate_author`, `report_message`, `report_user`) over UniFFI records (`AdminOverview`, `AdminUser` with its photo as a path `MediaStore` reads, `AdminRoom`, `AdminReportedMessage`, `AdminReportedUser`, pages). A refusal is `RvError::Local` whose message is the server's code (`self_administration`, `last_administrator`, `revision_conflict`...). Free exports: `report_reason`, `report_reason_max`, `server_update_available`, `deleted_username`; `NativeChat::reports_supported`.
+- **RocketVibeKit** (`macos/Sources/RocketVibeKit/AdminModel.swift`): `AdminCategory` (Dashboard, Moderation, Rooms, Users, the GTK order), `AdminText` (error sentences per code, dates, the update note), `AdminList` (one paged, searchable list; a generation counter drops an answer to an older query or reload, and a search reloads 250 ms after typing pauses), `AdminModel` (the screen: overview, latest version, the Moderation badge, the four lists, the opened item with lazily read reasons, the actions with their "Done" or failure notice, nothing applied once closed), `ReportTarget` and `ReportDraft` (the reason, cut at the longest the servers take). `AppModel` holds `administrator`, `admin` (the open `AdminModel`) and `reporting` (the open `ReportDraft`), with `refreshAdministrator`, `openAdmin` (closes the settings), `closeAdmin`, `startReport`, `sendReport`, `deletedAccount(username:)`; `ChatProvider.admin()` and `supportsReports` pick the provider.
+- **Entry points**, administrator only: the "Server administration" link at the bottom of the settings sidebar (`SettingsView.swift`) and the context menu of the open account's rail tile (`ChatView.swift`); other tiles have no menu. A SwiftUI context menu is built synchronously, so `AppModel.administrator` is asked ahead: when a session starts and each time the settings open.
+- **The screen** (`macos/Sources/RocketVibe/AdminView.swift`): `AdminOverlay` in the same `PanelOverlay` as the settings (dimmed backdrop, 85 % panel, one pane when narrow; `PanelOverlay` lives in `SettingsView.swift`), the Dashboard's cards two abreast when wide (`AdminDashboard`), searchable lists with "Show more" (`AdminSearch`, `AdminListRows`), item pages with their actions, destructive ones confirmed (`AdminConfirm`).
+- **Reports**: "Report" in the message context menu (`RoomView.swift`, `RoomModel.canReport`: someone else's delivered message, not a system line, never a private conversation, and on RocketVibe only when the server takes reports) and "Report this user" on a profile (`Details.swift`, not mine, not a deleted account). Both open `ReportSheet`, a sheet of the window; from a profile, the profile sheet closes first and the report opens about 0.35 s later, the window showing one sheet at a time. The result shows as the window's toast.
+- **Deleted authors**: native message rows get "Deleted user" from rv-core's native projection, which rv-ffi uses (`read_presentation::group` in `rv-ffi/src/native.rs`), reactions, quotes and notifications too; the admin records carry rv-core's shown name. `ProfileView` of a deleted RocketVibe account shows "Deleted user" with no `@username`, presence, Message, Call or Report.
 
 ## Limits
 
 - Messages ingested before an author's deletion keep the old username until the server sends them again: the server does not republish authors (all apps).
+- Private (E2EE) conversations: their rows are not built from the server's `User`, so no app applies the label there. Desktop (GTK and SwiftUI, `rv-core/src/native/crypto/enrollment/rooms/messages.rs`) names authors from the room's current member list, which a deleted account has left, so its messages show its raw user id; mobile (`providers/rocketvibe/cryptoProjection.ts`) shows the username the account's `users` table knows for that id, "Deleted user" only when that is already the `deleted-` placeholder.
 - Names the RocketVibe server computes (DM names made of usernames at creation, room names) keep the old username; a profile lookup by the placeholder finds nothing.
 - Rocket.Chat lists carry no account creation date and no room last-message date.
 
 ## Parity
 
-[parity.md](../parity.md) §15: the dashboard, moderation, rooms list, users with actions, reporting a message or a user are done on Android and GTK and missing on SwiftUI; the deleted-user label is partial in all three (the limits above).
+[parity.md](../parity.md) §5, §8 and §15: the dashboard, moderation, rooms list, users with actions, reporting a message or a user are done in all three apps; the deleted-user label is partial in all three (the limits above).
 
 ## Sources
 
@@ -128,3 +134,15 @@ Not yet: the administration screen and the report actions are being built over r
 - apps/desktop/crates/rv-gtk/src/chat_native.rs
 - apps/desktop/crates/rv-gtk/src/details.rs
 - apps/desktop/crates/rv-ffi/src/native.rs
+- apps/desktop/crates/rv-ffi/src/admin.rs
+- apps/desktop/crates/rv-core/src/native/crypto/enrollment/rooms/messages.rs
+- apps/mobile/providers/rocketvibe/cryptoProjection.ts
+- apps/desktop/macos/Sources/RocketVibeKit/AdminModel.swift
+- apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift
+- apps/desktop/macos/Sources/RocketVibeKit/ChatProvider.swift
+- apps/desktop/macos/Sources/RocketVibeKit/RoomModel.swift
+- apps/desktop/macos/Sources/RocketVibe/AdminView.swift
+- apps/desktop/macos/Sources/RocketVibe/SettingsView.swift
+- apps/desktop/macos/Sources/RocketVibe/ChatView.swift
+- apps/desktop/macos/Sources/RocketVibe/RoomView.swift
+- apps/desktop/macos/Sources/RocketVibe/Details.swift

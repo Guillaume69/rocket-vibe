@@ -118,6 +118,12 @@ The non-obvious choices behind rocket-vibe and why they were made, grouped by ar
   call. Windows excludes the sidecar's own process from the loopback, the cleanest cut;
   Android cannot capture call audio at all and mixes the rest into the microphone track,
   its one recorded track.
+- **Linux's screen sound runs in its own binary, `rv-screen-audio`.** libwebrtc defines
+  weak stubs of PipeWire's C functions (`pw_init`, `pw_stream_new`...), filled only when
+  its own screen capture loads PipeWire; linked into rv-voice, the PipeWire bindings
+  called those empty stubs and crashed. The helper links no libwebrtc and hands rv-voice
+  raw PCM on a pipe. Leaving the call out means linking every other app's stream to our
+  capture node, as venmic does for Discord on Linux: a sink's monitor would carry the call.
 - **A new screen share replaces the current one** rather than being refused: switching who
   presents takes one click, and the previous sharer's client stops by itself when the SFU
   revokes its screen source.

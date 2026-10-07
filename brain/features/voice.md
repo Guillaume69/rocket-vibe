@@ -139,11 +139,20 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
   `rv_voice_protocol::frames`): latest frame per track, stale ones dropped, never an end
   marker. `RV_VOICE_FAKE_VIDEO=pattern` replaces the camera and the screen.
 - **The screen's sound** (`voice/src/screen_audio.rs`), published beside the screen as its
-  own `ScreenshareAudio` track (no echo cancellation, gain or noise suppression, 96 kb/s):
-  on Windows, WASAPI process loopback of everything but the sidecar's process tree, whose
-  playout is the call (the `wasapi` crate, safe code), or with `StartScreenShare.with_call`
-  plain loopback of the default output. Linux (the call would need its own output first)
-  and macOS share no sound yet. The fake video mode adds a 660 Hz tone.
+  own `ScreenshareAudio` track (no echo cancellation, gain or noise suppression, 96 kb/s).
+  "The call" is the sidecar's playout and the app's own sounds (cues, ringtone): rv-core
+  passes the app's process id in `RV_VOICE_APP_PID`. Windows: WASAPI process loopback of
+  everything but the app's process tree, the sidecar included (the `wasapi` crate, safe
+  code), or with `StartScreenShare.with_call` plain loopback of the default output. Linux:
+  the helper **`rv-screen-audio`** (`voice/screen-audio`, its own binary because
+  libwebrtc defines weak stubs of PipeWire's C functions that would take the place of
+  libpipewire's inside rv-voice) creates a PipeWire capture node and links it, port by
+  port, to every `Stream/Output/Audio` node but those of the excluded processes (a node's
+  process from its bound info, else its client's), all of them with the call; raw PCM on
+  its stdout, which rv-voice reads; it leaves when rv-voice stops it or dies. It builds on
+  Ubuntu 24.04 (its bindings need PipeWire headers newer than 22.04's) and runs on 22.04's
+  PipeWire 0.3.48 (checked). macOS shares no sound. The fake video mode adds a 660 Hz tone (`RV_VOICE_SCREEN_AUDIO=capture`
+  keeps the real capture); `RV_VOICE_LEVELS=1` prints the captured level.
 - **rv-core**: `voice.rs` (`VoiceController`, one sidecar per connection, found through
   `RV_VOICE_BIN` or next to the executable; `available()` gates the feature);
   `native/voice.rs` (`NativeSession`: join with membership and epoch checks, leave, rings,
@@ -224,6 +233,7 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
 - apps/desktop/voice/src/main.rs
 - apps/desktop/voice/src/video.rs
 - apps/desktop/voice/src/screen_audio.rs
+- apps/desktop/voice/screen-audio/src/main.rs
 - apps/desktop/voice/build.rs
 - apps/desktop/crates/rv-voice-protocol/src/lib.rs
 - apps/desktop/crates/rv-core/src/voice.rs

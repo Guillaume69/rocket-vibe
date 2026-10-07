@@ -48,6 +48,7 @@ extension SettingsCategory {
         case .account: return "person.crop.circle"
         case .notifications: return "bell"
         case .language: return "globe"
+        case .voice: return "mic"
         case .encryption: return "lock"
         case .security: return "checkmark.shield"
         case .devices: return "laptopcomputer"
@@ -166,6 +167,7 @@ struct SettingsView: View {
                 case .account: account
                 case .notifications: notifications
                 case .language: languageSection
+                case .voice: if let voice = app.voice { VoiceSettings(voice: voice) }
                 case .encryption: encryption
                 case .security: SecuritySection()
                 case .devices: DevicesSection()

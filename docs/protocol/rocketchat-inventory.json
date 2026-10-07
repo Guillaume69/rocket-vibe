@@ -2425,37 +2425,37 @@
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/SettingsView.swift",
-      "line": 150,
+      "line": 151,
       "kind": "endpoint",
       "surface": "rooms.sign_out"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/SettingsView.swift",
-      "line": 235,
+      "line": 237,
       "kind": "endpoint",
       "surface": "e2e.status"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/SettingsView.swift",
-      "line": 237,
+      "line": 239,
       "kind": "endpoint",
       "surface": "e2e.locked"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/SettingsView.swift",
-      "line": 237,
+      "line": 239,
       "kind": "endpoint",
       "surface": "e2e.unlocked"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/SettingsView.swift",
-      "line": 240,
+      "line": 242,
       "kind": "endpoint",
       "surface": "e2e.lock"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/SettingsView.swift",
-      "line": 242,
+      "line": 244,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },

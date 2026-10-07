@@ -16,7 +16,7 @@ final class SettingsTests: XCTestCase {
             [.account, .notifications, .language, .accounts, .app],
             "a native server without encryption, security or devices"
         )
-        XCTAssertEqual(SettingsCategory.visible(.init(signedIn: true, crypto: true, security: true, devices: true)), SettingsCategory.allCases)
+        XCTAssertEqual(SettingsCategory.visible(.init(signedIn: true, crypto: true, security: true, devices: true, voice: true)), SettingsCategory.allCases)
         setFrench(french: false)
         XCTAssertEqual(SettingsCategory.account.title, "My account")
         XCTAssertEqual(SettingsCategory.app.title, "App")

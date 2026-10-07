@@ -5,7 +5,7 @@ import RocketVibeCore
 /// (`rv-gtk/src/settings.rs`), each shown only when it has something for the
 /// open account.
 public enum SettingsCategory: String, CaseIterable, Identifiable, Sendable {
-    case account, notifications, language, encryption, security, devices, accounts, app
+    case account, notifications, language, voice, encryption, security, devices, accounts, app
 
     public var id: String { rawValue }
     public var title: String { L("settings.cat.\(rawValue)") }
@@ -20,9 +20,11 @@ public enum SettingsCategory: String, CaseIterable, Identifiable, Sendable {
         public var crypto: Bool
         public var security: Bool
         public var devices: Bool
+        /// RocketVibe with voice: the microphone, speakers and noise remover.
+        public var voice: Bool
 
-        public init(signedIn: Bool = false, legacy: Bool = false, crypto: Bool = false, security: Bool = false, devices: Bool = false) {
-            self.signedIn = signedIn; self.legacy = legacy; self.crypto = crypto; self.security = security; self.devices = devices
+        public init(signedIn: Bool = false, legacy: Bool = false, crypto: Bool = false, security: Bool = false, devices: Bool = false, voice: Bool = false) {
+            self.signedIn = signedIn; self.legacy = legacy; self.crypto = crypto; self.security = security; self.devices = devices; self.voice = voice
         }
     }
 
@@ -34,6 +36,7 @@ public enum SettingsCategory: String, CaseIterable, Identifiable, Sendable {
             case .encryption: return scope.signedIn && (scope.legacy || scope.crypto)
             case .security: return scope.signedIn && scope.security
             case .devices: return scope.signedIn && scope.devices
+            case .voice: return scope.signedIn && scope.voice
             }
         }
     }
@@ -64,7 +67,8 @@ extension AppModel {
             legacy: chat != nil,
             crypto: native?.cryptoSettingsSupported() == true,
             security: native?.securitySupported() == true,
-            devices: native?.supportedFeatures().contains("device_sessions") == true
+            devices: native?.supportedFeatures().contains("device_sessions") == true,
+            voice: voice != nil
         )
     }
 

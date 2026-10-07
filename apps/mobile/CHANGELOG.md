@@ -42,6 +42,18 @@ release, and its notes are that version's section here.
   other person once more.
 - Voice in encrypted rooms, end-to-end encrypted: the server relays sound it cannot
   hear, under a key only the room's devices share, renewed when its members change.
+- React with any emoji: the message sheet offers the 5 emoji you react with most on this
+  account (counted on the phone only), then "+" opens the emoji picker, the server's custom
+  emoji included (standard emoji only in a private RocketVibe conversation).
+- Server administration for administrators, from the settings or a long press on the open
+  server's tile: a dashboard (version and whether a newer release exists, uptime, database,
+  users, rooms, messages, uploads, open reports), the moderation of reported messages and
+  accounts (reasons, dismiss, delete the message, deactivate), every room, and every account
+  with its actions (admin right, activation, deletion). On Rocket.Chat and RocketVibe.
+- Report a message from its sheet, or a user from their profile, with a reason the
+  administrators read.
+- RocketVibe: a deleted account's messages stay, signed "Deleted user".
+- Settings show the app's version, in the new App category.
 - Slash commands on a RocketVibe server: /topic, /invite, /kick, /leave, /join,
   /msg and /status run on the server; /me, /shrug, /tableflip, /unflip,
   /lennyface and /gimme are written by the app, so they also work in encrypted
@@ -368,6 +380,9 @@ release, and its notes are that version's section here.
 
 ### Changed
 
+- Settings are grouped in categories (My account, Notifications, Language, Encryption,
+  Security, Devices, Accounts, App), each on its own page and shown only when it has
+  something for the account; Sign out sits at the bottom of the list.
 - The encryption settings no longer warn that device enrollment is experimental:
   native end-to-end encryption is on by default on RocketVibe servers.
 

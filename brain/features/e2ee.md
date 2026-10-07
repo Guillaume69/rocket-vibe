@@ -33,7 +33,7 @@ GTK (`rv-gtk`) and the SwiftUI app share `rv-core`'s engine.
 - **GTK**: a banner (`e2e_banner`) in an encrypted locked room opens `unlock::ask` (`rv-gtk/src/unlock.rs`), an `adw::Dialog` that stays up until the password works. While locked the composer is hidden and the label reads `e2e.read_only` (`chat.rs`). Settings has an E2EE row that locks or opens the dialog (`settings.rs`). Messages decrypt as they are read (`Session::open_row`), so lock and unlock repaint without touching the DB; `chat.on_e2e()` reloads the view on `SessionEvent::E2e`.
 - **Room previews** decrypt the last message from `rooms.lastMessage.content` (`last_encrypted`) when unlocked, else show `rooms.encrypted` (`rows.rs`).
 - **Key kept** in the account's keychain item and resumed at session start (`secrets.rs`, `window.rs`).
-- **SwiftUI**: `RoomView.swift` shows the locked state with an unlock button and `UnlockSheet`; `SettingsView.swift` has the status and a Lock button; `AppModel.e2eUnlocked` tracks state from `Event::E2e`.
+- **SwiftUI**: `RoomView.swift` shows the locked state with an unlock button and `UnlockSheet`; `SettingsView.swift` has the status with Lock or Unlock in its Encryption category; `AppModel.e2eUnlocked` tracks state from `Event::E2e`.
 
 ## Parity
 
@@ -42,7 +42,7 @@ Same feature set on both sides ([parity](../parity.md) §11): unlock, decrypt me
 ## Sources
 
 - apps/mobile/app/unlock-e2e.tsx
-- apps/mobile/app/settings.tsx
+- apps/mobile/ui/settingsSections.tsx
 - apps/mobile/app/index.tsx
 - apps/mobile/app/room-info.tsx
 - apps/mobile/ui/composer.tsx

@@ -22,7 +22,7 @@ Any other platform, or a release without a matching asset, gets the release page
 `rv-gtk/src/updater.rs`:
 - **State** is a JSON file in the user cache dir, `rocket-vibe-rs/update.json` (`update::Checked`): when it last checked (`at_ms`), the newest release seen, and the version whose card was dismissed. A check is due after `CHECK_EVERY_MS` (6 h), when it never ran, or when the clock went backwards. `for_platform` forgets a cached release whose asset belongs to another install type (a tarball's check read by an AppImage), so it is due again.
 - **Startup** (`updater::startup`, called from `Window::start`): unless automatic checks are off, the cached offer is shown at once, then a fresh check runs if due, and a newer offer replaces it.
-- **Manual**: Settings, About, "Check for updates" (`updater::check`) asks GitHub regardless and offers even a dismissed version; "no update" or a failure shows a toast.
+- **Manual**: Settings, App category, About, "Check for updates" (`updater::check`) asks GitHub regardless and offers even a dismissed version; "no update" or a failure shows a toast.
 - **Off switch**: Settings' "Check automatically" toggles the empty file `<config>/rocket-vibe-rs/no-update-check` (present = off).
 - `RV_SMOKE_UPDATE_FROM` makes the app pretend to run an older version (`running_version`), for the smoke run.
 

@@ -112,6 +112,13 @@ Target server: `https://chat.barrut.me`, **version 8.5** (LTS). The local Docker
 - **Avatars: the URL only moves if we move it.** `/avatar/<username>` answers `Cache-Control: public, max-age=3600` and **no HTTP `ETag`** (probed on 8.5); Android's image cache (Fresco) therefore freezes the URI for life. The photo's version lives in `avatarETag`, which must be added AS A QUERY (the server ignores the parameter), otherwise a changed photo never shows. Sources, by freshness: `stream-notify-logged` / **`updateAvatar`** → `args: [{username, etag}]` for a user (never the uid!), `[{rid, etag}]` for a room; `me` (at connection setup, carries `avatarETag`); `users.info` and the Rooms document (`avatarETag`, ABSENT when there is no photo: never overwrite it with null). On DELETION (`users.resetAvatar`), the event arrives **without an etag**: set a marker (`AVATAR_NO_PHOTO`), otherwise the URL falls back to its earlier form, the one the cache serves with the old photo.
 - **`/file-upload/…` answers without `Content-Length`** (chunked transfer, seen on `chat.barrut.me` on 2026-09-23): a download progress has no total on the response side. The size is in the message's attachment: `size` (file), `image_size`, `video_size`, `audio_size` (read in the 8.5 send code). See `downloadedFraction` in `apps/mobile/lib/attachment.ts`.
 - **A `name` (display name) change is NOT broadcast**: neither `Users:NameChanged` nor `rooms-changed` on 8.5 (probed). Only the avatar and the username propagate live.
+- **Administration endpoints** (probed on 8.5.1 as admin, 2026-10-07; mapping in `apps/mobile/providers/rocketchat/admin.ts`, `apps/desktop/crates/rv-core/src/admin.rs`):
+  - **`statistics` serves a cached snapshot** (all zeros on a fresh server) unless called with **`refresh=true`**;
+  - **`users.list` refuses `filter`** (400 "must NOT have additional properties") **and ignores `query`**: search with `users.listByStatus?searchTerm=`, which searches server-side. Neither returns `createdAt`;
+  - **`moderation.reportsByUsers` is grouped by AUTHOR** (latest reported message + `count`), not by message: the messages of one author come from `moderation.user.reportedMessages?userId=`, the reasons of one message from `moderation.reports?msgId=`;
+  - `rooms.adminRooms` lists every type, DMs included, with `filter` on names, and **no last-message date**;
+  - reporting: `chat.reportMessage {messageId, description}`, `moderation.reportUser {userId, description}`;
+  - `roles.addUserToRole` / `roles.removeUserFromRole` accept `{roleId: "admin", username}`. Admins hold `api-bypass-rate-limit` by default.
 
 ### The target server, surveyed without authentication
 

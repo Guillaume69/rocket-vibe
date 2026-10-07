@@ -22,15 +22,24 @@ Both tables come from `emoji-toolkit` 10.0.0 (JoyPixels' JSON, MIT; no artwork i
 - **Rendering.** `emojiUnicode` in `lib/markdown.ts` decides whether an `EMOJI` node is an emoji. `renderEmoji` in `ui/markdown.tsx` returns the glyph, else an inline `<Image>` from `customEmojiUrl` (animated GIFs play through Fresco), else `null` so the caller shows `:name:`; a `BIG_EMOJI` block that does not fully resolve is drawn as an ordinary paragraph. Reactions use the same order ([message-actions.md](message-actions.md)).
 - **Custom index.** `lib/customEmojis.ts` keeps a module-level map (`buildIndex`, `setCustomEmojis`, `customEmojiUrl`, `customEmojiCodes`) so rendering stays synchronous. The list is persisted in the SQLite table `custom_emojis`, restored at startup (`restoreCustomEmojis`) so the first render and offline use work, and refreshed with the full list **once per session** after the first connection (`syncCustomEmojis`, called from `ui/sync.tsx`; on failure it retries at the next reconnection). The table is replaced only when a list was actually received, so a failed call never empties the offline cache. `isDiscarded` stops a late answer from server A from re-arming the index after a switch to server B, and `clearCustomEmojis` clears it on sign-out.
 - **Completion.** `lib/emojiCompletion.ts` (pure, tested) with `ui/emojiCompletion.tsx` (the strip above the field, shared by room and thread composers). `detectEmojiToken` opens on `:` only at a word start (start of field, or after a character that is neither letter nor digit, accented letters included via `\p{L}`), so `http://`, `12:34` and `clé:valeur` do not trigger, nor does a closed `:smile:`; one letter after `:` suffices (`MIN_QUERY`). `completeEmoji` ranks exact, then prefix, then substring; at equal quality custom before standard, then shorter, then alphabetical; at most 30 (`SUGGESTION_LIMIT`). A custom emoji named like a standard one is dropped, since the glyph wins at render. Choosing inserts the **glyph** for a standard emoji and `:name:` for a custom one (a `TextInput` cannot show an image), followed by a space unless one already follows. `keyboardShouldPersistTaps="always"` keeps the first tap from merely blurring the field.
-- **Picker.** `ui/emojiPicker.tsx` (`useEmojiPanel`, `EmojiPicker`): a native panel that takes the keyboard's place (its height is the last measured keyboard height, about 42 % of the screen before any keyboard showed), with search, category tabs plus a tab for the server's emoji, and a `FlatList` grid. It inserts at the cursor without a space and stays open for the next pick; the 😀/⌨️ toggle swaps it with the keyboard and Back closes it rather than the screen.
+- **Picker.** `ui/emojiPicker.tsx` (`useEmojiPanel`, `EmojiPicker`): a native panel that takes the keyboard's place (its height is the last measured keyboard height, about 42 % of the screen before any keyboard showed), with search, category tabs plus a tab for the server's emoji, and a `FlatList` grid. It inserts at the cursor without a space and stays open for the next pick; the 😀/⌨️ toggle swaps it with the keyboard and Back closes it rather than the screen. Its search, tabs and grid are `EmojiGrid`, a standalone component with a fixed height and a `customs` switch (no server tab), which the message sheet also hosts to react with any emoji (below).
 
 ## Desktop
 
 - **Rendering.** `rv-core/src/markdown.rs` (`emoji_text`) writes the glyph, or wraps an unresolved shortcode in `CUSTOM_MARK` (U+FFFC); `rv-core/src/runs.rs` turns marked spans into runs carrying `custom_emoji`. `rv-gtk/src/markdown_view.rs` anchors the custom image in the text view when the session knows the code (`set_custom_emoji`), else prints `:code:`; a big-emoji block of custom emoji is drawn at 48 px. Hovering an emoji shows it large with its shortcode.
 - **Custom index.** `emoji::custom_index` and `custom_names` build the map (code to `/emoji-custom/<name>.<ext>`, percent-encoded). `Session::once_per_session` fetches `emoji-custom.list` once per session, in memory only (nothing persisted), then emits `SessionEvent::Avatar` so rows redraw. Images load through the session's media cache.
 - **Completion.** `rv-core/src/completion.rs` (`query`) detects `@` or `:` opening a word (start or after whitespace) with a non-empty prefix for `:`. The GTK composer (`rv-gtk/src/composer.rs`) lists matching custom codes first (`Session::custom_emoji_codes`, prefix match, sorted) then standard ones (`emoji::complete`, prefix match, shortest first), 8 in all. A standard pick inserts the glyph and a space, a custom one `:code: `.
-- **GTK picker.** `rv-gtk/src/emoji_picker.rs`: a 😊 menu button with a search entry, category tabs, a tab for the server's emoji, and a grid; a search lists custom emoji containing the query, then up to 180 standard prefix matches. Glyphs the machine's fonts cannot draw as one emoji (unknown glyphs, or a sequence drawn as pieces) are left out (`drawable`). Picking inserts at the cursor and leaves the picker open.
-- **SwiftUI.** Its own `EmojiPicker` grid (categories, search, in `macos/Sources/RocketVibe/Details.swift`), opened from the composer; the system's Emoji & Symbols panel also works in its composer.
+- **GTK picker.** `rv-gtk/src/emoji_picker.rs`: a 😊 menu button with a search entry, category tabs, a tab for the server's emoji, and a grid; a search lists custom emoji containing the query, then up to 180 standard prefix matches. Glyphs the machine's fonts cannot draw as one emoji (unknown glyphs, or a sequence drawn as pieces) are left out (`drawable`). Picking inserts at the cursor and leaves the picker open. `emoji_picker::popover(pick, custom, once)` builds the same picker as a popover with a `Pick` callback (`once` pops it down after a pick, which the reaction menus use; `custom` `None` drops the server tab); `button` is the composer's.
+- **SwiftUI.** Its own `EmojiPicker` grid (categories, search, in `macos/Sources/RocketVibe/Details.swift`), opened from the composer and, with `custom:` false in a private conversation, from the message menu to react; the system's Emoji & Symbols panel also works in its composer.
+
+## Quick reactions and reacting with any emoji
+
+The message menus of the three apps show the 5 emoji I react with most on this account (`QUICK_COUNT`), then "+" (or "React with another emoji…") opening the picker to react with any emoji, the server's custom ones included. Behaviour of the menus: [message-actions.md](message-actions.md).
+
+- **Counting.** Every reaction I ADD counts one use, from the menu, the picker or a reaction chip; a removal counts nothing. Counted on the device only, per account, never sent anywhere. Ranking: most uses, then most recent, then the defaults `+1 heart joy tada open_mouth pray` fill the row, skipping what is already there. Aliases of one emoji are one emoji (by glyph): `+1` and `thumbsup` count together.
+- **Codes.** Shortcodes without colons (`+1`, `party_parrot`); `chat.react` wants `:code:`, never a glyph. A private (E2EE) RocketVibe conversation takes standard emoji only: no custom tab there, and custom codes are filtered out of its quick row. A custom emoji the server no longer has is filtered out too.
+- **Mobile.** Pure rules in `lib/emojiUsage.ts` (`QUICK_COUNT`, `DEFAULT_REACTIONS`, `KEPT_CODES` = 64, `normalizeEmojiCode`, `emojiIdentity`, `topEmojis`, which merges aliases at ranking time); stored in the account's database, table `emoji_usage` (`createEmojiUsageStore`, [../architecture/mobile-data.md](../architecture/mobile-data.md)); reached through the module slot `ui/emojiUsage.ts` (`recordReaction`, `readEmojiUsage`), mounted by `SyncProvider` and released at session end. The sheet records a use once the server accepted it; a chip records on tap.
+- **Desktop.** `rv-core/src/emoji_usage.rs` (`EmojiUsage::open`, `path_for`, `record`, `top`, `canonical`, `same`, `QUICK_COUNT`, 64 codes kept): a text file `<config>/rocket-vibe-rs/emoji-usage/<host>-<uid>.tsv` (`code`, count, last use in seconds), where `record` canonicalises an alias to one name per glyph. GTK and SwiftUI on one Mac write the same file. GTK caches one `EmojiUsage` per account (`rv-gtk/src/reactions.rs`, `usage`, `record`, `row` builds the quick row with its "+"); rv-ffi does the same (`rv-ffi/src/reactions.rs`: `usage`, `quick`, the exports `reaction_emoji` and `same_emoji`) and counts inside its react exports.
 
 ## Test data
 
@@ -38,7 +47,7 @@ Both tables come from `emoji-toolkit` 10.0.0 (JoyPixels' JSON, MIT; no artwork i
 
 ## Parity
 
-[Parity](../parity.md) marks shortcode emoji ("6222 codes, same table as Android"), custom emoji images and completion done. Behavioural differences: mobile completion also matches substrings and shows up to 30, desktop matches prefixes and shows 8; mobile keeps custom emoji offline in SQLite, desktop refetches them each session; the GTK picker hides glyphs the fonts cannot draw.
+[Parity](../parity.md) marks shortcode emoji ("6222 codes, same table as Android"), custom emoji images and completion done. Behavioural differences: mobile completion also matches substrings and shows up to 30, desktop matches prefixes and shows 8; mobile keeps custom emoji offline in SQLite, desktop refetches them each session; the GTK picker hides glyphs the fonts cannot draw. Quick reactions (top 5 of my own use) and reacting with any emoji are done in all three; the counts live per account on the device, in SQLite on mobile and in a file the two desktop apps share.
 
 ## Sources
 
@@ -50,6 +59,10 @@ Both tables come from `emoji-toolkit` 10.0.0 (JoyPixels' JSON, MIT; no artwork i
 - apps/mobile/ui/markdown.tsx
 - apps/mobile/ui/emojiCompletion.tsx
 - apps/mobile/ui/emojiPicker.tsx
+- apps/mobile/lib/emojiUsage.ts
+- apps/mobile/ui/emojiUsage.ts
+- apps/mobile/db/store.ts
+- apps/mobile/app/message-actions.tsx
 - apps/mobile/ui/sync.tsx
 - apps/mobile/db/schema.ts
 - apps/mobile/scripts/generate-emojis.mjs
@@ -64,7 +77,11 @@ Both tables come from `emoji-toolkit` 10.0.0 (JoyPixels' JSON, MIT; no artwork i
 - apps/desktop/crates/rv-gtk/src/markdown_view.rs
 - apps/desktop/crates/rv-gtk/src/composer.rs
 - apps/desktop/crates/rv-gtk/src/emoji_picker.rs
+- apps/desktop/crates/rv-core/src/emoji_usage.rs
+- apps/desktop/crates/rv-gtk/src/reactions.rs
+- apps/desktop/crates/rv-ffi/src/reactions.rs
 - apps/desktop/macos/Sources/RocketVibe/Details.swift
+- apps/desktop/macos/Sources/RocketVibe/RoomView.swift
 - apps/desktop/macos/Sources/RocketVibe/Composer.swift
 - scripts/emojis-seed.mjs
 - scripts/seed.mjs

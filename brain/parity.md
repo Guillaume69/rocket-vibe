@@ -110,7 +110,9 @@ beta does.
 
 | Feature | Mobile | GTK | SwiftUI | Notes |
 |---|---|---|---|---|
-| Quick reactions and removing mine | done | done | done | Only the six quick ones from the menu, everywhere. |
+| Quick reactions and removing mine | done | done | done | The 5 emoji this account reacts with most, counted on the device (every reaction added, from the menu, the picker or a chip), filled with `+1 heart joy tada open_mouth pray`; aliases count as one emoji ([emoji](features/emoji.md#quick-reactions-and-reacting-with-any-emoji)). Mobile counts in the account's SQLite; GTK and SwiftUI share one file per account. |
+| React with any emoji (picker from the menu, the server's custom emoji included) | done | done | done | Mobile: "+" swaps the sheet's actions for the picker grid; GTK: "+" opens the picker in a popover; SwiftUI: "React with another emoji…" opens it in a popover on the row. Private RocketVibe conversations: standard emoji only. |
+| Report a message to the administrators (`chat.reportMessage`, RocketVibe `reports`) | done | done | missing | Someone else's non-system message, never a private conversation; a required reason of at most 1,000 characters ([administration](features/administration.md)). |
 | Reply (quote), reply in thread | done | done | done | |
 | Copy text | done | done | done | |
 | Share an attachment | done | mapped | mapped | Desktop: download or open. |
@@ -147,16 +149,19 @@ beta does.
 | My profile: avatar, status, name, bio, email and username (with password and 2FA) | done | done | done | |
 | Remove my photo (`users.resetAvatar`) | missing | done | done | |
 | Live avatar changes (`updateAvatar`) | done | done | done | |
+| Report a user from the profile (`moderation.reportUser`, RocketVibe `reports`) | done | done | missing | Not on my own profile ([administration](features/administration.md)). |
 | Room members, room settings, roles | missing | missing | missing | |
 
 ## 9. Settings - [settings](features/settings.md)
 
 | Feature | Mobile | GTK | SwiftUI | Notes |
 |---|---|---|---|---|
+| Settings in categories (account, notifications, language, encryption, security, devices, accounts, app), each shown only with content, Sign out under them | done | done | done | Mobile: a list of full pages (`app/settings/`); GTK: a sidebar dialog of 85 % of the window closed by Escape, its close button or a backdrop click; SwiftUI: an overlay of the window with the same closings, opened by Command-comma and the gear ([settings](features/settings.md)). |
 | Profile card, notification preference, language, E2EE status, account, server | done | done | done | Mobile edits `pushNotifications`, desktop `desktopNotifications`. |
 | French and English, automatic by default | done | done | done | Live on mobile, after a restart on desktop. |
 | Accounts list in settings | n/a | done | done | Mobile: one account per server. |
-| Notification check | mapped | done | missing | Mobile: FCM diagnostic; GTK: backend description and test notification. |
+| Notification check | mapped | done | partial | Mobile: FCM diagnostic; GTK: backend description and test notification; SwiftUI: test notification and a link to the system settings, no backend description. |
+| App version in settings | done | done | done | The App category (mobile `expoConfig.version`, GTK `CARGO_PKG_VERSION`, SwiftUI the bundle's short version). |
 | Logs folder | missing | done | missing | |
 | New versions | n/a | done | missing | Mobile goes through the store or the APK; GTK checks GitHub releases ([desktop-updates](features/desktop-updates.md)). |
 
@@ -240,6 +245,16 @@ beta does.
 | `chat.syncMessages` catch-up of edits and deletions | done | partial | partial | Desktop catches a room up once per session: a deletion in a room already caught up while another was open stays visible until it is caught up again. |
 | Message retention (500 newest per room) | done | missing | missing | |
 
+## 15. Server administration - [administration](features/administration.md)
+
+| Feature | Mobile | GTK | SwiftUI | Notes |
+|---|---|---|---|---|
+| Server administration for an administrator only: Dashboard (deployment, latest published version, users, rooms, messages, uploads, open reports) | done | done | missing | Rocket.Chat: `me.roles` has `admin`; RocketVibe: `administration` capability and `manage_accounts` or `manage_instance`. Entry: a link under the settings and the open server's rail menu (mobile long press, GTK right click or long press). |
+| Moderation: reported messages and accounts, reasons, dismiss, delete the message, deactivate the author or account | done | done | missing | Rocket.Chat reasons read lazily per item; RocketVibe gives up to 20 with the list. The open message report count differs: mobile sums report counts, GTK counts reported authors on Rocket.Chat. |
+| Rooms list: every room, direct conversations included, searched by the server | done | done | missing | Read only: kind, counts, creation, read-only and encrypted marks; no last-message date on Rocket.Chat. |
+| Users list with actions: admin right, activation, deletion (confirmed); none on my own account | done | done | missing | Bot badge on Rocket.Chat. RocketVibe deletion keeps the messages under "Deleted user"; Rocket.Chat follows its erasure setting. |
+| Deleted RocketVibe account shown as "Deleted user" (author, reactions, quotes, notifications) | partial | partial | partial | All three: messages ingested before the deletion keep the old name until the server sends them again, and names the server computes (DM names) keep it. Mobile covers authors and quote authors; GTK and SwiftUI get authors, reactions, quotes and notifications from rv-core's native projection, GTK also the admin lists. |
+
 ## Open debt
 
 What each app owes, from the tables above. Rows missing in all three are product
@@ -252,8 +267,10 @@ gaps, listed last.
   unlocked; DM avatar versions in the list; video reduction; reconciliation snapshot; catch-up of
   deletions in rooms already caught up; message retention.
 - **SwiftUI**: everything GTK owes, plus `-wal` / `-shm` cleanup on sign-out;
-  formatting toolbar; list continuation; notification check; logs folder; new
-  versions; running with the window closed and starting at login; meeting
-  information.
+  formatting toolbar; list continuation; notification backend description; logs
+  folder; new versions; running with the window closed and starting at login;
+  meeting information; server administration (dashboard, moderation, rooms,
+  users); reporting a message or a user.
 - **All three**: thread list, following and "also send to the room"; search across
-  rooms; room members, settings and roles; creating an encrypted room.
+  rooms; room members, settings and roles; creating an encrypted room; "Deleted
+  user" on messages ingested before the deletion and on server-computed names.

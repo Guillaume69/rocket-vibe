@@ -33,9 +33,11 @@ Dates are stored as integer milliseconds. Most tables carry `updated_at` (the se
 | `outbox` | Pending text sends: `text`, `thread_id`, `status` `pending` or `failed` (`idx_outbox_status`), `attempts`, `last_error`, `created_at`; there is no "sent" state, the row is deleted when the server copy arrives. |
 | `uploads` | Pending file sends: local `uri`, `name`, `type`, `caption`, `status` (`pending`, `sending` = taken by this process, `failed` = refused, only a manual retry re-arms it; `idx_uploads_status`), and `file_id`, the dedup key returned by `rooms.media`. See [../features/uploads.md](../features/uploads.md). |
 | `drafts` | Composer drafts (`key`, `text`, `updated_at`) keyed by `rid` or `rid:tmid`. In SQLite rather than MMKV to avoid one more native dependency and rebuild. |
+| `emoji_usage` | The emoji I react with, counted on the device for the quick reactions: `code` (shortcode without colons, primary key), `count`, `last_used` (ms). Device data, not server data: no catch-up can rebuild it, so neither the purges nor `NativeStore.prepare()` touch it. At most `KEPT_CODES` (64) rows. Migration 0019. See [../features/emoji.md](../features/emoji.md#quick-reactions-and-reacting-with-any-emoji). |
 | `custom_emojis` | Server custom emoji (`emoji-custom.list`): name, extension, aliases JSON. Reference data, replaced wholesale, loaded into memory for synchronous rendering. |
 | `users` | `uid -> current username` and `avatar_etag`. Usernames are mutable, so this table, fed by every ingested message, gives the name to display even on old messages. |
 | `cursors` | Catch-up cursors keyed by `(scope, stream)` with `updated_since`: `scope` is a `rid` or `*` for global cursors; `stream` is `rooms`, `subscriptions` or `messages-deleted`. |
+| `native_*` | The RocketVibe provider's own state (migration 0017): sync state and positions, read and thread states, pending intents and commands (room, profile, upload, meeting, favourite, read), room access, quote references and sources, the emoji catalog. Emptied, with the shared tables, by `NativeStore.prepare()` when the stored generation is not the current one (`providers/rocketvibe/store.ts`). |
 
 Optimistic messages are `messages` rows with `updated_at = 0`: only a local copy exists. That value is how retention and "abandon send" (`DELETE_OPTIMISTIC_MESSAGE`) recognise them.
 
@@ -45,6 +47,7 @@ Optimistic messages are `messages` rows with `updated_at = 0`: only a local copy
 - `migrations.js` imports the `.sql` files as strings. That works because Metro gets `sql` added to `sourceExts` (`metro.config.js`) and Babel runs `babel-plugin-inline-import` for `.sql` (`babel.config.js`). `db/migrations.d.ts` types the generated module.
 - `db/migrate.ts#migrateDatabase` runs drizzle's expo migrator on one database. It is memoized per file name by promise, so two callers in the same tick share one run; a failure is not memoized, so the next call retries. The body is async so that even a synchronous throw from opening a corrupt file becomes a rejection the caller can catch.
 - Migration is done by whoever opens the database (`SyncProvider` for the session's), never globally at app start.
+- **Migration 0019 (`db/migrations/0019_emoji_usage.sql`)** adds `emoji_usage`.
 - **Migration 0016 (`db/migrations/0016_english_names.sql`) moved the schema to English names in place.** Until 0015 the tables and columns had French names; 0016 renames the tables (`rooms`, `subscriptions`, `drafts`, `custom_emojis`, `users`, `cursors`) and their columns with `ALTER TABLE ... RENAME`, recreates the indexes under English names, and rebuilds `outbox` and `uploads` by copy (their `status` default and values change: `pending`, `sending`, `failed`). It also rewrites the stored values: cursor `stream` names (`rooms`, `subscriptions`, `messages-deleted`) and the removed-photo marker in `avatar_etag` (`none`). Data survives the upgrade; the old SQL names now appear only in migrations 0000 to 0015. The move is one-way: a build from before 0016 cannot open a database migrated by it (on a test device, going back means reinstalling).
 - `db/schema.test.ts` applies every `.sql` file, split on `--> statement-breakpoint`, to an in-memory `node:sqlite` and checks the result, because generated is not the same as valid.
 
@@ -65,10 +68,11 @@ Notable column rules:
 - `UPSERT_USER` writes only if the username really changed and the source is not older, so ingesting messages does not re-fire every live query on `users`. `UPSERT_IDENTITY` (authoritative sources: `me`, `users.info`, DM rooms) and `UPDATE_USER_AVATAR` / `UPDATE_ROOM_AVATAR` have the same "only on real change" guards.
 - `UPSERT_CURSOR` only moves a cursor forward.
 - Drafts have no freshness guard: the user's last keystroke wins.
+- `RECORD_EMOJI_USE` adds one use and never moves `last_used` back (a clock set back must not demote an emoji); `PRUNE_EMOJI_USAGE` keeps the `KEPT_CODES` best codes by the same ranking as `topEmojis`; `LIST_EMOJI_USAGE` reads them all.
 
 ## Stores (`db/store.ts`)
 
-Factories over one connection and its queue: `createStore` (the sync engine's `Store`, from `lib/sync.ts`), `createOutboxStore`, `createUploadStore`, `createDraftStore`, `createEmojiStore`. Each write goes through the queue; reads (`readCursor`, `lastMessageUpdatedAt`) skip it. `transaction(fn)` wraps a batch in one queued `withTransactionAsync`: one commit means one change event for live queries instead of one per row.
+Factories over one connection and its queue: `createStore` (the sync engine's `Store`, from `lib/sync.ts`), `createOutboxStore`, `createUploadStore`, `createDraftStore`, `createEmojiStore`, `createEmojiUsageStore` (`read`, and `record`, which normalises the code, ignores anything that is not a shortcode and prunes in the same queued job; mounted per session through `ui/emojiUsage.ts`). Each write goes through the queue; reads (`readCursor`, `lastMessageUpdatedAt`) skip it. `transaction(fn)` wraps a batch in one queued `withTransactionAsync`: one commit means one change event for live queries instead of one per row.
 
 Side effects baked into writes:
 
@@ -95,6 +99,10 @@ Side effects baked into writes:
 - apps/mobile/db/schema.test.ts
 - apps/mobile/db/upserts.test.ts
 - apps/mobile/db/migrations/0016_english_names.sql
+- apps/mobile/db/migrations/0017_native_provider.sql
+- apps/mobile/db/migrations/0019_emoji_usage.sql
+- apps/mobile/providers/rocketvibe/store.ts
+- apps/mobile/lib/emojiUsage.ts
 - apps/mobile/db/migrations/migrations.js
 - apps/mobile/db/migrations.d.ts
 - apps/mobile/drizzle.config.ts

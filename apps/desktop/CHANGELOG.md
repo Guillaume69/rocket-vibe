@@ -30,6 +30,16 @@ section here.
   form a workflow posts shows as a card in the room, with an Answer dialog for its recipient,
   or for any member of the room when it names none, and who answered once done. Workflow
   commands join the room's command list.
+- Mattermost servers (GTK and SwiftUI): sign in with your username and password (and
+  your MFA code), then read and write as on Rocket.Chat: rooms, unread counts and
+  mentions, live messages and notifications, who is typing, presence, threads, files,
+  reactions, edits, deletions, pins, stars, search in a room, room information and
+  profiles. Push and custom emoji are not available on these servers.
+- kChat (Infomaniak): choose kChat and paste an Infomaniak API token in the password
+  field; the address of your kChat server, or kchat.infomaniak.com when the account has
+  only one.
+- The sign-in screen's server type offers Mattermost and kChat; in automatic mode both
+  are recognised on their own.
 
 ### Fixed
 

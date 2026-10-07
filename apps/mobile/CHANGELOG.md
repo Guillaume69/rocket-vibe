@@ -32,6 +32,15 @@ release, and its notes are that version's section here.
   a choice or a person field can take several answers, ticked as checkboxes. Workflow
   commands appear in the composer's command list of the rooms where they are offered.
 
+- Mattermost servers: sign in with your username and password (and your MFA code), then
+  read and write as on Rocket.Chat: rooms, unread counts and mentions, live messages,
+  threads, files, reactions, edits, deletions, pins, saved messages, search in a room,
+  room information and profiles, who is typing and presence. Push and custom emoji
+  are not available on these servers yet.
+- kChat (Infomaniak): sign in with your Infomaniak account in the browser, or paste an
+  Infomaniak API token, then pick your kChat server when the account has several.
+- The login screen's server type picker offers Mattermost and kChat; in automatic mode
+  a Mattermost server and a kChat address are recognised on their own.
 ### Fixed
 
 - Settings pages keep the field being typed in above the keyboard instead of leaving it

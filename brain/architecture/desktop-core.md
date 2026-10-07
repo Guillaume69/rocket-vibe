@@ -21,6 +21,7 @@ Context: [desktop-app.md](desktop-app.md) for the crate layout, [rocket-chat.md]
 | Module | Responsibility |
 |---|---|
 | `session` | Login, wiring of every piece, live-event routing, reconnection, every action a UI calls |
+| `mattermost` | A Mattermost or kChat account behind the same `Session`: sign-in, sync, socket (WebSocket or Pusher), actions; see [mattermost-and-kchat](../features/mattermost-and-kchat.md#desktop) |
 | `rest` | REST client: auth headers, 401 discrimination, 2FA challenges, 429 back-off, timeouts, uploads/downloads |
 | `ddp` | Listen-only DDP actor: connect, `login` resume, ref-counted subscriptions, liveness probe |
 | `store` | SQLite schema, migrations, `_updatedAt`-arbitrated upserts, cursors, outbox and upload rows, drafts |
@@ -68,6 +69,8 @@ Live routing (`apply_live`): presence, private notes, avatar changes (user etags
 The rest of `Session` is the UI's API: send/retry/edit/delete/react/pin/star, threads (`load_thread` pages `chat.getThreadMessages` by full pages and fetches the root, which that endpoint never returns), permissions (from `permissions.listAll` and my roles, fetched once; `Session::roles` gives my global roles from that read, while `admin::Admin::is_admin` reads `me` again each time through `admin::rc::roles`, so a right given or removed shows without a new session), slash commands, room info, profiles, search, spotlight, DMs, calls, avatars, status, E2E lock/unlock, downloads (written through a temporary name, decrypted once whole in an encrypted room).
 
 ## rest
+
+- `Api::Mattermost` (`RestClient::mattermost`) switches the dialect: bearer header, `/api/v4/` prefix, Mattermost's `{id, message, status_code}` envelope as the mark of an understood error, the bearer on our own origin's files instead of `rc_uid`/`rc_token` in the URL, and `put`/`delete`.
 
 - One `reqwest::Client` per `RestClient` with a 15 s timeout (`TIMEOUT`); `upload` and `download_protected` bypass it (upload timeout grows with the size, download ends only after a stall).
 - Credentials are read **before** the request leaves, so the token compared on a 401 is the one sent, not the current one.
@@ -187,3 +190,4 @@ Unit tests sit next to the code; integration tests in `crates/rv-core/tests/` (`
 - apps/desktop/crates/rv-core/src/native.rs
 - apps/desktop/crates/rv-core/src/native/admin.rs
 - apps/desktop/crates/rv-core/tests/
+- apps/desktop/crates/rv-core/src/mattermost/

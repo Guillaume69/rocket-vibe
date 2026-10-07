@@ -75,6 +75,16 @@ All code, comments and docs are in English. French survives in two places only: 
 | `user-activity` | `stream-notify-room/<rid>/user-activity`: the typing indicator (not the deprecated `/typing`). | [composer](features/composer.md) |
 | `video-conference.join` | REST call that returns the Jitsi URL (with its JWT) for a call. | [calls](features/calls.md) |
 
+## Mattermost and kChat (`apps/mobile/providers/mattermost/`)
+
+| Term | Meaning | More |
+|---|---|---|
+| Collapsed threads | Mattermost's mode where a channel's posts are its roots only, replies read through the thread (`collapsedThreads=true`). | [mattermost-and-kchat](features/mattermost-and-kchat.md) |
+| Flagged post | Mattermost's per-user saved message, a preference (`category: flagged_post`); the app's star. | [mattermost-and-kchat](features/mattermost-and-kchat.md) |
+| kChat | Infomaniak's Mattermost: same REST, Pusher instead of the WebSocket, Infomaniak bearer sign-in. `ProviderKind` `kchat`. | [mattermost-and-kchat](features/mattermost-and-kchat.md) |
+| `mm:*` envelope | The events `MmLive` emits for the translator (`mm:post`, `mm:room`, `mm:membership`...), already enriched. | `live.ts`, `translator.ts` |
+| `pending_post_id` | The client id a Mattermost post leaves under; echoed back and deduplicated by the server for a short while. | `outbox.ts` |
+
 ## Mobile: data and sync (`apps/mobile/db/`, `apps/mobile/lib/`)
 
 | Term | Meaning | Where |
@@ -92,7 +102,7 @@ All code, comments and docs are in English. French survives in two places only: 
 | Origin (`originOf`, `sameOrigin`) | URL origin (scheme + authority) and comparisons, parsed by hand because React Native's `URL` polyfill never throws. | `apps/mobile/lib/origin.ts` |
 | `OutboxEngine`, `outbox` | The text outbox engine (client-side `_id`, optimistic display) and its table (`pending`, `failed`; a sent row is deleted). | `apps/mobile/lib/outbox.ts`, `apps/mobile/db/schema.ts` |
 | `PresenceEngine`, `TypingEngine`, `ActivityEngine` | Volatile in-memory stores for presence, typing, and background-fetch activity (scope `'global'` or a `rid`). | `apps/mobile/lib/presence.ts`, `apps/mobile/lib/typing.ts`, `apps/mobile/lib/activity.ts` |
-| `Provider` | The neutral facade over a chat server (listener, translator, actions, capabilities); `ProviderKind` is stored in the session as `kind`. Only `rocketchat` exists; a Mattermost (kChat) driver is anticipated. | `apps/mobile/lib/provider.ts`, `apps/mobile/providers/` |
+| `Provider` | The neutral facade over a chat server (listener, translator, actions, capabilities); `ProviderKind` is stored in the session as `kind`. Kinds: `rocketchat`, `rocketvibe`, `mattermost`, `kchat`. | `apps/mobile/lib/provider.ts`, `apps/mobile/providers/` |
 | Quote | Reply-quote: a message starting with `[ ](permalink?msg=<id>)`, which the server turns into an attachment. | `apps/mobile/lib/quote.ts` |
 | `RcTranslator` | Decodes Rocket.Chat stream events and documents into neutral `SyncChange` values. | `apps/mobile/providers/rocketchat/translator.ts` |
 | `Reconnector` | Reconnection driver: exponential backoff with jitter, 1 s to 30 s; `suspend`/`resume` on background and foreground. | `apps/mobile/lib/reconnect.ts` |

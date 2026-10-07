@@ -71,6 +71,14 @@ The non-obvious choices behind rocket-vibe and why they were made, grouped by ar
 - **A private message's id is derived from its proof, not chosen by the server.** Amendments, replies and files name their target by id; a server-chosen id bound to nothing signed let the server relabel which message they meant. The id is SHA-256(domain, proof fingerprint) truncated to 16 bytes, and every client refuses another. Found by the internal crypto review, whose findings and open items live in `docs/protocol/E2EE_REVIEW.md` (internal, not the independent review RFC 0002 requires). See [e2ee-private-actions](features/e2ee-private-actions.md).
 - **Avatar versions go in the URL query.** `/avatar/<user>` has a 1 h cache and no ETag, so Android's image cache freezes it; `avatarETag` is appended and a no-photo marker is set on reset. See [avatars](features/avatars.md).
 
+## Other servers
+
+- **Mattermost and kChat go through the generic sync path, not a branch of their own.** Their model (channels, memberships, posts, a socket pushing the account's events) maps onto Rocket.Chat's, so one translator writing the neutral rows reuses `SyncEngine`, the stores and the screens. RocketVibe kept its own branch because its journal is applied atomically. See [mattermost-and-kchat](features/mattermost-and-kchat.md).
+- **The listener expands events, the translator stays synchronous.** Mattermost names users by id and sends no membership on a new post; `MmLive` resolves users, fetches what an event lacks and derives unread counts locally before the translator runs, instead of making `Translator` asynchronous for every provider.
+- **kChat signs in as Infomaniak's own kChat app.** There is no public OAuth client for third parties; the PKCE flow reuses the client id and redirect of Infomaniak's open-source mobile app, which also means the official app can be offered the same redirect. A personal API token is the fallback. Personal use only, like the rest of the project.
+- **Media authenticate by header on Mattermost and kChat, images through a local copy.** The server refuses a token in the URL (probed on 11.11), the `MMAUTHTOKEN` cookie would shadow the bearer on every `POST`, and React Native's `<Image>` drops `source.headers` on Android: images are downloaded with the bearer and shown from the cache (`ui/authorizedImage.ts`), downloads and players send the header themselves.
+- **Slack and Teams are not reached through their official APIs.** Those deliver real time and push to a server the app would have to run, never to a phone; only their private, session-based APIs can feed a phone directly.
+
 ## Push
 
 - **Direct FCM HTTP v1 to our own Firebase project.** The public gateway only serves official app ids. A foreground service with a permanent socket is capped by Android 15 and drains battery; local notifications from the socket die with the process. See [notifications](features/notifications.md).

@@ -6,7 +6,7 @@ Context: [desktop-app.md](desktop-app.md) (workspace, build container), [desktop
 
 ## Startup
 
-`src/main.rs`, in order: crash log and log filter (`crashlog`, `logs`), the macOS bundle environment (`macos::bundle_environment`, before any thread exists), Windows standard streams and text backend, then an `adw::Application` with id `com.rocketvibe.app` and `HANDLES_OPEN`. It is single-instance through D-Bus everywhere but Windows, which has no session bus (GLib's attempt aborted the app), so there it is `NON_UNIQUE` and `rv_native::claim_instance` does the job: a second launch hands its `rocketvibe://` link to the first and exits. `connect_open` routes links to `AppWindow::open_link`. The window is created once (`window_of`), possibly hidden when started at login (`background::start_hidden`).
+`src/main.rs`, in order: crash log and log filter (`crashlog`, `logs`), the macOS bundle environment (`macos::bundle_environment`, before any thread exists), Windows standard streams and text backend, then an `adw::Application` with id `com.rocketvibe.app` and `HANDLES_OPEN`. It is single-instance through D-Bus everywhere but Windows, which has no session bus (GLib's attempt aborted the app), so there it is `NON_UNIQUE` and `rv_native::claim_instance` does the job: a second launch hands its `rocketvibe://` link to the first and exits. `RV_INSTANCE=<name>` gives an instance its own lock and hidden window, so named instances run beside the usual one (two accounts on one machine; their data folders through `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME`). `connect_open` routes links to `AppWindow::open_link`. The window is created once (`window_of`), possibly hidden when started at login (`background::start_hidden`).
 
 ## Structure
 

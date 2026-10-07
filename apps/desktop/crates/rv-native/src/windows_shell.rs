@@ -36,7 +36,21 @@ use windows::core::{PCWSTR, w};
 use crate::windows_impl::{Disc, icon_with_disc, wide};
 use crate::{AppEvent, AppHandler, TrayLabels};
 
-const CLASS: PCWSTR = w!("RocketVibeHidden");
+/// `RV_INSTANCE=<name>` (letters, digits, `-`, `_`): an instance apart from
+/// the usual one, with its own lock and window, so several run side by side
+/// (two accounts tested on one machine). Its data folders come from `XDG_*`.
+fn instance() -> String {
+    std::env::var("RV_INSTANCE")
+        .ok()
+        .filter(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'))
+        .map(|n| format!("-{n}"))
+        .unwrap_or_default()
+}
+
+/// The hidden window's class, which later launches look for.
+fn class() -> Vec<u16> {
+    wide(&format!("RocketVibeHidden{}", instance()))
+}
 const WM_TRAY: u32 = WM_APP + 1;
 const FORWARD: usize = 0x5256;
 const OPEN: usize = 1;
@@ -70,20 +84,22 @@ fn hidden_window() -> Option<HWND> {
     if existing != 0 {
         return Some(HWND(existing as *mut core::ffi::c_void));
     }
-    // SAFETY: a window class and a never-shown window, registered and created once on this thread.
+    let name = class();
+    // SAFETY: a window class and a never-shown window, registered and created once on this thread;
+    // `name` outlives both calls.
     unsafe {
         let instance = GetModuleHandleW(None).ok()?;
         let class = WNDCLASSW {
             lpfnWndProc: Some(window_proc),
             hInstance: instance.into(),
-            lpszClassName: CLASS,
+            lpszClassName: PCWSTR(name.as_ptr()),
             ..Default::default()
         };
         RegisterClassW(&class);
         TASKBAR_CREATED.store(RegisterWindowMessageW(w!("TaskbarCreated")), Ordering::SeqCst);
         let hwnd = CreateWindowExW(
             WINDOW_EX_STYLE::default(),
-            CLASS,
+            PCWSTR(name.as_ptr()),
             w!("rocket-vibe"),
             WS_POPUP,
             0,
@@ -310,16 +326,18 @@ pub fn tray(labels: Option<TrayLabels>) {
 /// True for the first launch, which then receives the later ones; a later
 /// launch hands its arguments over and gets false.
 pub fn claim_instance(args: &[String]) -> bool {
-    // SAFETY: a named mutex kept open for the life of the process; a window lookup and a synchronous message.
+    let (lock, name) = (wide(&format!("Local\\com.rocketvibe.app{}", instance())), class());
+    // SAFETY: a named mutex kept open for the life of the process; a window lookup and a synchronous
+    // message; `lock` and `name` outlive the calls.
     unsafe {
-        let mutex = CreateMutexW(None, false, w!("Local\\com.rocketvibe.app"));
+        let mutex = CreateMutexW(None, false, PCWSTR(lock.as_ptr()));
         if !(mutex.is_ok() && GetLastError() == ERROR_ALREADY_EXISTS) {
             let _ = hidden_window();
             return true;
         }
         let payload: Vec<u16> = args.join("\n").encode_utf16().collect();
         for _ in 0..30 {
-            if let Ok(hwnd) = FindWindowW(CLASS, PCWSTR::null())
+            if let Ok(hwnd) = FindWindowW(PCWSTR(name.as_ptr()), PCWSTR::null())
                 && !hwnd.is_invalid()
             {
                 let mut pid = 0;

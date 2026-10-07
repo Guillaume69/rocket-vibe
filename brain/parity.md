@@ -209,7 +209,7 @@ beta does.
 | Call from any room's header (joins its voice) | done | done | done | GTK: also a profile's Call, which opens the DM and rings. |
 | Direct call rings the other member, accept or decline, original ringtone | done | done | done | Mobile: in-app ring, full-screen ring from a push even locked. GTK: a dialog while the app runs (kept running in the tray or dock on Windows and macOS), no push. SwiftUI: an alert while the app runs, the dock bouncing when it is behind, no push. |
 | Call rows show the outcome (missed, declined, duration) and call back | done | done | done | Both also preview the outcome in the room list. |
-| Create a voice channel | done | done | missing | Mobile gained "Create a room" with it. SwiftUI has no room creation yet. |
+| Create a voice channel | done | done | done | Mobile gained "Create a room" with it; SwiftUI too (a sheet from the list's "+" button: name, private, voice channel). |
 | Turn a room into a voice channel or back (room settings, owners) | missing | done | missing | GTK sends `UpdateRoom.voice` only when the server announces voice. SwiftUI's room settings lack the switch. |
 | Choose the microphone and speakers | mapped | done | done | Mobile: the call menu's output (earpiece, speaker, wired, Bluetooth), the microphone following it, meets the phone's need. GTK: in the call menu and the settings' "Voice" group, kept per machine. SwiftUI: the call menu and the settings' Voice section, the same files as GTK. |
 | Call menu beside the microphone: devices, input and output volume, input level, noise remover, deafen | done | done | done | Mobile: a native sheet (`app/voice/menu.tsx`), with the screen share's quality; GTK: a popover, with the way to the voice settings. SwiftUI: a popover, as GTK. |

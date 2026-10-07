@@ -289,7 +289,9 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
   the menu beside the microphone (devices, volumes, live level, noise remover, deafen,
   settings), the share picker (screens and windows with thumbnails, resolution, frame
   rate), the header's call button, the call rows' Join or Call back, an alert to accept or
-  decline a ring, a "Voice" section in the settings. No camera button: the sidecar captures
+  decline a ring, a "Voice" section in the settings, and room creation (`NewRoom.swift`, from
+  the list's button: name, private, "Voice channel" where the server offers voice, through
+  `AppModel.createRoom`, opened once listed). No camera button: the sidecar captures
   none on macOS; others' cameras show. Sounds: `scripts/package.sh` renders the WAV masters
   (`scripts/sounds/generate.mjs`) and encodes them to AAC in `Resources/sounds` for
   `AVAudioPlayer`; the bundle carries `rv-voice` in `Contents/MacOS`, signed with the app's
@@ -323,6 +325,7 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
 - apps/desktop/crates/rv-ffi/src/native_voice.rs
 - apps/desktop/macos/Sources/RocketVibeKit/VoiceModel.swift
 - apps/desktop/macos/Sources/RocketVibe/Voice.swift
+- apps/desktop/macos/Sources/RocketVibe/NewRoom.swift
 - apps/desktop/macos/scripts/package.sh
 - crates/rv-voice-mobile/src/lib.rs
 - apps/mobile/lib/voiceGrid.ts

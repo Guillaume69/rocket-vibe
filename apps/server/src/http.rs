@@ -228,6 +228,33 @@ pub fn router(app: App) -> Router {
         )
         .route("/api/v1/avatars/{id}", get(avatar))
         .route("/api/v1/me/permissions", get(account_permissions))
+        .route("/api/v1/admin/overview", get(admin_overview))
+        .route("/api/v1/admin/users", get(admin_users))
+        .route(
+            "/api/v1/admin/users/{id}",
+            axum::routing::patch(admin_update_user),
+        )
+        .route("/api/v1/admin/users/{id}/delete", post(admin_delete_user))
+        .route("/api/v1/admin/rooms", get(admin_rooms))
+        .route(
+            "/api/v1/admin/reports/messages",
+            get(admin_reported_messages),
+        )
+        .route("/api/v1/admin/reports/users", get(admin_reported_users))
+        .route(
+            "/api/v1/admin/reports/messages/{message}/dismiss",
+            post(admin_dismiss_message),
+        )
+        .route(
+            "/api/v1/admin/reports/messages/{message}/delete",
+            post(admin_delete_message),
+        )
+        .route(
+            "/api/v1/admin/reports/users/{id}/dismiss",
+            post(admin_dismiss_user),
+        )
+        .route("/api/v1/users/{id}/report", post(report_user))
+        .route("/api/v1/messages/{message}/report", post(report_message))
         .route("/api/v1/users", get(users))
         .route("/api/v1/users/lookup", get(lookup_profile))
         .route("/api/v1/users/{id}", get(user_profile))
@@ -319,7 +346,8 @@ async fn private_metadata_no_store(
             | "/api/v1/me/factors/email/disable"
     ) || request.uri().path().starts_with("/api/v1/e2ee/")
         || request.uri().path().starts_with("/api/v1/voice/")
-        || request.uri().path().ends_with("/voice/join");
+        || request.uri().path().ends_with("/voice/join")
+        || request.uri().path().starts_with("/api/v1/admin/");
     let mut response = next.run(request).await;
     // Rejections, including malformed input, have the same cache policy as
     // successful private receipts and delivery status.
@@ -440,6 +468,8 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
             email_factor_delivery: app.mail.is_some() && app.auth_key.is_some(),
             email_recovery: app.mail.is_some() && app.auth_key.is_some(),
             slash_commands: true,
+            administration: true,
+            reports: true,
             ..Default::default()
         },
     }))
@@ -1433,6 +1463,171 @@ async fn emoji_image(
     crate::custom_emojis::image_response(&app, &hash, &proof, &id).await
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AdminPageQuery {
+    after: Option<String>,
+    limit: Option<u32>,
+    q: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReportPageQuery {
+    after: Option<String>,
+    limit: Option<u32>,
+}
+/// Administration reads keep the admin's own delivery proof: a right revoked
+/// meanwhile changes its activation version and withholds the response.
+async fn admin_read(app: &App, headers: &HeaderMap) -> Result<(String, ReadProof)> {
+    let (account, hash, proof) = read_access(app, headers, Scope::None).await?;
+    crate::admin::require_admin(&account)?;
+    Ok((hash, proof))
+}
+async fn admin_account(app: &App, headers: &HeaderMap) -> Result<auth::Account> {
+    let actor = account(app, headers).await?;
+    crate::admin::require_admin(&actor)?;
+    Ok(actor)
+}
+async fn admin_overview(State(app): State<App>, headers: HeaderMap) -> Result<Response> {
+    let (hash, proof) = admin_read(&app, &headers).await?;
+    let value = crate::admin::overview(&app).await?;
+    proof.json(&app, &hash, &value, &[], None).await
+}
+async fn admin_users(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(query): Query<AdminPageQuery>,
+) -> Result<Response> {
+    let (hash, proof) = admin_read(&app, &headers).await?;
+    let value = crate::admin::users(
+        &app,
+        query.after.as_deref(),
+        query.limit,
+        query.q.as_deref(),
+    )
+    .await?;
+    proof.json(&app, &hash, &value, &[], None).await
+}
+async fn admin_update_user(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    input: Input<rv_protocol::admin::UpdateAdminUser>,
+) -> Result<Response> {
+    let actor = admin_account(&app, &headers).await?;
+    let user = crate::admin::update_user(&app, &actor, &id, body(input)?).await?;
+    Ok(Json(user).into_response())
+}
+async fn admin_delete_user(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    input: Input<rv_protocol::admin::DeleteAdminUser>,
+) -> Result<StatusCode> {
+    let actor = admin_account(&app, &headers).await?;
+    crate::admin::delete_user(&app, &actor, &id, body(input)?).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+async fn admin_rooms(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(query): Query<AdminPageQuery>,
+) -> Result<Response> {
+    let (hash, proof) = admin_read(&app, &headers).await?;
+    let value = crate::admin::rooms(
+        &app,
+        query.after.as_deref(),
+        query.limit,
+        query.q.as_deref(),
+    )
+    .await?;
+    proof.json(&app, &hash, &value, &[], None).await
+}
+async fn admin_reported_messages(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(query): Query<ReportPageQuery>,
+) -> Result<Response> {
+    let (hash, proof) = admin_read(&app, &headers).await?;
+    let value = crate::admin::reported_messages(&app, query.after.as_deref(), query.limit).await?;
+    proof.json(&app, &hash, &value, &[], None).await
+}
+async fn admin_reported_users(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(query): Query<ReportPageQuery>,
+) -> Result<Response> {
+    let (hash, proof) = admin_read(&app, &headers).await?;
+    let value = crate::admin::reported_users(&app, query.after.as_deref(), query.limit).await?;
+    proof.json(&app, &hash, &value, &[], None).await
+}
+async fn admin_dismiss_message(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(message): Path<String>,
+    input: Input<rv_protocol::admin::AdminOperation>,
+) -> Result<StatusCode> {
+    let actor = admin_account(&app, &headers).await?;
+    let input = body(input)?;
+    crate::admin::resolve_message(
+        &app,
+        &actor,
+        &message,
+        &input.operation_id,
+        crate::admin::Resolution::Dismiss,
+    )
+    .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+async fn admin_delete_message(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(message): Path<String>,
+    input: Input<rv_protocol::admin::AdminOperation>,
+) -> Result<StatusCode> {
+    let actor = admin_account(&app, &headers).await?;
+    let input = body(input)?;
+    crate::admin::resolve_message(
+        &app,
+        &actor,
+        &message,
+        &input.operation_id,
+        crate::admin::Resolution::Delete,
+    )
+    .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+async fn admin_dismiss_user(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    input: Input<rv_protocol::admin::AdminOperation>,
+) -> Result<StatusCode> {
+    let actor = admin_account(&app, &headers).await?;
+    crate::admin::dismiss_user(&app, &actor, &id, &body(input)?.operation_id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+async fn report_message(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(message): Path<String>,
+    input: Input<rv_protocol::admin::ReportInput>,
+) -> Result<StatusCode> {
+    let actor = account(&app, &headers).await?;
+    crate::admin::report_message(&app, &actor, &message, body(input)?).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+async fn report_user(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    input: Input<rv_protocol::admin::ReportInput>,
+) -> Result<StatusCode> {
+    let actor = account(&app, &headers).await?;
+    crate::admin::report_user(&app, &actor, &id, body(input)?).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 async fn users(State(app): State<App>, headers: HeaderMap) -> Result<Response> {
     let (_, hash, proof) = read_access(&app, &headers, Scope::None).await?;
     let users: Vec<(String, String, String)> = sqlx::query_as(
@@ -1446,6 +1641,7 @@ async fn users(State(app): State<App>, headers: HeaderMap) -> Result<Response> {
             id,
             username,
             display_name,
+            ..Default::default()
         })
         .collect();
     proof.json(&app, &hash, &users, &[], None).await

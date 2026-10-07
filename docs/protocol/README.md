@@ -74,6 +74,12 @@ presence does not declare the corresponding endpoints available.
 | POST | `/auth/logout` | Revoke this session and its WebSocket tickets |
 | GET | `/me`, `/users` | Current account; instance directory limited to 100 entries |
 | GET | `/me/permissions` | Effective creation and administration rights |
+| GET | `/admin/overview`, `/admin/users?q=…&after=…&limit=…`, `/admin/rooms?q=…&after=…&limit=…` | [In-app administration](ADMINISTRATION.md#in-app-administration): counts / versions, accounts and rooms; `users.admin` only, `no-store` |
+| PATCH | `/admin/users/{id}` | `UpdateAdminUser` admin / disabled with expected revision → `AdminUser`; never my own account |
+| POST | `/admin/users/{id}/delete` | `DeleteAdminUser`: tombstone, messages kept under a deleted author |
+| GET | `/admin/reports/messages?after=…`, `/admin/reports/users?after=…` | Open reports grouped by target, latest first |
+| POST | `/admin/reports/messages/{message}/dismiss`, `/admin/reports/messages/{message}/delete`, `/admin/reports/users/{user}/dismiss` | `{ operation_id }`; deletion only of a reported message |
+| POST | `/messages/{message}/report`, `/users/{user}/report` | `ReportInput { operation_id, reason }` by a member; read access required, never oneself |
 | GET | `/rooms/{room}/permissions`, `/messages/{message}/permissions` | Fine-grained rights for a current member; otherwise `404` |
 | GET / POST | `/rooms` | Rooms I am a member of; create `{ name, private, operation_id? }` |
 | GET | `/rooms/discover?q=…&after=…`, `/rooms/public?q=…&after=…` | Names of public rooms, 20 entries, `PublicRoomPage`; identical aliases |
@@ -112,6 +118,8 @@ The [`threads`](THREADS.md) capability is enabled; `uploads`, `push`, `e2ee`, `c
 `room_discovery` advertises the directory and joining; `idempotent_room_creation`
 advertises the creation receipts. Their handlers are available in the three clients.
 Administration rights do not give access to private conversations.
+`administration` advertises the `/admin/*` routes for an account with
+`manage_accounts`; `reports` lets members report a message or an account.
 
 `fine_permissions` advertises the rights reads. The booleans describe
 the account's authority; the feature capabilities must also be

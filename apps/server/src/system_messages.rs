@@ -8,8 +8,8 @@ use rv_protocol::{Change, User, system::SystemMessage};
 use sqlx::{Postgres, Transaction, types::Json};
 
 pub(crate) async fn user(tx: &mut Transaction<'_, Postgres>, id: &str) -> Result<User> {
-    let (id, username, display_name) =
-        sqlx::query_as("SELECT id,username,display_name FROM users WHERE id=$1")
+    let (id, username, display_name, deleted) =
+        sqlx::query_as("SELECT id,username,display_name,deleted FROM users WHERE id=$1")
             .bind(id)
             .fetch_one(&mut **tx)
             .await?;
@@ -17,6 +17,7 @@ pub(crate) async fn user(tx: &mut Transaction<'_, Postgres>, id: &str) -> Result
         id,
         username,
         display_name,
+        deleted,
     })
 }
 

@@ -31,6 +31,17 @@ function historyRequest(value:string):string {
   if(!/^[0-9a-f]{64}$/.test(value))throw new NativeError(400,'invalid_request');
   return value;
 }
+/** Administration pages: `after` is the previous page's `next`, `limit` 1-100. */
+export type AdminPage = {after?:string;limit?:number;q?:string};
+function adminPage(path:string,page:AdminPage):string {
+  const query=new URLSearchParams();
+  if(page.after!==undefined)query.set('after',page.after);
+  if(page.limit!==undefined)query.set('limit',String(page.limit));
+  if(page.q!==undefined && page.q.trim()!=='')query.set('q',page.q);
+  const encoded=query.toString();
+  return encoded===''?path:`${path}?${encoded}`;
+}
+
 export class NativeTransport {
   cryptoGroupRoster(room:string):Promise<NativeTypes['GroupRoster']> {
     return this.request('GroupRoster',`/api/v1/e2ee/rooms/${encodeURIComponent(room)}/roster`);
@@ -354,6 +365,19 @@ export class NativeTransport {
     if(this.token!==sent||bytes.length<33||!png.every((v,i)=>bytes[i]===v)||new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength).getUint32(16)!==image.width||new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength).getUint32(20)!==image.height||createHash('sha256').update(bytes).digest('hex')!==image.sha256)throw new NativeError(502,'invalid_preview_image');
     return bytes;
   }
+  // Administration (`administration` capability, `users.admin` account) and member reports (`reports`).
+  adminOverview():Promise<NativeTypes['AdminOverview']> { return this.request('AdminOverview','/api/v1/admin/overview'); }
+  adminUsers(page:AdminPage={}):Promise<NativeTypes['AdminUserPage']> { return this.request('AdminUserPage',adminPage('/api/v1/admin/users',page)); }
+  updateAdminUser(id:string,input:NativeTypes['UpdateAdminUser']):Promise<NativeTypes['AdminUser']> { return this.request('AdminUser',`/api/v1/admin/users/${encodeURIComponent(id)}`,input,false,undefined,'PATCH'); }
+  async deleteAdminUser(id:string,input:NativeTypes['DeleteAdminUser']):Promise<void> { await this.value(`/api/v1/admin/users/${encodeURIComponent(id)}/delete`,input); }
+  adminRooms(page:AdminPage={}):Promise<NativeTypes['AdminRoomPage']> { return this.request('AdminRoomPage',adminPage('/api/v1/admin/rooms',page)); }
+  adminReportedMessages(page:Omit<AdminPage,'q'>={}):Promise<NativeTypes['AdminReportedMessagePage']> { return this.request('AdminReportedMessagePage',adminPage('/api/v1/admin/reports/messages',page)); }
+  adminReportedUsers(page:Omit<AdminPage,'q'>={}):Promise<NativeTypes['AdminReportedUserPage']> { return this.request('AdminReportedUserPage',adminPage('/api/v1/admin/reports/users',page)); }
+  async dismissMessageReports(message:string,input:NativeTypes['AdminOperation']):Promise<void> { await this.value(`/api/v1/admin/reports/messages/${encodeURIComponent(message)}/dismiss`,input); }
+  async deleteReportedMessage(message:string,input:NativeTypes['AdminOperation']):Promise<void> { await this.value(`/api/v1/admin/reports/messages/${encodeURIComponent(message)}/delete`,input); }
+  async dismissUserReports(user:string,input:NativeTypes['AdminOperation']):Promise<void> { await this.value(`/api/v1/admin/reports/users/${encodeURIComponent(user)}/dismiss`,input); }
+  async reportMessage(message:string,input:NativeTypes['ReportInput']):Promise<void> { await this.value(`/api/v1/messages/${encodeURIComponent(message)}/report`,input); }
+  async reportUser(user:string,input:NativeTypes['ReportInput']):Promise<void> { await this.value(`/api/v1/users/${encodeURIComponent(user)}/report`,input); }
   accountPermissions(): Promise<NativeTypes['AccountPermissions']> { return this.request('AccountPermissions','/api/v1/me/permissions'); }
   roomPermissions(room: string): Promise<NativeTypes['RoomPermissions']> { return this.request('RoomPermissions',`/api/v1/rooms/${encodeURIComponent(room)}/permissions`); }
   roomDetails(room:string):Promise<NativeTypes['RoomDetails']> { return this.request('RoomDetails',`/api/v1/rooms/${encodeURIComponent(room)}`); }

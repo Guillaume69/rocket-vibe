@@ -36,6 +36,14 @@ pub fn identifier(value: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b))
 }
 
+/// `deleted-` names a tombstoned account; no account may choose such a name.
+pub fn reserved_username(value: &str) -> bool {
+    value
+        .as_bytes()
+        .get(..8)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case(b"deleted-"))
+}
+
 pub fn bearer(headers: &HeaderMap) -> Result<String> {
     let token = headers
         .get("authorization")
@@ -64,6 +72,7 @@ impl Account {
             id: self.id.clone(),
             username: self.username.clone(),
             display_name: self.display_name.clone(),
+            ..Default::default()
         }
     }
 }
@@ -126,7 +135,10 @@ pub(crate) async fn lock_active(
 }
 
 pub async fn create_user(app: &App, username: &str, password: String, admin: bool) -> Result<User> {
-    if !identifier(username) || !(12..=1024).contains(&password.len()) {
+    if !identifier(username)
+        || reserved_username(username)
+        || !(12..=1024).contains(&password.len())
+    {
         return Err(Error::invalid());
     }
     let password_hash = tokio::task::spawn_blocking(move || {
@@ -141,6 +153,7 @@ pub async fn create_user(app: &App, username: &str, password: String, admin: boo
         id: random_token()[..24].into(),
         username: username.into(),
         display_name: username.into(),
+        ..Default::default()
     };
     let mut tx = app.pool.begin().await?;
     mutation_deadlines(&mut tx).await?;
@@ -255,6 +268,7 @@ async fn password_login(
         id,
         username,
         display_name,
+        ..Default::default()
     };
     let enabled: bool =
         sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_factor_profiles WHERE user_id=$1)")

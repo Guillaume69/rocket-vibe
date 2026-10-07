@@ -86,7 +86,8 @@ mod tests {
     fn photos_are_scoped_to_composer_and_expire_without_a_stop_frame() {
         let now = Instant::now();
         let mut cache = LiveCache::default();
-        let user = User { id: "other".into(), username: "bob".into(), display_name: "Bob".into() };
+        let user =
+            User { id: "other".into(), username: "bob".into(), display_name: "Bob".into(), ..Default::default() };
         let mut state = LiveState {
             emoji_catalog_revision: None,
             profiles: vec![],

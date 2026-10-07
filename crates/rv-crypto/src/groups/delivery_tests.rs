@@ -235,6 +235,7 @@ fn server(alice: &Account, bob: &Account, drop_once: bool) -> (Server, Arc<Mutex
                 id: user.into(),
                 username: user.into(),
                 display_name: user.into(),
+                ..Default::default()
             });
         }
         if request.path == "/api/v1/me/sessions" {
@@ -1444,6 +1445,7 @@ async fn stop_is_shared_and_scope_changes_prevent_any_vault_or_crypto_request() 
                     },
                     username: "alice".into(),
                     display_name: "alice".into(),
+                    ..Default::default()
                 }),
                 "/api/v1/me/sessions" => json(&vec![rv_protocol::parity::DeviceSession {
                     id: "other-device".into(),

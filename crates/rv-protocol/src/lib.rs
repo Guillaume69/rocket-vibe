@@ -3,6 +3,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+pub mod admin;
 pub mod cards;
 pub mod commands;
 pub mod custom_emojis;
@@ -108,6 +109,12 @@ pub struct Capabilities {
     /// Voice sessions in every room, voice channels and ringing direct calls.
     #[serde(default)]
     pub voice: bool,
+    /// The `/api/v1/admin/*` routes, for an account with `users.admin`.
+    #[serde(default)]
+    pub administration: bool,
+    /// Members can report a message or an account to the administrators.
+    #[serde(default)]
+    pub reports: bool,
 }
 
 impl Default for Capabilities {
@@ -160,6 +167,8 @@ impl Default for Capabilities {
             email_recovery: false,
             slash_commands: false,
             voice: false,
+            administration: false,
+            reports: false,
         }
     }
 }
@@ -218,7 +227,9 @@ impl Capabilities {
             email_factor_delivery,
             email_recovery,
             slash_commands,
-            voice
+            voice,
+            administration,
+            reports
         );
         features
     }
@@ -235,11 +246,15 @@ pub struct Discovery {
     pub capabilities: Capabilities,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct User {
     pub id: String,
     pub username: String,
     pub display_name: String,
+    /// A tombstoned account: its messages stay, shown as a deleted user. Its
+    /// username is a reserved `deleted-` placeholder and its display name empty.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub deleted: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -567,6 +582,7 @@ pub struct Contract {
     pub error: ApiError,
     pub command_list: commands::CommandList,
     pub run_command: commands::RunCommand,
+    pub administration: admin::AdminContract,
     pub parity: parity::ParityContract,
 }
 

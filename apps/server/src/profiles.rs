@@ -49,6 +49,7 @@ impl Row {
                 id: self.id.clone(),
                 username: self.username.clone(),
                 display_name: self.display_name.clone(),
+                ..Default::default()
             },
             revision: self.profile_version.clone(),
             bio: self.bio.clone(),
@@ -222,6 +223,9 @@ pub(crate) async fn update(
         return Err(revision_conflict());
     }
     if username != input.username {
+        if auth::reserved_username(&input.username) {
+            return Err(Error::invalid());
+        }
         factors::recent(&mut tx, actor).await?;
     }
     admission(&mut tx, actor).await?;

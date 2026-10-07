@@ -44,6 +44,598 @@
       ],
       "type": "object"
     },
+    "AdminContract": {
+      "description": "Export root of the administration fixture.",
+      "properties": {
+        "delete_user": {
+          "$ref": "#/$defs/DeleteAdminUser"
+        },
+        "operation": {
+          "$ref": "#/$defs/AdminOperation"
+        },
+        "overview": {
+          "$ref": "#/$defs/AdminOverview"
+        },
+        "report": {
+          "$ref": "#/$defs/ReportInput"
+        },
+        "reported_messages": {
+          "$ref": "#/$defs/AdminReportedMessagePage"
+        },
+        "reported_users": {
+          "$ref": "#/$defs/AdminReportedUserPage"
+        },
+        "room_page": {
+          "$ref": "#/$defs/AdminRoomPage"
+        },
+        "update_user": {
+          "$ref": "#/$defs/UpdateAdminUser"
+        },
+        "user_page": {
+          "$ref": "#/$defs/AdminUserPage"
+        }
+      },
+      "required": [
+        "overview",
+        "user_page",
+        "update_user",
+        "delete_user",
+        "room_page",
+        "reported_messages",
+        "reported_users",
+        "operation",
+        "report"
+      ],
+      "type": "object"
+    },
+    "AdminMessageCounts": {
+      "description": "Messages people wrote: system activity and tombstones are not counted.",
+      "properties": {
+        "direct": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "encrypted": {
+          "description": "Opaque private messages, outside the three plaintext kinds.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "private": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "public": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "total": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "total",
+        "public",
+        "private",
+        "direct",
+        "encrypted"
+      ],
+      "type": "object"
+    },
+    "AdminOperation": {
+      "additionalProperties": false,
+      "description": "Dismissing reports or deleting a reported message.",
+      "properties": {
+        "operation_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id"
+      ],
+      "type": "object"
+    },
+    "AdminOverview": {
+      "properties": {
+        "data_epoch": {
+          "type": "string"
+        },
+        "instance_id": {
+          "type": "string"
+        },
+        "messages": {
+          "$ref": "#/$defs/AdminMessageCounts"
+        },
+        "migration_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "postgres_version": {
+          "type": "string"
+        },
+        "reports": {
+          "$ref": "#/$defs/AdminReportCounts"
+        },
+        "rooms": {
+          "$ref": "#/$defs/AdminRoomCounts"
+        },
+        "server_version": {
+          "type": "string"
+        },
+        "started_at": {
+          "description": "Start of this server process; the uptime is the distance to now.",
+          "type": "string"
+        },
+        "uploads": {
+          "$ref": "#/$defs/AdminUploadCounts"
+        },
+        "users": {
+          "$ref": "#/$defs/AdminUserCounts"
+        }
+      },
+      "required": [
+        "server_version",
+        "postgres_version",
+        "instance_id",
+        "data_epoch",
+        "started_at",
+        "users",
+        "rooms",
+        "messages",
+        "uploads",
+        "reports"
+      ],
+      "type": "object"
+    },
+    "AdminReport": {
+      "properties": {
+        "created_at": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "reporter": {
+          "$ref": "#/$defs/User"
+        }
+      },
+      "required": [
+        "reporter",
+        "reason",
+        "created_at"
+      ],
+      "type": "object"
+    },
+    "AdminReportCounts": {
+      "description": "Open reports only.",
+      "properties": {
+        "messages": {
+          "description": "Reported messages, not reports.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "users": {
+          "description": "Reported accounts, not reports.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "messages",
+        "users"
+      ],
+      "type": "object"
+    },
+    "AdminReportedMessage": {
+      "properties": {
+        "author": {
+          "$ref": "#/$defs/User"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "deleted": {
+          "type": "boolean"
+        },
+        "latest_report_at": {
+          "type": "string"
+        },
+        "message_id": {
+          "type": "string"
+        },
+        "report_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "reports": {
+          "description": "Newest first, at most 20.",
+          "items": {
+            "$ref": "#/$defs/AdminReport"
+          },
+          "type": "array"
+        },
+        "room_id": {
+          "type": "string"
+        },
+        "room_kind": {
+          "$ref": "#/$defs/RoomKind"
+        },
+        "room_name": {
+          "type": "string"
+        },
+        "text": {
+          "description": "Empty once the message is deleted.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "message_id",
+        "room_id",
+        "room_kind",
+        "room_name",
+        "author",
+        "text",
+        "created_at",
+        "deleted",
+        "report_count",
+        "latest_report_at",
+        "reports"
+      ],
+      "type": "object"
+    },
+    "AdminReportedMessagePage": {
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/AdminReportedMessage"
+          },
+          "type": "array"
+        },
+        "next": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "type": "object"
+    },
+    "AdminReportedUser": {
+      "properties": {
+        "latest_report_at": {
+          "type": "string"
+        },
+        "report_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "reports": {
+          "description": "Newest first, at most 20.",
+          "items": {
+            "$ref": "#/$defs/AdminReport"
+          },
+          "type": "array"
+        },
+        "user": {
+          "$ref": "#/$defs/AdminUser"
+        }
+      },
+      "required": [
+        "user",
+        "report_count",
+        "latest_report_at",
+        "reports"
+      ],
+      "type": "object"
+    },
+    "AdminReportedUserPage": {
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/AdminReportedUser"
+          },
+          "type": "array"
+        },
+        "next": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "type": "object"
+    },
+    "AdminRoom": {
+      "properties": {
+        "created_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "direct_members": {
+          "description": "The pair of a direct conversation, deleted accounts included; empty otherwise.",
+          "items": {
+            "$ref": "#/$defs/User"
+          },
+          "type": "array"
+        },
+        "encrypted": {
+          "type": "boolean"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/RoomKind"
+        },
+        "last_message_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "member_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "message_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "name": {
+          "type": "string"
+        },
+        "read_only": {
+          "type": "boolean"
+        },
+        "topic": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "name",
+        "member_count",
+        "message_count",
+        "read_only",
+        "encrypted"
+      ],
+      "type": "object"
+    },
+    "AdminRoomCounts": {
+      "properties": {
+        "direct": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "encrypted": {
+          "description": "Rooms with an MLS group, also counted under their kind.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "private": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "public": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "total": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "total",
+        "public",
+        "private",
+        "direct",
+        "encrypted"
+      ],
+      "type": "object"
+    },
+    "AdminRoomPage": {
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/AdminRoom"
+          },
+          "type": "array"
+        },
+        "next": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "type": "object"
+    },
+    "AdminUploadCounts": {
+      "properties": {
+        "bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "count",
+        "bytes"
+      ],
+      "type": "object"
+    },
+    "AdminUser": {
+      "properties": {
+        "admin": {
+          "type": "boolean"
+        },
+        "avatar_file_id": {
+          "description": "The profile avatar (`/api/v1/avatars/{id}`); absent for a disabled account,\nwhose avatar is no longer served.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "created_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "disabled": {
+          "type": "boolean"
+        },
+        "display_name": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "last_seen_at": {
+          "description": "Latest activity of any of its devices, at a five-minute granularity.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "revision": {
+          "description": "Account authority version, expected back by every change.",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/PresenceStatus"
+        },
+        "username": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "username",
+        "display_name",
+        "admin",
+        "disabled",
+        "status",
+        "revision"
+      ],
+      "type": "object"
+    },
+    "AdminUserCounts": {
+      "properties": {
+        "active": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "admins": {
+          "description": "Active administrators.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "away": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "busy": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "deactivated": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "offline": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "online": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "total": {
+          "description": "Accounts, deleted ones excluded.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "total",
+        "active",
+        "deactivated",
+        "admins",
+        "online",
+        "away",
+        "busy",
+        "offline"
+      ],
+      "type": "object"
+    },
+    "AdminUserPage": {
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/AdminUser"
+          },
+          "type": "array"
+        },
+        "next": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "type": "object"
+    },
     "AnswerRing": {
       "additionalProperties": false,
       "properties": {
@@ -456,6 +1048,11 @@
           "default": false,
           "type": "boolean"
         },
+        "administration": {
+          "default": false,
+          "description": "The `/api/v1/admin/*` routes, for an account with `users.admin`.",
+          "type": "boolean"
+        },
         "calls": {
           "type": "boolean"
         },
@@ -559,6 +1156,11 @@
         },
         "reauthentication_retirement": {
           "default": false,
+          "type": "boolean"
+        },
+        "reports": {
+          "default": false,
+          "description": "Members can report a message or an account to the administrators.",
           "type": "boolean"
         },
         "room_discovery": {
@@ -910,6 +1512,23 @@
         "sha256",
         "media_type",
         "bytes",
+        "revision"
+      ],
+      "type": "object"
+    },
+    "DeleteAdminUser": {
+      "additionalProperties": false,
+      "description": "Tombstones the account; its messages stay, attributed to a deleted user.",
+      "properties": {
+        "operation_id": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
         "revision"
       ],
       "type": "object"
@@ -5032,6 +5651,24 @@
       ],
       "type": "object"
     },
+    "ReportInput": {
+      "additionalProperties": false,
+      "description": "A member's report of a message or an account. Reporting the same target\nagain keeps one open report and replaces its reason.",
+      "properties": {
+        "operation_id": {
+          "type": "string"
+        },
+        "reason": {
+          "description": "Trimmed, 1 to 1,000 characters.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "reason"
+      ],
+      "type": "object"
+    },
     "RequestEmailRecovery": {
       "additionalProperties": false,
       "description": "Anonymous delivery request. Save the random operation before HTTP. No\naddress, UID, delivery status or recovery credential is returned publicly.",
@@ -6388,6 +7025,35 @@
       ],
       "type": "object"
     },
+    "UpdateAdminUser": {
+      "additionalProperties": false,
+      "description": "Absent fields are kept. My own admin right and activation cannot be changed.",
+      "properties": {
+        "admin": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "disabled": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "revision"
+      ],
+      "type": "object"
+    },
     "UpdatePreferences": {
       "additionalProperties": false,
       "properties": {
@@ -6606,6 +7272,10 @@
     },
     "User": {
       "properties": {
+        "deleted": {
+          "description": "A tombstoned account: its messages stay, shown as a deleted user. Its\nusername is a reserved `deleted-` placeholder and its display name empty.",
+          "type": "boolean"
+        },
         "display_name": {
           "type": "string"
         },
@@ -6818,6 +7488,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "description": "Single schema root, also used by the TypeScript binding generator.",
   "properties": {
+    "administration": {
+      "$ref": "#/$defs/AdminContract"
+    },
     "answer_ring": {
       "$ref": "#/$defs/AnswerRing"
     },
@@ -6971,6 +7644,7 @@
     "error",
     "command_list",
     "run_command",
+    "administration",
     "parity"
   ],
   "title": "Contract",

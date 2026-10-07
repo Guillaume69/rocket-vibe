@@ -23,6 +23,8 @@ pub struct User {
     pub display_name: String,
     pub admin: bool,
     pub disabled: bool,
+    /// A tombstone: never reactivated, by the CLI or in the app.
+    pub deleted: bool,
     pub create_public_room: bool,
     pub create_private_room: bool,
     pub revision: String,
@@ -54,13 +56,15 @@ pub struct AuditEntry {
     pub id: String,
     pub created_at: DateTime<Utc>,
     pub database_role: String,
+    /// The in-app administrator or reporter; absent for the operator CLI.
+    pub actor_id: Option<String>,
     pub data_epoch: String,
     pub action: String,
     pub operation_id: Option<String>,
     pub subject: String,
     pub details: Json<Value>,
 }
-const USERS: &str = "SELECT id,username,display_name,admin,disabled,create_public_room,create_private_room,activation_version AS revision FROM users";
+const USERS: &str = "SELECT id,username,display_name,admin,disabled,deleted,create_public_room,create_private_room,activation_version AS revision FROM users";
 const ROOMS: &str = "SELECT r.id,r.name,r.kind,r.read_only,r.voice,r.topic,r.description,r.announcement,r.details_version AS revision,r.revision::text AS journal_position,(SELECT count(*) FROM members m WHERE m.room_id=r.id) AS member_count FROM rooms r";
 fn limit(value: u32) -> Result<i64> {
     if !(1..=100).contains(&value) {
@@ -121,7 +125,7 @@ pub async fn audit(app: &App, after: Option<&str>, count: u32) -> Result<Page<Au
         return Err(Error::invalid());
     }
     let after = after.parse::<i64>().map_err(|_| Error::invalid())?;
-    let rows=sqlx::query_as::<_,AuditEntry>("SELECT id::text,created_at,database_role,data_epoch,action,operation_id,subject,details FROM operator_audit WHERE id>$1 ORDER BY id LIMIT $2")
+    let rows=sqlx::query_as::<_,AuditEntry>("SELECT id::text,created_at,database_role,actor_id,data_epoch,action,operation_id,subject,details FROM operator_audit WHERE id>$1 ORDER BY id LIMIT $2")
         .bind(after).bind(count+1).fetch_all(&app.pool).await?;
     Ok(page(rows, count as usize, |a| a.id.clone()))
 }
@@ -131,7 +135,8 @@ pub(crate) async fn record(
     subject: &str,
     details: Value,
 ) -> Result<()> {
-    sqlx::query("INSERT INTO operator_audit(data_epoch,action,operation_id,subject,details) SELECT data_epoch,$1,NULLIF(current_setting('rocketvibe.operator_operation',true),''),$2,$3 FROM instance WHERE singleton")
+    // An in-app command names its account; the CLI leaves the actor unset.
+    sqlx::query("INSERT INTO operator_audit(data_epoch,action,operation_id,subject,details,actor_id) SELECT data_epoch,$1,NULLIF(current_setting('rocketvibe.operator_operation',true),''),$2,$3,NULLIF(current_setting('rocketvibe.operator_actor',true),'') FROM instance WHERE singleton")
         .bind(action).bind(subject).bind(Json(details)).execute(&mut **tx).await?;
     Ok(())
 }
@@ -253,7 +258,7 @@ pub async fn apply(app: &App, operation: &str, command: Command) -> Result<Recei
     tx.commit().await?;
     Ok(receipt)
 }
-async fn set_user(
+pub(crate) async fn set_user(
     tx: &mut Transaction<'_, Postgres>,
     id: &str,
     expected: Option<&str>,
@@ -267,6 +272,9 @@ async fn set_user(
         .fetch_optional(&mut **tx)
         .await?
         .ok_or_else(Error::missing)?;
+    if before.deleted {
+        return Err(Error::missing());
+    }
     if expected.is_some_and(|e| e != before.revision) {
         return Err(conflict());
     }

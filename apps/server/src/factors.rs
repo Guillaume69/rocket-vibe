@@ -145,6 +145,7 @@ pub(crate) async fn finish(
         id,
         username,
         display_name,
+        ..Default::default()
     };
     let challenge: Option<Challenge> = sqlx::query_as("SELECT data_epoch,activation_version,factor_version,expires_at,attempts,accepted_operation,session_hash,receipt_expires_at FROM auth_challenges WHERE token_hash=$1 AND user_id=$2 FOR UPDATE")
         .bind(&challenge_hash).bind(&user.id).fetch_optional(&mut *tx).await?;

@@ -19,6 +19,7 @@ struct Resolution {
     source_author: Option<String>,
     source_username: Option<String>,
     source_display_name: Option<String>,
+    source_author_deleted: Option<bool>,
     source_text: Option<String>,
     source_created_at: Option<chrono::DateTime<chrono::Utc>>,
     source_revision: Option<i64>,
@@ -32,6 +33,7 @@ impl Resolution {
                 id: self.source_author.clone()?,
                 username: self.source_username.clone()?,
                 display_name: self.source_display_name.clone()?,
+                deleted: self.source_author_deleted.unwrap_or_default(),
             },
             text: self.source_text.clone()?,
             created_at: self.source_created_at?.to_rfc3339(),
@@ -167,7 +169,7 @@ pub(crate) async fn personalize(
          requested AS (SELECT * FROM unnest($1::text[],$2::text[]) q(message_id,room_id) UNION \
          SELECT child->>'message_id',child->>'room_id' FROM roots CROSS JOIN LATERAL jsonb_array_elements(quote_references) child) \
          SELECT q.message_id,q.room_id,i.position AS view_position,s.membership_version,\
-         m.author_id AS source_author,u.username AS source_username,u.display_name AS source_display_name,\
+         m.author_id AS source_author,u.username AS source_username,u.display_name AS source_display_name,u.deleted AS source_author_deleted,\
          left(m.text,1024) AS source_text,m.created_at AS source_created_at,m.revision AS source_revision,m.files AS source_files,m.quote_references AS source_references \
          FROM requested q CROSS JOIN instance i \
          LEFT JOIN room_read_states s ON s.room_id=q.room_id AND s.user_id=$3 \

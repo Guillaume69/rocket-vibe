@@ -1,6 +1,23 @@
 // Generated from crates/rv-protocol. Run scripts/generate-native-protocol.mjs.
 export type AcceptInvitation = { "password": string; "token": string; "username": string; };
 export type AccountPermissions = { "create_private_room": boolean; "create_public_room": boolean; "manage_accounts": boolean; "manage_instance": boolean; };
+export type AdminContract = { "delete_user": DeleteAdminUser; "operation": AdminOperation; "overview": AdminOverview; "report": ReportInput; "reported_messages": AdminReportedMessagePage; "reported_users": AdminReportedUserPage; "room_page": AdminRoomPage; "update_user": UpdateAdminUser; "user_page": AdminUserPage; };
+export type AdminMessageCounts = { "direct": number; "encrypted": number; "private": number; "public": number; "total": number; };
+export type AdminOperation = { "operation_id": string; };
+export type AdminOverview = { "data_epoch": string; "instance_id": string; "messages": AdminMessageCounts; "migration_version"?: string | null; "postgres_version": string; "reports": AdminReportCounts; "rooms": AdminRoomCounts; "server_version": string; "started_at": string; "uploads": AdminUploadCounts; "users": AdminUserCounts; };
+export type AdminReport = { "created_at": string; "reason": string; "reporter": User; };
+export type AdminReportCounts = { "messages": number; "users": number; };
+export type AdminReportedMessage = { "author": User; "created_at": string; "deleted": boolean; "latest_report_at": string; "message_id": string; "report_count": number; "reports": (AdminReport)[]; "room_id": string; "room_kind": RoomKind; "room_name": string; "text": string; };
+export type AdminReportedMessagePage = { "items": (AdminReportedMessage)[]; "next"?: string | null; };
+export type AdminReportedUser = { "latest_report_at": string; "report_count": number; "reports": (AdminReport)[]; "user": AdminUser; };
+export type AdminReportedUserPage = { "items": (AdminReportedUser)[]; "next"?: string | null; };
+export type AdminRoom = { "created_at"?: string | null; "direct_members"?: (User)[]; "encrypted": boolean; "id": string; "kind": RoomKind; "last_message_at"?: string | null; "member_count": number; "message_count": number; "name": string; "read_only": boolean; "topic"?: string | null; };
+export type AdminRoomCounts = { "direct": number; "encrypted": number; "private": number; "public": number; "total": number; };
+export type AdminRoomPage = { "items": (AdminRoom)[]; "next"?: string | null; };
+export type AdminUploadCounts = { "bytes": number; "count": number; };
+export type AdminUser = { "admin": boolean; "avatar_file_id"?: string | null; "created_at"?: string | null; "disabled": boolean; "display_name": string; "id": string; "last_seen_at"?: string | null; "revision": string; "status": PresenceStatus; "username": string; };
+export type AdminUserCounts = { "active": number; "admins": number; "away": number; "busy": number; "deactivated": number; "offline": number; "online": number; "total": number; };
+export type AdminUserPage = { "items": (AdminUser)[]; "next"?: string | null; };
 export type AnswerRing = { "data_epoch": string; "e2ee"?: boolean; "membership_version": string; };
 export type ApiError = { "code": string; "request_id": string; };
 export type ApplicationCancellation = { "fingerprint": string; "header": string; "operation_id": string; "room_id": string; "scope": Scope; };
@@ -16,7 +33,7 @@ export type BeginEmailVerification = { "address": string; "context": Reauthentic
 export type BeginFactorSetup = { "operation_id": string; };
 export type BeginReauthentication = { "challenge_id": string; "context"?: ReauthenticationContext | null; "operation_id": string; "password": string; "proof_version": string; };
 export type CallSummary = { "duration_seconds"?: number | null; "state": RingState; };
-export type Capabilities = { "account_invitations"?: boolean; "account_recovery"?: boolean; "calls": boolean; "custom_emojis"?: boolean; "deletion"?: boolean; "device_sessions"?: boolean; "direct_messages": boolean; "durable_sync": boolean; "e2ee": boolean; "editing"?: boolean; "email_factor_delivery"?: boolean; "email_factors"?: boolean; "email_recovery"?: boolean; "email_removal"?: boolean; "email_verification"?: boolean; "favorites"?: boolean; "fine_permissions"?: boolean; "idempotent_room_creation"?: boolean; "link_previews"?: boolean; "pins"?: boolean; "presence"?: boolean; "private_rooms": boolean; "profile_avatars"?: boolean; "profiles"?: boolean; "push": boolean; "quotes"?: boolean; "reactions": boolean; "read_markers"?: boolean; "reauthentication"?: boolean; "reauthentication_retirement"?: boolean; "room_discovery"?: boolean; "room_info"?: boolean; "room_leave"?: boolean; "room_roles"?: boolean; "room_settings"?: boolean; "search"?: boolean; "second_factors"?: boolean; "session_rotation"?: boolean; "slash_commands"?: boolean; "snapshot_paging"?: boolean; "stars"?: boolean; "structured_cards"?: boolean; "text_messages": boolean; "threads": boolean; "typing"?: boolean; "uploads": boolean; "voice"?: boolean; };
+export type Capabilities = { "account_invitations"?: boolean; "account_recovery"?: boolean; "administration"?: boolean; "calls": boolean; "custom_emojis"?: boolean; "deletion"?: boolean; "device_sessions"?: boolean; "direct_messages": boolean; "durable_sync": boolean; "e2ee": boolean; "editing"?: boolean; "email_factor_delivery"?: boolean; "email_factors"?: boolean; "email_recovery"?: boolean; "email_removal"?: boolean; "email_verification"?: boolean; "favorites"?: boolean; "fine_permissions"?: boolean; "idempotent_room_creation"?: boolean; "link_previews"?: boolean; "pins"?: boolean; "presence"?: boolean; "private_rooms": boolean; "profile_avatars"?: boolean; "profiles"?: boolean; "push": boolean; "quotes"?: boolean; "reactions": boolean; "read_markers"?: boolean; "reauthentication"?: boolean; "reauthentication_retirement"?: boolean; "reports"?: boolean; "room_discovery"?: boolean; "room_info"?: boolean; "room_leave"?: boolean; "room_roles"?: boolean; "room_settings"?: boolean; "search"?: boolean; "second_factors"?: boolean; "session_rotation"?: boolean; "slash_commands"?: boolean; "snapshot_paging"?: boolean; "stars"?: boolean; "structured_cards"?: boolean; "text_messages": boolean; "threads": boolean; "typing"?: boolean; "uploads": boolean; "voice"?: boolean; };
 export type CardField = { "short"?: boolean; "title": string; "value": string; };
 export type Change = { "data": Room; "type": "room_upsert"; } | { "data": Message; "type": "message_upsert"; } | { "data": { "room_id": string; }; "type": "room_removed"; };
 export type ChangeEmailFactor = { "context": ReauthenticationContext; "email_version": string; "factor_version"?: string | null; "operation_id": string; };
@@ -27,6 +44,7 @@ export type CompleteUpload = { "content": MessageContent; "operation_id": string
 export type ConfirmEmailVerification = { "code": string; "context": ReauthenticationContext; "operation_id": string; "verification_id": string; };
 export type CreateRoom = { "name": string; "operation_id"?: string | null; "private": boolean; "voice"?: boolean; };
 export type CustomEmoji = { "aliases": (string)[]; "bytes": string; "file_id": string; "id": string; "media_type": string; "name": string; "revision": string; "sha256": string; };
+export type DeleteAdminUser = { "operation_id": string; "revision": string; };
 export type DeleteMessage = { "expected_revision": string; "operation_id": string; };
 export type DeliveryContent = { "data": GroupEvent; "kind": "group"; } | { "data": ApplicationMessage; "kind": "message"; };
 export type DeliveryEvent = { "content": DeliveryContent; "position": string; };
@@ -134,6 +152,7 @@ export type RegisterPush = { "token": string; };
 export type RemoveVerifiedEmail = { "context": ReauthenticationContext; "expected_version": string; "operation_id": string; "verification_version": string; };
 export type RenameDevice = { "label": string; };
 export type RenewSession = { "next_token": string; "operation_id": string; };
+export type ReportInput = { "operation_id": string; "reason": string; };
 export type RequestEmailRecovery = { "data_epoch": string; "instance_id": string; "operation_id": string; "username": string; };
 export type RequestFactorEmail = { "challenge_id": string; "delivery_id": string; "operation_id": string; };
 export type ResumeEmailRemoval = { "context": ReauthenticationContext; "operation_id": string; };
@@ -181,6 +200,7 @@ export type ThreadPage = { "has_more": boolean; "messages": (Message)[]; "read_s
 export type ThreadReadState = { "membership_version": string; "position": string; "revision": string; "room_id": string; "root_id": string; "unread": string; };
 export type ThreadSummary = { "last_reply_at"?: string | null; "replies": string; };
 export type Typist = { "root_id"?: string | null; "user": User; };
+export type UpdateAdminUser = { "admin"?: boolean | null; "disabled"?: boolean | null; "operation_id": string; "revision": string; };
 export type UpdatePreferences = { "clock_24h": boolean; "desktop_notifications": DesktopNotifications; "expected_revision": string; "language": string; "operation_id": string; "push_enabled": boolean; "push_mentions_only": boolean; };
 export type UpdateProfile = { "bio": string; "display_name": string; "expected_revision": string; "operation_id": string; "status": PresenceStatus; "status_text": string; "username": string; };
 export type UpdateRoom = { "announcement": string; "description": string; "expected_revision": string; "name": string; "operation_id": string; "private": boolean; "read_only": boolean; "topic": string; "voice"?: boolean | null; };
@@ -188,7 +208,7 @@ export type Upload = { "expires_at": string; "file": FileDescriptor; "id": strin
 export type UploadHistoryBackup = { "checkpoint": string; "records": (string)[]; "scope": Scope; "start": string; };
 export type UploadHistoryRecords = { "period": number; "records": (string)[]; "scope": Scope; "start": string; };
 export type UploadState = "prepared" | "ready" | "completed" | "cancelled" | "expired";
-export type User = { "display_name": string; "id": string; "username": string; };
+export type User = { "deleted"?: boolean; "display_name": string; "id": string; "username": string; };
 export type UserPreferences = { "clock_24h": boolean; "desktop_notifications"?: DesktopNotifications; "language": string; "push_enabled": boolean; "push_mentions_only": boolean; "revision": string; };
 export type UserProfile = { "avatar_file_id"?: string | null; "bio": string; "revision": string; "status"?: PresenceStatus; "status_text": string; "user": User; };
 export type VerifyFactor = { "challenge_id": string; "code": string; "method": SecondFactor; };
@@ -196,7 +216,7 @@ export type VoiceGrant = { "can_publish": boolean; "e2ee"?: boolean; "expires_at
 export type VoiceParticipant = { "camera"?: boolean; "deafened": boolean; "muted": boolean; "screen"?: boolean; "user": User; };
 export type VoiceRing = { "callee": User; "caller": User; "expires_in_ms": number; "id": string; "room_id": string; "state": RingState; };
 
-export type NativeTypes = { AcceptInvitation: AcceptInvitation; AccountPermissions: AccountPermissions; AnswerRing: AnswerRing; ApiError: ApiError; ApplicationCancellation: ApplicationCancellation; ApplicationMessage: ApplicationMessage; ApplicationReceipt: ApplicationReceipt; ApplicationSettlement: ApplicationSettlement; ApplicationSubmission: ApplicationSubmission; AuthChallenge: AuthChallenge; AuthenticationStep: AuthenticationStep; AvailableKeyPackage: AvailableKeyPackage; AvatarCommand: AvatarCommand; BeginEmailVerification: BeginEmailVerification; BeginFactorSetup: BeginFactorSetup; BeginReauthentication: BeginReauthentication; CallSummary: CallSummary; Capabilities: Capabilities; CardField: CardField; Change: Change; ChangeEmailFactor: ChangeEmailFactor; ChangeRoomRole: ChangeRoomRole; CommandList: CommandList; CommitHistoryShare: CommitHistoryShare; CompleteUpload: CompleteUpload; ConfirmEmailVerification: ConfirmEmailVerification; CreateRoom: CreateRoom; CustomEmoji: CustomEmoji; DeleteMessage: DeleteMessage; DeliveryContent: DeliveryContent; DeliveryEvent: DeliveryEvent; DeliveryPage: DeliveryPage; DesktopNotifications: DesktopNotifications; Device: Device; DeviceSession: DeviceSession; DirectMessage: DirectMessage; Directory: Directory; DisableFactor: DisableFactor; Discovery: Discovery; Document: Document; EditMessage: EditMessage; EmailDeliveryState: EmailDeliveryState; EmailFactorChange: EmailFactorChange; EmailRecoveryRequested: EmailRecoveryRequested; EmailRemovalReceipt: EmailRemovalReceipt; EmailStatus: EmailStatus; EmailVerificationStep: EmailVerificationStep; EmojiCatalog: EmojiCatalog; EnableFactor: EnableFactor; EncryptedFile: EncryptedFile; EncryptedKeyBackup: EncryptedKeyBackup; FactorBackupCodes: FactorBackupCodes; FactorEmailDelivery: FactorEmailDelivery; FactorSetup: FactorSetup; FactorStatus: FactorStatus; FileDescriptor: FileDescriptor; FinishFactor: FinishFactor; FinishReauthentication: FinishReauthentication; Format: Format; GroupCancellation: GroupCancellation; GroupEvent: GroupEvent; GroupEventPage: GroupEventPage; GroupMember: GroupMember; GroupReceipt: GroupReceipt; GroupRoster: GroupRoster; GroupSettlement: GroupSettlement; GroupState: GroupState; GroupSubmission: GroupSubmission; GroupWelcome: GroupWelcome; HistoryBackupPage: HistoryBackupPage; HistoryBackupPeriod: HistoryBackupPeriod; HistoryBackupPeriods: HistoryBackupPeriods; HistoryBackupReceipt: HistoryBackupReceipt; HistoryKeyCancellation: HistoryKeyCancellation; HistoryKeyReceipt: HistoryKeyReceipt; HistoryKeySettlement: HistoryKeySettlement; HistoryKeyState: HistoryKeyState; HistoryKeyVersion: HistoryKeyVersion; HistoryRecordsPage: HistoryRecordsPage; HistoryRecordsReceipt: HistoryRecordsReceipt; HistoryRequestEntry: HistoryRequestEntry; HistoryRequests: HistoryRequests; HistoryShareState: HistoryShareState; Identity: Identity; IntegrationCard: IntegrationCard; JoinVoice: JoinVoice; LeaveRoom: LeaveRoom; LinkPreview: LinkPreview; LiveFrame: LiveFrame; LiveRoom: LiveRoom; LiveState: LiveState; Login: Login; MarkRead: MarkRead; MarkThreadRead: MarkThreadRead; Message: Message; MessageContent: MessageContent; MessagePage: MessagePage; MessagePermissions: MessagePermissions; MessageQuote: MessageQuote; MessageReaction: MessageReaction; Node: Node; OperationReceipt: OperationReceipt; OwnProfile: OwnProfile; ParityContract: ParityContract; PersonalStar: PersonalStar; PrepareUpload: PrepareUpload; PresenceEntry: PresenceEntry; PresenceStatus: PresenceStatus; PreviewImage: PreviewImage; PreviewKind: PreviewKind; ProfileReceipt: ProfileReceipt; ProfileStamp: ProfileStamp; PublicDeviceKey: PublicDeviceKey; PublicRoom: PublicRoom; PublicRoomPage: PublicRoomPage; PublishHistoryKey: PublishHistoryKey; PublishHistoryRequest: PublishHistoryRequest; PublishKeyPackages: PublishKeyPackages; PublishRootBackup: PublishRootBackup; PushContent: PushContent; PushRegistration: PushRegistration; QuoteExcerpt: QuoteExcerpt; QuoteReference: QuoteReference; ReadState: ReadState; ReauthenticationContext: ReauthenticationContext; ReauthenticationGrant: ReauthenticationGrant; ReauthenticationStatus: ReauthenticationStatus; ReauthenticationStep: ReauthenticationStep; RecoverAccount: RecoverAccount; RegenerateFactorBackups: RegenerateFactorBackups; RegisterDevice: RegisterDevice; RegisterPush: RegisterPush; RemoveVerifiedEmail: RemoveVerifiedEmail; RenameDevice: RenameDevice; RenewSession: RenewSession; RequestEmailRecovery: RequestEmailRecovery; RequestFactorEmail: RequestFactorEmail; ResumeEmailRemoval: ResumeEmailRemoval; ResumeEmailVerification: ResumeEmailVerification; ResumeReauthentication: ResumeReauthentication; RetireEmailRemoval: RetireEmailRemoval; RetireEmailVerification: RetireEmailVerification; RetireReauthentication: RetireReauthentication; Revocation: Revocation; RevokeDevice: RevokeDevice; RingState: RingState; Room: Room; RoomCommandReceipt: RoomCommandReceipt; RoomDetails: RoomDetails; RoomKeyEnvelope: RoomKeyEnvelope; RoomKind: RoomKind; RoomMember: RoomMember; RoomMemberPage: RoomMemberPage; RoomPermissions: RoomPermissions; RoomRole: RoomRole; RootBackupCancellation: RootBackupCancellation; RootBackupReceipt: RootBackupReceipt; RootBackupSettlement: RootBackupSettlement; RootBackupState: RootBackupState; RootBackupVersion: RootBackupVersion; RunCommand: RunCommand; Scope: Scope; SearchMessages: SearchMessages; SearchPage: SearchPage; SecondFactor: SecondFactor; SendMessage: SendMessage; Session: Session; SetMark: SetMark; SetPresence: SetPresence; SetReaction: SetReaction; SetRoomFavorite: SetRoomFavorite; SetTyping: SetTyping; SlashCommand: SlashCommand; Snapshot: Snapshot; SnapshotPage: SnapshotPage; SocketTicket: SocketTicket; SyncBatch: SyncBatch; SystemMessage: SystemMessage; ThreadPage: ThreadPage; ThreadReadState: ThreadReadState; ThreadSummary: ThreadSummary; Typist: Typist; UpdatePreferences: UpdatePreferences; UpdateProfile: UpdateProfile; UpdateRoom: UpdateRoom; Upload: Upload; UploadHistoryBackup: UploadHistoryBackup; UploadHistoryRecords: UploadHistoryRecords; UploadState: UploadState; User: User; UserPreferences: UserPreferences; UserProfile: UserProfile; VerifyFactor: VerifyFactor; VoiceGrant: VoiceGrant; VoiceParticipant: VoiceParticipant; VoiceRing: VoiceRing; };
+export type NativeTypes = { AcceptInvitation: AcceptInvitation; AccountPermissions: AccountPermissions; AdminContract: AdminContract; AdminMessageCounts: AdminMessageCounts; AdminOperation: AdminOperation; AdminOverview: AdminOverview; AdminReport: AdminReport; AdminReportCounts: AdminReportCounts; AdminReportedMessage: AdminReportedMessage; AdminReportedMessagePage: AdminReportedMessagePage; AdminReportedUser: AdminReportedUser; AdminReportedUserPage: AdminReportedUserPage; AdminRoom: AdminRoom; AdminRoomCounts: AdminRoomCounts; AdminRoomPage: AdminRoomPage; AdminUploadCounts: AdminUploadCounts; AdminUser: AdminUser; AdminUserCounts: AdminUserCounts; AdminUserPage: AdminUserPage; AnswerRing: AnswerRing; ApiError: ApiError; ApplicationCancellation: ApplicationCancellation; ApplicationMessage: ApplicationMessage; ApplicationReceipt: ApplicationReceipt; ApplicationSettlement: ApplicationSettlement; ApplicationSubmission: ApplicationSubmission; AuthChallenge: AuthChallenge; AuthenticationStep: AuthenticationStep; AvailableKeyPackage: AvailableKeyPackage; AvatarCommand: AvatarCommand; BeginEmailVerification: BeginEmailVerification; BeginFactorSetup: BeginFactorSetup; BeginReauthentication: BeginReauthentication; CallSummary: CallSummary; Capabilities: Capabilities; CardField: CardField; Change: Change; ChangeEmailFactor: ChangeEmailFactor; ChangeRoomRole: ChangeRoomRole; CommandList: CommandList; CommitHistoryShare: CommitHistoryShare; CompleteUpload: CompleteUpload; ConfirmEmailVerification: ConfirmEmailVerification; CreateRoom: CreateRoom; CustomEmoji: CustomEmoji; DeleteAdminUser: DeleteAdminUser; DeleteMessage: DeleteMessage; DeliveryContent: DeliveryContent; DeliveryEvent: DeliveryEvent; DeliveryPage: DeliveryPage; DesktopNotifications: DesktopNotifications; Device: Device; DeviceSession: DeviceSession; DirectMessage: DirectMessage; Directory: Directory; DisableFactor: DisableFactor; Discovery: Discovery; Document: Document; EditMessage: EditMessage; EmailDeliveryState: EmailDeliveryState; EmailFactorChange: EmailFactorChange; EmailRecoveryRequested: EmailRecoveryRequested; EmailRemovalReceipt: EmailRemovalReceipt; EmailStatus: EmailStatus; EmailVerificationStep: EmailVerificationStep; EmojiCatalog: EmojiCatalog; EnableFactor: EnableFactor; EncryptedFile: EncryptedFile; EncryptedKeyBackup: EncryptedKeyBackup; FactorBackupCodes: FactorBackupCodes; FactorEmailDelivery: FactorEmailDelivery; FactorSetup: FactorSetup; FactorStatus: FactorStatus; FileDescriptor: FileDescriptor; FinishFactor: FinishFactor; FinishReauthentication: FinishReauthentication; Format: Format; GroupCancellation: GroupCancellation; GroupEvent: GroupEvent; GroupEventPage: GroupEventPage; GroupMember: GroupMember; GroupReceipt: GroupReceipt; GroupRoster: GroupRoster; GroupSettlement: GroupSettlement; GroupState: GroupState; GroupSubmission: GroupSubmission; GroupWelcome: GroupWelcome; HistoryBackupPage: HistoryBackupPage; HistoryBackupPeriod: HistoryBackupPeriod; HistoryBackupPeriods: HistoryBackupPeriods; HistoryBackupReceipt: HistoryBackupReceipt; HistoryKeyCancellation: HistoryKeyCancellation; HistoryKeyReceipt: HistoryKeyReceipt; HistoryKeySettlement: HistoryKeySettlement; HistoryKeyState: HistoryKeyState; HistoryKeyVersion: HistoryKeyVersion; HistoryRecordsPage: HistoryRecordsPage; HistoryRecordsReceipt: HistoryRecordsReceipt; HistoryRequestEntry: HistoryRequestEntry; HistoryRequests: HistoryRequests; HistoryShareState: HistoryShareState; Identity: Identity; IntegrationCard: IntegrationCard; JoinVoice: JoinVoice; LeaveRoom: LeaveRoom; LinkPreview: LinkPreview; LiveFrame: LiveFrame; LiveRoom: LiveRoom; LiveState: LiveState; Login: Login; MarkRead: MarkRead; MarkThreadRead: MarkThreadRead; Message: Message; MessageContent: MessageContent; MessagePage: MessagePage; MessagePermissions: MessagePermissions; MessageQuote: MessageQuote; MessageReaction: MessageReaction; Node: Node; OperationReceipt: OperationReceipt; OwnProfile: OwnProfile; ParityContract: ParityContract; PersonalStar: PersonalStar; PrepareUpload: PrepareUpload; PresenceEntry: PresenceEntry; PresenceStatus: PresenceStatus; PreviewImage: PreviewImage; PreviewKind: PreviewKind; ProfileReceipt: ProfileReceipt; ProfileStamp: ProfileStamp; PublicDeviceKey: PublicDeviceKey; PublicRoom: PublicRoom; PublicRoomPage: PublicRoomPage; PublishHistoryKey: PublishHistoryKey; PublishHistoryRequest: PublishHistoryRequest; PublishKeyPackages: PublishKeyPackages; PublishRootBackup: PublishRootBackup; PushContent: PushContent; PushRegistration: PushRegistration; QuoteExcerpt: QuoteExcerpt; QuoteReference: QuoteReference; ReadState: ReadState; ReauthenticationContext: ReauthenticationContext; ReauthenticationGrant: ReauthenticationGrant; ReauthenticationStatus: ReauthenticationStatus; ReauthenticationStep: ReauthenticationStep; RecoverAccount: RecoverAccount; RegenerateFactorBackups: RegenerateFactorBackups; RegisterDevice: RegisterDevice; RegisterPush: RegisterPush; RemoveVerifiedEmail: RemoveVerifiedEmail; RenameDevice: RenameDevice; RenewSession: RenewSession; ReportInput: ReportInput; RequestEmailRecovery: RequestEmailRecovery; RequestFactorEmail: RequestFactorEmail; ResumeEmailRemoval: ResumeEmailRemoval; ResumeEmailVerification: ResumeEmailVerification; ResumeReauthentication: ResumeReauthentication; RetireEmailRemoval: RetireEmailRemoval; RetireEmailVerification: RetireEmailVerification; RetireReauthentication: RetireReauthentication; Revocation: Revocation; RevokeDevice: RevokeDevice; RingState: RingState; Room: Room; RoomCommandReceipt: RoomCommandReceipt; RoomDetails: RoomDetails; RoomKeyEnvelope: RoomKeyEnvelope; RoomKind: RoomKind; RoomMember: RoomMember; RoomMemberPage: RoomMemberPage; RoomPermissions: RoomPermissions; RoomRole: RoomRole; RootBackupCancellation: RootBackupCancellation; RootBackupReceipt: RootBackupReceipt; RootBackupSettlement: RootBackupSettlement; RootBackupState: RootBackupState; RootBackupVersion: RootBackupVersion; RunCommand: RunCommand; Scope: Scope; SearchMessages: SearchMessages; SearchPage: SearchPage; SecondFactor: SecondFactor; SendMessage: SendMessage; Session: Session; SetMark: SetMark; SetPresence: SetPresence; SetReaction: SetReaction; SetRoomFavorite: SetRoomFavorite; SetTyping: SetTyping; SlashCommand: SlashCommand; Snapshot: Snapshot; SnapshotPage: SnapshotPage; SocketTicket: SocketTicket; SyncBatch: SyncBatch; SystemMessage: SystemMessage; ThreadPage: ThreadPage; ThreadReadState: ThreadReadState; ThreadSummary: ThreadSummary; Typist: Typist; UpdateAdminUser: UpdateAdminUser; UpdatePreferences: UpdatePreferences; UpdateProfile: UpdateProfile; UpdateRoom: UpdateRoom; Upload: Upload; UploadHistoryBackup: UploadHistoryBackup; UploadHistoryRecords: UploadHistoryRecords; UploadState: UploadState; User: User; UserPreferences: UserPreferences; UserProfile: UserProfile; VerifyFactor: VerifyFactor; VoiceGrant: VoiceGrant; VoiceParticipant: VoiceParticipant; VoiceRing: VoiceRing; };
 
 export const nativeSchema = {
   "$defs": {
@@ -241,6 +261,598 @@ export const nativeSchema = {
         "create_private_room",
         "manage_accounts",
         "manage_instance"
+      ],
+      "type": "object"
+    },
+    "AdminContract": {
+      "description": "Export root of the administration fixture.",
+      "properties": {
+        "delete_user": {
+          "$ref": "#/$defs/DeleteAdminUser"
+        },
+        "operation": {
+          "$ref": "#/$defs/AdminOperation"
+        },
+        "overview": {
+          "$ref": "#/$defs/AdminOverview"
+        },
+        "report": {
+          "$ref": "#/$defs/ReportInput"
+        },
+        "reported_messages": {
+          "$ref": "#/$defs/AdminReportedMessagePage"
+        },
+        "reported_users": {
+          "$ref": "#/$defs/AdminReportedUserPage"
+        },
+        "room_page": {
+          "$ref": "#/$defs/AdminRoomPage"
+        },
+        "update_user": {
+          "$ref": "#/$defs/UpdateAdminUser"
+        },
+        "user_page": {
+          "$ref": "#/$defs/AdminUserPage"
+        }
+      },
+      "required": [
+        "overview",
+        "user_page",
+        "update_user",
+        "delete_user",
+        "room_page",
+        "reported_messages",
+        "reported_users",
+        "operation",
+        "report"
+      ],
+      "type": "object"
+    },
+    "AdminMessageCounts": {
+      "description": "Messages people wrote: system activity and tombstones are not counted.",
+      "properties": {
+        "direct": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "encrypted": {
+          "description": "Opaque private messages, outside the three plaintext kinds.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "private": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "public": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "total": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "total",
+        "public",
+        "private",
+        "direct",
+        "encrypted"
+      ],
+      "type": "object"
+    },
+    "AdminOperation": {
+      "additionalProperties": false,
+      "description": "Dismissing reports or deleting a reported message.",
+      "properties": {
+        "operation_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id"
+      ],
+      "type": "object"
+    },
+    "AdminOverview": {
+      "properties": {
+        "data_epoch": {
+          "type": "string"
+        },
+        "instance_id": {
+          "type": "string"
+        },
+        "messages": {
+          "$ref": "#/$defs/AdminMessageCounts"
+        },
+        "migration_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "postgres_version": {
+          "type": "string"
+        },
+        "reports": {
+          "$ref": "#/$defs/AdminReportCounts"
+        },
+        "rooms": {
+          "$ref": "#/$defs/AdminRoomCounts"
+        },
+        "server_version": {
+          "type": "string"
+        },
+        "started_at": {
+          "description": "Start of this server process; the uptime is the distance to now.",
+          "type": "string"
+        },
+        "uploads": {
+          "$ref": "#/$defs/AdminUploadCounts"
+        },
+        "users": {
+          "$ref": "#/$defs/AdminUserCounts"
+        }
+      },
+      "required": [
+        "server_version",
+        "postgres_version",
+        "instance_id",
+        "data_epoch",
+        "started_at",
+        "users",
+        "rooms",
+        "messages",
+        "uploads",
+        "reports"
+      ],
+      "type": "object"
+    },
+    "AdminReport": {
+      "properties": {
+        "created_at": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "reporter": {
+          "$ref": "#/$defs/User"
+        }
+      },
+      "required": [
+        "reporter",
+        "reason",
+        "created_at"
+      ],
+      "type": "object"
+    },
+    "AdminReportCounts": {
+      "description": "Open reports only.",
+      "properties": {
+        "messages": {
+          "description": "Reported messages, not reports.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "users": {
+          "description": "Reported accounts, not reports.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "messages",
+        "users"
+      ],
+      "type": "object"
+    },
+    "AdminReportedMessage": {
+      "properties": {
+        "author": {
+          "$ref": "#/$defs/User"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "deleted": {
+          "type": "boolean"
+        },
+        "latest_report_at": {
+          "type": "string"
+        },
+        "message_id": {
+          "type": "string"
+        },
+        "report_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "reports": {
+          "description": "Newest first, at most 20.",
+          "items": {
+            "$ref": "#/$defs/AdminReport"
+          },
+          "type": "array"
+        },
+        "room_id": {
+          "type": "string"
+        },
+        "room_kind": {
+          "$ref": "#/$defs/RoomKind"
+        },
+        "room_name": {
+          "type": "string"
+        },
+        "text": {
+          "description": "Empty once the message is deleted.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "message_id",
+        "room_id",
+        "room_kind",
+        "room_name",
+        "author",
+        "text",
+        "created_at",
+        "deleted",
+        "report_count",
+        "latest_report_at",
+        "reports"
+      ],
+      "type": "object"
+    },
+    "AdminReportedMessagePage": {
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/AdminReportedMessage"
+          },
+          "type": "array"
+        },
+        "next": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "type": "object"
+    },
+    "AdminReportedUser": {
+      "properties": {
+        "latest_report_at": {
+          "type": "string"
+        },
+        "report_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "reports": {
+          "description": "Newest first, at most 20.",
+          "items": {
+            "$ref": "#/$defs/AdminReport"
+          },
+          "type": "array"
+        },
+        "user": {
+          "$ref": "#/$defs/AdminUser"
+        }
+      },
+      "required": [
+        "user",
+        "report_count",
+        "latest_report_at",
+        "reports"
+      ],
+      "type": "object"
+    },
+    "AdminReportedUserPage": {
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/AdminReportedUser"
+          },
+          "type": "array"
+        },
+        "next": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "type": "object"
+    },
+    "AdminRoom": {
+      "properties": {
+        "created_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "direct_members": {
+          "description": "The pair of a direct conversation, deleted accounts included; empty otherwise.",
+          "items": {
+            "$ref": "#/$defs/User"
+          },
+          "type": "array"
+        },
+        "encrypted": {
+          "type": "boolean"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/RoomKind"
+        },
+        "last_message_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "member_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "message_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "name": {
+          "type": "string"
+        },
+        "read_only": {
+          "type": "boolean"
+        },
+        "topic": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "name",
+        "member_count",
+        "message_count",
+        "read_only",
+        "encrypted"
+      ],
+      "type": "object"
+    },
+    "AdminRoomCounts": {
+      "properties": {
+        "direct": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "encrypted": {
+          "description": "Rooms with an MLS group, also counted under their kind.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "private": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "public": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "total": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "total",
+        "public",
+        "private",
+        "direct",
+        "encrypted"
+      ],
+      "type": "object"
+    },
+    "AdminRoomPage": {
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/AdminRoom"
+          },
+          "type": "array"
+        },
+        "next": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "type": "object"
+    },
+    "AdminUploadCounts": {
+      "properties": {
+        "bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "count",
+        "bytes"
+      ],
+      "type": "object"
+    },
+    "AdminUser": {
+      "properties": {
+        "admin": {
+          "type": "boolean"
+        },
+        "avatar_file_id": {
+          "description": "The profile avatar (`/api/v1/avatars/{id}`); absent for a disabled account,\nwhose avatar is no longer served.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "created_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "disabled": {
+          "type": "boolean"
+        },
+        "display_name": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "last_seen_at": {
+          "description": "Latest activity of any of its devices, at a five-minute granularity.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "revision": {
+          "description": "Account authority version, expected back by every change.",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/PresenceStatus"
+        },
+        "username": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "username",
+        "display_name",
+        "admin",
+        "disabled",
+        "status",
+        "revision"
+      ],
+      "type": "object"
+    },
+    "AdminUserCounts": {
+      "properties": {
+        "active": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "admins": {
+          "description": "Active administrators.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "away": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "busy": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "deactivated": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "offline": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "online": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "total": {
+          "description": "Accounts, deleted ones excluded.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "total",
+        "active",
+        "deactivated",
+        "admins",
+        "online",
+        "away",
+        "busy",
+        "offline"
+      ],
+      "type": "object"
+    },
+    "AdminUserPage": {
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/AdminUser"
+          },
+          "type": "array"
+        },
+        "next": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "items"
       ],
       "type": "object"
     },
@@ -656,6 +1268,11 @@ export const nativeSchema = {
           "default": false,
           "type": "boolean"
         },
+        "administration": {
+          "default": false,
+          "description": "The `/api/v1/admin/*` routes, for an account with `users.admin`.",
+          "type": "boolean"
+        },
         "calls": {
           "type": "boolean"
         },
@@ -759,6 +1376,11 @@ export const nativeSchema = {
         },
         "reauthentication_retirement": {
           "default": false,
+          "type": "boolean"
+        },
+        "reports": {
+          "default": false,
+          "description": "Members can report a message or an account to the administrators.",
           "type": "boolean"
         },
         "room_discovery": {
@@ -1110,6 +1732,23 @@ export const nativeSchema = {
         "sha256",
         "media_type",
         "bytes",
+        "revision"
+      ],
+      "type": "object"
+    },
+    "DeleteAdminUser": {
+      "additionalProperties": false,
+      "description": "Tombstones the account; its messages stay, attributed to a deleted user.",
+      "properties": {
+        "operation_id": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
         "revision"
       ],
       "type": "object"
@@ -5232,6 +5871,24 @@ export const nativeSchema = {
       ],
       "type": "object"
     },
+    "ReportInput": {
+      "additionalProperties": false,
+      "description": "A member's report of a message or an account. Reporting the same target\nagain keeps one open report and replaces its reason.",
+      "properties": {
+        "operation_id": {
+          "type": "string"
+        },
+        "reason": {
+          "description": "Trimmed, 1 to 1,000 characters.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "reason"
+      ],
+      "type": "object"
+    },
     "RequestEmailRecovery": {
       "additionalProperties": false,
       "description": "Anonymous delivery request. Save the random operation before HTTP. No\naddress, UID, delivery status or recovery credential is returned publicly.",
@@ -6588,6 +7245,35 @@ export const nativeSchema = {
       ],
       "type": "object"
     },
+    "UpdateAdminUser": {
+      "additionalProperties": false,
+      "description": "Absent fields are kept. My own admin right and activation cannot be changed.",
+      "properties": {
+        "admin": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "disabled": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "revision"
+      ],
+      "type": "object"
+    },
     "UpdatePreferences": {
       "additionalProperties": false,
       "properties": {
@@ -6806,6 +7492,10 @@ export const nativeSchema = {
     },
     "User": {
       "properties": {
+        "deleted": {
+          "description": "A tombstoned account: its messages stay, shown as a deleted user. Its\nusername is a reserved `deleted-` placeholder and its display name empty.",
+          "type": "boolean"
+        },
         "display_name": {
           "type": "string"
         },
@@ -7018,6 +7708,9 @@ export const nativeSchema = {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "description": "Single schema root, also used by the TypeScript binding generator.",
   "properties": {
+    "administration": {
+      "$ref": "#/$defs/AdminContract"
+    },
     "answer_ring": {
       "$ref": "#/$defs/AnswerRing"
     },
@@ -7171,6 +7864,7 @@ export const nativeSchema = {
     "error",
     "command_list",
     "run_command",
+    "administration",
     "parity"
   ],
   "title": "Contract",

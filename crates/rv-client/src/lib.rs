@@ -1651,6 +1651,177 @@ impl NativeClient {
         }
         self.get(&path).await
     }
+    /// Instance counts and versions; requires `users.admin`.
+    pub async fn admin_overview(&self) -> Result<rv_protocol::admin::AdminOverview, Error> {
+        self.get("/api/v1/admin/overview").await
+    }
+    /// Accounts by username, deleted ones excluded; `q` is a literal substring.
+    pub async fn admin_users(
+        &self,
+        after: Option<&str>,
+        limit: Option<u32>,
+        q: Option<&str>,
+    ) -> Result<rv_protocol::admin::AdminUserPage, Error> {
+        self.get(&self.admin_page("/api/v1/admin/users", after, limit, q)?)
+            .await
+    }
+    pub async fn update_admin_user(
+        &self,
+        id: &str,
+        input: &rv_protocol::admin::UpdateAdminUser,
+    ) -> Result<rv_protocol::admin::AdminUser, Error> {
+        if !path_segment(id) {
+            return Err(Error::InvalidUrl);
+        }
+        self.request(
+            Method::PATCH,
+            &format!("/api/v1/admin/users/{id}"),
+            Some(input),
+            false,
+        )
+        .await
+    }
+    /// Tombstones the account; its messages stay, shown as a deleted user.
+    pub async fn delete_admin_user(
+        &self,
+        id: &str,
+        input: &rv_protocol::admin::DeleteAdminUser,
+    ) -> Result<(), Error> {
+        if !path_segment(id) {
+            return Err(Error::InvalidUrl);
+        }
+        self.empty_input(
+            Method::POST,
+            &format!("/api/v1/admin/users/{id}/delete"),
+            Some(input),
+        )
+        .await
+    }
+    /// Every room, direct conversations included; metadata and counts only.
+    pub async fn admin_rooms(
+        &self,
+        after: Option<&str>,
+        limit: Option<u32>,
+        q: Option<&str>,
+    ) -> Result<rv_protocol::admin::AdminRoomPage, Error> {
+        self.get(&self.admin_page("/api/v1/admin/rooms", after, limit, q)?)
+            .await
+    }
+    pub async fn admin_reported_messages(
+        &self,
+        after: Option<&str>,
+        limit: Option<u32>,
+    ) -> Result<rv_protocol::admin::AdminReportedMessagePage, Error> {
+        self.get(&self.admin_page("/api/v1/admin/reports/messages", after, limit, None)?)
+            .await
+    }
+    pub async fn admin_reported_users(
+        &self,
+        after: Option<&str>,
+        limit: Option<u32>,
+    ) -> Result<rv_protocol::admin::AdminReportedUserPage, Error> {
+        self.get(&self.admin_page("/api/v1/admin/reports/users", after, limit, None)?)
+            .await
+    }
+    pub async fn dismiss_message_reports(
+        &self,
+        message: &str,
+        input: &rv_protocol::admin::AdminOperation,
+    ) -> Result<(), Error> {
+        self.admin_resolution(&format!("messages/{message}/dismiss"), message, input)
+            .await
+    }
+    /// Tombstones a reported message and closes its reports.
+    pub async fn delete_reported_message(
+        &self,
+        message: &str,
+        input: &rv_protocol::admin::AdminOperation,
+    ) -> Result<(), Error> {
+        self.admin_resolution(&format!("messages/{message}/delete"), message, input)
+            .await
+    }
+    pub async fn dismiss_user_reports(
+        &self,
+        user: &str,
+        input: &rv_protocol::admin::AdminOperation,
+    ) -> Result<(), Error> {
+        self.admin_resolution(&format!("users/{user}/dismiss"), user, input)
+            .await
+    }
+    async fn admin_resolution(
+        &self,
+        route: &str,
+        subject: &str,
+        input: &rv_protocol::admin::AdminOperation,
+    ) -> Result<(), Error> {
+        if !path_segment(subject) {
+            return Err(Error::InvalidUrl);
+        }
+        self.empty_input(
+            Method::POST,
+            &format!("/api/v1/admin/reports/{route}"),
+            Some(input),
+        )
+        .await
+    }
+    /// Reports a message of a room I can read to the administrators.
+    pub async fn report_message(
+        &self,
+        message: &str,
+        input: &rv_protocol::admin::ReportInput,
+    ) -> Result<(), Error> {
+        if !path_segment(message) {
+            return Err(Error::InvalidUrl);
+        }
+        self.empty_input(
+            Method::POST,
+            &format!("/api/v1/messages/{message}/report"),
+            Some(input),
+        )
+        .await
+    }
+    pub async fn report_user(
+        &self,
+        user: &str,
+        input: &rv_protocol::admin::ReportInput,
+    ) -> Result<(), Error> {
+        if !path_segment(user) {
+            return Err(Error::InvalidUrl);
+        }
+        self.empty_input(
+            Method::POST,
+            &format!("/api/v1/users/{user}/report"),
+            Some(input),
+        )
+        .await
+    }
+    fn admin_page(
+        &self,
+        path: &str,
+        after: Option<&str>,
+        limit: Option<u32>,
+        q: Option<&str>,
+    ) -> Result<String, Error> {
+        if after.is_some_and(|s| !path_segment(s)) || limit.is_some_and(|n| !(1..=100).contains(&n))
+        {
+            return Err(Error::InvalidUrl);
+        }
+        let mut url = Url::parse(&format!("{}{path}", self.base)).map_err(|_| Error::InvalidUrl)?;
+        if let Some(after) = after {
+            url.query_pairs_mut().append_pair("after", after);
+        }
+        if let Some(limit) = limit {
+            url.query_pairs_mut()
+                .append_pair("limit", &limit.to_string());
+        }
+        if let Some(q) = q.filter(|q| !q.trim().is_empty()) {
+            url.query_pairs_mut().append_pair("q", q);
+        }
+        url.as_str()
+            .strip_prefix(&self.base)
+            .map(str::to_owned)
+            .ok_or(Error::InvalidUrl)
+    }
     pub async fn logout(&self) -> Result<(), Error> {
         self.empty(Method::POST, "/api/v1/auth/logout", true).await
     }

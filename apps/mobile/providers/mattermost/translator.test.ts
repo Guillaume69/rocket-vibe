@@ -102,6 +102,14 @@ describe('MmTranslator rooms and memberships', () => {
     assert.equal(sub?.mentions, 2);
     assert.equal(sub?.roles, JSON.stringify(['owner']));
   });
+
+  test('a DM shows its unread count, not every message as a mention', () => {
+    const sub = translator().toSubscription({
+      channel: { id: 'd1', type: 'D', total_msg_count: 4, total_msg_count_root: 4 },
+      member: { channel_id: 'd1', msg_count: 1, msg_count_root: 1, mention_count: 3 },
+    });
+    assert.deepEqual([sub?.unread, sub?.mentions], [3, 0]);
+  });
 });
 
 describe('MmTranslator.translateEvent', () => {

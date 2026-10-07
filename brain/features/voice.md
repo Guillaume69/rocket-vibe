@@ -6,8 +6,9 @@ room joins its session from the call button, and a call in a direct room **rings
 other member. Audio flows through the operator's **LiveKit SFU**; the RocketVibe server
 mints join tokens and mirrors who is connected. It replaced the native server's Jitsi
 meetings ([calls](calls.md) stays the Rocket.Chat path). Camera (off by default) and one
-screen share per room are in the protocol and on Android; the desktop is audio only. In an
-encrypted room the frames are end-to-end encrypted under a key from the room's MLS group.
+screen share per room, a new share replacing the current one; while someone shares, the
+screen takes most of the page and the people a narrow column at its right. In an encrypted
+room the frames are end-to-end encrypted under a key from the room's MLS group.
 
 ## Server contract
 
@@ -43,7 +44,9 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
   or 30 s resolve it (`answered`, `declined`, `missed`, `cancelled`), and the row's
   `Message.call` carries the outcome and, once both left, the duration.
 - **Screen share**: `POST /api/v1/voice/screen` claims the room's one share, which widens
-  the participant's LiveKit sources; `DELETE` or leaving releases it.
+  the participant's LiveKit sources; claiming while someone else shares **takes it over**:
+  their claim goes and their screen sources are revoked at once (the worker repeats it).
+  `DELETE` or leaving releases the caller's own claim only.
 
 ## Mobile
 
@@ -84,12 +87,16 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
   never is. Accept opens `rocketvibe://voice-ring/<id>` (`app/voice-ring/[id].tsx` answers
   for the matching account only); Decline goes through `NativeVoiceReceiver` and a
   WorkManager job. `voice_ring_end` cancels the ring.
-- **Camera and screen**: `VoiceVideoView` (native view over LiveKit's renderer) shows a
-  camera in the person's card and the room's one screen share on a stage above the cards.
-  The camera asks its permission at the first use and is off at every join; sharing claims
-  the room's share from the server first (`409 screen_taken`), then asks Android
+- **Camera and screen**: `VoiceVideoView` (native view over LiveKit's renderer, laid out
+  at the frame's proportions since the renderer stretches: letterboxed for `contain`,
+  clipped for `cover`) shows a camera in the person's card. While someone shares, the
+  screen fills the page and the people go in a narrow column at its right (`MiniCard`,
+  cameras as thumbnails). The camera asks its permission at the first use and is off at
+  every join; sharing claims the room's share from the server first, then asks Android
   (MediaProjection, LiveKit's capture service), and gives the claim back when refused or
   stopped, the system's projection notification included (`lib/voice.ts` `shareScreen`).
+  Another participant's share stops this one: the engine stops on its screen track
+  unpublished or its permission losing `SCREEN_SHARE`.
 - **Encrypted rooms**: `NativeChat.voiceKey` reads the key through the crypto bridge's
   `voice_key` action (`providers/rocketvibe/cryptoGroups.ts` `voiceKey`, null when this
   device is behind the server's epoch) and the join says `e2ee`; the engine builds a
@@ -113,6 +120,17 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
   sidecar would ignore the key and connect in clear, so the app refuses it.
   `RV_VOICE_FAKE_AUDIO=sine` replaces the devices for tests; LiveKit's per-participant
   encryption state goes to stderr (a key mismatch silences someone without another trace).
+- **Video in the sidecar** (`voice/src/video.rs`): the camera through `nokhwa` (V4L2 on
+  Linux, Media Foundation on Windows; none on macOS, whose camera permission belongs to an
+  app bundle), MJPEG decoded by `image`'s pure-Rust JPEG; the screen through libwebrtc's
+  desktop capturer (the portal's picker on Wayland, the first screen elsewhere, polled at 15
+  frames a second; `build.rs` links GLib for the portal). Remote cameras are asked at
+  LiveKit's medium simulcast layer, screens at the high one. Every frame the app shows (the
+  room's tracks, this side's previews) is converted to RGBA by libyuv, fitted (cameras 640
+  by 480, screens 1920 by 1080), at most 15 a second per track, and streamed to the app over
+  a **loopback TCP** connection the app listens on with a random token (`Command::Video`,
+  `rv_voice_protocol::frames`): latest frame per track, stale ones dropped, never an end
+  marker. `RV_VOICE_FAKE_VIDEO=pattern` replaces the camera and the screen.
 - **rv-core**: `voice.rs` (`VoiceController`, one sidecar per connection, found through
   `RV_VOICE_BIN` or next to the executable; `available()` gates the feature);
   `native/voice.rs` (`NativeSession`: join with membership and epoch checks, leave, rings,
@@ -123,6 +141,12 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
   worker (`rv_crypto::delivery::Worker::voice_key`, compared with the server's group head),
   through the room's crypto access (`native/crypto/enrollment/rooms.rs` `voice_key`), which
   GTK opens once per session (`chat_voice.rs` `voice_keys`).
+  Video: `VoiceController` listens for each sidecar's frame stream and keeps the latest frame
+  per track (`frame(identity, source)`); `set_camera`, `start_screen_share`,
+  `stop_screen_share` and the snapshot's `camera` / `sharing` wishes (taken back when the
+  sidecar reports `camera_unavailable`, `screen_cancelled`, `screen_ended`...).
+  `NativeSession::share_screen` claims the room's share first and gives it back however the
+  share ends (a watch on the snapshot).
   The native store presents a call row's `Message.call` as mobile does: `rv-call-<state>`, the
   duration in seconds as its parameter (`rv-call` before an outcome); `i18n::call_summary` says
   it ("📞 Missed call", "📞 Call · 12 min").
@@ -142,7 +166,12 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
   microphone and speakers, kept in the config dir (`voice-input`, `voice-output`) and handed to
   each session's controller (`settings/voice.rs`). The create-room dialog has a "Voice channel"
   switch, and an owner edits it in the room settings when the server announces voice
-  (`details/native_rooms.rs` sends `UpdateRoom.voice` only then).
+  (`details/native_rooms.rs` sends `UpdateRoom.voice` only then). Camera and screen buttons
+  on the voice page (green when on); a camera shows in its card at a fixed size; while
+  someone shares, the stage fills the page and the people go in a narrow column at its right.
+  Each video view is a `gtk::Picture` polling `frame()` 25 times a second while mapped, a
+  `gdk::MemoryTexture` per new frame (`video_view`, `video_box`). Toasts say when there is
+  no camera or the screen could not be shared.
 - **Packaging**: every desktop package carries `rv-voice` next to the app (`desktop.yml` calls
   `desktop-voice.yml`); see [desktop-gtk](../architecture/desktop-gtk.md#packaging).
 - **SwiftUI**: not yet; the plan is LiveKit's Swift SDK in the macOS-only target.
@@ -177,6 +206,8 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
 - apps/mobile/plugins/native-push-source.js
 - apps/mobile/providers/rocketvibe/chat.ts
 - apps/desktop/voice/src/main.rs
+- apps/desktop/voice/src/video.rs
+- apps/desktop/voice/build.rs
 - apps/desktop/crates/rv-voice-protocol/src/lib.rs
 - apps/desktop/crates/rv-core/src/voice.rs
 - apps/desktop/crates/rv-core/src/native/voice.rs

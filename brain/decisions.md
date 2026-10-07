@@ -108,6 +108,14 @@ The non-obvious choices behind rocket-vibe and why they were made, grouped by ar
   The key is the only group secret that leaves Rust (to JS and Kotlin on Android, over the
   sidecar's pipe on desktop): accepted because it opens only this epoch's voice. LiveKit's
   frames do not authenticate the sender among members (`docs/protocol/E2EE_REVIEW.md`).
+- **Desktop video frames cross over loopback TCP, not shared memory.** Mapping memory needs
+  `unsafe`, which the desktop workspaces deny; a local stream with a random token is safe
+  code on all three platforms, and at 15 frames a second per track the copy costs little.
+  The sidecar keeps the latest frame per track and drops stale ones, so a slow window never
+  slows the call.
+- **A new screen share replaces the current one** rather than being refused: switching who
+  presents takes one click, and the previous sharer's client stops by itself when the SFU
+  revokes its screen source.
 - **Original sounds generated from code** (`scripts/sounds`): no sample, no licence to
   track; the ringtone ("Neon Drive") was chosen by ear among four candidates.
 

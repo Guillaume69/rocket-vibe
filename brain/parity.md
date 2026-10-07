@@ -211,7 +211,7 @@ beta does.
 | Create a voice channel | done | done | missing | Mobile gained "Create a room" with it. |
 | Turn a room into a voice channel or back (room settings, owners) | missing | done | missing | GTK sends `UpdateRoom.voice` only when the server announces voice. |
 | Choose the microphone and speakers | mapped | done | missing | Mobile: the speaker route button (earpiece, speaker, Bluetooth) meets the phone's need. GTK: a "Voice" group in the settings, kept per machine. |
-| Camera and one screen share per room | done | missing | missing | GTK: the sidecar is audio only; frames would cross to GTK through shared memory. |
+| Camera and one screen share per room, a new share replacing the current one | done | partial | missing | GTK has no camera on macOS (the permission needs an app bundle); Linux and Windows have both. The screen takes most of the page, the people a column at its right, on both apps. |
 | Voice in encrypted rooms (end-to-end encrypted frames) | done | done | missing | Key from the room's MLS group, LiveKit shared key; a device behind the group's head is told to accept the change first. |
 
 ## 13. Sharing and links - [sharing-and-links](features/sharing-and-links.md)

@@ -62,6 +62,7 @@ extension SettingsCategory {
 /// list, then the page with a way back.
 struct SettingsView: View {
     @Environment(AppModel.self) var app
+    @Environment(ModalCenter.self) var modals
     let singlePane: Bool
     @State var language = "auto"
     @State private var profile: MyProfileModel?
@@ -84,7 +85,8 @@ struct SettingsView: View {
                 Spacer()
                 Button { app.closeSettings() } label: { Image(systemName: "xmark") }
                     .buttonStyle(.borderless)
-                    .keyboardShortcut(.cancelAction)
+                    // Escape belongs to a modal opened over the panel, when there is one.
+                    .keyboardShortcut(modals.isEmpty ? .cancelAction : nil)
             }
             .padding(14)
             Divider()
@@ -111,7 +113,7 @@ struct SettingsView: View {
             await fresh.load()
         }
         .onDisappear { profile?.close() }
-        .sheet(isPresented: $unlocking) { UnlockSheet() }
+        .modalOverlay(isPresented: $unlocking) { UnlockSheet() }
     }
 
     func sidebar(_ shown: SettingsCategory?) -> some View {
@@ -315,13 +317,15 @@ struct DevicesSection: View {
             selected = nil; selectedModel = nil
             let fresh = DevicesModel(app: app); model = fresh; await fresh.load()
         }
-        .alert(L("devices.confirm"), isPresented: Binding(get: { selected != nil }, set: { if !$0 { selected = nil } })) {
-            Button(L("devices.revoke"), role: .destructive) {
+        .confirmOverlay(
+            isPresented: Binding(get: { selected != nil }, set: { if !$0 { selected = nil } }),
+            title: L("devices.confirm"),
+            message: L("devices.confirm_body"),
+            actions: [ModalAction(title: L("devices.revoke"), role: .destructive) {
                 if let device = selected, let expected = selectedModel { Task { await expected.revoke(device) } }
                 selected = nil
-            }
-            Button(L("actions.cancel"), role: .cancel) { selected = nil }
-        } message: { Text(L("devices.confirm_body")) }
+            }]
+        )
     }
     private func date(_ value: String) -> String {
         let formatter = ISO8601DateFormatter()

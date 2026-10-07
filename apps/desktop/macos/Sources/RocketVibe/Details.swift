@@ -38,7 +38,7 @@ struct PanelView: View {
 }
 
 struct SheetFrame<Content: View>: View {
-    @Environment(\.dismiss) var dismiss
+    @Environment(\.closeModal) var dismiss
     let title: String
     @ViewBuilder let content: Content
 
@@ -49,7 +49,6 @@ struct SheetFrame<Content: View>: View {
                 Spacer()
                 Button { dismiss() } label: { Image(systemName: "xmark") }
                     .buttonStyle(.borderless)
-                    .keyboardShortcut(.cancelAction)
             }
             .padding(14)
             Divider()
@@ -60,7 +59,7 @@ struct SheetFrame<Content: View>: View {
 }
 
 struct RoomInfoView: View {
-    @Environment(\.dismiss) var dismiss
+    @Environment(\.closeModal) var dismiss
     @Environment(AppModel.self) var app
     let model: RoomModel
     @State var details: RoomDetails?
@@ -122,7 +121,7 @@ struct RoomInfoView: View {
 
 struct ProfileView: View {
     @Environment(AppModel.self) var app
-    @Environment(\.dismiss) var dismiss
+    @Environment(\.closeModal) var dismiss
     @Environment(\.openURL) var openURL
     let username: String
     var byId = false
@@ -165,11 +164,7 @@ struct ProfileView: View {
                         if app.reportsSupported {
                             Button(L("report.user")) {
                                 dismiss()
-                                // Once this sheet is gone: the window shows one at a time.
-                                Task {
-                                    try? await Task.sleep(nanoseconds: 350_000_000)
-                                    app.startReport(.user(p.id))
-                                }
+                                app.startReport(.user(p.id))
                             }
                         }
                     }
@@ -208,7 +203,7 @@ struct ProfileView: View {
 
 struct SearchView: View {
     @Environment(AppModel.self) var app
-    @Environment(\.dismiss) var dismiss
+    @Environment(\.closeModal) var dismiss
     let model: RoomModel
     @State var query = ""
     @State var hits: [SearchHit] = []
@@ -274,7 +269,7 @@ struct SearchView: View {
 
 struct MarkedView: View {
     @Environment(AppModel.self) var app
-    @Environment(\.dismiss) var dismiss
+    @Environment(\.closeModal) var dismiss
     let model: RoomModel
     @State var starred = false
     @State var messages: [MessageItem]?

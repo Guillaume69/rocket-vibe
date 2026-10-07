@@ -144,10 +144,10 @@ struct Composer: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .sheet(item: Binding(get: { editingLast.map(EditingLast.init) }, set: { editingLast = $0?.message })) { e in
+        .modalOverlay(item: Binding(get: { editingLast.map(EditingLast.init) }, set: { editingLast = $0?.message })) { e in
             EditLastSheet(model: model, message: e.message)
         }
-        .sheet(item: Binding(get: { previewing.map(Playing.init) }, set: { previewing = $0?.url })) { p in
+        .modalOverlay(item: Binding(get: { previewing.map(Playing.init) }, set: { previewing = $0?.url })) { p in
             StagedPreview(url: p.url, caption: $model.draft, original: $original) {
                 unstage(p.url)
                 previewing = nil
@@ -488,7 +488,7 @@ final class StagedAudio: NSObject, AVAudioPlayerDelegate {
 /// A staged file before it leaves: the picture, the caption (the composer's
 /// text), whether images keep their original quality.
 struct StagedPreview: View {
-    @Environment(\.dismiss) var dismiss
+    @Environment(\.closeModal) var dismiss
     let url: URL
     @Binding var caption: String
     @Binding var original: Bool
@@ -524,7 +524,7 @@ struct EditingLast: Identifiable {
 
 /// Up arrow in an empty composer: my last message, to edit.
 struct EditLastSheet: View {
-    @Environment(\.dismiss) var dismiss
+    @Environment(\.closeModal) var dismiss
     @Environment(AppModel.self) var app
     let model: RoomModel
     let message: MessageItem
@@ -540,7 +540,7 @@ struct EditLastSheet: View {
             HStack {
                 Text(L("edit.hint")).font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                Button(L("actions.cancel")) { dismiss() }.keyboardShortcut(.cancelAction)
+                Button(L("actions.cancel")) { dismiss() }
                 Button(L("actions.save"), action: save).keyboardShortcut(.defaultAction)
             }
         }
@@ -748,7 +748,7 @@ final class VoiceRecorder {
 }
 
 struct PlayerView: View {
-    @Environment(\.dismiss) var dismiss
+    @Environment(\.closeModal) var dismiss
     let url: URL
     @State var player: AVPlayer?
 
@@ -758,7 +758,7 @@ struct PlayerView: View {
                 .frame(minWidth: 480, minHeight: 300)
             HStack {
                 Spacer()
-                Button(L("actions.cancel")) { dismiss() }.keyboardShortcut(.cancelAction)
+                Button(L("actions.cancel")) { dismiss() }
             }
             .padding(8)
         }

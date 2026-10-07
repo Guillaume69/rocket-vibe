@@ -40,10 +40,12 @@ struct CryptoBackupControls: View {
                 Text(L("crypto.backup_root_only")).font(.caption).foregroundStyle(.secondary)
             }
         }
-        .alert(L("crypto.backup_cancel"), isPresented: $cancel) {
-            Button(L("actions.cancel"), role: .cancel) {}
-            Button(L("crypto.backup_cancel"), role: .destructive) { Task { await model.cancelBackup() } }
-        } message: { Text(L("crypto.backup_cancel_body")) }
+        .confirmOverlay(
+            isPresented: $cancel,
+            title: L("crypto.backup_cancel"),
+            message: L("crypto.backup_cancel_body"),
+            actions: [ModalAction(title: L("crypto.backup_cancel"), role: .destructive) { Task { await model.cancelBackup() } }]
+        )
         .onDisappear { cancel = false }
     }
 }

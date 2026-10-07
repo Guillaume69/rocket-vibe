@@ -49,7 +49,7 @@ struct RoomView: View {
             return true
         }
         .environment(\.openURL, OpenURLAction { url in handle(url) })
-        .sheet(item: $panel) { PanelView(panel: $0, model: model) }
+        .modalOverlay(item: $panel, style: .sheet(width: 520, height: 640)) { PanelView(panel: $0, model: model) }
         .navigationSubtitle(subtitle)
         .onChange(of: model.error) { _, error in if let error { app.notice = error } }
         .toolbar {
@@ -157,13 +157,13 @@ struct LockedBanner: View {
         }
         .padding(12)
         .background(Vibe.card)
-        .sheet(isPresented: $asking) { UnlockSheet() }
+        .modalOverlay(isPresented: $asking) { UnlockSheet() }
     }
 }
 
 struct UnlockSheet: View {
     @Environment(AppModel.self) var app
-    @Environment(\.dismiss) var dismiss
+    @Environment(\.closeModal) var dismiss
     @State var password = ""
     @State var error: String?
     @State var busy = false
@@ -178,7 +178,7 @@ struct UnlockSheet: View {
             if let error { Text(error).foregroundStyle(.red) }
             HStack {
                 Spacer()
-                Button(L("actions.cancel")) { dismiss() }.keyboardShortcut(.cancelAction)
+                Button(L("actions.cancel")) { dismiss() }
                 Button(L("e2e.unlock"), action: unlock).keyboardShortcut(.defaultAction).disabled(busy || password.isEmpty)
             }
         }
@@ -329,19 +329,19 @@ struct MessageList: View {
                     .transition(.scale.combined(with: .opacity))
                 }
             }
-            .confirmationDialog(L("actions.delete_title"), isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
-                Button(L("actions.delete"), role: .destructive) {
+            .confirmOverlay(
+                isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
+                title: L("actions.delete_title"),
+                message: L("actions.delete_body"),
+                actions: [ModalAction(title: L("actions.delete"), role: .destructive) {
                     if let message = deleting {
                         Task {
                             do { try await model.delete(message) } catch { app.notice = model.mutationError(error) }
                         }
                     }
                     deleting = nil
-                }
-                Button(L("actions.cancel"), role: .cancel) { deleting = nil }
-            } message: {
-                Text(L("actions.delete_body"))
-            }
+                }]
+            )
         }
     }
 
@@ -396,7 +396,6 @@ struct MessageRow: View, Equatable {
     @State var draft = ""
     @State var viewing: ImageItem?
     @State private var choosingQuote = false
-    @State private var quoteSearch = ""
     /// The emoji picker, to react with any emoji.
     @State private var reacting = false
 
@@ -450,32 +449,11 @@ struct MessageRow: View, Equatable {
                 }, custom: model?.customReactionsAllowed ?? false)
             }
         }
-        .sheet(item: Binding(get: { viewing.map(Viewing.init) }, set: { viewing = $0?.image })) { v in
+        .modalOverlay(item: Binding(get: { viewing.map(Viewing.init) }, set: { viewing = $0?.image }), style: .fullWindow) { v in
             ImageViewer(path: v.image.source, title: v.image.title)
         }
-        .sheet(isPresented: $choosingQuote) {
-            VStack(alignment:.leading, spacing:12) {
-                Text(L("quote.destination")).font(.headline)
-                TextField(L("spotlight.placeholder"), text:$quoteSearch)
-                ScrollView {
-                    VStack(alignment:.leading, spacing:4) {
-                        let joined = Set((try? app.native?.quoteDestinations()) ?? [])
-                        let candidates = app.rooms.filter { room in
-                            room.rid != model?.rid && joined.contains(room.rid)
-                                && (quoteSearch.isEmpty || room.name.localizedCaseInsensitiveContains(quoteSearch))
-                        }
-                        if candidates.isEmpty { Text(L("quote.destination_empty")).foregroundStyle(Vibe.faint) }
-                        ForEach(candidates, id: \.rid) { destination in
-                            Button(destination.name) {
-                                choosingQuote = false
-                                let id = message.id
-                                if let model { Task { await app.quoteElsewhere(source:model,message:id,destination:destination.rid) } }
-                            }.buttonStyle(.plain).padding(.vertical,6)
-                        }
-                    }.frame(maxWidth:.infinity,alignment:.leading)
-                }
-                Button(L("actions.cancel")) { choosingQuote = false }
-            }.padding(20).frame(width:380,height:360)
+        .modalOverlay(isPresented: $choosingQuote) {
+            QuoteDestinations(model: model, messageId: message.id)
         }
     }
 
@@ -630,7 +608,7 @@ struct MessageRow: View, Equatable {
             Button(title(action), role: action == .delete ? .destructive : nil) { run(action) }
         }
         if actions.contains(.reply), model?.provider.native != nil {
-            Button(L("quote.elsewhere")) { quoteSearch = ""; choosingQuote = true }
+            Button(L("quote.elsewhere")) { choosingQuote = true }
         }
         if message.delivery == .sent, model?.membershipIsCurrent == true,
            let link = app.native?.permalink(room: message.rid, message: message.id, root: message.threadId) {
@@ -702,6 +680,40 @@ struct MessageRow: View, Equatable {
                 } catch { app.notice = L("actions.refused") }
             }
         }
+    }
+}
+
+/// Where to quote a message: another room I am in, by name.
+struct QuoteDestinations: View {
+    @Environment(AppModel.self) var app
+    @Environment(\.closeModal) var close
+    let model: RoomModel?
+    let messageId: String
+    @State private var search = ""
+
+    var body: some View {
+        VStack(alignment:.leading, spacing:12) {
+            Text(L("quote.destination")).font(.headline)
+            TextField(L("spotlight.placeholder"), text:$search)
+            ScrollView {
+                VStack(alignment:.leading, spacing:4) {
+                    let joined = Set((try? app.native?.quoteDestinations()) ?? [])
+                    let candidates = app.rooms.filter { room in
+                        room.rid != model?.rid && joined.contains(room.rid)
+                            && (search.isEmpty || room.name.localizedCaseInsensitiveContains(search))
+                    }
+                    if candidates.isEmpty { Text(L("quote.destination_empty")).foregroundStyle(Vibe.faint) }
+                    ForEach(candidates, id: \.rid) { destination in
+                        Button(destination.name) {
+                            close()
+                            let id = messageId
+                            if let model { Task { await app.quoteElsewhere(source:model,message:id,destination:destination.rid) } }
+                        }.buttonStyle(.plain).padding(.vertical,6)
+                    }
+                }.frame(maxWidth:.infinity,alignment:.leading)
+            }
+            Button(L("actions.cancel")) { close() }
+        }.padding(20).frame(width:380,height:360)
     }
 }
 
@@ -816,7 +828,7 @@ struct FileCard: View {
         .padding(10)
         .frame(maxWidth: 380)
         .vibeCard()
-        .sheet(item: Binding(get: { playing.map(Playing.init) }, set: { playing = $0?.url })) { p in
+        .modalOverlay(item: Binding(get: { playing.map(Playing.init) }, set: { playing = $0?.url }), style: .media) { p in
             PlayerView(url: p.url)
         }
         .onChange(of:app.imagesVersion){if app.media?.current(file.url)==false{playing=nil}}
@@ -898,7 +910,7 @@ struct LinkCard: View {
             }
         }
         .buttonStyle(.plain)
-        .sheet(isPresented:$viewing){ImageViewer(path:card.url,title:card.title)}
+        .modalOverlay(isPresented: $viewing, style: .fullWindow) { ImageViewer(path: card.url, title: card.title) }
     }
 
     var fieldRows:[[CardField]] {
@@ -954,22 +966,23 @@ struct CallCard: View {
             .buttonStyle(.borderless)
             .help(L("call.info"))
         }
-        .alert(
-            L("call.info"),
+        .confirmOverlay(
             isPresented: Binding(get: { link != nil }, set: { if !$0 { link = nil } }),
-            presenting: link
-        ) { link in
-            Button(L("call.copy_link")) {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(link, forType: .string)
-            }
-            Button(L("call.open_browser")) {
-                if let url = URL(string: link) { openURL(url) }
-            }
-            Button(L("call.close"), role: .cancel) {}
-        } message: { link in
-            Text(link)
-        }
+            title: L("call.info"),
+            message: link,
+            cancel: L("call.close"),
+            actions: link.map { link in
+                [
+                    ModalAction(title: L("call.copy_link")) {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(link, forType: .string)
+                    },
+                    ModalAction(title: L("call.open_browser")) {
+                        if let url = URL(string: link) { openURL(url) }
+                    },
+                ]
+            } ?? []
+        )
         .padding(10)
         .vibeCard()
     }

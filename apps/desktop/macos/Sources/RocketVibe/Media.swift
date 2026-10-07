@@ -97,11 +97,11 @@ func displaySize(width: Int64?, height: Int64?, minWidth: CGFloat = 120, maxWidt
     return CGSize(width: w, height: min(max((w * ratio).rounded(), 1), maxHeight))
 }
 
-/// Full size in a window of its own; a click outside the picture closes it.
+/// Full size over the window; a click outside the picture closes it.
 struct ImageViewer: View {
     let path: String
     let title: String?
-    @Environment(\.dismiss) var dismiss
+    @Environment(\.closeModal) var dismiss
     @Environment(AppModel.self) var app
 
     var body: some View {
@@ -112,11 +112,9 @@ struct ImageViewer: View {
                 .scaledToFit()
                 .padding(24)
         }
-        .frame(minWidth: 500, minHeight: 400)
         .overlay(alignment: .topLeading) {
             if let title { Text(title).foregroundStyle(.white).padding() }
         }
-        .onExitCommand { dismiss() }
         .onChange(of:app.imagesVersion){if app.media?.current(path)==false{dismiss()}}
     }
 }

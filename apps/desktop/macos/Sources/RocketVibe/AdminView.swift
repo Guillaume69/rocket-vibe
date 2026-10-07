@@ -39,6 +39,7 @@ struct AdminConfirm: Identifiable {
 
 struct AdminView: View {
     @Environment(AppModel.self) var app
+    @Environment(ModalCenter.self) var modals
     let model: AdminModel
     let singlePane: Bool
     /// One pane: the page shows instead of the list.
@@ -59,7 +60,8 @@ struct AdminView: View {
                 Spacer()
                 Button { app.closeAdmin() } label: { Image(systemName: "xmark") }
                     .buttonStyle(.borderless)
-                    .keyboardShortcut(.cancelAction)
+                    // Escape belongs to a modal opened over the panel, when there is one.
+                    .keyboardShortcut(modals.isEmpty ? .cancelAction : nil)
             }
             .padding(14)
             Divider()
@@ -77,12 +79,14 @@ struct AdminView: View {
         }
         .overlay(alignment: .bottom) { toast }
         .onAppear { listFocused = true }
-        .alert(confirming?.title ?? "", isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }), presenting: confirming) { confirm in
-            Button(confirm.action, role: .destructive) { Task { await confirm.run() } }
-            Button(L("actions.cancel"), role: .cancel) {}
-        } message: { confirm in
-            Text(confirm.body)
-        }
+        .confirmOverlay(
+            isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),
+            title: confirming?.title ?? "",
+            message: confirming?.body,
+            actions: confirming.map { confirm in
+                [ModalAction(title: confirm.action, role: .destructive) { Task { await confirm.run() } }]
+            } ?? []
+        )
     }
 
     func back() {
@@ -565,7 +569,7 @@ struct ReportSheet: View {
                 .lineLimit(2...6)
             HStack {
                 Spacer()
-                Button(L("actions.cancel")) { app.cancelReport() }.keyboardShortcut(.cancelAction)
+                Button(L("actions.cancel")) { app.cancelReport() }
                 Button(L("report.send")) { Task { await app.sendReport() } }
                     .keyboardShortcut(.defaultAction)
                     .disabled(!draft.canSend)

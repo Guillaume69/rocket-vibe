@@ -7,11 +7,13 @@ import SwiftUI
 struct RocketVibeApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
     @State var app = AppModel(home: NSHomeDirectory())
+    @State var modals = ModalCenter()
 
     var body: some Scene {
         Window("rocket-vibe", id: "main") {
             RootView()
                 .environment(app)
+                .environment(modals)
                 .vibe()
                 .frame(minWidth: 420, minHeight: 360)
                 .task { await start() }
@@ -80,23 +82,27 @@ struct RootView: View {
     @Environment(AppModel.self) var app
 
     var body: some View {
-        if SmokeGallery.requested {
-            GalleryView()
-        } else {
-            screen
-                .overlay {
-                    if app.settingsShown {
-                        SettingsOverlay().transition(.opacity)
-                    } else if let admin = app.admin {
-                        AdminOverlay(model: admin).transition(.opacity)
+        Group {
+            if SmokeGallery.requested {
+                GalleryView()
+            } else {
+                screen
+                    .overlay {
+                        if app.settingsShown {
+                            SettingsOverlay().transition(.opacity)
+                        } else if let admin = app.admin {
+                            AdminOverlay(model: admin).transition(.opacity)
+                        }
                     }
-                }
-                .animation(.easeOut(duration: 0.16), value: app.settingsShown)
-                .animation(.easeOut(duration: 0.16), value: app.admin != nil)
-                .sheet(item: Binding(get: { app.reporting }, set: { if $0 == nil { app.cancelReport() } })) { draft in
-                    ReportSheet(draft: draft)
-                }
+                    .animation(.easeOut(duration: 0.16), value: app.settingsShown)
+                    .animation(.easeOut(duration: 0.16), value: app.admin != nil)
+                    .modalOverlay(item: Binding(get: { app.reporting }, set: { if $0 == nil { app.cancelReport() } })) { draft in
+                        ReportSheet(draft: draft)
+                    }
+            }
         }
+        // Over everything, the settings and the administration included.
+        .overlay { ModalHost() }
     }
 
     @ViewBuilder var screen: some View {

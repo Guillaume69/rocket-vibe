@@ -422,12 +422,14 @@ ON CONFLICT(code) DO UPDATE SET
   last_used = MAX(emoji_usage.last_used, excluded.last_used)
 `;
 /**
- * Keeps the `?` (`KEPT_CODES`) best codes, by the ranking of `topEmojis`, so
- * the table stays small however many emoji are tried once.
+ * Keeps the code just used (`[code, code, KEPT_CODES - 1]`) and the best
+ * others, by the ranking of `topEmojis`, so the table stays small however
+ * many emoji are tried once, and a new emoji always stays to grow past the
+ * established ones: the lowest-ranked OTHER code makes room.
  */
 export const PRUNE_EMOJI_USAGE = `
-DELETE FROM emoji_usage WHERE code NOT IN (
-  SELECT code FROM emoji_usage ORDER BY count DESC, last_used DESC, code LIMIT ?
+DELETE FROM emoji_usage WHERE code <> ? AND code NOT IN (
+  SELECT code FROM emoji_usage WHERE code <> ? ORDER BY count DESC, last_used DESC, code LIMIT ?
 )
 `;
 export const LIST_EMOJI_USAGE = `SELECT code, count, last_used AS lastUsed FROM emoji_usage`;

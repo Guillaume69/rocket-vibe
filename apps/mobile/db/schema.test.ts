@@ -434,6 +434,21 @@ describe('English names (0016)', () => {
   });
 });
 
+describe('emoji usage (0020)', () => {
+  test('re-applying it on a development database that already has the table keeps every row', () => {
+    // Builds of the branch created the table as 0019, before the rebase put
+    // 0019_voice_channels first: the renumbered migration must be a no-op there.
+    const db = migratedDb();
+    try {
+      db.prepare('INSERT INTO emoji_usage(code,count,last_used) VALUES(?,?,?)').run('rocket', 3, 10);
+      applyMigration(db, 20);
+      assert.deepEqual({ ...db.prepare('SELECT code,count,last_used FROM emoji_usage').get() }, { code: 'rocket', count: 3, last_used: 10 });
+    } finally {
+      db.close();
+    }
+  });
+});
+
 describe('native provider tables (0017)', () => {
   test('re-applying it on a pilot database that already has the tables keeps every row', () => {
     // Pilot builds of the feature branch created the same tables through

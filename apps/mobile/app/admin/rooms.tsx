@@ -2,18 +2,19 @@ import { Redirect, Stack } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { FlatList, RefreshControl, Text, View } from 'react-native';
 
-import type { AdminRoomKind, ProviderAdmin } from '../../lib/admin.ts';
+import type { AdminRoom, AdminRoomKind, ProviderAdmin } from '../../lib/admin.ts';
 import {
   AdminGate,
   Badge,
   ListFooter,
   SearchField,
   adminStyles,
-  shortDate,
+  useAdminFormat,
   useAdminPages,
   useDebounced,
 } from '../../ui/adminKit.tsx';
 import { useT } from '../../ui/i18n.ts';
+import type { TranslateFn } from '../../ui/messages.ts';
 import { useSession } from '../../ui/session.tsx';
 import { type Colors, useColors } from '../../ui/theme.ts';
 
@@ -26,6 +27,12 @@ import { type Colors, useColors } from '../../ui/theme.ts';
  */
 
 const ICONS: Record<AdminRoomKind, string> = { public: '#️⃣', private: '🔒', direct: '💬', discussion: '🧵' };
+
+/** A native direct conversation by its pair, a deleted member as "Deleted user". */
+function roomName(room: AdminRoom, t: TranslateFn): string {
+  if (room.directMembers === undefined) return room.name;
+  return room.directMembers.map((m) => (m.deleted ? t('common.deletedUser') : m.name)).join(', ');
+}
 
 export default function AdminRoomsScreen() {
   const c = useColors();
@@ -42,6 +49,7 @@ export default function AdminRoomsScreen() {
 
 function Rooms({ c, admin }: { c: Colors; admin: ProviderAdmin }) {
   const t = useT();
+  const fmt = useAdminFormat();
   const [query, setQuery] = useState('');
   const search = useDebounced(query);
   const load = useCallback((after: string | null) => admin.rooms(search, after), [admin, search]);
@@ -63,18 +71,18 @@ function Rooms({ c, admin }: { c: Colors; admin: ProviderAdmin }) {
           <View style={adminStyles.rowHead}>
             <Text style={adminStyles.icon}>{ICONS[room.kind]}</Text>
             <View style={adminStyles.rowTexts}>
-              <Text style={[adminStyles.title, { color: c.text }]} numberOfLines={1}>{room.name}</Text>
+              <Text style={[adminStyles.title, { color: c.text }]} numberOfLines={1}>{roomName(room, t)}</Text>
               {room.topic !== null && <Text style={[adminStyles.sub, { color: c.dimmed }]} numberOfLines={1}>{room.topic}</Text>}
             </View>
           </View>
           <Text style={[adminStyles.sub, { color: c.secondaryText }]}>
-            {t('admin.memberCount', { n: room.members })} · {t('admin.messageCount', { n: room.messages })}
+            {t('admin.memberCount', { n: room.members, count: fmt.number(room.members) })} · {t('admin.messageCount', { n: room.messages, count: fmt.number(room.messages) })}
           </Text>
           {(room.createdAt !== null || room.lastMessageAt !== null) && (
             <Text style={[adminStyles.sub, { color: c.dimmed }]}>
               {[
-                room.createdAt === null ? null : t('admin.created', { date: shortDate(room.createdAt) }),
-                room.lastMessageAt === null ? null : t('admin.lastMessage', { date: shortDate(room.lastMessageAt) }),
+                room.createdAt === null ? null : t('admin.created', { date: fmt.date(room.createdAt) }),
+                room.lastMessageAt === null ? null : t('admin.lastMessage', { date: fmt.date(room.lastMessageAt) }),
               ].filter((part) => part !== null).join(' · ')}
             </Text>
           )}

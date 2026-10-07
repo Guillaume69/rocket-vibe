@@ -12,21 +12,10 @@
 
 import { useEffect, useState } from 'react';
 
-import type { ProviderAdmin } from '../lib/admin.ts';
+import { verdictCache, type ProviderAdmin } from '../lib/admin.ts';
 import { useSync } from './sync.tsx';
 
-const verdicts = new WeakMap<ProviderAdmin, { generation: number; answer: Promise<boolean> }>();
-
-function verdict(admin: ProviderAdmin, generation: number): Promise<boolean> {
-  const known = verdicts.get(admin);
-  if (known !== undefined && known.generation === generation) return known.answer;
-  const answer = admin.isAdmin();
-  verdicts.set(admin, { generation, answer });
-  answer.catch(() => {
-    if (verdicts.get(admin)?.answer === answer) verdicts.delete(admin);
-  });
-  return answer;
-}
+const verdict = verdictCache();
 
 /**
  * The administration of the current server: the `ProviderAdmin` when this

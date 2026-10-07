@@ -5,12 +5,14 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import type { AdminPage, ProviderAdmin } from '../lib/admin.ts';
+import { LastOwnerError, type AdminPage, type ProviderAdmin } from '../lib/admin.ts';
+import { dismissible } from './alerts.ts';
 import { useAdminVerdict } from './adminAccess.ts';
 import type { ProviderError } from '../lib/provider.ts';
-import { useT } from './i18n.ts';
+import { useLanguage, useT } from './i18n.ts';
+import { notify } from './toast.tsx';
 import type { TranslationKey } from './messages.ts';
 import { useSync } from './sync.tsx';
 import { Tappable } from './tappable.tsx';
@@ -22,6 +24,8 @@ export function adminErrorKey(e: ProviderError): TranslationKey {
     case 'self_administration':
       return 'admin.errSelf';
     case 'last_administrator':
+    // Rocket.Chat refusing to remove the last admin role.
+    case 'error-admin-required':
       return 'admin.errLastAdmin';
     case 'revision_conflict':
     case 'operation_conflict':
@@ -50,76 +54,169 @@ export function useAdminError(): (error: unknown) => TranslationKey {
 /**
  * A paged list read from the server: the first page on mount and on each new
  * `load` (a new search), `more` at the end of the list, `refresh` from the
- * top. An answer for an older search or an older read is dropped.
+ * top. A new search or refresh empties the list when it STARTS (rows belong
+ * to the read that produced them), so a failed first page never shows the
+ * previous query's rows; an answer for an older read is dropped.
  */
 export function useAdminPages<T>(load: ((after: string | null) => Promise<AdminPage<T>>) | null) {
   const describe = useAdminError();
-  const [items, setItems] = useState<T[]>([]);
-  const [next, setNext] = useState<string | null>(null);
-  const [error, setError] = useState<TranslationKey | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
-  const [moreBusy, setMoreBusy] = useState(false);
   // Bumped by a pull; with `load`, names the read whose rows are shown.
   const [reads, setReads] = useState(0);
   const current = useMemo(() => ({ load, reads }), [load, reads]);
-  const [shown, setShown] = useState<typeof current | null>(null);
+  const [result, setResult] = useState<{ read: typeof current; items: T[]; next: string | null; error: TranslationKey | null } | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [moreBusy, setMoreBusy] = useState(false);
   const latest = useRef(current);
   useEffect(() => {
     latest.current = current;
   }, [current]);
 
-  // A new search keeps the old rows on screen until its first page replaces them.
   useEffect(() => {
     if (current.load === null) return;
     let alive = true;
     current.load(null).then(
       (page) => {
-        if (!alive) return;
-        setItems(page.items);
-        setNext(page.next);
-        setError(null);
+        if (alive) setResult({ read: current, items: page.items, next: page.next, error: null });
       },
       (e: unknown) => {
-        if (alive) setError(describe(e));
+        if (alive) setResult({ read: current, items: [], next: null, error: describe(e) });
       },
     ).finally(() => {
-      if (!alive) return;
-      setShown(current);
-      setRefreshing(false);
+      if (alive) setRefreshing(false);
     });
     return () => {
       alive = false;
     };
   }, [current, describe]);
 
+  const mine = result !== null && result.read === current ? result : null;
   const more = useCallback(() => {
-    if (load === null || next === null || moreBusy || shown !== current) return;
+    if (mine === null || mine.next === null || load === null || moreBusy) return;
     const asked = current;
     setMoreBusy(true);
-    load(next).then(
+    load(mine.next).then(
       (page) => {
         if (latest.current !== asked) return;
-        setItems((old) => [...old, ...page.items]);
-        setNext(page.next);
+        setResult((old) => (old === null || old.read !== asked ? old : { ...old, items: [...old.items, ...page.items], next: page.next }));
       },
       (e: unknown) => {
-        if (latest.current === asked) setError(describe(e));
+        if (latest.current !== asked) return;
+        setResult((old) => (old === null || old.read !== asked ? old : { ...old, error: describe(e) }));
       },
     ).finally(() => setMoreBusy(false));
-  }, [load, next, moreBusy, shown, current, describe]);
+  }, [mine, load, moreBusy, current, describe]);
+
+  const setItems = useCallback((change: (items: T[]) => T[]) => {
+    setResult((old) => (old === null ? old : { ...old, items: change(old.items) }));
+  }, []);
 
   return {
-    items,
+    items: mine?.items ?? NO_ITEMS as T[],
     setItems,
-    loading: (shown !== current && !refreshing) || moreBusy,
+    loading: (mine === null && !refreshing) || moreBusy,
     refreshing,
-    error,
+    error: mine?.error ?? null,
     refresh: useCallback(() => {
       setRefreshing(true);
       setReads((n) => n + 1);
     }, []),
     more,
   };
+}
+const NO_ITEMS: never[] = [];
+
+/**
+ * One administration action at a time (a double tap must not send it twice),
+ * its outcome as a toast or an error key for the opened item.
+ */
+export function useAdminRun() {
+  const t = useT();
+  const describe = useAdminError();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<TranslationKey | null>(null);
+  const inFlight = useRef(false);
+  const run = useCallback(
+    async (action: () => Promise<void>, done: TranslationKey | null) => {
+      if (inFlight.current) return;
+      inFlight.current = true;
+      setBusy(true);
+      setError(null);
+      try {
+        await action();
+        if (done !== null) notify(t(done));
+      } catch (e) {
+        setError(describe(e));
+      } finally {
+        inFlight.current = false;
+        setBusy(false);
+      }
+    },
+    [describe, t],
+  );
+  return { busy, error, setError, run };
+}
+
+/**
+ * A confirmation in a native dialog: Cancel, an outside tap or Back do
+ * nothing; only `action` runs `onConfirm` (destructive style).
+ */
+export function confirmAction(title: string, body: string, action: string, cancel: string, onConfirm: () => void): void {
+  Alert.alert(title, body, [
+    { text: cancel, style: 'cancel' },
+    { text: action, style: 'destructive', onPress: onConfirm },
+  ], dismissible());
+}
+
+/**
+ * Rocket.Chat's second confirmation of a deactivation or deletion that
+ * would leave rooms without owner (`LastOwnerError`): which rooms go with
+ * the account, which change owner; agreed, `retry` runs with `relinquish`.
+ * Any other error is rethrown.
+ */
+export function useLastOwnerConfirm() {
+  const t = useT();
+  return useCallback(
+    async (action: (relinquish: boolean) => Promise<void>): Promise<boolean> => {
+      try {
+        await action(false);
+        return true;
+      } catch (e) {
+        if (!(e instanceof LastOwnerError)) throw e;
+        const agreed = await new Promise<boolean>((resolve) => {
+          const lines = [
+            e.removed.length > 0 ? t('admin.lastOwnerRemoved', { rooms: e.removed.join(', ') }) : null,
+            e.reassigned.length > 0 ? t('admin.lastOwnerReassigned', { rooms: e.reassigned.join(', ') }) : null,
+          ].filter((l) => l !== null);
+          Alert.alert(t('admin.lastOwnerTitle'), lines.join('\n\n'), [
+            { text: t('common.cancel'), style: 'cancel', onPress: () => resolve(false) },
+            { text: t('admin.lastOwnerConfirm'), style: 'destructive', onPress: () => resolve(true) },
+          ], dismissible(() => resolve(false)));
+        });
+        if (!agreed) return false;
+        await action(true);
+        return true;
+      }
+    },
+    [t],
+  );
+}
+
+/** Dates and numbers of the admin screens in the APP's language, not the phone's. */
+export function useAdminFormat() {
+  const language = useLanguage();
+  return useMemo(() => {
+    const locale = language === 'fr' ? 'fr-FR' : 'en-US';
+    const day = new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short', year: 'numeric' });
+    const moment = new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+    const number = new Intl.NumberFormat(locale);
+    return {
+      /** A date, or a dash when the server does not know it. */
+      date: (ms: number | null) => (ms === null ? '—' : day.format(new Date(ms))),
+      dateTime: (ms: number) => moment.format(new Date(ms)),
+      /** A count, or a dash when it could not be read. */
+      number: (n: number | null) => (n === null ? '—' : number.format(n)),
+    };
+  }, [language]);
 }
 
 /** A search text, applied 300 ms after the last keystroke. */
@@ -224,10 +321,6 @@ export function AdminGate({ c, children }: { c: Colors; children: (admin: Provid
   return <>{children(verdict)}</>;
 }
 
-/** A date, or a dash when the server does not know it. */
-export function shortDate(ms: number | null): string {
-  return ms === null ? '—' : new Date(ms).toLocaleDateString();
-}
 
 export const adminStyles = StyleSheet.create({
   screen: { flex: 1 },

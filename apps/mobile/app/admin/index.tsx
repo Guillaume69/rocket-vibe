@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { humanBytes, updateStatus, uptimeParts, type AdminOverview, type ProviderAdmin } from '../../lib/admin.ts';
-import { AdminCard, AdminGate, StatLine, adminStyles, useAdminError } from '../../ui/adminKit.tsx';
+import { AdminCard, AdminGate, ItemAction, StatLine, adminStyles, useAdminError, useAdminFormat } from '../../ui/adminKit.tsx';
 import { useT } from '../../ui/i18n.ts';
 import type { TranslationKey } from '../../ui/messages.ts';
 import { PRESENCE_KEYS, presenceColors } from '../../ui/presence.ts';
@@ -51,8 +51,10 @@ function Dashboard({ c, admin }: { c: Colors; admin: ProviderAdmin }) {
 
   useEffect(() => {
     let alive = true;
+    // The first read takes the server's cached figures (Rocket.Chat's
+    // `statistics`); only a pull or the Refresh button asks fresh ones.
     admin
-      .overview()
+      .overview(reads > 0)
       .then(
         (o) => {
           if (!alive) return;
@@ -87,7 +89,7 @@ function Dashboard({ c, admin }: { c: Colors; admin: ProviderAdmin }) {
   }, []);
 
   const units = t('admin.byteUnits').split(',');
-  const reports = overview === null ? 0 : overview.reports.messages + overview.reports.users;
+  const reports = overview === null ? 0 : (overview.reports.messages ?? 0) + (overview.reports.users ?? 0);
 
   return (
     <ScrollView
@@ -96,7 +98,7 @@ function Dashboard({ c, admin }: { c: Colors; admin: ProviderAdmin }) {
     >
       {error !== null && <Text style={[styles.error, { color: c.errorText }]}>{t(error)}</Text>}
       {overview === null && error === null && <ActivityIndicator color={c.accent} style={styles.loading} />}
-      {overview !== null && <Cards c={c} o={overview} latest={latest} units={units} onReports={() => router.push('/admin/moderation')} />}
+      {overview !== null && <Cards c={c} o={overview} latest={latest} units={units} refreshing={refreshing} onRefresh={refresh} onReports={() => router.push('/admin/moderation')} />}
 
       <View style={[styles.list, { backgroundColor: c.deepCard, borderColor: c.border }]}>
         <NavRow c={c} icon="🛡️" label={t('admin.moderation')} hint={t('admin.moderationHint')} count={reports} first onPress={() => router.push('/admin/moderation')} />
@@ -107,14 +109,21 @@ function Dashboard({ c, admin }: { c: Colors; admin: ProviderAdmin }) {
   );
 }
 
-function Cards({ c, o, latest, units, onReports }: { c: Colors; o: AdminOverview; latest: string | null; units: string[]; onReports: () => void }) {
+function Cards({ c, o, latest, units, refreshing, onRefresh, onReports }: { c: Colors; o: AdminOverview; latest: string | null; units: string[]; refreshing: boolean; onRefresh: () => void; onReports: () => void }) {
   const t = useT();
+  const fmt = useAdminFormat();
   const status = updateStatus(o.version, latest);
   const up = o.uptimeSeconds === null ? null : uptimeParts(o.uptimeSeconds);
   const dots = presenceColors(c);
-  const n = (v: number) => v.toLocaleString();
+  const n = fmt.number;
   return (
     <>
+      {o.asOf !== null && (
+        <View style={styles.asOf}>
+          <Text style={[styles.asOfText, { color: c.dimmed }]}>{t('admin.asOf', { date: fmt.dateTime(o.asOf) })}</Text>
+          <ItemAction c={c} disabled={refreshing} label={t('admin.refresh')} onPress={onRefresh} />
+        </View>
+      )}
       <AdminCard c={c} title={t('admin.deployment')}>
         <StatLine c={c} label={PRODUCTS[o.product]} value={o.version} strong />
         {status !== null && (
@@ -158,7 +167,7 @@ function Cards({ c, o, latest, units, onReports }: { c: Colors; o: AdminOverview
       </AdminCard>
 
       <AdminCard c={c} title={t('admin.uploads')}>
-        <StatLine c={c} label={t('admin.uploadCount', { n: o.uploads.count })} value={humanBytes(o.uploads.bytes, units)} strong />
+        <StatLine c={c} label={t('admin.uploadCount', { n: o.uploads.count, count: n(o.uploads.count) })} value={humanBytes(o.uploads.bytes, units)} strong />
       </AdminCard>
 
       <Tappable onPress={onReports} android_ripple={{ color: c.ripple }} unstable_pressDelay={LIST_PRESS_DELAY} accessibilityRole="button">
@@ -205,6 +214,8 @@ const styles = StyleSheet.create({
   loading: { paddingVertical: 24 },
   error: { fontFamily: FONTS.bodyBold, fontSize: 13.5 },
   update: { fontFamily: FONTS.bodyBold, fontSize: 13 },
+  asOf: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  asOfText: { flex: 1, fontFamily: FONTS.body, fontSize: 12.5 },
   link: { fontFamily: FONTS.bodyBold, fontSize: 13.5, marginTop: 2 },
   list: { borderRadius: 16, borderWidth: 1, overflow: 'hidden' },
   row: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 13, paddingHorizontal: 16 },

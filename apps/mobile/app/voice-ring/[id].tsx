@@ -6,6 +6,7 @@
 import { Redirect, Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef } from 'react';
 import { ActivityIndicator, Alert, PermissionsAndroid, Platform, StyleSheet, View } from 'react-native';
+import { dismissible } from '../../ui/alerts.ts';
 
 import { nativePushMatches, nativePushScope } from '../../lib/nativePushNavigation.ts';
 import { nativeRoomPermalink, serviceUrl } from '../../lib/roomLinks.ts';
@@ -43,7 +44,7 @@ export default function AnswerRing() {
         router.replace({ pathname: '/voice/[rid]', params: { rid: ring.room_id, title: caller } });
         await controller.accept(ring, { title: caller, microphone, link: nativeRoomPermalink(state.session, ring.room_id) });
       } catch {
-        Alert.alert(t('voice.title'), t('voice.joinFailed'));
+        Alert.alert(t('voice.title'), t('voice.joinFailed'), undefined, dismissible());
         if (rid) router.replace({ pathname: '/room/[rid]', params: { rid } });
         else router.replace('/');
       }

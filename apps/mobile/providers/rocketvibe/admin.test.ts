@@ -30,9 +30,10 @@ describe('native administration mapping', () => {
     assert.deepEqual([u.name, u.active, u.admin, u.revision, u.avatar.etag], ['alice', false, true, '7', 'none']);
   });
 
-  test('a direct room is named by its pair', () => {
-    const r = nativeRoom({ id: 'd1', kind: 'direct', name: 'alice,bob', member_count: 2, message_count: 3, read_only: false, encrypted: true, direct_members: [alice, { id: 'u2', username: 'bob', display_name: 'Bob' }] });
-    assert.deepEqual([r.kind, r.name, r.encrypted], ['direct', 'alice, bob', true]);
+  test('a direct room is named by its pair, a deleted member kept as such', () => {
+    const r = nativeRoom({ id: 'd1', kind: 'direct', name: 'alice,bob', member_count: 2, message_count: 3, read_only: false, encrypted: true, direct_members: [alice, deleted] });
+    assert.deepEqual([r.kind, r.name, r.encrypted], ['direct', 'Alice, deleted-u9', true]);
+    assert.deepEqual(r.directMembers?.map((m) => m.deleted), [false, true]);
   });
 
   test('a reported message carries its reasons and a deleted author', () => {
@@ -78,6 +79,16 @@ describe('NativeAdmin', () => {
     assert.equal((await admin.updateUser(user, { active: false })).revision, '8');
     await admin.deleteUser(user);
     assert.deepEqual(inputs, [{ operation_id: 'op-1', revision: '7', disabled: true }, { operation_id: 'op-2', revision: '7' }]);
+  });
+
+  test('an author revision given by the item deactivates without a lookup', async () => {
+    const inputs: unknown[] = [];
+    const { chat } = fakeChat({
+      adminUsers: async () => { throw new Error('no lookup expected'); },
+      updateAdminUser: async (_id, input) => { inputs.push(input); return { id: 'u1', username: 'alice', display_name: 'Alice', admin: false, disabled: true, status: 'offline', revision: '6' }; },
+    });
+    await new NativeAdmin(chat).deactivate({ id: 'u1', username: 'alice', name: 'Alice', deleted: false, revision: '5' });
+    assert.deepEqual(inputs, [{ operation_id: 'op-1', revision: '5', disabled: true }]);
   });
 
   test('deactivating a reported author reads its revision first', async () => {

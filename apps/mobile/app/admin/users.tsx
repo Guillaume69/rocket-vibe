@@ -1,7 +1,6 @@
 import { Redirect, Stack } from 'expo-router';
-import { useCallback, useRef, useState } from 'react';
-import { Alert, FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
-import { dismissible } from '../../ui/alerts.ts';
+import { useCallback, useState } from 'react';
+import { FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
 
 import type { AdminUser, ProviderAdmin } from '../../lib/admin.ts';
 import type { RestClient } from '../../lib/rest.ts';
@@ -13,10 +12,12 @@ import {
   ListFooter,
   SearchField,
   adminStyles,
-  shortDate,
-  useAdminError,
+  confirmAction,
+  useAdminFormat,
   useAdminPages,
+  useAdminRun,
   useDebounced,
+  useLastOwnerConfirm,
 } from '../../ui/adminKit.tsx';
 import { useT } from '../../ui/i18n.ts';
 import { AvatarTile } from '../../ui/kit.tsx';
@@ -49,58 +50,42 @@ export default function AdminUsersScreen() {
 
 function Users({ c, admin, client, me }: { c: Colors; admin: ProviderAdmin; client: RestClient; me: string }) {
   const t = useT();
-  const describe = useAdminError();
+  const fmt = useAdminFormat();
   const [query, setQuery] = useState('');
   const search = useDebounced(query);
   const load = useCallback((after: string | null) => admin.users(search, after), [admin, search]);
   const list = useAdminPages(load);
   const [open, setOpen] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<TranslationKey | null>(null);
-  // A double tap must not send the same change twice.
-  const inFlight = useRef(false);
-
-  const run = useCallback(
-    async (action: () => Promise<void>, done: TranslationKey) => {
-      if (inFlight.current) return;
-      inFlight.current = true;
-      setBusy(true);
-      setError(null);
-      try {
-        await action();
-        notify(t(done));
-      } catch (e) {
-        setError(describe(e));
-      } finally {
-        inFlight.current = false;
-        setBusy(false);
-      }
-    },
-    [describe, t],
-  );
+  const { busy, error, setError, run } = useAdminRun();
+  const lastOwner = useLastOwnerConfirm();
 
   const replace = (next: AdminUser) => list.setItems((items) => items.map((u) => (u.id === next.id ? next : u)));
   const change = (user: AdminUser, update: { admin?: boolean; active?: boolean }, done: TranslationKey) =>
     void run(async () => replace(await admin.updateUser(user, update)), done);
   const remove = (user: AdminUser) =>
-    Alert.alert(t('admin.deleteUserTitle', { username: user.username }), t(admin.product === 'rocketvibe' ? 'admin.deleteUserBodyNative' : 'admin.deleteUserBodyRc'), [
-      { text: t('common.cancel'), style: 'cancel' },
-      {
-        text: t('admin.deleteUser'),
-        style: 'destructive',
-        onPress: () =>
-          void run(async () => {
-            await admin.deleteUser(user);
-            list.setItems((items) => items.filter((u) => u.id !== user.id));
-            setOpen(null);
-          }, 'admin.userDeleted'),
-      },
-    ], dismissible());
+    confirmAction(
+      t('admin.deleteUserTitle', { username: user.username }),
+      t(admin.product === 'rocketvibe' ? 'admin.deleteUserBodyNative' : 'admin.deleteUserBodyRc'),
+      t('admin.deleteUser'),
+      t('common.cancel'),
+      () =>
+        void run(async () => {
+          // A last owner's rooms are named in a second confirmation (Rocket.Chat).
+          if (!(await lastOwner((relinquish) => admin.deleteUser(user, relinquish)))) return;
+          list.setItems((items) => items.filter((u) => u.id !== user.id));
+          setOpen(null);
+          notify(t('admin.userDeleted'));
+        }, null),
+    );
   const deactivate = (user: AdminUser) =>
-    Alert.alert(t('admin.deactivate'), t('admin.deactivateBody', { name: user.name }), [
-      { text: t('common.cancel'), style: 'cancel' },
-      { text: t('admin.deactivate'), style: 'destructive', onPress: () => change(user, { active: false }, 'admin.deactivated') },
-    ], dismissible());
+    confirmAction(t('admin.deactivate'), t('admin.deactivateBody', { name: user.name }), t('admin.deactivate'), t('common.cancel'), () =>
+      void run(async () => {
+        let updated: AdminUser | null = null;
+        if (!(await lastOwner(async (relinquish) => { updated = await admin.updateUser(user, { active: false }, relinquish); }))) return;
+        if (updated !== null) replace(updated);
+        notify(t('admin.deactivated'));
+      }, null),
+    );
 
   const dots = presenceColors(c);
   return (
@@ -150,8 +135,8 @@ function Users({ c, admin, client, me }: { c: Colors; admin: ProviderAdmin; clie
             {(user.createdAt !== null || user.lastSeenAt !== null) && (
               <Text style={[adminStyles.sub, { color: c.dimmed }]}>
                 {[
-                  user.createdAt === null ? null : t('admin.created', { date: shortDate(user.createdAt) }),
-                  user.lastSeenAt === null ? null : t('admin.lastSeen', { date: shortDate(user.lastSeenAt) }),
+                  user.createdAt === null ? null : t('admin.created', { date: fmt.date(user.createdAt) }),
+                  user.lastSeenAt === null ? null : t('admin.lastSeen', { date: fmt.date(user.lastSeenAt) }),
                 ].filter((part) => part !== null).join(' · ')}
               </Text>
             )}

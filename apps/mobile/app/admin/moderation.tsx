@@ -1,10 +1,21 @@
 import { Redirect, Stack } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
-import { dismissible } from '../../ui/alerts.ts';
+import { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 
-import type { AdminPerson, AdminReport, ProviderAdmin, ReportedMessage, ReportedUser } from '../../lib/admin.ts';
-import { AdminGate, Badge, ItemAction, ListFooter, adminStyles, shortDate, useAdminError, useAdminPages } from '../../ui/adminKit.tsx';
+import { BulkDeleteRequired, type AdminPerson, type AdminReport, type ProviderAdmin, type ReportedMessage, type ReportedUser } from '../../lib/admin.ts';
+import {
+  AdminGate,
+  Badge,
+  ItemAction,
+  ListFooter,
+  adminStyles,
+  confirmAction,
+  useAdminError,
+  useAdminFormat,
+  useAdminPages,
+  useAdminRun,
+  useLastOwnerConfirm,
+} from '../../ui/adminKit.tsx';
 import { useT } from '../../ui/i18n.ts';
 import type { TranslationKey } from '../../ui/messages.ts';
 import { useSession } from '../../ui/session.tsx';
@@ -53,55 +64,48 @@ export default function AdminModerationScreen() {
   );
 }
 
-/** One action at a time, its outcome as a toast or an error under the item. */
-function useRun() {
-  const t = useT();
-  const describe = useAdminError();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<TranslationKey | null>(null);
-  const inFlight = useRef(false);
-  const run = useCallback(
-    async (action: () => Promise<void>, done: TranslationKey) => {
-      if (inFlight.current) return;
-      inFlight.current = true;
-      setBusy(true);
-      setError(null);
-      try {
-        await action();
-        notify(t(done));
-      } catch (e) {
-        setError(describe(e));
-      } finally {
-        inFlight.current = false;
-        setBusy(false);
-      }
-    },
-    [describe, t],
-  );
-  return { busy, error, setError, run };
-}
-
-/** A destructive action, confirmed in a native dialog first. */
-function confirm(title: string, body: string, action: string, cancel: string, onConfirm: () => void): void {
-  Alert.alert(title, body, [
-    { text: cancel, style: 'cancel' },
-    { text: action, style: 'destructive', onPress: onConfirm },
-  ], dismissible());
-}
-
 function Messages({ c, admin, me }: { c: Colors; admin: ProviderAdmin; me: string }) {
   const t = useT();
   const load = useCallback((after: string | null) => admin.reportedMessages(after), [admin]);
   const list = useAdminPages(load);
   const [open, setOpen] = useState<string | null>(null);
-  const { busy, error, setError, run } = useRun();
+  const { busy, error, setError, run } = useAdminRun();
+  const lastOwner = useLastOwnerConfirm();
+  const fmt = useAdminFormat();
   const drop = (item: ReportedMessage) => {
     list.setItems((items) => items.filter((m) => m.messageId !== item.messageId));
     setOpen(null);
   };
   const deactivate = (person: AdminPerson) =>
-    confirm(t('admin.deactivateAuthor'), t('admin.deactivateBody', { name: person.name }), t('admin.deactivate'), t('common.cancel'),
-      () => void run(() => admin.deactivate(person), 'admin.deactivated'));
+    confirmAction(t('admin.deactivateAuthor'), t('admin.deactivateBody', { name: person.name }), t('admin.deactivate'), t('common.cancel'),
+      () => void run(async () => {
+        if (await lastOwner((relinquish) => admin.deactivate(person, relinquish))) notify(t('admin.deactivated'));
+      }, null));
+  // A room the administrator is not in (Rocket.Chat): only the author-wide
+  // moderation delete remains, asked for explicitly with its count.
+  const remove = (item: ReportedMessage) =>
+    confirmAction(t('admin.deleteMessage'), t('admin.deleteMessageBody'), t('common.delete'), t('common.cancel'),
+      () => void run(async () => {
+        try {
+          await admin.deleteReportedMessage(item);
+          drop(item);
+          notify(t('admin.messageDeleted'));
+        } catch (e) {
+          const bulk = admin.deleteAuthorReportedMessages?.bind(admin);
+          if (!(e instanceof BulkDeleteRequired) || bulk === undefined) throw e;
+          confirmAction(
+            t('admin.bulkDeleteTitle'),
+            t('admin.bulkDeleteBody', { n: e.count ?? item.count }),
+            t('admin.bulkDeleteConfirm'),
+            t('common.cancel'),
+            () => void run(async () => {
+              await bulk(item);
+              list.setItems((items) => items.filter((m) => m.author.id !== item.author.id));
+              setOpen(null);
+            }, 'admin.messagesDeleted'),
+          );
+        }
+      }, null));
   return (
     <FlatList
       data={list.items}
@@ -132,7 +136,7 @@ function Messages({ c, admin, me }: { c: Colors; admin: ProviderAdmin; me: strin
                   {personName(item.author, t('common.deletedUser'))}
                 </Text>
                 <Text style={[adminStyles.sub, { color: c.dimmed }]} numberOfLines={1}>
-                  {item.room.kind === 'direct' ? '💬' : item.room.kind === 'private' ? '🔒' : '#'} {item.room.name} · {shortDate(item.createdAt)}
+                  {item.room.kind === 'direct' ? '💬' : item.room.kind === 'private' ? '🔒' : '#'} {item.room.name} · {fmt.date(item.createdAt)}
                 </Text>
               </View>
               <Badge c={c} label={t('admin.reportCount', { n: item.count })} tone="danger" />
@@ -140,9 +144,13 @@ function Messages({ c, admin, me }: { c: Colors; admin: ProviderAdmin; me: strin
             {item.deleted ? (
               <Badge c={c} label={t('admin.messageGone')} />
             ) : (
-              <Text style={[adminStyles.body, { color: c.messageText }]} numberOfLines={opened ? undefined : 3} selectable={opened}>{item.text}</Text>
+              item.encrypted ? (
+                <Text style={[adminStyles.body, { color: c.dimmed }]}>🔒 {t('admin.encryptedMessage')}</Text>
+              ) : (
+                <Text style={[adminStyles.body, { color: c.messageText }]} numberOfLines={opened ? undefined : 3} selectable={opened}>{item.text}</Text>
+              )
             )}
-            <Text style={[adminStyles.sub, { color: c.dimmed }]}>{t('admin.latest', { date: shortDate(item.latestAt) })}</Text>
+            <Text style={[adminStyles.sub, { color: c.dimmed }]}>{t('admin.latest', { date: fmt.date(item.latestAt) })}</Text>
             {opened && (
               <>
                 <Reasons c={c} known={item.reports} read={() => admin.messageReports(item)} />
@@ -151,8 +159,7 @@ function Messages({ c, admin, me }: { c: Colors; admin: ProviderAdmin; me: strin
                     onPress={() => void run(async () => { await admin.dismissMessageReports(item); drop(item); }, 'admin.dismissed')} />
                   {!item.deleted && (
                     <ItemAction c={c} disabled={busy} danger label={t('admin.deleteMessage')}
-                      onPress={() => confirm(t('admin.deleteMessage'), t('admin.deleteMessageBody'), t('common.delete'), t('common.cancel'),
-                        () => void run(async () => { await admin.deleteReportedMessage(item); drop(item); }, 'admin.messageDeleted'))} />
+                      onPress={() => remove(item)} />
                   )}
                   {item.author.id !== me && !item.author.deleted && (
                     <ItemAction c={c} disabled={busy} danger label={t('admin.deactivateAuthor')} onPress={() => deactivate(item.author)} />
@@ -173,7 +180,9 @@ function Users({ c, admin, me }: { c: Colors; admin: ProviderAdmin; me: string }
   const load = useCallback((after: string | null) => admin.reportedUsers(after), [admin]);
   const list = useAdminPages(load);
   const [open, setOpen] = useState<string | null>(null);
-  const { busy, error, setError, run } = useRun();
+  const { busy, error, setError, run } = useAdminRun();
+  const lastOwner = useLastOwnerConfirm();
+  const fmt = useAdminFormat();
   const drop = (item: ReportedUser) => {
     list.setItems((items) => items.filter((u) => u.user.id !== item.user.id));
     setOpen(null);
@@ -210,7 +219,7 @@ function Users({ c, admin, me }: { c: Colors; admin: ProviderAdmin; me: string }
               <Badge c={c} label={t('admin.reportCount', { n: item.count })} tone="danger" />
             </View>
             {item.active === false && <Badge c={c} label={t('admin.badgeDeactivated')} tone="danger" />}
-            <Text style={[adminStyles.sub, { color: c.dimmed }]}>{t('admin.latest', { date: shortDate(item.latestAt) })}</Text>
+            <Text style={[adminStyles.sub, { color: c.dimmed }]}>{t('admin.latest', { date: fmt.date(item.latestAt) })}</Text>
             {opened && (
               <>
                 <Reasons c={c} known={item.reports} read={() => admin.userReports(item)} />
@@ -219,11 +228,12 @@ function Users({ c, admin, me }: { c: Colors; admin: ProviderAdmin; me: string }
                     onPress={() => void run(async () => { await admin.dismissUserReports(item); drop(item); }, 'admin.dismissed')} />
                   {item.user.id !== me && item.active !== false && (
                     <ItemAction c={c} disabled={busy} danger label={t('admin.deactivate')}
-                      onPress={() => confirm(t('admin.deactivate'), t('admin.deactivateBody', { name: item.user.name }), t('admin.deactivate'), t('common.cancel'),
+                      onPress={() => confirmAction(t('admin.deactivate'), t('admin.deactivateBody', { name: item.user.name }), t('admin.deactivate'), t('common.cancel'),
                         () => void run(async () => {
-                          await admin.deactivate(item.user);
+                          if (!(await lastOwner((relinquish) => admin.deactivate(item.user, relinquish)))) return;
                           list.setItems((items) => items.map((u) => (u.user.id === item.user.id ? { ...u, active: false } : u)));
-                        }, 'admin.deactivated'))} />
+                          notify(t('admin.deactivated'));
+                        }, null))} />
                   )}
                 </View>
                 {error !== null && <Text style={[adminStyles.sub, { color: c.errorText }]}>{t(error)}</Text>}
@@ -243,6 +253,7 @@ function personName(p: AdminPerson, deleted: string): string {
 /** The reasons of an opened item: given by the list, or read now. */
 function Reasons({ c, known, read }: { c: Colors; known: AdminReport[] | null; read: () => Promise<AdminReport[]> }) {
   const t = useT();
+  const fmt = useAdminFormat();
   const describe = useAdminError();
   const [reports, setReports] = useState<AdminReport[] | null>(known);
   const [error, setError] = useState<TranslationKey | null>(null);
@@ -272,7 +283,7 @@ function Reasons({ c, known, read }: { c: Colors; known: AdminReport[] | null; r
         <View key={i} style={styles.reason}>
           <Text style={[adminStyles.body, { color: c.text }]} selectable>{r.reason}</Text>
           <Text style={[adminStyles.sub, { color: c.dimmed }]}>
-            {r.reporter === null ? '—' : personName(r.reporter, t('common.deletedUser'))} · {shortDate(r.at)}
+            {r.reporter === null ? '—' : personName(r.reporter, t('common.deletedUser'))} · {fmt.date(r.at)}
           </Text>
         </View>
       ))}

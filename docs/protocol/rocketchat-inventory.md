@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-491 production files scanned; 509 occurrences.
+492 production files scanned; 511 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -340,8 +340,8 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:606](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L606) | endpoint | e2e.failed |
 | [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:609](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L609) | endpoint | e2e.failed |
 | [apps/mobile/app/login.tsx:405](../../apps/mobile/app/login.tsx#L405) | endpoint | chat.example.org |
-| [apps/mobile/app/message-actions.tsx:96](../../apps/mobile/app/message-actions.tsx#L96) | call:GET | 'settings.public' |
-| [apps/mobile/app/message-actions.tsx:97](../../apps/mobile/app/message-actions.tsx#L97) | endpoint | settings.public |
+| [apps/mobile/app/message-actions.tsx:97](../../apps/mobile/app/message-actions.tsx#L97) | call:GET | 'settings.public' |
+| [apps/mobile/app/message-actions.tsx:98](../../apps/mobile/app/message-actions.tsx#L98) | endpoint | settings.public |
 | [apps/mobile/app/search.tsx:83](../../apps/mobile/app/search.tsx#L83) | call:GET | 'spotlight' |
 | [apps/mobile/app/search.tsx:83](../../apps/mobile/app/search.tsx#L83) | endpoint | spotlight |
 | [apps/mobile/app/search.tsx:138](../../apps/mobile/app/search.tsx#L138) | call:POST | 'channels.join' |
@@ -460,34 +460,36 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/providers/rocketchat/actions.ts:98](../../apps/mobile/providers/rocketchat/actions.ts#L98) | endpoint | subscriptions.read |
 | [apps/mobile/providers/rocketchat/actions.ts:104](../../apps/mobile/providers/rocketchat/actions.ts#L104) | call:POST | 'im.create' |
 | [apps/mobile/providers/rocketchat/actions.ts:104](../../apps/mobile/providers/rocketchat/actions.ts#L104) | endpoint | im.create |
-| [apps/mobile/providers/rocketchat/admin.ts:195](../../apps/mobile/providers/rocketchat/admin.ts#L195) | call:GET | 'me' |
-| [apps/mobile/providers/rocketchat/admin.ts:201](../../apps/mobile/providers/rocketchat/admin.ts#L201) | call:GET | 'statistics' |
-| [apps/mobile/providers/rocketchat/admin.ts:202](../../apps/mobile/providers/rocketchat/admin.ts#L202) | call:GET | 'roles.getUsersInRole' |
-| [apps/mobile/providers/rocketchat/admin.ts:205](../../apps/mobile/providers/rocketchat/admin.ts#L205) | call:GET | 'moderation.reportsByUsers' |
-| [apps/mobile/providers/rocketchat/admin.ts:207](../../apps/mobile/providers/rocketchat/admin.ts#L207) | call:GET | 'moderation.userReports' |
-| [apps/mobile/providers/rocketchat/admin.ts:214](../../apps/mobile/providers/rocketchat/admin.ts#L214) | call:GET | 'users.listByStatus' |
-| [apps/mobile/providers/rocketchat/admin.ts:214](../../apps/mobile/providers/rocketchat/admin.ts#L214) | endpoint | users.listByStatus |
-| [apps/mobile/providers/rocketchat/admin.ts:223](../../apps/mobile/providers/rocketchat/admin.ts#L223) | call:POST | change.admin ? 'roles.addUserToRole' : 'roles.removeUserFromRole' |
-| [apps/mobile/providers/rocketchat/admin.ts:229](../../apps/mobile/providers/rocketchat/admin.ts#L229) | call:POST | 'users.setActiveStatus' |
-| [apps/mobile/providers/rocketchat/admin.ts:229](../../apps/mobile/providers/rocketchat/admin.ts#L229) | endpoint | users.setActiveStatus |
-| [apps/mobile/providers/rocketchat/admin.ts:238](../../apps/mobile/providers/rocketchat/admin.ts#L238) | call:POST | 'users.delete' |
-| [apps/mobile/providers/rocketchat/admin.ts:238](../../apps/mobile/providers/rocketchat/admin.ts#L238) | endpoint | users.delete |
-| [apps/mobile/providers/rocketchat/admin.ts:243](../../apps/mobile/providers/rocketchat/admin.ts#L243) | call:GET | 'rooms.adminRooms' |
-| [apps/mobile/providers/rocketchat/admin.ts:243](../../apps/mobile/providers/rocketchat/admin.ts#L243) | endpoint | rooms.adminRooms |
-| [apps/mobile/providers/rocketchat/admin.ts:252](../../apps/mobile/providers/rocketchat/admin.ts#L252) | call:GET | 'moderation.reportsByUsers' |
-| [apps/mobile/providers/rocketchat/admin.ts:258](../../apps/mobile/providers/rocketchat/admin.ts#L258) | call:GET | 'moderation.user.reportedMessages' |
-| [apps/mobile/providers/rocketchat/admin.ts:269](../../apps/mobile/providers/rocketchat/admin.ts#L269) | call:GET | 'moderation.userReports' |
-| [apps/mobile/providers/rocketchat/admin.ts:277](../../apps/mobile/providers/rocketchat/admin.ts#L277) | call:GET | 'moderation.reports' |
-| [apps/mobile/providers/rocketchat/admin.ts:282](../../apps/mobile/providers/rocketchat/admin.ts#L282) | call:GET | 'moderation.user.reportsByUserId' |
-| [apps/mobile/providers/rocketchat/admin.ts:287](../../apps/mobile/providers/rocketchat/admin.ts#L287) | call:POST | 'moderation.dismissReports' |
-| [apps/mobile/providers/rocketchat/admin.ts:291](../../apps/mobile/providers/rocketchat/admin.ts#L291) | call:POST | 'chat.delete' |
-| [apps/mobile/providers/rocketchat/admin.ts:291](../../apps/mobile/providers/rocketchat/admin.ts#L291) | endpoint | chat.delete |
-| [apps/mobile/providers/rocketchat/admin.ts:297](../../apps/mobile/providers/rocketchat/admin.ts#L297) | call:POST | 'moderation.dismissUserReports' |
-| [apps/mobile/providers/rocketchat/admin.ts:301](../../apps/mobile/providers/rocketchat/admin.ts#L301) | call:POST | 'users.setActiveStatus' |
-| [apps/mobile/providers/rocketchat/admin.ts:301](../../apps/mobile/providers/rocketchat/admin.ts#L301) | endpoint | users.setActiveStatus |
-| [apps/mobile/providers/rocketchat/admin.ts:313](../../apps/mobile/providers/rocketchat/admin.ts#L313) | call:POST | 'chat.reportMessage' |
-| [apps/mobile/providers/rocketchat/admin.ts:313](../../apps/mobile/providers/rocketchat/admin.ts#L313) | endpoint | chat.reportMessage |
-| [apps/mobile/providers/rocketchat/admin.ts:316](../../apps/mobile/providers/rocketchat/admin.ts#L316) | call:POST | 'moderation.reportUser' |
+| [apps/mobile/providers/rocketchat/admin.ts:227](../../apps/mobile/providers/rocketchat/admin.ts#L227) | call:GET | 'me' |
+| [apps/mobile/providers/rocketchat/admin.ts:233](../../apps/mobile/providers/rocketchat/admin.ts#L233) | call:GET | 'statistics' |
+| [apps/mobile/providers/rocketchat/admin.ts:234](../../apps/mobile/providers/rocketchat/admin.ts#L234) | call:GET | 'roles.getUsersInRole' |
+| [apps/mobile/providers/rocketchat/admin.ts:237](../../apps/mobile/providers/rocketchat/admin.ts#L237) | call:GET | 'moderation.reportsByUsers' |
+| [apps/mobile/providers/rocketchat/admin.ts:239](../../apps/mobile/providers/rocketchat/admin.ts#L239) | call:GET | 'moderation.userReports' |
+| [apps/mobile/providers/rocketchat/admin.ts:247](../../apps/mobile/providers/rocketchat/admin.ts#L247) | call:GET | 'users.listByStatus' |
+| [apps/mobile/providers/rocketchat/admin.ts:247](../../apps/mobile/providers/rocketchat/admin.ts#L247) | endpoint | users.listByStatus |
+| [apps/mobile/providers/rocketchat/admin.ts:256](../../apps/mobile/providers/rocketchat/admin.ts#L256) | call:POST | change.admin ? 'roles.addUserToRole' : 'roles.removeUserFromRole' |
+| [apps/mobile/providers/rocketchat/admin.ts:263](../../apps/mobile/providers/rocketchat/admin.ts#L263) | call:POST | 'users.setActiveStatus' |
+| [apps/mobile/providers/rocketchat/admin.ts:263](../../apps/mobile/providers/rocketchat/admin.ts#L263) | endpoint | users.setActiveStatus |
+| [apps/mobile/providers/rocketchat/admin.ts:274](../../apps/mobile/providers/rocketchat/admin.ts#L274) | call:POST | 'users.delete' |
+| [apps/mobile/providers/rocketchat/admin.ts:274](../../apps/mobile/providers/rocketchat/admin.ts#L274) | endpoint | users.delete |
+| [apps/mobile/providers/rocketchat/admin.ts:295](../../apps/mobile/providers/rocketchat/admin.ts#L295) | call:GET | \`rooms.adminRooms?{…}\` |
+| [apps/mobile/providers/rocketchat/admin.ts:304](../../apps/mobile/providers/rocketchat/admin.ts#L304) | call:GET | 'moderation.reportsByUsers' |
+| [apps/mobile/providers/rocketchat/admin.ts:309](../../apps/mobile/providers/rocketchat/admin.ts#L309) | call:GET | 'moderation.user.reportedMessages' |
+| [apps/mobile/providers/rocketchat/admin.ts:315](../../apps/mobile/providers/rocketchat/admin.ts#L315) | call:GET | 'moderation.reports' |
+| [apps/mobile/providers/rocketchat/admin.ts:325](../../apps/mobile/providers/rocketchat/admin.ts#L325) | call:GET | 'moderation.userReports' |
+| [apps/mobile/providers/rocketchat/admin.ts:333](../../apps/mobile/providers/rocketchat/admin.ts#L333) | call:GET | 'moderation.reports' |
+| [apps/mobile/providers/rocketchat/admin.ts:338](../../apps/mobile/providers/rocketchat/admin.ts#L338) | call:GET | 'moderation.user.reportsByUserId' |
+| [apps/mobile/providers/rocketchat/admin.ts:343](../../apps/mobile/providers/rocketchat/admin.ts#L343) | call:POST | 'moderation.dismissReports' |
+| [apps/mobile/providers/rocketchat/admin.ts:348](../../apps/mobile/providers/rocketchat/admin.ts#L348) | call:POST | 'chat.delete' |
+| [apps/mobile/providers/rocketchat/admin.ts:348](../../apps/mobile/providers/rocketchat/admin.ts#L348) | endpoint | chat.delete |
+| [apps/mobile/providers/rocketchat/admin.ts:353](../../apps/mobile/providers/rocketchat/admin.ts#L353) | call:GET | 'moderation.user.reportedMessages' |
+| [apps/mobile/providers/rocketchat/admin.ts:363](../../apps/mobile/providers/rocketchat/admin.ts#L363) | call:POST | 'moderation.user.deleteReportedMessages' |
+| [apps/mobile/providers/rocketchat/admin.ts:367](../../apps/mobile/providers/rocketchat/admin.ts#L367) | call:POST | 'moderation.dismissUserReports' |
+| [apps/mobile/providers/rocketchat/admin.ts:372](../../apps/mobile/providers/rocketchat/admin.ts#L372) | call:POST | 'users.setActiveStatus' |
+| [apps/mobile/providers/rocketchat/admin.ts:372](../../apps/mobile/providers/rocketchat/admin.ts#L372) | endpoint | users.setActiveStatus |
+| [apps/mobile/providers/rocketchat/admin.ts:385](../../apps/mobile/providers/rocketchat/admin.ts#L385) | call:POST | 'chat.reportMessage' |
+| [apps/mobile/providers/rocketchat/admin.ts:385](../../apps/mobile/providers/rocketchat/admin.ts#L385) | endpoint | chat.reportMessage |
+| [apps/mobile/providers/rocketchat/admin.ts:388](../../apps/mobile/providers/rocketchat/admin.ts#L388) | call:POST | 'moderation.reportUser' |
 | [apps/mobile/providers/rocketchat/history.ts:17](../../apps/mobile/providers/rocketchat/history.ts#L17) | endpoint | channels.history |
 | [apps/mobile/providers/rocketchat/history.ts:18](../../apps/mobile/providers/rocketchat/history.ts#L18) | endpoint | groups.history |
 | [apps/mobile/providers/rocketchat/history.ts:19](../../apps/mobile/providers/rocketchat/history.ts#L19) | endpoint | im.history |
@@ -502,18 +504,18 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/providers/rocketchat/index.ts:55](../../apps/mobile/providers/rocketchat/index.ts#L55) | endpoint | users.info |
 | [apps/mobile/providers/rocketchat/index.ts:57](../../apps/mobile/providers/rocketchat/index.ts#L57) | call:GET | 'chat.search' |
 | [apps/mobile/providers/rocketchat/index.ts:57](../../apps/mobile/providers/rocketchat/index.ts#L57) | endpoint | chat.search |
-| [apps/mobile/ui/messages.ts:563](../../apps/mobile/ui/messages.ts#L563) | endpoint | e2e.title |
-| [apps/mobile/ui/messages.ts:564](../../apps/mobile/ui/messages.ts#L564) | endpoint | e2e.explanation |
-| [apps/mobile/ui/messages.ts:566](../../apps/mobile/ui/messages.ts#L566) | endpoint | e2e.field |
-| [apps/mobile/ui/messages.ts:567](../../apps/mobile/ui/messages.ts#L567) | endpoint | e2e.unlock |
-| [apps/mobile/ui/messages.ts:568](../../apps/mobile/ui/messages.ts#L568) | endpoint | e2e.wrongPassword |
-| [apps/mobile/ui/messages.ts:569](../../apps/mobile/ui/messages.ts#L569) | endpoint | e2e.genericError |
-| [apps/mobile/ui/messages.ts:1491](../../apps/mobile/ui/messages.ts#L1491) | endpoint | e2e.title |
-| [apps/mobile/ui/messages.ts:1492](../../apps/mobile/ui/messages.ts#L1492) | endpoint | e2e.explanation |
-| [apps/mobile/ui/messages.ts:1494](../../apps/mobile/ui/messages.ts#L1494) | endpoint | e2e.field |
-| [apps/mobile/ui/messages.ts:1495](../../apps/mobile/ui/messages.ts#L1495) | endpoint | e2e.unlock |
-| [apps/mobile/ui/messages.ts:1496](../../apps/mobile/ui/messages.ts#L1496) | endpoint | e2e.wrongPassword |
-| [apps/mobile/ui/messages.ts:1497](../../apps/mobile/ui/messages.ts#L1497) | endpoint | e2e.genericError |
+| [apps/mobile/ui/messages.ts:574](../../apps/mobile/ui/messages.ts#L574) | endpoint | e2e.title |
+| [apps/mobile/ui/messages.ts:575](../../apps/mobile/ui/messages.ts#L575) | endpoint | e2e.explanation |
+| [apps/mobile/ui/messages.ts:577](../../apps/mobile/ui/messages.ts#L577) | endpoint | e2e.field |
+| [apps/mobile/ui/messages.ts:578](../../apps/mobile/ui/messages.ts#L578) | endpoint | e2e.unlock |
+| [apps/mobile/ui/messages.ts:579](../../apps/mobile/ui/messages.ts#L579) | endpoint | e2e.wrongPassword |
+| [apps/mobile/ui/messages.ts:580](../../apps/mobile/ui/messages.ts#L580) | endpoint | e2e.genericError |
+| [apps/mobile/ui/messages.ts:1514](../../apps/mobile/ui/messages.ts#L1514) | endpoint | e2e.title |
+| [apps/mobile/ui/messages.ts:1515](../../apps/mobile/ui/messages.ts#L1515) | endpoint | e2e.explanation |
+| [apps/mobile/ui/messages.ts:1517](../../apps/mobile/ui/messages.ts#L1517) | endpoint | e2e.field |
+| [apps/mobile/ui/messages.ts:1518](../../apps/mobile/ui/messages.ts#L1518) | endpoint | e2e.unlock |
+| [apps/mobile/ui/messages.ts:1519](../../apps/mobile/ui/messages.ts#L1519) | endpoint | e2e.wrongPassword |
+| [apps/mobile/ui/messages.ts:1520](../../apps/mobile/ui/messages.ts#L1520) | endpoint | e2e.genericError |
 | [apps/mobile/ui/serverRail.tsx:38](../../apps/mobile/ui/serverRail.tsx#L38) | endpoint | subscriptions.get |
 | [apps/mobile/ui/settingsSections.tsx:221](../../apps/mobile/ui/settingsSections.tsx#L221) | call:GET | 'me' |
 | [apps/mobile/ui/settingsSections.tsx:250](../../apps/mobile/ui/settingsSections.tsx#L250) | call:POST | 'users.setPreferences' |

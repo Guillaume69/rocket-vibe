@@ -16,7 +16,7 @@ import { filterAliases, type EmojiStore, type CustomEmoji } from '../lib/customE
 import type { OutboxStore, OutboxRow } from '../lib/outbox.ts';
 import type { UploadStore, UploadRow } from '../lib/uploadQueue.ts';
 import type { Store, StoreWrites } from '../lib/sync.ts';
-import { KEPT_CODES, normalizeEmojiCode, type EmojiUse } from '../lib/emojiUsage.ts';
+import { KEPT_CODES, canonicalEmojiCode, type EmojiUse } from '../lib/emojiUsage.ts';
 import type { WriteQueue } from './writeQueue.ts';
 import {
   APPLY_RETENTION,
@@ -513,11 +513,12 @@ export function createEmojiUsageStore(
       return raw.getAllAsync<EmojiUse>(LIST_EMOJI_USAGE);
     },
     record(input) {
-      const code = normalizeEmojiCode(input);
+      // Aliases merged at write time: one row per emoji (`canonicalEmojiCode`).
+      const code = canonicalEmojiCode(input);
       if (code === null) return Promise.resolve();
       return serially(async () => {
         await raw.runAsync(RECORD_EMOJI_USE, [code, Date.now()]);
-        await raw.runAsync(PRUNE_EMOJI_USAGE, [KEPT_CODES]);
+        await raw.runAsync(PRUNE_EMOJI_USAGE, [code, code, KEPT_CODES - 1]);
       });
     },
   };

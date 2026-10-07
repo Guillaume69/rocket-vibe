@@ -12,7 +12,7 @@
  * Pure module, no React: tested under Node (`lib/emojiUsage.test.ts`).
  */
 
-import { unicodeOfShortcode } from './emojis.ts';
+import { emojisByCategory, unicodeOfShortcode } from './emojis.ts';
 
 /** How many quick reactions the sheet shows before its "+". */
 export const QUICK_COUNT = 5;
@@ -42,6 +42,34 @@ export function normalizeEmojiCode(input: string): string | null {
     ? trimmed.slice(1, -1)
     : trimmed;
   return VALID_CODE.test(code) ? code : null;
+}
+
+let primaries: Map<string, string> | null = null;
+
+/**
+ * The code a use is counted under, so aliases share one row (`thumbsup`,
+ * `thumbs_up` and `+1` are 👍): the default quick reaction drawing that
+ * glyph, else the glyph's main name (the picker's), else the code itself
+ * (a skin tone variant, a custom emoji). Same rule as the desktop's
+ * `emoji_usage::canonical`. `null` for what is not a shortcode.
+ */
+export function canonicalEmojiCode(input: string): string | null {
+  const code = normalizeEmojiCode(input);
+  if (code === null) return null;
+  const glyph = unicodeOfShortcode(code);
+  if (glyph === null) return code;
+  const quick = DEFAULT_REACTIONS.find((d) => unicodeOfShortcode(d) === glyph);
+  if (quick !== undefined) return quick;
+  if (primaries === null) {
+    primaries = new Map();
+    for (const codes of Object.values(emojisByCategory())) {
+      for (const c of codes) {
+        const g = unicodeOfShortcode(c);
+        if (g !== null && !primaries.has(g)) primaries.set(g, c);
+      }
+    }
+  }
+  return primaries.get(glyph) ?? code;
 }
 
 /**

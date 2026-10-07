@@ -40,6 +40,7 @@ import {
 import { unicodeOfShortcode } from '../lib/emojis.ts';
 import { customEmojiUrl } from '../lib/customEmojis.ts';
 import { QUICK_COUNT, emojiIdentity, topEmojis, type EmojiUse } from '../lib/emojiUsage.ts';
+import { rocketChatReaction } from '../lib/rocketchatReactions.ts';
 import { attachmentToShare } from '../lib/attachment.ts';
 import { starredBy, starredAfter } from '../lib/marks.ts';
 import { ENCRYPTED_TYPE } from '../lib/normalize.ts';
@@ -116,6 +117,8 @@ type Payload = {
     authorName: string | null;
     /** Who wrote it: a report never targets one's own message. */
     authorId?: string;
+    /** Deleted (a tombstone or Rocket.Chat's removed message): nothing to report. */
+    deleted?: boolean;
     attachments: string | null;
     reactions: string | null;
     pinned: boolean;
@@ -260,6 +263,7 @@ export default function MessageActionsScreen() {
           text: nativeContext?.message.text ?? raw.text,
           authorName: raw.authorName,
           authorId: raw.authorId,
+          deleted: nativeContext?.message.deleted === true || raw.systemType === 'rm',
           attachments: raw.attachments,
           reactions: nativeContext ? nativeReactions(nativeContext.message.reactions) : raw.reactions,
           pinned: nativeContext?.message.pinned ?? raw.pinned,
@@ -337,11 +341,19 @@ export default function MessageActionsScreen() {
       alive = false;
     };
   }, []);
+  // Rocket.Chat reacts only with the codes of its own list: a glyph it has
+  // no code for is left out of the quick row and the picker
+  // (`lib/rocketchatReactions.ts`); RocketVibe takes every standard emoji.
+  const onRocketChat = client?.kind !== 'rocketvibe';
+  const reactable = useCallback(
+    (code: string) => !onRocketChat || rocketChatReaction(code) !== null,
+    [onRocketChat],
+  );
   const quickReactions = useMemo(
     () =>
       topEmojis(usage, QUICK_COUNT, (code) =>
-        unicodeOfShortcode(code) !== null || (!standardOnly && customs.includes(code))),
-    [usage, standardOnly, customs],
+        (unicodeOfShortcode(code) !== null && reactable(code)) || (!standardOnly && customs.includes(code))),
+    [usage, standardOnly, customs, reactable],
   );
   const closePicker = useCallback(() => setPicking(false), []);
   useHardwareBack(picking, closePicker);
@@ -409,14 +421,16 @@ export default function MessageActionsScreen() {
   // hold; the server also refuses what it cannot take.
   const reportable = isPrivate !== '1' && provider?.reports !== undefined && sync.phase === 'ready'
     && sync.capabilities.reports === true && message.authorId !== undefined && message.authorId !== me
-    && (message.systemType === null || message.systemType === ENCRYPTED_TYPE);
+    && message.deleted !== true && (message.systemType === null || message.systemType === ENCRYPTED_TYPE);
 
-  // Adding counts one use of the emoji, once the server took it; a removal
-  // counts nothing (`lib/emojiUsage.ts`).
+  // Adding counts one use of the emoji at the tap, before the server
+  // answers, as everywhere; a removal counts nothing (`lib/emojiUsage.ts`).
+  // On Rocket.Chat an addition goes out under an accepted code of the same
+  // glyph; a removal sends the code the message already carries.
   const react = async (code: string, put: boolean) => {
-    if (isPrivate === '1') await privateReact(message.id, code, put);
-    else await trigger.react(message.rid, message.id, code, put);
     if (put) recordReaction(code);
+    if (isPrivate === '1') await privateReact(message.id, code, put);
+    else await trigger.react(message.rid, message.id, put && onRocketChat ? (rocketChatReaction(code) ?? code) : code, put);
   };
 
   // Arms the reply target for the originating composer (room or thread), then
@@ -625,6 +639,7 @@ export default function MessageActionsScreen() {
             height={Math.round(height * 0.6)}
             width={width - 2 * SHEET_PADDING}
             customs={!standardOnly}
+            standard={onRocketChat ? reactable : undefined}
             onPick={(pick) => {
               const code = pick.suggestion.code;
               // Already mine: nothing to add, the sheet just closes.

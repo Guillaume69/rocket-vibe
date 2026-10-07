@@ -250,18 +250,22 @@ export function EmojiPicker({
  * `height`. `customs: false` leaves the server's emoji out of the tabs AND of
  * the search: a private RocketVibe conversation only takes standard emoji.
  * `width` is the grid's own width when it is narrower than the window.
+ * `standard` keeps only the standard emoji it accepts (Rocket.Chat reactions:
+ * the glyphs its `chat.react` has a code for); the composer passes none.
  */
 export function EmojiGrid({
   c,
   height,
   width: ownWidth,
   customs: withCustoms = true,
+  standard,
   onPick,
 }: {
   c: Colors;
   height: number;
   width?: number;
   customs?: boolean;
+  standard?: (code: string) => boolean;
   /** The picked emoji: its code and type, its glyph or image, its insertion. */
   onPick: (pick: RenderedSuggestion) => void;
 }) {
@@ -283,12 +287,14 @@ export function EmojiGrid({
 
   const query = search.trim();
   const items: SuggestionEmoji[] = useMemo(() => {
+    const kept = (list: SuggestionEmoji[]) =>
+      standard === undefined ? list : list.filter((it) => it.type !== 'standard' || standard(it.code));
     if (query !== '') {
-      return completeEmoji(query, codesEmojiStandard(), customs, SEARCH_LIMIT);
+      return kept(completeEmoji(query, codesEmojiStandard(), customs, SEARCH_LIMIT));
     }
     if (tab === 'custom') return customs.map((code) => ({ code, type: 'custom' as const }));
-    return byCategory[tab].map((code) => ({ code, type: 'standard' as const }));
-  }, [query, tab, customs, byCategory]);
+    return kept(byCategory[tab].map((code) => ({ code, type: 'standard' as const })));
+  }, [query, tab, customs, byCategory, standard]);
 
   // Scroll the grid back to the top when the view changes (category, switch to
   // search, rotation): a new `key` remounts the `FlatList`.

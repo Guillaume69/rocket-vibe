@@ -30,6 +30,7 @@ export function nativeOverview(o: NativeTypes['AdminOverview'], now: number): Ad
   const started = epoch(o.started_at);
   return {
     product: 'rocketvibe',
+    asOf: null,
     version: o.server_version,
     uptimeSeconds: started === null ? null : Math.max(0, (now - started) / 1000),
     database: `PostgreSQL ${o.postgres_version}`,
@@ -66,11 +67,14 @@ export function nativePerson(u: NativeTypes['User']): AdminPerson {
 }
 
 export function nativeRoom(r: NativeTypes['AdminRoom']): AdminRoom {
-  const members = r.direct_members ?? [];
+  const members = r.kind === 'direct' ? (r.direct_members ?? []).map(nativePerson) : [];
   return {
     id: r.id,
     kind: r.kind,
-    name: r.kind === 'direct' && members.length > 0 ? members.map((m) => m.username).join(', ') : r.name,
+    // A direct conversation by its pair's display names; the screens name a
+    // deleted member "Deleted user" from `directMembers`.
+    name: members.length > 0 ? members.map((m) => m.name).join(', ') : r.name,
+    ...(members.length > 0 ? { directMembers: members } : {}),
     topic: r.topic || null,
     members: r.member_count,
     messages: r.message_count,
@@ -86,11 +90,15 @@ export function nativeReport(r: NativeTypes['AdminReport']): AdminReport {
 }
 
 export function nativeReportedMessage(m: NativeTypes['AdminReportedMessage']): ReportedMessage {
+  // `author_revision` (null for a deleted author): the deactivation needs no lookup.
+  const revision = m.author_revision;
   return {
     messageId: m.message_id,
     room: { id: m.room_id, name: m.room_name, kind: m.room_kind },
-    author: nativePerson(m.author),
+    author: { ...nativePerson(m.author), ...(revision === undefined ? {} : { revision }) },
     text: m.text,
+    // Private conversations' messages are never in `messages`: no report reaches them.
+    encrypted: false,
     createdAt: epoch(m.created_at),
     deleted: m.deleted,
     count: m.report_count,
@@ -101,7 +109,7 @@ export function nativeReportedMessage(m: NativeTypes['AdminReportedMessage']): R
 
 export function nativeReportedUser(u: NativeTypes['AdminReportedUser']): ReportedUser {
   return {
-    user: { id: u.user.id, username: u.user.username, name: u.user.display_name || u.user.username, deleted: false },
+    user: { id: u.user.id, username: u.user.username, name: u.user.display_name || u.user.username, deleted: false, revision: u.user.revision },
     active: !u.user.disabled,
     count: u.report_count,
     latestAt: epoch(u.latest_report_at),
@@ -203,8 +211,18 @@ export class NativeAdmin implements ProviderAdmin {
     );
   }
 
-  /** The change needs the account's current revision: read from the users list. */
+  /**
+   * The change needs the account's current revision: given by the item
+   * (`author_revision`, the reported user's own), else read from the users list.
+   */
   async deactivate(person: AdminPerson): Promise<void> {
+    const known = person.revision;
+    if (known !== undefined && known !== null) {
+      await this.chat.administration('administration', (t, operation) =>
+        t.updateAdminUser(person.id, { operation_id: operation(), revision: known, disabled: true }),
+      );
+      return;
+    }
     const found = await this.chat.administration('administration', (t) => t.adminUsers({ limit: 100, q: person.username }));
     const user = found.items.find((u) => u.id === person.id);
     if (user === undefined) throw new NativeError(404, 'not_found');

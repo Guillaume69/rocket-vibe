@@ -366,6 +366,7 @@
     "apps/mobile/lib/reactions.ts",
     "apps/mobile/lib/reconnect.ts",
     "apps/mobile/lib/rest.ts",
+    "apps/mobile/lib/rocketchatReactions.ts",
     "apps/mobile/lib/roomLink.ts",
     "apps/mobile/lib/roomLinks.ts",
     "apps/mobile/lib/server.ts",
@@ -2491,13 +2492,13 @@
     },
     {
       "file": "apps/mobile/app/message-actions.tsx",
-      "line": 96,
+      "line": 97,
       "kind": "call:GET",
       "surface": "'settings.public'"
     },
     {
       "file": "apps/mobile/app/message-actions.tsx",
-      "line": 97,
+      "line": 98,
       "kind": "endpoint",
       "surface": "settings.public"
     },
@@ -3211,169 +3212,181 @@
     },
     {
       "file": "apps/mobile/providers/rocketchat/admin.ts",
-      "line": 195,
+      "line": 227,
       "kind": "call:GET",
       "surface": "'me'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/admin.ts",
-      "line": 201,
+      "line": 233,
       "kind": "call:GET",
       "surface": "'statistics'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/admin.ts",
-      "line": 202,
+      "line": 234,
       "kind": "call:GET",
       "surface": "'roles.getUsersInRole'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/admin.ts",
-      "line": 205,
+      "line": 237,
       "kind": "call:GET",
       "surface": "'moderation.reportsByUsers'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/admin.ts",
-      "line": 207,
+      "line": 239,
       "kind": "call:GET",
       "surface": "'moderation.userReports'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/admin.ts",
-      "line": 214,
+      "line": 247,
       "kind": "call:GET",
       "surface": "'users.listByStatus'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/admin.ts",
-      "line": 214,
+      "line": 247,
       "kind": "endpoint",
       "surface": "users.listByStatus"
     },
     {
       "file": "apps/mobile/providers/rocketchat/admin.ts",
-      "line": 223,
+      "line": 256,
       "kind": "call:POST",
       "surface": "change.admin ? 'roles.addUserToRole' : 'roles.removeUserFromRole'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/admin.ts",
-      "line": 229,
+      "line": 263,
       "kind": "call:POST",
       "surface": "'users.setActiveStatus'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/admin.ts",
-      "line": 229,
+      "line": 263,
       "kind": "endpoint",
       "surface": "users.setActiveStatus"
     },
     {
       "file": "apps/mobile/providers/rocketchat/admin.ts",
-      "line": 238,
+      "line": 274,
       "kind": "call:POST",
       "surface": "'users.delete'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/admin.ts",
-      "line": 238,
+      "line": 274,
       "kind": "endpoint",
       "surface": "users.delete"
     },
     {
       "file": "apps/mobile/providers/rocketchat/admin.ts",
-      "line": 243,
+      "line": 295,
       "kind": "call:GET",
-      "surface": "'rooms.adminRooms'"
+      "surface": "`rooms.adminRooms?{…}`"
     },
     {
       "file": "apps/mobile/providers/rocketchat/admin.ts",
-      "line": 243,
-      "kind": "endpoint",
-      "surface": "rooms.adminRooms"
-    },
-    {
-      "file": "apps/mobile/providers/rocketchat/admin.ts",
-      "line": 252,
+      "line": 304,
       "kind": "call:GET",
       "surface": "'moderation.reportsByUsers'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/admin.ts",
-      "line": 258,
+      "line": 309,
       "kind": "call:GET",
       "surface": "'moderation.user.reportedMessages'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/admin.ts",
-      "line": 269,
-      "kind": "call:GET",
-      "surface": "'moderation.userReports'"
-    },
-    {
-      "file": "apps/mobile/providers/rocketchat/admin.ts",
-      "line": 277,
+      "line": 315,
       "kind": "call:GET",
       "surface": "'moderation.reports'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/admin.ts",
-      "line": 282,
+      "line": 325,
+      "kind": "call:GET",
+      "surface": "'moderation.userReports'"
+    },
+    {
+      "file": "apps/mobile/providers/rocketchat/admin.ts",
+      "line": 333,
+      "kind": "call:GET",
+      "surface": "'moderation.reports'"
+    },
+    {
+      "file": "apps/mobile/providers/rocketchat/admin.ts",
+      "line": 338,
       "kind": "call:GET",
       "surface": "'moderation.user.reportsByUserId'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/admin.ts",
-      "line": 287,
+      "line": 343,
       "kind": "call:POST",
       "surface": "'moderation.dismissReports'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/admin.ts",
-      "line": 291,
+      "line": 348,
       "kind": "call:POST",
       "surface": "'chat.delete'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/admin.ts",
-      "line": 291,
+      "line": 348,
       "kind": "endpoint",
       "surface": "chat.delete"
     },
     {
       "file": "apps/mobile/providers/rocketchat/admin.ts",
-      "line": 297,
+      "line": 353,
+      "kind": "call:GET",
+      "surface": "'moderation.user.reportedMessages'"
+    },
+    {
+      "file": "apps/mobile/providers/rocketchat/admin.ts",
+      "line": 363,
+      "kind": "call:POST",
+      "surface": "'moderation.user.deleteReportedMessages'"
+    },
+    {
+      "file": "apps/mobile/providers/rocketchat/admin.ts",
+      "line": 367,
       "kind": "call:POST",
       "surface": "'moderation.dismissUserReports'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/admin.ts",
-      "line": 301,
+      "line": 372,
       "kind": "call:POST",
       "surface": "'users.setActiveStatus'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/admin.ts",
-      "line": 301,
+      "line": 372,
       "kind": "endpoint",
       "surface": "users.setActiveStatus"
     },
     {
       "file": "apps/mobile/providers/rocketchat/admin.ts",
-      "line": 313,
+      "line": 385,
       "kind": "call:POST",
       "surface": "'chat.reportMessage'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/admin.ts",
-      "line": 313,
+      "line": 385,
       "kind": "endpoint",
       "surface": "chat.reportMessage"
     },
     {
       "file": "apps/mobile/providers/rocketchat/admin.ts",
-      "line": 316,
+      "line": 388,
       "kind": "call:POST",
       "surface": "'moderation.reportUser'"
     },
@@ -3463,73 +3476,73 @@
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 563,
+      "line": 574,
       "kind": "endpoint",
       "surface": "e2e.title"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 564,
+      "line": 575,
       "kind": "endpoint",
       "surface": "e2e.explanation"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 566,
+      "line": 577,
       "kind": "endpoint",
       "surface": "e2e.field"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 567,
+      "line": 578,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 568,
+      "line": 579,
       "kind": "endpoint",
       "surface": "e2e.wrongPassword"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 569,
+      "line": 580,
       "kind": "endpoint",
       "surface": "e2e.genericError"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1491,
+      "line": 1514,
       "kind": "endpoint",
       "surface": "e2e.title"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1492,
+      "line": 1515,
       "kind": "endpoint",
       "surface": "e2e.explanation"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1494,
+      "line": 1517,
       "kind": "endpoint",
       "surface": "e2e.field"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1495,
+      "line": 1518,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1496,
+      "line": 1519,
       "kind": "endpoint",
       "surface": "e2e.wrongPassword"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1497,
+      "line": 1520,
       "kind": "endpoint",
       "surface": "e2e.genericError"
     },

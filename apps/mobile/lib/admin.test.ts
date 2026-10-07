@@ -7,6 +7,9 @@ import {
   fetchLatestVersion,
   humanBytes,
   latestFromReleases,
+  mapLimited,
+  verdictCache,
+  type ProviderAdmin,
   nextOffset,
   parseVersion,
   reportReason,
@@ -37,10 +40,19 @@ describe('versions', () => {
     assert.equal(updateStatus('dev', '8.8.1'), null);
   });
 
-  test('Rocket.Chat: the latest release tag', () => {
-    assert.equal(latestFromReleases('rocketchat', { tag_name: '8.8.1' }), '8.8.1');
-    assert.equal(latestFromReleases('rocketchat', { tag_name: '8.9.0-rc.2', prerelease: true }), null);
+  test('Rocket.Chat: the highest release of the list, not the GitHub "latest" (a backport)', () => {
+    const releases = [
+      { tag_name: '7.10.9' }, // a backport published last
+      { tag_name: '8.9.0-rc.2', prerelease: true },
+      { tag_name: '8.8.1' },
+      { tag_name: '8.10.0', draft: true },
+    ];
+    assert.equal(latestFromReleases('rocketchat', releases), '8.8.1');
     assert.equal(latestFromReleases('rocketchat', null), null);
+  });
+
+  test('RocketVibe: an -rc server tag is no release', () => {
+    assert.equal(latestFromReleases('rocketvibe', [{ tag_name: 'server-v0.4.0-rc.1' }, { tag_name: 'server-v0.3.0' }]), '0.3.0');
   });
 
   test('RocketVibe: the highest server tag, app tags and drafts ignored', () => {
@@ -65,6 +77,58 @@ describe('versions', () => {
     });
     assert.equal(latest, '1.2.3');
     assert.match(urls[0]!, /Guillaume69\/rocket-vibe\/releases/);
+  });
+});
+
+describe('verdictCache', () => {
+  const fakeAdmin = (answers: (boolean | Error)[]) => {
+    let asked = 0;
+    const admin = {
+      isAdmin: async () => {
+        const a = answers[asked++]!;
+        if (a instanceof Error) throw a;
+        return a;
+      },
+    } as unknown as ProviderAdmin;
+    return { admin, asked: () => asked };
+  };
+
+  test('asked once per provider and generation, again on a new generation', async () => {
+    const verdict = verdictCache();
+    const one = fakeAdmin([true, false]);
+    assert.equal(await verdict(one.admin, 0), true);
+    assert.equal(await verdict(one.admin, 0), true);
+    assert.equal(one.asked(), 1);
+    assert.equal(await verdict(one.admin, 1), false);
+    assert.equal(one.asked(), 2);
+    const other = fakeAdmin([false]);
+    assert.equal(await verdict(other.admin, 0), false);
+  });
+
+  test('a failure is not kept', async () => {
+    const verdict = verdictCache();
+    const one = fakeAdmin([new Error('offline'), true]);
+    await assert.rejects(verdict(one.admin, 0));
+    await new Promise((r) => setTimeout(r, 0));
+    assert.equal(await verdict(one.admin, 0), true);
+    assert.equal(one.asked(), 2);
+  });
+});
+
+describe('mapLimited', () => {
+  test('keeps the order and never runs more than the limit at once', async () => {
+    let running = 0;
+    let peak = 0;
+    const out = await mapLimited([5, 1, 4, 2, 3], 2, async (n) => {
+      running++;
+      peak = Math.max(peak, running);
+      await new Promise((r) => setTimeout(r, n));
+      running--;
+      return n * 10;
+    });
+    assert.deepEqual(out, [50, 10, 40, 20, 30]);
+    assert.equal(peak, 2);
+    assert.deepEqual(await mapLimited([], 8, async () => 1), []);
   });
 });
 

@@ -3,6 +3,7 @@ import { describe, test } from 'node:test';
 
 import {
   DEFAULT_REACTIONS,
+  canonicalEmojiCode,
   QUICK_COUNT,
   emojiIdentity,
   normalizeEmojiCode,
@@ -25,6 +26,21 @@ describe('normalizeEmojiCode', () => {
     assert.equal(normalizeEmojiCode('👍'), null);
     assert.equal(normalizeEmojiCode('two words'), null);
     assert.equal(normalizeEmojiCode('x'.repeat(101)), null);
+  });
+});
+
+describe('canonicalEmojiCode', () => {
+  test('aliases of a default reaction count under its name', () => {
+    assert.equal(canonicalEmojiCode('thumbsup'), '+1');
+    assert.equal(canonicalEmojiCode(':thumbs_up:'), '+1');
+    assert.equal(canonicalEmojiCode('red_heart'), 'heart');
+  });
+
+  test('other aliases under the glyph main name; customs and invalid as they are', () => {
+    assert.equal(canonicalEmojiCode('rocket'), 'rocket');
+    assert.equal(canonicalEmojiCode(canonicalEmojiCode('alien_monster')!), canonicalEmojiCode('space_invader'));
+    assert.equal(canonicalEmojiCode('party_parrot'), 'party_parrot');
+    assert.equal(canonicalEmojiCode('👍'), null);
   });
 });
 

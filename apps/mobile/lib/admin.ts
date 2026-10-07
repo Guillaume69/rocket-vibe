@@ -16,6 +16,8 @@ export type AdminPresence = 'online' | 'away' | 'busy' | 'offline';
 
 export type AdminOverview = {
   product: AdminProduct;
+  /** When the figures were computed: Rocket.Chat's statistics snapshot; `null` = just now. */
+  asOf: number | null;
   version: string;
   /** Seconds since the server process started. */
   uptimeSeconds: number | null;
@@ -52,8 +54,8 @@ export type AdminOverview = {
     encrypted: number | null;
   };
   uploads: { count: number; bytes: number };
-  /** Open reports: reported messages, reported accounts. */
-  reports: { messages: number; users: number };
+  /** Open reports: reported messages, reported accounts; `null` = not readable (a missing right). */
+  reports: { messages: number | null; users: number | null };
 };
 
 /** What `avatarUrl` (`lib/upload.ts`) needs to draw that person. */
@@ -75,8 +77,11 @@ export type AdminUser = {
   revision: string | null;
 };
 
-/** A person as a report or a reported item names them. */
-export type AdminPerson = { id: string; username: string; name: string; deleted: boolean };
+/**
+ * A person as a report or a reported item names them. `revision`: what a
+ * native deactivation must carry, when the item gives it (`author_revision`).
+ */
+export type AdminPerson = { id: string; username: string; name: string; deleted: boolean; revision?: string | null };
 
 export type AdminRoomKind = 'public' | 'private' | 'direct' | 'discussion';
 
@@ -92,6 +97,8 @@ export type AdminRoom = {
   lastMessageAt: number | null;
   readOnly: boolean;
   encrypted: boolean;
+  /** A native direct conversation's pair: the screens name a deleted member "Deleted user". */
+  directMembers?: AdminPerson[];
 };
 
 export type AdminReport = { reporter: AdminPerson | null; reason: string; at: number | null };
@@ -101,6 +108,8 @@ export type ReportedMessage = {
   room: { id: string; name: string; kind: AdminRoomKind };
   author: AdminPerson;
   text: string;
+  /** End-to-end encrypted: `text` is empty, the screens say "Encrypted message" (never the ciphertext). */
+  encrypted: boolean;
   createdAt: number | null;
   deleted: boolean;
   count: number;
@@ -132,11 +141,20 @@ export const ADMIN_PAGE = 50;
 export interface ProviderAdmin {
   readonly product: AdminProduct;
   isAdmin(): Promise<boolean>;
-  overview(): Promise<AdminOverview>;
+  /**
+   * The dashboard. `refresh`: ask the server to compute fresh figures
+   * (Rocket.Chat's `statistics?refresh=true` runs a full aggregation: only
+   * on an explicit refresh, never on each opening).
+   */
+  overview(refresh?: boolean): Promise<AdminOverview>;
   users(query: string, after: string | null): Promise<AdminPage<AdminUser>>;
-  /** One change at a time: `admin` or `active`. Answers the account as it now is. */
-  updateUser(user: AdminUser, change: { admin?: boolean; active?: boolean }): Promise<AdminUser>;
-  deleteUser(user: AdminUser): Promise<void>;
+  /**
+   * One change at a time: `admin` or `active`. Answers the account as it
+   * now is. Deactivating, like deleting, may throw `LastOwnerError`: confirm,
+   * then call again with `relinquish`.
+   */
+  updateUser(user: AdminUser, change: { admin?: boolean; active?: boolean }, relinquish?: boolean): Promise<AdminUser>;
+  deleteUser(user: AdminUser, relinquish?: boolean): Promise<void>;
   rooms(query: string, after: string | null): Promise<AdminPage<AdminRoom>>;
   reportedMessages(after: string | null): Promise<AdminPage<ReportedMessage>>;
   reportedUsers(after: string | null): Promise<AdminPage<ReportedUser>>;
@@ -144,12 +162,83 @@ export interface ProviderAdmin {
   messageReports(item: ReportedMessage): Promise<AdminReport[]>;
   userReports(item: ReportedUser): Promise<AdminReport[]>;
   dismissMessageReports(item: ReportedMessage): Promise<void>;
+  /** May throw `BulkDeleteRequired`: then only `deleteAuthorReportedMessages` can do it. */
   deleteReportedMessage(item: ReportedMessage): Promise<void>;
+  /** Rocket.Chat only: deletes (and closes) every reported message of that author. */
+  deleteAuthorReportedMessages?(item: ReportedMessage): Promise<void>;
   dismissUserReports(item: ReportedUser): Promise<void>;
-  /** Deactivates a reported author or account. */
-  deactivate(person: AdminPerson): Promise<void>;
+  /** Deactivates a reported author or account; may throw `LastOwnerError` like `updateUser`. */
+  deactivate(person: AdminPerson, relinquish?: boolean): Promise<void>;
   /** The newest published release of this server software; `null` = unknown. */
   latestVersion(): Promise<string | null>;
+}
+
+/**
+ * Rocket.Chat refused to deactivate or delete the last owner of rooms
+ * (`user-last-owner`): `removed` names the rooms that go with the account
+ * (it is their only member), `reassigned` those whose ownership moves to
+ * another member. Confirmed, the same call with `relinquish` goes through.
+ */
+export class LastOwnerError extends Error {
+  readonly removed: string[];
+  readonly reassigned: string[];
+
+  constructor(removed: string[], reassigned: string[]) {
+    super('user-last-owner');
+    this.name = 'LastOwnerError';
+    this.removed = removed;
+    this.reassigned = reassigned;
+  }
+}
+
+/**
+ * Rocket.Chat refused to delete a reported message the administrator cannot
+ * reach (a private group or direct conversation without them): its
+ * moderation can only delete ALL the author's reported messages together
+ * (`count` of them, `null` when unknown). Never done without asking.
+ */
+export class BulkDeleteRequired extends Error {
+  readonly count: number | null;
+
+  constructor(count: number | null) {
+    super('bulk-delete-required');
+    this.name = 'BulkDeleteRequired';
+    this.count = count;
+  }
+}
+
+/**
+ * "Is this account an administrator?", asked once per provider and session
+ * generation and shared by every caller; a failure is not kept (the next
+ * caller asks again). Keyed by the provider's `ProviderAdmin` object, so one
+ * account's verdict never answers for another.
+ */
+export function verdictCache(): (admin: ProviderAdmin, generation: number) => Promise<boolean> {
+  const verdicts = new WeakMap<ProviderAdmin, { generation: number; answer: Promise<boolean> }>();
+  return (admin, generation) => {
+    const known = verdicts.get(admin);
+    if (known !== undefined && known.generation === generation) return known.answer;
+    const answer = admin.isAdmin();
+    verdicts.set(admin, { generation, answer });
+    answer.catch(() => {
+      if (verdicts.get(admin)?.answer === answer) verdicts.delete(admin);
+    });
+    return answer;
+  };
+}
+
+/** `fn` over `items`, at most `limit` at a time, results in order. */
+export async function mapLimited<T, R>(items: readonly T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array<R>(items.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i]!);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(Math.max(1, limit), items.length) }, worker));
+  return out;
 }
 
 /** Reporting, for any member, when the server takes reports. */
@@ -206,19 +295,24 @@ export function updateStatus(current: string, latest: string | null): 'available
   return compareVersions(latest, current) > 0 ? 'available' : 'current';
 }
 
-/** Where each product publishes its releases (GitHub). */
+/**
+ * Where each product publishes its releases (GitHub). A list, not
+ * `releases/latest`: Rocket.Chat's "latest" can name a backport of an older
+ * line, so the highest version of the recent releases is taken.
+ */
 export const RELEASES: Record<AdminProduct, string> = {
-  rocketchat: 'https://api.github.com/repos/RocketChat/Rocket.Chat/releases/latest',
+  rocketchat: 'https://api.github.com/repos/RocketChat/Rocket.Chat/releases?per_page=30',
   rocketvibe: 'https://api.github.com/repos/Guillaume69/rocket-vibe/releases?per_page=100',
 };
 
 /**
- * The newest version in a GitHub answer: Rocket.Chat's latest release, or the
- * highest `server-vX.Y.Z` tag among RocketVibe's releases (the apps publish
- * there too, under other tags). Drafts and pre-releases never count.
+ * The newest version in a GitHub release list: the highest Rocket.Chat tag,
+ * or the highest `server-vX.Y.Z` tag among RocketVibe's releases (the apps
+ * publish there too, under other tags). Drafts and pre-releases (flagged, or
+ * `-rc` tags) never count.
  */
 export function latestFromReleases(product: AdminProduct, body: unknown): string | null {
-  const releases = product === 'rocketchat' ? [body] : Array.isArray(body) ? body : [];
+  const releases = Array.isArray(body) ? body : [];
   let best: string | null = null;
   for (const release of releases) {
     if (typeof release !== 'object' || release === null) continue;

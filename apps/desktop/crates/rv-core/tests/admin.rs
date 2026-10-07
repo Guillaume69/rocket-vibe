@@ -154,13 +154,17 @@ async fn rocket_chat_overview_reads_fresh_statistics() {
     let server = FakeHttp::start(|r| match r.path() {
         "/api/v1/statistics" => respond(200, r#"{"success":true,"version":"8.5.1","totalUsers":4,"activeUsers":3}"#),
         "/api/v1/roles.getUsersInRole" => respond(200, r#"{"success":true,"total":1,"users":[]}"#),
-        "/api/v1/moderation.reportsByUsers" => respond(200, r#"{"success":true,"total":2,"reports":[]}"#),
+        "/api/v1/moderation.reportsByUsers" => respond(
+            200,
+            r#"{"success":true,"total":2,"reports":[{"userId":"u1","count":2},{"userId":"u2","count":1}]}"#,
+        ),
         "/api/v1/moderation.userReports" => respond(200, r#"{"success":true,"total":1,"reports":[]}"#),
         _ => respond(404, r#"{"success":false}"#),
     })
     .await;
     let overview = rc::overview(&client(&server)).await.unwrap();
     assert_eq!((overview.version.as_str(), overview.users.total, overview.users.admins), ("8.5.1", 4, Some(1)));
-    assert_eq!((overview.reports.messages, overview.reports.users), (2, 1));
+    // Grouped by author: the open message reports are the sum of the counts.
+    assert_eq!((overview.reports.messages, overview.reports.users), (3, 1));
     assert_eq!(sent(&server, "/api/v1/statistics")[0].0, "/api/v1/statistics?refresh=true");
 }

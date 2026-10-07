@@ -683,15 +683,19 @@ pub mod rc {
     }
 
     /// `statistics?refresh=true` (a cached snapshot otherwise), the admin
-    /// count and the open reports.
+    /// count and the open reports. `moderation.reportsByUsers` groups by
+    /// author, so the open message reports are the sum of their counts over
+    /// the first 100 authors, as on mobile.
     pub async fn overview(rest: &RestClient) -> Result<Overview, RestError> {
         let (stats, admins, messages, users) = tokio::try_join!(
             rest.get("statistics", CallOptions::params([("refresh", "true")])),
             rest.get("roles.getUsersInRole", CallOptions::params([("role", "admin"), ("count", "1")])),
-            rest.get("moderation.reportsByUsers", CallOptions::params([("count", "1")])),
+            rest.get("moderation.reportsByUsers", CallOptions::params([("count", "100")])),
             rest.get("moderation.userReports", CallOptions::params([("count", "1")])),
         )?;
-        Ok(parse_overview(&stats, count(&admins, "total"), count(&messages, "total"), count(&users, "total")))
+        let reported =
+            messages.get("reports").and_then(Value::as_array).into_iter().flatten().map(|a| count(a, "count")).sum();
+        Ok(parse_overview(&stats, count(&admins, "total"), reported, count(&users, "total")))
     }
 
     pub fn parse_overview(s: &Value, admins: u64, reported_messages: u64, reported_users: u64) -> Overview {

@@ -250,6 +250,8 @@ pub fn native_room_info(
 pub struct ProfileActions {
     pub message: Box<dyn Fn(rv_core::rooms::Found)>,
     pub call: Box<dyn Fn(rv_core::rooms::Found)>,
+    /// Reports the account (by id) to the administrators.
+    pub report: Box<dyn Fn(String)>,
 }
 
 /// A person, from `users.info`: by username, or by id when `by_id`.
@@ -444,7 +446,7 @@ fn fill_profile(
             (a.message)(found.clone());
         });
         let (a, d, found) = (
-            actions,
+            actions.clone(),
             dialog.clone(),
             rv_core::rooms::Found::User { id: p.id.clone(), username: p.username.clone(), name: p.name.clone() },
         );
@@ -460,6 +462,22 @@ fn fill_profile(
             buttons.append(&call);
         }
         content.append(&buttons);
+        if match session {
+            ProfileSource::Legacy(_) => true,
+            ProfileSource::Native(session) => session.reports_supported(),
+        } {
+            let report = gtk::Button::builder()
+                .label(t("report.user"))
+                .halign(gtk::Align::Center)
+                .css_classes(["flat", "report-user"])
+                .build();
+            let (d, id) = (dialog.clone(), p.id.clone());
+            report.connect_clicked(move |_| {
+                d.close();
+                (actions.report)(id.clone());
+            });
+            content.append(&report);
+        }
     }
 }
 

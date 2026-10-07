@@ -33,6 +33,7 @@
 //!   RV_SMOKE_UPLOAD="<path>|<caption>"  stages the file in the composer, types the caption and
 //!                          sends (RV_SMOKE_UPLOAD_HOLD=1: left staged, for a screenshot)
 //!   RV_SMOKE_SPOTLIGHT=<query>  finds a channel, joins it and opens it
+//!   RV_SMOKE_REPORT, RV_SMOKE_ADMIN  members' reports and the administration: see `admin`
 //!   RV_SMOKE_DETAILS=profile:<user> | room | search:<text> | settings | emoji:<code> | marked
 //!                          | jump:<message id> | permissions:<expected, comma-separated>
 //!                          checks the read and opens the dialog; emoji: a custom one completes
@@ -82,6 +83,7 @@ use gtk::glib;
 
 use crate::window::AppWindow;
 
+mod admin;
 mod email_factor;
 mod email_settings;
 mod native_files;
@@ -129,6 +131,7 @@ pub fn install_early() {
 pub fn install(window: &Rc<AppWindow>) {
     SMOKE_WINDOW.with_borrow_mut(|w| *w = Rc::downgrade(window));
     security::install(window);
+    admin::install(window);
     room_management::install(window);
     native_reads::install(window);
     native_quotes::install(window);
@@ -1036,6 +1039,11 @@ fn details_checks(
                 round.as_ref().map(|m| (m.status.clone(), m.desktop_notifications.clone())),
             );
             crate::settings::open(chat.widget(), session, None, || {});
+            let root = chat.widget().root().map(|r| r.upcast::<gtk::Widget>());
+            glib::timeout_add_local_once(Duration::from_millis(3000), move || {
+                let link = root.and_then(|r| find_by_class(&r, "settings-admin")).is_some_and(|w| w.is_visible());
+                println!("smoke: settings administration link visible={link}");
+            });
         } else if let Some(expected) = what.strip_prefix("permissions:") {
             let (s, r) = (session.clone(), rid.clone());
             let granted = crate::on_tokio(async move { s.permissions(&r).await }).await;

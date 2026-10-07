@@ -386,7 +386,11 @@ fn quote_card(conn: &Connection, reference: QuoteReference, depth: usize, path: 
         if !children.is_empty() {
             card["attachments"] = value!(children);
         }
-        card["author_name"] = Value::String(excerpt.author.username);
+        card["author_name"] = Value::String(if excerpt.author.deleted {
+            crate::native::deleted_user().to_owned()
+        } else {
+            excerpt.author.username
+        });
         card["md"] = value!(super::super::markdown::tree(&rv_protocol::markdown::parse(&excerpt.text)));
         card["text"] = Value::String(excerpt.text);
     }

@@ -140,6 +140,12 @@ impl SidebarDialog {
         self.append(id, icon, title, Some(wrap(title, id, page)), None);
     }
 
+    /// A category whose page is not a preferences page (the administration's
+    /// dashboard of cards); `content` scrolls by itself.
+    pub fn add_content(&self, id: &str, icon: &str, title: &str, content: &impl IsA<gtk::Widget>) {
+        self.append(id, icon, title, Some(wrap(title, id, content)), None);
+    }
+
     /// A category whose page is built the first time it is shown, for pages
     /// that start work (a request, a key store) as they open.
     pub fn add_lazy(
@@ -156,6 +162,9 @@ impl SidebarDialog {
         let content = gtk::Box::builder().spacing(12).margin_top(8).margin_bottom(8).margin_start(6).build();
         content.append(&gtk::Image::from_icon_name(icon));
         content.append(&gtk::Label::builder().label(title).xalign(0.0).hexpand(true).build());
+        content.append(
+            &gtk::Label::builder().css_classes(["sidebar-badge"]).valign(gtk::Align::Center).visible(false).build(),
+        );
         let row = gtk::ListBoxRow::builder()
             .name(id)
             .child(&content)
@@ -231,17 +240,34 @@ impl Host {
         }
     }
 
+    fn row(&self, id: &str) -> Option<gtk::ListBoxRow> {
+        let list = self.list.upgrade()?;
+        std::iter::successors(list.first_child(), |w| w.next_sibling())
+            .filter_map(|w| w.downcast::<gtk::ListBoxRow>().ok())
+            .find(|row| row.widget_name() == id)
+    }
+
     /// Shows another category (the security page asking for a reauthentication).
     pub fn select(&self, id: &str) {
         let Some(list) = self.list.upgrade() else { return };
-        let row = std::iter::successors(list.first_child(), |w| w.next_sibling())
-            .filter_map(|w| w.downcast::<gtk::ListBoxRow>().ok())
-            .find(|row| row.widget_name() == id);
-        if let Some(row) = row {
+        if let Some(row) = self.row(id) {
             list.select_row(Some(&row));
             if let Some(split) = self.split.upgrade() {
                 split.set_show_content(true);
             }
+        }
+    }
+
+    /// A count beside a category; `None` hides it.
+    pub fn set_badge(&self, id: &str, text: Option<&str>) {
+        let badge = self
+            .row(id)
+            .and_then(|row| row.child())
+            .and_then(|content| content.last_child())
+            .and_downcast::<gtk::Label>();
+        if let Some(badge) = badge {
+            badge.set_label(text.unwrap_or_default());
+            badge.set_visible(text.is_some());
         }
     }
 

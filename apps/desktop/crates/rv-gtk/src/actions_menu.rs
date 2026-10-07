@@ -27,6 +27,8 @@ pub struct Handlers {
     pub thread: Box<dyn Fn(String)>,
     pub edit: Box<dyn Fn(MessageRow)>,
     pub toast: Box<dyn Fn(String)>,
+    /// Reports the message (by id) to the server's administrators.
+    pub report: Box<dyn Fn(String)>,
 }
 
 /// The attachment a Download saves: the original file, not a thumbnail.
@@ -222,6 +224,13 @@ fn menu(
                 )
             }
         };
+        column.append(&button);
+    }
+    // Anyone may report someone else's message; not a system line.
+    if row.author_id != session.info.user_id && row.system_type.is_none() && row.outbox_status.is_none() {
+        let (h, id) = (handlers.clone(), row.id.clone());
+        let button = run(t("report.action"), Box::new(move || (h.report)(id.clone())));
+        button.add_css_class("report-action");
         column.append(&button);
     }
     column.upcast()

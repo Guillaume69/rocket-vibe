@@ -1,5 +1,6 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 mod actions_menu;
+mod admin;
 mod attach;
 mod background;
 mod badge;

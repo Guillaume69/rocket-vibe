@@ -1036,8 +1036,13 @@ impl ChatPage {
                     encrypted: open.encrypted,
                     in_thread,
                 };
-                let (w1, w2, w3, w4) =
-                    (Rc::downgrade(self), Rc::downgrade(self), Rc::downgrade(self), Rc::downgrade(self));
+                let (w1, w2, w3, w4, w5) = (
+                    Rc::downgrade(self),
+                    Rc::downgrade(self),
+                    Rc::downgrade(self),
+                    Rc::downgrade(self),
+                    Rc::downgrade(self),
+                );
                 let handlers = Rc::new(actions_menu::Handlers {
                     reply: Box::new(move |row| {
                         if let Some(this) = w1.upgrade() {
@@ -1057,6 +1062,11 @@ impl ChatPage {
                     toast: Box::new(move |text| {
                         if let Some(this) = w3.upgrade() {
                             this.toast(text);
+                        }
+                    }),
+                    report: Box::new(move |id| {
+                        if let Some(this) = w5.upgrade() {
+                            this.report(crate::admin::ReportTarget::Message(id));
                         }
                     }),
                 });
@@ -1370,8 +1380,35 @@ impl ChatPage {
         }
     }
 
+    /// The administration of the open account, which members' reports also go through.
+    pub fn admin(&self) -> Option<rv_core::admin::Admin> {
+        if let Some(session) = self.native_session() {
+            return Some(rv_core::admin::Admin::Native(session));
+        }
+        self.session().map(rv_core::admin::Admin::RocketChat)
+    }
+
+    /// The server administration of the open account; the caller checked it is an admin.
+    pub fn open_admin(self: &Rc<Self>) {
+        if let Some(admin) = self.admin() {
+            crate::admin::open(&self.split, admin);
+        }
+    }
+
+    /// Asks a reason and reports a message or an account.
+    pub fn report(self: &Rc<Self>, target: crate::admin::ReportTarget) {
+        let Some(admin) = self.admin() else { return };
+        let weak = Rc::downgrade(self);
+        let toast: Rc<dyn Fn(String)> = Rc::new(move |text| {
+            if let Some(this) = weak.upgrade() {
+                this.toast(text);
+            }
+        });
+        crate::admin::report(&self.split, admin, target, toast);
+    }
+
     pub fn show_profile(self: &Rc<Self>, key: &str, by_id: bool) {
-        let (w1, w2) = (Rc::downgrade(self), Rc::downgrade(self));
+        let (w1, w2, w3) = (Rc::downgrade(self), Rc::downgrade(self), Rc::downgrade(self));
         let actions = crate::details::ProfileActions {
             message: Box::new(move |found| {
                 if let Some(this) = w1.upgrade() {
@@ -1417,6 +1454,11 @@ impl ChatPage {
                         Err(_) => this.toast(t("call.failed").to_owned()),
                     }
                 });
+            }),
+            report: Box::new(move |id| {
+                if let Some(this) = w3.upgrade() {
+                    this.report(crate::admin::ReportTarget::User(id));
+                }
             }),
         };
         if let Some(session) = self.native_session() {

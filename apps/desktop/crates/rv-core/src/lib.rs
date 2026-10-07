@@ -4,6 +4,7 @@
 pub mod account;
 pub mod account_unread;
 pub mod actions;
+pub mod admin;
 pub mod animation;
 pub mod call;
 pub mod commands;

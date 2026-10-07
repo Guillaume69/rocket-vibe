@@ -50,9 +50,24 @@ fn add_lazy(
     dialog.add_lazy(id, icon, t(title), build);
 }
 
-/// The dialog, with Sign out under the categories it will hold.
-fn dialog(sign_out: impl Fn() + 'static) -> SidebarDialog {
+/// The dialog, with the server administration (shown to an administrator)
+/// and Sign out under the categories it will hold.
+fn dialog(parent: &gtk::Widget, admin: rv_core::admin::Admin, sign_out: impl Fn() + 'static) -> SidebarDialog {
     let dialog = SidebarDialog::new(t("settings.title"), "settings-dialog");
+    let (screen, parent) = (admin.clone(), parent.clone());
+    let link = dialog.add_footer(t("admin.title"), "network-server-symbolic", false, move |host| {
+        host.close();
+        crate::admin::open(&parent, screen.clone());
+    });
+    link.add_css_class("settings-admin");
+    link.set_visible(false);
+    let host = dialog.host();
+    glib::spawn_future_local(async move {
+        let admin = on_tokio(async move { admin.is_admin().await }).await;
+        if host.alive() {
+            link.set_visible(admin);
+        }
+    });
     let button = dialog.add_footer(t("rooms.sign_out"), "system-log-out-symbolic", true, move |host| {
         host.close();
         sign_out();
@@ -75,7 +90,7 @@ pub fn open_native(
     sign_out: impl Fn() + 'static,
 ) -> SidebarDialog {
     let info = &session.info;
-    let dialog = dialog(sign_out);
+    let dialog = dialog(parent.as_ref(), rv_core::admin::Admin::Native(session.clone()), sign_out);
     dialog.dialog().add_css_class("native-profile-settings");
     let host = dialog.host();
     let account = adw::PreferencesPage::new();
@@ -282,7 +297,7 @@ pub fn open(
     accounts: Option<Rc<AccountActions>>,
     sign_out: impl Fn() + 'static,
 ) -> SidebarDialog {
-    let dialog = dialog(sign_out);
+    let dialog = dialog(parent.as_ref(), rv_core::admin::Admin::RocketChat(session.clone()), sign_out);
     let host = dialog.host();
 
     let account = adw::PreferencesPage::new();

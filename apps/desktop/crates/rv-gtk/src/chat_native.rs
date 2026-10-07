@@ -922,6 +922,28 @@ impl ChatPage {
                             });
                             list.append(&button);
                         }
+                        // Reports reach plaintext rooms only, never a private conversation.
+                        if !message.deleted
+                            && message.system.is_none()
+                            && message.author.id != expected.info.user_id
+                            && expected.reports_supported()
+                        {
+                            let button = gtk::Button::builder()
+                                .label(t("report.action"))
+                                .css_classes(["flat", "report-action"])
+                                .build();
+                            let (weak, s, p, id) =
+                                (weak.clone(), expected.clone(), popover.clone(), message.id.clone());
+                            button.connect_clicked(move |_| {
+                                p.popdown();
+                                if let Some(this) = weak.upgrade()
+                                    && this.native_session().is_some_and(|current| Arc::ptr_eq(&current, &s))
+                                {
+                                    this.report(crate::admin::ReportTarget::Message(id.clone()));
+                                }
+                            });
+                            list.append(&button);
+                        }
                     });
                 }
             }

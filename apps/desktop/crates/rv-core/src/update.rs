@@ -195,6 +195,21 @@ fn client() -> Result<reqwest::Client, String> {
         .map_err(|e| e.to_string())
 }
 
+/// A GitHub API answer, as JSON (the administration's latest server versions).
+pub(crate) async fn github_json(url: &str) -> Result<Value, String> {
+    let response = client()?
+        .get(url)
+        .header("Accept", "application/vnd.github+json")
+        .timeout(Duration::from_secs(20))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !response.status().is_success() {
+        return Err(format!("GitHub answered {}", response.status()));
+    }
+    response.json().await.map_err(|e| e.to_string())
+}
+
 /// GitHub's release list for the repository, newest first.
 /// `ROCKET_VIBE_RELEASES` points at another list, as `scripts/install.sh` takes it.
 pub async fn fetch_releases() -> Result<Value, String> {

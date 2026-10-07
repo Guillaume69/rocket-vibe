@@ -247,6 +247,15 @@ button.quick-reaction { font-size: 20px; min-width: 40px; min-height: 40px; padd
 button.quick-reaction.mine { background: rgba(255, 95, 162, 0.18); box-shadow: inset 0 0 0 1.5px #FF5FA2; }
 button.quick-reaction.more-reactions { font-size: 16px; color: alpha(currentColor, 0.7); }
 .sidebar-footer button { padding: 8px 6px; }
+.sidebar-badge { background: #FF5FA2; color: #0B0913; border-radius: 999px; padding: 0 7px; font-size: 12px; font-weight: 800; }
+.admin-value { opacity: 0.8; }
+flowboxchild.admin-card { padding: 0; background: none; }
+.admin-update { font-size: 12px; opacity: 0.7; }
+.admin-update.available { color: #FFC24B; opacity: 1; font-weight: 700; }
+.admin-badge { font-size: 11px; font-weight: 800; padding: 1px 7px; border-radius: 999px; background: #2C2946; }
+.admin-badge.admin { background: rgba(167, 139, 250, 0.25); color: #C9B8FF; }
+.admin-badge.deactivated { background: rgba(255, 122, 138, 0.2); color: #FF7A8A; }
+.admin-badge.encrypted { background: rgba(52, 225, 208, 0.18); color: #34E1D0; }
 button.menu-action { padding: 6px 10px; min-height: 0; }
 button.menu-action.destructive { color: #FF7A8A; }
 .edit-field textview, .edit-field text { background: transparent; color: #F3F0FF; font-size: 14px; }

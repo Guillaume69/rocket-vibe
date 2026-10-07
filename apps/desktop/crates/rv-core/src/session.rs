@@ -808,8 +808,20 @@ impl Session {
     /// The message-action permissions I hold in the room: from my global roles
     /// and my roles there. None when the server could not be asked.
     pub async fn permissions(&self, rid: &str) -> Option<Vec<String>> {
-        let access = self
-            .access
+        let (permissions, global) = self.access().await?;
+        let mut roles = global.clone();
+        roles.extend(self.store.room_roles(rid));
+        Some(actions::granted(permissions, &roles))
+    }
+
+    /// My global roles (`me.roles`: `admin`, `user`...); None when the server
+    /// could not be asked.
+    pub async fn roles(&self) -> Option<Vec<String>> {
+        self.access().await.map(|(_, roles)| roles.clone())
+    }
+
+    async fn access(&self) -> Option<&(Vec<actions::PermissionRoles>, Vec<String>)> {
+        self.access
             .get_or_try_init(|| async {
                 let (all, me) = tokio::try_join!(
                     self.rest.get("permissions.listAll", CallOptions::default()),
@@ -822,11 +834,8 @@ impl Session {
                     .unwrap_or_default();
                 Ok::<_, RestError>((actions::permission_roles(&all), roles))
             })
-            .await;
-        let (permissions, global) = access.ok()?;
-        let mut roles = global.clone();
-        roles.extend(self.store.room_roles(rid));
-        Some(actions::granted(permissions, &roles))
+            .await
+            .ok()
     }
 
     /// The server's slash commands, read once per session.

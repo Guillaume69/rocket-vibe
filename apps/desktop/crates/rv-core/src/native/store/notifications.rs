@@ -73,7 +73,9 @@ pub(super) fn capture(tx: &Transaction, batch: &SyncBatch, me: &str) -> rusqlite
         let incoming = Incoming {
             rid: m.room_id.clone(),
             id: m.id.clone(),
-            author: if m.author.display_name.is_empty() {
+            author: if m.author.deleted {
+                crate::native::deleted_user().to_owned()
+            } else if m.author.display_name.is_empty() {
                 m.author.username.clone()
             } else {
                 m.author.display_name.clone()

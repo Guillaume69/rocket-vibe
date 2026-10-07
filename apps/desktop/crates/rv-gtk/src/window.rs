@@ -352,6 +352,43 @@ impl AppWindow {
                 this.add_account();
             }
         });
+        // The open account's button offers its server administration to an
+        // administrator; another account's has no menu (a click switches to it).
+        let weak = Rc::downgrade(&this);
+        this.rail.connect_menu(move |(anchor, info)| {
+            let Some(this) = weak.upgrade() else { return };
+            let open = this
+                .chat
+                .session()
+                .map(|s| s.info.clone())
+                .or_else(|| this.chat.native_session().map(|s| s.info.clone()));
+            if open.is_none_or(|open| crate::secrets::account_key(&open) != crate::secrets::account_key(&info)) {
+                return;
+            }
+            let Some(admin) = this.chat.admin() else { return };
+            let chat = this.chat.clone();
+            glib::spawn_future_local(async move {
+                if !crate::on_tokio(async move { admin.is_admin().await }).await || anchor.root().is_none() {
+                    return;
+                }
+                let popover = gtk::Popover::builder().css_classes(["actions-menu", "rail-menu"]).build();
+                popover.set_parent(&anchor);
+                let label = gtk::Label::builder().label(crate::i18n::t("admin.title")).xalign(0.0).build();
+                let button =
+                    gtk::Button::builder().child(&label).css_classes(["flat", "menu-action", "rail-admin"]).build();
+                let menu = popover.clone();
+                button.connect_clicked(move |_| {
+                    menu.popdown();
+                    chat.open_admin();
+                });
+                popover.set_child(Some(&button));
+                popover.connect_closed(|p| {
+                    let p = p.clone();
+                    glib::idle_add_local_once(move || p.unparent());
+                });
+                popover.popup();
+            });
+        });
         let weak = Rc::downgrade(&this);
         crate::updater::set_presenter(move |release| {
             let Some(this) = weak.upgrade() else { return };

@@ -7,6 +7,11 @@ section here.
 
 ## [Unreleased]
 
+### Fixed
+
+- GTK: in a narrow window, a room's composer, its send button and the window's buttons
+  no longer run past the right edge (the voice page, hidden, made the room wider).
+
 ## [0.10.0] - 2026-10-07
 
 ### Added

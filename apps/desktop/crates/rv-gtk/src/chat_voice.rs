@@ -561,14 +561,15 @@ impl VoiceUi {
         join.set_halign(gtk::Align::Center);
         let page_controls = controls(&["circular", "voice-control"]);
         page_controls.row.set_halign(gtk::Align::Center);
-        page_controls.row.set_spacing(16);
+        // Six round buttons that still fit a narrow window beside the server rail.
+        page_controls.row.set_spacing(8);
         let column = gtk::Box::builder()
             .orientation(gtk::Orientation::Vertical)
             .spacing(16)
             .margin_top(20)
             .margin_bottom(24)
-            .margin_start(24)
-            .margin_end(24)
+            .margin_start(16)
+            .margin_end(16)
             .build();
         let stage_label = gtk::Label::builder()
             .css_classes(["voice-stage-label"])

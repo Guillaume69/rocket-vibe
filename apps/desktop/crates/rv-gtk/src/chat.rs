@@ -395,7 +395,9 @@ impl ChatPage {
         empty_content.append(&gtk::Label::builder().label(t("room.pick")).css_classes(["empty-title"]).build());
         empty_content.append(&gtk::Label::builder().label(t("room.synced")).css_classes(["empty-hint"]).build());
         empty.set_content(Some(&empty_content));
-        let content_stack = gtk::Stack::new();
+        // Each page at its own width: a hidden page (the voice page's controls)
+        // must not widen the room past a narrow window.
+        let content_stack = gtk::Stack::builder().hhomogeneous(false).build();
         content_stack.add_named(&empty, Some("empty"));
         let room_nav = adw::NavigationView::new();
         room_nav.add(&adw::NavigationPage::builder().child(&room_view).title("room").tag("room").build());

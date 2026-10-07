@@ -212,6 +212,11 @@ struct MessageList: View {
     @State private var lastObserved:String?
     @State private var readTask:Task<Void,Never>?
     @State private var windowActive = NSApp.isActive
+    /// The "new messages" marker has been on screen, or its pill clicked.
+    @State private var markerSeen = false
+    /// The row at the top of the view: the scroll view keeps it in place when
+    /// an older page is inserted above it.
+    @State private var topRow: String?
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -222,7 +227,7 @@ struct MessageList: View {
                             .controlSize(.small)
                             .frame(maxWidth: .infinity)
                             .padding(8)
-                            .onAppear { older(proxy) }
+                            .onAppear { older() }
                     }
                     ForEach(model.messages, id: \.id) { message in
                         MessageRow(
@@ -233,6 +238,7 @@ struct MessageList: View {
                         .equatable()
                         .id(message.id)
                         .onScrollVisibilityChange(threshold:0.01) { visible in
+                            if visible && message.newMarker { markerSeen = true }
                             guard model.provider.native != nil, message.delivery == .sent else { return }
                             if visible {visibleNative.insert(message.id)} else {visibleNative.remove(message.id)}
                             scheduleObservedRead()
@@ -247,9 +253,11 @@ struct MessageList: View {
                     }
                     Color.clear.frame(height: 6).id("bottom")
                 }
+                .scrollTargetLayout()
                 .padding(.vertical, 8)
                 .animation(settled ? Vibe.spring : nil, value: model.messages.last?.id)
             }
+            .scrollPosition(id: $topRow, anchor: .top)
             .defaultScrollAnchor(.bottom)
             .task {
                 try? await Task.sleep(nanoseconds: 800_000_000)
@@ -308,6 +316,7 @@ struct MessageList: View {
                     Notifier.shared.withdraw(rid: model.rid)
                 }
             }
+            .overlay(alignment: .top) { newMessagesPill }
             .overlay(alignment: .bottomTrailing) {
                 if farFromBottom || model.context != nil {
                     Button {
@@ -373,13 +382,36 @@ struct MessageList: View {
         readTask?.cancel();readTask=nil
     }
 
-    func older(_ proxy: ScrollViewProxy) {
-        let anchor = model.messages.first?.id
-        Task {
-            if await model.loadOlder(), let anchor {
-                proxy.scrollTo(anchor, anchor: .top)
+    /// Over the top of the list while the "new messages" marker is above it.
+    @ViewBuilder var newMessagesPill: some View {
+        if let marker = model.messages.first(where: \.newMarker), settled, !markerSeen, model.context == nil {
+            Button {
+                markerSeen = true
+                model.reveal = marker.id
+            } label: {
+                Text("↑ " + L("room.new_since", count: unreadCount)
+                    .replacingOccurrences(of: "{time}", with: Formatting.time(model.unreadAfter ?? marker.ts)))
+                    .font(.vibe(12, .heavy))
+                    .foregroundStyle(Vibe.ink)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 6)
+                    .background(Vibe.pink, in: Capsule())
+                    .shadow(color: .black.opacity(0.6), radius: 10, y: 5)
             }
+            .buttonStyle(.plain)
+            .padding(.top, 10)
+            .transition(.opacity)
         }
+    }
+
+    /// Messages from someone else from the marker down.
+    var unreadCount: Int {
+        guard let at = model.messages.firstIndex(where: \.newMarker) else { return 0 }
+        return model.messages[at...].filter { !$0.mine && $0.delivery == .sent }.count
+    }
+
+    func older() {
+        Task { await model.loadOlder() }
     }
 }
 

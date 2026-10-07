@@ -7,6 +7,23 @@ section here.
 
 ## [Unreleased]
 
+### Added
+
+- A pill over the top of a room (GTK and SwiftUI), "N new messages since HH:MM", while the
+  first unread message is above the view; a click jumps to it.
+
+### Fixed
+
+- GTK: Restart, after an update installed in place, did nothing on Linux tarball installs.
+- GTK: a message no longer disappears and comes back when someone reacts to it or
+  edits it.
+- GTK: flinging up through the history with a touchpad no longer jumps to older
+  messages when the next page loads.
+- SwiftUI: loading an older page keeps the message you were reading in place, instead of
+  flashing the older page and snapping back.
+- SwiftUI: decrypted quote cards in a RocketVibe room no longer blink out on every
+  reaction or every ten seconds.
+
 ## [0.11.0] - 2026-10-08
 
 ### Added

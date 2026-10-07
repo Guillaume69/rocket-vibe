@@ -7,6 +7,11 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+### Added
+
+- A pill over the top of a room, "N new messages since HH:MM", while the first unread
+  message is above the view; a tap scrolls to it.
+
 ## [0.8.0] - 2026-10-08
 
 ### Added

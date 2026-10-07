@@ -186,7 +186,10 @@ public final class RoomModel {
     public var reveal: String?
     /// What the server told me alone here, such as a slash command's answer.
     public var note: String?
-    let unreadAfter: Int64?
+    public let unreadAfter: Int64?
+    /// The decrypted quote cards last projected, by message: a reload keeps
+    /// them until the next projection, or they would blink out each time.
+    private var projectedQuotes: [String: [Quote]] = [:]
     private let nativeReadBoundary: NativeRoomReadState?
     var limit = historyPage
     var draftSave: Task<Void, Never>?
@@ -364,18 +367,29 @@ public final class RoomModel {
             if provider.native != nil { messages = [] }
             return
         }
-        if fresh != messages {
-            let changed = fresh.filter { item in messages.first { $0.id == item.id } != item }
-            messages = fresh
+        let shown = withProjectedQuotes(fresh)
+        if shown != messages {
+            let changed = shown.filter { item in messages.first { $0.id == item.id } != item }
+            messages = shown
             actionsOf.removeAll()
             for item in changed { nativeActions.removeValue(forKey: item.id) }
             if provider.native != nil {
-                for item in fresh where item.delivery == .sent { loadNativeActions(item) }
+                for item in shown where item.delivery == .sent { loadNativeActions(item) }
             }
         }
         refreshUploads()
         projectQuoteCards(fresh)
         if privateQuote != nil { Task { [weak self] in await self?.refreshQuoteAuthor() } }
+    }
+
+    private func withProjectedQuotes(_ items: [MessageItem]) -> [MessageItem] {
+        guard !projectedQuotes.isEmpty else { return items }
+        return items.map { item in
+            guard let quotes = projectedQuotes[item.id] else { return item }
+            var projected = item
+            projected.quotes = quotes
+            return projected
+        }
     }
 
     private func cachedOrdinaryMessages() -> [MessageItem]? {
@@ -397,6 +411,7 @@ public final class RoomModel {
             closeQuoteReader()
             quotePoll?.cancel(); quotePoll = nil
             if privateQuote != nil || quoteAuthorBusy { cancelQuote() }
+            projectedQuotes = [:]
             if active, provider.native != nil { messages = cachedOrdinaryMessages() ?? [] }
         } else if active { reload() }
     }
@@ -419,6 +434,7 @@ public final class RoomModel {
                       !Task.isCancelled, self.membershipIsCurrent, !reader.isClosed(),
                       self.cachedOrdinaryMessages() == baseline else { reader.close(); return }
                 let byId = Dictionary(uniqueKeysWithValues: cards.map { ($0.messageId, $0.quotes) })
+                self.projectedQuotes = byId
                 self.messages = baseline.map { item in
                     var projected = item
                     if let quotes = byId[item.id] { projected.quotes = quotes }
@@ -427,6 +443,7 @@ public final class RoomModel {
             } catch {
                 guard self.quoteGeneration == generation else { return }
                 self.quoteReader?.close(); self.quoteReader = nil
+                self.projectedQuotes = [:]
             }
         }
         if quotePoll == nil {

@@ -553,6 +553,7 @@ const fr = {
 
   // ── Room (room screen: list + composer + header)
   'room.newMessages': '✦ nouveaux messages',
+  'room.newSince': '{n} nouveau message depuis {time} | {n} nouveaux messages depuis {time}',
   'room.jumpToLatest': 'Aller aux derniers messages',
   'room.marked': 'Messages épinglés et favoris',
   'room.jumpFailed': 'Message introuvable dans l’historique récent.',
@@ -1495,6 +1496,7 @@ const en: Record<TranslationKey, string> = {
   'login.resendCode': 'Resend the code',
 
   'room.newMessages': '✦ new messages',
+  'room.newSince': '{n} new message since {time} | {n} new messages since {time}',
   'room.jumpToLatest': 'Jump to latest messages',
   'room.marked': 'Pinned and starred messages',
   'room.jumpFailed': 'Message not found in recent history.',

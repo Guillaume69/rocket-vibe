@@ -397,6 +397,8 @@ button.format-button:hover { color: #F3F0FF; }
 .composer-placeholder { color: #6E6890; font-size: 14.5px; }
 button.jump-latest { background: #2C2946; color: #F3F0FF; min-width: 40px; min-height: 40px; box-shadow: 0 6px 16px -6px rgba(0, 0, 0, 0.8); }
 button.jump-latest:hover { background: #3A3660; }
+button.new-pill { background: #FF5FA2; color: #1A1726; font-weight: 700; font-size: 12px; padding: 4px 14px; min-height: 0; box-shadow: 0 6px 16px -6px rgba(0, 0, 0, 0.8); }
+button.new-pill:hover { background: #FF7FB6; }
 button.send {
   background-image: linear-gradient(135deg, #FF5FA2, #A78BFA);
   color: #0B0913;

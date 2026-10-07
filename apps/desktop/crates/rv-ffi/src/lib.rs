@@ -15,6 +15,7 @@ mod native_profiles;
 mod native_recovery;
 mod native_rooms;
 mod native_security;
+mod native_voice;
 pub mod people;
 pub mod writing;
 
@@ -98,6 +99,8 @@ pub enum Event {
         rid: String,
         text: String,
     },
+    /// The voice session, the rings or the listening choices moved (RocketVibe).
+    Voice,
 }
 
 #[uniffi::export(with_foreign)]

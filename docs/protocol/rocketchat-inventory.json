@@ -132,6 +132,7 @@
     "apps/desktop/crates/rv-ffi/src/native_recovery.rs",
     "apps/desktop/crates/rv-ffi/src/native_rooms.rs",
     "apps/desktop/crates/rv-ffi/src/native_security.rs",
+    "apps/desktop/crates/rv-ffi/src/native_voice.rs",
     "apps/desktop/crates/rv-ffi/src/people.rs",
     "apps/desktop/crates/rv-ffi/src/writing.rs",
     "apps/desktop/crates/rv-gtk/build.rs",

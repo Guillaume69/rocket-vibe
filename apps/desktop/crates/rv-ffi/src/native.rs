@@ -161,11 +161,15 @@ pub struct NativeChat {
     pub(crate) session: Arc<NativeSession>,
     pub(crate) dirs: Arc<accounts::Dirs>,
     forward: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    /// The voice supervisor (`native_voice.rs`), started with the listener.
+    voice: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 impl Drop for NativeChat {
     fn drop(&mut self) {
-        if let Some(task) = self.forward.lock().unwrap().take() {
-            task.abort();
+        for task in [&self.forward, &self.voice] {
+            if let Some(task) = task.lock().unwrap().take() {
+                task.abort();
+            }
         }
         self.session.shutdown();
     }
@@ -286,6 +290,7 @@ impl Client {
             .map_err(RvError::local)?,
             dirs: self.dirs.clone(),
             forward: Mutex::default(),
+            voice: Mutex::default(),
         }))
     }
 }
@@ -355,6 +360,7 @@ impl NativeChat {
     }
     /// Shared UI events; callbacks cease when this provider is shut down.
     pub fn set_listener(&self, listener: Arc<dyn Listener>) {
+        let voice_listener = listener.clone();
         let (mut changes, mut events, mut incoming) =
             (self.session.store.changes(), self.session.events(), self.session.incoming());
         let session = Arc::downgrade(&self.session);
@@ -390,6 +396,15 @@ impl NativeChat {
         });
         if let Some(old) = self.forward.lock().unwrap().replace(task) {
             old.abort();
+        }
+        if self.session.voice_supported() {
+            if self.voice.lock().unwrap().is_none() {
+                self.apply_voice_prefs();
+            }
+            let supervisor = self.supervise_voice(voice_listener);
+            if let Some(old) = self.voice.lock().unwrap().replace(supervisor) {
+                old.abort();
+            }
         }
     }
     /// The existing sidebar consumes the same grouped rows for both providers.
@@ -804,8 +819,10 @@ impl NativeChat {
         self.session.suspend();
     }
     pub fn shutdown(&self) {
-        if let Some(task) = self.forward.lock().unwrap().take() {
-            task.abort();
+        for task in [&self.forward, &self.voice] {
+            if let Some(task) = task.lock().unwrap().take() {
+                task.abort();
+            }
         }
         self.session.shutdown();
     }
@@ -951,7 +968,7 @@ impl NativeChat {
     }
 }
 
-fn native_error(error: rv_core::native::Error) -> RvError {
+pub(crate) fn native_error(error: rv_core::native::Error) -> RvError {
     rv_core::native::rest_error(error).into()
 }
 

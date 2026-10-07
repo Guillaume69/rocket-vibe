@@ -195,6 +195,8 @@ pub struct Room {
     pub read_only: bool,
     pub avatar: Option<String>,
     pub presence: Option<Presence>,
+    /// A voice channel (RocketVibe): selecting it joins its voice session.
+    pub voice: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
@@ -232,6 +234,7 @@ pub fn room(r: RoomRow, clear_last: Option<String>, presence: Option<Presence>) 
         favorite: r.favorite,
         encrypted: r.encrypted,
         read_only: r.read_only,
+        voice: r.voice,
         presence,
     }
 }

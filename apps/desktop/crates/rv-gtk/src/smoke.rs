@@ -48,6 +48,10 @@
 //!   RV_SMOKE_REENTER=1     after opening the room: back to the list, tap the same room, expect it open
 //!   RV_SMOKE_EDIT=<tag>    sends "<tag> before", presses Up, types "<tag> after" in the row
 //!                          and saves after RV_SMOKE_EDIT_SAVE_MS (default 3000)
+//!   RV_SMOKE_REACT=<code>  reacts with <code> to the latest message from someone else: its row
+//!                          must neither leave the screen nor move while the reaction lands
+//!   RV_SMOKE_PAGING=1     scrolls to the top: an older page loads and the row that was on top
+//!                          stays on screen
 //!   RV_SMOKE_JUMP=1       scrolls to the top: the button back to the latest message shows, and
 //!                          a click on it (after RV_SMOKE_JUMP_CLICK_MS, default 1500) pins the list again
 //!   RV_SMOKE_FOLD=1       folds the channels section: its rooms leave the list, then come back
@@ -442,6 +446,16 @@ pub fn install(window: &Rc<AppWindow>) {
                 glib::timeout_add_local_once(Duration::from_millis(6000), move || {
                     update_checks(chat, mode == "install")
                 });
+            }
+            if let Ok(code) = std::env::var("RV_SMOKE_REACT")
+                && !code.is_empty()
+            {
+                let chat = w.chat.clone();
+                glib::timeout_add_local_once(Duration::from_millis(4000), move || react_checks(chat, code));
+            }
+            if std::env::var("RV_SMOKE_PAGING").as_deref() == Ok("1") {
+                let list = w.chat.room_list();
+                glib::timeout_add_local_once(Duration::from_millis(4000), move || paging_checks(list));
             }
             if std::env::var("RV_SMOKE_JUMP").as_deref() == Ok("1") {
                 let list = w.chat.room_list();
@@ -1361,6 +1375,56 @@ fn native_reaction_checks(chat: Rc<crate::chat::ChatPage>, text: String) {
                 glib::timeout_future(Duration::from_millis(20)).await;
             }
             check("native GTK private star projection", rendered, usize::from(rendered));
+        }
+    });
+}
+
+fn react_checks(chat: Rc<crate::chat::ChatPage>, code: String) {
+    let (Some(session), Some(rid)) = (chat.session(), chat.current_rid()) else { return };
+    let rows = session.store.messages(&rid, 200);
+    let Some(theirs) =
+        rows.iter().rev().find(|r| r.author_id != session.info.user_id && r.system_type.is_none()).cloned()
+    else {
+        return FAILED.store(true, Ordering::SeqCst);
+    };
+    let list = chat.room_list();
+    let id = theirs.id.clone();
+    let y0 = list.row_y(&id);
+    let had = theirs.reactions.clone();
+    chat.play(crate::rows::RowEvent::React { id: id.clone(), shortcode: code, add: true }, false);
+    let stats = Rc::new(Cell::new((0u32, 0u32, 0.0f32, false)));
+    let started = std::time::Instant::now();
+    let watched = list.root.clone();
+    watched.add_tick_callback(move |_, _| {
+        let (frames, gaps, drift, changed) = stats.get();
+        let y = list.row_y(&id);
+        let changed = changed || list.row(&id).is_some_and(|r| r.reactions != had);
+        let drift = match (y0, y) {
+            (Some(a), Some(b)) => drift.max((b - a).abs()),
+            _ => drift,
+        };
+        let gaps = gaps + u32::from(y.is_none());
+        stats.set((frames + 1, gaps, drift, changed));
+        if started.elapsed() < Duration::from_millis(3000) {
+            return glib::ControlFlow::Continue;
+        }
+        println!("smoke: react changed={changed} frames={frames} gaps={gaps} drift={drift:.0}");
+        if !changed || gaps > 0 || drift > 40.0 {
+            FAILED.store(true, Ordering::SeqCst);
+        }
+        glib::ControlFlow::Break
+    });
+}
+
+fn paging_checks(list: Rc<crate::message_list::MessageList>) {
+    let (top, before) = (list.oldest_id(), list.len());
+    list.scroll_to_top();
+    glib::timeout_add_local_once(Duration::from_millis(4000), move || {
+        let grew = list.len() > before;
+        let kept = top.as_deref().is_some_and(|id| list.on_screen(id));
+        println!("smoke: paging grew={grew} kept={kept}");
+        if !grew || !kept {
+            FAILED.store(true, Ordering::SeqCst);
         }
     });
 }

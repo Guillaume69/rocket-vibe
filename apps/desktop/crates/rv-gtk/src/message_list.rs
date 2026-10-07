@@ -1000,6 +1000,25 @@ impl MessageList {
         self.rows.borrow().iter().any(|d| d.new_marker)
     }
 
+    /// The offset of the message's row from the top of the view, while it is built.
+    pub fn row_y(&self, id: &str) -> Option<f32> {
+        let widget = self.bound.borrow().get(id).cloned()?;
+        widget.compute_bounds(&self.scroll).filter(|_| widget.is_mapped()).map(|r| r.y())
+    }
+
+    pub fn oldest_id(&self) -> Option<String> {
+        self.rows.borrow().first().map(|d| d.row.id.clone())
+    }
+
+    /// Whether the message's row is in the viewport.
+    pub fn on_screen(&self, id: &str) -> bool {
+        let height = self.scroll.height() as f32;
+        self.bound.borrow().get(id).is_some_and(|widget| {
+            widget.is_mapped()
+                && widget.compute_bounds(&self.scroll).is_some_and(|r| r.y() < height && r.y() + r.height() > 0.0)
+        })
+    }
+
     pub fn oldest_ts(&self) -> Option<i64> {
         self.rows.borrow().first().map(|d| d.row.ts)
     }

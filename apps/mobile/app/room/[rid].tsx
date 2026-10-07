@@ -50,6 +50,7 @@ import { Composer } from '../../ui/composer.tsx';
 import { RoomHeader } from '../../ui/roomHeader.tsx';
 import { sessionToken } from '../../ui/sessionToken.ts';
 import { insertUnreadBar,insertNativeUnreadBar, type BarRow } from '../../ui/unreadBar.ts';
+import { INITIAL_PILL_STATE, nextPillState, onPillPress, unreadSummary } from '../../ui/newMessagesPill.ts';
 import {ObservedRead} from '../../ui/observedRead.ts';
 import { useSmoothedData } from '../../ui/smoothedData.ts';
 import { repeatedTimeIds, continuationIds } from '../../ui/messageGrouping.ts';
@@ -74,7 +75,7 @@ import {parseRoomLink,roomLinkMatches,roomLinkUrl,serviceUrl,type RoomLink} from
 import { SyncEngine } from '../../lib/sync.ts';
 import { MessageRow, type MessageRowData } from '../../ui/messageRow.tsx';
 import { usePresence } from '../../ui/presence.ts';
-import { useT,translateCurrent } from '../../ui/i18n.ts';
+import { useT,translateCurrent,useTimeFormatter } from '../../ui/i18n.ts';
 import { useSession } from '../../ui/session.tsx';
 import { useSync } from '../../ui/sync.tsx';
 import { messageOrder } from '../../ui/messageOrder.ts';
@@ -542,6 +543,35 @@ function Room({
     () => insertDaySeparators(dataWithBar, 'newest-first'),
     [dataWithBar],
   );
+  const unread = useMemo(
+    () => (protectedRoom ? null : unreadSummary(listData, native ? provider.identity.accountId : client.auth?.userId)),
+    [listData, protectedRoom, native, provider.identity.accountId, client],
+  );
+  const unreadRef = useRef(unread);
+  unreadRef.current = unread;
+  const [pill, setPill] = useState(INITIAL_PILL_STATE);
+  const updatePill = useCallback(() => {
+    let range: { startIndex: number; endIndex: number } | undefined;
+    try {
+      range = list.current?.computeVisibleIndices();
+    } catch {
+      range = undefined;
+    }
+    setPill((state) => nextPillState(state, unreadRef.current?.barIndex ?? null, range));
+  }, []);
+  useEffect(() => {
+    const measured = setTimeout(updatePill, 120);
+    return () => clearTimeout(measured);
+  }, [unread, updatePill]);
+  const goToUnread = useCallback(() => {
+    setPill(onPillPress());
+    const index = unreadRef.current?.barIndex;
+    if (index === undefined) return;
+    const scroll = () => list.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 });
+    scroll();
+    setTimeout(scroll, 450);
+  }, []);
+  const formatTime = useTimeFormatter();
   useLayoutEffect(()=>{
     readVisible.current=()=>{
     if(!nativeReads || !focused.current || AppState.currentState!=='active')return;
@@ -585,8 +615,9 @@ function Room({
       const offset = e.nativeEvent.contentOffset.y;
       nearBottom.current = offset <= NEAR_BOTTOM_PX;
       applyReturn(onBackToLatestScroll(returnState.current, offset, listHeight.current));
+      updatePill();
     },
-    [applyReturn],
+    [applyReturn, updatePill],
   );
   const detached = useRef(false);
   useEffect(() => {
@@ -1173,6 +1204,23 @@ function Room({
             onStartReachedThreshold={0.4}
             contentContainerStyle={styles.content}
           />
+          {pill.visible && unread !== null && context === null && (
+            <Tappable
+              onPress={goToUnread}
+              accessibilityRole="button"
+              style={[
+                styles.newPill,
+                { backgroundColor: c.accent, boxShadow: `0px 4px 12px -4px ${c.dropShadow}` },
+              ]}
+            >
+              <Text style={[styles.newPillText, { color: c.onAccent }]}>
+                {`↑ ${t('room.newSince', {
+                  n: unread.count,
+                  time: formatTime(typeof lastSeen === 'number' ? lastSeen : (unread.oldestTs ?? 0)),
+                })}`}
+              </Text>
+            </Tappable>
+          )}
           {(backVisible || context !== null) && (
             <Tappable
               onPress={goToLatest}
@@ -1278,6 +1326,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  newPill: {
+    position: 'absolute',
+    top: 10,
+    alignSelf: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  newPillText: { fontFamily: FONTS.bodyBold, fontSize: 13 },
   backToLatestArrow: { fontFamily: FONTS.titleStrong, fontSize: 22, lineHeight: 26 },
   empty: { textAlign: 'center', padding: 24, fontSize: 14, fontFamily: FONTS.body },
   error: { fontFamily: FONTS.bodyBold, fontSize: 14, textAlign: 'center' },

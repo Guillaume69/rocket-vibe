@@ -124,6 +124,12 @@ screen: a connected participant claims it first.
   screen. Leaving the session or joining another room releases it too.
 - The snapshot marks the holder with `screen: true`. The worker keeps every
   participant's permission in line with these rules on each pass.
+- **The screen's sound** goes with it, where the client can capture it: what
+  the computer plays, **without the call's voices** unless the sharer asks
+  (for recording or streaming the whole call; the others then hear
+  themselves). A desktop client publishes it as its own `screen_share_audio`
+  track; Android, which records one track, mixes it into the microphone
+  track. A receiver plays it like any other audio, and deafen silences it.
 
 ## Ringing (direct rooms)
 

@@ -1,6 +1,8 @@
 //! The "Voice" group: which microphone and speakers the `rv-voice` sidecar
-//! opens. The choice is this machine's, kept in the config dir like the
-//! language, and handed to each native session's voice controller.
+//! opens, and (Windows, the one platform whose sidecar captures a screen's
+//! sound) whether that sound carries the call's voices. The choices are this
+//! machine's, kept in the config dir like the language, and handed to each
+//! native session's voice controller.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -15,6 +17,8 @@ use crate::{on_tokio, runtime};
 
 const INPUT: &str = "voice-input";
 const OUTPUT: &str = "voice-output";
+/// "1": a screen's sound carries the call's voices too.
+const SHARE_CALL: &str = "voice-share-call";
 
 fn file(name: &str) -> PathBuf {
     glib::user_config_dir().join("rocket-vibe-rs").join(name)
@@ -37,6 +41,7 @@ fn save(name: &str, id: &str) {
 /// Hands the saved devices to a session's controller: its next connections
 /// open them.
 pub fn apply(session: &Arc<NativeSession>) {
+    session.voice().set_share_call(saved(SHARE_CALL).as_deref() == Some("1"));
     let (input, output) = (saved(INPUT), saved(OUTPUT));
     if input.is_none() && output.is_none() {
         return;
@@ -63,6 +68,19 @@ pub fn group(session: Arc<NativeSession>) -> adw::PreferencesGroup {
     output.add_css_class("voice-output-device");
     group.add(&input);
     group.add(&output);
+    if cfg!(windows) {
+        let share_call = adw::SwitchRow::builder()
+            .title(t("voice_settings.share_call"))
+            .subtitle(t("voice_settings.share_call_hint"))
+            .active(session.voice().share_call())
+            .build();
+        let voice = session.voice().clone();
+        share_call.connect_active_notify(move |row| {
+            save(SHARE_CALL, if row.is_active() { "1" } else { "0" });
+            voice.set_share_call(row.is_active());
+        });
+        group.add(&share_call);
+    }
     let lister = session.clone();
     glib::spawn_future_local(glib::clone!(
         #[weak]

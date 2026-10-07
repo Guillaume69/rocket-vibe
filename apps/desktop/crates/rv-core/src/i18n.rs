@@ -472,6 +472,16 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("voice_session.listening", "Écoute seulement", "Listening only"),
     ("voice_session.open_chat", "Ouvrir le chat", "Open the chat"),
     ("voice_session.camera_on", "Activer la caméra", "Turn the camera on"),
+    (
+        "voice_settings.share_call",
+        "Inclure le vocal dans le son de l’écran partagé",
+        "Include the call in a shared screen's sound",
+    ),
+    (
+        "voice_settings.share_call_hint",
+        "Pour enregistrer ou diffuser tout l’appel : les autres s’entendent alors eux-mêmes.",
+        "To record or stream the whole call: the others then hear themselves.",
+    ),
     ("voice_session.camera_off", "Couper la caméra", "Turn the camera off"),
     ("voice_session.share_screen", "Partager l’écran", "Share the screen"),
     ("voice_session.stop_screen", "Arrêter le partage", "Stop sharing"),

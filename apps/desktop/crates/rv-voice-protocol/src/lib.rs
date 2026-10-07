@@ -14,6 +14,10 @@ use serde::{Deserialize, Serialize};
 /// 2: `Connect.e2ee_key`, which a version 1 sidecar would ignore and connect in clear.
 pub const VERSION: u32 = 2;
 
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
 /// The participant attribute through which a client reports being deafened.
 pub const DEAFENED_ATTRIBUTE: &str = "rv.deafened";
 
@@ -59,8 +63,13 @@ pub enum Command {
         enabled: bool,
     },
     /// Publish a screen (the portal's picker on Wayland, the first screen
-    /// elsewhere). The app claims the room's one share from the server first.
-    StartScreenShare,
+    /// elsewhere) and, where the platform captures it (Windows), its sound:
+    /// what the computer plays, without this call's voices unless `with_call`.
+    /// The app claims the room's one share from the server first.
+    StartScreenShare {
+        #[serde(default, skip_serializing_if = "is_false")]
+        with_call: bool,
+    },
     StopScreenShare,
     /// Leave the room; the sidecar then exits.
     Disconnect,
@@ -83,7 +92,9 @@ impl std::fmt::Debug for Command {
             Self::SetOutput { device } => f.debug_struct("SetOutput").field("device", device).finish(),
             Self::Video { address, .. } => f.debug_struct("Video").field("address", address).finish_non_exhaustive(),
             Self::SetCamera { enabled } => f.debug_struct("SetCamera").field("enabled", enabled).finish(),
-            Self::StartScreenShare => f.write_str("StartScreenShare"),
+            Self::StartScreenShare { with_call } => {
+                f.debug_struct("StartScreenShare").field("with_call", with_call).finish()
+            }
             Self::StopScreenShare => f.write_str("StopScreenShare"),
             Self::Disconnect => f.write_str("Disconnect"),
         }
@@ -274,7 +285,8 @@ mod tests {
                 json!({"type":"video","address":"127.0.0.1:4242","token":"t"}),
             ),
             (Command::SetCamera { enabled: true }, json!({"type":"set_camera","enabled":true})),
-            (Command::StartScreenShare, json!({"type":"start_screen_share"})),
+            (Command::StartScreenShare { with_call: false }, json!({"type":"start_screen_share"})),
+            (Command::StartScreenShare { with_call: true }, json!({"type":"start_screen_share","with_call":true})),
             (Command::StopScreenShare, json!({"type":"stop_screen_share"})),
         ];
         for (command, wire) in cases {

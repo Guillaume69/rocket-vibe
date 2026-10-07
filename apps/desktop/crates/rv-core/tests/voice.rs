@@ -193,6 +193,15 @@ async fn video_frames_reach_the_app_and_end_with_their_track() {
     voice.start_screen_share().await;
     until_frame(&voice, "me", VideoSource::Screen, true).await;
     assert!(until(&voice, |s| s.local().is_some_and(|p| p.screen)).await.sharing);
+    // Without the call's voices by default (the fake's preview is 2 wide, 4 with them).
+    assert_eq!(voice.frame("me", VideoSource::Screen).unwrap().width, 2);
+    voice.stop_screen_share().await;
+    until_frame(&voice, "me", VideoSource::Screen, false).await;
+    voice.set_share_call(true);
+    voice.start_screen_share().await;
+    until_frame(&voice, "me", VideoSource::Screen, true).await;
+    assert_eq!(voice.frame("me", VideoSource::Screen).unwrap().width, 4);
+    voice.set_share_call(false);
     voice.stop_screen_share().await;
     until_frame(&voice, "me", VideoSource::Screen, false).await;
     assert!(!voice.snapshot().sharing);

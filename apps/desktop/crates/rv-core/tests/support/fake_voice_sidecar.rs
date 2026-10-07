@@ -133,14 +133,15 @@ fn main() {
                 }
                 publish(&me);
             }
-            Command::StartScreenShare => {
+            // The preview's width tells the test whether the call's voices were asked for.
+            Command::StartScreenShare { with_call } => {
                 if url == "fake://no-screen" {
                     emit(Event::Error { code: "screen_cancelled".into() });
                     continue;
                 }
                 me.screen = true;
                 let identity = me.identity.clone();
-                frame(&mut video, Source::Screen, &identity, 2, 2);
+                frame(&mut video, Source::Screen, &identity, if with_call { 4 } else { 2 }, 2);
                 publish(&me);
             }
             Command::StopScreenShare => {

@@ -217,6 +217,8 @@ struct Shared {
     snapshot: Snapshot,
     input: Option<String>,
     output: Option<String>,
+    /// A screen's sound carries this call's voices too (off: the apps' sound only).
+    share_call: bool,
     devices: Option<(u64, oneshot::Sender<Devices>)>,
 }
 
@@ -261,7 +263,13 @@ impl VoiceController {
             inner: Arc::new(Inner {
                 program,
                 args,
-                shared: Mutex::new(Shared { snapshot: Snapshot::default(), input: None, output: None, devices: None }),
+                shared: Mutex::new(Shared {
+                    snapshot: Snapshot::default(),
+                    input: None,
+                    output: None,
+                    share_call: false,
+                    devices: None,
+                }),
                 changes,
                 process: tokio::sync::Mutex::new(None),
                 generation: AtomicU64::new(0),
@@ -408,8 +416,18 @@ impl VoiceController {
     /// first: `NativeSession::share_screen` does both.
     pub async fn start_screen_share(&self) {
         if self.wanted(|s| s.sharing = true) {
-            self.command(Command::StartScreenShare).await;
+            let with_call = self.inner.shared.lock().unwrap().share_call;
+            self.command(Command::StartScreenShare { with_call }).await;
         }
+    }
+    /// Whether a screen's sound carries this call's voices too (for recording
+    /// or streaming the whole call; the others then hear themselves). Off by
+    /// default; applies to the next share.
+    pub fn set_share_call(&self, on: bool) {
+        self.inner.shared.lock().unwrap().share_call = on;
+    }
+    pub fn share_call(&self) -> bool {
+        self.inner.shared.lock().unwrap().share_call
     }
     pub async fn stop_screen_share(&self) {
         if self.wanted(|s| s.sharing = false) {

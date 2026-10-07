@@ -6,6 +6,7 @@
 //! `RV_VOICE_FAKE_AUDIO=sine` publishes a synthetic tone instead of opening the
 //! microphone and speakers, `RV_VOICE_FAKE_VIDEO=pattern` a test pattern instead
 //! of the camera and the screen, for headless tests.
+mod screen_audio;
 mod video;
 
 use livekit::e2ee::key_provider::{KeyProvider, KeyProviderOptions};
@@ -22,6 +23,7 @@ use rv_voice_protocol::frames::Source;
 use rv_voice_protocol::{
     Command, ConnectionState as State, DEAFENED_ATTRIBUTE, Device, Event, Participant as Member, VERSION,
 };
+use screen_audio::ScreenAudio;
 use std::collections::HashMap;
 use std::io::{BufRead, Write};
 use std::sync::Arc;
@@ -178,6 +180,9 @@ struct Voice {
     /// This side's camera and screen: the capture, then its published track.
     camera: Option<(Capture, Option<LocalVideoTrack>)>,
     screen: Option<(Capture, Option<LocalVideoTrack>)>,
+    /// The screen's sound, beside a published screen, and whether it carries the call.
+    screen_audio: Option<(ScreenAudio, Option<LocalAudioTrack>)>,
+    with_call: bool,
     /// The room's video tracks this side shows, by track.
     watched: HashMap<TrackSid, (tokio::task::JoinHandle<()>, Source, String)>,
 }
@@ -191,6 +196,8 @@ impl Voice {
             internal,
             camera: None,
             screen: None,
+            screen_audio: None,
+            with_call: false,
             watched: HashMap::new(),
             room: None,
             audio: None,
@@ -207,6 +214,7 @@ impl Voice {
     async fn close(&mut self) {
         self.camera = None;
         self.screen = None;
+        self.screen_audio = None;
         for (_, (task, source, identity)) in self.watched.drain() {
             task.abort();
             if let Some(frames) = &self.frames {
@@ -239,8 +247,9 @@ impl Voice {
                     ));
                 }
             }
-            Command::StartScreenShare => {
+            Command::StartScreenShare { with_call } => {
                 if self.screen.is_none() && self.may_publish() {
+                    self.with_call = with_call;
                     let identity = self.local_identity();
                     self.screen = Some((
                         video::screen(self.fake_video, self.frames.clone(), identity, self.internal.clone()),
@@ -321,18 +330,54 @@ impl Voice {
         let ours = self.slot(source).as_ref().is_some_and(|(_, track)| track.as_ref().is_some_and(|t| &t.sid() == sid));
         if ours {
             *self.slot(source) = None;
+            if source == Source::Screen {
+                // Its sound goes too: the takeover revoked both sources.
+                self.screen_audio = None;
+            }
             error(if source == Source::Screen { "screen_ended" } else { "camera_ended" });
         }
     }
 
     /// Stops the capture and takes its track out of the room.
     async fn stop_video(&mut self, source: Source) {
+        if source == Source::Screen {
+            self.stop_screen_audio().await;
+        }
         let Some((capture, track)) = self.slot(source).take() else { return };
         drop(capture);
         if let (Some(room), Some(track)) = (&self.room, track) {
             let _ = room.local_participant().unpublish_track(&track.sid()).await;
         }
         self.publish_participants();
+    }
+
+    async fn stop_screen_audio(&mut self) {
+        let Some((capture, track)) = self.screen_audio.take() else { return };
+        drop(capture);
+        if let (Some(room), Some(track)) = (&self.room, track) {
+            let _ = room.local_participant().unpublish_track(&track.sid()).await;
+        }
+    }
+
+    /// The screen's sound beside a published screen, where the platform captures it.
+    async fn start_screen_audio(&mut self) {
+        let Some(room) = self.room.clone() else { return };
+        if self.screen_audio.is_some() {
+            return;
+        }
+        let Some(capture) = screen_audio::start(self.fake_video, self.with_call) else { return };
+        let track = LocalAudioTrack::create_audio_track("screen-audio", RtcAudioSource::Native(capture.source.clone()));
+        let options = TrackPublishOptions {
+            source: TrackSource::ScreenshareAudio,
+            audio_encoding: Some(livekit::options::AudioEncoding { max_bitrate: 96_000 }),
+            dtx: false,
+            red: false,
+            ..Default::default()
+        };
+        match room.local_participant().publish_track(LocalTrack::Audio(track.clone()), options).await {
+            Ok(_) => self.screen_audio = Some((capture, Some(track))),
+            Err(_) => eprintln!("rv-voice: screen audio not published"),
+        }
     }
 
     /// A capture thread's news: the first frames publish its track, a failure ends it.
@@ -360,6 +405,9 @@ impl Voice {
             Ok(_) => {
                 if let Some((_, track)) = self.slot(source) {
                     *track = Some(local);
+                }
+                if source == Source::Screen {
+                    self.start_screen_audio().await;
                 }
             }
             Err(_) => {

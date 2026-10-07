@@ -107,6 +107,25 @@ fn value_row(title: &str, value: &str) -> adw::ActionRow {
     row
 }
 
+/// An instance id (a long hexadecimal string) shown short, whole in its
+/// tooltip, with a button copying it.
+fn instance_row(id: &str) -> adw::ActionRow {
+    let shown =
+        if id.chars().count() > 12 { format!("{}…", id.chars().take(12).collect::<String>()) } else { id.to_owned() };
+    let row = adw::ActionRow::builder().title(t("admin.instance")).use_markup(false).build();
+    row.add_suffix(&gtk::Label::builder().label(&shown).tooltip_text(id).css_classes(["admin-value"]).build());
+    let copy = gtk::Button::builder()
+        .icon_name("edit-copy-symbolic")
+        .tooltip_text(t("actions.copy"))
+        .valign(gtk::Align::Center)
+        .css_classes(["flat", "admin-copy"])
+        .build();
+    let id = id.to_owned();
+    copy.connect_clicked(move |button| button.clipboard().set_text(&id));
+    row.add_suffix(&copy);
+    row
+}
+
 fn badge(text: &str, kind: &str) -> gtk::Label {
     gtk::Label::builder().label(text).valign(gtk::Align::Center).css_classes(["admin-badge", kind]).build()
 }
@@ -151,12 +170,14 @@ fn confirm(host: &Host, heading: &str, body: &str, action: &str, run: impl Fn() 
         .body(body)
         .default_response("cancel")
         .close_response("cancel")
-        .css_classes(["admin-confirm"])
+        .prefer_wide_layout(true)
+        // A builder's classes replace the dialog's own `alert`, which its whole style needs.
+        .css_classes(["alert", "admin-confirm"])
         .build();
     alert.add_responses(&[("cancel", t("actions.cancel")), ("confirm", action)]);
     alert.set_response_appearance("confirm", adw::ResponseAppearance::Destructive);
     alert.connect_response(Some("confirm"), move |_, _| run());
-    alert.present(Some(&parent));
+    widgets::present_alert(&alert, Some(&parent));
 }
 
 /// The rows of one list in a group, with a loading or "Show more" row at
@@ -247,62 +268,99 @@ fn fill<T: Send + 'static>(
     });
 }
 
-/// The overview's cards, two abreast when the dialog is wide enough.
+/// The overview's cards in two columns, each one as tall as its cards (no
+/// row leaves a hole), one column when the dialog is narrow.
+#[derive(Clone)]
+struct Cards {
+    columns: gtk::Box,
+    left: gtk::Box,
+    right: gtk::Box,
+}
+
+impl Cards {
+    fn clear(&self) {
+        for column in [&self.left, &self.right] {
+            while let Some(child) = column.first_child() {
+                column.remove(&child);
+            }
+        }
+    }
+    /// To the column with fewer cards: left, right, left... in reading order.
+    fn add(&self, group: &adw::PreferencesGroup) {
+        let shorter = if self.left.observe_children().n_items() <= self.right.observe_children().n_items() {
+            &self.left
+        } else {
+            &self.right
+        };
+        group.add_css_class("admin-card");
+        shorter.append(group);
+    }
+}
+
 fn dashboard(screen: &Screen) -> gtk::Widget {
-    let grid = gtk::FlowBox::builder()
-        .selection_mode(gtk::SelectionMode::None)
-        .homogeneous(true)
-        .min_children_per_line(1)
-        .max_children_per_line(2)
-        .column_spacing(24)
-        .row_spacing(24)
-        .valign(gtk::Align::Start)
-        .css_classes(["admin-cards"])
-        .build();
+    let column = || {
+        gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(30)
+            .valign(gtk::Align::Start)
+            .hexpand(true)
+            .build()
+    };
+    let (left, right) = (column(), column());
+    let columns = gtk::Box::builder().spacing(30).homogeneous(true).css_classes(["admin-cards"]).build();
+    columns.append(&left);
+    columns.append(&right);
     let clamp = adw::Clamp::builder()
         .maximum_size(1000)
-        .margin_top(24)
-        .margin_bottom(24)
-        .margin_start(12)
-        .margin_end(12)
-        .child(&grid)
+        .tightening_threshold(900)
+        .margin_top(30)
+        .margin_bottom(36)
+        .margin_start(24)
+        .margin_end(24)
+        .child(&columns)
         .build();
-    load_dashboard(screen, &grid);
-    gtk::ScrolledWindow::builder()
-        .hscrollbar_policy(gtk::PolicyType::Never)
-        .vexpand(true)
-        .child(&clamp)
+    let cards = Cards { columns: columns.clone(), left, right };
+    load_dashboard(screen, &cards);
+    let scroller =
+        gtk::ScrolledWindow::builder().hscrollbar_policy(gtk::PolicyType::Never).vexpand(true).child(&clamp).build();
+    let bin = adw::BreakpointBin::builder()
+        .width_request(300)
+        .height_request(200)
+        .child(&scroller)
         .css_classes(["admin-dashboard"])
-        .build()
-        .upcast()
+        .build();
+    let narrow = adw::Breakpoint::new(adw::BreakpointCondition::new_length(
+        adw::BreakpointConditionLengthType::MaxWidth,
+        680.0,
+        adw::LengthUnit::Sp,
+    ));
+    narrow.add_setter(&cards.columns, "orientation", Some(&gtk::Orientation::Vertical.to_value()));
+    narrow.add_setter(&cards.columns, "homogeneous", Some(&false.to_value()));
+    bin.add_breakpoint(narrow);
+    bin.upcast()
 }
 
-fn card(grid: &gtk::FlowBox, group: &adw::PreferencesGroup) {
-    let child = gtk::FlowBoxChild::builder().child(group).focusable(false).css_classes(["admin-card"]).build();
-    grid.append(&child);
-}
-
-fn load_dashboard(screen: &Screen, grid: &gtk::FlowBox) {
-    grid.remove_all();
+fn load_dashboard(screen: &Screen, cards: &Cards) {
+    cards.clear();
     let waiting = adw::PreferencesGroup::new();
     waiting.add(&adw::ActionRow::builder().title(t("crypto.loading")).build());
-    card(grid, &waiting);
+    cards.add(&waiting);
     let admin = screen.admin.clone();
-    let (s, g) = (screen.clone(), grid.clone());
+    let (s, c) = (screen.clone(), cards.clone());
     spawn(&screen.host, async move { admin.overview().await }, move |result| {
-        g.remove_all();
+        c.clear();
         match result {
             Ok(overview) => {
                 let reports = overview.reports.messages + overview.reports.users;
                 s.host.set_badge(MODERATION.0, (reports > 0).then(|| reports.to_string()).as_deref());
-                for group in overview_groups(&s, &g, &overview) {
-                    card(&g, &group);
+                for group in overview_groups(&s, &c, &overview) {
+                    c.add(&group);
                 }
             }
             Err(error) => {
                 let group = adw::PreferencesGroup::new();
                 group.add(&adw::ActionRow::builder().title(error_text(&error)).build());
-                card(&g, &group);
+                c.add(&group);
             }
         }
     });
@@ -326,7 +384,7 @@ fn kind_group(title: &str, counts: &KindCounts) -> adw::PreferencesGroup {
 }
 
 /// The Workspace cards: deployment, users, rooms, messages, uploads, reports.
-fn overview_groups(screen: &Screen, grid: &gtk::FlowBox, o: &Overview) -> Vec<adw::PreferencesGroup> {
+fn overview_groups(screen: &Screen, cards: &Cards, o: &Overview) -> Vec<adw::PreferencesGroup> {
     let deployment = adw::PreferencesGroup::builder().title(t("admin.deployment")).build();
     let refresh = gtk::Button::builder()
         .icon_name("view-refresh-symbolic")
@@ -334,8 +392,8 @@ fn overview_groups(screen: &Screen, grid: &gtk::FlowBox, o: &Overview) -> Vec<ad
         .valign(gtk::Align::Center)
         .css_classes(["flat", "admin-refresh"])
         .build();
-    let (s, g) = (screen.clone(), grid.clone());
-    refresh.connect_clicked(move |_| load_dashboard(&s, &g));
+    let (s, c) = (screen.clone(), cards.clone());
+    refresh.connect_clicked(move |_| load_dashboard(&s, &c));
     deployment.set_header_suffix(Some(&refresh));
     let version = value_row(t("admin.version"), &o.version);
     let latest = gtk::Label::builder().css_classes(["admin-update"]).visible(false).build();
@@ -356,12 +414,13 @@ fn overview_groups(screen: &Screen, grid: &gtk::FlowBox, o: &Overview) -> Vec<ad
         deployment.add(&value_row(t("admin.uptime"), &duration(uptime)));
     }
     deployment.add(&value_row(t("admin.database"), &o.database));
-    for (key, value) in
-        [("admin.migration", &o.migration), ("admin.runtime", &o.runtime), ("admin.instance", &o.instance_id)]
-    {
+    for (key, value) in [("admin.migration", &o.migration), ("admin.runtime", &o.runtime)] {
         if let Some(value) = value {
             deployment.add(&value_row(t(key), value));
         }
+    }
+    if let Some(instance) = &o.instance_id {
+        deployment.add(&instance_row(instance));
     }
 
     let users = adw::PreferencesGroup::builder().title(t("admin.cat.users")).build();
@@ -857,7 +916,12 @@ pub enum ReportTarget {
 
 /// Asks the reason (required, at most 1,000 characters), sends the report,
 /// and says how it went through `toast`.
-pub fn report(parent: &impl IsA<gtk::Widget>, admin: Admin, target: ReportTarget, toast: Rc<dyn Fn(String)>) {
+pub fn report(
+    parent: &impl IsA<gtk::Widget>,
+    admin: Admin,
+    target: ReportTarget,
+    toast: Rc<dyn Fn(String)>,
+) -> adw::AlertDialog {
     let (heading, body) = match target {
         ReportTarget::Message(_) => ("report.title_message", "report.body_message"),
         ReportTarget::User(_) => ("report.user", "report.body_user"),
@@ -874,7 +938,8 @@ pub fn report(parent: &impl IsA<gtk::Widget>, admin: Admin, target: ReportTarget
         .extra_child(&entry)
         .default_response("send")
         .close_response("cancel")
-        .css_classes(["report-dialog"])
+        .prefer_wide_layout(true)
+        .css_classes(["alert", "report-dialog"])
         .build();
     alert.add_responses(&[("cancel", t("actions.cancel")), ("send", t("report.send"))]);
     alert.set_response_appearance("send", adw::ResponseAppearance::Suggested);
@@ -904,5 +969,6 @@ pub fn report(parent: &impl IsA<gtk::Widget>, admin: Admin, target: ReportTarget
             toast(t(if sent.is_ok() { "report.sent" } else { "report.failed" }).to_owned());
         });
     });
-    alert.present(Some(parent.as_ref()));
+    widgets::present_alert(&alert, Some(parent.as_ref()));
+    alert
 }

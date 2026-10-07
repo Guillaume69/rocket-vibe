@@ -209,7 +209,7 @@ pub(super) fn controls(
                 return;
             };
             let alert = adw::AlertDialog::builder()
-                .css_classes(["native-room-leave-confirm"])
+                .css_classes(["alert", "native-room-leave-confirm"])
                 .heading(t("rooms.leave"))
                 .body(t("rooms.leave_body"))
                 .default_response("cancel")
@@ -235,7 +235,7 @@ pub(super) fn controls(
                     || {},
                 );
             });
-            alert.present(Some(&parent));
+            crate::widgets::present_alert(&alert, Some(&parent));
         });
         content.append(&leave);
     }

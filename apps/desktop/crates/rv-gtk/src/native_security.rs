@@ -306,7 +306,7 @@ pub fn page(host: &Host, session: Arc<NativeSession>) -> adw::PreferencesPage {
             let alert = adw::AlertDialog::builder()
                 .heading(t(key))
                 .body(t(body))
-                .css_classes(["native-security-confirm"])
+                .css_classes(["alert", "native-security-confirm"])
                 .default_response("cancel")
                 .close_response("cancel")
                 .build();
@@ -318,7 +318,7 @@ pub fn page(host: &Host, session: Arc<NativeSession>) -> adw::PreferencesPage {
                     state.run(Work::Start(kind));
                 }
             });
-            alert.present(Some(&parent));
+            crate::widgets::present_alert(&alert, Some(&parent));
         });
     }
     let weak = Rc::downgrade(&state);
@@ -349,7 +349,7 @@ pub fn page(host: &Host, session: Arc<NativeSession>) -> adw::PreferencesPage {
         let alert = adw::AlertDialog::builder()
             .heading(t(key))
             .body(format!("{}\n\n{}", expected.contact.address.as_deref().unwrap_or(""), t(body)))
-            .css_classes(["native-security-email-factor-confirm"])
+            .css_classes(["alert", "native-security-email-factor-confirm"])
             .default_response("cancel")
             .close_response("cancel")
             .build();
@@ -369,7 +369,7 @@ pub fn page(host: &Host, session: Arc<NativeSession>) -> adw::PreferencesPage {
                 state.run(Work::EmailFactor(expected.clone()));
             }
         });
-        alert.present(Some(&parent));
+        crate::widgets::present_alert(&alert, Some(&parent));
     });
     let weak = Rc::downgrade(&state);
     state.email_start.connect_activated(move |_| {
@@ -402,7 +402,7 @@ pub fn page(host: &Host, session: Arc<NativeSession>) -> adw::PreferencesPage {
         let alert = adw::AlertDialog::builder()
             .heading(t("email.remove"))
             .body(format!("{}\n\n{}", expected.address.as_deref().unwrap_or(""), t("email.remove_body")))
-            .css_classes(["native-security-email-remove-confirm"])
+            .css_classes(["alert", "native-security-email-remove-confirm"])
             .default_response("cancel")
             .close_response("cancel")
             .build();
@@ -419,7 +419,7 @@ pub fn page(host: &Host, session: Arc<NativeSession>) -> adw::PreferencesPage {
                 state.run(Work::EmailRemove(expected.clone()));
             }
         });
-        alert.present(Some(&parent));
+        crate::widgets::present_alert(&alert, Some(&parent));
     });
     let weak = Rc::downgrade(&state);
     state.email_confirm.connect_activated(move |_| {

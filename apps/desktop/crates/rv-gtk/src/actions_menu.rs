@@ -242,11 +242,12 @@ pub(super) fn confirm_delete(parent: Option<&gtk::Widget>, delete: impl Fn() + '
         .body(t("actions.delete_body"))
         .default_response("cancel")
         .close_response("cancel")
+        .prefer_wide_layout(true)
         .build();
     dialog.add_responses(&[("cancel", t("actions.cancel")), ("delete", t("actions.delete"))]);
     dialog.set_response_appearance("delete", adw::ResponseAppearance::Destructive);
     dialog.connect_response(Some("delete"), move |_, _| delete());
-    dialog.present(parent);
+    crate::widgets::present_alert(&dialog, parent);
 }
 
 fn download(session: Arc<Session>, file: Option<(String, String)>, handlers: Rc<Handlers>) {

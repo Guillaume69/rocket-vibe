@@ -246,10 +246,29 @@ button.thread-chip { background: transparent; min-height: 0; }
 button.quick-reaction { font-size: 20px; min-width: 40px; min-height: 40px; padding: 0; border-radius: 999px; background: transparent; }
 button.quick-reaction.mine { background: rgba(255, 95, 162, 0.18); box-shadow: inset 0 0 0 1.5px #FF5FA2; }
 button.quick-reaction.more-reactions { font-size: 16px; color: alpha(currentColor, 0.7); }
-.sidebar-footer button { padding: 8px 6px; }
+/* Alert dialogs (confirmations, the report dialog): room around the text, the
+   entry and the buttons, whatever the platform's theme gives. */
+dialog.alert .message-area { padding: 28px 8px 14px 8px; border-spacing: 12px; }
+dialog.alert .message-area .body { color: #B9B3D6; }
+dialog.alert .message-area .child { margin-top: 10px; margin-bottom: 6px; }
+dialog.alert .response-area { padding: 8px 24px 24px 24px; border-spacing: 12px; }
+dialog.alert .response-area button { min-height: 40px; padding: 0 14px; border-radius: 12px; }
+dialog.alert entry { min-height: 40px; padding: 0 12px; border-radius: 12px; }
+.sidebar-footer { padding: 6px 4px 10px 4px; }
+/* Settings and administration pages: wider margins, more room between groups
+   and in the rows of the lists. */
+.sidebar-dialog preferencespage > scrolledwindow > viewport > clamp > box { margin: 32px 24px 40px 24px; border-spacing: 34px; }
+.sidebar-dialog preferencesgroup > box > box.header { margin-bottom: 4px; }
+.sidebar-dialog row.button { min-height: 48px; }
+.sidebar-categories { padding: 6px 6px; }
+.sidebar-categories > row { margin-bottom: 2px; }
+row.admin-user > box.header, row.admin-room > box.header, row.admin-reported-message > box.header,
+row.admin-reported-user > box.header, row.admin-person > box.header { padding-top: 10px; padding-bottom: 10px; border-spacing: 14px; }
+row.admin-reason > box.header, row.admin-message-text > box.header { padding-top: 12px; padding-bottom: 12px; }
+.admin-cards preferencesgroup > box > box.header { margin-bottom: 4px; }
+.sidebar-footer button { padding: 10px 8px; }
 .sidebar-badge { background: #FF5FA2; color: #0B0913; border-radius: 999px; padding: 0 7px; font-size: 12px; font-weight: 800; }
 .admin-value { opacity: 0.8; }
-flowboxchild.admin-card { padding: 0; background: none; }
 .admin-update { font-size: 12px; opacity: 0.7; }
 .admin-update.available { color: #FFC24B; opacity: 1; font-weight: 700; }
 .admin-badge { font-size: 11px; font-weight: 800; padding: 1px 7px; border-radius: 999px; background: #2C2946; }

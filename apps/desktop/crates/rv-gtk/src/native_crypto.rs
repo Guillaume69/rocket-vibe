@@ -236,7 +236,7 @@ impl Controller {
                 c.run(Action::Withdraw(Box::new(preview)));
             }
         });
-        alert.present(Some(&parent));
+        crate::widgets::present_alert(&alert, Some(&parent));
     }
     fn run(self: &Rc<Self>, action: Action) {
         if self.busy.replace(true) || !self.guard.alive() {

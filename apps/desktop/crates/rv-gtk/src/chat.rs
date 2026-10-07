@@ -1396,15 +1396,15 @@ impl ChatPage {
     }
 
     /// Asks a reason and reports a message or an account.
-    pub fn report(self: &Rc<Self>, target: crate::admin::ReportTarget) {
-        let Some(admin) = self.admin() else { return };
+    pub fn report(self: &Rc<Self>, target: crate::admin::ReportTarget) -> Option<adw::AlertDialog> {
+        let admin = self.admin()?;
         let weak = Rc::downgrade(self);
         let toast: Rc<dyn Fn(String)> = Rc::new(move |text| {
             if let Some(this) = weak.upgrade() {
                 this.toast(text);
             }
         });
-        crate::admin::report(&self.split, admin, target, toast);
+        Some(crate::admin::report(&self.split, admin, target, toast))
     }
 
     pub fn show_profile(self: &Rc<Self>, key: &str, by_id: bool) {

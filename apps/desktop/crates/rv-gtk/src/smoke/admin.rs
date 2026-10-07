@@ -1,8 +1,10 @@
 //! The server administration and members' reports, through the real widgets.
 //!   RV_SMOKE_REPORT=<reason>  reports bob's last message of the open room and bob
 //!                             himself through the Report dialog
-//!   RV_SMOKE_ADMIN=dashboard|users|rooms|moderation  opens the administration
+//!                             (RV_SMOKE_REPORT_HOLD=1: the first dialog stays open, filled)
+//!   RV_SMOKE_ADMIN=dashboard|users|rooms|moderation|confirm  opens the administration
 //!                             as an admin, checks that category and leaves it shown
+//!                             (`confirm`: bob's deactivation asked, left unanswered)
 use super::{check, find_by_class};
 use crate::{admin::ReportTarget, on_tokio, window::AppWindow};
 use adw::prelude::*;
@@ -67,6 +69,13 @@ fn shown_badge(root: &gtk::Widget) -> Option<gtk::Label> {
     std::iter::successors(root.first_child(), |w| w.next_sibling()).find_map(|c| shown_badge(&c))
 }
 
+fn dimming(root: &gtk::Widget) -> Option<gtk::Widget> {
+    if root.css_name() == "dimming" {
+        return Some(root.clone());
+    }
+    std::iter::successors(root.first_child(), |w| w.next_sibling()).find_map(|c| dimming(&c))
+}
+
 fn count(root: &gtk::Widget, class: &str) -> usize {
     usize::from(root.has_css_class(class))
         + std::iter::successors(root.first_child(), |w| w.next_sibling()).map(|c| count(&c, class)).sum::<usize>()
@@ -83,6 +92,9 @@ async fn send_report(root: &gtk::Widget, reason: &str) -> bool {
     check("an empty reason cannot be sent", !alert.is_response_enabled("send"), ());
     entry.set_text(reason);
     check("a reason enables Send", alert.is_response_enabled("send"), ());
+    if std::env::var("RV_SMOKE_REPORT_HOLD").as_deref() == Ok("1") {
+        return true;
+    }
     alert.emit_by_name_with_details::<()>("response", glib::Quark::from_str("send"), &[&"send"]);
     alert.close();
     true
@@ -97,12 +109,37 @@ async fn reports(window: &Rc<AppWindow>, reason: &str) {
     let Some(theirs) = rows.iter().rev().find(|r| r.author.as_deref() == Some("bob") && r.system_type.is_none()) else {
         return check("report: a message of bob", false, ());
     };
-    window.chat.report(ReportTarget::Message(theirs.id.clone()));
+    let _ = window.chat.report(ReportTarget::Message(theirs.id.clone()));
     check("report dialog for a message", send_report(&root, reason).await, ());
+    if std::env::var("RV_SMOKE_REPORT_HOLD").as_deref() == Ok("1") {
+        return;
+    }
     glib::timeout_future(Duration::from_millis(1500)).await;
-    window.chat.report(ReportTarget::User(theirs.author_id.clone()));
+    let _ = window.chat.report(ReportTarget::User(theirs.author_id.clone()));
     check("report dialog for an account", send_report(&root, reason).await, ());
     glib::timeout_future(Duration::from_millis(1500)).await;
+    // A click outside the dialog cancels it, like Escape.
+    glib::timeout_future(Duration::from_millis(1000)).await;
+    if let Some(alert) = window.chat.report(ReportTarget::Message(theirs.id.clone())) {
+        let mut click = None;
+        for _ in 0..40 {
+            glib::timeout_future(Duration::from_millis(50)).await;
+            click = dimming(alert.upcast_ref()).and_then(|b| {
+                (0..b.observe_controllers().n_items())
+                    .filter_map(|i| b.observe_controllers().item(i).and_downcast::<gtk::GestureClick>())
+                    .find(|c| c.button() == 0 && c.propagation_phase() == gtk::PropagationPhase::Capture)
+            });
+            if click.is_some() {
+                break;
+            }
+        }
+        check("the report dialog listens to its backdrop", click.is_some(), ());
+        if let Some(click) = click {
+            click.emit_by_name::<()>("released", &[&1i32, &5f64, &5f64]);
+        }
+        glib::timeout_future(Duration::from_millis(800)).await;
+        check("a click outside cancels the report", !alert.is_mapped(), ());
+    }
     let s = session.clone();
     let mine = on_tokio(async move { rv_core::admin::Admin::RocketChat(s).is_admin().await }).await;
     check("a member is no administrator", !mine, ());
@@ -189,6 +226,25 @@ async fn administration(window: &Rc<AppWindow>, category: &str) {
             if let Some(search) = find_by_class(&root, "admin-user-search").and_downcast::<gtk::SearchEntry>() {
                 search.set_text("");
                 glib::timeout_future(Duration::from_millis(1500)).await;
+            }
+        }
+        "confirm" => {
+            dialog.select("users");
+            if let Some(search) =
+                wait(&root, "admin-user-search", |w| w.is_mapped()).await.and_downcast::<gtk::SearchEntry>()
+            {
+                search.set_text("bob");
+                glib::timeout_future(Duration::from_millis(1500)).await;
+            }
+            if let Some(row) = find_by_class(&root, "admin-user").and_downcast::<adw::ActionRow>() {
+                row.emit_by_name::<()>("activated", &[]);
+            }
+            let action = wait(&root, "admin-set-active", |w| w.is_mapped()).await.and_downcast::<adw::ButtonRow>();
+            check("bob's page offers deactivation", action.is_some(), ());
+            if let Some(action) = action {
+                action.emit_by_name::<()>("activated", &[]);
+                let asked = wait(&root, "admin-confirm", |w| w.is_mapped()).await;
+                check("deactivation is confirmed first", asked.is_some(), ());
             }
         }
         "rooms" => {

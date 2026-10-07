@@ -267,7 +267,7 @@ fn native_devices_page(host: &Host, session: Arc<rv_core::native::NativeSession>
                                     }
                                 });
                             });
-                            confirm.present(Some(&parent));
+                            crate::widgets::present_alert(&confirm, Some(&parent));
                         });
                         row.add_row(&revoke);
                     }

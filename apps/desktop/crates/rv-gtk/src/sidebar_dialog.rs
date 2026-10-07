@@ -435,4 +435,50 @@ mod tests {
         narrow.close();
         window.close();
     }
+
+    fn dimming(root: &gtk::Widget) -> Option<gtk::Widget> {
+        if root.css_name() == "dimming" {
+            return Some(root.clone());
+        }
+        std::iter::successors(root.first_child(), |w| w.next_sibling()).find_map(|c| dimming(&c))
+    }
+
+    #[test]
+    #[ignore = "requires a GTK display; run under Xvfb"]
+    fn an_alert_over_the_dialog_closes_alone_on_its_backdrop_with_its_close_response() {
+        adw::init().unwrap();
+        let window = adw::Window::builder().default_width(1280).default_height(900).build();
+        window.set_content(Some(&gtk::Box::new(gtk::Orientation::Vertical, 0)));
+        window.present();
+        settle(200);
+        let sidebar = SidebarDialog::new("Settings", "sidebar-test");
+        sidebar.add("first", "avatar-default-symbolic", "First", &page("one"));
+        sidebar.present(&window);
+        settle(300);
+        let entry = gtk::Entry::new();
+        let alert = adw::AlertDialog::builder()
+            .heading("Delete?")
+            .extra_child(&entry)
+            .default_response("delete")
+            .close_response("cancel")
+            .build();
+        alert.add_responses(&[("cancel", "Cancel"), ("delete", "Delete")]);
+        let answers: Rc<RefCell<Vec<String>>> = Rc::default();
+        let log = answers.clone();
+        alert.connect_response(None, move |_, response| log.borrow_mut().push(response.to_owned()));
+        crate::widgets::present_alert(&alert, sidebar.host().widget().as_ref());
+        settle(400);
+        assert!(alert.is_mapped() && alert.has_css_class("alert"));
+        let backdrop = dimming(alert.upcast_ref()).expect("the alert's own backdrop");
+        let click = (0..backdrop.observe_controllers().n_items())
+            .filter_map(|i| backdrop.observe_controllers().item(i).and_downcast::<gtk::GestureClick>())
+            .find(|c| c.button() == 0 && c.propagation_phase() == gtk::PropagationPhase::Capture)
+            .expect("a click handler on the backdrop");
+        assert!(!entry.is_ancestor(&backdrop), "a click inside the alert never reaches the backdrop");
+        click.emit_by_name::<()>("released", &[&1i32, &5f64, &5f64]);
+        settle(400);
+        assert_eq!(*answers.borrow(), ["cancel"], "the close response, never Delete");
+        assert!(sidebar.host().alive(), "the dialog under it stays open");
+        window.close();
+    }
 }

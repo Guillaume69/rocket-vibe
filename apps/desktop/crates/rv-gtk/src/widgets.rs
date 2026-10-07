@@ -265,20 +265,34 @@ pub fn comet() -> gtk::Box {
     gtk::Box::builder().css_classes(["comet"]).height_request(3).valign(gtk::Align::Start).can_target(false).build()
 }
 
+/// Presents an alert; a click on the dimmed backdrop around it answers it like
+/// Escape, with its close response (Cancel), never a destructive one.
+pub fn present_alert(alert: &adw::AlertDialog, parent: Option<&impl IsA<gtk::Widget>>) {
+    alert.present(parent);
+    close_on_backdrop(alert.upcast_ref());
+}
+
 /// The dimmed backdrop around a dialog is a window handle: a click there
 /// started a window drag and a double click maximized the window. A click on
 /// it closes the dialog instead.
 pub fn close_on_backdrop(dialog: &adw::Dialog) {
-    let weak = dialog.downgrade();
-    glib::idle_add_local_once(move || {
-        let Some(dialog) = weak.upgrade() else { return };
-        fn find(widget: &gtk::Widget) -> Option<gtk::Widget> {
-            if widget.css_name() == "dimming" {
-                return Some(widget.clone());
-            }
-            std::iter::successors(widget.first_child(), |w| w.next_sibling()).find_map(|child| find(&child))
+    fn find(widget: &gtk::Widget) -> Option<gtk::Widget> {
+        if widget.css_name() == "dimming" {
+            return Some(widget.clone());
         }
-        let Some(dimming) = find(dialog.upcast_ref()) else { return };
+        std::iter::successors(widget.first_child(), |w| w.next_sibling()).find_map(|child| find(&child))
+    }
+    // The backdrop exists only once the dialog laid itself out as a floating
+    // or bottom sheet, and is rebuilt when it switches: watched while it shows.
+    let weak = dialog.downgrade();
+    glib::timeout_add_local(std::time::Duration::from_millis(60), move || {
+        let Some(dialog) = weak.upgrade().filter(|d| d.parent().is_some()) else {
+            return glib::ControlFlow::Break;
+        };
+        let Some(dimming) = find(dialog.upcast_ref()).filter(|d| !d.has_css_class("closes-dialog")) else {
+            return glib::ControlFlow::Continue;
+        };
+        dimming.add_css_class("closes-dialog");
         let click = gtk::GestureClick::builder().button(0).propagation_phase(gtk::PropagationPhase::Capture).build();
         click.connect_pressed(|gesture, _, _, _| {
             gesture.set_state(gtk::EventSequenceState::Claimed);
@@ -290,6 +304,7 @@ pub fn close_on_backdrop(dialog: &adw::Dialog) {
             }
         });
         dimming.add_controller(click);
+        glib::ControlFlow::Continue
     });
 }
 

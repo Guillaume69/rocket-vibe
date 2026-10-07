@@ -222,7 +222,7 @@ impl Controller {
             };
             c.run(super::Action::Recovery(action));
         });
-        alert.present(Some(&parent));
+        crate::widgets::present_alert(&alert, Some(&parent));
     }
     pub(super) fn connect_recovery(self: &Rc<Self>, page: &adw::PreferencesPage) {
         for (index, row) in self.recovery.rows.iter().enumerate() {

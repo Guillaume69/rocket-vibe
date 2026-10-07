@@ -6,7 +6,7 @@
 //! seeded by the catch-up. A new post rewrites the room's preview, a reply
 //! leaves it alone.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use serde_json::{Value, json};
@@ -43,6 +43,8 @@ pub struct MmSync {
     /// Post ids by creation instant, per room: the screen pages by instant,
     /// Mattermost by post id.
     index: Mutex<HashMap<String, BTreeMap<i64, String>>>,
+    /// My stars: Mattermost's flagged posts, a preference rather than a post field.
+    flagged: Mutex<HashSet<String>>,
 }
 
 fn int(v: &Value, key: &str) -> i64 {
@@ -86,6 +88,7 @@ impl MmSync {
             deleted_route,
             live: Mutex::default(),
             index: Mutex::default(),
+            flagged: Mutex::default(),
         }
     }
 
@@ -94,7 +97,41 @@ impl MmSync {
     }
 
     pub fn translate(&self, post: &Value) -> Option<Message> {
-        self.translator().message(post)
+        let mut message = self.translator().message(post)?;
+        if self.flagged.lock().unwrap().contains(&message.id) {
+            message.starred = Some(self.me.clone());
+        }
+        Some(message)
+    }
+
+    /// Records a star and rewrites the post's row with it.
+    pub async fn set_flagged(&self, ids: &[String], on: bool) {
+        {
+            let mut flagged = self.flagged.lock().unwrap();
+            for id in ids {
+                if on {
+                    flagged.insert(id.clone());
+                } else {
+                    flagged.remove(id);
+                }
+            }
+        }
+        for id in ids.iter().filter(|id| self.store.has_message(id)) {
+            if let Ok(post) = self.rest.get(&format!("posts/{id}"), CallOptions::default()).await {
+                self.ensure_authors(std::slice::from_ref(&post)).await;
+                self.ingest(&[post]);
+            }
+        }
+    }
+
+    pub fn note_flagged(&self, posts: &[Value]) {
+        self.flagged.lock().unwrap().extend(posts.iter().filter_map(|p| text(p, "id").map(str::to_owned)));
+    }
+
+    async fn load_flagged(&self) {
+        let Ok(list) = self.rest.get("users/me/preferences/flagged_post", CallOptions::default()).await else { return };
+        let ids = list.as_array().into_iter().flatten().filter_map(|p| text(p, "name").map(str::to_owned));
+        *self.flagged.lock().unwrap() = ids.collect();
     }
 
     pub async fn ensure_authors(&self, posts: &[Value]) {
@@ -155,6 +192,7 @@ impl MmSync {
     /// lose its preview.
     pub async fn catch_up_global(&self) -> Result<(), RestError> {
         let (channels, members) = tokio::try_join!(self.channels(), self.pages("users/me/channel_members"))?;
+        self.load_flagged().await;
         let member_of: HashMap<String, Value> =
             members.into_iter().filter_map(|m| Some((text(&m, "channel_id")?.to_owned(), m))).collect();
         let channels: Vec<Value> =
@@ -452,6 +490,23 @@ impl MmSync {
                 }
                 self.load_channel(&rid).await.ok()?;
                 self.write_room(&rid, true);
+                None
+            }
+            "preferences_changed" | "preferences_deleted" => {
+                let list = match data.get("preferences") {
+                    Some(Value::String(s)) => serde_json::from_str::<Value>(s).ok()?,
+                    Some(v) => v.clone(),
+                    None => return None,
+                };
+                let ids: Vec<String> = list
+                    .as_array()?
+                    .iter()
+                    .filter(|p| text(p, "category") == Some("flagged_post"))
+                    .filter_map(|p| text(p, "name").map(str::to_owned))
+                    .collect();
+                if !ids.is_empty() {
+                    self.set_flagged(&ids, name == "preferences_changed").await;
+                }
                 None
             }
             "channel_deleted" => {

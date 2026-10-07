@@ -1063,11 +1063,9 @@ impl Session {
         self.settings
             .get_or_init(|| async {
                 match self.sync.mattermost() {
-                    Some(_) => ServerSettings {
-                        starring_allowed: false,
-                        site_url: Some(self.info.base_url.clone()),
-                        ..ServerSettings::from_list(&[])
-                    },
+                    Some(_) => {
+                        ServerSettings { site_url: Some(self.info.base_url.clone()), ..ServerSettings::from_list(&[]) }
+                    }
                     None => ServerSettings::fetch(&self.rest).await,
                 }
             })
@@ -1232,8 +1230,10 @@ impl Session {
     }
 
     pub async fn star(&self, msg_id: &str, on: bool) -> Result<(), RestError> {
-        if self.sync.mattermost().is_some() {
-            return Err(RestError::incomplete("stars: not on this server"));
+        if let Some(mm) = self.sync.mattermost() {
+            mattermost::actions::flag(&self.rest, &self.info.user_id, msg_id, on).await?;
+            mm.set_flagged(&[msg_id.to_owned()], on).await;
+            return Ok(());
         }
         actions::star(&self.rest, msg_id, on).await?;
         self.refresh_message(msg_id).await;
@@ -1253,7 +1253,14 @@ impl Session {
     /// A room's pinned messages, or the ones I starred there, newest first; stored as they come.
     pub async fn marked(&self, rid: &str, starred: bool) -> Result<Vec<crate::store::MessageRow>, RestError> {
         if let Some(mm) = self.sync.mattermost() {
-            let posts = if starred { Vec::new() } else { mattermost::actions::pinned(&self.rest, rid).await? };
+            let posts = if starred {
+                mattermost::actions::flagged(&self.rest, rid).await?
+            } else {
+                mattermost::actions::pinned(&self.rest, rid).await?
+            };
+            if starred {
+                mm.note_flagged(&posts);
+            }
             mm.ensure_authors(&posts).await;
             mm.ingest(&posts);
             let ids: Vec<String> =

@@ -51,6 +51,21 @@ pub async fn pin(rest: &RestClient, post_id: &str, on: bool) -> Result<Value, Re
     rest.get(&format!("posts/{post_id}"), CallOptions::default()).await
 }
 
+/// Stars a post (Mattermost's flagged post), or takes the star away.
+pub async fn flag(rest: &RestClient, me: &str, post_id: &str, on: bool) -> Result<(), RestError> {
+    let preference = json!([{"user_id": me, "category": "flagged_post", "name": post_id, "value": "true"}]);
+    if on {
+        rest.put("users/me/preferences", CallOptions::body(preference)).await.map(|_| ())
+    } else {
+        rest.post("users/me/preferences/delete", CallOptions::body(preference)).await.map(|_| ())
+    }
+}
+
+pub async fn flagged(rest: &RestClient, rid: &str) -> Result<Vec<Value>, RestError> {
+    let options = CallOptions::params([("channel_id", rid), ("per_page", "100")]);
+    Ok(ordered(&rest.get("users/me/posts/flagged", options).await?))
+}
+
 pub async fn pinned(rest: &RestClient, rid: &str) -> Result<Vec<Value>, RestError> {
     Ok(ordered(&rest.get(&format!("channels/{rid}/pinned"), CallOptions::default()).await?))
 }

@@ -1,5 +1,6 @@
 import {useCallback,useEffect,useRef,useState} from 'react';
 import {ActivityIndicator,Alert,AppState,StyleSheet,Text,View} from 'react-native';
+import {dismissible} from './alerts.ts';
 import {useFocusEffect} from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import type {NativeChat} from '../providers/rocketvibe/chat.ts';
@@ -128,7 +129,7 @@ function NativeSecurity({c,chat,reauthOnly=false,onConfirmed}:{c:Colors;chat:Nat
           if(guard())await updateEmail(access,guard);
         });
       }},
-    ]);
+    ],dismissible());
   };
   const confirm=(kind:'regenerate'|'disable')=>{
     // Retained native alerts are bound to this focus and runner, too.
@@ -136,7 +137,7 @@ function NativeSecurity({c,chat,reauthOnly=false,onConfirmed}:{c:Colors;chat:Nat
     Alert.alert(t(kind==='disable'?'security.disable':'security.regenerate'),t(kind==='disable'?'security.disableBody':'security.regenerateBody'),[
       {text:t('common.cancel'),style:'cancel'},
       {text:t('login.submit'),style:'destructive',onPress:()=>{if(focused.current && epoch.current===n)start(kind);}},
-    ]);
+    ],dismissible());
   };
   const enable=()=>{const entered=code;setCode('');const expected=view;
     if(expected.kind==='setup')void run(async(access,guard)=>{
@@ -180,7 +181,7 @@ function NativeSecurity({c,chat,reauthOnly=false,onConfirmed}:{c:Colors;chat:Nat
           if(approved())publishEmail(next);
         });
       }},
-    ]);
+    ],dismissible());
   };
   return <>
     <Text style={[styles.heading,{color:c.dimmed}]}>{t('security.title')}</Text>

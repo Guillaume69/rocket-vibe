@@ -11,6 +11,7 @@
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
 import { Alert, AppState, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { dismissible } from './alerts.ts';
 
 import type { Session } from '../lib/auth.ts';
 import { nativeRoomsUnread, serverHost, subscriptionsUnread } from '../lib/accountUnread.ts';
@@ -120,7 +121,7 @@ export function ServerRail({ c }: { c: Colors }) {
               onLongPress={isOpen && admin !== null ? () => Alert.alert(name, `@${session.username}`, [
                 { text: t('common.cancel'), style: 'cancel' },
                 { text: t('settings.admin'), onPress: () => router.push('/admin') },
-              ]) : undefined}
+              ], dismissible()) : undefined}
               accessibilityRole="button"
               accessibilityState={{ selected: isOpen, busy: switching === host }}
               accessibilityLabel={`${name} · @${session.username}`}

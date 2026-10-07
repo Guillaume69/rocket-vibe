@@ -1,6 +1,7 @@
 import { Redirect, Stack } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { dismissible } from '../../ui/alerts.ts';
 
 import type { AdminPerson, AdminReport, ProviderAdmin, ReportedMessage, ReportedUser } from '../../lib/admin.ts';
 import { AdminGate, Badge, ItemAction, ListFooter, adminStyles, shortDate, useAdminError, useAdminPages } from '../../ui/adminKit.tsx';
@@ -85,7 +86,7 @@ function confirm(title: string, body: string, action: string, cancel: string, on
   Alert.alert(title, body, [
     { text: cancel, style: 'cancel' },
     { text: action, style: 'destructive', onPress: onConfirm },
-  ]);
+  ], dismissible());
 }
 
 function Messages({ c, admin, me }: { c: Colors; admin: ProviderAdmin; me: string }) {

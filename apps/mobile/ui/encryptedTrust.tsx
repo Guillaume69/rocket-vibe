@@ -1,6 +1,7 @@
 import {useCallback,useEffect,useRef,useState} from 'react';
 import {useFocusEffect} from 'expo-router';
 import {ActivityIndicator,Alert,AppState,StyleSheet,Text,View} from 'react-native';
+import {dismissible} from './alerts.ts';
 import {CryptoNative,type CryptoPeerApproval,type CryptoPeerView} from '../modules/crypto-native/index.ts';
 import type {NativeChat} from '../providers/rocketvibe/chat.ts';
 import type {CryptoPeerAccess} from '../providers/rocketvibe/cryptoPeers.ts';
@@ -52,7 +53,7 @@ function Trust({c,user,chat}:{c:Colors;user:string;chat:NativeChat}) {
     if(choice==='verify'){submit();return;}
     Alert.alert(t(choice==='replace'?'peer.replace':'peer.firstContact'),t(choice==='replace'?'peer.replaceBody':'peer.firstContactBody'),[
       {text:t('common.cancel'),style:'cancel'},{text:t(choice==='replace'?'peer.replace':'peer.firstContact'),onPress:submit},
-    ]);
+    ],dismissible());
   };
   const preview=(device:string)=>{const selected=view;if(!selected)return;setApproval(null);
     void run(async(a,visible)=>{const result=await a.preview(selected,device);if(visible())setApproval(result);});};

@@ -1,6 +1,7 @@
 import {useCallback,useEffect,useRef,useState} from 'react';
 import {useFocusEffect} from 'expo-router';
 import {ActivityIndicator,Alert,AppState,StyleSheet,Text,View} from 'react-native';
+import {dismissible} from './alerts.ts';
 import {CryptoNative,type CryptoGroupPreview} from '../modules/crypto-native/index.ts';
 import type {NativeChat} from '../providers/rocketvibe/chat.ts';
 import type {CryptoGroupAccess,CryptoGroupView} from '../providers/rocketvibe/cryptoGroups.ts';
@@ -84,7 +85,7 @@ function Group({c,room,membership,chat}:{c:Colors;room:string;membership:string;
     if(action==='resume'){submit();return;}
     Alert.alert(t(action==='packages'?'group.packages':'group.cancel'),t(action==='packages'?'group.packagesBody':'group.cancelBody'),[
       {text:t('common.cancel'),style:'cancel'},{text:t(action==='packages'?'group.packages':'group.cancel'),onPress:submit},
-    ]);
+    ],dismissible());
   };
   return <View style={[styles.card,{borderColor:c.border}]}>
     <Action c={c} label={t('group.title')} onPress={()=>setExpanded(v=>!v)} disabled={busy}/>

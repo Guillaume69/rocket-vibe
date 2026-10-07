@@ -81,7 +81,10 @@ export default function RootLayout() {
                         it arrives late (setOptions) and may be ignored.
                         `fitToContents`: the sheet fits its content's height
                         instead of filling the screen (default `[1.0]`). Native grabber
-                        and rounded corners, no header: it is a menu, not a page. */}
+                        and rounded corners, no header: it is a menu, not a page.
+                        Every sheet stays dimmed (no `sheetLargestUndimmedDetentIndex`)
+                        so a tap outside it closes it like Back, with no action
+                        (react-native-screens' default; project rule, CLAUDE.md). */}
                     <Stack.Screen
                       name="message-actions"
                       options={{

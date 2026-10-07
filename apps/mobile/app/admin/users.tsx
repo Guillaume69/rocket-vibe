@@ -1,6 +1,7 @@
 import { Redirect, Stack } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
 import { Alert, FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { dismissible } from '../../ui/alerts.ts';
 
 import type { AdminUser, ProviderAdmin } from '../../lib/admin.ts';
 import type { RestClient } from '../../lib/rest.ts';
@@ -94,12 +95,12 @@ function Users({ c, admin, client, me }: { c: Colors; admin: ProviderAdmin; clie
             setOpen(null);
           }, 'admin.userDeleted'),
       },
-    ]);
+    ], dismissible());
   const deactivate = (user: AdminUser) =>
     Alert.alert(t('admin.deactivate'), t('admin.deactivateBody', { name: user.name }), [
       { text: t('common.cancel'), style: 'cancel' },
       { text: t('admin.deactivate'), style: 'destructive', onPress: () => change(user, { active: false }, 'admin.deactivated') },
-    ]);
+    ], dismissible());
 
   const dots = presenceColors(c);
   return (

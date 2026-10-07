@@ -16,6 +16,7 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+import { dismissible } from '../ui/alerts.ts';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { subscriptions, messages, rooms } from '../db/schema.ts';
@@ -165,6 +166,14 @@ export default function MessageActionsScreen() {
   const provider = sync.phase === 'ready' ? sync.provider : null;
   const viewGeneration = useRef(0);
   const privateAccess=useRef<CryptoConversationAccess|null>(null);
+  // Closed meanwhile (an outside tap, Back): an action finishing later must
+  // not `router.back()` again, that second back would leave the room.
+  const sheetOpen = useRef(true);
+  useEffect(() => {
+    sheetOpen.current = true;
+    return () => { sheetOpen.current = false; };
+  }, []);
+  const close = useCallback(() => { if (sheetOpen.current) router.back(); }, [router]);
   useEffect(() => {
     viewGeneration.current += 1;
     return () => { viewGeneration.current += 1; };
@@ -364,7 +373,7 @@ export default function MessageActionsScreen() {
       setError(null);
       try {
         await action();
-        router.back();
+        close();
       } catch (e) {
         if (provider?.native) {
           const diagnostic=provider.describeError(e,true);
@@ -378,7 +387,7 @@ export default function MessageActionsScreen() {
         setBusy(false);
       }
     },
-    [router, provider, t],
+    [close, provider, t],
   );
 
   if (!ready || client === null || engine === null || trigger === null || payload === null || payload.message.id!==id
@@ -604,7 +613,7 @@ export default function MessageActionsScreen() {
           onSend={async (reason) => {
             await provider?.reports?.message(message.id, reason);
             notify(t('report.sent'));
-            router.back();
+            close();
           }}
         />
       ) : picking ? (
@@ -853,7 +862,7 @@ export default function MessageActionsScreen() {
                         }
                       }),
                   },
-                ])
+                ], dismissible())
               }
             />
           )}

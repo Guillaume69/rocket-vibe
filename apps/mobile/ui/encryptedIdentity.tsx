@@ -1,6 +1,7 @@
 import {useCallback,useEffect,useRef,useState} from 'react';
 import {useFocusEffect} from 'expo-router';
 import {ActivityIndicator,Alert,AppState,StyleSheet,Text,View} from 'react-native';
+import {dismissible} from './alerts.ts';
 import * as Clipboard from 'expo-clipboard';
 import {CryptoNative,type CryptoIdentityApproval,type CryptoIdentityStatus} from '../modules/crypto-native/index.ts';
 import type {NativeChat} from '../providers/rocketvibe/chat.ts';
@@ -104,7 +105,7 @@ function Identity({c,chat}:{c:Colors;chat:NativeChat}) {
   const begin=()=>{const n=epoch.current,expected=root.trim();Alert.alert(t('private.begin'),t('private.beginBody'),[
     {text:t('common.cancel'),style:'cancel'},
     {text:t('private.begin'),onPress:()=>{if(focused.current && epoch.current===n)void run(async a=>{setView(await a.begin(expected));});}},
-  ]);};
+  ],dismissible());};
   const inspect=(code:string)=>{setPreview(null);setGrant('');void run(async a=>{const result=await a.preview(code);if(focused.current)setPreview(result);});};
   const approve=()=>{const selected=preview;if(!selected)return;setPreview(null);
     void run(async a=>{const result=await a.approve(selected.id);if(focused.current)setGrant(result);});};
@@ -122,7 +123,7 @@ function Identity({c,chat}:{c:Colors;chat:NativeChat}) {
         if(!focused.current || epoch.current!==n)return;setWithdrawalPreview(null);
         void run(async a=>{if(CryptoNative)await chat.cryptoWithdrawals(a,CryptoNative).confirm(selected.id);});
       }},
-    ]);
+    ],dismissible());
   };
   const inspectBackup=()=>{const n=epoch.current;void run(async a=>{if(!CryptoNative)return;
     const selected=await chat.cryptoRecovery(a,CryptoNative).previewBackup();if(focused.current && epoch.current===n)setBackupPreview(selected);});};
@@ -132,19 +133,21 @@ function Identity({c,chat}:{c:Colors;chat:NativeChat}) {
       {text:t('private.backupPrepare'),onPress:()=>{if(!focused.current||epoch.current!==n)return;
         void run(async a=>{if(!CryptoNative)return;const r=chat.cryptoRecovery(a,CryptoNative);await r.prepareBackup(selected.id);
           const code=await r.code();if(focused.current&&epoch.current===n)setRecoveryCode(code);});}},
-    ]);};
+    ],dismissible());};
   const showRecoveryCode=()=>{const n=epoch.current;void run(async a=>{if(!CryptoNative)return;const code=await chat.cryptoRecovery(a,CryptoNative).code();if(focused.current&&epoch.current===n)setRecoveryCode(code);});};
   const inspectRestore=()=>{const n=epoch.current,code=recoveryInput.trim(),expected=view?.remoteFingerprint??'';setRecoveryInput('');
     void run(async a=>{if(!CryptoNative)return;const selected=await chat.cryptoRecovery(a,CryptoNative).previewRestore(code,expected);if(focused.current&&epoch.current===n)setRestorePreview(selected);});};
   const restore=()=>{const selected=restorePreview,n=epoch.current;if(!selected)return;
+    // Cancel forgets the staged restore; an outside tap does the same.
+    const forget=()=>{setRestorePreview(null);void run(async a=>{if(CryptoNative)await chat.cryptoRecovery(a,CryptoNative).clearPreview();});};
     Alert.alert(t('private.restoreConfirm'),`${t('private.restoreBody')}\n\n${selected.root_fingerprint}`, [
-      {text:t('common.cancel'),style:'cancel',onPress:()=>{setRestorePreview(null);void run(async a=>{if(CryptoNative)await chat.cryptoRecovery(a,CryptoNative).clearPreview();});}},
+      {text:t('common.cancel'),style:'cancel',onPress:forget},
       {text:t('private.restoreConfirm'),onPress:()=>{if(!focused.current||epoch.current!==n)return;void run(async a=>{if(CryptoNative)await chat.cryptoRecovery(a,CryptoNative).restore(selected.id);});}},
-    ]);};
+    ],dismissible(forget));};
   const cancelBackup=()=>{const n=epoch.current;Alert.alert(t('private.backupCancel'),t('private.backupCancelBody'),[
     {text:t('common.cancel'),style:'cancel'},
     {text:t('private.backupCancel'),style:'destructive',onPress:()=>{if(focused.current&&epoch.current===n)void run(async a=>{if(CryptoNative)await chat.cryptoRecovery(a,CryptoNative).cancel();});}},
-  ]);};
+  ],dismissible());};
   const historyRun=(action:(h:ReturnType<NativeChat['cryptoHistory']>,n:number)=>Promise<void>)=>{
     const n=epoch.current;void run(async a=>{if(CryptoNative)await action(chat.cryptoHistory(a,CryptoNative),n);});
   };
@@ -169,7 +172,7 @@ function Identity({c,chat}:{c:Colors;chat:NativeChat}) {
       {text:t('common.cancel'),style:'cancel'},
       {text:t('private.historyShare'),onPress:share(false)},
       ...(selected.can_delegate?[{text:t('private.historyShareDelegate'),style:'destructive' as const,onPress:share(true)}]:[]),
-    ]);};
+    ],dismissible());};
   const resumeHistory=()=>historyRun(async(h,n)=>{const resumed=await h.resumeShare();if(live(n))setHistory({label:resumed?'private.historyShared':'private.historyIdle'});});
   const backupRun=(action:(b:ReturnType<NativeChat['cryptoHistoryBackup']>,n:number)=>Promise<void>)=>{
     const n=epoch.current;void run(async a=>{if(CryptoNative)await action(chat.cryptoHistoryBackup(a,CryptoNative),n);});
@@ -182,7 +185,7 @@ function Identity({c,chat}:{c:Colors;chat:NativeChat}) {
       {text:t('common.cancel'),style:'cancel'},
       {text:t('private.historyBackupEnable'),onPress:()=>{if(!live(n))return;setHistoryBackupPreview(null);
         backupRun(async(b,m)=>{await b.prepare(selected.id);const code=await b.code();if(live(m))setHistoryCode(code);});}},
-    ]);};
+    ],dismissible());};
   const showHistoryCode=()=>backupRun(async(b,n)=>{const code=await b.code();if(live(n))setHistoryCode(code);});
   const joinHistoryBackup=()=>{const code=historyJoin.trim();setHistoryJoin('');backupRun(async b=>{await b.join(code);});};
   const syncHistoryBackup=()=>backupRun(async(b,n)=>{const pages=await b.sync();if(live(n))setHistoryBackupResult(t('private.historyBackupSynced',{n:pages}));});

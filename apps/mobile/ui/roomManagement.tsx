@@ -2,6 +2,7 @@
 import {eq} from 'drizzle-orm';
 import {useEffect,useRef,useState} from 'react';
 import {Alert,StyleSheet,Switch,Text,TextInput,View} from 'react-native';
+import {dismissible} from './alerts.ts';
 import type {LocalDatabase} from '../db/client.ts';
 import {nativeRoomOperations} from '../db/schema.ts';
 import type {RoomFields,RoomManagement,RoomIntent,ProviderRoomMemberPage,RoomSettings,RoomRole} from '../lib/provider.ts';
@@ -72,7 +73,7 @@ export function RoomCommands({rid,base,details,actions,c,refresh}:{rid:string;ba
       {details.canChangeRoles && <View style={styles.roles}>{(['member','moderator','owner'] as const).map(role=>button(t(roleKey[role]),()=>void run(()=>actions.changeRole(rid,members.revision,member.id,role)),member.deactivated||member.role===role||!!intent))}</View>}
     </View>)}
     {members?.continuation && button(t('roomManagement.moreMembers'),()=>loadMembers(true))}
-    {details.canLeave && button(t('roomManagement.leave'),()=>Alert.alert(t('roomManagement.leave'),t('roomManagement.confirmLeave'),[{text:t('common.cancel'),style:'cancel'},{text:t('roomManagement.leave'),style:'destructive',onPress:()=>void run(()=>actions.leave(rid,details.revision))}]),!!intent)}
+    {details.canLeave && button(t('roomManagement.leave'),()=>Alert.alert(t('roomManagement.leave'),t('roomManagement.confirmLeave'),[{text:t('common.cancel'),style:'cancel'},{text:t('roomManagement.leave'),style:'destructive',onPress:()=>void run(()=>actions.leave(rid,details.revision))}],dismissible()),!!intent)}
   </View>;
 }
 const styles=StyleSheet.create({root:{gap:12,marginTop:12},fields:{gap:10},field:{gap:6},input:{borderRadius:12,padding:12,fontFamily:FONTS.body,fontSize:15,textAlignVertical:'top'},toggle:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',gap:12},label:{flex:1,gap:2},button:{padding:12,borderRadius:12},buttonText:{fontFamily:FONTS.body,fontSize:15},saved:{padding:12,borderRadius:12,gap:8},member:{gap:6,paddingVertical:10,borderBottomWidth:1},roles:{flexDirection:'row',flexWrap:'wrap',gap:6}});

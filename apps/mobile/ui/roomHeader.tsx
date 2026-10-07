@@ -10,6 +10,7 @@
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { dismissible } from './alerts.ts';
 
 import type { rooms } from '../db/schema.ts';
 import { callContext, startConference, probeCallAvailable } from '../lib/call.ts';
@@ -107,7 +108,7 @@ export function RoomHeader({
         const callId = await startConference(client, rid,{membership,alive});
         if(alive())router.push({ pathname: '/call/[callId]', params: { callId, title: name,rid,account:callContext(client),...(membership==null?{}:{adhesion:membership}) } });
       } catch {
-        if(alive())Alert.alert(t('room.callTitle'), t('room.callStartFailed'));
+        if(alive())Alert.alert(t('room.callTitle'), t('room.callStartFailed'), undefined, dismissible());
       } finally {
         if(alive())setCallInFlight(null);
       }

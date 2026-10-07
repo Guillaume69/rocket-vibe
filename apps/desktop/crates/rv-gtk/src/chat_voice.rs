@@ -848,7 +848,10 @@ impl ChatPage {
         let weak = Rc::downgrade(self);
         voice.join.connect_clicked(move |_| {
             let Some(this) = weak.upgrade() else { return };
-            if let Some(rid) = this.voice.shown.borrow().clone() {
+            // Read apart: `if let` would keep the borrow while joining, which
+            // sets the shown room again (and panicked).
+            let shown = this.voice.shown.borrow().clone();
+            if let Some(rid) = shown {
                 this.join_voice(&rid, false);
             }
         });
@@ -1112,7 +1115,12 @@ impl ChatPage {
     pub(super) fn join_voice(self: &Rc<Self>, rid: &str, ring: bool) {
         let Some(session) = self.native_session() else { return };
         self.show_voice(rid);
-        if session.voice().snapshot().room.as_deref() == Some(rid) || self.voice.joining.borrow().is_some() {
+        let snapshot = session.voice().snapshot();
+        // Already in it: the page only, unless calling again a direct room
+        // nobody else is in (the join asks the server to ring once more).
+        let alone = !snapshot.participants.iter().any(|p| !p.local);
+        let here = snapshot.room.as_deref() == Some(rid);
+        if here && !(ring && alone) || self.voice.joining.borrow().is_some() {
             return;
         }
         self.voice.joining.replace(Some(rid.to_owned()));
@@ -1147,7 +1155,9 @@ impl ChatPage {
     /// other member of a direct room nobody else is in yet.
     pub(super) fn voice_call(self: &Rc<Self>) {
         let (Some(session), Some(open)) = (self.native_session(), self.current.borrow().clone()) else { return };
-        let ring = open.kind == "d" && session.voice_participants(&open.rid).is_empty();
+        // Nobody but this account in the session (a call left alone counts): ring.
+        let me = &session.info.user_id;
+        let ring = open.kind == "d" && session.voice_participants(&open.rid).iter().all(|p| &p.user.id == me);
         self.join_voice(&open.rid, ring);
     }
 
@@ -1174,6 +1184,7 @@ impl ChatPage {
     fn voice_rings(self: &Rc<Self>, session: &Arc<NativeSession>, snapshot: &Snapshot) {
         let me = session.info.user_id.clone();
         let rings = session.rings();
+        let mut unanswered = false;
         {
             let mut seen = self.voice.rings.borrow_mut();
             for ring in &rings {
@@ -1182,9 +1193,15 @@ impl ChatPage {
                 let missed = state == "missed" || (state == "declined" && ring.caller.id == me);
                 if before.as_deref() == Some("ringing") && missed {
                     sounds::play(Sound::Missed);
+                    // This side called, nobody answered: alone in the call, it hangs up.
+                    unanswered |= ring.caller.id == me && snapshot.room.as_deref() == Some(&ring.room_id);
                 }
             }
             seen.retain(|id, _| rings.iter().any(|r| &r.id == id));
+        }
+        if unanswered && !snapshot.participants.iter().any(|p| !p.local) {
+            let session = session.clone();
+            runtime().spawn(async move { session.disconnect_voice().await });
         }
         let incoming = rings.iter().find(|r| {
             r.callee.id == me
@@ -1636,6 +1653,15 @@ impl ChatPage {
         self.voice.page_controls.camera.emit_clicked();
         if screen {
             self.start_share(None, ScreenQuality::DEFAULT);
+        }
+    }
+
+    /// Smoke: leaves with the page's button, then (`join`) its "Join voice" button.
+    pub fn voice_press(&self, button: &str) {
+        match button {
+            "leave" => self.voice.page_controls.leave.emit_clicked(),
+            "join" => self.voice.join.emit_clicked(),
+            _ => {}
         }
     }
 

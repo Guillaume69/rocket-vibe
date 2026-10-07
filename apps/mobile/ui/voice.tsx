@@ -141,7 +141,10 @@ export function useJoinVoice(): (room: string, title: string, ring?: boolean, di
   return useCallback(async (room, title, ring = false, direct = false) => {
     if (!controller) return false;
     router.push({ pathname: '/voice/[rid]', params: { rid: room, title, ...(direct ? { direct: '1' } : {}) } });
-    if (controller.state.room === room && controller.state.phase !== 'idle') return true;
+    // Already in it: the screen only, unless calling a direct room again
+    // where nobody else is (the join asks the server to ring once more).
+    const alone = !controller.state.participants.some(p => !p.local);
+    if (controller.state.room === room && controller.state.phase !== 'idle' && !(ring && alone)) return true;
     const microphone = await microphoneAllowed();
     if (!microphone) notify(t('voice.micDenied'));
     const link = state.phase === 'connected' ? nativeRoomPermalink(state.session, room) : null;

@@ -24,7 +24,9 @@
 //!                          screen, and checks a card shows a camera and the stage a screen
 //!                          (RV_VOICE_FAKE_VIDEO=pattern without devices); `camera`: the camera
 //!                          only, and no stage; `picker`, `menu`: opens the share picker or the
-//!                          microphone's menu, for a screenshot
+//!                          microphone's menu, for a screenshot; `again`: leaves, then joins
+//!                          again from the page's Join button; `declined`: a direct call the
+//!                          other side declines must hang up
 //!   RV_SMOKE_UPLOAD="<path>|<caption>"  stages the file in the composer, types the caption and
 //!                          sends (RV_SMOKE_UPLOAD_HOLD=1: left staged, for a screenshot)
 //!   RV_SMOKE_SPOTLIGHT=<query>  finds a channel, joins it and opens it
@@ -284,6 +286,22 @@ pub fn install(window: &Rc<AppWindow>) {
                             });
                         } else if video == "picker" || video == "menu" {
                             chat.voice_open(&video);
+                        } else if video == "declined" {
+                            // A direct call the other side declines (RV_SMOKE_JOIN_VOICE in a DM): it hangs up.
+                            glib::timeout_add_local_once(Duration::from_millis(12000), move || {
+                                let (connected, ..) = chat.voice_summary();
+                                check("voice hung up when declined", !connected, connected);
+                            });
+                        } else if video == "again" {
+                            // Leave, then join again from the page's button.
+                            chat.voice_press("leave");
+                            glib::timeout_add_local_once(Duration::from_millis(3000), move || {
+                                chat.voice_press("join");
+                                glib::timeout_add_local_once(Duration::from_millis(6000), move || {
+                                    let (connected, ..) = chat.voice_summary();
+                                    check("voice joined again", connected, connected);
+                                });
+                            });
                         }
                     });
                 });

@@ -7,6 +7,8 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-07
+
 ### Added
 
 - Voice on a RocketVibe server, Discord style: voice channels you enter with a tap and
@@ -546,7 +548,8 @@ First published version: Android, for Rocket.Chat 8 or later.
 - Profiles, room info, my profile (status, photo, information).
 - Interface in French and English.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.6.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.7.0...HEAD
+[0.7.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.6.0...mobile-v0.7.0
 [0.6.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.5.0...mobile-v0.6.0
 [0.5.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.4.0...mobile-v0.5.0
 [0.4.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.3.1...mobile-v0.4.0

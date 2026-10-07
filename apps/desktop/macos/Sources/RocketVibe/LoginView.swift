@@ -56,6 +56,8 @@ struct LoginView: View {
                         Text(L("login.kind_auto")).tag(ServerChoice.auto)
                         Text(L("login.kind_rocketchat")).tag(ServerChoice.rocketChat)
                         Text(L("login.kind_rocketvibe")).tag(ServerChoice.rocketVibe)
+                        Text(L("login.kind_mattermost")).tag(ServerChoice.mattermost)
+                        Text(L("login.kind_kchat")).tag(ServerChoice.kchat)
                     }
                     .pickerStyle(.segmented)
                     if let probe = login.probeLine {
@@ -72,7 +74,7 @@ struct LoginView: View {
                     TextField(L("login.user"), text: $login.user)
                         .focused($focus, equals: .user)
                         .textContentType(.username)
-                    SecureField(L(login.recovering ? "login.new_password" : "login.password"), text: $login.password)
+                    SecureField(L(login.recovering ? "login.new_password" : login.tokenLogin ? "login.kchat_token" : "login.password"), text: $login.password)
                         .focused($focus, equals: .password)
                         .textContentType(.password)
                         .onSubmit(submit)

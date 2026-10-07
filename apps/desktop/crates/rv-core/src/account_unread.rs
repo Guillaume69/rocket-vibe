@@ -23,7 +23,11 @@ pub fn subscriptions_unread(response: &Value) -> bool {
 
 /// A Rocket.Chat account: `subscriptions.get`. A refused token is an error
 /// here, never a sign-out: that account is not the open one.
+/// A Mattermost or kChat account reads its channels and memberships instead.
 pub async fn rocket_chat(info: &SessionInfo) -> Result<bool, RestError> {
+    if info.mattermost.is_some() {
+        return crate::mattermost::unread(info).await;
+    }
     let base = url::Url::parse(&info.base_url).map_err(|_| RestError::incomplete("invalid server address"))?;
     let rest = RestClient::new(base);
     rest.set_credentials(Some(Credentials { auth_token: info.auth_token.clone(), user_id: info.user_id.clone() }));

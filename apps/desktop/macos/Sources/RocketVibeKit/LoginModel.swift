@@ -52,6 +52,8 @@ public final class LoginModel {
     public private(set) var knownServers: [String] = []
     /// What the server says about itself: its version and what it asks, or why it will not do.
     public private(set) var probeLine: String?
+    /// kChat signs in with an Infomaniak API token in the password field.
+    public private(set) var tokenLogin = false
     public private(set) var probeBad = false
     @ObservationIgnored private var nativeAttempt: NativeLoginAttempt?
     @ObservationIgnored private var recoveryAttempt: NativeRecoveryEmail?
@@ -89,6 +91,7 @@ public final class LoginModel {
         do {
             let p = try await client.probe(server: asked, kind: kind)
             guard asked == server, expected == probeRevision else { return }
+            tokenLogin = p.genre == "kchat"
             canRegister = p.genre == "rocketvibe" && p.accountInvitations
             canRecover = p.genre == "rocketvibe" && p.accountRecovery
             canEmailRecover = canRecover && p.emailRecovery
@@ -99,7 +102,9 @@ public final class LoginModel {
                 probeBad = true
                 return
             }
-            var facts = ["\(p.genre == "rocketvibe" ? "RocketVibe" : "Rocket.Chat") \(p.version)"]
+            let product = ["rocketvibe": "RocketVibe", "mattermost": "Mattermost", "kchat": "kChat"][p.genre] ?? "Rocket.Chat"
+            var facts = ["\(product) \(p.version)".trimmingCharacters(in: .whitespaces)]
+            if tokenLogin { facts.append(L("login.kchat_help")) }
             if p.twoFactor { facts.append(L("login.probe_2fa")) }
             if p.e2e { facts.append(L("login.probe_e2e")) }
             probeLine = facts.joined(separator: " · ")

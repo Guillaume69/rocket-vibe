@@ -47,6 +47,8 @@ pub enum ServerChoice {
     Auto,
     RocketChat,
     RocketVibe,
+    Mattermost,
+    Kchat,
 }
 
 impl From<ServerChoice> for rv_core::native::ServerKind {
@@ -55,6 +57,8 @@ impl From<ServerChoice> for rv_core::native::ServerKind {
             ServerChoice::Auto => Self::Auto,
             ServerChoice::RocketChat => Self::RocketChat,
             ServerChoice::RocketVibe => Self::RocketVibe,
+            ServerChoice::Mattermost => Self::Mattermost,
+            ServerChoice::Kchat => Self::Kchat,
         }
     }
 }

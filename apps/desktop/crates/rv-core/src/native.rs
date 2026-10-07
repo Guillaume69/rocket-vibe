@@ -129,6 +129,9 @@ pub enum ServerKind {
     Auto,
     RocketChat,
     RocketVibe,
+    Mattermost,
+    /// Infomaniak's Mattermost: signed in with a token, never a password.
+    Kchat,
 }
 
 /// `probe` under the user's choice: Rocket.Chat never asks for native
@@ -136,7 +139,7 @@ pub enum ServerKind {
 pub async fn probe_as(base: &url::Url, kind: ServerKind) -> Result<Option<Discovery>, Error> {
     match kind {
         ServerKind::Auto => probe(base).await,
-        ServerKind::RocketChat => Ok(None),
+        ServerKind::RocketChat | ServerKind::Mattermost | ServerKind::Kchat => Ok(None),
         ServerKind::RocketVibe => probe(base).await?.ok_or(Error::Protocol("not_native")).map(Some),
     }
 }
@@ -257,12 +260,14 @@ fn check(identity: &Identity, discovery: &Discovery) -> Result<(), Error> {
 impl SessionInfo {
     pub fn from_secret(value: &Value) -> Option<Self> {
         let field = |key: &str| value[key].as_str().filter(|s| !s.is_empty()).map(str::to_owned);
-        let native = match value.get("genre") {
-            None => None,
-            Some(Value::String(kind)) if kind == "rocketchat" => None,
-            Some(Value::String(kind)) if kind == "rocketvibe" => {
-                Some(Identity { instance_id: field("nativeInstanceId")?, data_epoch: field("nativeDataEpoch")? })
-            }
+        let (native, mattermost) = match value.get("genre") {
+            None => (None, None),
+            Some(Value::String(kind)) if kind == "rocketchat" => (None, None),
+            Some(Value::String(kind)) if kind == "rocketvibe" => (
+                Some(Identity { instance_id: field("nativeInstanceId")?, data_epoch: field("nativeDataEpoch")? }),
+                None,
+            ),
+            Some(Value::String(kind)) => (None, Some(crate::mattermost::Flavor::from_genre(kind)?)),
             _ => return None,
         };
         let base_url = field("baseUrl")?;
@@ -273,11 +278,19 @@ impl SessionInfo {
             username: field("username").unwrap_or_default(),
             auth_token: field("authToken")?,
             native,
-            mattermost: None,
+            mattermost,
         })
     }
+    /// `rocketchat`, `rocketvibe`, `mattermost` or `kchat`.
+    pub fn genre(&self) -> &'static str {
+        match (&self.native, self.mattermost) {
+            (Some(_), _) => "rocketvibe",
+            (None, Some(flavor)) => flavor.genre(),
+            (None, None) => "rocketchat",
+        }
+    }
     pub fn secret(&self) -> Value {
-        let mut value = json!({"baseUrl":self.base_url,"userId":self.user_id,"username":self.username,"authToken":self.auth_token,"genre":if self.native.is_some() {"rocketvibe"} else {"rocketchat"}});
+        let mut value = json!({"baseUrl":self.base_url,"userId":self.user_id,"username":self.username,"authToken":self.auth_token,"genre":self.genre()});
         if let Some(identity) = &self.native {
             value["nativeInstanceId"] = json!(identity.instance_id);
             value["nativeDataEpoch"] = json!(identity.data_epoch);

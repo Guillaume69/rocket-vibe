@@ -234,7 +234,7 @@ impl Client {
 
 fn account(info: &SessionInfo) -> Account {
     Account {
-        genre: if info.native.is_some() { "rocketvibe" } else { "rocketchat" }.into(),
+        genre: info.genre().into(),
         key: accounts::key(info),
         base_url: info.base_url.clone(),
         user_id: info.user_id.clone(),

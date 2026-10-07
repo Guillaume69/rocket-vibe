@@ -326,10 +326,11 @@ impl Store {
     /// Whether a message of the room already carries this uploaded file.
     pub fn file_posted(&self, rid: &str, file_id: &str) -> bool {
         let pattern = format!("%/file-upload/{file_id}/%");
+        let mattermost = format!("%/api/v4/files/{file_id}\"%");
         self.read(|c| {
             c.query_row(
-                "SELECT 1 FROM messages WHERE rid = ?1 AND attachments LIKE ?2 LIMIT 1",
-                params![rid, pattern],
+                "SELECT 1 FROM messages WHERE rid = ?1 AND (attachments LIKE ?2 OR attachments LIKE ?3) LIMIT 1",
+                params![rid, pattern, mattermost],
                 |_| Ok(()),
             )
             .optional()

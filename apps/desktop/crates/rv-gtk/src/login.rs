@@ -114,6 +114,8 @@ fn server_kind(kind: &gtk::DropDown) -> rv_core::native::ServerKind {
     match kind.selected() {
         1 => ServerKind::RocketChat,
         2 => ServerKind::RocketVibe,
+        3 => ServerKind::Mattermost,
+        4 => ServerKind::Kchat,
         _ => ServerKind::Auto,
     }
 }
@@ -133,6 +135,8 @@ impl LoginPage {
             t("login.kind_auto"),
             t("login.kind_rocketchat"),
             t("login.kind_rocketvibe"),
+            t("login.kind_mattermost"),
+            t("login.kind_kchat"),
         ]);
         kind.set_tooltip_text(Some(t("login.kind")));
         let kind_row = gtk::Box::builder().spacing(10).margin_start(14).build();
@@ -326,6 +330,8 @@ impl LoginPage {
             #[weak]
             kind,
             #[weak]
+            password_caption,
+            #[weak]
             recovery_email,
             #[weak]
             probe,
@@ -359,6 +365,8 @@ impl LoginPage {
                         }
                         probe.set_visible(true);
                         probe.remove_css_class("bad");
+                        let token = matches!(&found, Ok(p) if p.genre == "kchat");
+                        password_caption.set_label(t(if token { "login.kchat_token" } else { "login.password" }));
                         match found {
                             Ok(p) if !p.password_login => {
                                 probe.add_css_class("bad");
@@ -368,8 +376,11 @@ impl LoginPage {
                                 recovery_email.profile(&p);
                                 signup.set_visible(p.genre == "rocketvibe" && p.account_invitations);
                                 recovery.set_visible(p.genre == "rocketvibe" && p.account_recovery);
-                                let product = if p.genre == "rocketvibe" { "RocketVibe" } else { "Rocket.Chat" };
-                                let mut facts = vec![format!("{product} {}", p.version)];
+                                let product = rv_core::server::product(&p.genre);
+                                let mut facts = vec![format!("{product} {}", p.version).trim_end().to_owned()];
+                                if token {
+                                    facts.push(t("login.kchat_help").to_owned());
+                                }
                                 if p.two_factor {
                                     facts.push(t("login.probe_2fa").to_owned());
                                 }

@@ -1077,6 +1077,14 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("login.kind_auto", "Automatique", "Automatic"),
     ("login.kind_rocketchat", "Rocket.Chat", "Rocket.Chat"),
     ("login.kind_rocketvibe", "RocketVibe", "RocketVibe"),
+    ("login.kind_mattermost", "Mattermost", "Mattermost"),
+    ("login.kind_kchat", "kChat", "kChat"),
+    ("login.kchat_token", "Jeton d'API Infomaniak", "Infomaniak API token"),
+    (
+        "login.kchat_help",
+        "kChat : collez un jeton d'API Infomaniak (manager.infomaniak.com, Jetons d'API) ; l'utilisateur est ignoré",
+        "kChat: paste an Infomaniak API token (manager.infomaniak.com, API tokens); the user is not used",
+    ),
     (
         "login.probe_no_password",
         "Ce serveur n'accepte pas la connexion par mot de passe",

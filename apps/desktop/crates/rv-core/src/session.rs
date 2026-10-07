@@ -15,6 +15,8 @@ use url::Url;
 use crate::actions::{self, ServerSettings};
 use crate::ddp::{self, DdpEvent, DdpHandle, State, Timeouts};
 use crate::live;
+use crate::mattermost::socket::{self as live_socket, LiveEvent, LiveHandle};
+use crate::mattermost::{self, Flavor};
 use crate::{info, media};
 
 const UPDATE_AVATAR: &str = "updateAvatar";
@@ -124,8 +126,18 @@ pub async fn login_as(
     password: &str,
     two_factor: Option<TwoFactorCode>,
 ) -> Result<SessionInfo, RestError> {
+    use crate::native::ServerKind;
+    if kind == ServerKind::Kchat || (kind == ServerKind::Auto && mattermost::is_kchat_host(server)) {
+        return mattermost::login_kchat(server, password).await;
+    }
+    if kind == ServerKind::Mattermost {
+        return mattermost::login(server, user, password, two_factor).await;
+    }
     if let Some(discovery) = crate::native::probe_as(server, kind).await.map_err(crate::native::rest_error)? {
         return crate::native::login(server, &discovery, user, password).await.map_err(crate::native::rest_error);
+    }
+    if kind == ServerKind::Auto && mattermost::probe(server).await.is_some() {
+        return mattermost::login(server, user, password, two_factor).await;
     }
     let rest = RestClient::new(server.clone());
     let options = CallOptions {
@@ -138,12 +150,12 @@ pub async fn login_as(
     let data = response.get("data").unwrap_or(&Value::Null);
     let field = |pointer: &str| data.pointer(pointer).and_then(Value::as_str).unwrap_or_default().to_owned();
     let info = SessionInfo {
+        mattermost: None,
         base_url: server.to_string().trim_end_matches('/').to_owned(),
         user_id: field("/userId"),
         username: field("/me/username"),
         auth_token: field("/authToken"),
         native: None,
-        mattermost: None,
     };
     if info.auth_token.is_empty() || info.user_id.is_empty() {
         return Err(RestError {
@@ -176,7 +188,7 @@ pub struct Session {
     pub outbox: Arc<Outbox>,
     pub media: Arc<MediaCache>,
     pub uploads: Arc<Uploads>,
-    ddp: DdpHandle,
+    transport: Transport,
     events: broadcast::Sender<SessionEvent>,
     current_room: Mutex<Option<(String, String)>>,
     tasks: Mutex<Vec<JoinHandle<()>>>,
@@ -202,6 +214,53 @@ pub struct Session {
     synced: Arc<Mutex<std::collections::HashSet<String>>>,
 }
 
+/// Rocket.Chat's DDP, or the socket of a Mattermost or kChat account.
+#[derive(Clone)]
+enum Transport {
+    Ddp(DdpHandle),
+    Live(LiveHandle),
+}
+
+impl Transport {
+    fn open(&self, token: &str) {
+        match self {
+            Transport::Ddp(ddp) => ddp.open(token),
+            Transport::Live(live) => live.open(),
+        }
+    }
+
+    fn close(&self) {
+        match self {
+            Transport::Ddp(ddp) => ddp.close(),
+            Transport::Live(live) => live.close(),
+        }
+    }
+
+    /// Mattermost pushes every event of the account: nothing to subscribe per room.
+    fn subscribe(&self, name: &str, key: &str) {
+        if let Transport::Ddp(ddp) = self {
+            ddp.subscribe(name, key);
+        }
+    }
+
+    fn unsubscribe(&self, name: &str, key: &str) {
+        if let Transport::Ddp(ddp) = self {
+            ddp.unsubscribe(name, key);
+        }
+    }
+
+    async fn subscriptions_armed(&self) {
+        if let Transport::Ddp(ddp) = self {
+            ddp.subscriptions_armed().await;
+        }
+    }
+}
+
+enum Feed {
+    Ddp(tokio::sync::mpsc::UnboundedReceiver<DdpEvent>),
+    Live(tokio::sync::mpsc::UnboundedReceiver<LiveEvent>),
+}
+
 struct E2eUnlocked {
     key: crate::e2e::PrivateKey,
     /// The same key as its JWK, for the keychain.
@@ -224,20 +283,46 @@ impl Session {
         }
         let base: Url = info.base_url.parse().expect("stored base URL");
         let store = Arc::new(Store::open(db_path)?);
-        let rest = RestClient::new(base.clone());
+        let flavor = info.mattermost;
+        let rest = match flavor {
+            Some(_) => RestClient::mattermost(base.clone()),
+            None => RestClient::new(base.clone()),
+        };
         rest.set_credentials(Some(Credentials { auth_token: info.auth_token.clone(), user_id: info.user_id.clone() }));
-        let sync = Arc::new(SyncEngine::new(store.clone(), rest.clone(), &info.username, &info.user_id));
+        let sync = Arc::new(match flavor {
+            Some(flavor) => {
+                SyncEngine::for_mattermost(store.clone(), rest.clone(), &info.username, &info.user_id, flavor)
+            }
+            None => SyncEngine::new(store.clone(), rest.clone(), &info.username, &info.user_id),
+        });
         let outbox = Arc::new(Outbox::new(store.clone(), rest.clone(), sync.clone(), &info.user_id, &info.username));
-        let (ddp, ddp_events) = ddp::spawn(websocket_url(&base), Timeouts::default());
-        ddp.subscribe(STREAM_NOTIFY_USER, &format!("{}/subscriptions-changed", info.user_id));
-        ddp.subscribe(STREAM_NOTIFY_USER, &format!("{}/rooms-changed", info.user_id));
-        ddp.subscribe(STREAM_NOTIFY_USER, &format!("{}/{}", info.user_id, live::PRIVATE_MESSAGE));
-        ddp.subscribe(STREAM_ROOM_MESSAGES, MY_MESSAGES);
-        ddp.subscribe(live::STREAM_NOTIFY_LOGGED, live::USER_STATUS);
-        ddp.subscribe(live::STREAM_NOTIFY_LOGGED, UPDATE_AVATAR);
+        let (transport, incoming) = match flavor {
+            Some(flavor) => {
+                let dialect = if flavor == Flavor::Kchat {
+                    live_socket::Dialect::Kchat
+                } else {
+                    live_socket::Dialect::Mattermost
+                };
+                let (live, events) = live_socket::spawn(dialect, rest.clone(), info.auth_token.clone());
+                (Transport::Live(live), Feed::Live(events))
+            }
+            None => {
+                let (ddp, ddp_events) = ddp::spawn(websocket_url(&base), Timeouts::default());
+                ddp.subscribe(STREAM_NOTIFY_USER, &format!("{}/subscriptions-changed", info.user_id));
+                ddp.subscribe(STREAM_NOTIFY_USER, &format!("{}/rooms-changed", info.user_id));
+                ddp.subscribe(STREAM_NOTIFY_USER, &format!("{}/{}", info.user_id, live::PRIVATE_MESSAGE));
+                ddp.subscribe(STREAM_ROOM_MESSAGES, MY_MESSAGES);
+                ddp.subscribe(live::STREAM_NOTIFY_LOGGED, live::USER_STATUS);
+                ddp.subscribe(live::STREAM_NOTIFY_LOGGED, UPDATE_AVATAR);
+                (Transport::Ddp(ddp), Feed::Ddp(ddp_events))
+            }
+        };
         let (events, _) = broadcast::channel(32);
 
-        let media = Arc::new(MediaCache::new(rest.clone()));
+        let media = Arc::new(match sync.mattermost() {
+            Some(mm) => MediaCache::for_mattermost(rest.clone(), mm.directory.clone()),
+            None => MediaCache::new(rest.clone()),
+        });
         let uploads = Arc::new(Uploads::new(store.clone(), rest.clone(), sync.clone()));
         let session = Arc::new(Session {
             info,
@@ -247,7 +332,7 @@ impl Session {
             outbox,
             media,
             uploads,
-            ddp,
+            transport,
             events,
             current_room: Mutex::new(None),
             tasks: Mutex::default(),
@@ -269,12 +354,15 @@ impl Session {
         session.outbox.set_encryptor(move |rid, payload| weak.upgrade()?.encrypt(rid, payload));
         let weak = Arc::downgrade(&session);
         session.uploads.set_encryptor(move |rid, payload| weak.upgrade()?.encrypt(rid, payload));
-        let listener = tokio::spawn(Self::listen(Arc::downgrade(&session), ddp_events));
+        let listener = match incoming {
+            Feed::Ddp(events) => tokio::spawn(Self::listen(Arc::downgrade(&session), events)),
+            Feed::Live(events) => tokio::spawn(Self::listen_live(Arc::downgrade(&session), events)),
+        };
         let watcher = tokio::spawn(Self::watch_token(Arc::downgrade(&session), session.rest.token_rejected()));
         let progress = tokio::spawn(Self::forward_uploads(Arc::downgrade(&session), session.uploads.changes()));
         session.tasks.lock().unwrap().extend([listener, watcher, progress]);
 
-        session.ddp.open(&session.info.auth_token);
+        session.transport.open(&session.info.auth_token);
         // The read the user sees: not sequenced behind the socket negotiation.
         session.spawn_catch_up();
         Ok(session)
@@ -308,7 +396,7 @@ impl Session {
                     // subscriptions, so nothing falls between the two transports.
                     let s2 = s.clone();
                     tokio::spawn(async move {
-                        s2.ddp.subscriptions_armed().await;
+                        s2.transport.subscriptions_armed().await;
                         s2.catch_up().await;
                     });
                 }
@@ -316,12 +404,89 @@ impl Session {
                     let base = (1000u64 << attempt.min(5)).min(MAX_RECONNECT_DELAY_MS);
                     let delay = (base + fastrand::u64(0..1000)).min(MAX_RECONNECT_DELAY_MS);
                     attempt += 1;
-                    let ddp = s.ddp.clone();
+                    let transport = s.transport.clone();
                     let token = s.info.auth_token.clone();
                     tokio::spawn(async move {
                         tokio::time::sleep(Duration::from_millis(delay)).await;
-                        ddp.open(&token);
+                        transport.open(&token);
                     });
+                }
+            }
+        }
+    }
+
+    async fn listen_live(
+        session: std::sync::Weak<Session>,
+        mut events: tokio::sync::mpsc::UnboundedReceiver<LiveEvent>,
+    ) {
+        let mut attempt: u32 = 0;
+        while let Some(event) = events.recv().await {
+            let Some(s) = session.upgrade() else { return };
+            match event {
+                LiveEvent::Event { name, data, broadcast } => s.apply_mattermost(&name, &data, &broadcast).await,
+                LiveEvent::State(state) => {
+                    let c = match state {
+                        State::Authenticated => Connection::Online,
+                        State::Closed => Connection::Offline,
+                        _ => Connection::Connecting,
+                    };
+                    let _ = s.events.send(SessionEvent::Connection(c));
+                }
+                LiveEvent::Authenticated => {
+                    attempt = 0;
+                    tokio::spawn(async move { s.catch_up().await });
+                }
+                LiveEvent::Lost => {
+                    let base = (1000u64 << attempt.min(5)).min(MAX_RECONNECT_DELAY_MS);
+                    let delay = (base + fastrand::u64(0..1000)).min(MAX_RECONNECT_DELAY_MS);
+                    attempt += 1;
+                    let (transport, token) = (s.transport.clone(), s.info.auth_token.clone());
+                    tokio::spawn(async move {
+                        tokio::time::sleep(Duration::from_millis(delay)).await;
+                        transport.open(&token);
+                    });
+                }
+            }
+        }
+    }
+
+    /// One Mattermost event, in arrival order: typing and presence here, the
+    /// rest into the store.
+    async fn apply_mattermost(self: &Arc<Self>, name: &str, data: &Value, broadcast: &Value) {
+        let Some(mm) = self.sync.mattermost().cloned() else { return };
+        let field =
+            |v: &Value, key: &str| v.get(key).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
+        match name {
+            "typing" => {
+                let (Some(rid), Some(uid)) =
+                    (field(broadcast, "channel_id").or_else(|| field(data, "channel_id")), field(data, "user_id"))
+                else {
+                    return;
+                };
+                mm.directory.ensure(&self.rest, [uid.clone()]).await;
+                let user = mm.directory.username(&uid).unwrap_or(uid);
+                self.typing.lock().unwrap().apply(&rid, &user, true, Instant::now());
+                let _ = self.events.send(SessionEvent::Typing(rid.clone()));
+                let weak = Arc::downgrade(self);
+                tokio::spawn(async move {
+                    tokio::time::sleep(live::TYPING_EXPIRY + Duration::from_millis(100)).await;
+                    if let Some(s) = weak.upgrade() {
+                        let _ = s.events.send(SessionEvent::Typing(rid));
+                    }
+                });
+            }
+            "status_change" => {
+                let presence = field(data, "status").as_deref().and_then(mattermost::actions::presence);
+                if let (Some(uid), Some(presence)) = (field(data, "user_id"), presence) {
+                    self.presence.lock().unwrap().get_or_insert_default().insert(uid, presence);
+                    let _ = self.events.send(SessionEvent::Presence);
+                }
+            }
+            _ => {
+                if let Some(m) = mm.apply_event(name, data, broadcast).await
+                    && let Some(incoming) = self.incoming_message(&m)
+                {
+                    let _ = self.events.send(SessionEvent::Incoming(Box::new(incoming)));
                 }
             }
         }
@@ -391,6 +556,11 @@ impl Session {
         {
             return None;
         }
+        self.incoming_message(&m)
+    }
+
+    /// A new message from someone else, when my preference wants it shown.
+    fn incoming_message(&self, m: &crate::normalize::Message) -> Option<crate::notify::Incoming> {
         let (room_name, kind) = self.store.room_name(&m.rid)?;
         let encrypted = m.system_type.as_deref() == Some("e2e");
         let incoming = crate::notify::Incoming {
@@ -399,8 +569,8 @@ impl Session {
             author: m.author_name.clone().unwrap_or_default(),
             room_name,
             direct: kind == "d",
-            body: (!encrypted).then(|| crate::notify::body_of(&m)),
-            mentions_me: crate::notify::mentions_me(&m, &self.info.username),
+            body: (!encrypted).then(|| crate::notify::body_of(m)),
+            mentions_me: crate::notify::mentions_me(m, &self.info.username),
         };
         let preference = self.notification_preference.lock().unwrap().clone();
         crate::notify::wanted(&preference, &incoming).then_some(incoming)
@@ -418,6 +588,14 @@ impl Session {
 
     /// Everyone's presence at once; the stream then keeps it current.
     async fn load_presence(&self) {
+        if self.sync.mattermost().is_some() {
+            let ids: Vec<String> = self.store.rooms().into_iter().filter_map(|r| r.dm_other_uid).collect();
+            if let Ok(list) = mattermost::actions::statuses(&self.rest, &ids).await {
+                self.presence.lock().unwrap().get_or_insert_default().extend(list);
+                let _ = self.events.send(SessionEvent::Presence);
+            }
+            return;
+        }
         if let Ok(response) = self.rest.get("users.presence", CallOptions::default()).await {
             let list = live::presence_list(&response);
             self.presence.lock().unwrap().replace(list.into_iter().collect());
@@ -428,6 +606,9 @@ impl Session {
     /// Whether the server has a video-conference provider. A "no" is kept for
     /// the session; a network failure or a refused token says nothing about it.
     pub async fn call_available(&self) -> bool {
+        if self.sync.mattermost().is_some() {
+            return false;
+        }
         if let Some(known) = *self.call_available.lock().unwrap() {
             return known;
         }
@@ -452,17 +633,26 @@ impl Session {
     }
 
     pub async fn room_info(&self, rid: &str) -> Result<info::RoomInfo, RestError> {
+        if self.sync.mattermost().is_some() {
+            return mattermost::actions::room_info(&self.rest, rid).await;
+        }
         let response = self.rest.get("rooms.info", CallOptions::params([("roomId", rid)])).await?;
         response.get("room").and_then(info::room_info).ok_or_else(|| RestError::incomplete("rooms.info: no room"))
     }
 
     pub async fn room_by_name(&self, name: &str) -> Result<info::RoomInfo, RestError> {
+        if self.sync.mattermost().is_some() {
+            return mattermost::actions::room_by_name(&self.rest, name).await;
+        }
         let response = self.rest.get("rooms.info", CallOptions::params([("roomName", name)])).await?;
         response.get("room").and_then(info::room_info).ok_or_else(|| RestError::incomplete("rooms.info: no room"))
     }
 
     /// By username, or by id when `by_id`.
     pub async fn profile(&self, key: &str, by_id: bool) -> Result<info::Profile, RestError> {
+        if let Some(mm) = self.sync.mattermost() {
+            return mattermost::actions::profile(&self.rest, mm, key, by_id).await;
+        }
         let param = if by_id { "userId" } else { "username" };
         let response = self.rest.get("users.info", CallOptions::params([(param, key)])).await?;
         let profile =
@@ -474,6 +664,9 @@ impl Session {
     }
 
     pub async fn search(&self, rid: &str, text: &str) -> Result<Vec<crate::normalize::Message>, RestError> {
+        if let Some(mm) = self.sync.mattermost() {
+            return mattermost::actions::search(&self.rest, mm, rid, text).await;
+        }
         let options = CallOptions::params([("roomId", rid), ("searchText", text), ("count", "50")]);
         Ok(info::search_results(&self.rest.get("chat.search", options).await?))
     }
@@ -588,11 +781,17 @@ impl Session {
     }
 
     pub async fn me(&self) -> Result<crate::account::Me, RestError> {
+        if self.sync.mattermost().is_some() {
+            return mattermost::actions::me(&self.rest).await;
+        }
         Ok(crate::account::me(&self.rest.get("me", CallOptions::default()).await?))
     }
 
     /// Both at once: `users.setStatus` clears whichever one is left out.
     pub async fn set_status(&self, status: &str, message: &str) -> Result<(), RestError> {
+        if self.sync.mattermost().is_some() {
+            return mattermost::actions::set_status(&self.rest, &self.info.user_id, status, message).await;
+        }
         let body = json!({"status": status, "message": message});
         self.rest.post("users.setStatus", CallOptions::body(body)).await.map(|_| ())
     }
@@ -605,6 +804,9 @@ impl Session {
         password: Option<&str>,
         two_factor: Option<TwoFactorCode>,
     ) -> Result<(), RestError> {
+        if self.sync.mattermost().is_some() {
+            return mattermost::actions::update_basic_info(&self.rest, &data, password).await;
+        }
         if let Some(password) = password {
             data.insert("currentPassword".into(), json!(two_factor_code("password", password).code));
         }
@@ -615,16 +817,32 @@ impl Session {
     pub async fn set_avatar(&self, file: &Path, mime: &str) -> Result<(), RestError> {
         let bytes = tokio::fs::read(file).await.map_err(|e| RestError::incomplete(&e.to_string()))?;
         let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "avatar".into());
-        self.rest.upload("users.setAvatar", "image", bytes, &name, mime, Vec::new(), |_, _| {}).await.map(|_| ())
+        let path = match self.sync.mattermost() {
+            Some(_) => format!("users/{}/image", self.info.user_id),
+            None => "users.setAvatar".to_owned(),
+        };
+        self.rest.upload(&path, "image", bytes, &name, mime, Vec::new(), |_, _| {}).await.map(|_| ())
     }
 
     pub async fn reset_avatar(&self) -> Result<(), RestError> {
+        if self.sync.mattermost().is_some() {
+            let path = format!("users/{}/image", self.info.user_id);
+            return self.rest.delete(&path, CallOptions::default()).await.map(|_| ());
+        }
         self.rest.post("users.resetAvatar", CallOptions::body(json!({}))).await.map(|_| ())
     }
 
     pub async fn set_preference(&self, key: &str, value: Value) -> Result<(), RestError> {
-        let body = json!({"data": {key: value}});
-        self.rest.post("users.setPreferences", CallOptions::body(body)).await?;
+        match (self.sync.mattermost(), value.as_str()) {
+            (Some(_), Some(v)) if key == "desktopNotifications" => {
+                mattermost::actions::set_desktop_notifications(&self.rest, v).await?
+            }
+            (Some(_), _) => return Err(RestError::incomplete(&format!("{key}: not on this server"))),
+            (None, _) => {
+                let body = json!({"data": {key: value}});
+                self.rest.post("users.setPreferences", CallOptions::body(body)).await?;
+            }
+        }
         if key == "desktopNotifications"
             && let Some(v) = value.as_str()
         {
@@ -634,6 +852,9 @@ impl Session {
     }
 
     pub async fn spotlight(&self, query: &str) -> Result<Vec<crate::rooms::Found>, RestError> {
+        if let Some(mm) = self.sync.mattermost() {
+            return mattermost::actions::spotlight(&self.rest, mm, query).await;
+        }
         let response = self.rest.get("spotlight", CallOptions::params([("query", query)])).await?;
         Ok(crate::rooms::spotlight_results(&response))
     }
@@ -641,6 +862,11 @@ impl Session {
     /// The DM with this user, created if needed; returns its rid once the
     /// store has it, so it can be opened at once.
     pub async fn open_dm(&self, username: &str) -> Result<String, RestError> {
+        if let Some(mm) = self.sync.mattermost() {
+            let rid = mattermost::actions::open_dm(&self.rest, mm, &self.info.user_id, username).await?;
+            self.sync.catch_up_global().await?;
+            return Ok(rid);
+        }
         let response = self.rest.post("im.create", CallOptions::body(json!({"username": username}))).await?;
         let rid = response
             .pointer("/room/_id")
@@ -653,11 +879,20 @@ impl Session {
     }
 
     pub async fn join_channel(&self, rid: &str) -> Result<(), RestError> {
-        self.rest.post("channels.join", CallOptions::body(json!({"roomId": rid}))).await?;
+        match self.sync.mattermost() {
+            Some(_) => mattermost::actions::join(&self.rest, &self.info.user_id, rid).await?,
+            None => {
+                self.rest.post("channels.join", CallOptions::body(json!({"roomId": rid}))).await?;
+            }
+        }
         self.sync.catch_up_global().await
     }
 
     pub async fn mark_read(&self, rid: &str) {
+        if self.sync.mattermost().is_some() {
+            let _ = mattermost::actions::mark_read(&self.rest, rid).await;
+            return;
+        }
         let _ = self.rest.post("subscriptions.read", CallOptions::body(json!({"rid": rid}))).await;
     }
 
@@ -740,6 +975,13 @@ impl Session {
     /// What does not change from one reconnection to the next: read once,
     /// the REST budget being ten calls a minute.
     async fn once_per_session(&self) {
+        if self.sync.mattermost().is_some() {
+            if let Ok(me) = self.me().await {
+                *self.notification_preference.lock().unwrap() = me.desktop_notifications;
+            }
+            let _ = self.sync.reconcile_rooms().await;
+            return;
+        }
         if let Ok(list) = self.rest.get("emoji-custom.list", CallOptions::default()).await {
             let index = crate::emoji::custom_index(&list);
             *self.custom_emoji_names.lock().unwrap() = crate::emoji::custom_names(&index);
@@ -753,24 +995,30 @@ impl Session {
     }
 
     pub fn reconnect_now(&self) {
-        self.ddp.open(&self.info.auth_token);
+        self.transport.open(&self.info.auth_token);
     }
 
     /// Switches the open room and loads its latest page.
     pub async fn open_room(&self, rid: &str, kind: &str) -> Result<HistoryPage, RestError> {
         let previous = self.current_room.lock().unwrap().replace((rid.to_owned(), kind.to_owned()));
         if let Some((old, _)) = previous {
-            self.ddp.unsubscribe(STREAM_NOTIFY_ROOM, &format!("{old}/deleteMessage"));
-            self.ddp.unsubscribe(STREAM_NOTIFY_ROOM, &format!("{old}/{}", live::USER_ACTIVITY));
+            self.transport.unsubscribe(STREAM_NOTIFY_ROOM, &format!("{old}/deleteMessage"));
+            self.transport.unsubscribe(STREAM_NOTIFY_ROOM, &format!("{old}/{}", live::USER_ACTIVITY));
             self.typing.lock().unwrap().clear(&old);
         }
         // Deletions are not on `__my_messages__`: they stay per room.
-        self.ddp.subscribe(STREAM_NOTIFY_ROOM, &format!("{rid}/deleteMessage"));
-        self.ddp.subscribe(STREAM_NOTIFY_ROOM, &format!("{rid}/{}", live::USER_ACTIVITY));
+        self.transport.subscribe(STREAM_NOTIFY_ROOM, &format!("{rid}/deleteMessage"));
+        self.transport.subscribe(STREAM_NOTIFY_ROOM, &format!("{rid}/{}", live::USER_ACTIVITY));
         let rest = self.rest.clone();
         let read = CallOptions::body(json!({"rid": rid}));
+        let mattermost = self.sync.mattermost().is_some();
+        let room = rid.to_owned();
         tokio::spawn(async move {
-            let _ = rest.post("subscriptions.read", read).await;
+            if mattermost {
+                let _ = mattermost::actions::mark_read(&rest, &room).await;
+            } else {
+                let _ = rest.post("subscriptions.read", read).await;
+            }
         });
         let page = self.sync.load_history(rid, kind, None).await;
         if !self.synced.lock().unwrap().contains(rid) {
@@ -802,12 +1050,28 @@ impl Session {
     /// Best effort: the local state is logged out whatever the server says.
     pub async fn logout(&self) {
         self.shutdown();
-        let _ = self.rest.post("logout", CallOptions::default()).await;
+        match self.info.mattermost {
+            Some(flavor) => mattermost::logout(&self.rest, flavor).await,
+            None => {
+                let _ = self.rest.post("logout", CallOptions::default()).await;
+            }
+        }
     }
 
     /// The server's public settings, read once per session.
     pub async fn settings(&self) -> &ServerSettings {
-        self.settings.get_or_init(|| ServerSettings::fetch(&self.rest)).await
+        self.settings
+            .get_or_init(|| async {
+                match self.sync.mattermost() {
+                    Some(_) => ServerSettings {
+                        starring_allowed: false,
+                        site_url: Some(self.info.base_url.clone()),
+                        ..ServerSettings::from_list(&[])
+                    },
+                    None => ServerSettings::fetch(&self.rest).await,
+                }
+            })
+            .await
     }
 
     /// The message-action permissions I hold in the room: from my global roles
@@ -826,6 +1090,9 @@ impl Session {
     }
 
     async fn access(&self) -> Option<&(Vec<actions::PermissionRoles>, Vec<String>)> {
+        if self.sync.mattermost().is_some() {
+            return None;
+        }
         self.access
             .get_or_try_init(|| async {
                 let (all, me) = tokio::try_join!(
@@ -848,6 +1115,9 @@ impl Session {
         let commands = self
             .commands
             .get_or_try_init(|| async {
+                if self.sync.mattermost().is_some() {
+                    return Ok(Vec::new());
+                }
                 let list = self.rest.get("commands.list", CallOptions::params([("count", "0")])).await?;
                 Ok::<_, RestError>(crate::commands::parse_list(&list, crate::i18n::current()))
             })
@@ -887,16 +1157,27 @@ impl Session {
 
     /// The permalink the server recognises: built on `Site_Url`, else on our base URL.
     pub async fn permalink(&self, kind: &str, slug: Option<&str>, rid: &str, msg_id: &str) -> String {
+        if self.sync.mattermost().is_some() {
+            return mattermost::actions::permalink(&self.info.base_url, msg_id);
+        }
         let base = self.settings().await.site_url.clone().unwrap_or_else(|| self.info.base_url.clone());
         actions::permalink(&base, kind, slug, rid, msg_id)
     }
 
     pub async fn react(&self, msg_id: &str, shortcode: &str, add: bool) -> Result<(), RestError> {
+        if self.sync.mattermost().is_some() {
+            return mattermost::actions::react(&self.rest, &self.info.user_id, msg_id, shortcode, add).await;
+        }
         actions::react(&self.rest, msg_id, shortcode, add).await
     }
 
     pub async fn edit(&self, rid: &str, msg_id: &str, text: &str) -> Result<(), RestError> {
         let text = &crate::compose::fenced(text);
+        if let Some(mm) = self.sync.mattermost() {
+            let post = mattermost::actions::edit(&self.rest, msg_id, text).await?;
+            mm.ingest(&[post]);
+            return Ok(());
+        }
         let doc = if self.store.message_type(msg_id).as_deref() == Some(crate::normalize::ENCRYPTED_TYPE) {
             let content = self
                 .encrypt(rid, &serde_json::json!({"msg": text}))
@@ -912,31 +1193,48 @@ impl Session {
     }
 
     pub async fn delete(&self, rid: &str, msg_id: &str) -> Result<(), RestError> {
-        actions::delete(&self.rest, rid, msg_id).await?;
+        match self.sync.mattermost() {
+            Some(_) => mattermost::actions::delete(&self.rest, msg_id).await?,
+            None => actions::delete(&self.rest, rid, msg_id).await?,
+        }
         self.store.write(|w| w.delete_message(msg_id));
         Ok(())
     }
 
     /// Stars a room, or takes the star away: it moves to the Favorites section.
     pub async fn set_favorite(&self, rid: &str, on: bool) -> Result<(), RestError> {
+        if self.sync.mattermost().is_some() {
+            return Err(RestError::incomplete("favorites: not on this server"));
+        }
         actions::favorite(&self.rest, rid, on).await?;
         self.store.write(|w| w.set_favorite(rid, on));
         Ok(())
     }
 
     pub async fn pin(&self, msg_id: &str) -> Result<(), RestError> {
+        if let Some(mm) = self.sync.mattermost() {
+            mm.ingest(&[mattermost::actions::pin(&self.rest, msg_id, true).await?]);
+            return Ok(());
+        }
         actions::pin(&self.rest, msg_id).await?;
         self.refresh_message(msg_id).await;
         Ok(())
     }
 
     pub async fn unpin(&self, msg_id: &str) -> Result<(), RestError> {
+        if let Some(mm) = self.sync.mattermost() {
+            mm.ingest(&[mattermost::actions::pin(&self.rest, msg_id, false).await?]);
+            return Ok(());
+        }
         actions::unpin(&self.rest, msg_id).await?;
         self.refresh_message(msg_id).await;
         Ok(())
     }
 
     pub async fn star(&self, msg_id: &str, on: bool) -> Result<(), RestError> {
+        if self.sync.mattermost().is_some() {
+            return Err(RestError::incomplete("stars: not on this server"));
+        }
         actions::star(&self.rest, msg_id, on).await?;
         self.refresh_message(msg_id).await;
         Ok(())
@@ -954,6 +1252,14 @@ impl Session {
 
     /// A room's pinned messages, or the ones I starred there, newest first; stored as they come.
     pub async fn marked(&self, rid: &str, starred: bool) -> Result<Vec<crate::store::MessageRow>, RestError> {
+        if let Some(mm) = self.sync.mattermost() {
+            let posts = if starred { Vec::new() } else { mattermost::actions::pinned(&self.rest, rid).await? };
+            mm.ensure_authors(&posts).await;
+            mm.ingest(&posts);
+            let ids: Vec<String> =
+                posts.iter().filter_map(|p| p.get("id").and_then(Value::as_str)).map(str::to_owned).collect();
+            return Ok(self.store.messages_by_id(&ids));
+        }
         let docs = actions::marked(&self.rest, rid, starred).await?;
         self.sync.ingest_messages(&docs);
         let ids: Vec<String> =
@@ -1013,6 +1319,9 @@ impl Session {
     /// The root (`chat.getThreadMessages` never returns it) then every reply,
     /// by full pages: `count: 0` depends on `API_Allow_Infinite_Count`.
     pub async fn load_thread(&self, root_id: &str) -> Result<(), RestError> {
+        if let Some(mm) = self.sync.mattermost() {
+            return mm.load_thread(root_id).await;
+        }
         const PAGE: usize = 100;
         const MAX_PAGES: usize = 20;
         if let Ok(root) = self.rest.get("chat.getMessage", CallOptions::params([("msgId", root_id)])).await
@@ -1047,7 +1356,7 @@ impl Session {
     }
 
     pub fn shutdown(&self) {
-        self.ddp.close();
+        self.transport.close();
         for task in self.tasks.lock().unwrap().drain(..) {
             task.abort();
         }

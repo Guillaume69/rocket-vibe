@@ -50,6 +50,16 @@ pub fn profile_from(base_url: &str, info: &Value, settings: &Value) -> Option<Se
     })
 }
 
+/// The product name a probe line shows.
+pub fn product(genre: &str) -> &'static str {
+    match genre {
+        "rocketvibe" => "RocketVibe",
+        "mattermost" => "Mattermost",
+        "kchat" => "kChat",
+        _ => "Rocket.Chat",
+    }
+}
+
 /// `/api/info` for the version (proof it is a Rocket.Chat), `settings.public`
 /// (every page: `count=0`, `query` is ignored since 7.0) for the rest.
 pub async fn probe(base: &Url) -> Result<ServerProfile, RestError> {
@@ -58,6 +68,30 @@ pub async fn probe(base: &Url) -> Result<ServerProfile, RestError> {
 
 /// `probe` under the user's choice of server kind (`native::probe_as`).
 pub async fn probe_as(base: &Url, kind: crate::native::ServerKind) -> Result<ServerProfile, RestError> {
+    use crate::native::ServerKind;
+    let base_url = base.as_str().trim_end_matches('/').to_owned();
+    let mattermost = |genre: &str, version: String| ServerProfile {
+        genre: genre.into(),
+        base_url: base_url.clone(),
+        version,
+        password_login: true,
+        two_factor: false,
+        e2e: false,
+        oauth: vec![],
+        account_invitations: false,
+        account_recovery: false,
+        email_recovery: false,
+        native_identity: None,
+    };
+    if kind == ServerKind::Kchat || (kind == ServerKind::Auto && crate::mattermost::is_kchat_host(base)) {
+        return Ok(mattermost("kchat", String::new()));
+    }
+    if kind == ServerKind::Mattermost {
+        return crate::mattermost::probe(base)
+            .await
+            .map(|version| mattermost("mattermost", version))
+            .ok_or_else(|| RestError::incomplete("not a Mattermost server"));
+    }
     if let Some(native) = crate::native::probe_as(base, kind).await.map_err(crate::native::rest_error)? {
         return Ok(ServerProfile {
             genre: "rocketvibe".into(),
@@ -76,11 +110,15 @@ pub async fn probe_as(base: &Url, kind: crate::native::ServerKind) -> Result<Ser
             }),
         });
     }
+    if kind == ServerKind::Auto
+        && let Some(version) = crate::mattermost::probe(base).await
+    {
+        return Ok(mattermost("mattermost", version));
+    }
     let rest = RestClient::new(base.clone());
     let info = CallOptions { anonymous: true, outside_api_v1: true, ..Default::default() };
     let settings = CallOptions { anonymous: true, ..CallOptions::params([("count", "0")]) };
     let (info, settings) = tokio::join!(rest.get("api/info", info), rest.get("settings.public", settings));
-    let base_url = base.as_str().trim_end_matches('/').to_owned();
     profile_from(&base_url, &info?, &settings?).ok_or_else(|| RestError::incomplete("not a Rocket.Chat server"))
 }
 

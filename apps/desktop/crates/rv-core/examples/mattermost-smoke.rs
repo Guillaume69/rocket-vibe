@@ -112,6 +112,12 @@ async fn main() {
     s.pin(&id).await.unwrap();
     assert!(s.marked(&dev.rid, false).await.unwrap().iter().any(|m| m.id == id));
     println!("ok  pin listed");
+    s.star(&id, true).await.unwrap();
+    assert!(s.store.messages_by_id(std::slice::from_ref(&id))[0].starred_by(&info.user_id));
+    assert!(s.marked(&dev.rid, true).await.unwrap().iter().any(|m| m.id == id));
+    s.star(&id, false).await.unwrap();
+    assert!(!s.store.messages_by_id(std::slice::from_ref(&id))[0].starred_by(&info.user_id));
+    println!("ok  star listed, then taken away");
 
     s.send_in(&dev.rid, &format!("reply {tag}"), Some(&id)).await;
     s.load_thread(&id).await.unwrap();
@@ -125,7 +131,10 @@ async fn main() {
     std::fs::write(&file, format!("file {tag}")).unwrap();
     s.attach(&dev.rid, &file, "note.txt", "text/plain", Some(&format!("caption {tag}")), false).await.unwrap();
     until("file posted", || {
-        s.store.messages(&dev.rid, 50).iter().any(|m| m.attachments.as_deref().is_some_and(|a| a.contains("note.txt")))
+        s.store.messages(&dev.rid, 50).iter().any(|m| {
+            m.text.as_deref() == Some(&format!("caption {tag}"))
+                && m.attachments.as_deref().is_some_and(|a| a.contains("note.txt"))
+        })
     })
     .await;
     let row = s.store.messages(&dev.rid, 50).into_iter().find(|m| m.text.as_deref() == Some(&format!("caption {tag}")));

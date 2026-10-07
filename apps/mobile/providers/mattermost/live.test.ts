@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
+import { PresenceEngine } from '../../lib/presence.ts';
+import { TypingEngine } from '../../lib/typing.ts';
 import { MmClient } from './client.ts';
 import { MmDirectory } from './directory.ts';
 import { MmLive } from './live.ts';
@@ -25,6 +27,16 @@ const membership = (events: { collection: string; args: unknown[] }[]) =>
   events.find((e) => e.collection === MM_MEMBERSHIP)?.args[0] as { member: Record<string, unknown> };
 
 describe('MmLive.expand', () => {
+  test('typing and status changes reach the engines in their Rocket.Chat shapes', async () => {
+    const { live } = setup();
+    const presence = new PresenceEngine();
+    for (const event of await live.expand('status_change', { user_id: 'u-bob', status: 'dnd' }, {})) presence.apply(event);
+    assert.equal(presence.statusOf('u-bob'), 'busy');
+    const typing = new TypingEngine({ rid: 'ch1', me: 'me', schedule: () => 0, cancel: () => {} });
+    for (const event of await live.expand('typing', { user_id: 'u-bob', parent_id: '' }, { channel_id: 'ch1' })) typing.apply(event);
+    assert.deepEqual(typing.whoIsTyping(), ['bob']);
+  });
+
   test("someone else's root post: message, room preview, one more unread", async () => {
     const { live, translator } = setup();
     const events = await live.expand('posted', { post: JSON.stringify(post('p1', { create_at: 50 })), mentions: '["u-me"]' }, { channel_id: 'ch1' });

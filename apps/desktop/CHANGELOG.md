@@ -7,6 +7,8 @@ section here.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-08
+
 ### Added
 
 - React with any emoji (GTK and SwiftUI): the message menu offers the 5 emoji you react with
@@ -983,7 +985,8 @@ the mobile app (see `docs/PARITY.md`).
   `rocketvibe://` links) and zip; a macOS app in a DMG, signed with a Developer ID and
   notarized by Apple.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.10.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.11.0...HEAD
+[0.11.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.10.0...desktop-v0.11.0
 [0.10.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.9.0...desktop-v0.10.0
 [0.9.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.8.0...desktop-v0.9.0
 [0.8.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.7.0...desktop-v0.8.0

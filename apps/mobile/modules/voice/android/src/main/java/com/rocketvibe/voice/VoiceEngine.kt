@@ -14,6 +14,7 @@ import io.livekit.android.e2ee.E2EEOptions
 import io.livekit.android.events.RoomEvent
 import io.livekit.android.events.collect
 import io.livekit.android.room.Room
+import io.livekit.android.room.participant.LocalParticipant
 import io.livekit.android.room.participant.Participant
 import io.livekit.android.room.participant.RemoteParticipant
 import io.livekit.android.room.track.RemoteAudioTrack
@@ -125,6 +126,13 @@ object VoiceEngine {
             is RoomEvent.ParticipantConnected -> VoiceSounds.cue(app, R.raw.cue_join)
             is RoomEvent.ParticipantDisconnected -> VoiceSounds.cue(app, R.raw.cue_leave)
             is RoomEvent.TrackSubscribed -> applyDeafen(r)
+            // Someone else's share replaced this one: the SFU took the screen back.
+            is RoomEvent.TrackUnpublished ->
+              if (event.participant is LocalParticipant && event.publication.source == Track.Source.SCREEN_SHARE && sharing) stopScreenShare()
+            is RoomEvent.ParticipantPermissionsChanged -> {
+              val sources = event.newPermissions?.canPublishSources.orEmpty()
+              if (event.participant is LocalParticipant && sharing && sources.isNotEmpty() && Track.Source.SCREEN_SHARE !in sources) stopScreenShare()
+            }
             // Diagnostics only: a key mismatch silences someone without another trace.
             is RoomEvent.TrackE2EEStateEvent ->
               Log.i("RocketVibeVoice", "e2ee ${event.participant.identity?.value} ${event.state}")

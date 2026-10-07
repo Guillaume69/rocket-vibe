@@ -5,7 +5,7 @@
  */
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { FlatList, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -42,7 +42,8 @@ export default function VoiceScreen() {
         uid: o.user.id, name: o.user.display_name || o.user.username, speaking: false,
         muted: o.muted, deafened: o.deafened, local: false, camera: false, screen: false,
       }));
-  // The room's one screen share takes the stage, the people go below it.
+  // The room's one screen share takes most of the screen; the people go in a
+  // narrow column at its right, cameras as thumbnails.
   const sharer = here ? cards.find(card => card.screen) : undefined;
   const status = !here ? null
     : voice.ring?.state === 'ringing' && voice.participants.length < 2 ? t('voice.ringing')
@@ -75,24 +76,30 @@ export default function VoiceScreen() {
           <Text style={styles.headerIcon}>💬</Text>
         </Pressable>
       </View>
-      {sharer !== undefined && VoiceVideoView !== null && (
-        <View style={[styles.stage, { backgroundColor: c.deepCard, borderColor: c.border }]}>
-          <VoiceVideoView identity={sharer.uid} source="screen" fit="contain" style={StyleSheet.absoluteFill} />
-          <Text style={[styles.stageLabel, { color: c.text, backgroundColor: c.background }]} numberOfLines={1}>
-            🖥️ {t('voice.screenOf', { name: sharer.name })}
-          </Text>
+      {sharer !== undefined && VoiceVideoView !== null ? (
+        <View style={styles.shareRow}>
+          <View style={[styles.stage, { backgroundColor: c.deepCard, borderColor: c.border }]}>
+            <VoiceVideoView identity={sharer.uid} source="screen" fit="contain" style={StyleSheet.absoluteFill} />
+            <Text style={[styles.stageLabel, { color: c.text, backgroundColor: c.background }]} numberOfLines={1}>
+              🖥️ {t('voice.screenOf', { name: sharer.name })}
+            </Text>
+          </View>
+          <ScrollView style={styles.strip} contentContainerStyle={styles.stripContent} showsVerticalScrollIndicator={false}>
+            {cards.map(card => <MiniCard key={card.uid} c={c} client={state.client} card={card} />)}
+          </ScrollView>
         </View>
+      ) : (
+        <FlatList
+          key={columns}
+          data={cards}
+          numColumns={columns}
+          keyExtractor={card => card.uid}
+          contentContainerStyle={styles.grid}
+          columnWrapperStyle={styles.row}
+          ListEmptyComponent={<Text style={[styles.empty, { color: c.dimmed }]}>{t('voice.empty')}</Text>}
+          renderItem={({ item }) => <VoiceCard c={c} client={state.client} card={item} columns={columns} you={t('voice.you')} />}
+        />
       )}
-      <FlatList
-        key={columns}
-        data={cards}
-        numColumns={columns}
-        keyExtractor={card => card.uid}
-        contentContainerStyle={styles.grid}
-        columnWrapperStyle={styles.row}
-        ListEmptyComponent={<Text style={[styles.empty, { color: c.dimmed }]}>{t('voice.empty')}</Text>}
-        renderItem={({ item }) => <VoiceCard c={c} client={state.client} card={item} columns={columns} you={t('voice.you')} />}
-      />
       <View style={[styles.footer, { borderTopColor: c.softBorder }]}>
         {here ? (
           <VoiceControls c={c} size="large" />
@@ -110,10 +117,33 @@ export default function VoiceScreen() {
   );
 }
 
-function VoiceCard({ c, client, card, columns, you }: { c: Colors; client: RestClient; card: Card; columns: number; you: string }) {
+/** The border that lights up while the person speaks. */
+function useGlow(speaking: boolean) {
   const glow = useSharedValue(0);
-  useEffect(() => { glow.value = withTiming(card.speaking ? 1 : 0, { duration: card.speaking ? 120 : 320 }); }, [card.speaking, glow]);
-  const border = useAnimatedStyle(() => ({ opacity: glow.value }));
+  useEffect(() => { glow.value = withTiming(speaking ? 1 : 0, { duration: speaking ? 120 : 320 }); }, [speaking, glow]);
+  return useAnimatedStyle(() => ({ opacity: glow.value }));
+}
+
+/** Someone beside a shared screen: a small camera, or the avatar, and the name. */
+function MiniCard({ c, client, card }: { c: Colors; client: RestClient; card: Card }) {
+  const border = useGlow(card.speaking);
+  return (
+    <View style={[styles.mini, { backgroundColor: c.card, borderColor: c.border }]}>
+      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.miniGlow, { borderColor: c.online }, border]} />
+      {card.camera && VoiceVideoView !== null ? (
+        <View style={styles.miniCamera}>
+          <VoiceVideoView identity={card.uid} source="camera" fit="cover" style={StyleSheet.absoluteFill} />
+        </View>
+      ) : (
+        <SpeakingAvatar c={c} client={client} uid={card.uid} name={card.name} speaking={card.speaking} size={44} radius={22} />
+      )}
+      <Text style={[styles.miniName, { color: c.text }]} numberOfLines={1}>{card.name}</Text>
+    </View>
+  );
+}
+
+function VoiceCard({ c, client, card, columns, you }: { c: Colors; client: RestClient; card: Card; columns: number; you: string }) {
+  const border = useGlow(card.speaking);
   return (
     <View style={[styles.card, { backgroundColor: c.card, borderColor: c.border, flexBasis: `${100 / columns - 3}%` }]}>
       <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.cardGlow, { borderColor: c.online }, border]} />
@@ -148,7 +178,14 @@ const styles = StyleSheet.create({
   card: { flexGrow: 1, alignItems: 'center', gap: 8, paddingVertical: 20, paddingHorizontal: 10, borderRadius: 22, borderWidth: 1, overflow: 'hidden' },
   cardGlow: { borderRadius: 22, borderWidth: 3, zIndex: 1 },
   camera: { width: '100%', aspectRatio: 4 / 3, borderRadius: 16, overflow: 'hidden' },
-  stage: { marginHorizontal: 12, marginTop: 12, aspectRatio: 16 / 9, borderRadius: 18, borderWidth: 1, overflow: 'hidden' },
+  shareRow: { flex: 1, flexDirection: 'row', gap: 10, padding: 12 },
+  stage: { flex: 1, borderRadius: 18, borderWidth: 1, overflow: 'hidden' },
+  strip: { width: 92, flexGrow: 0 },
+  stripContent: { gap: 10 },
+  mini: { alignItems: 'center', gap: 6, paddingVertical: 10, paddingHorizontal: 6, borderRadius: 16, borderWidth: 1, overflow: 'hidden' },
+  miniGlow: { borderRadius: 16, borderWidth: 2, zIndex: 1 },
+  miniCamera: { width: 78, height: 58, borderRadius: 10, overflow: 'hidden' },
+  miniName: { fontFamily: FONTS.bodyStrong, fontSize: 11, maxWidth: '100%' },
   stageLabel: { position: 'absolute', left: 10, bottom: 10, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, fontFamily: FONTS.bodyBold, fontSize: 12, opacity: 0.85 },
   cardName: { fontFamily: FONTS.bodyStrong, fontSize: 14, maxWidth: '100%' },
   cardIcons: { flexDirection: 'row', gap: 6, minHeight: 16 },

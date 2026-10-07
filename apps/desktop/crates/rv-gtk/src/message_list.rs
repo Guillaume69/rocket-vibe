@@ -210,7 +210,7 @@ pub struct MessageList {
     pinned: Rc<Cell<bool>>,
     /// Refreshes whose scroll adjustments are ours, not the user's.
     settling: Rc<Cell<u32>>,
-    on_event: Handler<RowEvent>,
+    on_event: Rc<Handler<RowEvent>>,
     on_top: Handler<()>,
     on_visible: Handler<()>,
     on_bottom: Handler<()>,
@@ -250,16 +250,18 @@ impl MessageList {
         }
         self.native_me.replace(me.to_owned());
         let old = self.rows.replace(fresh.clone());
-        let prefix = if images_changed { 0 } else { old.iter().zip(&fresh).take_while(|(a, b)| a == b).count() };
-        let suffix = if images_changed {
-            0
-        } else {
-            old[prefix..].iter().rev().zip(fresh[prefix..].iter().rev()).take_while(|(a, b)| a == b).count()
-        };
+        let same = |a: &Display, b: &Display| a.row.id == b.row.id;
+        let prefix = old.iter().zip(&fresh).take_while(|(a, b)| same(a, b)).count();
+        let suffix =
+            old[prefix..].iter().rev().zip(fresh[prefix..].iter().rev()).take_while(|(a, b)| same(a, b)).count();
         let objects: Vec<_> =
             fresh[prefix..fresh.len() - suffix].iter().cloned().map(glib::BoxedAnyObject::new).collect();
         self.settling.set(self.settling.get() + 1);
+        if prefix < old.len() {
+            self.stop_fling();
+        }
         self.store.splice(prefix as u32, (old.len() - prefix - suffix) as u32, &objects);
+        self.update_in_place(&fresh, images_changed);
         if self.pinned.get() {
             self.scroll_to_bottom();
         }
@@ -312,14 +314,14 @@ impl MessageList {
             rows: RefCell::default(),
             pinned: Rc::new(Cell::new(true)),
             settling: Rc::new(Cell::new(0)),
-            on_event: RefCell::default(),
+            on_event: Rc::default(),
             on_top: RefCell::default(),
             on_visible: RefCell::default(),
             on_bottom: RefCell::default(),
             on_latest: RefCell::default(),
             detached: Cell::new(false),
             unread_after: RefCell::default(),
-            session: session.clone(),
+            session,
             editing: RefCell::default(),
             revealing: RefCell::default(),
             highlighted: RefCell::default(),
@@ -328,11 +330,83 @@ impl MessageList {
             native_images: RefCell::default(),
         });
         this.wire_selection();
-        this.wire(session);
+        this.wire();
         this
     }
 
-    fn wire(self: &Rc<Self>, session: Shared<Arc<Session>>) {
+    /// The widget for one message, registered as its row.
+    fn build(&self, display: &Display) -> gtk::Widget {
+        let session = self.session.borrow().clone();
+        let my_id = session.as_ref().map(|s| s.info.user_id.clone()).unwrap_or_else(|| self.native_me.borrow().clone());
+        let on_event: rows::OnRowEvent = {
+            let handler = self.on_event.clone();
+            Rc::new(move |event| {
+                if let Some(handler) = handler.borrow().clone() {
+                    handler(event);
+                }
+            })
+        };
+        let editing = self.editing.borrow().as_ref().filter(|(id, _)| *id == display.row.id).map(|(_, b)| b.clone());
+        let native = self.native_provider.borrow().clone().filter(|s| !s.is_closed());
+        let widget = if let Some(native) = native.filter(|_| session.is_none()) {
+            rows::native_message_widget(display, &my_id, &native, editing.as_ref(), on_event)
+        } else {
+            rows::message_widget(display, &my_id, session.as_ref(), editing.as_ref(), on_event)
+        };
+        self.bound.borrow_mut().insert(display.row.id.clone(), widget.clone());
+        self.seen.borrow_mut().insert(display.row.id.clone(), texts(&widget).iter().map(segment).collect());
+        self.apply_to(&display.row.id, &widget);
+        if self.highlighted.borrow().as_deref() == Some(display.row.id.as_str()) {
+            widget.add_css_class("revealed");
+        }
+        widget
+    }
+
+    /// Gives the item at `at` new content and builds its row again inside the
+    /// same list item. Replacing the item instead would drop it as the list's
+    /// scroll anchor, and the view would jump.
+    fn rebuild(&self, at: usize, display: &Display) {
+        let Some(object) = self.store.item(at as u32).and_downcast::<glib::BoxedAnyObject>() else { return };
+        *object.borrow_mut::<Display>() = display.clone();
+        let old = self.bound.borrow().get(&display.row.id).cloned();
+        let Some((old, holder)) = old.and_then(|old| old.parent().and_downcast::<gtk::Box>().map(|h| (old, h))) else {
+            return;
+        };
+        let row = self.build(display);
+        holder.remove(&old);
+        holder.append(&row);
+    }
+
+    /// Rebuilds, in place, every item whose content differs from `fresh` (all of them when `all`).
+    fn update_in_place(&self, fresh: &[Display], all: bool) {
+        let mut stopped = false;
+        for (at, display) in fresh.iter().enumerate() {
+            let stale = self
+                .store
+                .item(at as u32)
+                .and_downcast::<glib::BoxedAnyObject>()
+                .is_some_and(|object| all || *object.borrow::<Display>() != *display);
+            if stale {
+                if !stopped {
+                    self.stop_fling();
+                    stopped = true;
+                }
+                self.rebuild(at, display);
+            }
+        }
+    }
+
+    /// A kinetic fling keeps its own position and writes it back every frame,
+    /// so the list's correction for rows changed above the view would be
+    /// undone: the view would land on older messages. Stops it first.
+    fn stop_fling(&self) {
+        if self.scroll.is_kinetic_scrolling() {
+            self.scroll.set_kinetic_scrolling(false);
+            self.scroll.set_kinetic_scrolling(true);
+        }
+    }
+
+    fn wire(self: &Rc<Self>) {
         let weak = Rc::downgrade(self);
         let factory = gtk::SignalListItemFactory::new();
         factory.connect_setup(|_, item| {
@@ -340,49 +414,27 @@ impl MessageList {
             item.set_activatable(false);
             item.set_selectable(false);
             item.set_focusable(false);
+            item.set_child(Some(&gtk::Box::new(gtk::Orientation::Vertical, 0)));
         });
         let w = weak.clone();
         factory.connect_bind(move |_, item| {
             let item = item.downcast_ref::<gtk::ListItem>().expect("list item");
             let object = item.item().and_downcast::<glib::BoxedAnyObject>().expect("message");
-            let session = session.borrow().clone();
-            let my_id = session
-                .as_ref()
-                .map(|s| s.info.user_id.clone())
-                .unwrap_or_else(|| w.upgrade().map(|this| this.native_me.borrow().clone()).unwrap_or_default());
-            let w2 = w.clone();
-            let on_event: rows::OnRowEvent = Rc::new(move |event| {
-                if let Some(handler) = w2.upgrade().and_then(|this| this.on_event.borrow().clone()) {
-                    handler(event);
-                }
-            });
-            let display = object.borrow::<Display>();
-            let editing = w.upgrade().and_then(|this| {
-                this.editing.borrow().as_ref().filter(|(id, _)| *id == display.row.id).map(|(_, b)| b.clone())
-            });
-            let native = w.upgrade().and_then(|this| this.native_provider.borrow().clone()).filter(|s| !s.is_closed());
-            let widget = if let Some(native) = native.filter(|_| session.is_none()) {
-                rows::native_message_widget(&display, &my_id, &native, editing.as_ref(), on_event)
-            } else {
-                rows::message_widget(&display, &my_id, session.as_ref(), editing.as_ref(), on_event)
-            };
-            if let Some(this) = w.upgrade() {
-                this.bound.borrow_mut().insert(display.row.id.clone(), widget.clone());
-                this.seen.borrow_mut().insert(display.row.id.clone(), texts(&widget).iter().map(segment).collect());
-                this.apply_to(&display.row.id, &widget);
+            let (Some(this), Some(holder)) = (w.upgrade(), item.child().and_downcast::<gtk::Box>()) else { return };
+            let display = object.borrow::<Display>().clone();
+            holder.set_widget_name(&display.row.id);
+            while let Some(child) = holder.first_child() {
+                holder.remove(&child);
             }
-            if w.upgrade().is_some_and(|this| this.highlighted.borrow().as_deref() == Some(display.row.id.as_str())) {
-                widget.add_css_class("revealed");
-            }
-            item.set_child(Some(&widget));
+            holder.append(&this.build(&display));
         });
         let w = weak.clone();
         factory.connect_unbind(move |_, item| {
             let item = item.downcast_ref::<gtk::ListItem>().expect("list item");
-            let (Some(this), Some(child)) = (w.upgrade(), item.child()) else { return };
-            let id = child.widget_name().to_string();
+            let (Some(this), Some(holder)) = (w.upgrade(), item.child()) else { return };
+            let id = holder.widget_name().to_string();
             let mut bound = this.bound.borrow_mut();
-            if bound.get(&id) == Some(&child) {
+            if bound.get(&id).and_then(|row| row.parent()) == Some(holder) {
                 bound.remove(&id);
             }
         });
@@ -399,12 +451,6 @@ impl MessageList {
             }
             this.jump.set_visible(this.detached.get() || adj.upper() - adj.value() - adj.page_size() > adj.page_size());
             this.notify_visible();
-        });
-        let w = weak.clone();
-        adjustment.connect_changed(move |adj| {
-            if w.upgrade().is_some_and(|this| this.pinned.get()) {
-                adj.set_value(adj.upper() - adj.page_size());
-            }
         });
         let w = weak.clone();
         self.jump.connect_clicked(move |_| {
@@ -792,13 +838,17 @@ impl MessageList {
             &fresh,
             |d| (d.row.ts, d.row.id.clone()),
             |a, b| (a.row.ts, &a.row.id) < (b.row.ts, &b.row.id),
-            |a, b| a == b,
+            |_, _| true,
         );
+        if splices.iter().any(|s| s.at < old.len()) {
+            self.stop_fling();
+        }
         for s in splices {
             let additions: Vec<glib::BoxedAnyObject> =
                 fresh[s.insert.clone()].iter().cloned().map(glib::BoxedAnyObject::new).collect();
             self.store.splice(s.at as u32, s.remove as u32, &additions);
         }
+        self.update_in_place(&fresh, false);
         if self.pinned.get() {
             self.scroll_to_bottom();
         }
@@ -824,17 +874,15 @@ impl MessageList {
         self.unread_after.replace(after);
     }
 
-    /// Every row built again, same data: a list view only rebuilds rows
-    /// for items it has not seen, so they are all replaced.
+    /// Every row built again, same data.
     pub fn rebind(&self) {
         if let Some(session) = self.session.borrow().as_ref() {
             for d in self.rows.borrow_mut().iter_mut() {
                 d.row = session.open_row(d.row.clone());
             }
         }
-        let objects: Vec<glib::BoxedAnyObject> =
-            self.rows.borrow().iter().cloned().map(glib::BoxedAnyObject::new).collect();
-        self.store.splice(0, self.store.n_items(), &objects);
+        let rows = self.rows.borrow().clone();
+        self.update_in_place(&rows, true);
         if self.pinned.get() {
             self.scroll_to_bottom();
         }
@@ -926,8 +974,8 @@ impl MessageList {
     /// Builds the message's row again; returns its position.
     fn refresh(&self, id: &str) -> Option<u32> {
         let at = self.rows.borrow().iter().position(|d| d.row.id == id)?;
-        let object = glib::BoxedAnyObject::new(self.rows.borrow()[at].clone());
-        self.store.splice(at as u32, 1, &[object]);
+        let display = self.rows.borrow()[at].clone();
+        self.rebuild(at, &display);
         Some(at as u32)
     }
 

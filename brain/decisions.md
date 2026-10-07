@@ -113,6 +113,11 @@ The non-obvious choices behind rocket-vibe and why they were made, grouped by ar
   code on all three platforms, and at 15 frames a second per track the copy costs little.
   The sidecar keeps the latest frame per track and drops stale ones, so a slow window never
   slows the call.
+- **A screen's sound leaves out the call by default.** Sending the call back to the room
+  makes everyone hear themselves; the option exists for recording or streaming the whole
+  call. Windows excludes the sidecar's own process from the loopback, the cleanest cut;
+  Android cannot capture call audio at all and mixes the rest into the microphone track,
+  its one recorded track.
 - **A new screen share replaces the current one** rather than being refused: switching who
   presents takes one click, and the previous sharer's client stops by itself when the SFU
   revokes its screen source.

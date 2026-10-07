@@ -6,8 +6,9 @@ room joins its session from the call button, and a call in a direct room **rings
 other member. Audio flows through the operator's **LiveKit SFU**; the RocketVibe server
 mints join tokens and mirrors who is connected. It replaced the native server's Jitsi
 meetings ([calls](calls.md) stays the Rocket.Chat path). Camera (off by default) and one
-screen share per room, a new share replacing the current one; while someone shares, the
-screen takes most of the page and the people a narrow column at its right. In an encrypted
+screen share per room, a new share replacing the current one, with the computer's sound
+but not the call's voices (an option adds them); while someone shares, the screen takes
+most of the page and the people a narrow column at its right. In an encrypted
 room the frames are end-to-end encrypted under a key from the room's MLS group.
 
 ## Server contract
@@ -96,7 +97,13 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
   (MediaProjection, LiveKit's capture service), and gives the claim back when refused or
   stopped, the system's projection notification included (`lib/voice.ts` `shareScreen`).
   Another participant's share stops this one: the engine stops on its screen track
-  unpublished or its permission losing `SCREEN_SHARE`.
+  unpublished or its permission losing `SCREEN_SHARE`. **The screen's sound** (Android 10
+  and later, with the microphone permission): LiveKit's `ScreenAudioCapturer` over the
+  same MediaProjection mixes what apps let capture (media, games) into the microphone
+  track, the one recorded track Android publishes; Android never captures
+  voice-communication audio, so the call's voices are never in it and the option to add
+  them does not exist here. While it flows the microphone track stays on and a mute only
+  zeroes the voice samples (`voiceAndScreen`), so the room sees the sharer unmuted.
 - **Encrypted rooms**: `NativeChat.voiceKey` reads the key through the crypto bridge's
   `voice_key` action (`providers/rocketvibe/cryptoGroups.ts` `voiceKey`, null when this
   device is behind the server's epoch) and the join says `e2ee`; the engine builds a
@@ -131,6 +138,12 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
   a **loopback TCP** connection the app listens on with a random token (`Command::Video`,
   `rv_voice_protocol::frames`): latest frame per track, stale ones dropped, never an end
   marker. `RV_VOICE_FAKE_VIDEO=pattern` replaces the camera and the screen.
+- **The screen's sound** (`voice/src/screen_audio.rs`), published beside the screen as its
+  own `ScreenshareAudio` track (no echo cancellation, gain or noise suppression, 96 kb/s):
+  on Windows, WASAPI process loopback of everything but the sidecar's process tree, whose
+  playout is the call (the `wasapi` crate, safe code), or with `StartScreenShare.with_call`
+  plain loopback of the default output. Linux (the call would need its own output first)
+  and macOS share no sound yet. The fake video mode adds a 660 Hz tone.
 - **rv-core**: `voice.rs` (`VoiceController`, one sidecar per connection, found through
   `RV_VOICE_BIN` or next to the executable; `available()` gates the feature);
   `native/voice.rs` (`NativeSession`: join with membership and epoch checks, leave, rings,
@@ -141,6 +154,8 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
   worker (`rv_crypto::delivery::Worker::voice_key`, compared with the server's group head),
   through the room's crypto access (`native/crypto/enrollment/rooms.rs` `voice_key`), which
   GTK opens once per session (`chat_voice.rs` `voice_keys`).
+  `set_share_call` / `share_call` hold the option to put the call's voices in a screen's
+  sound (off by default), sent with each `StartScreenShare`.
   Video: `VoiceController` listens for each sidecar's frame stream and keeps the latest frame
   per track (`frame(identity, source)`); `set_camera`, `start_screen_share`,
   `stop_screen_share` and the snapshot's `camera` / `sharing` wishes (taken back when the
@@ -171,7 +186,8 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
   someone shares, the stage fills the page and the people go in a narrow column at its right.
   Each video view is a `gtk::Picture` polling `frame()` 25 times a second while mapped, a
   `gdk::MemoryTexture` per new frame (`video_view`, `video_box`). Toasts say when there is
-  no camera or the screen could not be shared.
+  no camera or the screen could not be shared. On Windows the settings' "Voice" group has
+  "Include the call in a shared screen's sound" (`voice-share-call` in the config dir).
 - **Packaging**: every desktop package carries `rv-voice` next to the app (`desktop.yml` calls
   `desktop-voice.yml`); see [desktop-gtk](../architecture/desktop-gtk.md#packaging).
 - **SwiftUI**: not yet; the plan is LiveKit's Swift SDK in the macOS-only target.
@@ -207,6 +223,7 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
 - apps/mobile/providers/rocketvibe/chat.ts
 - apps/desktop/voice/src/main.rs
 - apps/desktop/voice/src/video.rs
+- apps/desktop/voice/src/screen_audio.rs
 - apps/desktop/voice/build.rs
 - apps/desktop/crates/rv-voice-protocol/src/lib.rs
 - apps/desktop/crates/rv-core/src/voice.rs

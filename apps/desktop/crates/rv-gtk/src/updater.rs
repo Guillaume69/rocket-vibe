@@ -100,6 +100,7 @@ pub fn present(release: Release) {
 
 /// At startup: the cached offer at once, a fresh check when one is due.
 pub fn startup() {
+    let _ = running_file();
     if !automatic() {
         return;
     }
@@ -180,13 +181,20 @@ fn make_executable(_path: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// The running binary, or the AppImage holding it.
+/// The running binary, or the AppImage holding it. Resolved once: after an
+/// update renamed a new binary over it, Linux names the old one
+/// "<path> (deleted)", which no longer resolves.
 fn running_file() -> Result<PathBuf, String> {
-    let path = match std::env::var_os("APPIMAGE").filter(|path| !path.is_empty()) {
-        Some(appimage) => PathBuf::from(appimage),
-        None => std::env::current_exe().map_err(|e| e.to_string())?,
-    };
-    std::fs::canonicalize(path).map_err(|e| e.to_string())
+    static RUNNING: std::sync::OnceLock<Result<PathBuf, String>> = std::sync::OnceLock::new();
+    RUNNING
+        .get_or_init(|| {
+            let path = match std::env::var_os("APPIMAGE").filter(|path| !path.is_empty()) {
+                Some(appimage) => PathBuf::from(appimage),
+                None => std::env::current_exe().map_err(|e| e.to_string())?,
+            };
+            std::fs::canonicalize(path).map_err(|e| e.to_string())
+        })
+        .clone()
 }
 
 /// The file staged beside the running one, made executable, then renamed over it.
@@ -319,7 +327,11 @@ static RELAUNCH: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::
 /// the single instance still quitting, and some sessions kill what a quitting
 /// app leaves behind.
 pub fn relaunch() -> bool {
-    running_file().is_ok() && !RELAUNCH.swap(true, std::sync::atomic::Ordering::SeqCst)
+    can_relaunch() && !RELAUNCH.swap(true, std::sync::atomic::Ordering::SeqCst)
+}
+
+pub fn can_relaunch() -> bool {
+    running_file().is_ok()
 }
 
 /// After the app quit: the new binary in place of this process, if asked.

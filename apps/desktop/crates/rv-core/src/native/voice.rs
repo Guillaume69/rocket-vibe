@@ -2,9 +2,10 @@
 //! current member, the `rv-voice` sidecar carries the media (`crate::voice`).
 //! The grant's token stays in memory, on its way to the sidecar.
 use super::{Error, NativeSession};
-use crate::voice::{VoiceError, VoiceKey, VoiceKeys};
+use crate::voice::{ConnectionState, VoiceError, VoiceKey, VoiceKeys};
 use rv_protocol::voice::{AnswerRing, JoinVoice, VoiceGrant, VoiceParticipant, VoiceRing};
 use std::sync::atomic::Ordering;
+use tokio::sync::broadcast::error::RecvError;
 
 struct Scope {
     generation: u64,
@@ -175,6 +176,41 @@ impl NativeSession {
             let _ = self.leave_voice().await;
         }
         result.map_err(|e| Error::Protocol(e.code()))
+    }
+    /// Shares a screen: the room's one share is claimed from the server first
+    /// (`409 screen_taken` while someone else shares), then given back however
+    /// the share ends (stopped, the picker closed, the session over).
+    pub async fn share_screen(&self) -> Result<(), Error> {
+        self.ready()?;
+        let snapshot = self.voice.snapshot();
+        let Some(room) = snapshot.room.filter(|_| snapshot.state == ConnectionState::Connected) else {
+            return Err(Error::Protocol("voice_not_connected"));
+        };
+        if snapshot.sharing {
+            return Ok(());
+        }
+        self.client.claim_screen().await?;
+        let mut changes = self.voice.changes();
+        self.voice.start_screen_share().await;
+        let (voice, client) = (self.voice.clone(), self.client.clone());
+        tokio::spawn(async move {
+            loop {
+                let now = voice.snapshot();
+                if !now.sharing || now.room.as_deref() != Some(room.as_str()) {
+                    break;
+                }
+                if matches!(changes.recv().await, Err(RecvError::Closed)) {
+                    break;
+                }
+            }
+            // After a leave the server already let it go: a refusal then is fine.
+            let _ = client.release_screen().await;
+        });
+        Ok(())
+    }
+    /// Stops sharing; the claim is given back by `share_screen`'s watch.
+    pub async fn stop_screen_share(&self) {
+        self.voice.stop_screen_share().await;
     }
     /// Leaves the media at once, then tells the server (best effort: the SFU
     /// drops a client that vanished anyway).

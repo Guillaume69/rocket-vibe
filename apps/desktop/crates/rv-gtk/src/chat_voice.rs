@@ -5,7 +5,7 @@ use crate::sounds::{self, Sound};
 use rv_core::native::NativeSession;
 use rv_core::native::crypto::enrollment::rooms;
 use rv_core::native::security::Guard;
-use rv_core::voice::{ConnectionState, Ended, Snapshot, VoiceKeys};
+use rv_core::voice::{ConnectionState, Ended, Snapshot, VideoSource, VoiceKeys};
 use tokio::sync::broadcast::error::RecvError;
 
 /// Someone in a room's voice session, as a row or a card shows them.
@@ -16,13 +16,18 @@ struct Occupant {
     muted: bool,
     deafened: bool,
     local: bool,
+    camera: bool,
+    screen: bool,
 }
 
-/// Microphone, sound and leave: the panel and the voice page each have a set.
+/// Microphone, sound, camera, screen and leave: the panel and the voice page
+/// each have a set (the panel's camera and screen stay hidden).
 struct Controls {
     row: gtk::Box,
     mic: gtk::Button,
     deafen: gtk::Button,
+    camera: gtk::Button,
+    screen: gtk::Button,
     leave: gtk::Button,
 }
 
@@ -37,13 +42,17 @@ fn controls(classes: &[&str]) -> Controls {
     };
     let mic = button("audio-input-microphone-symbolic", t("voice_session.mute"));
     let deafen = button("audio-headphones-symbolic", t("voice_session.deafen"));
+    let camera = button("camera-web-symbolic", t("voice_session.camera_on"));
+    let screen = button("video-display-symbolic", t("voice_session.share_screen"));
     let leave = button("call-stop-symbolic", t("voice_session.leave"));
     leave.add_css_class("voice-leave");
     let row = gtk::Box::builder().spacing(4).valign(gtk::Align::Center).build();
     row.append(&mic);
     row.append(&deafen);
+    row.append(&camera);
+    row.append(&screen);
     row.append(&leave);
-    Controls { row, mic, deafen, leave }
+    Controls { row, mic, deafen, camera, screen, leave }
 }
 
 impl Controls {
@@ -69,22 +78,90 @@ impl Controls {
         for (button, active) in [(&self.mic, muted), (&self.deafen, snapshot.deafened)] {
             if active { button.add_css_class("voice-off") } else { button.remove_css_class("voice-off") }
         }
+        self.camera.set_sensitive(snapshot.can_publish);
+        self.screen.set_sensitive(snapshot.can_publish);
+        self.camera.set_tooltip_text(Some(t(if snapshot.camera {
+            "voice_session.camera_off"
+        } else {
+            "voice_session.camera_on"
+        })));
+        self.screen.set_tooltip_text(Some(t(if snapshot.sharing {
+            "voice_session.stop_screen"
+        } else {
+            "voice_session.share_screen"
+        })));
+        for (button, on) in [(&self.camera, snapshot.camera), (&self.screen, snapshot.sharing)] {
+            if on { button.add_css_class("voice-on") } else { button.remove_css_class("voice-on") }
+        }
     }
+}
+
+/// A camera or screen of this device's session: a picture redrawn when a new
+/// frame arrived (`VoiceController::frame`, polled 25 times a second while shown).
+fn video_view(session: &Arc<NativeSession>, identity: &str, source: VideoSource, fit: gtk::ContentFit) -> gtk::Picture {
+    let picture = gtk::Picture::builder().content_fit(fit).can_shrink(true).css_classes(["voice-video"]).build();
+    picture.set_overflow(gtk::Overflow::Hidden);
+    let (weak, voice, identity) = (picture.downgrade(), session.voice().clone(), identity.to_owned());
+    let mut shown = 0;
+    let mut draw = move || {
+        let Some(picture) = weak.upgrade() else { return glib::ControlFlow::Break };
+        if !picture.is_mapped() {
+            return glib::ControlFlow::Continue;
+        }
+        match voice.frame(&identity, source) {
+            Some(frame) if frame.serial != shown => {
+                shown = frame.serial;
+                let bytes = glib::Bytes::from_owned(frame.pixels.clone());
+                let texture = gdk::MemoryTexture::new(
+                    frame.width as i32,
+                    frame.height as i32,
+                    gdk::MemoryFormat::R8g8b8a8,
+                    &bytes,
+                    frame.width as usize * 4,
+                );
+                picture.set_paintable(Some(&texture));
+            }
+            Some(_) => {}
+            None if shown != 0 => {
+                shown = 0;
+                picture.set_paintable(None::<&gdk::Paintable>);
+            }
+            None => {}
+        }
+        glib::ControlFlow::Continue
+    };
+    draw();
+    glib::timeout_add_local(std::time::Duration::from_millis(40), draw);
+    picture
+}
+
+/// A camera at a fixed size: the frame covers a box that alone decides the
+/// size, so a 640 pixel frame never stretches its card.
+fn video_box(
+    session: &Arc<NativeSession>,
+    identity: &str,
+    source: VideoSource,
+    width: i32,
+    height: i32,
+) -> gtk::Overlay {
+    let holder = gtk::Overlay::builder().css_classes(["voice-video"]).halign(gtk::Align::Center).build();
+    holder.set_overflow(gtk::Overflow::Hidden);
+    holder.set_child(Some(&gtk::Box::builder().width_request(width).height_request(height).build()));
+    holder.add_overlay(&video_view(session, identity, source, gtk::ContentFit::Cover));
+    holder
 }
 
 /// What a snapshot shows apart from who speaks: a change here rebuilds, the
 /// rest (about ten times a second) only lights avatars.
-type Shape = (Option<String>, ConnectionState, bool, bool, bool, Vec<(String, bool, bool)>);
+type Shape = (Option<String>, ConnectionState, [bool; 5], Vec<(String, [bool; 4])>);
 /// The voice page as last drawn: room, mine, occupants, snapshot, connecting or ringing.
 type PageKey = (String, bool, Vec<Occupant>, Shape, bool);
 fn shape(s: &Snapshot) -> Shape {
     (
         s.room.clone(),
         s.state,
-        s.can_publish,
-        s.microphone,
-        s.deafened,
-        s.participants.iter().map(|p| (p.identity.clone(), p.muted, p.deafened)).collect(),
+        [s.can_publish, s.microphone, s.deafened, s.camera, s.sharing],
+        s.participants.iter().map(|p| (p.identity.clone(), [p.muted, p.deafened, p.camera, p.screen])).collect(),
     )
 }
 
@@ -98,6 +175,8 @@ fn refusal(code: &str) -> &'static str {
         "voice_encrypted_room" => "voice_session.encrypted",
         "voice_key_unavailable" => "voice_session.key_unavailable",
         "voice_unavailable" | "unsupported_feature" => "voice_session.unavailable",
+        "screen_taken" => "voice_session.screen_taken",
+        "screen_unavailable" | "voice_not_connected" => "voice_session.screen_unavailable",
         _ => "voice_session.join_failed",
     }
 }
@@ -166,6 +245,8 @@ fn occupants(session: &NativeSession, rid: &str, snapshot: &Snapshot) -> Vec<Occ
                     muted: p.muted,
                     deafened: p.deafened,
                     local: p.local || &p.identity == me,
+                    camera: p.camera,
+                    screen: p.screen,
                 }
             })
             .collect();
@@ -177,6 +258,8 @@ fn occupants(session: &NativeSession, rid: &str, snapshot: &Snapshot) -> Vec<Occ
             uid: o.user.id,
             muted: o.muted,
             deafened: o.deafened,
+            camera: o.camera,
+            screen: o.screen,
         })
         .collect()
 }
@@ -207,7 +290,13 @@ fn state_icons(o: &Occupant) -> Vec<gtk::Image> {
             gtk::Image::builder().icon_name("audio-volume-muted-symbolic").tooltip_text(t("voice_session.undeafen")),
         );
     }
-    icons.into_iter().map(|b| b.css_classes(["voice-state"]).build()).collect()
+    let mut icons: Vec<gtk::Image> = icons.into_iter().map(|b| b.css_classes(["voice-state"]).build()).collect();
+    for (on, icon) in [(o.screen, "video-display-symbolic"), (o.camera, "camera-web-symbolic")] {
+        if on {
+            icons.push(gtk::Image::builder().icon_name(icon).css_classes(["voice-media"]).build());
+        }
+    }
+    icons
 }
 
 pub(super) struct VoiceUi {
@@ -222,6 +311,12 @@ pub(super) struct VoiceUi {
     page_controls: Controls,
     open_chat: gtk::Button,
     cards: gtk::FlowBox,
+    cards_scroll: gtk::ScrolledWindow,
+    /// While someone shares: the screen, and the people in a narrow column at its right.
+    share_row: gtk::Box,
+    stage: gtk::Overlay,
+    stage_label: gtk::Label,
+    strip: gtk::Box,
     empty: gtk::Label,
     join: gtk::Button,
     /// The room the voice page shows.
@@ -252,6 +347,8 @@ impl VoiceUi {
         bar_text.append(&bar_room);
         bar_text.set_cursor(gdk::Cursor::from_name("pointer", None).as_ref());
         let bar_controls = controls(&["flat", "circular"]);
+        bar_controls.camera.set_visible(false);
+        bar_controls.screen.set_visible(false);
         let bar = gtk::Box::builder().spacing(8).css_classes(["voice-bar"]).visible(false).build();
         bar.append(&bar_text);
         bar.append(&bar_controls.row);
@@ -289,15 +386,32 @@ impl VoiceUi {
             .margin_start(24)
             .margin_end(24)
             .build();
+        let stage_label = gtk::Label::builder()
+            .css_classes(["voice-stage-label"])
+            .halign(gtk::Align::Start)
+            .valign(gtk::Align::End)
+            .build();
+        let stage = gtk::Overlay::builder().css_classes(["voice-stage"]).hexpand(true).vexpand(true).build();
+        stage.set_overflow(gtk::Overflow::Hidden);
+        stage.add_overlay(&stage_label);
+        let strip = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(10).build();
+        let strip_scroll = gtk::ScrolledWindow::builder()
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .propagate_natural_width(true)
+            .child(&strip)
+            .build();
+        let share_row = gtk::Box::builder().spacing(14).vexpand(true).visible(false).build();
+        share_row.append(&stage);
+        share_row.append(&strip_scroll);
+        let cards_scroll = gtk::ScrolledWindow::builder()
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .vexpand(true)
+            .child(&cards)
+            .build();
         column.append(&page_status);
         column.append(&empty);
-        column.append(
-            &gtk::ScrolledWindow::builder()
-                .hscrollbar_policy(gtk::PolicyType::Never)
-                .vexpand(true)
-                .child(&cards)
-                .build(),
-        );
+        column.append(&share_row);
+        column.append(&cards_scroll);
         column.append(&join);
         column.append(&page_controls.row);
         let page = adw::ToolbarView::new();
@@ -315,6 +429,11 @@ impl VoiceUi {
             page_controls,
             open_chat,
             cards,
+            cards_scroll,
+            share_row,
+            stage,
+            stage_label,
+            strip,
             empty,
             join,
             shown: RefCell::default(),
@@ -450,6 +569,28 @@ impl ChatPage {
                 runtime().spawn(async move { session.voice().set_deafened(deafened).await });
             });
             let weak = Rc::downgrade(self);
+            set.camera.connect_clicked(move |_| {
+                let Some(session) = weak.upgrade().and_then(|this| this.native_session()) else { return };
+                let enabled = !session.voice().snapshot().camera;
+                runtime().spawn(async move { session.voice().set_camera(enabled).await });
+            });
+            let weak = Rc::downgrade(self);
+            set.screen.connect_clicked(move |_| {
+                let Some(this) = weak.upgrade() else { return };
+                let Some(session) = this.native_session() else { return };
+                if session.voice().snapshot().sharing {
+                    runtime().spawn(async move { session.stop_screen_share().await });
+                    return;
+                }
+                let weak = Rc::downgrade(&this);
+                glib::spawn_future_local(async move {
+                    let result = on_tokio(async move { session.share_screen().await }).await;
+                    if let (Some(this), Err(error)) = (weak.upgrade(), result) {
+                        this.toast(t(refusal(error.code())).to_owned());
+                    }
+                });
+            });
+            let weak = Rc::downgrade(self);
             set.leave.connect_clicked(move |_| {
                 let Some(session) = weak.upgrade().and_then(|this| this.native_session()) else { return };
                 runtime().spawn(async move { session.disconnect_voice().await });
@@ -547,6 +688,16 @@ impl ChatPage {
             } else if before.deafened != now.deafened {
                 sounds::play(if now.deafened { Sound::Mute } else { Sound::Unmute });
             }
+        }
+        // A capture the sidecar could not start or keep; a closed picker says nothing.
+        if now.error != before.error
+            && let Some(key) = match now.error.as_deref() {
+                Some("camera_unavailable") => Some("voice_session.camera_unavailable"),
+                Some("screen_unavailable") => Some("voice_session.screen_unavailable"),
+                _ => None,
+            }
+        {
+            self.toast(t(key).to_owned());
         }
         if now.ended != before.ended
             && let Some(ended) = &now.ended
@@ -648,14 +799,61 @@ impl ChatPage {
         voice.page_controls.row.set_visible(mine);
         voice.page_controls.sync(snapshot);
         voice.empty.set_visible(people.is_empty());
+        // The room's one shared screen takes most of the page; the people go
+        // in a narrow column at its right, cameras as thumbnails.
+        let sharer = people.iter().find(|o| mine && o.screen);
+        if let Some(old) = voice.stage.child() {
+            voice.stage.set_child(None::<&gtk::Widget>);
+            drop(old);
+        }
+        if let Some(sharer) = sharer {
+            voice.stage.set_child(Some(&video_view(
+                session,
+                &sharer.uid,
+                VideoSource::Screen,
+                gtk::ContentFit::Contain,
+            )));
+            voice.stage_label.set_label(&tf("voice_session.screen_of", &[("name", &sharer.name)]));
+        }
+        voice.share_row.set_visible(sharer.is_some());
+        voice.cards_scroll.set_visible(sharer.is_none());
         voice.cards.remove_all();
+        while let Some(child) = voice.strip.first_child() {
+            voice.strip.remove(&child);
+        }
         for o in &people {
+            if sharer.is_some() {
+                let card = gtk::Box::builder()
+                    .orientation(gtk::Orientation::Vertical)
+                    .spacing(4)
+                    .css_classes(["voice-card", "mini"])
+                    .build();
+                if o.camera {
+                    card.append(&video_box(session, &o.uid, VideoSource::Camera, 160, 90));
+                } else {
+                    card.append(&speaking_avatar(session, o, TileSize::Room, "medium"));
+                }
+                let name = gtk::Label::builder()
+                    .label(&o.name)
+                    .css_classes(["voice-card-name", "mini"])
+                    .ellipsize(gtk::pango::EllipsizeMode::End)
+                    .max_width_chars(16)
+                    .build();
+                card.append(&name);
+                voice.speaks(&o.uid, card.upcast_ref());
+                voice.strip.append(&card);
+                continue;
+            }
             let card = gtk::Box::builder()
                 .orientation(gtk::Orientation::Vertical)
                 .spacing(8)
                 .css_classes(["voice-card"])
                 .build();
-            card.append(&speaking_avatar(session, o, TileSize::Profile, "large"));
+            if mine && o.camera {
+                card.append(&video_box(session, &o.uid, VideoSource::Camera, 220, 150));
+            } else {
+                card.append(&speaking_avatar(session, o, TileSize::Profile, "large"));
+            }
             let name = if o.local { tf("voice_session.you", &[("name", &o.name)]) } else { o.name.clone() };
             let name = gtk::Label::builder()
                 .label(name)
@@ -865,7 +1063,27 @@ impl ChatPage {
     /// Connected, the cards on the voice page, the panel shown (the smoke run).
     pub fn voice_summary(&self) -> (bool, usize, bool) {
         let connected = self.native_session().is_some_and(|s| s.voice().snapshot().state == ConnectionState::Connected);
-        let cards = std::iter::successors(self.voice.cards.first_child(), |c| c.next_sibling()).count();
+        // The grid, or the column beside a shared screen.
+        let count = |w: &gtk::Widget| std::iter::successors(w.first_child(), |c| c.next_sibling()).count();
+        let cards = count(self.voice.cards.upcast_ref()) + count(self.voice.strip.upcast_ref());
         (connected, cards, self.voice.bar.is_visible())
+    }
+
+    /// Smoke: turns the camera on and shares the screen, as their buttons do.
+    pub fn voice_video_on(self: &Rc<Self>, screen: bool) {
+        self.voice.page_controls.camera.emit_clicked();
+        if screen {
+            self.voice.page_controls.screen.emit_clicked();
+        }
+    }
+
+    /// Smoke: how many cards show a camera frame, and whether the stage shows a screen.
+    pub fn voice_video_summary(&self) -> (usize, bool) {
+        fn framed(widget: &gtk::Widget) -> usize {
+            let own = widget.downcast_ref::<gtk::Picture>().is_some_and(|p| p.paintable().is_some()) as usize;
+            own + std::iter::successors(widget.first_child(), |c| c.next_sibling()).map(|c| framed(&c)).sum::<usize>()
+        }
+        let stage = self.voice.stage.is_visible() && self.voice.stage.child().is_some_and(|c| framed(&c) > 0);
+        (framed(self.voice.cards.upcast_ref()) + framed(self.voice.strip.upcast_ref()), stage)
     }
 }

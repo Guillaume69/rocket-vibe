@@ -1,0 +1,11 @@
+fn main() {
+    // libwebrtc's screen capture through the desktop portal (PipeWire on
+    // Wayland) speaks D-Bus with GIO: webrtc-sys compiles against its headers
+    // and leaves linking to the binary. Every Linux desktop has GLib, which the
+    // GTK app bundles anyway; X11 and DRM are loaded lazily by webrtc-sys.
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux") {
+        for lib in ["gio-2.0", "gobject-2.0", "glib-2.0"] {
+            println!("cargo:rustc-link-lib=dylib={lib}");
+        }
+    }
+}

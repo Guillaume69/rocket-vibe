@@ -1,5 +1,5 @@
 //! The voice controller against a fake sidecar (tests/support/fake_voice_sidecar.rs).
-use rv_core::voice::{ConnectionState, Ended, Snapshot, VoiceController, VoiceError, VoiceKey, VoiceKeys};
+use rv_core::voice::{ConnectionState, Ended, Snapshot, VideoSource, VoiceController, VoiceError, VoiceKey, VoiceKeys};
 use rv_protocol::voice::VoiceGrant;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -160,4 +160,50 @@ async fn an_encrypted_session_connects_with_its_key_and_follows_new_epochs() {
     assert!(!snapshot.encrypted);
     assert_eq!(local(&snapshot), "me");
     voice.disconnect().await;
+}
+
+async fn until_frame(voice: &VoiceController, identity: &str, source: VideoSource, shown: bool) {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while voice.frame(identity, source).is_some() != shown {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("{identity}'s {source:?} never became shown={shown}"));
+}
+
+#[tokio::test]
+async fn video_frames_reach_the_app_and_end_with_their_track() {
+    let voice = fake(&[]);
+    // Nothing to wish for outside a session.
+    voice.set_camera(true).await;
+    assert!(!voice.snapshot().camera);
+    voice.connect(&grant("r1", "wss://lk"), None, None).await.unwrap();
+    until_frame(&voice, "peer", VideoSource::Camera, true).await;
+    let frame = voice.frame("peer", VideoSource::Camera).unwrap();
+    assert_eq!((frame.width, frame.height, frame.pixels.len()), (4, 2, 32));
+
+    voice.set_camera(true).await;
+    until_frame(&voice, "me", VideoSource::Camera, true).await;
+    let snapshot = until(&voice, |s| s.local().is_some_and(|p| p.camera)).await;
+    assert!(snapshot.camera);
+    voice.set_camera(false).await;
+    until_frame(&voice, "me", VideoSource::Camera, false).await;
+
+    voice.start_screen_share().await;
+    until_frame(&voice, "me", VideoSource::Screen, true).await;
+    assert!(until(&voice, |s| s.local().is_some_and(|p| p.screen)).await.sharing);
+    voice.stop_screen_share().await;
+    until_frame(&voice, "me", VideoSource::Screen, false).await;
+    assert!(!voice.snapshot().sharing);
+
+    // A new session starts with nothing shown, the camera off.
+    voice.connect(&grant("r2", "fake://no-screen"), None, None).await.unwrap();
+    assert!(voice.frame("me", VideoSource::Camera).is_none() && !voice.snapshot().camera);
+    // A closed picker takes the wish back.
+    voice.start_screen_share().await;
+    let snapshot = until(&voice, |s| s.error.as_deref() == Some("screen_cancelled")).await;
+    assert!(!snapshot.sharing);
+    voice.disconnect().await;
+    assert!(voice.frame("peer", VideoSource::Camera).is_none());
 }

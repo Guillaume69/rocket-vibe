@@ -179,6 +179,10 @@ section here.
   on this computer; an owner can turn a room into a voice channel, or back, in its settings.
 - Voice in encrypted rooms (GTK), end-to-end encrypted: the server relays sound it cannot
   hear, under a key only the room's devices share, renewed when its members change.
+- Camera and screen sharing in voice sessions (GTK): turn your camera on (off by default)
+  and share your screen (the system's picker on Wayland). One screen at a time in a room: a
+  new share replaces the current one, and the shared screen takes most of the page with
+  everyone in a column at its right. No camera on macOS yet.
 - The Linux tarball and AppImage, the Windows installer and the macOS app now ship the voice
   helper (`rv-voice`) next to the app, so voice is offered in released builds.
 

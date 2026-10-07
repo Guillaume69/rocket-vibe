@@ -4241,6 +4241,7 @@ dependencies = [
  "chrono",
  "fastrand",
  "futures-util",
+ "getrandom 0.3.4",
  "gif",
  "reqwest 0.13.5",
  "rusqlite",

@@ -23,8 +23,17 @@ all = { level = "warn", priority = -1 }
 # livekit has no websocket/http client at all.
 livekit = { version = "=0.9.3", default-features = false, features = ["native", "rustls-tls-native-roots"] }
 rv-voice-protocol = { path = "../crates/rv-voice-protocol" }
+futures-util = { version = "0.3", default-features = false }
 serde_json = "=1.0.151"
 tokio = { version = "=1.53.2", features = ["rt-multi-thread", "macros", "time", "sync"] }
+
+# The camera: V4L2 on Linux, Media Foundation on Windows. No `decoding` feature,
+# which would build mozjpeg's C sources: MJPEG frames go through `image`'s
+# pure-Rust JPEG decoder. macOS has no camera here (its permission belongs to an
+# app bundle the GTK build does not make).
+[target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
+nokhwa = { version = "0.10.11", default-features = false, features = ["input-native"] }
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
 
 [profile.release]
 strip = true

@@ -2,10 +2,16 @@
 //! libwebrtc, driven over JSON lines (`rv-voice-protocol`). One process per
 //! connection: `connect` spawns it, it exits once disconnected, and it dies with
 //! the controller (`kill_on_drop`). The UI observes a [`Snapshot`] and payload-less
-//! change notifications, like the native store.
+//! change notifications, like the native store. Video frames arrive apart, on a
+//! loopback TCP stream the controller listens on for each sidecar
+//! (`rv_voice_protocol::frames`); the UI reads the latest one per track with
+//! [`VoiceController::frame`].
 use rv_protocol::voice::VoiceGrant;
+use rv_voice_protocol::frames;
+pub use rv_voice_protocol::frames::Source as VideoSource;
 use rv_voice_protocol::{Command, Event, VERSION};
 pub use rv_voice_protocol::{ConnectionState, Device, Participant};
+use std::collections::HashMap;
 use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -13,7 +19,8 @@ use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, Lines};
+use tokio::net::{TcpListener, TcpStream};
 use tokio::process::{Child, ChildStdin, ChildStdout};
 use tokio::sync::{broadcast, oneshot};
 
@@ -48,6 +55,31 @@ impl std::fmt::Debug for VoiceKey {
 /// the current one (not welcomed, a group change not accepted yet).
 pub type VoiceKeys = Arc<dyn Fn() -> Pin<Box<dyn Future<Output = Option<VoiceKey>> + Send>> + Send + Sync>;
 const EXIT_TIMEOUT: Duration = Duration::from_secs(4);
+/// The sidecar connects its frame stream right after starting.
+const VIDEO_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// A frame of the room's video, or of this side's own preview: RGBA, rows packed.
+#[derive(Clone, PartialEq)]
+pub struct VideoFrame {
+    pub width: u32,
+    pub height: u32,
+    pub pixels: Arc<[u8]>,
+    /// Grows with every frame of the session: a view redraws when it moved.
+    pub serial: u64,
+}
+impl std::fmt::Debug for VideoFrame {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "VideoFrame({}x{} #{})", self.width, self.height, self.serial)
+    }
+}
+
+/// The latest frame of each track of one session.
+#[derive(Default)]
+struct Video {
+    generation: u64,
+    frames: HashMap<(VideoSource, String), VideoFrame>,
+    serial: u64,
+}
 
 /// `RV_VOICE_BIN`, else `rv-voice` next to the running executable, else in the
 /// AppImage's `bin`: sharun runs the app through its bundled loader, so the
@@ -139,6 +171,10 @@ pub struct Snapshot {
     /// The user's choices; they carry over to the next connection.
     pub microphone: bool,
     pub deafened: bool,
+    /// This side's camera and screen share, as asked: off at each connection,
+    /// and again when the sidecar reports it could not keep them.
+    pub camera: bool,
+    pub sharing: bool,
     pub ended: Option<Ended>,
     /// The last command failure the sidecar reported (`device_not_found`...).
     pub error: Option<String>,
@@ -153,6 +189,8 @@ impl Default for Snapshot {
             encrypted: false,
             microphone: true,
             deafened: false,
+            camera: false,
+            sharing: false,
             ended: None,
             error: None,
         }
@@ -169,6 +207,8 @@ impl Snapshot {
         self.room = None;
         self.state = ConnectionState::Disconnected;
         self.participants.clear();
+        self.camera = false;
+        self.sharing = false;
         self.ended = Some(ended);
     }
 }
@@ -194,6 +234,7 @@ struct Inner {
     process: tokio::sync::Mutex<Option<Sidecar>>,
     generation: AtomicU64,
     key_refresh: Duration,
+    video: Mutex<Video>,
 }
 
 #[derive(Clone)]
@@ -225,6 +266,7 @@ impl VoiceController {
                 process: tokio::sync::Mutex::new(None),
                 generation: AtomicU64::new(0),
                 key_refresh: KEY_REFRESH,
+                video: Mutex::default(),
             }),
         }
     }
@@ -240,6 +282,15 @@ impl VoiceController {
     }
     pub fn snapshot(&self) -> Snapshot {
         self.inner.shared.lock().unwrap().snapshot.clone()
+    }
+    /// The latest frame of someone's camera or screen in the current session
+    /// (this side's own included, as a preview), None when it shows nothing.
+    pub fn frame(&self, identity: &str, source: VideoSource) -> Option<VideoFrame> {
+        let video = self.inner.video.lock().unwrap();
+        if video.generation != self.inner.generation.load(Ordering::SeqCst) {
+            return None;
+        }
+        video.frames.get(&(source, identity.to_owned())).cloned()
     }
     /// Replaces any current connection with the grant's room. Returns once the
     /// sidecar took the command; the outcome arrives through the snapshot.
@@ -261,6 +312,11 @@ impl VoiceController {
         if let Some(old) = process.take() {
             stop(old).await;
         }
+        *self.inner.video.lock().unwrap() = Video { generation, ..Video::default() };
+        // Frames come back on a loopback port only this sidecar knows the token of.
+        let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).await.ok();
+        let video = listener.and_then(|l| Some((l.local_addr().ok()?.to_string(), l)));
+        let token = video_token();
         let commands = self.inner.update(|s| {
             s.snapshot = Snapshot {
                 room: Some(grant.room_id.clone()),
@@ -271,7 +327,11 @@ impl VoiceController {
                 deafened: s.snapshot.deafened,
                 ..Snapshot::default()
             };
-            let mut commands: Vec<_> = s.input.iter().map(|d| Command::SetInput { device: d.clone() }).collect();
+            let mut commands: Vec<_> = video
+                .iter()
+                .map(|(address, _)| Command::Video { address: address.clone(), token: token.clone() })
+                .collect();
+            commands.extend(s.input.iter().map(|d| Command::SetInput { device: d.clone() }));
             commands.extend(s.output.iter().map(|d| Command::SetOutput { device: d.clone() }));
             commands.push(Command::SetMicrophone { enabled: s.snapshot.microphone });
             commands.push(Command::SetDeafened { deafened: s.snapshot.deafened });
@@ -294,6 +354,9 @@ impl VoiceController {
         match started {
             Ok((sidecar, lines)) => {
                 tokio::spawn(read(Arc::downgrade(&self.inner), generation, lines));
+                if let Some((_, listener)) = video {
+                    tokio::spawn(receive(Arc::downgrade(&self.inner), generation, listener, token));
+                }
                 *process = Some(sidecar);
                 if let (Some(key), Some(keys)) = (key, keys) {
                     let every = self.inner.key_refresh;
@@ -315,6 +378,7 @@ impl VoiceController {
     pub async fn disconnect(&self) {
         let mut process = self.inner.process.lock().await;
         self.inner.generation.fetch_add(1, Ordering::SeqCst);
+        self.inner.video.lock().unwrap().frames.clear();
         self.inner.update(|s| {
             if s.snapshot.room.is_some() {
                 s.snapshot.end(Ended::Left);
@@ -332,6 +396,37 @@ impl VoiceController {
     pub async fn set_deafened(&self, deafened: bool) {
         self.inner.update(|s| s.snapshot.deafened = deafened);
         self.command(Command::SetDeafened { deafened }).await;
+    }
+    /// The default camera on or off, in the current session only.
+    pub async fn set_camera(&self, enabled: bool) {
+        if !self.wanted(|s| s.camera = enabled) {
+            return;
+        }
+        self.command(Command::SetCamera { enabled }).await;
+    }
+    /// Shares a screen. The room's one share must be claimed from the server
+    /// first: `NativeSession::share_screen` does both.
+    pub async fn start_screen_share(&self) {
+        if self.wanted(|s| s.sharing = true) {
+            self.command(Command::StartScreenShare).await;
+        }
+    }
+    pub async fn stop_screen_share(&self) {
+        if self.wanted(|s| s.sharing = false) {
+            self.command(Command::StopScreenShare).await;
+        }
+    }
+    /// A video wish applies to a session only.
+    fn wanted(&self, change: impl FnOnce(&mut Snapshot)) -> bool {
+        self.inner.update(|s| {
+            let connected = s.snapshot.room.is_some();
+            if connected {
+                change(&mut s.snapshot);
+                // A new attempt: its failure, even the same as before, is news.
+                s.snapshot.error = None;
+            }
+            connected
+        })
     }
     /// A device id from `devices`, empty for the system default; kept for later connections.
     pub async fn select_input(&self, device: &str) {
@@ -471,7 +566,15 @@ impl Inner {
                 Event::State { state } => s.snapshot.state = state,
                 Event::Participants { participants } => s.snapshot.participants = participants,
                 Event::Disconnected { reason } => s.snapshot.end(Ended::from_reason(&reason)),
-                Event::Error { code } => s.snapshot.error = Some(code),
+                Event::Error { code } => {
+                    // The sidecar gave up on a capture: the wish follows.
+                    match code.as_str() {
+                        "camera_unavailable" | "camera_ended" => s.snapshot.camera = false,
+                        "screen_unavailable" | "screen_cancelled" | "screen_ended" => s.snapshot.sharing = false,
+                        _ => {}
+                    }
+                    s.snapshot.error = Some(code);
+                }
                 Event::Hello { .. } | Event::Devices { .. } => {}
             }
         });
@@ -501,6 +604,62 @@ async fn read(inner: Weak<Inner>, generation: u64, mut lines: Lines<BufReader<Ch
             _ => return inner.exited(generation),
         }
     }
+}
+
+/// 32 random hex characters; a sidecar's frame stream opens with them.
+fn video_token() -> String {
+    let mut bytes = [0u8; 16];
+    if getrandom::fill(&mut bytes).is_err() {
+        // No secret, no stream: a token nobody can send never matches.
+        return String::new();
+    }
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// The sidecar's frame stream for session `generation`: the latest frame of each
+/// track, kept until the track ends or the session does.
+async fn receive(inner: Weak<Inner>, generation: u64, listener: TcpListener, token: String) {
+    let Ok(Ok((mut stream, _))) = tokio::time::timeout(VIDEO_TIMEOUT, listener.accept()).await else { return };
+    drop(listener);
+    if token.is_empty() || !handshake(&mut stream, &token).await {
+        return;
+    }
+    loop {
+        let Ok(length) = stream.read_u32_le().await else { return };
+        if length > frames::MAX_MESSAGE {
+            return;
+        }
+        let mut body = vec![0u8; length as usize];
+        if stream.read_exact(&mut body).await.is_err() {
+            return;
+        }
+        let Some((header, pixels)) = frames::parse(&body) else { return };
+        let Some(inner) = inner.upgrade() else { return };
+        let mut video = inner.video.lock().unwrap();
+        if video.generation != generation {
+            return;
+        }
+        let key = (header.source, header.identity);
+        if header.width == 0 {
+            video.frames.remove(&key);
+            continue;
+        }
+        video.serial += 1;
+        let frame =
+            VideoFrame { width: header.width, height: header.height, pixels: pixels.into(), serial: video.serial };
+        video.frames.insert(key, frame);
+    }
+}
+
+async fn handshake(stream: &mut TcpStream, token: &str) -> bool {
+    let mut head = [0u8; 5];
+    if tokio::time::timeout(HELLO_TIMEOUT, stream.read_exact(&mut head)).await.is_err()
+        || head[..4] != frames::MAGIC[..]
+    {
+        return false;
+    }
+    let mut sent = vec![0u8; head[4] as usize];
+    stream.read_exact(&mut sent).await.is_ok() && sent == token.as_bytes()
 }
 
 async fn send(stdin: &mut ChildStdin, command: &Command) -> Result<(), VoiceError> {

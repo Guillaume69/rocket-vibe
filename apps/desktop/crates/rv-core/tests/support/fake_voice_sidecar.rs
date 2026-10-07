@@ -2,10 +2,23 @@
 //! Argument `old`: announce another protocol version; `silent`: never say hello.
 //! Connect URLs: `fake://crash` exits without a word, `fake://refused` fails to
 //! connect, `fake://moved` is taken over by another device right after joining.
+//! `fake://no-screen` cancels every screen share as a closed picker would.
 //! The token is used as the local identity, followed by `#<key>` in an
 //! encrypted session (the key `SetKey` replaces), so tests see what it got.
+//! Video: once connected, a 4 by 2 frame of `peer`'s camera; the camera and the
+//! screen send a 2 by 2 preview of this side, and an end marker when stopped.
+use rv_voice_protocol::frames::{self, Header, Source};
 use rv_voice_protocol::{Command, ConnectionState, Device, Event, Participant, VERSION};
 use std::io::{BufRead, Write};
+use std::net::TcpStream;
+
+fn frame(stream: &mut Option<TcpStream>, source: Source, identity: &str, width: u32, height: u32) {
+    let pixels = vec![200u8; (width * height * 4) as usize];
+    let header = Header { source, identity: identity.into(), width, height };
+    if let Some(stream) = stream {
+        let _ = stream.write_all(&frames::message(&header, &pixels));
+    }
+}
 
 fn emit(event: Event) {
     let mut out = std::io::stdout().lock();
@@ -45,6 +58,8 @@ fn main() {
         screen: false,
     };
     let mut connected = false;
+    let mut url = String::new();
+    let mut video: Option<TcpStream> = None;
     let publish = |me: &Participant| emit(Event::Participants { participants: vec![me.clone(), peer.clone()] });
     for line in std::io::stdin().lock().lines() {
         let Ok(line) = line else { break };
@@ -53,7 +68,8 @@ fn main() {
             continue;
         };
         match command {
-            Command::Connect { url, token, e2ee_key } => {
+            Command::Connect { url: joined, token, e2ee_key } => {
+                url = joined;
                 match url.as_str() {
                     "fake://crash" => std::process::exit(3),
                     "fake://refused" => return ended("connect_failed"),
@@ -67,6 +83,7 @@ fn main() {
                 emit(Event::State { state: ConnectionState::Connected });
                 connected = true;
                 publish(&me);
+                frame(&mut video, Source::Camera, "peer", 4, 2);
                 if url == "fake://moved" {
                     return ended("duplicate_identity");
                 }
@@ -98,6 +115,38 @@ fn main() {
                     continue;
                 };
                 me.identity = format!("{token}#{key}");
+                publish(&me);
+            }
+            Command::Video { address, token } => {
+                video = TcpStream::connect(address).ok();
+                if let Some(stream) = &mut video {
+                    let _ = stream.write_all(&frames::handshake(&token));
+                }
+            }
+            Command::SetCamera { enabled } => {
+                me.camera = enabled;
+                let identity = me.identity.clone();
+                if enabled {
+                    frame(&mut video, Source::Camera, &identity, 2, 2)
+                } else {
+                    frame(&mut video, Source::Camera, &identity, 0, 0)
+                }
+                publish(&me);
+            }
+            Command::StartScreenShare => {
+                if url == "fake://no-screen" {
+                    emit(Event::Error { code: "screen_cancelled".into() });
+                    continue;
+                }
+                me.screen = true;
+                let identity = me.identity.clone();
+                frame(&mut video, Source::Screen, &identity, 2, 2);
+                publish(&me);
+            }
+            Command::StopScreenShare => {
+                me.screen = false;
+                let identity = me.identity.clone();
+                frame(&mut video, Source::Screen, &identity, 0, 0);
                 publish(&me);
             }
             Command::Disconnect => return ended("client_initiated"),

@@ -37,7 +37,9 @@ The version follows `apps/desktop/Cargo.toml` (bump both together).
   ```
 
 - **Linux, shippable**: `scripts/build-linux.sh` builds in `ubuntu:22.04` with
-  clang 21, so the binary needs glibc 2.35 only (a Fedora build needs 2.43).
+  clang 21, so the binary needs glibc 2.35 only (a Fedora build needs 2.43). It links
+  GLib (`build.rs`: libwebrtc's screen capture portal speaks D-Bus through GIO) and reads
+  cameras through V4L2 (`nokhwa`).
   Output: `apps/desktop/dist/voice/rv-voice`, where the packaging scripts look.
 - **Linux, development**: in the desktop's Fedora image, after
   `dnf install -y clang` (webrtc-sys needs clang 21 or later), with a target

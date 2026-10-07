@@ -1,17 +1,24 @@
-//! rv-voice: one LiveKit voice connection, audio only, driven by the desktop app
-//! over JSON lines (crates/rv-voice-protocol). One process per connection: it
-//! exits once disconnected, and when its stdin closes (the app died).
+//! rv-voice: one LiveKit voice connection, driven by the desktop app over JSON
+//! lines (crates/rv-voice-protocol): audio, camera and screen out, and the room's
+//! video to the app (video.rs). One process per connection: it exits once
+//! disconnected, and when its stdin closes (the app died).
 //!
 //! `RV_VOICE_FAKE_AUDIO=sine` publishes a synthetic tone instead of opening the
-//! microphone and speakers, for headless tests.
+//! microphone and speakers, `RV_VOICE_FAKE_VIDEO=pattern` a test pattern instead
+//! of the camera and the screen, for headless tests.
+mod video;
+
 use livekit::e2ee::key_provider::{KeyProvider, KeyProviderOptions};
 use livekit::e2ee::{E2eeOptions, EncryptionType};
 use livekit::options::TrackPublishOptions;
 use livekit::prelude::*;
+use livekit::track::VideoQuality;
 use livekit::webrtc::audio_frame::AudioFrame;
 use livekit::webrtc::audio_source::AudioSourceOptions;
 use livekit::webrtc::audio_source::native::NativeAudioSource;
 use livekit::webrtc::peer_connection_factory::native::PeerConnectionFactoryExt;
+use livekit::webrtc::video_source::RtcVideoSource;
+use rv_voice_protocol::frames::Source;
 use rv_voice_protocol::{
     Command, ConnectionState as State, DEAFENED_ATTRIBUTE, Device, Event, Participant as Member, VERSION,
 };
@@ -21,10 +28,13 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::Instant;
+use video::{Capture, Frames, Internal};
 
 /// After undeafening, the echo canceller has had no playout reference for a
 /// while: keep the microphone silent until it has converged again.
 const AEC_SETTLE: Duration = Duration::from_millis(1000);
+/// LiveKit's `TrackSource::SCREEN_SHARE` in a permission's publish sources.
+const SCREEN_SHARE_SOURCE: i32 = 3;
 
 fn emit(event: Event) {
     // LiveKit reports some transitions twice (state change, then `Reconnected`).
@@ -73,7 +83,9 @@ async fn run() {
         }
     });
     emit(Event::Hello { version: VERSION, sidecar: env!("CARGO_PKG_VERSION").into() });
-    let mut voice = Voice::new(std::env::var("RV_VOICE_FAKE_AUDIO").is_ok_and(|v| v == "sine"));
+    let (internal, mut captures) = mpsc::unbounded_channel();
+    let mut voice = Voice::new(std::env::var("RV_VOICE_FAKE_AUDIO").is_ok_and(|v| v == "sine"), internal);
+    voice.fake_video = std::env::var("RV_VOICE_FAKE_VIDEO").is_ok_and(|v| v == "pattern");
     let mut events: Option<mpsc::UnboundedReceiver<RoomEvent>> = None;
     loop {
         let settle = voice.settle;
@@ -116,8 +128,9 @@ async fn run() {
                         }
                     }
                 }
-                Some(Ok(command)) => voice.command(command),
+                Some(Ok(command)) => voice.command(command).await,
             },
+            Some(news) = captures.recv() => voice.capture(news).await,
             event = async { events.as_mut().unwrap().recv().await }, if events.is_some() => {
                 let Some(event) = event else {
                     voice.close().await;
@@ -158,12 +171,27 @@ struct Voice {
     output: Option<String>,
     settle: Option<Instant>,
     last: Option<Vec<Member>>,
+    fake_video: bool,
+    /// Where the app reads video frames, once it said.
+    frames: Option<Arc<Frames>>,
+    internal: mpsc::UnboundedSender<Internal>,
+    /// This side's camera and screen: the capture, then its published track.
+    camera: Option<(Capture, Option<LocalVideoTrack>)>,
+    screen: Option<(Capture, Option<LocalVideoTrack>)>,
+    /// The room's video tracks this side shows, by track.
+    watched: HashMap<TrackSid, (tokio::task::JoinHandle<()>, Source, String)>,
 }
 
 impl Voice {
-    fn new(fake: bool) -> Self {
+    fn new(fake: bool, internal: mpsc::UnboundedSender<Internal>) -> Self {
         Self {
             fake,
+            fake_video: false,
+            frames: None,
+            internal,
+            camera: None,
+            screen: None,
+            watched: HashMap::new(),
             room: None,
             audio: None,
             track: None,
@@ -177,6 +205,14 @@ impl Voice {
     }
 
     async fn close(&mut self) {
+        self.camera = None;
+        self.screen = None;
+        for (_, (task, source, identity)) in self.watched.drain() {
+            task.abort();
+            if let Some(frames) = &self.frames {
+                frames.end(source, &identity);
+            }
+        }
         if let Some(room) = self.room.take() {
             let _ = tokio::time::timeout(Duration::from_secs(3), room.close()).await;
         }
@@ -184,8 +220,35 @@ impl Voice {
         self.audio = None;
     }
 
-    fn command(&mut self, command: Command) {
+    async fn command(&mut self, command: Command) {
         match command {
+            Command::Video { address, token } => {
+                if self.frames.is_none() {
+                    self.frames = Some(Frames::connect(address, token));
+                }
+            }
+            Command::SetCamera { enabled } => {
+                if !enabled {
+                    return self.stop_video(Source::Camera).await;
+                }
+                if self.camera.is_none() && self.may_publish() {
+                    let identity = self.local_identity();
+                    self.camera = Some((
+                        video::camera(self.fake_video, self.frames.clone(), identity, self.internal.clone()),
+                        None,
+                    ));
+                }
+            }
+            Command::StartScreenShare => {
+                if self.screen.is_none() && self.may_publish() {
+                    let identity = self.local_identity();
+                    self.screen = Some((
+                        video::screen(self.fake_video, self.frames.clone(), identity, self.internal.clone()),
+                        None,
+                    ));
+                }
+            }
+            Command::StopScreenShare => self.stop_video(Source::Screen).await,
             Command::SetMicrophone { enabled } => {
                 self.microphone = enabled;
                 self.apply_microphone();
@@ -236,6 +299,75 @@ impl Voice {
             },
             Command::Connect { .. } | Command::Disconnect => {}
         }
+    }
+
+    fn may_publish(&self) -> bool {
+        self.room.as_ref().is_some_and(|room| room.local_participant().permission().is_none_or(|p| p.can_publish))
+    }
+
+    fn local_identity(&self) -> String {
+        self.room.as_ref().map(|room| room.local_participant().identity().to_string()).unwrap_or_default()
+    }
+
+    fn slot(&mut self, source: Source) -> &mut Option<(Capture, Option<LocalVideoTrack>)> {
+        match source {
+            Source::Camera => &mut self.camera,
+            Source::Screen => &mut self.screen,
+        }
+    }
+
+    /// The SFU unpublished this side's camera or screen: the capture stops.
+    fn lost(&mut self, source: Source, sid: &TrackSid) {
+        let ours = self.slot(source).as_ref().is_some_and(|(_, track)| track.as_ref().is_some_and(|t| &t.sid() == sid));
+        if ours {
+            *self.slot(source) = None;
+            error(if source == Source::Screen { "screen_ended" } else { "camera_ended" });
+        }
+    }
+
+    /// Stops the capture and takes its track out of the room.
+    async fn stop_video(&mut self, source: Source) {
+        let Some((capture, track)) = self.slot(source).take() else { return };
+        drop(capture);
+        if let (Some(room), Some(track)) = (&self.room, track) {
+            let _ = room.local_participant().unpublish_track(&track.sid()).await;
+        }
+        self.publish_participants();
+    }
+
+    /// A capture thread's news: the first frames publish its track, a failure ends it.
+    async fn capture(&mut self, news: Internal) {
+        let (source, kind, name) = match news {
+            Internal::Failed(source, code) => {
+                if self.slot(source).is_some() {
+                    self.stop_video(source).await;
+                    error(code);
+                }
+                return;
+            }
+            Internal::CameraReady => (Source::Camera, TrackSource::Camera, "camera"),
+            Internal::ScreenReady => (Source::Screen, TrackSource::Screenshare, "screen"),
+        };
+        let Some(room) = self.room.clone() else { return };
+        let Some((capture, track)) = self.slot(source) else { return };
+        if track.is_some() {
+            return;
+        }
+        let local = LocalVideoTrack::create_video_track(name, RtcVideoSource::Native(capture.source.clone()));
+        // A screen is text: crisp frames over fluid motion, one layer.
+        let options = TrackPublishOptions { source: kind, simulcast: source == Source::Camera, ..Default::default() };
+        match room.local_participant().publish_track(LocalTrack::Video(local.clone()), options).await {
+            Ok(_) => {
+                if let Some((_, track)) = self.slot(source) {
+                    *track = Some(local);
+                }
+            }
+            Err(_) => {
+                self.stop_video(source).await;
+                error(if source == Source::Camera { "camera_unavailable" } else { "screen_unavailable" });
+            }
+        }
+        self.publish_participants();
     }
 
     fn list_devices(&self) {
@@ -339,10 +471,45 @@ impl Voice {
                 emit(Event::State { state: State::Reconnecting })
             }
             RoomEvent::TrackSubscribed { track: RemoteTrack::Audio(track), .. } if self.deafened => track.disable(),
-            RoomEvent::LocalTrackUnpublished { .. } => {
-                self.track = None;
+            RoomEvent::TrackSubscribed { track: RemoteTrack::Video(track), publication, participant } => {
+                if let Some(frames) = &self.frames {
+                    let source =
+                        if publication.source() == TrackSource::Screenshare { Source::Screen } else { Source::Camera };
+                    let identity = participant.identity().to_string();
+                    // LiveKit sends the lowest simulcast layer until asked: cards
+                    // show up to 640 by 480, a screen fills the stage.
+                    if publication.simulcasted() {
+                        let quality = if source == Source::Screen { VideoQuality::High } else { VideoQuality::Medium };
+                        publication.set_video_quality(quality);
+                    }
+                    let task = tokio::spawn(video::watch(track, source, identity.clone(), frames.clone()));
+                    if let Some((old, ..)) = self.watched.insert(publication.sid(), (task, source, identity)) {
+                        old.abort();
+                    }
+                }
             }
+            RoomEvent::TrackUnsubscribed { publication, .. } => {
+                if let Some((task, source, identity)) = self.watched.remove(&publication.sid()) {
+                    task.abort();
+                    if let Some(frames) = &self.frames {
+                        frames.end(source, &identity);
+                    }
+                }
+            }
+            // Taken out by the SFU: someone else's share replaced this one.
+            RoomEvent::LocalTrackUnpublished { publication, .. } => match publication.source() {
+                TrackSource::Screenshare => self.lost(Source::Screen, &publication.sid()),
+                TrackSource::Camera => self.lost(Source::Camera, &publication.sid()),
+                _ => self.track = None,
+            },
             RoomEvent::ParticipantPermissionChanged { participant: Participant::Local(_), permission } => {
+                // The screen source revoked (another share took over): stop
+                // capturing, whether or not the SFU unpublished the track yet.
+                let sources = permission.as_ref().map(|p| p.can_publish_sources.clone()).unwrap_or_default();
+                if !sources.is_empty() && !sources.contains(&SCREEN_SHARE_SOURCE) && self.screen.is_some() {
+                    self.stop_video(Source::Screen).await;
+                    error("screen_ended");
+                }
                 if permission.is_some_and(|p| p.can_publish) && self.track.is_none() {
                     self.start_audio().await;
                 }
@@ -368,8 +535,8 @@ impl Voice {
             deafened: self.deafened,
             speaking: local.is_speaking(),
             level: level(local.audio_level()),
-            camera: false,
-            screen: false,
+            camera: self.camera.as_ref().is_some_and(|(_, track)| track.is_some()),
+            screen: self.screen.as_ref().is_some_and(|(_, track)| track.is_some()),
         }];
         let mut remote: Vec<_> = room
             .remote_participants()

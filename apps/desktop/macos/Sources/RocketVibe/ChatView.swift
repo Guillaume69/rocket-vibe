@@ -156,6 +156,7 @@ struct RoomListView: View {
     @State var query = ""
     @State var found: [Found] = []
     @State var searching = false
+    @State var creating = false
 
     var body: some View {
         let selection = Binding<String?>(get: { app.room?.rid }, set: { if let rid = $0 { app.select(rid) } })
@@ -183,10 +184,19 @@ struct RoomListView: View {
         .background(Vibe.deep.opacity(0.78))
         .searchable(text: $query, placement: .sidebar, prompt: L("spotlight.placeholder"))
         .task(id: query) { await search() }
-        .task(id: app.account?.key) { query = ""; found = [] }
+        .task(id: app.account?.key) { query = ""; found = []; creating = false }
+        .sheet(isPresented: $creating) { NewRoomSheet() }
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
-                Wordmark(size: 21)
+                HStack {
+                    Wordmark(size: 21)
+                    Spacer()
+                    if app.native != nil {
+                        Button { creating = true } label: { Image(systemName: "plus.bubble") }
+                            .buttonStyle(.borderless)
+                            .help(L("native.create"))
+                    }
+                }
                 Comet(active: app.connection != .online)
             }
             .padding(.horizontal, 14)

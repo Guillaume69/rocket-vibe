@@ -628,6 +628,32 @@ public final class AppModel {
         }
     }
 
+    /// Creates a room on a RocketVibe server (a voice channel with `voice`, which only a
+    /// server offering voice takes), then opens it once listed. Nil once done, else what
+    /// to tell.
+    public func createRoom(name: String, private: Bool, voice: Bool) async -> String? {
+        guard let native else { return L("native.error") }
+        let expected = sessionId
+        let selected = UUID()
+        selectionId = selected
+        do {
+            let rid = try await native.createVoiceRoom(name: name, private: `private`, voice: voice)
+            for _ in 0..<40 where !rooms.contains(where: { $0.rid == rid }) {
+                guard expected == sessionId, selected == selectionId else { return nil }
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
+            if expected == sessionId, selected == selectionId { open(rid) }
+            return nil
+        } catch {
+            switch nativeCode(error) {
+            case "offline": return L("native.offline")
+            case "session_rejected": return L("login.expired")
+            case "server_identity_changed": return L("native.identity_changed")
+            default: return L("native.error")
+            }
+        }
+    }
+
     public func toggle(_ section: RoomSection) {
         if collapsed.contains(section) { collapsed.remove(section) } else { collapsed.insert(section) }
         let lines = collapsed.map(Self.key).sorted().joined(separator: "\n")

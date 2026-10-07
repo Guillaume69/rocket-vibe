@@ -200,6 +200,9 @@ section here.
   share picker with its quality, the header's call button, ringing direct calls with
   Accept and Decline, call rows that join or call back, and a "Voice" section in the
   settings. The choices are shared with the GTK app on the same Mac. No camera of its own.
+- Create a room on a RocketVibe server in the SwiftUI app: the "+" button at the top of the
+  room list asks a name, whether it is private and, where the server offers voice, whether
+  it is a voice channel.
 - Right click on someone in a voice session to set their volume (up to 200 %) or mute them
   for you only; the choice is remembered.
 - The people of a voice session now fill the page as large tiles, a camera filling its tile.

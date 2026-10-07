@@ -237,6 +237,7 @@
     "apps/desktop/macos/Sources/RocketVibe/Media.swift",
     "apps/desktop/macos/Sources/RocketVibe/NativeFavoriteControls.swift",
     "apps/desktop/macos/Sources/RocketVibe/NativeRoomControls.swift",
+    "apps/desktop/macos/Sources/RocketVibe/NewRoom.swift",
     "apps/desktop/macos/Sources/RocketVibe/Notifier.swift",
     "apps/desktop/macos/Sources/RocketVibe/PeerIdentitySection.swift",
     "apps/desktop/macos/Sources/RocketVibe/Pictures.swift",
@@ -1962,73 +1963,73 @@
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/ChatView.swift",
-      "line": 260,
+      "line": 270,
       "kind": "endpoint",
       "surface": "rooms.section_unread"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/ChatView.swift",
-      "line": 261,
+      "line": 271,
       "kind": "endpoint",
       "surface": "rooms.section_favorites"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/ChatView.swift",
-      "line": 262,
+      "line": 272,
       "kind": "endpoint",
       "surface": "rooms.section_channels"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/ChatView.swift",
-      "line": 263,
+      "line": 273,
       "kind": "endpoint",
       "surface": "rooms.section_direct"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/ChatView.swift",
-      "line": 291,
+      "line": 301,
       "kind": "resource",
       "surface": "/avatar/room/\\(id)"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/ChatView.swift",
-      "line": 370,
+      "line": 380,
       "kind": "endpoint",
       "surface": "rooms.favorite_add"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/ChatView.swift",
-      "line": 370,
+      "line": 380,
       "kind": "endpoint",
       "surface": "rooms.favorite_remove"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/ChatView.swift",
-      "line": 374,
+      "line": 384,
       "kind": "endpoint",
       "surface": "rooms.failed"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/ChatView.swift",
-      "line": 387,
+      "line": 397,
       "kind": "endpoint",
       "surface": "rooms.encrypted"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/ChatView.swift",
-      "line": 462,
+      "line": 472,
       "kind": "endpoint",
       "surface": "rooms.online"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/ChatView.swift",
-      "line": 463,
+      "line": 473,
       "kind": "endpoint",
       "surface": "rooms.connecting"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/ChatView.swift",
-      "line": 464,
+      "line": 474,
       "kind": "endpoint",
       "surface": "rooms.offline"
     },

@@ -1,5 +1,7 @@
-//! Rocket.Chat REST client. REST to act, DDP to listen: DDP method calls are
-//! deprecated since 8.0.
+//! REST client. REST to act, DDP to listen: DDP method calls are deprecated
+//! since Rocket.Chat 8.0. The same client speaks Mattermost's `/api/v4/`
+//! (`Api::Mattermost`): bearer token, its own error envelope, and the media
+//! authenticated by header since that server refuses a token in the URL.
 
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
@@ -57,7 +59,7 @@ pub struct RestError {
 }
 
 impl RestError {
-    fn network(message: String) -> Self {
+    pub(crate) fn network(message: String) -> Self {
         RestError {
             status: 0,
             message,
@@ -95,6 +97,14 @@ pub fn is_token_rejected(e: &RestError) -> bool {
     e.two_factor.is_none() && e.status == 401 && e.understood
 }
 
+/// Which server's REST dialect the client speaks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Api {
+    #[default]
+    RocketChat,
+    Mattermost,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct CallOptions {
     pub params: Vec<(String, String)>,
@@ -124,21 +134,63 @@ pub struct RestClient {
     base: Url,
     credentials: Arc<RwLock<Option<Credentials>>>,
     token_rejected: broadcast::Sender<String>,
+    api: Api,
 }
 
 impl RestClient {
     pub fn new(base: Url) -> Self {
+        Self::with_api(base, Api::RocketChat)
+    }
+
+    /// A client for a Mattermost (or kChat) server's `/api/v4/`.
+    pub fn mattermost(base: Url) -> Self {
+        Self::with_api(base, Api::Mattermost)
+    }
+
+    fn with_api(base: Url, api: Api) -> Self {
         let http = reqwest::Client::builder()
             .timeout(TIMEOUT)
             .user_agent(concat!("rocket-vibe-desktop/", env!("CARGO_PKG_VERSION")))
             .build()
             .expect("HTTP client");
         let (token_rejected, _) = broadcast::channel(8);
-        RestClient { http, base, credentials: Arc::default(), token_rejected }
+        RestClient { http, base, credentials: Arc::default(), token_rejected, api }
     }
 
     pub fn base(&self) -> &Url {
         &self.base
+    }
+
+    pub fn api(&self) -> Api {
+        self.api
+    }
+
+    fn authenticate(&self, request: reqwest::RequestBuilder, credentials: &Credentials) -> reqwest::RequestBuilder {
+        match self.api {
+            Api::RocketChat => {
+                request.header("X-Auth-Token", &credentials.auth_token).header("X-User-Id", &credentials.user_id)
+            }
+            Api::Mattermost => request.bearer_auth(&credentials.auth_token),
+        }
+    }
+
+    /// The URL of a server file, authenticated in its query on Rocket.Chat
+    /// only: Mattermost takes the bearer header (`authenticate`).
+    fn file_url(&self, path_or_url: &str) -> Option<Url> {
+        let credentials = self.credentials();
+        let in_query = credentials.as_ref().filter(|_| self.api == Api::RocketChat);
+        crate::media::protected_url(&self.base, in_query, path_or_url)
+    }
+
+    /// The bearer goes with our own server's files only: attachment URLs come
+    /// from message fields, so from anyone.
+    fn file_request(&self, url: Url) -> reqwest::RequestBuilder {
+        let same_origin = url.origin() == self.base.origin();
+        let request = self.http.get(url);
+        match self.credentials() {
+            Some(c) if self.api == Api::Mattermost && same_origin => self.authenticate(request, &c),
+            _ => request,
+        }
     }
 
     pub fn set_credentials(&self, credentials: Option<Credentials>) {
@@ -161,6 +213,14 @@ impl RestClient {
 
     pub async fn post(&self, path: &str, options: CallOptions) -> Result<Value, RestError> {
         self.call(reqwest::Method::POST, path, options).await
+    }
+
+    pub async fn put(&self, path: &str, options: CallOptions) -> Result<Value, RestError> {
+        self.call(reqwest::Method::PUT, path, options).await
+    }
+
+    pub async fn delete(&self, path: &str, options: CallOptions) -> Result<Value, RestError> {
+        self.call(reqwest::Method::DELETE, path, options).await
     }
 
     /// POSTs a file as a `multipart/form-data` field, with `texts` beside it,
@@ -202,13 +262,13 @@ impl RestClient {
             .multipart(form);
         let sent_credentials = self.credentials();
         if let Some(c) = &sent_credentials {
-            request = request.header("X-Auth-Token", &c.auth_token).header("X-User-Id", &c.user_id);
+            request = self.authenticate(request, c);
         }
         let response = request.send().await.map_err(|_| RestError::network(format!("{path}: upload interrupted.")))?;
         let status = response.status().as_u16();
         let text =
             response.text().await.map_err(|_| RestError::network(format!("{path}: connection lost while reading.")))?;
-        let result = interpret(path, status, &text);
+        let result = self.interpret(path, status, &text);
         if let (Err(e), Some(c)) = (&result, &sent_credentials)
             && is_token_rejected(e)
         {
@@ -219,13 +279,11 @@ impl RestClient {
 
     /// GET a protected file (avatar, upload). Returns its bytes and content type.
     pub async fn fetch_protected(&self, path_or_url: &str) -> Result<(Vec<u8>, String), RestError> {
-        let credentials = self.credentials();
-        let Some(url) = crate::media::protected_url(&self.base, credentials.as_ref(), path_or_url) else {
+        let Some(url) = self.file_url(path_or_url) else {
             return Err(RestError::network(format!("{path_or_url}: not a URL.")));
         };
         let response = self
-            .http
-            .get(url)
+            .file_request(url)
             .send()
             .await
             .map_err(|_| RestError::network(format!("{path_or_url}: server unreachable.")))?;
@@ -261,12 +319,11 @@ impl RestClient {
     ) -> Result<(), RestError> {
         use tokio::io::AsyncWriteExt as _;
         const STALL: Duration = Duration::from_secs(30);
-        let credentials = self.credentials();
-        let Some(url) = crate::media::protected_url(&self.base, credentials.as_ref(), path_or_url) else {
+        let Some(url) = self.file_url(path_or_url) else {
             return Err(RestError::network(format!("{path_or_url}: not a URL.")));
         };
         let lost = || RestError::network(format!("{path_or_url}: connection lost while reading."));
-        let request = self.http.get(url).timeout(Duration::from_secs(24 * 3600)).send();
+        let request = self.file_request(url).timeout(Duration::from_secs(24 * 3600)).send();
         let mut response = tokio::time::timeout(STALL, request)
             .await
             .ok()
@@ -295,7 +352,11 @@ impl RestClient {
 
     fn url_for(&self, path: &str, options: &CallOptions) -> Url {
         let mut url = self.base.clone();
-        let prefix = if options.outside_api_v1 { "/" } else { "/api/v1/" };
+        let prefix = match (options.outside_api_v1, self.api) {
+            (true, _) => "/",
+            (false, Api::RocketChat) => "/api/v1/",
+            (false, Api::Mattermost) => "/api/v4/",
+        };
         url.set_path(&format!("{}{prefix}{path}", self.base.path().trim_end_matches('/')));
         if !options.params.is_empty() {
             url.query_pairs_mut().extend_pairs(options.params.iter());
@@ -315,7 +376,7 @@ impl RestClient {
                 .request(method.clone(), self.url_for(path, &options))
                 .header("Content-Type", "application/json");
             if let Some(c) = &sent {
-                request = request.header("X-Auth-Token", &c.auth_token).header("X-User-Id", &c.user_id);
+                request = self.authenticate(request, c);
             }
             if let Some(tf) = &options.two_factor {
                 request = request.header("x-2fa-code", &tf.code).header("x-2fa-method", &tf.method);
@@ -353,7 +414,7 @@ impl RestClient {
                 Ok(t) => t,
                 Err(_) => return Err(RestError::network(format!("{path}: connection lost while reading."))),
             };
-            let result = interpret(path, status, &text);
+            let result = self.interpret(path, status, &text);
             if let (Err(e), Some(c)) = (&result, &sent)
                 && is_token_rejected(e)
             {
@@ -362,6 +423,46 @@ impl RestClient {
             return result;
         }
     }
+}
+
+impl RestClient {
+    fn interpret(&self, path: &str, status: u16, text: &str) -> Result<Value, RestError> {
+        match self.api {
+            Api::RocketChat => interpret(path, status, text),
+            Api::Mattermost => interpret_mattermost(path, status, text),
+        }
+    }
+}
+
+/// Mattermost answers lists as JSON arrays and errors as
+/// `{id, message, status_code}`; that envelope is what makes a 401 believable.
+pub(crate) fn interpret_mattermost(path: &str, status: u16, text: &str) -> Result<Value, RestError> {
+    let http_ok = (200..300).contains(&status);
+    if text.trim().is_empty() && http_ok {
+        return Ok(json!({}));
+    }
+    let parsed: Option<Value> = serde_json::from_str(text).ok();
+    if http_ok {
+        return parsed.ok_or_else(|| RestError {
+            status,
+            message: format!("{path}: non-JSON response ({status}, {} bytes).", text.len()),
+            ..RestError::network(String::new())
+        });
+    }
+    let str_of = |key: &str| parsed.as_ref().and_then(|v| v.get(key)).and_then(Value::as_str).map(str::to_owned);
+    let error = str_of("id");
+    let understood = error.is_some() && parsed.as_ref().and_then(|v| v.get("status_code")).is_some();
+    Err(RestError {
+        status,
+        message: str_of("message").unwrap_or_else(|| format!("{path} failed")),
+        error,
+        error_type: None,
+        understood,
+        two_factor: None,
+        request_id: str_of("request_id"),
+        retry_after: None,
+        details: None,
+    })
 }
 
 fn delay_after_429(reset: Option<&reqwest::header::HeaderValue>, attempt: u32) -> Duration {

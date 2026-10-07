@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-512 production files scanned; 519 occurrences.
+512 production files scanned; 520 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -122,7 +122,8 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/outbox.rs:114](../../apps/desktop/crates/rv-core/src/outbox.rs#L114) | endpoint | chat.sendMessage |
 | [apps/desktop/crates/rv-core/src/outbox.rs:158](../../apps/desktop/crates/rv-core/src/outbox.rs#L158) | call:GET | "chat.getMessage" |
 | [apps/desktop/crates/rv-core/src/outbox.rs:158](../../apps/desktop/crates/rv-core/src/outbox.rs#L158) | endpoint | chat.getMessage |
-| [apps/desktop/crates/rv-core/src/rest.rs:298](../../apps/desktop/crates/rv-core/src/rest.rs#L298) | url | /api/v1 |
+| [apps/desktop/crates/rv-core/src/rest.rs:357](../../apps/desktop/crates/rv-core/src/rest.rs#L357) | url | /api/v1 |
+| [apps/desktop/crates/rv-core/src/rest.rs:358](../../apps/desktop/crates/rv-core/src/rest.rs#L358) | url | /api/v4 |
 | [apps/desktop/crates/rv-core/src/server.rs:82](../../apps/desktop/crates/rv-core/src/server.rs#L82) | call:GET | "api/info", info), rest.get("settings.public", settings)); |
 | [apps/desktop/crates/rv-core/src/server.rs:82](../../apps/desktop/crates/rv-core/src/server.rs#L82) | endpoint | api/info |
 | [apps/desktop/crates/rv-core/src/server.rs:82](../../apps/desktop/crates/rv-core/src/server.rs#L82) | endpoint | settings.public |

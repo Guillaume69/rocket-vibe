@@ -7,6 +7,8 @@ section here.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-07
+
 ### Added
 
 - Slash commands on a RocketVibe server (GTK and SwiftUI): /topic, /invite, /kick,
@@ -931,7 +933,8 @@ the mobile app (see `docs/PARITY.md`).
   `rocketvibe://` links) and zip; a macOS app in a DMG, signed with a Developer ID and
   notarized by Apple.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.9.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.10.0...HEAD
+[0.10.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.9.0...desktop-v0.10.0
 [0.9.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.8.0...desktop-v0.9.0
 [0.8.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.7.0...desktop-v0.8.0
 [0.7.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.6.1...desktop-v0.7.0

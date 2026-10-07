@@ -22,6 +22,7 @@ fn identity() -> Identity {
 }
 fn account(server: &FakeHttp) -> SessionInfo {
     SessionInfo {
+        mattermost: None,
         base_url: server.url.to_string(),
         user_id: "alice-id".into(),
         username: "alice".into(),

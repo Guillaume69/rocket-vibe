@@ -35,6 +35,8 @@ pub struct SessionInfo {
     pub auth_token: String,
     /// None for legacy Rocket.Chat accounts; pinned for the native pilot.
     pub native: Option<crate::native::Identity>,
+    /// Set for a Mattermost or kChat account.
+    pub mattermost: Option<crate::mattermost::Flavor>,
 }
 
 impl std::fmt::Debug for SessionInfo {
@@ -45,6 +47,7 @@ impl std::fmt::Debug for SessionInfo {
             .field("username", &self.username)
             .field("auth_token", &"[redacted]")
             .field("native", &self.native)
+            .field("mattermost", &self.mattermost)
             .finish()
     }
 }
@@ -140,6 +143,7 @@ pub async fn login_as(
         username: field("/me/username"),
         auth_token: field("/authToken"),
         native: None,
+        mattermost: None,
     };
     if info.auth_token.is_empty() || info.user_id.is_empty() {
         return Err(RestError {

@@ -22,6 +22,7 @@ pub mod info;
 pub mod links;
 pub mod live;
 pub mod markdown;
+pub mod mattermost;
 pub mod media;
 pub mod native;
 pub mod normalize;

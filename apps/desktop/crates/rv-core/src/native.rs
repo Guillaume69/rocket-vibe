@@ -180,6 +180,7 @@ pub async fn login(
     let session = client.login(username, password).await?;
     check(&identity, &client.discover().await?)?;
     Ok(SessionInfo {
+        mattermost: None,
         base_url: base.as_str().trim_end_matches('/').into(),
         user_id: session.user.id,
         username: session.user.username,
@@ -272,6 +273,7 @@ impl SessionInfo {
             username: field("username").unwrap_or_default(),
             auth_token: field("authToken")?,
             native,
+            mattermost: None,
         })
     }
     pub fn secret(&self) -> Value {

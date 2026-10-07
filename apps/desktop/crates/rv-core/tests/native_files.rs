@@ -170,6 +170,7 @@ async fn lost_prepare_and_confirmation_responses_reopen_the_original_intention_a
     store.snapshot(&snapshot(&f)).unwrap();
     drop(store);
     let info = SessionInfo {
+        mattermost: None,
         base_url: server.url.as_str().into(),
         user_id: "alice-id".into(),
         username: "alice".into(),

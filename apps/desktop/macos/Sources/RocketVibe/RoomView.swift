@@ -212,6 +212,9 @@ struct MessageList: View {
     @State private var lastObserved:String?
     @State private var readTask:Task<Void,Never>?
     @State private var windowActive = NSApp.isActive
+    /// The row at the top of the view: the scroll view keeps it in place when
+    /// an older page is inserted above it.
+    @State private var topRow: String?
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -222,7 +225,7 @@ struct MessageList: View {
                             .controlSize(.small)
                             .frame(maxWidth: .infinity)
                             .padding(8)
-                            .onAppear { older(proxy) }
+                            .onAppear { older() }
                     }
                     ForEach(model.messages, id: \.id) { message in
                         MessageRow(
@@ -247,9 +250,11 @@ struct MessageList: View {
                     }
                     Color.clear.frame(height: 6).id("bottom")
                 }
+                .scrollTargetLayout()
                 .padding(.vertical, 8)
                 .animation(settled ? Vibe.spring : nil, value: model.messages.last?.id)
             }
+            .scrollPosition(id: $topRow, anchor: .top)
             .defaultScrollAnchor(.bottom)
             .task {
                 try? await Task.sleep(nanoseconds: 800_000_000)
@@ -373,13 +378,8 @@ struct MessageList: View {
         readTask?.cancel();readTask=nil
     }
 
-    func older(_ proxy: ScrollViewProxy) {
-        let anchor = model.messages.first?.id
-        Task {
-            if await model.loadOlder(), let anchor {
-                proxy.scrollTo(anchor, anchor: .top)
-            }
-        }
+    func older() {
+        Task { await model.loadOlder() }
     }
 }
 

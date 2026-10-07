@@ -19,6 +19,7 @@ release, and its notes are that version's section here.
   screen incoming call, even locked, to accept or decline. A missed, declined or
   finished call shows its outcome in the conversation, and calling back is one tap.
 - "Create a room" on a RocketVibe server, voice channels included.
+- An owner can turn a room into a voice channel, or back, from its information's edit form.
 - In a voice session, turn your camera on (off by default) and share your screen: one
   screen at a time in a room, a new share replacing the current one. The shared screen
   takes most of the screen, with everyone in a column at its right. The shared screen

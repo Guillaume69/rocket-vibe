@@ -95,17 +95,19 @@ export function createRocketVibeProvider(session: Session, client: RestClient, g
       roomInfo:async rid => {
         const details=await chat.roomDetails(rid);
         const capabilities=effectiveCapabilities(chat.capabilities);
+        // Where GTK and SwiftUI show the voice channel switch: an owner, not a DM, the server announcing voice.
+        const voiceEditable=details.permissions.role==='owner' && details.room.kind!=='direct' && chat.capabilities?.voice===true;
         return {id:details.room.id,name:details.room.name,type:details.room.kind==='private'?'p':details.room.kind==='direct'?'d':'c',description:details.description||null,topic:details.topic||null,announcement:details.announcement||null,members:details.member_count,readOnly:details.read_only,
-          management:{name:details.room.name,isPrivate:details.room.kind==='private',topic:details.topic,description:details.description,announcement:details.announcement,readOnly:details.read_only,revision:details.revision,role:details.permissions.role,
+          management:{name:details.room.name,isPrivate:details.room.kind==='private',topic:details.topic,description:details.description,announcement:details.announcement,readOnly:details.read_only,...(voiceEditable?{voice:details.voice===true}:{}),revision:details.revision,role:details.permissions.role,
             canEdit:details.permissions.change_settings && !!capabilities.roomSettings,canChangeRoles:details.permissions.role==='owner' && !!capabilities.roomRoleList && details.room.kind!=='direct',canLeave:!!capabilities.leaveRoom && details.room.kind!=='direct'}};
       },
       roomManagement:{
         members:async(rid,continuation,revision)=>{const page=await chat.roomMembers(rid,continuation??undefined,revision);return {revision:page.revision,continuation:page.next??null,members:page.members.map(member=>({id:member.user.id,username:member.user.username,name:member.user.display_name??null,role:member.role,deactivated:member.disabled}))};},
-        edit:(rid,revision,fields)=>chat.updateRoom(rid,{expected_revision:revision,name:fields.name,private:fields.isPrivate,topic:fields.topic,description:fields.description,announcement:fields.announcement,read_only:fields.readOnly}),
+        edit:(rid,revision,fields)=>chat.updateRoom(rid,{expected_revision:revision,name:fields.name,private:fields.isPrivate,topic:fields.topic,description:fields.description,announcement:fields.announcement,read_only:fields.readOnly,...(fields.voice!==undefined?{voice:fields.voice}:{})}),
         changeRole:(rid,revision,target,role)=>chat.changeRoomRole(rid,target,{expected_revision:revision,role}),
         leave:(rid,revision)=>chat.leaveRoom(rid,revision),resume:rid=>chat.resumeRoomOperation(rid),clear:(rid,key)=>chat.dismissRoomOperation(rid,key),
         intention:async rid=>{const saved=await store.roomOperation(rid);if(!saved)return null;const command=saved.command;
-          return {key:command.input.operation_id,type:command.kind==='settings'?'settings':command.kind==='role'?'role':'leave',settings:command.kind==='settings'?{name:command.input.name,isPrivate:command.input.private,topic:command.input.topic,description:command.input.description,announcement:command.input.announcement,readOnly:command.input.read_only}:null,target:command.kind==='role'?command.target:null,role:command.kind==='role'?command.input.role:null,failed:saved.failed,error:saved.error};},
+          return {key:command.input.operation_id,type:command.kind==='settings'?'settings':command.kind==='role'?'role':'leave',settings:command.kind==='settings'?{name:command.input.name,isPrivate:command.input.private,topic:command.input.topic,description:command.input.description,announcement:command.input.announcement,readOnly:command.input.read_only,...(typeof command.input.voice==='boolean'?{voice:command.input.voice}:{})}:null,target:command.kind==='role'?command.target:null,role:command.kind==='role'?command.input.role:null,failed:saved.failed,error:saved.error};},
       },
       react:(rid,id,emoji,present) => chat.react(rid,id,emoji,present),
       edit:async (rid,id,text,encryptor,revision) => {

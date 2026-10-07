@@ -7,7 +7,7 @@ import {createWriteQueue} from '../../db/writeQueue.ts';
 import type {Session} from '../../lib/auth.ts';
 import {NativeStore} from './store.ts';
 import {nativeTestDatabase} from './testDatabase.ts';
-import {roomOperation,type RoomOperation} from './roomOperations.ts';
+import {roomOperation,sameRoomForm,type RoomOperation} from './roomOperations.ts';
 
 const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice',username:'alice',kind:'rocketvibe',siteUrl:null,nativeInstanceId:'instance',nativeDataEpoch:'epoch'};
 const snapshot={protocol_version:1,rooms:[{id:'room',name:'Room',kind:'private' as const,revision:'1'}],messages:[],cursor:'initial'};
@@ -67,4 +67,18 @@ test('room forms reject unknown fields, malformed revisions and oversized UTF-8 
   assert.throws(()=>roomOperation({...normal,input:{...normal.input,expected_revision:'',can_change:true}}));
   assert.throws(()=>roomOperation({...normal,input:{...normal.input,topic:'🚀'.repeat(257)}}));
   assert.throws(()=>roomOperation({...normal,input:{...normal.input,name:'bad\nname'}}));
+});
+test('a room form with a voice change is another form; absent and null both leave the flag',()=>{
+  const plain=settings(),voice=(value:boolean|null|undefined):RoomOperation=>{
+    if(plain.kind!=='settings')throw new Error('fixture');
+    return {kind:'settings',input:{...plain.input,voice:value}};
+  };
+  assert.equal(sameRoomForm(plain,voice(null)),true);
+  assert.equal(sameRoomForm(plain,voice(undefined)),true);
+  assert.equal(sameRoomForm(plain,voice(true)),false);
+  assert.equal(sameRoomForm(voice(false),voice(true)),false);
+  assert.equal(sameRoomForm(voice(true),voice(true)),true);
+  // Saved forms keep it.
+  const saved=roomOperation(JSON.parse(JSON.stringify(voice(true))));
+  assert.equal(saved.kind==='settings' && saved.input.voice,true);
 });

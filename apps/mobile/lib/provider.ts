@@ -222,7 +222,9 @@ export type RoomInformation = {
 };
 
 export type RoomRole = 'owner'|'moderator'|'member';
-export type RoomFields = {name:string;isPrivate:boolean;topic:string;description:string;announcement:string;readOnly:boolean};
+/** `voice`: whether it is a voice channel, present only where an owner may change it (a
+ * room that is not direct, on a server announcing voice); absent leaves the flag as it is. */
+export type RoomFields = {name:string;isPrivate:boolean;topic:string;description:string;announcement:string;readOnly:boolean;voice?:boolean};
 export type RoomSettings = RoomFields & {revision:string;canEdit:boolean;canChangeRoles:boolean;canLeave:boolean;role:RoomRole};
 export type ProviderRoomMember = {id:string;username:string;name:string|null;role:RoomRole;deactivated:boolean};
 export type ProviderRoomMemberPage = {revision:string;members:ProviderRoomMember[];continuation:string|null};

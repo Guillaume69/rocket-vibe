@@ -40,7 +40,9 @@ export function roomOperation(value:unknown):RoomOperation {
 }
 export function sameRoomForm(left:RoomOperation,right:RoomOperation):boolean {
   if(left.kind!==right.kind)return false;
-  if(left.kind==='settings' && right.kind==='settings')return ['name','private','topic','description','announcement','read_only'].every(key=>left.input[key as keyof UpdateRoom]===right.input[key as keyof UpdateRoom]);
+  // `voice` absent or null both leave the flag as it is.
+  if(left.kind==='settings' && right.kind==='settings')return ['name','private','topic','description','announcement','read_only'].every(key=>left.input[key as keyof UpdateRoom]===right.input[key as keyof UpdateRoom])
+    && (left.input.voice??null)===(right.input.voice??null);
   if(left.kind==='role' && right.kind==='role')return left.target===right.target && left.input.role===right.input.role;
   return true;
 }

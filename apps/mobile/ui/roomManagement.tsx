@@ -14,7 +14,7 @@ import type {TranslationKey} from './messages.ts';
 
 const errors:Record<string,TranslationKey>={last_room_owner:'roomManagement.lastOwner',revision_conflict:'roomManagement.conflict',room_action_pending:'roomManagement.pending',room_action_failed:'roomManagement.rejected',rate_limited:'roomManagement.rateLimited',offline:'roomManagement.offline',delivery_revalidate:'roomManagement.refresh',invalid_room_receipt:'roomManagement.refresh',unsupported_feature:'roomManagement.unavailable'};
 const roleKey:Record<RoomRole,TranslationKey>={owner:'roomManagement.owner',moderator:'roomManagement.moderator',member:'roomManagement.member'};
-function fields(details:RoomSettings):RoomFields{return {name:details.name,isPrivate:details.isPrivate,topic:details.topic,description:details.description,announcement:details.announcement,readOnly:details.readOnly};}
+function fields(details:RoomSettings):RoomFields{return {name:details.name,isPrivate:details.isPrivate,topic:details.topic,description:details.description,announcement:details.announcement,readOnly:details.readOnly,...(details.voice!==undefined?{voice:details.voice}:{})};}
 
 export function RoomCommands({rid,base,details,actions,c,refresh}:{rid:string;base:LocalDatabase;details:RoomSettings;actions:RoomManagement;c:Colors;refresh:()=>void}){
   const t=useT(),alive=useRef(true),locked=useRef(false);
@@ -58,6 +58,10 @@ export function RoomCommands({rid,base,details,actions,c,refresh}:{rid:string;ba
       {input('name',t('native.roomName'))}{input('topic',t('roomInfo.topic'),true)}{input('description',t('roomInfo.description'),true)}{input('announcement',t('roomInfo.announcement'),true)}
       <View style={styles.toggle}><Text style={{color:c.text}}>{t('native.private')}</Text><Switch accessibilityLabel={t('native.private')} disabled={busy} value={edit.fields.isPrivate} onValueChange={value=>change('isPrivate',value)} /></View>
       <View style={styles.toggle}><Text style={{color:c.text}}>{t('roomInfo.readOnly')}</Text><Switch accessibilityLabel={t('roomInfo.readOnly')} disabled={busy} value={edit.fields.readOnly} onValueChange={value=>change('readOnly',value)} /></View>
+      {edit.fields.voice!==undefined && <View style={styles.toggle}>
+        <View style={styles.label}><Text style={{color:c.text}}>{t('voice.channel')}</Text><Text style={{color:c.dimmed}}>{t('newRoom.voiceHint')}</Text></View>
+        <Switch accessibilityLabel={t('voice.channel')} disabled={busy} value={edit.fields.voice} onValueChange={value=>change('voice',value)} />
+      </View>}
       {button(t('common.save'),()=>void run(async()=>{await actions.edit(rid,edit.revision,edit.fields);if(alive.current)setEdit(null);}),!!intent||!details.canEdit)}
       {button(t('common.cancel'),()=>setEdit(null))}
     </View>:details.canEdit && button(t('roomManagement.edit'),()=>setEdit({revision:details.revision,fields:fields(details)}),!!intent)}
@@ -71,4 +75,4 @@ export function RoomCommands({rid,base,details,actions,c,refresh}:{rid:string;ba
     {details.canLeave && button(t('roomManagement.leave'),()=>Alert.alert(t('roomManagement.leave'),t('roomManagement.confirmLeave'),[{text:t('common.cancel'),style:'cancel'},{text:t('roomManagement.leave'),style:'destructive',onPress:()=>void run(()=>actions.leave(rid,details.revision))}]),!!intent)}
   </View>;
 }
-const styles=StyleSheet.create({root:{gap:12,marginTop:12},fields:{gap:10},field:{gap:6},input:{borderRadius:12,padding:12,fontFamily:FONTS.body,fontSize:15,textAlignVertical:'top'},toggle:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',gap:12},button:{padding:12,borderRadius:12},buttonText:{fontFamily:FONTS.body,fontSize:15},saved:{padding:12,borderRadius:12,gap:8},member:{gap:6,paddingVertical:10,borderBottomWidth:1},roles:{flexDirection:'row',flexWrap:'wrap',gap:6}});
+const styles=StyleSheet.create({root:{gap:12,marginTop:12},fields:{gap:10},field:{gap:6},input:{borderRadius:12,padding:12,fontFamily:FONTS.body,fontSize:15,textAlignVertical:'top'},toggle:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',gap:12},label:{flex:1,gap:2},button:{padding:12,borderRadius:12},buttonText:{fontFamily:FONTS.body,fontSize:15},saved:{padding:12,borderRadius:12,gap:8},member:{gap:6,paddingVertical:10,borderBottomWidth:1},roles:{flexDirection:'row',flexWrap:'wrap',gap:6}});

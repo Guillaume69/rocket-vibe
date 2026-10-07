@@ -35,6 +35,8 @@ import { useSync } from '../ui/sync.tsx';
 import { LIST_PRESS_DELAY, FONTS, useColors } from '../ui/theme.ts';
 import { Tappable } from '../ui/tappable.tsx';
 import { useSheetBottomMargin } from '../ui/sheetMargin.ts';
+import { ReportForm } from '../ui/reportForm.tsx';
+import { notify } from '../ui/toast.tsx';
 
 type Profile = {
   uid: string;
@@ -153,6 +155,9 @@ export default function ProfileScreen() {
   const [actionInFlight,setActionInFlight]=useState<typeof porteeAction|null>(null);
   const busy=actionInFlight===porteeAction;
   const inFlight = useRef<typeof porteeAction|null>(null);
+  // "Report this user" opened its reason field in the sheet.
+  const [reporting,setReporting]=useState(false);
+  const reports=sync.phase==='ready'&&sync.capabilities.reports===true?sync.provider.reports??null:null;
 
   useEffect(()=>{
     if(client===null||!callsAllowed)return;
@@ -399,6 +404,28 @@ export default function ProfileScreen() {
           )}
         </View>
       )}
+      {!isMe && profile !== null && reports !== null && (reporting ? (
+        <ReportForm
+          c={c}
+          title={t('report.userTitle')}
+          onCancel={() => setReporting(false)}
+          onSend={async (reason) => {
+            await reports.user(profile.uid, reason);
+            notify(t('report.sent'));
+            setReporting(false);
+          }}
+        />
+      ) : (
+        <Tappable
+          onPress={() => setReporting(true)}
+          android_ripple={{ color: c.ripple, borderless: true, radius: 24 }}
+          unstable_pressDelay={LIST_PRESS_DELAY}
+          accessibilityRole="button"
+          style={styles.report}
+        >
+          <Text style={[styles.reportText, { color: c.errorText }]}>🚩 {t('report.userTitle')}</Text>
+        </Tappable>
+      ))}
     </ProfileBody>
   );
 }
@@ -436,4 +463,6 @@ const styles = StyleSheet.create({
   },
   inactive: { opacity: 0.6 },
   buttonText: { fontFamily: FONTS.bodyStrong, fontSize: 15, color: '#FFFFFF' },
+  report: { alignSelf: 'center', paddingVertical: 6, paddingHorizontal: 10 },
+  reportText: { fontFamily: FONTS.bodyBold, fontSize: 13.5 },
 });

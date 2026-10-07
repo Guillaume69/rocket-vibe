@@ -2,6 +2,7 @@ import { Redirect, Stack, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { useServerAdmin } from '../../ui/adminAccess.ts';
 import { hasDevices } from '../../ui/devices.tsx';
 import { hasEncryptedIdentity } from '../../ui/encryptedIdentity.tsx';
 import { useT } from '../../ui/i18n.ts';
@@ -17,7 +18,8 @@ import { type Colors, LIST_PRESS_DELAY, FONTS, useColors } from '../../ui/theme.
  * "Settings" screen, the list of categories (`ui/settingsCategories.ts`), as
  * in the desktop apps' settings sidebar: my profile card on top, then one row
  * per category that has content for this account and server, each opening its
- * page (`app/settings/[category].tsx`), and Sign out at the bottom.
+ * page (`app/settings/[category].tsx`), then, for an administrator of this
+ * server, "Server administration" (`app/admin/`), and Sign out at the bottom.
  */
 export default function SettingsScreen() {
   const c = useColors();
@@ -39,6 +41,7 @@ function Settings({ c, account }: { c: Colors; account: SettingsAccount }) {
   const { logOut } = useSession();
   const sync = useSync();
   const name = useMyName(account.client);
+  const admin = useServerAdmin();
   const [logout, setLogout] = useState(false);
   const chat = sync.phase === 'ready' ? sync.provider.native?.chat : null;
   const categories = visibleCategories({
@@ -80,6 +83,17 @@ function Settings({ c, account }: { c: Colors; account: SettingsAccount }) {
         ))}
       </View>
 
+      {admin !== null && (
+        <View style={[styles.list, { backgroundColor: c.deepCard, borderColor: c.border }]}>
+          <CategoryRow
+            c={c}
+            category={{ icon: '🛠️', label: 'settings.admin', hint: 'settings.adminHint' }}
+            first
+            onPress={() => router.push('/admin')}
+          />
+        </View>
+      )}
+
       <Tappable
         onPress={handleLogOut}
         disabled={logout}
@@ -97,7 +111,7 @@ function Settings({ c, account }: { c: Colors; account: SettingsAccount }) {
   );
 }
 
-/** One category: its icon, label, one-line hint and a chevron. */
+/** One category (or the administration): its icon, label, one-line hint and a chevron. */
 function CategoryRow({
   c,
   category,
@@ -105,7 +119,7 @@ function CategoryRow({
   onPress,
 }: {
   c: Colors;
-  category: CategoryInfo;
+  category: Pick<CategoryInfo, 'icon' | 'label' | 'hint'>;
   first: boolean;
   onPress: () => void;
 }) {

@@ -751,6 +751,20 @@ export class NativeChat {
     await this.transport.revokeDevice(id);
     if(this.stopped || generation!==this.generation)throw new NativeError(0,'session_closed');
   }
+  /** One administration or report call (`providers/rocketvibe/admin.ts`): run
+   * on a verified session, against the server signed in, with the capability
+   * it announces now, and answered only to the session generation that asked.
+   * `operation` gives a fresh `operation_id` per command. */
+  async administration<T>(capability:'administration'|'reports',call:(transport:NativeTransport,operation:()=>string)=>Promise<T>):Promise<T> {
+    await this.verifiedReady();
+    const generation=this.generation,discovery=await this.transport.discover();
+    checkIdentity(this.session,discovery);this.roomOperationGeneration(generation);
+    this.capabilities=discovery.capabilities;
+    if(!discovery.capabilities[capability])throw new NativeError(501,'unsupported_feature');
+    const result=await call(this.transport,()=>this.id());
+    this.roomOperationGeneration(generation);
+    return result;
+  }
   async messagePermissions(id: string): Promise<import('./protocol.generated.ts').MessagePermissions> {
     this.ready();
     if (!this.capabilities?.fine_permissions) throw new NativeError(501,'unsupported_feature');

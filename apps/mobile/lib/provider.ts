@@ -99,6 +99,10 @@ export type Capabilities = {
   quotes?: boolean;
   /** Voice sessions in every room, voice channels and ringing DMs (RocketVibe). */
   voice?: boolean;
+  /** Server administration from the app (`Provider.admin`), for an administrator. */
+  administration?: boolean;
+  /** Members can report a message or an account (`Provider.reports`). */
+  reports?: boolean;
   typing: boolean;
   presence: boolean;
   push: boolean;
@@ -250,6 +254,8 @@ export const ROCKETCHAT_CAPABILITIES: Capabilities = {
   customEmojis: true,
   videoCall: true,
   search: true,
+  administration: true,
+  reports: true,
   threadTemplate: 'tmid',
 };
 
@@ -315,6 +321,10 @@ export interface Provider {
   searchMessages?(rid:string,text:string):Promise<LocalMessage[]>;
   /** Presentation data of the existing info sheet, supplied by each protocol. */
   readProfile?(target:import('./profilePreload.ts').ProfileParams):Promise<Record<string,unknown>|undefined>;
+  /** Server administration (`lib/admin.ts`), when `capabilities.administration`. */
+  readonly admin?: import('./admin.ts').ProviderAdmin;
+  /** Reporting a message or an account, when `capabilities.reports`. */
+  readonly reports?: import('./admin.ts').ProviderReports;
   /** Real-time transport (RC: DDP; MM: JSON WebSocket). */
   readonly listener: Listener;
   /** Decoder from raw `DdpEvent`s/documents to neutral shapes. */

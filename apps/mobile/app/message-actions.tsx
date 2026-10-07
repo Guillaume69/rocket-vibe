@@ -51,6 +51,8 @@ import { ImageEmoji, useCatalogueEmojis } from '../ui/emojiImage.tsx';
 import { EmojiGrid } from '../ui/emojiPicker.tsx';
 import { readEmojiUsage, recordReaction } from '../ui/emojiUsage.ts';
 import { useHardwareBack } from '../ui/hardwareBack.ts';
+import { ReportForm } from '../ui/reportForm.tsx';
+import { notify } from '../ui/toast.tsx';
 import { useT } from '../ui/i18n.ts';
 import { requestReply } from '../ui/reply.ts';
 import { useSession } from '../ui/session.tsx';
@@ -111,6 +113,8 @@ type Payload = {
     systemType: string | null;
     text: string | null;
     authorName: string | null;
+    /** Who wrote it: a report never targets one's own message. */
+    authorId?: string;
     attachments: string | null;
     reactions: string | null;
     pinned: boolean;
@@ -150,6 +154,8 @@ export default function MessageActionsScreen() {
   const [destinationFilter,setDestinationFilter]=useState('');
   // The "+" swapped the actions for the emoji picker.
   const [picking, setPicking] = useState(false);
+  // "Report" swapped the actions for the reason field.
+  const [reporting, setReporting] = useState(false);
   const [usage, setUsage] = useState<EmojiUse[]>([]);
 
   const ready = sync.phase === 'ready' && state.phase === 'connected' && typeof id === 'string';
@@ -244,6 +250,7 @@ export default function MessageActionsScreen() {
           systemType: raw.systemType,
           text: nativeContext?.message.text ?? raw.text,
           authorName: raw.authorName,
+          authorId: raw.authorId,
           attachments: raw.attachments,
           reactions: nativeContext ? nativeReactions(nativeContext.message.reactions) : raw.reactions,
           pinned: nativeContext?.message.pinned ?? raw.pinned,
@@ -388,6 +395,12 @@ export default function MessageActionsScreen() {
   }
   const { message, room, actions } = payload;
   const isEditing = editing !== null;
+  // Reporting: not my message, not a system one, and never a private
+  // (encrypted) RocketVibe conversation, whose messages the server does not
+  // hold; the server also refuses what it cannot take.
+  const reportable = isPrivate !== '1' && provider?.reports !== undefined && sync.phase === 'ready'
+    && sync.capabilities.reports === true && message.authorId !== undefined && message.authorId !== me
+    && (message.systemType === null || message.systemType === ENCRYPTED_TYPE);
 
   // Adding counts one use of the emoji, once the server took it; a removal
   // counts nothing (`lib/emojiUsage.ts`).
@@ -525,7 +538,7 @@ export default function MessageActionsScreen() {
 
   return (
     <View style={[styles.sheet, { maxHeight, paddingBottom: bottom }]}>
-      {!isEditing && !picking && actions.includes('react') && (
+      {!isEditing && !picking && !reporting && actions.includes('react') && (
         <View style={styles.emojiRow}>
           {quickReactions.map((code) => {
             const mine = myReactions.get(emojiIdentity(code));
@@ -583,7 +596,18 @@ export default function MessageActionsScreen() {
         </View>
       )}
 
-      {picking ? (
+      {reporting ? (
+        <ReportForm
+          c={c}
+          title={t('report.title')}
+          onCancel={() => setReporting(false)}
+          onSend={async (reason) => {
+            await provider?.reports?.message(message.id, reason);
+            notify(t('report.sent'));
+            router.back();
+          }}
+        />
+      ) : picking ? (
         <View style={styles.actionList}>
           {/* Fixed height: the grid is measured once, and the sheet keeps its
               size whatever the category. Picking reacts and closes. */}
@@ -780,6 +804,18 @@ export default function MessageActionsScreen() {
               icon="⭐"
               label={t('messageActions.unstar')}
               onPress={() => void act(() => star(false))}
+            />
+          )}
+          {reportable && (
+            <ActionRow
+              c={c}
+              disabled={busy}
+              icon="🚩"
+              label={t('messageActions.report')}
+              onPress={() => {
+                void Haptics.selectionAsync();
+                setReporting(true);
+              }}
             />
           )}
           {actions.includes('delete') && (

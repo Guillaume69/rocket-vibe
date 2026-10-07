@@ -79,7 +79,9 @@ extension AppModel {
     /// ⌘, and the gear: the overlay, on `category` when given, else where it was left.
     public func openSettings(_ category: SettingsCategory? = nil) {
         if let category { settingsCategory = category }
+        closeAdmin()
         settingsShown = true
+        Task { await refreshAdministrator() }
     }
 
     /// The backdrop, Escape, the close button, and leaving for another account.

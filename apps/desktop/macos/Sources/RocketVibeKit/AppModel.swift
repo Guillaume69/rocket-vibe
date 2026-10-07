@@ -42,6 +42,13 @@ public final class AppModel {
     /// (`shownSettingsCategory` falls back when it has nothing here).
     public internal(set) var settingsShown = false
     public var settingsCategory = SettingsCategory.account
+    /// This account administers its server: the rail tile's menu and the
+    /// settings' link to the administration. Asked when a session begins.
+    public internal(set) var administrator = false
+    /// The server administration over the window, while it is shown.
+    public internal(set) var admin: AdminModel?
+    /// The report being written, for the window's sheet.
+    public internal(set) var reporting: ReportDraft?
 
     /// Room ids opened, for back and forward.
     var history: [String] = []
@@ -163,6 +170,8 @@ public final class AppModel {
 
     public func showLogin(error: String?) {
         settingsShown = false
+        closeAdmin()
+        reporting = nil
         selectionId = UUID()
         login.reset(known: client.knownServers(), error: error)
         screen = .login
@@ -199,11 +208,15 @@ public final class AppModel {
         e2eUnlocked = chat?.e2eUnlocked() ?? false
         reloadRooms()
         screen = .chat
+        Task { await refreshAdministrator() }
     }
 
     func end() {
         sessionId = UUID()
         selectionId = UUID()
+        closeAdmin()
+        administrator = false
+        reporting = nil
         room?.deactivate()
         thread?.deactivate()
         provider?.shutdown()

@@ -134,14 +134,16 @@ struct ProfileView: View {
         SheetFrame(title: L("info.profile")) {
             Form {
                 if let p = person,shownAccount==app.sessionId,app.provider?.supportsProfiles==true {
+                    // A RocketVibe account an administrator deleted: its name only.
+                    let deleted = app.deletedAccount(username: p.username)
                     HStack(spacing: 12) {
                         ZStack(alignment: .bottomTrailing) {
-                            Avatar(path: p.avatar, name: p.name ?? p.username, size: 56)
-                            if let presence = p.presence { PresenceDot(presence: presence) }
+                            Avatar(path: p.avatar, name: deleted ? L("user.deleted") : p.name ?? p.username, size: 56)
+                            if let presence = p.presence, !deleted { PresenceDot(presence: presence) }
                         }
                         VStack(alignment: .leading) {
-                            Text(p.name ?? p.username).font(.title3.bold())
-                            Text("@\(p.username)").foregroundStyle(.secondary)
+                            Text(deleted ? L("user.deleted") : p.name ?? p.username).font(.title3.bold())
+                            if !deleted { Text("@\(p.username)").foregroundStyle(.secondary) }
                             if let status = p.statusText, !status.isEmpty { Text(status).italic() }
                         }
                     }
@@ -149,7 +151,7 @@ struct ProfileView: View {
                     if let time = p.localTime { LabeledContent(L("info.local_time"), value: time) }
                     if let bio = p.bio, !bio.isEmpty { LabeledContent(L("info.bio"), value: bio) }
                     if app.native?.cryptoSettingsSupported() == true { PeerIdentitySection(user: p.id) }
-                    if p.id != app.account?.userId {
+                    if p.id != app.account?.userId && !deleted {
                         HStack {
                             Button(L("info.message")) {
                                 dismiss()
@@ -159,6 +161,16 @@ struct ProfileView: View {
                                 dismiss()
                                 Task { await call(p) }
                             }}
+                        }
+                        if app.reportsSupported {
+                            Button(L("report.user")) {
+                                dismiss()
+                                // Once this sheet is gone: the window shows one at a time.
+                                Task {
+                                    try? await Task.sleep(nanoseconds: 350_000_000)
+                                    app.startReport(.user(p.id))
+                                }
+                            }
                         }
                     }
                 } else if failed {

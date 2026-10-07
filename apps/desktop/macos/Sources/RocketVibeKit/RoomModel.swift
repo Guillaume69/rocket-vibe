@@ -854,6 +854,12 @@ public final class RoomModel {
         guard let native = provider.native, native.supportedFeatures().contains("reactions") else { return [] }
         return native.quickReactions(custom: customReactionsAllowed)
     }
+    /// Report: someone else's message, sent, not a system line; on RocketVibe
+    /// when the server takes reports, never in a private conversation.
+    public func canReport(_ message: MessageItem) -> Bool {
+        guard active, !message.mine, message.system == nil, message.delivery == .sent else { return false }
+        return !privateMode && provider.supportsReports
+    }
     /// A private conversation reacts with standard emoji only.
     public var customReactionsAllowed: Bool { !privateMode }
     /// My reaction naming the same emoji as `shortcode`, under the code the

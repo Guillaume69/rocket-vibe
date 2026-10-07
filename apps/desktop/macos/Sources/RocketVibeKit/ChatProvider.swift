@@ -61,6 +61,14 @@ public enum ChatProvider {
         case let .rocketVibe(chat): return try await chat.roomDetails(room: rid) }
     }
 
+    /// The account's server administration and reports.
+    public func admin() -> ServerAdmin {
+        switch self { case let .rocketChat(chat): return chat.admin()
+        case let .rocketVibe(chat): return chat.admin() }
+    }
+    /// Members may report messages and accounts here.
+    public var supportsReports: Bool { legacy != nil || native?.reportsSupported() == true }
+
     func account() -> Account {
         switch self { case let .rocketChat(chat): return chat.account()
         case let .rocketVibe(chat): return chat.account() }

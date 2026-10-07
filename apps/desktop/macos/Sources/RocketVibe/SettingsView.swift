@@ -5,10 +5,13 @@ import RocketVibeKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The settings over the main window: a dimmed backdrop (a click on it
-/// closes), and the panel sized from the window (`SettingsLayout`).
-struct SettingsOverlay: View {
-    @Environment(AppModel.self) var app
+/// A large panel over the main window: a dimmed backdrop (a click on it
+/// closes), the panel sized from the window (`SettingsLayout`). The settings
+/// and the server administration both show in one.
+struct PanelOverlay<Content: View>: View {
+    let close: () -> Void
+    /// Given whether the panel is narrow enough for one pane.
+    @ViewBuilder let content: (Bool) -> Content
 
     var body: some View {
         GeometryReader { geometry in
@@ -16,8 +19,8 @@ struct SettingsOverlay: View {
             ZStack {
                 Color.black.opacity(0.5)
                     .contentShape(Rectangle())
-                    .onTapGesture { app.closeSettings() }
-                SettingsView(singlePane: SettingsLayout.singlePane(panelWidth: size.width))
+                    .onTapGesture { close() }
+                content(SettingsLayout.singlePane(panelWidth: size.width))
                     .frame(width: CGFloat(size.width), height: CGFloat(size.height))
                     .background(Vibe.night)
                     .clipShape(RoundedRectangle(cornerRadius: 14))
@@ -25,6 +28,16 @@ struct SettingsOverlay: View {
                     .shadow(color: .black.opacity(0.5), radius: 24, y: 10)
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
+        }
+    }
+}
+
+struct SettingsOverlay: View {
+    @Environment(AppModel.self) var app
+
+    var body: some View {
+        PanelOverlay(close: { app.closeSettings() }) { singlePane in
+            SettingsView(singlePane: singlePane)
         }
     }
 }
@@ -118,6 +131,16 @@ struct SettingsView: View {
             .scrollContentBackground(.hidden)
             .focused($listFocused)
             Divider()
+            if app.administrator {
+                Button { app.openAdmin() } label: {
+                    Label(L("admin.title"), systemImage: "server.rack")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 12)
+                .padding(.top, 12)
+            }
             Button(role: .destructive) {
                 app.closeSettings()
                 Task { await app.signOut() }

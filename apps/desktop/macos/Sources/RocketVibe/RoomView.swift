@@ -639,6 +639,9 @@ struct MessageRow: View, Equatable {
                 NSPasteboard.general.setString(link, forType: .string)
             }
         }
+        if model?.canReport(message) == true {
+            Button(L("report.action")) { app.startReport(.message(message.id)) }
+        }
         if model?.canResumePrivate(message.id) == true {
             Button(L("native.retry")) { Task { await model?.retry(message.id) } }
             Button(L("native.abandon")) { model?.abandon(message.id) }

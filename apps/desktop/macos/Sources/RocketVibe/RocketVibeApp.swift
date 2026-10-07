@@ -87,9 +87,15 @@ struct RootView: View {
                 .overlay {
                     if app.settingsShown {
                         SettingsOverlay().transition(.opacity)
+                    } else if let admin = app.admin {
+                        AdminOverlay(model: admin).transition(.opacity)
                     }
                 }
                 .animation(.easeOut(duration: 0.16), value: app.settingsShown)
+                .animation(.easeOut(duration: 0.16), value: app.admin != nil)
+                .sheet(item: Binding(get: { app.reporting }, set: { if $0 == nil { app.cancelReport() } })) { draft in
+                    ReportSheet(draft: draft)
+                }
         }
     }
 

@@ -182,8 +182,7 @@ pub(crate) fn open_viewer_provider(
     });
     picture.add_controller(click);
     viewer_menu(&picture, texture, title);
-    dialog.present(Some(parent));
-    widgets::close_on_backdrop(&dialog);
+    widgets::present(&dialog, Some(parent));
     if let Some((provider, path)) = authority {
         let weak = dialog.downgrade();
         provider.watch(&picture, &path, move |widget| {

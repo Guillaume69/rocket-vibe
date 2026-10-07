@@ -279,6 +279,8 @@ jobs:
               xvfb-run -a cargo test --locked -p rocket-vibe-gtk native_activity_uses_existing_join_and_info_buttons -- --ignored --test-threads=1
               xvfb-run -a cargo test --locked -p rocket-vibe-gtk native_group_review_uses_existing_controls_and_requires_confirmation -- --ignored --test-threads=1
               xvfb-run -a cargo test --locked -p rocket-vibe-gtk identity_settings_render_existing_preferences_and_clear_on_close -- --ignored --test-threads=1
+              xvfb-run -a -s "-screen 0 1600x1000x24" cargo test --locked -p rocket-vibe-gtk categories_subpages_and_narrow_windows -- --ignored --test-threads=1
+              xvfb-run -a -s "-screen 0 1600x1000x24" cargo test --locked -p rocket-vibe-gtk an_alert_over_the_dialog_closes_alone_on_its_backdrop_with_its_close_response -- --ignored --test-threads=1
               cargo build --locked -p rv-core --example native-smoke --example native-files-smoke
               cargo build --locked -p rocket-vibe-gtk
               timeout 30s bash scripts/check-notification-activation.sh

@@ -3,8 +3,10 @@
 // artwork is not used), the source Rocket.Chat takes its shortnames from.
 //   node scripts/generate-emojis.mjs [path/to/emoji-toolkit]
 // Rows: shortcode <TAB> code points (hex, dash-separated) <TAB> picker category
-// ("-" for tone variants and aliases). Deterministic: rerunning on the same
-// version leaves git diff empty.
+// ("-" for tone variants and aliases) <TAB> "+" when Rocket.Chat's chat.react
+// accepts the code, "-" otherwise (scripts/rocketchat-emojis.json, Rocket.Chat
+// 8.5.1's emoji.list). Deterministic: rerunning on the same versions leaves
+// git diff empty.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,6 +15,9 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const toolkit = process.argv[2] ?? join(root, '..', 'rocket-vibe', 'node_modules', 'emoji-toolkit');
 const emojis = JSON.parse(readFileSync(join(toolkit, 'emoji.json'), 'utf8'));
 const version = JSON.parse(readFileSync(join(toolkit, 'package.json'), 'utf8')).version;
+const accepted = new Set(
+  JSON.parse(readFileSync(join(root, '..', '..', 'scripts', 'rocketchat-emojis.json'), 'utf8')).codes,
+);
 const CATEGORIES = ['people', 'nature', 'food', 'activity', 'travel', 'objects', 'symbols', 'flags'];
 
 const rows = new Map();
@@ -26,6 +31,12 @@ for (const [hex, e] of entries) {
     if (!rows.has(code)) rows.set(code, [points, base && i === 0 ? e.category : '-']);
   });
 }
-const lines = [...rows].map(([code, [points, category]]) => `${code}\t${points}\t${category}`);
+const lines = [...rows].map(
+  ([code, [points, category]]) => `${code}\t${points}\t${category}\t${accepted.has(code) ? '+' : '-'}`,
+);
 writeFileSync(join(root, 'crates/rv-core/data/emojis.tsv'), lines.join('\n') + '\n');
-console.log(`emojis.tsv: ${rows.size} shortcodes, ${lines.filter((l) => !l.endsWith('\t-')).length} in the picker (emoji-toolkit ${version})`);
+const picker = lines.filter((l) => l.split('\t')[2] !== '-').length;
+const reacting = [...rows.keys()].filter((code) => accepted.has(code)).length;
+console.log(
+  `emojis.tsv: ${rows.size} shortcodes, ${picker} in the picker, ${reacting} accepted by Rocket.Chat (emoji-toolkit ${version})`,
+);

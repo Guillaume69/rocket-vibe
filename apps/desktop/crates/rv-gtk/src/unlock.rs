@@ -67,6 +67,6 @@ pub fn ask(parent: &impl IsA<gtk::Widget>, session: Arc<Session>) {
             });
         }
     ));
-    dialog.present(Some(parent));
+    crate::widgets::present(&dialog, Some(parent));
     password.grab_focus();
 }

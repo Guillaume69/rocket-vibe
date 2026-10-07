@@ -151,6 +151,7 @@ pub async fn login_as(
             two_factor: None,
             request_id: None,
             retry_after: None,
+            details: None,
         });
     }
     Ok(info)

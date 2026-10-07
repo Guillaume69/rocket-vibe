@@ -3,15 +3,16 @@
 //! the moderation of reports, plus the Report every member uses. Records
 //! carry the photo as a path `Chat::media`/`MediaStore` read, and the shown
 //! name rv-core computes ("Deleted user" for a deleted account). A refusal is
-//! `RvError::Local` whose message is the server's code (`self_administration`,
-//! `last_administrator`, `revision_conflict`...).
+//! `AdminFailure::Refused` with the server's code (`self_administration`,
+//! `last_administrator`, `user-last-owner`, `moderation_bulk_only`...), the
+//! rooms a last owner leaves behind and the count a bulk delete would take.
 
 use std::sync::Arc;
 
 use rv_core::admin::{self, Admin};
 use rv_core::media::{AvatarTarget, avatar_path};
 
-use crate::model::{Presence, RvError};
+use crate::model::Presence;
 use crate::native::NativeChat;
 use crate::{Chat, on_tokio};
 
@@ -66,8 +67,11 @@ pub struct AdminOverview {
     pub messages: AdminKindCounts,
     pub uploads_count: u64,
     pub uploads_bytes: u64,
-    pub reported_messages: u64,
-    pub reported_users: u64,
+    /// Open reports; None when the server refused to say (show "–").
+    pub reported_messages: Option<u64>,
+    pub reported_users: Option<u64>,
+    /// Rocket.Chat's statistics snapshot date (RFC 3339); None when live.
+    pub as_of: Option<String>,
 }
 
 /// An account as the lists show it; handed back as is to act on it.
@@ -128,7 +132,11 @@ pub struct AdminReportedMessage {
     pub room_name: String,
     pub room_kind: AdminRoomKind,
     pub author: AdminUserLite,
+    /// The author's account revision (RocketVibe), to deactivate them.
+    pub author_revision: Option<String>,
     pub text: String,
+    /// From an encrypted Rocket.Chat room: `text` is empty, show "Encrypted message".
+    pub encrypted: bool,
     pub created_at: String,
     pub deleted: bool,
     pub count: u64,
@@ -140,9 +148,35 @@ pub struct AdminReportedMessage {
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct AdminReportedUser {
     pub user: AdminUser,
+    /// Whether the account is active; None until its page read it (Rocket.Chat).
+    pub active: Option<bool>,
     pub count: u64,
     pub latest_at: String,
     pub reports: Option<Vec<AdminReport>>,
+}
+
+/// A reported account's page: the reasons, and whether it is active.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct AdminReportedUserDetails {
+    pub reports: Vec<AdminReport>,
+    pub active: Option<bool>,
+}
+
+/// The rooms a Rocket.Chat account is the last owner of: deleted (they are
+/// its only member) or handed to another member.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct AdminLastOwner {
+    pub removed: Vec<String>,
+    pub transferred: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, uniffi::Error)]
+pub enum AdminFailure {
+    /// `code` is the server's (`admin_error_key` gives the text). With
+    /// `user-last-owner`, `last_owner` lists the rooms; with
+    /// `moderation_bulk_only`, `count` is the author's reported messages.
+    #[error("{code}")]
+    Refused { code: String, last_owner: Option<AdminLastOwner>, count: Option<u64> },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
@@ -169,8 +203,12 @@ pub struct AdminReportedUserPage {
     pub next: Option<String>,
 }
 
-fn refused(error: admin::AdminError) -> RvError {
-    RvError::Local { message: error.code }
+fn refused(error: admin::AdminError) -> AdminFailure {
+    AdminFailure::Refused {
+        code: error.code,
+        last_owner: error.last_owner.map(|o| AdminLastOwner { removed: o.removed, transferred: o.transferred }),
+        count: error.count,
+    }
 }
 
 fn presence(p: admin::Presence) -> Presence {
@@ -270,6 +308,7 @@ fn overview(o: admin::Overview) -> AdminOverview {
         uploads_bytes: o.uploads.bytes,
         reported_messages: o.reports.messages,
         reported_users: o.reports.users,
+        as_of: o.as_of,
     }
 }
 
@@ -295,7 +334,9 @@ fn reported_message(m: admin::ReportedMessage) -> AdminReportedMessage {
         room_name: m.room.name,
         room_kind: kind(m.room.kind),
         author: lite(&m.author),
+        author_revision: m.author_revision,
         text: m.text,
+        encrypted: m.encrypted,
         created_at: m.created_at,
         deleted: m.deleted,
         count: m.count,
@@ -309,7 +350,9 @@ fn core_reported_message(m: &AdminReportedMessage) -> admin::ReportedMessage {
         message_id: m.message_id.clone(),
         room: admin::ReportRoom { id: m.room_id.clone(), name: m.room_name.clone(), kind: core_kind(m.room_kind) },
         author: core_lite(&m.author),
+        author_revision: m.author_revision.clone(),
         text: m.text.clone(),
+        encrypted: m.encrypted,
         created_at: m.created_at.clone(),
         deleted: m.deleted,
         count: m.count,
@@ -326,11 +369,15 @@ pub struct ServerAdmin {
 
 impl ServerAdmin {
     /// A photo as the app's media store reads it: Rocket.Chat's avatar
-    /// route, RocketVibe's profile photo by id.
+    /// route, RocketVibe's profile photo by id. None (the initials) when the
+    /// account has no photo: a version is the mark of one (D10).
     fn photo(&self, username: &str, version: Option<&str>) -> Option<String> {
+        let version = version.filter(|v| !v.is_empty());
         match &self.admin {
-            Admin::RocketChat(_) => (!username.is_empty()).then(|| avatar_path(AvatarTarget::User(username), version)),
-            Admin::Native(_) => version.filter(|id| !id.is_empty()).map(|id| format!("rv-avatar:{id}")),
+            Admin::RocketChat(_) => {
+                version.filter(|_| !username.is_empty()).map(|v| avatar_path(AvatarTarget::User(username), Some(v)))
+            }
+            Admin::Native(_) => version.map(|id| format!("rv-avatar:{id}")),
         }
     }
 
@@ -354,6 +401,7 @@ impl ServerAdmin {
     fn reported_user(&self, r: admin::ReportedUser) -> AdminReportedUser {
         AdminReportedUser {
             user: self.user(r.user),
+            active: r.active,
             count: r.count,
             latest_at: r.latest_at,
             reports: r.reports.map(|all| all.iter().map(report).collect()),
@@ -380,6 +428,7 @@ fn core_user(u: &AdminUser) -> admin::AdminUser {
 fn core_reported_user(r: &AdminReportedUser) -> admin::ReportedUser {
     admin::ReportedUser {
         user: core_user(&r.user),
+        active: r.active,
         count: r.count,
         latest_at: r.latest_at.clone(),
         reports: r.reports.as_ref().map(|all| all.iter().map(core_report).collect()),
@@ -425,9 +474,11 @@ impl ServerAdmin {
     pub fn reports_supported(&self) -> bool {
         self.admin.reports_supported()
     }
-    pub async fn overview(&self) -> Result<AdminOverview, RvError> {
+    /// Rocket.Chat: its cached statistics unless `refresh` (a full count on
+    /// the server: the refresh button only, never on opening).
+    pub async fn overview(&self, refresh: bool) -> Result<AdminOverview, AdminFailure> {
         let a = self.admin.clone();
-        on_tokio(async move { a.overview().await }).await.map(overview).map_err(refused)
+        on_tokio(async move { a.overview(refresh).await }).await.map(overview).map_err(refused)
     }
     /// The newest published server version; None when unknown.
     pub async fn latest_version(&self) -> Option<String> {
@@ -435,57 +486,71 @@ impl ServerAdmin {
         on_tokio(async move { a.latest_version().await }).await
     }
     /// The first page with `after` None; `query` filters (empty: everyone).
-    pub async fn users(&self, after: Option<String>, query: String) -> Result<AdminUserPage, RvError> {
+    pub async fn users(&self, after: Option<String>, query: String) -> Result<AdminUserPage, AdminFailure> {
         let a = self.admin.clone();
         let page = on_tokio(async move { a.users(after.as_deref(), &query).await }).await.map_err(refused)?;
         Ok(AdminUserPage { items: page.items.into_iter().map(|u| self.user(u)).collect(), next: page.next })
     }
     /// The account as it now is.
-    pub async fn set_admin(&self, user: AdminUser, admin: bool) -> Result<AdminUser, RvError> {
+    pub async fn set_admin(&self, user: AdminUser, admin: bool) -> Result<AdminUser, AdminFailure> {
         let a = self.admin.clone();
         let done = on_tokio(async move { a.set_admin(&core_user(&user), admin).await }).await.map_err(refused)?;
         Ok(self.user(done))
     }
-    pub async fn set_active(&self, user: AdminUser, active: bool) -> Result<AdminUser, RvError> {
+    /// `relinquish` false first: Rocket.Chat refuses `user-last-owner` with
+    /// the rooms concerned, and agrees once asked again with `relinquish`.
+    pub async fn set_active(&self, user: AdminUser, active: bool, relinquish: bool) -> Result<AdminUser, AdminFailure> {
         let a = self.admin.clone();
-        let done = on_tokio(async move { a.set_active(&core_user(&user), active).await }).await.map_err(refused)?;
+        let done = on_tokio(async move { a.set_active(&core_user(&user), active, relinquish).await })
+            .await
+            .map_err(refused)?;
         Ok(self.user(done))
     }
-    pub async fn delete_user(&self, user: AdminUser) -> Result<(), RvError> {
+    pub async fn delete_user(&self, user: AdminUser, relinquish: bool) -> Result<(), AdminFailure> {
         let a = self.admin.clone();
-        on_tokio(async move { a.delete_user(&core_user(&user)).await }).await.map_err(refused)
+        on_tokio(async move { a.delete_user(&core_user(&user), relinquish).await }).await.map_err(refused)
     }
-    pub async fn rooms(&self, after: Option<String>, query: String) -> Result<AdminRoomPage, RvError> {
+    pub async fn rooms(&self, after: Option<String>, query: String) -> Result<AdminRoomPage, AdminFailure> {
         let a = self.admin.clone();
         let page = on_tokio(async move { a.rooms(after.as_deref(), &query).await }).await.map_err(refused)?;
         Ok(AdminRoomPage { items: page.items.into_iter().map(room).collect(), next: page.next })
     }
-    pub async fn reported_messages(&self, after: Option<String>) -> Result<AdminReportedMessagePage, RvError> {
+    pub async fn reported_messages(&self, after: Option<String>) -> Result<AdminReportedMessagePage, AdminFailure> {
         let a = self.admin.clone();
         let page = on_tokio(async move { a.reported_messages(after.as_deref()).await }).await.map_err(refused)?;
         Ok(AdminReportedMessagePage { items: page.items.into_iter().map(reported_message).collect(), next: page.next })
     }
     /// Who reported the message and why, newest first.
-    pub async fn message_reports(&self, item: AdminReportedMessage) -> Result<Vec<AdminReport>, RvError> {
+    pub async fn message_reports(&self, item: AdminReportedMessage) -> Result<Vec<AdminReport>, AdminFailure> {
         let a = self.admin.clone();
         let all =
             on_tokio(async move { a.message_reports(&core_reported_message(&item)).await }).await.map_err(refused)?;
         Ok(all.iter().map(report).collect())
     }
-    pub async fn dismiss_message_reports(&self, item: AdminReportedMessage) -> Result<(), RvError> {
+    pub async fn dismiss_message_reports(&self, item: AdminReportedMessage) -> Result<(), AdminFailure> {
         let a = self.admin.clone();
         on_tokio(async move { a.dismiss_message_reports(&core_reported_message(&item)).await }).await.map_err(refused)
     }
     /// Deletes the reported message, which also closes its reports.
-    pub async fn delete_reported_message(&self, item: AdminReportedMessage) -> Result<(), RvError> {
+    pub async fn delete_reported_message(&self, item: AdminReportedMessage) -> Result<(), AdminFailure> {
         let a = self.admin.clone();
         on_tokio(async move { a.delete_reported_message(&core_reported_message(&item)).await }).await.map_err(refused)
     }
-    pub async fn deactivate_author(&self, item: AdminReportedMessage) -> Result<(), RvError> {
+    /// Rocket.Chat answers `moderation_bulk_only` (with `count`) when it can
+    /// only delete this author's reported messages together.
+    pub async fn delete_author_reported_messages(&self, item: AdminReportedMessage) -> Result<(), AdminFailure> {
         let a = self.admin.clone();
-        on_tokio(async move { a.deactivate_author(&core_reported_message(&item)).await }).await.map_err(refused)
+        on_tokio(async move { a.delete_author_reported_messages(&core_reported_message(&item)).await })
+            .await
+            .map_err(refused)
     }
-    pub async fn reported_users(&self, after: Option<String>) -> Result<AdminReportedUserPage, RvError> {
+    pub async fn deactivate_author(&self, item: AdminReportedMessage, relinquish: bool) -> Result<(), AdminFailure> {
+        let a = self.admin.clone();
+        on_tokio(async move { a.deactivate_author(&core_reported_message(&item), relinquish).await })
+            .await
+            .map_err(refused)
+    }
+    pub async fn reported_users(&self, after: Option<String>) -> Result<AdminReportedUserPage, AdminFailure> {
         let a = self.admin.clone();
         let page = on_tokio(async move { a.reported_users(after.as_deref()).await }).await.map_err(refused)?;
         Ok(AdminReportedUserPage {
@@ -493,22 +558,23 @@ impl ServerAdmin {
             next: page.next,
         })
     }
-    pub async fn user_reports(&self, item: AdminReportedUser) -> Result<Vec<AdminReport>, RvError> {
+    /// The reasons, and whether the account is active (Rocket.Chat says it here).
+    pub async fn user_reports(&self, item: AdminReportedUser) -> Result<AdminReportedUserDetails, AdminFailure> {
         let a = self.admin.clone();
-        let all = on_tokio(async move { a.user_reports(&core_reported_user(&item)).await }).await.map_err(refused)?;
-        Ok(all.iter().map(report).collect())
+        let found = on_tokio(async move { a.user_reports(&core_reported_user(&item)).await }).await.map_err(refused)?;
+        Ok(AdminReportedUserDetails { reports: found.reports.iter().map(report).collect(), active: found.active })
     }
-    pub async fn dismiss_user_reports(&self, item: AdminReportedUser) -> Result<(), RvError> {
+    pub async fn dismiss_user_reports(&self, item: AdminReportedUser) -> Result<(), AdminFailure> {
         let a = self.admin.clone();
         on_tokio(async move { a.dismiss_user_reports(&core_reported_user(&item)).await }).await.map_err(refused)
     }
     /// Reports a message to the administrators; any member may.
-    pub async fn report_message(&self, message_id: String, reason: String) -> Result<(), RvError> {
+    pub async fn report_message(&self, message_id: String, reason: String) -> Result<(), AdminFailure> {
         let a = self.admin.clone();
         on_tokio(async move { a.report_message(&message_id, &reason).await }).await.map_err(refused)
     }
     /// Reports an account, never my own.
-    pub async fn report_user(&self, user_id: String, reason: String) -> Result<(), RvError> {
+    pub async fn report_user(&self, user_id: String, reason: String) -> Result<(), AdminFailure> {
         let a = self.admin.clone();
         on_tokio(async move { a.report_user(&user_id, &reason).await }).await.map_err(refused)
     }
@@ -519,6 +585,12 @@ impl ServerAdmin {
 #[uniffi::export]
 pub fn report_reason(text: String) -> Option<String> {
     admin::valid_reason(&text)
+}
+
+/// The i18n key of the text for a refusal's code, as the GTK app shows it.
+#[uniffi::export]
+pub fn admin_error_key(code: String) -> String {
+    admin::error_key(&code).to_owned()
 }
 
 /// The longest reason a report takes.
@@ -558,7 +630,9 @@ mod tests {
                 deleted: true,
                 shown: String::new(),
             },
+            author_revision: Some("3".into()),
             text: "hi".into(),
+            encrypted: true,
             created_at: "2026-10-07T09:00:00Z".into(),
             deleted: false,
             count: 2,
@@ -601,5 +675,20 @@ mod tests {
         assert!(server_update_available("8.5.1".into(), "8.8.1".into()));
         assert!(!server_update_available("8.8.1".into(), "8.8.1".into()));
         assert!(deleted_username("deleted-abc".into()) && !deleted_username("alice".into()));
+        assert_eq!(admin_error_key("error-admin-required".into()), "admin.error_last_admin");
+        assert_eq!(admin_error_key("not_found".into()), "admin.error_not_found");
+    }
+
+    #[test]
+    fn a_last_owner_refusal_keeps_its_rooms() {
+        let error = admin::AdminError {
+            code: "user-last-owner".into(),
+            last_owner: Some(admin::LastOwner { removed: vec!["solo".into()], transferred: vec!["team".into()] }),
+            count: None,
+        };
+        let AdminFailure::Refused { code, last_owner, count } = refused(error);
+        assert_eq!(code, "user-last-owner");
+        assert_eq!(last_owner, Some(AdminLastOwner { removed: vec!["solo".into()], transferred: vec!["team".into()] }));
+        assert_eq!(count, None);
     }
 }

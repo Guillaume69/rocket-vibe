@@ -11,8 +11,8 @@ use std::rc::Rc;
 use adw::prelude::*;
 use gtk::glib;
 use rv_core::admin::{
-    Admin, AdminError, AdminRoom, AdminUser, KindCounts, Overview, Page, Presence, Product, Report, ReportedMessage,
-    ReportedUser, RoomType,
+    Admin, AdminError, AdminRoom, AdminUser, KindCounts, Overview, Page, Presence, Product, ReportedMessage,
+    ReportedUser, ReportedUserDetails, RoomType,
 };
 use rv_core::media::{AvatarTarget, avatar_path};
 
@@ -67,14 +67,7 @@ fn spawn<T: Send + 'static>(
 }
 
 fn error_text(error: &AdminError) -> &'static str {
-    t(match error.code.as_str() {
-        "self_administration" | "self_report" => "admin.error_self",
-        "last_administrator" => "admin.error_last_admin",
-        "revision_conflict" | "operation_conflict" | "not_found" => "admin.error_conflict",
-        "permission_denied" => "admin.error_denied",
-        code if code.starts_with("error-") => "admin.error_denied",
-        _ => "admin.failed",
-    })
+    t(rv_core::admin::error_key(&error.code))
 }
 
 /// `2026-10-07T09:00:00Z` as a local date.
@@ -84,6 +77,21 @@ fn date(text: &str) -> String {
             d.with_timezone(&chrono::Local).format_localized("%e %b %Y", i18n::locale()).to_string().trim().to_owned()
         })
         .unwrap_or_else(|_| text.to_owned())
+}
+
+/// `2026-10-07T09:00:00Z` as a local date and time.
+fn date_time(text: &str) -> String {
+    chrono::DateTime::parse_from_rfc3339(text)
+        .map(|d| {
+            let local = d.with_timezone(&chrono::Local);
+            local.format_localized("%e %b %Y %H:%M", i18n::locale()).to_string().trim().to_owned()
+        })
+        .unwrap_or_else(|_| text.to_owned())
+}
+
+/// A figure, "–" when the server would not say.
+fn figure(value: Option<u64>) -> String {
+    value.map_or_else(|| t("admin.unknown").to_owned(), |v| v.to_string())
 }
 
 fn duration(seconds: u64) -> String {
@@ -143,10 +151,11 @@ fn dot(presence: Presence) -> gtk::Widget {
 fn avatar(screen: &Screen, username: &str, version: Option<&str>, size: TileSize) -> gtk::Widget {
     let tile = widgets::tile(username, &widgets::initial(username), size, false);
     match &screen.admin {
+        // No version: no photo; the bare URL would show the server's placeholder.
         Admin::RocketChat(s) => crate::rows::with_photo(
             tile,
             Some(s),
-            (!username.is_empty()).then(|| avatar_path(AvatarTarget::User(username), version)),
+            version.filter(|_| !username.is_empty()).map(|v| avatar_path(AvatarTarget::User(username), Some(v))),
         ),
         Admin::Native(s) => crate::rows::with_native_photo(tile, s, version.map(str::to_owned)),
     }
@@ -164,6 +173,11 @@ fn room_tile(room: &AdminRoom) -> gtk::Widget {
 
 /// Asks before an action that cannot be taken back.
 fn confirm(host: &Host, heading: &str, body: &str, action: &str, run: impl Fn() + 'static) {
+    confirm_class(host, heading, body, action, "admin-confirm", run);
+}
+
+/// `confirm`, with a class of its own (the second confirmations).
+fn confirm_class(host: &Host, heading: &str, body: &str, action: &str, class: &str, run: impl Fn() + 'static) {
     let Some(parent) = host.widget() else { return };
     let alert = adw::AlertDialog::builder()
         .heading(heading)
@@ -172,12 +186,12 @@ fn confirm(host: &Host, heading: &str, body: &str, action: &str, run: impl Fn() 
         .close_response("cancel")
         .prefer_wide_layout(true)
         // A builder's classes replace the dialog's own `alert`, which its whole style needs.
-        .css_classes(["alert", "admin-confirm"])
+        .css_classes(["alert", class])
         .build();
     alert.add_responses(&[("cancel", t("actions.cancel")), ("confirm", action)]);
     alert.set_response_appearance("confirm", adw::ResponseAppearance::Destructive);
     alert.connect_response(Some("confirm"), move |_, _| run());
-    widgets::present_alert(&alert, Some(&parent));
+    widgets::present(&alert, Some(&parent));
 }
 
 /// The rows of one list in a group, with a loading or "Show more" row at
@@ -320,7 +334,7 @@ fn dashboard(screen: &Screen) -> gtk::Widget {
         .child(&columns)
         .build();
     let cards = Cards { columns: columns.clone(), left, right };
-    load_dashboard(screen, &cards);
+    load_dashboard(screen, &cards, false);
     let scroller =
         gtk::ScrolledWindow::builder().hscrollbar_policy(gtk::PolicyType::Never).vexpand(true).child(&clamp).build();
     let bin = adw::BreakpointBin::builder()
@@ -340,18 +354,20 @@ fn dashboard(screen: &Screen) -> gtk::Widget {
     bin.upcast()
 }
 
-fn load_dashboard(screen: &Screen, cards: &Cards) {
+/// The figures; Rocket.Chat's last snapshot unless `refresh` asks new ones
+/// (a full aggregation on the server: the refresh button only).
+fn load_dashboard(screen: &Screen, cards: &Cards, refresh: bool) {
     cards.clear();
     let waiting = adw::PreferencesGroup::new();
     waiting.add(&adw::ActionRow::builder().title(t("crypto.loading")).build());
     cards.add(&waiting);
     let admin = screen.admin.clone();
     let (s, c) = (screen.clone(), cards.clone());
-    spawn(&screen.host, async move { admin.overview().await }, move |result| {
+    spawn(&screen.host, async move { admin.overview(refresh).await }, move |result| {
         c.clear();
         match result {
             Ok(overview) => {
-                let reports = overview.reports.messages + overview.reports.users;
+                let reports = overview.reports.messages.unwrap_or(0) + overview.reports.users.unwrap_or(0);
                 s.host.set_badge(MODERATION.0, (reports > 0).then(|| reports.to_string()).as_deref());
                 for group in overview_groups(&s, &c, &overview) {
                     c.add(&group);
@@ -388,13 +404,16 @@ fn overview_groups(screen: &Screen, cards: &Cards, o: &Overview) -> Vec<adw::Pre
     let deployment = adw::PreferencesGroup::builder().title(t("admin.deployment")).build();
     let refresh = gtk::Button::builder()
         .icon_name("view-refresh-symbolic")
-        .tooltip_text(t("security.refresh"))
+        .tooltip_text(t("admin.refresh_figures"))
         .valign(gtk::Align::Center)
         .css_classes(["flat", "admin-refresh"])
         .build();
     let (s, c) = (screen.clone(), cards.clone());
-    refresh.connect_clicked(move |_| load_dashboard(&s, &c));
+    refresh.connect_clicked(move |_| load_dashboard(&s, &c, true));
     deployment.set_header_suffix(Some(&refresh));
+    if let Some(as_of) = &o.as_of {
+        deployment.set_description(Some(&tf("admin.as_of", &[("date", &date_time(as_of))])));
+    }
     let version = value_row(t("admin.version"), &o.version);
     let latest = gtk::Label::builder().css_classes(["admin-update"]).visible(false).build();
     version.add_suffix(&latest);
@@ -428,12 +447,12 @@ fn overview_groups(screen: &Screen, cards: &Cards, o: &Overview) -> Vec<adw::Pre
         ("admin.total", Some(o.users.total)),
         ("admin.active", Some(o.users.active)),
         ("admin.deactivated", Some(o.users.deactivated)),
-        ("admin.admins", o.users.admins),
     ] {
         if let Some(value) = value {
             users.add(&value_row(t(key), &value.to_string()));
         }
     }
+    users.add(&value_row(t("admin.admins"), &figure(o.users.admins)));
     for (presence, value) in [
         (Presence::Online, o.users.online),
         (Presence::Away, o.users.away),
@@ -450,8 +469,8 @@ fn overview_groups(screen: &Screen, cards: &Cards, o: &Overview) -> Vec<adw::Pre
     uploads.add(&value_row(t("admin.uploads_size"), &glib::format_size(o.uploads.bytes)));
 
     let reports = adw::PreferencesGroup::builder().title(t("admin.reports")).build();
-    reports.add(&value_row(t("admin.reported_messages"), &o.reports.messages.to_string()));
-    reports.add(&value_row(t("admin.reported_users"), &o.reports.users.to_string()));
+    reports.add(&value_row(t("admin.reported_messages"), &figure(o.reports.messages)));
+    reports.add(&value_row(t("admin.reported_users"), &figure(o.reports.users)));
     let open = adw::ButtonRow::builder()
         .title(t("admin.open_moderation"))
         .end_icon_name("go-next-symbolic")
@@ -501,7 +520,7 @@ fn reload_moderation(screen: &Screen, lists: &Lists) {
     let (s, l) = (screen.clone(), lists.clone());
     let render: Render<ReportedMessage> = Rc::new(move |list, item| {
         let row = adw::ActionRow::builder()
-            .title(if item.deleted { t("admin.message_deleted").to_owned() } else { item.text.clone() })
+            .title(message_title(&item))
             .title_lines(2)
             .subtitle(format!(
                 "{} · {} · {}",
@@ -544,10 +563,12 @@ fn reload_moderation(screen: &Screen, lists: &Lists) {
     fill(&screen.host, accounts, None, "admin.nothing_reported", fetch, render);
 }
 
-/// The reasons, read when the item opens.
+/// The reasons, read when the item opens; `active` learns whether a
+/// reported account is still active when the list did not say.
 fn reasons_group(
     screen: &Screen,
-    work: impl Future<Output = Result<Vec<Report>, AdminError>> + Send + 'static,
+    work: impl Future<Output = Result<ReportedUserDetails, AdminError>> + Send + 'static,
+    active: impl FnOnce(Option<bool>) + 'static,
 ) -> adw::PreferencesGroup {
     let group = adw::PreferencesGroup::builder().title(t("admin.reasons")).css_classes(["admin-reasons"]).build();
     let waiting = adw::ActionRow::builder().title(t("crypto.loading")).build();
@@ -556,8 +577,8 @@ fn reasons_group(
     spawn(&screen.host, work, move |result| {
         g.remove(&waiting);
         match result {
-            Ok(reports) => {
-                for report in reports {
+            Ok(details) => {
+                for report in details.reports {
                     g.add(
                         &adw::ActionRow::builder()
                             .title(&report.reason)
@@ -571,6 +592,7 @@ fn reasons_group(
                             .build(),
                     );
                 }
+                active(details.active);
             }
             Err(error) => g.add(&adw::ActionRow::builder().title(error_text(&error)).build()),
         }
@@ -578,17 +600,69 @@ fn reasons_group(
     group
 }
 
+/// The subpage an action started from, so that its end pops that page only,
+/// and only while it is still on top.
+type Shown = Rc<RefCell<Option<glib::WeakRef<adw::NavigationPage>>>>;
+
+fn leave(screen: &Screen, shown: &Shown) {
+    if let Some(page) = shown.borrow().as_ref().and_then(|p| p.upgrade()) {
+        screen.host.pop_if(&page);
+    }
+}
+
+type Work = Rc<dyn Fn(bool) -> Pin<Box<dyn Future<Output = Result<(), AdminError>> + Send>>>;
+
+/// Runs `work` without relinquishing; when Rocket.Chat answers that the
+/// account owns rooms alone, names them in a second confirmation and runs it
+/// again relinquishing them.
+fn relinquishing(screen: &Screen, work: Work, done: impl Fn(Result<(), AdminError>) + 'static) {
+    let (s, w, done) = (screen.clone(), work.clone(), Rc::new(done));
+    spawn(&screen.host, work(false), move |result| match result {
+        Err(AdminError { code, last_owner: Some(rooms), .. }) if code == "user-last-owner" => {
+            let mut body = Vec::new();
+            if !rooms.removed.is_empty() {
+                body.push(tf("admin.last_owner_removed", &[("rooms", &rooms.removed.join(", "))]));
+            }
+            if !rooms.transferred.is_empty() {
+                body.push(tf("admin.last_owner_transferred", &[("rooms", &rooms.transferred.join(", "))]));
+            }
+            let (s2, w2, d2) = (s.clone(), w.clone(), done.clone());
+            confirm_class(
+                &s.host,
+                t("admin.last_owner_title"),
+                &body.join("\n\n"),
+                t("admin.last_owner_confirm"),
+                "admin-last-owner",
+                move || {
+                    let d = d2.clone();
+                    spawn(&s2.host, w2(true), move |result| d(result));
+                },
+            );
+        }
+        result => done(result),
+    });
+}
+
 /// A moderation action: on success a toast, back to the lists, reloaded.
-fn moderate(screen: &Screen, lists: &Lists, work: impl Future<Output = Result<(), AdminError>> + Send + 'static) {
-    let (s, l) = (screen.clone(), lists.clone());
-    spawn(&screen.host, work, move |result| match result {
+fn moderated(screen: &Screen, lists: &Lists, shown: &Shown) -> impl Fn(Result<(), AdminError>) + Clone + 'static {
+    let (s, l, shown) = (screen.clone(), lists.clone(), shown.clone());
+    move |result| match result {
         Ok(()) => {
             s.host.toast(t("admin.done"));
-            s.host.pop();
+            leave(&s, &shown);
             reload_moderation(&s, &l);
         }
         Err(error) => s.host.toast(error_text(&error)),
-    });
+    }
+}
+
+fn moderate(
+    screen: &Screen,
+    lists: &Lists,
+    shown: &Shown,
+    work: impl Future<Output = Result<(), AdminError>> + Send + 'static,
+) {
+    spawn(&screen.host, work, moderated(screen, lists, shown));
 }
 
 fn action_row(key: &str, class: &str, destructive: bool) -> adw::ButtonRow {
@@ -599,12 +673,23 @@ fn action_row(key: &str, class: &str, destructive: bool) -> adw::ButtonRow {
     row
 }
 
+fn message_title(item: &ReportedMessage) -> String {
+    if item.deleted {
+        t("admin.message_deleted").to_owned()
+    } else if item.encrypted {
+        t("admin.encrypted_message").to_owned()
+    } else {
+        item.text.clone()
+    }
+}
+
 fn message_page(screen: &Screen, lists: &Lists, item: ReportedMessage) {
+    let shown: Shown = Rc::default();
     let page = adw::PreferencesPage::builder().css_classes(["admin-message-page"]).build();
     let message = adw::PreferencesGroup::builder().title(t("admin.message")).build();
     message.add(
         &adw::ActionRow::builder()
-            .title(if item.deleted { t("admin.message_deleted").to_owned() } else { item.text.clone() })
+            .title(message_title(&item))
             .subtitle(format!(
                 "{} · {} · {}",
                 item.author.shown(),
@@ -618,20 +703,24 @@ fn message_page(screen: &Screen, lists: &Lists, item: ReportedMessage) {
     page.add(&message);
     let admin = screen.admin.clone();
     let reported = item.clone();
-    page.add(&reasons_group(screen, async move { admin.message_reports(&reported).await }));
+    let work = async move {
+        let reports = admin.message_reports(&reported).await?;
+        Ok(ReportedUserDetails { reports, active: None })
+    };
+    page.add(&reasons_group(screen, work, |_| {}));
     let actions = adw::PreferencesGroup::new();
     let dismiss = action_row("admin.dismiss", "admin-dismiss", false);
-    let (s, l, i) = (screen.clone(), lists.clone(), item.clone());
+    let (s, l, i, sh) = (screen.clone(), lists.clone(), item.clone(), shown.clone());
     dismiss.connect_activated(move |_| {
         let (admin, item) = (s.admin.clone(), i.clone());
-        moderate(&s, &l, async move { admin.dismiss_message_reports(&item).await });
+        moderate(&s, &l, &sh, async move { admin.dismiss_message_reports(&item).await });
     });
     actions.add(&dismiss);
     if !item.deleted {
         let delete = action_row("admin.delete_message", "admin-delete-message", true);
-        let (s, l, i) = (screen.clone(), lists.clone(), item.clone());
+        let (s, l, i, sh) = (screen.clone(), lists.clone(), item.clone(), shown.clone());
         delete.connect_activated(move |_| {
-            let (s2, l2, i2) = (s.clone(), l.clone(), i.clone());
+            let (s2, l2, i2, sh2) = (s.clone(), l.clone(), i.clone(), sh.clone());
             confirm(
                 &s.host,
                 t("admin.delete_message"),
@@ -639,7 +728,31 @@ fn message_page(screen: &Screen, lists: &Lists, item: ReportedMessage) {
                 t("actions.delete"),
                 move || {
                     let (admin, item) = (s2.admin.clone(), i2.clone());
-                    moderate(&s2, &l2, async move { admin.delete_reported_message(&item).await });
+                    let (s3, l3, i3, sh3) = (s2.clone(), l2.clone(), i2.clone(), sh2.clone());
+                    let done = moderated(&s2, &l2, &sh2);
+                    spawn(&s2.host, async move { admin.delete_reported_message(&item).await }, move |result| {
+                        match result {
+                            // Rocket.Chat cannot reach the room: its moderation deletes the author's
+                            // reported messages all together, asked explicitly.
+                            Err(AdminError { code, count: Some(n), .. }) if code == "moderation_bulk_only" => {
+                                let (s4, l4, i4, sh4) = (s3.clone(), l3.clone(), i3.clone(), sh3.clone());
+                                confirm_class(
+                                    &s3.host,
+                                    t("admin.bulk_delete_title"),
+                                    &tf("admin.bulk_delete_body", &[("count", &tn("admin.message_count", count(n)))]),
+                                    t("admin.bulk_delete"),
+                                    "admin-bulk-delete",
+                                    move || {
+                                        let (admin, item) = (s4.admin.clone(), i4.clone());
+                                        moderate(&s4, &l4, &sh4, async move {
+                                            admin.delete_author_reported_messages(&item).await
+                                        });
+                                    },
+                                );
+                            }
+                            result => done(result),
+                        }
+                    });
                 },
             );
         });
@@ -647,9 +760,9 @@ fn message_page(screen: &Screen, lists: &Lists, item: ReportedMessage) {
     }
     if !item.author.deleted && item.author.id != screen.admin.my_id() {
         let deactivate = action_row("admin.deactivate_author", "admin-deactivate-author", true);
-        let (s, l, i) = (screen.clone(), lists.clone(), item.clone());
+        let (s, l, i, sh) = (screen.clone(), lists.clone(), item.clone(), shown.clone());
         deactivate.connect_activated(move |_| {
-            let (s2, l2, i2) = (s.clone(), l.clone(), i.clone());
+            let (s2, l2, i2, sh2) = (s.clone(), l.clone(), i.clone(), sh.clone());
             confirm(
                 &s.host,
                 t("admin.deactivate_author"),
@@ -657,44 +770,63 @@ fn message_page(screen: &Screen, lists: &Lists, item: ReportedMessage) {
                 t("admin.deactivate"),
                 move || {
                     let (admin, item) = (s2.admin.clone(), i2.clone());
-                    moderate(&s2, &l2, async move { admin.deactivate_author(&item).await });
+                    let work: Work = Rc::new(move |relinquish| {
+                        let (admin, item) = (admin.clone(), item.clone());
+                        Box::pin(async move { admin.deactivate_author(&item, relinquish).await })
+                    });
+                    relinquishing(&s2, work, moderated(&s2, &l2, &sh2));
                 },
             );
         });
         actions.add(&deactivate);
     }
     page.add(&actions);
-    screen.host.push(t("admin.reported_messages"), &page);
+    let pushed = screen.host.push(t("admin.reported_messages"), &page);
+    shown.replace(Some(pushed.downgrade()));
 }
 
 fn reported_user_page(screen: &Screen, lists: &Lists, item: ReportedUser) {
+    let shown: Shown = Rc::default();
     let page = adw::PreferencesPage::builder().css_classes(["admin-reported-user-page"]).build();
     page.add(&person_group(screen, &item.user));
-    let admin = screen.admin.clone();
-    let reported = item.clone();
-    page.add(&reasons_group(screen, async move { admin.user_reports(&reported).await }));
     let actions = adw::PreferencesGroup::new();
     let dismiss = action_row("admin.dismiss", "admin-dismiss", false);
-    let (s, l, i) = (screen.clone(), lists.clone(), item.clone());
+    let (s, l, i, sh) = (screen.clone(), lists.clone(), item.clone(), shown.clone());
     dismiss.connect_activated(move |_| {
         let (admin, item) = (s.admin.clone(), i.clone());
-        moderate(&s, &l, async move { admin.dismiss_user_reports(&item).await });
+        moderate(&s, &l, &sh, async move { admin.dismiss_user_reports(&item).await });
     });
     actions.add(&dismiss);
-    if item.user.id != screen.admin.my_id() && item.user.active {
-        let deactivate = action_row("admin.deactivate", "admin-deactivate", true);
-        let (s, l, i) = (screen.clone(), lists.clone(), item.clone());
-        deactivate.connect_activated(move |_| {
-            let (s2, l2, i2) = (s.clone(), l.clone(), i.clone());
-            confirm(&s.host, t("admin.deactivate"), t("admin.deactivate_body"), t("admin.deactivate"), move || {
-                let (admin, item) = (s2.admin.clone(), i2.clone());
-                moderate(&s2, &l2, async move { admin.set_active(&item.user, false).await.map(|_| ()) });
+    let deactivate = action_row("admin.deactivate", "admin-deactivate", true);
+    // Rocket.Chat's list does not say whether the account is active: offered
+    // until the reasons say it no longer is.
+    deactivate.set_visible(item.user.id != screen.admin.my_id() && item.active != Some(false));
+    let (s, l, i, sh) = (screen.clone(), lists.clone(), item.clone(), shown.clone());
+    deactivate.connect_activated(move |_| {
+        let (s2, l2, i2, sh2) = (s.clone(), l.clone(), i.clone(), sh.clone());
+        confirm(&s.host, t("admin.deactivate"), t("admin.deactivate_body"), t("admin.deactivate"), move || {
+            let (admin, user) = (s2.admin.clone(), i2.user.clone());
+            let work: Work = Rc::new(move |relinquish| {
+                let (admin, user) = (admin.clone(), user.clone());
+                Box::pin(async move { admin.set_active(&user, false, relinquish).await.map(|_| ()) })
             });
+            relinquishing(&s2, work, moderated(&s2, &l2, &sh2));
         });
-        actions.add(&deactivate);
-    }
+    });
+    actions.add(&deactivate);
+    let admin = screen.admin.clone();
+    let reported = item.clone();
+    let row = deactivate.downgrade();
+    page.add(&reasons_group(screen, async move { admin.user_reports(&reported).await }, move |active| {
+        if active == Some(false)
+            && let Some(row) = row.upgrade()
+        {
+            row.set_visible(false);
+        }
+    }));
     page.add(&actions);
-    screen.host.push(t("admin.reported_users"), &page);
+    let pushed = screen.host.push(t("admin.reported_users"), &page);
+    shown.replace(Some(pushed.downgrade()));
 }
 
 /// A search entry over a list reloaded as one types.
@@ -844,6 +976,7 @@ fn person_group(screen: &Screen, user: &AdminUser) -> adw::PreferencesGroup {
 
 /// An account's actions: admin right, activation, deletion; none on mine.
 fn user_page(screen: &Screen, reload: &Reload, user: AdminUser) {
+    let shown: Shown = Rc::default();
     let page = adw::PreferencesPage::builder().css_classes(["admin-user-page"]).build();
     page.add(&person_group(screen, &user));
     let actions = adw::PreferencesGroup::new();
@@ -854,11 +987,11 @@ fn user_page(screen: &Screen, reload: &Reload, user: AdminUser) {
         return;
     }
     let done = {
-        let (s, reload) = (screen.clone(), reload.clone());
+        let (s, reload, shown) = (screen.clone(), reload.clone(), shown.clone());
         move |result: Result<(), AdminError>| match result {
             Ok(()) => {
                 s.host.toast(t("admin.done"));
-                s.host.pop();
+                leave(&s, &shown);
                 if let Some(reload) = reload.borrow().clone() {
                     reload();
                 }
@@ -880,8 +1013,12 @@ fn user_page(screen: &Screen, reload: &Reload, user: AdminUser) {
     activation.connect_activated(move |_| {
         let (s2, u2, d2) = (s.clone(), u.clone(), d.clone());
         let run = move || {
-            let (admin, user, d) = (s2.admin.clone(), u2.clone(), d2.clone());
-            spawn(&s2.host, async move { admin.set_active(&user, !user.active).await.map(|_| ()) }, d);
+            let (admin, user) = (s2.admin.clone(), u2.clone());
+            let work: Work = Rc::new(move |relinquish| {
+                let (admin, user) = (admin.clone(), user.clone());
+                Box::pin(async move { admin.set_active(&user, !user.active, relinquish).await.map(|_| ()) })
+            });
+            relinquishing(&s2, work, d2.clone());
         };
         if u.active {
             confirm(&s.host, t("admin.deactivate"), t("admin.deactivate_body"), t("admin.deactivate"), run);
@@ -899,13 +1036,18 @@ fn user_page(screen: &Screen, reload: &Reload, user: AdminUser) {
         };
         let (s2, u2, d2) = (s.clone(), u.clone(), done.clone());
         confirm(&s.host, t("admin.delete_user"), t(body), t("actions.delete"), move || {
-            let (admin, user, d) = (s2.admin.clone(), u2.clone(), d2.clone());
-            spawn(&s2.host, async move { admin.delete_user(&user).await }, d);
+            let (admin, user) = (s2.admin.clone(), u2.clone());
+            let work: Work = Rc::new(move |relinquish| {
+                let (admin, user) = (admin.clone(), user.clone());
+                Box::pin(async move { admin.delete_user(&user, relinquish).await })
+            });
+            relinquishing(&s2, work, d2.clone());
         });
     });
     actions.add(&delete);
     page.add(&actions);
-    screen.host.push(t("admin.cat.users"), &page);
+    let pushed = screen.host.push(t("admin.cat.users"), &page);
+    shown.replace(Some(pushed.downgrade()));
 }
 
 /// What a member reports.
@@ -966,9 +1108,16 @@ pub fn report(
         };
         glib::spawn_future_local(async move {
             let sent = on_tokio(work).await;
-            toast(t(if sent.is_ok() { "report.sent" } else { "report.failed" }).to_owned());
+            let key = match sent {
+                Ok(()) => "report.sent",
+                Err(error) => match rv_core::admin::error_key(&error.code) {
+                    "admin.failed" => "report.failed",
+                    key => key,
+                },
+            };
+            toast(t(key).to_owned());
         });
     });
-    widgets::present_alert(&alert, Some(parent.as_ref()));
+    widgets::present(&alert, Some(parent.as_ref()));
     alert
 }

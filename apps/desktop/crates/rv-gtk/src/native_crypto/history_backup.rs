@@ -201,7 +201,7 @@ impl Controller {
                 c.run(super::Action::HistoryBackup(Action::Prepare(Box::new(approval))));
             }
         });
-        crate::widgets::present_alert(&alert, Some(&parent));
+        crate::widgets::present(&alert, Some(&parent));
     }
     pub(super) fn connect_history_backup(self: &Rc<Self>) {
         for (index, row) in self.history_backup.rows.iter().enumerate() {

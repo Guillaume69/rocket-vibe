@@ -202,7 +202,7 @@ impl Controller {
                 c.run(super::Action::History(Action::Share(Box::new(approval), response == "delegate")));
             }
         });
-        crate::widgets::present_alert(&alert, Some(&parent));
+        crate::widgets::present(&alert, Some(&parent));
     }
     pub(super) fn connect_history(self: &Rc<Self>) {
         for (index, row) in self.history.rows.iter().enumerate() {

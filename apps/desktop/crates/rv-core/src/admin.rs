@@ -57,6 +57,7 @@ pub struct UserCounts {
     pub total: u64,
     pub active: u64,
     pub deactivated: u64,
+    /// None when the server would not say (a missing permission).
     pub admins: Option<u64>,
     pub online: u64,
     pub away: u64,
@@ -82,12 +83,13 @@ pub struct UploadCounts {
     pub bytes: u64,
 }
 
-/// What is waiting in moderation. Rocket.Chat counts the authors of reported
-/// messages, RocketVibe the messages.
+/// What is waiting in moderation; None when the server would not say.
+/// Rocket.Chat counts the authors of reported messages, RocketVibe the
+/// messages.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ReportCounts {
-    pub messages: u64,
-    pub users: u64,
+    pub messages: Option<u64>,
+    pub users: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -101,6 +103,9 @@ pub struct Overview {
     /// `Node v22.22.3`; none on RocketVibe.
     pub runtime: Option<String>,
     pub instance_id: Option<String>,
+    /// When the figures were computed: Rocket.Chat's statistics are a
+    /// snapshot (RFC 3339); None when they are live (RocketVibe).
+    pub as_of: Option<String>,
     pub users: UserCounts,
     pub rooms: KindCounts,
     pub messages: KindCounts,
@@ -114,7 +119,8 @@ pub struct AdminUser {
     pub id: String,
     pub username: String,
     pub name: String,
-    /// The photo's version: Rocket.Chat's `avatarETag`, RocketVibe's avatar file id.
+    /// The photo's version: Rocket.Chat's `avatarETag`, RocketVibe's avatar
+    /// file id. None: no photo (draw the initials, never the bare URL).
     pub avatar: Option<String>,
     pub admin: bool,
     pub active: bool,
@@ -180,8 +186,10 @@ pub struct AdminRoom {
     pub members: u64,
     pub messages: u64,
     pub created_at: Option<String>,
+    /// RocketVibe only: Rocket.Chat's admin list does not carry it.
     pub last_message_at: Option<String>,
     pub read_only: bool,
+    /// RocketVibe only: Rocket.Chat's admin list does not carry it.
     pub encrypted: bool,
     pub direct_members: Vec<UserLite>,
 }
@@ -205,7 +213,13 @@ pub struct ReportedMessage {
     pub message_id: String,
     pub room: ReportRoom,
     pub author: UserLite,
+    /// RocketVibe: the author's account revision, for deactivating them;
+    /// None for a deleted author and on Rocket.Chat.
+    pub author_revision: Option<String>,
+    /// Empty when `encrypted` (show "Encrypted message") or `deleted`.
     pub text: String,
+    /// An end-to-end encrypted message: its text is never shown.
+    pub encrypted: bool,
     pub created_at: String,
     pub deleted: bool,
     pub count: u64,
@@ -218,9 +232,20 @@ pub struct ReportedMessage {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ReportedUser {
     pub user: AdminUser,
+    /// Whether the account is active; None until known (Rocket.Chat's list
+    /// does not say, `Admin::user_reports` does).
+    pub active: Option<bool>,
     pub count: u64,
     pub latest_at: String,
     pub reports: Option<Vec<Report>>,
+}
+
+/// What opening a reported account reads: the reasons, and whether the
+/// account is still active when the list did not say.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ReportedUserDetails {
+    pub reports: Vec<Report>,
+    pub active: Option<bool>,
 }
 
 /// One page of a list; `next` asks for the following one.
@@ -230,33 +255,76 @@ pub struct Page<T> {
     pub next: Option<String>,
 }
 
+/// The rooms a Rocket.Chat account owns alone, named by the server before
+/// it deactivates or deletes the account (`user-last-owner`): those deleted
+/// (the account is their only member) and those whose ownership moves.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct LastOwner {
+    pub removed: Vec<String>,
+    pub transferred: Vec<String>,
+}
+
 /// A refusal or a failure: the server's code (`self_administration`,
 /// `last_administrator`, `revision_conflict`, `error-action-not-allowed`...),
-/// `connection_failed` without an answer.
+/// `connection_failed` without an answer. Two codes ask for a second
+/// confirmation: `user-last-owner` (with `last_owner`: retry with
+/// `relinquish`) and `moderation_bulk_only` (with `count`: Rocket.Chat can
+/// only delete that author's reported messages together).
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("{code}")]
 pub struct AdminError {
     pub code: String,
+    pub last_owner: Option<LastOwner>,
+    pub count: Option<u64>,
 }
 
 impl AdminError {
     fn new(code: &str) -> Self {
-        AdminError { code: code.to_owned() }
+        AdminError { code: code.to_owned(), last_owner: None, count: None }
     }
 }
 
 impl From<RestError> for AdminError {
     fn from(error: RestError) -> Self {
         let code = error.error_type.clone().or_else(|| error.error.clone().filter(|e| !e.contains(' ')));
+        let names = |key: &str| -> Vec<String> {
+            let list = error.details.as_ref().and_then(|d| d.get(key)).and_then(Value::as_array);
+            list.into_iter()
+                .flatten()
+                .filter_map(|v| v.as_str().or_else(|| v.get("fname").or_else(|| v.get("name")).and_then(Value::as_str)))
+                .map(str::to_owned)
+                .collect()
+        };
+        let last_owner = (code.as_deref() == Some("user-last-owner"))
+            .then(|| LastOwner { removed: names("shouldBeRemoved"), transferred: names("shouldChangeOwner") });
         AdminError {
             code: code.unwrap_or_else(|| (if error.status == 0 { "connection_failed" } else { "failed" }).into()),
+            last_owner,
+            count: None,
         }
     }
 }
 
 impl From<crate::native::Error> for AdminError {
     fn from(error: crate::native::Error) -> Self {
-        AdminError { code: error.code().to_owned() }
+        AdminError::new(error.code())
+    }
+}
+
+/// The i18n key of the message for a failure's code, the same in both
+/// desktop apps.
+pub fn error_key(code: &str) -> &'static str {
+    match code {
+        "self_administration" => "admin.error_self",
+        "self_report" => "report.error_self",
+        "last_administrator" | "error-admin-required" => "admin.error_last_admin",
+        "revision_conflict" | "operation_conflict" => "admin.error_conflict",
+        "not_found" | "error-invalid-user" | "error-invalid-room" => "admin.error_not_found",
+        "offline" | "connection_failed" | "session_closed" => "native.offline",
+        "invalid_reason" => "report.failed",
+        "permission_denied" | "unsupported_feature" => "admin.error_denied",
+        code if code.starts_with("error-") => "admin.error_denied",
+        _ => "admin.failed",
     }
 }
 
@@ -271,34 +339,40 @@ pub fn update_available(current: &str, latest: &str) -> bool {
     crate::update::is_newer(latest, current)
 }
 
-/// The newest published server version: Rocket.Chat's latest GitHub release,
-/// or the newest `server-v` tag of RocketVibe's repository. None when unknown.
+/// The newest published server version: the highest Rocket.Chat release
+/// (`releases/latest` can name a backport), or the highest `server-v` tag of
+/// RocketVibe's repository. None when unknown.
 pub async fn latest_version(product: Product) -> Option<String> {
+    let releases = match product {
+        Product::RocketChat => "https://api.github.com/repos/RocketChat/Rocket.Chat/releases?per_page=30".to_owned(),
+        Product::RocketVibe => format!("https://api.github.com/repos/{}/releases?per_page=50", crate::update::REPO),
+    };
+    let list = crate::update::github_json(&releases).await.ok()?;
     match product {
-        Product::RocketChat => {
-            let url = "https://api.github.com/repos/RocketChat/Rocket.Chat/releases/latest";
-            let release = crate::update::github_json(url).await.ok()?;
-            let tag = release["tag_name"].as_str()?.trim_start_matches(['v', 'V']);
-            crate::update::parse_version(tag).map(|_| tag.to_owned())
-        }
-        Product::RocketVibe => {
-            let url = format!("https://api.github.com/repos/{}/releases?per_page=50", crate::update::REPO);
-            latest_server_tag(&crate::update::github_json(&url).await.ok()?)
-        }
+        Product::RocketChat => highest_release(&list, ""),
+        Product::RocketVibe => latest_server_tag(&list),
     }
 }
 
-/// The newest `server-vX.Y.Z` of a GitHub release list, drafts and
-/// pre-releases aside.
-pub fn latest_server_tag(releases: &Value) -> Option<String> {
+/// The highest stable version among GitHub releases whose tag starts with
+/// `prefix` (an optional `v` after it): drafts, pre-releases and tags with a
+/// pre-release suffix (`-rc.1`) aside.
+pub fn highest_release(releases: &Value, prefix: &str) -> Option<String> {
     releases
         .as_array()?
         .iter()
         .filter(|r| r["draft"].as_bool() != Some(true) && r["prerelease"].as_bool() != Some(true))
-        .filter_map(|r| r["tag_name"].as_str()?.strip_prefix("server-v"))
-        .filter_map(|v| crate::update::parse_version(v).map(|parsed| (parsed, v)))
+        .filter_map(|r| r["tag_name"].as_str()?.strip_prefix(prefix))
+        .map(|tag| tag.trim_start_matches(['v', 'V']))
+        .filter(|version| !version.contains(['-', '+']))
+        .filter_map(|version| crate::update::parse_version(version).map(|parsed| (parsed, version)))
         .max_by_key(|(parsed, _)| *parsed)
-        .map(|(_, v)| v.to_owned())
+        .map(|(_, version)| version.to_owned())
+}
+
+/// The newest `server-vX.Y.Z` of a GitHub release list.
+pub fn latest_server_tag(releases: &Value) -> Option<String> {
+    highest_release(releases, "server-")
 }
 
 /// The administration of the account a UI has open.
@@ -324,12 +398,13 @@ impl Admin {
         }
     }
 
-    /// Whether this account administers the server: Rocket.Chat's `admin`
+    /// Whether this account administers the server, asked afresh each time
+    /// (a right granted or removed meanwhile counts): Rocket.Chat's `admin`
     /// role; RocketVibe's account permissions, on a server offering the
     /// administration. False when it could not be asked.
     pub async fn is_admin(&self) -> bool {
         match self {
-            Self::RocketChat(s) => s.roles().await.is_some_and(|roles| rc::is_admin(&roles)),
+            Self::RocketChat(s) => rc::roles(&s.rest).await.is_ok_and(|roles| rc::is_admin(&roles)),
             Self::Native(s) => s.administrator().await.unwrap_or(false),
         }
     }
@@ -342,9 +417,12 @@ impl Admin {
         }
     }
 
-    pub async fn overview(&self) -> Result<Overview, AdminError> {
+    /// The dashboard's figures. Rocket.Chat answers its last statistics
+    /// snapshot (`as_of`) unless `refresh`, which computes new ones (a full
+    /// aggregation on the server: on demand only).
+    pub async fn overview(&self, refresh: bool) -> Result<Overview, AdminError> {
         match self {
-            Self::RocketChat(s) => Ok(rc::overview(&s.rest).await?),
+            Self::RocketChat(s) => Ok(rc::overview(&s.rest, refresh).await?),
             Self::Native(s) => Ok(native_overview(&s.admin_overview().await?, chrono::Utc::now())),
         }
     }
@@ -384,12 +462,14 @@ impl Admin {
         }
     }
 
-    /// Activates or deactivates an account; the account as it now is.
-    pub async fn set_active(&self, user: &AdminUser, active: bool) -> Result<AdminUser, AdminError> {
+    /// Activates or deactivates an account; the account as it now is. On
+    /// Rocket.Chat a deactivation first answers `user-last-owner` when the
+    /// account owns rooms alone: confirm, then call again with `relinquish`.
+    pub async fn set_active(&self, user: &AdminUser, active: bool, relinquish: bool) -> Result<AdminUser, AdminError> {
         self.not_me(&user.id)?;
         match self {
             Self::RocketChat(s) => {
-                rc::set_active(&s.rest, &user.id, active).await?;
+                rc::set_active(&s.rest, &user.id, active, relinquish).await?;
                 Ok(AdminUser { active, ..user.clone() })
             }
             Self::Native(s) => {
@@ -400,11 +480,13 @@ impl Admin {
     }
 
     /// Deletes an account. Rocket.Chat handles its messages by its own
-    /// "Message erasure" setting; RocketVibe keeps them, by a deleted user.
-    pub async fn delete_user(&self, user: &AdminUser) -> Result<(), AdminError> {
+    /// "Message erasure" setting, deletes its direct conversations, and
+    /// first answers `user-last-owner` like a deactivation; RocketVibe keeps
+    /// the messages, by a deleted user.
+    pub async fn delete_user(&self, user: &AdminUser, relinquish: bool) -> Result<(), AdminError> {
         self.not_me(&user.id)?;
         match self {
-            Self::RocketChat(s) => Ok(rc::delete_user(&s.rest, &user.id).await?),
+            Self::RocketChat(s) => Ok(rc::delete_user(&s.rest, &user.id, relinquish).await?),
             Self::Native(s) => Ok(s.delete_admin_user(&user.id, user.revision.as_deref().unwrap_or_default()).await?),
         }
     }
@@ -445,28 +527,44 @@ impl Admin {
         }
     }
 
-    /// Deletes the reported message, which also closes its reports.
+    /// Deletes the reported message, which also closes its reports. On
+    /// Rocket.Chat, in a room the admin cannot reach, this answers
+    /// `moderation_bulk_only` with the number of the author's reported
+    /// messages: only `delete_author_reported_messages` can remove it then.
     pub async fn delete_reported_message(&self, item: &ReportedMessage) -> Result<(), AdminError> {
         match self {
-            Self::RocketChat(s) => {
-                rc::delete_message(&s.rest, &item.room.id, &item.message_id).await?;
-                Ok(rc::dismiss_message(&s.rest, &item.message_id).await?)
-            }
+            Self::RocketChat(s) => match rc::delete_message(&s.rest, &item.room.id, &item.message_id).await {
+                Ok(()) => Ok(rc::dismiss_message(&s.rest, &item.message_id).await?),
+                Err(error) if error.error_type.as_deref() == Some("error-action-not-allowed") => {
+                    let count = rc::author_reported_count(&s.rest, &item.author.id).await?;
+                    Err(AdminError { count: Some(count), ..AdminError::new("moderation_bulk_only") })
+                }
+                Err(error) => Err(error.into()),
+            },
             Self::Native(s) => Ok(s.delete_reported_message(&item.message_id).await?),
         }
     }
 
-    /// Deactivates the reported message's author.
-    pub async fn deactivate_author(&self, item: &ReportedMessage) -> Result<(), AdminError> {
+    /// Rocket.Chat: deletes all the author's reported messages and closes
+    /// their reports (the moderation's own action). RocketVibe refuses it:
+    /// its moderation deletes one message.
+    pub async fn delete_author_reported_messages(&self, item: &ReportedMessage) -> Result<(), AdminError> {
+        match self {
+            Self::RocketChat(s) => Ok(rc::delete_author_reported_messages(&s.rest, &item.author.id).await?),
+            Self::Native(_) => Err(AdminError::new("unsupported_feature")),
+        }
+    }
+
+    /// Deactivates the reported message's author (see `set_active` for
+    /// `relinquish`).
+    pub async fn deactivate_author(&self, item: &ReportedMessage, relinquish: bool) -> Result<(), AdminError> {
         self.not_me(&item.author.id)?;
         match self {
-            Self::RocketChat(s) => Ok(rc::set_active(&s.rest, &item.author.id, false).await?),
-            Self::Native(_) => {
-                // The change needs the account's revision, which only the users list carries.
-                let page = self.users(None, &item.author.username).await?;
-                let user =
-                    page.items.into_iter().find(|u| u.id == item.author.id).ok_or(AdminError::new("not_found"))?;
-                self.set_active(&user, false).await.map(|_| ())
+            Self::RocketChat(s) => Ok(rc::set_active(&s.rest, &item.author.id, false, relinquish).await?),
+            Self::Native(s) => {
+                let revision = item.author_revision.as_deref().ok_or(AdminError::new("not_found"))?;
+                s.update_admin_user(&item.author.id, revision, None, Some(true)).await?;
+                Ok(())
             }
         }
     }
@@ -481,6 +579,7 @@ impl Admin {
                     .iter()
                     .map(|r| ReportedUser {
                         user: native_user(&r.user),
+                        active: Some(!r.user.disabled),
                         count: r.report_count,
                         latest_at: r.latest_report_at.clone(),
                         reports: Some(r.reports.iter().map(native_report).collect()),
@@ -491,11 +590,12 @@ impl Admin {
         }
     }
 
-    pub async fn user_reports(&self, item: &ReportedUser) -> Result<Vec<Report>, AdminError> {
+    /// The reasons, newest first, and whether the account is active.
+    pub async fn user_reports(&self, item: &ReportedUser) -> Result<ReportedUserDetails, AdminError> {
         match (&item.reports, self) {
-            (Some(reports), _) => Ok(reports.clone()),
+            (Some(reports), _) => Ok(ReportedUserDetails { reports: reports.clone(), active: item.active }),
             (None, Self::RocketChat(s)) => Ok(rc::user_reports(&s.rest, &item.user.id).await?),
-            (None, Self::Native(_)) => Ok(Vec::new()),
+            (None, Self::Native(_)) => Ok(ReportedUserDetails { reports: Vec::new(), active: item.active }),
         }
     }
 
@@ -560,6 +660,7 @@ pub(crate) fn native_overview(o: &rv_protocol::admin::AdminOverview, now: chrono
         migration: o.migration_version.clone(),
         runtime: None,
         instance_id: Some(o.instance_id.clone()),
+        as_of: None,
         users: UserCounts {
             total: o.users.total,
             active: o.users.active,
@@ -587,7 +688,7 @@ pub(crate) fn native_overview(o: &rv_protocol::admin::AdminOverview, now: chrono
             encrypted: Some(o.messages.encrypted),
         },
         uploads: UploadCounts { count: o.uploads.count, bytes: o.uploads.bytes },
-        reports: ReportCounts { messages: o.reports.messages, users: o.reports.users },
+        reports: ReportCounts { messages: Some(o.reports.messages), users: Some(o.reports.users) },
     }
 }
 
@@ -638,7 +739,9 @@ fn native_reported_message(m: &rv_protocol::admin::AdminReportedMessage) -> Repo
         message_id: m.message_id.clone(),
         room: ReportRoom { id: m.room_id.clone(), name: m.room_name.clone(), kind: room_type(&m.room_kind) },
         author: UserLite::from(&m.author),
+        author_revision: m.author_revision.clone(),
         text: m.text.clone(),
+        encrypted: false,
         created_at: m.created_at.clone(),
         deleted: m.deleted,
         count: m.report_count,
@@ -649,9 +752,15 @@ fn native_reported_message(m: &rv_protocol::admin::AdminReportedMessage) -> Repo
 
 /// Rocket.Chat's administration over REST (all probed on 8.5.1).
 pub mod rc {
+    use futures_util::{StreamExt, TryStreamExt, stream};
+
     use super::*;
 
     const PAGE: u64 = 50;
+    /// Authors per page of reported messages: each one costs a request.
+    const AUTHORS: u64 = 20;
+    /// Requests at once in a fan-out (admins bypass the rate limit).
+    const PARALLEL: usize = 8;
 
     fn text(v: &Value, key: &str) -> String {
         v.get(key).and_then(Value::as_str).unwrap_or_default().to_owned()
@@ -674,6 +783,9 @@ pub mod rc {
             _ => RoomType::Public,
         }
     }
+    fn room_name(room: &Value) -> String {
+        Some(text(room, "fname")).filter(|n| !n.is_empty()).unwrap_or_else(|| text(room, "name"))
+    }
     fn lite(v: &Value) -> UserLite {
         UserLite { id: text(v, "_id"), username: text(v, "username"), name: text(v, "name"), deleted: false }
     }
@@ -682,23 +794,44 @@ pub mod rc {
         roles.iter().any(|r| r == "admin")
     }
 
-    /// `statistics?refresh=true` (a cached snapshot otherwise), the admin
-    /// count and the open reports. `moderation.reportsByUsers` groups by
-    /// author, so the open message reports are the sum of their counts over
-    /// the first 100 authors, as on mobile.
-    pub async fn overview(rest: &RestClient) -> Result<Overview, RestError> {
-        let (stats, admins, messages, users) = tokio::try_join!(
-            rest.get("statistics", CallOptions::params([("refresh", "true")])),
-            rest.get("roles.getUsersInRole", CallOptions::params([("role", "admin"), ("count", "1")])),
-            rest.get("moderation.reportsByUsers", CallOptions::params([("count", "100")])),
-            rest.get("moderation.userReports", CallOptions::params([("count", "1")])),
-        )?;
-        let reported =
-            messages.get("reports").and_then(Value::as_array).into_iter().flatten().map(|a| count(a, "count")).sum();
-        Ok(parse_overview(&stats, count(&admins, "total"), reported, count(&users, "total")))
+    /// My global roles, read now (`me`), not from a session cache.
+    pub async fn roles(rest: &RestClient) -> Result<Vec<String>, RestError> {
+        let me = rest.get("me", CallOptions::default()).await?;
+        Ok(me
+            .get("roles")
+            .and_then(Value::as_array)
+            .map(|r| r.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+            .unwrap_or_default())
     }
 
-    pub fn parse_overview(s: &Value, admins: u64, reported_messages: u64, reported_users: u64) -> Overview {
+    /// The statistics (the last snapshot, or new ones with `refresh`, which
+    /// costs the server a full aggregation), then the admin count and the
+    /// open reports, each one unknown rather than failing the whole when
+    /// the server refuses it (a missing permission).
+    pub async fn overview(rest: &RestClient, refresh: bool) -> Result<Overview, RestError> {
+        let total = |path: &'static str, params: Vec<(&'static str, &'static str)>| async move {
+            rest.get(path, CallOptions::params(params)).await.ok().map(|v| count(&v, "total"))
+        };
+        let statistics = if refresh {
+            rest.get("statistics", CallOptions::params([("refresh", "true")]))
+        } else {
+            rest.get("statistics", CallOptions::default())
+        };
+        let (stats, admins, messages, users) = tokio::join!(
+            statistics,
+            total("roles.getUsersInRole", vec![("role", "admin"), ("count", "1")]),
+            total("moderation.reportsByUsers", vec![("count", "1")]),
+            total("moderation.userReports", vec![("count", "1")]),
+        );
+        Ok(parse_overview(&stats?, admins, messages, users))
+    }
+
+    pub fn parse_overview(
+        s: &Value,
+        admins: Option<u64>,
+        reported_messages: Option<u64>,
+        reported_users: Option<u64>,
+    ) -> Overview {
         let mongo = text(s, "mongoVersion");
         let engine = text(s, "mongoStorageEngine");
         let database = match (mongo.is_empty(), engine.is_empty()) {
@@ -715,11 +848,12 @@ pub mod rc {
             migration: s.pointer("/migration/version").map(|v| v.to_string().trim_matches('"').to_owned()),
             runtime: (!node.is_empty()).then(|| format!("Node {node}")),
             instance_id: date(s, "uniqueId"),
+            as_of: date(s, "createdAt"),
             users: UserCounts {
                 total: count(s, "totalUsers"),
                 active: count(s, "activeUsers"),
                 deactivated: count(s, "nonActiveUsers"),
-                admins: Some(admins),
+                admins,
                 online: count(s, "onlineUsers"),
                 away: count(s, "awayUsers"),
                 busy: count(s, "busyUsers"),
@@ -786,13 +920,21 @@ pub mod rc {
         rest.post(path, CallOptions::body(json!({"roleId": "admin", "username": username}))).await.map(|_| ())
     }
 
-    pub async fn set_active(rest: &RestClient, user_id: &str, active: bool) -> Result<(), RestError> {
-        let body = json!({"userId": user_id, "activeStatus": active, "confirmRelinquish": true});
+    /// Without `relinquish`, an account owning rooms alone is refused with
+    /// `user-last-owner` and the rooms in `details`.
+    pub async fn set_active(rest: &RestClient, user_id: &str, active: bool, relinquish: bool) -> Result<(), RestError> {
+        let mut body = json!({"userId": user_id, "activeStatus": active});
+        if relinquish {
+            body["confirmRelinquish"] = json!(true);
+        }
         rest.post("users.setActiveStatus", CallOptions::body(body)).await.map(|_| ())
     }
 
-    pub async fn delete_user(rest: &RestClient, user_id: &str) -> Result<(), RestError> {
-        let body = json!({"userId": user_id, "confirmRelinquish": true});
+    pub async fn delete_user(rest: &RestClient, user_id: &str, relinquish: bool) -> Result<(), RestError> {
+        let mut body = json!({"userId": user_id});
+        if relinquish {
+            body["confirmRelinquish"] = json!(true);
+        }
         rest.post("users.delete", CallOptions::body(body)).await.map(|_| ())
     }
 
@@ -803,11 +945,7 @@ pub mod rc {
             .and_then(Value::as_array)
             .map(|u| u.iter().filter_map(Value::as_str).map(str::to_owned).collect())
             .unwrap_or_default();
-        let name = if t == "d" && !usernames.is_empty() {
-            usernames.join(", ")
-        } else {
-            Some(text(r, "fname")).filter(|n| !n.is_empty()).unwrap_or_else(|| text(r, "name"))
-        };
+        let name = if t == "d" && !usernames.is_empty() { usernames.join(", ") } else { room_name(r) };
         AdminRoom {
             id: text(r, "_id"),
             kind: room_type(&t, r.get("prid").and_then(Value::as_str).is_some()),
@@ -816,9 +954,9 @@ pub mod rc {
             members: count(r, "usersCount"),
             messages: count(r, "msgs"),
             created_at: date(r, "ts"),
-            last_message_at: r.pointer("/lm").and_then(Value::as_str).map(str::to_owned),
+            last_message_at: None,
             read_only: r.get("ro").and_then(Value::as_bool).unwrap_or(false),
-            encrypted: r.get("encrypted").and_then(Value::as_bool).unwrap_or(false),
+            encrypted: false,
             direct_members: usernames
                 .iter()
                 .map(|u| UserLite { username: u.clone(), name: u.clone(), ..Default::default() })
@@ -826,9 +964,13 @@ pub mod rc {
         }
     }
 
-    /// `rooms.adminRooms`, every type; `query` filters on the name.
+    /// `rooms.adminRooms` with every type named: without `types` it hides
+    /// discussions and teams' main rooms. `query` filters on the name.
     pub async fn rooms(rest: &RestClient, offset: u64, query: &str) -> Result<Page<AdminRoom>, RestError> {
         let mut params = vec![("count".to_owned(), PAGE.to_string()), ("offset".to_owned(), offset.to_string())];
+        for kind in ["c", "p", "d", "discussions", "teams"] {
+            params.push(("types[]".to_owned(), kind.to_owned()));
+        }
         if !query.trim().is_empty() {
             params.push(("filter".to_owned(), query.trim().to_owned()));
         }
@@ -839,59 +981,84 @@ pub mod rc {
         Ok(Page { items, next })
     }
 
-    /// `moderation.reportsByUsers` lists authors; each one's reported
-    /// messages come from `moderation.user.reportedMessages`, one item per
-    /// message with its report count. Admins bypass the rate limit.
+    /// One reported message of `moderation.user.reportedMessages` (one entry
+    /// per message; its `count` field counts the author's reports, not this
+    /// message's).
+    fn reported(author: &UserLite, entry: &Value) -> ReportedMessage {
+        let message = entry.get("message").cloned().unwrap_or(Value::Null);
+        let room = entry.get("room").cloned().unwrap_or(Value::Null);
+        let encrypted = text(&message, "t") == "e2e";
+        ReportedMessage {
+            message_id: text(&message, "_id"),
+            room: ReportRoom {
+                id: text(&room, "_id"),
+                name: room_name(&room),
+                kind: room_type(&text(&room, "t"), false),
+            },
+            author: author.clone(),
+            author_revision: None,
+            text: if encrypted { String::new() } else { text(&message, "msg") },
+            encrypted,
+            created_at: text(&message, "ts"),
+            deleted: false,
+            count: 1,
+            latest_at: text(entry, "ts"),
+            reports: None,
+        }
+    }
+
+    /// `moderation.reportsByUsers` lists authors, 20 a page; each one's
+    /// messages come from `moderation.user.reportedMessages`, and each
+    /// message's report count from `moderation.reports` (its `total`), 8
+    /// requests at once.
     pub async fn reported_messages(rest: &RestClient, offset: u64) -> Result<Page<ReportedMessage>, RestError> {
-        let params = [("count", PAGE.to_string()), ("offset", offset.to_string())];
+        let params = [("count", AUTHORS.to_string()), ("offset", offset.to_string())];
         let response = rest.get("moderation.reportsByUsers", CallOptions::params(params)).await?;
-        let authors: Vec<Value> = response.get("reports").and_then(Value::as_array).cloned().unwrap_or_default();
-        let mut items: Vec<ReportedMessage> = Vec::new();
-        for author in &authors {
-            let user = text(author, "userId");
-            let params = [("userId", user.as_str()), ("count", "100")];
-            let detail = rest.get("moderation.user.reportedMessages", CallOptions::params(params)).await?;
-            let mut who = UserLite {
-                id: user.clone(),
-                username: text(author, "username"),
-                name: text(author, "name"),
-                deleted: author.get("isUserDeleted").and_then(Value::as_bool).unwrap_or(false),
-            };
-            if who.deleted {
-                who.name.clear();
-            }
-            let mut mine: Vec<ReportedMessage> = Vec::new();
-            for report in detail.get("messages").and_then(Value::as_array).into_iter().flatten() {
-                let message = report.get("message").cloned().unwrap_or(Value::Null);
-                let id = text(&message, "_id");
-                let at = text(report, "ts");
-                if let Some(known) = mine.iter_mut().find(|m| m.message_id == id) {
-                    known.count += 1;
-                    if at > known.latest_at {
-                        known.latest_at = at;
-                    }
-                    continue;
+        let authors: Vec<UserLite> = response
+            .get("reports")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .map(|a| {
+                let deleted = a.get("isUserDeleted").and_then(Value::as_bool).unwrap_or(false);
+                UserLite {
+                    id: text(a, "userId"),
+                    username: text(a, "username"),
+                    name: if deleted { String::new() } else { text(a, "name") },
+                    deleted,
                 }
-                let room = report.get("room").cloned().unwrap_or(Value::Null);
-                mine.push(ReportedMessage {
-                    message_id: id,
-                    room: ReportRoom {
-                        id: text(&room, "_id"),
-                        name: Some(text(&room, "fname"))
-                            .filter(|n| !n.is_empty())
-                            .unwrap_or_else(|| text(&room, "name")),
-                        kind: room_type(&text(&room, "t"), false),
-                    },
-                    author: who.clone(),
-                    text: text(&message, "msg"),
-                    created_at: text(&message, "ts"),
-                    deleted: false,
-                    count: 1,
-                    latest_at: at,
-                    reports: None,
-                });
-            }
-            items.extend(mine);
+            })
+            .collect();
+        // Owned values in the tasks: their futures stay `Send` for any caller.
+        let pages: Vec<Vec<ReportedMessage>> = stream::iter(authors.clone())
+            .map(|author| {
+                let rest = rest.clone();
+                async move {
+                    let params = [("userId", author.id.clone()), ("count", "100".to_owned())];
+                    let detail = rest.get("moderation.user.reportedMessages", CallOptions::params(params)).await?;
+                    let entries = detail.get("messages").and_then(Value::as_array).cloned().unwrap_or_default();
+                    Ok::<_, RestError>(entries.iter().map(|entry| reported(&author, entry)).collect::<Vec<_>>())
+                }
+            })
+            .buffered(PARALLEL)
+            .try_collect()
+            .await?;
+        let mut items: Vec<ReportedMessage> = pages.into_iter().flatten().collect();
+        let ids: Vec<String> = items.iter().map(|item| item.message_id.clone()).collect();
+        let counts: Vec<u64> = stream::iter(ids)
+            .map(|id| {
+                let rest = rest.clone();
+                async move {
+                    let params = [("msgId", id), ("count", "1".to_owned())];
+                    let reports = rest.get("moderation.reports", CallOptions::params(params)).await?;
+                    Ok::<_, RestError>(count(&reports, "total").max(1))
+                }
+            })
+            .buffered(PARALLEL)
+            .try_collect()
+            .await?;
+        for (item, total) in items.iter_mut().zip(counts) {
+            item.count = total;
         }
         items.sort_by(|a, b| b.latest_at.cmp(&a.latest_at));
         Ok(Page { next: next(&response, offset, authors.len()), items })
@@ -914,6 +1081,8 @@ pub mod rc {
         Ok(reports)
     }
 
+    /// The reported accounts. Rocket.Chat's list does not say whether each
+    /// one is active: `user_reports` does.
     pub async fn reported_users(rest: &RestClient, offset: u64) -> Result<Page<ReportedUser>, RestError> {
         let params = [("count", PAGE.to_string()), ("offset", offset.to_string())];
         let response = rest.get("moderation.userReports", CallOptions::params(params)).await?;
@@ -924,6 +1093,7 @@ pub mod rc {
             .flatten()
             .map(|r| ReportedUser {
                 user: user(r.get("reportedUser").unwrap_or(&Value::Null)),
+                active: None,
                 count: count(r, "count"),
                 latest_at: text(r, "ts"),
                 reports: None,
@@ -933,21 +1103,38 @@ pub mod rc {
         Ok(Page { items, next })
     }
 
-    pub async fn user_reports(rest: &RestClient, user_id: &str) -> Result<Vec<Report>, RestError> {
+    pub async fn user_reports(rest: &RestClient, user_id: &str) -> Result<ReportedUserDetails, RestError> {
         let params = [("userId", user_id), ("count", "50")];
         let response = rest.get("moderation.user.reportsByUserId", CallOptions::params(params)).await?;
         let mut reports: Vec<Report> =
             response.get("reports").and_then(Value::as_array).into_iter().flatten().map(report).collect();
         reports.sort_by(|a, b| b.at.cmp(&a.at));
-        Ok(reports)
+        let active = response.pointer("/user/active").and_then(Value::as_bool);
+        Ok(ReportedUserDetails { reports, active })
     }
 
     pub async fn dismiss_message(rest: &RestClient, message_id: &str) -> Result<(), RestError> {
         rest.post("moderation.dismissReports", CallOptions::body(json!({"msgId": message_id}))).await.map(|_| ())
     }
 
+    /// `chat.delete`, which needs access to the room: refused with
+    /// `error-action-not-allowed` in a conversation the admin is not in.
     pub async fn delete_message(rest: &RestClient, rid: &str, message_id: &str) -> Result<(), RestError> {
         crate::actions::delete(rest, rid, message_id).await
+    }
+
+    /// How many of the author's messages are reported.
+    pub async fn author_reported_count(rest: &RestClient, user_id: &str) -> Result<u64, RestError> {
+        let params = [("userId", user_id), ("count", "1")];
+        let response = rest.get("moderation.user.reportedMessages", CallOptions::params(params)).await?;
+        Ok(count(&response, "total"))
+    }
+
+    /// Deletes all the author's reported messages and closes their reports,
+    /// wherever they are.
+    pub async fn delete_author_reported_messages(rest: &RestClient, user_id: &str) -> Result<(), RestError> {
+        let body = json!({"userId": user_id});
+        rest.post("moderation.user.deleteReportedMessages", CallOptions::body(body)).await.map(|_| ())
     }
 
     pub async fn dismiss_user(rest: &RestClient, user_id: &str) -> Result<(), RestError> {
@@ -980,9 +1167,9 @@ mod tests {
         let now = chrono::DateTime::parse_from_rfc3339("2026-10-07T09:00:00+00:00").unwrap().to_utc();
         let o = native_overview(&overview, now);
         assert_eq!((o.product, o.version.as_str(), o.uptime_seconds), (Product::RocketVibe, "0.1.0", Some(3600)));
-        assert_eq!(o.database, "PostgreSQL 18.1");
+        assert_eq!((o.database.as_str(), o.as_of.as_deref()), ("PostgreSQL 18.1", None));
         assert_eq!((o.users.admins, o.rooms.encrypted, o.rooms.discussions), (Some(2), Some(1), None));
-        assert_eq!((o.uploads.bytes, o.reports.messages), (48211904, 1));
+        assert_eq!((o.uploads.bytes, o.reports.messages), (48211904, Some(1)));
     }
 
     #[test]
@@ -997,13 +1184,13 @@ mod tests {
         let reported: rv_protocol::admin::AdminReportedMessagePage =
             serde_json::from_value(fixture()["administration"]["reported_messages"].clone()).unwrap();
         let item = native_reported_message(&reported.items[0]);
-        assert!(item.author.deleted);
+        assert!(item.author.deleted && item.author_revision.is_none());
         assert_eq!(item.author.shown(), crate::i18n::t("user.deleted"));
         assert_eq!(item.reports.as_ref().map(Vec::len), Some(2));
     }
 
     #[test]
-    fn reasons_and_versions() {
+    fn reasons_versions_and_error_texts() {
         assert_eq!(valid_reason("  spam \n").as_deref(), Some("spam"));
         assert!(valid_reason("   ").is_none());
         assert!(valid_reason(&"é".repeat(REASON_MAX)).is_some() && valid_reason(&"é".repeat(REASON_MAX + 1)).is_none());
@@ -1011,24 +1198,66 @@ mod tests {
         let releases = json!([
             {"tag_name": "desktop-v0.9.0"},
             {"tag_name": "server-v0.2.0", "prerelease": true},
+            {"tag_name": "server-v0.3.0-rc.1"},
             {"tag_name": "server-v0.1.3"},
             {"tag_name": "server-v0.1.10"}
         ]);
         assert_eq!(latest_server_tag(&releases).as_deref(), Some("0.1.10"));
         assert_eq!(latest_server_tag(&json!([{"tag_name": "desktop-v1.0.0"}])), None);
+        let rocket_chat = json!([
+            {"tag_name": "7.10.9"},
+            {"tag_name": "8.9.0"},
+            {"tag_name": "8.10.0-rc.2"},
+            {"tag_name": "8.10.0", "draft": true}
+        ]);
+        assert_eq!(highest_release(&rocket_chat, "").as_deref(), Some("8.9.0"), "a backport is not the latest");
+        for (code, key) in [
+            ("error-admin-required", "admin.error_last_admin"),
+            ("last_administrator", "admin.error_last_admin"),
+            ("not_found", "admin.error_not_found"),
+            ("self_report", "report.error_self"),
+            ("offline", "native.offline"),
+            ("error-not-allowed", "admin.error_denied"),
+            ("anything", "admin.failed"),
+        ] {
+            assert_eq!(error_key(code), key, "{code}");
+        }
+    }
+
+    #[test]
+    fn rocket_chat_names_the_rooms_a_last_owner_leaves() {
+        let refused = RestError {
+            status: 400,
+            message: String::new(),
+            error: Some("user-last-owner".into()),
+            error_type: Some("user-last-owner".into()),
+            understood: true,
+            two_factor: None,
+            request_id: None,
+            retry_after: None,
+            details: Some(json!({"shouldBeRemoved": ["solo"], "shouldChangeOwner": ["shared", "team"]})),
+        };
+        let error = AdminError::from(refused);
+        assert_eq!(error.code, "user-last-owner");
+        assert_eq!(
+            error.last_owner,
+            Some(LastOwner { removed: vec!["solo".into()], transferred: vec!["shared".into(), "team".into()] })
+        );
     }
 
     #[test]
     fn rocket_chat_statistics() {
         let stats = json!({"version": "8.5.1", "uniqueId": "u1", "mongoVersion": "8.0.32", "mongoStorageEngine": "wiredTiger",
             "process": {"uptime": 79996.09, "nodeVersion": "v22.22.3"}, "migration": {"version": 330},
+            "createdAt": "2026-10-07T18:00:00.000Z",
             "totalUsers": 4, "activeUsers": 3, "nonActiveUsers": 1, "onlineUsers": 1, "offlineUsers": 3,
             "totalRooms": 4, "totalChannels": 2, "totalPrivateGroups": 1, "totalDirect": 1, "totalDiscussions": 0,
             "totalMessages": 54, "uploadsTotal": 3, "uploadsTotalSize": 2048});
-        let o = rc::parse_overview(&stats, 1, 2, 3);
+        let o = rc::parse_overview(&stats, Some(1), Some(2), None);
         assert_eq!(o.database, "MongoDB 8.0.32 (wiredTiger)");
         assert_eq!((o.runtime.as_deref(), o.migration.as_deref()), (Some("Node v22.22.3"), Some("330")));
         assert_eq!((o.uptime_seconds, o.users.deactivated, o.users.admins), (Some(79996), 1, Some(1)));
-        assert_eq!((o.reports.messages, o.reports.users, o.uploads.count), (2, 3, 3));
+        assert_eq!((o.reports.messages, o.reports.users, o.uploads.count), (Some(2), None, 3));
+        assert_eq!(o.as_of.as_deref(), Some("2026-10-07T18:00:00.000Z"));
     }
 }

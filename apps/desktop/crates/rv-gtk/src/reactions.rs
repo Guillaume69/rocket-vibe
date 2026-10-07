@@ -2,9 +2,8 @@
 //! this account (rv-core's `EmojiUsage`), then "+" opening the picker to react
 //! with any other one.
 
-use std::cell::RefCell;
-use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use gtk::glib;
 use gtk::prelude::*;
@@ -16,22 +15,10 @@ use crate::i18n::t;
 /// Reacts with a code (no colons): `true` adds, `false` withdraws.
 pub type React = Rc<dyn Fn(String, bool)>;
 
-thread_local! {
-    static USAGE: RefCell<HashMap<String, Rc<EmojiUsage>>> = RefCell::default();
-}
-
-/// The counts of one account (`<host>-<user id>`), read once per run.
-pub fn usage(base_url: &str, user_id: &str) -> Rc<EmojiUsage> {
-    let host = url::Url::parse(base_url).ok().and_then(|u| u.host_str().map(str::to_owned)).unwrap_or_default();
-    let key = format!("{host}-{user_id}");
-    USAGE.with_borrow_mut(|all| {
-        all.entry(key.clone())
-            .or_insert_with(|| {
-                let dir = glib::user_config_dir().join("rocket-vibe-rs");
-                Rc::new(EmojiUsage::open(EmojiUsage::path_for(&dir, &key)))
-            })
-            .clone()
-    })
+/// The counts of one account (`<host>-<user id>`), shared with every other
+/// user of the file (rv-core keeps one per account).
+pub fn usage(base_url: &str, user_id: &str) -> Arc<EmojiUsage> {
+    EmojiUsage::for_account(&glib::user_config_dir().join("rocket-vibe-rs"), base_url, user_id)
 }
 
 /// One more use of `code` on that account: every reaction I add counts.
@@ -46,6 +33,20 @@ fn custom_image(code: &str) -> Option<gtk::Widget> {
     Some(image)
 }
 
+/// What a server takes as a reaction: Rocket.Chat only standard emoji it has
+/// a name for (`rv_core::emoji::rc_reaction`), RocketVibe any standard one.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Server {
+    RocketChat,
+    RocketVibe,
+}
+
+impl Server {
+    fn takes(self, code: &str) -> bool {
+        self == Server::RocketVibe || rv_core::emoji::rc_reaction(code).is_some()
+    }
+}
+
 /// The row on top of a menu: my most used emoji (`mine` outlined, a click
 /// withdraws them), then "+". Without `custom`, standard emoji only.
 pub fn row(
@@ -53,18 +54,20 @@ pub fn row(
     usage: &EmojiUsage,
     mine: &[String],
     custom: Option<CustomSource>,
+    server: Server,
     react: React,
 ) -> gtk::Box {
     let quick = gtk::Box::builder().spacing(4).margin_bottom(4).css_classes(["quick-reactions"]).build();
-    let shown = usage
-        .top(QUICK_COUNT * 2)
-        .into_iter()
-        .filter_map(|code| {
-            let glyph = rv_core::emoji::unicode(&code);
-            let image = if glyph.is_none() && custom.is_some() { custom_image(&code) } else { None };
-            (glyph.is_some() || image.is_some()).then_some((code, glyph, image))
-        })
-        .take(QUICK_COUNT);
+    let custom_names: Vec<String> = custom.as_ref().map(|names| names()).unwrap_or_default();
+    let codes = usage.top_filtered(QUICK_COUNT, |code| match rv_core::emoji::unicode(code) {
+        Some(_) => server.takes(code),
+        None => custom_names.iter().any(|name| name == code),
+    });
+    let shown = codes.into_iter().filter_map(|code| {
+        let glyph = rv_core::emoji::unicode(&code);
+        let image = if glyph.is_none() { custom_image(&code) } else { None };
+        (glyph.is_some() || image.is_some()).then_some((code, glyph, image))
+    });
     for (code, glyph, image) in shown {
         // Withdrawing names my reaction as the server keyed it (maybe an alias).
         let withdraw = mine.iter().find(|m| emoji_usage::same(m, &code)).map(|m| emoji_usage::normalize(m).to_owned());
@@ -106,6 +109,7 @@ pub fn row(
             },
             custom.clone(),
             true,
+            Some(Rc::new(move |code: &str| server.takes(code))),
         );
         picker.add_css_class("reaction-picker");
         picker.set_parent(&anchor);

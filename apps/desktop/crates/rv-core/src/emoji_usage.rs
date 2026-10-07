@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::actions::QUICK_REACTIONS;
@@ -66,6 +66,17 @@ impl EmojiUsage {
         Self { path: None, counts: Mutex::new(HashMap::new()) }
     }
 
+    /// The counts of one account (`<host>-<user id>` under `config_dir`), one
+    /// shared instance per file in the process: every UI of the app, and both
+    /// desktop apps on one machine through the file, count together.
+    pub fn for_account(config_dir: &Path, base_url: &str, user_id: &str) -> Arc<EmojiUsage> {
+        static ALL: OnceLock<Mutex<HashMap<PathBuf, Arc<EmojiUsage>>>> = OnceLock::new();
+        let host = url::Url::parse(base_url).ok().and_then(|u| u.host_str().map(str::to_owned)).unwrap_or_default();
+        let path = Self::path_for(config_dir, &format!("{host}-{user_id}"));
+        let mut all = ALL.get_or_init(Mutex::default).lock().unwrap();
+        all.entry(path.clone()).or_insert_with(|| Arc::new(EmojiUsage::open(path))).clone()
+    }
+
     /// The file of one account under `dir`; `account` is any stable key of
     /// the account (host and user id), reduced to a safe file name.
     pub fn path_for(dir: &Path, account: &str) -> PathBuf {
@@ -74,55 +85,72 @@ impl EmojiUsage {
         dir.join("emoji-usage").join(format!("{name}.tsv"))
     }
 
-    /// One more use of `code`, saved at once; a failed write keeps the count
-    /// in memory for this session.
+    /// One more use of `code`, saved at once. The file is read again first,
+    /// so another process writing it meanwhile (the other desktop app) is
+    /// merged, not overwritten; a failed write keeps the count in memory.
     pub fn record(&self, code: &str) {
         let code = canonical(code);
         if code.is_empty() {
             return;
         }
         let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-        let text = {
-            let mut counts = self.counts.lock().unwrap();
-            let usage = counts.entry(code).or_default();
-            usage.count = usage.count.saturating_add(1);
-            usage.last = usage.last.max(now);
-            prune(&mut counts);
-            render(&counts)
-        };
+        let mut counts = self.counts.lock().unwrap();
+        if let Some(on_disk) = self.path.as_ref().and_then(|path| std::fs::read_to_string(path).ok()) {
+            *counts = parse(&on_disk);
+        }
+        let usage = counts.entry(code.clone()).or_default();
+        usage.count = usage.count.saturating_add(1);
+        usage.last = usage.last.max(now);
+        prune(&mut counts, &code);
         if let Some(path) = &self.path {
-            let _ = write(path, &text);
+            let _ = write(path, &render(&counts));
         }
     }
 
     /// The `n` codes to offer first: most used, then most recent, then the
     /// default quick reactions to fill the row.
     pub fn top(&self, n: usize) -> Vec<String> {
+        self.top_filtered(n, |_| true)
+    }
+
+    /// `top`, with only the codes `allowed` takes: what the server accepts
+    /// (Rocket.Chat's own list, the server's custom emoji, standard ones only
+    /// in a private conversation).
+    pub fn top_filtered(&self, n: usize, allowed: impl Fn(&str) -> bool) -> Vec<String> {
         let counts = self.counts.lock().unwrap();
-        top(&counts, n)
+        top(&counts, n, &allowed)
     }
 }
 
-fn top(counts: &HashMap<String, Usage>, n: usize) -> Vec<String> {
+fn ranked(counts: &HashMap<String, Usage>) -> Vec<(&String, &Usage)> {
     let mut used: Vec<(&String, &Usage)> = counts.iter().collect();
     used.sort_by(|a, b| b.1.count.cmp(&a.1.count).then(b.1.last.cmp(&a.1.last)).then(a.0.cmp(b.0)));
-    let mut out: Vec<String> = used.into_iter().take(n).map(|(code, _)| code.clone()).collect();
+    used
+}
+
+fn top(counts: &HashMap<String, Usage>, n: usize, allowed: &dyn Fn(&str) -> bool) -> Vec<String> {
+    let mut out: Vec<String> =
+        ranked(counts).into_iter().filter(|(code, _)| allowed(code)).take(n).map(|(code, _)| code.clone()).collect();
     for code in QUICK_REACTIONS.iter().map(|c| normalize(c)) {
         if out.len() >= n {
             break;
         }
-        if !out.iter().any(|c| c == code) {
+        if allowed(code) && !out.iter().any(|c| c == code) {
             out.push(code.to_owned());
         }
     }
     out
 }
 
-fn prune(counts: &mut HashMap<String, Usage>) {
+/// Forgets the lowest-ranked codes beyond `KEPT`, never `fresh` (the code
+/// just used), so a new emoji can grow past the established ones.
+fn prune(counts: &mut HashMap<String, Usage>, fresh: &str) {
     if counts.len() <= KEPT {
         return;
     }
-    let keep: Vec<String> = top(counts, KEPT);
+    let mut keep: Vec<String> =
+        ranked(counts).into_iter().map(|(code, _)| code.clone()).filter(|code| code != fresh).take(KEPT - 1).collect();
+    keep.push(fresh.to_owned());
     counts.retain(|code, _| keep.contains(code));
 }
 
@@ -154,7 +182,8 @@ fn write(path: &Path, text: &str) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    let tmp = path.with_extension("tmp");
+    // A name of its own: two processes writing at once never share a temp file.
+    let tmp = path.with_extension(format!("tmp-{}-{:016x}", std::process::id(), fastrand::u64(..)));
     std::fs::write(&tmp, text)?;
     std::fs::rename(&tmp, path)
 }
@@ -175,7 +204,8 @@ mod tests {
         counts.insert("rocket".to_owned(), Usage { count: 3, last: 10 });
         counts.insert("eyes".to_owned(), Usage { count: 1, last: 50 });
         counts.insert("heart".to_owned(), Usage { count: 1, last: 20 });
-        assert_eq!(top(&counts, 5), ["rocket", "eyes", "heart", "+1", "joy"]);
+        assert_eq!(top(&counts, 5, &|_| true), ["rocket", "eyes", "heart", "+1", "joy"]);
+        assert_eq!(top(&counts, 3, &|code| code != "eyes" && code != "+1"), ["rocket", "heart", "joy"]);
     }
 
     #[test]
@@ -203,6 +233,32 @@ mod tests {
         usage.record("rocket");
         assert_eq!(usage.top(3), ["+1", "rocket", "heart"]);
         assert_eq!(parse("thumbsup\t2\t5\n+1\t1\t9\n")["+1"], Usage { count: 3, last: 9 });
+    }
+
+    #[test]
+    fn a_new_emoji_survives_pruning_and_two_writers_merge() {
+        let mut counts: HashMap<String, Usage> =
+            (0..KEPT).map(|i| (format!("code{i}"), Usage { count: 5, last: 1 })).collect();
+        counts.insert("fresh".into(), Usage { count: 1, last: 2 });
+        prune(&mut counts, "fresh");
+        assert!(counts.contains_key("fresh") && counts.len() == KEPT);
+        let dir = tempfile::tempdir().unwrap();
+        let path = EmojiUsage::path_for(dir.path(), "host-uid");
+        let (gtk, swift) = (EmojiUsage::open(&path), EmojiUsage::open(&path));
+        gtk.record("rocket");
+        swift.record("tada");
+        gtk.record("rocket");
+        let both = EmojiUsage::open(&path).top(2);
+        assert_eq!(both, ["rocket", "tada"], "the second writer read the first writer's use");
+        assert_eq!(std::fs::read_dir(path.parent().unwrap()).unwrap().count(), 1, "no temp file left");
+    }
+
+    #[test]
+    fn one_instance_per_account() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = EmojiUsage::for_account(dir.path(), "https://chat.example.org", "uid");
+        let b = EmojiUsage::for_account(dir.path(), "https://chat.example.org/", "uid");
+        assert!(Arc::ptr_eq(&a, &b));
     }
 
     #[test]

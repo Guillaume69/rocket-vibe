@@ -73,7 +73,7 @@ pub fn room_info(
     content.append(&centered(name, &["details-name"]));
     let spinner = loading(&content);
     let dialog = dialog(t("info.room"), content.upcast_ref(), 460);
-    dialog.present(Some(parent));
+    crate::widgets::present(&dialog, Some(parent));
     let rid = rid.to_owned();
     let me = session.info.username.clone();
     glib::spawn_future_local(async move {
@@ -159,7 +159,7 @@ pub fn native_room_info(
         live.set(false);
         abort.abort();
     });
-    dialog.present(Some(parent));
+    crate::widgets::present(&dialog, Some(parent));
     let rid = rid.to_owned();
     glib::spawn_future_local(async move {
         let mut displayed = None;
@@ -314,7 +314,7 @@ fn profile_with_source(
     loading(&content);
     let dialog = dialog(t("info.profile"), content.upcast_ref(), 520);
     dialog.add_css_class("user-profile-dialog");
-    dialog.present(Some(parent));
+    crate::widgets::present(&dialog, Some(parent));
     let (mut key, mut by_id) = (key.to_owned(), by_id);
     let actions = Rc::new(actions);
     let active = Rc::new(Cell::new(true));
@@ -568,7 +568,7 @@ fn search_with_source(
     content.append(&status);
     content.append(&results);
     let dialog = dialog(t("search.title"), content.upcast_ref(), 560);
-    dialog.present(Some(parent));
+    crate::widgets::present(&dialog, Some(parent));
     entry.grab_focus();
     let weak = dialog.downgrade();
     let go: Rc<dyn Fn(String, Option<String>)> = Rc::new(move |id, thread| {

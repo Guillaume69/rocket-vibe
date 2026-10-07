@@ -119,6 +119,11 @@ pub fn open_native(
         add(&dialog, NOTIFICATIONS, &notifications);
     }
     add(&dialog, LANGUAGE, &language);
+    if rv_core::voice::available() {
+        let voice = adw::PreferencesPage::new();
+        voice.add(&voice::group(session.clone()));
+        add(&dialog, VOICE, &voice);
+    }
     if session.crypto_settings_supported() {
         let s = session.clone();
         add_lazy(&dialog, ENCRYPTION, move |host| crate::native_crypto::page(host, s));
@@ -130,11 +135,6 @@ pub fn open_native(
     if session.supported_features().iter().any(|f| f == "device_sessions") {
         let s = session.clone();
         add_lazy(&dialog, DEVICES, move |host| native_devices_page(host, s));
-    }
-    if rv_core::voice::available() {
-        let voice = adw::PreferencesPage::new();
-        voice.add(&voice::group(session.clone()));
-        add(&dialog, VOICE, &voice);
     }
     add(&dialog, ACCOUNTS, &accounts_page(&host, info, accounts));
     add(&dialog, APP, &app_page(&host));
@@ -267,7 +267,7 @@ fn native_devices_page(host: &Host, session: Arc<rv_core::native::NativeSession>
                                     }
                                 });
                             });
-                            crate::widgets::present_alert(&confirm, Some(&parent));
+                            crate::widgets::present(&confirm, Some(&parent));
                         });
                         row.add_row(&revoke);
                     }

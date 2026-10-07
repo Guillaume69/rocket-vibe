@@ -586,7 +586,14 @@ impl ChatPage {
                             }
                         });
                         let usage = crate::reactions::usage(&session.info.base_url, &session.info.user_id);
-                        list.prepend(&crate::reactions::row(&popover, &usage, &mine, None, react));
+                        list.prepend(&crate::reactions::row(
+                            &popover,
+                            &usage,
+                            &mine,
+                            None,
+                            crate::reactions::Server::RocketVibe,
+                            react,
+                        ));
                     }
                     let mine = self.native_session().is_some_and(|s| s.info.user_id == row.author_id);
                     if mine && row.outbox_status.is_none() {
@@ -866,7 +873,14 @@ impl ChatPage {
                             let s = expected.clone();
                             let custom: crate::emoji_picker::CustomSource = Rc::new(move || s.custom_emoji_names());
                             let usage = crate::reactions::usage(&expected.info.base_url, &expected.info.user_id);
-                            list.prepend(&crate::reactions::row(&popover, &usage, &mine, Some(custom), react));
+                            list.prepend(&crate::reactions::row(
+                                &popover,
+                                &usage,
+                                &mine,
+                                Some(custom),
+                                crate::reactions::Server::RocketVibe,
+                                react,
+                            ));
                         }
                         for (key, edit, allowed) in
                             [("actions.edit", true, rights.edit), ("actions.delete", false, rights.delete)]
@@ -1080,7 +1094,7 @@ impl ChatPage {
             page.add(&group);
         }
         dialog.add(&page);
-        dialog.present(Some(&self.split));
+        crate::widgets::present(&dialog, Some(&self.split));
     }
 }
 

@@ -82,10 +82,14 @@ fn add_custom(grid: &gtk::FlowBox, codes: &[String], pick: &Rc<dyn Fn(Pick)>) {
     }
 }
 
-fn add_unicode(grid: &gtk::FlowBox, codes: &[&'static str], pick: &Rc<dyn Fn(Pick)>) {
+/// Which standard emoji a picker offers (a reaction picker on Rocket.Chat:
+/// only those it has a name for); every one when absent.
+pub type Allowed = Option<Rc<dyn Fn(&str) -> bool>>;
+
+fn add_unicode(grid: &gtk::FlowBox, codes: &[&'static str], pick: &Rc<dyn Fn(Pick)>, allowed: &Allowed) {
     for code in codes {
         let Some(glyph) = emoji::unicode(code) else { continue };
-        if !drawable(grid, glyph) {
+        if !drawable(grid, glyph) || allowed.as_ref().is_some_and(|allowed| !allowed(code)) {
             continue;
         }
         let button =
@@ -106,6 +110,7 @@ pub fn button(pick: impl Fn(&str) + 'static, custom: CustomSource) -> gtk::MenuB
         },
         Some(custom),
         false,
+        None,
     );
     gtk::MenuButton::builder()
         .icon_name("face-smile-symbolic")
@@ -116,8 +121,14 @@ pub fn button(pick: impl Fn(&str) + 'static, custom: CustomSource) -> gtk::MenuB
 }
 
 /// The picker itself. Without `custom`, standard emoji only (a private
-/// conversation reacts with nothing else); `once` closes it after a pick.
-pub fn popover(pick: impl Fn(Pick) + 'static, custom: Option<CustomSource>, once: bool) -> gtk::Popover {
+/// conversation reacts with nothing else); `once` closes it after a pick;
+/// `allowed` narrows the standard emoji.
+pub fn popover(
+    pick: impl Fn(Pick) + 'static,
+    custom: Option<CustomSource>,
+    once: bool,
+    allowed: Allowed,
+) -> gtk::Popover {
     let popover = gtk::Popover::builder().css_classes(["emoji-picker"]).build();
     let closing = popover.downgrade();
     let pick: Rc<dyn Fn(Pick)> = Rc::new(move |chosen| {
@@ -166,11 +177,11 @@ pub fn popover(pick: impl Fn(Pick) + 'static, custom: Option<CustomSource>, once
     for (category, glyph) in TABS {
         let tab =
             gtk::Button::builder().label(glyph).tooltip_text(category).css_classes(["flat", "picker-tab"]).build();
-        let (grid, pick, search) = (grid.clone(), pick.clone(), search.clone());
+        let (grid, pick, search, allowed) = (grid.clone(), pick.clone(), search.clone(), allowed.clone());
         tab.connect_clicked(move |_| {
             search.set_text("");
             clear(&grid);
-            add_unicode(&grid, emoji::category(category), &pick);
+            add_unicode(&grid, emoji::category(category), &pick, &allowed);
         });
         tabs.append(&tab);
     }
@@ -181,17 +192,19 @@ pub fn popover(pick: impl Fn(Pick) + 'static, custom: Option<CustomSource>, once
         pick,
         #[strong]
         custom,
+        #[strong]
+        allowed,
         move |entry| {
             let query = entry.text().trim_matches(':').to_lowercase();
             clear(&grid);
             if query.is_empty() {
-                add_unicode(&grid, emoji::category("people"), &pick);
+                add_unicode(&grid, emoji::category("people"), &pick, &allowed);
                 return;
             }
             let own: Vec<String> = custom().into_iter().filter(|code| code.to_lowercase().contains(&query)).collect();
             add_custom(&grid, &own, &pick);
             let hits: Vec<&'static str> = emoji::complete(&query, 180).into_iter().map(|(code, _)| code).collect();
-            add_unicode(&grid, &hits, &pick);
+            add_unicode(&grid, &hits, &pick, &allowed);
         }
     ));
     let column = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(6).build();
@@ -205,7 +218,7 @@ pub fn popover(pick: impl Fn(Pick) + 'static, custom: Option<CustomSource>, once
         server_tab.set_child(icon.as_ref());
         server_tab.set_visible(icon.is_some());
         if !filled.replace(true) {
-            add_unicode(&grid, emoji::category("people"), &pick);
+            add_unicode(&grid, emoji::category("people"), &pick, &allowed);
         }
     });
     popover

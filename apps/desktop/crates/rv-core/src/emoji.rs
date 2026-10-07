@@ -14,6 +14,10 @@ struct Emojis {
     by_category: HashMap<&'static str, Vec<&'static str>>,
     /// Glyph to the first shortcode the table gives it.
     by_glyph: HashMap<String, &'static str>,
+    /// Codes Rocket.Chat's `chat.react` accepts (the table's fourth column).
+    rocket_chat: std::collections::HashSet<&'static str>,
+    /// Glyph to the first of its codes Rocket.Chat accepts.
+    rocket_chat_by_glyph: HashMap<String, &'static str>,
 }
 
 fn emojis() -> &'static Emojis {
@@ -22,20 +26,27 @@ fn emojis() -> &'static Emojis {
         let mut by_code = HashMap::new();
         let mut by_category: HashMap<&'static str, Vec<&'static str>> = HashMap::new();
         let mut by_glyph: HashMap<String, &'static str> = HashMap::new();
+        let mut rocket_chat = std::collections::HashSet::new();
+        let mut rocket_chat_by_glyph: HashMap<String, &'static str> = HashMap::new();
         for line in TABLE.lines() {
             let mut fields = line.split('\t');
             let (Some(code), Some(points), Some(category)) = (fields.next(), fields.next(), fields.next()) else {
                 continue;
             };
+            let accepted = fields.next() == Some("+");
             let glyph: String =
                 points.split('-').filter_map(|p| u32::from_str_radix(p, 16).ok().and_then(char::from_u32)).collect();
             if category != "-" {
                 by_category.entry(category).or_default().push(code);
             }
             by_glyph.entry(glyph.clone()).or_insert(code);
+            if accepted {
+                rocket_chat.insert(code);
+                rocket_chat_by_glyph.entry(glyph.clone()).or_insert(code);
+            }
             by_code.insert(code, glyph);
         }
-        Emojis { by_code, by_category, by_glyph }
+        Emojis { by_code, by_category, by_glyph, rocket_chat, rocket_chat_by_glyph }
     })
 }
 
@@ -49,6 +60,19 @@ pub fn unicode(shortcode: &str) -> Option<&'static str> {
 pub fn shortcode(glyph: &str) -> Option<&'static str> {
     let by_glyph = &emojis().by_glyph;
     by_glyph.get(glyph).or_else(|| by_glyph.get(&glyph.replace('\u{FE0F}', ""))).copied()
+}
+
+/// The code Rocket.Chat's `chat.react` takes for a standard emoji: `code`
+/// itself when accepted, else an accepted alias of the same glyph; None when
+/// Rocket.Chat has no name for that glyph (it refuses it as a reaction) or the
+/// code is no standard emoji (a custom one goes by its own name).
+pub fn rc_reaction(code: &str) -> Option<&'static str> {
+    let code = code.trim_matches(':');
+    let all = emojis();
+    if let Some(accepted) = all.rocket_chat.get(code) {
+        return Some(accepted);
+    }
+    all.rocket_chat_by_glyph.get(all.by_code.get(code)?).copied()
 }
 
 /// The emoji covering byte `at` of `text`, the longest the table knows, with
@@ -171,6 +195,15 @@ pub fn custom_names(index: &[(String, String)]) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rocket_chat_reactions_take_an_accepted_alias_or_nothing() {
+        assert_eq!(rc_reaction(":+1:"), Some("+1"));
+        assert_eq!(rc_reaction("thumbs_up").and_then(unicode), unicode("+1"), "same glyph, accepted name");
+        assert!(rc_reaction("party_parrot").is_none(), "custom emoji go by their own name");
+        let refused = emojis().by_code.keys().filter(|code| rc_reaction(code).is_none()).count();
+        assert!(refused > 0, "some glyphs have no Rocket.Chat name");
+    }
 
     #[test]
     fn custom_emoji_index() {

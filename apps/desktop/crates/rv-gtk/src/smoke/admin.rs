@@ -2,9 +2,12 @@
 //!   RV_SMOKE_REPORT=<reason>  reports bob's last message of the open room and bob
 //!                             himself through the Report dialog
 //!                             (RV_SMOKE_REPORT_HOLD=1: the first dialog stays open, filled)
-//!   RV_SMOKE_ADMIN=dashboard|users|rooms|moderation|confirm  opens the administration
+//!   RV_SMOKE_ADMIN=dashboard|users|rooms|moderation|confirm|last-owner|bulk  opens the administration
 //!                             as an admin, checks that category and leaves it shown
-//!                             (`confirm`: bob's deactivation asked, left unanswered)
+//!                             (`confirm`: bob's deactivation asked, left unanswered;
+//!                             `last-owner`: RV_SMOKE_ADMIN_TARGET's deactivation, second
+//!                             confirmation naming its rooms; `bulk`: a reported message in a
+//!                             room the admin is not in, second confirmation of the bulk delete)
 use super::{check, find_by_class};
 use crate::{admin::ReportTarget, on_tokio, window::AppWindow};
 use adw::prelude::*;
@@ -76,6 +79,26 @@ fn dimming(root: &gtk::Widget) -> Option<gtk::Widget> {
     std::iter::successors(root.first_child(), |w| w.next_sibling()).find_map(|c| dimming(&c))
 }
 
+/// Every widget of a class, in tree order.
+fn rows(root: &gtk::Widget, class: &str) -> Vec<gtk::Widget> {
+    let mut found = Vec::new();
+    if root.has_css_class(class) {
+        found.push(root.clone());
+    }
+    for child in std::iter::successors(root.first_child(), |w| w.next_sibling()) {
+        found.extend(rows(&child, class));
+    }
+    found
+}
+
+/// Answers the alert of a class with its "confirm" response, as its button would.
+async fn answer(root: &gtk::Widget, class: &str) {
+    if let Some(alert) = wait(root, class, |w| w.is_mapped()).await.and_downcast::<adw::AlertDialog>() {
+        alert.emit_by_name_with_details::<()>("response", glib::Quark::from_str("confirm"), &[&"confirm"]);
+        alert.close();
+    }
+}
+
 fn count(root: &gtk::Widget, class: &str) -> usize {
     usize::from(root.has_css_class(class))
         + std::iter::successors(root.first_child(), |w| w.next_sibling()).map(|c| count(&c, class)).sum::<usize>()
@@ -109,12 +132,27 @@ async fn reports(window: &Rc<AppWindow>, reason: &str) {
     let Some(theirs) = rows.iter().rev().find(|r| r.author.as_deref() == Some("bob") && r.system_type.is_none()) else {
         return check("report: a message of bob", false, ());
     };
-    let _ = window.chat.report(ReportTarget::Message(theirs.id.clone()));
+    // The dialog's own toast says whether the server took the report.
+    let told: Rc<std::cell::RefCell<Option<String>>> = Rc::default();
+    let heard = told.clone();
+    let toast: Rc<dyn Fn(String)> = Rc::new(move |text| {
+        heard.replace(Some(text));
+    });
+    let admin = rv_core::admin::Admin::RocketChat(session.clone());
+    crate::admin::report(window.chat.widget(), admin, ReportTarget::Message(theirs.id.clone()), toast);
     check("report dialog for a message", send_report(&root, reason).await, ());
     if std::env::var("RV_SMOKE_REPORT_HOLD").as_deref() == Ok("1") {
         return;
     }
-    glib::timeout_future(Duration::from_millis(1500)).await;
+    for _ in 0..100 {
+        if told.borrow().is_some() {
+            break;
+        }
+        glib::timeout_future(Duration::from_millis(50)).await;
+    }
+    let told = told.borrow().clone();
+    check("the server took the report", told.as_deref() == Some(crate::i18n::t("report.sent")), &told);
+    glib::timeout_future(Duration::from_millis(500)).await;
     let _ = window.chat.report(ReportTarget::User(theirs.author_id.clone()));
     check("report dialog for an account", send_report(&root, reason).await, ());
     glib::timeout_future(Duration::from_millis(1500)).await;
@@ -188,13 +226,32 @@ async fn administration(window: &Rc<AppWindow>, category: &str) {
                 search.set_text("");
                 glib::timeout_future(Duration::from_millis(1500)).await;
             }
-            let me = find_by_class(&root, "admin-user").and_downcast::<adw::ActionRow>();
-            if let Some(row) = me {
+            // My own page offers nothing; someone else's offers the actions.
+            let me = window.chat.session().map(|s| s.info.username.clone()).unwrap_or_default();
+            for (who, mine) in [(me.as_str(), true), ("bob", false)] {
+                let Some(search) = find_by_class(&root, "admin-user-search").and_downcast::<gtk::SearchEntry>() else {
+                    break;
+                };
+                search.set_text(who);
+                glib::timeout_future(Duration::from_millis(1500)).await;
+                let Some(row) = find_by_class(&root, "admin-user").and_downcast::<adw::ActionRow>() else {
+                    check("the searched user is listed", false, who);
+                    break;
+                };
                 row.emit_by_name::<()>("activated", &[]);
                 let page = wait(&root, "admin-user-page", |w| w.is_mapped()).await;
-                check("a user opens its page", page.is_some(), ());
-                let actions = count(&root, "admin-set-admin") + count(&root, "admin-yourself");
-                check("its actions, or none on my own account", actions == 1, actions);
+                check("a user opens its page", page.is_some(), who);
+                let page = page.unwrap_or_else(|| root.clone());
+                let (yourself, offered) = (count(&page, "admin-yourself"), count(&page, "admin-set-active"));
+                if mine {
+                    check("no action on my own account", yourself == 1 && offered == 0, (yourself, offered));
+                } else {
+                    check(
+                        "deactivation offered on another account",
+                        yourself == 0 && offered == 1,
+                        (yourself, offered),
+                    );
+                }
                 dialog.host().pop();
                 glib::timeout_future(Duration::from_millis(600)).await;
             }
@@ -265,11 +322,61 @@ async fn administration(window: &Rc<AppWindow>, category: &str) {
                 check(
                     "dismiss, delete and deactivate are offered",
                     find_by_class(&root, "admin-dismiss").is_some()
-                        && find_by_class(&root, "admin-delete-message").is_some(),
+                        && find_by_class(&root, "admin-delete-message").is_some()
+                        && find_by_class(&root, "admin-deactivate-author").is_some(),
                     (),
                 );
                 glib::timeout_future(Duration::from_millis(600)).await;
                 dialog.host().pop();
+            }
+        }
+        // RV_SMOKE_ADMIN_TARGET's account owns rooms alone: its deactivation
+        // names them in a second confirmation, left open.
+        "last-owner" => {
+            let target = std::env::var("RV_SMOKE_ADMIN_TARGET").unwrap_or_default();
+            dialog.select("users");
+            if let Some(search) =
+                wait(&root, "admin-user-search", |w| w.is_mapped()).await.and_downcast::<gtk::SearchEntry>()
+            {
+                search.set_text(&target);
+                glib::timeout_future(Duration::from_millis(1500)).await;
+            }
+            if let Some(row) = find_by_class(&root, "admin-user").and_downcast::<adw::ActionRow>() {
+                row.emit_by_name::<()>("activated", &[]);
+            }
+            if let Some(action) =
+                wait(&root, "admin-set-active", |w| w.is_mapped()).await.and_downcast::<adw::ButtonRow>()
+            {
+                action.emit_by_name::<()>("activated", &[]);
+                answer(&root, "admin-confirm").await;
+            }
+            let second = wait(&root, "admin-last-owner", |w| w.is_mapped()).await.and_downcast::<adw::AlertDialog>();
+            check("the rooms owned alone are named before deactivating", second.is_some(), ());
+            if let Some(second) = second {
+                let body = second.body().to_string();
+                check("the second confirmation names the rooms", body.contains("gtkprobe-"), &body);
+            }
+        }
+        // A message reported in a room the admin is not in: Rocket.Chat only
+        // deletes the author's reported messages together, asked first.
+        "bulk" => {
+            dialog.select("moderation");
+            glib::timeout_future(Duration::from_millis(2500)).await;
+            let row = rows(&root, "admin-reported-message")
+                .into_iter()
+                .filter_map(|w| w.downcast::<adw::ActionRow>().ok())
+                .find(|r| r.title().contains("probe:"));
+            check("the probe's reported message is listed", row.is_some(), ());
+            if let Some(row) = row {
+                row.emit_by_name::<()>("activated", &[]);
+                if let Some(action) =
+                    wait(&root, "admin-delete-message", |w| w.is_mapped()).await.and_downcast::<adw::ButtonRow>()
+                {
+                    action.emit_by_name::<()>("activated", &[]);
+                    answer(&root, "admin-confirm").await;
+                }
+                let second = wait(&root, "admin-bulk-delete", |w| w.is_mapped()).await;
+                check("an unreachable room asks to delete all the author's reports", second.is_some(), ());
             }
         }
         _ => {}

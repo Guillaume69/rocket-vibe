@@ -104,19 +104,19 @@ async fn native_administration_maps_the_contract_and_sends_operations() {
     admin.store(false, Ordering::SeqCst);
     assert!(!provider.is_admin().await, "a member without account rights sees no administration");
 
-    let overview = provider.overview().await.unwrap();
-    assert_eq!((overview.version.as_str(), overview.users.admins, overview.reports.users), ("0.1.0", Some(2), 1));
+    let overview = provider.overview(false).await.unwrap();
+    assert_eq!((overview.version.as_str(), overview.users.admins, overview.reports.users), ("0.1.0", Some(2), Some(1)));
     let users = provider.users(None, " bo ").await.unwrap();
-    assert_eq!(users.next.as_deref(), Some("dave-id"));
+    assert!(users.next.is_some(), "an opaque cursor to the next page");
     let (bob, dave) = (&users.items[0], &users.items[1]);
     assert_eq!((bob.status, bob.revision.as_deref()), (Presence::Busy, Some("bob-activation")));
     assert!(dave.admin && !dave.active);
-    let activated = provider.set_active(dave, true).await.unwrap();
+    let activated = provider.set_active(dave, true, false).await.unwrap();
     assert!(activated.active && activated.revision.as_deref() == Some("dave-next"));
     assert_eq!(provider.set_admin(bob, true).await.unwrap_err().code, "last_administrator");
-    provider.delete_user(dave).await.unwrap();
+    provider.delete_user(dave, false).await.unwrap();
     let me = rv_core::admin::AdminUser { id: provider.my_id().into(), ..Default::default() };
-    assert_eq!(provider.delete_user(&me).await.unwrap_err().code, "self_administration");
+    assert_eq!(provider.delete_user(&me, false).await.unwrap_err().code, "self_administration");
 
     let rooms = provider.rooms(None, "").await.unwrap();
     assert_eq!((rooms.items[1].kind, rooms.items[1].direct_members.len()), (RoomType::Direct, 2));
@@ -126,8 +126,11 @@ async fn native_administration_maps_the_contract_and_sends_operations() {
     assert_eq!(provider.message_reports(message).await.unwrap()[0].reason, "Spam");
     provider.dismiss_message_reports(message).await.unwrap();
     provider.delete_reported_message(message).await.unwrap();
+    assert_eq!(provider.deactivate_author(message, false).await.unwrap_err().code, "not_found", "a deleted author");
+    // The author's revision comes with the report: no search of the users list.
+    let _ = provider.deactivate_author(&reported.items[1], false).await;
     let accounts = provider.reported_users(None).await.unwrap();
-    assert_eq!(provider.user_reports(&accounts.items[0]).await.unwrap()[0].reason, "Insults in DMs");
+    assert_eq!(provider.user_reports(&accounts.items[0]).await.unwrap().reports[0].reason, "Insults in DMs");
     provider.dismiss_user_reports(&accounts.items[0]).await.unwrap();
     provider.report_message("message-id", "  Spam  ").await.unwrap();
     provider.report_user("bob-id", "Rude").await.unwrap();
@@ -136,6 +139,8 @@ async fn native_administration_maps_the_contract_and_sends_operations() {
 
     let sent = bodies.lock().unwrap().clone();
     let find = |path: &str| sent.iter().find(|(_, p, _)| p == path).map(|(m, _, b)| (m.clone(), b.clone())).unwrap();
+    let author = sent.iter().rev().find(|(_, p, _)| p == "/api/v1/admin/users/bob-id").map(|(_, _, b)| b).unwrap();
+    assert_eq!((author["revision"].as_str(), author["disabled"].as_bool()), (Some("bob-activation"), Some(true)));
     let (method, body) = find("/api/v1/admin/users/dave-id");
     assert_eq!(method, "PATCH");
     assert_eq!((body["revision"].as_str(), body["disabled"].as_bool()), (Some("dave-activation"), Some(false)));
@@ -148,7 +153,7 @@ async fn native_administration_maps_the_contract_and_sends_operations() {
     assert_eq!(find("/api/v1/users/bob-id/report").1["reason"], "Rude");
 
     session.shutdown();
-    assert_eq!(provider.overview().await.unwrap_err().code, "session_closed");
+    assert_eq!(provider.overview(false).await.unwrap_err().code, "session_closed");
     drop(provider);
     common::close_native(session).await;
     std::fs::remove_file(path).unwrap();

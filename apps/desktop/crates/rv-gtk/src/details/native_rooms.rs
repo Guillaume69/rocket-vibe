@@ -235,7 +235,7 @@ pub(super) fn controls(
                     || {},
                 );
             });
-            crate::widgets::present_alert(&alert, Some(&parent));
+            crate::widgets::present(&alert, Some(&parent));
         });
         content.append(&leave);
     }
@@ -332,7 +332,7 @@ fn edit(parent: &adw::Dialog, session: Arc<NativeSession>, rid: String, input: U
             }
         });
     });
-    window.present(Some(parent));
+    crate::widgets::present(&window, Some(parent));
 }
 fn roster(parent: &adw::Dialog, session: Arc<NativeSession>, rid: String, revision: String, can_roles: bool) {
     let content = column();
@@ -395,7 +395,7 @@ fn roster(parent: &adw::Dialog, session: Arc<NativeSession>, rid: String, revisi
     });
     let callback = load.clone();
     next.connect_clicked(move |_| callback());
-    window.present(Some(parent));
+    crate::widgets::present(&window, Some(parent));
     load();
 }
 fn fill_roster(

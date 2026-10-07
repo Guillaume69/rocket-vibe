@@ -212,8 +212,7 @@ impl SidebarDialog {
         if self.list.selected_row().is_none() {
             self.list.select_row(self.list.row_at_index(0).as_ref());
         }
-        self.dialog.present(Some(parent));
-        crate::widgets::close_on_backdrop(&self.dialog);
+        crate::widgets::present(&self.dialog, Some(parent));
     }
 }
 
@@ -236,6 +235,16 @@ impl Host {
     /// Back from a subpage to its category.
     pub fn pop(&self) {
         if let Some(navigation) = self.navigation.upgrade() {
+            navigation.pop();
+        }
+    }
+
+    /// Back from `page` only if it is still the one shown: an action that
+    /// ends after the user moved on leaves their page alone.
+    pub fn pop_if(&self, page: &adw::NavigationPage) {
+        if let Some(navigation) = self.navigation.upgrade()
+            && navigation.visible_page().as_ref() == Some(page)
+        {
             navigation.pop();
         }
     }
@@ -466,7 +475,7 @@ mod tests {
         let answers: Rc<RefCell<Vec<String>>> = Rc::default();
         let log = answers.clone();
         alert.connect_response(None, move |_, response| log.borrow_mut().push(response.to_owned()));
-        crate::widgets::present_alert(&alert, sidebar.host().widget().as_ref());
+        crate::widgets::present(&alert, sidebar.host().widget().as_ref());
         settle(400);
         assert!(alert.is_mapped() && alert.has_css_class("alert"));
         let backdrop = dimming(alert.upcast_ref()).expect("the alert's own backdrop");

@@ -1038,11 +1038,18 @@ fn details_checks(
                 }),
                 round.as_ref().map(|m| (m.status.clone(), m.desktop_notifications.clone())),
             );
-            crate::settings::open(chat.widget(), session, None, || {});
+            crate::settings::open(chat.widget(), session.clone(), None, || {});
             let root = chat.widget().root().map(|r| r.upcast::<gtk::Widget>());
-            glib::timeout_add_local_once(Duration::from_millis(3000), move || {
+            glib::spawn_future_local(async move {
+                let admin = rv_core::admin::Admin::RocketChat(session);
+                let expected = crate::on_tokio(async move { admin.is_admin().await }).await;
+                glib::timeout_future(Duration::from_millis(3000)).await;
                 let link = root.and_then(|r| find_by_class(&r, "settings-admin")).is_some_and(|w| w.is_visible());
-                println!("smoke: settings administration link visible={link}");
+                check(
+                    "the settings link to the administration follows the admin right",
+                    link == expected,
+                    (link, expected),
+                );
             });
         } else if let Some(expected) = what.strip_prefix("permissions:") {
             let (s, r) = (session.clone(), rid.clone());

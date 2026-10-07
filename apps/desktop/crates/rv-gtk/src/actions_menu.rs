@@ -131,6 +131,8 @@ fn menu(
             if add {
                 counts.record(&code);
             }
+            // Rocket.Chat takes a standard emoji by one of its own names only.
+            let code = if add { rv_core::emoji::rc_reaction(&code).map(str::to_owned).unwrap_or(code) } else { code };
             let (s, id, toast) = (s.clone(), id.clone(), toast.clone());
             glib::spawn_future_local(async move {
                 let shortcode = format!(":{code}:");
@@ -141,7 +143,8 @@ fn menu(
         });
         let s = session.clone();
         let custom: crate::emoji_picker::CustomSource = Rc::new(move || s.custom_emoji_names());
-        let quick = crate::reactions::row(popover, &usage, &mine, Some(custom), react);
+        let quick =
+            crate::reactions::row(popover, &usage, &mine, Some(custom), crate::reactions::Server::RocketChat, react);
         column.append(&quick);
     }
 
@@ -247,7 +250,7 @@ pub(super) fn confirm_delete(parent: Option<&gtk::Widget>, delete: impl Fn() + '
     dialog.add_responses(&[("cancel", t("actions.cancel")), ("delete", t("actions.delete"))]);
     dialog.set_response_appearance("delete", adw::ResponseAppearance::Destructive);
     dialog.connect_response(Some("delete"), move |_, _| delete());
-    crate::widgets::present_alert(&dialog, parent);
+    crate::widgets::present(&dialog, parent);
 }
 
 fn download(session: Arc<Session>, file: Option<(String, String)>, handlers: Rc<Handlers>) {

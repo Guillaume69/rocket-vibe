@@ -318,7 +318,7 @@ pub fn page(host: &Host, session: Arc<NativeSession>) -> adw::PreferencesPage {
                     state.run(Work::Start(kind));
                 }
             });
-            crate::widgets::present_alert(&alert, Some(&parent));
+            crate::widgets::present(&alert, Some(&parent));
         });
     }
     let weak = Rc::downgrade(&state);
@@ -369,7 +369,7 @@ pub fn page(host: &Host, session: Arc<NativeSession>) -> adw::PreferencesPage {
                 state.run(Work::EmailFactor(expected.clone()));
             }
         });
-        crate::widgets::present_alert(&alert, Some(&parent));
+        crate::widgets::present(&alert, Some(&parent));
     });
     let weak = Rc::downgrade(&state);
     state.email_start.connect_activated(move |_| {
@@ -419,7 +419,7 @@ pub fn page(host: &Host, session: Arc<NativeSession>) -> adw::PreferencesPage {
                 state.run(Work::EmailRemove(expected.clone()));
             }
         });
-        crate::widgets::present_alert(&alert, Some(&parent));
+        crate::widgets::present(&alert, Some(&parent));
     });
     let weak = Rc::downgrade(&state);
     state.email_confirm.connect_activated(move |_| {

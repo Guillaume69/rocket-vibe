@@ -222,7 +222,7 @@ impl Controller {
             };
             c.run(super::Action::Recovery(action));
         });
-        crate::widgets::present_alert(&alert, Some(&parent));
+        crate::widgets::present(&alert, Some(&parent));
     }
     pub(super) fn connect_recovery(self: &Rc<Self>, page: &adw::PreferencesPage) {
         for (index, row) in self.recovery.rows.iter().enumerate() {
@@ -275,9 +275,13 @@ impl Controller {
             }
         });
         let weak = Rc::downgrade(self);
+        // Leaving the page for another category forgets the codes shown, as
+        // closing the settings does.
         page.connect_unmap(move |_| {
             if let Some(c) = weak.upgrade() {
                 c.recovery.detach_focus();
+                c.recovery.clear_sensitive();
+                c.history_backup.clear_sensitive();
             }
         });
     }

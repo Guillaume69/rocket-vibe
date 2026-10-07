@@ -108,6 +108,7 @@ pub fn rest_error(error: Error) -> RestError {
         two_factor: None,
         request_id,
         retry_after,
+        details: None,
     }
 }
 

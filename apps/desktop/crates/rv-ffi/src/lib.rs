@@ -611,7 +611,9 @@ impl Chat {
     /// use most on this account, the server's emoji included.
     pub fn quick_reactions(&self) -> Vec<String> {
         let s = &self.session;
-        reactions::quick(&reactions::usage(&self.dirs.config, &s.info), |code| s.custom_emoji(code).is_some())
+        reactions::quick_rocket_chat(&reactions::usage(&self.dirs.config, &s.info), |code| {
+            s.custom_emoji(code).is_some()
+        })
     }
 
     /// The call's link, to open in the browser.

@@ -48,14 +48,18 @@ final class SettingsTests: XCTestCase {
         XCTAssertFalse(app.settingsShown)
         app.openSettings()
         XCTAssertEqual(app.shownSettingsCategory, .app, "where it was left")
+        XCTAssertTrue(app.panelShown, "the window's shortcuts wait")
         app.showLogin(error: nil)
         XCTAssertFalse(app.settingsShown, "the sign-in form closes it")
+        XCTAssertFalse(app.panelShown)
     }
 
     func testReactionCodes() {
-        XCTAssertEqual(reactionEmoji(code: ":thumbsup:", custom: false), ":+1:")
-        XCTAssertEqual(reactionEmoji(code: ":party_parrot:", custom: true), ":party_parrot:")
-        XCTAssertNil(reactionEmoji(code: ":party_parrot:", custom: false))
+        XCTAssertEqual(reactionEmoji(code: ":thumbsup:", custom: false, rocketChat: false), ":+1:")
+        XCTAssertEqual(reactionEmoji(code: ":party_parrot:", custom: true, rocketChat: false), ":party_parrot:")
+        XCTAssertNil(reactionEmoji(code: ":party_parrot:", custom: false, rocketChat: false))
+        XCTAssertEqual(reactionEmoji(code: ":thumbsup:", custom: true, rocketChat: true), ":+1:", "a name Rocket.Chat accepts")
+        XCTAssertTrue(rocketChatReactsWith(code: "+1"))
         XCTAssertTrue(sameEmoji(a: ":+1:", b: ":thumbsup:"))
         XCTAssertFalse(sameEmoji(a: ":+1:", b: ":heart:"))
     }

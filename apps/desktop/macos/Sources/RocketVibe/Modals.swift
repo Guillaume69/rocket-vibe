@@ -19,6 +19,9 @@ final class ModalCenter {
     var isEmpty: Bool { stack.isEmpty }
 
     func show(_ id: UUID, style: ModalStyle, content: AnyView, cancel: @escaping () -> Void) {
+        // Keys stop going to what is underneath (the composer); the modal's
+        // first field takes them (`firstModalField`).
+        if !stack.layers.contains(where: { $0.id == id }) { NSApp.keyWindow?.makeFirstResponder(nil) }
         stack.show(id, Shown(style: style, content: content), cancel: cancel)
     }
 
@@ -47,7 +50,6 @@ extension EnvironmentValues {
 /// Every modal shown, over everything else in the window.
 struct ModalHost: View {
     @Environment(ModalCenter.self) var center
-    @FocusState private var focused: UUID?
 
     var body: some View {
         GeometryReader { geometry in
@@ -61,9 +63,8 @@ struct ModalHost: View {
                         framed(layer.payload, width: CGFloat(size.width), height: CGFloat(size.height))
                             .environment(\.closeModal, CloseModal(run: layer.cancel))
                     }
-                    .focusable()
-                    .focusEffectDisabled()
-                    .focused($focused, equals: layer.id)
+                    // Only the top modal answers, its Return included.
+                    .disabled(layer.id != center.stack.top?.id)
                     .transition(.opacity)
                 }
                 if let top = center.stack.top {
@@ -79,8 +80,6 @@ struct ModalHost: View {
         }
         .allowsHitTesting(!center.isEmpty)
         .animation(.easeOut(duration: 0.14), value: center.stack.layers.map(\.id))
-        // Keys go to the modal, not to the composer underneath.
-        .onChange(of: center.stack.top?.id, initial: true) { _, top in focused = top }
     }
 
     @ViewBuilder func framed(_ shown: ModalCenter.Shown, width: CGFloat, height: CGFloat) -> some View {
@@ -138,6 +137,30 @@ struct ModalOverlayModifier<Overlay: View>: ViewModifier {
     }
 }
 
+/// The first text field of a modal: it has the keyboard when the modal opens.
+private struct FirstModalField: ViewModifier {
+    @FocusState private var focused: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .focused($focused)
+            // Once the field is in the window.
+            .onAppear { DispatchQueue.main.async { focused = true } }
+    }
+}
+
+/// While the settings, the administration or a modal cover the window, its
+/// own shortcuts (search, send, an inline edit's Return) wait.
+struct WindowShortcut: ViewModifier {
+    @Environment(AppModel.self) private var app
+    @Environment(ModalCenter.self) private var modals: ModalCenter?
+    let shortcut: KeyboardShortcut
+
+    func body(content: Content) -> some View {
+        content.keyboardShortcut(app.panelShown || modals?.isEmpty == false ? nil : shortcut)
+    }
+}
+
 /// One confirming button of a `ConfirmCard`.
 struct ModalAction {
     let title: String
@@ -178,6 +201,11 @@ struct ConfirmCard: View {
 }
 
 extension View {
+    func firstModalField() -> some View { modifier(FirstModalField()) }
+
+    /// `.keyboardShortcut` for the window's own actions, off under a panel or a modal.
+    func windowShortcut(_ shortcut: KeyboardShortcut) -> some View { modifier(WindowShortcut(shortcut: shortcut)) }
+
     /// `.sheet`, drawn in the window: a click outside closes it.
     func modalOverlay<Overlay: View>(isPresented: Binding<Bool>, key: AnyHashable? = nil, style: ModalStyle = .card,
                                      @ViewBuilder content: @escaping () -> Overlay) -> some View {

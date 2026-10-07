@@ -1,4 +1,5 @@
 import Foundation
+import RocketVibeCore
 import XCTest
 
 @testable import RocketVibeKit
@@ -24,6 +25,19 @@ final class ModalsTests: XCTestCase {
         XCTAssertEqual(cancelled, ["b", "a2"])
         stack.hide(a)
         XCTAssertTrue(stack.isEmpty)
+    }
+
+    /// A click outside the incoming-call prompt sets the ring aside: no
+    /// prompt, no ringtone, and nothing sent (the call is not declined).
+    @MainActor
+    func testAnIgnoredRingNoLongerPromptsButStaysUndeclined() {
+        let ring = VoiceCall(id: "c1", room: "r", callerId: "bob", callerName: "Bob", calleeId: "me", state: "ringing")
+        let other = VoiceCall(id: "c2", room: "s", callerId: "eve", callerName: "Eve", calleeId: "me", state: "ringing")
+        XCTAssertEqual(VoiceModel.incoming([ring], me: "me", answered: nil, ignored: [], room: nil)?.id, "c1")
+        XCTAssertNil(VoiceModel.incoming([ring], me: "me", answered: nil, ignored: ["c1"], room: nil))
+        XCTAssertEqual(VoiceModel.incoming([ring, other], me: "me", answered: nil, ignored: ["c1"], room: nil)?.id, "c2",
+                       "another call still rings")
+        XCTAssertEqual(ring.state, "ringing")
     }
 
     func testModalSizesFitTheWindow() {

@@ -216,6 +216,7 @@ struct SearchView: View {
         SheetFrame(title: L("search.title")) {
             VStack(spacing: 0) {
                 TextField(L("search.placeholder"), text: $query)
+                    .firstModalField()
                     .onSubmit {requestRevision &+= 1}
                     .textFieldStyle(.roundedBorder)
                     .padding(12)
@@ -321,11 +322,13 @@ struct MarkedView: View {
 }
 
 /// The picker's pages, then search by shortcode. Without `custom` (a
-/// reaction in a private conversation), no server emoji.
+/// reaction in a private conversation), no server emoji; with `pickable`
+/// (a reaction on Rocket.Chat), only the standard emoji it accepts.
 struct EmojiPicker: View {
     @Environment(AppModel.self) var app
     let pick: (String, String) -> Void
     var custom = true
+    var pickable: ((String) -> Bool)? = nil
     @State var category = 0
     @State var query = ""
     let categories = emojiCategories()
@@ -335,9 +338,10 @@ struct EmojiPicker: View {
         if query.isEmpty {
             if category==categories.count{return customs.map{(":\($0):", ":\($0):")}}
             let c = categories[category]
-            return Array(zip(c.shortcodes, c.glyphs))
+            return Array(zip(c.shortcodes, c.glyphs)).filter { pickable?($0.0) ?? true }
         }
-        return customs.filter{$0.hasPrefix(query.lowercased())}.map{(":\($0):", ":\($0):")} + completeEmoji(prefix: query, limit: 180).map { (":\($0.shortcode):", $0.glyph) }
+        return customs.filter{$0.hasPrefix(query.lowercased())}.map{(":\($0):", ":\($0):")}
+            + completeEmoji(prefix: query, limit: 180).filter { pickable?($0.shortcode) ?? true }.map { (":\($0.shortcode):", $0.glyph) }
     }
 
     var body: some View {

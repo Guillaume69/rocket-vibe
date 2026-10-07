@@ -36,6 +36,10 @@ public final class VoiceModel {
     public private(set) var joining: String?
     /// A direct call this side declined or answered, until the server resolves it.
     var answered: String?
+    /// Rings this side set aside (a click outside the prompt, Escape): no
+    /// prompt and no ringtone, but not declined; the caller hears it ring
+    /// until it times out, as a missed call.
+    var ignored: Set<String> = []
     @ObservationIgnored var seen: [String: String] = [:]
     @ObservationIgnored let me: String
 
@@ -61,9 +65,19 @@ public final class VoiceModel {
     /// Someone of a room's session; the session's own view for the room this account is in.
     public func members(_ room: String) -> [VoiceMember] { native.voiceMembers(room: room) }
 
-    /// An incoming ring this side has not answered, not for the call it is in.
+    /// An incoming ring this side has not answered nor ignored, not for the call it is in.
     public var incoming: VoiceCall? {
-        calls.first { $0.calleeId == me && $0.state == "ringing" && $0.id != answered && $0.room != state.room }
+        Self.incoming(calls, me: me, answered: answered, ignored: ignored, room: state.room)
+    }
+
+    static func incoming(_ calls: [VoiceCall], me: String, answered: String?, ignored: Set<String>, room: String?) -> VoiceCall? {
+        calls.first { $0.calleeId == me && $0.state == "ringing" && $0.id != answered && !ignored.contains($0.id) && $0.room != room }
+    }
+
+    /// Sets a ring aside without declining it: the prompt hides, the ringtone stops.
+    public func ignore(_ call: VoiceCall) {
+        ignored.insert(call.id)
+        rings()
     }
 
     /// Reads everything again after an event, then says what changed.
@@ -116,6 +130,7 @@ public final class VoiceModel {
             if before == "ringing" && missed { onCue?(.missed) }
         }
         seen = seen.filter { id, _ in calls.contains { $0.id == id } }
+        ignored = ignored.filter { id in calls.contains { $0.id == id && $0.state == "ringing" } }
         let outgoing = calls.contains { $0.callerId == me && $0.state == "ringing" && $0.room == state.room }
         let wanted: VoiceTone? = incoming != nil ? .ringtone : outgoing ? .ringback : nil
         if wanted != tone { tone = wanted; onTone?(wanted) }

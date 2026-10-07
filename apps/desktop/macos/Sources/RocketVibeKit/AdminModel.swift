@@ -13,20 +13,19 @@ public enum AdminCategory: String, CaseIterable, Identifiable, Sendable {
 
 /// What the administration says, as the GTK app says it.
 public enum AdminText {
-    /// A refusal or a failure (`RvError.Local` carries the server's code).
+    /// A refusal (`AdminFailure` carries the server's code), as rv-core words it.
     public static func error(_ error: Error) -> String {
-        if case let RvError.Local(code) = error { return self.error(code: code) }
+        if case let AdminFailure.Refused(code, _, _) = error { return self.error(code: code) }
         return L("admin.failed")
     }
 
     public static func error(code: String) -> String {
-        switch code {
-        case "self_administration", "self_report": return L("admin.error_self")
-        case "last_administrator": return L("admin.error_last_admin")
-        case "revision_conflict", "operation_conflict", "not_found": return L("admin.error_conflict")
-        case "permission_denied": return L("admin.error_denied")
-        default: return code.hasPrefix("error-") ? L("admin.error_denied") : L("admin.failed")
-        }
+        L(adminErrorKey(code: code))
+    }
+
+    /// A figure the server may refuse to give: "–" then.
+    public static func figure(_ value: UInt64?) -> String {
+        value.map { String($0) } ?? L("admin.unknown")
     }
 
     public static func duration(_ seconds: UInt64) -> String {
@@ -145,6 +144,18 @@ public final class AdminList<Item> {
     }
 }
 
+/// A second question after a refusal that asks one: Rocket.Chat deactivating
+/// or deleting the last owner of rooms (which then go or change owner), or
+/// deleting a reported message it can only delete with all of its author's.
+public struct AdminFollowUp: Identifiable {
+    public let id = UUID()
+    public let title: String
+    public let message: String
+    public let action: String
+    let moderation: Bool
+    let run: () async throws -> Void
+}
+
 /// A page opened over a category: an account, a reported message or account.
 public enum AdminDetail: Equatable {
     case user(AdminUser)
@@ -177,6 +188,10 @@ public final class AdminModel {
     public private(set) var reasons: [AdminReport]?
     public private(set) var reasonsError: String?
     public private(set) var busy = false
+    /// Whether the opened reported account is active, once its page read it.
+    public private(set) var reportedUserActive: Bool?
+    /// The second question to ask, until answered.
+    public private(set) var followUp: AdminFollowUp?
     /// The panel's toast: "Done", or what went wrong.
     public var notice: String?
     @ObservationIgnored private var detailGeneration = 0
@@ -211,23 +226,25 @@ public final class AdminModel {
         self.category = category
         closeDetail()
         switch category {
-        case .dashboard: if overview == nil && overviewError == nil { Task { await refreshOverview() } }
+        case .dashboard: if overview == nil && overviewError == nil { Task { await refreshOverview(refresh: false) } }
         case .moderation: reportedMessages.start(); reportedUsers.start()
         case .rooms: rooms.start()
         case .users: users.start()
         }
     }
 
-    public func refreshOverview() async {
+    /// The figures; Rocket.Chat counts them again only with `refresh` (the
+    /// refresh button: a full count on the server), its cached ones otherwise.
+    public func refreshOverview(refresh: Bool) async {
         guard alive else { return }
         overviewGeneration &+= 1
         let expected = overviewGeneration
         overview = nil; overviewError = nil
         do {
-            let fresh = try await source.overview()
+            let fresh = try await source.overview(refresh: refresh)
             guard alive, expected == overviewGeneration else { return }
             overview = fresh
-            reportCount = fresh.reportedMessages + fresh.reportedUsers
+            reportCount = (fresh.reportedMessages ?? 0) + (fresh.reportedUsers ?? 0)
         } catch {
             guard alive, expected == overviewGeneration else { return }
             overviewError = AdminText.error(error)
@@ -239,6 +256,16 @@ public final class AdminModel {
         }
     }
 
+    /// "Figures as of ...": Rocket.Chat's snapshot date; nothing when live.
+    public var asOf: String? {
+        overview?.asOf.map { L("admin.as_of", ["date": AdminText.date($0)]) }
+    }
+
+    /// A reported message's words: "Encrypted message" from an encrypted room.
+    public func text(_ item: AdminReportedMessage) -> String {
+        item.deleted ? L("admin.message_deleted") : item.encrypted ? L("admin.encrypted_message") : item.text
+    }
+
     /// The version line's note, once the latest version is known.
     public var updateNote: String? {
         overview.flatMap { AdminText.update(current: $0.version, latest: latestVersion) }
@@ -247,7 +274,11 @@ public final class AdminModel {
     public func isMe(_ user: AdminUser) -> Bool { user.id == myId }
     public func canDeleteMessage(_ item: AdminReportedMessage) -> Bool { !item.deleted }
     public func canDeactivateAuthor(_ item: AdminReportedMessage) -> Bool { !item.author.deleted && item.author.id != myId }
-    public func canDeactivate(_ item: AdminReportedUser) -> Bool { item.user.id != myId && item.user.active }
+    /// Unless known inactive: Rocket.Chat's list does not say, its page does.
+    public func canDeactivate(_ item: AdminReportedUser) -> Bool {
+        let shown = detail == .reportedUser(item) ? reportedUserActive : nil
+        return item.user.id != myId && (shown ?? item.active) != false
+    }
     /// What deleting an account does to its messages, by server.
     public var deleteUserBody: String {
         L(product == .rocketChat ? "admin.delete_user_body_rc" : "admin.delete_user_body_rv")
@@ -258,20 +289,31 @@ public final class AdminModel {
         detailGeneration &+= 1
         let expected = detailGeneration
         self.detail = detail
-        reasons = nil; reasonsError = nil
-        let work: (() async throws -> [AdminReport])?
+        reasons = nil; reasonsError = nil; reportedUserActive = nil
+        let work: (() async throws -> ([AdminReport], Bool?))?
         switch detail {
         case .user: work = nil
         case let .message(item):
-            if let known = item.reports { reasons = known; work = nil } else { work = { try await self.source.messageReports(item: item) } }
+            if let known = item.reports { reasons = known; work = nil } else {
+                work = { (try await self.source.messageReports(item: item), nil) }
+            }
         case let .reportedUser(item):
-            if let known = item.reports { reasons = known; work = nil } else { work = { try await self.source.userReports(item: item) } }
+            reportedUserActive = item.active
+            if let known = item.reports, item.active != nil { reasons = known; work = nil } else {
+                work = {
+                    let found = try await self.source.userReports(item: item)
+                    return (found.reports, found.active)
+                }
+            }
         }
         guard let work else { return }
         Task {
             do {
-                let found = try await work()
-                if alive, expected == detailGeneration { reasons = found }
+                let (found, active) = try await work()
+                if alive, expected == detailGeneration {
+                    reasons = found
+                    if let active { reportedUserActive = active }
+                }
             } catch {
                 if alive, expected == detailGeneration { reasonsError = AdminText.error(error) }
             }
@@ -281,49 +323,83 @@ public final class AdminModel {
     /// Back from an item to its category.
     public func closeDetail() {
         detailGeneration &+= 1
-        detail = nil; reasons = nil; reasonsError = nil
+        detail = nil; reasons = nil; reasonsError = nil; reportedUserActive = nil
     }
 
     public func setAdmin(_ user: AdminUser, _ admin: Bool) async {
-        await act(reload: users) { _ = try await self.source.setAdmin(user: user, admin: admin) }
+        await act { _ in _ = try await self.source.setAdmin(user: user, admin: admin) }
     }
     public func setActive(_ user: AdminUser, _ active: Bool) async {
-        await act(reload: users) { _ = try await self.source.setActive(user: user, active: active) }
+        await act { relinquish in _ = try await self.source.setActive(user: user, active: active, relinquish: relinquish) }
     }
     public func delete(_ user: AdminUser) async {
-        await act(reload: users) { try await self.source.deleteUser(user: user) }
+        await act { relinquish in try await self.source.deleteUser(user: user, relinquish: relinquish) }
     }
     public func dismiss(_ item: AdminReportedMessage) async {
-        await act(moderation: true) { try await self.source.dismissMessageReports(item: item) }
+        await act(moderation: true) { _ in try await self.source.dismissMessageReports(item: item) }
     }
     public func delete(_ item: AdminReportedMessage) async {
-        await act(moderation: true) { try await self.source.deleteReportedMessage(item: item) }
+        await act(moderation: true, bulk: item) { _ in try await self.source.deleteReportedMessage(item: item) }
     }
     public func deactivateAuthor(_ item: AdminReportedMessage) async {
-        await act(moderation: true) { try await self.source.deactivateAuthor(item: item) }
+        await act(moderation: true) { relinquish in try await self.source.deactivateAuthor(item: item, relinquish: relinquish) }
     }
     public func dismiss(_ item: AdminReportedUser) async {
-        await act(moderation: true) { try await self.source.dismissUserReports(item: item) }
+        await act(moderation: true) { _ in try await self.source.dismissUserReports(item: item) }
     }
     public func deactivate(_ item: AdminReportedUser) async {
-        await act(moderation: true) { _ = try await self.source.setActive(user: item.user, active: false) }
+        await act(moderation: true) { relinquish in _ = try await self.source.setActive(user: item.user, active: false, relinquish: relinquish) }
     }
 
-    /// An action: on success "Done", back to the list, reloaded; else why not.
-    private func act(reload list: AdminList<AdminUser>? = nil, moderation: Bool = false, _ work: @escaping () async throws -> Void) async {
+    /// The second question answered yes (`pending`, kept by the view as it
+    /// closes the question): the action again, as it asked.
+    public func confirmFollowUp(_ asked: AdminFollowUp? = nil) async {
+        guard let pending = asked ?? followUp else { return }
+        followUp = nil
+        await act(moderation: pending.moderation) { _ in try await pending.run() }
+    }
+
+    public func dismissFollowUp() { followUp = nil }
+
+    /// An action: on success "Done", back to the list, reloaded; a refusal
+    /// that asks a second question asks it; else why not. `work` is told
+    /// whether the person agreed to give up room ownerships (Rocket.Chat).
+    private func act(moderation: Bool = false, bulk: AdminReportedMessage? = nil,
+                     _ work: @escaping (Bool) async throws -> Void) async {
         guard alive, !busy else { return }
         busy = true
         defer { busy = false }
         do {
-            try await work()
+            try await work(false)
             guard alive else { return }
             notice = L("admin.done")
             closeDetail()
-            list?.reload()
-            if moderation { reportedMessages.reload(); reportedUsers.reload() }
+            if moderation { reportedMessages.reload(); reportedUsers.reload() } else { users.reload() }
+        } catch let AdminFailure.Refused(code, lastOwner, count) {
+            guard alive else { return }
+            if code == "user-last-owner", let lastOwner {
+                followUp = AdminFollowUp(title: L("admin.last_owner_title"), message: Self.lastOwnerText(lastOwner),
+                                         action: L("admin.last_owner_confirm"), moderation: moderation) { try await work(true) }
+            } else if code == "moderation_bulk_only", let item = bulk {
+                followUp = AdminFollowUp(title: L("admin.bulk_delete_title"),
+                                         message: L("admin.bulk_delete_body", ["n": String(count ?? 0)]),
+                                         action: L("admin.bulk_delete"), moderation: true) {
+                    try await self.source.deleteAuthorReportedMessages(item: item)
+                }
+            } else {
+                notice = AdminText.error(code: code)
+            }
         } catch {
-            if alive { notice = AdminText.error(error) }
+            if alive { notice = L("admin.failed") }
         }
+    }
+
+    /// The rooms that go (the person is their only member) and those whose ownership moves.
+    static func lastOwnerText(_ rooms: AdminLastOwner) -> String {
+        var lines: [String] = []
+        if !rooms.removed.isEmpty { lines.append(L("admin.last_owner_removed", ["rooms": rooms.removed.joined(separator: ", ")])) }
+        if !rooms.transferred.isEmpty { lines.append(L("admin.last_owner_transferred", ["rooms": rooms.transferred.joined(separator: ", ")])) }
+        return lines.joined(separator: "\n")
     }
 
     public func close() {
@@ -358,9 +434,11 @@ public final class ReportDraft: Identifiable {
         if case .message = target { return L("report.body_message") }
         return L("report.body_user")
     }
-    /// What is typed, cut at the longest reason the servers take.
+    /// What is typed, cut at the longest reason the servers take. They count
+    /// Unicode scalars (rv-core's `valid_reason`), not what Swift calls characters.
     public func edit(_ text: String) {
-        reason = text.count > Self.maxLength ? String(text.prefix(Self.maxLength)) : text
+        let scalars = text.unicodeScalars
+        reason = scalars.count > Self.maxLength ? String(String.UnicodeScalarView(scalars.prefix(Self.maxLength))) : text
     }
     public var canSend: Bool { !sending && reportReason(text: reason) != nil }
 

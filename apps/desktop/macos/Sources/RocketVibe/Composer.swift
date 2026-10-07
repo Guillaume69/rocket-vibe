@@ -137,7 +137,7 @@ struct Composer: View {
                         .buttonStyle(SendButtonStyle())
                         .help(L("composer.send"))
                         .disabled(!model.canSend && staged.isEmpty)
-                        .keyboardShortcut(.return, modifiers: .command)
+                        .windowShortcut(KeyboardShortcut(.return, modifiers: .command))
                 }
             }
             .animation(Vibe.spring, value: recorder.recording)
@@ -506,6 +506,7 @@ struct StagedPreview: View {
             TextField(L("composer.placeholder"), text: $caption, axis: .vertical)
                 .lineLimit(1...5)
                 .textFieldStyle(.roundedBorder)
+                .firstModalField()
             HStack {
                 Button(L("attach.remove"), role: .destructive, action: remove)
                 Spacer()
@@ -537,6 +538,7 @@ struct EditLastSheet: View {
                 .lineLimit(2...12)
                 .textFieldStyle(.roundedBorder)
                 .onSubmit(save)
+                .firstModalField()
             HStack {
                 Text(L("edit.hint")).font(.caption).foregroundStyle(.secondary)
                 Spacer()

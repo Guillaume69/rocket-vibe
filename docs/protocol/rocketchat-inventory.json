@@ -2438,7 +2438,7 @@
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/RoomView.swift",
-      "line": 182,
+      "line": 183,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },

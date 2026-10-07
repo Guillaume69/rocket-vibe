@@ -862,6 +862,11 @@ public final class RoomModel {
     }
     /// A private conversation reacts with standard emoji only.
     public var customReactionsAllowed: Bool { !privateMode }
+    /// The standard emoji the reaction picker offers: on Rocket.Chat, those
+    /// it has a name for (`chat.react` refuses the others); all elsewhere.
+    public var reactionPickable: ((String) -> Bool)? {
+        chat != nil ? { rocketChatReactsWith(code: $0) } : nil
+    }
     /// My reaction naming the same emoji as `shortcode`, under the code the
     /// server keyed it (maybe an alias), to withdraw it.
     public func myReaction(_ message: MessageItem, shortcode: String) -> String? {
@@ -878,7 +883,7 @@ public final class RoomModel {
     /// A pick in the emoji picker (`:code:`): a standard emoji under its
     /// canonical shortcode, a server emoji where they are allowed.
     public func reactWithPick(_ message: MessageItem, code: String) async {
-        guard let emoji = reactionEmoji(code: code, custom: customReactionsAllowed) else { return }
+        guard let emoji = reactionEmoji(code: code, custom: customReactionsAllowed, rocketChat: chat != nil) else { return }
         await react(message, shortcode: emoji, add: true)
     }
 

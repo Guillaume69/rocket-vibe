@@ -80,6 +80,10 @@ extension AppModel {
         return visible.contains(settingsCategory) ? settingsCategory : visible.first
     }
 
+    /// The settings or the administration cover the window: its own
+    /// shortcuts (search, send, an inline edit's Return) wait.
+    public var panelShown: Bool { settingsShown || admin != nil }
+
     /// ⌘, and the gear: the overlay, on `category` when given, else where it was left.
     public func openSettings(_ category: SettingsCategory? = nil) {
         if let category { settingsCategory = category }

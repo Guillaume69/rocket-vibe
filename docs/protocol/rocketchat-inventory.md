@@ -331,7 +331,7 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/macos/Sources/RocketVibe/RoomView.swift:173](../../apps/desktop/macos/Sources/RocketVibe/RoomView.swift#L173) | endpoint | e2e.title |
 | [apps/desktop/macos/Sources/RocketVibe/RoomView.swift:174](../../apps/desktop/macos/Sources/RocketVibe/RoomView.swift#L174) | endpoint | e2e.body |
 | [apps/desktop/macos/Sources/RocketVibe/RoomView.swift:175](../../apps/desktop/macos/Sources/RocketVibe/RoomView.swift#L175) | endpoint | e2e.password |
-| [apps/desktop/macos/Sources/RocketVibe/RoomView.swift:182](../../apps/desktop/macos/Sources/RocketVibe/RoomView.swift#L182) | endpoint | e2e.unlock |
+| [apps/desktop/macos/Sources/RocketVibe/RoomView.swift:183](../../apps/desktop/macos/Sources/RocketVibe/RoomView.swift#L183) | endpoint | e2e.unlock |
 | [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:151](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L151) | endpoint | rooms.sign_out |
 | [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:237](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L237) | endpoint | e2e.status |
 | [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:239](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L239) | endpoint | e2e.locked |

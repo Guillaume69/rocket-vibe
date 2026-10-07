@@ -196,7 +196,7 @@ struct RoomListView: View {
         .searchable(text: $query, placement: .sidebar, prompt: L("spotlight.placeholder"))
         .task(id: query) { await search() }
         .task(id: app.account?.key) { query = ""; found = []; creating = false }
-        .sheet(isPresented: $creating) { NewRoomSheet() }
+        .modalOverlay(isPresented: $creating) { NewRoomSheet() }
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {

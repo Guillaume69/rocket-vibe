@@ -64,7 +64,7 @@ struct RoomView: View {
                 Button { panel = .marked } label: { Image(systemName: "pin") }.help(L("marked.title"))
                     .disabled(!model.supportsMarks)
                 Button { panel = .search } label: { Image(systemName: "magnifyingglass") }.help(L("search.title"))
-                    .keyboardShortcut("f", modifiers: .command)
+                    .windowShortcut(KeyboardShortcut("f", modifiers: .command))
                     .disabled(!model.supportsSearch)
                 Button {
                     if let uid = model.directPeerId { panel = .profileId(uid) }
@@ -175,6 +175,7 @@ struct UnlockSheet: View {
             SecureField(L("e2e.password"), text: $password)
                 .textFieldStyle(.roundedBorder)
                 .onSubmit(unlock)
+                .firstModalField()
             if let error { Text(error).foregroundStyle(.red) }
             HStack {
                 Spacer()
@@ -446,7 +447,7 @@ struct MessageRow: View, Equatable {
                 EmojiPicker(pick: { code, _ in
                     reacting = false
                     Task { await model?.reactWithPick(message, code: code) }
-                }, custom: model?.customReactionsAllowed ?? false)
+                }, custom: model?.customReactionsAllowed ?? false, pickable: model?.reactionPickable)
             }
         }
         .modalOverlay(item: Binding(get: { viewing.map(Viewing.init) }, set: { viewing = $0?.image }), style: .fullWindow) { v in
@@ -575,7 +576,7 @@ struct MessageRow: View, Equatable {
                 Text(L("edit.hint")).font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button(L("actions.cancel")) { setEditing(nil) }
-                Button(L("actions.save"), action: save).keyboardShortcut(.defaultAction)
+                Button(L("actions.save"), action: save).windowShortcut(.defaultAction)
             }
         }
         .onAppear { draft = model?.editingText(message) ?? message.text ?? "" }
@@ -694,7 +695,7 @@ struct QuoteDestinations: View {
     var body: some View {
         VStack(alignment:.leading, spacing:12) {
             Text(L("quote.destination")).font(.headline)
-            TextField(L("spotlight.placeholder"), text:$search)
+            TextField(L("spotlight.placeholder"), text:$search).firstModalField()
             ScrollView {
                 VStack(alignment:.leading, spacing:4) {
                     let joined = Set((try? app.native?.quoteDestinations()) ?? [])

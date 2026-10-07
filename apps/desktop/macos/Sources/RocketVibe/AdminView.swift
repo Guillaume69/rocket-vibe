@@ -79,6 +79,15 @@ struct AdminView: View {
         }
         .overlay(alignment: .bottom) { toast }
         .onAppear { listFocused = true }
+        // Rocket.Chat's second question (rooms a last owner leaves, a bulk delete).
+        .confirmOverlay(
+            isPresented: Binding(get: { model.followUp != nil }, set: { if !$0 { model.dismissFollowUp() } }),
+            title: model.followUp?.title ?? "",
+            message: model.followUp?.message,
+            actions: model.followUp.map { followUp in
+                [ModalAction(title: followUp.action, role: .destructive) { Task { await model.confirmFollowUp(followUp) } }]
+            } ?? []
+        )
         .confirmOverlay(
             isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),
             title: confirming?.title ?? "",
@@ -146,7 +155,7 @@ struct AdminView: View {
                 Button { model.open(.message(item)) } label: {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(item.deleted ? L("admin.message_deleted") : item.text).lineLimit(2)
+                            Text(model.text(item)).lineLimit(2)
                             Text("\(item.author.shown) · \(L("admin.in_room", ["room": item.roomName])) · \(L("admin.reports_count", count: Int(clamping: item.count)))")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
@@ -209,7 +218,7 @@ struct AdminView: View {
         case let .message(item):
             Section(L("admin.message")) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(item.deleted ? L("admin.message_deleted") : item.text).textSelection(.enabled)
+                    Text(model.text(item)).textSelection(.enabled)
                     Text("\(item.author.shown) · \(L("admin.in_room", ["room": item.roomName])) · \(AdminText.date(item.createdAt))")
                         .font(.caption).foregroundStyle(.secondary)
                 }
@@ -449,7 +458,9 @@ struct AdminDashboard: View {
         ScrollView {
             if let o = model.overview {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 300, maximum: 520), spacing: 20, alignment: .top)], alignment: .leading, spacing: 20) {
-                    AdminCard(title: L("admin.deployment"), refresh: { Task { await model.refreshOverview() } }) {
+                    AdminCard(title: L("admin.deployment"), refresh: { Task { await model.refreshOverview(refresh: true) } }) {
+                        // Rocket.Chat's figures are a snapshot; the button counts them again.
+                        if let asOf = model.asOf { Text(asOf).font(.vibe(11.5)).foregroundStyle(Vibe.muted) }
                         AdminValue(title: L("admin.version"), value: o.version, note: model.updateNote)
                         if let uptime = o.uptimeSeconds { AdminValue(title: L("admin.uptime"), value: AdminText.duration(uptime)) }
                         AdminValue(title: L("admin.database"), value: o.database)
@@ -477,8 +488,8 @@ struct AdminDashboard: View {
                         AdminValue(title: L("admin.uploads_size"), value: ByteCountFormatter.string(fromByteCount: Int64(clamping: o.uploadsBytes), countStyle: .file))
                     }
                     AdminCard(title: L("admin.reports")) {
-                        AdminValue(title: L("admin.reported_messages"), value: String(o.reportedMessages))
-                        AdminValue(title: L("admin.reported_users"), value: String(o.reportedUsers))
+                        AdminValue(title: L("admin.reported_messages"), value: AdminText.figure(o.reportedMessages))
+                        AdminValue(title: L("admin.reported_users"), value: AdminText.figure(o.reportedUsers))
                         Button(L("admin.open_moderation")) { model.show(.moderation) }
                     }
                 }
@@ -486,7 +497,7 @@ struct AdminDashboard: View {
             } else if let error = model.overviewError {
                 VStack(spacing: 10) {
                     Text(error).foregroundStyle(.secondary)
-                    Button(L("security.refresh")) { Task { await model.refreshOverview() } }
+                    Button(L("security.refresh")) { Task { await model.refreshOverview(refresh: false) } }
                 }
                 .padding(40)
             } else {
@@ -509,7 +520,7 @@ struct AdminCard<Content: View>: View {
                 if let refresh {
                     Button(action: refresh) { Image(systemName: "arrow.clockwise") }
                         .buttonStyle(.borderless)
-                        .help(L("security.refresh"))
+                        .help(L("admin.refresh_figures"))
                 }
             }
             content
@@ -567,6 +578,7 @@ struct ReportSheet: View {
             TextField(L("report.reason"), text: Binding(get: { draft.reason }, set: { draft.edit($0) }), axis: .vertical)
                 .textFieldStyle(.roundedBorder)
                 .lineLimit(2...6)
+                .firstModalField()
             HStack {
                 Spacer()
                 Button(L("actions.cancel")) { app.cancelReport() }

@@ -141,7 +141,7 @@ struct LoginView: View {
                 }
                 Button(login.busy ? L("login.signing_in") : (login.method == nil ? L(login.recovering && login.canRecover ? "login.reset_password" : login.registering && login.canRegister ? "login.create_account" : "login.sign_in") : L("login.confirm")), action: submit)
                     .buttonStyle(VibeButtonStyle())
-                    .keyboardShortcut(.defaultAction)
+                    .windowShortcut(.defaultAction)
                     .disabled(login.busy)
             }
         }

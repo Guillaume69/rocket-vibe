@@ -4,10 +4,13 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.util.Log
 import androidx.core.content.ContextCompat
 import com.twilio.audioswitch.AudioDevice
 import io.livekit.android.LiveKit
 import io.livekit.android.RoomOptions
+import io.livekit.android.e2ee.BaseKeyProvider
+import io.livekit.android.e2ee.E2EEOptions
 import io.livekit.android.events.RoomEvent
 import io.livekit.android.events.collect
 import io.livekit.android.room.Room
@@ -48,6 +51,11 @@ object VoiceEngine {
   /** The camera is off until asked for; the screen is shared after the server's claim. */
   var camera = false; private set
   var sharing = false; private set
+  /**
+   * An encrypted room's frame key (docs/protocol/VOICE.md): LiveKit's shared
+   * key, index 0, with its default PBKDF2 derivation, as on desktop.
+   */
+  private var keys: BaseKeyProvider? = null
   private var reason: String? = null
 
   fun attach(context: Context) {
@@ -68,7 +76,7 @@ object VoiceEngine {
 
   private fun snapshot(): Map<String, Any?> = mapOf(
     "state" to state, "room" to roomId, "microphone" to microphone, "deafened" to deafened,
-    "camera" to camera, "sharing" to sharing,
+    "camera" to camera, "sharing" to sharing, "encrypted" to (keys != null),
     "reason" to reason, "route" to route(), "routes" to routes(), "participants" to members(),
   )
 
@@ -97,12 +105,15 @@ object VoiceEngine {
   private fun route() = routeName(room?.audioSwitchHandler?.selectedAudioDevice)
   private fun routes() = room?.audioSwitchHandler?.availableAudioDevices?.mapNotNull { routeName(it) } ?: emptyList()
 
-  fun connect(roomId: String, url: String, token: String, title: String, link: String?, microphone: Boolean) {
+  fun connect(roomId: String, url: String, token: String, title: String, link: String?, microphone: Boolean, e2eeKey: String?) {
     teardown(null, cue = false)
     this.roomId = roomId; this.title = title; this.link = link
     this.microphone = microphone; this.deafened = false; camera = false; sharing = false; reason = null; state = "connecting"
     VoiceService.start(app)
     val r = LiveKit.create(app, RoomOptions(adaptiveStream = false, dynacast = false))
+    // After the room: the key provider is native, and creating the room loads WebRTC.
+    keys = e2eeKey?.let { key -> BaseKeyProvider().apply { setSharedKey(key, 0) } }
+    keys?.let { r.e2eeOptions = E2EEOptions(it) }
     room = r
     job = scope.launch {
       launch {
@@ -114,6 +125,9 @@ object VoiceEngine {
             is RoomEvent.ParticipantConnected -> VoiceSounds.cue(app, R.raw.cue_join)
             is RoomEvent.ParticipantDisconnected -> VoiceSounds.cue(app, R.raw.cue_leave)
             is RoomEvent.TrackSubscribed -> applyDeafen(r)
+            // Diagnostics only: a key mismatch silences someone without another trace.
+            is RoomEvent.TrackE2EEStateEvent ->
+              Log.i("RocketVibeVoice", "e2ee ${event.participant.identity?.value} ${event.state}")
             is RoomEvent.Disconnected -> {
               teardown(event.reason.name.lowercase(), cue = true)
               return@collect
@@ -240,6 +254,11 @@ object VoiceEngine {
 
   fun leave() = teardown("client_initiated", cue = true)
 
+  /** The group moved to a new epoch: every frame from now on is under its key. */
+  fun setE2eeKey(key: String) {
+    keys?.setSharedKey(key, 0)
+  }
+
   private fun teardown(why: String?, cue: Boolean) {
     val r = room ?: return
     room = null
@@ -248,7 +267,7 @@ object VoiceEngine {
     r.release()
     if (cue) VoiceSounds.cue(app, R.raw.cue_leave)
     state = if (why == null) "idle" else "disconnected"
-    camera = false; sharing = false
+    camera = false; sharing = false; keys = null
     reason = why
     roomId = null
     VoiceService.stop(app)

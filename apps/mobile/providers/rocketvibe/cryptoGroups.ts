@@ -19,6 +19,8 @@ type Pending={operation:string;fingerprint:string;cancelling:boolean;superseded:
 type Grant={user:string;access_version:string;activation_version:string};
 type Local={accepted:GroupReceipt|null;participants:CryptoParticipant[];pending:Pending|null;needs_credential_update:boolean;grants:Grant[]};
 type CurrentDevice={user:string;device:string;incarnation:string;certificate:string};
+/** An encrypted room's voice frame key at the group's epoch (docs/protocol/VOICE.md). */
+export type VoiceKey={epoch:string;key:string};
 export type CryptoGroupView=Local & {roster:GroupRoster;eligible:(CurrentDevice & {replacement:boolean})[];event:GroupEvent|null;own_device:string};
 export type CryptoRoomAction<T>=(rpc:(input:unknown)=>Promise<unknown>,roster:GroupRoster,
   peers:(source?:GroupRoster)=>Promise<CurrentDevice[]>,scope:CryptoAccount,
@@ -148,6 +150,21 @@ export class CryptoGroupAccess {
       const next=await rpc({action:'events',roster,state,page});event=next===null?null:decodeNative('GroupEvent',next);
     }
     return {...value,roster,eligible,event,own_device:scope.device};
+  });}
+  /**
+   * The group's voice key, when this device is at the server's epoch. Null
+   * otherwise: not welcomed yet, or a change the user has not accepted
+   * (group events are accepted with consent, from the room's encryption panel).
+   */
+  voiceKey():Promise<VoiceKey|null> {return this.run(false,async(rpc,roster)=>{
+    if(!roster.group)return null;
+    const result=await rpc({action:'voice_key',room:this.room});
+    if(result===null)return null;
+    const v=object(result);
+    if(typeof v.epoch!=='number' || !Number.isSafeInteger(v.epoch) || v.epoch<0
+      || typeof v.key!=='string' || !/^[A-Za-z0-9+/]{43}=$/.test(v.key))integrity();
+    // Behind the server: frames under an old key would not decrypt anywhere.
+    return String(v.epoch)===roster.group.epoch?{epoch:String(v.epoch),key:v.key}:null;
   });}
   preview(view:CryptoGroupView,devices:string[],removals:string[]=[],receive=false):Promise<CryptoGroupPreview> {
     return this.run(!receive,async(rpc,roster,peers,_scope,call)=>{

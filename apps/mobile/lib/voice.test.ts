@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import type { VoiceSnapshot } from '../modules/voice/index.ts';
+import type { VoiceKey } from '../providers/rocketvibe/cryptoGroups.ts';
 import type { VoiceGrant, VoiceRing } from '../providers/rocketvibe/protocol.generated.ts';
 import { VoiceController, type VoiceEngine, type VoiceServer } from './voice.ts';
 
@@ -11,14 +12,18 @@ const grant = (room: string, extra: Partial<VoiceGrant> = {}): VoiceGrant => ({
   room_id: room, url: 'wss://voice.test', token: 't', expires_at: '', can_publish: true, ...extra,
 });
 
-function bench(server: Partial<VoiceServer> = {}, consent = true) {
+function bench(server: Partial<VoiceServer> = {}, consent = true, key: () => VoiceKey | null = () => null) {
   const calls: string[] = [];
   let listener: (s: VoiceSnapshot) => void = () => {};
   let current: VoiceSnapshot = { state: 'idle', participants: [] };
   const emit = (s: VoiceSnapshot) => { current = s; listener(s); };
   const engine: VoiceEngine = {
     snapshot: () => current,
-    connect: async o => { calls.push(`connect ${o.room} mic=${o.microphone}`); emit({ state: 'connecting', room: o.room, participants: [] }); },
+    connect: async o => {
+      calls.push(`connect ${o.room} mic=${o.microphone}${o.e2eeKey ? ` key=${o.e2eeKey}` : ''}`);
+      emit({ state: 'connecting', room: o.room, participants: [] });
+    },
+    setE2eeKey: async k => { calls.push(`rekey ${k}`); },
     disconnect: async () => { calls.push('disconnect'); emit({ state: 'disconnected', reason: 'client_initiated', participants: [] }); },
     setMicrophone: async on => { calls.push(`mic ${on}`); },
     setDeafened: async on => { calls.push(`deaf ${on}`); },
@@ -31,9 +36,10 @@ function bench(server: Partial<VoiceServer> = {}, consent = true) {
     addListener: (_e, fn) => { listener = fn; return { remove: () => {} }; },
   };
   const voice = new VoiceController(engine, {
-    joinVoice: async (room, ring) => { calls.push(`join ${room} ring=${ring}`); return grant(room); },
+    joinVoice: async (room, ring, e2ee) => { calls.push(`join ${room} ring=${ring}${e2ee ? ' e2ee' : ''}`); return grant(room, e2ee ? { e2ee } : {}); },
     leaveVoice: async () => { calls.push('leave'); },
-    acceptRing: async id => { calls.push(`accept ${id}`); return grant('dm'); },
+    acceptRing: async (id, e2ee) => { calls.push(`accept ${id}${e2ee ? ' e2ee' : ''}`); return grant('dm', e2ee ? { e2ee } : {}); },
+    voiceKey: async () => key(),
     declineRing: async id => { calls.push(`decline ${id}`); },
     claimScreen: async () => { calls.push('claim'); },
     releaseScreen: async () => { calls.push('release'); },
@@ -111,10 +117,10 @@ test('an engine that kept the call across a JS reload is adopted', () => {
     snapshot: () => ({ state: 'connected', room: 'lounge', microphone: false, deafened: true, participants: [] }),
     connect: async () => {}, disconnect: async () => {}, setMicrophone: async () => {}, setDeafened: async () => {},
     setRoute: async () => {}, ringback: async () => {}, missed: async () => {},
-    setCamera: async () => {}, startScreenShare: async () => true, stopScreenShare: async () => {},
+    setCamera: async () => {}, startScreenShare: async () => true, stopScreenShare: async () => {}, setE2eeKey: async () => {},
     addListener: () => ({ remove: () => {} }),
   };
-  const voice = new VoiceController(engine, { joinVoice: async r => grant(r), leaveVoice: async () => {}, acceptRing: async () => grant('dm'), declineRing: async () => {}, claimScreen: async () => {}, releaseScreen: async () => {} });
+  const voice = new VoiceController(engine, { joinVoice: async r => grant(r), leaveVoice: async () => {}, acceptRing: async () => grant('dm'), declineRing: async () => {}, claimScreen: async () => {}, releaseScreen: async () => {}, voiceKey: async () => null });
   assert.deepEqual([voice.state.phase, voice.state.room, voice.state.microphone, voice.state.deafened], ['connected', 'lounge', false, true]);
 });
 
@@ -140,4 +146,33 @@ test('the screen is claimed from the server before Android is asked, and given b
   await taken.voice.join('lounge', { title: 'Lounge', microphone: true });
   await assert.rejects(taken.voice.shareScreen(), /screen_taken/);
   assert.ok(!taken.calls.includes('screen'));
+});
+
+test('an encrypted room connects with its group key, follows new epochs, and never connects in clear', async () => {
+  let current: VoiceKey | null = { epoch: '3', key: 'k3' };
+  const secure = bench({}, true, () => current);
+  await secure.voice.join('vault', { title: 'Vault', microphone: true });
+  assert.deepEqual(secure.calls, ['join vault ring=false e2ee', 'connect vault mic=true key=k3']);
+  await secure.voice.refreshKey();
+  assert.ok(!secure.calls.some(c => c.startsWith('rekey')), 'same epoch, same key');
+  current = { epoch: '4', key: 'k4' };
+  await secure.voice.refreshKey();
+  current = null; // Briefly unreadable: the last key stays.
+  await secure.voice.refreshKey();
+  assert.deepEqual(secure.calls.filter(c => c.startsWith('rekey')), ['rekey k4']);
+  await secure.voice.leave();
+  current = { epoch: '5', key: 'k5' };
+  await secure.voice.refreshKey();
+  assert.ok(!secure.calls.includes('rekey k5'), 'nothing to follow once left');
+
+  // The room turned encrypted after the key was asked for: no plaintext connection.
+  const late = bench({ joinVoice: async room => grant(room, { e2ee: true }) });
+  await assert.rejects(late.voice.join('vault', { title: 'Vault', microphone: true }), /voice_key_unavailable/);
+  assert.ok(!late.calls.some(c => c.startsWith('connect')));
+  assert.equal(late.voice.state.phase, 'idle');
+
+  // A device without the key yet is told so before asking the server.
+  const behind = bench({ voiceKey: async () => { throw new Error('voice_key_unavailable'); } });
+  await assert.rejects(behind.voice.join('vault', { title: 'Vault', microphone: true }), /voice_key_unavailable/);
+  assert.deepEqual(behind.calls, []);
 });

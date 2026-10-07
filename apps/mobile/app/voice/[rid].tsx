@@ -60,7 +60,9 @@ export default function VoiceScreen() {
         <View style={styles.headerText}>
           <Text style={[styles.title, { color: c.text }]} numberOfLines={1}>🔊 {title ?? ''}</Text>
           {status !== null && (
-            <Text style={[styles.status, { color: voice.phase === 'connected' ? c.online : c.dimmed }]} numberOfLines={1}>{status}</Text>
+            <Text style={[styles.status, { color: voice.phase === 'connected' ? c.online : c.dimmed }]} numberOfLines={1}>
+              {voice.encrypted ? `🔒 ${status} · ${t('voice.secure')}` : status}
+            </Text>
           )}
         </View>
         <Pressable

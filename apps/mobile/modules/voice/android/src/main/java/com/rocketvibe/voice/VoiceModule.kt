@@ -17,6 +17,8 @@ class ConnectOptions : Record {
   @Field val title: String = ""
   @Field val link: String? = null
   @Field val microphone: Boolean = true
+  /** An encrypted room's voice key (base64), null in a plaintext room. */
+  @Field val e2eeKey: String? = null
 }
 
 /** JS face of [VoiceEngine]: commands in, one `change` event carrying the whole snapshot out. */
@@ -34,9 +36,10 @@ class VoiceModule : Module() {
     OnDestroy { VoiceEngine.unlisten(listener) }
     Function("snapshot") { VoiceEngine.last }
     AsyncFunction("connect") { o: ConnectOptions ->
-      VoiceEngine.connect(o.room, o.url, o.token, o.title, o.link, o.microphone)
+      VoiceEngine.connect(o.room, o.url, o.token, o.title, o.link, o.microphone, o.e2eeKey)
     }.runOnQueue(Queues.MAIN)
     AsyncFunction("disconnect") { VoiceEngine.leave() }.runOnQueue(Queues.MAIN)
+    AsyncFunction("setE2eeKey") { key: String -> VoiceEngine.setE2eeKey(key) }.runOnQueue(Queues.MAIN)
     AsyncFunction("setMicrophone") { enabled: Boolean -> VoiceEngine.setMicrophone(enabled) }.runOnQueue(Queues.MAIN)
     AsyncFunction("setDeafened") { on: Boolean -> VoiceEngine.setDeafened(on) }.runOnQueue(Queues.MAIN)
     AsyncFunction("setRoute") { route: String -> VoiceEngine.setRoute(route) }.runOnQueue(Queues.MAIN)

@@ -42,7 +42,7 @@ export default function AnswerRing() {
         const microphone = Platform.OS !== 'android'
           || await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO) === PermissionsAndroid.RESULTS.GRANTED;
         router.replace({ pathname: '/voice/[rid]', params: { rid: ring.room_id, title: caller } });
-        await controller.accept(id, { title: caller, microphone, link: nativeRoomPermalink(state.session, ring.room_id) });
+        await controller.accept(ring, { title: caller, microphone, link: nativeRoomPermalink(state.session, ring.room_id) });
       } catch {
         Alert.alert(t('voice.title'), t('voice.joinFailed'));
         if (rid) router.replace({ pathname: '/room/[rid]', params: { rid } });

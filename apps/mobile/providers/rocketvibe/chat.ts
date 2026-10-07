@@ -27,7 +27,7 @@ import {CryptoHistoryAccess} from './cryptoHistory.ts';
 import {CryptoHistoryBackupAccess} from './cryptoHistoryBackup.ts';
 import {CryptoStorageKeyAccess} from './cryptoStorageKey.ts';
 import {CryptoPeerAccess} from './cryptoPeers.ts';
-import {CryptoGroupAccess} from './cryptoGroups.ts';
+import {CryptoGroupAccess,type VoiceKey} from './cryptoGroups.ts';
 import {CryptoConversationAccess} from './cryptoConversations.ts';
 import {CryptoQuoteReader} from './cryptoQuoteReader.ts';
 import {ordinaryQuoteRoom} from './cryptoQuotes.ts';
@@ -1324,21 +1324,38 @@ export class NativeChat {
     this.refresh(); return room.id;
   }
   /** A grant for the room's voice session (docs/protocol/VOICE.md); `ring` calls the other member of a DM. */
-  async joinVoice(room:string,ring=false):Promise<VoiceGrant> {
+  async joinVoice(room:string,ring=false,e2ee=false):Promise<VoiceGrant> {
     this.ready();
     if(this.capabilities?.voice!==true)throw new NativeError(501,'unsupported_feature');
     const membership=(await this.store.readState(room))?.membership_version,epoch=this.session.nativeDataEpoch;
     if(!membership || !epoch)throw new NativeError(409,'delivery_revalidate');
-    return this.transport.joinVoice(room,{membership_version:membership,data_epoch:epoch,...(ring?{ring}:{})});
+    return this.transport.joinVoice(room,{membership_version:membership,data_epoch:epoch,...(ring?{ring}:{}),...(e2ee?{e2ee}:{})});
+  }
+  /**
+   * An encrypted room's voice key, exported from its MLS group; null in a
+   * plaintext room. `voice_key_unavailable` while this device cannot derive
+   * the current one (not welcomed yet, no crypto module).
+   */
+  async voiceKey(bridge:import('../../modules/crypto-native/index.ts').CryptoGroupBridge|null,room:string):Promise<VoiceKey|null> {
+    this.ready();
+    const access=await this.store.cryptoRoomAccess(room);
+    if(!access?.encrypted)return null;
+    if(!bridge || !access.membership)throw new NativeError(409,'voice_key_unavailable');
+    const group=await this.cryptoGroup(bridge,room,access.membership);
+    try {
+      const key=await group.voiceKey();
+      if(!key)throw new NativeError(409,'voice_key_unavailable');
+      return key;
+    } finally {await group.close();}
   }
   async leaveVoice():Promise<void> {this.ready();await this.transport.leaveVoice();}
   voiceRing(id:string):Promise<VoiceRing> {this.ready();return this.transport.voiceRing(id);}
-  async acceptRing(id:string):Promise<VoiceGrant> {
+  async acceptRing(id:string,e2ee=false):Promise<VoiceGrant> {
     this.ready();
     const ring=await this.transport.voiceRing(id);
     const membership=(await this.store.readState(ring.room_id))?.membership_version,epoch=this.session.nativeDataEpoch;
     if(!membership || !epoch)throw new NativeError(409,'delivery_revalidate');
-    return this.transport.acceptRing(id,{membership_version:membership,data_epoch:epoch});
+    return this.transport.acceptRing(id,{membership_version:membership,data_epoch:epoch,...(e2ee?{e2ee}:{})});
   }
   async declineRing(id:string):Promise<void> {this.ready();await this.transport.declineRing(id);}
   async claimScreen():Promise<void> {this.ready();await this.transport.claimScreen();}

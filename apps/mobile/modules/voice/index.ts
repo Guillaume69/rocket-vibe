@@ -15,17 +15,23 @@ export type VoiceSnapshot={
   /** The own camera is on; the own screen is shared. */
   camera?:boolean;
   sharing?:boolean;
+  /** Frames are end-to-end encrypted (an encrypted room). */
+  encrypted?:boolean;
   /** Why the last connection ended (LiveKit's reason, lowercase): duplicate_identity, participant_removed... */
   reason?:string|null;
   route?:VoiceRoute|null;
   routes?:VoiceRoute[];
   participants:VoiceMember[];
 };
-export type VoiceConnect={room:string;url:string;token:string;title:string;link?:string|null;microphone:boolean};
+export type VoiceConnect={room:string;url:string;token:string;title:string;link?:string|null;microphone:boolean;
+  /** An encrypted room's voice key, base64 (docs/protocol/VOICE.md); null in a plaintext room. */
+  e2eeKey?:string|null};
 type Bridge={
   snapshot():VoiceSnapshot;
   connect(options:VoiceConnect):Promise<void>;
   disconnect():Promise<void>;
+  /** Replaces the frame key when the room's group reaches a new epoch. */
+  setE2eeKey(key:string):Promise<void>;
   setMicrophone(enabled:boolean):Promise<void>;
   setDeafened(on:boolean):Promise<void>;
   setRoute(route:VoiceRoute):Promise<void>;

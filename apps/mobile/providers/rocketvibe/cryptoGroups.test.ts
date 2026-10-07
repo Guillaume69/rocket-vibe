@@ -140,3 +140,20 @@ test('cancellation is checkpointed before HTTP and device or room changes preven
   const before=f.nativeCalls.length;f.switchDevice();await assert.rejects(f.access.read(),/crypto_scope_changed/);assert.equal(f.nativeCalls.length,before);
   const other=await setup();other.loseRoom();await assert.rejects(other.access.read(),/room_access_denied/);assert.equal(other.nativeCalls.length,0);await other.access.close();
 });
+test('the voice key follows the group to the server epoch, and a device behind it gets none',async()=>{
+  const f=await setup(),roster=await f.remote.cryptoGroupRoster('room');
+  // A room without a group has no key, without asking Rust for one.
+  assert.equal(await f.access.voiceKey(),null);assert.ok(!f.nativeCalls.includes('voice_key'));
+  roster.group=f.ack;
+  const key=Buffer.alloc(32,7).toString('base64');let local=1,answer:unknown=null;
+  const original=f.bridge.groupAction;
+  f.bridge.groupAction=async(handle,own,input)=>{
+    const command=JSON.parse(input) as {action:string};
+    if(command.action==='voice_key'){f.nativeCalls.push('voice_key');return JSON.stringify(answer??{epoch:local,key});}
+    return original(handle,own,input);
+  };
+  assert.deepEqual(await f.access.voiceKey(),{epoch:'1',key});
+  local=0;assert.equal(await f.access.voiceKey(),null,'behind the server');
+  answer={epoch:1,key:'short'};await assert.rejects(f.access.voiceKey(),/crypto_integrity_failed/);
+  await f.access.close();
+});

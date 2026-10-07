@@ -5,13 +5,15 @@
  *
  * Node-pure: the engine and the server are injected, the tests drive both.
  */
+import type { VoiceKey } from '../providers/rocketvibe/cryptoGroups.ts';
 import type { VoiceGrant, VoiceRing } from '../providers/rocketvibe/protocol.generated.ts';
 import type { VoiceMember, VoiceRoute, VoiceSnapshot } from '../modules/voice/index.ts';
 
 export type VoiceEngine = {
   snapshot(): VoiceSnapshot;
-  connect(options: { room: string; url: string; token: string; title: string; link?: string | null; microphone: boolean }): Promise<void>;
+  connect(options: { room: string; url: string; token: string; title: string; link?: string | null; microphone: boolean; e2eeKey?: string | null }): Promise<void>;
   disconnect(): Promise<void>;
+  setE2eeKey(key: string): Promise<void>;
   setMicrophone(enabled: boolean): Promise<void>;
   setDeafened(on: boolean): Promise<void>;
   setRoute(route: VoiceRoute): Promise<void>;
@@ -23,9 +25,14 @@ export type VoiceEngine = {
   addListener(event: 'change', listener: (snapshot: VoiceSnapshot) => void): { remove: () => void };
 };
 export type VoiceServer = {
-  joinVoice(room: string, ring: boolean): Promise<VoiceGrant>;
+  joinVoice(room: string, ring: boolean, e2ee: boolean): Promise<VoiceGrant>;
   leaveVoice(): Promise<void>;
-  acceptRing(id: string): Promise<VoiceGrant>;
+  acceptRing(id: string, e2ee: boolean): Promise<VoiceGrant>;
+  /**
+   * An encrypted room's voice key from its MLS group, null in a plaintext
+   * room; throws when this device cannot derive it (voice_key_unavailable).
+   */
+  voiceKey(room: string): Promise<VoiceKey | null>;
   declineRing(id: string): Promise<void>;
   /** The room's one screen share (`409 screen_taken` while someone else holds it). */
   claimScreen(): Promise<void>;
@@ -40,6 +47,8 @@ export type VoiceView = {
   deafened: boolean;
   camera: boolean;
   sharing: boolean;
+  /** Frames are end-to-end encrypted (an encrypted room). */
+  encrypted: boolean;
   participants: VoiceMember[];
   route: VoiceRoute | null;
   routes: VoiceRoute[];
@@ -49,8 +58,11 @@ export type VoiceView = {
   ended: 'moved' | 'removed' | 'lost' | null;
 };
 
+/** How often an encrypted session checks its group for a new epoch. */
+const KEY_REFRESH_MS = 15_000;
+
 const IDLE: VoiceView = {
-  phase: 'idle', room: null, microphone: true, deafened: false, camera: false, sharing: false, participants: [],
+  phase: 'idle', room: null, microphone: true, deafened: false, camera: false, sharing: false, encrypted: false, participants: [],
   route: null, routes: [], ring: null, ended: null,
 };
 
@@ -63,6 +75,9 @@ export class VoiceController {
   /** Increments on every join or leave: a late answer of an older one is dropped. */
   private attempt = 0;
   private leaving = false;
+  /** The encrypted session's room and key epoch, followed while it lasts. */
+  private keyed: { room: string; epoch: string } | null = null;
+  private keyTimer: ReturnType<typeof setInterval> | null = null;
 
   private readonly engine: VoiceEngine;
   private readonly server: VoiceServer;
@@ -80,7 +95,7 @@ export class VoiceController {
     this.listeners.add(listener);
     return () => { this.listeners.delete(listener); };
   }
-  dispose(): void { this.subscription.remove(); this.listeners.clear(); }
+  dispose(): void { this.subscription.remove(); this.listeners.clear(); this.unkey(); }
 
   private set(next: Partial<VoiceView>): void {
     this.view = { ...this.view, ...next };
@@ -97,6 +112,7 @@ export class VoiceController {
       // Leave from the notification while JS was awake: tell the server too.
       if (wasActive && s.reason === 'client_initiated' && !this.leaving) void this.server.leaveVoice().catch(() => {});
       if (this.view.ring) void this.engine.ringback(false);
+      this.unkey();
       this.set({ ...IDLE, ended: wasActive ? ended : this.view.ended });
       return;
     }
@@ -106,19 +122,49 @@ export class VoiceController {
     if (remote && this.view.ring?.state === 'ringing') void this.engine.ringback(false);
     this.set({
       phase: s.state, room: s.room ?? this.view.room, microphone: s.microphone ?? true, deafened: s.deafened ?? false,
-      camera: s.camera ?? false, sharing: s.sharing ?? false,
+      camera: s.camera ?? false, sharing: s.sharing ?? false, encrypted: s.encrypted ?? false,
       participants: s.participants, route: s.route ?? null, routes: s.routes ?? [],
     });
   }
 
-  private async connect(attempt: number, grant: VoiceGrant, options: JoinOptions): Promise<void> {
+  private async connect(attempt: number, grant: VoiceGrant, options: JoinOptions, key: VoiceKey | null): Promise<void> {
     if (attempt !== this.attempt) return;
+    // The room became encrypted between the key and the grant: never connect in clear.
+    if (grant.e2ee === true && !key) {
+      void this.server.leaveVoice().catch(() => {});
+      throw Object.assign(new Error('voice_key_unavailable'), { code: 'voice_key_unavailable' });
+    }
+    const e2eeKey = grant.e2ee === true ? key : null;
     this.set({ room: grant.room_id, ring: grant.ring ?? null });
+    this.unkey();
     await this.engine.connect({
       room: grant.room_id, url: grant.url, token: grant.token, title: options.title, link: options.link ?? null,
-      microphone: options.microphone && grant.can_publish,
+      microphone: options.microphone && grant.can_publish, e2eeKey: e2eeKey?.key ?? null,
     });
+    if (e2eeKey) {
+      this.keyed = { room: grant.room_id, epoch: e2eeKey.epoch };
+      this.keyTimer = setInterval(() => { void this.refreshKey(); }, KEY_REFRESH_MS);
+    }
     if (grant.ring?.state === 'ringing') await this.engine.ringback(true);
+  }
+
+  private unkey(): void {
+    if (this.keyTimer !== null) clearInterval(this.keyTimer);
+    this.keyTimer = null;
+    this.keyed = null;
+  }
+
+  /**
+   * A member or device added or removed moves the room's group to a new
+   * epoch, hence a new key: every participant replaces it as it notices.
+   */
+  async refreshKey(): Promise<void> {
+    const keyed = this.keyed;
+    if (!keyed) return;
+    const next = await this.server.voiceKey(keyed.room).catch(() => null);
+    if (!next || this.keyed !== keyed || next.epoch === keyed.epoch) return;
+    keyed.epoch = next.epoch;
+    await this.engine.setE2eeKey(next.key);
   }
 
   /** Joins the room's session, leaving any other one. Throws the server's refusal. */
@@ -128,19 +174,23 @@ export class VoiceController {
     const before = this.view;
     this.set({ phase: 'joining', room, ended: null, ring: null });
     try {
-      await this.connect(attempt, await this.server.joinVoice(room, options.ring === true), options);
+      const key = await this.server.voiceKey(room);
+      if (attempt !== this.attempt) return;
+      await this.connect(attempt, await this.server.joinVoice(room, options.ring === true, key !== null), options, key);
     } catch (error) {
       if (attempt === this.attempt) this.set({ ...before, phase: before.phase === 'joining' ? 'idle' : before.phase });
       throw error;
     }
   }
 
-  async accept(ring: string, options: JoinOptions): Promise<void> {
+  async accept(ring: Pick<VoiceRing, 'id' | 'room_id'>, options: JoinOptions): Promise<void> {
     const attempt = ++this.attempt;
     this.leaving = false;
     this.set({ phase: 'joining', ended: null, ring: null });
     try {
-      await this.connect(attempt, await this.server.acceptRing(ring), options);
+      const key = await this.server.voiceKey(ring.room_id);
+      if (attempt !== this.attempt) return;
+      await this.connect(attempt, await this.server.acceptRing(ring.id, key !== null), options, key);
     } catch (error) {
       if (attempt === this.attempt) this.set({ phase: 'idle', room: null });
       throw error;
@@ -152,6 +202,7 @@ export class VoiceController {
   async leave(): Promise<void> {
     ++this.attempt;
     this.leaving = true;
+    this.unkey();
     try {
       await this.engine.ringback(false);
       await this.engine.disconnect();

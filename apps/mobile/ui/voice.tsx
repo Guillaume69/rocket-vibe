@@ -12,6 +12,7 @@ import { nativeRoomPermalink } from '../lib/roomLinks.ts';
 import { avatarUrl } from '../lib/upload.ts';
 import type { RestClient } from '../lib/rest.ts';
 import { VoiceController, type VoiceView } from '../lib/voice.ts';
+import { CryptoNative } from '../modules/crypto-native/index.ts';
 import { VoiceNative } from '../modules/voice/index.ts';
 import type { NativeChat } from '../providers/rocketvibe/chat.ts';
 import type { VoiceParticipant, VoiceRing } from '../providers/rocketvibe/protocol.generated.ts';
@@ -38,9 +39,10 @@ export function useVoiceController(): VoiceController | null {
   let controller = controllers.get(chat);
   if (!controller) {
     controller = new VoiceController(VoiceNative, {
-      joinVoice: (room, ring) => chat.joinVoice(room, ring),
+      joinVoice: (room, ring, e2ee) => chat.joinVoice(room, ring, e2ee),
       leaveVoice: () => chat.leaveVoice(),
-      acceptRing: id => chat.acceptRing(id),
+      acceptRing: (id, e2ee) => chat.acceptRing(id, e2ee),
+      voiceKey: room => chat.voiceKey(CryptoNative, room),
       declineRing: id => chat.declineRing(id),
       claimScreen: () => chat.claimScreen(),
       releaseScreen: () => chat.releaseScreen(),
@@ -50,7 +52,7 @@ export function useVoiceController(): VoiceController | null {
   return controller;
 }
 
-const IDLE_VIEW: VoiceView = { phase: 'idle', room: null, microphone: true, deafened: false, camera: false, sharing: false, participants: [], route: null, routes: [], ring: null, ended: null };
+const IDLE_VIEW: VoiceView = { phase: 'idle', room: null, microphone: true, deafened: false, camera: false, sharing: false, encrypted: false, participants: [], route: null, routes: [], ring: null, ended: null };
 
 export function useVoice(): VoiceView {
   const controller = useVoiceController();
@@ -96,6 +98,7 @@ type T = ReturnType<typeof useT>;
 function refusal(t: T, error: unknown): string {
   const code = (error as { code?: unknown })?.code;
   if (code === 'voice_encrypted_room') return t('voice.encrypted');
+  if (code === 'voice_key_unavailable') return t('voice.keyUnavailable');
   if (code === 'voice_unavailable') return t('voice.unavailable');
   return t('voice.joinFailed');
 }
@@ -312,7 +315,7 @@ export function VoiceRingHost() {
     router.push({ pathname: '/voice/[rid]', params: { rid: incoming.room_id, title: caller } });
     const microphone = await microphoneAllowed();
     try {
-      await controller.accept(incoming.id, { title: caller, microphone, link: state.phase === 'connected' ? nativeRoomPermalink(state.session, incoming.room_id) : null });
+      await controller.accept(incoming, { title: caller, microphone, link: state.phase === 'connected' ? nativeRoomPermalink(state.session, incoming.room_id) : null });
     } catch (error) {
       Alert.alert(t('voice.title'), refusal(t, error));
     }

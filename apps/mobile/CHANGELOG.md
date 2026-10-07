@@ -22,6 +22,8 @@ release, and its notes are that version's section here.
 - In a voice session, turn your camera on (off by default) and share your screen: one
   person shares at a time in a room, and the shared screen takes the stage above the
   cameras.
+- Voice in encrypted rooms, end-to-end encrypted: the server relays sound it cannot
+  hear, under a key only the room's devices share, renewed when its members change.
 - Slash commands on a RocketVibe server: /topic, /invite, /kick, /leave, /join,
   /msg and /status run on the server; /me, /shrug, /tableflip, /unflip,
   /lennyface and /gimme are written by the app, so they also work in encrypted

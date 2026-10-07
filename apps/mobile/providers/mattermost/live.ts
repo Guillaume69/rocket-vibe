@@ -1,0 +1,264 @@
+/**
+ * Turns one Mattermost real-time event into the `mm:*` envelopes the
+ * translator reads, after doing the asynchronous part (unknown users, unknown
+ * channels, a reaction that needs its post). Both transports feed it: the
+ * Mattermost WebSocket and kChat's Pusher channels carry the same event names.
+ *
+ * Mattermost pushes no membership document when a post arrives: the unread
+ * counters are derived locally from the channel totals and my membership
+ * counts, kept here and seeded by the catch-up.
+ */
+
+import type { DdpEvent } from '../../lib/ddp.ts';
+import type { MmClient } from './client.ts';
+import type { MmDirectory } from './directory.ts';
+import { toMmUser } from './directory.ts';
+import {
+  MM_AVATAR,
+  MM_MEMBERSHIP,
+  MM_POST,
+  MM_POST_DELETED,
+  MM_QUIET,
+  MM_ROOM,
+  MM_ROOM_DELETED,
+  record,
+} from './translator.ts';
+
+type Doc = Record<string, unknown>;
+
+const QUIET_EVENTS = new Set(['hello', 'typing', 'status_change', 'thread_read_changed', 'thread_updated', 'preferences_changed', 'sidebar_category_updated', 'sidebar_category_order_updated', 'plugin_statuses_changed', 'config_changed', 'license_changed', 'response']);
+
+export class MmLive {
+  private readonly client: MmClient;
+  private readonly directory: MmDirectory;
+  private readonly myId: string;
+  readonly channels = new Map<string, Doc>();
+  readonly members = new Map<string, Doc>();
+  readonly lastPosts = new Map<string, Doc>();
+
+  constructor(client: MmClient, directory: MmDirectory, myId: string) {
+    this.client = client;
+    this.directory = directory;
+    this.myId = myId;
+  }
+
+  remember(channel: Doc, member?: Doc | null): void {
+    const id = typeof channel.id === 'string' ? channel.id : null;
+    if (id === null) return;
+    this.channels.set(id, channel);
+    if (member) this.members.set(id, member);
+  }
+
+  forget(rid: string): void {
+    this.channels.delete(rid);
+    this.members.delete(rid);
+    this.lastPosts.delete(rid);
+  }
+
+  membershipEvent(rid: string): DdpEvent | null {
+    const channel = this.channels.get(rid);
+    const member = this.members.get(rid);
+    if (channel === undefined || member === undefined) return null;
+    return { collection: MM_MEMBERSHIP, eventKey: rid, args: [{ channel, member }] };
+  }
+
+  /** The room row, with the newest root post known for its preview (never a blank one by omission). */
+  roomEvent(rid: string, lastPost?: Doc | null): DdpEvent | null {
+    const channel = this.channels.get(rid);
+    if (channel === undefined) return null;
+    if (lastPost) this.lastPosts.set(rid, lastPost);
+    return { collection: MM_ROOM, eventKey: rid, args: [{ channel, lastPost: this.lastPosts.get(rid) ?? null }] };
+  }
+
+  /** Fetches a channel I just learned about, with my membership. */
+  async load(rid: string): Promise<boolean> {
+    const [channel, member] = await Promise.all([
+      this.client.get<Doc>(`/channels/${rid}`),
+      this.client.get<Doc>(`/channels/${rid}/members/me`),
+    ]);
+    if (channel.type === 'D') {
+      const other = String(channel.name ?? '').split('__').find((id) => id !== this.myId);
+      if (other !== undefined) await this.directory.ensure([other]);
+    }
+    this.remember(channel, member);
+    return true;
+  }
+
+  async expand(name: string, data: Doc, broadcast: Doc): Promise<DdpEvent[]> {
+    if (QUIET_EVENTS.has(name)) return [{ collection: MM_QUIET, eventKey: name, args: [] }];
+    const channelId = str(data.channel_id) ?? str(broadcast.channel_id);
+    switch (name) {
+      case 'posted':
+        return this.posted(record(data.post), data);
+      case 'post_edited': {
+        const post = record(data.post);
+        if (post === null) return [];
+        await this.directory.ensure([String(post.user_id ?? '')]);
+        return [postEvent(post)];
+      }
+      case 'post_deleted': {
+        const post = record(data.post);
+        return post === null ? [] : [{ collection: MM_POST_DELETED, eventKey: String(post.channel_id ?? ''), args: [post] }];
+      }
+      case 'reaction_added':
+      case 'reaction_removed': {
+        const reaction = record(data.reaction);
+        const postId = str(reaction?.post_id);
+        if (postId === null) return [];
+        const post = await this.client.get<Doc>(`/posts/${postId}`);
+        await this.ensureAuthors([post]);
+        return [postEvent(post)];
+      }
+      case 'channel_viewed':
+        return channelId === null ? [] : this.viewed([channelId]);
+      case 'multiple_channels_viewed': {
+        const times = record(data.channel_times) ?? {};
+        return this.viewed(Object.keys(times));
+      }
+      case 'post_unread':
+        return channelId === null ? [] : this.unread(channelId, data);
+      case 'channel_member_updated': {
+        const member = record(data.channelMember);
+        const rid = str(member?.channel_id);
+        if (member === null || rid === null || member.user_id !== this.myId) return [];
+        this.members.set(rid, member);
+        return compact([this.membershipEvent(rid)]);
+      }
+      case 'channel_created':
+      case 'channel_updated':
+      case 'channel_converted':
+      case 'channel_restored':
+      case 'direct_added':
+      case 'group_added':
+      case 'user_added': {
+        const rid = str(record(data.channel)?.id) ?? channelId;
+        if (rid === null) return [];
+        if (name === 'user_added' && str(data.user_id) !== this.myId) return [];
+        await this.load(rid);
+        return compact([this.roomEvent(rid), this.membershipEvent(rid)]);
+      }
+      case 'channel_deleted':
+        return channelId === null ? [] : this.removed(channelId);
+      case 'user_removed': {
+        const removed = str(data.user_id) ?? str(broadcast.user_id);
+        return channelId === null || removed !== this.myId ? [] : this.removed(channelId);
+      }
+      case 'user_updated': {
+        const user = toMmUser(record(data.user) ?? {});
+        if (user === null) return [];
+        this.directory.remember(user);
+        return user.lastPictureUpdate === null
+          ? []
+          : [{ collection: MM_AVATAR, eventKey: user.id, args: [{ username: user.username, etag: String(user.lastPictureUpdate) }] }];
+      }
+      default:
+        return [{ collection: name, eventKey: channelId ?? '', args: [data, broadcast] }];
+    }
+  }
+
+  private async posted(post: Doc | null, data: Doc): Promise<DdpEvent[]> {
+    if (post === null) return [];
+    const rid = str(post.channel_id);
+    if (rid === null) return [];
+    await this.ensureAuthors([post]);
+    if (!this.channels.has(rid) || !this.members.has(rid)) await this.load(rid).catch(() => false);
+    const channel = this.channels.get(rid);
+    const member = this.members.get(rid);
+    const isRoot = str(post.root_id) === null;
+    const createdAt = typeof post.create_at === 'number' ? post.create_at : Date.now();
+    if (channel !== undefined) {
+      const next: Doc = { ...channel, total_msg_count: num(channel.total_msg_count) + 1, last_post_at: createdAt };
+      if (isRoot) {
+        next.total_msg_count_root = num(channel.total_msg_count_root) + 1;
+        next.last_root_post_at = createdAt;
+      }
+      this.channels.set(rid, next);
+      if (member !== undefined) {
+        const mine = post.user_id === this.myId;
+        const mentions = mentioned(data.mentions, this.myId);
+        this.members.set(rid, mine
+          ? { ...member, msg_count: next.total_msg_count, msg_count_root: next.total_msg_count_root, mention_count: 0, last_viewed_at: createdAt }
+          : { ...member, mention_count: num(member.mention_count) + (mentions ? 1 : 0) });
+      }
+    }
+    return compact([postEvent(post), isRoot ? this.roomEvent(rid, post) : null, this.membershipEvent(rid)]);
+  }
+
+  private viewed(rids: string[]): DdpEvent[] {
+    const out: (DdpEvent | null)[] = [];
+    for (const rid of rids) {
+      const channel = this.channels.get(rid);
+      const member = this.members.get(rid);
+      if (channel === undefined || member === undefined) continue;
+      this.members.set(rid, {
+        ...member,
+        msg_count: channel.total_msg_count,
+        msg_count_root: channel.total_msg_count_root,
+        mention_count: 0,
+        mention_count_root: 0,
+        last_viewed_at: Date.now(),
+      });
+      out.push(this.membershipEvent(rid));
+    }
+    return compact(out);
+  }
+
+  private unread(rid: string, data: Doc): DdpEvent[] {
+    const member = this.members.get(rid);
+    if (member === undefined) return [];
+    this.members.set(rid, {
+      ...member,
+      msg_count: data.msg_count ?? member.msg_count,
+      msg_count_root: data.msg_count_root ?? member.msg_count_root,
+      mention_count: data.mention_count ?? member.mention_count,
+      last_viewed_at: data.last_viewed_at ?? member.last_viewed_at,
+    });
+    return compact([this.membershipEvent(rid)]);
+  }
+
+  private removed(rid: string): DdpEvent[] {
+    this.forget(rid);
+    return [{ collection: MM_ROOM_DELETED, eventKey: rid, args: [{ channel_id: rid }] }];
+  }
+
+  async ensureAuthors(posts: Iterable<Doc>): Promise<void> {
+    const ids: string[] = [];
+    for (const post of posts) {
+      if (typeof post.user_id === 'string') ids.push(post.user_id);
+      const reactions = record(post.metadata)?.reactions;
+      if (Array.isArray(reactions)) {
+        for (const r of reactions) if (typeof r?.user_id === 'string') ids.push(r.user_id);
+      }
+    }
+    await this.directory.ensure(ids);
+  }
+}
+
+function postEvent(post: Doc): DdpEvent {
+  return { collection: MM_POST, eventKey: String(post.channel_id ?? ''), args: [post] };
+}
+
+/** `mentions` is a JSON-encoded array of user ids on Mattermost, an array on kChat. */
+function mentioned(raw: unknown, me: string): boolean {
+  let list: unknown = raw;
+  if (typeof raw === 'string') {
+    try {
+      list = JSON.parse(raw);
+    } catch {
+      return false;
+    }
+  }
+  return Array.isArray(list) && list.includes(me);
+}
+
+function compact(events: (DdpEvent | null)[]): DdpEvent[] {
+  return events.filter((e): e is DdpEvent => e !== null);
+}
+
+function str(value: unknown): string | null {
+  return typeof value === 'string' && value !== '' ? value : null;
+}
+
+function num(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}

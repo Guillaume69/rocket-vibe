@@ -17,12 +17,13 @@
 
 import { LinearGradient } from 'expo-linear-gradient';
 import { useVideoPlayer, VideoView } from 'expo-video';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useT } from './i18n.ts';
 import { type Colors, FONTS } from './theme.ts';
+import { mediaSource } from '../lib/mediaAuth.ts';
 
 export function VideoPlayer({
   c,
@@ -100,7 +101,8 @@ export function VideoModal({
   // The player is born here (so on open) and dies on unmount: no native
   // instance for videos nobody watches. Immediate playback, the user tapped
   // "play".
-  const player = useVideoPlayer(url, (p) => {
+  const source = useMemo(() => mediaSource(url), [url]);
+  const player = useVideoPlayer(source, (p) => {
     p.play();
   });
 

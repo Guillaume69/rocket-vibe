@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-510 production files scanned; 518 occurrences.
+512 production files scanned; 519 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -345,7 +345,7 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:618](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L618) | endpoint | e2e.no_keys |
 | [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:619](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L619) | endpoint | e2e.failed |
 | [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:622](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L622) | endpoint | e2e.failed |
-| [apps/mobile/app/login.tsx:405](../../apps/mobile/app/login.tsx#L405) | endpoint | chat.example.org |
+| [apps/mobile/app/login.tsx:473](../../apps/mobile/app/login.tsx#L473) | endpoint | chat.example.org |
 | [apps/mobile/app/message-actions.tsx:97](../../apps/mobile/app/message-actions.tsx#L97) | call:GET | 'settings.public' |
 | [apps/mobile/app/message-actions.tsx:98](../../apps/mobile/app/message-actions.tsx#L98) | endpoint | settings.public |
 | [apps/mobile/app/search.tsx:83](../../apps/mobile/app/search.tsx#L83) | call:GET | 'spotlight' |
@@ -419,13 +419,14 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/lib/sync.ts:125](../../apps/mobile/lib/sync.ts#L125) | stream | stream-notify-user |
 | [apps/mobile/lib/sync.ts:126](../../apps/mobile/lib/sync.ts#L126) | stream | stream-notify-room |
 | [apps/mobile/lib/typing.ts:21](../../apps/mobile/lib/typing.ts#L21) | stream | stream-notify-room |
-| [apps/mobile/lib/upload.ts:89](../../apps/mobile/lib/upload.ts#L89) | url | /api/v1/rooms.media/{…} |
-| [apps/mobile/lib/upload.ts:130](../../apps/mobile/lib/upload.ts#L130) | call:POST | \`rooms.mediaConfirm/{…}/{…}\` |
-| [apps/mobile/lib/upload.ts:130](../../apps/mobile/lib/upload.ts#L130) | endpoint | rooms.mediaConfirm/{…}/{…} |
-| [apps/mobile/lib/upload.ts:160](../../apps/mobile/lib/upload.ts#L160) | url | /api/v1/users.setAvatar |
-| [apps/mobile/lib/upload.ts:246](../../apps/mobile/lib/upload.ts#L246) | resource | /avatar/{…} |
-| [apps/mobile/lib/upload.ts:248](../../apps/mobile/lib/upload.ts#L248) | resource | /avatar/uid/{…} |
-| [apps/mobile/lib/upload.ts:250](../../apps/mobile/lib/upload.ts#L250) | resource | /avatar/room/{…} |
+| [apps/mobile/lib/upload.ts:90](../../apps/mobile/lib/upload.ts#L90) | url | /api/v1/rooms.media/{…} |
+| [apps/mobile/lib/upload.ts:131](../../apps/mobile/lib/upload.ts#L131) | call:POST | \`rooms.mediaConfirm/{…}/{…}\` |
+| [apps/mobile/lib/upload.ts:131](../../apps/mobile/lib/upload.ts#L131) | endpoint | rooms.mediaConfirm/{…}/{…} |
+| [apps/mobile/lib/upload.ts:161](../../apps/mobile/lib/upload.ts#L161) | url | /api/v1/users.setAvatar |
+| [apps/mobile/lib/upload.ts:251](../../apps/mobile/lib/upload.ts#L251) | url | /api/v4/users/{…}/image |
+| [apps/mobile/lib/upload.ts:256](../../apps/mobile/lib/upload.ts#L256) | resource | /avatar/{…} |
+| [apps/mobile/lib/upload.ts:258](../../apps/mobile/lib/upload.ts#L258) | resource | /avatar/uid/{…} |
+| [apps/mobile/lib/upload.ts:260](../../apps/mobile/lib/upload.ts#L260) | resource | /avatar/room/{…} |
 | [apps/mobile/lib/uploadQueue.ts:125](../../apps/mobile/lib/uploadQueue.ts#L125) | call:GET | 'settings.public' |
 | [apps/mobile/lib/uploadQueue.ts:125](../../apps/mobile/lib/uploadQueue.ts#L125) | endpoint | settings.public |
 | [apps/mobile/lib/uploadQueue.ts:496](../../apps/mobile/lib/uploadQueue.ts#L496) | resource | /file-upload/{…}/{…} |
@@ -511,19 +512,19 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/providers/rocketchat/index.ts:57](../../apps/mobile/providers/rocketchat/index.ts#L57) | call:GET | 'chat.search' |
 | [apps/mobile/providers/rocketchat/index.ts:57](../../apps/mobile/providers/rocketchat/index.ts#L57) | endpoint | chat.search |
 | [apps/mobile/ui/botsModel.ts:162](../../apps/mobile/ui/botsModel.ts#L162) | url | /api/v1/rooms |
-| [apps/mobile/ui/messages.ts:897](../../apps/mobile/ui/messages.ts#L897) | endpoint | e2e.title |
-| [apps/mobile/ui/messages.ts:898](../../apps/mobile/ui/messages.ts#L898) | endpoint | e2e.explanation |
-| [apps/mobile/ui/messages.ts:900](../../apps/mobile/ui/messages.ts#L900) | endpoint | e2e.field |
-| [apps/mobile/ui/messages.ts:901](../../apps/mobile/ui/messages.ts#L901) | endpoint | e2e.unlock |
-| [apps/mobile/ui/messages.ts:902](../../apps/mobile/ui/messages.ts#L902) | endpoint | e2e.wrongPassword |
-| [apps/mobile/ui/messages.ts:903](../../apps/mobile/ui/messages.ts#L903) | endpoint | e2e.genericError |
-| [apps/mobile/ui/messages.ts:2163](../../apps/mobile/ui/messages.ts#L2163) | endpoint | e2e.title |
-| [apps/mobile/ui/messages.ts:2164](../../apps/mobile/ui/messages.ts#L2164) | endpoint | e2e.explanation |
-| [apps/mobile/ui/messages.ts:2166](../../apps/mobile/ui/messages.ts#L2166) | endpoint | e2e.field |
-| [apps/mobile/ui/messages.ts:2167](../../apps/mobile/ui/messages.ts#L2167) | endpoint | e2e.unlock |
-| [apps/mobile/ui/messages.ts:2168](../../apps/mobile/ui/messages.ts#L2168) | endpoint | e2e.wrongPassword |
-| [apps/mobile/ui/messages.ts:2169](../../apps/mobile/ui/messages.ts#L2169) | endpoint | e2e.genericError |
-| [apps/mobile/ui/serverRail.tsx:38](../../apps/mobile/ui/serverRail.tsx#L38) | endpoint | subscriptions.get |
+| [apps/mobile/ui/messages.ts:910](../../apps/mobile/ui/messages.ts#L910) | endpoint | e2e.title |
+| [apps/mobile/ui/messages.ts:911](../../apps/mobile/ui/messages.ts#L911) | endpoint | e2e.explanation |
+| [apps/mobile/ui/messages.ts:913](../../apps/mobile/ui/messages.ts#L913) | endpoint | e2e.field |
+| [apps/mobile/ui/messages.ts:914](../../apps/mobile/ui/messages.ts#L914) | endpoint | e2e.unlock |
+| [apps/mobile/ui/messages.ts:915](../../apps/mobile/ui/messages.ts#L915) | endpoint | e2e.wrongPassword |
+| [apps/mobile/ui/messages.ts:916](../../apps/mobile/ui/messages.ts#L916) | endpoint | e2e.genericError |
+| [apps/mobile/ui/messages.ts:2189](../../apps/mobile/ui/messages.ts#L2189) | endpoint | e2e.title |
+| [apps/mobile/ui/messages.ts:2190](../../apps/mobile/ui/messages.ts#L2190) | endpoint | e2e.explanation |
+| [apps/mobile/ui/messages.ts:2192](../../apps/mobile/ui/messages.ts#L2192) | endpoint | e2e.field |
+| [apps/mobile/ui/messages.ts:2193](../../apps/mobile/ui/messages.ts#L2193) | endpoint | e2e.unlock |
+| [apps/mobile/ui/messages.ts:2194](../../apps/mobile/ui/messages.ts#L2194) | endpoint | e2e.wrongPassword |
+| [apps/mobile/ui/messages.ts:2195](../../apps/mobile/ui/messages.ts#L2195) | endpoint | e2e.genericError |
+| [apps/mobile/ui/serverRail.tsx:40](../../apps/mobile/ui/serverRail.tsx#L40) | endpoint | subscriptions.get |
 | [apps/mobile/ui/settingsSections.tsx:227](../../apps/mobile/ui/settingsSections.tsx#L227) | call:GET | 'me' |
 | [apps/mobile/ui/settingsSections.tsx:256](../../apps/mobile/ui/settingsSections.tsx#L256) | call:POST | 'users.setPreferences' |
 | [apps/mobile/ui/settingsSections.tsx:256](../../apps/mobile/ui/settingsSections.tsx#L256) | endpoint | users.setPreferences |

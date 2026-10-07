@@ -25,6 +25,7 @@ import { onServerUnread } from './serverDots.ts';
 import { useSession } from './session.tsx';
 import { Tappable } from './tappable.tsx';
 import { type Colors, FONTS } from './theme.ts';
+import { mattermostUnread } from '../providers/mattermost/auth.ts';
 
 const POLL_MS = 60_000;
 const TILE = 44;
@@ -35,6 +36,7 @@ async function accountUnread(session: Session): Promise<boolean> {
     const fresh = await prepareNativeSession(session);
     return nativeRoomsUnread(await transportFor(fresh).rooms());
   }
+  if (session.kind === 'mattermost' || session.kind === 'kchat') return mattermostUnread(session);
   return subscriptionsUnread(await clientForSession(session, () => {}).get('subscriptions.get'));
 }
 

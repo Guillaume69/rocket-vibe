@@ -68,6 +68,7 @@ import {
 } from './theme.ts';
 import { useImageViewer } from './imageViewer.tsx';
 import { Tappable } from './tappable.tsx';
+import { useAuthorizedUri } from './authorizedImage.ts';
 
 /** `authorBot` and `form` optional: render-only rows (search, pins, encrypted projections) may not carry them. */
 export type MessageRowData = Omit<typeof messages.$inferSelect, 'authorBot' | 'form'> & { authorBot?: boolean; form?: string | null };
@@ -620,6 +621,8 @@ function AttachedImage({
   // Without announced dimensions (a private file's descriptor carries none),
   // the decoded picture gives them: a square frame cropped it.
   const [measured, setMeasured] = useState<{ width: number; height: number } | null>(null);
+  const linked = typeof attachment.title_link === 'string' ? attachment.title_link : attachment.image_url;
+  const shown = useAuthorizedUri(typeof linked === 'string' ? (local ?? protectedFileUrl(client, linked)) : null);
   if (typeof attachment.image_url !== 'string') return null;
   const source = typeof attachment.title_link === 'string' ? attachment.title_link : attachment.image_url;
   const url = local ?? protectedFileUrl(client, source);
@@ -647,7 +650,7 @@ function AttachedImage({
       accessibilityLabel={attachment.title ?? t('messageRow.imageEnlarge')}
     >
       <Image
-        source={{ uri: url }}
+        source={typeof shown === 'string' ? { uri: shown } : undefined}
         style={[style, { width, height }]}
         resizeMode="cover"
         onLoad={

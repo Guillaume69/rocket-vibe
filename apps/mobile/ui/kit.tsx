@@ -38,6 +38,7 @@ import { useAvatarEtags } from './identities.tsx';
 import {useNativeAvatar} from './nativeAvatar.ts';
 import { useDayFormatter } from './i18n.ts';
 import { type Colors, avatarGradient, type Gradient, FONTS } from './theme.ts';
+import { useAuthorizedUri } from './authorizedImage.ts';
 
 const START = { x: 0, y: 0 } as const;
 const END = { x: 1, y: 0 } as const;
@@ -145,7 +146,7 @@ export function AvatarTile({
   // A failed photo (SVG placeholder, network) falls back to the tile. Re-armed
   // on every `uri` change (recycled list rows) via the "adjust state during
   // render" pattern (React docs), not an effect.
-  const source=useNativeAvatar(uri);
+  const source=useAuthorizedUri(useNativeAvatar(uri));
   const [photoFailed, setPhotoFailed] = useState(false);
   const [trackedUri, setTrackedUri] = useState(source);
   if (source !== trackedUri) {

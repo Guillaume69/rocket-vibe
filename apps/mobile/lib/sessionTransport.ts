@@ -2,6 +2,8 @@ import { applySession, resumeSession as resumeRocketChatSession, logOut, type Se
 import { RestClient, isTokenRejected } from './rest.ts';
 import { checkIdentity, resumeNative, transportFor } from '../providers/rocketvibe/auth.ts';
 import { NativeError } from '../providers/rocketvibe/transport.ts';
+import { MmError } from '../providers/mattermost/client.ts';
+import { logoutMattermost, resumeMattermost } from '../providers/mattermost/auth.ts';
 
 export function clientForSession(session: Session, revoke: (token: string) => void): RestClient {
   // Legacy screens retain URL/account metadata, but cannot issue RC requests to another server.
@@ -14,13 +16,23 @@ export function clientForSession(session: Session, revoke: (token: string) => vo
   return client;
 }
 export function sessionRejected(error: unknown): boolean {
-  return isTokenRejected(error) || (error instanceof NativeError && error.status === 401 && error.code === 'session_rejected');
+  return isTokenRejected(error)
+    || (error instanceof NativeError && error.status === 401 && error.code === 'session_rejected')
+    || (error instanceof MmError && error.status === 401);
 }
 export function resumeSession(client: RestClient, session: Session): Promise<Session> {
-  return session.kind === 'rocketvibe' ? resumeNative(client, session) : resumeRocketChatSession(client,session.authToken);
+  switch (session.kind) {
+    case 'rocketvibe': return resumeNative(client, session);
+    case 'mattermost':
+    case 'kchat': return resumeMattermost(session);
+    case 'rocketchat': return resumeRocketChatSession(client,session.authToken);
+  }
 }
 export async function logoutSession(client: RestClient, session: Session): Promise<boolean> {
   if (session.kind === 'rocketchat') return logOut(client);
+  if (session.kind === 'mattermost' || session.kind === 'kchat') {
+    try { return await logoutMattermost(session); } finally { client.auth = null; }
+  }
   try {
     const transport = transportFor(session);
     checkIdentity(session, await transport.discover());

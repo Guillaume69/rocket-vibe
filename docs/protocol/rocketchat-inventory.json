@@ -351,6 +351,7 @@
     "apps/mobile/lib/linkPreview.ts",
     "apps/mobile/lib/markdown.ts",
     "apps/mobile/lib/marks.ts",
+    "apps/mobile/lib/mediaAuth.ts",
     "apps/mobile/lib/mentionCompletion.ts",
     "apps/mobile/lib/messageActions.ts",
     "apps/mobile/lib/myProfile.ts",
@@ -419,6 +420,7 @@
     "apps/mobile/ui/attachmentQuality.ts",
     "apps/mobile/ui/attachmentSource.ts",
     "apps/mobile/ui/audioPlayer.tsx",
+    "apps/mobile/ui/authorizedImage.ts",
     "apps/mobile/ui/backToLatest.ts",
     "apps/mobile/ui/botBadge.tsx",
     "apps/mobile/ui/bots.tsx",
@@ -2540,7 +2542,7 @@
     },
     {
       "file": "apps/mobile/app/login.tsx",
-      "line": 405,
+      "line": 473,
       "kind": "endpoint",
       "surface": "chat.example.org"
     },
@@ -2984,43 +2986,49 @@
     },
     {
       "file": "apps/mobile/lib/upload.ts",
-      "line": 89,
+      "line": 90,
       "kind": "url",
       "surface": "/api/v1/rooms.media/{…}"
     },
     {
       "file": "apps/mobile/lib/upload.ts",
-      "line": 130,
+      "line": 131,
       "kind": "call:POST",
       "surface": "`rooms.mediaConfirm/{…}/{…}`"
     },
     {
       "file": "apps/mobile/lib/upload.ts",
-      "line": 130,
+      "line": 131,
       "kind": "endpoint",
       "surface": "rooms.mediaConfirm/{…}/{…}"
     },
     {
       "file": "apps/mobile/lib/upload.ts",
-      "line": 160,
+      "line": 161,
       "kind": "url",
       "surface": "/api/v1/users.setAvatar"
     },
     {
       "file": "apps/mobile/lib/upload.ts",
-      "line": 246,
+      "line": 251,
+      "kind": "url",
+      "surface": "/api/v4/users/{…}/image"
+    },
+    {
+      "file": "apps/mobile/lib/upload.ts",
+      "line": 256,
       "kind": "resource",
       "surface": "/avatar/{…}"
     },
     {
       "file": "apps/mobile/lib/upload.ts",
-      "line": 248,
+      "line": 258,
       "kind": "resource",
       "surface": "/avatar/uid/{…}"
     },
     {
       "file": "apps/mobile/lib/upload.ts",
-      "line": 250,
+      "line": 260,
       "kind": "resource",
       "surface": "/avatar/room/{…}"
     },
@@ -3536,79 +3544,79 @@
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 897,
+      "line": 910,
       "kind": "endpoint",
       "surface": "e2e.title"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 898,
+      "line": 911,
       "kind": "endpoint",
       "surface": "e2e.explanation"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 900,
+      "line": 913,
       "kind": "endpoint",
       "surface": "e2e.field"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 901,
+      "line": 914,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 902,
+      "line": 915,
       "kind": "endpoint",
       "surface": "e2e.wrongPassword"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 903,
+      "line": 916,
       "kind": "endpoint",
       "surface": "e2e.genericError"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2163,
+      "line": 2189,
       "kind": "endpoint",
       "surface": "e2e.title"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2164,
+      "line": 2190,
       "kind": "endpoint",
       "surface": "e2e.explanation"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2166,
+      "line": 2192,
       "kind": "endpoint",
       "surface": "e2e.field"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2167,
+      "line": 2193,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2168,
+      "line": 2194,
       "kind": "endpoint",
       "surface": "e2e.wrongPassword"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2169,
+      "line": 2195,
       "kind": "endpoint",
       "surface": "e2e.genericError"
     },
     {
       "file": "apps/mobile/ui/serverRail.tsx",
-      "line": 38,
+      "line": 40,
       "kind": "endpoint",
       "surface": "subscriptions.get"
     },

@@ -13,6 +13,7 @@ import { useT } from './i18n.ts';
 import { useIdentities } from './identities.tsx';
 import type { ReplyTarget } from './reply.ts';
 import { FONTS, type Colors } from './theme.ts';
+import { useAuthorizedUri } from './authorizedImage.ts';
 
 export function ReplyBanner({
   c,
@@ -31,12 +32,13 @@ export function ReplyBanner({
   const identities = useIdentities();
   const author = target.author === null ? '?' : (identities.get(target.author) ?? target.author);
   const preview = target.preview?.trim() ?? '';
+  const thumbnail = useAuthorizedUri(target.previewImage === null ? null : protectedFileUrl(client, target.previewImage));
   return (
     <View style={[styles.banner, { borderTopColor: c.softBorder }]}>
       <View style={[styles.bar, { backgroundColor: c.accent }]} />
-      {target.previewImage !== null && (
+      {typeof thumbnail === 'string' && (
         <Image
-          source={{ uri: protectedFileUrl(client, target.previewImage) }}
+          source={{ uri: thumbnail }}
           style={styles.thumbnail}
           resizeMode="cover"
         />

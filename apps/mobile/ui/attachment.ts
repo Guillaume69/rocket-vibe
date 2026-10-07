@@ -24,6 +24,7 @@ import { Downloads } from '../modules/downloads/index.ts';
 import {loadNativeFile} from '../lib/nativeFiles.ts';
 import {exportNativePreview} from '../lib/nativePreviews.ts';
 import type { Progress } from './transfers.ts';
+import { mediaHeaders } from '../lib/mediaAuth.ts';
 
 /** Thrown when nothing can open the file: the caller tells the screen. */
 export class FileOpenError extends Error {
@@ -70,7 +71,7 @@ async function toCache(options: AttachmentOptions): Promise<string> {
         return;
       }
       const partial = `${destination}.part`;
-      const task = FileSystem.createDownloadResumable(url, partial, {}, (e) => {
+      const task = FileSystem.createDownloadResumable(url, partial, { headers: mediaHeaders(url) }, (e) => {
         options.onProgress?.(
           downloadedFraction(e.totalBytesWritten, e.totalBytesExpectedToWrite, options.size),
         );

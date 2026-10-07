@@ -2,7 +2,9 @@
 //! as the desktop sidecar runs it (apps/desktop/voice/src/audio.rs), over JNI.
 //! `com.rocketvibe.voice.Denoiser` holds one handle for the process; each 10 ms
 //! frame of 48 kHz mono 16-bit samples is cleaned in place, and its voice
-//! probability (0 to 1) tells who speaks.
+//! probability (0 to 1) tells who speaks. A voice gate then closes the
+//! microphone between words (a keyboard's clicks, which RNNoise only softens),
+//! as the desktop sidecar does.
 use jni::JNIEnv;
 use jni::objects::{JClass, JShortArray};
 use jni::sys::{jfloat, jlong};
@@ -11,10 +13,19 @@ use nnnoiseless::DenoiseState;
 /// 10 ms at 48 kHz.
 pub const FRAME: usize = nnnoiseless::FRAME_SIZE;
 
+/// RNNoise's voice probability that opens the gate.
+const GATE_VOICE: f32 = 0.6;
+/// Frames (10 ms) the gate stays open after the last voice.
+const GATE_HOLD: u32 = 30;
+/// How much of the gain is left after each closed frame (about 100 ms to close).
+const GATE_RELEASE: f32 = 0.6;
+
 pub struct Denoiser {
     state: Box<DenoiseState<'static>>,
     input: Vec<f32>,
     output: Vec<f32>,
+    gain: f32,
+    hold: u32,
 }
 
 impl Default for Denoiser {
@@ -23,6 +34,8 @@ impl Default for Denoiser {
             state: DenoiseState::new(),
             input: vec![0.0; FRAME],
             output: vec![0.0; FRAME],
+            gain: 0.0,
+            hold: 0,
         }
     }
 }
@@ -37,9 +50,25 @@ impl Denoiser {
             *input = *sample as f32;
         }
         let voice = self.state.process_frame(&mut self.output, &self.input);
-        for (sample, output) in frame.iter_mut().zip(&self.output) {
-            *sample = output.clamp(-32_768.0, 32_767.0) as i16;
+        // The gate: opens at once on a voice, holds, then fades out.
+        self.hold = if voice >= GATE_VOICE {
+            GATE_HOLD
+        } else {
+            self.hold.saturating_sub(1)
+        };
+        let start = self.gain;
+        let end = if self.hold > 0 {
+            1.0
+        } else if start * GATE_RELEASE < 0.01 {
+            0.0
+        } else {
+            start * GATE_RELEASE
+        };
+        let step = (end - start) / FRAME as f32;
+        for (index, (sample, output)) in frame.iter_mut().zip(&self.output).enumerate() {
+            *sample = (output * (start + step * index as f32)).clamp(-32_768.0, 32_767.0) as i16;
         }
+        self.gain = end;
         voice
     }
 }
@@ -106,6 +135,11 @@ mod tests {
         }
         assert!(voices / 250.0 < 0.1, "{voices}");
         assert!(after < before / 1000.0, "{before} {after}");
+        // No voice in it: the gate stays shut, nothing at all passes.
+        assert!(
+            noise.iter().all(|&s| s == 0),
+            "the gate let the rumble through"
+        );
         let mut short = [7i16; 10];
         assert_eq!(denoiser.process(&mut short), 0.0);
         assert_eq!(short, [7; 10]);

@@ -202,6 +202,8 @@ section here.
 - A shared screen goes full screen (its button or a double click, Escape to come back).
 - A direct call ends for you too when the other person hangs up, and leaving a direct
   call takes you back to the conversation.
+- The noise remover also closes your microphone between words, so typing on a keyboard
+  no longer goes through.
 
 ### Removed
 
@@ -210,6 +212,10 @@ section here.
   as the server retired them for voice sessions. Rocket.Chat calls are unchanged.
 
 ### Fixed
+
+- A declined or unanswered call no longer leaves you alone in it, and calling again rings
+  the other person instead of reopening the empty call.
+- Clicking "Join voice" on a voice page no longer crashes the app.
 
 - RocketVibe: confirming an encrypted group review (creation, update, admission) no longer
   fails now and then with "the operation did not succeed" while the room is open.

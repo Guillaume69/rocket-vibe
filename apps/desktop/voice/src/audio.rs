@@ -5,10 +5,12 @@
 //! - tell who speaks from the sound itself, at once and down to a whisper,
 //!   instead of the SFU's coarser active-speaker updates.
 //!
-//! Capture: the device's rate to 48 kHz mono, 10 ms frames, WebRTC's audio
-//! processing (echo cancellation against what plays, gain control, high-pass,
-//! and its own noise suppression only while RNNoise is off), RNNoise, the input
-//! volume, then LiveKit. Playout: each remote audio track as 48 kHz stereo, one
+//! Capture: the device's rate to 48 kHz mono, 10 ms frames, WebRTC's echo
+//! cancellation (against what plays) and high-pass filter, then RNNoise and a
+//! voice gate that closes between words (a keyboard, a click: what RNNoise lets
+//! through), then WebRTC's gain control, last so that it never raises the noise
+//! RNNoise has to remove, then the input volume, then LiveKit. Without RNNoise,
+//! WebRTC's own noise suppression takes its place, and no gate. Playout: each remote audio track as 48 kHz stereo, one
 //! buffer per track, mixed at each person's gain and the output volume; the mix
 //! is also the echo canceller's reference.
 //!
@@ -16,6 +18,12 @@
 //! protocol (which PipeWire serves) in pure Rust. `RV_VOICE_FAKE_AUDIO=sine`
 //! opens no device: a tone stands for the microphone, and remote tracks are
 //! still read, for who speaks.
+//!
+//! Diagnostics: `RV_VOICE_DEBUG=1` prints the devices' formats and, every 5 s,
+//! the tracks that ran dry, the backlogs cut and the longest lock wait on the
+//! speakers' side; `RV_VOICE_RECORD=<dir>` writes each remote track as received
+//! (raw 48 kHz stereo 16-bit); `RV_VOICE_TEST_TONE=1` replaces the microphone's
+//! samples with a 440 Hz tone, through the whole path.
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, Sample, SampleFormat, SizedSample};
 use livekit::prelude::RemoteAudioTrack;
@@ -124,15 +132,61 @@ struct Gain {
     muted: bool,
 }
 
-/// WebRTC's processing, whose own noise suppression runs only without RNNoise
-/// (both at once would eat a whisper).
+/// WebRTC's processing in two steps around RNNoise: echo cancellation and the
+/// high-pass filter first (its own noise suppression only without RNNoise: both
+/// would eat a whisper), gain control last.
 struct Processing {
     module: AudioProcessingModule,
+    gain: AudioProcessingModule,
     webrtc_ns: bool,
 }
 impl Processing {
     fn new(denoise: bool) -> Self {
-        Self { module: AudioProcessingModule::new(true, true, true, !denoise), webrtc_ns: !denoise }
+        Self {
+            module: AudioProcessingModule::new(true, false, true, !denoise),
+            gain: AudioProcessingModule::new(false, true, false, false),
+            webrtc_ns: !denoise,
+        }
+    }
+}
+
+/// RNNoise's voice probability that opens the gate.
+const GATE_VOICE: f32 = 0.6;
+/// Frames (10 ms) the gate stays open after the last voice: word endings and short pauses.
+const GATE_HOLD: u32 = 30;
+/// How much of the gain is left after each closed frame (fades out over about 100 ms).
+const GATE_RELEASE: f32 = 0.6;
+
+/// Closes the microphone between words when RNNoise hears no voice: a
+/// keyboard's or a mouse's clicks, which RNNoise only softens.
+#[derive(Default)]
+pub struct Gate {
+    gain: f32,
+    hold: u32,
+}
+
+impl Gate {
+    /// Applies the gate to one 10 ms frame, given its voice probability.
+    pub fn apply(&mut self, voice: f32, samples: &mut [f32]) {
+        if voice >= GATE_VOICE {
+            self.hold = GATE_HOLD;
+        } else {
+            self.hold = self.hold.saturating_sub(1);
+        }
+        let start = self.gain;
+        // Opens at once, so the first syllable passes; closes gradually.
+        let end = if self.hold > 0 {
+            1.0
+        } else if start * GATE_RELEASE < 0.01 {
+            0.0
+        } else {
+            start * GATE_RELEASE
+        };
+        let step = (end - start) / samples.len().max(1) as f32;
+        for (index, sample) in samples.iter_mut().enumerate() {
+            *sample *= start + step * index as f32;
+        }
+        self.gain = end;
     }
 }
 
@@ -155,6 +209,11 @@ pub struct Mix {
     input_delay: AtomicU32,
     /// A device stream failed (unplugged): the main loop reopens the default.
     pub broken: AtomicBool,
+    /// Diagnostics (`RV_VOICE_DEBUG=1`): tracks that ran dry, backlogs cut,
+    /// the longest wait for the processing lock in the speakers' callback (µs).
+    dry: AtomicU32,
+    cut: AtomicU32,
+    waited: AtomicU32,
 }
 
 impl Mix {
@@ -173,7 +232,19 @@ impl Mix {
             output_delay: AtomicU32::new(20),
             input_delay: AtomicU32::new(20),
             broken: AtomicBool::new(false),
+            dry: AtomicU32::new(0),
+            cut: AtomicU32::new(0),
+            waited: AtomicU32::new(0),
         })
+    }
+
+    /// The diagnostics since the last call: dry tracks, backlogs cut, longest lock wait (µs).
+    pub fn diagnostics(&self) -> (u32, u32, u32) {
+        (
+            self.dry.swap(0, Ordering::Relaxed),
+            self.cut.swap(0, Ordering::Relaxed),
+            self.waited.swap(0, Ordering::Relaxed),
+        )
     }
 
     pub fn set_sending(&self, on: bool) {
@@ -221,6 +292,15 @@ impl Mix {
 
     /// A remote track's 10 ms frame (48 kHz stereo).
     fn receive(&self, sid: &str, identity: &str, voice: bool, samples: &[i16], play: bool) {
+        // Diagnostics: each track's sound as received, raw 48 kHz stereo i16.
+        if let Ok(dir) = std::env::var("RV_VOICE_RECORD") {
+            use std::io::Write;
+            let path = std::path::Path::new(&dir).join(format!("{identity}.raw"));
+            if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+                let bytes: Vec<u8> = samples.iter().flat_map(|s| s.to_le_bytes()).collect();
+                let _ = file.write_all(&bytes);
+            }
+        }
         let floats = samples.iter().map(|&s| s as f32 / 32_768.0);
         let db = decibels(floats.clone());
         let mut remotes = lock(&self.remotes);
@@ -237,6 +317,7 @@ impl Mix {
             if remote.buffer.len() > BACKLOG {
                 let extra = remote.buffer.len() - PRIME;
                 remote.buffer.drain(..extra);
+                self.cut.fetch_add(1, Ordering::Relaxed);
             }
         }
     }
@@ -264,6 +345,7 @@ impl Mix {
                     // Ran dry (loss, a late packet): wait for a cushion again.
                     remote.playing = false;
                     remote.buffer.clear();
+                    self.dry.fetch_add(1, Ordering::Relaxed);
                     continue;
                 }
                 let gain = gains.get(&remote.identity).copied().unwrap_or(Gain { volume: 1.0, muted: false });
@@ -278,13 +360,16 @@ impl Mix {
             *sample = (*sample * master).clamp(-1.0, 1.0);
         }
         let mut reference: Vec<i16> = out.iter().map(|&s| (s * 32_767.0) as i16).collect();
-        let _ = lock(&self.processing).module.process_reverse_stream(&mut reference, RATE as i32, 2);
+        let asked = Instant::now();
+        let mut processing = lock(&self.processing);
+        self.waited.fetch_max(asked.elapsed().as_micros() as u32, Ordering::Relaxed);
+        let _ = processing.module.process_reverse_stream(&mut reference, RATE as i32, 2);
         out
     }
 
     /// One 10 ms microphone frame (48 kHz mono, -1..1) through the processing;
     /// what the room hears, or None while not sending.
-    fn capture(&self, frame: &[f32], denoiser: &mut DenoiseState) -> Option<Vec<i16>> {
+    fn capture(&self, frame: &[f32], denoiser: &mut DenoiseState, gate: &mut Gate) -> Option<Vec<i16>> {
         let mut pcm: Vec<i16> = frame.iter().map(|&s| (s * 32_767.0).clamp(-32_768.0, 32_767.0) as i16).collect();
         let denoise = self.denoise.load(Ordering::Relaxed);
         {
@@ -300,13 +385,16 @@ impl Mix {
         let voice = if denoise {
             let mut clean = vec![0f32; FRAME];
             let probability = denoiser.process_frame(&mut clean, &samples);
+            gate.apply(probability, &mut clean);
             samples = clean;
             Some(probability)
         } else {
             None
         };
+        let mut pcm: Vec<i16> = samples.iter().map(|&s| s.clamp(-32_768.0, 32_767.0) as i16).collect();
+        let _ = lock(&self.processing).gain.process_stream(&mut pcm, RATE as i32, 1);
         let gain = self.input_volume.get();
-        let pcm: Vec<i16> = samples.iter().map(|&s| (s * gain).clamp(-32_768.0, 32_767.0) as i16).collect();
+        let pcm: Vec<i16> = pcm.iter().map(|&s| (s as f32 * gain).clamp(-32_768.0, 32_767.0) as i16).collect();
         if !self.sending.load(Ordering::Relaxed) {
             return None;
         }
@@ -480,6 +568,9 @@ impl Audio {
 fn play(device: &cpal::Device, mix: Arc<Mix>) -> Result<cpal::Stream, String> {
     let supported = device.default_output_config().map_err(|e| e.to_string())?;
     let config = supported.config();
+    if std::env::var("RV_VOICE_DEBUG").as_deref() == Ok("1") {
+        eprintln!("rv-voice: speakers {:?} {:?}", supported.sample_format(), config);
+    }
     let stream = match supported.sample_format() {
         SampleFormat::F32 => play_as::<f32>(device, &config, mix),
         SampleFormat::I16 => play_as::<i16>(device, &config, mix),
@@ -550,6 +641,9 @@ fn capture(
 ) -> Result<cpal::Stream, String> {
     let supported = device.default_input_config().map_err(|e| e.to_string())?;
     let config = supported.config();
+    if std::env::var("RV_VOICE_DEBUG").as_deref() == Ok("1") {
+        eprintln!("rv-voice: microphone {:?} {:?}", supported.sample_format(), config);
+    }
     let stream = match supported.sample_format() {
         SampleFormat::F32 => capture_as::<f32>(device, &config, mix, frames),
         SampleFormat::I16 => capture_as::<i16>(device, &config, mix, frames),
@@ -575,7 +669,11 @@ where
     let (mut previous, mut position) = (0f32, 0f64);
     let mut frame = Vec::with_capacity(FRAME);
     let mut denoiser = DenoiseState::new();
+    let mut gate = Gate::default();
     let broken = mix.clone();
+    // Diagnostics: a 440 Hz tone in place of the microphone, through the whole path.
+    let tone = std::env::var("RV_VOICE_TEST_TONE").as_deref() == Ok("1");
+    let (mut phase, device_rate) = (0f32, config.sample_rate as f32);
     device
         .build_input_stream(
             *config,
@@ -584,13 +682,18 @@ where
                 let behind = stamp.callback.saturating_duration_since(stamp.capture);
                 mix.input_delay.store(behind.as_millis() as u32 + 10, Ordering::Relaxed);
                 for samples in data.chunks(channels) {
-                    let mono = samples.iter().map(|&s| f32::from_sample(s)).sum::<f32>() / channels as f32;
+                    let mut mono = samples.iter().map(|&s| f32::from_sample(s)).sum::<f32>() / channels as f32;
+                    if tone {
+                        mono = (phase.sin()) * 0.3;
+                        phase =
+                            (phase + 2.0 * std::f32::consts::PI * 440.0 / device_rate) % (2.0 * std::f32::consts::PI);
+                    }
                     // Linear resampling: each 48 kHz sample between the last two device samples.
                     while position < 1.0 {
                         frame.push(previous + (mono - previous) * position as f32);
                         position += step;
                         if frame.len() == FRAME {
-                            if let Some(pcm) = mix.capture(&frame, &mut denoiser) {
+                            if let Some(pcm) = mix.capture(&frame, &mut denoiser, &mut gate) {
                                 let _ = frames.send(pcm);
                             }
                             frame.clear();
@@ -653,6 +756,35 @@ mod tests {
         assert!(activity.level < 0.5 && activity.level > 0.0, "the meter falls back slowly");
         activity.quiet();
         assert!(!activity.speaking());
+    }
+
+    #[test]
+    fn the_gate_opens_on_a_voice_holds_then_fades() {
+        let mut gate = Gate::default();
+        let mut frame = [1000f32; FRAME];
+        // A click alone: RNNoise hears no voice, nothing passes.
+        gate.apply(0.2, &mut frame);
+        assert!(frame.iter().all(|&s| s == 0.0));
+        // A voice: open within the frame, and fully the next one.
+        let mut frame = [1000f32; FRAME];
+        gate.apply(0.9, &mut frame);
+        assert!(frame[0] == 0.0 && frame[FRAME - 1] > 990.0);
+        let mut frame = [1000f32; FRAME];
+        gate.apply(0.1, &mut frame);
+        assert!(frame.iter().all(|&s| s == 1000.0), "held after the voice");
+        for _ in 2..GATE_HOLD {
+            gate.apply(0.1, &mut [0f32; FRAME]);
+        }
+        // Past the hold: it fades out, then shuts.
+        let mut frame = [1000f32; FRAME];
+        gate.apply(0.1, &mut frame);
+        assert!(frame[FRAME - 1] < 650.0 && frame[FRAME - 1] > 550.0);
+        for _ in 0..12 {
+            gate.apply(0.1, &mut [0f32; FRAME]);
+        }
+        let mut frame = [1000f32; FRAME];
+        gate.apply(0.1, &mut frame);
+        assert!(frame.iter().all(|&s| s == 0.0));
     }
 
     #[test]

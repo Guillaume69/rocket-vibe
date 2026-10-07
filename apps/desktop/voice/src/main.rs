@@ -172,6 +172,7 @@ struct Voice {
     /// The room's audio tracks this side plays, by track.
     heard: HashMap<TrackSid, tokio::task::JoinHandle<()>>,
     input_level: f32,
+    ticks: u64,
     track: Option<LocalAudioTrack>,
     microphone: bool,
     deafened: bool,
@@ -215,6 +216,7 @@ impl Voice {
             audio: None,
             heard: HashMap::new(),
             input_level: 0.0,
+            ticks: 0,
             track: None,
             microphone: true,
             deafened: false,
@@ -508,6 +510,13 @@ impl Voice {
     /// Who speaks and the microphone's level, from the sound itself; a device
     /// that failed (unplugged) gives way to the default.
     fn tick(&mut self) {
+        if std::env::var("RV_VOICE_DEBUG").as_deref() == Ok("1") {
+            self.ticks += 1;
+            if self.ticks.is_multiple_of(50) {
+                let (dry, cut, waited) = self.mix.diagnostics();
+                eprintln!("rv-voice: 5 s: {dry} dry, {cut} cut, lock wait up to {waited} µs");
+            }
+        }
         if self.mix.broken.swap(false, std::sync::atomic::Ordering::Relaxed)
             && let Some(audio) = &mut self.audio
         {

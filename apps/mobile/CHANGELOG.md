@@ -33,6 +33,10 @@ release, and its notes are that version's section here.
 - Tap a shared screen to watch it full screen.
 - A direct call ends for you too when the other person hangs up, and you are taken back to
   the conversation when it ends.
+- The noise remover also closes your microphone between words, so typing no longer goes
+  through.
+- Calling again from a direct conversation where you were left alone in the call rings the
+  other person once more.
 - Voice in encrypted rooms, end-to-end encrypted: the server relays sound it cannot
   hear, under a key only the room's devices share, renewed when its members change.
 - Slash commands on a RocketVibe server: /topic, /invite, /kick, /leave, /join,

@@ -62,7 +62,9 @@ export default function VoiceScreen() {
   // The room's one screen share takes most of the screen; the people go in a
   // narrow column at its right, cameras as thumbnails.
   const sharer = here ? cards.find(card => card.screen) : undefined;
-  useEffect(() => { if (sharer === undefined) setFullscreen(false); }, [sharer]);
+  // The share over: out of full screen, so the next one does not open in it.
+  // Adjusted while rendering, not in an effect (no extra render pass).
+  if (fullscreen && sharer === undefined) setFullscreen(false);
   const status = !here ? null
     : voice.ring?.state === 'ringing' && voice.participants.length < 2 ? t('voice.ringing')
     : voice.phase === 'connected' ? t('voice.connected')

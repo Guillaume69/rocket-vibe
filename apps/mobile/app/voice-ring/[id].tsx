@@ -8,8 +8,7 @@ import { useEffect, useRef } from 'react';
 import { ActivityIndicator, Alert, PermissionsAndroid, Platform, StyleSheet, View } from 'react-native';
 
 import { nativePushMatches, nativePushScope } from '../../lib/nativePushNavigation.ts';
-import { serviceUrl } from '../../lib/roomLinks.ts';
-import { nativeRoomPermalink } from '../../lib/roomLinks.ts';
+import { nativeRoomPermalink, serviceUrl } from '../../lib/roomLinks.ts';
 import { VoiceNative } from '../../modules/voice/index.ts';
 import { useT } from '../../ui/i18n.ts';
 import { useSession } from '../../ui/session.tsx';

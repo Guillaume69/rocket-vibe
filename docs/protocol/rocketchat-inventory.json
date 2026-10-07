@@ -105,6 +105,7 @@
     "apps/desktop/crates/rv-core/src/update.rs",
     "apps/desktop/crates/rv-core/src/uploads.rs",
     "apps/desktop/crates/rv-core/src/voice.rs",
+    "apps/desktop/crates/rv-core/src/voice_prefs.rs",
     "apps/desktop/crates/rv-ffi/src/accounts.rs",
     "apps/desktop/crates/rv-ffi/src/bin/uniffi-bindgen-swift.rs",
     "apps/desktop/crates/rv-ffi/src/context.rs",

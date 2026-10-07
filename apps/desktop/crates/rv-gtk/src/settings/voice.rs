@@ -1,88 +1,51 @@
 //! The "Voice" group: which microphone and speakers the `rv-voice` sidecar
 //! opens, the noise remover, and (Windows and Linux, whose sidecar captures a
 //! screen's sound) whether that sound carries the call's voices. The choices
-//! are this machine's, kept in the config dir like the language, and handed to
+//! are this machine's, kept in the config dir like the language
+//! (`rv_core::voice_prefs`, which the SwiftUI app reads too), and handed to
 //! each native session's voice controller; so are the listening choices made
 //! in a call (volumes, people muted here) and a share's last quality.
 
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use adw::prelude::*;
 use gtk::glib;
 use rv_core::native::NativeSession;
-use rv_core::voice::{Device, Listening, ScreenQuality};
+use rv_core::voice::{Device, ScreenQuality};
+use rv_core::voice_prefs::VoicePrefs;
 
 use crate::i18n::t;
 use crate::{on_tokio, runtime};
 
-const INPUT: &str = "voice-input";
-const OUTPUT: &str = "voice-output";
-/// "1": a screen's sound carries the call's voices too.
-const SHARE_CALL: &str = "voice-share-call";
-/// Volumes, people muted here, the noise remover (`Listening`, JSON).
-const LISTENING: &str = "voice-listening.json";
-/// The last share's lines and frames a second: "1080 30".
-const SHARE_QUALITY: &str = "voice-share-quality";
-
-fn file(name: &str) -> PathBuf {
-    glib::user_config_dir().join("rocket-vibe-rs").join(name)
-}
-
-/// A device id from the sidecar's list, empty for the system default; None
-/// when never chosen.
-fn saved(name: &str) -> Option<String> {
-    std::fs::read_to_string(file(name)).ok()
-}
-
-fn save(name: &str, id: &str) {
-    let file = file(name);
-    if let Some(dir) = file.parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
-    let _ = std::fs::write(file, id);
+/// The voice choices in the config dir.
+fn prefs() -> VoicePrefs {
+    VoicePrefs::new(glib::user_config_dir().join("rocket-vibe-rs"))
 }
 
 /// Keeps a session's listening choices for the next run.
 pub fn save_listening(session: &NativeSession) {
-    if let Ok(json) = serde_json::to_string(&session.voice().listening()) {
-        save(LISTENING, &json);
-    }
+    prefs().save_listening(session.voice());
 }
 
 pub fn share_quality() -> ScreenQuality {
-    saved(SHARE_QUALITY)
-        .and_then(|s| {
-            let (height, fps) = s.trim().split_once(' ')?;
-            Some(ScreenQuality { height: height.parse().ok()?, fps: fps.parse().ok()? })
-        })
-        .unwrap_or(ScreenQuality::DEFAULT)
+    prefs().share_quality()
 }
 
 pub fn save_share_quality(quality: ScreenQuality) {
-    save(SHARE_QUALITY, &format!("{} {}", quality.height, quality.fps));
+    prefs().set_share_quality(quality);
 }
 
 /// Hands the saved choices to a session's controller: its next connections
 /// use them.
 pub fn apply(session: &Arc<NativeSession>) {
-    session.voice().set_share_call(saved(SHARE_CALL).as_deref() == Some("1"));
-    if let Some(listening) = saved(LISTENING).and_then(|json| serde_json::from_str::<Listening>(&json).ok()) {
+    let session = session.clone();
+    // The share-call choice and the listening ones apply at once, the devices
+    // as the controller takes them.
+    session.voice().set_share_call(prefs().share_call());
+    if let Some(listening) = prefs().listening() {
         session.voice().restore_listening(listening);
     }
-    let (input, output) = (saved(INPUT), saved(OUTPUT));
-    if input.is_none() && output.is_none() {
-        return;
-    }
-    let session = session.clone();
-    runtime().spawn(async move {
-        if let Some(id) = input {
-            session.voice().select_input(&id).await;
-        }
-        if let Some(id) = output {
-            session.voice().select_output(&id).await;
-        }
-    });
+    runtime().spawn(async move { prefs().apply(session.voice()).await });
 }
 
 /// Device names as shown: the system default first, then each device, two
@@ -100,8 +63,8 @@ fn labels(devices: &[Device]) -> Vec<String> {
 /// shows the default without forgetting the choice.
 fn chosen(session: &NativeSession, devices: &[Device], input: bool) -> u32 {
     let (selected_input, selected_output) = session.voice().selected_devices();
-    let name = if input { INPUT } else { OUTPUT };
-    let chosen = if input { selected_input } else { selected_output }.or_else(|| saved(name)).unwrap_or_default();
+    let chosen =
+        if input { selected_input } else { selected_output }.or_else(|| prefs().device(input)).unwrap_or_default();
     devices.iter().position(|d| d.id == chosen).map_or(0, |i| i as u32 + 1)
 }
 
@@ -114,7 +77,7 @@ fn choose(session: &Arc<NativeSession>, devices: &[Device], input: bool, positio
             None => return,
         },
     };
-    save(if input { INPUT } else { OUTPUT }, &id);
+    prefs().set_device(input, &id);
     let session = session.clone();
     runtime().spawn(async move {
         if input {
@@ -194,7 +157,7 @@ pub fn group(session: Arc<NativeSession>) -> adw::PreferencesGroup {
             .build();
         let voice = session.voice().clone();
         share_call.connect_active_notify(move |row| {
-            save(SHARE_CALL, if row.is_active() { "1" } else { "0" });
+            prefs().set_share_call(row.is_active());
             voice.set_share_call(row.is_active());
         });
         group.add(&share_call);

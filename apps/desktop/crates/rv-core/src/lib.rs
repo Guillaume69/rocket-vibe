@@ -39,3 +39,4 @@ pub mod tls;
 pub mod update;
 pub mod uploads;
 pub mod voice;
+pub mod voice_prefs;

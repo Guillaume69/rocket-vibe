@@ -73,7 +73,7 @@ pub fn room_info(
     content.append(&centered(name, &["details-name"]));
     let spinner = loading(&content);
     let dialog = dialog(t("info.room"), content.upcast_ref(), 460);
-    dialog.present(Some(parent));
+    crate::widgets::present(&dialog, Some(parent));
     let rid = rid.to_owned();
     let me = session.info.username.clone();
     glib::spawn_future_local(async move {
@@ -159,7 +159,7 @@ pub fn native_room_info(
         live.set(false);
         abort.abort();
     });
-    dialog.present(Some(parent));
+    crate::widgets::present(&dialog, Some(parent));
     let rid = rid.to_owned();
     glib::spawn_future_local(async move {
         let mut displayed = None;
@@ -250,6 +250,8 @@ pub fn native_room_info(
 pub struct ProfileActions {
     pub message: Box<dyn Fn(rv_core::rooms::Found)>,
     pub call: Box<dyn Fn(rv_core::rooms::Found)>,
+    /// Reports the account (by id) to the administrators.
+    pub report: Box<dyn Fn(String)>,
 }
 
 /// A person, from `users.info`: by username, or by id when `by_id`.
@@ -312,7 +314,7 @@ fn profile_with_source(
     loading(&content);
     let dialog = dialog(t("info.profile"), content.upcast_ref(), 520);
     dialog.add_css_class("user-profile-dialog");
-    dialog.present(Some(parent));
+    crate::widgets::present(&dialog, Some(parent));
     let (mut key, mut by_id) = (key.to_owned(), by_id);
     let actions = Rc::new(actions);
     let active = Rc::new(Cell::new(true));
@@ -444,7 +446,7 @@ fn fill_profile(
             (a.message)(found.clone());
         });
         let (a, d, found) = (
-            actions,
+            actions.clone(),
             dialog.clone(),
             rv_core::rooms::Found::User { id: p.id.clone(), username: p.username.clone(), name: p.name.clone() },
         );
@@ -460,6 +462,22 @@ fn fill_profile(
             buttons.append(&call);
         }
         content.append(&buttons);
+        if match session {
+            ProfileSource::Legacy(_) => true,
+            ProfileSource::Native(session) => session.reports_supported(),
+        } {
+            let report = gtk::Button::builder()
+                .label(t("report.user"))
+                .halign(gtk::Align::Center)
+                .css_classes(["flat", "report-user"])
+                .build();
+            let (d, id) = (dialog.clone(), p.id.clone());
+            report.connect_clicked(move |_| {
+                d.close();
+                (actions.report)(id.clone());
+            });
+            content.append(&report);
+        }
     }
 }
 
@@ -550,7 +568,7 @@ fn search_with_source(
     content.append(&status);
     content.append(&results);
     let dialog = dialog(t("search.title"), content.upcast_ref(), 560);
-    dialog.present(Some(parent));
+    crate::widgets::present(&dialog, Some(parent));
     entry.grab_focus();
     let weak = dialog.downgrade();
     let go: Rc<dyn Fn(String, Option<String>)> = Rc::new(move |id, thread| {

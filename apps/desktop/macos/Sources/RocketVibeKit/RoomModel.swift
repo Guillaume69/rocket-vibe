@@ -847,15 +847,44 @@ public final class RoomModel {
         return L("actions.refused")
     }
 
+    /// The menu's quick reactions (`:code:`): the emoji I react with most on
+    /// this account, counted by rv-ffi on every reaction added.
     public var quickReactions: [String] {
         if let chat { return chat.quickReactions() }
-        return provider.native?.supportedFeatures().contains("reactions") == true
-            ? [":+1:", ":heart:", ":joy:", ":tada:", ":open_mouth:", ":pray:"] : []
+        guard let native = provider.native, native.supportedFeatures().contains("reactions") else { return [] }
+        return native.quickReactions(custom: customReactionsAllowed)
+    }
+    /// Report: someone else's message, sent, not a system line; on RocketVibe
+    /// when the server takes reports, never in a private conversation.
+    public func canReport(_ message: MessageItem) -> Bool {
+        guard active, !message.mine, message.system == nil, message.delivery == .sent else { return false }
+        return !privateMode && provider.supportsReports
+    }
+    /// A private conversation reacts with standard emoji only.
+    public var customReactionsAllowed: Bool { !privateMode }
+    /// The standard emoji the reaction picker offers: on Rocket.Chat, those
+    /// it has a name for (`chat.react` refuses the others); all elsewhere.
+    public var reactionPickable: ((String) -> Bool)? {
+        chat != nil ? { rocketChatReactsWith(code: $0) } : nil
+    }
+    /// My reaction naming the same emoji as `shortcode`, under the code the
+    /// server keyed it (maybe an alias), to withdraw it.
+    public func myReaction(_ message: MessageItem, shortcode: String) -> String? {
+        message.reactions.first { $0.mine && sameEmoji(a: $0.shortcode, b: shortcode) }?.shortcode
     }
     public func quickReactionIsMine(_ message: MessageItem, shortcode: String) -> Bool {
-        guard provider.native != nil else { return false }
-        let glyph = replaceShortcodes(text: shortcode)
-        return message.reactions.contains { $0.mine && $0.glyph == glyph }
+        myReaction(message, shortcode: shortcode) != nil
+    }
+    /// A quick reaction of the menu: withdraws mine, adds it otherwise.
+    public func quickReact(_ message: MessageItem, shortcode: String) async {
+        if let own = myReaction(message, shortcode: shortcode) { await react(message, shortcode: own, add: false) }
+        else { await react(message, shortcode: shortcode, add: true) }
+    }
+    /// A pick in the emoji picker (`:code:`): a standard emoji under its
+    /// canonical shortcode, a server emoji where they are allowed.
+    public func reactWithPick(_ message: MessageItem, code: String) async {
+        guard let emoji = reactionEmoji(code: code, custom: customReactionsAllowed, rocketChat: chat != nil) else { return }
+        await react(message, shortcode: emoji, add: true)
     }
 
     private func editableChat() throws -> Chat {

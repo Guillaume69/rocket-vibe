@@ -303,7 +303,7 @@ final class NativeProviderTests: XCTestCase {
         XCTAssertTrue(message.mine)
         XCTAssertFalse(message.body.isEmpty)
         try await until { room.actions(for: message).contains(.edit) && room.actions(for: message).contains(.delete) && room.actions(for: message).contains(.react) }
-        XCTAssertEqual(room.quickReactions.count, 6)
+        XCTAssertEqual(room.quickReactions.count, 5)
         await room.react(message, shortcode: ":+1:", add: true)
         try await until { room.messages.first { $0.id == message.id }?.reactions.count == 1 }
         let reacted = try XCTUnwrap(room.messages.first { $0.id == message.id })
@@ -410,7 +410,7 @@ final class NativeProviderTests: XCTestCase {
         XCTAssertNotNil(room.pendingQuote)
         room.cancelQuote()
         room.draft = ""
-        XCTAssertEqual(room.quickReactions.count, 6)
+        XCTAssertEqual(room.quickReactions.count, 5)
 
         let directoryClient = Client(home: home + "/directory-owner")
         let directoryOwner = try await directoryClient.nativeLogin(server: server, user: "mobile", password: password)

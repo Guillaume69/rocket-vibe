@@ -22,7 +22,7 @@ db/             schema, connection, write queue, SQL upserts, stores
 
 ## The provider facade (`providers/`)
 
-`lib/provider.ts` defines the neutral contract (`Provider`, `Listener`, `Translator`, `ProviderActions`, `Capabilities`, `SyncChange`). The sync core (`lib/sync.ts`, `SyncEngine`) only applies neutral `SyncChange` values; each driver translates its own wire format into them. `providers/index.ts#createProvider` switches exhaustively on `session.kind` (type `ProviderKind`, today only `'rocketchat'`), so adding a member without a driver breaks compilation. `providers/rocketchat/index.ts` assembles the Rocket.Chat driver from the DDP client (the `Listener`), `translator.ts` (stream events and REST documents to neutral rows), `actions.ts` (message actions over `RestClient`) and `history.ts` (`loadHistory`, `loadThread`). The design anticipates a Mattermost (kChat) driver; none exists. Sessions stored before `kind` existed are read back as `rocketchat` by `normalizeProviderKind`.
+`lib/provider.ts` defines the neutral contract (`Provider`, `Listener`, `Translator`, `ProviderActions`, `Capabilities`, `SyncChange`). The sync core (`lib/sync.ts`, `SyncEngine`) only applies neutral `SyncChange` values; each driver translates its own wire format into them. `providers/index.ts#createProvider` switches exhaustively on `session.kind` (type `ProviderKind`: `'rocketchat'` and `'rocketvibe'`), so adding a member without a driver breaks compilation. `providers/rocketchat/index.ts` assembles the Rocket.Chat driver from the DDP client (the `Listener`), `translator.ts` (stream events and REST documents to neutral rows), `actions.ts` (message actions over `RestClient`) and `history.ts` (`loadHistory`, `loadThread`). Two optional members carry the server administration and reports (`Provider.admin`, a `ProviderAdmin`, and `Provider.reports`, a `ProviderReports`, both from `lib/admin.ts`), offered with `capabilities.administration` and `capabilities.reports`: `providers/rocketchat/admin.ts` and `providers/rocketvibe/admin.ts` map each server to the neutral model, so the `app/admin/` screens never name an endpoint ([../features/administration.md](../features/administration.md)). The design anticipates a Mattermost (kChat) driver; none exists. Sessions stored before `kind` existed are read back as `rocketchat` by `normalizeProviderKind`.
 
 ## Routes (`app/`)
 
@@ -37,7 +37,8 @@ expo-router file routes, `experiments.typedRoutes: true` in `app.json`. The root
 | `call/[callId].tsx` | Jitsi call in a WebView, the single allowed WebView. |
 | `message-actions.tsx`, `attach.tsx`, `unlock-e2e.tsx`, `room-info.tsx`, `profile.tsx` | Native bottom sheets (`presentation: 'formSheet'`, `sheetAllowedDetents: 'fitToContents'`). |
 | `share.tsx` | Incoming share target (Android `ACTION_SEND`), presented as a modal. |
-| `settings.tsx`, `my-profile.tsx` | Settings and own-profile editing (full pages, since they need a keyboard). |
+| `settings/index.tsx`, `settings/[category].tsx`, `my-profile.tsx` | Settings: the list of categories, one full page per category, and own-profile editing (full pages, since they need a keyboard). See [../features/settings.md](../features/settings.md). |
+| `admin/index.tsx`, `admin/moderation.tsx`, `admin/rooms.tsx`, `admin/users.tsx` | Server administration for an administrator: Dashboard, then Moderation, Rooms and Users (full pages). |
 | `search.tsx` | Start a conversation via `spotlight` (DM or join a channel). |
 | `message-search.tsx`, `marked-messages.tsx` | Message search in one room, pinned and starred lists. Both are ephemeral: rendered from the REST response, never written to SQLite. |
 | `+native-intent.tsx` | Not a screen: swallows the iOS share extension's `rocketvibe://dataUrl=...` URL so expo-router does not show "page not found", and rewrites an old `rocketvibe://salon/<rid>` room link to `room/` (`lib/roomLink.ts#withEnglishRoomPath`). |
@@ -66,9 +67,9 @@ Provider order, outermost first: `GestureHandlerRootView` > `SafeAreaProvider` >
 
 ## Module-level stores and the purge rule
 
-Cross-cutting state lives in module-level stores read with `useSyncExternalStore`, not in providers, because toggling a provider when the database becomes ready would remount the whole navigation tree. Examples: `ui/identityStore.ts` (`uid -> current username`, and avatar etags by uid and username; fed by `IdentityTracker` from the `users` table, see [../features/avatars.md](../features/avatars.md)), `ui/i18n.ts` (language), `ui/loadedRooms.ts`, `ui/loadedThreads.ts`, `ui/hotRooms.ts`, `ui/notificationState.ts`, `ui/reply.ts`.
+Cross-cutting state lives in module-level stores read with `useSyncExternalStore`, not in providers, because toggling a provider when the database becomes ready would remount the whole navigation tree. Examples: `ui/identityStore.ts` (`uid -> current username`, and avatar etags by uid and username; fed by `IdentityTracker` from the `users` table, see [../features/avatars.md](../features/avatars.md)), `ui/i18n.ts` (language), `ui/loadedRooms.ts`, `ui/loadedThreads.ts`, `ui/hotRooms.ts`, `ui/notificationState.ts`, `ui/reply.ts`, `ui/emojiUsage.ts` (the account's emoji usage store for quick reactions, a plain slot because memoised rows count a use too), `ui/adminAccess.ts` (the administrator verdict, kept per provider object and session generation in a `WeakMap`, so an account switch never shows another account the admin screens).
 
-Rule, enforced in the `SyncProvider` cleanup: **every module store is purged at session end** (`forgetLoadedRooms`, `forgetLoadedThreads`, `releaseHotRooms`, `forgetReplies`, `forgetIdentities`, `forgetCallAvailability`, `forgetNotificationState`, `forgetProfileCards`), otherwise one account's data leaks into the next. A stale avatar etag is the worst case: the URL does not change, so Android's image cache keeps serving the old photo. Purges also call `invalidateSessionToken` (`ui/sessionToken.ts`): screen cleanups run after the provider's, and a captured token lets them see their session is dead instead of repopulating a just-purged cache. Stores purged by `sync` must be leaf modules (not import `sync`), to avoid an import cycle whose resolution would depend on bundler order; that is why `identityStore.ts` is split from `identities.tsx`.
+Rule, enforced in the `SyncProvider` cleanup: **every module store is purged at session end** (`forgetLoadedRooms`, `forgetLoadedThreads`, `releaseHotRooms`, `forgetReplies`, `forgetIdentities`, `forgetCallAvailability`, `forgetNotificationState`, `forgetProfileCards`, and the release returned by `mountEmojiUsage`), otherwise one account's data leaks into the next. A stale avatar etag is the worst case: the URL does not change, so Android's image cache keeps serving the old photo. Purges also call `invalidateSessionToken` (`ui/sessionToken.ts`): screen cleanups run after the provider's, and a captured token lets them see their session is dead instead of repopulating a just-purged cache. Stores purged by `sync` must be leaf modules (not import `sync`), to avoid an import cycle whose resolution would depend on bundler order; that is why `identityStore.ts` is split from `identities.tsx`.
 
 ## Live queries
 
@@ -83,7 +84,7 @@ Screens read SQLite through `ui/liveQuery.ts#useCoalescedLiveQuery`, a drop-in f
 
 ## The native-components rule
 
-From `ROADMAP.md` §4.2 and `CLAUDE.md`: RN primitives first; level-1 native bindings (react-native-screens, safe-area-context, gesture-handler, expo-haptics) are allowed; named exceptions are `@shopify/flash-list`, `react-native-keyboard-controller`, `@rocket.chat/message-parser` and `react-native-webview` (only in `app/call/[callId].tsx`). Forbidden: any UI kit (NativeBase, Tamagui, gluestack, RN Paper), any other WebView, `react-native-markdown-display`, `@gorhom/bottom-sheet`. Bottom sheets are react-native-screens `formSheet`; markdown is rendered in nested `<Text>` by `ui/markdown.tsx` from the server's `md` AST, with a local `@rocket.chat/message-parser` parse as fallback when `md` is missing (`lib/markdown.ts`). Any new UI dependency must be justified against §4.2 in its commit. Rationale: [../decisions.md](../decisions.md).
+From `ROADMAP.md` §4.2 and `CLAUDE.md`: RN primitives first; level-1 native bindings (react-native-screens, safe-area-context, gesture-handler, expo-haptics) are allowed; named exceptions are `@shopify/flash-list`, `react-native-keyboard-controller`, `@rocket.chat/message-parser` and `react-native-webview` (only in `app/call/[callId].tsx`). Forbidden: any UI kit (NativeBase, Tamagui, gluestack, RN Paper), any other WebView, `react-native-markdown-display`, `@gorhom/bottom-sheet`. Bottom sheets are react-native-screens `formSheet`; markdown is rendered in nested `<Text>` by `ui/markdown.tsx` from the server's `md` AST, with a local `@rocket.chat/message-parser` parse as fallback when `md` is missing (`lib/markdown.ts`). Any new UI dependency must be justified against §4.2 in its commit. Native dialogs follow the click-outside rule: every `Alert.alert` takes `dismissible()` (`ui/alerts.ts`: `cancelable`, the dismissal running what Cancel runs), and sheets close on a tap outside; an action that finishes after its sheet closed must not navigate back again. Rationale: [../decisions.md](../decisions.md).
 
 ## Sources
 
@@ -98,6 +99,11 @@ From `ROADMAP.md` §4.2 and `CLAUDE.md`: RN primitives first; level-1 native bin
 - apps/mobile/providers/index.ts
 - apps/mobile/providers/rocketchat/index.ts
 - apps/mobile/providers/rocketchat/translator.ts
+- apps/mobile/providers/rocketchat/admin.ts
+- apps/mobile/providers/rocketvibe/admin.ts
+- apps/mobile/lib/admin.ts
+- apps/mobile/app/settings/index.tsx
+- apps/mobile/app/admin/index.tsx
 - apps/mobile/lib/provider.ts
 - apps/mobile/lib/sessionStore.ts
 - apps/mobile/ui/session.tsx
@@ -105,8 +111,11 @@ From `ROADMAP.md` §4.2 and `CLAUDE.md`: RN primitives first; level-1 native bin
 - apps/mobile/ui/identities.tsx
 - apps/mobile/ui/identityStore.ts
 - apps/mobile/ui/sessionToken.ts
+- apps/mobile/ui/emojiUsage.ts
+- apps/mobile/ui/adminAccess.ts
 - apps/mobile/ui/liveQuery.ts
 - apps/mobile/ui/openRooms.ts
 - apps/mobile/ui/theme.ts
 - apps/mobile/ui/kit.tsx
 - ROADMAP.md
+- apps/mobile/ui/alerts.ts

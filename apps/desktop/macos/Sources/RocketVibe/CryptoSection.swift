@@ -151,10 +151,12 @@ private struct CryptoWithdrawalControls: View {
                     .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
             }
         }
-        .alert(L("crypto.withdrawal_confirm"),isPresented:$confirm) {
-            Button(L("actions.cancel"),role:.cancel) {}
-            Button(L("crypto.withdrawal_confirm"),role:.destructive) { Task { await model.confirmWithdrawal() } }
-        } message: { Text(confirmation) }
+        .confirmOverlay(
+            isPresented: $confirm,
+            title: L("crypto.withdrawal_confirm"),
+            message: confirmation,
+            actions: [ModalAction(title: L("crypto.withdrawal_confirm"), role: .destructive) { Task { await model.confirmWithdrawal() } }]
+        )
         .onDisappear { confirm = false }
     }
 }

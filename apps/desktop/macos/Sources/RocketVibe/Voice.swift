@@ -494,7 +494,7 @@ struct VoiceControls: View {
                     if state.sharing { Task { await voice.stopSharing() } } else { picker = true }
                 }
                 .disabled(!state.canPublish)
-                .sheet(isPresented: $picker) { SharePicker(voice: voice) }
+                .modalOverlay(isPresented: $picker, style: .sheet(width: 760, height: 560)) { SharePicker(voice: voice) }
             }
             Button { Task { await voice.leave() } } label: {
                 Image(systemName: "phone.down.fill")
@@ -620,7 +620,7 @@ struct VoicePage: View {
 /// thumbnails, and the quality, kept for the next share. Where the system picks
 /// (none listed), only the quality.
 struct SharePicker: View {
-    @Environment(\.dismiss) var dismiss
+    @Environment(\.closeModal) var dismiss
     let voice: VoiceModel
     @State var sources: [VoiceSource]?
     @State var windows = false
@@ -668,7 +668,7 @@ struct SharePicker: View {
             }
         }
         .padding(20)
-        .frame(width: 760, height: 560)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task {
             height = voice.listening.shareHeight
             fps = voice.listening.shareFps
@@ -794,23 +794,45 @@ struct VoiceCallButton: View {
     }
 }
 
-/// An incoming call: an alert with Accept and Decline while it rings.
+/// An incoming call while it rings: Accept, or Decline. A click outside or
+/// Escape sets it aside (`VoiceModel.ignore`): the prompt hides and the
+/// ringtone stops, but the call is not declined; the caller hears it ring
+/// until it times out, as a missed call.
 struct IncomingCall: ViewModifier {
     @Environment(AppModel.self) var app
 
     func body(content: Content) -> some View {
         let call = app.voice?.incoming
-        content.alert(
-            L("voice_session.incoming"),
-            isPresented: Binding(get: { call != nil }, set: { _ in }),
-            presenting: call
-        ) { call in
-            Button(L("voice_session.accept")) { app.answer(call) }
-            Button(L("voice_session.decline"), role: .cancel) {
-                if let voice = app.voice { Task { await voice.decline(call) } }
-            }
-        } message: { call in
-            Text(L("voice_session.incoming_from", ["name": call.callerName]))
+        content.modalOverlay(
+            isPresented: Binding(get: { call != nil }, set: { shown in
+                if !shown, let call, let voice = app.voice { voice.ignore(call) }
+            }),
+            key: call?.id
+        ) {
+            if let call { IncomingCallCard(call: call) }
         }
+    }
+}
+
+struct IncomingCallCard: View {
+    @Environment(AppModel.self) var app
+    let call: VoiceCall
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(L("voice_session.incoming")).font(.headline)
+            Text(L("voice_session.incoming_from", ["name": call.callerName]))
+            HStack {
+                Spacer()
+                Button(L("voice_session.decline"), role: .destructive) {
+                    if let voice = app.voice { Task { await voice.decline(call) } }
+                }
+                .foregroundStyle(Color.red)
+                Button(L("voice_session.accept")) { app.answer(call) }
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 380)
     }
 }

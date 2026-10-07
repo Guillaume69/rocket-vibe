@@ -7,7 +7,7 @@
  */
 
 import { Stack, useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { E2EError } from '../lib/e2e/crypto.ts';
@@ -27,6 +27,11 @@ export default function UnlockE2EScreen() {
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const open = useRef(true);
+  useEffect(() => {
+    open.current = true;
+    return () => { open.current = false; };
+  }, []);
 
   const unlock =
     sync.phase === 'ready' ? sync.unlockE2E : null;
@@ -38,7 +43,9 @@ export default function UnlockE2EScreen() {
     void (async () => {
       try {
         await unlock(password);
-        router.back(); // success: the sheet closes, the messages light up
+        // Success: the sheet closes, the messages light up. Unless it was
+        // closed meanwhile (an outside tap): a second back would leave the room.
+        if (open.current) router.back();
       } catch (e) {
         // A wrong password fails GCM authentication (E2EError);
         // everything else (network, missing key) is generic.

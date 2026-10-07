@@ -2,6 +2,7 @@
 //! edge, the open one marked, a dot on another one with unread messages, and
 //! "+" to add an account. Only the open account is connected: the others are
 //! checked every minute with one cheap read (`rv_core::account_unread`).
+//! A right click or a long press on a button asks for its menu.
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -32,6 +33,7 @@ pub struct Rail {
     generation: Cell<u64>,
     on_switch: Handler<SessionInfo>,
     on_add: Handler<()>,
+    on_menu: Handler<(gtk::Widget, SessionInfo)>,
 }
 
 /// What the rail shows of a server: its host, without `www.`.
@@ -77,6 +79,7 @@ impl Rail {
             generation: Cell::new(0),
             on_switch: RefCell::default(),
             on_add: RefCell::default(),
+            on_menu: RefCell::default(),
         });
         let weak = Rc::downgrade(&this);
         add.connect_clicked(move |_| {
@@ -99,6 +102,11 @@ impl Rail {
 
     pub fn connect_add(&self, f: impl Fn(()) + 'static) {
         self.on_add.replace(Some(Rc::new(f)));
+    }
+
+    /// The menu of an account's button: the button and the account.
+    pub fn connect_menu(&self, f: impl Fn((gtk::Widget, SessionInfo)) + 'static) {
+        self.on_menu.replace(Some(Rc::new(f)));
     }
 
     /// The signed-in accounts and the open one; the dots are checked at once.
@@ -146,6 +154,28 @@ impl Rail {
                     f(target.clone());
                 }
             });
+            let menu = {
+                let (weak, target, anchor) = (Rc::downgrade(self), info.clone(), button.downgrade());
+                move || {
+                    let (Some(this), Some(anchor)) = (weak.upgrade(), anchor.upgrade()) else { return };
+                    if let Some(f) = this.on_menu.borrow().clone() {
+                        f((anchor.upcast(), target.clone()));
+                    }
+                }
+            };
+            let click = gtk::GestureClick::builder().button(3).build();
+            let open_menu = menu.clone();
+            click.connect_pressed(move |gesture, _, _, _| {
+                gesture.set_state(gtk::EventSequenceState::Claimed);
+                open_menu();
+            });
+            button.add_controller(click);
+            let press = gtk::GestureLongPress::new();
+            press.connect_pressed(move |gesture, _, _| {
+                gesture.set_state(gtk::EventSequenceState::Claimed);
+                menu();
+            });
+            button.add_controller(press);
             self.buttons.append(&button);
             self.dots.borrow_mut().insert(key, dot.upcast());
         }

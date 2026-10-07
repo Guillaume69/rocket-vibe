@@ -160,7 +160,7 @@ impl Controller {
             .join("\n")
     }
     fn confirm_history(self: &Rc<Self>, approval: HistoryApproval) {
-        let Some(parent) = self.dialog.upgrade() else { return };
+        let Some(parent) = self.host.widget() else { return };
         let empty = approval.periods.is_empty();
         let body = if empty {
             t("crypto.history_nothing").to_owned()
@@ -202,7 +202,7 @@ impl Controller {
                 c.run(super::Action::History(Action::Share(Box::new(approval), response == "delegate")));
             }
         });
-        alert.present(Some(&parent));
+        crate::widgets::present(&alert, Some(&parent));
     }
     pub(super) fn connect_history(self: &Rc<Self>) {
         for (index, row) in self.history.rows.iter().enumerate() {

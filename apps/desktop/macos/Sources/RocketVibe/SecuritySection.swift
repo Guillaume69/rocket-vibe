@@ -104,9 +104,12 @@ struct SecuritySection: View {
             if phase == .active { Task { await model?.open() } }
             else { confirmation = nil; model?.close() }
         }
-        .alert(title(confirmation?.action), isPresented: Binding(get: { confirmation != nil }, set: { if !$0 { confirmation = nil } })) {
-            if let pending = confirmation {
-                Button(title(pending.action), role: .destructive) {
+        .confirmOverlay(
+            isPresented: Binding(get: { confirmation != nil }, set: { if !$0 { confirmation = nil } }),
+            title: title(confirmation?.action),
+            message: confirmationBody(confirmation?.action),
+            actions: confirmation.map { pending in
+                [ModalAction(title: title(pending.action), role: .destructive) {
                     confirmation = nil
                     Task {
                         switch pending.action {
@@ -115,10 +118,9 @@ struct SecuritySection: View {
                         case .removeEmail: await pending.model.removeEmail(revision: pending.revision)
                         }
                     }
-                }
-            }
-            Button(L("actions.cancel"), role: .cancel) { confirmation = nil }
-        } message: { Text(confirmationBody(confirmation?.action)) }
+                }]
+            } ?? []
+        )
     }
     private func input(_ model: SecurityModel, _ key: ReferenceWritableKeyPath<SecurityModel, String>) -> Binding<String> {
         Binding(get: { model[keyPath: key] }, set: { model[keyPath: key] = $0 })

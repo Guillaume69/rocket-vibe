@@ -41,7 +41,7 @@ An encrypted message is sent as `t: 'e2e'`, `e2e: 'pending'`, `content`, plus `e
 - **`Session`** (`rv-core/src/session.rs`) keeps `Mutex<Option<E2eUnlocked>>`: the key, its JWK (for the keychain) and a `rid -> (kid, key)` cache. `room_key` re-unwraps whenever the stored `E2EKey`'s key id differs from the cached one, which covers rotation. `e2e_unlock` calls `e2e.fetchMyKeys`; `e2e_resume(jwk)` imports a kept key; `e2e_export` hands the JWK out; `e2e_lock` drops it. Each transition emits `SessionEvent::E2e`, and unlocking spawns `outbox.process()` and `uploads.process()`.
 - **Decrypt on read, not on write.** The store keeps `encrypted_raw`; `Session::open_row` decrypts each encrypted row as it is read and teaches the media cache the file keys (`media.learn_keys`). Locking needs no DB rewrite. A message of mine still in the outbox keeps its own text.
 - **Keeping the key.** `rv-gtk` writes the JWK into the account's keychain item (`secrets::save_e2e`, field `e2eKey`, Secret Service through `oo7` on Linux, the `keyring` crate on Windows and macOS) on every `SessionEvent::E2e`, and `secrets::e2e_key` resumes it at session start (`window.rs`). `rv-ffi` does the same for the SwiftUI app (`accounts::save`, `accounts::e2e_key`).
-- **Unlock UI**: `rv-gtk/src/unlock.rs` (an `adw::Dialog` with a password entry), the SwiftUI `UnlockSheet` in `RoomView.swift`, and `AppModel.unlock` which maps `e2e-wrong`, `e2e-no-keys`, `e2e-failed`.
+- **Unlock UI**: `rv-gtk/src/unlock.rs` (an `adw::Dialog` with a password entry), the SwiftUI `UnlockSheet` in `RoomView.swift` (a modal overlay of the window), and `AppModel.unlock` which maps `e2e-wrong`, `e2e-no-keys`, `e2e-failed`.
 
 ## Footguns
 

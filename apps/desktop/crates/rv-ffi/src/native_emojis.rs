@@ -14,6 +14,15 @@ impl NativeChat {
     pub fn custom_emoji_names(&self) -> Vec<String> {
         self.session.custom_emoji_names()
     }
+    /// The reactions the message menu offers first (`:code:`), the ones I use
+    /// most on this account; without `custom` (a private conversation),
+    /// standard emoji only.
+    pub fn quick_reactions(&self, custom: bool) -> Vec<String> {
+        let s = &self.session;
+        crate::reactions::quick(&crate::reactions::usage(&self.dirs.config, &s.info), |code| {
+            custom && s.custom_emoji(code).is_some()
+        })
+    }
     pub fn emoji_current(&self, path: String) -> bool {
         self.session.emoji_current(&path)
     }

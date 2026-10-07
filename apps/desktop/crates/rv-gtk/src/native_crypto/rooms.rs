@@ -378,7 +378,7 @@ fn open(parent: &adw::Dialog, session: Arc<NativeSession>, room: String) {
         }
     });
     controller.ui.buttons(None, false);
-    dialog.present(Some(parent));
+    crate::widgets::present(&dialog, Some(parent));
     controller.run(Action::Refresh);
 }
 

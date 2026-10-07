@@ -74,9 +74,10 @@ Each feature doc covers mobile and desktop, and says where they differ.
 | [search.md](features/search.md) | `spotlight` to find people and channels, `chat.search` inside a room. |
 | [media-playback.md](features/media-playback.md) | Protected media URLs, image viewers, audio/video players, video-site cards. |
 | [avatars.md](features/avatars.md) | Avatar URLs, etag cache busting and its sources, the no-photo marker, own photo. |
-| [emoji.md](features/emoji.md) | The shortcode table, custom emoji, rendering order, completion, pickers. |
+| [emoji.md](features/emoji.md) | The shortcode table, custom emoji, rendering order, completion, pickers, quick reactions. |
 | [room-info-and-profiles.md](features/room-info-and-profiles.md) | Room info, user profiles, editing my own profile. |
-| [settings.md](features/settings.md) | What each setting is and where it is stored, per app. |
+| [settings.md](features/settings.md) | What each setting is and where it is stored, the categories and their layout per app. |
+| [administration.md](features/administration.md) | Server administration and reports: the model per provider, the Rocket.Chat mapping, the RocketVibe contract, deleted accounts. |
 | [notifications.md](features/notifications.md) | Mobile FCM push with hidden content, the native service, desktop notifier and badge. |
 | [e2ee.md](features/e2ee.md) | Encrypted rooms as the user sees them: lock, unlock, sends, media, notifications. |
 | [e2ee-history.md](features/e2ee-history.md) | RocketVibe server: a new device recovers encrypted history from another device of the account. |
@@ -114,6 +115,8 @@ Each feature doc covers mobile and desktop, and says where they differ.
 | What does CI check, and what only runs on a tag? | [operations.md](operations.md), [architecture/testing.md](architecture/testing.md) |
 | How do I cut a release? | [operations.md](operations.md) (and the `release` skill) |
 | What does `hotRooms` / connection setup / `writeQueue` mean? | [glossary.md](glossary.md) |
+| Who sees the server administration, and what can an admin read? | [features/administration.md](features/administration.md), [decisions.md](decisions.md) |
+| Why are these the quick reactions, and where are they counted? | [features/emoji.md](features/emoji.md) |
 
 ## Maintaining the brain
 

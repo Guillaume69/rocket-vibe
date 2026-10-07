@@ -522,7 +522,7 @@ pub(super) struct VoiceUi {
     last: RefCell<Snapshot>,
     joining: RefCell<Option<String>>,
     ringing: RefCell<Option<(String, adw::AlertDialog)>>,
-    /// The ring last answered or declined here, until the server resolves it.
+    /// The ring last answered, declined or ignored here, until the server resolves it.
     answered: RefCell<Option<String>>,
     tone: RefCell<Option<(Sound, sounds::Player)>>,
     rings: RefCell<HashMap<String, String>>,
@@ -1242,7 +1242,10 @@ impl ChatPage {
             .heading(t("voice_session.incoming"))
             .body(tf("voice_session.incoming_from", &[("name", &caller)]))
             .default_response("accept")
-            .close_response("decline")
+            // Escape or a click outside ignores the call: the prompt and the
+            // ringtone stop here, the caller hears it ring until it is missed.
+            // Declining stays an explicit button.
+            .close_response("ignore")
             .build();
         dialog.add_responses(&[("decline", t("voice_session.decline")), ("accept", t("voice_session.accept"))]);
         dialog.set_response_appearance("decline", adw::ResponseAppearance::Destructive);
@@ -1258,6 +1261,9 @@ impl ChatPage {
             this.voice.ringing.replace(None);
             this.voice.answered.replace(Some(ring.clone()));
             this.voice.set_tone(None);
+            if response == "ignore" {
+                return;
+            }
             let Some(session) = this.native_session() else { return };
             if response != "accept" {
                 let (session, ring) = (session.clone(), ring.clone());
@@ -1287,7 +1293,7 @@ impl ChatPage {
             window.present();
         }
         self.voice.ringing.replace(Some((id, dialog.clone())));
-        dialog.present(Some(&self.split));
+        crate::widgets::present(&dialog, Some(&self.split));
     }
 
     /// The menu beside the microphone, as in Discord: devices, the microphone's
@@ -1515,7 +1521,7 @@ impl ChatPage {
                 }
             }
         });
-        dialog.present(Some(&self.split));
+        crate::widgets::present(&dialog, Some(&self.split));
     }
 
     fn start_share(self: &Rc<Self>, source: Option<String>, quality: ScreenQuality) {

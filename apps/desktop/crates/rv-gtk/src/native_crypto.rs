@@ -1,6 +1,7 @@
-//! Identity/device setup in the existing preferences UI. The encrypted room
-//! rollout is still disabled until its complete client lifecycle is qualified.
-use crate::{i18n::t, on_tokio};
+//! Identity/device setup, the Encryption category of the settings. The
+//! encrypted room rollout is still disabled until its complete client
+//! lifecycle is qualified.
+use crate::{i18n::t, on_tokio, sidebar_dialog::Host};
 use adw::prelude::*;
 use gtk::glib;
 use rv_core::native::{
@@ -22,20 +23,8 @@ mod storage;
 pub use peers::profile_button;
 pub use rooms::room_button;
 
-pub fn group(parent: &adw::PreferencesDialog, session: Arc<NativeSession>) -> adw::PreferencesGroup {
-    let group = adw::PreferencesGroup::builder().title(t("crypto.title")).build();
-    let open = adw::ButtonRow::builder().title(t("crypto.title")).css_classes(["native-crypto-open"]).build();
-    group.add(&open);
-    let parent = parent.downgrade();
-    open.connect_activated(move |_| {
-        if let Some(parent) = parent.upgrade() {
-            open_dialog(&parent, session.clone());
-        }
-    });
-    group
-}
 struct Controller {
-    dialog: glib::WeakRef<adw::PreferencesDialog>,
+    host: Host,
     session: Arc<NativeSession>,
     guard: Guard,
     access: RefCell<Option<Access>>,
@@ -221,7 +210,7 @@ impl Controller {
         }
     }
     fn confirm_withdrawal(self: &Rc<Self>, preview: rv_core::native::crypto::enrollment::revocations::Approval) {
-        let Some(parent) = self.dialog.upgrade() else { return };
+        let Some(parent) = self.host.widget() else { return };
         let alert = adw::AlertDialog::builder()
             .heading(t("crypto.withdrawal_confirm"))
             .body(format!(
@@ -247,7 +236,7 @@ impl Controller {
                 c.run(Action::Withdraw(Box::new(preview)));
             }
         });
-        alert.present(Some(&parent));
+        crate::widgets::present(&alert, Some(&parent));
     }
     fn run(self: &Rc<Self>, action: Action) {
         if self.busy.replace(true) || !self.guard.alive() {
@@ -338,7 +327,7 @@ impl Controller {
                 }
                 outcome
             });
-            if !this.guard.alive() || this.dialog.upgrade().is_none() {
+            if !this.guard.alive() || !this.host.alive() {
                 return;
             }
             this.busy.set(false);
@@ -383,7 +372,7 @@ impl Controller {
                         if let Some(access) = access
                             && let Ok(status) = on_tokio(async move { access.backup_status().await }).await
                         {
-                            if !this.guard.alive() || this.dialog.upgrade().is_none() {
+                            if !this.guard.alive() || !this.host.alive() {
                                 return;
                             }
                             this.render_backup(status);
@@ -394,7 +383,7 @@ impl Controller {
                         if let Some(access) = access
                             && let Ok(status) = on_tokio(async move { access.withdrawals().await }).await
                         {
-                            if !this.guard.alive() || this.dialog.upgrade().is_none() {
+                            if !this.guard.alive() || !this.host.alive() {
                                 return;
                             }
                             this.render_withdrawals(status);
@@ -405,13 +394,13 @@ impl Controller {
                         if let Some(access) = access
                             && let Ok(view) = on_tokio(async move { access.refresh().await }).await
                         {
-                            if !this.guard.alive() || this.dialog.upgrade().is_none() {
+                            if !this.guard.alive() || !this.host.alive() {
                                 return;
                             }
                             this.render(view);
                             this.code.set_text("");
                         }
-                        if !this.guard.alive() || this.dialog.upgrade().is_none() {
+                        if !this.guard.alive() || !this.host.alive() {
                             return;
                         }
                     }
@@ -441,19 +430,14 @@ impl Controller {
         });
     }
 }
-pub fn open_dialog(parent: &impl IsA<gtk::Widget>, session: Arc<NativeSession>) {
-    let (dialog, controller) = build_dialog(session);
+/// The category's page; it loads the device's state as it is built.
+pub fn page(host: &Host, session: Arc<NativeSession>) -> adw::PreferencesPage {
+    let (page, controller) = build(host, session);
     controller.run(Action::Refresh);
-    dialog.present(Some(parent));
+    page
 }
-fn build_dialog(session: Arc<NativeSession>) -> (adw::PreferencesDialog, Rc<Controller>) {
-    let dialog = adw::PreferencesDialog::builder()
-        .title(t("crypto.title"))
-        .content_width(560)
-        .content_height(640)
-        .css_classes(["native-crypto-dialog"])
-        .build();
-    let page = adw::PreferencesPage::new();
+fn build(host: &Host, session: Arc<NativeSession>) -> (adw::PreferencesPage, Rc<Controller>) {
+    let page = adw::PreferencesPage::builder().css_classes(["native-crypto-page"]).build();
     let group = adw::PreferencesGroup::builder().description(t("crypto.explanation")).build();
     let status = adw::ActionRow::builder().title(t("crypto.loading")).build();
     let root = adw::ActionRow::builder().title(t("crypto.root")).subtitle_selectable(true).build();
@@ -504,9 +488,8 @@ fn build_dialog(session: Arc<NativeSession>) -> (adw::PreferencesDialog, Rc<Cont
     let history = history::Controls::new(&page);
     let history_backup = history_backup::Controls::new(&page);
     let storage = storage::Controls::new(&page);
-    dialog.add(&page);
     let controller = Rc::new(Controller {
-        dialog: dialog.downgrade(),
+        host: host.clone(),
         session,
         guard: Guard::new(),
         access: RefCell::default(),
@@ -528,7 +511,7 @@ fn build_dialog(session: Arc<NativeSession>) -> (adw::PreferencesDialog, Rc<Cont
         history_backup,
         storage,
     });
-    controller.connect_recovery();
+    controller.connect_recovery(&page);
     controller.connect_history();
     controller.connect_history_backup();
     controller.connect_storage();
@@ -559,12 +542,12 @@ fn build_dialog(session: Arc<NativeSession>) -> (adw::PreferencesDialog, Rc<Cont
         if !c.guard.alive() || c.busy.get() || c.access.borrow().as_ref().is_none_or(|a| a.check().is_err()) {
             return;
         }
-        if let Some(dialog) = c.dialog.upgrade() {
+        if let Some(dialog) = c.host.widget() {
             dialog.clipboard().set_text(&c.output.text());
         }
     });
     let close = controller.clone();
-    dialog.connect_closed(move |_| {
+    host.connect_closed(move || {
         close.guard.cancel();
         if let Some(access) = close.access.borrow_mut().take() {
             access.close();
@@ -579,7 +562,7 @@ fn build_dialog(session: Arc<NativeSession>) -> (adw::PreferencesDialog, Rc<Cont
         close.history.reset();
         close.history_backup.reset();
     });
-    (dialog, controller)
+    (page, controller)
 }
 
 #[cfg(test)]
@@ -606,11 +589,16 @@ mod tests {
             &path,
         )
         .unwrap();
-        let (dialog, controller) = build_dialog(session.clone());
+        let sidebar = crate::sidebar_dialog::SidebarDialog::new(t("settings.title"), "native-crypto-test");
+        let (page, controller) = build(&sidebar.host(), session.clone());
+        sidebar.add("encryption", "channel-secure-symbolic", t("settings.cat.encryption"), &page);
+        // The narrow window collapses the dialog: show the page, not the list.
+        sidebar.select("encryption");
         let window = adw::Window::builder().default_width(520).default_height(540).build();
         window.set_content(Some(&gtk::Box::new(gtk::Orientation::Vertical, 0)));
         window.present();
-        dialog.present(Some(&window));
+        sidebar.present(&window);
+        let dialog = sidebar.dialog().clone();
         controller.render(View {
             stage: Stage::IdentityCreated,
             root_fingerprint: "ab".repeat(32),

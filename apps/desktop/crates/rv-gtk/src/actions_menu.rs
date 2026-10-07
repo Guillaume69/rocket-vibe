@@ -1,12 +1,13 @@
-//! The actions menu of a message: quick reactions, then what the server's
-//! rules allow (rv-core's `possible_actions`), editing in place.
+//! The actions menu of a message: quick reactions (my most used, then any
+//! emoji through the picker), then what the server's rules allow (rv-core's
+//! `possible_actions`), editing in place.
 
 use std::rc::Rc;
 use std::sync::Arc;
 
 use adw::prelude::*;
 use gtk::{gdk, glib};
-use rv_core::actions::{self, Action, ActionContext, QUICK_REACTIONS};
+use rv_core::actions::{self, Action, ActionContext};
 use rv_core::session::Session;
 use rv_core::store::MessageRow;
 use serde_json::Value;
@@ -26,6 +27,8 @@ pub struct Handlers {
     pub thread: Box<dyn Fn(String)>,
     pub edit: Box<dyn Fn(MessageRow)>,
     pub toast: Box<dyn Fn(String)>,
+    /// Reports the message (by id) to the server's administrators.
+    pub report: Box<dyn Fn(String)>,
 }
 
 /// The attachment a Download saves: the original file, not a thumbnail.
@@ -122,26 +125,26 @@ fn menu(
             .filter(|r| r.mine)
             .map(|r| r.shortcode)
             .collect();
-        let quick = gtk::Box::builder().spacing(4).margin_bottom(4).build();
-        for shortcode in QUICK_REACTIONS {
-            let glyph = rv_core::emoji::unicode(shortcode).unwrap_or(shortcode);
-            let is_mine = mine.iter().any(|m| m == shortcode);
-            let button = gtk::Button::builder()
-                .label(glyph)
-                .css_classes(if is_mine { vec!["quick-reaction", "mine"] } else { vec!["quick-reaction"] })
-                .build();
-            let (s, id, p, toast) = (session.clone(), row.id.clone(), popover.clone(), handlers.clone());
-            button.connect_clicked(move |_| {
-                p.popdown();
-                let (s, id, toast) = (s.clone(), id.clone(), toast.clone());
-                glib::spawn_future_local(async move {
-                    if on_tokio(async move { s.react(&id, shortcode, !is_mine).await }).await.is_err() {
-                        (toast.toast)(t("actions.refused").to_owned());
-                    }
-                });
+        let usage = crate::reactions::usage(&session.info.base_url, &session.info.user_id);
+        let (s, id, toast, counts) = (session.clone(), row.id.clone(), handlers.clone(), usage.clone());
+        let react: crate::reactions::React = Rc::new(move |code, add| {
+            if add {
+                counts.record(&code);
+            }
+            // Rocket.Chat takes a standard emoji by one of its own names only.
+            let code = if add { rv_core::emoji::rc_reaction(&code).map(str::to_owned).unwrap_or(code) } else { code };
+            let (s, id, toast) = (s.clone(), id.clone(), toast.clone());
+            glib::spawn_future_local(async move {
+                let shortcode = format!(":{code}:");
+                if on_tokio(async move { s.react(&id, &shortcode, add).await }).await.is_err() {
+                    (toast.toast)(t("actions.refused").to_owned());
+                }
             });
-            quick.append(&button);
-        }
+        });
+        let s = session.clone();
+        let custom: crate::emoji_picker::CustomSource = Rc::new(move || s.custom_emoji_names());
+        let quick =
+            crate::reactions::row(popover, &usage, &mine, Some(custom), crate::reactions::Server::RocketChat, react);
         column.append(&quick);
     }
 
@@ -226,6 +229,13 @@ fn menu(
         };
         column.append(&button);
     }
+    // Anyone may report someone else's message; not a system line.
+    if row.author_id != session.info.user_id && row.system_type.is_none() && row.outbox_status.is_none() {
+        let (h, id) = (handlers.clone(), row.id.clone());
+        let button = run(t("report.action"), Box::new(move || (h.report)(id.clone())));
+        button.add_css_class("report-action");
+        column.append(&button);
+    }
     column.upcast()
 }
 
@@ -235,11 +245,12 @@ pub(super) fn confirm_delete(parent: Option<&gtk::Widget>, delete: impl Fn() + '
         .body(t("actions.delete_body"))
         .default_response("cancel")
         .close_response("cancel")
+        .prefer_wide_layout(true)
         .build();
     dialog.add_responses(&[("cancel", t("actions.cancel")), ("delete", t("actions.delete"))]);
     dialog.set_response_appearance("delete", adw::ResponseAppearance::Destructive);
     dialog.connect_response(Some("delete"), move |_, _| delete());
-    dialog.present(parent);
+    crate::widgets::present(&dialog, parent);
 }
 
 fn download(session: Arc<Session>, file: Option<(String, String)>, handlers: Rc<Handlers>) {

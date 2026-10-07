@@ -96,6 +96,7 @@ pub async fn members(
                 id,
                 username,
                 display_name,
+                ..Default::default()
             },
             role: permissions::role(&role),
             disabled,

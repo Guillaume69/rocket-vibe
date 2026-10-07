@@ -51,6 +51,9 @@ pub struct RestError {
     /// Provider diagnostics, independent of the server's user-facing message.
     pub request_id: Option<String>,
     pub retry_after: Option<u64>,
+    /// The failure's `details`, when the server explains it (`user-last-owner`
+    /// names the rooms).
+    pub details: Option<Value>,
 }
 
 impl RestError {
@@ -64,6 +67,7 @@ impl RestError {
             two_factor: None,
             request_id: None,
             retry_after: None,
+            details: None,
         }
     }
 
@@ -78,6 +82,7 @@ impl RestError {
             two_factor: None,
             request_id: None,
             retry_after: None,
+            details: None,
         }
     }
 }
@@ -386,6 +391,7 @@ fn interpret(path: &str, status: u16, text: &str) -> Result<Value, RestError> {
                 two_factor: None,
                 request_id: None,
                 retry_after: None,
+                details: None,
             });
         }
     };
@@ -421,6 +427,7 @@ fn interpret(path: &str, status: u16, text: &str) -> Result<Value, RestError> {
             two_factor: Some(TwoFactorChallenge { method, methods, code_generated }),
             request_id: None,
             retry_after: None,
+            details: None,
         });
     }
 
@@ -444,6 +451,7 @@ fn interpret(path: &str, status: u16, text: &str) -> Result<Value, RestError> {
             two_factor: None,
             request_id: None,
             retry_after: None,
+            details: json.get("details").cloned(),
         });
     }
     Ok(json)

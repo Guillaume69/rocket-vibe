@@ -35,9 +35,12 @@ Context: [desktop-app.md](desktop-app.md) for the crate layout, [rocket-chat.md]
 | `markdown`, `parse`, `runs` | Message bodies: server `md` tree (or a local parse of the text) to blocks of Pango markup, and to styled runs |
 | `timeline`, `diff` | Author grouping, day separators, "new messages" marker; list refreshes as splices |
 | `rooms` | Room-list sections, unread counts, badge, spotlight results |
-| `actions`, `commands`, `completion`, `compose`, `emoji`, `content` | Message actions and permissions, slash commands, `@`/`:` completion, formatting toolbar, emoji table, attachments and link cards |
+| `actions`, `commands`, `completion`, `compose`, `emoji`, `content` | Message actions and permissions, slash commands, `@`/`:` completion, formatting toolbar, emoji table (with `rc_reaction`, the code Rocket.Chat's `chat.react` accepts for a glyph, from the fourth column of `data/emojis.tsv`), attachments and link cards |
 | `voice` | The `rv-voice` sidecar's controller (`VoiceController`): one process per voice connection, its snapshot and change notifications; see [voice](#voice) |
 | `native/voice.rs` | `NativeSession`'s voice: join, leave, rings, each room's participants and the rings from the live cache; see [voice](#voice) |
+| `emoji_usage` | The emoji I react with most, per account, in a small file on the device (`EmojiUsage::for_account`, one shared instance per file; `record`, which reads the file again before each write and writes through a temporary file of its own name so GTK and SwiftUI merge; `top`, `top_filtered`; `canonical`, `same`); see [../features/emoji.md](../features/emoji.md#quick-reactions-and-reacting-with-any-emoji) |
+| `admin` | Server administration and reports for both providers: the shared model, the Rocket.Chat calls (`rc`), `enum Admin { RocketChat, Native }` with the methods both UIs call, `AdminError` (the server's code, plus the rooms of a Rocket.Chat last owner or the count of a bulk delete), `error_key` (one sentence per code for both UIs), the latest-version check; see [../features/administration.md](../features/administration.md) |
+| `native` | The RocketVibe provider (`NativeSession` over `rv-client`, its own store `native/store.rs`); `native/admin.rs` adds the administration and report methods (`administrator`, `admin_*`, `report_*`), and `native.rs` the deleted-account helpers (`deleted_username`, `shown_username`, `deleted_user`) |
 | `notify`, `links`, `call`, `player`, `info`, `account`, `server`, `update`, `i18n`, `animation` | Notification rules, `rocketvibe://` links, call-origin rule, video embed page, on-demand details, my account, server probe, self-update, the shared catalog (see [i18n.md](i18n.md)), GIF frames |
 
 ## session
@@ -62,7 +65,7 @@ Session death: `RestClient` broadcasts the token it SENT whenever a call fails w
 
 Live routing (`apply_live`): presence, private notes, avatar changes (user etags kept in memory, room etags written to the store; a removal without etag becomes `media::NO_PHOTO`) and typing are handled in the session; everything else goes to `sync.apply_event`. Before that, a `stream-room-messages` event is checked by `incoming()`: not mine, not an edit, not a system message (except `e2e`), not already stored, and wanted by `notify::wanted` (`all`, `nothing`, else DMs and mentions). The resulting `SessionEvent::Incoming` carries no body for an encrypted message.
 
-The rest of `Session` is the UI's API: send/retry/edit/delete/react/pin/star, threads (`load_thread` pages `chat.getThreadMessages` by full pages and fetches the root, which that endpoint never returns), permissions (from `permissions.listAll` and my roles, fetched once), slash commands, room info, profiles, search, spotlight, DMs, calls, avatars, status, E2E lock/unlock, downloads (written through a temporary name, decrypted once whole in an encrypted room).
+The rest of `Session` is the UI's API: send/retry/edit/delete/react/pin/star, threads (`load_thread` pages `chat.getThreadMessages` by full pages and fetches the root, which that endpoint never returns), permissions (from `permissions.listAll` and my roles, fetched once; `Session::roles` gives my global roles from that read, while `admin::Admin::is_admin` reads `me` again each time through `admin::rc::roles`, so a right given or removed shows without a new session), slash commands, room info, profiles, search, spotlight, DMs, calls, avatars, status, E2E lock/unlock, downloads (written through a temporary name, decrypted once whole in an encrypted room).
 
 ## rest
 
@@ -144,7 +147,7 @@ Native voice ([../features/voice.md](../features/voice.md), `docs/protocol/VOICE
 
 ## Tests
 
-Unit tests sit next to the code; integration tests in `crates/rv-core/tests/` (`rest`, `ddp`, `sync`, `outbox`, `uploads`, `actions`) run against fake HTTP and WebSocket servers (`tests/common/mod.rs`). See [testing.md](testing.md).
+Unit tests sit next to the code; integration tests in `crates/rv-core/tests/` (`rest`, `ddp`, `sync`, `outbox`, `uploads`, `actions`, `admin`, `native_admin`, among others) run against fake HTTP and WebSocket servers (`tests/common/mod.rs`). See [testing.md](testing.md).
 
 ## Sources
 
@@ -176,4 +179,11 @@ Unit tests sit next to the code; integration tests in `crates/rv-core/tests/` (`
 - apps/desktop/crates/rv-core/src/native/store.rs
 - apps/desktop/crates/rv-core/src/i18n.rs
 - apps/desktop/crates/rv-voice-protocol/src/lib.rs
+- apps/desktop/crates/rv-core/src/emoji_usage.rs
+- apps/desktop/crates/rv-core/src/emoji.rs
+- apps/desktop/crates/rv-core/data/emojis.tsv
+- apps/desktop/scripts/generate-emojis.mjs
+- apps/desktop/crates/rv-core/src/admin.rs
+- apps/desktop/crates/rv-core/src/native.rs
+- apps/desktop/crates/rv-core/src/native/admin.rs
 - apps/desktop/crates/rv-core/tests/

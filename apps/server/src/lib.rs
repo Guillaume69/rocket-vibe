@@ -1,3 +1,4 @@
+mod admin;
 pub mod auth;
 mod commands;
 pub mod custom_emojis;
@@ -56,6 +57,8 @@ pub struct App {
     /// Advertises the `e2ee` capability: on by default, an operator may turn
     /// native end-to-end encryption off for an instance (`RV_E2EE=false`).
     pub e2ee: bool,
+    /// This process's start, reported by the administration overview.
+    pub(crate) started_at: chrono::DateTime<chrono::Utc>,
     pub(crate) objects: Option<objects::LocalObjects>,
     image_slots: Arc<tokio::sync::Semaphore>,
     file_slots: Arc<tokio::sync::Semaphore>,
@@ -112,6 +115,7 @@ impl App {
             push: None,
             livekit: None,
             e2ee: true,
+            started_at: chrono::Utc::now(),
             objects: None,
             image_slots: Arc::new(tokio::sync::Semaphore::new(2)),
             file_slots: Arc::new(tokio::sync::Semaphore::new(4)),
@@ -197,6 +201,7 @@ impl App {
             "DELETE FROM login_windows WHERE key IN (SELECT key FROM login_windows WHERE expires_at<=now() LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM account_invitations WHERE id IN (SELECT id FROM account_invitations WHERE expires_at<now()-interval '30 days' LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM account_recovery_codes WHERE id IN (SELECT id FROM account_recovery_codes WHERE expires_at<now()-interval '30 days' LIMIT 1000 FOR UPDATE SKIP LOCKED)",
+            "DELETE FROM moderation_commands WHERE (actor_id,operation_id) IN (SELECT actor_id,operation_id FROM moderation_commands WHERE created_at<=clock_timestamp()-interval '7 days' LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM snapshot_heads WHERE id IN (SELECT id FROM snapshot_heads WHERE expires_at<=now() LIMIT 8 FOR UPDATE SKIP LOCKED)",
         ] {
             sqlx::query(query).execute(&self.pool).await?;

@@ -6,7 +6,7 @@ import SwiftUI
 /// once the list carries it.
 struct NewRoomSheet: View {
     @Environment(AppModel.self) var app
-    @Environment(\.dismiss) var dismiss
+    @Environment(\.closeModal) var dismiss
     @State var name = ""
     @State var secret = true
     @State var voice = false
@@ -24,6 +24,7 @@ struct NewRoomSheet: View {
             Form {
                 TextField(L("native.room_name"), text: $name)
                     .onSubmit(create)
+                    .firstModalField()
                 Toggle(L("native.private"), isOn: $secret)
                 if app.voice != nil {
                     Toggle(isOn: $voice) {
@@ -40,7 +41,6 @@ struct NewRoomSheet: View {
                 if busy { ProgressView().controlSize(.small) }
                 Spacer()
                 Button(L("actions.cancel")) { dismiss() }
-                    .keyboardShortcut(.cancelAction)
                 Button(L("native.create"), action: create)
                     .keyboardShortcut(.defaultAction)
                     .disabled(!valid || busy)
@@ -48,7 +48,6 @@ struct NewRoomSheet: View {
             .padding([.horizontal, .bottom], 20)
         }
         .frame(width: 420)
-        .navigationTitle(L("native.create"))
     }
 
     func create() {

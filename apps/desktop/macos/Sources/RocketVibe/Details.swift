@@ -38,7 +38,7 @@ struct PanelView: View {
 }
 
 struct SheetFrame<Content: View>: View {
-    @Environment(\.dismiss) var dismiss
+    @Environment(\.closeModal) var dismiss
     let title: String
     @ViewBuilder let content: Content
 
@@ -49,7 +49,6 @@ struct SheetFrame<Content: View>: View {
                 Spacer()
                 Button { dismiss() } label: { Image(systemName: "xmark") }
                     .buttonStyle(.borderless)
-                    .keyboardShortcut(.cancelAction)
             }
             .padding(14)
             Divider()
@@ -60,7 +59,7 @@ struct SheetFrame<Content: View>: View {
 }
 
 struct RoomInfoView: View {
-    @Environment(\.dismiss) var dismiss
+    @Environment(\.closeModal) var dismiss
     @Environment(AppModel.self) var app
     let model: RoomModel
     @State var details: RoomDetails?
@@ -122,7 +121,7 @@ struct RoomInfoView: View {
 
 struct ProfileView: View {
     @Environment(AppModel.self) var app
-    @Environment(\.dismiss) var dismiss
+    @Environment(\.closeModal) var dismiss
     @Environment(\.openURL) var openURL
     let username: String
     var byId = false
@@ -134,14 +133,16 @@ struct ProfileView: View {
         SheetFrame(title: L("info.profile")) {
             Form {
                 if let p = person,shownAccount==app.sessionId,app.provider?.supportsProfiles==true {
+                    // A RocketVibe account an administrator deleted: its name only.
+                    let deleted = app.deletedAccount(username: p.username)
                     HStack(spacing: 12) {
                         ZStack(alignment: .bottomTrailing) {
-                            Avatar(path: p.avatar, name: p.name ?? p.username, size: 56)
-                            if let presence = p.presence { PresenceDot(presence: presence) }
+                            Avatar(path: p.avatar, name: deleted ? L("user.deleted") : p.name ?? p.username, size: 56)
+                            if let presence = p.presence, !deleted { PresenceDot(presence: presence) }
                         }
                         VStack(alignment: .leading) {
-                            Text(p.name ?? p.username).font(.title3.bold())
-                            Text("@\(p.username)").foregroundStyle(.secondary)
+                            Text(deleted ? L("user.deleted") : p.name ?? p.username).font(.title3.bold())
+                            if !deleted { Text("@\(p.username)").foregroundStyle(.secondary) }
                             if let status = p.statusText, !status.isEmpty { Text(status).italic() }
                         }
                     }
@@ -149,7 +150,7 @@ struct ProfileView: View {
                     if let time = p.localTime { LabeledContent(L("info.local_time"), value: time) }
                     if let bio = p.bio, !bio.isEmpty { LabeledContent(L("info.bio"), value: bio) }
                     if app.native?.cryptoSettingsSupported() == true { PeerIdentitySection(user: p.id) }
-                    if p.id != app.account?.userId {
+                    if p.id != app.account?.userId && !deleted {
                         HStack {
                             Button(L("info.message")) {
                                 dismiss()
@@ -159,6 +160,12 @@ struct ProfileView: View {
                                 dismiss()
                                 Task { await call(p) }
                             }}
+                        }
+                        if app.reportsSupported {
+                            Button(L("report.user")) {
+                                dismiss()
+                                app.startReport(.user(p.id))
+                            }
                         }
                     }
                 } else if failed {
@@ -196,7 +203,7 @@ struct ProfileView: View {
 
 struct SearchView: View {
     @Environment(AppModel.self) var app
-    @Environment(\.dismiss) var dismiss
+    @Environment(\.closeModal) var dismiss
     let model: RoomModel
     @State var query = ""
     @State var hits: [SearchHit] = []
@@ -209,6 +216,7 @@ struct SearchView: View {
         SheetFrame(title: L("search.title")) {
             VStack(spacing: 0) {
                 TextField(L("search.placeholder"), text: $query)
+                    .firstModalField()
                     .onSubmit {requestRevision &+= 1}
                     .textFieldStyle(.roundedBorder)
                     .padding(12)
@@ -262,7 +270,7 @@ struct SearchView: View {
 
 struct MarkedView: View {
     @Environment(AppModel.self) var app
-    @Environment(\.dismiss) var dismiss
+    @Environment(\.closeModal) var dismiss
     let model: RoomModel
     @State var starred = false
     @State var messages: [MessageItem]?
@@ -313,22 +321,27 @@ struct MarkedView: View {
     }
 }
 
-/// The picker's pages, then search by shortcode.
+/// The picker's pages, then search by shortcode. Without `custom` (a
+/// reaction in a private conversation), no server emoji; with `pickable`
+/// (a reaction on Rocket.Chat), only the standard emoji it accepts.
 struct EmojiPicker: View {
     @Environment(AppModel.self) var app
     let pick: (String, String) -> Void
+    var custom = true
+    var pickable: ((String) -> Bool)? = nil
     @State var category = 0
     @State var query = ""
     let categories = emojiCategories()
-    var customs:[String]{_ = app.imagesVersion;return app.chat?.customEmojiNames() ?? app.native?.customEmojiNames() ?? []}
+    var customs:[String]{_ = app.imagesVersion;guard custom else {return []};return app.chat?.customEmojiNames() ?? app.native?.customEmojiNames() ?? []}
 
     var shown: [(String, String)] {
         if query.isEmpty {
             if category==categories.count{return customs.map{(":\($0):", ":\($0):")}}
             let c = categories[category]
-            return Array(zip(c.shortcodes, c.glyphs))
+            return Array(zip(c.shortcodes, c.glyphs)).filter { pickable?($0.0) ?? true }
         }
-        return customs.filter{$0.hasPrefix(query.lowercased())}.map{(":\($0):", ":\($0):")} + completeEmoji(prefix: query, limit: 180).map { (":\($0.shortcode):", $0.glyph) }
+        return customs.filter{$0.hasPrefix(query.lowercased())}.map{(":\($0):", ":\($0):")}
+            + completeEmoji(prefix: query, limit: 180).filter { pickable?($0.shortcode) ?? true }.map { (":\($0.shortcode):", $0.glyph) }
     }
 
     var body: some View {

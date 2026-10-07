@@ -129,11 +129,13 @@ impl RingRow {
                 id: self.caller_id,
                 username: self.caller_username,
                 display_name: self.caller_display_name,
+                ..Default::default()
             },
             callee: User {
                 id: self.callee_id,
                 username: self.callee_username,
                 display_name: self.callee_display_name,
+                ..Default::default()
             },
             expires_in_ms: if state == RingState::Ringing {
                 u32::try_from(self.remaining_ms).unwrap_or(0)

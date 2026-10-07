@@ -1,5 +1,6 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 mod actions_menu;
+mod admin;
 mod attach;
 mod background;
 mod badge;
@@ -31,10 +32,12 @@ mod native_security;
 mod notifier;
 mod player;
 mod rail;
+mod reactions;
 mod recorder;
 mod rows;
 mod secrets;
 mod settings;
+mod sidebar_dialog;
 mod sizer;
 mod smoke;
 mod sounds;

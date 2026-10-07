@@ -85,10 +85,15 @@ struct NativeRoomControls: View {
             }
         }
         .disabled(busy)
-        .confirmationDialog(L("rooms.leave"), isPresented: $leaving) {
-            Button(L("rooms.leave"), role: .destructive) { guard let details else { return }; run { try await model.leaveRoom(revision: details.revision) } }
-            Button(L("actions.cancel"), role: .cancel) {}
-        } message: { Text(L("rooms.leave_body")) }
+        .confirmOverlay(
+            isPresented: $leaving,
+            title: L("rooms.leave"),
+            message: L("rooms.leave_body"),
+            actions: [ModalAction(title: L("rooms.leave"), role: .destructive) {
+                guard let details else { return }
+                run { try await model.leaveRoom(revision: details.revision) }
+            }]
+        )
         .task(id: model.roomOperationRevision) { intention = try? model.roomIntention() }
         .onChange(of: model.supportsRoomManagement) { _, active in
             if !active { task?.cancel(); task = nil; edit = nil; intention = nil; members = nil; editingRevision = ""; leaving = false; busy = false; error = nil }

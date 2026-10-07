@@ -143,7 +143,7 @@ impl ChatPage {
             });
             list.append(&button);
         }
-        dialog.present(Some(&self.split));
+        crate::widgets::present(&dialog, Some(&self.split));
         search.grab_focus();
     }
     async fn accept_transferred_quote(

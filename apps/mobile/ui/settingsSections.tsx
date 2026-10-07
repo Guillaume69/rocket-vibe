@@ -1,36 +1,11 @@
-import { Link, Redirect, Stack, useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
-
-import { getFcmToken } from '../lib/push.ts';
-import type { RestClient } from '../lib/rest.ts';
-import { avatarUrl } from '../lib/upload.ts';
-import { setLanguage, useT, useLanguagePreference } from '../ui/i18n.ts';
-import { useAvatarEtags } from '../ui/identities.tsx';
-import { AvatarTile } from '../ui/kit.tsx';
-import {
-  type TranslationKey,
-  LANGUAGES,
-  LANGUAGE_NAMES,
-  type LanguagePreference,
-  type TranslateFn,
-} from '../ui/messages.ts';
-import { useSession } from '../ui/session.tsx';
-import { useSync } from '../ui/sync.tsx';
-import { useE2EUnlocked } from '../ui/e2e.ts';
-import { type Colors, LIST_PRESS_DELAY, FONTS, useColors } from '../ui/theme.ts';
-import { Tappable } from '../ui/tappable.tsx';
-import {DevicesSection} from '../ui/devices.tsx';
-import {NativeSecuritySection} from '../ui/nativeSecurity.tsx';
-import {EncryptedIdentitySection} from '../ui/encryptedIdentity.tsx';
-import {useNativePreferences} from '../ui/nativePreferences.ts';
-
 /**
- * "Settings" screen: what used to sit at the bottom of the conversation list
- * (account, server, FCM token, logout), plus the push notification
- * preference, the genuinely new part.
+ * The content of the settings categories (`ui/settingsCategories.ts`): the
+ * sections that sat one under the other on the single settings page, moved
+ * here unchanged and grouped by category. `app/settings/index.tsx` lists the
+ * categories, `app/settings/[category].tsx` renders one with
+ * `SettingsCategoryContent`.
  *
- * The preference is GLOBAL to the account (Rocket.Chat's
+ * The push preference is GLOBAL to the account (Rocket.Chat's
  * `settings.preferences.pushNotifications`), not per room: it is the default
  * "when to notify me on this device". Read via `GET me`, written via
  * `POST users.setPreferences` (`{ data: { pushNotifications } }`). The server
@@ -40,6 +15,36 @@ import {useNativePreferences} from '../ui/nativePreferences.ts';
  * misleading.
  */
 
+import Constants from 'expo-constants';
+import { Link, useRouter } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+
+import { readMyProfile } from '../lib/myProfile.ts';
+import { getFcmToken } from '../lib/push.ts';
+import type { RestClient } from '../lib/rest.ts';
+import { avatarUrl } from '../lib/upload.ts';
+import type { NativeChat } from '../providers/rocketvibe/chat.ts';
+import { DevicesSection } from './devices.tsx';
+import { useE2EUnlocked } from './e2e.ts';
+import { EncryptedIdentitySection } from './encryptedIdentity.tsx';
+import { setLanguage, useT, useLanguagePreference } from './i18n.ts';
+import { useAvatarEtags } from './identities.tsx';
+import { AvatarTile } from './kit.tsx';
+import {
+  type TranslationKey,
+  LANGUAGES,
+  LANGUAGE_NAMES,
+  type LanguagePreference,
+  type TranslateFn,
+} from './messages.ts';
+import { NativeSecuritySection } from './nativeSecurity.tsx';
+import { useNativePreferences } from './nativePreferences.ts';
+import type { SettingsCategory } from './settingsCategories.ts';
+import { useSync } from './sync.tsx';
+import { Tappable } from './tappable.tsx';
+import { type Colors, LIST_PRESS_DELAY, FONTS } from './theme.ts';
+
 type PushLevel = 'all' | 'mention' | 'nothing';
 const OPTIONS_PUSH: { value: PushLevel; key: TranslationKey }[] = [
   { value: 'all', key: 'settings.pushAll' },
@@ -47,23 +52,157 @@ const OPTIONS_PUSH: { value: PushLevel; key: TranslationKey }[] = [
   { value: 'nothing', key: 'settings.pushNone' },
 ];
 
-export default function SettingsScreen() {
-  const c = useColors();
-  const { state } = useSession();
-  // Reached from the logged-in home; as a safeguard, a logged-out state
-  // (logout in progress) sends back to login rather than crashing on `client`.
-  if (state.phase !== 'connected') return <Redirect href="/login" />;
+/** What a category page needs of the session. */
+export type SettingsAccount = {
+  client: RestClient;
+  username: string;
+  baseUrl: string;
+};
+
+/** The server as a person reads it: no scheme, no trailing slash. */
+export function serverLabel(baseUrl: string): string {
+  return baseUrl.replace(/^[a-z]+:\/\//i, '').replace(/\/+$/, '');
+}
+
+/** The current server's native chat, once the session is ready. */
+function useNativeChat(): NativeChat | null {
+  const sync = useSync();
+  return sync.phase === 'ready' ? (sync.provider.native?.chat ?? null) : null;
+}
+
+/**
+ * My display name, for the profile card; `null` while unknown or when the
+ * server has none (the card then shows the username alone). Rocket.Chat reads
+ * `GET me`, the native provider my own profile when it offers profiles.
+ */
+export function useMyName(client: RestClient): string | null {
+  const chat = useNativeChat();
+  const [name, setName] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const read =
+      client.kind === 'rocketvibe'
+        ? chat?.capabilities?.profiles
+          ? chat.ownProfile().then((own) => own.profile.user.display_name ?? null)
+          : Promise.resolve(null)
+        : readMyProfile(client).then((p) => p.name);
+    read
+      .then((n) => {
+        if (alive) setName(n?.trim() || null);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [client, chat]);
+  return name;
+}
+
+/**
+ * My avatar, name, `@username · server`, and a chevron: the head of the
+ * settings list (opens My account) and the card of My account (opens the
+ * profile editor, `link` then says so).
+ */
+export function ProfileCard({
+  c,
+  account,
+  name,
+  link,
+  disabled = false,
+  onPress,
+}: {
+  c: Colors;
+  account: SettingsAccount;
+  name: string | null;
+  link?: string;
+  disabled?: boolean;
+  onPress: () => void;
+}) {
+  // Version of MY photo: without it, the profile card would keep the old
+  // image even after changing it in "My profile" (frozen image cache).
+  const etags = useAvatarEtags();
+  const { client, username, baseUrl } = account;
   return (
-    <Settings
-      c={c}
-      client={state.client}
-      username={state.session.username}
-      baseUrl={state.session.baseUrl}
-    />
+    <Tappable
+      disabled={disabled}
+      onPress={onPress}
+      android_ripple={{ color: c.ripple }}
+      unstable_pressDelay={LIST_PRESS_DELAY}
+      accessibilityRole="button"
+      accessibilityLabel={link ?? name ?? `@${username}`}
+      style={({ pressed }) => [
+        styles.profileCard,
+        { backgroundColor: c.deepCard, borderColor: c.border, opacity: pressed ? 0.7 : 1 },
+      ]}
+    >
+      <AvatarTile
+        c={c}
+        hueKey={username}
+        initial={(name ?? username).charAt(0)}
+        uri={avatarUrl(client, { username, etag: etags.byUsername.get(username) })}
+      />
+      <View style={styles.profileTexts}>
+        <Text style={[styles.profileName, { color: c.text }]} numberOfLines={1}>
+          {name ?? `@${username}`}
+        </Text>
+        <Text style={[styles.profileSub, { color: c.dimmed }]} numberOfLines={1}>
+          {name !== null ? `@${username} · ` : ''}
+          {serverLabel(baseUrl)}
+        </Text>
+        {link !== undefined && <Text style={[styles.profileLink, { color: c.cyan }]}>{link}</Text>}
+      </View>
+      <Text style={[styles.chevron, { color: c.dimmed }]}>›</Text>
+    </Tappable>
   );
 }
 
-type MeResponse = { settings?: { preferences?: { pushNotifications?: string } } };
+/** The body of one category page. */
+export function SettingsCategoryContent({
+  c,
+  category,
+  account,
+}: {
+  c: Colors;
+  category: SettingsCategory;
+  account: SettingsAccount;
+}) {
+  switch (category) {
+    case 'account':
+      return <AccountCategory c={c} account={account} />;
+    case 'notifications':
+      return <NotificationsCategory c={c} client={account.client} />;
+    case 'language':
+      return <LanguageCategory c={c} client={account.client} />;
+    case 'encryption':
+      return account.client.kind === 'rocketvibe' ? <EncryptedIdentitySection c={c} /> : <SectionE2E c={c} />;
+    case 'security':
+      return <NativeSecuritySection c={c} />;
+    case 'devices':
+      return <DevicesSection c={c} />;
+    case 'accounts':
+      return <AccountsCategory c={c} account={account} />;
+    case 'app':
+      return <AppCategory c={c} client={account.client} />;
+  }
+}
+
+/** My account: the profile card, opening the profile editor (presence and status text live there). */
+function AccountCategory({ c, account }: { c: Colors; account: SettingsAccount }) {
+  const t = useT();
+  const router = useRouter();
+  const sync = useSync();
+  const name = useMyName(account.client);
+  return (
+    <ProfileCard
+      c={c}
+      account={account}
+      name={name}
+      link={t('settings.editProfile')}
+      disabled={account.client.kind === 'rocketvibe' && (sync.phase !== 'ready' || !sync.provider.native?.chat.capabilities?.profiles)}
+      onPress={() => router.push('/my-profile')}
+    />
+  );
+}
 
 /**
  * Reads and writes the push preference. `value === null` = still reading.
@@ -126,131 +265,78 @@ function usePreferencePush(client: RestClient,natives:ReturnType<typeof useNativ
     disabled:client.kind==='rocketvibe'&&(natives.busy||natives.intention!==null),set };
 }
 
-function Settings({
-  c,
-  client,
-  username,
-  baseUrl,
-}: {
-  c: Colors;
-  client: RestClient;
-  username: string;
-  baseUrl: string;
-}) {
-  const router = useRouter();
-  const t = useT();
-  const { logOut } = useSession();
+type MeResponse = { settings?: { preferences?: { pushNotifications?: string } } };
+
+/** The native preferences (push, language) of the current server, with their pending intent. */
+function useNatives() {
   const sync=useSync();
   const chat=sync.phase==='ready'?sync.provider.native?.chat:null;
-  const natives=useNativePreferences(chat,sync.phase==='ready'?sync.generation:0);
+  return useNativePreferences(chat,sync.phase==='ready'?sync.generation:0);
+}
+
+function NotificationsCategory({ c, client }: { c: Colors; client: RestClient }) {
+  const t = useT();
+  const natives = useNatives();
   const push = usePreferencePush(client,natives);
-  const [logout, setLogout] = useState(false);
-  // Version of MY photo: without it, the profile card would keep the old
-  // image even after changing it in "My profile" (frozen image cache).
-  const etags = useAvatarEtags();
-
-  const handleLogOut = useCallback(() => {
-    if (logout) return;
-    setLogout(true);
-    // `logOut` switches the session to "disconnected" synchronously (before
-    // its first await): home, revealed by the back, then redirects to /login.
-    // The network logout finishes best-effort in the background.
-    void logOut();
-    router.back();
-  }, [logout, logOut, router]);
-
   return (
-    <ScrollView
-      style={{ backgroundColor: c.background }}
-      contentContainerStyle={styles.content}
-      keyboardShouldPersistTaps="handled"
-    >
-      <Stack.Screen options={{ title: t('settings.title') }} />
+    <View style={[styles.card, { backgroundColor: c.deepCard, borderColor: c.border }]}>
+      <Text style={[styles.settingTitle, { color: c.text }]}>{t('settings.push')}</Text>
+      <Text style={[styles.settingHelp, { color: c.dimmed }]}>{t('settings.pushHelp')}</Text>
+      <NotificationChoice c={c} push={push} />
+      {push.error !== null && (
+        <Text style={[styles.error, { color: c.errorText }]}>{t(push.error)}</Text>
+      )}
+    </View>
+  );
+}
 
-      <Tappable
-        disabled={client.kind==='rocketvibe'&&(sync.phase!=='ready'||!sync.provider.native?.chat.capabilities?.profiles)}
-        onPress={() => router.push('/my-profile')}
-        android_ripple={{ color: c.ripple }}
-        unstable_pressDelay={LIST_PRESS_DELAY}
-        accessibilityRole="button"
-        accessibilityLabel={t('settings.editProfile')}
-        style={({ pressed }) => [
-          styles.profileCard,
-          { backgroundColor: c.deepCard, borderColor: c.border, opacity: pressed ? 0.7 : 1 },
-        ]}
-      >
-        <AvatarTile
-          c={c}
-          hueKey={username}
-          initial={username.charAt(0)}
-          uri={avatarUrl(client, { username, etag: etags.byUsername.get(username) })}
-        />
-        <View style={styles.profileTexts}>
-          <Text style={[styles.profileName, { color: c.text }]} numberOfLines={1}>
-            @{username}
-          </Text>
-          <Text style={[styles.profileLink, { color: c.cyan }]}>{t('settings.editProfile')}</Text>
-        </View>
-        <Text style={[styles.chevron, { color: c.dimmed }]}>›</Text>
-      </Tappable>
-
-      {(client.kind !== 'rocketvibe'||sync.phase==='ready'&&sync.capabilities.push) && <>
-      <Text style={[styles.sectionTitle, { color: c.dimmed }]}>{t('settings.sectionNotifications')}</Text>
-      <View style={[styles.card, { backgroundColor: c.deepCard, borderColor: c.border }]}>
-        <Text style={[styles.settingTitle, { color: c.text }]}>{t('settings.push')}</Text>
-        <Text style={[styles.settingHelp, { color: c.dimmed }]}>{t('settings.pushHelp')}</Text>
-        <NotificationChoice c={c} push={push} />
-        {push.error !== null && (
-          <Text style={[styles.error, { color: c.errorText }]}>{t(push.error)}</Text>
-        )}
-      </View>
+function LanguageCategory({ c, client }: { c: Colors; client: RestClient }) {
+  const t = useT();
+  const natives = useNatives();
+  return (
+    <View style={[styles.card, { backgroundColor: c.deepCard, borderColor: c.border }]}>
+      <Text style={[styles.settingHelp, { color: c.dimmed }]}>{t('settings.languageHelp')}</Text>
+      <LanguagePicker c={c} t={t} natives={client.kind==='rocketvibe'?natives:undefined} />
+      {client.kind==='rocketvibe'&&natives.error&&<Text style={[styles.error,{color:c.errorText}]}>{t('native.error')}</Text>}
+      {client.kind==='rocketvibe'&&natives.intention&&<>
+        <Text style={[styles.settingHelp,{color:c.dimmed}]}>{t(natives.intention.phase==='failed'?'native.profileRefused':'native.pending')}</Text>
+        <Tappable disabled={natives.busy} onPress={()=>void(natives.intention?.phase==='failed'?natives.discard():natives.resume())}>
+          <Text style={[styles.action,{color:c.cyan}]}>{t(natives.intention.phase==='failed'?'common.cancel':'common.retry')}</Text>
+        </Tappable>
       </>}
+    </View>
+  );
+}
 
-      <Text style={[styles.sectionTitle, { color: c.dimmed }]}>{t('settings.sectionLanguage')}</Text>
+/** Accounts: who is signed in, on which server, and the way to another server. */
+function AccountsCategory({ c, account }: { c: Colors; account: SettingsAccount }) {
+  const t = useT();
+  return (
+    <>
       <View style={[styles.card, { backgroundColor: c.deepCard, borderColor: c.border }]}>
-        <Text style={[styles.settingHelp, { color: c.dimmed }]}>{t('settings.languageHelp')}</Text>
-        <LanguagePicker c={c} t={t} natives={client.kind==='rocketvibe'?natives:undefined} />
-        {client.kind==='rocketvibe'&&natives.error&&<Text style={[styles.error,{color:c.errorText}]}>{t('native.error')}</Text>}
-        {client.kind==='rocketvibe'&&natives.intention&&<>
-          <Text style={[styles.settingHelp,{color:c.dimmed}]}>{t(natives.intention.phase==='failed'?'native.profileRefused':'native.pending')}</Text>
-          <Tappable disabled={natives.busy} onPress={()=>void(natives.intention?.phase==='failed'?natives.discard():natives.resume())}>
-            <Text style={[styles.action,{color:c.cyan}]}>{t(natives.intention.phase==='failed'?'common.cancel':'common.retry')}</Text>
-          </Tappable>
-        </>}
+        <Pair c={c} label={t('settings.signedIn')} value={`@${account.username}`} />
+        <Pair c={c} label={t('settings.server')} value={account.baseUrl} />
       </View>
+      <Link href="/login?change=1" style={[styles.link, { color: c.cyan }]}>
+        {t('settings.switchServer')}
+      </Link>
+    </>
+  );
+}
 
-      {client.kind !== 'rocketvibe' && <SectionE2E c={c} t={t} />}
-
-      {client.kind === 'rocketvibe' && <><NativeSecuritySection c={c}/><DevicesSection c={c}/><EncryptedIdentitySection c={c}/></>}
-
-      <Text style={[styles.sectionTitle, { color: c.dimmed }]}>{t('settings.sectionAccount')}</Text>
+/** App: the version, and the push diagnostics on Rocket.Chat. */
+function AppCategory({ c, client }: { c: Colors; client: RestClient }) {
+  const t = useT();
+  return (
+    <>
       <View style={[styles.card, { backgroundColor: c.deepCard, borderColor: c.border }]}>
-        <Pair c={c} label={t('settings.signedIn')} value={`@${username}`} />
-        <Pair c={c} label={t('settings.server')} value={baseUrl} />
+        <Pair c={c} label={t('settings.version')} value={Constants.expoConfig?.version ?? '?'} />
       </View>
-
       {client.kind !== 'rocketvibe' && <>
         <Text style={[styles.sectionTitle, { color: c.dimmed }]}>{t('settings.sectionDiagnostics')}</Text>
         <FcmTokenSection c={c} t={t} />
       </>}
-
-      <Link href="/login?change=1" style={[styles.link, { color: c.cyan }]}>
-        {t('settings.switchServer')}
-      </Link>
-
-      <Tappable
-        onPress={handleLogOut}
-        disabled={logout}
-        android_ripple={{ color: c.ripple }}
-        unstable_pressDelay={LIST_PRESS_DELAY}
-        style={({ pressed }) => [
-          styles.button,
-          { backgroundColor: c.errorCard, opacity: pressed || logout ? 0.6 : 1 },
-        ]}
-      >
-        <Text style={[styles.secondaryButtonText, { color: c.errorText }]}>{t('settings.signOut')}</Text>
-      </Tappable>
-    </ScrollView>
+    </>
   );
 }
 
@@ -411,7 +497,8 @@ function FcmTokenSection({ c, t }: { c: Colors; t: TranslateFn }) {
  * opens the unlock sheet; unlocked, a button forgets the key (re-masks the
  * local plaintext).
  */
-function SectionE2E({ c, t }: { c: Colors; t: TranslateFn }) {
+function SectionE2E({ c }: { c: Colors }) {
+  const t = useT();
   const router = useRouter();
   const sync = useSync();
   const e2e = sync.phase === 'ready' ? sync.e2e : null;
@@ -474,7 +561,7 @@ function Pair({ c, label, value }: { c: Colors; label: string; value: string }) 
   );
 }
 
-const styles = StyleSheet.create({
+export const styles = StyleSheet.create({
   content: { padding: 20, gap: 12, paddingBottom: 40 },
   profileCard: {
     flexDirection: 'row',
@@ -486,6 +573,7 @@ const styles = StyleSheet.create({
   },
   profileTexts: { flex: 1, gap: 2 },
   profileName: { fontFamily: FONTS.title, fontSize: 17 },
+  profileSub: { fontFamily: FONTS.body, fontSize: 13 },
   profileLink: { fontFamily: FONTS.bodyBold, fontSize: 13 },
   chevron: { fontFamily: FONTS.title, fontSize: 24 },
   sectionTitle: {
@@ -532,12 +620,4 @@ const styles = StyleSheet.create({
   action: { fontFamily: FONTS.bodyBold, fontSize: 13 },
   help: { fontFamily: FONTS.body, fontSize: 12, opacity: 0.9 },
   link: { fontFamily: FONTS.bodyBold, fontSize: 15, paddingVertical: 12, textAlign: 'center' },
-  button: {
-    borderRadius: 14,
-    paddingVertical: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 50,
-  },
-  secondaryButtonText: { fontFamily: FONTS.bodyBold, fontSize: 16 },
 });

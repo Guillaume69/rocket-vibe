@@ -107,12 +107,12 @@ async fn run(window: Rc<AppWindow>, phase: &str) {
     let session = window.chat.native_session().unwrap();
     check("GTK OTP connects the expected native account", session.info.username == "gtk-email", 0);
     let initial_token = session.credential_info().auth_token;
-    crate::settings::open_native(window.chat.widget(), session.clone(), None, || {});
+    let settings = crate::settings::open_native(window.chat.widget(), session.clone(), None, || {});
     let root = window.window.upcast_ref::<gtk::Widget>();
-    if !until(|| find_by_class(root, "native-security-open").is_some()).await {
+    if !until(|| find_by_class(root, "sidebar-category-security").is_some()).await {
         return;
     }
-    activate(root, "native-security-open");
+    settings.select("security");
     if !idle(root).await {
         return;
     }
@@ -172,8 +172,7 @@ async fn run(window: Rc<AppWindow>, phase: &str) {
         session.credential_info().auth_token == initial_token,
         0,
     );
-    let dialog = find_by_class(root, "native-security-dialog").and_downcast::<adw::PreferencesDialog>().unwrap();
-    dialog.close();
+    settings.dialog().close();
     check("closing OTP settings clears the input", field.text().is_empty(), 0);
     println!("smoke: GTK email OTP login and proof across three keyring processes completed");
 }

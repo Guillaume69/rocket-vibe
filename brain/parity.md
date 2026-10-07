@@ -46,6 +46,7 @@ beta does.
 | Presence dot on DMs (`users.presence`, `user-status`) | done | done | done | |
 | System and video-call messages translated in previews | done | done | done | |
 | New conversation: `spotlight`, open a DM (`im.create`), join a channel (`channels.join`) | done | done | done | |
+| Rocket.Chat: create a channel or a private group (`channels.create`, `groups.create`) | missing | missing | missing | On a RocketVibe server the apps create rooms; on Rocket.Chat none does. Set aside by the user on 2026-10-07. |
 | Unread total on the app | done | done | done | Mobile: launcher badge; GTK: window title, Windows tray, macOS Dock; SwiftUI: Dock. |
 
 ## 3. Room view - [room-view](features/room-view.md), [media-playback](features/media-playback.md), [avatars](features/avatars.md), [emoji](features/emoji.md)
@@ -69,7 +70,7 @@ beta does.
 | Mentions open the profile | done | done | done | |
 | Link previews from `message.urls` | done | done | done | |
 | YouTube / Dailymotion / Vimeo cards | mapped | done | done | Desktop plays in the card; mobile opens the app or the browser. |
-| Video and audio attachments, voice messages (player) | done | done | done | SwiftUI plays them in a sheet, GTK in place. |
+| Video and audio attachments, voice messages (player) | done | done | done | SwiftUI plays them in a modal overlay, GTK in place. |
 | Other files: download, open | done | done | done | |
 | Quotes as cards (nested up to 2) | done | done | done | |
 | System messages, the full translated set | done | done | done | |
@@ -110,7 +111,9 @@ beta does.
 
 | Feature | Mobile | GTK | SwiftUI | Notes |
 |---|---|---|---|---|
-| Quick reactions and removing mine | done | done | done | Only the six quick ones from the menu, everywhere. |
+| Quick reactions and removing mine | done | done | done | The 5 emoji this account reacts with most, counted on the device (every reaction added, from the menu, the picker or a chip), filled with `+1 heart joy tada open_mouth pray`; aliases count as one emoji ([emoji](features/emoji.md#quick-reactions-and-reacting-with-any-emoji)). Mobile counts in the account's SQLite; GTK and SwiftUI share one file per account. |
+| React with any emoji (picker from the menu, the server's custom emoji included) | done | done | done | Mobile: "+" swaps the sheet's actions for the picker grid; GTK: "+" opens the picker in a popover; SwiftUI: "React with another emoji…" opens it in a popover on the row. Private RocketVibe conversations: standard emoji only. On Rocket.Chat, which accepts only its own emoji codes in `chat.react`, all three send an accepted alias and hide the glyphs it has no code for, from the picker and the quick row ([emoji](features/emoji.md#quick-reactions-and-reacting-with-any-emoji)). |
+| Report a message to the administrators (`chat.reportMessage`, RocketVibe `reports`) | done | done | done | Someone else's non-system message, never a private conversation; a required reason of at most 1,000 characters ([administration](features/administration.md)). SwiftUI checked by the Linux build of RocketVibeKit and the macOS CI build only. |
 | Reply (quote), reply in thread | done | done | done | |
 | Copy text | done | done | done | |
 | Share an attachment | done | mapped | mapped | Desktop: download or open. |
@@ -147,16 +150,20 @@ beta does.
 | My profile: avatar, status, name, bio, email and username (with password and 2FA) | done | done | done | |
 | Remove my photo (`users.resetAvatar`) | missing | done | done | |
 | Live avatar changes (`updateAvatar`) | done | done | done | |
+| Report a user from the profile (`moderation.reportUser`, RocketVibe `reports`) | done | done | done | Not on my own profile ([administration](features/administration.md)). SwiftUI checked by the Linux build of RocketVibeKit and the macOS CI build only. |
 | Room members, room settings, roles | missing | missing | missing | |
 
 ## 9. Settings - [settings](features/settings.md)
 
 | Feature | Mobile | GTK | SwiftUI | Notes |
 |---|---|---|---|---|
+| Settings in categories (account, notifications, language, voice, encryption, security, devices, accounts, app), each shown only with content, Sign out under them | done | done | done | Mobile: a list of full pages (`app/settings/`); GTK: a sidebar dialog of 85 % of the window closed by Escape, its close button or a backdrop click; SwiftUI: an overlay of the window with the same closings, opened by Command-comma and the gear ([settings](features/settings.md)). Voice only on desktop, for a RocketVibe account with voice (the sidecar's devices and noise remover); mobile has no voice settings. |
+| A click or tap outside a modal (dialog, alert, confirmation, sheet, overlay) closes it like Cancel, never running its action | done | done | done | Mobile: every `Alert` through `ui/alerts.ts#dismissible`, sheets dismissed by a tap outside. GTK: every dialog and alert through `widgets::present`. SwiftUI: every modal is an overlay of the window (`Modals.swift`). The platforms' own file choosers keep their behaviour (GTK's `FileDialog`, macOS's `NSOpenPanel`). An incoming call is ignored that way, not declined. SwiftUI checked by the Linux build of RocketVibeKit and the macOS CI build only. |
 | Profile card, notification preference, language, E2EE status, account, server | done | done | done | Mobile edits `pushNotifications`, desktop `desktopNotifications`. |
 | French and English, automatic by default | done | done | done | Live on mobile, after a restart on desktop. |
 | Accounts list in settings | n/a | done | done | Mobile: one account per server. |
-| Notification check | mapped | done | missing | Mobile: FCM diagnostic; GTK: backend description and test notification. |
+| Notification check | mapped | done | partial | Mobile: FCM diagnostic; GTK: backend description and test notification; SwiftUI: test notification and a link to the system settings, no backend description. |
+| App version in settings | done | done | done | The App category (mobile `expoConfig.version`, GTK `CARGO_PKG_VERSION`, SwiftUI the bundle's short version). |
 | Logs folder | missing | done | missing | |
 | New versions | n/a | done | missing | Mobile goes through the store or the APK; GTK checks GitHub releases ([desktop-updates](features/desktop-updates.md)). |
 
@@ -207,9 +214,9 @@ beta does.
 | Who speaks told from the sound itself, a whisper included | done | done | done | GTK: the sidecar reads its microphone (RNNoise's voice probability) and every remote track. Android: its microphone the same way, remote tracks through sinks, LiveKit's active speakers kept as a fallback. SwiftUI: the same sidecar. |
 | "Voice connected" panel: mute, deafen, leave | done | done | done | Mobile adds the speaker route; the ongoing call notification also mutes and leaves. |
 | Call from any room's header (joins its voice) | done | done | done | GTK: also a profile's Call, which opens the DM and rings. |
-| Direct call rings the other member, accept or decline, original ringtone | done | done | done | Mobile: in-app ring, full-screen ring from a push even locked. GTK: a dialog while the app runs (kept running in the tray or dock on Windows and macOS), no push. SwiftUI: an alert while the app runs, the dock bouncing when it is behind, no push. |
+| Direct call rings the other member, accept or decline, original ringtone | done | done | done | Mobile: in-app ring, full-screen ring from a push even locked. GTK: a dialog while the app runs (kept running in the tray or dock on Windows and macOS), no push. SwiftUI: an alert while the app runs, the dock bouncing when it is behind, no push. A click or tap outside the incoming prompt, Escape or Back ignores the call (prompt hidden, ringtone stopped, not declined) in all three. |
 | Call rows show the outcome (missed, declined, duration) and call back | done | done | done | Both also preview the outcome in the room list. |
-| Create a voice channel | done | done | done | Mobile gained "Create a room" with it; SwiftUI too (a sheet from the list's "+" button: name, private, voice channel). |
+| Create a voice channel | done | done | done | Mobile gained "Create a room" with it; SwiftUI too (a modal overlay from the list's "+" button: name, private, voice channel). |
 | Turn a room into a voice channel or back (room settings, owners) | done | done | done | All three send `UpdateRoom.voice` only when the server announces voice, and show the switch to an owner of a room that is not direct. Mobile: in the room information's edit form. |
 | Choose the microphone and speakers | mapped | done | done | Mobile: the call menu's output (earpiece, speaker, wired, Bluetooth), the microphone following it, meets the phone's need. GTK: in the call menu and the settings' "Voice" group, kept per machine. SwiftUI: the call menu and the settings' Voice section, the same files as GTK. |
 | Call menu beside the microphone: devices, input and output volume, input level, noise remover, deafen | done | done | done | Mobile: a native sheet (`app/voice/menu.tsx`), with the screen share's quality; GTK: a popover, with the way to the voice settings. SwiftUI: a popover, as GTK. |
@@ -240,6 +247,16 @@ beta does.
 | `chat.syncMessages` catch-up of edits and deletions | done | partial | partial | Desktop catches a room up once per session: a deletion in a room already caught up while another was open stays visible until it is caught up again. |
 | Message retention (500 newest per room) | done | missing | missing | |
 
+## 15. Server administration - [administration](features/administration.md)
+
+| Feature | Mobile | GTK | SwiftUI | Notes |
+|---|---|---|---|---|
+| Server administration for an administrator only: Dashboard (deployment, latest published version, users, rooms, messages, uploads, open reports; on Rocket.Chat the dated cached figures, refreshed on demand) | done | done | done | Rocket.Chat: `me.roles` has `admin`; RocketVibe: `administration` capability and `manage_accounts` or `manage_instance`. Entry: a link under the settings and the open server's rail menu (mobile long press, GTK right click or long press, SwiftUI context menu). SwiftUI checked by the Linux build of RocketVibeKit and the macOS CI build only. |
+| Moderation: reported messages and accounts, reasons, dismiss, delete the message, deactivate the author or account | done | done | done | Rocket.Chat reasons read lazily per item; RocketVibe gives up to 20 with the list. Rocket.Chat: each message's own count from `moderation.reports`; a message the admin cannot reach is deleted only through the explicit bulk delete of the author's reported messages. The open Rocket.Chat message report count is the sum of the per-author counts of the first 100 authors everywhere. SwiftUI checked by the Linux build of RocketVibeKit and the macOS CI build only. |
+| Rooms list: every room, direct conversations, discussions and teams included, searched by the server | done | done | done | Read only: kind, counts, creation, read-only and encrypted marks; no last-message date on Rocket.Chat. SwiftUI checked by the Linux build of RocketVibeKit and the macOS CI build only. |
+| Users list with actions: admin right, activation, deletion (confirmed); none on my own account | done | done | done | Bot badge on Rocket.Chat. RocketVibe deletion keeps the messages under "Deleted user"; Rocket.Chat follows its erasure setting and also deletes the person's direct conversations; a last owner of rooms gets a second confirmation naming the rooms deleted and those whose owner changes. SwiftUI checked by the Linux build of RocketVibeKit and the macOS CI build only. |
+| Deleted RocketVibe account shown as "Deleted user" (author, reactions, quotes, notifications) | partial | partial | partial | All three: messages ingested before the deletion keep the old name until the server sends them again, names the server computes (DM names) keep it, and private (E2EE) conversations do not apply it (desktop shows the author's raw id, mobile the username its `users` table knows). Mobile covers authors and quote authors; GTK and SwiftUI get authors, reactions, quotes and notifications from rv-core's native projection, plus the admin lists; SwiftUI's profile of a deleted account reads "Deleted user". |
+
 ## Open debt
 
 What each app owes, from the tables above. Rows missing in all three are product
@@ -252,8 +269,11 @@ gaps, listed last.
   unlocked; DM avatar versions in the list; video reduction; reconciliation snapshot; catch-up of
   deletions in rooms already caught up; message retention.
 - **SwiftUI**: everything GTK owes, plus `-wal` / `-shm` cleanup on sign-out;
-  formatting toolbar; list continuation; notification check; logs folder; new
-  versions; running with the window closed and starting at login; meeting
-  information.
+  formatting toolbar; list continuation; notification backend description; logs
+  folder; new versions; running with the window closed and starting at login;
+  meeting information.
 - **All three**: thread list, following and "also send to the room"; search across
-  rooms; room members, settings and roles; creating an encrypted room.
+  rooms; room members, settings and roles; creating an encrypted room; creating a
+  channel or private group on Rocket.Chat; "Deleted
+  user" on messages ingested before the deletion, on server-computed names and in
+  private conversations.

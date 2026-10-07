@@ -28,6 +28,7 @@ import type { OutboxEncryptor, OutboxStore } from '../../lib/outbox.ts';
 import type { UploadEncryption, UploadStore } from '../../lib/uploadQueue.ts';
 import type { TransportUpload } from '../../lib/upload.ts';
 import { ActionsRC } from './actions.ts';
+import { AdminRC, rcReports } from './admin.ts';
 import { fetchMessage, HISTORY_PAGE, historyRange, loadThread, loadHistory } from './history.ts';
 import { AVATAR_EVENT, RcTranslator } from './translator.ts';
 
@@ -48,6 +49,9 @@ export function createRcProvider(
     identity:{kind:'rocketchat',origin:session.baseUrl,accountId:session.userId,instanceId:null,generation:null},
     describeError:describeProviderError,
     capabilities: ROCKETCHAT_CAPABILITIES,
+    // Offered to everyone; `isAdmin` (`me.roles`) decides who sees it.
+    admin: new AdminRC(client),
+    reports: rcReports(client),
     readProfile:async target=>(await client.get<{user?:Record<string,unknown>}>('users.info',{params:target.uid?{userId:target.uid}:{username:target.username}})).user,
     searchMessages:async(rid,text)=>{
       const r=await client.get<{messages?:Record<string,unknown>[]}>('chat.search',{params:{roomId:rid,searchText:text,count:50}});

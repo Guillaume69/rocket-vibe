@@ -95,7 +95,10 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
   list ("Voice connected", mute, deafen, leave), `useJoinVoice` (asks the microphone,
   Bluetooth and notification permissions at the first join, opens the voice screen),
   `VoiceRingHost` mounted once in `_layout` (incoming ring modal with the ringtone, feeds
-  outgoing rings to the controller, says why a session ended). A voice channel shows 🔊 and
+  outgoing rings to the controller, says why a session ended). A tap outside the incoming
+  ring's card or Back IGNORES the call: the prompt hides and the ringtone stops, but nothing
+  is sent, so the caller hears it ring until it times out as a missed call; Decline stays an
+  explicit button. The voice alerts are dismissible (`ui/alerts.ts`). A voice channel shows 🔊 and
   joins on tap (`app/index.tsx`); the room header's 📞 joins the room's voice and rings in a
   DM (`ui/roomHeader.tsx`). `app/voice/[rid].tsx` is the call screen: a tile per person
   sharing all the screen (`lib/voiceGrid.ts`: the cells that hold the largest picture
@@ -244,12 +247,14 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
   speak, "Open the chat", Join, controls); the "Voice connected" panel above the account bar
   (mute, deafen, leave, a click opens the page). The header's call button joins the open room's
   voice and rings in a DM nobody is in yet; a profile's Call opens the DM and rings. An incoming
-  ring opens an Accept / Decline dialog over the ringtone (the window is presented if hidden),
+  ring opens an Accept / Decline dialog over the ringtone (the window is presented if hidden);
+  Escape or a click outside answers its close response `ignore` (`chat_voice.rs`): the dialog
+  and the ringtone stop, the call is not declined,
   the caller hears the ringback, cues mark join, leave, mute and a missed call (`sounds.rs`
   plays `assets/sounds` through GStreamer). Call rows show the outcome (missed in red) with
   Join while the call goes on or Call back once it ended (rings in a DM), and the room list
   previews the outcome. Toasts say why a session ended (another device took it, removed,
-  interrupted). Settings gain a "Voice" group (shown when the sidecar ships) choosing the
+  interrupted). Settings gain a "Voice" category, after Language (shown when the sidecar ships), choosing the
   microphone and speakers, kept in the config dir (`voice-input`, `voice-output`) and handed to
   each session's controller (`settings/voice.rs`). The create-room dialog has a "Voice channel"
   switch, and an owner edits it in the room settings when the server announces voice
@@ -258,7 +263,7 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
   someone shares, the stage fills the page and the people go in a narrow column at its right.
   Each video view is a `gtk::Picture` polling `frame()` 25 times a second while mapped, a
   `gdk::MemoryTexture` per new frame (`video_view`, `video_box`). Toasts say when there is
-  no camera or the screen could not be shared. On Windows the settings' "Voice" group has
+  no camera or the screen could not be shared. On Windows the settings' "Voice" category has
   "Include the call in a shared screen's sound" (`voice-share-call` in the config dir) and
   the noise remover. As in Discord: the people are tiles sharing the page at 16:9
   (`tile_grid.rs`, a widget arranging its children), a camera filling its tile, the name in a
@@ -291,8 +296,10 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
   stage full screen in its own window, the "Voice connected" panel above the account bar,
   the menu beside the microphone (devices, volumes, live level, noise remover, deafen,
   settings), the share picker (screens and windows with thumbnails, resolution, frame
-  rate), the header's call button, the call rows' Join or Call back, an alert to accept or
-  decline a ring, a "Voice" section in the settings, and room creation (`NewRoom.swift`, from
+  rate), the header's call button, the call rows' Join or Call back, the incoming call card
+  (`IncomingCall`, a modal overlay: Accept or Decline, while a click outside or Escape
+  ignores it through `VoiceModel.ignore`, hiding it and stopping the ringtone without
+  declining), a "Voice" category in the settings overlay, and room creation (`NewRoom.swift`, from
   the list's button: name, private, "Voice channel" where the server offers voice, through
   `AppModel.createRoom`, opened once listed) and the "Voice channel" switch in a room's edit
   form (`NativeRoomControls.swift`; rv-ffi's `NativeRoomFields.voice` is Some only for an
@@ -367,3 +374,4 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
 - apps/desktop/crates/rv-gtk/src/settings/voice.rs
 - apps/desktop/crates/rv-gtk/src/details/native_rooms.rs
 - .github/workflows/desktop-voice.yml
+- apps/mobile/ui/alerts.ts

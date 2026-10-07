@@ -291,3 +291,44 @@ fn discovery_does_not_enable_missing_client_handlers() {
             .any(|f| f == "text_messages")
     );
 }
+
+#[test]
+fn administration_marks_deleted_authors_and_rejects_forged_inputs() {
+    use rv_protocol::admin::{ReportInput, UpdateAdminUser};
+    let contract: Contract =
+        serde_json::from_str(include_str!("../../../docs/protocol/v1.fixture.json")).unwrap();
+    assert!(!contract.discovery.capabilities.administration);
+    assert!(!contract.discovery.capabilities.reports);
+    // Older servers omit the flag; a live author never carries it.
+    assert!(!contract.session.user.deleted);
+    assert!(
+        serde_json::to_value(&contract.session.user)
+            .unwrap()
+            .get("deleted")
+            .is_none()
+    );
+    let admin = contract.administration;
+    let author = &admin.reported_messages.items[0].author;
+    assert!(author.deleted && author.display_name.is_empty());
+    // A deleted author cannot be deactivated; a live one carries its revision.
+    assert!(admin.reported_messages.items[0].author_revision.is_none());
+    assert_eq!(
+        admin.reported_messages.items[1].author_revision.as_deref(),
+        Some("bob-activation")
+    );
+    assert_eq!(
+        admin.reported_messages.next.as_deref(),
+        Some("9007199254740993")
+    );
+    assert_eq!(admin.room_page.items[1].direct_members.len(), 2);
+    let update = serde_json::to_value(&admin.update_user).unwrap();
+    assert!(update.get("admin").is_none());
+    for (field, value) in [("deleted", true), ("username", true)] {
+        let mut forged = update.clone();
+        forged[field] = value.into();
+        assert!(serde_json::from_value::<UpdateAdminUser>(forged).is_err());
+    }
+    let mut report = serde_json::to_value(&admin.report).unwrap();
+    report["reporter_id"] = "someone-else".into();
+    assert!(serde_json::from_value::<ReportInput>(report).is_err());
+}

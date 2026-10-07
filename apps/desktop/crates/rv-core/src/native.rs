@@ -1,4 +1,5 @@
 //! Native desktop pilot: pinned identity, durable SQLite projection and a single replay loop.
+mod admin;
 pub mod authentication;
 pub mod authentication_vault;
 mod cards;
@@ -75,6 +76,22 @@ impl Error {
         matches!(self.code(), "server_identity_changed" | "session_rejected")
     }
 }
+/// Usernames the server reserves for deleted accounts (`deleted-<id>`).
+pub fn deleted_username(username: &str) -> bool {
+    username.starts_with("deleted-")
+}
+
+/// A username as rows show it: "Deleted user" for a deleted account, whose
+/// messages, reactions and quotes stay.
+pub fn shown_username(username: &str) -> String {
+    if deleted_username(username) { deleted_user().to_owned() } else { username.to_owned() }
+}
+
+/// "Deleted user", in the current language.
+pub fn deleted_user() -> &'static str {
+    crate::i18n::t("user.deleted")
+}
+
 pub fn rest_error(error: Error) -> RestError {
     let (request_id, retry_after) = diagnostics(&error);
     let status = match &error {
@@ -91,6 +108,7 @@ pub fn rest_error(error: Error) -> RestError {
         two_factor: None,
         request_id,
         retry_after,
+        details: None,
     }
 }
 
@@ -623,6 +641,8 @@ impl NativeSession {
                     session_rotation: self.credentials.is_some(),
                     device_sessions: true,
                     slash_commands: true,
+                    administration: true,
+                    reports: true,
                     ..Default::default()
                 })
             })

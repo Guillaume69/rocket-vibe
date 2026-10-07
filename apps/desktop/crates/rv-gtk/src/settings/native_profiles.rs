@@ -1,7 +1,8 @@
-use super::{LANGUAGE_CHOICES, NOTIFICATION_CHOICES, ProfileSource, combo, edit_profile_for, toast_of};
+use super::{LANGUAGE_CHOICES, NOTIFICATION_CHOICES, ProfileSource, SECURITY, combo, edit_profile_for};
 use crate::{
     i18n::{self, t},
     on_tokio,
+    sidebar_dialog::Host,
 };
 use adw::prelude::*;
 use gtk::{gdk_pixbuf, gio, glib};
@@ -61,11 +62,11 @@ enum Action {
     Resume(String),
     Discard(String, String),
 }
-fn submit(parent: &adw::PreferencesDialog, state: State, action: Action, done: impl FnOnce(bool) + 'static) {
+fn submit(host: &Host, state: State, action: Action, done: impl FnOnce(bool) + 'static) {
     if !state.live.get() || state.session.is_closed() || state.busy.replace(true) {
         return;
     }
-    let dialog = parent.downgrade();
+    let host = host.clone();
     glib::spawn_future_local(async move {
         let session = state.session.clone();
         let result = on_tokio(async move {
@@ -82,42 +83,31 @@ fn submit(parent: &adw::PreferencesDialog, state: State, action: Action, done: i
         })
         .await;
         state.busy.set(false);
-        if !state.live.get() || state.session.is_closed() {
+        if !state.live.get() || state.session.is_closed() || !host.alive() {
             return;
         }
-        let Some(dialog) = dialog.upgrade() else {
-            return;
-        };
         let success = result.is_ok();
         match result {
             Ok(own) => {
                 state.current.replace(own);
-                toast_of(&dialog, t("settings.saved"));
+                host.toast(t("settings.saved"));
             }
             Err(error) => {
-                toast_of(
-                    &dialog,
-                    t(match error.code() {
-                        "reauthentication_required" => "security.required",
-                        "revision_conflict" => "profile.conflict",
-                        "profile_action_pending" => "profile.pending",
-                        _ => "settings.save_failed",
-                    }),
-                );
+                host.toast(t(match error.code() {
+                    "reauthentication_required" => "security.required",
+                    "revision_conflict" => "profile.conflict",
+                    "profile_action_pending" => "profile.pending",
+                    _ => "settings.save_failed",
+                }));
                 if error.code() == "reauthentication_required" {
-                    crate::native_security::open_dialog(&dialog, state.session.clone());
+                    host.select(SECURITY.0);
                 }
             }
         }
         done(success);
     });
 }
-fn pending(
-    parent: &adw::PreferencesDialog,
-    group: &adw::PreferencesGroup,
-    rows: &RefCell<Vec<adw::ActionRow>>,
-    state: &State,
-) {
+fn pending(host: &Host, group: &adw::PreferencesGroup, rows: &RefCell<Vec<adw::ActionRow>>, state: &State) {
     for row in rows.take() {
         if row.parent().is_some() {
             group.remove(&row);
@@ -139,9 +129,9 @@ fn pending(
             .label(t(if saved.phase == "failed" { "profile.discard" } else { "profile.resume" }))
             .valign(gtk::Align::Center)
             .build();
-        let (s, dialog, row_weak, group_weak, phase, id, action_slot) = (
+        let (s, h, row_weak, group_weak, phase, id, action_slot) = (
             state.clone(),
-            parent.downgrade(),
+            host.clone(),
             row.downgrade(),
             group.downgrade(),
             saved.phase.clone(),
@@ -149,16 +139,13 @@ fn pending(
             slot.to_owned(),
         );
         action.connect_clicked(move |_| {
-            let Some(dialog) = dialog.upgrade() else {
-                return;
-            };
             let action = if phase == "failed" {
                 Action::Discard(action_slot.clone(), id.clone())
             } else {
                 Action::Resume(action_slot.clone())
             };
             let (row, group) = (row_weak.clone(), group_weak.clone());
-            submit(&dialog, s.clone(), action, move |success| {
+            submit(&h, s.clone(), action, move |success| {
                 if success && let (Some(row), Some(group)) = (row.upgrade(), group.upgrade()) {
                     group.remove(&row);
                 }
@@ -167,20 +154,17 @@ fn pending(
         row.add_suffix(&action);
         if saved.phase == "proof" {
             let clear = gtk::Button::builder().label(t("profile.discard")).valign(gtk::Align::Center).build();
-            let (s, dialog, id, slot, row_weak, group_weak) = (
+            let (s, h, id, slot, row_weak, group_weak) = (
                 state.clone(),
-                parent.downgrade(),
+                host.clone(),
                 saved.command.id().to_owned(),
                 slot.to_owned(),
                 row.downgrade(),
                 group.downgrade(),
             );
             clear.connect_clicked(move |_| {
-                let Some(dialog) = dialog.upgrade() else {
-                    return;
-                };
                 let (row, group) = (row_weak.clone(), group_weak.clone());
-                submit(&dialog, s.clone(), Action::Discard(slot.clone(), id.clone()), move |success| {
+                submit(&h, s.clone(), Action::Discard(slot.clone(), id.clone()), move |success| {
                     if success && let (Some(row), Some(group)) = (row.upgrade(), group.upgrade()) {
                         group.remove(&row);
                     }
@@ -193,12 +177,16 @@ fn pending(
     }
 }
 
-pub(super) fn settings(
-    parent: &adw::PreferencesDialog,
-    page: &adw::PreferencesPage,
-    row: &adw::ActionRow,
-    session: Arc<NativeSession>,
-) {
+/// The categories this fills: status and pending changes on my account,
+/// the notification preference, the language.
+pub(super) struct Pages<'a> {
+    pub account: &'a adw::PreferencesPage,
+    pub notifications: &'a adw::PreferencesPage,
+    pub language: &'a adw::PreferencesPage,
+}
+
+pub(super) fn settings(host: &Host, pages: Pages, row: &adw::ActionRow, session: Arc<NativeSession>) {
+    let page = pages.account;
     let language_group = adw::PreferencesGroup::builder().title(t("settings.language")).build();
     let labels: Vec<_> = LANGUAGE_CHOICES.iter().map(|c| t(&format!("settings.lang_{c}"))).collect();
     let language = combo(
@@ -208,7 +196,7 @@ pub(super) fn settings(
     );
     language.set_subtitle(t("settings.language_restart"));
     language_group.add(&language);
-    page.add(&language_group);
+    pages.language.add(&language_group);
     if !session.profiles_available() {
         language.connect_selected_notify(|row| i18n::save_choice(LANGUAGE_CHOICES[row.selected() as usize]));
         return;
@@ -235,24 +223,21 @@ pub(super) fn settings(
         0,
     );
     notifications.add(&notify);
-    page.add(&notifications);
+    pages.notifications.add(&notifications);
     status_group.set_sensitive(false);
     notifications.set_sensitive(false);
     let live = Rc::new(Cell::new(true));
     let active = live.clone();
-    parent.connect_closed(move |_| active.set(false));
-    let (parent, page, row) = (parent.downgrade(), page.clone(), row.clone());
+    host.connect_closed(move || active.set(false));
+    let (parent, page, row) = (host.clone(), page.clone(), row.clone());
     glib::spawn_future_local(async move {
         let s = session.clone();
         let found = on_tokio(async move { s.own_profile().await }).await;
-        if !live.get() || session.is_closed() {
+        if !live.get() || session.is_closed() || !parent.alive() {
             return;
         }
-        let Some(parent) = parent.upgrade() else {
-            return;
-        };
         let Ok(found) = found else {
-            toast_of(&parent, t("settings.save_failed"));
+            parent.toast(t("settings.save_failed"));
             return;
         };
         let state = State { session, current: Rc::new(RefCell::new(found)), live, busy: Rc::new(Cell::new(false)) };
@@ -273,29 +258,20 @@ pub(super) fn settings(
         let pending_group = adw::PreferencesGroup::new();
         page.add(&pending_group);
         let filling = Rc::new(Cell::new(false));
-        let (s, d) = (state.clone(), parent.downgrade());
+        let (s, d) = (state.clone(), parent.clone());
         edit.connect_clicked(move |_| {
             if s.busy.get() || !s.live.get() {
                 return;
             }
-            if let Some(parent) = d.upgrade() {
-                edit_profile_for(
-                    &parent,
-                    ProfileSource::Native(s.session.clone(), s.current.clone()),
-                    me(&s.current.borrow()),
-                );
-            }
+            edit_profile_for(&d, ProfileSource::Native(s.session.clone(), s.current.clone()), me(&s.current.borrow()));
         });
         let send_status = {
-            let (s, d, status, text, filling) =
-                (state.clone(), parent.downgrade(), status.clone(), text.clone(), filling.clone());
+            let (s, parent, status, text, filling) =
+                (state.clone(), parent.clone(), status.clone(), text.clone(), filling.clone());
             move || {
                 if filling.get() || s.busy.get() {
                     return;
                 }
-                let Some(parent) = d.upgrade() else {
-                    return;
-                };
                 let mut fields = me(&s.current.borrow());
                 fields.status = STATUSES[status.selected() as usize].into();
                 fields.status_text = text.text().to_string();
@@ -307,14 +283,11 @@ pub(super) fn settings(
         status.connect_selected_notify(move |_| again());
         text.connect_apply(move |_| send_status());
         for (combo, is_language) in [(&language, true), (&notify, false)] {
-            let (s, d, filling) = (state.clone(), parent.downgrade(), filling.clone());
+            let (s, parent, filling) = (state.clone(), parent.clone(), filling.clone());
             combo.connect_selected_notify(move |row| {
                 if filling.get() || s.busy.get() {
                     return;
                 }
-                let Some(parent) = d.upgrade() else {
-                    return;
-                };
                 let mut preferences = s.current.borrow().preferences.clone();
                 if is_language {
                     preferences.language = LANGUAGE_CHOICES[row.selected() as usize].into();
@@ -340,16 +313,13 @@ pub(super) fn settings(
                 });
             });
         }
-        let (parent, rows) = (parent.downgrade(), RefCell::new(Vec::new()));
+        let rows = RefCell::new(Vec::new());
         let mut signature = String::new();
         let mut remote_attempt = String::new();
         glib::timeout_add_local(std::time::Duration::from_millis(250), move || {
-            if !state.live.get() || state.session.is_closed() {
+            if !state.live.get() || state.session.is_closed() || !parent.alive() {
                 return glib::ControlFlow::Break;
             }
-            let Some(parent) = parent.upgrade() else {
-                return glib::ControlFlow::Break;
-            };
             let queued = ["profile", "preferences", "avatar"]
                 .map(|slot| state.session.store.profile_operation(slot).ok().flatten());
             let own = state.current.borrow().clone();
@@ -436,7 +406,7 @@ pub(super) struct Fields {
     pub photo: gtk::Widget,
 }
 pub(super) fn editor(
-    parent: &adw::PreferencesDialog,
+    parent: &Host,
     subpage: &adw::NavigationPage,
     session: Arc<NativeSession>,
     current: Rc<RefCell<OwnProfile>>,
@@ -469,9 +439,9 @@ pub(super) fn editor(
         fields.bio.set_sensitive(false);
         fields.save.set_title(t(if saved.phase == "failed" { "profile.discard" } else { "profile.resume" }));
     }
-    let (s, d, name, username, bio, button, original) = (
+    let (s, host, name, username, bio, button, original) = (
         state.clone(),
-        parent.downgrade(),
+        parent.clone(),
         fields.name.clone(),
         fields.username.clone(),
         fields.bio.clone(),
@@ -479,9 +449,6 @@ pub(super) fn editor(
         base.clone(),
     );
     fields.save.connect_activated(move |_| {
-        let Some(parent) = d.upgrade() else {
-            return;
-        };
         let saved = s.session.store.profile_operation("profile").ok().flatten();
         let clearing = saved.as_ref().is_some_and(|saved| saved.phase == "failed");
         let action = if let Some(saved) = saved {
@@ -499,21 +466,11 @@ pub(super) fn editor(
             after.bio = bio.text().to_string();
             Action::Change(command(&original.borrow(), after))
         };
-        let (d, name, username, bio, button, s2, original) = (
-            parent.downgrade(),
-            name.clone(),
-            username.clone(),
-            bio.clone(),
-            button.clone(),
-            s.clone(),
-            original.clone(),
-        );
-        submit(&parent, s.clone(), action, move |success| {
-            let Some(parent) = d.upgrade() else {
-                return;
-            };
+        let (d, name, username, bio, button, s2, original) =
+            (host.clone(), name.clone(), username.clone(), bio.clone(), button.clone(), s.clone(), original.clone());
+        submit(&host, s.clone(), action, move |success| {
             if success && !clearing {
-                parent.pop_subpage();
+                d.pop();
                 return;
             }
             if success && clearing {
@@ -536,25 +493,19 @@ pub(super) fn editor(
             }));
         });
     });
-    let (s, d) = (state.clone(), parent.downgrade());
+    let (s, d) = (state.clone(), parent.clone());
     fields.change.connect_clicked(move |button| {
-        let Some(parent) = d.upgrade() else {
-            return;
-        };
-        if s.busy.get() || !s.live.get() {
+        if s.busy.get() || !s.live.get() || !d.alive() {
             return;
         }
         let chooser = gtk::FileDialog::builder().title(t("settings.photo_change")).modal(true).build();
         let window = button.root().and_downcast::<gtk::Window>();
-        let (s, d) = (s.clone(), parent.downgrade());
+        let (s, parent) = (s.clone(), d.clone());
         chooser.open(window.as_ref(), None::<&gio::Cancellable>, move |file| {
             let Some(path) = file.ok().and_then(|file| file.path()) else {
                 return;
             };
-            let Some(parent) = d.upgrade() else {
-                return;
-            };
-            if !s.live.get() || s.session.is_closed() {
+            if !s.live.get() || s.session.is_closed() || !parent.alive() {
                 return;
             }
             let Some(png) = gdk_pixbuf::Pixbuf::from_file_at_scale(&path, 512, 512, true)
@@ -562,15 +513,15 @@ pub(super) fn editor(
                 .and_then(|p| p.apply_embedded_orientation().unwrap_or(p).save_to_bufferv("png", &[]).ok())
                 .filter(|bytes| bytes.len() <= 2 * 1024 * 1024)
             else {
-                toast_of(&parent, t("settings.save_failed"));
+                parent.toast(t("settings.save_failed"));
                 return;
             };
             avatar(&parent, s.clone(), Some(png));
         });
     });
-    let (s, d) = (state.clone(), parent.downgrade());
+    let (s, parent) = (state.clone(), parent.clone());
     fields.remove.connect_clicked(move |button| {
-        if let Some(parent) = d.upgrade() {
+        if parent.alive() {
             if s.session.store.profile_operation("avatar").ok().flatten().is_none()
                 && button.label().is_some_and(|label| label == t("profile.resume") || label == t("profile.discard"))
             {
@@ -628,7 +579,7 @@ pub(super) fn editor(
         glib::ControlFlow::Continue
     });
 }
-fn avatar(parent: &adw::PreferencesDialog, state: State, png: Option<Vec<u8>>) {
+fn avatar(parent: &Host, state: State, png: Option<Vec<u8>>) {
     let action = if let Some(saved) = state.session.store.profile_operation("avatar").ok().flatten() {
         if saved.phase == "failed" {
             Action::Discard("avatar".into(), saved.command.id().into())

@@ -572,26 +572,28 @@ impl ChatPage {
                     if row.outbox_status.is_none()
                         && let Some(session) = self.native_session()
                     {
-                        let quick = gtk::Box::builder().spacing(4).margin_bottom(4).build();
-                        for shortcode in rv_core::actions::QUICK_REACTIONS {
-                            let glyph = rv_core::emoji::unicode(shortcode);
-                            let mine = rv_core::actions::reactions(row.reactions.as_deref(), &session.info.username)
-                                .iter()
-                                .any(|r| r.mine && rv_core::emoji::unicode(&r.shortcode) == glyph);
-                            let button = gtk::Button::builder()
-                                .label(glyph.unwrap_or(shortcode))
-                                .css_classes(if mine { vec!["quick-reaction", "mine"] } else { vec!["quick-reaction"] })
-                                .build();
-                            let (weak, id, menu) = (Rc::downgrade(self), row.id.clone(), popover.clone());
-                            button.connect_clicked(move |_| {
-                                menu.popdown();
-                                if let Some(page) = weak.upgrade() {
-                                    page.crypto_react(id.clone(), shortcode.into(), !mine, in_thread);
-                                }
-                            });
-                            quick.append(&button);
-                        }
-                        list.prepend(&quick);
+                        // A private conversation reacts with standard emoji only.
+                        let mine: Vec<String> =
+                            rv_core::actions::reactions(row.reactions.as_deref(), &session.info.username)
+                                .into_iter()
+                                .filter(|r| r.mine)
+                                .map(|r| r.shortcode)
+                                .collect();
+                        let (weak, id) = (Rc::downgrade(self), row.id.clone());
+                        let react: crate::reactions::React = Rc::new(move |code, add| {
+                            if let Some(page) = weak.upgrade() {
+                                page.crypto_react(id.clone(), format!(":{code}:"), add, in_thread);
+                            }
+                        });
+                        let usage = crate::reactions::usage(&session.info.base_url, &session.info.user_id);
+                        list.prepend(&crate::reactions::row(
+                            &popover,
+                            &usage,
+                            &mine,
+                            None,
+                            crate::reactions::Server::RocketVibe,
+                            react,
+                        ));
                     }
                     let mine = self.native_session().is_some_and(|s| s.info.user_id == row.author_id);
                     if mine && row.outbox_status.is_none() {
@@ -854,34 +856,31 @@ impl ChatPage {
                             list.append(&button);
                         }
                         if rights.react && expected.supported_features().iter().any(|f| f == "reactions") {
-                            let quick = gtk::Box::builder().spacing(4).margin_bottom(4).build();
-                            for shortcode in rv_core::actions::QUICK_REACTIONS {
-                                let glyph = rv_core::emoji::unicode(shortcode);
-                                let mine = message.reactions.iter().any(|r| {
-                                    rv_core::emoji::unicode(&r.emoji) == glyph
-                                        && r.users.iter().any(|u| u.id == expected.info.user_id)
-                                });
-                                let button = gtk::Button::builder()
-                                    .label(rv_core::emoji::unicode(shortcode).unwrap_or(shortcode))
-                                    .css_classes(if mine {
-                                        vec!["quick-reaction", "mine"]
-                                    } else {
-                                        vec!["quick-reaction"]
-                                    })
-                                    .build();
-                                let (weak, s, p, id) =
-                                    (weak.clone(), expected.clone(), popover.clone(), row.id.clone());
-                                button.connect_clicked(move |_| {
-                                    if let Some(this) = weak.upgrade()
-                                        && this.native_session().is_some_and(|current| Arc::ptr_eq(&current, &s))
-                                    {
-                                        p.popdown();
-                                        this.native_react(id.clone(), shortcode.into(), !mine);
-                                    }
-                                });
-                                quick.append(&button);
-                            }
-                            list.prepend(&quick);
+                            let mine: Vec<String> = message
+                                .reactions
+                                .iter()
+                                .filter(|r| r.users.iter().any(|u| u.id == expected.info.user_id))
+                                .map(|r| r.emoji.clone())
+                                .collect();
+                            let (weak, s, id) = (weak.clone(), expected.clone(), row.id.clone());
+                            let react: crate::reactions::React = Rc::new(move |code, add| {
+                                if let Some(this) = weak.upgrade()
+                                    && this.native_session().is_some_and(|current| Arc::ptr_eq(&current, &s))
+                                {
+                                    this.native_react(id.clone(), format!(":{code}:"), add);
+                                }
+                            });
+                            let s = expected.clone();
+                            let custom: crate::emoji_picker::CustomSource = Rc::new(move || s.custom_emoji_names());
+                            let usage = crate::reactions::usage(&expected.info.base_url, &expected.info.user_id);
+                            list.prepend(&crate::reactions::row(
+                                &popover,
+                                &usage,
+                                &mine,
+                                Some(custom),
+                                crate::reactions::Server::RocketVibe,
+                                react,
+                            ));
                         }
                         for (key, edit, allowed) in
                             [("actions.edit", true, rights.edit), ("actions.delete", false, rights.delete)]
@@ -937,6 +936,28 @@ impl ChatPage {
                             });
                             list.append(&button);
                         }
+                        // Reports reach plaintext rooms only, never a private conversation.
+                        if !message.deleted
+                            && message.system.is_none()
+                            && message.author.id != expected.info.user_id
+                            && expected.reports_supported()
+                        {
+                            let button = gtk::Button::builder()
+                                .label(t("report.action"))
+                                .css_classes(["flat", "report-action"])
+                                .build();
+                            let (weak, s, p, id) =
+                                (weak.clone(), expected.clone(), popover.clone(), message.id.clone());
+                            button.connect_clicked(move |_| {
+                                p.popdown();
+                                if let Some(this) = weak.upgrade()
+                                    && this.native_session().is_some_and(|current| Arc::ptr_eq(&current, &s))
+                                {
+                                    this.report(crate::admin::ReportTarget::Message(id.clone()));
+                                }
+                            });
+                            list.append(&button);
+                        }
                     });
                 }
             }
@@ -946,6 +967,9 @@ impl ChatPage {
 
     fn native_react(self: &Rc<Self>, id: String, emoji: String, present: bool) {
         let (Some(s), Some(rid)) = (self.native_session(), self.current_rid()) else { return };
+        if present {
+            crate::reactions::record(&s.info.base_url, &s.info.user_id, &emoji);
+        }
         let (weak, expected) = (Rc::downgrade(self), s.clone());
         glib::spawn_future_local(async move {
             let result = on_tokio(async move { s.react(&rid, &id, &emoji, present).await }).await;
@@ -1070,7 +1094,7 @@ impl ChatPage {
             page.add(&group);
         }
         dialog.add(&page);
-        dialog.present(Some(&self.split));
+        crate::widgets::present(&dialog, Some(&self.split));
     }
 }
 

@@ -7,6 +7,45 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+### Added
+
+- React with any emoji: the message sheet offers the 5 emoji you react with most on this
+  account (counted on the phone only), then "+" opens the emoji picker, the server's custom
+  emoji included (standard emoji only in a private RocketVibe conversation). On Rocket.Chat a
+  reaction goes out under a name the server accepts, and the picker hides the emoji it
+  refuses.
+- Server administration for administrators, from the settings or a long press on the open
+  server's tile: a dashboard (version and whether a newer release exists, uptime, database,
+  users, rooms, messages, uploads, open reports), the moderation of reported messages and
+  accounts (reasons, dismiss, delete the message, deactivate), every room, discussions and
+  teams included, and every account with its actions (admin right, activation, deletion).
+  On Rocket.Chat and RocketVibe.
+- Rocket.Chat administration: the dashboard opens on the server's last computed figures,
+  dated, and a refresh asks for new ones; a figure the account may not read shows as
+  unknown instead of failing the dashboard. Deactivating or deleting the last owner of rooms
+  asks again, naming the rooms that will be deleted and those whose owner changes; deleting
+  says that the person's direct messages go too. A reported message the administrator
+  cannot reach offers Rocket.Chat's own deletion of all that author's reported messages,
+  explicitly. A message from an encrypted room reads "Encrypted message".
+- Report a message from its sheet, or a user from their profile, with a reason the
+  administrators read.
+- RocketVibe: a deleted account's messages stay, signed "Deleted user".
+- Settings show the app's version, in the new App category.
+
+### Changed
+
+- Settings are grouped in categories (My account, Notifications, Language, Encryption,
+  Security, Devices, Accounts, App), each on its own page and shown only when it has
+  something for the account; Sign out sits at the bottom of the list.
+- A tap outside a dialog, or Back, closes it like Cancel, never running its confirming
+  action.
+- A tap outside the incoming call prompt, or Back, ignores the call: the prompt hides and
+  the ringing stops, but the call is not declined.
+
+### Fixed
+
+- Closing the message sheet before its action finished no longer leaves the room as well.
+
 ## [0.7.0] - 2026-10-07
 
 ### Added

@@ -272,6 +272,9 @@ impl ChatPage {
     }
     /// Sends an encrypted reaction (`present`) or its withdrawal.
     pub(super) fn crypto_react(self: &Rc<Self>, id: String, emoji: String, present: bool, in_thread: bool) {
+        if present && let Some(session) = self.native_session() {
+            crate::reactions::record(&session.info.base_url, &session.info.user_id, &emoji);
+        }
         if in_thread {
             if let Some(thread) = self.thread.borrow().as_ref() {
                 thread.react_private(id, emoji, present);

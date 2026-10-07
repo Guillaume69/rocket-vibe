@@ -131,5 +131,5 @@ pub fn info(widget: &impl IsA<gtk::Widget>, link: &str) {
         "open" => crate::cards::open_uri(&anchor, &link),
         _ => {}
     });
-    dialog.present(Some(widget));
+    crate::widgets::present(&dialog, Some(widget));
 }

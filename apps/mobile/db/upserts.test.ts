@@ -21,6 +21,9 @@ import {
   DELETE_ROOM_OUTBOX,
   DELETE_ROOM_UPLOADS,
   UPSERT_DRAFT,
+  RECORD_EMOJI_USE,
+  PRUNE_EMOJI_USAGE,
+  LIST_EMOJI_USAGE,
   LIST_CUSTOM_EMOJIS,
   LIST_OUTBOX_TO_SEND,
   LIST_UPLOADS_TO_SEND,
@@ -1356,6 +1359,48 @@ describe('drafts', () => {
 
   test('deleting a missing key does not throw', () => {
     db.prepare(DELETE_DRAFT).run('never-written');
+  });
+});
+
+describe('emoji usage', () => {
+  let db: DatabaseSync;
+  beforeEach(() => {
+    db = migratedDb();
+  });
+  const list = () =>
+    (db.prepare(`${LIST_EMOJI_USAGE} ORDER BY code`).all() as Record<string, unknown>[]).map(row);
+
+  test('a first use creates the row, the next ones count', () => {
+    db.prepare(RECORD_EMOJI_USE).run('rocket', 1000);
+    db.prepare(RECORD_EMOJI_USE).run('rocket', 2000);
+    db.prepare(RECORD_EMOJI_USE).run('+1', 1500);
+    assert.deepEqual(list(), [
+      { code: '+1', count: 1, lastUsed: 1500 },
+      { code: 'rocket', count: 2, lastUsed: 2000 },
+    ]);
+  });
+
+  test('the latest use never moves back', () => {
+    db.prepare(RECORD_EMOJI_USE).run('rocket', 2000);
+    db.prepare(RECORD_EMOJI_USE).run('rocket', 1000);
+    assert.deepEqual(list(), [{ code: 'rocket', count: 2, lastUsed: 2000 }]);
+  });
+
+  test('the prune keeps the most used, then the most recent', () => {
+    for (const [code, uses, at] of [['a', 3, 1], ['b', 1, 9], ['c', 1, 5], ['d', 2, 2]] as const) {
+      for (let i = 0; i < uses; i++) db.prepare(RECORD_EMOJI_USE).run(code, at);
+    }
+    db.prepare(PRUNE_EMOJI_USAGE).run('a', 'a', 2);
+    assert.deepEqual(list().map((r) => r.code), ['a', 'b', 'd']);
+  });
+
+  test('the code just used is never the one pruned: a newcomer can grow', () => {
+    for (const [code, uses] of [['a', 5], ['b', 4], ['c', 3]] as const) {
+      for (let i = 0; i < uses; i++) db.prepare(RECORD_EMOJI_USE).run(code, 1);
+    }
+    db.prepare(RECORD_EMOJI_USE).run('new', 2);
+    db.prepare(PRUNE_EMOJI_USAGE).run('new', 'new', 2);
+    assert.deepEqual(list().map((r) => r.code), ['a', 'b', 'new']);
   });
 });
 

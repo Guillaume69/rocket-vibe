@@ -5,6 +5,7 @@
  */
 
 import { Alert } from 'react-native';
+import { dismissible } from './alerts.ts';
 
 import type { FileEncryption } from '../lib/e2e/crypto.ts';
 import { saveProtectedAttachment, openProtectedAttachment } from './attachment.ts';
@@ -57,6 +58,6 @@ export function offerDownloadOrShare(attachment: AttachmentToTransfer, t: Transl
       { text: t('messageActions.share'), onPress: () => shareInBackground(attachment, t) },
       { text: t('messageActions.save'), onPress: () => saveInBackground(attachment, t) },
     ],
-    { cancelable: true },
+    dismissible(),
   );
 }

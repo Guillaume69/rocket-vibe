@@ -52,15 +52,15 @@ struct CryptoHistoryControls: View {
                 Button(L("actions.cancel")) { Task { await model.refresh() } }
             }
         }
-        .alert(L("crypto.history_share"), isPresented: $confirm) {
-            Button(L("actions.cancel"), role: .cancel) {}
-            Button(L("crypto.history_share")) { Task { await model.shareHistory() } }
-            if model.historyPreview?.canDelegate == true {
-                Button(L("crypto.history_share_delegate"), role: .destructive) { Task { await model.shareHistory(delegate: true) } }
-            }
-        } message: {
-            Text(model.historyPreview?.canDelegate == true ? confirmation + "\n\n" + L("crypto.history_delegate_body") : confirmation)
-        }
+        .confirmOverlay(
+            isPresented: $confirm,
+            title: L("crypto.history_share"),
+            message: model.historyPreview?.canDelegate == true ? confirmation + "\n\n" + L("crypto.history_delegate_body") : confirmation,
+            actions: [ModalAction(title: L("crypto.history_share")) { Task { await model.shareHistory() } }]
+                + (model.historyPreview?.canDelegate == true
+                    ? [ModalAction(title: L("crypto.history_share_delegate"), role: .destructive) { Task { await model.shareHistory(delegate: true) } }]
+                    : [])
+        )
         .onDisappear { confirm = false }
     }
 }

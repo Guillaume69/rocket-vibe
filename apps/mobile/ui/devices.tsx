@@ -1,6 +1,7 @@
 import {useCallback,useRef,useState} from 'react';
 import {useFocusEffect} from 'expo-router';
 import {ActivityIndicator,Alert,StyleSheet,Text,View} from 'react-native';
+import {dismissible} from './alerts.ts';
 import type {NativeChat} from '../providers/rocketvibe/chat.ts';
 import type {DeviceSession} from '../providers/rocketvibe/protocol.generated.ts';
 import {NativeError} from '../providers/rocketvibe/transport.ts';
@@ -18,10 +19,14 @@ function providerKey(chat:NativeChat):number {
   const known=providerKeys.get(chat);if(known!==undefined)return known;
   const key=++nextProviderKey;providerKeys.set(chat,key);return key;
 }
+/** The server lists device sessions (also what shows the settings category). */
+export function hasDevices(chat:NativeChat|null|undefined):boolean {
+  return !!chat?.capabilities?.device_sessions;
+}
 export function DevicesSection({c}:{c:Colors}) {
   const sync=useSync();
   const chat=sync.phase==='ready'?sync.provider.native?.chat:null;
-  return chat?.capabilities?.device_sessions ? <Devices key={providerKey(chat)} c={c} chat={chat}/> : null;
+  return chat && hasDevices(chat) ? <Devices key={providerKey(chat)} c={c} chat={chat}/> : null;
 }
 
 function Devices({c,chat}:{c:Colors;chat:NativeChat}) {
@@ -47,7 +52,7 @@ function Devices({c,chat}:{c:Colors;chat:NativeChat}) {
   const revoke=(device:DeviceSession)=>{const n=epoch.current;Alert.alert(t('devices.confirm'),t('devices.confirmBody'),[
     {text:t('common.cancel'),style:'cancel'},
     {text:t('devices.revoke'),style:'destructive',onPress:()=>{if(!device.current && alive.current && epoch.current===n)void run(()=>chat.revokeDevice(device.id));}},
-  ]);};
+  ],dismissible());};
   const date=(value:string)=>{const parsed=new Date(value);return Number.isFinite(parsed.getTime())?parsed.toLocaleString():value;};
   return <>
     <Text style={[styles.heading,{color:c.dimmed}]}>{t('devices.title')}</Text>

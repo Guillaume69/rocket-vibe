@@ -127,7 +127,7 @@ impl MessageRow {
             text: Some(self.text),
             md: self.system_type.is_none().then_some(md),
             system_type: self.system_type,
-            author: Some(self.author),
+            author: Some(super::shown_username(&self.author)),
             author_id: if self.status.is_some() { uid.into() } else { self.author_id },
             outbox_status: self.status.map(|s| if s == "failed" { "failed".into() } else { "pending".into() }),
             ..Default::default()
@@ -533,7 +533,7 @@ impl NativeStore {
         let reactions = if message.reactions.is_empty() {
             None
         } else {
-            Some(json(&message.reactions.iter().map(|reaction|(format!(":{}:",reaction.emoji),serde_json::json!({"usernames":reaction.users.iter().map(|user|&user.username).collect::<Vec<_>>()}))).collect::<std::collections::BTreeMap<_,_>>())?)
+            Some(json(&message.reactions.iter().map(|reaction|(format!(":{}:",reaction.emoji),serde_json::json!({"usernames":reaction.users.iter().map(|user|if user.deleted {super::deleted_user().to_owned()} else {user.username.clone()}).collect::<Vec<_>>()}))).collect::<std::collections::BTreeMap<_,_>>())?)
         };
         let system = message.system.as_deref().map(|activity| match activity {
             rv_protocol::system::SystemMessage::CallStarted { .. } => call_presentation(message.call.as_deref()),
@@ -1353,6 +1353,27 @@ mod tests {
             .unwrap();
         assert!(!state.0);
         assert_eq!(state.1, "6");
+    }
+    #[test]
+    fn deleted_authors_and_reactors_read_as_deleted_users() {
+        let store = store();
+        let mut snapshot = snapshot();
+        let message = &mut snapshot.messages[0];
+        let gone = rv_protocol::User {
+            id: "carol-id".into(),
+            username: "deleted-carol-id".into(),
+            display_name: String::new(),
+            deleted: true,
+        };
+        *message.author = gone.clone();
+        message.reactions = vec![rv_protocol::MessageReaction { emoji: "heart".into(), users: vec![gone] }];
+        let rid = message.room_id.clone();
+        store.snapshot(&snapshot).unwrap();
+        let row = store.messages(&rid, 10).unwrap().remove(0).presentation(&rid, "me");
+        assert_eq!(row.author.as_deref(), Some(crate::native::deleted_user()));
+        assert_eq!(row.author_id, "carol-id");
+        let groups: serde_json::Value = serde_json::from_str(row.reactions.as_deref().unwrap()).unwrap();
+        assert_eq!(groups[":heart:"]["usernames"][0], crate::native::deleted_user());
     }
     #[test]
     fn reaction_migration_preserves_old_commands_and_projects_without_reordering_or_edit_markers() {

@@ -4,6 +4,7 @@
 pub mod account;
 pub mod account_unread;
 pub mod actions;
+pub mod admin;
 pub mod animation;
 pub mod call;
 pub mod commands;
@@ -15,6 +16,7 @@ pub mod ddp;
 pub mod diff;
 pub mod e2e;
 pub mod emoji;
+pub mod emoji_usage;
 pub mod i18n;
 pub mod info;
 pub mod links;

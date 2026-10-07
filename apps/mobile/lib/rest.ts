@@ -37,6 +37,8 @@ export class RestError extends Error {
    * the user from a perfectly valid session.
    */
   readonly understoodResponse: boolean;
+  /** The envelope's `details`, as the server sent it (e.g. `user-last-owner`'s rooms). */
+  readonly details?: unknown;
 
   constructor(
     message: string,
@@ -44,6 +46,7 @@ export class RestError extends Error {
     error?: string,
     errorType?: string,
     understoodResponse = false,
+    details?: unknown,
   ) {
     super(message);
     this.name = 'RestError';
@@ -51,6 +54,7 @@ export class RestError extends Error {
     this.error = error;
     this.errorType = errorType;
     this.understoodResponse = understoodResponse;
+    this.details = details;
   }
 }
 
@@ -426,6 +430,7 @@ export class RestClient {
         json.error,
         json.errorType,
         rcEnvelope,
+        json.details,
       );
       // Placed AFTER the `totp-required` branch (never on a 2FA challenge) and
       // AFTER the parse (never on a proxy's HTML 401). An `anonymous` call sent

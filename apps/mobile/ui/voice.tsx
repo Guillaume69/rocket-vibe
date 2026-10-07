@@ -7,6 +7,7 @@ import { useRouter } from 'expo-router';
 import * as SecureStore from 'expo-secure-store';
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { Alert, Modal, PermissionsAndroid, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { dismissible } from './alerts.ts';
 import Animated, { useAnimatedStyle, useSharedValue, withRepeat, withSequence, withTiming } from 'react-native-reanimated';
 
 import { nativeRoomPermalink } from '../lib/roomLinks.ts';
@@ -152,7 +153,7 @@ export function useJoinVoice(): (room: string, title: string, ring?: boolean, di
       await controller.join(room, { title, ring, microphone, link, direct });
       return true;
     } catch (error) {
-      Alert.alert(t('voice.title'), refusal(t, error));
+      Alert.alert(t('voice.title'), refusal(t, error), undefined, dismissible());
       return false;
     }
   }, [controller, router, t, state]);
@@ -348,7 +349,11 @@ export function VoiceRingHost() {
     else if (voice.ended === 'removed') notify(t('voice.removed'));
     else if (voice.ended === 'lost') notify(t('voice.lost'));
   }, [voice.ended, t]);
-  const incoming = useMemo(() => rings.find(r => r.callee.id === me && r.state === 'ringing' && voice.room !== r.room_id) ?? null, [rings, me, voice.room]);
+  // Ignored rings: a tap outside the prompt or Back hides it and stops the
+  // local ringtone, without declining (the caller sees it ring until it times
+  // out, a missed call). Declining stays the explicit red button.
+  const [ignored, setIgnored] = useState<ReadonlySet<string>>(() => new Set());
+  const incoming = useMemo(() => rings.find(r => r.callee.id === me && r.state === 'ringing' && voice.room !== r.room_id && !ignored.has(r.id)) ?? null, [rings, me, voice.room, ignored]);
   useEffect(() => {
     if (!incoming || !VoiceNative) return;
     // The app shows the call: the system ring of the same call stops.
@@ -359,19 +364,21 @@ export function VoiceRingHost() {
   const router = useRouter();
   if (!controller || !incoming) return null;
   const caller = incoming.caller.display_name || incoming.caller.username;
+  const ignore = () => setIgnored((old) => new Set(old).add(incoming.id));
   const answer = async () => {
     router.push({ pathname: '/voice/[rid]', params: { rid: incoming.room_id, title: caller, direct: '1' } });
     const microphone = await microphoneAllowed();
     try {
       await controller.accept(incoming, { title: caller, microphone, direct: true, link: state.phase === 'connected' ? nativeRoomPermalink(state.session, incoming.room_id) : null });
     } catch (error) {
-      Alert.alert(t('voice.title'), refusal(t, error));
+      Alert.alert(t('voice.title'), refusal(t, error), undefined, dismissible());
     }
   };
   return (
-    <Modal transparent animationType="fade" statusBarTranslucent onRequestClose={() => void controller.decline(incoming.id)}>
-      <View style={styles.scrim}>
-        <View style={[styles.incoming, { backgroundColor: c.deepCard, borderColor: c.border }]}>
+    <Modal transparent animationType="fade" statusBarTranslucent onRequestClose={ignore}>
+      <Pressable style={styles.scrim} onPress={ignore} accessibilityRole="button" accessibilityLabel={t('voice.ignore')}>
+        {/* Taps on the card stay on it: only the scrim around ignores. */}
+        <View style={[styles.incoming, { backgroundColor: c.deepCard, borderColor: c.border }]} onStartShouldSetResponder={() => true}>
           {state.phase === 'connected' && (
             <SpeakingAvatar c={c} client={state.client} uid={incoming.caller.id} name={caller} speaking size={84} radius={28} />
           )}
@@ -388,7 +395,7 @@ export function VoiceRingHost() {
             </Pressable>
           </View>
         </View>
-      </View>
+      </Pressable>
     </Modal>
   );
 }

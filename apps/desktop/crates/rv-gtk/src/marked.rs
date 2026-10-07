@@ -143,5 +143,5 @@ fn open_provider(parent: &impl IsA<gtk::Widget>, session: Provider, rid: &str, g
     content.append(&tabs);
     view.set_content(Some(&content));
     dialog.set_child(Some(&view));
-    dialog.present(Some(parent));
+    crate::widgets::present(&dialog, Some(parent));
 }

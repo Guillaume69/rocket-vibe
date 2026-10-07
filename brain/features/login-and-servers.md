@@ -54,7 +54,7 @@ How a user signs in to a Rocket.Chat server (password, then a second factor when
 ## Sources
 
 - apps/mobile/app/login.tsx
-- apps/mobile/app/settings.tsx
+- apps/mobile/ui/settingsSections.tsx
 - apps/mobile/app/room/[rid].tsx
 - apps/mobile/lib/auth.ts
 - apps/mobile/lib/server.ts

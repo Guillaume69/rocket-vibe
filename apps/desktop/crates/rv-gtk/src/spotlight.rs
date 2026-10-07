@@ -187,6 +187,6 @@ fn open_source(
             pick(item);
         }
     ));
-    dialog.present(Some(parent));
+    crate::widgets::present(&dialog, Some(parent));
     search.grab_focus();
 }

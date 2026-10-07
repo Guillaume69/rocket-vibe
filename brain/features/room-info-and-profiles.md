@@ -15,28 +15,29 @@ Three read-on-demand views and one editor: a room's information sheet, a person'
 ## Mobile
 
 - **Room info** `app/room-info.tsx`, a native `formSheet` opened by tapping the room name in the header (`ui/roomHeader.tsx`). For a DM the header goes straight to the other person's profile instead: the "info" of a one-to-one is the person. The skeleton (name, avatar, type, encrypted and read-only flags) comes from the local DB and shows immediately, offline included; member count, announcement, topic and description arrive from `rooms.info`. It also toggles the favourite (`rooms.favorite`), with an error line on failure. Encrypted rooms show the lock and a decrypted-or-not tile (see [e2ee.md](e2ee.md)).
-- **Profile** `app/profile.tsx`, a `formSheet` sized `fitToContents`. Opened from a message's avatar or author name (`ui/messageRow.tsx`), an `@mention` (`ui/markdown.tsx`) or the DM header. Shows avatar, name, `@username`, presence, roles, the person's local time (`14:07 (UTC+2)`, computed from `utcOffset`) and bio (falling back to `statusText`). Actions: Message (`actions.openOrCreateDm`, `im.create`, idempotent) and Call when a conference provider exists ([calls.md](calls.md)).
+- **Profile** `app/profile.tsx`, a `formSheet` sized `fitToContents`. Opened from a message's avatar or author name (`ui/messageRow.tsx`), an `@mention` (`ui/markdown.tsx`) or the DM header. Shows avatar, name, `@username`, presence, roles, the person's local time (`14:07 (UTC+2)`, computed from `utcOffset`) and bio (falling back to `statusText`). Actions: Message (`actions.openOrCreateDm`, `im.create`, idempotent) and Call when a conference provider exists ([calls.md](calls.md)). **Report this user** (not on my own profile, when the server takes reports) swaps in `ui/reportForm.tsx` for a reason and sends it through `provider.reports.user` (`moderation.reportUser` on Rocket.Chat), then toasts "Report sent" ([administration.md](administration.md)).
 - **Preloading** (`lib/profilePreload.ts`): a `fitToContents` sheet measures itself on first render, so content arriving later made it jump. `openProfileCard` fetches `users.info` and settles the call probe **before** navigating; the screen reads the result with `readPreloadedProfile` and renders at its final height. It is a hand-off buffer, not a freshness cache: each opening refetches. The client and the navigator are module singletons (`setProfileClient`, `setProfileNavigator`) because mentions are rendered by plain functions with nothing at hand; `ui/openingIndicator.tsx` shows feedback if the fetch drags.
-- **My profile** `app/my-profile.tsx`, a full page (it has a keyboard), reached from the profile card at the top of Settings. One Save button calls only the endpoints of what changed (`lib/myProfile.ts`: `diffInfos`, `requiresPassword`, `saveStatus`, `saveBasicInfo`): presence among online/away/busy/offline plus status text, name, bio, email, username, and a new photo picked with `ui/pickAvatar.ts` (`setAvatar`, `lib/upload.ts`). The current password field appears when email or username changes; a 2FA challenge is answered with `prepareTwoFactorCode`.
+- **My profile** `app/my-profile.tsx`, a full page (it has a keyboard), reached from the profile card of the My account settings category. One Save button calls only the endpoints of what changed (`lib/myProfile.ts`: `diffInfos`, `requiresPassword`, `saveStatus`, `saveBasicInfo`): presence among online/away/busy/offline plus status text, name, bio, email, username, and a new photo picked with `ui/pickAvatar.ts` (`setAvatar`, `lib/upload.ts`). The current password field appears when email or username changes; a 2FA challenge is answered with `prepareTwoFactorCode`.
 
 ## Desktop
 
 - **Room info** (`rv-gtk/src/details.rs::room_info`): an `adw::Dialog` from the room title (tooltip `info.room`). For a DM, `show_room_info` opens the partner's profile by id instead. Facts line: public/private, members, read-only, encrypted, archived, default; then topic, announcement and description as markdown sections, or "nothing to show". Parsed by `rv-core/src/info.rs::room_info`.
-- **Profile** (`details.rs::profile`): by username or by id. Avatar, name, `@username`, presence (live presence from the session first, then `users.info`'s) with status text, role chips, local time (`info::local_time`), bio. Message and Call buttons for anyone but me (`ProfileActions`). Opened from avatars and names (`RowEvent::Profile`), mentions, and DM headers.
+- **Profile** (`details.rs::profile`): by username or by id. Avatar, name, `@username`, presence (live presence from the session first, then `users.info`'s) with status text, role chips, local time (`info::local_time`), bio. Message and Call buttons for anyone but me (`ProfileActions`), and below them **Report this user** (Rocket.Chat always, RocketVibe when `reports_supported`), which closes the profile and asks the reason in `admin::report` ([administration.md](administration.md)). Opened from avatars and names (`RowEvent::Profile`), mentions, and DM headers.
 - **Favourite**: toggled from the room list's context menu (`chat.rs`, `actions::favorite`), not from the info dialog.
-- **My profile** (`rv-gtk/src/settings.rs`): Settings shows a profile card, a status group (presence combo and a status text entry, saved on change through `Session` with both fields) and an "Edit profile" subpage: photo change (file dialog, `users.setAvatar`) or removal (`users.resetAvatar`), name, username, email, bio, with the current password and 2FA code rows revealed only when needed (`rv-core/src/account.rs`: `basic_info_changes`, `needs_password`; `two_factor_code`).
-- **SwiftUI**: `RoomInfoView` and `ProfileView` in `macos/Sources/RocketVibe/Details.swift`; `MyProfileSection` in `SettingsView.swift` edits photo, presence and the basic fields.
+- **My profile** (`rv-gtk/src/settings.rs`): the My account category shows a profile card, a status group (presence combo and a status text entry, saved on change through `Session` with both fields) and an "Edit profile" subpage: photo change (file dialog, `users.setAvatar`) or removal (`users.resetAvatar`), name, username, email, bio, with the current password and 2FA code rows revealed only when needed (`rv-core/src/account.rs`: `basic_info_changes`, `needs_password`; `two_factor_code`).
+- **SwiftUI**: `RoomInfoView` and `ProfileView` in `macos/Sources/RocketVibe/Details.swift`; `MyProfileSection` in `SettingsView.swift` (My account category) edits photo, presence and the basic fields. `ProfileView` offers **Report this user** (not mine, when reports are supported): the profile closes and `ReportSheet` opens in its place, a modal overlay of the window (`modalOverlay`, `Modals.swift`) like the profile itself, which a click outside or Escape closes. A deleted RocketVibe account's profile reads "Deleted user" with no `@username`, presence or buttons.
 
 ## Parity
 
-Room info, profile with Message and Call, my profile with password and 2FA, live avatar changes: both apps ([parity](../parity.md) §8). Differences: mobile toggles the favourite from room info, desktop from the room list; desktop can remove the photo; mobile prefetches the profile so the sheet never jumps. Neither app lists room members, edits room settings or manages roles.
+Room info, profile with Message and Call, my profile with password and 2FA, live avatar changes: both apps ([parity](../parity.md) §8). Differences: mobile toggles the favourite from room info, desktop from the room list; desktop can remove the photo; mobile prefetches the profile so the sheet never jumps. Report this user is in all three apps. Neither app lists room members, edits room settings or manages roles.
 
 ## Sources
 
 - apps/mobile/app/room-info.tsx
 - apps/mobile/app/profile.tsx
 - apps/mobile/app/my-profile.tsx
-- apps/mobile/app/settings.tsx
+- apps/mobile/app/settings/index.tsx
+- apps/mobile/ui/reportForm.tsx
 - apps/mobile/lib/myProfile.ts
 - apps/mobile/lib/profilePreload.ts
 - apps/mobile/lib/upload.ts
@@ -52,5 +53,7 @@ Room info, profile with Message and Call, my profile with password and 2FA, live
 - apps/desktop/crates/rv-gtk/src/details.rs
 - apps/desktop/crates/rv-gtk/src/settings.rs
 - apps/desktop/crates/rv-gtk/src/chat.rs
+- apps/desktop/crates/rv-gtk/src/admin.rs
 - apps/desktop/macos/Sources/RocketVibe/Details.swift
 - apps/desktop/macos/Sources/RocketVibe/SettingsView.swift
+- apps/desktop/macos/Sources/RocketVibe/Modals.swift

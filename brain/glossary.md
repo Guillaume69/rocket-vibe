@@ -84,7 +84,9 @@ All code, comments and docs are in English. French survives in two places only: 
 
 | Term | Meaning | Where |
 |---|---|---|
+| Admin verdict (`adminAccess`) | Whether this account administers the open server, asked once per provider object and session generation and shared by every entry point; a failure is not kept. | `apps/mobile/ui/adminAccess.ts` |
 | `composer` | Composer shared by room and thread screens. | `apps/mobile/ui/composer.tsx` |
+| Emoji usage (`emojiUsage`) | The account's counted reactions, a module slot over the `emoji_usage` table that `SyncProvider` mounts and releases; read for the quick reactions, written on every reaction added. | `apps/mobile/ui/emojiUsage.ts`, `apps/mobile/lib/emojiUsage.ts` |
 | `generation` | Connection generation counter in `SyncProvider`, bumped at each connection setup; screen caches compare against it. | `apps/mobile/ui/sync.tsx` |
 | `homeSections` | The room list grouping (`unread`, `favorites`, `rooms`, `directMessages`) and the folded-section codec. | `apps/mobile/ui/homeSections.ts` |
 | Hot rooms (`hotRooms`) | Up to 3 recently left rooms whose subscriptions stay open (LRU), so re-entering needs no slow `syncMessages`. | `apps/mobile/ui/hotRooms.ts` |
@@ -125,7 +127,10 @@ All code, comments and docs are in English. French survives in two places only: 
 | `room-info.tsx` | Room info sheet. |
 | `profile.tsx` | A user's profile sheet. |
 | `my-profile.tsx` | My profile (edit). |
-| `settings.tsx` | Settings. |
+| `settings/index.tsx` | Settings: the list of categories, the administration card, Sign out. |
+| `settings/[category].tsx` | One settings category. |
+| `admin/index.tsx` | Server administration: the Dashboard, then rows to the other pages. |
+| `admin/moderation.tsx`, `admin/rooms.tsx`, `admin/users.tsx` | Moderation of reports, every room, every account with its actions. |
 | `share.tsx` | Incoming share (Android `ACTION_SEND`). |
 | `search.tsx` | Start a conversation (spotlight). |
 | `message-search.tsx` | Message search in one room. |
@@ -154,6 +159,8 @@ All code, comments and docs are in English. French survives in two places only: 
 | `rv-native` | Windows and macOS shims: system notifications, badges, call web views, tray, start at login. | [desktop-gtk](architecture/desktop-gtk.md) |
 | `RocketVibeKit`, `RocketVibe` | The SwiftUI app's view models and views (`apps/desktop/macos/Sources/`). | [desktop-macos](architecture/desktop-macos.md) |
 | Context window | The history around a message older than what a room has loaded, held in memory and never stored; the list showing it is detached from the present until the window reaches the local history (rv-core `context`, rv-ffi `ContextView`, mobile `lib/contextWindow.ts`). | [room-view](features/room-view.md) |
+| `Admin` | rv-core's administration of the open account, `RocketChat(Arc<Session>)` or `Native(Arc<NativeSession>)`, with the methods both desktop UIs call. | [administration](features/administration.md) |
+| Sidebar dialog (`SidebarDialog`) | rv-gtk's large modal with clickable categories on the left and the chosen page on the right (85 % of the window, at most 1100 x 800; Escape, close button or backdrop click close it), used by the settings and the administration. Its `Host` lets a page toast, push and pop subpages, select, close and badge a category. SwiftUI's counterpart is the settings overlay. | [settings](features/settings.md) |
 | `timeline` | rv-core's message-list grouping (headers, day separators, new-messages marker), shared by both UIs. | [room-view](features/room-view.md) |
 
 ## Project vocabulary
@@ -163,9 +170,16 @@ All code, comments and docs are in English. French survives in two places only: 
 | Amendment | An encrypted edit, deletion or reaction of a private message on the RocketVibe server: an ordinary MLS message whose header names its target, applied at projection time ([e2ee-private-actions](features/e2ee-private-actions.md)). |
 | Bench | The local Rocket.Chat 8.5.1 test server in `docker/`. |
 | Controller | The device of a RocketVibe account holding its private E2EE root: it approves and withdraws devices; control can be delegated ([e2ee-delegation](features/e2ee-delegation.md)). |
+| Deleted user, tombstoned account | A RocketVibe account deleted by an administrator: its row stays, marked `deleted`, its username becomes `deleted-<id>` (a reserved prefix) and its former username is retired, never to be taken again (`retired_usernames`), and everything personal is cleared, so its messages, reactions and quotes keep an author, which the apps show as "Deleted user". Rocket.Chat deletes for real, its messages following the server's erasure setting. |
 | Deliberate deviation | A documented departure from the audit's prescribed fix, with its reason (`apps/mobile/WORKSTREAMS.md`). |
+| Ignore (an incoming call) | What a click or tap outside the incoming call prompt, Escape or Back does in all three apps: the prompt hides and the local ringtone stops, but nothing is sent, so the caller hears it ring until it times out as a missed call. Decline is the explicit button. |
 | Kill gate | Phase 1 of `ROADMAP.md`: the binary proof that a self-built APK receives pushes when killed. |
+| Last owner | Rocket.Chat's `user-last-owner` refusal when an account to deactivate or delete is the last owner of rooms: the apps ask a second time, naming the rooms deleted with it and those whose owner changes, then confirm with `confirmRelinquish`. |
+| Modal overlay | A SwiftUI modal drawn in the window over a dimmed backdrop (`modalOverlay`, `confirmOverlay`, `Modals.swift`) instead of a macOS sheet or alert, so that a click outside closes it like Cancel. |
+| Moderation delete | An administrator's deletion of a REPORTED message (RocketVibe allows no other), tombstoning it like its author's own deletion and closing its reports; on Rocket.Chat `chat.delete` then the dismissal. When `chat.delete` cannot reach the room, the only Rocket.Chat way is the bulk delete, `moderation.user.deleteReportedMessages`, which removes ALL that author's reported messages and is only offered explicitly. |
+| Open report | A member's report of a message or an account not yet dismissed or acted on. On RocketVibe it is the only way an administrator reads a message's text, the reporter having disclosed it; a reporter keeps one open report per target. Each report keeps a snapshot of the text at report time, and the admin reads what the reporters saw, not the live message; a reporter holds at most 200 open reports. |
 | Proof by removal | Delete the fix, check that the expected tests fail, restore. A removal that changes nothing is an empty test. |
+| Quick reactions | The emoji the message menu offers first: the 5 this account reacts with most, counted on the device, filled with `+1 heart joy tada open_mouth pray`; then "+" for any emoji. |
 | Step | A step of the (frozen) construction checklist `apps/mobile/EXECUTION.md`, e.g. "8.3". |
 | Storage key | The key of a device's private vault, in the platform keystore; renewed every 30 days, the old one destroyed ([e2ee-storage-keys](features/e2ee-storage-keys.md)). |
 | Unreleased | The changelog section every visible change goes into. |
@@ -201,6 +215,11 @@ The code had French names until the English rename. These are the only French wo
 - `apps/mobile/ui/hotRooms.ts`
 - `apps/mobile/ui/homeSections.ts`
 - `apps/mobile/ui/sync.tsx`
+- `apps/mobile/ui/adminAccess.ts`
+- `apps/mobile/ui/emojiUsage.ts`
+- `apps/desktop/crates/rv-core/src/admin.rs`
+- `apps/desktop/crates/rv-gtk/src/sidebar_dialog.rs`
+- `docs/protocol/ADMINISTRATION.md`
 - `apps/mobile/app/_layout.tsx`
 - `apps/mobile/modules/`
 - `apps/mobile/plugins/`
@@ -209,3 +228,4 @@ The code had French names until the English rename. These are the only French wo
 - `apps/desktop/crates/rv-core/src/session.rs`
 - `apps/desktop/crates/rv-native/src/lib.rs`
 - `apps/desktop/docs/MACOS-SWIFTUI.md`
+- `apps/desktop/macos/Sources/RocketVibe/Modals.swift`

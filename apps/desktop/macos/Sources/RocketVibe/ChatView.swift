@@ -84,24 +84,14 @@ struct ServerRail: View {
             ForEach(app.accounts, id: \.key) { account in
                 let open = account.key == app.account?.key
                 let host = Self.host(account)
-                Button { Task { await app.switchAccount(account) } } label: {
-                    Text(host.prefix(1).uppercased())
-                        .font(.vibeTitle(17, .bold))
-                        .foregroundStyle(Vibe.ink)
-                        .frame(width: 44, height: 44)
-                        .background(LinearGradient(colors: Vibe.tile(for: account.key), startPoint: .topLeading, endPoint: .bottomTrailing),
-                                    in: RoundedRectangle(cornerRadius: 15))
-                        .overlay(RoundedRectangle(cornerRadius: 15).strokeBorder(open ? Vibe.pink : .clear, lineWidth: 2))
-                        .overlay(alignment: .topTrailing) {
-                            if !open && app.unreadAccounts.contains(account.key) {
-                                Circle().fill(Vibe.sun).frame(width: 12, height: 12)
-                                    .overlay(Circle().strokeBorder(Vibe.ink, lineWidth: 2))
-                                    .offset(x: 3, y: -3)
-                            }
-                        }
+                // The open account's tile offers its server administration to
+                // an administrator; another one has no menu (a click switches).
+                if open && app.administrator {
+                    tile(account, open: open, host: host)
+                        .contextMenu { Button(L("admin.title")) { app.openAdmin() } }
+                } else {
+                    tile(account, open: open, host: host)
                 }
-                .buttonStyle(.plain)
-                .help("\(host) · @\(account.username)")
             }
             Button { app.showLogin(error: nil) } label: {
                 Image(systemName: "plus").font(.system(size: 18, weight: .bold)).foregroundStyle(Vibe.mint)
@@ -123,6 +113,27 @@ struct ServerRail: View {
                 try? await Task.sleep(nanoseconds: 60_000_000_000)
             }
         }
+    }
+
+    func tile(_ account: Account, open: Bool, host: String) -> some View {
+        Button { Task { await app.switchAccount(account) } } label: {
+            Text(host.prefix(1).uppercased())
+                .font(.vibeTitle(17, .bold))
+                .foregroundStyle(Vibe.ink)
+                .frame(width: 44, height: 44)
+                .background(LinearGradient(colors: Vibe.tile(for: account.key), startPoint: .topLeading, endPoint: .bottomTrailing),
+                            in: RoundedRectangle(cornerRadius: 15))
+                .overlay(RoundedRectangle(cornerRadius: 15).strokeBorder(open ? Vibe.pink : .clear, lineWidth: 2))
+                .overlay(alignment: .topTrailing) {
+                    if !open && app.unreadAccounts.contains(account.key) {
+                        Circle().fill(Vibe.sun).frame(width: 12, height: 12)
+                            .overlay(Circle().strokeBorder(Vibe.ink, lineWidth: 2))
+                            .offset(x: 3, y: -3)
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        .help("\(host) · @\(account.username)")
     }
 }
 
@@ -185,7 +196,7 @@ struct RoomListView: View {
         .searchable(text: $query, placement: .sidebar, prompt: L("spotlight.placeholder"))
         .task(id: query) { await search() }
         .task(id: app.account?.key) { query = ""; found = []; creating = false }
-        .sheet(isPresented: $creating) { NewRoomSheet() }
+        .modalOverlay(isPresented: $creating) { NewRoomSheet() }
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
@@ -432,7 +443,6 @@ struct PresenceDot: View {
 /// Me, the connection, the way to settings.
 struct AccountBar: View {
     @Environment(AppModel.self) var app
-    @Environment(\.openSettings) var openSettings
 
     var body: some View {
         HStack(spacing: 8) {
@@ -450,7 +460,7 @@ struct AccountBar: View {
             }
             .buttonStyle(.plain)
             .help(connectionHelp)
-            Button { openSettings() } label: { Image(systemName: "gearshape") }
+            Button { app.openSettings() } label: { Image(systemName: "gearshape") }
                 .buttonStyle(.borderless)
                 .help(L("settings.title"))
         }

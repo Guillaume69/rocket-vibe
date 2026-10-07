@@ -53,12 +53,12 @@ struct CryptoHistoryBackupControls: View {
                 }
             }
         }
-        .alert(L("crypto.history_backup_enable"), isPresented: $confirm) {
-            Button(L("actions.cancel"), role: .cancel) {}
-            Button(L("crypto.history_backup_enable")) { Task { await model.prepareHistoryBackup() } }
-        } message: {
-            Text(L(model.historyBackupApproval?.generationRevision == nil ? "crypto.history_backup_explanation" : "crypto.history_backup_replace"))
-        }
+        .confirmOverlay(
+            isPresented: $confirm,
+            title: L("crypto.history_backup_enable"),
+            message: L(model.historyBackupApproval?.generationRevision == nil ? "crypto.history_backup_explanation" : "crypto.history_backup_replace"),
+            actions: [ModalAction(title: L("crypto.history_backup_enable")) { Task { await model.prepareHistoryBackup() } }]
+        )
         .onDisappear { confirm = false }
     }
 }

@@ -1,5 +1,6 @@
 import {useCallback,useEffect,useRef,useState} from 'react';
 import {ActivityIndicator,Alert,AppState,StyleSheet,Text,View} from 'react-native';
+import {dismissible} from './alerts.ts';
 import {useFocusEffect} from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import type {NativeChat} from '../providers/rocketvibe/chat.ts';
@@ -18,10 +19,13 @@ import {FONTS,type Colors} from './theme.ts';
 
 const keys=new WeakMap<NativeChat,number>();let nextKey=0;
 function key(chat:NativeChat):number {let k=keys.get(chat);if(k===undefined){k=++nextKey;keys.set(chat,k);}return k;}
+/** The server offers the security block (also what shows the settings category). */
+export function hasNativeSecurity(chat:NativeChat|null|undefined):boolean {
+  return !!(chat?.capabilities?.reauthentication && chat.capabilities.reauthentication_retirement);
+}
 export function NativeSecuritySection({c}:{c:Colors}) {
   const sync=useSync(),chat=sync.phase==='ready'?sync.provider.native?.chat:null;
-  return chat?.capabilities?.reauthentication && chat.capabilities.reauthentication_retirement
-    ? <NativeSecurity key={key(chat)} c={c} chat={chat}/> : null;
+  return chat && hasNativeSecurity(chat) ? <NativeSecurity key={key(chat)} c={c} chat={chat}/> : null;
 }
 export function ConfirmNativeIdentity({c,chat,onConfirmed}:{c:Colors;chat:NativeChat;onConfirmed:()=>void}) {
   return <NativeSecurity c={c} chat={chat} reauthOnly onConfirmed={onConfirmed}/>;
@@ -125,7 +129,7 @@ function NativeSecurity({c,chat,reauthOnly=false,onConfirmed}:{c:Colors;chat:Nat
           if(guard())await updateEmail(access,guard);
         });
       }},
-    ]);
+    ],dismissible());
   };
   const confirm=(kind:'regenerate'|'disable')=>{
     // Retained native alerts are bound to this focus and runner, too.
@@ -133,7 +137,7 @@ function NativeSecurity({c,chat,reauthOnly=false,onConfirmed}:{c:Colors;chat:Nat
     Alert.alert(t(kind==='disable'?'security.disable':'security.regenerate'),t(kind==='disable'?'security.disableBody':'security.regenerateBody'),[
       {text:t('common.cancel'),style:'cancel'},
       {text:t('login.submit'),style:'destructive',onPress:()=>{if(focused.current && epoch.current===n)start(kind);}},
-    ]);
+    ],dismissible());
   };
   const enable=()=>{const entered=code;setCode('');const expected=view;
     if(expected.kind==='setup')void run(async(access,guard)=>{
@@ -177,7 +181,7 @@ function NativeSecurity({c,chat,reauthOnly=false,onConfirmed}:{c:Colors;chat:Nat
           if(approved())publishEmail(next);
         });
       }},
-    ]);
+    ],dismissible());
   };
   return <>
     <Text style={[styles.heading,{color:c.dimmed}]}>{t('security.title')}</Text>

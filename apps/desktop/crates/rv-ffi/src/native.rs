@@ -856,7 +856,11 @@ impl NativeChat {
         let s = self.session.clone();
         on_tokio(async move { s.delete(&room, &message_id, &revision).await }).await.map_err(native_error)
     }
+    /// Every reaction added counts toward my quick reactions.
     pub async fn react(&self, room: String, message_id: String, emoji: String, present: bool) -> Result<(), RvError> {
+        if present {
+            crate::reactions::usage(&self.dirs.config, &self.session.info).record(&emoji);
+        }
         let s = self.session.clone();
         on_tokio(async move { s.react(&room, &message_id, &emoji, present).await }).await.map_err(native_error)
     }

@@ -2,6 +2,7 @@
 //! Every future runs on this crate's tokio runtime, whatever polls it.
 
 mod accounts;
+mod admin;
 mod context;
 mod links;
 pub mod markup;
@@ -17,6 +18,7 @@ mod native_rooms;
 mod native_security;
 mod native_voice;
 pub mod people;
+mod reactions;
 pub mod writing;
 
 use std::path::PathBuf;
@@ -511,7 +513,11 @@ impl Chat {
         on_tokio(async move { s.retry(&id).await }).await
     }
 
+    /// Every reaction added counts toward my quick reactions.
     pub async fn react(&self, message_id: String, shortcode: String, add: bool) -> Result<(), RvError> {
+        if add {
+            reactions::usage(&self.dirs.config, &self.session.info).record(&shortcode);
+        }
         let s = self.session.clone();
         Ok(on_tokio(async move { s.react(&message_id, &shortcode, add).await }).await?)
     }
@@ -601,9 +607,13 @@ impl Chat {
         rv_core::actions::possible_actions(&ctx).into_iter().map(action).collect()
     }
 
-    /// The reactions the actions menu offers first, as shortcodes.
+    /// The reactions the actions menu offers first, as shortcodes: the ones I
+    /// use most on this account, the server's emoji included.
     pub fn quick_reactions(&self) -> Vec<String> {
-        rv_core::actions::QUICK_REACTIONS.iter().map(|c| (*c).to_owned()).collect()
+        let s = &self.session;
+        reactions::quick_rocket_chat(&reactions::usage(&self.dirs.config, &s.info), |code| {
+            s.custom_emoji(code).is_some()
+        })
     }
 
     /// The call's link, to open in the browser.

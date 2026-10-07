@@ -11,7 +11,7 @@ use rv_protocol::{
     Change, Message,
     parity::{DeleteMessage, EditMessage, MessageContent},
 };
-use sqlx::types::Json;
+use sqlx::{Postgres, Transaction, types::Json};
 
 pub enum Command {
     Edit(EditMessage),
@@ -158,19 +158,36 @@ pub async fn apply(app: &App, account: &Account, id: &str, command: Command) -> 
     }
     crate::quotes::validate(&mut tx, account, quotes, &message.quote_references.0).await?;
     crate::limits::message_action(&mut tx, &account.id).await?;
-    let mentions_removed = crate::mentions::retain(&mut tx, id, text).await?;
+    sqlx::query("INSERT INTO message_actions(user_id,operation_id,command_hash,message_id) VALUES($1,$2,$3,$4)")
+        .bind(&account.id).bind(operation).bind(hash).bind(id).execute(&mut *tx).await?;
+    write(&mut tx, &room, id, &message, text, quotes).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Applies an edit (`Some(text)`) or a tombstone (`None`) to a message locked by
+/// the caller, journal events included. Moderation deletes through it too.
+pub(crate) async fn write(
+    tx: &mut Transaction<'_, Postgres>,
+    room: &str,
+    id: &str,
+    message: &MessageRow,
+    text: Option<&str>,
+    quotes: &[rv_protocol::parity::QuoteReference],
+) -> Result<()> {
+    let mentions_removed = crate::mentions::retain(tx, id, text).await?;
     if text.is_none() {
         sqlx::query("DELETE FROM message_stars WHERE message_id=$1")
             .bind(id)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await?;
         sqlx::query("UPDATE messages SET pinned=false WHERE id=$1")
             .bind(id)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await?;
         sqlx::query("DELETE FROM message_reactions WHERE message_id=$1")
             .bind(id)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await?;
     }
     // Invalidate views before the sequencer. All readers use room -> membership
@@ -179,47 +196,37 @@ pub async fn apply(app: &App, account: &Account, id: &str, command: Command) -> 
     // commits. Match its participant first, so deletion waits for that build
     // instead of missing an uncommitted private payload.
     sqlx::query("DELETE FROM snapshot_heads WHERE user_id IN (SELECT user_id FROM members WHERE room_id=$1) OR $1=ANY(room_ids)")
-        .bind(&room)
-        .execute(&mut *tx)
+        .bind(room)
+        .execute(&mut **tx)
         .await?;
     sqlx::query("UPDATE rooms SET authority_version=$2 WHERE id=$1")
-        .bind(&room)
+        .bind(room)
         .bind(random_token())
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
-    let position = store::next_position(&mut tx).await?;
+    let position = store::next_position(tx).await?;
     sqlx::query("UPDATE messages SET text=$2,deleted=$3,cards=CASE WHEN $3 THEN '[]'::jsonb ELSE cards END,revision=$4,edited_at=CASE WHEN $3 THEN edited_at ELSE clock_timestamp() END,send_fingerprint=COALESCE(send_fingerprint,$5),quote_references=$6 WHERE id=$1")
-        .bind(id).bind(text.unwrap_or("")).bind(text.is_none()).bind(position).bind(store::quoted_send_fingerprint(&room,&message.text,&message.quote_references.0)).bind(Json(quotes)).execute(&mut *tx).await?;
-    crate::link_previews::enqueue(&mut tx, id, text.unwrap_or("")).await?;
+        .bind(id).bind(text.unwrap_or("")).bind(text.is_none()).bind(position).bind(store::quoted_send_fingerprint(room,&message.text,&message.quote_references.0)).bind(Json(quotes)).execute(&mut **tx).await?;
+    crate::link_previews::enqueue(tx, id, text.unwrap_or("")).await?;
     let current = sqlx::query_as::<_, MessageRow>(&format!("{MESSAGE_SELECT} WHERE m.id=$1"))
         .bind(id)
-        .fetch_one(&mut *tx)
+        .fetch_one(&mut **tx)
         .await?
         .wire();
     if current.deleted {
         // Retain journal positions and durable message IDs, erase old payloads.
         // Replays now carry the authoritative tombstone even at an earlier event.
         sqlx::query("UPDATE journal SET change=$3 WHERE room_id=$1 AND change->>'type'='message_upsert' AND change #>> '{data,id}'=$2")
-            .bind(&room).bind(id).bind(Json(Change::MessageUpsert(current.clone()))).execute(&mut *tx).await?;
+            .bind(room).bind(id).bind(Json(Change::MessageUpsert(current.clone()))).execute(&mut **tx).await?;
     }
-    sqlx::query("INSERT INTO message_actions(user_id,operation_id,command_hash,message_id) VALUES($1,$2,$3,$4)")
-        .bind(&account.id).bind(operation).bind(hash).bind(id).execute(&mut *tx).await?;
-    store::event(
-        &mut tx,
-        position,
-        &room,
-        None,
-        Change::MessageUpsert(current),
-    )
-    .await?;
+    store::event(tx, position, room, None, Change::MessageUpsert(current)).await?;
     if text.is_none()
         && let Some(root) = &message.reply_to
     {
-        crate::threads::refresh(&mut tx, &room, root).await?;
+        crate::threads::refresh(tx, room, root).await?;
     }
     if text.is_none() || mentions_removed {
-        crate::room_reads::message_changed(&mut tx, &room).await?;
+        crate::room_reads::message_changed(tx, room).await?;
     }
-    tx.commit().await?;
     Ok(())
 }

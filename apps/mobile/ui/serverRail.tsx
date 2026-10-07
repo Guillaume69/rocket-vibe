@@ -4,16 +4,21 @@
  * "+" to add a server. Only the open server is connected: the others are read
  * once a minute while the app is in the foreground (`lib/accountUnread.ts`),
  * at once when it comes back, and a push for one lights its dot before that.
+ * A long press on the open server's tile offers its administration, to an
+ * administrator only (`ui/adminAccess.ts`); on another tile it does nothing
+ * more than a tap would.
  */
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
-import { AppState, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, AppState, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { dismissible } from './alerts.ts';
 
 import type { Session } from '../lib/auth.ts';
 import { nativeRoomsUnread, serverHost, subscriptionsUnread } from '../lib/accountUnread.ts';
 import { listKnownServers, prepareNativeSession, readSession } from '../lib/sessionStore.ts';
 import { clientForSession } from '../lib/sessionTransport.ts';
 import { transportFor } from '../providers/rocketvibe/auth.ts';
+import { useServerAdmin } from './adminAccess.ts';
 import { useT } from './i18n.ts';
 import { AvatarTile } from './kit.tsx';
 import { onServerUnread } from './serverDots.ts';
@@ -44,6 +49,7 @@ export function ServerRail({ c }: { c: Colors }) {
   // The poll reads these without being rebuilt at every change.
   const accountsRef = useRef<Session[]>([]);
   const activeRef = useRef(active);
+  const admin = useServerAdmin();
 
   const mark = useCallback((host: string, on: boolean) => {
     if (host === activeRef.current) return;
@@ -112,6 +118,10 @@ export function ServerRail({ c }: { c: Colors }) {
             <Tappable
               key={host}
               onPress={() => open(session)}
+              onLongPress={isOpen && admin !== null ? () => Alert.alert(name, `@${session.username}`, [
+                { text: t('common.cancel'), style: 'cancel' },
+                { text: t('settings.admin'), onPress: () => router.push('/admin') },
+              ], dismissible()) : undefined}
               accessibilityRole="button"
               accessibilityState={{ selected: isOpen, busy: switching === host }}
               accessibilityLabel={`${name} · @${session.username}`}

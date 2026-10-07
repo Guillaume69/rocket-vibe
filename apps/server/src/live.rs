@@ -179,6 +179,7 @@ pub(crate) async fn state(app: &App, actor: &Account) -> Result<LiveState> {
                         id,
                         username,
                         display_name,
+                        ..Default::default()
                     },
                     revision,
                     avatar_file_id,
@@ -209,6 +210,7 @@ pub(crate) async fn state(app: &App, actor: &Account) -> Result<LiveState> {
                 id,
                 username,
                 display_name,
+                ..Default::default()
             },
             status: match status.as_str() {
                 "busy" => PresenceStatus::Busy,
@@ -230,6 +232,7 @@ pub(crate) async fn state(app: &App, actor: &Account) -> Result<LiveState> {
                     id,
                     username,
                     display_name,
+                    ..Default::default()
                 }),
             typing: vec![],
             voice: vec![],
@@ -242,6 +245,7 @@ pub(crate) async fn state(app: &App, actor: &Account) -> Result<LiveState> {
                     id,
                     username,
                     display_name,
+                    ..Default::default()
                 },
                 muted,
                 deafened,
@@ -258,6 +262,7 @@ pub(crate) async fn state(app: &App, actor: &Account) -> Result<LiveState> {
                     id,
                     username,
                     display_name,
+                    ..Default::default()
                 },
                 root_id: (!root.is_empty()).then_some(root),
             });

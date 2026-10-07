@@ -176,7 +176,7 @@ impl Controller {
         }
     }
     fn confirm_history_backup(self: &Rc<Self>, approval: HistoryBackupApproval) {
-        let Some(parent) = self.dialog.upgrade() else { return };
+        let Some(parent) = self.host.widget() else { return };
         let body = if approval.generation_revision.is_some() {
             t("crypto.history_backup_replace")
         } else {
@@ -201,7 +201,7 @@ impl Controller {
                 c.run(super::Action::HistoryBackup(Action::Prepare(Box::new(approval))));
             }
         });
-        alert.present(Some(&parent));
+        crate::widgets::present(&alert, Some(&parent));
     }
     pub(super) fn connect_history_backup(self: &Rc<Self>) {
         for (index, row) in self.history_backup.rows.iter().enumerate() {

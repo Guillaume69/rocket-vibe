@@ -236,6 +236,7 @@ pub async fn accept(app: &App, input: RecoverAccount, peer: Option<IpAddr>) -> R
             id: current.id.clone(),
             username: current.username,
             display_name: current.display_name,
+            ..Default::default()
         };
         if let Some(version) = code.consumed_version {
             if version != current.activation_version || new_hash.is_some() {

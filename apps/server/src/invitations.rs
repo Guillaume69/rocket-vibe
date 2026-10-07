@@ -110,6 +110,7 @@ pub async fn accept(app: &App, input: AcceptInvitation, peer: Option<IpAddr>) ->
             .bytes()
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
         || !auth::identifier(&input.username)
+        || auth::reserved_username(&input.username)
         || input.password.chars().count() < 12
         || input.password.len() > 1024
     {
@@ -192,6 +193,7 @@ pub async fn accept(app: &App, input: AcceptInvitation, peer: Option<IpAddr>) ->
                 id,
                 username,
                 display_name,
+                ..Default::default()
             })
         } else {
             None
@@ -219,7 +221,18 @@ pub async fn accept(app: &App, input: AcceptInvitation, peer: Option<IpAddr>) ->
             id: auth::random_token()[..24].into(),
             username: input.username.clone(),
             display_name: input.username.clone(),
+            ..Default::default()
         };
+        // A deleted account's name stays retired (the users trigger also refuses it).
+        let retired: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM retired_usernames WHERE username=lower($1))",
+        )
+        .bind(&user.username)
+        .fetch_one(&mut *tx)
+        .await?;
+        if retired {
+            return Err(rejected());
+        }
         let inserted = sqlx::query("INSERT INTO users(id,username,display_name,password_hash,admin) VALUES($1,$2,$3,$4,false) ON CONFLICT DO NOTHING")
             .bind(&user.id).bind(&user.username).bind(&user.display_name).bind(new_hash.ok_or_else(rejected)?)
             .execute(&mut *tx).await?;

@@ -32,6 +32,8 @@ import { attachmentEncryption, type FileEncryption } from '../lib/e2e/crypto.ts'
 import { unicodeOfShortcode } from '../lib/emojis.ts';
 import { customEmojiUrl } from '../lib/customEmojis.ts';
 import {ImageEmoji,useCatalogueEmojis} from './emojiImage.tsx';
+import { recordReaction } from './emojiUsage.ts';
+import { isDeletedUsername } from '../lib/deletedUser.ts';
 import { messageTree } from '../lib/markdown.ts';
 import { useJoinVoice, useVoice } from './voice.tsx';
 import { callSummaryText, systemText } from '../lib/systemMessages.ts';
@@ -127,7 +129,10 @@ export const MessageRow = memo(function MessageRow({
   const identities = useIdentities();
   const etags = useAvatarEtags();
   const t = useT();
-  const author = (identities.get(message.authorId) ?? message.authorName) ?? '?';
+  const username = (identities.get(message.authorId) ?? message.authorName) ?? '?';
+  // A deleted RocketVibe account keeps its messages (`lib/deletedUser.ts`).
+  const deletedAuthor = client.kind === 'rocketvibe' && isDeletedUsername(username);
+  const author = deletedAuthor ? t('common.deletedUser') : username;
   // The username takes the first tint of its own avatar tile: name and avatar
   // match, and the same person keeps their color from one message to the next.
   const authorTint = avatarGradient(author, c.avatarGradients)[0];
@@ -140,7 +145,7 @@ export const MessageRow = memo(function MessageRow({
   // `openProfileCard` preloads the card BEFORE opening the sheet (final height
   // from the first frame, no jump), see lib/profilePreload.
   const openProfile =
-    message.authorName === null
+    message.authorName === null || deletedAuthor
       ? undefined
       : () => void openProfileCard({ uid: message.authorId });
 
@@ -284,7 +289,12 @@ export const MessageRow = memo(function MessageRow({
                 onPress={
                   onReact === null
                     ? undefined
-                    : () => onReact(message.rid, message.id, reaction.code, !reaction.byMe)
+                    : () => {
+                        // Joining a reaction is a use of that emoji (quick
+                        // reactions of the sheet); withdrawing mine is not.
+                        if (!reaction.byMe) recordReaction(reaction.code);
+                        onReact(message.rid, message.id, reaction.code, !reaction.byMe);
+                      }
                 }
               />
             ))}
@@ -459,7 +469,8 @@ function Quote({
   // A private source names its author by uid: shown as the rows show it.
   const identities = useIdentities();
   const named = typeof attachment.author_name === 'string' ? attachment.author_name : null;
-  const author = named === null ? null : (identities.get(named) ?? named);
+  const current = named === null ? null : (identities.get(named) ?? named);
+  const author = client.kind === 'rocketvibe' && isDeletedUsername(current) ? t('common.deletedUser') : current;
   const nested = Array.isArray(attachment.attachments) ? attachment.attachments : [];
   const subQuotes =
     depth < MAX_QUOTE_DEPTH ? nested.filter((j) => isQuoteAttachment(j)) : [];

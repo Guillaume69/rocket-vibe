@@ -5,7 +5,8 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use gtk::prelude::*;
+use adw::prelude::*;
+use gtk::glib;
 
 /// A replaceable callback slot on a component.
 pub type Handler<T> = RefCell<Option<Rc<dyn Fn(T)>>>;
@@ -262,6 +263,82 @@ pub fn sparkle() -> gtk::DrawingArea {
 /// Thin brand-gradient comet sweeping the window's top edge while syncing.
 pub fn comet() -> gtk::Box {
     gtk::Box::builder().css_classes(["comet"]).height_request(3).valign(gtk::Align::Start).can_target(false).build()
+}
+
+/// Presents a dialog, every one of the app's: a click on the dimmed backdrop
+/// around it closes it like Escape (an alert answers its close response,
+/// never a destructive one).
+pub fn present(dialog: &impl IsA<adw::Dialog>, parent: Option<&impl IsA<gtk::Widget>>) {
+    dialog.present(parent);
+    close_on_backdrop(dialog.upcast_ref());
+}
+
+fn dimming(widget: &gtk::Widget) -> Option<gtk::Widget> {
+    if widget.css_name() == "dimming" {
+        return Some(widget.clone());
+    }
+    std::iter::successors(widget.first_child(), |w| w.next_sibling()).find_map(|child| dimming(&child))
+}
+
+/// The dimmed backdrop around a dialog is a window handle: a click there
+/// started a window drag and a double click maximized the window. A click on
+/// it closes the dialog instead. A window resize can switch the dialog
+/// between a floating and a bottom sheet, which builds a new backdrop: the
+/// watch is armed again then, until the dialog closes.
+pub fn close_on_backdrop(dialog: &adw::Dialog) {
+    arm(dialog);
+    let Some(window) = dialog.root().and_downcast::<gtk::Window>() else { return };
+    let handlers: Vec<glib::SignalHandlerId> = ["default-width", "default-height", "maximized", "fullscreened"]
+        .into_iter()
+        .map(|property| {
+            let weak = dialog.downgrade();
+            window.connect_notify_local(Some(property), move |_, _| {
+                if let Some(dialog) = weak.upgrade() {
+                    arm(&dialog);
+                }
+            })
+        })
+        .collect();
+    let (window, handlers) = (window.downgrade(), RefCell::new(Some(handlers)));
+    dialog.connect_closed(move |_| {
+        if let (Some(window), Some(handlers)) = (window.upgrade(), handlers.take()) {
+            for handler in handlers {
+                window.disconnect(handler);
+            }
+        }
+    });
+}
+
+/// Looks for the backdrop until it has its click (it exists once the dialog
+/// laid itself out), then stops; stops too when the dialog left its host.
+fn arm(dialog: &adw::Dialog) {
+    let weak = dialog.downgrade();
+    let mut tries = 0;
+    glib::timeout_add_local(std::time::Duration::from_millis(60), move || {
+        tries += 1;
+        let Some(dialog) = weak.upgrade().filter(|d| d.parent().is_some()) else {
+            return glib::ControlFlow::Break;
+        };
+        let Some(backdrop) = dimming(dialog.upcast_ref()) else {
+            return if tries < 50 { glib::ControlFlow::Continue } else { glib::ControlFlow::Break };
+        };
+        if backdrop.has_css_class("closes-dialog") {
+            return glib::ControlFlow::Break;
+        }
+        backdrop.add_css_class("closes-dialog");
+        let click = gtk::GestureClick::builder().button(0).propagation_phase(gtk::PropagationPhase::Capture).build();
+        click.connect_pressed(|gesture, _, _, _| {
+            gesture.set_state(gtk::EventSequenceState::Claimed);
+        });
+        let weak = dialog.downgrade();
+        click.connect_released(move |_, _, _, _| {
+            if let Some(dialog) = weak.upgrade() {
+                dialog.close();
+            }
+        });
+        backdrop.add_controller(click);
+        glib::ControlFlow::Break
+    });
 }
 
 #[cfg(test)]

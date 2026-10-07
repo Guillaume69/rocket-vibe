@@ -59,6 +59,8 @@ All paths are under `/api/v1/` except `/api/info`, which both clients reach thro
 | E2EE | `e2e.fetchMyKeys` | `lib/e2e/engine.ts` | `session.rs` |
 | Calls | `video-conference.capabilities`, `.start`, `.join`; desktop also `.info` | `lib/call.ts` | `actions.rs`, `session.rs` |
 | Push (mobile only) | `POST` / `DELETE push.token`; `push.get` from native code | `lib/pushToken.ts`, `plugins/with-fcm-deeplink.js` | - |
+| Administration (admin only) | `statistics` (and `?refresh=true` on demand), `roles.getUsersInRole`, `users.listByStatus`, `roles.addUserToRole` / `roles.removeUserFromRole`, `users.setActiveStatus`, `users.delete`, `rooms.adminRooms`, `moderation.reportsByUsers`, `moderation.user.reportedMessages`, `moderation.reports`, `moderation.dismissReports`, `moderation.userReports`, `moderation.user.reportsByUserId`, `moderation.dismissUserReports`, `moderation.user.deleteReportedMessages`, `chat.delete` | `providers/rocketchat/admin.ts` | `admin.rs` |
+| Reports (any member) | `chat.reportMessage`, `moderation.reportUser` | `providers/rocketchat/admin.ts` | `admin.rs` |
 
 Mobile code reaches Rocket.Chat only through the `Provider` facade (`apps/mobile/lib/provider.ts`), whose Rocket.Chat driver is `apps/mobile/providers/rocketchat/`. Screens never name an endpoint for history, threads or subscriptions.
 
@@ -95,6 +97,7 @@ REST is limited to 10 calls a minute by default (measured); the 11th answers 429
 - `FileUpload_ProtectFiles` and `Accounts_AvatarBlockUnauthenticatedAccess` are on for the target: files and avatars need `rc_uid` / `rc_token`.
 - Avatars carry no HTTP `ETag`; the version (`avatarETag`) is added to the URL query to bust the image cache, and `updateAvatar` without `etag` means the photo was reset. See [../features/avatars.md](../features/avatars.md).
 - A change of display `name` is not broadcast at all; only avatar and username changes propagate live.
+- Administration: `statistics` is the last stored snapshot and `refresh=true` aggregates the whole workspace, so only a refresh button asks it; `users.list` refuses `filter` and ignores `query`, so users are listed and searched with `users.listByStatus` (`searchTerm`), without creation dates; deactivating or deleting a last owner of rooms answers `user-last-owner` with the rooms, until `confirmRelinquish`; `moderation.reportsByUsers` is grouped by author, not by message, hence a per-author fan-out (admins bypass the rate limit), and `moderation.user.reportedMessages` dedups messages; `chat.delete` needs room access, the only alternative deleting all the author's reported messages; `rooms.adminRooms` needs `types[]` to list discussions and teams and has no last-message date; `chat.react` accepts only the server's own emoji codes or a custom emoji. Who is admin: `me.roles` contains `admin`. See [../features/administration.md](../features/administration.md) and [../features/emoji.md](../features/emoji.md).
 - Push only notifies offline users, and by default only on DMs and mentions. With hidden content on, a push carries only a `messageId`, fetched with `push.get`. See [../features/notifications.md](../features/notifications.md).
 - E2EE rooms reject plain messages (`error-not-allowed`). See [e2ee.md](e2ee.md).
 - `MONGO_OPLOG_URL` is gone since 8.0 (change streams), but the replica set is still required by the test server in `docker/`.
@@ -132,3 +135,5 @@ REST is limited to 10 calls a minute by default (measured); the 11th answers 429
 - apps/desktop/crates/rv-core/src/actions.rs
 - apps/desktop/crates/rv-core/src/info.rs
 - apps/desktop/crates/rv-core/src/account.rs
+- apps/desktop/crates/rv-core/src/admin.rs
+- apps/mobile/providers/rocketchat/admin.ts

@@ -102,6 +102,7 @@ pub async fn renew(app: &App, old_hash: &str, input: RenewSession) -> Result<Ses
             id,
             username,
             display_name,
+            ..Default::default()
         },
     })
 }

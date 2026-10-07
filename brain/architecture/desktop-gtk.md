@@ -20,11 +20,12 @@ Context: [desktop-app.md](desktop-app.md) (workspace, build container), [desktop
 | `rows` | Builds one room row or one message row widget from store rows |
 | `markdown_view`, `cards`, `video`, `player`, `media` | Message bodies from `rv-core` markdown blocks, attachment and link cards, video attachments, embedded YouTube/Dailymotion/Vimeo, protected images as GDK textures (fetched and decoded once, shared by every row asking) |
 | `composer`, `staged`, `attach`, `emoji_picker`, `spell`, `recorder` | The message field (Enter sends, Shift+Enter breaks), staged files with captions and image quality, pick/drop/paste, emoji picker, Hunspell spell check, voice recording to Ogg/Opus |
-| `actions_menu`, `marked`, `details`, `spotlight`, `thread`, `unlock`, `settings` | Message actions menu, pinned/starred dialog, room info / profiles / search, new conversation, thread page, the E2E password prompt, settings |
+| `actions_menu`, `reactions`, `marked`, `details`, `spotlight`, `thread`, `unlock` | Message actions menu, its quick reactions (my most used per account, then "+" to the picker), pinned/starred dialog, room info / profiles / search, new conversation, thread page, the E2E password prompt |
+| `sidebar_dialog`, `settings`, `admin` | `SidebarDialog`, the large modal with clickable categories (85 % of the window, at most 1100 x 800, one pane under 640 sp; Escape, close button or backdrop click close it) and its `Host` (`pop_if` goes back only from the page an action started on); the administration's Dashboard is a two-column masonry (`Cards`); the settings in categories ([../features/settings.md](../features/settings.md)); the server administration and the Report dialog ([../features/administration.md](../features/administration.md)) |
 | `notifier`, `badge`, `background`, `call_window`, `updater` | Notifications, unread badge, tray/dock life, call windows, self-update |
 | `chat_voice`, `sounds`, `settings/voice` | Native voice sessions on the chat page (`VoiceUi`: who is in each room's session under its row, the voice page, the "Voice connected" panel, the ring dialog, cues), the voice sounds of `assets/sounds` played through GStreamer's `playbin` (one-shot cues; the ringtone and ringback looped while their `Player` lives), the microphone and speaker choice. See [../features/voice.md](../features/voice.md) |
-| `style`, `widgets`, `fonts`, `icon`, `sizer`, `i18n` | The "Nuit Étoilée" theme over libadwaita's dark style, the Android kit's widgets (gradient avatars, pills, the sync comet), bundled fonts and icon, language choice |
-| `smoke` | The unattended run driven by `RV_SMOKE_*` variables, and the sample-message gallery |
+| `style`, `widgets`, `fonts`, `icon`, `sizer`, `i18n` | The "Nuit Étoilée" theme over libadwaita's dark style, the Android kit's widgets (gradient avatars, pills, the sync comet, `present`, through which every `adw::Dialog` and `adw::AlertDialog` of the app is shown, and `close_on_backdrop`, which it attaches: a click on the dimmed backdrop closes the dialog like Escape, an alert answering its close response, instead of starting a window drag. The backdrop exists only once the dialog laid itself out, so the watch polls for it every 60 ms, stops once it is attached or the dialog left its host, and is armed again when the window's size or state changes, since a resize can switch the dialog between floating and bottom sheet with a new backdrop), bundled fonts and icon, language choice |
+| `smoke` | The unattended run driven by `RV_SMOKE_*` variables (`smoke/admin.rs` walks the administration), and the sample-message gallery |
 | `macos`, `windows`, `focus`, `crashlog`, `logs`, `bundle` | Platform start-up fixes and where packaged data lives |
 
 ### How a list refreshes
@@ -99,6 +100,12 @@ From a checkout, `scripts/install-desktop.sh` registers the release build with t
 - apps/desktop/crates/rv-gtk/src/chat.rs
 - apps/desktop/crates/rv-gtk/src/message_list.rs
 - apps/desktop/crates/rv-gtk/src/rows.rs
+- apps/desktop/crates/rv-gtk/src/reactions.rs
+- apps/desktop/crates/rv-gtk/src/sidebar_dialog.rs
+- apps/desktop/crates/rv-gtk/src/settings.rs
+- apps/desktop/crates/rv-gtk/src/admin.rs
+- apps/desktop/crates/rv-gtk/src/widgets.rs
+- apps/desktop/crates/rv-gtk/src/style.rs
 - apps/desktop/crates/rv-gtk/src/secrets.rs
 - apps/desktop/crates/rv-gtk/src/notifier.rs
 - apps/desktop/crates/rv-gtk/src/badge.rs

@@ -79,7 +79,7 @@ The desktop equivalent of push only works while the app runs. Both apps: DMs and
 - apps/mobile/ui/notificationState.ts
 - apps/mobile/ui/sync.tsx
 - apps/mobile/ui/i18n.ts
-- apps/mobile/app/settings.tsx
+- apps/mobile/ui/settingsSections.tsx
 - apps/desktop/crates/rv-core/src/notify.rs
 - apps/desktop/crates/rv-core/src/session.rs
 - apps/desktop/crates/rv-core/src/rooms.rs

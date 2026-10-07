@@ -494,6 +494,7 @@ mod tests {
             two_factor: None,
             request_id: Some("request-fixture".into()),
             retry_after: Some(12),
+            details: None,
         };
         match RvError::from(error) {
             RvError::Server { status, request_id, retry_after, two_factor, .. } => {

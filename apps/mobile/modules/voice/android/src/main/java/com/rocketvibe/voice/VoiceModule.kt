@@ -24,16 +24,21 @@ class ConnectOptions : Record {
 /** JS face of [VoiceEngine]: commands in, one `change` event carrying the whole snapshot out. */
 class VoiceModule : Module() {
   private val listener: () -> Unit = { sendEvent("change", VoiceEngine.last) }
+  private val levelListener: (Double) -> Unit = { level -> sendEvent("level", mapOf("level" to level)) }
   private var consent: Promise? = null
 
   override fun definition() = ModuleDefinition {
     Name("Voice")
-    Events("change")
+    Events("change", "level")
     OnCreate {
       VoiceEngine.attach(appContext.reactContext ?: throw IllegalStateException("No React context"))
       VoiceEngine.listen(listener)
+      VoiceEngine.listenLevel(levelListener)
     }
-    OnDestroy { VoiceEngine.unlisten(listener) }
+    OnDestroy {
+      VoiceEngine.unlisten(listener)
+      VoiceEngine.unlistenLevel(levelListener)
+    }
     Function("snapshot") { VoiceEngine.last }
     AsyncFunction("connect") { o: ConnectOptions ->
       VoiceEngine.connect(o.room, o.url, o.token, o.title, o.link, o.microphone, o.e2eeKey)
@@ -43,6 +48,14 @@ class VoiceModule : Module() {
     AsyncFunction("setMicrophone") { enabled: Boolean -> VoiceEngine.setMicrophone(enabled) }.runOnQueue(Queues.MAIN)
     AsyncFunction("setDeafened") { on: Boolean -> VoiceEngine.setDeafened(on) }.runOnQueue(Queues.MAIN)
     AsyncFunction("setRoute") { route: String -> VoiceEngine.setRoute(route) }.runOnQueue(Queues.MAIN)
+    // How this side hears the call, kept by the engine for the process.
+    AsyncFunction("setPersonVolume") { identity: String, volume: Double, muted: Boolean ->
+      VoiceEngine.setPersonVolume(identity, volume, muted)
+    }.runOnQueue(Queues.MAIN)
+    AsyncFunction("setInputVolume") { volume: Double -> VoiceEngine.setInputVolume(volume) }.runOnQueue(Queues.MAIN)
+    AsyncFunction("setOutputVolume") { volume: Double -> VoiceEngine.setOutputVolume(volume) }.runOnQueue(Queues.MAIN)
+    AsyncFunction("setNoiseSuppression") { on: Boolean -> VoiceEngine.setNoiseSuppression(on) }.runOnQueue(Queues.MAIN)
+    AsyncFunction("setShareQuality") { height: Int, fps: Int -> VoiceEngine.setShareQuality(height, fps) }.runOnQueue(Queues.MAIN)
     AsyncFunction("ringback") { on: Boolean ->
       appContext.reactContext?.let { VoiceSounds.ringback(it, on) }
       Unit

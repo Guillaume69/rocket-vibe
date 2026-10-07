@@ -23,6 +23,16 @@ release, and its notes are that version's section here.
   screen at a time in a room, a new share replacing the current one. The shared screen
   takes most of the screen, with everyone in a column at its right. The shared screen
   carries its apps' sound (media, games), never the voice chat.
+- Voice options beside the microphone: where the sound goes, the input volume with a live
+  level meter, the output volume, noise removal (RNNoise, on by default), deafen and the
+  screen share's quality.
+- A long press on someone in a voice session sets their volume (up to 200 %) or mutes them
+  for you only; the choice is remembered.
+- The people of a voice session fill the screen as large tiles, and a whisper now lights
+  up its tile.
+- Tap a shared screen to watch it full screen.
+- A direct call ends for you too when the other person hangs up, and you are taken back to
+  the conversation when it ends.
 - Voice in encrypted rooms, end-to-end encrypted: the server relays sound it cannot
   hear, under a key only the room's devices share, renewed when its members change.
 - Slash commands on a RocketVibe server: /topic, /invite, /kick, /leave, /join,

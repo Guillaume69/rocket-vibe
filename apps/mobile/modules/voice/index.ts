@@ -44,7 +44,17 @@ type Bridge={
   missed():Promise<void>;
   /** Stops the system ring of an incoming call the app now shows itself. */
   dismissRing(ring:string):Promise<void>;
+  /** How loud someone plays here (0 to 2) and a mute for this side only; kept for the process. */
+  setPersonVolume(identity:string,volume:number,muted:boolean):Promise<void>;
+  setInputVolume(volume:number):Promise<void>;
+  setOutputVolume(volume:number):Promise<void>;
+  /** The noise remover (RNNoise) on the microphone. */
+  setNoiseSuppression(on:boolean):Promise<void>;
+  /** The next screen share's lines (the screen's shorter side) and frames a second. */
+  setShareQuality(height:number,fps:number):Promise<void>;
   addListener(event:'change',listener:(snapshot:VoiceSnapshot)=>void):{remove:()=>void};
+  /** The microphone's level, 0 to 1, about ten times a second while connected. */
+  addListener(event:'level',listener:(event:{level:number})=>void):{remove:()=>void};
 };
 /**
  * LiveKit audio in a microphone foreground service (Android). Absent from a

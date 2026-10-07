@@ -4,14 +4,15 @@
  * connected in each room (the live snapshot), rings, and the shared widgets.
  */
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
+import * as SecureStore from 'expo-secure-store';
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { Alert, Modal, PermissionsAndroid, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withRepeat, withSequence, withTiming } from 'react-native-reanimated';
 
 import { nativeRoomPermalink } from '../lib/roomLinks.ts';
 import { avatarUrl } from '../lib/upload.ts';
 import type { RestClient } from '../lib/rest.ts';
-import { VoiceController, type VoiceView } from '../lib/voice.ts';
+import { DEFAULT_LISTENING, type Listening, type ListeningStore, VoiceController, type VoiceView } from '../lib/voice.ts';
 import { CryptoNative } from '../modules/crypto-native/index.ts';
 import { VoiceNative } from '../modules/voice/index.ts';
 import type { NativeChat } from '../providers/rocketvibe/chat.ts';
@@ -25,6 +26,13 @@ import { type Colors, FONTS, useColors } from './theme.ts';
 import { notify } from './toast.tsx';
 
 const controllers = new WeakMap<NativeChat, VoiceController>();
+
+/** This device's listening choices, kept between runs (not secret, but the app's one store). */
+const LISTENING_KEY = 'voice-listening';
+const listeningStore: ListeningStore = {
+  load: () => SecureStore.getItemAsync(LISTENING_KEY),
+  save: json => SecureStore.setItemAsync(LISTENING_KEY, json),
+};
 
 /** The signed-in native chat, when this build and its server both offer voice. */
 function useVoiceChat(): NativeChat | null {
@@ -46,18 +54,35 @@ export function useVoiceController(): VoiceController | null {
       declineRing: id => chat.declineRing(id),
       claimScreen: () => chat.claimScreen(),
       releaseScreen: () => chat.releaseScreen(),
-    });
+    }, listeningStore);
     controllers.set(chat, controller);
   }
   return controller;
 }
 
-const IDLE_VIEW: VoiceView = { phase: 'idle', room: null, microphone: true, deafened: false, camera: false, sharing: false, encrypted: false, participants: [], route: null, routes: [], ring: null, ended: null };
+const IDLE_VIEW: VoiceView = { phase: 'idle', room: null, microphone: true, deafened: false, camera: false, sharing: false, encrypted: false, participants: [], route: null, routes: [], ring: null, ended: null, direct: false };
 
 export function useVoice(): VoiceView {
   const controller = useVoiceController();
   const subscribe = useCallback((fn: () => void) => controller?.subscribe(fn) ?? (() => {}), [controller]);
   return useSyncExternalStore(subscribe, () => controller?.state ?? IDLE_VIEW);
+}
+
+/** Volumes, people muted here, the noise remover, the share's quality. */
+export function useListening(): Listening {
+  const controller = useVoiceController();
+  const subscribe = useCallback((fn: () => void) => controller?.subscribe(fn) ?? (() => {}), [controller]);
+  return useSyncExternalStore(subscribe, () => controller?.listening ?? DEFAULT_LISTENING);
+}
+
+/** The microphone's level, 0 to 1, while the screen using it is shown. */
+export function useInputLevel(): number {
+  const [level, setLevel] = useState(0);
+  useEffect(() => {
+    const subscription = VoiceNative?.addListener('level', e => setLevel(e.level));
+    return () => subscription?.remove();
+  }, []);
+  return level;
 }
 
 /** The live snapshot (2 s, server side): who is in each room's voice session. */
@@ -105,22 +130,23 @@ function refusal(t: T, error: unknown): string {
 
 /**
  * Joins a room's voice session and opens its screen. `ring` calls the other
- * member of a DM. Resolves false when the join was refused (already said).
+ * member of a DM; `direct` (a DM) hangs up when they leave, and gives the
+ * chat back. Resolves false when the join was refused (already said).
  */
-export function useJoinVoice(): (room: string, title: string, ring?: boolean) => Promise<boolean> {
+export function useJoinVoice(): (room: string, title: string, ring?: boolean, direct?: boolean) => Promise<boolean> {
   const controller = useVoiceController();
   const router = useRouter();
   const t = useT();
   const { state } = useSession();
-  return useCallback(async (room, title, ring = false) => {
+  return useCallback(async (room, title, ring = false, direct = false) => {
     if (!controller) return false;
-    router.push({ pathname: '/voice/[rid]', params: { rid: room, title } });
+    router.push({ pathname: '/voice/[rid]', params: { rid: room, title, ...(direct ? { direct: '1' } : {}) } });
     if (controller.state.room === room && controller.state.phase !== 'idle') return true;
     const microphone = await microphoneAllowed();
     if (!microphone) notify(t('voice.micDenied'));
     const link = state.phase === 'connected' ? nativeRoomPermalink(state.session, room) : null;
     try {
-      await controller.join(room, { title, ring, microphone, link });
+      await controller.join(room, { title, ring, microphone, link, direct });
       return true;
     } catch (error) {
       Alert.alert(t('voice.title'), refusal(t, error));
@@ -168,14 +194,21 @@ export function SpeakingAvatar({
 export function VoiceOccupants({ c, rid, client }: { c: Colors; rid: string; client: RestClient }) {
   const occupants = useRoomVoice(rid);
   const voice = useVoice();
+  const t = useT();
+  const listening = useListening();
+  const openPerson = usePersonSheet();
+  const { state } = useSession();
+  const me = state.phase === 'connected' ? state.session.userId : null;
   if (occupants.length === 0) return null;
   const mine = voice.room === rid;
   return (
     <View style={styles.occupants}>
       {occupants.map(o => {
         const local = mine ? voice.participants.find(p => p.identity === o.user.id) : undefined;
+        const name = o.user.display_name || o.user.username;
         return (
-          <View key={o.user.id} style={styles.occupant}>
+          <Pressable key={o.user.id} style={styles.occupant} delayLongPress={350}
+            onLongPress={o.user.id === me ? undefined : () => openPerson(o.user.id, name)}>
             <SpeakingAvatar c={c} client={client} uid={o.user.id} name={o.user.display_name} speaking={local?.speaking ?? false} size={22} radius={8} />
             <Text style={[styles.occupantName, { color: c.secondaryText }]} numberOfLines={1}>
               {o.user.display_name || o.user.username}
@@ -184,11 +217,18 @@ export function VoiceOccupants({ c, rid, client }: { c: Colors; rid: string; cli
             {(local?.deafened ?? o.deafened) && <Text style={styles.occupantIcon}>🔇</Text>}
             {(local?.camera ?? o.camera) === true && <Text style={styles.occupantIcon}>📷</Text>}
             {(local?.screen ?? o.screen) === true && <Text style={styles.occupantIcon}>🖥️</Text>}
-          </View>
+            {listening.people[o.user.id]?.muted === true && <Text style={styles.occupantIcon} accessibilityLabel={t('voice.mutedHere')}>🔕</Text>}
+          </Pressable>
         );
       })}
     </View>
   );
+}
+
+/** Someone's volume here and a mute for this side only, in a native sheet. */
+export function usePersonSheet(): (uid: string, name: string) => void {
+  const router = useRouter();
+  return useCallback((uid, name) => router.push({ pathname: '/voice/person', params: { uid, name } }), [router]);
 }
 
 function ControlButton({ c, label, glyph, active, danger, onPress }: { c: Colors; label: string; glyph: string; active?: boolean; danger?: boolean; onPress: () => void }) {
@@ -211,6 +251,7 @@ function ControlButton({ c, label, glyph, active, danger, onPress }: { c: Colors
 export function VoiceControls({ c, size = 'small' }: { c: Colors; size?: 'small' | 'large' }) {
   const voice = useVoice();
   const controller = useVoiceController();
+  const router = useRouter();
   const t = useT();
   if (!controller || voice.phase === 'idle') return null;
   const muted = !voice.microphone || voice.deafened;
@@ -218,6 +259,10 @@ export function VoiceControls({ c, size = 'small' }: { c: Colors; size?: 'small'
     <View style={[styles.controls, size === 'large' && styles.controlsLarge]}>
       <ControlButton c={c} label={muted ? t('voice.unmute') : t('voice.mute')} glyph={muted ? '🎙️̸' : '🎙️'} active={muted}
         onPress={() => void controller.setMicrophone(muted)} />
+      <Pressable onPress={() => router.push('/voice/menu')} hitSlop={6} accessibilityRole="button" accessibilityLabel={t('voice.menu')}
+        android_ripple={{ color: c.ripple, borderless: true }} style={[styles.menuButton, { backgroundColor: c.card }]}>
+        <Text style={[styles.menuGlyph, { color: c.secondaryText }]}>⌃</Text>
+      </Pressable>
       <ControlButton c={c} label={voice.deafened ? t('voice.undeafen') : t('voice.deafen')} glyph={voice.deafened ? '🔇' : '🎧'} active={voice.deafened}
         onPress={() => void controller.setDeafened(!voice.deafened)} />
       {size === 'large' && (
@@ -268,7 +313,7 @@ export function VoiceBar({ c, title }: { c: Colors; title: (rid: string) => stri
       <Pressable
         style={styles.barText}
         accessibilityRole="button"
-        onPress={() => router.push({ pathname: '/voice/[rid]', params: { rid, title: title(rid) } })}
+        onPress={() => router.push({ pathname: '/voice/[rid]', params: { rid, title: title(rid), ...(voice.direct ? { direct: '1' } : {}) } })}
       >
         <Text style={[styles.barStatus, { color: voice.phase === 'connected' ? c.online : c.dimmed }]} numberOfLines={1}>
           📶 {status}
@@ -312,10 +357,10 @@ export function VoiceRingHost() {
   if (!controller || !incoming) return null;
   const caller = incoming.caller.display_name || incoming.caller.username;
   const answer = async () => {
-    router.push({ pathname: '/voice/[rid]', params: { rid: incoming.room_id, title: caller } });
+    router.push({ pathname: '/voice/[rid]', params: { rid: incoming.room_id, title: caller, direct: '1' } });
     const microphone = await microphoneAllowed();
     try {
-      await controller.accept(incoming, { title: caller, microphone, link: state.phase === 'connected' ? nativeRoomPermalink(state.session, incoming.room_id) : null });
+      await controller.accept(incoming, { title: caller, microphone, direct: true, link: state.phase === 'connected' ? nativeRoomPermalink(state.session, incoming.room_id) : null });
     } catch (error) {
       Alert.alert(t('voice.title'), refusal(t, error));
     }
@@ -355,6 +400,8 @@ const styles = StyleSheet.create({
   controlsLarge: { gap: 16, justifyContent: 'center' },
   control: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   controlGlyph: { fontSize: 18 },
+  menuButton: { width: 26, height: 42, borderRadius: 13, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', marginLeft: -4 },
+  menuGlyph: { fontSize: 16, fontFamily: FONTS.bodyStrong },
   bar: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderTopWidth: 1 },
   barText: { flex: 1, gap: 1 },
   barStatus: { fontFamily: FONTS.bodyStrong, fontSize: 13 },

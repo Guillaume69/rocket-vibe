@@ -688,7 +688,7 @@ function VoiceCallCard({ c, rid, type, param }: { c: Colors; rid: string; type: 
       </Text>
       {type !== 'rv-call' && !here && (
         <Tappable
-          onPress={() => void join(rid, t('voice.title'), !ongoing)}
+          onPress={() => void join(rid, t('voice.title'), !ongoing, true)}
           android_ripple={{ color: c.ripple }}
           unstable_pressDelay={LIST_PRESS_DELAY}
           accessibilityRole="button"

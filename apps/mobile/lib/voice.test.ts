@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { mock, test } from 'node:test';
 
 import type { VoiceSnapshot } from '../modules/voice/index.ts';
 import type { VoiceKey } from '../providers/rocketvibe/cryptoGroups.ts';
 import type { VoiceGrant, VoiceRing } from '../providers/rocketvibe/protocol.generated.ts';
-import { VoiceController, type VoiceEngine, type VoiceServer } from './voice.ts';
+import { DIRECT_GRACE_MS, SAVE_DELAY_MS, VoiceController, readListening, type ListeningStore, type VoiceEngine, type VoiceServer } from './voice.ts';
 
 const user = (id: string) => ({ id, username: id, display_name: id });
 const ring = (state: VoiceRing['state']): VoiceRing => ({ id: 'g1', room_id: 'dm', caller: user('me'), callee: user('bob'), state, expires_in_ms: 30000 });
@@ -12,7 +12,7 @@ const grant = (room: string, extra: Partial<VoiceGrant> = {}): VoiceGrant => ({
   room_id: room, url: 'wss://voice.test', token: 't', expires_at: '', can_publish: true, ...extra,
 });
 
-function bench(server: Partial<VoiceServer> = {}, consent = true, key: () => VoiceKey | null = () => null) {
+function bench(server: Partial<VoiceServer> = {}, consent = true, key: () => VoiceKey | null = () => null, store: ListeningStore | null = null) {
   const calls: string[] = [];
   let listener: (s: VoiceSnapshot) => void = () => {};
   let current: VoiceSnapshot = { state: 'idle', participants: [] };
@@ -33,6 +33,11 @@ function bench(server: Partial<VoiceServer> = {}, consent = true, key: () => Voi
     stopScreenShare: async () => { calls.push('stop screen'); },
     ringback: async on => { calls.push(`ringback ${on}`); },
     missed: async () => { calls.push('missed'); },
+    setPersonVolume: async (uid, v, muted) => { calls.push(`volume ${uid} ${v}${muted ? ' muted' : ''}`); },
+    setInputVolume: async v => { calls.push(`input ${v}`); },
+    setOutputVolume: async v => { calls.push(`output ${v}`); },
+    setNoiseSuppression: async on => { calls.push(`noise ${on}`); },
+    setShareQuality: async (h, fps) => { calls.push(`quality ${h} ${fps}`); },
     addListener: (_e, fn) => { listener = fn; return { remove: () => {} }; },
   };
   const voice = new VoiceController(engine, {
@@ -44,9 +49,11 @@ function bench(server: Partial<VoiceServer> = {}, consent = true, key: () => Voi
     claimScreen: async () => { calls.push('claim'); },
     releaseScreen: async () => { calls.push('release'); },
     ...server,
-  });
+  }, store);
   return { voice, calls, emit };
 }
+
+const member = (identity: string, local = false) => ({ identity, speaking: false, muted: false, deafened: false, level: 0, local });
 
 test('joining asks the server, then connects the engine; leaving ends both', async () => {
   const { voice, calls, emit } = bench();
@@ -118,6 +125,8 @@ test('an engine that kept the call across a JS reload is adopted', () => {
     connect: async () => {}, disconnect: async () => {}, setMicrophone: async () => {}, setDeafened: async () => {},
     setRoute: async () => {}, ringback: async () => {}, missed: async () => {},
     setCamera: async () => {}, startScreenShare: async () => true, stopScreenShare: async () => {}, setE2eeKey: async () => {},
+    setPersonVolume: async () => {}, setInputVolume: async () => {}, setOutputVolume: async () => {},
+    setNoiseSuppression: async () => {}, setShareQuality: async () => {},
     addListener: () => ({ remove: () => {} }),
   };
   const voice = new VoiceController(engine, { joinVoice: async r => grant(r), leaveVoice: async () => {}, acceptRing: async () => grant('dm'), declineRing: async () => {}, claimScreen: async () => {}, releaseScreen: async () => {}, voiceKey: async () => null });
@@ -175,4 +184,68 @@ test('an encrypted room connects with its group key, follows new epochs, and nev
   const behind = bench({ voiceKey: async () => { throw new Error('voice_key_unavailable'); } });
   await assert.rejects(behind.voice.join('vault', { title: 'Vault', microphone: true }), /voice_key_unavailable/);
   assert.deepEqual(behind.calls, []);
+});
+
+test('a direct call hangs up once the other person left, after a grace', async () => {
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    const { voice, calls, emit } = bench();
+    await voice.join('dm', { title: 'Bob', microphone: true, direct: true });
+    // Alone before they answer: nothing to end.
+    emit({ state: 'connected', room: 'dm', participants: [member('me', true)] });
+    mock.timers.tick(DIRECT_GRACE_MS * 2);
+    assert.equal(voice.state.phase, 'connected');
+    emit({ state: 'connected', room: 'dm', participants: [member('me', true), member('bob')] });
+    // A blip shorter than the grace keeps the call.
+    emit({ state: 'connected', room: 'dm', participants: [member('me', true)] });
+    emit({ state: 'connected', room: 'dm', participants: [member('me', true), member('bob')] });
+    mock.timers.tick(DIRECT_GRACE_MS * 2);
+    assert.equal(voice.state.phase, 'connected');
+    emit({ state: 'connected', room: 'dm', participants: [member('me', true)] });
+    mock.timers.tick(DIRECT_GRACE_MS);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(voice.state.phase, 'idle');
+    assert.equal(voice.state.direct, true, 'the screen knows to give the chat back');
+    assert.ok(calls.includes('disconnect') && calls.includes('leave'));
+  } finally {
+    mock.timers.reset();
+  }
+});
+
+test('a channel stays joined when everyone else leaves', async () => {
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    const { voice, emit } = bench();
+    await voice.join('lounge', { title: 'Lounge', microphone: true });
+    emit({ state: 'connected', room: 'lounge', participants: [member('me', true), member('bob')] });
+    emit({ state: 'connected', room: 'lounge', participants: [member('me', true)] });
+    mock.timers.tick(DIRECT_GRACE_MS * 2);
+    assert.equal(voice.state.phase, 'connected');
+    assert.equal(voice.state.direct, false);
+  } finally {
+    mock.timers.reset();
+  }
+});
+
+test('listening choices come back from the store, reach the engine and are kept', async () => {
+  let saved: string | null = JSON.stringify({ people: { bob: { volume: 5, muted: true } }, inputVolume: 1.5, share: { height: 1440, fps: 60 } });
+  const store: ListeningStore = { load: async () => saved, save: async json => { saved = json; } };
+  const { voice, calls } = bench({}, true, () => null, store);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(calls, ['volume bob 2 muted', 'input 1.5', 'output 1', 'noise true', 'quality 1440 60']);
+  assert.equal(voice.listening.people.bob?.volume, 2, 'clamped to 200 %');
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    await voice.setPersonVolume('alice', 0.5, false);
+    await voice.setNoiseSuppression(false);
+    await voice.setShareQuality(999, 30);
+    assert.equal(readListening(saved).people.alice, undefined, 'written once the changes rest');
+    mock.timers.tick(SAVE_DELAY_MS);
+  } finally {
+    mock.timers.reset();
+  }
+  assert.deepEqual(readListening(saved).people.alice, { volume: 0.5, muted: false });
+  assert.equal(readListening(saved).noiseSuppression, false);
+  assert.deepEqual(readListening(saved).share, { height: 1080, fps: 30 }, 'an unknown height falls back');
+  assert.deepEqual(readListening('not json'), readListening(null));
 });

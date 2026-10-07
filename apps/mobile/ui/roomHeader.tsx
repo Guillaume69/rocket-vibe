@@ -165,7 +165,7 @@ export function RoomHeader({
       </View>
       {voiceCall && (
         <Tappable
-          onPress={() => void joinVoice(rid, name, isDM && !inVoice)}
+          onPress={() => void joinVoice(rid, name, isDM && !inVoice, isDM)}
           hitSlop={8}
           android_ripple={{ color: c.ripple, borderless: true }}
           accessibilityRole="button"

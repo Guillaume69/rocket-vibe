@@ -16,10 +16,32 @@ def copyVoiceSounds = tasks.register('copyVoiceSounds', Copy) {
 }
 android {
   namespace 'com.rocketvibe.voice'
+  ndkVersion rootProject.ext.ndkVersion
   defaultConfig { versionCode 1; versionName '1.0.0' }
   sourceSets { main { res.srcDirs += generatedRes } }
+  sourceSets.main.jniLibs.srcDir layout.buildDirectory.dir('generated/jniLibs')
 }
 preBuild.dependsOn(copyVoiceSounds)
+
+// The noise remover (crates/rv-voice-mobile, RNNoise in Rust), built as the
+// crypto module builds its library.
+def repository = file('../../../../..')
+def requestedAbis = providers.gradleProperty('reactNativeArchitectures').orElse('arm64-v8a,x86_64')
+def buildVoiceNative = tasks.register('buildVoiceNative', Exec) {
+  workingDir repository
+  inputs.files(fileTree(new File(repository, 'crates/rv-voice-mobile')) { include '**/*.rs', '*.toml', 'Cargo.lock' })
+  inputs.file file('../build-android.mjs')
+  inputs.property 'abis', requestedAbis
+  inputs.property 'minApi', android.defaultConfig.minSdkVersion.apiLevel
+  outputs.dir layout.buildDirectory.dir('generated/jniLibs')
+  doFirst {
+    commandLine 'node', file('../build-android.mjs').absolutePath,
+      '--ndk', android.ndkDirectory.absolutePath,
+      '--min-api', android.defaultConfig.minSdkVersion.apiLevel.toString(),
+      '--abis', requestedAbis.get()
+  }
+}
+tasks.named('preBuild').configure { dependsOn buildVoiceNative }
 dependencies {
   implementation 'io.livekit:livekit-android:2.29.0'
 }

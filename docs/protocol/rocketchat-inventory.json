@@ -287,6 +287,8 @@
     "apps/mobile/app/unlock-e2e.tsx",
     "apps/mobile/app/voice-ring/[id].tsx",
     "apps/mobile/app/voice/[rid].tsx",
+    "apps/mobile/app/voice/menu.tsx",
+    "apps/mobile/app/voice/person.tsx",
     "apps/mobile/lib/accountUnread.ts",
     "apps/mobile/lib/activity.ts",
     "apps/mobile/lib/attachment.ts",
@@ -354,6 +356,7 @@
     "apps/mobile/lib/uploadQueue.ts",
     "apps/mobile/lib/videoLinks.ts",
     "apps/mobile/lib/voice.ts",
+    "apps/mobile/lib/voiceGrid.ts",
     "apps/mobile/plugins/ios-notification-service/NotificationService.swift",
     "apps/mobile/plugins/native-push-source.js",
     "apps/mobile/plugins/with-fcm-deeplink.js",
@@ -446,6 +449,7 @@
     "apps/mobile/ui/session.tsx",
     "apps/mobile/ui/sessionToken.ts",
     "apps/mobile/ui/sheetMargin.ts",
+    "apps/mobile/ui/slider.tsx",
     "apps/mobile/ui/smoothedData.ts",
     "apps/mobile/ui/stagedAttachments.tsx",
     "apps/mobile/ui/sync.tsx",
@@ -3202,37 +3206,37 @@
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1245,
+      "line": 1265,
       "kind": "endpoint",
       "surface": "e2e.title"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1246,
+      "line": 1266,
       "kind": "endpoint",
       "surface": "e2e.explanation"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1248,
+      "line": 1268,
       "kind": "endpoint",
       "surface": "e2e.field"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1249,
+      "line": 1269,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1250,
+      "line": 1270,
       "kind": "endpoint",
       "surface": "e2e.wrongPassword"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1251,
+      "line": 1271,
       "kind": "endpoint",
       "surface": "e2e.genericError"
     },

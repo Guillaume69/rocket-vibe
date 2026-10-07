@@ -22,8 +22,60 @@ export type VoiceEngine = {
   stopScreenShare(): Promise<void>;
   ringback(on: boolean): Promise<void>;
   missed(): Promise<void>;
+  setPersonVolume(identity: string, volume: number, muted: boolean): Promise<void>;
+  setInputVolume(volume: number): Promise<void>;
+  setOutputVolume(volume: number): Promise<void>;
+  setNoiseSuppression(on: boolean): Promise<void>;
+  setShareQuality(height: number, fps: number): Promise<void>;
   addListener(event: 'change', listener: (snapshot: VoiceSnapshot) => void): { remove: () => void };
 };
+
+/**
+ * How this side hears the call and shares its screen, kept between runs: each
+ * person's volume (0 to 2, 1 as sent) and a mute for this side only, the
+ * microphone's and the speakers' volumes, the noise remover, a share's lines
+ * and frames a second.
+ */
+export type Listening = {
+  people: Record<string, { volume: number; muted: boolean }>;
+  inputVolume: number;
+  outputVolume: number;
+  noiseSuppression: boolean;
+  share: { height: number; fps: number };
+};
+export const DEFAULT_LISTENING: Listening = {
+  people: {}, inputVolume: 1, outputVolume: 1, noiseSuppression: true, share: { height: 1080, fps: 15 },
+};
+/** Where the listening choices are kept (SecureStore in the app). */
+export type ListeningStore = { load(): Promise<string | null>; save(json: string): Promise<void> };
+
+const volume = (v: unknown, fallback = 1): number => typeof v === 'number' && Number.isFinite(v) ? Math.min(2, Math.max(0, v)) : fallback;
+
+/** A stored value, whatever its age or damage, as valid choices. */
+export function readListening(raw: string | null): Listening {
+  let value: Partial<Listening> & Record<string, unknown> = {};
+  try { value = raw ? JSON.parse(raw) as typeof value : {}; } catch { value = {}; }
+  const people: Listening['people'] = {};
+  for (const [uid, p] of Object.entries(value.people ?? {})) {
+    if (p && typeof p === 'object') people[uid] = { volume: volume(p.volume), muted: p.muted === true };
+  }
+  const share = value.share && typeof value.share === 'object' ? value.share : DEFAULT_LISTENING.share;
+  return {
+    people,
+    inputVolume: volume(value.inputVolume),
+    outputVolume: volume(value.outputVolume),
+    noiseSuppression: value.noiseSuppression !== false,
+    share: {
+      height: [720, 1080, 1440].includes(share.height) ? share.height : 1080,
+      fps: [15, 30, 60].includes(share.fps) ? share.fps : 15,
+    },
+  };
+}
+
+/** The other person of a direct call gone: hang up after this grace (a reconnection, a device switch). */
+export const DIRECT_GRACE_MS = 2000;
+/** Listening choices are written this long after the last change. */
+export const SAVE_DELAY_MS = 400;
 export type VoiceServer = {
   joinVoice(room: string, ring: boolean, e2ee: boolean): Promise<VoiceGrant>;
   leaveVoice(): Promise<void>;
@@ -56,6 +108,8 @@ export type VoiceView = {
   ring: VoiceRing | null;
   /** Why the last session ended when the user did not end it. */
   ended: 'moved' | 'removed' | 'lost' | null;
+  /** A direct room's call: over, the chat comes back. */
+  direct: boolean;
 };
 
 /** How often an encrypted session checks its group for a new epoch. */
@@ -63,10 +117,14 @@ const KEY_REFRESH_MS = 15_000;
 
 const IDLE: VoiceView = {
   phase: 'idle', room: null, microphone: true, deafened: false, camera: false, sharing: false, encrypted: false, participants: [],
-  route: null, routes: [], ring: null, ended: null,
+  route: null, routes: [], ring: null, ended: null, direct: false,
 };
 
-export type JoinOptions = { title: string; link?: string | null; ring?: boolean; microphone: boolean };
+export type JoinOptions = {
+  title: string; link?: string | null; ring?: boolean; microphone: boolean;
+  /** A direct room: when the other person leaves, this side hangs up too. */
+  direct?: boolean;
+};
 
 export class VoiceController {
   private view: VoiceView = IDLE;
@@ -78,16 +136,79 @@ export class VoiceController {
   /** The encrypted session's room and key epoch, followed while it lasts. */
   private keyed: { room: string; epoch: string } | null = null;
   private keyTimer: ReturnType<typeof setInterval> | null = null;
+  /** A direct call's room, whether the other person was in it, and the grace before hanging up. */
+  private directRoom: string | null = null;
+  private company = false;
+  private alone: ReturnType<typeof setTimeout> | null = null;
+  private listeningState: Listening = DEFAULT_LISTENING;
 
   private readonly engine: VoiceEngine;
   private readonly server: VoiceServer;
+  private readonly store: ListeningStore | null;
 
-  constructor(engine: VoiceEngine, server: VoiceServer) {
+  constructor(engine: VoiceEngine, server: VoiceServer, store: ListeningStore | null = null) {
     this.engine = engine;
     this.server = server;
+    this.store = store;
     this.subscription = engine.addListener('change', s => this.adopt(s));
     // A JS reload finds the call the engine kept.
     this.adopt(engine.snapshot());
+    if (store) void this.restore(store);
+  }
+
+  get listening(): Listening { return this.listeningState; }
+
+  /** The choices of an earlier run, handed to the engine, which keeps them for the process. */
+  private async restore(store: ListeningStore): Promise<void> {
+    const kept = readListening(await store.load().catch(() => null));
+    this.listeningState = kept;
+    for (const [uid, p] of Object.entries(kept.people)) await this.engine.setPersonVolume(uid, p.volume, p.muted);
+    await this.engine.setInputVolume(kept.inputVolume);
+    await this.engine.setOutputVolume(kept.outputVolume);
+    await this.engine.setNoiseSuppression(kept.noiseSuppression);
+    await this.engine.setShareQuality(kept.share.height, kept.share.fps);
+    this.notify();
+  }
+
+  /** A slider moves many times a second: the choices are written once it rests. */
+  private saving: ReturnType<typeof setTimeout> | null = null;
+  private listen(next: Partial<Listening>): void {
+    this.listeningState = { ...this.listeningState, ...next };
+    this.notify();
+    const store = this.store;
+    if (!store) return;
+    if (this.saving !== null) clearTimeout(this.saving);
+    this.saving = setTimeout(() => {
+      this.saving = null;
+      void store.save(JSON.stringify(this.listeningState)).catch(() => {});
+    }, SAVE_DELAY_MS);
+  }
+
+  async setPersonVolume(uid: string, level: number, muted: boolean): Promise<void> {
+    const person = { volume: volume(level), muted };
+    this.listen({ people: { ...this.listeningState.people, [uid]: person } });
+    await this.engine.setPersonVolume(uid, person.volume, muted);
+  }
+  async setInputVolume(level: number): Promise<void> {
+    this.listen({ inputVolume: volume(level) });
+    await this.engine.setInputVolume(volume(level));
+  }
+  async setOutputVolume(level: number): Promise<void> {
+    this.listen({ outputVolume: volume(level) });
+    await this.engine.setOutputVolume(volume(level));
+  }
+  async setNoiseSuppression(on: boolean): Promise<void> {
+    this.listen({ noiseSuppression: on });
+    await this.engine.setNoiseSuppression(on);
+  }
+  async setShareQuality(height: number, fps: number): Promise<void> {
+    const share = readListening(JSON.stringify({ share: { height, fps } })).share;
+    this.listen({ share });
+    await this.engine.setShareQuality(share.height, share.fps);
+  }
+
+  private notify(): void {
+    for (const fn of this.listeners) fn();
   }
 
   get state(): VoiceView { return this.view; }
@@ -95,11 +216,35 @@ export class VoiceController {
     this.listeners.add(listener);
     return () => { this.listeners.delete(listener); };
   }
-  dispose(): void { this.subscription.remove(); this.listeners.clear(); this.unkey(); }
+  dispose(): void { this.subscription.remove(); this.listeners.clear(); this.unkey(); this.undirect(); }
 
   private set(next: Partial<VoiceView>): void {
     this.view = { ...this.view, ...next };
-    for (const fn of this.listeners) fn();
+    this.notify();
+  }
+
+  private undirect(): void {
+    if (this.alone !== null) clearTimeout(this.alone);
+    this.alone = null;
+    this.directRoom = null;
+    this.company = false;
+  }
+
+  /** A direct call: the other person's leaving ends it here too, after a short grace. */
+  private followDirect(s: VoiceSnapshot): void {
+    if (this.directRoom === null || s.room !== this.directRoom || s.state !== 'connected') return;
+    if (s.participants.some(p => !p.local)) {
+      this.company = true;
+      if (this.alone !== null) clearTimeout(this.alone);
+      this.alone = null;
+      return;
+    }
+    if (!this.company || this.alone !== null) return;
+    const room = this.directRoom;
+    this.alone = setTimeout(() => {
+      this.alone = null;
+      if (this.view.room === room && !this.view.participants.some(p => !p.local)) void this.leave();
+    }, DIRECT_GRACE_MS);
   }
 
   private adopt(s: VoiceSnapshot): void {
@@ -113,7 +258,8 @@ export class VoiceController {
       if (wasActive && s.reason === 'client_initiated' && !this.leaving) void this.server.leaveVoice().catch(() => {});
       if (this.view.ring) void this.engine.ringback(false);
       this.unkey();
-      this.set({ ...IDLE, ended: wasActive ? ended : this.view.ended });
+      this.undirect();
+      this.set({ ...IDLE, ended: wasActive ? ended : this.view.ended, direct: this.view.direct });
       return;
     }
     // Stopped from the system (the projection notification): the server lets the screen go.
@@ -125,6 +271,7 @@ export class VoiceController {
       camera: s.camera ?? false, sharing: s.sharing ?? false, encrypted: s.encrypted ?? false,
       participants: s.participants, route: s.route ?? null, routes: s.routes ?? [],
     });
+    this.followDirect(s);
   }
 
   private async connect(attempt: number, grant: VoiceGrant, options: JoinOptions, key: VoiceKey | null): Promise<void> {
@@ -135,7 +282,9 @@ export class VoiceController {
       throw Object.assign(new Error('voice_key_unavailable'), { code: 'voice_key_unavailable' });
     }
     const e2eeKey = grant.e2ee === true ? key : null;
-    this.set({ room: grant.room_id, ring: grant.ring ?? null });
+    this.undirect();
+    this.directRoom = options.direct === true ? grant.room_id : null;
+    this.set({ room: grant.room_id, ring: grant.ring ?? null, direct: options.direct === true });
     this.unkey();
     await this.engine.connect({
       room: grant.room_id, url: grant.url, token: grant.token, title: options.title, link: options.link ?? null,
@@ -203,11 +352,12 @@ export class VoiceController {
     ++this.attempt;
     this.leaving = true;
     this.unkey();
+    this.undirect();
     try {
       await this.engine.ringback(false);
       await this.engine.disconnect();
     } finally {
-      this.set({ ...IDLE });
+      this.set({ ...IDLE, direct: this.view.direct });
       this.leaving = false;
       // Best effort: the server also forgets a session the SFU stopped reporting.
       await this.server.leaveVoice().catch(() => {});

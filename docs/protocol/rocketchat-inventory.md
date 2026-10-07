@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-452 production files scanned; 463 occurrences.
+456 production files scanned; 463 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -465,10 +465,10 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/ui/messages.ts:454](../../apps/mobile/ui/messages.ts#L454) | endpoint | e2e.unlock |
 | [apps/mobile/ui/messages.ts:455](../../apps/mobile/ui/messages.ts#L455) | endpoint | e2e.wrongPassword |
 | [apps/mobile/ui/messages.ts:456](../../apps/mobile/ui/messages.ts#L456) | endpoint | e2e.genericError |
-| [apps/mobile/ui/messages.ts:1245](../../apps/mobile/ui/messages.ts#L1245) | endpoint | e2e.title |
-| [apps/mobile/ui/messages.ts:1246](../../apps/mobile/ui/messages.ts#L1246) | endpoint | e2e.explanation |
-| [apps/mobile/ui/messages.ts:1248](../../apps/mobile/ui/messages.ts#L1248) | endpoint | e2e.field |
-| [apps/mobile/ui/messages.ts:1249](../../apps/mobile/ui/messages.ts#L1249) | endpoint | e2e.unlock |
-| [apps/mobile/ui/messages.ts:1250](../../apps/mobile/ui/messages.ts#L1250) | endpoint | e2e.wrongPassword |
-| [apps/mobile/ui/messages.ts:1251](../../apps/mobile/ui/messages.ts#L1251) | endpoint | e2e.genericError |
+| [apps/mobile/ui/messages.ts:1265](../../apps/mobile/ui/messages.ts#L1265) | endpoint | e2e.title |
+| [apps/mobile/ui/messages.ts:1266](../../apps/mobile/ui/messages.ts#L1266) | endpoint | e2e.explanation |
+| [apps/mobile/ui/messages.ts:1268](../../apps/mobile/ui/messages.ts#L1268) | endpoint | e2e.field |
+| [apps/mobile/ui/messages.ts:1269](../../apps/mobile/ui/messages.ts#L1269) | endpoint | e2e.unlock |
+| [apps/mobile/ui/messages.ts:1270](../../apps/mobile/ui/messages.ts#L1270) | endpoint | e2e.wrongPassword |
+| [apps/mobile/ui/messages.ts:1271](../../apps/mobile/ui/messages.ts#L1271) | endpoint | e2e.genericError |
 | [apps/mobile/ui/serverRail.tsx:33](../../apps/mobile/ui/serverRail.tsx#L33) | endpoint | subscriptions.get |

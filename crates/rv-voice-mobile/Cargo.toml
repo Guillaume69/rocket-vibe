@@ -1,0 +1,19 @@
+[package]
+name = "rv-voice-mobile"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+# Built apart, by apps/mobile/modules/voice/build-android.mjs, like rv-crypto-mobile.
+[workspace]
+
+[lib]
+name = "rv_voice_mobile"
+crate-type = ["lib", "cdylib"]
+
+[dependencies]
+# Plain JNI: three functions, no bindings generator.
+jni = { version = "=0.21.1", default-features = false }
+# RNNoise in Rust (BSD-3-Clause), as the desktop sidecar's noise remover.
+nnnoiseless = { version = "=0.5.2", default-features = false }

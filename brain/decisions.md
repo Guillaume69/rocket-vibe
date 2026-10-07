@@ -129,6 +129,24 @@ The non-obvious choices behind rocket-vibe and why they were made, grouped by ar
   revokes its screen source.
 - **Original sounds generated from code** (`scripts/sounds`): no sample, no licence to
   track; the ringtone ("Neon Drive") was chosen by ear among four candidates.
+- **The desktop sidecar plays and captures the sound itself (cpal), not libwebrtc's device
+  module.** That module feeds the microphone to WebRTC and plays the room without a hook:
+  no person's volume, no mute for oneself, no input volume, no meter, no third-party noise
+  remover. Owning the path costs the echo canceller's reference, which the sidecar now
+  hands to WebRTC's audio processing module itself (its own mix). On Linux cpal speaks
+  PulseAudio's protocol in pure Rust (PipeWire serves it): its PipeWire host would link
+  libpipewire, which libwebrtc's stubs shadow (see `rv-screen-audio`).
+- **RNNoise for noise removal, the same port on both apps.** `nnnoiseless` is Rust, BSD,
+  with its model built in; WebRTC's own suppression is gentler, and Krisp needs LiveKit
+  Cloud. It runs after the echo canceller on desktop; on Android it runs on the captured
+  buffer, after the phone's own echo cancellation. Android reaches it through three JNI
+  functions in `crates/rv-voice-mobile`, built like the crypto library, rather than a
+  bindings generator for so little.
+- **Who speaks is told from the sound on the client.** LiveKit's active speakers come from
+  the SFU with a fixed threshold and miss a whisper; each client already holds every track,
+  so it reads levels itself (RNNoise's voice probability for its own microphone).
+- **A direct call ends for both** when one leaves, after a 2 s grace that rides out a
+  reconnection or a device switch: two people in a call, alone it is over.
 
 ## Repository and process
 

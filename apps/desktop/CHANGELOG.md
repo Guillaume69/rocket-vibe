@@ -188,6 +188,20 @@ section here.
   record or stream the whole call.
 - The Linux tarball and AppImage, the Windows installer and the macOS app now ship the voice
   helper (`rv-voice`) next to the app, so voice is offered in released builds.
+- Discord-style voice controls (GTK): a menu beside the microphone chooses the input and
+  output devices and sets the input volume (with a live level meter) and the output volume;
+  it also turns the noise remover on or off, deafens, and leads to the voice settings.
+- Noise removal (RNNoise) on your microphone, on by default, and a better ear for who
+  speaks: a whisper now lights up its card.
+- Right click on someone in a voice session to set their volume (up to 200 %) or mute them
+  for you only; the choice is remembered.
+- The people of a voice session now fill the page as large tiles, a camera filling its tile.
+- Choose what to share: a screen or a single window, with thumbnails, and the resolution
+  (720p to 1440p) and frame rate (15 to 60). On Windows a shared window carries only its
+  program's sound.
+- A shared screen goes full screen (its button or a double click, Escape to come back).
+- A direct call ends for you too when the other person hangs up, and leaving a direct
+  call takes you back to the conversation.
 
 ### Removed
 

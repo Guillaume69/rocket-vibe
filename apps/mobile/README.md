@@ -19,8 +19,9 @@ still in progress.
 
 ## What it is
 
-A Rocket.Chat consumer client, not an administration console, for Rocket.Chat **8**
-or newer. The server URL is entered on the login screen.
+A Rocket.Chat consumer client for Rocket.Chat **8** or newer (and the RocketVibe server),
+with a bounded **server administration** screen for administrators (dashboard,
+moderation of reports, rooms, accounts), not a settings console. The server URL is entered on the login screen.
 
 What it does today: password login + **2FA** (TOTP or password fallback), room list,
 message timeline (fast inverted list), native **markdown rendering**, sending /
@@ -29,7 +30,8 @@ audio and video playback**, **link previews** (inline images, OpenGraph cards fo
 articles and tweets, **YouTube / Dailymotion** video cards), **emojis** (custom ones
 included), **presence** and **typing indicator**, **search**, **FCM push
 notifications**, **E2EE encrypted rooms** (messages and files, read and sent),
-**Jitsi calls**, automatic reconnection and catch-up, all of it **offline first**.
+**Jitsi calls**, reactions with any emoji, reports to the administrators, automatic
+reconnection and catch-up, all of it **offline first**.
 
 ### The architectural stance
 
@@ -224,7 +226,7 @@ and so do the config plugins (`plugins/*.test.mjs`).
 English and French, **with no dependency**: the phone's language is read in pure JS
 through `Intl.DateTimeFormat().resolvedOptions().locale` (Hermes ships ICU), so no
 native module and no rebuild. The preference (Automatic / Français / English) is
-picked in **Settings → Language** and lives in SecureStore, read synchronously at
+picked in **Settings → Language** (the Language category) and lives in SecureStore, read synchronously at
 startup (no language flash).
 
 - `ui/messages.ts`: **pure** catalogue (testable under Node). `fr` is the reference;
@@ -254,6 +256,6 @@ the root) documents the variables expected by the dev server.
 ## Licence & status
 
 Personal project, in active development. Main branch: **`master`**.
-See `ROADMAP.md` for the v1 scope (**server admin** and **iOS at launch** are out of
-scope and documented as accepted debt; **E2EE** and Jitsi **calls**, first ruled out,
-have shipped).
+See `ROADMAP.md` for the v1 scope (**iOS at launch** is out of scope and documented as
+accepted debt; **E2EE**, Jitsi **calls** and a bounded **server administration**, first
+ruled out, have shipped).

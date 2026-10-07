@@ -51,7 +51,7 @@ text goes through fontconfig, which avoids a cairo abort and keeps the bundled
 fonts; warnings go to `%LOCALAPPDATA%\rocket-vibe-rs\rocket-vibe.log` when the
 app has no console, the previous run's in `rocket-vibe.previous.log` beside it. On every
 system a panic is appended to `crash.log` in the same cache folder, with its backtrace;
-Settings, About shows the folder and opens it.
+Settings, App category (About), shows the folder and opens it.
 
 On macOS, the DMG from CI holds `rocket-vibe.app` (Apple Silicon, macOS 15 or later),
 built by `scripts/package-macos.sh`: GTK, libadwaita, GStreamer and their libraries
@@ -157,5 +157,6 @@ HTML=1 scripts/coverage.sh --e2e
 
 Login (password, TOTP, email code), several accounts, live room list and
 messages, markdown, reactions, threads, typing indicator, files, voice
-messages, calls, notifications and E2EE: the feature list, and what is still
+messages, calls, notifications, E2EE and server administration for administrators: the
+feature list, and what is still
 missing, is `brain/parity.md`.

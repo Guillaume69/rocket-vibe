@@ -66,6 +66,7 @@ beta does.
 | Read-only rooms: no composer | done | done | done | |
 | Header: room info, DM presence, search in room, start a call | done | done | done | |
 | New-messages bar at the first unread | done | done | done | |
+| Pill over the list jumping to the first unread while it is above the view | missing | done | missing | GTK: "N new messages since HH:MM", gone once the marker has been seen (`MessageList::update_new_pill`). |
 | Typing indicator (`user-activity`) | done | done | done | |
 | Mentions open the profile | done | done | done | |
 | Link previews from `message.urls` | done | done | done | |

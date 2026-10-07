@@ -55,6 +55,9 @@ the [pilot contract](../../docs/protocol/README.md).
 
 ## Local start
 
+On a dedicated server, behind a domain in HTTPS and with voice: see
+[docs/DEPLOY-SERVER.md](../../docs/DEPLOY-SERVER.md).
+
 From the repository root, with Docker Desktop / Docker Engine running:
 
 1. Copy `docker/.env.native.example` to `docker/.env.native`.

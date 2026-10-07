@@ -24,7 +24,10 @@ struct ChatView: View {
                 .navigationSplitViewColumnWidth(min: 220, ideal: 280, max: 400)
         } detail: {
             ZStack {
-                if let room = app.room {
+                if let room = app.room, let voice = app.voice, voice.shown == room.rid {
+                    VoicePage(voice: voice, room: room.room)
+                        .transition(.opacity)
+                } else if let room = app.room {
                     RoomView(model: room)
                         .id(ObjectIdentifier(room))
                         .transition(.opacity.combined(with: .offset(y: 8)))
@@ -44,8 +47,10 @@ struct ChatView: View {
                 }
             }
             .animation(.snappy(duration: 0.22), value: app.room?.rid)
+            .animation(.snappy(duration: 0.22), value: app.voice?.shown)
             .background(Vibe.night)
         }
+        .modifier(IncomingCall())
         .navigationTitle(title)
         .toolbarBackground(Vibe.night, for: .windowToolbar)
         .toolbar {
@@ -153,7 +158,7 @@ struct RoomListView: View {
     @State var searching = false
 
     var body: some View {
-        let selection = Binding<String?>(get: { app.room?.rid }, set: { if let rid = $0 { app.open(rid) } })
+        let selection = Binding<String?>(get: { app.room?.rid }, set: { if let rid = $0 { app.select(rid) } })
         List(selection: selection) {
             if !query.isEmpty {
                 Section {
@@ -188,7 +193,12 @@ struct RoomListView: View {
             .padding(.top, 8)
             .padding(.bottom, 4)
         }
-        .safeAreaInset(edge: .bottom) { AccountBar() }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            VStack(spacing: 0) {
+                if let voice = app.voice { VoicePanel(voice: voice) }
+                AccountBar()
+            }
+        }
     }
 
     func search() async {
@@ -291,6 +301,14 @@ struct RoomRow: View {
     var unread: Bool { room.unread > 0 || room.alert }
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            row
+            // Who is in the room's voice session, under its row.
+            if let voice = app.voice { VoiceOccupants(voice: voice, room: room.rid) }
+        }
+    }
+
+    var row: some View {
         HStack(spacing: 10) {
             ZStack(alignment: .bottomTrailing) {
                 if room.encrypted && room.avatar == nil {
@@ -307,7 +325,13 @@ struct RoomRow: View {
                 }
             }
             VStack(alignment: .leading, spacing: 2) {
-                HStack {
+                HStack(spacing: 5) {
+                    if room.voice {
+                        Image(systemName: "speaker.wave.2.fill")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(Vibe.mint)
+                            .help(L("voice_session.channel"))
+                    }
                     Text(room.name)
                         .font(.vibe(14.5, unread ? .heavy : .bold))
                         .foregroundStyle(unread ? Vibe.text : Vibe.soft)

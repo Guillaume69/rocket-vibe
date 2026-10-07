@@ -45,6 +45,9 @@ struct SettingsView: View {
             if app.native?.cryptoSettingsSupported() == true {
                 CryptoSection()
             }
+            if let voice = app.voice {
+                VoiceSettings(voice: voice)
+            }
             if app.chat != nil {
                 Section(L("e2e.status")) {
                     HStack {

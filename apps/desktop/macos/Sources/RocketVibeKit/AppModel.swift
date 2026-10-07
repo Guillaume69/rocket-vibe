@@ -34,6 +34,8 @@ public final class AppModel {
     /// Bumped when photos or custom emoji change: views reload their images.
     public private(set) var imagesVersion = 0
     public private(set) var media: MediaStore?
+    /// Voice on a RocketVibe server that offers it, the sidecar shipped.
+    public private(set) var voice: VoiceModel?
     /// A short message for the window's toast.
     public var notice: String?
 
@@ -53,6 +55,9 @@ public final class AppModel {
     public var onWithdraw: ((String) -> Void)?
     /// The dock badge: mentions and direct messages.
     public var onAttention: ((Int64) -> Void)?
+    /// The voice sounds, played by the app (a cue, a looped tone or silence).
+    public var onVoiceCue: ((VoiceCue) -> Void)?
+    public var onVoiceTone: ((VoiceTone?) -> Void)?
 
     public init(home: String) {
         client = Client(home: home)
@@ -172,6 +177,14 @@ public final class AppModel {
         account = provider.account()
         if let chat { media = MediaStore(chat: chat) }
         else if let native { media = MediaStore(native:native) }
+        if let native, native.voiceSupported() {
+            let voice = VoiceModel(native: native)
+            voice.onNotice = { [weak self] in self?.notice = $0 }
+            voice.onCue = { [weak self] in self?.onVoiceCue?($0) }
+            voice.onTone = { [weak self] in self?.onVoiceTone?($0) }
+            voice.isDirect = { [weak self] rid in self?.rooms.first(where: { $0.rid == rid })?.kind == "d" }
+            self.voice = voice
+        }
         connection = .connecting
         let expected = sessionId
         provider.listen(Relay { [weak self] event in
@@ -189,6 +202,8 @@ public final class AppModel {
         room?.deactivate()
         thread?.deactivate()
         provider?.shutdown()
+        if voice != nil { onVoiceTone?(nil) }
+        voice = nil
         flush?.cancel()
         flush = nil
         pending = Pending()
@@ -226,7 +241,11 @@ public final class AppModel {
             let quotes = native != nil && (room?.hasPrivateQuoteProjection == true || thread?.hasPrivateQuoteProjection == true)
             let destinations = quotes ? [room?.rid, thread?.rid].compactMap { $0 } : []
             later(rooms: rooms, rids: rids + destinations)
+            voice?.refresh()
+        case .voice:
+            voice?.refresh()
         case .resync:
+            voice?.refresh()
             for key in native?.withdrawnNotifications() ?? [] { onWithdraw?(key) }
             later(everything: true)
         case let .connection(state):
@@ -469,6 +488,8 @@ public final class AppModel {
     public func open(_ rid: String, remember: Bool = true, preserveNavigation: Bool = false) {
         guard let provider, let found = rooms.first(where: { $0.rid == rid }) else { return }
         if !preserveNavigation { cancelNotificationNavigation(); pendingRoomLink = nil }
+        // Another room: its chat, not the voice page shown before.
+        if let voice, voice.shown != rid { voice.shown = nil }
         if room?.rid == rid { return }
         selectionId = UUID()
         if remember {
@@ -488,6 +509,31 @@ public final class AppModel {
         if let room, room.rid == rid, !(await room.jump(to: message)) {
             notice = L("marked.not_loaded")
         }
+    }
+
+    /// A room picked in the list: a voice channel joins its session and shows its page.
+    public func select(_ rid: String) {
+        open(rid)
+        if let voice, rooms.first(where: { $0.rid == rid })?.voice == true { Task { await voice.join(rid) } }
+    }
+
+    /// The header's call button and a call row's: the room's voice session, its
+    /// page, ringing the other member of a direct room (`ring`).
+    public func joinVoice(_ rid: String, ring: Bool) {
+        open(rid)
+        if let voice { Task { await voice.join(rid, ring: ring) } }
+    }
+
+    /// The voice page of a room, its chat behind it.
+    public func showVoice(_ rid: String) {
+        open(rid)
+        voice?.shown = rid
+    }
+
+    /// An incoming call answered: its room, its page, the session.
+    public func answer(_ call: VoiceCall) {
+        open(call.room)
+        if let voice { Task { await voice.answer(call) } }
     }
 
     public func openThread(_ rootId: String, message: String? = nil, preserveNavigation: Bool = false) {

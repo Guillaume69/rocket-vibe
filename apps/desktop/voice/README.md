@@ -62,6 +62,7 @@ Every desktop package carries the sidecar next to the app's executable:
 | AppImage | wrapped by sharun like the app (`AppDir/bin/rv-voice`, bundled glibc, PulseAudio through `DEPLOY_PULSE=1`) | `scripts/appimage-build.sh` |
 | Windows zip and installer | `bin/rv-voice.exe` beside `bin/rocket-vibe-gtk.exe`; Inno Setup installs the whole folder | `scripts/package-windows.sh`, `data/windows/rocket-vibe.iss` |
 | macOS app | `Contents/MacOS/rv-voice`, signed with the app's entitlements (microphone) | `scripts/package-macos.sh` |
+| macOS SwiftUI app | `Contents/MacOS/rv-voice` beside `RocketVibe`, signed with its entitlements (microphone, camera) | `macos/scripts/package.sh` |
 
 The scripts take the sidecar from `$RV_VOICE`, else `dist/voice/rv-voice`
 (`rv-voice.exe` on Windows), relative to `apps/desktop`. Without it they warn
@@ -74,4 +75,6 @@ packages: a tag or a manual run). Each packaging job downloads its artifact
 into `dist/voice/` with `RV_VOICE_REQUIRED=1`, then runs `rv-voice --version`
 from the package: the tarball, the AppImage extracted on Ubuntu 22.04, the
 installed Windows app, the macOS bundle with Homebrew moved aside. Artifacts
-lose the executable bit, hence the scripts' `install -m755`.
+lose the executable bit, hence the scripts' `install -m755`. The SwiftUI
+workflow (`desktop-swiftui.yml`) takes the macOS artifact when `desktop.yml`
+calls it, and builds the sidecar itself when it runs on its own.

@@ -60,6 +60,7 @@ struct RoomView: View {
                 if callable {
                     Button(action: call) { Image(systemName: "video") }.help(L("room.call"))
                 }
+                VoiceCallButton(room: model.room)
                 Button { panel = .marked } label: { Image(systemName: "pin") }.help(L("marked.title"))
                     .disabled(!model.supportsMarks)
                 Button { panel = .search } label: { Image(systemName: "magnifyingglass") }.help(L("search.title"))
@@ -483,7 +484,9 @@ struct MessageRow: View, Equatable {
 
     @ViewBuilder var content: some View {
         if let system = message.system {
-            if let callId = message.callId {
+            if system.hasPrefix("rv-call"), let model {
+                VoiceCallCard(rid: model.rid, kind: system, param: message.param)
+            } else if let callId = message.callId {
                 CallCard(callId: callId, model: model)
             } else {
                 Text("\(message.author) \(systemMessage(kind: system, param: message.param))")

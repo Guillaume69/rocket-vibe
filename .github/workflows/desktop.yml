@@ -604,7 +604,10 @@ jobs:
 
   macos-swiftui:
     if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
+    needs: [voice]
     uses: ./.github/workflows/desktop-swiftui.yml
+    with:
+      voice-artifact: true
     secrets: inherit
 
   release:

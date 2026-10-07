@@ -55,7 +55,8 @@ func sampleRoom(_ rid: String, _ kind: String, _ name: String, _ preview: RoomPr
 {
     Room(rid: rid, kind: kind, name: name, slug: name, preview: preview,
          lastTs: Int64(Date().timeIntervalSince1970 * 1000) - minutesAgo * 60_000, unread: unread, mentions: mentions,
-         alert: unread > 0, favorite: false, encrypted: encrypted, readOnly: false, avatar: nil, presence: presence)
+         alert: unread > 0, favorite: false, encrypted: encrypted, readOnly: false, avatar: nil, presence: presence,
+         voice: false)
 }
 
 let galleryGroups: [RoomGroup] = [

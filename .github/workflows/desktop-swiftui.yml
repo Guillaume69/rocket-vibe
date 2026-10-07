@@ -6,11 +6,17 @@ name: desktop-swiftui
 # whose release takes its DMG.
 on:
   workflow_call:
+    inputs:
+      # desktop.yml's voice job built the sidecar: its rv-voice-macos-arm64 artifact.
+      voice-artifact:
+        type: boolean
+        default: false
   push:
     branches-ignore: [master]
     paths:
       - 'apps/desktop/macos/**'
       - 'apps/desktop/crates/rv-ffi/**'
+      - 'scripts/sounds/**'
       - '.github/workflows/desktop-swiftui.yml'
   workflow_dispatch:
 
@@ -77,7 +83,29 @@ jobs:
           identity=$(security find-identity -v -p codesigning "$keychain" | awk -F'"' '/Developer ID Application/ {print $2; exit}')
           if [ -z "$identity" ]; then echo "::error::no Developer ID Application identity in the certificate"; exit 1; fi
           echo "MACOS_SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+      # The voice sidecar (apps/desktop/voice/README.md): the release's, or built here.
+      - uses: actions/download-artifact@v4
+        if: inputs.voice-artifact
+        with:
+          name: rv-voice-macos-arm64
+          path: apps/desktop/dist/voice
+      - uses: actions/cache@v4
+        if: ${{ !inputs.voice-artifact }}
+        with:
+          path: |
+            ~/.cargo/registry
+            apps/desktop/voice/target
+          key: voice-macos-${{ hashFiles('apps/desktop/voice/Cargo.lock') }}
+      - name: Voice sidecar
+        if: ${{ !inputs.voice-artifact }}
+        working-directory: apps/desktop/voice
+        run: |
+          cargo build --release --locked -p rv-voice
+          mkdir -p ../dist/voice
+          cp target/release/rv-voice ../dist/voice/rv-voice
       - run: scripts/package.sh "${{ steps.version.outputs.version }}"
+        env:
+          RV_VOICE_REQUIRED: 1
       - name: Notarization
         if: env.APPLE_SIGNING == 'true' && env.APPLE_NOTARY == 'true'
         env:
@@ -98,6 +126,9 @@ jobs:
       - name: The app starts on its own
         run: |
           exe="$PWD/dist/rocket-vibe SwiftUI.app/Contents/MacOS/RocketVibe"
+          # The voice sidecar runs from the bundle; the sounds are there.
+          "$(dirname "$exe")/rv-voice" --version
+          ls "$(dirname "$exe")/../Resources/sounds/ringtone.m4a" "$(dirname "$exe")/../Resources/sounds/cue-join.m4a"
           "$exe" > "$RUNNER_TEMP/app.log" 2>&1 &
           pid=$!
           sleep 8

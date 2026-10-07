@@ -56,6 +56,12 @@ struct RocketVibeApp: App {
         app.onAttention = { count in
             NSApp.dockTile.badgeLabel = count > 0 ? String(count) : nil
         }
+        app.onVoiceCue = { VoiceSounds.shared.cue($0) }
+        app.onVoiceTone = { tone in
+            VoiceSounds.shared.tone(tone)
+            // A call ringing while the app is behind: the dock bounces.
+            if tone == .ringtone && !NSApp.isActive { NSApp.requestUserAttention(.criticalRequest) }
+        }
         notifier.start()
         if app.screen == .starting && !SmokeGallery.requested { await app.start() }
     }

@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-458 production files scanned; 463 occurrences.
+460 production files scanned; 463 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -257,18 +257,18 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-gtk/src/unlock.rs:60](../../apps/desktop/crates/rv-gtk/src/unlock.rs#L60) | endpoint | e2e.wrong |
 | [apps/desktop/crates/rv-gtk/src/unlock.rs:61](../../apps/desktop/crates/rv-gtk/src/unlock.rs#L61) | endpoint | e2e.no_keys |
 | [apps/desktop/crates/rv-gtk/src/unlock.rs:62](../../apps/desktop/crates/rv-gtk/src/unlock.rs#L62) | endpoint | e2e.failed |
-| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:250](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L250) | endpoint | rooms.section_unread |
-| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:251](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L251) | endpoint | rooms.section_favorites |
-| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:252](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L252) | endpoint | rooms.section_channels |
-| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:253](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L253) | endpoint | rooms.section_direct |
-| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:281](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L281) | resource | /avatar/room/\(id) |
-| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:346](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L346) | endpoint | rooms.favorite_add |
-| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:346](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L346) | endpoint | rooms.favorite_remove |
-| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:350](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L350) | endpoint | rooms.failed |
-| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:363](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L363) | endpoint | rooms.encrypted |
-| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:438](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L438) | endpoint | rooms.online |
-| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:439](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L439) | endpoint | rooms.connecting |
-| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:440](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L440) | endpoint | rooms.offline |
+| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:260](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L260) | endpoint | rooms.section_unread |
+| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:261](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L261) | endpoint | rooms.section_favorites |
+| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:262](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L262) | endpoint | rooms.section_channels |
+| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:263](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L263) | endpoint | rooms.section_direct |
+| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:291](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L291) | resource | /avatar/room/\(id) |
+| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:370](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L370) | endpoint | rooms.favorite_add |
+| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:370](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L370) | endpoint | rooms.favorite_remove |
+| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:374](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L374) | endpoint | rooms.failed |
+| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:387](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L387) | endpoint | rooms.encrypted |
+| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:462](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L462) | endpoint | rooms.online |
+| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:463](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L463) | endpoint | rooms.connecting |
+| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:464](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L464) | endpoint | rooms.offline |
 | [apps/desktop/macos/Sources/RocketVibe/NativeFavoriteControls.swift:13](../../apps/desktop/macos/Sources/RocketVibe/NativeFavoriteControls.swift#L13) | endpoint | rooms.favorite_add |
 | [apps/desktop/macos/Sources/RocketVibe/NativeFavoriteControls.swift:13](../../apps/desktop/macos/Sources/RocketVibe/NativeFavoriteControls.swift#L13) | endpoint | rooms.favorite_remove |
 | [apps/desktop/macos/Sources/RocketVibe/NativeFavoriteControls.swift:17](../../apps/desktop/macos/Sources/RocketVibe/NativeFavoriteControls.swift#L17) | endpoint | rooms.pending |
@@ -306,21 +306,21 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/macos/Sources/RocketVibe/NativeRoomControls.swift:94](../../apps/desktop/macos/Sources/RocketVibe/NativeRoomControls.swift#L94) | endpoint | rooms.pending |
 | [apps/desktop/macos/Sources/RocketVibe/NativeRoomControls.swift:104](../../apps/desktop/macos/Sources/RocketVibe/NativeRoomControls.swift#L104) | endpoint | rooms.failed |
 | [apps/desktop/macos/Sources/RocketVibe/Notifier.swift:37](../../apps/desktop/macos/Sources/RocketVibe/Notifier.swift#L37) | endpoint | rooms.encrypted |
-| [apps/desktop/macos/Sources/RocketVibe/RoomView.swift:151](../../apps/desktop/macos/Sources/RocketVibe/RoomView.swift#L151) | endpoint | e2e.read_only |
-| [apps/desktop/macos/Sources/RocketVibe/RoomView.swift:154](../../apps/desktop/macos/Sources/RocketVibe/RoomView.swift#L154) | endpoint | e2e.unlock |
-| [apps/desktop/macos/Sources/RocketVibe/RoomView.swift:172](../../apps/desktop/macos/Sources/RocketVibe/RoomView.swift#L172) | endpoint | e2e.title |
-| [apps/desktop/macos/Sources/RocketVibe/RoomView.swift:173](../../apps/desktop/macos/Sources/RocketVibe/RoomView.swift#L173) | endpoint | e2e.body |
-| [apps/desktop/macos/Sources/RocketVibe/RoomView.swift:174](../../apps/desktop/macos/Sources/RocketVibe/RoomView.swift#L174) | endpoint | e2e.password |
-| [apps/desktop/macos/Sources/RocketVibe/RoomView.swift:181](../../apps/desktop/macos/Sources/RocketVibe/RoomView.swift#L181) | endpoint | e2e.unlock |
+| [apps/desktop/macos/Sources/RocketVibe/RoomView.swift:152](../../apps/desktop/macos/Sources/RocketVibe/RoomView.swift#L152) | endpoint | e2e.read_only |
+| [apps/desktop/macos/Sources/RocketVibe/RoomView.swift:155](../../apps/desktop/macos/Sources/RocketVibe/RoomView.swift#L155) | endpoint | e2e.unlock |
+| [apps/desktop/macos/Sources/RocketVibe/RoomView.swift:173](../../apps/desktop/macos/Sources/RocketVibe/RoomView.swift#L173) | endpoint | e2e.title |
+| [apps/desktop/macos/Sources/RocketVibe/RoomView.swift:174](../../apps/desktop/macos/Sources/RocketVibe/RoomView.swift#L174) | endpoint | e2e.body |
+| [apps/desktop/macos/Sources/RocketVibe/RoomView.swift:175](../../apps/desktop/macos/Sources/RocketVibe/RoomView.swift#L175) | endpoint | e2e.password |
+| [apps/desktop/macos/Sources/RocketVibe/RoomView.swift:182](../../apps/desktop/macos/Sources/RocketVibe/RoomView.swift#L182) | endpoint | e2e.unlock |
 | [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:32](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L32) | endpoint | rooms.sign_out |
-| [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:49](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L49) | endpoint | e2e.status |
-| [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:51](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L51) | endpoint | e2e.locked |
-| [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:51](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L51) | endpoint | e2e.unlocked |
-| [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:54](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L54) | endpoint | e2e.lock |
-| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:540](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L540) | endpoint | e2e.wrong |
-| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:541](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L541) | endpoint | e2e.no_keys |
-| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:542](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L542) | endpoint | e2e.failed |
-| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:545](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L545) | endpoint | e2e.failed |
+| [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:52](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L52) | endpoint | e2e.status |
+| [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:54](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L54) | endpoint | e2e.locked |
+| [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:54](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L54) | endpoint | e2e.unlocked |
+| [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:57](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L57) | endpoint | e2e.lock |
+| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:586](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L586) | endpoint | e2e.wrong |
+| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:587](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L587) | endpoint | e2e.no_keys |
+| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:588](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L588) | endpoint | e2e.failed |
+| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:591](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L591) | endpoint | e2e.failed |
 | [apps/mobile/app/login.tsx:405](../../apps/mobile/app/login.tsx#L405) | endpoint | chat.example.org |
 | [apps/mobile/app/message-actions.tsx:86](../../apps/mobile/app/message-actions.tsx#L86) | call:GET | 'settings.public' |
 | [apps/mobile/app/message-actions.tsx:87](../../apps/mobile/app/message-actions.tsx#L87) | endpoint | settings.public |

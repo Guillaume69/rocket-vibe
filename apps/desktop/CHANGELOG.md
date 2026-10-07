@@ -193,6 +193,13 @@ section here.
   it also turns the noise remover on or off, deafens, and leads to the voice settings.
 - Noise removal (RNNoise) on your microphone, on by default, and a better ear for who
   speaks: a whisper now lights up its card.
+- Voice on a RocketVibe server in the SwiftUI app, as in the GTK one: voice channels joined
+  from the list, the people of each session under its room (lit while speaking), the voice
+  page with its tiles and a shared screen (full screen too), the "Voice connected" panel,
+  the menu beside the microphone, someone's volume or mute from their context menu, the
+  share picker with its quality, the header's call button, ringing direct calls with
+  Accept and Decline, call rows that join or call back, and a "Voice" section in the
+  settings. The choices are shared with the GTK app on the same Mac. No camera of its own.
 - Right click on someone in a voice session to set their volume (up to 200 %) or mute them
   for you only; the choice is remembered.
 - The people of a voice session now fill the page as large tiles, a camera filling its tile.

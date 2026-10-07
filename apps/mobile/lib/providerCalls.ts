@@ -8,6 +8,6 @@ import {setProviderCalls} from './call.ts';
  * sessions (`lib/voice.ts`), so the native mount binds no call provider.
  */
 export function mountProviderCalls(client:RestClient,provider:Provider):()=>void {
-  client.kind=provider.native?'rocketvibe':'rocketchat';
+  client.kind=provider.identity.kind;
   return setProviderCalls(client,null);
 }

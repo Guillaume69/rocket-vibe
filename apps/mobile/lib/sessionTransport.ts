@@ -4,8 +4,8 @@ import { checkIdentity, resumeNative, transportFor } from '../providers/rocketvi
 import { NativeError } from '../providers/rocketvibe/transport.ts';
 
 export function clientForSession(session: Session, revoke: (token: string) => void): RestClient {
-  // Legacy screens retain URL/account metadata, but cannot issue RC requests to a native server.
-  const client = new RestClient(session.baseUrl, session.kind === 'rocketvibe' ? {
+  // Legacy screens retain URL/account metadata, but cannot issue RC requests to another server.
+  const client = new RestClient(session.baseUrl, session.kind !== 'rocketchat' ? {
     fetch: async () => new Response(JSON.stringify({success:false,status:'error',error:'Unsupported native feature',errorType:'not-supported'}), {status:501,headers:{'content-type':'application/json'}}),
   } : undefined);
   client.onTokenRejected = revoke;

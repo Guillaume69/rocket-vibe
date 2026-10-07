@@ -222,7 +222,7 @@ function usePreferencePush(client: RestClient,natives:ReturnType<typeof useNativ
   const [error, setError] = useState<TranslationKey | null>(null);
 
   useEffect(() => {
-    if (client.kind === 'rocketvibe') return;
+    if (client.kind !== 'rocketchat') return;
     let alive = true;
     client
       .get<MeResponse>('me')

@@ -42,6 +42,7 @@ impl Drop for ScreenAudio {
 }
 
 /// The processes whose sound is the call: this sidecar and the app.
+#[cfg(any(windows, target_os = "linux"))]
 fn call_processes() -> Vec<u32> {
     let app = std::env::var("RV_VOICE_APP_PID").ok().and_then(|pid| pid.parse().ok());
     std::iter::once(std::process::id()).chain(app).collect()

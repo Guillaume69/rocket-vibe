@@ -45,6 +45,13 @@ struct NativeRoomControls: View {
                 TextField(L("info.announcement"), text: field(\.announcement), axis: .vertical).lineLimit(2 ... 8)
                 Toggle(L("native.private"), isOn: flag(\.privateRoom))
                 Toggle(L("info.read_only"), isOn: flag(\.readOnly))
+                // An owner's, on a server offering voice (rv-ffi leaves it nil elsewhere).
+                if edit?.voice != nil {
+                    Toggle(isOn: Binding(get: { edit?.voice ?? false }, set: { edit?.voice = $0 })) {
+                        Text(L("voice_session.channel"))
+                        Text(L("voice_session.channel_hint"))
+                    }
+                }
                 Button(L("settings.save")) { guard let fields = edit else { return }; let revision = editingRevision
                     run { try await model.updateRoom(fields: fields, revision: revision); if !Task.isCancelled { edit = nil } }
                 }.disabled(details?.canEdit != true || intention != nil)

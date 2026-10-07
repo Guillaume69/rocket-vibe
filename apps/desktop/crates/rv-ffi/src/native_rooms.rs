@@ -12,6 +12,9 @@ pub struct NativeRoomFields {
     pub description: String,
     pub announcement: String,
     pub read_only: bool,
+    /// Whether it is a voice channel, Some only where an owner may change it (a
+    /// room that is not direct, a server announcing voice); None leaves it as it is.
+    pub voice: Option<bool>,
 }
 #[derive(Clone, uniffi::Record)]
 pub struct NativeRoomManagement {
@@ -68,6 +71,7 @@ fn fields(input: &UpdateRoom) -> NativeRoomFields {
         description: input.description.clone(),
         announcement: input.announcement.clone(),
         read_only: input.read_only,
+        voice: input.voice,
     }
 }
 #[uniffi::export]
@@ -98,6 +102,10 @@ impl NativeChat {
         on_tokio(async move {
             let details = session.room_details(&room).await?;
             let features = session.supported_features();
+            // Where GTK shows the switch (details/native_rooms.rs).
+            let voice_editable = details.permissions.role == RoomRole::Owner
+                && details.room.kind != RoomKind::Direct
+                && session.voice_announced();
             Ok(NativeRoomManagement {
                 info: rv_core::info::native_room_info(details.clone()).into(),
                 revision: details.revision,
@@ -108,6 +116,7 @@ impl NativeChat {
                     description: details.description,
                     announcement: details.announcement,
                     read_only: details.read_only,
+                    voice: voice_editable.then_some(details.voice),
                 },
                 can_send: details.permissions.send,
                 can_edit: details.permissions.change_settings && features.iter().any(|s| s == "room_settings"),
@@ -164,7 +173,7 @@ impl NativeChat {
                         description: fields.description,
                         announcement: fields.announcement,
                         read_only: fields.read_only,
-                        voice: None,
+                        voice: fields.voice,
                     },
                 )
                 .await

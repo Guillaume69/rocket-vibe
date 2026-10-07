@@ -203,6 +203,8 @@ section here.
 - Create a room on a RocketVibe server in the SwiftUI app: the "+" button at the top of the
   room list asks a name, whether it is private and, where the server offers voice, whether
   it is a voice channel.
+- An owner can turn a room into a voice channel, or back, in its settings in the SwiftUI
+  app too.
 - Right click on someone in a voice session to set their volume (up to 200 %) or mute them
   for you only; the choice is remembered.
 - The people of a voice session now fill the page as large tiles, a camera filling its tile.

@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-492 production files scanned; 514 occurrences.
+492 production files scanned; 515 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -43,23 +43,24 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/admin.rs:813](../../apps/desktop/crates/rv-core/src/admin.rs#L813) | call:GET | path |
 | [apps/desktop/crates/rv-core/src/admin.rs:816](../../apps/desktop/crates/rv-core/src/admin.rs#L816) | call:GET | "statistics" |
 | [apps/desktop/crates/rv-core/src/admin.rs:818](../../apps/desktop/crates/rv-core/src/admin.rs#L818) | call:GET | "statistics" |
-| [apps/desktop/crates/rv-core/src/admin.rs:911](../../apps/desktop/crates/rv-core/src/admin.rs#L911) | call:GET | "users.listByStatus" |
-| [apps/desktop/crates/rv-core/src/admin.rs:920](../../apps/desktop/crates/rv-core/src/admin.rs#L920) | call:POST | path |
-| [apps/desktop/crates/rv-core/src/admin.rs:930](../../apps/desktop/crates/rv-core/src/admin.rs#L930) | call:POST | "users.setActiveStatus" |
-| [apps/desktop/crates/rv-core/src/admin.rs:938](../../apps/desktop/crates/rv-core/src/admin.rs#L938) | call:POST | "users.delete" |
-| [apps/desktop/crates/rv-core/src/admin.rs:977](../../apps/desktop/crates/rv-core/src/admin.rs#L977) | call:GET | "rooms.adminRooms" |
-| [apps/desktop/crates/rv-core/src/admin.rs:1016](../../apps/desktop/crates/rv-core/src/admin.rs#L1016) | call:GET | "moderation.reportsByUsers" |
-| [apps/desktop/crates/rv-core/src/admin.rs:1038](../../apps/desktop/crates/rv-core/src/admin.rs#L1038) | call:GET | "moderation.user.reportedMessages" |
-| [apps/desktop/crates/rv-core/src/admin.rs:1053](../../apps/desktop/crates/rv-core/src/admin.rs#L1053) | call:GET | "moderation.reports" |
-| [apps/desktop/crates/rv-core/src/admin.rs:1077](../../apps/desktop/crates/rv-core/src/admin.rs#L1077) | call:GET | "moderation.reports" |
-| [apps/desktop/crates/rv-core/src/admin.rs:1088](../../apps/desktop/crates/rv-core/src/admin.rs#L1088) | call:GET | "moderation.userReports" |
-| [apps/desktop/crates/rv-core/src/admin.rs:1108](../../apps/desktop/crates/rv-core/src/admin.rs#L1108) | call:GET | "moderation.user.reportsByUserId" |
-| [apps/desktop/crates/rv-core/src/admin.rs:1117](../../apps/desktop/crates/rv-core/src/admin.rs#L1117) | call:POST | "moderation.dismissReports" |
-| [apps/desktop/crates/rv-core/src/admin.rs:1129](../../apps/desktop/crates/rv-core/src/admin.rs#L1129) | call:GET | "moderation.user.reportedMessages" |
-| [apps/desktop/crates/rv-core/src/admin.rs:1137](../../apps/desktop/crates/rv-core/src/admin.rs#L1137) | call:POST | "moderation.user.deleteReportedMessages" |
-| [apps/desktop/crates/rv-core/src/admin.rs:1141](../../apps/desktop/crates/rv-core/src/admin.rs#L1141) | call:POST | "moderation.dismissUserReports" |
-| [apps/desktop/crates/rv-core/src/admin.rs:1146](../../apps/desktop/crates/rv-core/src/admin.rs#L1146) | call:POST | "chat.reportMessage" |
-| [apps/desktop/crates/rv-core/src/admin.rs:1151](../../apps/desktop/crates/rv-core/src/admin.rs#L1151) | call:POST | "moderation.reportUser" |
+| [apps/desktop/crates/rv-core/src/admin.rs:827](../../apps/desktop/crates/rv-core/src/admin.rs#L827) | call:GET | "moderation.reportsByUsers" |
+| [apps/desktop/crates/rv-core/src/admin.rs:918](../../apps/desktop/crates/rv-core/src/admin.rs#L918) | call:GET | "users.listByStatus" |
+| [apps/desktop/crates/rv-core/src/admin.rs:927](../../apps/desktop/crates/rv-core/src/admin.rs#L927) | call:POST | path |
+| [apps/desktop/crates/rv-core/src/admin.rs:937](../../apps/desktop/crates/rv-core/src/admin.rs#L937) | call:POST | "users.setActiveStatus" |
+| [apps/desktop/crates/rv-core/src/admin.rs:945](../../apps/desktop/crates/rv-core/src/admin.rs#L945) | call:POST | "users.delete" |
+| [apps/desktop/crates/rv-core/src/admin.rs:984](../../apps/desktop/crates/rv-core/src/admin.rs#L984) | call:GET | "rooms.adminRooms" |
+| [apps/desktop/crates/rv-core/src/admin.rs:1023](../../apps/desktop/crates/rv-core/src/admin.rs#L1023) | call:GET | "moderation.reportsByUsers" |
+| [apps/desktop/crates/rv-core/src/admin.rs:1045](../../apps/desktop/crates/rv-core/src/admin.rs#L1045) | call:GET | "moderation.user.reportedMessages" |
+| [apps/desktop/crates/rv-core/src/admin.rs:1060](../../apps/desktop/crates/rv-core/src/admin.rs#L1060) | call:GET | "moderation.reports" |
+| [apps/desktop/crates/rv-core/src/admin.rs:1084](../../apps/desktop/crates/rv-core/src/admin.rs#L1084) | call:GET | "moderation.reports" |
+| [apps/desktop/crates/rv-core/src/admin.rs:1095](../../apps/desktop/crates/rv-core/src/admin.rs#L1095) | call:GET | "moderation.userReports" |
+| [apps/desktop/crates/rv-core/src/admin.rs:1115](../../apps/desktop/crates/rv-core/src/admin.rs#L1115) | call:GET | "moderation.user.reportsByUserId" |
+| [apps/desktop/crates/rv-core/src/admin.rs:1124](../../apps/desktop/crates/rv-core/src/admin.rs#L1124) | call:POST | "moderation.dismissReports" |
+| [apps/desktop/crates/rv-core/src/admin.rs:1136](../../apps/desktop/crates/rv-core/src/admin.rs#L1136) | call:GET | "moderation.user.reportedMessages" |
+| [apps/desktop/crates/rv-core/src/admin.rs:1144](../../apps/desktop/crates/rv-core/src/admin.rs#L1144) | call:POST | "moderation.user.deleteReportedMessages" |
+| [apps/desktop/crates/rv-core/src/admin.rs:1148](../../apps/desktop/crates/rv-core/src/admin.rs#L1148) | call:POST | "moderation.dismissUserReports" |
+| [apps/desktop/crates/rv-core/src/admin.rs:1153](../../apps/desktop/crates/rv-core/src/admin.rs#L1153) | call:POST | "chat.reportMessage" |
+| [apps/desktop/crates/rv-core/src/admin.rs:1158](../../apps/desktop/crates/rv-core/src/admin.rs#L1158) | call:POST | "moderation.reportUser" |
 | [apps/desktop/crates/rv-core/src/emoji.rs:168](../../apps/desktop/crates/rv-core/src/emoji.rs#L168) | resource | /emoji-custom/{…}.{…} |
 | [apps/desktop/crates/rv-core/src/i18n.rs:341](../../apps/desktop/crates/rv-core/src/i18n.rs#L341) | endpoint | rooms.edit |
 | [apps/desktop/crates/rv-core/src/i18n.rs:342](../../apps/desktop/crates/rv-core/src/i18n.rs#L342) | endpoint | rooms.members |

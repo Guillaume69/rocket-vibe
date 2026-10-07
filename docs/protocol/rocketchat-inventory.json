@@ -710,103 +710,109 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/admin.rs",
-      "line": 911,
-      "kind": "call:GET",
-      "surface": "\"users.listByStatus\""
-    },
-    {
-      "file": "apps/desktop/crates/rv-core/src/admin.rs",
-      "line": 920,
-      "kind": "call:POST",
-      "surface": "path"
-    },
-    {
-      "file": "apps/desktop/crates/rv-core/src/admin.rs",
-      "line": 930,
-      "kind": "call:POST",
-      "surface": "\"users.setActiveStatus\""
-    },
-    {
-      "file": "apps/desktop/crates/rv-core/src/admin.rs",
-      "line": 938,
-      "kind": "call:POST",
-      "surface": "\"users.delete\""
-    },
-    {
-      "file": "apps/desktop/crates/rv-core/src/admin.rs",
-      "line": 977,
-      "kind": "call:GET",
-      "surface": "\"rooms.adminRooms\""
-    },
-    {
-      "file": "apps/desktop/crates/rv-core/src/admin.rs",
-      "line": 1016,
+      "line": 827,
       "kind": "call:GET",
       "surface": "\"moderation.reportsByUsers\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/admin.rs",
-      "line": 1038,
+      "line": 918,
+      "kind": "call:GET",
+      "surface": "\"users.listByStatus\""
+    },
+    {
+      "file": "apps/desktop/crates/rv-core/src/admin.rs",
+      "line": 927,
+      "kind": "call:POST",
+      "surface": "path"
+    },
+    {
+      "file": "apps/desktop/crates/rv-core/src/admin.rs",
+      "line": 937,
+      "kind": "call:POST",
+      "surface": "\"users.setActiveStatus\""
+    },
+    {
+      "file": "apps/desktop/crates/rv-core/src/admin.rs",
+      "line": 945,
+      "kind": "call:POST",
+      "surface": "\"users.delete\""
+    },
+    {
+      "file": "apps/desktop/crates/rv-core/src/admin.rs",
+      "line": 984,
+      "kind": "call:GET",
+      "surface": "\"rooms.adminRooms\""
+    },
+    {
+      "file": "apps/desktop/crates/rv-core/src/admin.rs",
+      "line": 1023,
+      "kind": "call:GET",
+      "surface": "\"moderation.reportsByUsers\""
+    },
+    {
+      "file": "apps/desktop/crates/rv-core/src/admin.rs",
+      "line": 1045,
       "kind": "call:GET",
       "surface": "\"moderation.user.reportedMessages\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/admin.rs",
-      "line": 1053,
+      "line": 1060,
       "kind": "call:GET",
       "surface": "\"moderation.reports\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/admin.rs",
-      "line": 1077,
+      "line": 1084,
       "kind": "call:GET",
       "surface": "\"moderation.reports\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/admin.rs",
-      "line": 1088,
+      "line": 1095,
       "kind": "call:GET",
       "surface": "\"moderation.userReports\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/admin.rs",
-      "line": 1108,
+      "line": 1115,
       "kind": "call:GET",
       "surface": "\"moderation.user.reportsByUserId\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/admin.rs",
-      "line": 1117,
+      "line": 1124,
       "kind": "call:POST",
       "surface": "\"moderation.dismissReports\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/admin.rs",
-      "line": 1129,
+      "line": 1136,
       "kind": "call:GET",
       "surface": "\"moderation.user.reportedMessages\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/admin.rs",
-      "line": 1137,
+      "line": 1144,
       "kind": "call:POST",
       "surface": "\"moderation.user.deleteReportedMessages\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/admin.rs",
-      "line": 1141,
+      "line": 1148,
       "kind": "call:POST",
       "surface": "\"moderation.dismissUserReports\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/admin.rs",
-      "line": 1146,
+      "line": 1153,
       "kind": "call:POST",
       "surface": "\"chat.reportMessage\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/admin.rs",
-      "line": 1151,
+      "line": 1158,
       "kind": "call:POST",
       "surface": "\"moderation.reportUser\""
     },

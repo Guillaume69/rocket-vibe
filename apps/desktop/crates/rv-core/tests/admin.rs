@@ -244,3 +244,20 @@ async fn rocket_chat_overview_reads_the_snapshot_and_survives_refusals() {
     rc::overview(&c, true).await.unwrap();
     assert_eq!(sent(&server, "/api/v1/statistics")[1].0, "/api/v1/statistics?refresh=true");
 }
+
+#[tokio::test]
+async fn rocket_chat_open_reports_add_up_the_authors_counts() {
+    let server = FakeHttp::start(|r| match r.path() {
+        "/api/v1/statistics" => respond(200, r#"{"success":true,"version":"8.5.1"}"#),
+        "/api/v1/moderation.reportsByUsers" => respond(
+            200,
+            r#"{"success":true,"total":2,"reports":[{"userId":"u1","count":7},{"userId":"u2","count":1}]}"#,
+        ),
+        "/api/v1/moderation.userReports" => respond(200, r#"{"success":true,"total":0,"reports":[]}"#),
+        _ => respond(404, r#"{"success":false}"#),
+    })
+    .await;
+    let overview = rc::overview(&client(&server), false).await.unwrap();
+    assert_eq!(overview.reports.messages, Some(8), "the reports, not the 2 authors");
+    assert_eq!(sent(&server, "/api/v1/moderation.reportsByUsers")[0].0, "/api/v1/moderation.reportsByUsers?count=100");
+}

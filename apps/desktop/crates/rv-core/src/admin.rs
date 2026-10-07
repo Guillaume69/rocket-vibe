@@ -820,7 +820,14 @@ pub mod rc {
         let (stats, admins, messages, users) = tokio::join!(
             statistics,
             total("roles.getUsersInRole", vec![("role", "admin"), ("count", "1")]),
-            total("moderation.reportsByUsers", vec![("count", "1")]),
+            // Grouped by author: its `total` counts authors, so the open
+            // reports are the sum of the first 100 authors' counts, as on mobile.
+            async {
+                let params = [("count", "100")];
+                rest.get("moderation.reportsByUsers", CallOptions::params(params)).await.ok().map(|v| {
+                    v.get("reports").and_then(Value::as_array).into_iter().flatten().map(|a| count(a, "count")).sum()
+                })
+            },
             total("moderation.userReports", vec![("count", "1")]),
         );
         Ok(parse_overview(&stats?, admins, messages, users))

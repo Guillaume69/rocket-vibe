@@ -331,6 +331,24 @@ button.voice-control.voice-on { background: #3ED67F; color: #0B0913; }
 .voice-card.speaking { border-color: #3ED67F; box-shadow: 0 0 0 1px #3ED67F, 0 0 22px rgba(62, 214, 127, 0.35); }
 .voice-card.speaking .voice-avatar { border-color: #3ED67F; }
 .voice-card-name { font-weight: 800; font-size: 14px; }
+.voice-card.tile { padding: 0; border-radius: 16px; }
+.voice-tile-tag {
+  background: rgba(11, 9, 19, 0.78);
+  border-radius: 8px;
+  padding: 3px 9px;
+  margin: 10px;
+}
+.voice-tile-tag .voice-card-name { font-size: 13px; }
+.voice-muted-here { color: #FFC24B; -gtk-icon-size: 12px; }
+button.voice-menu-button { min-width: 22px; padding-left: 2px; padding-right: 2px; }
+.voice-menu { padding: 6px; }
+.voice-menu-title { font-weight: 800; font-size: 14px; }
+.voice-menu-heading { font-size: 11px; font-weight: 800; color: #8F89AB; margin-top: 4px; }
+.voice-meter block.filled { background: #3ED67F; }
+.voice-stage-full { margin: 10px; }
+.voice-fullscreen { background: #000000; }
+.voice-thumb { background: #0C0B16; border-radius: 10px; color: #8F89AB; }
+.voice-share-source { padding: 6px; }
 
 .composer-pill {
   background: #171529;

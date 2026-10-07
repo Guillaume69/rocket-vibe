@@ -121,6 +121,9 @@ async fn devices_are_listed_with_or_without_a_session_and_choices_kept() {
     voice.connect(&grant("r1", "wss://lk"), None, None).await.unwrap();
     until(&voice, |s| s.state == ConnectionState::Connected).await;
     assert_eq!(voice.devices().await.unwrap().0[0].name, "Fake microphone");
+    // Two asking at once (the call menu's two lists) both get them.
+    let (first, second) = tokio::join!(voice.devices(), voice.devices());
+    assert_eq!((first.unwrap().1[0].id.as_str(), second.unwrap().1[0].id.as_str()), ("spk-1", "spk-1"));
     assert_eq!(voice.snapshot().error, None, "the kept input was accepted at connection");
     voice.select_output("gone").await;
     until(&voice, |s| s.error.as_deref() == Some("device_not_found")).await;

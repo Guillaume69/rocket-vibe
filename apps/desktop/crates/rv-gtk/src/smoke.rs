@@ -23,7 +23,8 @@
 //!   RV_SMOKE_VIDEO=1         with RV_SMOKE_JOIN_VOICE: then turns the camera on and shares the
 //!                          screen, and checks a card shows a camera and the stage a screen
 //!                          (RV_VOICE_FAKE_VIDEO=pattern without devices); `camera`: the camera
-//!                          only, and no stage
+//!                          only, and no stage; `picker`, `menu`: opens the share picker or the
+//!                          microphone's menu, for a screenshot
 //!   RV_SMOKE_UPLOAD="<path>|<caption>"  stages the file in the composer, types the caption and
 //!                          sends (RV_SMOKE_UPLOAD_HOLD=1: left staged, for a screenshot)
 //!   RV_SMOKE_SPOTLIGHT=<query>  finds a channel, joins it and opens it
@@ -281,6 +282,8 @@ pub fn install(window: &Rc<AppWindow>) {
                                 check("voice camera shown", cameras >= 1, cameras);
                                 check("voice screen on stage", stage == screen, stage);
                             });
+                        } else if video == "picker" || video == "menu" {
+                            chat.voice_open(&video);
                         }
                     });
                 });

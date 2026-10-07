@@ -219,8 +219,9 @@ struct Shared {
     output: Option<String>,
     /// A screen's sound carries this call's voices too (off: the apps' sound only).
     share_call: bool,
-    devices: Option<(u64, oneshot::Sender<Devices>)>,
-    screens: Option<(u64, oneshot::Sender<Vec<ScreenSource>>)>,
+    /// Who waits for the sidecar's lists, by sidecar generation (several may ask at once).
+    devices: Vec<(u64, oneshot::Sender<Devices>)>,
+    screens: Vec<(u64, oneshot::Sender<Vec<ScreenSource>>)>,
     /// This side's listening choices, sent to each sidecar as it starts.
     listening: Listening,
 }
@@ -228,7 +229,8 @@ struct Shared {
 /// How this side hears the call and is heard: each person's volume (and a
 /// mute for this side only), the microphone's and the speakers' volumes, the
 /// noise remover. 1.0 is as sent.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct Listening {
     pub people: HashMap<String, PersonVolume>,
     pub input_volume: f32,
@@ -258,7 +260,8 @@ impl Listening {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct PersonVolume {
     pub volume: f32,
     pub muted: bool,
@@ -318,8 +321,8 @@ impl VoiceController {
                     input: None,
                     output: None,
                     share_call: false,
-                    devices: None,
-                    screens: None,
+                    devices: vec![],
+                    screens: vec![],
                     listening: Listening::default(),
                 }),
                 changes,
@@ -446,8 +449,8 @@ impl VoiceController {
             if s.snapshot.room.is_some() {
                 s.snapshot.end(Ended::Left);
             }
-            s.devices = None;
-            s.screens = None;
+            s.devices.clear();
+            s.screens.clear();
         });
         if let Some(old) = process.take() {
             stop(old).await;
@@ -484,7 +487,7 @@ impl VoiceController {
         let mut process = self.inner.process.lock().await;
         let Some(sidecar) = process.as_mut() else { return Err(VoiceError::Unavailable) };
         let (tx, rx) = oneshot::channel();
-        self.inner.shared.lock().unwrap().screens = Some((sidecar.generation, tx));
+        self.inner.shared.lock().unwrap().screens.push((sidecar.generation, tx));
         send(&mut sidecar.stdin, &Command::ListScreens).await?;
         drop(process);
         tokio::time::timeout(HELLO_TIMEOUT, rx).await.map_err(|_| VoiceError::Timeout)?.map_err(|_| VoiceError::Exited)
@@ -493,11 +496,17 @@ impl VoiceController {
     pub fn listening(&self) -> Listening {
         self.inner.shared.lock().unwrap().listening.clone()
     }
+    /// Choices kept from an earlier run, before any session (the app's saved file).
+    pub fn restore_listening(&self, listening: Listening) {
+        self.inner.update(|s| s.listening = listening);
+    }
     /// How loud someone plays here, 0.0 to 2.0, and whether they are muted for
     /// this side only. Kept for later connections.
     pub async fn set_person_volume(&self, identity: &str, volume: PersonVolume) {
         let volume = PersonVolume { volume: volume.volume.clamp(0.0, 2.0), ..volume };
         self.inner.update(|s| s.listening.people.insert(identity.into(), volume));
+        // Not in the snapshot, yet shown (muted here): the views redraw.
+        let _ = self.inner.changes.send(());
         let command =
             Command::SetParticipantVolume { identity: identity.into(), volume: volume.volume, muted: volume.muted };
         self.command(command).await;
@@ -569,7 +578,7 @@ impl VoiceController {
         }
         if let Some(sidecar) = process.as_mut() {
             let (tx, rx) = oneshot::channel();
-            self.inner.shared.lock().unwrap().devices = Some((sidecar.generation, tx));
+            self.inner.shared.lock().unwrap().devices.push((sidecar.generation, tx));
             send(&mut sidecar.stdin, &Command::ListDevices).await?;
             drop(process);
             return tokio::time::timeout(HELLO_TIMEOUT, rx)
@@ -670,22 +679,14 @@ impl Inner {
     fn apply(&self, generation: u64, event: Event) {
         self.update(|s| {
             if let Event::Devices { inputs, outputs } = event {
-                if let Some((owner, tx)) = s.devices.take() {
-                    if owner == generation {
-                        let _ = tx.send((inputs, outputs));
-                    } else {
-                        s.devices = Some((owner, tx));
-                    }
+                for (_, tx) in s.devices.extract_if(.., |(owner, _)| *owner == generation) {
+                    let _ = tx.send((inputs.clone(), outputs.clone()));
                 }
                 return;
             }
             if let Event::Screens { screens } = event {
-                if let Some((owner, tx)) = s.screens.take() {
-                    if owner == generation {
-                        let _ = tx.send(screens);
-                    } else {
-                        s.screens = Some((owner, tx));
-                    }
+                for (_, tx) in s.screens.extract_if(.., |(owner, _)| *owner == generation) {
+                    let _ = tx.send(screens.clone());
                 }
                 return;
             }
@@ -717,12 +718,8 @@ impl Inner {
     }
     fn exited(&self, generation: u64) {
         self.update(|s| {
-            if s.devices.as_ref().is_some_and(|(owner, _)| *owner == generation) {
-                s.devices = None;
-            }
-            if s.screens.as_ref().is_some_and(|(owner, _)| *owner == generation) {
-                s.screens = None;
-            }
+            s.devices.retain(|(owner, _)| *owner != generation);
+            s.screens.retain(|(owner, _)| *owner != generation);
             if self.generation.load(Ordering::SeqCst) == generation && s.snapshot.room.is_some() {
                 s.snapshot.end(Ended::Failed("sidecar_exited".into()));
             }

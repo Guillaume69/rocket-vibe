@@ -43,6 +43,7 @@ mod spotlight;
 mod staged;
 mod style;
 mod thread;
+mod tile_grid;
 mod unlock;
 mod updater;
 mod video;

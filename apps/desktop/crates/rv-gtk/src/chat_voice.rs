@@ -1,11 +1,16 @@
 //! Native voice sessions on the chat page: who is in each room's session under
 //! its row, the voice page, the "Voice connected" panel, rings and cues.
 use super::*;
+use crate::settings::voice::{device_dropdown, save_listening, save_share_quality, share_quality};
 use crate::sounds::{self, Sound};
+use crate::tile_grid::TileGrid;
 use rv_core::native::NativeSession;
 use rv_core::native::crypto::enrollment::rooms;
 use rv_core::native::security::Guard;
-use rv_core::voice::{ConnectionState, Ended, Snapshot, VideoSource, VoiceKeys};
+use rv_core::voice::{
+    ConnectionState, Ended, PersonVolume, ScreenKind, ScreenQuality, ScreenSource, Snapshot, VideoSource, VoiceKeys,
+    thumbnail,
+};
 use tokio::sync::broadcast::error::RecvError;
 
 /// Someone in a room's voice session, as a row or a card shows them.
@@ -18,6 +23,8 @@ struct Occupant {
     local: bool,
     camera: bool,
     screen: bool,
+    /// Muted for this side only (its listening choices).
+    muted_here: bool,
 }
 
 /// Microphone, sound, camera, screen and leave: the panel and the voice page
@@ -25,6 +32,8 @@ struct Occupant {
 struct Controls {
     row: gtk::Box,
     mic: gtk::Button,
+    /// Beside the microphone: devices, volumes, the meter, noise, deafen.
+    menu: gtk::MenuButton,
     deafen: gtk::Button,
     camera: gtk::Button,
     screen: gtk::Button,
@@ -41,6 +50,12 @@ fn controls(classes: &[&str]) -> Controls {
         button
     };
     let mic = button("audio-input-microphone-symbolic", t("voice_session.mute"));
+    let menu = gtk::MenuButton::builder()
+        .icon_name("pan-up-symbolic")
+        .tooltip_text(t("voice_menu.open"))
+        .valign(gtk::Align::Center)
+        .css_classes(["voice-menu-button"])
+        .build();
     let deafen = button("audio-headphones-symbolic", t("voice_session.deafen"));
     let camera = button("camera-web-symbolic", t("voice_session.camera_on"));
     let screen = button("video-display-symbolic", t("voice_session.share_screen"));
@@ -48,11 +63,12 @@ fn controls(classes: &[&str]) -> Controls {
     leave.add_css_class("voice-leave");
     let row = gtk::Box::builder().spacing(4).valign(gtk::Align::Center).build();
     row.append(&mic);
+    row.append(&menu);
     row.append(&deafen);
     row.append(&camera);
     row.append(&screen);
     row.append(&leave);
-    Controls { row, mic, deafen, camera, screen, leave }
+    Controls { row, mic, menu, deafen, camera, screen, leave }
 }
 
 impl Controls {
@@ -99,16 +115,27 @@ impl Controls {
 /// A camera or screen of this device's session: a picture redrawn when a new
 /// frame arrived (`VoiceController::frame`, polled 25 times a second while shown).
 fn video_view(session: &Arc<NativeSession>, identity: &str, source: VideoSource, fit: gtk::ContentFit) -> gtk::Picture {
+    following_view(session, Rc::new(RefCell::new(identity.to_owned())), source, fit)
+}
+
+/// A video view whose person may change (the full-screen stage follows a takeover).
+fn following_view(
+    session: &Arc<NativeSession>,
+    identity: Rc<RefCell<String>>,
+    source: VideoSource,
+    fit: gtk::ContentFit,
+) -> gtk::Picture {
     let picture = gtk::Picture::builder().content_fit(fit).can_shrink(true).css_classes(["voice-video"]).build();
     picture.set_overflow(gtk::Overflow::Hidden);
-    let (weak, voice, identity) = (picture.downgrade(), session.voice().clone(), identity.to_owned());
+    let (weak, voice) = (picture.downgrade(), session.voice().clone());
     let mut shown = 0;
     let mut draw = move || {
         let Some(picture) = weak.upgrade() else { return glib::ControlFlow::Break };
         if !picture.is_mapped() {
             return glib::ControlFlow::Continue;
         }
-        match voice.frame(&identity, source) {
+        let frame = voice.frame(&identity.borrow(), source);
+        match frame {
             Some(frame) if frame.serial != shown => {
                 shown = frame.serial;
                 let bytes = glib::Bytes::from_owned(frame.pixels.clone());
@@ -221,6 +248,8 @@ fn display(display_name: &str, username: &str) -> String {
 fn occupants(session: &NativeSession, rid: &str, snapshot: &Snapshot) -> Vec<Occupant> {
     let live = session.voice_participants(rid);
     let me = &session.info.user_id;
+    let listening = session.voice().listening();
+    let muted_here = |uid: &str| listening.people.get(uid).is_some_and(|p| p.muted);
     if snapshot.room.as_deref() == Some(rid) && !snapshot.participants.is_empty() {
         return snapshot
             .participants
@@ -247,6 +276,7 @@ fn occupants(session: &NativeSession, rid: &str, snapshot: &Snapshot) -> Vec<Occ
                     local: p.local || &p.identity == me,
                     camera: p.camera,
                     screen: p.screen,
+                    muted_here: muted_here(&p.identity),
                 }
             })
             .collect();
@@ -255,6 +285,7 @@ fn occupants(session: &NativeSession, rid: &str, snapshot: &Snapshot) -> Vec<Occ
         .map(|o| Occupant {
             name: display(&o.user.display_name, &o.user.username),
             local: &o.user.id == me,
+            muted_here: muted_here(&o.user.id),
             uid: o.user.id,
             muted: o.muted,
             deafened: o.deafened,
@@ -291,12 +322,165 @@ fn state_icons(o: &Occupant) -> Vec<gtk::Image> {
         );
     }
     let mut icons: Vec<gtk::Image> = icons.into_iter().map(|b| b.css_classes(["voice-state"]).build()).collect();
+    if o.muted_here {
+        icons.push(
+            gtk::Image::builder()
+                .icon_name("audio-volume-low-symbolic")
+                .tooltip_text(t("voice_person.muted_here"))
+                .css_classes(["voice-muted-here"])
+                .build(),
+        );
+    }
     for (on, icon) in [(o.screen, "video-display-symbolic"), (o.camera, "camera-web-symbolic")] {
         if on {
             icons.push(gtk::Image::builder().icon_name(icon).css_classes(["voice-media"]).build());
         }
     }
     icons
+}
+
+/// Someone on the voice page: their camera filling the tile, or their avatar
+/// in its middle, and their name in a corner.
+fn tile(session: &Arc<NativeSession>, o: &Occupant, mine: bool) -> gtk::Overlay {
+    let tile = gtk::Overlay::builder().css_classes(["voice-card", "tile"]).build();
+    tile.set_overflow(gtk::Overflow::Hidden);
+    tile.set_child(Some(&gtk::Box::builder().hexpand(true).vexpand(true).build()));
+    if mine && o.camera {
+        tile.add_overlay(&video_view(session, &o.uid, VideoSource::Camera, gtk::ContentFit::Cover));
+    } else {
+        let avatar = speaking_avatar(session, o, TileSize::Profile, "large");
+        avatar.set_valign(gtk::Align::Center);
+        tile.add_overlay(&avatar);
+        // The tile is never smaller than the avatar.
+        tile.set_measure_overlay(&avatar, true);
+    }
+    let tag = gtk::Box::builder()
+        .spacing(6)
+        .halign(gtk::Align::Start)
+        .valign(gtk::Align::End)
+        .css_classes(["voice-tile-tag"])
+        .build();
+    let name = if o.local { tf("voice_session.you", &[("name", &o.name)]) } else { o.name.clone() };
+    tag.append(
+        &gtk::Label::builder()
+            .label(name)
+            .css_classes(["voice-card-name"])
+            .ellipsize(gtk::pango::EllipsizeMode::End)
+            .build(),
+    );
+    for icon in state_icons(o) {
+        tag.append(&icon);
+    }
+    tile.add_overlay(&tag);
+    if !o.local {
+        person_menu_on(session, &tile, o);
+    }
+    tile
+}
+
+/// A screen or a window in the share picker: its thumbnail (when it has one)
+/// and its name.
+fn share_source(session: &Arc<NativeSession>, source: &ScreenSource, title: &str, icon: &str) -> gtk::Box {
+    let thumb = gtk::Overlay::builder().css_classes(["voice-thumb"]).build();
+    thumb.set_overflow(gtk::Overflow::Hidden);
+    let placeholder = gtk::Box::builder().width_request(208).height_request(117).build();
+    let glyph = gtk::Image::builder()
+        .icon_name(icon)
+        .pixel_size(32)
+        .hexpand(true)
+        .halign(gtk::Align::Center)
+        .valign(gtk::Align::Center)
+        .build();
+    placeholder.append(&glyph);
+    thumb.set_child(Some(&placeholder));
+    let picture = video_view(session, &thumbnail(&source.id), VideoSource::Screen, gtk::ContentFit::Contain);
+    // Clear until the thumbnail comes: the icon shows through.
+    picture.remove_css_class("voice-video");
+    thumb.add_overlay(&picture);
+    let card = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(6)
+        .css_classes(["voice-share-source"])
+        .build();
+    card.append(&thumb);
+    card.append(
+        &gtk::Label::builder()
+            .label(title)
+            .ellipsize(gtk::pango::EllipsizeMode::End)
+            .max_width_chars(24)
+            .tooltip_text(title)
+            .build(),
+    );
+    card
+}
+
+/// A volume slider, 0 to 200 %, 100 % marked.
+fn volume_scale(value: f32) -> gtk::Scale {
+    let scale = gtk::Scale::with_range(gtk::Orientation::Horizontal, 0.0, 200.0, 1.0);
+    scale.set_value((value * 100.0).round() as f64);
+    scale.add_mark(100.0, gtk::PositionType::Bottom, None);
+    scale.set_draw_value(true);
+    scale.set_value_pos(gtk::PositionType::Right);
+    scale.set_format_value_func(|_, value| format!("{value:.0} %"));
+    scale.set_hexpand(true);
+    scale
+}
+
+fn heading(key: &str) -> gtk::Label {
+    gtk::Label::builder().label(t(key)).xalign(0.0).css_classes(["voice-menu-heading"]).build()
+}
+
+/// A right click on someone opens how they play here: their volume, and a mute for this side only.
+fn person_menu_on(session: &Arc<NativeSession>, widget: &impl IsA<gtk::Widget>, o: &Occupant) {
+    let click = gtk::GestureClick::builder().button(gdk::BUTTON_SECONDARY).build();
+    let (session, weak, uid, name) =
+        (Arc::downgrade(session), widget.upcast_ref::<gtk::Widget>().downgrade(), o.uid.clone(), o.name.clone());
+    click.connect_pressed(move |gesture, _, _, _| {
+        gesture.set_state(gtk::EventSequenceState::Claimed);
+        if let (Some(session), Some(widget)) = (session.upgrade(), weak.upgrade()) {
+            person_menu(&session, &widget, &uid, &name);
+        }
+    });
+    widget.add_controller(click);
+}
+
+fn person_menu(session: &Arc<NativeSession>, parent: &gtk::Widget, uid: &str, name: &str) {
+    let current = session.voice().listening().people.get(uid).copied().unwrap_or_default();
+    let column = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(8)
+        .width_request(260)
+        .css_classes(["voice-menu"])
+        .build();
+    column.append(&gtk::Label::builder().label(name).xalign(0.0).css_classes(["voice-menu-title"]).build());
+    column.append(&heading("voice_person.volume"));
+    let scale = volume_scale(current.volume);
+    column.append(&scale);
+    let mute = gtk::CheckButton::builder().label(t("voice_person.mute")).active(current.muted).build();
+    column.append(&mute);
+    let apply = {
+        let (session, uid, scale, mute) = (session.clone(), uid.to_owned(), scale.downgrade(), mute.downgrade());
+        move || {
+            let (Some(scale), Some(mute)) = (scale.upgrade(), mute.upgrade()) else { return };
+            let volume = PersonVolume { volume: scale.value() as f32 / 100.0, muted: mute.is_active() };
+            let (session, uid) = (session.clone(), uid.clone());
+            runtime().spawn(async move {
+                session.voice().set_person_volume(&uid, volume).await;
+                save_listening(&session);
+            });
+        }
+    };
+    let changed = Rc::new(apply);
+    let again = changed.clone();
+    scale.connect_value_changed(move |_| again());
+    mute.connect_toggled(move |_| changed());
+    let popover = gtk::Popover::builder().child(&column).build();
+    popover.set_parent(parent);
+    popover.connect_closed(|popover| {
+        let popover = popover.clone();
+        glib::idle_add_local_once(move || popover.unparent());
+    });
+    popover.popup();
 }
 
 pub(super) struct VoiceUi {
@@ -310,12 +494,20 @@ pub(super) struct VoiceUi {
     page_status: gtk::Label,
     page_controls: Controls,
     open_chat: gtk::Button,
-    cards: gtk::FlowBox,
-    cards_scroll: gtk::ScrolledWindow,
+    /// The people, as tiles sharing all the page's room.
+    cards: TileGrid,
     /// While someone shares: the screen, and the people in a narrow column at its right.
     share_row: gtk::Box,
     stage: gtk::Overlay,
     stage_label: gtk::Label,
+    /// Who the stage shows, and the full-screen window that follows them.
+    stage_uid: Rc<RefCell<String>>,
+    fullscreen: RefCell<Option<gtk::Window>>,
+    full: gtk::Button,
+    /// The direct room where the other person was in the call: their leaving ends it.
+    company: RefCell<Option<String>>,
+    /// The people muted here as last drawn: a change redraws.
+    muted_here: RefCell<Vec<String>>,
     strip: gtk::Box,
     empty: gtk::Label,
     join: gtk::Button,
@@ -363,15 +555,7 @@ impl VoiceUi {
         let open_chat = gtk::Button::builder().label(t("voice_session.open_chat")).css_classes(["flat"]).build();
         header.pack_end(&open_chat);
         let page_status = gtk::Label::builder().css_classes(["voice-status"]).build();
-        let cards = gtk::FlowBox::builder()
-            .selection_mode(gtk::SelectionMode::None)
-            .homogeneous(true)
-            .min_children_per_line(1)
-            .max_children_per_line(4)
-            .column_spacing(14)
-            .row_spacing(14)
-            .valign(gtk::Align::Start)
-            .build();
+        let cards = TileGrid::new();
         let empty = gtk::Label::builder().label(t("voice_session.empty")).css_classes(["empty-hint"]).build();
         let join = widgets::cta(t("voice_session.join"));
         join.set_halign(gtk::Align::Center);
@@ -394,6 +578,14 @@ impl VoiceUi {
         let stage = gtk::Overlay::builder().css_classes(["voice-stage"]).hexpand(true).vexpand(true).build();
         stage.set_overflow(gtk::Overflow::Hidden);
         stage.add_overlay(&stage_label);
+        let full = gtk::Button::builder()
+            .icon_name("view-fullscreen-symbolic")
+            .tooltip_text(t("voice_session.fullscreen"))
+            .halign(gtk::Align::End)
+            .valign(gtk::Align::Start)
+            .css_classes(["osd", "circular", "voice-stage-full"])
+            .build();
+        stage.add_overlay(&full);
         let strip = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(10).build();
         let strip_scroll = gtk::ScrolledWindow::builder()
             .hscrollbar_policy(gtk::PolicyType::Never)
@@ -403,15 +595,10 @@ impl VoiceUi {
         let share_row = gtk::Box::builder().spacing(14).vexpand(true).visible(false).build();
         share_row.append(&stage);
         share_row.append(&strip_scroll);
-        let cards_scroll = gtk::ScrolledWindow::builder()
-            .hscrollbar_policy(gtk::PolicyType::Never)
-            .vexpand(true)
-            .child(&cards)
-            .build();
         column.append(&page_status);
         column.append(&empty);
         column.append(&share_row);
-        column.append(&cards_scroll);
+        column.append(&cards);
         column.append(&join);
         column.append(&page_controls.row);
         let page = adw::ToolbarView::new();
@@ -429,10 +616,14 @@ impl VoiceUi {
             page_controls,
             open_chat,
             cards,
-            cards_scroll,
             share_row,
             stage,
             stage_label,
+            stage_uid: Rc::default(),
+            fullscreen: RefCell::default(),
+            full,
+            company: RefCell::default(),
+            muted_here: RefCell::default(),
             strip,
             empty,
             join,
@@ -494,6 +685,9 @@ impl VoiceUi {
             for icon in state_icons(o) {
                 line.append(&icon);
             }
+            if !o.local {
+                person_menu_on(session, &line, o);
+            }
             slot.append(&line);
         }
         slot.set_visible(!shown.1.is_empty());
@@ -526,6 +720,12 @@ impl VoiceUi {
         }
     }
 
+    fn close_fullscreen(&self) {
+        if let Some(window) = self.fullscreen.take() {
+            window.close();
+        }
+    }
+
     fn close_ring(&self) {
         if let Some((_, dialog)) = self.ringing.take() {
             dialog.force_close();
@@ -538,7 +738,10 @@ impl VoiceUi {
             forward.abort();
         }
         self.close_ring();
+        self.close_fullscreen();
         self.set_tone(None);
+        self.company.replace(None);
+        self.muted_here.borrow_mut().clear();
         self.slots.borrow_mut().clear();
         self.filled.borrow_mut().clear();
         self.speakers.borrow_mut().clear();
@@ -582,13 +785,22 @@ impl ChatPage {
                     runtime().spawn(async move { session.stop_screen_share().await });
                     return;
                 }
-                let weak = Rc::downgrade(&this);
-                glib::spawn_future_local(async move {
-                    let result = on_tokio(async move { session.share_screen(None, None).await }).await;
-                    if let (Some(this), Err(error)) = (weak.upgrade(), result) {
-                        this.toast(t(refusal(error.code())).to_owned());
+                this.share_picker(&session);
+            });
+            let weak = Rc::downgrade(self);
+            set.menu.set_create_popup_func(move |button| {
+                let Some(this) = weak.upgrade() else { return };
+                let Some(session) = this.native_session() else { return };
+                let popover = this.voice_menu(&session);
+                // Built afresh at each opening: the devices and volumes as they are now.
+                popover.connect_closed(glib::clone!(
+                    #[weak]
+                    button,
+                    move |_| {
+                        glib::idle_add_local_once(move || button.set_popover(None::<&gtk::Popover>));
                     }
-                });
+                ));
+                button.set_popover(Some(&popover));
             });
             let weak = Rc::downgrade(self);
             set.leave.connect_clicked(move |_| {
@@ -606,6 +818,22 @@ impl ChatPage {
             }
         });
         voice.bar_text.add_controller(click);
+        let weak = Rc::downgrade(self);
+        voice.full.connect_clicked(move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.fullscreen_stage();
+            }
+        });
+        let twice = gtk::GestureClick::new();
+        let weak = Rc::downgrade(self);
+        twice.connect_pressed(move |_, presses, _, _| {
+            if presses == 2
+                && let Some(this) = weak.upgrade()
+            {
+                this.fullscreen_stage();
+            }
+        });
+        voice.stage.add_controller(twice);
         let weak = Rc::downgrade(self);
         voice.open_chat.connect_clicked(move |_| {
             let Some(this) = weak.upgrade() else { return };
@@ -660,7 +888,13 @@ impl ChatPage {
         let snapshot = session.voice().snapshot();
         let previous = self.voice.last.replace(snapshot.clone());
         self.voice_cues(&previous, &snapshot);
-        if shape(&previous) == shape(&snapshot) {
+        self.direct_call(session, &previous, &snapshot);
+        let mut muted: Vec<String> =
+            session.voice().listening().people.into_iter().filter(|(_, p)| p.muted).map(|(uid, _)| uid).collect();
+        muted.sort();
+        let muted_changed = *self.voice.muted_here.borrow() != muted;
+        self.voice.muted_here.replace(muted);
+        if shape(&previous) == shape(&snapshot) && !muted_changed {
             self.voice.light(&snapshot);
         } else {
             self.refresh_voice();
@@ -802,21 +1036,24 @@ impl ChatPage {
         // The room's one shared screen takes most of the page; the people go
         // in a narrow column at its right, cameras as thumbnails.
         let sharer = people.iter().find(|o| mine && o.screen);
-        if let Some(old) = voice.stage.child() {
-            voice.stage.set_child(None::<&gtk::Widget>);
-            drop(old);
-        }
         if let Some(sharer) = sharer {
-            voice.stage.set_child(Some(&video_view(
-                session,
-                &sharer.uid,
-                VideoSource::Screen,
-                gtk::ContentFit::Contain,
-            )));
+            if voice.stage.child().is_none() || *voice.stage_uid.borrow() != sharer.uid {
+                voice.stage_uid.replace(sharer.uid.clone());
+                voice.stage.set_child(Some(&following_view(
+                    session,
+                    voice.stage_uid.clone(),
+                    VideoSource::Screen,
+                    gtk::ContentFit::Contain,
+                )));
+            }
             voice.stage_label.set_label(&tf("voice_session.screen_of", &[("name", &sharer.name)]));
+        } else {
+            voice.stage.set_child(None::<&gtk::Widget>);
+            voice.stage_uid.replace(String::new());
+            voice.close_fullscreen();
         }
         voice.share_row.set_visible(sharer.is_some());
-        voice.cards_scroll.set_visible(sharer.is_none());
+        voice.cards.set_visible(sharer.is_none() && !people.is_empty());
         voice.cards.remove_all();
         while let Some(child) = voice.strip.first_child() {
             voice.strip.remove(&child);
@@ -841,36 +1078,16 @@ impl ChatPage {
                     .build();
                 card.append(&name);
                 voice.speaks(&o.uid, card.upcast_ref());
+                if !o.local {
+                    person_menu_on(session, &card, o);
+                }
                 voice.strip.append(&card);
                 continue;
             }
-            let card = gtk::Box::builder()
-                .orientation(gtk::Orientation::Vertical)
-                .spacing(8)
-                .css_classes(["voice-card"])
-                .build();
-            if mine && o.camera {
-                card.append(&video_box(session, &o.uid, VideoSource::Camera, 220, 150));
-            } else {
-                card.append(&speaking_avatar(session, o, TileSize::Profile, "large"));
+            voice.cards.append(&tile(session, o, mine));
+            if mine && let Some(tile) = voice.cards.last_child() {
+                voice.speaks(&o.uid, &tile);
             }
-            let name = if o.local { tf("voice_session.you", &[("name", &o.name)]) } else { o.name.clone() };
-            let name = gtk::Label::builder()
-                .label(name)
-                .css_classes(["voice-card-name"])
-                .ellipsize(gtk::pango::EllipsizeMode::End)
-                .justify(gtk::Justification::Center)
-                .build();
-            card.append(&name);
-            let icons = gtk::Box::builder().spacing(6).halign(gtk::Align::Center).height_request(16).build();
-            for icon in state_icons(o) {
-                icons.append(&icon);
-            }
-            card.append(&icons);
-            if mine {
-                voice.speaks(&o.uid, card.upcast_ref());
-            }
-            voice.cards.insert(&card, -1);
         }
     }
 
@@ -1055,6 +1272,350 @@ impl ChatPage {
         dialog.present(Some(&self.split));
     }
 
+    /// The menu beside the microphone, as in Discord: devices, the microphone's
+    /// volume and level, the speakers' volume, the noise remover, deafen, and
+    /// the way to the voice settings.
+    fn voice_menu(self: &Rc<Self>, session: &Arc<NativeSession>) -> gtk::Popover {
+        let listening = session.voice().listening();
+        let column = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(6)
+            .width_request(300)
+            .css_classes(["voice-menu"])
+            .build();
+        column.append(&heading("voice_menu.input_device"));
+        column.append(&device_dropdown(session, true));
+        column.append(&heading("voice_menu.output_device"));
+        column.append(&device_dropdown(session, false));
+        column.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+        column.append(&heading("voice_menu.input_volume"));
+        let input = volume_scale(listening.input_volume);
+        let set = session.clone();
+        input.connect_value_changed(move |scale| {
+            let (session, volume) = (set.clone(), scale.value() as f32 / 100.0);
+            runtime().spawn(async move {
+                session.voice().set_input_volume(volume).await;
+                save_listening(&session);
+            });
+        });
+        column.append(&input);
+        column.append(&heading("voice_menu.input_level"));
+        let meter = gtk::LevelBar::builder()
+            .mode(gtk::LevelBarMode::Discrete)
+            .min_value(0.0)
+            .max_value(24.0)
+            .css_classes(["voice-meter"])
+            .build();
+        let (weak, voice) = (meter.downgrade(), session.voice().clone());
+        glib::timeout_add_local(std::time::Duration::from_millis(50), move || {
+            let Some(meter) = weak.upgrade() else { return glib::ControlFlow::Break };
+            if meter.is_mapped() {
+                meter.set_value((voice.input_level() * 24.0).round() as f64);
+            }
+            glib::ControlFlow::Continue
+        });
+        column.append(&meter);
+        column.append(&heading("voice_menu.output_volume"));
+        let output = volume_scale(listening.output_volume);
+        let set = session.clone();
+        output.connect_value_changed(move |scale| {
+            let (session, volume) = (set.clone(), scale.value() as f32 / 100.0);
+            runtime().spawn(async move {
+                session.voice().set_output_volume(volume).await;
+                save_listening(&session);
+            });
+        });
+        column.append(&output);
+        column.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+        let noise = gtk::CheckButton::builder()
+            .label(t("voice_settings.noise"))
+            .tooltip_text(t("voice_settings.noise_hint"))
+            .active(listening.noise_suppression)
+            .build();
+        let set = session.clone();
+        noise.connect_toggled(move |check| {
+            let (session, on) = (set.clone(), check.is_active());
+            runtime().spawn(async move {
+                session.voice().set_noise_suppression(on).await;
+                save_listening(&session);
+            });
+        });
+        column.append(&noise);
+        let deafen = gtk::CheckButton::builder()
+            .label(t("voice_menu.deafen"))
+            .active(session.voice().snapshot().deafened)
+            .build();
+        let set = session.clone();
+        deafen.connect_toggled(move |check| {
+            let (session, on) = (set.clone(), check.is_active());
+            runtime().spawn(async move { session.voice().set_deafened(on).await });
+        });
+        column.append(&deafen);
+        let settings = gtk::Button::builder()
+            .label(t("voice_menu.settings"))
+            .css_classes(["flat"])
+            .halign(gtk::Align::Start)
+            .build();
+        column.append(&settings);
+        let popover = gtk::Popover::builder().child(&column).build();
+        let (weak, closing) = (Rc::downgrade(self), popover.downgrade());
+        settings.connect_clicked(move |_| {
+            if let Some(popover) = closing.upgrade() {
+                popover.popdown();
+            }
+            if let Some(this) = weak.upgrade() {
+                this.native_settings();
+            }
+        });
+        popover
+    }
+
+    /// What to share, as in Discord: the screens and the windows with their
+    /// thumbnails, and the quality. Where the system picks (Wayland's portal),
+    /// only the quality.
+    fn share_picker(self: &Rc<Self>, session: &Arc<NativeSession>) {
+        const HEIGHTS: [u32; 3] = [720, 1080, 1440];
+        const RATES: [u32; 3] = [15, 30, 60];
+        let quality = share_quality();
+        let resolution = gtk::DropDown::from_strings(&["720p", "1080p", "1440p"]);
+        resolution.set_selected(HEIGHTS.iter().position(|h| *h == quality.height).unwrap_or(1) as u32);
+        let rate = gtk::DropDown::from_strings(&["15", "30", "60"]);
+        rate.set_selected(RATES.iter().position(|r| *r == quality.fps).unwrap_or(0) as u32);
+        let share = gtk::Button::builder()
+            .label(t("voice_share.start"))
+            .css_classes(["suggested-action", "pill"])
+            .sensitive(false)
+            .build();
+        let footer =
+            gtk::Box::builder().spacing(10).margin_top(12).margin_bottom(12).margin_start(16).margin_end(16).build();
+        footer.append(&gtk::Label::new(Some(t("voice_share.resolution"))));
+        footer.append(&resolution);
+        footer.append(&gtk::Label::new(Some(t("voice_share.fps"))));
+        footer.append(&rate);
+        footer.append(&gtk::Box::builder().hexpand(true).build());
+        footer.append(&share);
+        let stack = adw::ViewStack::builder().vexpand(true).visible(false).build();
+        let switcher = adw::ViewSwitcher::builder().stack(&stack).policy(adw::ViewSwitcherPolicy::Wide).build();
+        let header = adw::HeaderBar::new();
+        header.set_title_widget(Some(&switcher));
+        let status = gtk::Label::builder()
+            .label(t("voice_share.loading"))
+            .css_classes(["empty-hint"])
+            .vexpand(true)
+            .wrap(true)
+            .build();
+        let column = gtk::Box::builder().orientation(gtk::Orientation::Vertical).build();
+        column.append(&status);
+        column.append(&stack);
+        column.append(&footer);
+        let toolbar = adw::ToolbarView::new();
+        toolbar.add_top_bar(&header);
+        toolbar.set_content(Some(&column));
+        let dialog = adw::Dialog::builder()
+            .title(t("voice_share.title"))
+            .content_width(760)
+            .content_height(560)
+            .child(&toolbar)
+            .build();
+        let chosen: Rc<RefCell<Option<String>>> = Rc::default();
+        let (weak, picked, dialog_ref) = (Rc::downgrade(self), chosen.clone(), dialog.downgrade());
+        share.connect_clicked(move |_| {
+            let quality = ScreenQuality {
+                height: HEIGHTS[(resolution.selected() as usize).min(2)],
+                fps: RATES[(rate.selected() as usize).min(2)],
+            };
+            save_share_quality(quality);
+            if let Some(dialog) = dialog_ref.upgrade() {
+                dialog.close();
+            }
+            if let Some(this) = weak.upgrade() {
+                this.start_share(picked.borrow().clone(), quality);
+            }
+        });
+        let (lister, page, share_weak) = (session.clone(), session.clone(), share.downgrade());
+        let (status_weak, stack_weak) = (status.downgrade(), stack.downgrade());
+        glib::spawn_future_local(async move {
+            let listed = on_tokio(async move { lister.voice().screens().await }).await;
+            let (Some(status), Some(stack), Some(share)) =
+                (status_weak.upgrade(), stack_weak.upgrade(), share_weak.upgrade())
+            else {
+                return;
+            };
+            share.set_sensitive(true);
+            let sources = match listed {
+                Ok(sources) if sources.is_empty() => return status.set_label(t("voice_share.portal")),
+                Ok(sources) => sources,
+                Err(_) => return status.set_label(t("voice_share.none")),
+            };
+            status.set_visible(false);
+            stack.set_visible(true);
+            for (kind, name, icon) in [
+                (ScreenKind::Screen, "voice_share.screens", "video-display-symbolic"),
+                (ScreenKind::Window, "voice_share.windows", "window-new-symbolic"),
+            ] {
+                let mine: Vec<&ScreenSource> = sources.iter().filter(|s| s.kind == kind).collect();
+                if mine.is_empty() {
+                    continue;
+                }
+                let grid = gtk::FlowBox::builder()
+                    .selection_mode(gtk::SelectionMode::Single)
+                    .activate_on_single_click(true)
+                    .homogeneous(true)
+                    .max_children_per_line(3)
+                    .column_spacing(10)
+                    .row_spacing(10)
+                    .valign(gtk::Align::Start)
+                    .margin_top(12)
+                    .margin_start(12)
+                    .margin_end(12)
+                    .build();
+                let ids: Vec<String> = mine.iter().map(|s| s.id.clone()).collect();
+                for (index, source) in mine.iter().enumerate() {
+                    let title = match kind {
+                        ScreenKind::Screen => tf("voice_share.screen_n", &[("n", &(index + 1).to_string())]),
+                        ScreenKind::Window => source.title.clone(),
+                    };
+                    grid.insert(&share_source(&page, source, &title, icon), -1);
+                }
+                let picked = chosen.clone();
+                grid.connect_child_activated(move |_, child| {
+                    picked.replace(ids.get(child.index() as usize).cloned());
+                });
+                let scroll = gtk::ScrolledWindow::builder()
+                    .hscrollbar_policy(gtk::PolicyType::Never)
+                    .vexpand(true)
+                    .child(&grid)
+                    .build();
+                let tab = stack.add_titled(&scroll, Some(name), t(name));
+                tab.set_icon_name(Some(icon));
+                // The first screen stands chosen until another is picked.
+                if kind == ScreenKind::Screen
+                    && let Some(first) = grid.child_at_index(0)
+                {
+                    grid.select_child(&first);
+                    chosen.replace(mine.first().map(|s| s.id.clone()));
+                }
+            }
+        });
+        dialog.present(Some(&self.split));
+    }
+
+    fn start_share(self: &Rc<Self>, source: Option<String>, quality: ScreenQuality) {
+        let Some(session) = self.native_session() else { return };
+        let weak = Rc::downgrade(self);
+        glib::spawn_future_local(async move {
+            let result = on_tokio(async move { session.share_screen(source, Some(quality)).await }).await;
+            if let (Some(this), Err(error)) = (weak.upgrade(), result) {
+                this.toast(t(refusal(error.code())).to_owned());
+            }
+        });
+    }
+
+    /// The shared screen alone on the whole display; Escape, a double click or
+    /// its button come back. It follows a takeover, and closes with the share.
+    fn fullscreen_stage(self: &Rc<Self>) {
+        let Some(session) = self.native_session() else { return };
+        if self.voice.stage_uid.borrow().is_empty() || self.voice.fullscreen.borrow().is_some() {
+            return;
+        }
+        let window = gtk::Window::builder().decorated(false).css_classes(["voice-fullscreen"]).build();
+        if let Some(root) = self.split.root().and_downcast::<gtk::Window>() {
+            window.set_transient_for(Some(&root));
+        }
+        let overlay = gtk::Overlay::new();
+        overlay.set_child(Some(&following_view(
+            &session,
+            self.voice.stage_uid.clone(),
+            VideoSource::Screen,
+            gtk::ContentFit::Contain,
+        )));
+        let exit = gtk::Button::builder()
+            .icon_name("view-restore-symbolic")
+            .tooltip_text(t("voice_session.exit_fullscreen"))
+            .halign(gtk::Align::End)
+            .valign(gtk::Align::Start)
+            .css_classes(["osd", "circular", "voice-stage-full"])
+            .build();
+        exit.connect_clicked(glib::clone!(
+            #[weak]
+            window,
+            move |_| window.close()
+        ));
+        overlay.add_overlay(&exit);
+        let twice = gtk::GestureClick::new();
+        twice.connect_pressed(glib::clone!(
+            #[weak]
+            window,
+            move |_, presses, _, _| {
+                if presses == 2 {
+                    window.close();
+                }
+            }
+        ));
+        overlay.add_controller(twice);
+        let keys = gtk::EventControllerKey::new();
+        keys.connect_key_pressed(glib::clone!(
+            #[weak]
+            window,
+            #[upgrade_or]
+            glib::Propagation::Proceed,
+            move |_, key, _, _| {
+                if key == gdk::Key::Escape {
+                    window.close();
+                    return glib::Propagation::Stop;
+                }
+                glib::Propagation::Proceed
+            }
+        ));
+        window.add_controller(keys);
+        window.set_child(Some(&overlay));
+        let weak = Rc::downgrade(self);
+        window.connect_close_request(move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.voice.fullscreen.replace(None);
+            }
+            glib::Propagation::Proceed
+        });
+        self.voice.fullscreen.replace(Some(window.clone()));
+        window.fullscreen();
+        window.present();
+    }
+
+    /// A direct call: over, it gives the chat back; the other person gone (a
+    /// short grace for a reconnection or a device switch), it hangs up here too.
+    fn direct_call(self: &Rc<Self>, session: &Arc<NativeSession>, before: &Snapshot, now: &Snapshot) {
+        let direct = |rid: &str| self.rooms.borrow().iter().any(|r| r.rid == rid && r.kind == "d");
+        if let Some(rid) = before.room.as_deref()
+            && now.room.is_none()
+            && direct(rid)
+            && self.voice.shown.borrow().as_deref() == Some(rid)
+            && self.content_stack.visible_child_name().as_deref() == Some("voice")
+        {
+            self.content_stack.set_visible_child_name("room");
+        }
+        let Some(rid) = now.room.clone().filter(|rid| direct(rid)) else {
+            self.voice.company.replace(None);
+            return;
+        };
+        if now.state != ConnectionState::Connected {
+            return;
+        }
+        if now.participants.iter().any(|p| !p.local) {
+            self.voice.company.replace(Some(rid));
+            return;
+        }
+        if self.voice.company.take().as_deref() != Some(rid.as_str()) {
+            return;
+        }
+        let session = session.clone();
+        glib::timeout_add_local_once(std::time::Duration::from_secs(2), move || {
+            let now = session.voice().snapshot();
+            if now.room.as_deref() == Some(rid.as_str()) && !now.participants.iter().any(|p| !p.local) {
+                runtime().spawn(async move { session.disconnect_voice().await });
+            }
+        });
+    }
+
     /// What the header's call button does in the open room (the smoke run).
     pub fn join_voice_now(self: &Rc<Self>, rid: &str) {
         if self.current_rid().as_deref() == Some(rid) { self.voice_call() } else { self.join_voice(rid, false) }
@@ -1069,11 +1630,21 @@ impl ChatPage {
         (connected, cards, self.voice.bar.is_visible())
     }
 
-    /// Smoke: turns the camera on and shares the screen, as their buttons do.
+    /// Smoke: turns the camera on and shares the first screen, as the camera
+    /// button and the share picker's default do.
     pub fn voice_video_on(self: &Rc<Self>, screen: bool) {
         self.voice.page_controls.camera.emit_clicked();
         if screen {
-            self.voice.page_controls.screen.emit_clicked();
+            self.start_share(None, ScreenQuality::DEFAULT);
+        }
+    }
+
+    /// Smoke: opens the share picker (`picker`) or the microphone's menu (`menu`), for a screenshot.
+    pub fn voice_open(self: &Rc<Self>, what: &str) {
+        match what {
+            "picker" => self.voice.page_controls.screen.emit_clicked(),
+            "menu" => self.voice.page_controls.menu.popup(),
+            _ => {}
         }
     }
 

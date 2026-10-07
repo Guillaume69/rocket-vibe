@@ -82,6 +82,11 @@ jobs:
         with:
           name: rv-voice-linux-x86_64
           path: apps/desktop/dist/voice
+      - uses: actions/download-artifact@v4
+        if: env.PACKAGE == 'true'
+        with:
+          name: rv-screen-audio-linux-x86_64
+          path: apps/desktop/dist/voice
       - name: Package
         if: env.PACKAGE == 'true'
         run: |
@@ -90,6 +95,7 @@ jobs:
           cp target/release/rocket-vibe-gtk data/com.rocketvibe.app.desktop README.md "dist/$name/"
           # Artifacts lose the executable bit.
           install -m755 dist/voice/rv-voice "dist/$name/rv-voice"
+          install -m755 dist/voice/rv-screen-audio "dist/$name/rv-screen-audio"
           "dist/$name/rv-voice" --version
           cp -R data/icons "dist/$name/"
           tar -C dist -czf "dist/$name.tar.gz" "$name"
@@ -121,6 +127,10 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: rv-voice-linux-x86_64
+          path: apps/desktop/dist/voice
+      - uses: actions/download-artifact@v4
+        with:
+          name: rv-screen-audio-linux-x86_64
           path: apps/desktop/dist/voice
       - run: sh scripts/appimage-build.sh "${{ needs.version.outputs.version }}" dist
         env:
@@ -154,6 +164,7 @@ jobs:
           # The sidecar where the app looks for it ($SHARUN_DIR/bin), running on this glibc.
           ./*.AppImage --appimage-extract > /dev/null
           squashfs-root/bin/rv-voice --version
+          squashfs-root/bin/rv-screen-audio --version
           rm -rf squashfs-root
           Xvfb :99 -screen 0 1100x750x24 > /dev/null 2>&1 &
           export DISPLAY=:99 HOME="$RUNNER_TEMP/home" RV_SMOKE_GALLERY=1

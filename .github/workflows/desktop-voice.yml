@@ -57,9 +57,10 @@ jobs:
             ~/.cargo/registry
             apps/desktop/voice/target
           key: voice-linux-${{ hashFiles('apps/desktop/voice/Cargo.lock') }}
-      - run: cargo fmt --check
-      - run: cargo clippy --release --locked -- -D warnings
-      - run: cargo build --release --locked
+      - run: cargo fmt --all --check
+      # rv-screen-audio needs newer PipeWire headers: its own job below.
+      - run: cargo clippy --release --locked -p rv-voice -- -D warnings
+      - run: cargo build --release --locked -p rv-voice
       - run: target/release/rv-voice --version
       - name: The sidecar answers and leaves on end of input
         run: |
@@ -70,6 +71,41 @@ jobs:
         with:
           name: rv-voice-linux-x86_64
           path: apps/desktop/voice/target/release/rv-voice
+
+  # The screen's sound on Linux (screen-audio/Cargo.toml says why it is apart).
+  # Built on 24.04: the PipeWire bindings need headers newer than 22.04's
+  # 0.3.48, while the binary only calls functions libpipewire 0.3 already had
+  # and needs glibc 2.34; it runs on 22.04 (scripts/build-screen-audio-linux.sh).
+  linux-screen-audio:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: apps/desktop/voice
+    steps:
+      - name: Toolchain
+        working-directory: /
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends libpipewire-0.3-dev clang
+      - uses: actions/checkout@v5
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            apps/desktop/voice/target
+          key: voice-screen-audio-${{ hashFiles('apps/desktop/voice/Cargo.lock') }}
+      - run: cargo clippy --release --locked -p rv-screen-audio -- -D warnings
+      - run: cargo build --release --locked -p rv-screen-audio
+      - run: target/release/rv-screen-audio --version
+      - name: glibc 2.35 at most, as rv-voice
+        run: |
+          floor=$(objdump -T target/release/rv-screen-audio | grep -o "GLIBC_[0-9.]*" | sort -uV | tail -1)
+          echo "$floor"
+          [ "$(printf '%s\nGLIBC_2.35\n' "$floor" | sort -V | tail -1)" = GLIBC_2.35 ]
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rv-screen-audio-linux-x86_64
+          path: apps/desktop/voice/target/release/rv-screen-audio
 
   windows:
     runs-on: windows-2025

@@ -3,7 +3,8 @@
 # any distribution at least that recent: a binary built in the Fedora image needs
 # glibc 2.43. webrtc-sys needs clang >= 21 (libwebrtc's hermetic libc++), taken
 # from apt.llvm.org. Output: apps/desktop/dist/voice/rv-voice, where the Linux
-# packaging scripts (scripts/appimage-build.sh) take it.
+# packaging scripts (scripts/appimage-build.sh) take it, beside rv-screen-audio
+# (build-screen-audio-linux.sh).
 #
 #   apps/desktop/voice/scripts/build-linux.sh
 #
@@ -28,7 +29,7 @@ ln -sf /usr/bin/clang++-21 /usr/bin/clang++
 [ -x "$CARGO_HOME/bin/cargo" ] || curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --no-modify-path > /dev/null
 export PATH="$CARGO_HOME/bin:$PATH"
 cd /desktop/voice
-cargo build --release --locked
+cargo build --release --locked -p rv-voice
 cp "$CARGO_TARGET_DIR/release/rv-voice" /desktop/dist/voice/rv-voice
 objdump -T /desktop/dist/voice/rv-voice | grep -o "GLIBC_[0-9.]*" | sort -uV | tail -1
 '

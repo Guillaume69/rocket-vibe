@@ -1,6 +1,6 @@
 //! The "Voice" group: which microphone and speakers the `rv-voice` sidecar
-//! opens, and (Windows, the one platform whose sidecar captures a screen's
-//! sound) whether that sound carries the call's voices. The choices are this
+//! opens, and (Windows and Linux, whose sidecar captures a screen's sound)
+//! whether that sound carries the call's voices. The choices are this
 //! machine's, kept in the config dir like the language, and handed to each
 //! native session's voice controller.
 
@@ -68,7 +68,7 @@ pub fn group(session: Arc<NativeSession>) -> adw::PreferencesGroup {
     output.add_css_class("voice-output-device");
     group.add(&input);
     group.add(&output);
-    if cfg!(windows) {
+    if cfg!(any(windows, target_os = "linux")) {
         let share_call = adw::SwitchRow::builder()
             .title(t("voice_settings.share_call"))
             .subtitle(t("voice_settings.share_call_hint"))

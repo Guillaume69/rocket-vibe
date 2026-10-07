@@ -1,0 +1,21 @@
+# The screen's sound on Linux, apart from rv-voice: libwebrtc defines weak
+# stubs of PipeWire's C functions (pw_init, pw_stream_new...) that it fills
+# only when its own screen capture loads PipeWire, and inside rv-voice they
+# would take the place of libpipewire's. This binary links no libwebrtc.
+[package]
+name = "rv-screen-audio"
+# Follows apps/desktop/Cargo.toml: one version per app.
+version = "0.9.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+
+# libpipewire-0.3 at runtime (0.3.32 and later), as on every desktop since 2022.
+[target.'cfg(target_os = "linux")'.dependencies]
+pipewire = "0.10"

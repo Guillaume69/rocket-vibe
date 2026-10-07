@@ -183,8 +183,9 @@ section here.
   and share your screen (the system's picker on Wayland). One screen at a time in a room: a
   new share replaces the current one, and the shared screen takes most of the page with
   everyone in a column at its right. No camera on macOS yet.
-- A shared screen carries the computer's sound on Windows, without the voice chat; a
-  setting in "Voice" adds the call's voices, to record or stream the whole call.
+- A shared screen carries the computer's sound on Windows and Linux (PipeWire), without
+  the voice chat or the app's own sounds; a setting in "Voice" adds the call's voices, to
+  record or stream the whole call.
 - The Linux tarball and AppImage, the Windows installer and the macOS app now ship the voice
   helper (`rv-voice`) next to the app, so voice is offered in released builds.
 

@@ -546,6 +546,8 @@ impl Inner {
         let program = self.program.clone().or_else(locate).ok_or(VoiceError::Unavailable)?;
         let mut command = tokio::process::Command::new(program);
         command.args(&self.args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).kill_on_drop(true);
+        // A screen's sound leaves out the app's own sounds (cues, ringtone) with the call.
+        command.env("RV_VOICE_APP_PID", std::process::id().to_string());
         // The GTK app has no console: without this, Windows opens one for the sidecar.
         #[cfg(windows)]
         command.creation_flags(0x0800_0000);

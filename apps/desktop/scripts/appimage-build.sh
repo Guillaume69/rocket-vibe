@@ -38,11 +38,17 @@ CARGO_TARGET_DIR=target/appimage cargo build --release --locked -p rocket-vibe-g
 install -Dm755 target/appimage/release/rocket-vibe-gtk /usr/bin/rocket-vibe-gtk
 # Wrapped by sharun like the app, so it runs on the bundled glibc and finds the
 # bundled PulseAudio that libwebrtc opens: AppDir/bin/rv-voice, which the app
-# finds under $SHARUN_DIR (rv-core/src/voice.rs).
+# finds under $SHARUN_DIR (rv-core/src/voice.rs). Beside it rv-screen-audio,
+# the screen's sound through PipeWire, which rv-voice finds the same way.
 sidecar=
 if [ -n "$voice" ]; then
   install -Dm755 "$voice" /usr/bin/rv-voice
   sidecar=/usr/bin/rv-voice
+  helper="$(dirname "$voice")/rv-screen-audio"
+  if [ -f "$helper" ]; then
+    install -Dm755 "$helper" /usr/bin/rv-screen-audio
+    sidecar="$sidecar /usr/bin/rv-screen-audio"
+  fi
 fi
 install -Dm644 data/com.rocketvibe.app.desktop /usr/share/applications/com.rocketvibe.app.desktop
 for size in data/icons/hicolor/*; do
@@ -53,10 +59,10 @@ export ARCH=x86_64 VERSION="$version" OUTPATH=/tmp/appimage-out CI=1
 export DESKTOP=/usr/share/applications/com.rocketvibe.app.desktop
 export ICON=/usr/share/icons/hicolor/256x256/apps/com.rocketvibe.app.png
 export STARTUPWMCLASS=com.rocketvibe.app GTK_CLASS_FIX=1
-export DEPLOY_GSTREAMER=1 DEPLOY_GTK=1 DEPLOY_PULSE=1
+export DEPLOY_GSTREAMER=1 DEPLOY_GTK=1 DEPLOY_PULSE=1 DEPLOY_PIPEWIRE=1
 export UPINFO=none
 rm -rf AppDir /tmp/appimage-out
-# shellcheck disable=SC2086 # $sidecar is empty or one path.
+# shellcheck disable=SC2086 # $sidecar is empty or paths without spaces.
 quick-sharun /usr/bin/rocket-vibe-gtk $sidecar /usr/share/icons/Adwaita
 bash scripts/fetch-dictionaries.sh AppDir/share/hunspell
 bash scripts/fetch-emoji-font.sh AppDir/share/fonts

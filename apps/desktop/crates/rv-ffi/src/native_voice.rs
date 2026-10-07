@@ -442,7 +442,7 @@ impl NativeChat {
     }
     pub async fn create_voice_room(&self, name: String, private: bool, voice: bool) -> Result<String, RvError> {
         let s = self.session.clone();
-        on_tokio(async move { s.create_room(&name, private, voice).await }).await.map_err(RvError::local)
+        on_tokio(async move { s.create_room(&name, private, voice).await }).await.map_err(native_error)
     }
 }
 

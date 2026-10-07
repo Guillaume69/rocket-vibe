@@ -2,6 +2,16 @@ import Foundation
 import Observation
 import RocketVibeCore
 
+/// rv-core's code for a failed native call (`voice_encrypted_room`, `offline`, ...):
+/// rv-ffi hands it as a server error's `error`, or as a local error's message.
+func nativeCode(_ error: Error) -> String {
+    switch error as? RvError {
+    case let .Server(_, _, code, _, _, _)?: return code ?? ""
+    case let .Local(message)?: return message
+    case nil: return ""
+    }
+}
+
 /// A short sound of the voice session.
 public enum VoiceCue: Equatable { case join, leave, mute, unmute, missed }
 /// A looped sound: an incoming call rings, an outgoing one rings back.
@@ -112,8 +122,7 @@ public final class VoiceModel {
     }
 
     func refusal(_ error: Error) -> String {
-        let code = (error as? RvError).flatMap { if case let .Local(message) = $0 { return message }; return nil } ?? ""
-        switch code {
+        switch nativeCode(error) {
         case "voice_encrypted_room": return L("voice_session.encrypted")
         case "voice_key_unavailable": return L("voice_session.key_unavailable")
         case "voice_unavailable", "unsupported_feature": return L("voice_session.unavailable")

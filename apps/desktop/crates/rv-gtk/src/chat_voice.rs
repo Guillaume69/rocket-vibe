@@ -584,7 +584,7 @@ impl ChatPage {
                 }
                 let weak = Rc::downgrade(&this);
                 glib::spawn_future_local(async move {
-                    let result = on_tokio(async move { session.share_screen().await }).await;
+                    let result = on_tokio(async move { session.share_screen(None, None).await }).await;
                     if let (Some(this), Err(error)) = (weak.upgrade(), result) {
                         this.toast(t(refusal(error.code())).to_owned());
                     }

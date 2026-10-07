@@ -10,13 +10,13 @@ use rv_protocol::voice::VoiceGrant;
 use rv_voice_protocol::frames;
 pub use rv_voice_protocol::frames::Source as VideoSource;
 use rv_voice_protocol::{Command, Event, VERSION};
-pub use rv_voice_protocol::{ConnectionState, Device, Participant};
+pub use rv_voice_protocol::{ConnectionState, Device, Participant, ScreenKind, ScreenQuality, ScreenSource, thumbnail};
 use std::collections::HashMap;
 use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::process::Stdio;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, Lines};
@@ -220,6 +220,53 @@ struct Shared {
     /// A screen's sound carries this call's voices too (off: the apps' sound only).
     share_call: bool,
     devices: Option<(u64, oneshot::Sender<Devices>)>,
+    screens: Option<(u64, oneshot::Sender<Vec<ScreenSource>>)>,
+    /// This side's listening choices, sent to each sidecar as it starts.
+    listening: Listening,
+}
+
+/// How this side hears the call and is heard: each person's volume (and a
+/// mute for this side only), the microphone's and the speakers' volumes, the
+/// noise remover. 1.0 is as sent.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Listening {
+    pub people: HashMap<String, PersonVolume>,
+    pub input_volume: f32,
+    pub output_volume: f32,
+    pub noise_suppression: bool,
+}
+impl Default for Listening {
+    fn default() -> Self {
+        Self { people: HashMap::new(), input_volume: 1.0, output_volume: 1.0, noise_suppression: true }
+    }
+}
+impl Listening {
+    fn commands(&self) -> Vec<Command> {
+        let mut commands: Vec<Command> = self
+            .people
+            .iter()
+            .map(|(identity, p)| Command::SetParticipantVolume {
+                identity: identity.clone(),
+                volume: p.volume,
+                muted: p.muted,
+            })
+            .collect();
+        commands.push(Command::SetInputVolume { volume: self.input_volume });
+        commands.push(Command::SetOutputVolume { volume: self.output_volume });
+        commands.push(Command::SetNoiseSuppression { enabled: self.noise_suppression });
+        commands
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PersonVolume {
+    pub volume: f32,
+    pub muted: bool,
+}
+impl Default for PersonVolume {
+    fn default() -> Self {
+        Self { volume: 1.0, muted: false }
+    }
 }
 
 struct Sidecar {
@@ -237,6 +284,9 @@ struct Inner {
     generation: AtomicU64,
     key_refresh: Duration,
     video: Mutex<Video>,
+    /// The microphone's level (`f32` bits), apart from the snapshot: it moves
+    /// ten times a second and only a meter reads it.
+    input_level: AtomicU32,
 }
 
 #[derive(Clone)]
@@ -269,12 +319,15 @@ impl VoiceController {
                     output: None,
                     share_call: false,
                     devices: None,
+                    screens: None,
+                    listening: Listening::default(),
                 }),
                 changes,
                 process: tokio::sync::Mutex::new(None),
                 generation: AtomicU64::new(0),
                 key_refresh: KEY_REFRESH,
                 video: Mutex::default(),
+                input_level: AtomicU32::new(0),
             }),
         }
     }
@@ -339,6 +392,7 @@ impl VoiceController {
                 .iter()
                 .map(|(address, _)| Command::Video { address: address.clone(), token: token.clone() })
                 .collect();
+            commands.extend(s.listening.commands());
             commands.extend(s.input.iter().map(|d| Command::SetInput { device: d.clone() }));
             commands.extend(s.output.iter().map(|d| Command::SetOutput { device: d.clone() }));
             commands.push(Command::SetMicrophone { enabled: s.snapshot.microphone });
@@ -387,11 +441,13 @@ impl VoiceController {
         let mut process = self.inner.process.lock().await;
         self.inner.generation.fetch_add(1, Ordering::SeqCst);
         self.inner.video.lock().unwrap().frames.clear();
+        self.inner.input_level.store(0, Ordering::Relaxed);
         self.inner.update(|s| {
             if s.snapshot.room.is_some() {
                 s.snapshot.end(Ended::Left);
             }
             s.devices = None;
+            s.screens = None;
         });
         if let Some(old) = process.take() {
             stop(old).await;
@@ -412,13 +468,57 @@ impl VoiceController {
         }
         self.command(Command::SetCamera { enabled }).await;
     }
-    /// Shares a screen. The room's one share must be claimed from the server
-    /// first: `NativeSession::share_screen` does both.
-    pub async fn start_screen_share(&self) {
+    /// Shares a screen or a window (`source` from [`Self::screens`]). The
+    /// room's one share must be claimed from the server first:
+    /// `NativeSession::share_screen` does both.
+    pub async fn start_screen_share(&self, source: Option<String>, quality: Option<ScreenQuality>) {
         if self.wanted(|s| s.sharing = true) {
             let with_call = self.inner.shared.lock().unwrap().share_call;
-            self.command(Command::StartScreenShare { with_call }).await;
+            self.command(Command::StartScreenShare { with_call, source, quality }).await;
         }
+    }
+    /// What the session can share: screens, then windows, empty where the
+    /// system picks (Wayland). Their thumbnails then come through
+    /// [`Self::frame`] under [`thumbnail`]`(id)`, source screen.
+    pub async fn screens(&self) -> Result<Vec<ScreenSource>, VoiceError> {
+        let mut process = self.inner.process.lock().await;
+        let Some(sidecar) = process.as_mut() else { return Err(VoiceError::Unavailable) };
+        let (tx, rx) = oneshot::channel();
+        self.inner.shared.lock().unwrap().screens = Some((sidecar.generation, tx));
+        send(&mut sidecar.stdin, &Command::ListScreens).await?;
+        drop(process);
+        tokio::time::timeout(HELLO_TIMEOUT, rx).await.map_err(|_| VoiceError::Timeout)?.map_err(|_| VoiceError::Exited)
+    }
+    /// The listening choices, as last set.
+    pub fn listening(&self) -> Listening {
+        self.inner.shared.lock().unwrap().listening.clone()
+    }
+    /// How loud someone plays here, 0.0 to 2.0, and whether they are muted for
+    /// this side only. Kept for later connections.
+    pub async fn set_person_volume(&self, identity: &str, volume: PersonVolume) {
+        let volume = PersonVolume { volume: volume.volume.clamp(0.0, 2.0), ..volume };
+        self.inner.update(|s| s.listening.people.insert(identity.into(), volume));
+        let command =
+            Command::SetParticipantVolume { identity: identity.into(), volume: volume.volume, muted: volume.muted };
+        self.command(command).await;
+    }
+    pub async fn set_input_volume(&self, volume: f32) {
+        let volume = volume.clamp(0.0, 2.0);
+        self.inner.update(|s| s.listening.input_volume = volume);
+        self.command(Command::SetInputVolume { volume }).await;
+    }
+    pub async fn set_output_volume(&self, volume: f32) {
+        let volume = volume.clamp(0.0, 2.0);
+        self.inner.update(|s| s.listening.output_volume = volume);
+        self.command(Command::SetOutputVolume { volume }).await;
+    }
+    pub async fn set_noise_suppression(&self, enabled: bool) {
+        self.inner.update(|s| s.listening.noise_suppression = enabled);
+        self.command(Command::SetNoiseSuppression { enabled }).await;
+    }
+    /// The microphone's level after processing, 0.0 to 1.0; 0.0 outside a session.
+    pub fn input_level(&self) -> f32 {
+        f32::from_bits(self.inner.input_level.load(Ordering::Relaxed))
     }
     /// Whether a screen's sound carries this call's voices too (for recording
     /// or streaming the whole call; the others then hear themselves). Off by
@@ -579,6 +679,22 @@ impl Inner {
                 }
                 return;
             }
+            if let Event::Screens { screens } = event {
+                if let Some((owner, tx)) = s.screens.take() {
+                    if owner == generation {
+                        let _ = tx.send(screens);
+                    } else {
+                        s.screens = Some((owner, tx));
+                    }
+                }
+                return;
+            }
+            if let Event::InputLevel { level } = event {
+                if self.generation.load(Ordering::SeqCst) == generation {
+                    self.input_level.store(level.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
+                }
+                return;
+            }
             if self.generation.load(Ordering::SeqCst) != generation || s.snapshot.room.is_none() {
                 return;
             }
@@ -595,7 +711,7 @@ impl Inner {
                     }
                     s.snapshot.error = Some(code);
                 }
-                Event::Hello { .. } | Event::Devices { .. } => {}
+                Event::Hello { .. } | Event::Devices { .. } | Event::Screens { .. } | Event::InputLevel { .. } => {}
             }
         });
     }
@@ -603,6 +719,9 @@ impl Inner {
         self.update(|s| {
             if s.devices.as_ref().is_some_and(|(owner, _)| *owner == generation) {
                 s.devices = None;
+            }
+            if s.screens.as_ref().is_some_and(|(owner, _)| *owner == generation) {
+                s.screens = None;
             }
             if self.generation.load(Ordering::SeqCst) == generation && s.snapshot.room.is_some() {
                 s.snapshot.end(Ended::Failed("sidecar_exited".into()));

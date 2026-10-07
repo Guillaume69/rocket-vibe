@@ -7,8 +7,12 @@
 //! encrypted session (the key `SetKey` replaces), so tests see what it got.
 //! Video: once connected, a 4 by 2 frame of `peer`'s camera; the camera and the
 //! screen send a 2 by 2 preview of this side, and an end marker when stopped.
+//! `ListScreens` names one screen and one window, with a 2 by 2 thumbnail of the
+//! window; `SetInputVolume` answers an input level of half the volume.
 use rv_voice_protocol::frames::{self, Header, Source};
-use rv_voice_protocol::{Command, ConnectionState, Device, Event, Participant, VERSION};
+use rv_voice_protocol::{
+    Command, ConnectionState, Device, Event, Participant, ScreenKind, ScreenSource, VERSION, thumbnail,
+};
 use std::io::{BufRead, Write};
 use std::net::TcpStream;
 
@@ -133,17 +137,32 @@ fn main() {
                 }
                 publish(&me);
             }
-            // The preview's width tells the test whether the call's voices were asked for.
-            Command::StartScreenShare { with_call } => {
+            // The preview's width tells the test whether the call's voices were
+            // asked for, its height the chosen quality's lines by 360.
+            Command::StartScreenShare { with_call, source: _, quality } => {
                 if url == "fake://no-screen" {
                     emit(Event::Error { code: "screen_cancelled".into() });
                     continue;
                 }
                 me.screen = true;
                 let identity = me.identity.clone();
-                frame(&mut video, Source::Screen, &identity, if with_call { 4 } else { 2 }, 2);
+                let height = quality.map_or(2, |q| q.height / 360);
+                frame(&mut video, Source::Screen, &identity, if with_call { 4 } else { 2 }, height);
                 publish(&me);
             }
+            Command::ListScreens => {
+                emit(Event::Screens {
+                    screens: vec![
+                        ScreenSource { id: "screen:0".into(), kind: ScreenKind::Screen, title: String::new() },
+                        ScreenSource { id: "window:7".into(), kind: ScreenKind::Window, title: "Editor".into() },
+                    ],
+                });
+                frame(&mut video, Source::Screen, &thumbnail("window:7"), 2, 2);
+            }
+            Command::SetInputVolume { volume } => emit(Event::InputLevel { level: volume / 2.0 }),
+            Command::SetParticipantVolume { .. }
+            | Command::SetOutputVolume { .. }
+            | Command::SetNoiseSuppression { .. } => {}
             Command::StopScreenShare => {
                 me.screen = false;
                 let identity = me.identity.clone();

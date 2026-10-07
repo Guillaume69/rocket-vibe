@@ -6,7 +6,8 @@
 //! `RV_VOICE_APP_PID`.
 //!
 //! - Windows: WASAPI process loopback of everything but the app's process
-//!   tree (the sidecar is in it), or plain loopback of the default output.
+//!   tree (the sidecar is in it), or plain loopback of the default output; a
+//!   shared window, its program's process tree only.
 //! - Linux: a PipeWire capture node linked, port by port, to every audio
 //!   output stream but the app's and the sidecar's (all of them with the call).
 //! - macOS: none.
@@ -48,8 +49,9 @@ fn call_processes() -> Vec<u32> {
     std::iter::once(std::process::id()).chain(app).collect()
 }
 
-/// The screen's sound, when this platform can capture it. Called within the runtime.
-pub fn start(fake: bool, with_call: bool) -> Option<ScreenAudio> {
+/// The screen's sound, when this platform can capture it; `only`, a shared
+/// window's process (Windows). Called within the runtime.
+pub fn start(fake: bool, with_call: bool, only: Option<u32>) -> Option<ScreenAudio> {
     let fake = fake && std::env::var("RV_VOICE_SCREEN_AUDIO").as_deref() != Ok("capture");
     if !fake && !cfg!(any(windows, target_os = "linux")) {
         return None;
@@ -66,7 +68,7 @@ pub fn start(fake: bool, with_call: bool) -> Option<ScreenAudio> {
     std::thread::spawn(move || {
         if fake {
             tone(&capture_stop, &samples);
-        } else if let Err(error) = capture::run(&capture_stop, with_call, &samples) {
+        } else if let Err(error) = capture::run(&capture_stop, with_call, only, &samples) {
             eprintln!("rv-voice: screen audio unavailable: {error}");
         }
     });
@@ -130,10 +132,14 @@ mod capture {
     pub(super) fn run(
         stop: &AtomicBool,
         with_call: bool,
+        only: Option<u32>,
         samples: &Sender<Vec<i16>>,
     ) -> Result<(), wasapi::WasapiError> {
         let _ = initialize_mta().ok();
-        let mut client = if with_call {
+        let mut client = if let Some(program) = only {
+            // A window: its program and the processes it started, nothing else.
+            AudioClient::new_application_loopback_client(program, true)?
+        } else if with_call {
             DeviceEnumerator::new()?.get_default_device(&Direction::Render)?.get_iaudioclient()?
         } else {
             // Everything but the app's process tree, the sidecar included: the
@@ -192,7 +198,14 @@ mod capture {
     }
 
     /// PipeWire runs in rv-screen-audio (its Cargo.toml says why); its stdout is the PCM.
-    pub(super) fn run(stop: &AtomicBool, with_call: bool, samples: &Sender<Vec<i16>>) -> Result<(), String> {
+    /// A window's program goes unnamed here (libwebrtc gives an X window, not
+    /// a process): its share carries the whole screen's sound.
+    pub(super) fn run(
+        stop: &AtomicBool,
+        with_call: bool,
+        _only: Option<u32>,
+        samples: &Sender<Vec<i16>>,
+    ) -> Result<(), String> {
         let program = locate().ok_or("rv-screen-audio not found")?;
         let mut command = Command::new(program);
         if !with_call {
@@ -239,7 +252,12 @@ mod capture {
 #[cfg(not(any(windows, target_os = "linux")))]
 mod capture {
     use super::*;
-    pub(super) fn run(_stop: &AtomicBool, _with_call: bool, _samples: &Sender<Vec<i16>>) -> Result<(), &'static str> {
+    pub(super) fn run(
+        _stop: &AtomicBool,
+        _with_call: bool,
+        _only: Option<u32>,
+        _samples: &Sender<Vec<i16>>,
+    ) -> Result<(), &'static str> {
         Err("no screen sound on this platform")
     }
 }

@@ -6,6 +6,7 @@
 //! `RV_VOICE_FAKE_AUDIO=sine` publishes a synthetic tone instead of opening the
 //! microphone and speakers, `RV_VOICE_FAKE_VIDEO=pattern` a test pattern instead
 //! of the camera and the screen, for headless tests.
+mod audio;
 mod screen_audio;
 mod video;
 
@@ -14,14 +15,10 @@ use livekit::e2ee::{E2eeOptions, EncryptionType};
 use livekit::options::TrackPublishOptions;
 use livekit::prelude::*;
 use livekit::track::VideoQuality;
-use livekit::webrtc::audio_frame::AudioFrame;
-use livekit::webrtc::audio_source::AudioSourceOptions;
-use livekit::webrtc::audio_source::native::NativeAudioSource;
-use livekit::webrtc::peer_connection_factory::native::PeerConnectionFactoryExt;
 use livekit::webrtc::video_source::RtcVideoSource;
 use rv_voice_protocol::frames::Source;
 use rv_voice_protocol::{
-    Command, ConnectionState as State, DEAFENED_ATTRIBUTE, Device, Event, Participant as Member, VERSION,
+    Command, ConnectionState as State, DEAFENED_ATTRIBUTE, Event, Participant as Member, ScreenQuality, VERSION,
 };
 use screen_audio::ScreenAudio;
 use std::collections::HashMap;
@@ -35,6 +32,8 @@ use video::{Capture, Frames, Internal};
 /// After undeafening, the echo canceller has had no playout reference for a
 /// while: keep the microphone silent until it has converged again.
 const AEC_SETTLE: Duration = Duration::from_millis(1000);
+/// Who speaks and the microphone's level are read this often.
+const ACTIVITY: Duration = Duration::from_millis(100);
 /// LiveKit's `TrackSource::SCREEN_SHARE` in a permission's publish sources.
 const SCREEN_SHARE_SOURCE: i32 = 3;
 
@@ -89,6 +88,8 @@ async fn run() {
     let mut voice = Voice::new(std::env::var("RV_VOICE_FAKE_AUDIO").is_ok_and(|v| v == "sine"), internal);
     voice.fake_video = std::env::var("RV_VOICE_FAKE_VIDEO").is_ok_and(|v| v == "pattern");
     let mut events: Option<mpsc::UnboundedReceiver<RoomEvent>> = None;
+    let mut activity = tokio::time::interval(ACTIVITY);
+    activity.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
         let settle = voice.settle;
         tokio::select! {
@@ -156,6 +157,7 @@ async fn run() {
                 voice.settle = None;
                 voice.apply_microphone();
             },
+            _ = activity.tick(), if voice.room.is_some() => voice.tick(),
         }
     }
 }
@@ -163,9 +165,13 @@ async fn run() {
 struct Voice {
     fake: bool,
     room: Option<Arc<Room>>,
-    /// Kept alive for the whole session: dropping the last handle switches the
-    /// audio device module back to synthetic mode (no microphone, no speakers).
-    audio: Option<PlatformAudio>,
+    /// The choices the audio threads read (volumes, noise removal, who is
+    /// muted here), and the devices of the session.
+    mix: Arc<audio::Mix>,
+    audio: Option<audio::Audio>,
+    /// The room's audio tracks this side plays, by track.
+    heard: HashMap<TrackSid, tokio::task::JoinHandle<()>>,
+    input_level: f32,
     track: Option<LocalAudioTrack>,
     microphone: bool,
     deafened: bool,
@@ -183,6 +189,9 @@ struct Voice {
     /// The screen's sound, beside a published screen, and whether it carries the call.
     screen_audio: Option<(ScreenAudio, Option<LocalAudioTrack>)>,
     with_call: bool,
+    /// The shared window or screen, as `video::list_screens` named it, and how it is sent.
+    screen_source: Option<String>,
+    screen_quality: ScreenQuality,
     /// The room's video tracks this side shows, by track.
     watched: HashMap<TrackSid, (tokio::task::JoinHandle<()>, Source, String)>,
 }
@@ -198,9 +207,14 @@ impl Voice {
             screen: None,
             screen_audio: None,
             with_call: false,
+            screen_source: None,
+            screen_quality: ScreenQuality::DEFAULT,
             watched: HashMap::new(),
             room: None,
+            mix: audio::Mix::new(),
             audio: None,
+            heard: HashMap::new(),
+            input_level: 0.0,
             track: None,
             microphone: true,
             deafened: false,
@@ -220,6 +234,9 @@ impl Voice {
             if let Some(frames) = &self.frames {
                 frames.end(source, &identity);
             }
+        }
+        for (_, task) in self.heard.drain() {
+            task.abort();
         }
         if let Some(room) = self.room.take() {
             let _ = tokio::time::timeout(Duration::from_secs(3), room.close()).await;
@@ -247,16 +264,23 @@ impl Voice {
                     ));
                 }
             }
-            Command::StartScreenShare { with_call } => {
+            Command::StartScreenShare { with_call, source, quality } => {
                 if self.screen.is_none() && self.may_publish() {
                     self.with_call = with_call;
+                    self.screen_source = source.clone();
+                    self.screen_quality = quality.unwrap_or(ScreenQuality::DEFAULT).clamped();
                     let identity = self.local_identity();
-                    self.screen = Some((
-                        video::screen(self.fake_video, self.frames.clone(), identity, self.internal.clone()),
-                        None,
-                    ));
+                    let (frames, internal) = (self.frames.clone(), self.internal.clone());
+                    let capture =
+                        video::screen(self.fake_video, source, self.screen_quality, frames, identity, internal);
+                    self.screen = Some((capture, None));
                 }
             }
+            Command::ListScreens => video::list_screens(self.fake_video, self.frames.clone()),
+            Command::SetParticipantVolume { identity, volume, muted } => self.mix.set_gain(&identity, volume, muted),
+            Command::SetInputVolume { volume } => self.mix.set_input_volume(volume),
+            Command::SetOutputVolume { volume } => self.mix.set_output_volume(volume),
+            Command::SetNoiseSuppression { enabled } => self.mix.set_denoise(enabled),
             Command::StopScreenShare => self.stop_video(Source::Screen).await,
             Command::SetMicrophone { enabled } => {
                 self.microphone = enabled;
@@ -287,20 +311,20 @@ impl Voice {
             }
             Command::ListDevices => self.list_devices(),
             Command::SetInput { device } => {
-                self.input = Some(device);
-                if let Some(audio) = &self.audio
-                    && !select(audio, self.input.as_deref().unwrap_or_default(), true)
+                if let Some(audio) = &mut self.audio
+                    && !audio.set_input(&device)
                 {
                     error("device_not_found");
                 }
+                self.input = Some(device);
             }
             Command::SetOutput { device } => {
-                self.output = Some(device);
-                if let Some(audio) = &self.audio
-                    && !select(audio, self.output.as_deref().unwrap_or_default(), false)
+                if let Some(audio) = &mut self.audio
+                    && !audio.set_output(&device)
                 {
                     error("device_not_found");
                 }
+                self.output = Some(device);
             }
             Command::SetKey { key } => match self.room.as_ref().and_then(|r| r.e2ee_manager().key_provider()) {
                 Some(keys) => keys.set_shared_key(key.into_bytes(), 0),
@@ -365,7 +389,9 @@ impl Voice {
         if self.screen_audio.is_some() {
             return;
         }
-        let Some(capture) = screen_audio::start(self.fake_video, self.with_call) else { return };
+        // A window carries its own program's sound only, where the platform can tell it.
+        let only = self.screen_source.as_deref().and_then(video::window_process);
+        let Some(capture) = screen_audio::start(self.fake_video, self.with_call, only) else { return };
         let track = LocalAudioTrack::create_audio_track("screen-audio", RtcAudioSource::Native(capture.source.clone()));
         let options = TrackPublishOptions {
             source: TrackSource::ScreenshareAudio,
@@ -399,8 +425,17 @@ impl Voice {
             return;
         }
         let local = LocalVideoTrack::create_video_track(name, RtcVideoSource::Native(capture.source.clone()));
-        // A screen is text: crisp frames over fluid motion, one layer.
-        let options = TrackPublishOptions { source: kind, simulcast: source == Source::Camera, ..Default::default() };
+        // A screen is text: one layer, at the bitrate its chosen quality needs.
+        let encoding = (source == Source::Screen).then(|| livekit::options::VideoEncoding {
+            max_bitrate: self.screen_quality.bitrate(),
+            max_framerate: self.screen_quality.fps as f64,
+        });
+        let options = TrackPublishOptions {
+            source: kind,
+            simulcast: source == Source::Camera,
+            video_encoding: encoding,
+            ..Default::default()
+        };
         match room.local_participant().publish_track(LocalTrack::Video(local.clone()), options).await {
             Ok(_) => {
                 if let Some((_, track)) = self.slot(source) {
@@ -422,56 +457,27 @@ impl Voice {
         if self.fake {
             return emit(Event::Devices { inputs: vec![], outputs: vec![] });
         }
-        // Outside a session, a short-lived handle: the devices are listed, not opened.
-        let audio = match &self.audio {
-            Some(audio) => audio.clone(),
-            None => match PlatformAudio::new() {
-                Ok(audio) => audio,
-                Err(_) => {
-                    error("audio_unavailable");
-                    return emit(Event::Devices { inputs: vec![], outputs: vec![] });
-                }
-            },
-        };
-        let inputs = audio
-            .recording_devices()
-            .map(|d| Device { id: device_id(d.id.as_str(), &d.name), name: d.name, default: d.index == 0 })
-            .collect();
-        let outputs = audio
-            .playout_devices()
-            .map(|d| Device { id: device_id(d.id.as_str(), &d.name), name: d.name, default: d.index == 0 })
-            .collect();
+        let (inputs, outputs) = audio::devices();
         emit(Event::Devices { inputs, outputs });
     }
 
     async fn start_audio(&mut self) {
         let Some(room) = self.room.clone() else { return };
-        let source = if self.fake {
-            let source = NativeAudioSource::new(AudioSourceOptions::default(), 48_000, 1, 100);
-            tokio::spawn(sine(source.clone()));
-            RtcAudioSource::Native(source)
-        } else {
-            match self.audio.clone().map_or_else(PlatformAudio::new, Ok) {
-                Ok(audio) => {
-                    for (device, input) in [(&self.input, true), (&self.output, false)] {
-                        if let Some(device) = device
-                            && !select(&audio, device, input)
-                        {
-                            error("device_not_found");
-                        }
-                    }
-                    let source = audio.rtc_source();
-                    self.audio = Some(audio);
-                    source
-                }
-                Err(_) => return error("audio_unavailable"),
+        if self.audio.is_none() {
+            let (input, output) = (self.input.clone().unwrap_or_default(), self.output.clone().unwrap_or_default());
+            let (audio, found) = audio::Audio::start(self.mix.clone(), self.fake, &input, &output);
+            if !found {
+                error("device_not_found");
             }
-        };
+            self.audio = Some(audio);
+            self.apply_microphone();
+        }
         // A plain member of a read-only room listens only.
         if room.local_participant().permission().is_some_and(|p| !p.can_publish) {
             return;
         }
-        let track = LocalAudioTrack::create_audio_track("microphone", source);
+        let Some(audio) = &self.audio else { return };
+        let track = LocalAudioTrack::create_audio_track("microphone", RtcAudioSource::Native(audio.source.clone()));
         let options =
             TrackPublishOptions { source: TrackSource::Microphone, dtx: true, red: true, ..Default::default() };
         match room.local_participant().publish_track(LocalTrack::Audio(track.clone()), options).await {
@@ -484,30 +490,37 @@ impl Voice {
     }
 
     fn apply_microphone(&self) {
+        // Silent without telling the room while the echo canceller settles.
+        let sending = self.microphone && !self.deafened && self.settle.is_none() && self.track.is_some();
+        self.mix.set_sending(sending);
         let Some(track) = &self.track else { return };
-        if self.microphone {
+        if self.microphone && !self.deafened {
             track.unmute();
         } else {
             track.mute();
         }
-        // Silent without telling the room while the echo canceller settles.
-        if self.microphone && self.settle.is_some() {
-            track.disable();
-        } else {
-            track.enable();
-        }
     }
 
     fn apply_deafened(&self) {
-        let Some(room) = &self.room else { return };
-        for participant in room.remote_participants().values() {
-            for publication in participant.track_publications().values() {
-                if let Some(RemoteTrack::Audio(track)) = publication.track() {
-                    // A disabled remote track is still received, just not played.
-                    if self.deafened { track.disable() } else { track.enable() }
-                }
-            }
+        self.mix.set_deafened(self.deafened);
+    }
+
+    /// Who speaks and the microphone's level, from the sound itself; a device
+    /// that failed (unplugged) gives way to the default.
+    fn tick(&mut self) {
+        if self.mix.broken.swap(false, std::sync::atomic::Ordering::Relaxed)
+            && let Some(audio) = &mut self.audio
+        {
+            audio.set_input("");
+            audio.set_output("");
+            error("device_lost");
         }
+        let level = (self.mix.input_level() * 50.0).round() / 50.0;
+        if level != self.input_level {
+            self.input_level = level;
+            emit(Event::InputLevel { level });
+        }
+        self.publish_participants();
     }
 
     async fn room_event(&mut self, event: RoomEvent) {
@@ -518,7 +531,16 @@ impl Voice {
             RoomEvent::ConnectionStateChanged(ConnectionState::Reconnecting) | RoomEvent::Reconnecting => {
                 emit(Event::State { state: State::Reconnecting })
             }
-            RoomEvent::TrackSubscribed { track: RemoteTrack::Audio(track), .. } if self.deafened => track.disable(),
+            RoomEvent::TrackSubscribed { track: RemoteTrack::Audio(track), publication, participant } => {
+                if let Some(audio) = &self.audio {
+                    let voice = publication.source() != TrackSource::ScreenshareAudio;
+                    let sid = publication.sid();
+                    let task = audio.listen(sid.to_string(), participant.identity().to_string(), voice, track);
+                    if let Some(old) = self.heard.insert(sid, task) {
+                        old.abort();
+                    }
+                }
+            }
             RoomEvent::TrackSubscribed { track: RemoteTrack::Video(track), publication, participant } => {
                 if let Some(frames) = &self.frames {
                     let source =
@@ -537,6 +559,12 @@ impl Voice {
                 }
             }
             RoomEvent::TrackUnsubscribed { publication, .. } => {
+                if let Some(task) = self.heard.remove(&publication.sid()) {
+                    task.abort();
+                    if let Some(audio) = &self.audio {
+                        audio.forget(publication.sid().as_str());
+                    }
+                }
                 if let Some((task, source, identity)) = self.watched.remove(&publication.sid()) {
                     task.abort();
                     if let Some(frames) = &self.frames {
@@ -576,32 +604,37 @@ impl Voice {
     fn publish_participants(&mut self) {
         let Some(room) = &self.room else { return };
         let local = room.local_participant();
+        let mix = &self.mix;
+        let (speaking, loud) = mix.activity("", true);
         let mut participants = vec![Member {
             identity: local.identity().to_string(),
             local: true,
             muted: !self.microphone || self.track.is_none(),
             deafened: self.deafened,
-            speaking: local.is_speaking(),
-            level: level(local.audio_level()),
+            speaking,
+            level: level(loud),
             camera: self.camera.as_ref().is_some_and(|(_, track)| track.is_some()),
             screen: self.screen.as_ref().is_some_and(|(_, track)| track.is_some()),
         }];
         let mut remote: Vec<_> = room
             .remote_participants()
             .values()
-            .map(|p| Member {
-                identity: p.identity().to_string(),
-                local: false,
-                muted: p
-                    .track_publications()
-                    .values()
-                    .find(|t| t.source() == TrackSource::Microphone)
-                    .is_none_or(|t| t.is_muted()),
-                deafened: p.attributes().get(DEAFENED_ATTRIBUTE).is_some_and(|v| v == "1"),
-                speaking: p.is_speaking(),
-                level: level(p.audio_level()),
-                camera: p.track_publications().values().any(|t| t.source() == TrackSource::Camera && !t.is_muted()),
-                screen: p.track_publications().values().any(|t| t.source() == TrackSource::Screenshare),
+            .map(|p| {
+                let (speaking, loud) = mix.activity(p.identity().as_str(), false);
+                Member {
+                    identity: p.identity().to_string(),
+                    local: false,
+                    muted: p
+                        .track_publications()
+                        .values()
+                        .find(|t| t.source() == TrackSource::Microphone)
+                        .is_none_or(|t| t.is_muted()),
+                    deafened: p.attributes().get(DEAFENED_ATTRIBUTE).is_some_and(|v| v == "1"),
+                    speaking,
+                    level: level(loud),
+                    camera: p.track_publications().values().any(|t| t.source() == TrackSource::Camera && !t.is_muted()),
+                    screen: p.track_publications().values().any(|t| t.source() == TrackSource::Screenshare),
+                }
             })
             .collect();
         remote.sort_by(|a, b| a.identity.cmp(&b.identity));
@@ -618,65 +651,7 @@ impl Voice {
     }
 }
 
+/// Coarse: the list is sent again only when something in it moved.
 fn level(value: f32) -> f32 {
-    (value.clamp(0.0, 1.0) * 100.0).round() / 100.0
-}
-
-/// PulseAudio reports no device GUID: such a device goes by its name.
-fn device_id(guid: &str, name: &str) -> String {
-    if guid.is_empty() { name.into() } else { guid.into() }
-}
-
-/// Selects a device by the id `list_devices` gave it, the system default when empty.
-fn select(audio: &PlatformAudio, id: &str, input: bool) -> bool {
-    let found = if input {
-        audio
-            .recording_devices()
-            .find(|d| if id.is_empty() { d.index == 0 } else { device_id(d.id.as_str(), &d.name) == id })
-            .map(|d| (d.id.as_str().to_owned(), d.index))
-    } else {
-        audio
-            .playout_devices()
-            .find(|d| if id.is_empty() { d.index == 0 } else { device_id(d.id.as_str(), &d.name) == id })
-            .map(|d| (d.id.as_str().to_owned(), d.index))
-    };
-    let Some((guid, index)) = found else { return false };
-    if !guid.is_empty() {
-        return if input {
-            audio.switch_recording_device(&RecordingDeviceId::from_unchecked_guid(&guid)).is_ok()
-        } else {
-            audio.switch_playout_device(&PlayoutDeviceId::from_unchecked_guid(&guid)).is_ok()
-        };
-    }
-    // Without a GUID, by index, with the same stop/select/restart as a switch.
-    let Ok(index) = u16::try_from(index) else { return false };
-    let runtime = livekit::rtc_engine::lk_runtime::LkRuntime::instance();
-    let factory = runtime.pc_factory();
-    if input {
-        let running = factory.recording_is_initialized();
-        (!running || factory.stop_recording())
-            && factory.set_recording_device(index)
-            && (!running || factory.init_recording() && factory.start_recording())
-    } else {
-        let running = factory.playout_is_initialized();
-        (!running || factory.stop_playout())
-            && factory.set_playout_device(index)
-            && (!running || factory.init_playout() && factory.start_playout())
-    }
-}
-
-/// A 440 Hz tone in 10 ms frames; `capture_frame` paces itself in real time.
-async fn sine(source: NativeAudioSource) {
-    let step = 2.0 * std::f32::consts::PI * 440.0 / 48_000.0;
-    let mut phase = 0f32;
-    loop {
-        let mut frame = AudioFrame::new(48_000, 1, 480);
-        for sample in frame.data.to_mut().iter_mut() {
-            *sample = (phase.sin() * 12_000.0) as i16;
-            phase = (phase + step) % (2.0 * std::f32::consts::PI);
-        }
-        if source.capture_frame(&frame).await.is_err() {
-            return;
-        }
-    }
+    (value.clamp(0.0, 1.0) * 10.0).round() / 10.0
 }

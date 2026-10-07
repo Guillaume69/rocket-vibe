@@ -28,6 +28,17 @@ rv-voice-protocol = { path = "../crates/rv-voice-protocol" }
 futures-util = { version = "0.3", default-features = false }
 serde_json = "=1.0.151"
 tokio = { version = "=1.53.2", features = ["rt-multi-thread", "macros", "time", "sync"] }
+# The sidecar's own audio path (audio.rs): microphone and speakers, so that it
+# can denoise, mix each person at their own volume and tell who speaks.
+cpal = "=0.18.2"
+# RNNoise in Rust (BSD-3-Clause): the noise remover, and its voice probability.
+nnnoiseless = { version = "=0.5.2", default-features = false }
+
+# PulseAudio's protocol in pure Rust (the `pulseaudio` crate), which PipeWire
+# speaks too: cpal's PipeWire host would link libpipewire, whose symbols
+# libwebrtc shadows with stubs (see screen-audio/), and ALSA names no sink.
+[target.'cfg(target_os = "linux")'.dependencies]
+cpal = { version = "=0.18.2", features = ["pulseaudio"] }
 
 # The camera: V4L2 on Linux, Media Foundation on Windows. No `decoding` feature,
 # which would build mozjpeg's C sources: MJPEG frames go through `image`'s
@@ -40,6 +51,8 @@ image = { version = "0.25", default-features = false, features = ["jpeg"] }
 # The screen's sound: WASAPI process loopback, everything but this process tree.
 [target.'cfg(windows)'.dependencies]
 wasapi = "0.25"
+# A shared window's process, whose sound alone its share carries (wasapi's own version).
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
 
 [profile.release]
 strip = true

@@ -19,7 +19,7 @@ mkdir -p "$desktop/dist/voice"
 docker run --rm -v "$desktop:/desktop" -v rv-voice-cargo:/cache ubuntu:22.04 bash -euo pipefail -c '
 export DEBIAN_FRONTEND=noninteractive CARGO_HOME=/cache/cargo RUSTUP_HOME=/cache/rustup CARGO_TARGET_DIR=/cache/target CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-6}
 apt-get update -qq
-apt-get install -y -qq --no-install-recommends ca-certificates curl gnupg build-essential pkg-config libglib2.0-dev > /dev/null
+apt-get install -y -qq --no-install-recommends ca-certificates curl gnupg build-essential pkg-config libglib2.0-dev libasound2-dev > /dev/null
 curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | gpg --dearmor -o /usr/share/keyrings/llvm.gpg
 echo "deb [signed-by=/usr/share/keyrings/llvm.gpg] http://apt.llvm.org/jammy/ llvm-toolchain-jammy-21 main" > /etc/apt/sources.list.d/llvm.list
 apt-get update -qq

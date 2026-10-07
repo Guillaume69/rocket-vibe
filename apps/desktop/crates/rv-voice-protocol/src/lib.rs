@@ -62,13 +62,43 @@ pub enum Command {
     SetCamera {
         enabled: bool,
     },
-    /// Publish a screen (the portal's picker on Wayland, the first screen
-    /// elsewhere) and, where the platform captures it (Windows), its sound:
-    /// what the computer plays, without this call's voices unless `with_call`.
-    /// The app claims the room's one share from the server first.
+    /// Publish a screen or a window and, where the platform captures it
+    /// (Windows, Linux), its sound: what the computer plays, without this
+    /// call's voices unless `with_call`; a window's program only (Windows).
+    /// `source` is an id from [`Event::Screens`]; none takes the portal's
+    /// picker on Wayland, the first screen elsewhere. The app claims the
+    /// room's one share from the server first.
     StartScreenShare {
         #[serde(default, skip_serializing_if = "is_false")]
         with_call: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        source: Option<String>,
+        /// The default: 1080 lines at 15 frames a second.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        quality: Option<ScreenQuality>,
+    },
+    /// Answered by [`Event::Screens`], whose thumbnails then arrive on the
+    /// frame stream (source screen, identity [`thumbnail`]`(id)`).
+    ListScreens,
+    /// How loud someone of the room plays here, 0.0 to 2.0 (1.0 as sent), and
+    /// whether they are muted for this side only. Kept for the whole process.
+    SetParticipantVolume {
+        identity: String,
+        volume: f32,
+        #[serde(default, skip_serializing_if = "is_false")]
+        muted: bool,
+    },
+    /// The microphone's gain, 0.0 to 2.0, after noise removal.
+    SetInputVolume {
+        volume: f32,
+    },
+    /// Everything the call plays, 0.0 to 2.0.
+    SetOutputVolume {
+        volume: f32,
+    },
+    /// The noise remover (RNNoise) on the microphone; on unless turned off.
+    SetNoiseSuppression {
+        enabled: bool,
     },
     StopScreenShare,
     /// Leave the room; the sidecar then exits.
@@ -92,8 +122,23 @@ impl std::fmt::Debug for Command {
             Self::SetOutput { device } => f.debug_struct("SetOutput").field("device", device).finish(),
             Self::Video { address, .. } => f.debug_struct("Video").field("address", address).finish_non_exhaustive(),
             Self::SetCamera { enabled } => f.debug_struct("SetCamera").field("enabled", enabled).finish(),
-            Self::StartScreenShare { with_call } => {
-                f.debug_struct("StartScreenShare").field("with_call", with_call).finish()
+            Self::StartScreenShare { with_call, source, quality } => f
+                .debug_struct("StartScreenShare")
+                .field("with_call", with_call)
+                .field("source", source)
+                .field("quality", quality)
+                .finish(),
+            Self::ListScreens => f.write_str("ListScreens"),
+            Self::SetParticipantVolume { identity, volume, muted } => f
+                .debug_struct("SetParticipantVolume")
+                .field("identity", identity)
+                .field("volume", volume)
+                .field("muted", muted)
+                .finish(),
+            Self::SetInputVolume { volume } => f.debug_struct("SetInputVolume").field("volume", volume).finish(),
+            Self::SetOutputVolume { volume } => f.debug_struct("SetOutputVolume").field("volume", volume).finish(),
+            Self::SetNoiseSuppression { enabled } => {
+                f.debug_struct("SetNoiseSuppression").field("enabled", enabled).finish()
             }
             Self::StopScreenShare => f.write_str("StopScreenShare"),
             Self::Disconnect => f.write_str("Disconnect"),
@@ -139,6 +184,51 @@ pub struct Device {
     pub default: bool,
 }
 
+/// A screen or a window that can be shared.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScreenSource {
+    /// Opaque, for [`Command::StartScreenShare`].
+    pub id: String,
+    pub kind: ScreenKind,
+    /// The window's title; empty for a screen (the app numbers them).
+    pub title: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScreenKind {
+    Screen,
+    Window,
+}
+
+/// How a shared screen is sent: at most `height` lines (the width follows),
+/// `fps` frames a second. The sidecar clamps both to what it supports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScreenQuality {
+    pub height: u32,
+    pub fps: u32,
+}
+
+impl ScreenQuality {
+    pub const DEFAULT: Self = Self { height: 1080, fps: 15 };
+    /// Within 360 to 2160 lines and 5 to 60 frames a second.
+    pub fn clamped(self) -> Self {
+        Self { height: self.height.clamp(360, 2160), fps: self.fps.clamp(5, 60) }
+    }
+    /// The encoder's ceiling, in bits a second: about 0.08 bit per pixel and
+    /// frame for a 16:9 screen, within 1.5 and 12 Mbit/s.
+    pub fn bitrate(self) -> u64 {
+        let q = self.clamped();
+        let pixels = q.height as u64 * q.height as u64 * 16 / 9;
+        (pixels * q.fps as u64 * 8 / 100).clamp(1_500_000, 12_000_000)
+    }
+}
+
+/// The frame-stream identity of a share source's thumbnail.
+pub fn thumbnail(id: &str) -> String {
+    format!("thumbnail:{id}")
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Event {
@@ -156,6 +246,15 @@ pub enum Event {
     Devices {
         inputs: Vec<Device>,
         outputs: Vec<Device>,
+    },
+    /// What can be shared; empty where the system picks (Wayland's portal).
+    Screens {
+        screens: Vec<ScreenSource>,
+    },
+    /// The microphone's level after processing, 0.0 to 1.0, about ten times
+    /// a second while connected (the participants carry a coarser one).
+    InputLevel {
+        level: f32,
     },
     /// The session ended; `reason` is LiveKit's in snake case (`duplicate_identity`,
     /// `participant_removed`, `room_deleted`, `client_initiated`...), or `connect_failed`.
@@ -285,8 +384,30 @@ mod tests {
                 json!({"type":"video","address":"127.0.0.1:4242","token":"t"}),
             ),
             (Command::SetCamera { enabled: true }, json!({"type":"set_camera","enabled":true})),
-            (Command::StartScreenShare { with_call: false }, json!({"type":"start_screen_share"})),
-            (Command::StartScreenShare { with_call: true }, json!({"type":"start_screen_share","with_call":true})),
+            (
+                Command::StartScreenShare { with_call: false, source: None, quality: None },
+                json!({"type":"start_screen_share"}),
+            ),
+            (
+                Command::StartScreenShare {
+                    with_call: true,
+                    source: Some("w:42".into()),
+                    quality: Some(ScreenQuality { height: 720, fps: 30 }),
+                },
+                json!({"type":"start_screen_share","with_call":true,"source":"w:42","quality":{"height":720,"fps":30}}),
+            ),
+            (Command::ListScreens, json!({"type":"list_screens"})),
+            (
+                Command::SetParticipantVolume { identity: "u2".into(), volume: 0.5, muted: false },
+                json!({"type":"set_participant_volume","identity":"u2","volume":0.5}),
+            ),
+            (
+                Command::SetParticipantVolume { identity: "u2".into(), volume: 1.0, muted: true },
+                json!({"type":"set_participant_volume","identity":"u2","volume":1.0,"muted":true}),
+            ),
+            (Command::SetInputVolume { volume: 1.5 }, json!({"type":"set_input_volume","volume":1.5})),
+            (Command::SetOutputVolume { volume: 0.25 }, json!({"type":"set_output_volume","volume":0.25})),
+            (Command::SetNoiseSuppression { enabled: false }, json!({"type":"set_noise_suppression","enabled":false})),
             (Command::StopScreenShare, json!({"type":"stop_screen_share"})),
         ];
         for (command, wire) in cases {
@@ -299,6 +420,15 @@ mod tests {
         assert!(!format!("{:?}", Command::SetKey { key: "secret".into() }).contains("secret"));
         let video = Command::Video { address: "127.0.0.1:1".into(), token: "secret".into() };
         assert!(!format!("{video:?}").contains("secret"));
+    }
+
+    #[test]
+    fn screen_quality_stays_within_bounds() {
+        assert_eq!(ScreenQuality { height: 100, fps: 500 }.clamped(), ScreenQuality { height: 360, fps: 60 });
+        assert_eq!(ScreenQuality { height: 720, fps: 15 }.bitrate(), 1_500_000);
+        assert_eq!(ScreenQuality::DEFAULT.bitrate(), 2_488_320);
+        assert_eq!(ScreenQuality { height: 1080, fps: 30 }.bitrate(), 4_976_640);
+        assert_eq!(ScreenQuality { height: 1440, fps: 60 }.bitrate(), 12_000_000);
     }
 
     #[test]
@@ -350,6 +480,13 @@ mod tests {
                 json!({"type":"disconnected","reason":"duplicate_identity"}),
             ),
             (Event::Error { code: "device_not_found".into() }, json!({"type":"error","code":"device_not_found"})),
+            (
+                Event::Screens {
+                    screens: vec![ScreenSource { id: "w:7".into(), kind: ScreenKind::Window, title: "Game".into() }],
+                },
+                json!({"type":"screens","screens":[{"id":"w:7","kind":"window","title":"Game"}]}),
+            ),
+            (Event::InputLevel { level: 0.25 }, json!({"type":"input_level","level":0.25})),
         ];
         for (event, wire) in cases {
             assert_eq!(serde_json::to_value(&event).unwrap(), wire);

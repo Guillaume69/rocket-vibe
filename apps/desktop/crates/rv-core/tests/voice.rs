@@ -1,5 +1,8 @@
 //! The voice controller against a fake sidecar (tests/support/fake_voice_sidecar.rs).
-use rv_core::voice::{ConnectionState, Ended, Snapshot, VideoSource, VoiceController, VoiceError, VoiceKey, VoiceKeys};
+use rv_core::voice::{
+    ConnectionState, Ended, PersonVolume, ScreenKind, ScreenQuality, Snapshot, VideoSource, VoiceController,
+    VoiceError, VoiceKey, VoiceKeys, thumbnail,
+};
 use rv_protocol::voice::VoiceGrant;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -190,7 +193,7 @@ async fn video_frames_reach_the_app_and_end_with_their_track() {
     voice.set_camera(false).await;
     until_frame(&voice, "me", VideoSource::Camera, false).await;
 
-    voice.start_screen_share().await;
+    voice.start_screen_share(None, None).await;
     until_frame(&voice, "me", VideoSource::Screen, true).await;
     assert!(until(&voice, |s| s.local().is_some_and(|p| p.screen)).await.sharing);
     // Without the call's voices by default (the fake's preview is 2 wide, 4 with them).
@@ -198,9 +201,12 @@ async fn video_frames_reach_the_app_and_end_with_their_track() {
     voice.stop_screen_share().await;
     until_frame(&voice, "me", VideoSource::Screen, false).await;
     voice.set_share_call(true);
-    voice.start_screen_share().await;
+    // A window at 1440 lines: the fake's preview is 1440 / 360 = 4 high (2 by default).
+    let quality = ScreenQuality { height: 1440, fps: 30 };
+    voice.start_screen_share(Some("window:7".into()), Some(quality)).await;
     until_frame(&voice, "me", VideoSource::Screen, true).await;
-    assert_eq!(voice.frame("me", VideoSource::Screen).unwrap().width, 4);
+    let preview = voice.frame("me", VideoSource::Screen).unwrap();
+    assert_eq!((preview.width, preview.height), (4, 4));
     voice.set_share_call(false);
     voice.stop_screen_share().await;
     until_frame(&voice, "me", VideoSource::Screen, false).await;
@@ -210,9 +216,41 @@ async fn video_frames_reach_the_app_and_end_with_their_track() {
     voice.connect(&grant("r2", "fake://no-screen"), None, None).await.unwrap();
     assert!(voice.frame("me", VideoSource::Camera).is_none() && !voice.snapshot().camera);
     // A closed picker takes the wish back.
-    voice.start_screen_share().await;
+    voice.start_screen_share(None, None).await;
     let snapshot = until(&voice, |s| s.error.as_deref() == Some("screen_cancelled")).await;
     assert!(!snapshot.sharing);
     voice.disconnect().await;
     assert!(voice.frame("peer", VideoSource::Camera).is_none());
+}
+
+#[tokio::test]
+async fn share_sources_and_listening_choices_reach_the_sidecar() {
+    let voice = fake(&[]);
+    // Nothing to list outside a session.
+    assert_eq!(voice.screens().await, Err(VoiceError::Unavailable));
+    voice.set_input_volume(1.5).await;
+    voice.set_person_volume("peer", PersonVolume { volume: 3.0, muted: true }).await;
+    voice.set_noise_suppression(false).await;
+    let listening = voice.listening();
+    assert_eq!(listening.people["peer"], PersonVolume { volume: 2.0, muted: true }, "clamped to 200 %");
+    assert!(!listening.noise_suppression);
+    voice.connect(&grant("r1", "wss://lk"), None, None).await.unwrap();
+    until(&voice, |s| s.state == ConnectionState::Connected).await;
+    // The volume chosen before the session went with it (the fake answers half of it).
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while voice.input_level() != 0.75 {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the input volume reached the sidecar at connection");
+    let screens = voice.screens().await.unwrap();
+    assert_eq!(
+        screens.iter().map(|s| (s.id.as_str(), s.kind)).collect::<Vec<_>>(),
+        [("screen:0", ScreenKind::Screen), ("window:7", ScreenKind::Window)]
+    );
+    until_frame(&voice, &thumbnail("window:7"), VideoSource::Screen, true).await;
+    voice.disconnect().await;
+    assert_eq!(voice.input_level(), 0.0);
+    assert_eq!(voice.listening(), listening, "kept for the next session");
 }

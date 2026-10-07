@@ -2,7 +2,7 @@
 //! current member, the `rv-voice` sidecar carries the media (`crate::voice`).
 //! The grant's token stays in memory, on its way to the sidecar.
 use super::{Error, NativeSession};
-use crate::voice::{ConnectionState, VoiceError, VoiceKey, VoiceKeys};
+use crate::voice::{ConnectionState, ScreenQuality, VoiceError, VoiceKey, VoiceKeys};
 use rv_protocol::voice::{AnswerRing, JoinVoice, VoiceGrant, VoiceParticipant, VoiceRing};
 use std::sync::atomic::Ordering;
 use tokio::sync::broadcast::error::RecvError;
@@ -177,10 +177,12 @@ impl NativeSession {
         }
         result.map_err(|e| Error::Protocol(e.code()))
     }
-    /// Shares a screen: the room's one share is claimed from the server first
-    /// (`409 screen_taken` while someone else shares), then given back however
-    /// the share ends (stopped, the picker closed, the session over).
-    pub async fn share_screen(&self) -> Result<(), Error> {
+    /// Shares a screen or a window (`source`, from `VoiceController::screens`;
+    /// None: the first screen, or the portal's picker), at `quality`: the room's
+    /// one share is claimed from the server first (`409 screen_taken` while
+    /// someone else shares), then given back however the share ends (stopped,
+    /// the picker closed, the session over).
+    pub async fn share_screen(&self, source: Option<String>, quality: Option<ScreenQuality>) -> Result<(), Error> {
         self.ready()?;
         let snapshot = self.voice.snapshot();
         let Some(room) = snapshot.room.filter(|_| snapshot.state == ConnectionState::Connected) else {
@@ -191,7 +193,7 @@ impl NativeSession {
         }
         self.client.claim_screen().await?;
         let mut changes = self.voice.changes();
-        self.voice.start_screen_share().await;
+        self.voice.start_screen_share(source, quality).await;
         let (voice, client) = (self.voice.clone(), self.client.clone());
         tokio::spawn(async move {
             loop {

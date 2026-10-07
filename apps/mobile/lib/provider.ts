@@ -320,6 +320,8 @@ export interface Provider {
   readonly capabilities: Capabilities;
   /** Temporary results, normalised for the existing renderer. */
   searchMessages?(rid:string,text:string):Promise<LocalMessage[]>;
+  /** Everyone's presence at once, when the protocol reads it its own way (`capabilities.presence`). */
+  loadPresence?(): Promise<ReadonlyArray<{ user: { id: string }; status: import('./presence.ts').PresenceStatus }>>;
   /** Presentation data of the existing info sheet, supplied by each protocol. */
   readProfile?(target:import('./profilePreload.ts').ProfileParams):Promise<Record<string,unknown>|undefined>;
   /** Server administration (`lib/admin.ts`), when `capabilities.administration`. */

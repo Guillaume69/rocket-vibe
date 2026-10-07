@@ -523,7 +523,8 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         files.process().catch(() => {});
         // Presence: full snapshot on each connection setup, then the stream.
         // Decoration: a failure never counts as a setup failure.
-        if (provider.capabilities.presence) void presence.load(client);
+        if (provider.loadPresence) void provider.loadPresence().then((photo) => presence.replace(photo)).catch(() => {});
+        else if (provider.capabilities.presence) void presence.load(client);
         // Custom emoji list: refreshed ONCE per session (like the push
         // token), not on every network flap: it is a full download and a
         // rewrite of the whole table. The SQLite version already served the

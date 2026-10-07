@@ -53,6 +53,10 @@ export class MmDirectory {
     return this.byId.get(id)?.username ?? null;
   }
 
+  knownIds(): string[] {
+    return [...this.byId.keys()];
+  }
+
   idOf(username: string): string | null {
     return this.byUsername.get(username)?.id ?? null;
   }

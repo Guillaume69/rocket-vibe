@@ -10,6 +10,8 @@
  */
 
 import type { DdpEvent } from '../../lib/ddp.ts';
+import { PRESENCE_EVENT, STREAM_NOTIFY_LOGGED } from '../../lib/presence.ts';
+import { STREAM_NOTIFY_ROOM_TYPING, TYPING_ACTIVITY } from '../../lib/typing.ts';
 import type { MmClient } from './client.ts';
 import type { MmDirectory } from './directory.ts';
 import { toMmUser } from './directory.ts';
@@ -26,7 +28,15 @@ import {
 
 type Doc = Record<string, unknown>;
 
-const QUIET_EVENTS = new Set(['hello', 'typing', 'status_change', 'thread_read_changed', 'thread_updated', 'preferences_changed', 'sidebar_category_updated', 'sidebar_category_order_updated', 'plugin_statuses_changed', 'config_changed', 'license_changed', 'response']);
+/** Mattermost statuses onto Rocket.Chat's numbers, which the presence and typing engines read. */
+const STATUS_CODES = new Map<string, number>([
+  ['offline', 0],
+  ['online', 1],
+  ['away', 2],
+  ['dnd', 3],
+]);
+
+const QUIET_EVENTS = new Set(['hello', 'thread_read_changed', 'thread_updated', 'preferences_changed', 'sidebar_category_updated', 'sidebar_category_order_updated', 'plugin_statuses_changed', 'config_changed', 'license_changed', 'response']);
 
 export class MmLive {
   private readonly client: MmClient;
@@ -88,6 +98,19 @@ export class MmLive {
     if (QUIET_EVENTS.has(name)) return [{ collection: MM_QUIET, eventKey: name, args: [] }];
     const channelId = str(data.channel_id) ?? str(broadcast.channel_id);
     switch (name) {
+      case 'typing': {
+        const uid = str(data.user_id);
+        if (channelId === null || uid === null) return [];
+        await this.directory.ensure([uid]);
+        const username = this.directory.username(uid) ?? uid;
+        return [{ collection: STREAM_NOTIFY_ROOM_TYPING, eventKey: `${channelId}/user-activity`, args: [username, [TYPING_ACTIVITY]] }];
+      }
+      case 'status_change': {
+        const uid = str(data.user_id);
+        const code = STATUS_CODES.get(str(data.status) ?? '');
+        if (uid === null || code === undefined) return [];
+        return [{ collection: STREAM_NOTIFY_LOGGED, eventKey: PRESENCE_EVENT, args: [[uid, this.directory.username(uid) ?? '', code, '']] }];
+      }
       case 'posted':
         return this.posted(record(data.post), data);
       case 'post_edited': {

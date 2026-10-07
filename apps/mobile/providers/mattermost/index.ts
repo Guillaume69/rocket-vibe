@@ -35,8 +35,8 @@ export const MATTERMOST_CAPABILITIES: Capabilities = {
   marks: true,
   profile: true,
   roomInfo: true,
-  typing: false,
-  presence: false,
+  typing: true,
+  presence: true,
   push: false,
   e2ee: false,
   customEmojis: false,
@@ -93,6 +93,18 @@ export function createMattermostProvider(
       const posts = ordered(list as Parameters<typeof ordered>[0]).filter((p) => p.channel_id === rid);
       await live.ensureAuthors(posts);
       return posts.map((p) => translator.toMessage(p)).filter((m): m is LocalMessage => m !== null);
+    },
+    async loadPresence() {
+      const ids = directory.knownIds();
+      if (ids.length === 0) return [];
+      const list = await client.post<unknown>('/users/status/ids', { body: ids });
+      return (Array.isArray(list) ? list : []).flatMap((raw) => {
+        const s = record(raw);
+        const status = s?.status === 'dnd' ? 'busy' : s?.status;
+        return typeof s?.user_id === 'string' && (status === 'online' || status === 'away' || status === 'busy' || status === 'offline')
+          ? [{ user: { id: s.user_id }, status }]
+          : [];
+      });
     },
     async readProfile(target) {
       const raw = target.uid

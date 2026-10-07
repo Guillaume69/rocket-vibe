@@ -220,7 +220,8 @@ export class NativeStore {
     const state = await this.db.getFirstAsync<NativeState>('SELECT instance_id,data_epoch,cursor FROM native_sync_state WHERE singleton=1', []);
     return state?.instance_id === this.session.nativeInstanceId && state?.data_epoch === this.session.nativeDataEpoch;
   }
-  /** Shared UI queries must never see a predecessor generation's cache. */
+  /** Shared UI queries must never see a predecessor generation's cache.
+   * `emoji_usage` is left out on purpose: device data, not server data. */
   prepare(): Promise<void> {
     return this.atomic(async () => {
       if (await this.sameGeneration()) return;

@@ -412,6 +412,27 @@ export const DELETE_DRAFT = `DELETE FROM drafts WHERE key = ?`;
 export const READ_DRAFT = `SELECT text FROM drafts WHERE key = ?`;
 
 /**
+ * One more use of a reaction emoji (`lib/emojiUsage.ts`): `[code, now]`. The
+ * latest use never moves back (a clock set back must not demote it).
+ */
+export const RECORD_EMOJI_USE = `
+INSERT INTO emoji_usage (code, count, last_used) VALUES (?, 1, ?)
+ON CONFLICT(code) DO UPDATE SET
+  count = emoji_usage.count + 1,
+  last_used = MAX(emoji_usage.last_used, excluded.last_used)
+`;
+/**
+ * Keeps the `?` (`KEPT_CODES`) best codes, by the ranking of `topEmojis`, so
+ * the table stays small however many emoji are tried once.
+ */
+export const PRUNE_EMOJI_USAGE = `
+DELETE FROM emoji_usage WHERE code NOT IN (
+  SELECT code FROM emoji_usage ORDER BY count DESC, last_used DESC, code LIMIT ?
+)
+`;
+export const LIST_EMOJI_USAGE = `SELECT code, count, last_used AS lastUsed FROM emoji_usage`;
+
+/**
  * The largest `_updatedAt` already ingested for a room: used to RE-ANCHOR the
  * catch-up cursor when `chat.syncMessages` fails on too large a backlog (the
  * 8.5 server does not bound the query, it times out), so as not to keep

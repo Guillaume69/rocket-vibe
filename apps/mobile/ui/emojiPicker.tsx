@@ -11,6 +11,10 @@
  * Insertion happens AT THE CURSOR with no space (`insertAtCursor` in the
  * composer): emojis go side by side, like the system keyboard. The panel stays
  * open after a pick, so several can be chained.
+ *
+ * The search, tabs and grid are `EmojiGrid`, free of any keyboard machinery:
+ * the message sheet (`app/message-actions.tsx`) shows it on its own to react
+ * with any emoji.
  */
 
 import {
@@ -52,7 +56,7 @@ import {
 import { codesEmojiStandard, emojisByCategory, type EmojiCategory } from '../lib/emojis.ts';
 import { customEmojiCodes, onCustomEmojisChange } from '../lib/customEmojis.ts';
 import {ImageEmoji} from './emojiImage.tsx';
-import { resolve } from './emojiCompletion.tsx';
+import { resolve, type RenderedSuggestion } from './emojiCompletion.tsx';
 import { useT } from './i18n.ts';
 import type { TranslationKey } from './messages.ts';
 import { useHardwareBack } from './hardwareBack.ts';
@@ -177,6 +181,9 @@ export function useEmojiPanel(fieldRef: RefObject<TextInput | null>) {
   };
 }
 
+/** No server emoji: a stable empty list, for the memo below. */
+const NO_CUSTOMS: readonly string[] = [];
+
 /** Active tab: a standard category, or the server customs. */
 type Tab = EmojiCategory | 'custom';
 
@@ -210,8 +217,6 @@ export function EmojiPicker({
   /** Receives what is inserted: a glyph (standard) or `:name:` (custom). */
   onPick: (insertion: string) => void;
 }) {
-  const t = useT();
-  const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const { height: keyboard } = useReanimatedKeyboardAnimation();
 
@@ -228,6 +233,41 @@ export function EmojiPicker({
   const style = useAnimatedStyle(() => ({
     height: Math.max(0, liveTarget.value - Math.max(0, -keyboard.value - insets.bottom)),
   }));
+
+  return (
+    <Animated.View
+      style={[styles.panel, { backgroundColor: c.card, borderTopColor: c.border }, style]}
+    >
+      {/* FIXED-size content behind the wrapper, which is what animates: the grid
+          is measured once and for all, never frame by frame. */}
+      <EmojiGrid c={c} height={height} onPick={(pick) => onPick(pick.insertion)} />
+    </Animated.View>
+  );
+}
+
+/**
+ * Search, category tabs (plus the server's emoji) and the grid, at a fixed
+ * `height`. `customs: false` leaves the server's emoji out of the tabs AND of
+ * the search: a private RocketVibe conversation only takes standard emoji.
+ * `width` is the grid's own width when it is narrower than the window.
+ */
+export function EmojiGrid({
+  c,
+  height,
+  width: ownWidth,
+  customs: withCustoms = true,
+  onPick,
+}: {
+  c: Colors;
+  height: number;
+  width?: number;
+  customs?: boolean;
+  /** The picked emoji: its code and type, its glyph or image, its insertion. */
+  onPick: (pick: RenderedSuggestion) => void;
+}) {
+  const t = useT();
+  const window = useWindowDimensions();
+  const width = ownWidth ?? window.width;
   const columns = Math.max(6, Math.floor(width / TARGET_CELL));
   const [tab, setTab] = useState<Tab>('people');
   const [search, setSearch] = useState('');
@@ -237,7 +277,8 @@ export function EmojiPicker({
   // first install the list read at mount is empty, the ⭐ tab would not exist and
   // search would offer no custom for the whole session. The frozen cache of
   // `customEmojiCodes` is the stable snapshot `useSyncExternalStore` requires.
-  const customs = useSyncExternalStore(onCustomEmojisChange, customEmojiCodes);
+  const allCustoms = useSyncExternalStore(onCustomEmojisChange, customEmojiCodes);
+  const customs = withCustoms ? allCustoms : NO_CUSTOMS;
   const byCategory = useMemo(() => emojisByCategory(), []);
 
   const query = search.trim();
@@ -255,11 +296,6 @@ export function EmojiPicker({
   const cellSize = Math.floor(width / columns);
 
   return (
-    <Animated.View
-      style={[styles.panel, { backgroundColor: c.card, borderTopColor: c.border }, style]}
-    >
-      {/* FIXED-size content behind the wrapper, which is what animates: the grid
-          is measured once and for all, never frame by frame. */}
       <View style={{ height }}>
       <View style={[styles.search, { backgroundColor: c.deepCard }]}>
         <Text style={styles.magnifier}>🔍</Text>
@@ -317,10 +353,11 @@ export function EmojiPicker({
           <Text style={[styles.empty, { color: c.tertiaryText }]}>{t('emojiPicker.empty')}</Text>
         }
         renderItem={({ item }) => {
-          const { glyph, uri, insertion, suggestion } = resolve(item);
+          const resolved = resolve(item);
+          const { glyph, uri, suggestion } = resolved;
           return (
             <Tappable
-              onPress={() => onPick(insertion)}
+              onPress={() => onPick(resolved)}
               // CIRCULAR ripple. `borderless` + radius calibrated on the cell: the bounded
               // ripple mask ignores borderRadius under Fabric (checked on the emulator:
               // a rectangle whatever the style).
@@ -339,7 +376,6 @@ export function EmojiPicker({
         }}
       />
       </View>
-    </Animated.View>
   );
 }
 

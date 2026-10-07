@@ -18,10 +18,14 @@ function providerKey(chat:NativeChat):number {
   const known=providerKeys.get(chat);if(known!==undefined)return known;
   const key=++nextProviderKey;providerKeys.set(chat,key);return key;
 }
+/** The server lists device sessions (also what shows the settings category). */
+export function hasDevices(chat:NativeChat|null|undefined):boolean {
+  return !!chat?.capabilities?.device_sessions;
+}
 export function DevicesSection({c}:{c:Colors}) {
   const sync=useSync();
   const chat=sync.phase==='ready'?sync.provider.native?.chat:null;
-  return chat?.capabilities?.device_sessions ? <Devices key={providerKey(chat)} c={c} chat={chat}/> : null;
+  return chat && hasDevices(chat) ? <Devices key={providerKey(chat)} c={c} chat={chat}/> : null;
 }
 
 function Devices({c,chat}:{c:Colors;chat:NativeChat}) {

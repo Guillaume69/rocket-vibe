@@ -20,7 +20,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { subscriptions, messages, rooms } from '../db/schema.ts';
 import { nativeReactions } from '../providers/rocketvibe/store.ts';
-import { canonicalEmoji } from '../providers/rocketvibe/emojis.ts';
 import { NativeError } from '../providers/rocketvibe/transport.ts';
 import {nativeRoomPermalink} from '../lib/roomLinks.ts';
 import {
@@ -38,6 +37,8 @@ import {
   stripQuotePrefix,
 } from '../lib/quote.ts';
 import { unicodeOfShortcode } from '../lib/emojis.ts';
+import { customEmojiUrl } from '../lib/customEmojis.ts';
+import { QUICK_COUNT, emojiIdentity, topEmojis, type EmojiUse } from '../lib/emojiUsage.ts';
 import { attachmentToShare } from '../lib/attachment.ts';
 import { starredBy, starredAfter } from '../lib/marks.ts';
 import { ENCRYPTED_TYPE } from '../lib/normalize.ts';
@@ -46,6 +47,10 @@ import { reactionList } from '../lib/reactions.ts';
 import type { RestClient } from '../lib/rest.ts';
 import { protectedFileUrl } from '../lib/upload.ts';
 import { saveInBackground, shareInBackground } from '../ui/attachmentActions.ts';
+import { ImageEmoji, useCatalogueEmojis } from '../ui/emojiImage.tsx';
+import { EmojiGrid } from '../ui/emojiPicker.tsx';
+import { readEmojiUsage, recordReaction } from '../ui/emojiUsage.ts';
+import { useHardwareBack } from '../ui/hardwareBack.ts';
 import { useT } from '../ui/i18n.ts';
 import { requestReply } from '../ui/reply.ts';
 import { useSession } from '../ui/session.tsx';
@@ -65,12 +70,14 @@ import type {NativeChat} from '../providers/rocketvibe/chat.ts';
  * (`maxHeight`); beyond that, the edit field scrolls internally. What to show
  * comes from the pure function `possibleActions`; the server stays the
  * authority if it refuses.
+ *
+ * Reactions: the 5 emoji I react with most on this account
+ * (`lib/emojiUsage.ts`), then a "+" that swaps the actions for the emoji
+ * picker (`EmojiGrid`) to react with ANY emoji. `chat.react` refuses raw
+ * unicode ("Invalid emoji provided"): it wants the Rocket.Chat SHORTNAME, so
+ * the sheet always sends a code (a custom emoji's name) and shows the glyph
+ * the table derives from it, the same table that renders messages.
  */
-
-// `chat.react` refuses raw unicode ("Invalid emoji provided"): it wants the
-// Rocket.Chat SHORTNAME. We send the code and show the glyph the table
-// derives from it: a single source of truth, the same one that renders messages.
-const CODES_REACTION = ['+1', 'heart', 'joy', 'tada', 'open_mouth', 'pray'];
 
 /**
  * Message settings: one read per SERVER (keyed by `baseUrl`; a global cache
@@ -127,7 +134,7 @@ export default function MessageActionsScreen() {
   const c = useColors();
   const t = useT();
   const insets = useSafeAreaInsets();
-  const { height } = useWindowDimensions();
+  const { height, width } = useWindowDimensions();
   // Sheet cap: beyond it, the content (the edit field) scrolls.
   const maxHeight = Math.round(height * 0.8);
   // Bottom margin: below the gesture bar, plus some breathing room.
@@ -141,6 +148,9 @@ export default function MessageActionsScreen() {
   const [busy, setBusy] = useState(false);
   const [destinations,setDestinations]=useState<{rid:string;name:string;encrypted:boolean}[]|null>(null);
   const [destinationFilter,setDestinationFilter]=useState('');
+  // The "+" swapped the actions for the emoji picker.
+  const [picking, setPicking] = useState(false);
+  const [usage, setUsage] = useState<EmojiUse[]>([]);
 
   const ready = sync.phase === 'ready' && state.phase === 'connected' && typeof id === 'string';
   const base = sync.phase === 'ready' ? sync.base : null;
@@ -283,18 +293,42 @@ export default function MessageActionsScreen() {
     };
   }, [ready, id, thread, base, client, provider, me, t,isPrivate,rid]);
 
-  // My reactions already set on this message: accented outline, and the tap
-  // REMOVES instead of adding. `chat.react` does both; hard-wiring it to add
-  // made every reaction impossible to undo.
+  // My reactions already set on this message, by emoji (`emojiIdentity`: an
+  // alias or the native canonical name is the same emoji) to the code the
+  // message carries: accented outline, and the tap REMOVES that code instead
+  // of adding. `chat.react` does both; hard-wiring it to add made every
+  // reaction impossible to undo.
   const myReactions = useMemo(
     () =>
-      new Set(
+      new Map(
         reactionList(payload?.message.reactions ?? null, myUsername)
           .filter((r) => r.byMe)
-          .map((r) => client?.kind==='rocketvibe' ? canonicalEmoji(r.code) ?? r.code : r.code),
+          .map((r) => [emojiIdentity(r.code), r.code]),
       ),
-    [payload, myUsername, client],
+    [payload, myUsername],
   );
+
+  // A private RocketVibe conversation takes standard emoji only; elsewhere a
+  // custom one counts if the server still has it.
+  const standardOnly = isPrivate === '1';
+  const customs = useCatalogueEmojis();
+  useEffect(() => {
+    let alive = true;
+    void readEmojiUsage().then((rows) => {
+      if (alive) setUsage(rows);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const quickReactions = useMemo(
+    () =>
+      topEmojis(usage, QUICK_COUNT, (code) =>
+        unicodeOfShortcode(code) !== null || (!standardOnly && customs.includes(code))),
+    [usage, standardOnly, customs],
+  );
+  const closePicker = useCallback(() => setPicking(false), []);
+  useHardwareBack(picking, closePicker);
 
   // Reentrancy guard in a ref: the React state of a past render would let
   // a double tap trigger the action twice, and two `router.back()`, the
@@ -354,6 +388,14 @@ export default function MessageActionsScreen() {
   }
   const { message, room, actions } = payload;
   const isEditing = editing !== null;
+
+  // Adding counts one use of the emoji, once the server took it; a removal
+  // counts nothing (`lib/emojiUsage.ts`).
+  const react = async (code: string, put: boolean) => {
+    if (isPrivate === '1') await privateReact(message.id, code, put);
+    else await trigger.react(message.rid, message.id, code, put);
+    if (put) recordReaction(code);
+  };
 
   // Arms the reply target for the originating composer (room or thread), then
   // closes; the send itself happens there, with the text typed next.
@@ -483,10 +525,13 @@ export default function MessageActionsScreen() {
 
   return (
     <View style={[styles.sheet, { maxHeight, paddingBottom: bottom }]}>
-      {!isEditing && actions.includes('react') && (
+      {!isEditing && !picking && actions.includes('react') && (
         <View style={styles.emojiRow}>
-          {CODES_REACTION.map((code) => {
-            const alreadySet = myReactions.has(client?.kind==='rocketvibe' ? canonicalEmoji(code) ?? code : code);
+          {quickReactions.map((code) => {
+            const mine = myReactions.get(emojiIdentity(code));
+            const alreadySet = mine !== undefined;
+            const glyph = unicodeOfShortcode(code);
+            const uri = glyph === null ? customEmojiUrl(code) : null;
             return (
               <Tappable
                 key={code}
@@ -504,20 +549,59 @@ export default function MessageActionsScreen() {
                     borderColor: alreadySet ? c.accent : 'transparent',
                   },
                 ]}
+                accessibilityLabel={`:${code}:`}
                 onPress={() =>
-                  void act(() => isPrivate === '1'
-                    ? privateReact(message.id, code, !alreadySet)
-                    : trigger.react(message.rid, message.id, code, !alreadySet))
+                  // Removal sends the code the message carries, an alias included.
+                  void act(() => react(mine ?? code, !alreadySet))
                 }
               >
-                <Text style={styles.emoji}>{unicodeOfShortcode(code) ?? `:${code}:`}</Text>
+                {uri !== null ? (
+                  <ImageEmoji uri={uri} style={styles.customEmoji} code={code} />
+                ) : (
+                  <Text style={styles.emoji}>{glyph ?? `:${code}:`}</Text>
+                )}
               </Tappable>
             );
           })}
+          <Tappable
+            disabled={busy}
+            android_ripple={{ color: c.ripple, borderless: true }}
+            unstable_pressDelay={LIST_PRESS_DELAY}
+            accessibilityRole="button"
+            accessibilityLabel={t('messageActions.moreReactions')}
+            style={({ pressed }) => [
+              styles.emojiChip,
+              { backgroundColor: c.surfaceActive, opacity: pressed ? 0.6 : 1, borderColor: 'transparent' },
+            ]}
+            onPress={() => {
+              void Haptics.selectionAsync();
+              setPicking(true);
+            }}
+          >
+            <Text style={[styles.more, { color: c.text }]}>+</Text>
+          </Tappable>
         </View>
       )}
 
-      {destinations!==null ? (
+      {picking ? (
+        <View style={styles.actionList}>
+          {/* Fixed height: the grid is measured once, and the sheet keeps its
+              size whatever the category. Picking reacts and closes. */}
+          <EmojiGrid
+            c={c}
+            height={Math.round(height * 0.6)}
+            width={width - 2 * SHEET_PADDING}
+            customs={!standardOnly}
+            onPick={(pick) => {
+              const code = pick.suggestion.code;
+              // Already mine: nothing to add, the sheet just closes.
+              const mine = myReactions.get(emojiIdentity(code));
+              void act(() => (mine !== undefined ? Promise.resolve() : react(code, true)));
+            }}
+          />
+          <ActionRow c={c} disabled={busy} icon="←" label={t('common.cancel')} onPress={closePicker} />
+        </View>
+      ) : destinations!==null ? (
         <View style={styles.actionList}>
           <Text style={[styles.rowText,{color:c.text}]}>{t('messageActions.replyIn')}</Text>
           <TextInput value={destinationFilter} onChangeText={setDestinationFilter} placeholder={t('common.search')}
@@ -783,9 +867,12 @@ function ActionRow({
   );
 }
 
+/** The sheet's side padding; the picker's grid is that much narrower than the window. */
+const SHEET_PADDING = 16;
+
 const styles = StyleSheet.create({
   // No flex:1: `fitToContents` measures the content's real height.
-  sheet: { paddingHorizontal: 16, paddingTop: 10, gap: 6 },
+  sheet: { paddingHorizontal: SHEET_PADDING, paddingTop: 10, gap: 6 },
   center: { minHeight: 96, alignItems: 'center', justifyContent: 'center' },
   emojiRow: {
     flexDirection: 'row',
@@ -802,6 +889,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   emoji: { fontSize: 26 },
+  customEmoji: { width: 28, height: 28 },
+  more: { fontFamily: FONTS.title, fontSize: 26, lineHeight: 30 },
   actionList: { gap: 2 },
   noAction: {
     fontFamily: FONTS.body,

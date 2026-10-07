@@ -235,6 +235,20 @@ export const drafts = sqliteTable('drafts', {
 });
 
 /**
+ * The emoji I react with, counted on the device for the quick reactions of
+ * the message sheet (`lib/emojiUsage.ts`). DEVICE data, not server data: no
+ * catch-up can rebuild it, so neither the purges nor `NativeStore.prepare()`
+ * (which empties the server projection on a data-epoch change) touch it.
+ * Codes are shortcodes without colons; at most `KEPT_CODES` rows.
+ */
+export const emojiUsage = sqliteTable('emoji_usage', {
+  code: text('code').primaryKey(),
+  count: integer('count').notNull(),
+  /** Milliseconds. */
+  lastUsed: integer('last_used').notNull(),
+});
+
+/**
  * The server's custom emojis (`emoji-custom.list`). A REFERENCE table, not a
  * stream: `msg.md` only delivers the shortcode (`:party_parrot:`), this table
  * gives the FILE name to show. Persisted for offline-first (step 8): at

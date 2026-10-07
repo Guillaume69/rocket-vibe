@@ -16,6 +16,7 @@ import { filterAliases, type EmojiStore, type CustomEmoji } from '../lib/customE
 import type { OutboxStore, OutboxRow } from '../lib/outbox.ts';
 import type { UploadStore, UploadRow } from '../lib/uploadQueue.ts';
 import type { Store, StoreWrites } from '../lib/sync.ts';
+import { KEPT_CODES, normalizeEmojiCode, type EmojiUse } from '../lib/emojiUsage.ts';
 import type { WriteQueue } from './writeQueue.ts';
 import {
   APPLY_RETENTION,
@@ -79,6 +80,9 @@ import {
   messageParams,
   roomParams,
   userParams,
+  RECORD_EMOJI_USE,
+  PRUNE_EMOJI_USAGE,
+  LIST_EMOJI_USAGE,
 } from './upserts.ts';
 
 /** The retention quota, per room. See `APPLY_RETENTION`. */
@@ -485,6 +489,36 @@ export function createDraftStore(
     },
     delete(key) {
       return serially(() => raw.runAsync(DELETE_DRAFT, [key]).then(() => {}));
+    },
+  };
+}
+
+/**
+ * The emoji I react with (`lib/emojiUsage.ts`), per account since it lives in
+ * the account's database. Written through the queue like the drafts; a code
+ * that is not a shortcode is ignored, and each use prunes the table back to
+ * `KEPT_CODES` rows in the same job.
+ */
+export type EmojiUsageStore = {
+  read: () => Promise<EmojiUse[]>;
+  record: (code: string) => Promise<void>;
+};
+
+export function createEmojiUsageStore(
+  raw: SQLiteDatabase,
+  serially: WriteQueue,
+): EmojiUsageStore {
+  return {
+    read() {
+      return raw.getAllAsync<EmojiUse>(LIST_EMOJI_USAGE);
+    },
+    record(input) {
+      const code = normalizeEmojiCode(input);
+      if (code === null) return Promise.resolve();
+      return serially(async () => {
+        await raw.runAsync(RECORD_EMOJI_USE, [code, Date.now()]);
+        await raw.runAsync(PRUNE_EMOJI_USAGE, [KEPT_CODES]);
+      });
     },
   };
 }

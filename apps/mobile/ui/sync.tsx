@@ -39,6 +39,7 @@ import {
   createStore,
   createDraftStore,
   createEmojiStore,
+  createEmojiUsageStore,
   createOutboxStore,
   createUploadStore,
   type DraftStore,
@@ -94,6 +95,7 @@ import { transportExpo } from './transportUpload.ts';
 import { NativeStore } from '../providers/rocketvibe/store.ts';
 import {createNativeFilesIO,mountNativeFiles} from './nativeFiles.ts';
 import { notify } from './toast.tsx';
+import { mountEmojiUsage } from './emojiUsage.ts';
 
 export type SyncState =
   | { phase: 'idle' }
@@ -180,6 +182,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       let alive = true;
       let stop: (() => void) | undefined;
       let runner: import('../providers/rocketvibe/chat.ts').NativeChat | undefined;
+      let unmountUsage = (): void => {};
       const appState = AppState.addEventListener('change',state => {
         if (state === 'active') {runner?.resume();return;}
         // The composer's system picker is an activity of its own: suspending
@@ -195,6 +198,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         const store = new NativeStore(raw,writeQueue,session);
         await store.prepare();
         if (!alive) return;
+        unmountUsage = mountEmojiUsage(createEmojiUsageStore(raw,writeQueue));
         const provider = createProvider(session,client,() => idFromBytes(Crypto.getRandomBytes(12)),store,{
           pushAndroid:Platform.OS==='android',
           voice:VoiceNative!==null,
@@ -258,7 +262,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         });
         if (AppState.currentState === 'active') chat.start(); else chat.suspend();
       })().catch(() => { if (alive) setSync({phase:'error',message:translateCurrent('native.error')}); });
-      return () => { alive = false; appState.remove(); stop?.(); };
+      return () => { alive = false; appState.remove(); stop?.(); unmountUsage(); };
     }
     let discarded = false;
     const isDiscarded = () => discarded;
@@ -270,6 +274,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
     const ddp = provider.listener;
     let reconnector: Reconnector | null = null;
     let onAbort: (() => void) | null = null;
+    let unmountUsage = (): void => {};
 
     // Any upload (attachment AND profile photo, same transport) can drop the
     // DDP socket without the WebSocket ever calling its `onclose`: sockets in
@@ -303,6 +308,8 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       const { base, raw, writeQueue } = openDatabase(session.baseUrl, session.userId);
       await migrateDatabase(session.baseUrl, session.userId);
       if (discarded) return;
+      // Device data of this account (quick reactions), taken back at session end.
+      unmountUsage = mountEmojiUsage(createEmojiUsageStore(raw, writeQueue));
       // E2EE engine (read side): decrypts during ingestion as soon as a room key
       // is available. The private key is stored in the Keystore per
       // (SERVER, ACCOUNT), like the SQLite database just above, and for the same
@@ -702,6 +709,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       forgetCallAvailability();
       forgetNotificationState();
       forgetProfileCards();
+      unmountUsage();
       unprofile();
       uncalls();
       ddp.close();

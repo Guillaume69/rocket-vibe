@@ -32,6 +32,7 @@ import { attachmentEncryption, type FileEncryption } from '../lib/e2e/crypto.ts'
 import { unicodeOfShortcode } from '../lib/emojis.ts';
 import { customEmojiUrl } from '../lib/customEmojis.ts';
 import {ImageEmoji,useCatalogueEmojis} from './emojiImage.tsx';
+import { recordReaction } from './emojiUsage.ts';
 import { messageTree } from '../lib/markdown.ts';
 import { useJoinVoice, useVoice } from './voice.tsx';
 import { callSummaryText, systemText } from '../lib/systemMessages.ts';
@@ -284,7 +285,12 @@ export const MessageRow = memo(function MessageRow({
                 onPress={
                   onReact === null
                     ? undefined
-                    : () => onReact(message.rid, message.id, reaction.code, !reaction.byMe)
+                    : () => {
+                        // Joining a reaction is a use of that emoji (quick
+                        // reactions of the sheet); withdrawing mine is not.
+                        if (!reaction.byMe) recordReaction(reaction.code);
+                        onReact(message.rid, message.id, reaction.code, !reaction.byMe);
+                      }
                 }
               />
             ))}

@@ -18,10 +18,13 @@ import {FONTS,type Colors} from './theme.ts';
 
 const keys=new WeakMap<NativeChat,number>();let nextKey=0;
 function key(chat:NativeChat):number {let k=keys.get(chat);if(k===undefined){k=++nextKey;keys.set(chat,k);}return k;}
+/** The server offers the security block (also what shows the settings category). */
+export function hasNativeSecurity(chat:NativeChat|null|undefined):boolean {
+  return !!(chat?.capabilities?.reauthentication && chat.capabilities.reauthentication_retirement);
+}
 export function NativeSecuritySection({c}:{c:Colors}) {
   const sync=useSync(),chat=sync.phase==='ready'?sync.provider.native?.chat:null;
-  return chat?.capabilities?.reauthentication && chat.capabilities.reauthentication_retirement
-    ? <NativeSecurity key={key(chat)} c={c} chat={chat}/> : null;
+  return chat && hasNativeSecurity(chat) ? <NativeSecurity key={key(chat)} c={c} chat={chat}/> : null;
 }
 export function ConfirmNativeIdentity({c,chat,onConfirmed}:{c:Colors;chat:NativeChat;onConfirmed:()=>void}) {
   return <NativeSecurity c={c} chat={chat} reauthOnly onConfirmed={onConfirmed}/>;

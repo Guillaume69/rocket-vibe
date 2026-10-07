@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { getTableConfig } from 'drizzle-orm/sqlite-core';
 
 import {
-  cursors, drafts, customEmojis, messages, outbox, rooms, subscriptions, uploads, users,
+  cursors, drafts, emojiUsage, customEmojis, messages, outbox, rooms, subscriptions, uploads, users,
   nativeSyncState, nativePositions, nativeStarStates, nativeRoomCreations, nativeMessageCommands, nativeRoomOperations, nativeProfileOperations, nativeUploadIntents, nativeRoomAccess, nativeReadStates, nativeReadIntents, nativeThreadStates, nativeThreadReadIntents, nativeFavoriteIntents, nativeQuoteReferences, nativeQuoteSources, nativeOutboxQuotes, nativeEmojiCatalog,
 } from './schema.ts';
 
@@ -106,6 +106,7 @@ describe('migrations', () => {
       'cursors',
       'custom_emojis',
       'drafts',
+      'emoji_usage',
       'messages',
       'native_commands',
       'native_emoji_catalog',
@@ -403,8 +404,10 @@ describe('English names (0016)', () => {
     ]);
     db.prepare("INSERT INTO outbox (id, rid, text, created_at) VALUES ('s3', 'r1', 'c', 5)").run();
     assert.deepEqual(all("SELECT status FROM outbox WHERE id = 's3'"), [{ status: 'pending' }]);
-    // Every later migration, so the tables match the current schema.
-    for (const later of [17, 18, 19]) applyMigration(db, later);
+    // Then every later migration, so the comparison is with today's database.
+    for (const file of readdirSync(FOLDER).filter((f) => f.endsWith('.sql')).sort()) {
+      if (parseInt(file.slice(0, 4), 10) >= 17) applyMigration(db, parseInt(file.slice(0, 4), 10));
+    }
     assert.deepEqual(tables(db), tables(migratedDb()));
     db.close();
   });
@@ -412,7 +415,7 @@ describe('English names (0016)', () => {
   test('the migrated database has exactly the columns of schema.ts', () => {
     const db = migratedDb();
     for (const table of [
-      rooms, subscriptions, messages, outbox, uploads, drafts, customEmojis, users, cursors,
+      rooms, subscriptions, messages, outbox, uploads, drafts, emojiUsage, customEmojis, users, cursors,
       nativeSyncState, nativePositions, nativeStarStates, nativeRoomCreations, nativeMessageCommands, nativeRoomOperations, nativeProfileOperations, nativeUploadIntents, nativeRoomAccess, nativeReadStates, nativeReadIntents, nativeThreadStates, nativeThreadReadIntents, nativeFavoriteIntents, nativeQuoteReferences, nativeQuoteSources, nativeOutboxQuotes, nativeEmojiCatalog,
     ]) {
       const config = getTableConfig(table);

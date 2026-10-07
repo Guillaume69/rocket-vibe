@@ -24,10 +24,13 @@ const keys=new WeakMap<NativeChat,number>();let nextKey=0;
 function key(chat:NativeChat):number {let k=keys.get(chat);if(k===undefined){k=++nextKey;keys.set(chat,k);}return k;}
 const labels={missing:'private.missing',identity_created:'private.created',waiting_for_approval:'private.waiting',
   registering:'private.registering',ready:'private.ready',expired:'private.expired',renewing:'private.renewing'} as const;
+/** This build and the server can hold an encrypted identity (also what shows the settings category). */
+export function hasEncryptedIdentity(chat:NativeChat|null|undefined):boolean {
+  return !!(CryptoNative && chat?.capabilities?.e2ee && chat.capabilities.device_sessions);
+}
 export function EncryptedIdentitySection({c}:{c:Colors}) {
   const sync=useSync(),chat=sync.phase==='ready'?sync.provider.native?.chat:null;
-  return CryptoNative && chat?.capabilities?.e2ee && chat.capabilities.device_sessions
-    ? <Identity key={key(chat)} c={c} chat={chat}/> : null;
+  return chat && hasEncryptedIdentity(chat) ? <Identity key={key(chat)} c={c} chat={chat}/> : null;
 }
 function IdentityAction({c,label,onPress,busy,disabled=false}:{c:Colors;label:TranslationKey;onPress:()=>void;busy:boolean;disabled?:boolean}) {
   const t=useT();

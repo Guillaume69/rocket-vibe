@@ -5,6 +5,13 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.util.Log
+import livekit.org.webrtc.ScreenCapturerAndroid
+import java.nio.ByteBuffer
+import io.livekit.android.room.track.LocalVideoTrack
+import io.livekit.android.room.track.LocalAudioTrack
+import io.livekit.android.audio.ScreenAudioCapturer
+import io.livekit.android.audio.AudioBufferCallback
+import android.os.Build
 import androidx.core.content.ContextCompat
 import com.twilio.audioswitch.AudioDevice
 import io.livekit.android.LiveKit
@@ -160,8 +167,41 @@ object VoiceEngine {
   }
 
   private suspend fun applyMicrophone(r: Room) {
-    // Without the permission the room is still heard: listening only.
-    r.localParticipant.setMicrophoneEnabled(microphone && !deafened && canRecord())
+    // Without the permission the room is still heard: listening only. While the
+    // screen's sound rides on this track, it stays on and a mute silences the voice only.
+    r.localParticipant.setMicrophoneEnabled((microphone && !deafened || screenAudio != null) && canRecord())
+  }
+
+  /**
+   * The screen's sound (media, games: what Android lets apps capture), mixed into
+   * the microphone track, the one recorded track Android publishes. Never the call:
+   * Android does not capture voice-communication audio.
+   */
+  private var screenAudio: ScreenAudioCapturer? = null
+  private val voiceAndScreen = object : AudioBufferCallback {
+    override fun onBuffer(buffer: ByteBuffer, audioFormat: Int, channelCount: Int, sampleRate: Int, bytesRead: Int, captureTimeNs: Long): Long {
+      if (!microphone || deafened) for (i in 0 until bytesRead) buffer.put(i, 0)
+      return screenAudio?.onBuffer(buffer, audioFormat, channelCount, sampleRate, bytesRead, captureTimeNs) ?: captureTimeNs
+    }
+  }
+
+  private suspend fun startScreenAudio(r: Room) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || !canRecord() || screenAudio != null) return
+    val video = r.localParticipant.getTrackPublication(Track.Source.SCREEN_SHARE)?.track as? LocalVideoTrack ?: return
+    val projection = (video.capturer as? ScreenCapturerAndroid)?.mediaProjection ?: return
+    screenAudio = ScreenAudioCapturer(projection)
+    applyMicrophone(r)
+    val mic = r.localParticipant.getTrackPublication(Track.Source.MICROPHONE)?.track as? LocalAudioTrack
+    if (mic == null) return stopScreenAudio(r)
+    mic.setAudioBufferCallback(voiceAndScreen)
+  }
+
+  private suspend fun stopScreenAudio(r: Room) {
+    val capturer = screenAudio ?: return
+    screenAudio = null
+    (r.localParticipant.getTrackPublication(Track.Source.MICROPHONE)?.track as? LocalAudioTrack)?.setAudioBufferCallback(null)
+    capturer.releaseAudioResources()
+    applyMicrophone(r)
   }
 
   /** Remote audio stops at the SFU (bandwidth) and locally (any frame in flight). */
@@ -224,10 +264,11 @@ object VoiceEngine {
     scope.launch {
       val started = try {
         r.localParticipant.setScreenShareEnabled(true, ScreenCaptureParams(data, null, null) {
-          scope.launch { if (room === r) { sharing = false; changed() } }
+          scope.launch { if (room === r) { sharing = false; stopScreenAudio(r); changed() } }
         })
       } catch (_: Exception) { false }
       if (!started) sharing = false
+      if (started) startScreenAudio(r)
       changed()
     }
   }
@@ -236,6 +277,7 @@ object VoiceEngine {
     val r = room ?: return
     sharing = false
     scope.launch {
+      stopScreenAudio(r)
       r.localParticipant.setScreenShareEnabled(false)
       changed()
     }
@@ -276,6 +318,8 @@ object VoiceEngine {
     if (cue) VoiceSounds.cue(app, R.raw.cue_leave)
     state = if (why == null) "idle" else "disconnected"
     camera = false; sharing = false; keys = null
+    screenAudio?.releaseAudioResources()
+    screenAudio = null
     reason = why
     roomId = null
     VoiceService.stop(app)

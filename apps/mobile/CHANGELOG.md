@@ -21,7 +21,8 @@ release, and its notes are that version's section here.
 - "Create a room" on a RocketVibe server, voice channels included.
 - In a voice session, turn your camera on (off by default) and share your screen: one
   screen at a time in a room, a new share replacing the current one. The shared screen
-  takes most of the screen, with everyone in a column at its right.
+  takes most of the screen, with everyone in a column at its right. The shared screen
+  carries its apps' sound (media, games), never the voice chat.
 - Voice in encrypted rooms, end-to-end encrypted: the server relays sound it cannot
   hear, under a key only the room's devices share, renewed when its members change.
 - Slash commands on a RocketVibe server: /topic, /invite, /kick, /leave, /join,

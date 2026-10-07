@@ -72,7 +72,7 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
   every microphone buffer goes through `voiceAndScreen` on the audio thread: RNNoise when
   on and the capture is 48 kHz mono (`Denoiser.kt` over JNI, `crates/rv-voice-mobile` built
   by `modules/voice/build-android.mjs` from the module's Gradle task, as the crypto module
-  builds its library; WebRTC's own suppression stays on), the input volume, the level (a
+  builds its library, with the same voice gate; WebRTC's own suppression stays on), the input volume, the level (a
   `level` event ten times a second) and whether it speaks (RNNoise's voice probability).
   Remote microphones are read through LiveKit sinks for their level; `speaking` is that or
   LiveKit's active speakers, refreshed by a 100 ms tick. The share's quality sets LiveKit's
@@ -151,9 +151,13 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
   volume or the samples: cpal opens the devices (WASAPI, CoreAudio, and on Linux
   PulseAudio's protocol in pure Rust, which PipeWire serves; device ids are cpal's, PulseAudio
   monitors left out). Capture: the device's rate to 48 kHz mono, 10 ms frames, WebRTC's audio
-  processing module (echo cancellation against what plays, gain control, high-pass; its own
-  noise suppression only while RNNoise is off), **RNNoise** (`nnnoiseless`), the input
-  volume, then LiveKit. Playout: each remote audio track as 48 kHz stereo into a buffer
+  processing module (echo cancellation against what plays, high-pass; its own noise
+  suppression only while RNNoise is off), **RNNoise** (`nnnoiseless`) and a **voice gate**
+  (shut while RNNoise's voice probability stays under 0.6, held 300 ms after a voice, fading
+  out over about 100 ms: a keyboard between words, which RNNoise only softens), then
+  WebRTC's gain control in a second module, last so that it never raises the noise RNNoise
+  removes, the input volume, then LiveKit. `RV_VOICE_DEBUG`, `RV_VOICE_RECORD` and
+  `RV_VOICE_TEST_TONE` are diagnostics (`audio.rs`). Playout: each remote audio track as 48 kHz stereo into a buffer
   (primed at 40 ms, cut back past 200 ms), mixed at each person's gain (muted here: 0) and
   the output volume; the mix is the echo canceller's reference. **Who speaks** comes from the
   sound: this side from RNNoise's voice probability above a floor (the level without
@@ -259,7 +263,9 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
   resolution and frame rate kept in `voice-share-quality`; Wayland: the quality only). The
   stage goes full screen (its button, a double click; Escape comes back) and follows a
   takeover. A direct call over gives the chat back; the other person gone, it hangs up after
-  2 s (`direct_call`).
+  2 s (`direct_call`). An outgoing ring declined or missed while alone in the call hangs up
+  (`voice_rings`), and calling a direct room nobody else is in rings again, even from inside
+  its session.
 - **Packaging**: every desktop package carries `rv-voice` next to the app (`desktop.yml` calls
   `desktop-voice.yml`); see [desktop-gtk](../architecture/desktop-gtk.md#packaging).
 - **SwiftUI**: not yet; the plan is LiveKit's Swift SDK in the macOS-only target.

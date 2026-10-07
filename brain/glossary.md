@@ -13,6 +13,7 @@ All code, comments and docs are in English. French survives in two places only: 
 | Grant | `VoiceGrant`: the SFU URL and a 5-minute token for one member and one room. | [voice](features/voice.md) |
 | Ring | A direct call ringing the other member; resolves to answered, declined, missed or cancelled, kept on its `call_started` row. | [voice](features/voice.md) |
 | Deafen | Silence everyone else (and your microphone); shared through the participant attribute `rv.deafened`. | [voice](features/voice.md) |
+| Voice key | An encrypted room's voice frame key: an MLS exporter secret of its group at the current epoch, LiveKit's shared key. Never sent to the server. | [voice](features/voice.md) |
 | Sidecar | `rv-voice`, the desktop process that runs LiveKit and the audio devices, driven over JSON lines. | [voice](features/voice.md) |
 
 ## Rocket.Chat protocol

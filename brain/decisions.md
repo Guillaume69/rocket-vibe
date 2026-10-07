@@ -99,6 +99,15 @@ The non-obvious choices behind rocket-vibe and why they were made, grouped by ar
 - **Additive wire changes only.** A call's outcome rides on `Message.call` and voice state
   on optional live fields: a new `SystemMessage`, `Change` or `RoomKind` variant would make
   older clients reject whole batches.
+- **Encrypted rooms keep their voice end to end, with LiveKit's frame encryption.** The key
+  is an MLS exporter secret of the room's group at its epoch, so membership and rotation
+  come from the group and the server learns nothing. LiveKit's shared-key mode at index 0
+  is the one scheme the Android, Swift and Rust SDKs share; a rotation is a short silence
+  between devices that switched and those that did not yet, never plaintext. An encrypted
+  session has its own LiveKit room (`rve:`), so a plaintext client can never sit in it.
+  The key is the only group secret that leaves Rust (to JS and Kotlin on Android, over the
+  sidecar's pipe on desktop): accepted because it opens only this epoch's voice. LiveKit's
+  frames do not authenticate the sender among members (`docs/protocol/E2EE_REVIEW.md`).
 - **Original sounds generated from code** (`scripts/sounds`): no sample, no licence to
   track; the ringtone ("Neon Drive") was chosen by ear among four candidates.
 

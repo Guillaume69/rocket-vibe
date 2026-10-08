@@ -32,6 +32,11 @@ release, and its notes are that version's section here.
   a choice or a person field can take several answers, ticked as checkboxes. Workflow
   commands appear in the composer's command list of the rooms where they are offered.
 
+### Fixed
+
+- Settings pages keep the field being typed in above the keyboard instead of leaving it
+  hidden under it.
+
 ## [0.8.0] - 2026-10-08
 
 ### Added

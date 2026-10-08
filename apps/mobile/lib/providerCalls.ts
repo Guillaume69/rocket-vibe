@@ -1,6 +1,7 @@
 import type {RestClient} from './rest.ts';
 import type {Provider} from './provider.ts';
 import {setProviderCalls,type NativeCalls} from './call.ts';
+import {isKmeetUrl} from '../providers/mattermost/translator.ts';
 
 /**
  * Shared lifetime in the application and in the real HTTP/SQLite bench. A
@@ -17,5 +18,5 @@ const KMEET:NativeCalls={
   available:async()=>false,
   memo:()=>false,
   start:async()=>{throw new Error('call_start_unavailable');},
-  join:async(id)=>{if(!/^https:\/\//i.test(id))throw new Error('call_url_invalid');return id;},
+  join:async(id)=>{if(!isKmeetUrl(id))throw new Error('call_url_invalid');return id;},
 };

@@ -276,9 +276,10 @@ pub enum UnlockError {
 
 /// kChat's call id is the kMeet meeting's own URL (`mattermost::translate::kmeet_call`).
 fn kmeet_url(call_id: &str) -> Result<String, RestError> {
-    match call_id.get(..8) {
-        Some(scheme) if scheme.eq_ignore_ascii_case("https://") => Ok(call_id.to_owned()),
-        _ => Err(RestError::incomplete("call: not a meeting link")),
+    if mattermost::translate::is_kmeet(call_id) {
+        Ok(call_id.to_owned())
+    } else {
+        Err(RestError::incomplete("call: not a meeting link"))
     }
 }
 

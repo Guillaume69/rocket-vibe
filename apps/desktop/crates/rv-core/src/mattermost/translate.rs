@@ -32,6 +32,13 @@ fn positive(v: &Value, key: &str) -> Option<i64> {
 }
 
 /// Mattermost's system posts onto the types the renderer knows, with their parameter.
+/// Any room member can post a `custom_call`: only kMeet's own origin is ever opened.
+pub const KMEET_ORIGIN: &str = "https://kmeet.infomaniak.com";
+
+pub fn is_kmeet(url: &str) -> bool {
+    crate::call::origin(url).is_some_and(|o| o == KMEET_ORIGIN)
+}
+
 /// kChat's kMeet call post (`custom_call`): `props.url` is the meeting, joined
 /// as is. A running call is a `videoconf` whose call id is that URL; one that
 /// is over is a `videoconf-ended` carrying its length in seconds, when known.
@@ -42,8 +49,7 @@ pub fn kmeet_call(props: &Value) -> (&'static str, String, Option<String>) {
         let seconds = start.zip(end).filter(|(s, e)| e >= s).map(|(s, e)| ((e - s + 500) / 1000).to_string());
         return ("videoconf-ended", seconds.unwrap_or_default(), None);
     }
-    let url = str_of(props, "url").filter(|u| u.get(..8).is_some_and(|p| p.eq_ignore_ascii_case("https://")));
-    ("videoconf", String::new(), url.map(str::to_owned))
+    ("videoconf", String::new(), str_of(props, "url").filter(|u| is_kmeet(u)).map(str::to_owned))
 }
 
 fn system(kind: &str, props: &Value, author: Option<&str>) -> Option<(&'static str, Option<String>)> {

@@ -13,6 +13,7 @@ import type { DdpEvent } from '../../lib/ddp.ts';
 import type { Translation, Translator } from '../../lib/provider.ts';
 import type { LocalMessage, LocalRoom, LocalSubscription } from '../../lib/normalize.ts';
 import type { MmCategories } from './categories.ts';
+import { sameOrigin } from '../../lib/origin.ts';
 import type { MmDirectory } from './directory.ts';
 
 export const MM_POST = 'mm:post';
@@ -334,6 +335,13 @@ function positive(value: unknown): number | null {
 
 const CALL_OVER = new Set(['ended', 'missed', 'declined', 'cancelled']);
 
+/** Any room member can post a `custom_call`: only kMeet's own origin is ever opened. */
+export const KMEET_ORIGIN = 'https://kmeet.infomaniak.com';
+
+export function isKmeetUrl(url: string): boolean {
+  return sameOrigin(url, KMEET_ORIGIN);
+}
+
 /**
  * kChat's kMeet call post (`custom_call`): `props.url` is the meeting, joined
  * as is. A running call is a `videoconf` whose `callId` is that URL; one that
@@ -347,5 +355,5 @@ export function kmeetCall(props: Record<string, unknown>): { type: string; param
     return { type: 'videoconf-ended', param: seconds === null ? '' : String(seconds), joinUrl: null };
   }
   const url = str(props.url);
-  return { type: 'videoconf', param: '', joinUrl: url !== null && /^https:\/\//i.test(url) ? url : null };
+  return { type: 'videoconf', param: '', joinUrl: url !== null && isKmeetUrl(url) ? url : null };
 }

@@ -1478,25 +1478,25 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/sync.rs",
-      "line": 468,
+      "line": 471,
       "kind": "call:GET",
       "surface": "&format!(\"posts/{…}/thread\")"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/sync.rs",
-      "line": 478,
+      "line": 481,
       "kind": "call:GET",
       "surface": "&channel_path"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/sync.rs",
-      "line": 479,
+      "line": 482,
       "kind": "call:GET",
       "surface": "&member_path"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/sync.rs",
-      "line": 531,
+      "line": 534,
       "kind": "call:GET",
       "surface": "&format!(\"posts/{…}\")"
     },

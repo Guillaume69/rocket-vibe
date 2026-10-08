@@ -456,6 +456,9 @@ impl MmSync {
         match self.rest.get(&format!("posts/{id}"), CallOptions::default()).await {
             Ok(post) => {
                 self.ensure_authors(std::slice::from_ref(&post)).await;
+                if text(&post, "root_id").is_none() {
+                    self.remember_ids(std::slice::from_ref(&post));
+                }
                 Ok(self.translate(&post))
             }
             Err(e) if e.status == 404 || e.status == 403 => Ok(None),

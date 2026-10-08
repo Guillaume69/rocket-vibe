@@ -166,10 +166,10 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/mattermost/sync.rs:353](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L353) | call:GET | &format!("channels/{…}/deleted_posts") |
 | [apps/desktop/crates/rv-core/src/mattermost/sync.rs:381](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L381) | call:GET | &format!("channels/{…}/posts"), options).await?); |
 | [apps/desktop/crates/rv-core/src/mattermost/sync.rs:456](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L456) | call:GET | &format!("posts/{…}") |
-| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:468](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L468) | call:GET | &format!("posts/{…}/thread") |
-| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:478](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L478) | call:GET | &channel_path |
-| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:479](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L479) | call:GET | &member_path |
-| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:531](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L531) | call:GET | &format!("posts/{…}") |
+| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:471](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L471) | call:GET | &format!("posts/{…}/thread") |
+| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:481](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L481) | call:GET | &channel_path |
+| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:482](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L482) | call:GET | &member_path |
+| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:534](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L534) | call:GET | &format!("posts/{…}") |
 | [apps/desktop/crates/rv-core/src/mattermost/translate.rs:11](../../apps/desktop/crates/rv-core/src/mattermost/translate.rs#L11) | url | /api/v4/files |
 | [apps/desktop/crates/rv-core/src/media.rs:26](../../apps/desktop/crates/rv-core/src/media.rs#L26) | resource | /avatar/{…} |
 | [apps/desktop/crates/rv-core/src/media.rs:27](../../apps/desktop/crates/rv-core/src/media.rs#L27) | resource | /avatar/uid/{…} |

@@ -38,8 +38,11 @@ username follows the rules of any account; a taken or retired one answers 409
 | `POST /api/v1/bots/{id}/keys` | `CreateBotKey{operation_id, label, expires_in_days?}` → `BotKeyCreated{key, info}` |
 | `DELETE /api/v1/bots/{id}/keys/{key}` | Revokes a key. Idempotent |
 
-A person manages their own bots; an administrator any bot. Someone else's bot
-answers `not_found`. All these responses are `Cache-Control: no-store`.
+A person manages their own bots. An administrator oversees every bot (lists it,
+its keys, revokes keys, deletes it) but never acts as one: keys, scopes, name and
+photo are the owner's alone, so administration is no way into the rooms a bot
+belongs to. Someone else's bot answers `not_found`. All these responses are
+`Cache-Control: no-store`.
 
 **The key is shown once.** Creating one needs a recent sign-in
 (`reauthentication_required` otherwise, as for revoking another device), a bot
@@ -48,19 +51,19 @@ that is not disabled (`bot_disabled`) and fewer than five live keys
 `bot_key_replayed`, never the key again: list the keys and revoke the orphan.
 `expires_in_days` is 1 to 3650; absent, the key does not expire.
 
-The owner (or an administrator) edits the display name, photo, description and
-scopes. The bot may also edit its own profile with its key, through
-`PATCH /api/v1/me` and `/api/v1/me/avatar`. A key's `last_used_at` is recorded by
-the gate, at most a minute behind.
+The owner edits the display name, photo, description and scopes; the bot's own
+profile is read-only to its keys. A photo spends the owner's profile decode budget
+(`profile_rate_limited`). A key's `last_used_at` is recorded by the gate, at most a
+minute behind.
 
 ## Scopes
 
 | Scope | Routes |
 |---|---|
-| every key | `GET`/`PATCH /me`, `GET /me/profile`, `PUT`/`DELETE /me/avatar`, `GET /me/permissions`, emoji catalogue and images, avatars |
+| every key | `GET /me`, `GET /me/profile`, `GET /me/permissions`, emoji catalogue and images, avatars, `GET /bots/reference` |
 | `rooms:read` | `GET /rooms`, room details, members, permissions, history, search, pins; a message, its permissions, thread, replies and previews; files; snapshots, changes, socket ticket; `GET /live` |
 | `messages:write` | send, reply, edit and delete (its own, or as moderator), typing |
-| `files:write` | upload preparation, bytes, status, cancellation, completion |
+| `files:write` | upload preparation, bytes, status, cancellation, completion (which posts a message: it also needs `messages:write`, the route's `also`) |
 | `reactions:write` | `PUT /messages/{id}/reactions` |
 | `rooms:join` | public directory, `POST /rooms/{id}/join`, `POST /rooms/{id}/leave` |
 | `users:read` | `GET /users`, `/users/lookup`, `/users/{id}` |
@@ -73,25 +76,32 @@ could drift.
 
 A route of the table without its scope answers 403 `bot_scope_missing`; any
 other route answers 403 `bot_forbidden`, whatever the scopes: sign-in and
-sessions, account security, push, `/e2ee/*`, `/admin/*`, `/bots/*`, voice,
+sessions, its own profile edits, account security, push, `/e2ee/*`, `/admin/*`, `/bots/*` but the reference, voice,
 reports, room creation and settings, slash commands. The table is
 `ROUTES` in `apps/server/src/bots.rs`; a new route stays closed to keys until it
 is listed there.
 
 The socket (`/sync/socket`) is opened with a ticket issued to the key, so the
-gate applies when the ticket is asked for.
+gate applies when the ticket is asked for; the open socket then checks on every
+tick that the bot still holds `rooms:read`, and closes when it does not.
 
 ## Limits and refusals
 
-- 60 sends a minute per bot (sends and replies) and 10 direct conversations a
-  minute: 429 `bot_rate_limited` with `Retry-After`.
+- 60 new sends a minute per bot (sends and replies; replaying an accepted send
+  is free) and 10 new direct conversations a minute (reopening an existing one is
+  free): 429 `bot_rate_limited` with `Retry-After`.
+- Ten bot creations a day per account, deleted bots included (deleting retires the
+  username): 429 `bot_create_limit`.
 - A bot never joins an encrypted room, by invitation, join or operator: 409
   `bot_encrypted_room`. A group transition (genesis or change) in a room where an
   active bot is a member: 409 `crypto_bot_member`. A direct conversation with a
   bot stays plaintext.
 - A deactivated owner deactivates its bots. An administrator disables or
   re-enables a bot through `PATCH /admin/users/{id}`, which also revokes its
-  keys, as it revokes a person's sessions.
+  keys, as it revokes a person's sessions. Making a bot an administrator answers
+  409 `bot_privilege`; re-enabling a bot that is a member of an encrypted room
+  (it may have been disabled when the group began) answers 409
+  `bot_encrypted_room`. Deleting a bot revokes its keys in every case.
 
 ## Visibility
 
@@ -108,4 +118,4 @@ administrators only. CLI: `rv-server set-instance --user-bots true|false`.
 ## Audit
 
 `bot.created`, `bot.updated`, `bot.deleted`, `bot.key_created`,
-`bot.key_revoked`, `instance.settings`, with the acting account.
+`bot.key_revoked`, `bot.avatar`, `instance.settings`, with the acting account.

@@ -1,6 +1,6 @@
 import type { App } from "./app";
 import type { VoiceGrant, VoiceRing, LiveState } from "./protocol";
-import { segment } from "./api";
+import { Api, segment } from "./api";
 import { el, button, dialog, tile, toast } from "./dom";
 import { iconButton } from "./icons";
 import { sound } from "./sounds";
@@ -9,6 +9,8 @@ export class Voice {
   current?: string;
   room?: import("livekit-client").Room;
   busy = false;
+  lifecycle = 0;
+  leaving: Promise<void> = Promise.resolve();
   cancelled = false;
   ringDialogs = new Map<string, HTMLDialogElement>();
   bar = el("div", "voice-bar");
@@ -40,11 +42,16 @@ export class Voice {
       this.show();
       return;
     }
-    await this.leave();
     this.busy = true;
-    this.cancelled = false;
     const account = this.app.account.key;
+    let lifecycle = this.lifecycle;
     try {
+      const leaving = this.leave();
+      lifecycle = this.lifecycle;
+      await leaving;
+      if (account !== this.app.account?.key || lifecycle !== this.lifecycle)
+        return;
+      this.cancelled = false;
       const room = this.app.model.rooms.get(id);
       const member = room?.read_state?.membership_version;
       if (!member) return;
@@ -58,7 +65,8 @@ export class Voice {
           ring: room?.kind === "direct",
         },
       );
-      if (account !== this.app.account?.key) return;
+      if (account !== this.app.account?.key || lifecycle !== this.lifecycle)
+        return;
       if (grant.e2ee) throw new Error(t("encryptedHint"));
       this.current = id;
       this.bar.replaceChildren(
@@ -72,28 +80,44 @@ export class Voice {
       );
       if (grant.ring) {
         this.loop = sound("ringback", true);
-        while (grant.ring.state === "ringing" && !this.cancelled) {
+        while (
+          grant.ring.state === "ringing" &&
+          !this.cancelled &&
+          lifecycle === this.lifecycle
+        ) {
           await new Promise((resolve) => setTimeout(resolve, 700));
           grant.ring = await this.app.api.request<VoiceRing>(
             "/api/v1/voice/rings/" + segment(grant.ring.id),
           );
         }
+        if (lifecycle !== this.lifecycle) return;
         if (grant.ring.state !== "answered" || this.cancelled) {
           await this.leave();
           return;
         }
       }
       if (account === this.app.account?.key && !this.cancelled)
-        await this.connect(grant);
+        await this.connect(grant, lifecycle, account);
     } catch (error) {
+      if (lifecycle !== this.lifecycle) return;
       await this.leave();
       throw error;
     } finally {
       this.busy = false;
     }
   }
-  async connect(grant: VoiceGrant): Promise<void> {
-    if (!this.app.account) return;
+  async connect(
+    grant: VoiceGrant,
+    lifecycle = this.lifecycle,
+    account = this.app.account?.key,
+  ): Promise<void> {
+    if (
+      !this.app.account ||
+      lifecycle !== this.lifecycle ||
+      account !== this.app.account.key ||
+      this.cancelled
+    )
+      return;
     if (grant.e2ee) throw new Error(t("encryptedHint"));
     this.loop?.pause();
     this.loop = undefined;
@@ -106,8 +130,13 @@ export class Voice {
       )
     )
       throw new Error("Invalid voice service origin");
-    const account = this.app.account?.key;
     const { Room, RoomEvent, Track } = await import("livekit-client");
+    if (
+      lifecycle !== this.lifecycle ||
+      account !== this.app.account?.key ||
+      this.cancelled
+    )
+      return;
     const room = new Room({
       adaptiveStream: true,
       dynacast: true,
@@ -194,7 +223,11 @@ export class Voice {
       this.stage.remove();
     });
     await room.connect(grant.url, grant.token);
-    if (account !== this.app.account?.key || this.cancelled) {
+    if (
+      account !== this.app.account?.key ||
+      this.cancelled ||
+      lifecycle !== this.lifecycle
+    ) {
       await room.disconnect();
       return;
     }
@@ -206,6 +239,14 @@ export class Voice {
       this.card(participant.identity, participant.name || participant.identity);
     if (grant.can_publish)
       await room.localParticipant.setMicrophoneEnabled(true);
+    if (
+      account !== this.app.account?.key ||
+      lifecycle !== this.lifecycle ||
+      this.room !== room
+    ) {
+      await room.disconnect();
+      return;
+    }
     sound("join");
     const mic = iconButton(
       "mic",
@@ -357,6 +398,7 @@ export class Voice {
     body.append(this.stage);
   }
   async leave(notify = true): Promise<void> {
+    this.lifecycle++;
     this.cancelled = true;
     this.loop?.pause();
     this.loop = undefined;
@@ -365,6 +407,9 @@ export class Voice {
     this.dialog = undefined;
     const active = this.current || this.room;
     const room = this.room;
+    const api = new Api();
+    api.token = this.app.api.token;
+    const previous = this.leaving;
     this.room = undefined;
     this.current = undefined;
     this.bar.remove();
@@ -375,14 +420,19 @@ export class Voice {
     this.camera = false;
     this.sharing = false;
     this.deafened = false;
-    if (room) {
-      await room.disconnect(true);
-      sound("leave");
-    }
-    if (active && notify)
-      try {
-        await this.app.api.request("/api/v1/voice/leave", "POST", null);
-      } catch {}
+    const leaving = (async () => {
+      await previous.catch(() => {});
+      if (room) {
+        await room.disconnect(true);
+        sound("leave");
+      }
+      if (active && notify)
+        try {
+          await api.request("/api/v1/voice/leave", "POST", null);
+        } catch {}
+    })();
+    this.leaving = leaving;
+    await leaving;
   }
   observe(state: LiveState): void {
     for (const [id, node] of this.ringDialogs)
@@ -419,7 +469,15 @@ export class Voice {
             const member = this.app.model.rooms.get(ring.room_id)?.read_state
               ?.membership_version;
             if (!member || !this.app.account) return;
-            await this.leave();
+            const account = this.app.account.key;
+            const leaving = this.leave();
+            const lifecycle = this.lifecycle;
+            await leaving;
+            if (
+              account !== this.app.account?.key ||
+              lifecycle !== this.lifecycle
+            )
+              return;
             const grant = await this.app.api.request<VoiceGrant>(
               "/api/v1/voice/rings/" + segment(ring.id) + "/accept",
               "POST",
@@ -430,8 +488,13 @@ export class Voice {
               },
             );
             node.close();
+            if (
+              lifecycle !== this.lifecycle ||
+              account !== this.app.account?.key
+            )
+              return;
             this.cancelled = false;
-            await this.connect(grant);
+            await this.connect(grant, lifecycle, account);
           },
           "cta",
         ),

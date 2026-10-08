@@ -137,6 +137,97 @@ try {
     .locator(".voice-bar")
     .getByRole("button", { name: "Close", exact: true })
     .click();
+  const direct = await request("/api/v1/direct-messages", alice.token, {
+    user_id: bob.user.id,
+  });
+  for (const page of [a, b])
+    await page
+      .locator('[data-room="' + direct.id + '"]')
+      .first()
+      .click();
+  await a.getByRole("button", { name: "Join call", exact: true }).click();
+  const incoming = b.locator("dialog").filter({
+    has: b.getByRole("heading", { name: "Incoming call", exact: true }),
+  });
+  await incoming.waitFor();
+  await incoming.getByRole("button", { name: "Join", exact: true }).click();
+  await a.locator(".voice-dialog").waitFor();
+  await b.locator(".voice-dialog").waitFor();
+  await a.waitForFunction(() =>
+    [...document.querySelectorAll(".voice-stage audio")].some(
+      (audio) => audio.srcObject?.getAudioTracks().length,
+    ),
+  );
+  console.log(
+    "PASS direct call rings the other browser and acceptance exchanges actual audio",
+  );
+  for (const page of [a, b]) {
+    await page.locator(".voice-dialog .dialog-header button").click();
+    await page
+      .locator(".voice-bar")
+      .getByRole("button", { name: "Close", exact: true })
+      .click();
+    await page.locator(".voice-bar").waitFor({ state: "detached" });
+  }
+  await a.getByRole("button", { name: "Join call", exact: true }).click();
+  await incoming.waitFor();
+  await incoming.getByRole("button", { name: "Cancel", exact: true }).click();
+  await a.locator(".voice-bar").waitFor({ state: "detached" });
+  assert.equal(await a.locator(".voice-dialog").count(), 0);
+  console.log(
+    "PASS declining a direct call stops the caller without creating a media session",
+  );
+  let releaseAcceptance, accepted, completed;
+  let deliveryError;
+  const delivered = new Promise((resolve) => {
+    completed = resolve;
+  });
+  const committed = new Promise((resolve) => {
+    accepted = resolve;
+  });
+  await b.route("**/api/v1/voice/rings/*/accept", async (route) => {
+    const response = await route.fetch();
+    assert.ok(response.ok());
+    await new Promise((resolve) => {
+      releaseAcceptance = resolve;
+      accepted();
+    });
+    try {
+      await route.fulfill({ response });
+    } catch (error) {
+      deliveryError = error;
+    } finally {
+      completed();
+    }
+  });
+  await a.getByRole("button", { name: "Join call", exact: true }).click();
+  await incoming.waitFor();
+  await incoming.getByRole("button", { name: "Join", exact: true }).click();
+  await committed;
+  await incoming.waitFor({ state: "detached" });
+  await b.getByRole("button", { name: "Sign out", exact: true }).click();
+  await b.getByLabel("Username or email").waitFor();
+  await b.getByLabel("Username or email").fill("webalice");
+  await b.getByLabel("Password", { exact: true }).fill(password);
+  await b.getByRole("button", { name: "Sign in", exact: true }).click();
+  await b.locator(".status-dot.online").waitFor();
+  releaseAcceptance();
+  await delivered;
+  assert.equal(deliveryError, undefined);
+  await b.unroute("**/api/v1/voice/rings/*/accept");
+  await b.waitForTimeout(1200);
+  assert.equal(await b.locator(".voice-bar").count(), 0);
+  assert.equal(await b.locator(".voice-dialog").count(), 0);
+  console.log(
+    "PASS delayed acceptance cannot reopen media after logout and sign-in as another user",
+  );
+  if (await a.locator(".voice-dialog").count())
+    await a.locator(".voice-dialog .dialog-header button").click();
+  if (await a.locator(".voice-bar").count())
+    await a
+      .locator(".voice-bar")
+      .getByRole("button", { name: "Close", exact: true })
+      .click();
 } catch (error) {
   for (let i = 0; i < pages.length; i++) {
     console.log(

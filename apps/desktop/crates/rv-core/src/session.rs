@@ -450,10 +450,13 @@ impl Session {
                     let delay = (base + fastrand::u64(0..1000)).min(MAX_RECONNECT_DELAY_MS);
                     attempt += 1;
                     let (transport, token) = (s.transport.clone(), s.info.auth_token.clone());
-                    tokio::spawn(async move {
+                    let retry = tokio::spawn(async move {
                         tokio::time::sleep(Duration::from_millis(delay)).await;
                         transport.open(&token);
                     });
+                    let mut tasks = s.tasks.lock().unwrap();
+                    tasks.retain(|t| !t.is_finished());
+                    tasks.push(retry);
                 }
             }
         }

@@ -95,6 +95,7 @@ export class KchatPusher implements Listener {
         this.client.get<Record<string, unknown>>('/config/client', { query: { format: 'old' } }).catch(() => ({}) as Record<string, unknown>),
         this.client.get<Record<string, unknown>>('/users/me'),
       ]);
+      this.stillWanted();
       const host = hostOf(config.WebsocketURL) ?? DEFAULT_HOST;
       await this.open(`wss://${host}/app/${APP_KEY}?protocol=${PROTOCOL}&client=js&version=8.3.0&flash=false`);
       const channels = [
@@ -102,7 +103,11 @@ export class KchatPusher implements Listener {
         typeof me.user_id === 'number' || typeof me.user_id === 'string' ? `presence-user.${me.user_id}` : null,
         typeof me.id === 'string' ? `presence-teamUser.${me.id}` : null,
       ].filter((c): c is string => c !== null);
-      for (const channel of channels) await this.join(channel);
+      for (const channel of channels) {
+        this.stillWanted();
+        await this.join(channel);
+      }
+      this.stillWanted();
     } catch (e) {
       this.ws?.close();
       this.cleanUp();
@@ -126,6 +131,11 @@ export class KchatPusher implements Listener {
       }
       return false;
     }
+  }
+
+  /** `close()` while connecting: what follows must not open or keep a socket. */
+  private stillWanted(): void {
+    if (this.closedOnPurpose) throw new KchatPusherError('Closed while connecting.');
   }
 
   close(): void {

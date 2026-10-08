@@ -17,6 +17,8 @@ const NETWORK_RETRY_DELAY: Duration = Duration::from_millis(400);
 // Spread added to 429 retries, so that concurrent calls sharing the same
 // `x-ratelimit-reset` do not wake up on the same millisecond and collide again.
 const RATE_LIMIT_JITTER_MS: u64 = 500;
+/// Below this a reset value is a count of seconds, not an instant (2001 in epoch ms).
+const EPOCH_MS_FLOOR: i64 = 1_000_000_000_000;
 
 const TWO_FACTOR_METHODS: [&str; 3] = ["totp", "email", "password"];
 
@@ -479,10 +481,15 @@ pub(crate) fn interpret_mattermost(path: &str, status: u16, text: &str, plain: b
     })
 }
 
+/// Rocket.Chat's `x-ratelimit-reset` is an instant in epoch milliseconds,
+/// Mattermost's the seconds left until the reset.
 fn delay_after_429(reset: Option<&reqwest::header::HeaderValue>, attempt: u32) -> Duration {
     let now = chrono::Utc::now().timestamp_millis();
-    let wait =
-        reset.and_then(|h| h.to_str().ok()).and_then(|s| s.parse::<i64>().ok()).map(|reset| reset - now).unwrap_or(0);
+    let wait = reset
+        .and_then(|h| h.to_str().ok())
+        .and_then(|s| s.parse::<i64>().ok())
+        .map(|reset| if reset < EPOCH_MS_FLOOR { reset * 1000 } else { reset - now })
+        .unwrap_or(0);
     let base = if wait > 0 { wait + 250 } else { 1000 << attempt };
     let jitter = fastrand::u64(0..RATE_LIMIT_JITTER_MS) as i64;
     Duration::from_millis((base + jitter).min(MAX_RETRY_DELAY_MS) as u64)

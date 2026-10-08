@@ -1598,13 +1598,13 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/rest.rs",
-      "line": 367,
+      "line": 369,
       "kind": "url",
       "surface": "/api/v1"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/rest.rs",
-      "line": 368,
+      "line": 370,
       "kind": "url",
       "surface": "/api/v4"
     },

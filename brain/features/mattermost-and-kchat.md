@@ -4,8 +4,9 @@ The three apps sign in to a Mattermost server, or to kChat (Infomaniak's
 Mattermost), next to their Rocket.Chat and RocketVibe accounts: rooms, history,
 threads, live messages, unread counts, who types (received only, as on
 Rocket.Chat), presence, sending text and files, reactions, edits, deletions,
-pins, stars (Mattermost's flagged posts), search in a room, room info and
-profiles. Push, custom emoji, calls, quotes, favourites and E2EE are not mapped.
+pins, stars (Mattermost's flagged posts), favourites and my own sidebar
+categories as room-list sections, search in a room, room info and profiles.
+Push, custom emoji, calls, quotes and E2EE are not mapped.
 A DM shows its unread count, never mentions: Mattermost counts every DM message
 in `mention_count`.
 
@@ -66,6 +67,14 @@ Rocket.Chat call fails cleanly instead of hitting the wrong server.
   so the existing `TypingEngine` and `PresenceEngine` read them; presence is
   read once per connection by `Provider.loadPresence` (`POST /users/status/ids`
   for the users the directory knows).
+- Sidebar categories: `MmCategories` (`providers/mattermost/categories.ts`) reads
+  each team's categories at every global catch-up and on any
+  `sidebar_category_*` event (which carry none, `MmLive.regroup` then rewrites
+  every membership). `MmTranslator.toSubscription` takes the room's placement:
+  `favorite`, and for a category of my own `groupId`, `groupName`, plus
+  `groupRank`, its position in my sidebar order (team index × 1000 + position).
+  Favouriting a room is the `favorite_channel` preference
+  (`MmActions.roomFavorite`). See [room-list](room-list.md).
 - Both hand each event to `MmLive.expand` (`providers/mattermost/live.ts`), which
   does the asynchronous part (unknown users, an unknown channel, the post behind a
   reaction) and turns one event into `mm:*` envelopes: a new post becomes the
@@ -128,8 +137,7 @@ things the open-source clients did not say: `pending_post_id` must be
 `id` (`MmClient` `plainErrors`, `RestClient::kchat`). The OAuth sign-in follows
 Infomaniak's open-source clients and has not been run yet. A kChat
 account has no push for a third-party app (Infomaniak's proxy routes to its own
-app id). Favourites (Mattermost sidebar categories) and room settings are not
-mapped. Who types is received, not sent, as on Rocket.Chat.
+app id). Room settings are not mapped. Who types is received, not sent, as on Rocket.Chat.
 
 ## Desktop
 
@@ -169,6 +177,12 @@ there, so the UIs read the same store:
   post id through an instant-to-id index, `since=` room catch-up, kChat's
   `deleted_posts`), stars from the `flagged_post` preferences. `SyncEngine`
   delegates its public methods to it.
+- Sidebar categories: `mattermost::categories::load` at each global catch-up and
+  on `sidebar_category_*` (`MmSync::regroup` rewrites every membership);
+  `categories::place` sets `favorite`, `group_id`, `group_name`, `group_rank` on
+  the subscription, as on mobile. `Session::set_favorite` writes the
+  `favorite_channel` preference (`mattermost::actions::favorite`) and moves the
+  room at once (`MmSync::note_favorite`) until the server's event arrives.
 - `mattermost::socket`: one actor for both dialects, Mattermost's
   `authentication_challenge` or kChat's Pusher (`mattermost::pusher`), a ping every
   30 s, `Lost` after 75 s of silence, the reconnection back-off of DDP.

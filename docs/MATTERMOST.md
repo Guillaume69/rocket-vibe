@@ -225,6 +225,33 @@ post id.
 - Live: `preferences_changed` / `preferences_deleted`, `data.preferences` a
   JSON-encoded array.
 
+### 4.8 Sidebar categories and favourites [probed]
+
+My sidebar (Mattermost 5.32+, kChat alike) is a list of categories per team:
+`GET /users/me/teams`, then for each team
+`GET /users/me/teams/<team>/channels/categories` →
+`{categories: [{id, type, display_name, channel_ids, sorting, collapsed, muted}], order: [category ids]}`.
+
+- `type`: `favorites`, `channels`, `direct_messages`, or `custom` (a category of
+  my own, named by `display_name`). A channel sits in exactly one category of
+  its team.
+- A DM or group DM belongs to no team and appears in every team's categories:
+  the first team that lists it places it.
+- The apps list Unread first (their own section), then one section per
+  category in `order`, favourites mapped to the Favourites section, `channels`
+  and `direct_messages` to the usual ones. Within a section the order stays
+  latest activity first: `sorting` is not followed. `collapsed` and `muted` are
+  not read: folding stays local.
+- Favourite a room: `PUT /users/me/preferences`
+  `[{user_id, category: "favorite_channel", name: channelId, value: "true"}]`;
+  `"false"` takes it out. The server moves the room into the Favorites category
+  and back into `channels` / `direct_messages` (not into the custom category it
+  came from) [probed on 11.11].
+- Live: `sidebar_category_created`, `_updated`, `_deleted`, `_order_updated`
+  carry no categories (`data: {}` on 11.11): read them again and rewrite every
+  membership. A favourite also sends `preferences_changed` (`favorite_channel`).
+- A server without the route answers 404: the rooms keep the default sections.
+
 ## 5. Real time
 
 ### 5.1 Mattermost WebSocket [probed]
@@ -289,7 +316,8 @@ kChat replaced the WebSocket with the **Pusher protocol**:
 | `status_change` | `data.user_id`, `data.status`: `online`, `away`, `dnd` (busy), `offline` |
 | `user_updated` | `data.user`; a new `last_picture_update` versions the photo |
 | `preferences_changed`, `preferences_deleted` | stars (4.7) |
-| `hello`, `thread_*`, `sidebar_*`, `config_changed`, `license_changed`, `plugin_statuses_changed`, `badge_updated` (kChat) | ignored |
+| `sidebar_category_created`, `sidebar_category_updated`, `sidebar_category_deleted`, `sidebar_category_order_updated` | categories (4.8) |
+| `hello`, `thread_*`, `config_changed`, `license_changed`, `plugin_statuses_changed`, `badge_updated` (kChat) | ignored |
 
 Presence snapshot at each connection: `POST /users/status/ids` with known user
 ids, `[{user_id, status}]`.
@@ -339,6 +367,7 @@ refuses an oversize file with 413.
 | Edit | `PUT /posts/<id>/patch {message}`, answers the post |
 | Delete | `DELETE /posts/<id>` |
 | Pin / unpin | `POST /posts/<id>/pin` / `/unpin`; list `GET /channels/<id>/pinned` |
+| Favourite a room | `PUT /users/me/preferences [{user_id, category: "favorite_channel", name: channelId, value: "true" \| "false"}]` (4.8) |
 | Open a DM | `POST /channels/direct [myId, otherId]` (idempotent) |
 | Join a channel | `POST /channels/<id>/members {user_id}` |
 | Search a room | `POST /teams/<team>/posts/search {terms, is_or_search: false, page: 0, per_page: 60}`, keep the room's posts. A DM has no team: use any team of mine (`GET /users/me/teams`) |
@@ -366,7 +395,7 @@ refuses an oversize file with 413.
 ## 8. Not mapped
 
 Push (a third-party app gets none on kChat: Infomaniak's proxy routes to its own
-app id), custom emoji, calls, quotes, favourites (sidebar categories), room
+app id), custom emoji, calls, quotes, room
 settings and roles, end-to-end encryption, sending who types.
 
 ## 9. Validating an implementation

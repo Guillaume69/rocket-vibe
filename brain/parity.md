@@ -26,7 +26,7 @@ beta does.
 | Session in the system keychain, resumed at launch; a 401 on an authenticated call signs out | done | done | done | |
 | Server probe before login (`/api/info`, `settings.public`) | done | done | done | |
 | Choose the server type at sign-in (automatic, Rocket.Chat, RocketVibe) | done | done | done | SwiftUI checked by the Linux build of RocketVibeKit and the macOS CI build only. |
-| Mattermost server: login with MFA, rooms, history, threads, live messages, unread, who types, presence, text and files, reactions, edits, deletions, pins, stars, search - [mattermost-and-kchat](features/mattermost-and-kchat.md) | done | done | done | Push, custom emoji, quotes and favourites are not mapped on that server. SwiftUI: only the sign-in picker is Swift, checked by the macOS CI build. |
+| Mattermost server: login with MFA, rooms, history, threads, live messages, unread, who types, presence, text and files, reactions, edits, deletions, pins, stars, search - [mattermost-and-kchat](features/mattermost-and-kchat.md) | done | done | done | Push, custom emoji and quotes are not mapped on that server. SwiftUI: only the sign-in picker is Swift, checked by the macOS CI build. |
 | kChat server (Infomaniak): Infomaniak sign-in or API token, Pusher real time, team servers of the account | partial | partial | partial | Run on a real kChat account with an API token (mobile on the emulator, desktop core through `kchat-smoke`, GTK and SwiftUI on that same core). Mobile: "Sign in with Infomaniak" not yet run. GTK, SwiftUI: API token only, no "Sign in with Infomaniak" (its redirect is a custom URL scheme the desktop apps do not register). |
 | Known servers offered on the login screen | done | done | done | |
 | Several servers side by side, switch without signing out | done | done | done | One database per (server, account) everywhere. |
@@ -45,6 +45,7 @@ beta does.
 | Encrypted rooms: padlock tile, "Encrypted message" preview | done | partial | partial | Desktop keeps the padlock tile once unlocked; mobile switches back to the room's tile. |
 | Sync indicator while connecting or loading | done | done | done | |
 | Sections: Unread, Favourites, Channels, Direct messages | done | done | done | |
+| Mattermost and kChat sidebar categories as sections, in my sidebar order | done | done | done | SwiftUI: the view is checked by the macOS CI build only. Within a category the order stays latest activity first, not the server's manual or alphabetical sort. |
 | Presence dot on DMs (`users.presence`, `user-status`) | done | done | done | |
 | System and video-call messages translated in previews | done | done | done | |
 | New conversation: `spotlight`, open a DM (`im.create`), join a channel (`channels.join`) | done | done | done | |

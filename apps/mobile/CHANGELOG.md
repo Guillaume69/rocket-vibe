@@ -40,6 +40,9 @@ release, and its notes are that version's section here.
 - kChat (Infomaniak): choose kChat, no address to type, then sign in with your
   Infomaniak account in the browser or paste an Infomaniak API token, and pick your
   kChat server when the account has several.
+- Mattermost and kChat: the room list follows your sidebar, with your own categories as
+  sections in your order and your favourites; favouriting a room from its information
+  updates the server's sidebar too.
 - The login screen's server type picker offers Mattermost and kChat; in automatic mode
   a Mattermost server and a kChat address are recognised on their own.
 ### Fixed

@@ -37,6 +37,9 @@ section here.
   profiles. Push and custom emoji are not available on these servers.
 - kChat (Infomaniak): choose kChat and paste an Infomaniak API token; no address to
   type. An account with several kChat servers is asked which one.
+- Mattermost and kChat: the room list follows your sidebar, with your own categories as
+  sections in your order and your favourites; a right click on a room favourites it on
+  the server too.
 - The sign-in screen's server type offers Mattermost and kChat; in automatic mode both
   are recognised on their own.
 

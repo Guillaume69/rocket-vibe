@@ -338,6 +338,7 @@ type RawOutbox = {
   thread_id: string | null;
   status: 'pending' | 'failed';
   attempts: number;
+  created_at: number;
 };
 
 export function createOutboxStore(raw: SQLiteDatabase, serially: WriteQueue): OutboxStore {
@@ -359,6 +360,7 @@ export function createOutboxStore(raw: SQLiteDatabase, serially: WriteQueue): Ou
         threadId: l.thread_id,
         status: l.status,
         attempts: l.attempts,
+        createdAt: l.created_at,
       }));
     },
     markFailed(id, error) {

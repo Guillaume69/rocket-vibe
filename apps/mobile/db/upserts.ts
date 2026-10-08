@@ -490,7 +490,7 @@ VALUES (?, ?, ?, ?, 'pending', 0, NULL, ?)
 export const ROOM_ENCRYPTED = `SELECT encrypted FROM rooms WHERE rid = ?`;
 
 export const LIST_OUTBOX_TO_SEND = `
-SELECT id, rid, text, thread_id, status, attempts FROM outbox
+SELECT id, rid, text, thread_id, status, attempts, created_at FROM outbox
 WHERE status IN ('pending', 'failed') ORDER BY created_at
 `;
 

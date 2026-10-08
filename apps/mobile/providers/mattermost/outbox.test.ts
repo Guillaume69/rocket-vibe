@@ -11,7 +11,7 @@ function outboxStore() {
   const rows = new Map<string, OutboxRow>();
   const messages = new Map<string, LocalMessage>();
   const store: OutboxStore = {
-    insertOutbox: async (id, rid, text, threadId) => void rows.set(id, { id, rid, text, threadId, status: 'pending', attempts: 0 }),
+    insertOutbox: async (id, rid, text, threadId) => void rows.set(id, { id, rid, text, threadId, status: 'pending', attempts: 0, createdAt: Date.now() }),
     listToSend: async () => [...rows.values()].filter((r) => r.status === 'pending'),
     markFailed: async (id) => {
       const row = rows.get(id);
@@ -73,7 +73,7 @@ describe('MmOutbox', () => {
   test('a refusal is checked against the room: a post of mine with the same text means delivered', async () => {
     const { outbox, ingested, rows } = setup((call) => {
       if (call.method === 'POST') return { status: 500, body: { id: 'app.post.save.app_error', message: 'boom' } };
-      return { body: postList([post('real1', { user_id: 'u-me', message: 'hi' })]) };
+      return { body: postList([post('real1', { user_id: 'u-me', message: 'hi', create_at: Date.now() })]) };
     });
     await outbox.send('ch1', 'hi');
     assert.equal(ingested[0]?.id, 'real1');

@@ -180,12 +180,12 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/media.rs:215](../../apps/desktop/crates/rv-core/src/media.rs#L215) | call:FETCH_PROTECTED | &self.server_path(path_or_url)?).await?; |
 | [apps/desktop/crates/rv-core/src/native/bots.rs:261](../../apps/desktop/crates/rv-core/src/native/bots.rs#L261) | url | /api/v1/rooms |
 | [apps/desktop/crates/rv-core/src/native/workflows.rs:324](../../apps/desktop/crates/rv-core/src/native/workflows.rs#L324) | url | /api/v1/hooks |
-| [apps/desktop/crates/rv-core/src/outbox.rs:118](../../apps/desktop/crates/rv-core/src/outbox.rs#L118) | call:POST | "chat.sendMessage" |
-| [apps/desktop/crates/rv-core/src/outbox.rs:118](../../apps/desktop/crates/rv-core/src/outbox.rs#L118) | endpoint | chat.sendMessage |
-| [apps/desktop/crates/rv-core/src/outbox.rs:169](../../apps/desktop/crates/rv-core/src/outbox.rs#L169) | call:POST | "posts" |
-| [apps/desktop/crates/rv-core/src/outbox.rs:192](../../apps/desktop/crates/rv-core/src/outbox.rs#L192) | call:GET | &format!("channels/{…}/posts", entry.rid), options).await { |
-| [apps/desktop/crates/rv-core/src/outbox.rs:208](../../apps/desktop/crates/rv-core/src/outbox.rs#L208) | call:GET | "chat.getMessage" |
-| [apps/desktop/crates/rv-core/src/outbox.rs:208](../../apps/desktop/crates/rv-core/src/outbox.rs#L208) | endpoint | chat.getMessage |
+| [apps/desktop/crates/rv-core/src/outbox.rs:120](../../apps/desktop/crates/rv-core/src/outbox.rs#L120) | call:POST | "chat.sendMessage" |
+| [apps/desktop/crates/rv-core/src/outbox.rs:120](../../apps/desktop/crates/rv-core/src/outbox.rs#L120) | endpoint | chat.sendMessage |
+| [apps/desktop/crates/rv-core/src/outbox.rs:171](../../apps/desktop/crates/rv-core/src/outbox.rs#L171) | call:POST | "posts" |
+| [apps/desktop/crates/rv-core/src/outbox.rs:195](../../apps/desktop/crates/rv-core/src/outbox.rs#L195) | call:GET | &format!("channels/{…}/posts", entry.rid), options).await { |
+| [apps/desktop/crates/rv-core/src/outbox.rs:214](../../apps/desktop/crates/rv-core/src/outbox.rs#L214) | call:GET | "chat.getMessage" |
+| [apps/desktop/crates/rv-core/src/outbox.rs:214](../../apps/desktop/crates/rv-core/src/outbox.rs#L214) | endpoint | chat.getMessage |
 | [apps/desktop/crates/rv-core/src/rest.rs:367](../../apps/desktop/crates/rv-core/src/rest.rs#L367) | url | /api/v1 |
 | [apps/desktop/crates/rv-core/src/rest.rs:368](../../apps/desktop/crates/rv-core/src/rest.rs#L368) | url | /api/v4 |
 | [apps/desktop/crates/rv-core/src/server.rs:121](../../apps/desktop/crates/rv-core/src/server.rs#L121) | call:GET | "api/info", info), rest.get("settings.public", settings)); |
@@ -243,8 +243,8 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/session.rs:1356](../../apps/desktop/crates/rv-core/src/session.rs#L1356) | endpoint | chat.getMessage |
 | [apps/desktop/crates/rv-core/src/session.rs:1367](../../apps/desktop/crates/rv-core/src/session.rs#L1367) | call:GET | "chat.getThreadMessages", options).await?; |
 | [apps/desktop/crates/rv-core/src/session.rs:1367](../../apps/desktop/crates/rv-core/src/session.rs#L1367) | endpoint | chat.getThreadMessages |
-| [apps/desktop/crates/rv-core/src/store.rs:333](../../apps/desktop/crates/rv-core/src/store.rs#L333) | resource | /file-upload/{…}/% |
-| [apps/desktop/crates/rv-core/src/store.rs:334](../../apps/desktop/crates/rv-core/src/store.rs#L334) | url | /api/v4/files/{…} |
+| [apps/desktop/crates/rv-core/src/store.rs:334](../../apps/desktop/crates/rv-core/src/store.rs#L334) | resource | /file-upload/{…}/% |
+| [apps/desktop/crates/rv-core/src/store.rs:335](../../apps/desktop/crates/rv-core/src/store.rs#L335) | url | /api/v4/files/{…} |
 | [apps/desktop/crates/rv-core/src/sync.rs:14](../../apps/desktop/crates/rv-core/src/sync.rs#L14) | stream | stream-room-messages |
 | [apps/desktop/crates/rv-core/src/sync.rs:15](../../apps/desktop/crates/rv-core/src/sync.rs#L15) | stream | stream-notify-user |
 | [apps/desktop/crates/rv-core/src/sync.rs:16](../../apps/desktop/crates/rv-core/src/sync.rs#L16) | stream | stream-notify-room |
@@ -463,10 +463,10 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/lib/myProfile.ts:120](../../apps/mobile/lib/myProfile.ts#L120) | endpoint | users.setStatus |
 | [apps/mobile/lib/myProfile.ts:141](../../apps/mobile/lib/myProfile.ts#L141) | call:POST | 'users.updateOwnBasicInfo' |
 | [apps/mobile/lib/myProfile.ts:142](../../apps/mobile/lib/myProfile.ts#L142) | endpoint | users.updateOwnBasicInfo |
-| [apps/mobile/lib/outbox.ts:168](../../apps/mobile/lib/outbox.ts#L168) | call:POST | 'chat.sendMessage' |
-| [apps/mobile/lib/outbox.ts:168](../../apps/mobile/lib/outbox.ts#L168) | endpoint | chat.sendMessage |
-| [apps/mobile/lib/outbox.ts:239](../../apps/mobile/lib/outbox.ts#L239) | call:GET | 'chat.getMessage' |
-| [apps/mobile/lib/outbox.ts:240](../../apps/mobile/lib/outbox.ts#L240) | endpoint | chat.getMessage |
+| [apps/mobile/lib/outbox.ts:169](../../apps/mobile/lib/outbox.ts#L169) | call:POST | 'chat.sendMessage' |
+| [apps/mobile/lib/outbox.ts:169](../../apps/mobile/lib/outbox.ts#L169) | endpoint | chat.sendMessage |
+| [apps/mobile/lib/outbox.ts:240](../../apps/mobile/lib/outbox.ts#L240) | call:GET | 'chat.getMessage' |
+| [apps/mobile/lib/outbox.ts:241](../../apps/mobile/lib/outbox.ts#L241) | endpoint | chat.getMessage |
 | [apps/mobile/lib/permissions.ts:27](../../apps/mobile/lib/permissions.ts#L27) | call:GET | 'permissions.listAll' |
 | [apps/mobile/lib/permissions.ts:27](../../apps/mobile/lib/permissions.ts#L27) | endpoint | permissions.listAll |
 | [apps/mobile/lib/permissions.ts:28](../../apps/mobile/lib/permissions.ts#L28) | call:GET | 'me' |

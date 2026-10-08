@@ -12,7 +12,7 @@
  */
 
 import type { LocalMessage } from '../../lib/normalize.ts';
-import type { OutboxStore } from '../../lib/outbox.ts';
+import type { OutboxRow, OutboxStore } from '../../lib/outbox.ts';
 import type { Ingest, Outbox } from '../../lib/provider.ts';
 import { MmError, type MmClient } from './client.ts';
 import { ordered } from './history.ts';
@@ -29,6 +29,7 @@ export function pendingPostId(myId: string, clientId: string): string {
   return `${myId}:${hex === '' ? '0' : BigInt(`0x${hex}`).toString()}`;
 }
 const CHECK_DEPTH = 30;
+const CLOCK_SKEW_MS = 120_000;
 
 export class MmOutbox implements Outbox {
   private readonly store: OutboxStore;
@@ -117,7 +118,7 @@ export class MmOutbox implements Outbox {
         await this.delivered(row.id, post);
       } catch (e) {
         if (e instanceof MmError && e.status === 0) return false;
-        const found = await this.findMine(row.rid, row.text, row.threadId);
+        const found = await this.findMine(row);
         if (found === UNKNOWN) return false;
         if (found !== null) {
           await this.delivered(row.id, found);
@@ -135,19 +136,22 @@ export class MmOutbox implements Outbox {
     await this.store.deleteOptimisticMessage(localId);
   }
 
-  private async findMine(
-    rid: string,
-    text: string,
-    threadId: string | null,
-  ): Promise<Record<string, unknown> | typeof UNKNOWN | null> {
+  /** A post of mine with the same text, made since this row was queued: an older identical one is not it. */
+  private async findMine(row: OutboxRow): Promise<Record<string, unknown> | typeof UNKNOWN | null> {
     try {
       const list = await this.client.get<{ order?: string[]; posts?: Record<string, Record<string, unknown>> }>(
-        `/channels/${rid}/posts`,
+        `/channels/${row.rid}/posts`,
         { query: { per_page: CHECK_DEPTH } },
       );
+      const since = row.createdAt - CLOCK_SKEW_MS;
       return (
         ordered(list).find(
-          (p) => p.user_id === this.me.id && p.message === text && (p.root_id || null) === (threadId ?? null),
+          (p) =>
+            p.user_id === this.me.id &&
+            p.message === row.text &&
+            (p.root_id || null) === (row.threadId ?? null) &&
+            typeof p.create_at === 'number' &&
+            p.create_at >= since,
         ) ?? null
       );
     } catch (e) {

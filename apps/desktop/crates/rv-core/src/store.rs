@@ -23,6 +23,7 @@ pub struct OutboxEntry {
     pub rid: String,
     pub text: String,
     pub thread_id: Option<String>,
+    pub created_at: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -433,10 +434,16 @@ impl Store {
     pub fn pending_outbox(&self) -> Vec<OutboxEntry> {
         self.read(|c| {
             let mut q = c.prepare(
-                "SELECT id, rid, text, thread_id FROM outbox WHERE status = 'pending' ORDER BY created_at, id",
+                "SELECT id, rid, text, thread_id, CAST(created_at AS INTEGER) FROM outbox WHERE status = 'pending' ORDER BY created_at, id",
             )?;
             q.query_map([], |r| {
-                Ok(OutboxEntry { id: r.get(0)?, rid: r.get(1)?, text: r.get(2)?, thread_id: r.get(3)? })
+                Ok(OutboxEntry {
+                    id: r.get(0)?,
+                    rid: r.get(1)?,
+                    text: r.get(2)?,
+                    thread_id: r.get(3)?,
+                    created_at: r.get(4)?,
+                })
             })?
             .collect()
         })

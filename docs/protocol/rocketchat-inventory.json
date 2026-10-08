@@ -1562,37 +1562,37 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/outbox.rs",
-      "line": 118,
+      "line": 120,
       "kind": "call:POST",
       "surface": "\"chat.sendMessage\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/outbox.rs",
-      "line": 118,
+      "line": 120,
       "kind": "endpoint",
       "surface": "chat.sendMessage"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/outbox.rs",
-      "line": 169,
+      "line": 171,
       "kind": "call:POST",
       "surface": "\"posts\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/outbox.rs",
-      "line": 192,
+      "line": 195,
       "kind": "call:GET",
       "surface": "&format!(\"channels/{…}/posts\", entry.rid), options).await {"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/outbox.rs",
-      "line": 208,
+      "line": 214,
       "kind": "call:GET",
       "surface": "\"chat.getMessage\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/outbox.rs",
-      "line": 208,
+      "line": 214,
       "kind": "endpoint",
       "surface": "chat.getMessage"
     },
@@ -1940,13 +1940,13 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/store.rs",
-      "line": 333,
+      "line": 334,
       "kind": "resource",
       "surface": "/file-upload/{…}/%"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/store.rs",
-      "line": 334,
+      "line": 335,
       "kind": "url",
       "surface": "/api/v4/files/{…}"
     },
@@ -3260,25 +3260,25 @@
     },
     {
       "file": "apps/mobile/lib/outbox.ts",
-      "line": 168,
+      "line": 169,
       "kind": "call:POST",
       "surface": "'chat.sendMessage'"
     },
     {
       "file": "apps/mobile/lib/outbox.ts",
-      "line": 168,
+      "line": 169,
       "kind": "endpoint",
       "surface": "chat.sendMessage"
     },
     {
       "file": "apps/mobile/lib/outbox.ts",
-      "line": 239,
+      "line": 240,
       "kind": "call:GET",
       "surface": "'chat.getMessage'"
     },
     {
       "file": "apps/mobile/lib/outbox.ts",
-      "line": 240,
+      "line": 241,
       "kind": "endpoint",
       "surface": "chat.getMessage"
     },

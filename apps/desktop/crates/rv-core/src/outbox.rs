@@ -8,6 +8,8 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+const CLOCK_SKEW_MS: i64 = 120_000;
+
 use serde_json::{Value, json};
 
 use crate::mattermost::sync::MmSync;
@@ -187,6 +189,7 @@ impl Outbox {
         true
     }
 
+    /// A post of mine with the same text, made since this row was queued: an older identical one is not it.
     async fn mine_on_server(&self, entry: &crate::store::OutboxEntry) -> Delivered {
         let options = CallOptions::params([("per_page", "30")]);
         match self.rest.get(&format!("channels/{}/posts", entry.rid), options).await {
@@ -197,6 +200,9 @@ impl Outbox {
                     field("user_id") == Some(self.me_id.as_str())
                         && field("message") == Some(entry.text.as_str())
                         && field("root_id") == entry.thread_id.as_deref()
+                        && p.get("create_at")
+                            .and_then(Value::as_i64)
+                            .is_some_and(|at| at >= entry.created_at - CLOCK_SKEW_MS)
                 })
                 .map_or(Delivered::No, Delivered::Yes),
             Err(e) if e.status == 0 || e.status == 429 => Delivered::Unknown,

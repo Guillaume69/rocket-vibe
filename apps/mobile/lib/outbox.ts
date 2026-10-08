@@ -32,6 +32,7 @@ export type OutboxRow = {
   threadId: string | null;
   status: 'pending' | 'failed';
   attempts: number;
+  createdAt: number;
 };
 
 export interface OutboxStore {

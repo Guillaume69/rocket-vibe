@@ -928,6 +928,12 @@ function StepEditor({ c, step, trigger, variables, rooms, people, busy, roomName
                 />
               )}
               {field.kind === 'person' && <PeoplePicker c={c} people={people} value={field.people ?? []} disabled={busy} onChange={(chosen) => setField(i, { ...field, people: chosen })} />}
+              {(field.kind === 'choice' || field.kind === 'person') && (
+                <>
+                  <Toggle c={c} label={t('workflows.multiple')} value={field.multiple === true} disabled={busy} onChange={(multiple) => setField(i, { ...field, multiple })} />
+                  <Text style={[styles.hint, { color: c.dimmed }]}>{t('workflows.multipleHint')}</Text>
+                </>
+              )}
               <Toggle c={c} label={t('workflows.required')} value={field.required === true} disabled={busy} onChange={(required) => setField(i, { ...field, required })} />
               {fields.length > 1 && <Action c={c} label={t('workflows.removeField')} danger disabled={busy} onPress={() => onChange({ ...step, fields: removeAt(fields, i) })} />}
             </View>

@@ -42,7 +42,7 @@ export default function AnswerFormScreen() {
   // `undefined` while reading, `null` when there is no form to answer.
   const [form, setForm] = useState<WorkflowForm | null | undefined>(undefined);
   const [room, setRoom] = useState<string | null>(null);
-  const [values, setValues] = useState<Record<string, string>>({});
+  const [values, setValues] = useState<Record<string, string | readonly string[]>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // One answer intent per filled sheet: a retry after a lost answer replays
@@ -83,7 +83,7 @@ export default function AnswerFormScreen() {
   const [openedAt] = useState(() => Date.now());
   const open = form != null && formState(form, me, openedAt) === 'answer';
 
-  const change = (field: string, value: string) => {
+  const change = (field: string, value: string | readonly string[]) => {
     operation.current = null;
     setError(null);
     setValues((v) => ({ ...v, [field]: value }));
@@ -141,8 +141,10 @@ export default function AnswerFormScreen() {
                   disabled={busy}
                   onChange={(value) => change(field.id, value)}
                 />
+              ) : field.kind === 'choice' && field.multiple === true ? (
+                <ChoicesInput key={field.id} c={c} field={field} value={values[field.id] ?? []} disabled={busy} onChange={(value) => change(field.id, value)} />
               ) : (
-                <FieldInput key={field.id} c={c} field={field} value={values[field.id] ?? ''} disabled={busy} onChange={(value) => change(field.id, value)} />
+                <FieldInput key={field.id} c={c} field={field} value={single(values[field.id])} disabled={busy} onChange={(value) => change(field.id, value)} />
               )
             ))}
           {error !== null && (
@@ -166,6 +168,44 @@ export default function AnswerFormScreen() {
         </>
       )}
     </ScrollView>
+  );
+}
+
+/** The one value of a single-answer field. */
+function single(value: string | readonly string[] | undefined): string {
+  return typeof value === 'string' ? value : '';
+}
+
+/** The ticked values: a value toggled in or out, in the order given. */
+function toggled(value: string | readonly string[], item: string): string[] {
+  const list = typeof value === 'string' ? [] : [...value];
+  return list.includes(item) ? list.filter((v) => v !== item) : [...list, item];
+}
+
+/** A choice taking several answers: one checkbox per option. */
+function ChoicesInput({ c, field, value, disabled, onChange }: { c: Colors; field: FormField; value: string | readonly string[]; disabled: boolean; onChange: (value: string[]) => void }) {
+  const t = useT();
+  const label = `${field.label}${field.required === true ? ' *' : ''}`;
+  const picked = typeof value === 'string' ? [] : value;
+  return (
+    <View style={styles.field}>
+      <Text style={[styles.label, { color: c.secondaryText }]}>{label}</Text>
+      <View accessibilityLabel={label}>
+        {(field.options ?? []).map((option) => (
+          <CheckRow key={option} c={c} label={option} on={picked.includes(option)} disabled={disabled} onPress={() => onChange(toggled(value, option))} />
+        ))}
+      </View>
+      {picked.length === 0 && <Text style={[styles.hint, { color: c.dimmed }]}>{t('forms.chooseSeveral')}</Text>}
+    </View>
+  );
+}
+
+function CheckRow({ c, label, on, disabled, onPress, children }: { c: Colors; label?: string; on: boolean; disabled: boolean; onPress: () => void; children?: React.ReactNode }) {
+  return (
+    <Tappable disabled={disabled} accessibilityRole="checkbox" accessibilityState={{ checked: on, disabled }} onPress={onPress} style={styles.option}>
+      <Text style={[styles.check, { color: on ? c.accent : c.dimmed }]}>{on ? '☑' : '☐'}</Text>
+      {children ?? <Text style={[styles.text, styles.grow, { color: c.text }]}>{label}</Text>}
+    </Tappable>
   );
 }
 
@@ -226,13 +266,15 @@ function PersonInput({ c, field, named, chat, room, value, disabled, onChange }:
   named: readonly User[];
   chat: NativeChat | null;
   room: string | null;
-  value: string;
+  value: string | readonly string[];
   disabled: boolean;
-  onChange: (value: string) => void;
+  onChange: (value: string | string[]) => void;
 }) {
   const t = useT();
   const label = `${field.label}${field.required === true ? ' *' : ''}`;
   const fixed = field.people ?? [];
+  const several = field.multiple === true;
+  const picked = typeof value === 'string' ? (value === '' ? [] : [value]) : value;
   const [members, setMembers] = useState<User[] | null | undefined>(fixed.length > 0 ? null : undefined);
   const [search, setSearch] = useState('');
   useEffect(() => {
@@ -267,7 +309,8 @@ function PersonInput({ c, field, named, chat, room, value, disabled, onChange }:
   const candidates = fixed.length > 0 ? fixed.flatMap((id) => named.filter((u) => u.id === id)) : (members ?? []);
   const query = search.trim().toLowerCase();
   const shown = (query === '' ? candidates : candidates.filter((u) => u.username.toLowerCase().includes(query) || u.display_name.toLowerCase().includes(query))).slice(0, 50);
-  const chosen = candidates.find((u) => u.id === value);
+  // The picked ones stay in sight while the search moves on.
+  const kept = candidates.filter((u) => picked.includes(u.id) && !shown.includes(u));
   return (
     <View style={styles.field}>
       <Text style={[styles.label, { color: c.secondaryText }]}>{label}</Text>
@@ -286,18 +329,20 @@ function PersonInput({ c, field, named, chat, room, value, disabled, onChange }:
           onChangeText={setSearch}
         />
       )}
-      <View accessibilityRole="radiogroup" accessibilityLabel={label}>
-        {/* The chosen one stays in sight while the search moves on. */}
-        {chosen !== undefined && !shown.includes(chosen) && (
-          <PersonRow c={c} user={chosen} on disabled={disabled} onPress={() => onChange(field.required === true ? chosen.id : '')} />
-        )}
-        {shown.map((u) => {
-          const on = u.id === value;
-          return <PersonRow key={u.id} c={c} user={u} on={on} disabled={disabled} onPress={() => onChange(on && field.required !== true ? '' : u.id)} />;
+      <View accessibilityRole={several ? undefined : 'radiogroup'} accessibilityLabel={label}>
+        {[...kept, ...shown].map((u) => {
+          const on = picked.includes(u.id);
+          return several ? (
+            <CheckRow key={u.id} c={c} on={on} disabled={disabled} onPress={() => onChange(toggled(value, u.id))}>
+              <PersonName c={c} user={u} />
+            </CheckRow>
+          ) : (
+            <PersonRow key={u.id} c={c} user={u} on={on} disabled={disabled} onPress={() => onChange(on && field.required !== true ? '' : u.id)} />
+          );
         })}
       </View>
       {query !== '' && shown.length === 0 && <Text style={[styles.hint, { color: c.dimmed }]}>{t('forms.noPerson')}</Text>}
-      {value === '' && candidates.length > 0 && <Text style={[styles.hint, { color: c.dimmed }]}>{t('forms.choosePerson')}</Text>}
+      {picked.length === 0 && candidates.length > 0 && <Text style={[styles.hint, { color: c.dimmed }]}>{t(several ? 'forms.chooseSeveral' : 'forms.choosePerson')}</Text>}
     </View>
   );
 }
@@ -306,10 +351,16 @@ function PersonRow({ c, user, on, disabled, onPress }: { c: Colors; user: User; 
   return (
     <Tappable disabled={disabled} accessibilityRole="radio" accessibilityState={{ selected: on, disabled }} onPress={onPress} style={styles.option}>
       <Text style={[styles.check, { color: on ? c.accent : c.dimmed }]}>{on ? '◉' : '○'}</Text>
-      <Text style={[styles.text, styles.grow, { color: c.text }]} numberOfLines={1}>
-        {user.display_name || user.username} <Text style={{ color: c.dimmed }}>@{user.username}</Text>
-      </Text>
+      <PersonName c={c} user={user} />
     </Tappable>
+  );
+}
+
+function PersonName({ c, user }: { c: Colors; user: User }) {
+  return (
+    <Text style={[styles.text, styles.grow, { color: c.text }]} numberOfLines={1}>
+      {user.display_name || user.username} <Text style={{ color: c.dimmed }}>@{user.username}</Text>
+    </Text>
   );
 }
 

@@ -303,3 +303,35 @@ describe('reactions, matching messages and person fields', () => {
     }
   });
 });
+
+describe('several answers', () => {
+  const choice = { id: 'tags', label: 'Tags', kind: 'choice' as const, options: ['a', 'b', 'c'], multiple: true, required: true };
+
+  test('ticked boxes go out as a list in the options order, checked against them', () => {
+    assert.deepEqual(answerInput([choice], { tags: ['c', 'a', 'a'] }), { answers: { tags: ['a', 'c'] } });
+    assert.deepEqual(answerInput([choice], { tags: [] }), { field: 'tags', problem: 'required' });
+    assert.deepEqual(answerInput([choice], { tags: ['z'] }), { field: 'tags', problem: 'value' });
+    // A list where one answer is expected is refused.
+    assert.deepEqual(answerInput([{ ...choice, multiple: false }], { tags: ['a'] }), { field: 'tags', problem: 'value' });
+    // Anyone in the room: the server checks who.
+    assert.deepEqual(answerInput([{ id: 'who', label: 'Who', kind: 'person', multiple: true }], { who: ['u2', 'u1'] }), { answers: { who: ['u2', 'u1'] } });
+  });
+
+  test('several answers are kept only on a choice or a person', () => {
+    const step = (kind: 'text' | 'choice'): Step => ({
+      kind: 'form',
+      room: 'trigger',
+      recipient: 'anyone',
+      title: 'T',
+      save_as: 'x',
+      fields: [{ id: 'f', label: 'F', kind, options: kind === 'choice' ? ['a'] : [], multiple: true }],
+    });
+    const field = (s: Step) => (s.kind === 'form' ? s.fields[0] : undefined);
+    assert.equal(field(cleanStep(step('text')))?.multiple, undefined);
+    assert.equal(field(cleanStep(step('choice')))?.multiple, true);
+    const person: Step = { kind: 'form', room: 'trigger', recipient: 'anyone', title: 'T', save_as: 'x', fields: [{ id: 'who', label: 'Who', kind: 'person', multiple: true }] };
+    const names = variablesAt({ kind: 'command', name: 'c' }, [person, { kind: 'message', room: 'trigger', text: '' }], 1);
+    assert.ok(names.includes('x.mentions.who'));
+    assert.ok(!names.includes('x.people.who.display_name'));
+  });
+});

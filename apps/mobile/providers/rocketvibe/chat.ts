@@ -799,7 +799,7 @@ export class NativeChat {
   /** Answers a workflow's form (`Message.form`, `app/answer-form.tsx`); the message
    * comes back answered through sync. `operation` is the sheet's intent, kept
    * across its retries: the same answer again succeeds. */
-  answerForm(message:string,answers:Record<string,string>,operation:string):Promise<void> {
+  answerForm(message:string,answers:Record<string,import('./protocol.generated.ts').FormAnswer>,operation:string):Promise<void> {
     return this.workflows(transport=>transport.answerForm(message,{operation_id:operation,answers}));
   }
   /** A fresh operation id, for an intent a screen keeps across its retries. */

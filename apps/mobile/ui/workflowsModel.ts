@@ -11,6 +11,7 @@
 import type {
   CreateWorkflow,
   Every,
+  FormAnswer,
   FormField,
   FormFieldKind,
   HttpMethod,
@@ -234,7 +235,7 @@ export function variablesAt(trigger: Trigger, steps: readonly Step[], index: num
       for (const field of step.fields) {
         if (!validName(field.id)) continue;
         names.push(`${saved}.answers.${field.id}`);
-        if (field.kind === 'person') names.push(`${saved}.people.${field.id}.display_name`);
+        if (field.kind === 'person') names.push(field.multiple === true ? `${saved}.mentions.${field.id}` : `${saved}.people.${field.id}.display_name`, ...(field.multiple === true ? [] : [`${saved}.mentions.${field.id}`]));
       }
     }
   }
@@ -388,14 +389,16 @@ export function cleanStep(step: Step): Step {
         title: step.title.trim(),
         save_as: step.save_as.trim(),
         fields: step.fields.map((field) => {
-          const { options, people, ...rest } = field;
+          const { options, people, multiple, ...rest } = field;
           const label = rest.label.trim();
+          // Several answers only where there is something to tick.
+          const several = multiple === true && (field.kind === 'choice' || field.kind === 'person') ? { multiple: true } : {};
           if (field.kind === 'choice') {
-            return { ...rest, label, required: rest.required === true, options: (options ?? []).map((o) => o.trim()).filter((o) => o !== '') };
+            return { ...rest, label, required: rest.required === true, options: (options ?? []).map((o) => o.trim()).filter((o) => o !== ''), ...several };
           }
           // A person field without people offers the whole room.
-          if (field.kind === 'person' && people != null && people.length > 0) return { ...rest, label, required: rest.required === true, people: [...people] };
-          return { ...rest, label, required: rest.required === true };
+          if (field.kind === 'person' && people != null && people.length > 0) return { ...rest, label, required: rest.required === true, people: [...people], ...several };
+          return { ...rest, label, required: rest.required === true, ...several };
         }),
       };
   }
@@ -613,11 +616,24 @@ export function formState(form: WorkflowForm, me: string | null, now: number): '
  */
 export function answerInput(
   fields: readonly FormField[],
-  values: Readonly<Record<string, string>>,
-): { answers: Record<string, string> } | { field: string; problem: 'required' | 'value' } {
-  const answers: Record<string, string> = {};
+  values: Readonly<Record<string, string | readonly string[]>>,
+): { answers: Record<string, FormAnswer> } | { field: string; problem: 'required' | 'value' } {
+  const answers: Record<string, FormAnswer> = {};
   for (const field of fields) {
-    const value = (values[field.id] ?? '').trim();
+    const given = values[field.id] ?? '';
+    if (typeof given !== 'string') {
+      // Ticked boxes: in the order the field lists them.
+      const order = field.kind === 'person' && (field.people ?? []).length > 0 ? (field.people ?? []) : field.kind === 'choice' ? (field.options ?? []) : [];
+      const picked = [...new Set(given.map((v) => v.trim()).filter((v) => v !== ''))];
+      if (picked.length === 0) {
+        if (field.required === true) return { field: field.id, problem: 'required' };
+        continue;
+      }
+      if (field.multiple !== true || (order.length > 0 && picked.some((v) => !order.includes(v)))) return { field: field.id, problem: 'value' };
+      answers[field.id] = order.length > 0 ? order.filter((v) => picked.includes(v)) : picked;
+      continue;
+    }
+    const value = given.trim();
     if (value === '') {
       if (field.required === true) return { field: field.id, problem: 'required' };
       continue;

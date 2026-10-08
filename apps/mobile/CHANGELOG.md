@@ -28,7 +28,8 @@ release, and its notes are that version's section here.
   the variables each text may use one tap away. Save, test now, turn off, delete and the
   last 50 runs. A form a workflow posts shows as a card in the room; its recipient, or any
   member, answers it in a native sheet, and the card then says who answered. A form field
-  can ask for a person, among a list picked in the editor or any member of the room. Workflow
+  can ask for a person, among a list picked in the editor or any member of the room, and
+  a choice or a person field can take several answers, ticked as checkboxes. Workflow
   commands appear in the composer's command list of the rooms where they are offered.
 
 ## [0.8.0] - 2026-10-08

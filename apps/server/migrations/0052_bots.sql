@@ -33,7 +33,9 @@ CREATE TABLE bot_keys (
     hint text NOT NULL,
     created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
     -- NULL: never expires (its session carries a far deadline instead).
-    expires_at timestamptz
+    expires_at timestamptz,
+    -- Set by the gate, at most once a minute per key.
+    last_used_at timestamptz
 );
 CREATE INDEX bot_keys_bot ON bot_keys(bot_id);
 

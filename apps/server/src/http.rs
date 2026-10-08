@@ -334,6 +334,12 @@ pub fn router(app: App) -> Router {
         )
         .route("/api/v1/bots/{id}/keys", get(bot_keys).post(create_bot_key))
         .route(
+            "/api/v1/bots/{id}/avatar",
+            put(update_bot_avatar)
+                .delete(reset_bot_avatar)
+                .layer(DefaultBodyLimit::max(crate::profiles::AVATAR_BYTES)),
+        )
+        .route(
             "/api/v1/bots/{id}/keys/{key}",
             axum::routing::delete(revoke_bot_key),
         )
@@ -2603,4 +2609,31 @@ async fn update_admin_settings(
 async fn bot_reference(State(app): State<App>, headers: HeaderMap) -> Result<Response> {
     account(&app, &headers).await?;
     Ok(Json(crate::bots::reference()).into_response())
+}
+async fn update_bot_avatar(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    bytes: std::result::Result<axum::body::Bytes, axum::extract::rejection::BytesRejection>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    let mime = headers
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .ok_or_else(Error::invalid)?
+        .to_string();
+    let bytes = bytes.map_err(|_| Error::new(StatusCode::PAYLOAD_TOO_LARGE, "avatar_too_large"))?;
+    Ok(secret_session(
+        crate::bots::avatar(&app, &actor, &id, Some((mime, bytes))).await?,
+    ))
+}
+async fn reset_bot_avatar(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::bots::avatar(&app, &actor, &id, None).await?,
+    ))
 }

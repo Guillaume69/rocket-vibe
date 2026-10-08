@@ -163,7 +163,9 @@ pub(crate) async fn gate(State(app): State<App>, request: Request, next: Next) -
     let Some(scope) = route_scope(request.method(), &path) else {
         return Error::new(StatusCode::FORBIDDEN, "bot_forbidden").into_response();
     };
-    let scopes: Option<Vec<String>> = match sqlx::query_scalar("SELECT b.scopes FROM sessions s JOIN bots b ON b.user_id=s.user_id JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now() AND NOT u.disabled")
+    // The key's last use is recorded here, at most once a minute: the device's
+    // own last_seen_at moves only every five minutes.
+    let scopes: Option<Vec<String>> = match sqlx::query_scalar("WITH k AS (SELECT s.device_id,b.scopes FROM sessions s JOIN bots b ON b.user_id=s.user_id JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now() AND NOT u.disabled), touched AS (UPDATE bot_keys SET last_used_at=clock_timestamp() WHERE device_id=(SELECT device_id FROM k) AND (last_used_at IS NULL OR last_used_at<clock_timestamp()-interval '1 minute')) SELECT scopes FROM k")
         .bind(auth::hash_token(token))
         .fetch_optional(&app.pool)
         .await
@@ -239,6 +241,7 @@ struct BotRow {
     username: String,
     display_name: String,
     disabled: bool,
+    avatar_file_id: Option<String>,
     owner_id: String,
     owner_username: String,
     owner_display_name: String,
@@ -276,12 +279,13 @@ impl BotRow {
             scopes,
             created_at: self.created_at.to_rfc3339(),
             disabled: self.disabled,
+            avatar_file_id: self.avatar_file_id,
             live_keys: self.live_keys as u32,
         }
     }
 }
 
-const BOT_SELECT: &str = "SELECT u.id,u.username,u.display_name,u.disabled,o.id AS owner_id,o.username AS owner_username,o.display_name AS owner_display_name,o.deleted AS owner_deleted,b.description,b.scopes,b.created_at,(SELECT count(*) FROM bot_keys k JOIN sessions s ON s.device_id=k.device_id WHERE k.bot_id=b.user_id AND s.expires_at>now()) AS live_keys FROM bots b JOIN users u ON u.id=b.user_id JOIN users o ON o.id=b.owner_id WHERE NOT u.deleted";
+const BOT_SELECT: &str = "SELECT u.id,u.username,u.display_name,u.disabled,u.avatar_file_id,o.id AS owner_id,o.username AS owner_username,o.display_name AS owner_display_name,o.deleted AS owner_deleted,b.description,b.scopes,b.created_at,(SELECT count(*) FROM bot_keys k JOIN sessions s ON s.device_id=k.device_id WHERE k.bot_id=b.user_id AND s.expires_at>now()) AS live_keys FROM bots b JOIN users u ON u.id=b.user_id JOIN users o ON o.id=b.owner_id WHERE NOT u.deleted";
 
 async fn bot_in(tx: &mut Transaction<'_, Postgres>, id: &str) -> Result<Bot> {
     let row: BotRow = sqlx::query_as(&format!("{BOT_SELECT} AND b.user_id=$1"))
@@ -344,14 +348,16 @@ pub(crate) async fn list(app: &App, actor: &Account, all: bool) -> Result<BotLis
     })
 }
 
+fn valid_display_name(value: &str) -> bool {
+    !value.is_empty() && value.len() <= 256 && !value.chars().any(char::is_control)
+}
+
 pub(crate) async fn create(app: &App, actor: &Account, input: CreateBot) -> Result<Bot> {
     person(actor)?;
     let display_name = input.display_name.trim();
     if !auth::identifier(&input.username)
         || auth::reserved_username(&input.username)
-        || display_name.is_empty()
-        || display_name.len() > 256
-        || display_name.chars().any(char::is_control)
+        || !valid_display_name(display_name)
         || !valid_description(&input.description)
     {
         return Err(Error::invalid());
@@ -430,15 +436,23 @@ pub(crate) async fn create(app: &App, actor: &Account, input: CreateBot) -> Resu
 
 pub(crate) async fn update(app: &App, actor: &Account, id: &str, input: UpdateBot) -> Result<Bot> {
     person(actor)?;
+    let display_name = input.display_name.as_deref().map(str::trim);
     if input
         .description
         .as_deref()
         .is_some_and(|d| !valid_description(d))
+        || display_name.is_some_and(|d| !valid_display_name(d))
     {
         return Err(Error::invalid());
     }
     let scopes = input.scopes.as_deref().map(clean_scopes);
-    let hash = fingerprint(json!(["bot.update", id, input.description, scopes]));
+    let hash = fingerprint(json!([
+        "bot.update",
+        id,
+        display_name,
+        input.description,
+        scopes
+    ]));
     let (mut tx, replay) = admit(app, actor, false, &input.operation_id, &hash).await?;
     if replay {
         let bot = bot_in(&mut tx, id).await?;
@@ -452,11 +466,19 @@ pub(crate) async fn update(app: &App, actor: &Account, id: &str, input: UpdateBo
         .bind(&scopes)
         .execute(&mut *tx)
         .await?;
+    if let Some(name) = display_name {
+        // The profile version rotates with it: the apps refresh the name.
+        sqlx::query("UPDATE users SET display_name=$2 WHERE id=$1")
+            .bind(id)
+            .bind(name)
+            .execute(&mut *tx)
+            .await?;
+    }
     operator::record(
         &mut tx,
         "bot.updated",
         id,
-        json!({"description":input.description.is_some(),"scopes":scopes}),
+        json!({"display_name":display_name.is_some(),"description":input.description.is_some(),"scopes":scopes}),
     )
     .await?;
     let bot = bot_in(&mut tx, id).await?;
@@ -495,6 +517,70 @@ pub(crate) async fn delete(app: &App, actor: &Account, id: &str) -> Result<()> {
     Ok(())
 }
 
+/// The owner (or an administrator) sets or removes the bot's photo. Decoding
+/// runs outside any transaction, on the bounded image pool, as for a person.
+pub(crate) async fn avatar(
+    app: &App,
+    actor: &Account,
+    id: &str,
+    upload: Option<(String, axum::body::Bytes)>,
+) -> Result<Bot> {
+    person(actor)?;
+    let store = app
+        .objects
+        .as_ref()
+        .ok_or_else(|| Error::new(StatusCode::SERVICE_UNAVAILABLE, "storage_unavailable"))?;
+    {
+        let mut tx = app.pool.begin().await?;
+        auth::lock_active(&mut tx, actor).await?;
+        managed(&mut tx, actor, id).await?;
+        tx.commit().await?;
+    }
+    let encoded = match upload {
+        None => None,
+        Some((mime, bytes)) => {
+            let permit = app
+                .image_slots
+                .clone()
+                .try_acquire_owned()
+                .map_err(|_| Error::throttled("avatar_busy", 1))?;
+            Some(
+                tokio::task::spawn_blocking(move || {
+                    let _permit = permit;
+                    crate::profiles::decode_avatar(&mime, &bytes)
+                })
+                .await
+                .map_err(|_| Error::internal())??,
+            )
+        }
+    };
+    let operation = random_token()[..32].to_owned();
+    let hash = fingerprint(json!(["bot.avatar", id, operation]));
+    let (mut tx, _) = admit(app, actor, false, &operation, &hash).await?;
+    managed(&mut tx, actor, id).await?;
+    let file = match encoded {
+        Some(bytes) => Some(store.put(bytes).await?),
+        None => None,
+    };
+    let previous: Option<String> =
+        sqlx::query_scalar("SELECT avatar_file_id FROM users WHERE id=$1 FOR UPDATE")
+            .bind(id)
+            .fetch_one(&mut *tx)
+            .await?;
+    sqlx::query("UPDATE users SET avatar_file_id=$2 WHERE id=$1")
+        .bind(id)
+        .bind(&file)
+        .execute(&mut *tx)
+        .await?;
+    operator::record(&mut tx, "bot.avatar", id, json!({"set":file.is_some()})).await?;
+    let bot = bot_in(&mut tx, id).await?;
+    settle(tx, actor, &operation, &hash).await?;
+    if let Some(previous) = previous.filter(|p| file.as_ref() != Some(p)) {
+        let _ = store.remove(&previous).await;
+    }
+    Ok(bot)
+}
+
 #[derive(FromRow)]
 struct KeyRow {
     id: String,
@@ -502,7 +588,7 @@ struct KeyRow {
     hint: String,
     created_at: DateTime<Utc>,
     expires_at: Option<DateTime<Utc>>,
-    last_seen_at: DateTime<Utc>,
+    last_used_at: Option<DateTime<Utc>>,
 }
 
 impl KeyRow {
@@ -513,14 +599,12 @@ impl KeyRow {
             hint: self.hint,
             created_at: self.created_at.to_rfc3339(),
             expires_at: self.expires_at.map(|t| t.to_rfc3339()),
-            // The device is created at the key's creation: its first touch is a use.
-            last_used_at: (self.last_seen_at > self.created_at + chrono::Duration::seconds(1))
-                .then(|| self.last_seen_at.to_rfc3339()),
+            last_used_at: self.last_used_at.map(|t| t.to_rfc3339()),
         }
     }
 }
 
-const KEY_SELECT: &str = "SELECT k.id,k.label,k.hint,k.created_at,k.expires_at,d.last_seen_at FROM bot_keys k JOIN session_devices d ON d.id=k.device_id JOIN sessions s ON s.device_id=k.device_id WHERE k.bot_id=$1 AND s.expires_at>now()";
+const KEY_SELECT: &str = "SELECT k.id,k.label,k.hint,k.created_at,k.expires_at,k.last_used_at FROM bot_keys k JOIN sessions s ON s.device_id=k.device_id WHERE k.bot_id=$1 AND s.expires_at>now()";
 
 pub(crate) async fn keys(app: &App, actor: &Account, id: &str) -> Result<BotKeyList> {
     person(actor)?;

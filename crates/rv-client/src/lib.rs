@@ -1740,6 +1740,39 @@ impl NativeClient {
         )
         .await
     }
+    /// Sets (PNG or JPEG) or, with `None`, removes the bot's photo.
+    pub async fn set_bot_avatar(
+        &self,
+        id: &str,
+        upload: Option<(&str, Vec<u8>)>,
+    ) -> Result<rv_protocol::bots::Bot, Error> {
+        if !path_segment(id) {
+            return Err(Error::InvalidUrl);
+        }
+        self.check_cooldown(Some("profile"))?;
+        let sent = self.saved_token().ok_or(Error::SessionMissing)?;
+        let method = if upload.is_some() {
+            Method::PUT
+        } else {
+            Method::DELETE
+        };
+        let mut request = self
+            .http
+            .request(method, format!("{}/api/v1/bots/{id}/avatar", self.base))
+            .bearer_auth(&sent);
+        if let Some((mime, bytes)) = upload {
+            if bytes.len() > 2 * 1024 * 1024 {
+                return Err(Error::InvalidAvatar);
+            }
+            request = request
+                .header(reqwest::header::CONTENT_TYPE, mime)
+                .body(bytes);
+        }
+        let response = self
+            .accepted(request.send().await?, Some("profile"), Some(sent))
+            .await?;
+        Ok(response.json().await?)
+    }
     /// Tombstones the bot and revokes its keys; repeating it is harmless.
     pub async fn delete_bot(&self, id: &str) -> Result<(), Error> {
         if !path_segment(id) {

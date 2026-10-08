@@ -5,7 +5,7 @@ use rv_protocol::{
     CreateRoom, SendMessage,
     bots::{BotScope, CreateBot, CreateBotKey, UpdateBot, UpdateInstanceSettings},
 };
-use rv_server::{App, auth};
+use rv_server::{App, auth, objects::LocalObjects};
 use sqlx::PgPool;
 
 const PASSWORD: &str = "bot-test-password-2026";
@@ -14,15 +14,21 @@ struct Bench {
     app: App,
     base: String,
     task: tokio::task::JoinHandle<()>,
+    root: std::path::PathBuf,
 }
 impl Drop for Bench {
     fn drop(&mut self) {
         self.task.abort();
+        let _ = std::fs::remove_dir_all(&self.root);
     }
 }
 impl Bench {
     async fn start(pool: PgPool) -> Self {
-        let app = App::from_pool(pool).await.unwrap();
+        let root = std::env::temp_dir().join(format!("rv-bots-{}", auth::random_token()));
+        let app = App::from_pool(pool)
+            .await
+            .unwrap()
+            .with_objects(LocalObjects::open(&root).unwrap());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
         let router = app.clone().router();
@@ -34,7 +40,12 @@ impl Bench {
             .await
             .unwrap();
         });
-        Self { app, base, task }
+        Self {
+            app,
+            base,
+            task,
+            root,
+        }
     }
     async fn user(&self, name: &str, admin: bool) -> (NativeClient, String) {
         let user = auth::create_user(&self.app, name, PASSWORD.into(), admin)
@@ -266,6 +277,7 @@ async fn a_key_reaches_only_the_routes_of_its_scopes(pool: PgPool) {
             &bot_id,
             &UpdateBot {
                 operation_id: "read-only".into(),
+                display_name: None,
                 description: None,
                 scopes: Some(vec![BotScope::RoomsRead]),
             },
@@ -407,4 +419,70 @@ async fn a_bot_has_a_send_budget(pool: PgPool) {
             .await
             .unwrap();
     }
+}
+
+fn png(color: u8) -> Vec<u8> {
+    let image = image::DynamicImage::ImageRgba8(image::ImageBuffer::from_pixel(
+        10,
+        10,
+        image::Rgba([color, 10, 20, 255]),
+    ));
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    image.write_to(&mut bytes, image::ImageFormat::Png).unwrap();
+    bytes.into_inner()
+}
+
+#[sqlx::test]
+async fn owners_name_and_picture_their_bots_and_see_key_use(pool: PgPool) {
+    let bench = Bench::start(pool).await;
+    let (admin, _) = bench.user("look-admin", true).await;
+    let (alice, _) = bench.user("look-alice", false).await;
+    let (bot, bot_id) = bench.bot(&admin, "look-bot", &[BotScope::RoomsRead]).await;
+
+    let renamed = admin
+        .update_bot(
+            &bot_id,
+            &UpdateBot {
+                operation_id: "rename".into(),
+                display_name: Some("  Build robot ".into()),
+                description: None,
+                scopes: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(renamed.user.display_name, "Build robot");
+    assert_eq!(renamed.scopes, vec![BotScope::RoomsRead]);
+    assert_eq!(bot.me().await.unwrap().display_name, "Build robot");
+
+    let pictured = admin
+        .set_bot_avatar(&bot_id, Some(("image/png", png(40))))
+        .await
+        .unwrap();
+    let file = pictured.avatar_file_id.clone().unwrap();
+    assert_eq!(
+        admin.user_profile(&bot_id).await.unwrap().avatar_file_id,
+        Some(file.clone())
+    );
+    assert!(!admin.avatar_bytes(&file).await.unwrap().is_empty());
+    code(
+        admin
+            .set_bot_avatar(&bot_id, Some(("image/gif", b"GIF89a".to_vec())))
+            .await,
+        "invalid_avatar",
+    );
+    // Someone else's bot does not exist for alice; a key never reaches the route.
+    code(
+        alice
+            .set_bot_avatar(&bot_id, Some(("image/png", png(1))))
+            .await,
+        "not_found",
+    );
+    code(bot.set_bot_avatar(&bot_id, None).await, "bot_forbidden");
+    let cleared = admin.set_bot_avatar(&bot_id, None).await.unwrap();
+    assert_eq!(cleared.avatar_file_id, None);
+
+    // A key's use shows at once, not five minutes later.
+    let keys = admin.bot_keys(&bot_id).await.unwrap().keys;
+    assert!(keys[0].last_used_at.is_some());
 }

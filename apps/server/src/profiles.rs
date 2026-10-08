@@ -386,7 +386,7 @@ pub(crate) async fn avatar(
     }
     Ok(saved)
 }
-fn decode_avatar(mime: &str, bytes: &[u8]) -> Result<Vec<u8>> {
+pub(crate) fn decode_avatar(mime: &str, bytes: &[u8]) -> Result<Vec<u8>> {
     if bytes.is_empty() || bytes.len() > AVATAR_BYTES {
         return Err(Error::new(
             StatusCode::PAYLOAD_TOO_LARGE,

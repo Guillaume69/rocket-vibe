@@ -1038,6 +1038,14 @@
     "Bot": {
       "description": "A bot as its owner and the administrators see it.",
       "properties": {
+        "avatar_file_id": {
+          "default": null,
+          "description": "Its photo (`/api/v1/avatars/{id}`), set by its owner or by itself.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "created_at": {
           "type": "string"
         },
@@ -1101,7 +1109,7 @@
           "type": "string"
         },
         "last_used_at": {
-          "description": "Approximate, at most five minutes behind.",
+          "description": "At most a minute behind.",
           "type": [
             "string",
             "null"
@@ -7439,9 +7447,16 @@
     },
     "UpdateBot": {
       "additionalProperties": false,
-      "description": "Absent fields keep their value. The bot edits its own profile (display\nname, avatar) with its key through `/me`.",
+      "description": "Absent fields keep their value. The photo has its own route,\n`PUT`/`DELETE /api/v1/bots/{id}/avatar`; the bot may also edit its own\nprofile with its key through `/me`.",
       "properties": {
         "description": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "display_name": {
           "default": null,
           "type": [
             "string",

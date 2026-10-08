@@ -92,6 +92,9 @@ pub struct Bot {
     pub created_at: String,
     /// Deactivated by an administrator, or with its owner.
     pub disabled: bool,
+    /// Its photo (`/api/v1/avatars/{id}`), set by its owner or by itself.
+    #[serde(default)]
+    pub avatar_file_id: Option<String>,
     pub live_keys: u32,
 }
 
@@ -112,12 +115,15 @@ pub struct CreateBot {
     pub scopes: Vec<BotScope>,
 }
 
-/// Absent fields keep their value. The bot edits its own profile (display
-/// name, avatar) with its key through `/me`.
+/// Absent fields keep their value. The photo has its own route,
+/// `PUT`/`DELETE /api/v1/bots/{id}/avatar`; the bot may also edit its own
+/// profile with its key through `/me`.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct UpdateBot {
     pub operation_id: String,
+    #[serde(default)]
+    pub display_name: Option<String>,
     #[serde(default)]
     pub description: Option<String>,
     #[serde(default)]
@@ -133,7 +139,7 @@ pub struct BotKey {
     pub hint: String,
     pub created_at: String,
     pub expires_at: Option<String>,
-    /// Approximate, at most five minutes behind.
+    /// At most a minute behind.
     pub last_used_at: Option<String>,
 }
 

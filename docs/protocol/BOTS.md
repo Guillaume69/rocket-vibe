@@ -31,7 +31,8 @@ username follows the rules of any account; a taken or retired one answers 409
 | Route | Effect |
 |---|---|
 | `GET /api/v1/bots` | My bots; `?all=true`: every bot, administrators only |
-| `PATCH /api/v1/bots/{id}` | `UpdateBot{operation_id, description?, scopes?}` |
+| `PATCH /api/v1/bots/{id}` | `UpdateBot{operation_id, display_name?, description?, scopes?}` |
+| `PUT`/`DELETE /api/v1/bots/{id}/avatar` | Sets (PNG or JPEG body, 2 MiB, re-encoded like a person's) or removes the bot's photo; answers the `Bot` |
 | `DELETE /api/v1/bots/{id}` | Tombstones the bot: keys revoked, rooms left, username retired. Idempotent |
 | `GET /api/v1/bots/{id}/keys` | `BotKeyList` of live keys: `label`, `hint` (last 4 characters), dates |
 | `POST /api/v1/bots/{id}/keys` | `CreateBotKey{operation_id, label, expires_in_days?}` → `BotKeyCreated{key, info}` |
@@ -47,9 +48,10 @@ that is not disabled (`bot_disabled`) and fewer than five live keys
 `bot_key_replayed`, never the key again: list the keys and revoke the orphan.
 `expires_in_days` is 1 to 3650; absent, the key does not expire.
 
-The owner edits the description and the scopes. The bot edits its own profile
-(display name, bio, avatar) with its key, through `PATCH /api/v1/me` and
-`/api/v1/me/avatar`.
+The owner (or an administrator) edits the display name, photo, description and
+scopes. The bot may also edit its own profile with its key, through
+`PATCH /api/v1/me` and `/api/v1/me/avatar`. A key's `last_used_at` is recorded by
+the gate, at most a minute behind.
 
 ## Scopes
 

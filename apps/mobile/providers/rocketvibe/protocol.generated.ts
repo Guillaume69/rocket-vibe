@@ -32,7 +32,7 @@ export type AvatarCommand = { "expected_revision": string; "operation_id": strin
 export type BeginEmailVerification = { "address": string; "context": ReauthenticationContext; "expected_version": string; "operation_id": string; "verification_id": string; "verification_version": string; };
 export type BeginFactorSetup = { "operation_id": string; };
 export type BeginReauthentication = { "challenge_id": string; "context"?: ReauthenticationContext | null; "operation_id": string; "password": string; "proof_version": string; };
-export type Bot = { "created_at": string; "description": string; "disabled": boolean; "live_keys": number; "owner": User; "scopes": (BotScope)[]; "user": User; };
+export type Bot = { "avatar_file_id"?: string | null; "created_at": string; "description": string; "disabled": boolean; "live_keys": number; "owner": User; "scopes": (BotScope)[]; "user": User; };
 export type BotKey = { "created_at": string; "expires_at"?: string | null; "hint": string; "id": string; "label": string; "last_used_at"?: string | null; };
 export type BotKeyCreated = { "info": BotKey; "key": string; };
 export type BotKeyList = { "keys": (BotKey)[]; };
@@ -214,7 +214,7 @@ export type ThreadReadState = { "membership_version": string; "position": string
 export type ThreadSummary = { "last_reply_at"?: string | null; "replies": string; };
 export type Typist = { "root_id"?: string | null; "user": User; };
 export type UpdateAdminUser = { "admin"?: boolean | null; "disabled"?: boolean | null; "operation_id": string; "revision": string; };
-export type UpdateBot = { "description"?: string | null; "operation_id": string; "scopes"?: (BotScope)[] | null; };
+export type UpdateBot = { "description"?: string | null; "display_name"?: string | null; "operation_id": string; "scopes"?: (BotScope)[] | null; };
 export type UpdateInstanceSettings = { "operation_id": string; "user_bots"?: boolean | null; };
 export type UpdatePreferences = { "clock_24h": boolean; "desktop_notifications": DesktopNotifications; "expected_revision": string; "language": string; "operation_id": string; "push_enabled": boolean; "push_mentions_only": boolean; };
 export type UpdateProfile = { "bio": string; "display_name": string; "expected_revision": string; "operation_id": string; "status": PresenceStatus; "status_text": string; "username": string; };
@@ -1273,6 +1273,14 @@ export const nativeSchema = {
     "Bot": {
       "description": "A bot as its owner and the administrators see it.",
       "properties": {
+        "avatar_file_id": {
+          "default": null,
+          "description": "Its photo (`/api/v1/avatars/{id}`), set by its owner or by itself.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "created_at": {
           "type": "string"
         },
@@ -1336,7 +1344,7 @@ export const nativeSchema = {
           "type": "string"
         },
         "last_used_at": {
-          "description": "Approximate, at most five minutes behind.",
+          "description": "At most a minute behind.",
           "type": [
             "string",
             "null"
@@ -7674,9 +7682,16 @@ export const nativeSchema = {
     },
     "UpdateBot": {
       "additionalProperties": false,
-      "description": "Absent fields keep their value. The bot edits its own profile (display\nname, avatar) with its key through `/me`.",
+      "description": "Absent fields keep their value. The photo has its own route,\n`PUT`/`DELETE /api/v1/bots/{id}/avatar`; the bot may also edit its own\nprofile with its key through `/me`.",
       "properties": {
         "description": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "display_name": {
           "default": null,
           "type": [
             "string",

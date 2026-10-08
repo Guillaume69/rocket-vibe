@@ -92,6 +92,8 @@ pub struct Room {
     pub last_message_ts: Option<i64>,
     pub avatar_etag: Option<String>,
     pub updated_at: i64,
+    /// The last message is not known (Mattermost: no preview fetched): the stored one stays.
+    pub keep_preview: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -227,6 +229,7 @@ pub fn to_room(raw: &Value, me: &str, me_uid: &str) -> Option<Room> {
         last_message_ts: last.and_then(|l| l.get("ts")).and_then(to_epoch).or_else(|| raw.get("lm").and_then(to_epoch)),
         avatar_etag: string(raw.get("avatarETag")),
         updated_at: raw.get("_updatedAt").and_then(to_epoch).unwrap_or(0),
+        keep_preview: false,
     })
 }
 

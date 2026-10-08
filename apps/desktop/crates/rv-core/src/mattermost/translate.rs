@@ -185,6 +185,7 @@ impl Translator<'_> {
             last_message_ts: last.as_ref().map(|m| m.ts).or(last_post_at),
             avatar_etag: None,
             updated_at: num_of(channel, "update_at").max(last_post_at.unwrap_or(0)),
+            keep_preview: last_post.is_none(),
         })
     }
 

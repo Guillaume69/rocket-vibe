@@ -82,7 +82,7 @@ export class MmLive {
     const channel = this.channels.get(rid);
     if (channel === undefined) return null;
     if (lastPost) this.lastPosts.set(rid, lastPost);
-    return { collection: MM_ROOM, eventKey: rid, args: [{ channel, lastPost: this.lastPosts.get(rid) ?? null }] };
+    return { collection: MM_ROOM, eventKey: rid, args: [{ channel, lastPost: this.lastPosts.get(rid) }] };
   }
 
   /** Fetches a channel I just learned about, with my membership. */

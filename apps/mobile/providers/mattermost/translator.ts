@@ -161,6 +161,7 @@ export class MmTranslator implements Translator {
       lastMessage: lastMessage?.systemType === null ? lastMessage.text : null,
       lastMessageType: lastMessage?.systemType ?? null,
       lastMessageTs: lastMessage?.ts ?? lastPostAt,
+      keepPreview: doc.lastPost === undefined,
       avatarEtag: null,
       updatedAt: Math.max(positive(channel.update_at) ?? 0, lastPostAt ?? 0),
     };

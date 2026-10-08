@@ -74,7 +74,7 @@ export class MmCatchUp {
     if (isDiscarded()) return;
     for (const [rid, post] of previews) this.live.lastPosts.set(rid, post);
 
-    const rooms: MmRoomDoc[] = changed.map((channel) => ({ channel, lastPost: this.live.lastPosts.get(String(channel.id)) ?? null }));
+    const rooms: MmRoomDoc[] = changed.map((channel) => ({ channel, lastPost: this.live.lastPosts.get(String(channel.id)) }));
     await engine.ingestRooms(rooms as unknown as Doc[]);
     await engine.ingestSubscriptions(live.map((channel) => ({ channel, member: memberOf.get(String(channel.id)) })));
     const newest = live.reduce((max, c) => Math.max(max, changedAt(c)), 0);

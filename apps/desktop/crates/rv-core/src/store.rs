@@ -635,18 +635,18 @@ impl Writer<'_> {
                    encrypted = excluded.encrypted,
                    read_only = excluded.read_only,
                    dm_other_uid = COALESCE(excluded.dm_other_uid, rooms.dm_other_uid),
-                   last_message = CASE WHEN excluded.encrypted = 1 THEN rooms.last_message ELSE excluded.last_message END,
-                   last_message_type = CASE WHEN excluded.encrypted = 1 THEN rooms.last_message_type ELSE excluded.last_message_type END,
+                   last_message = CASE WHEN excluded.encrypted = 1 OR ?15 THEN rooms.last_message ELSE excluded.last_message END,
+                   last_message_type = CASE WHEN excluded.encrypted = 1 OR ?15 THEN rooms.last_message_type ELSE excluded.last_message_type END,
+                   last_message_author = CASE WHEN ?15 THEN rooms.last_message_author ELSE COALESCE(excluded.last_message_author, rooms.last_message_author) END,
                    last_message_ts = COALESCE(excluded.last_message_ts, rooms.last_message_ts),
                    avatar_etag = COALESCE(excluded.avatar_etag, rooms.avatar_etag),
                    updated_at = excluded.updated_at,
-                   last_message_author = COALESCE(excluded.last_message_author, rooms.last_message_author),
                    last_encrypted = CASE WHEN excluded.encrypted = 1 THEN COALESCE(excluded.last_encrypted, rooms.last_encrypted) ELSE NULL END
                  WHERE excluded.updated_at >= rooms.updated_at",
                 params![
                     r.rid, r.kind, r.name, r.display_name, r.encrypted, r.read_only, r.dm_other_uid,
                     r.last_message, r.last_message_type, r.last_message_ts, r.avatar_etag, r.updated_at,
-                    r.last_message_author, r.last_encrypted
+                    r.last_message_author, r.last_encrypted, r.keep_preview
                 ],
             )
             .expect("upsert room");

@@ -93,14 +93,14 @@ ON CONFLICT(rid) DO UPDATE SET
   voice = excluded.voice,
   dm_other_uid = COALESCE(excluded.dm_other_uid, rooms.dm_other_uid),
   last_message = CASE
-    WHEN excluded.encrypted = 1 THEN rooms.last_message
+    WHEN excluded.encrypted = 1 OR ?14 = 1 THEN rooms.last_message
     ELSE excluded.last_message
   END,
   -- No CASE here: toRoom already returns null for an encrypted room, and it is
   -- the RIGHT value: an encrypted room's preview does not come from lastMessage.
   -- Keeping the old type would make the local preview be described by the
   -- type of a message the server could not read.
-  last_message_type = excluded.last_message_type,
+  last_message_type = CASE WHEN ?14 = 1 THEN rooms.last_message_type ELSE excluded.last_message_type END,
   -- The timestamp keeps its COALESCE: it drives the list's SORT, and the
   -- server does NOT move it back when emptying a room (the lm field survives
   -- the deletion of the last message, checked). Erasing it would therefore
@@ -667,6 +667,7 @@ export function roomParams(s: LocalRoom): SqlParam[] {
     s.avatarEtag,
     s.updatedAt,
     b(s.voice ?? false),
+    b(s.keepPreview ?? false),
   ];
 }
 

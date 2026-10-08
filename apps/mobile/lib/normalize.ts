@@ -95,6 +95,8 @@ export type LocalRoom = {
    */
   lastMessageType: string | null;
   lastMessageTs: number | null;
+  /** The last message is not known (Mattermost: no preview fetched): the stored one stays. */
+  keepPreview?: boolean;
   /** `avatarETag`: version of the room photo, cache-buster for its URL. */
   avatarEtag: string | null;
   updatedAt: number;

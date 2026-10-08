@@ -25,7 +25,7 @@ final class NativeEmojiTests:XCTestCase {
         let loaded=await media.load(path)
         let data=try XCTUnwrap(loaded)
         XCTAssertEqual(data.contentType,"image/png");XCTAssertGreaterThan(data.bytes.count,8)
-        let suggestions=try XCTUnwrap(native.suggestions(beforeCursor:"hello :vibe"))
+        let suggestions=try XCTUnwrap(native.suggestions(rid:"",beforeCursor:"hello :vibe"))
         XCTAssertEqual(suggestions.items.first?.insert,":vibe_parrot: ")
         XCTAssertEqual(suggestions.items.first?.image,path)
         app.end();XCTAssertFalse(media.current(path));XCTAssertNil(media.cached(path))

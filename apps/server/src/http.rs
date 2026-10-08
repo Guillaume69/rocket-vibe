@@ -347,6 +347,25 @@ pub fn router(app: App) -> Router {
             "/api/v1/admin/settings",
             get(admin_settings).patch(update_admin_settings),
         )
+        .route(
+            "/api/v1/workflows",
+            get(workflow_list).post(create_workflow),
+        )
+        .route(
+            "/api/v1/workflows/{id}",
+            get(workflow).put(update_workflow).delete(delete_workflow),
+        )
+        .route("/api/v1/workflows/{id}/disable", post(disable_workflow))
+        .route("/api/v1/workflows/{id}/webhook", post(workflow_webhook))
+        .route("/api/v1/workflows/{id}/runs", get(workflow_runs))
+        .route("/api/v1/workflows/{id}/test", post(test_workflow))
+        .route(
+            "/api/v1/hooks/{id}/{secret}",
+            post(workflow_hook).layer(DefaultBodyLimit::max(
+                rv_protocol::workflows::WEBHOOK_BYTES + 1,
+            )),
+        )
+        .route("/api/v1/forms/{message}/answer", post(answer_form))
         // After routing: a bot key reaches only the routes of its scopes.
         .route_layer(axum::middleware::from_fn_with_state(
             app.clone(),
@@ -374,7 +393,8 @@ async fn private_metadata_no_store(
         || request.uri().path().starts_with("/api/v1/voice/")
         || request.uri().path().ends_with("/voice/join")
         || request.uri().path().starts_with("/api/v1/admin/")
-        || request.uri().path().starts_with("/api/v1/bots");
+        || request.uri().path().starts_with("/api/v1/bots")
+        || request.uri().path().starts_with("/api/v1/workflows");
     let mut response = next.run(request).await;
     // Rejections, including malformed input, have the same cache policy as
     // successful private receipts and delivery status.
@@ -498,6 +518,7 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
             administration: true,
             reports: true,
             bots: true,
+            workflows: true,
             ..Default::default()
         },
     }))
@@ -2044,10 +2065,24 @@ async fn remove_member(
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn command_list(State(app): State<App>, headers: HeaderMap) -> Result<Response> {
-    let (_, hash, proof) = read_access(&app, &headers, Scope::None).await?;
-    let bytes =
-        serde_json::to_vec(&rv_protocol::commands::catalogue()).map_err(|_| Error::internal())?;
+#[derive(Deserialize)]
+struct CommandListQuery {
+    #[serde(default)]
+    room: Option<String>,
+}
+async fn command_list(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(query): Query<CommandListQuery>,
+) -> Result<Response> {
+    let (account, hash, proof) = read_access(&app, &headers, Scope::None).await?;
+    let mut list = rv_protocol::commands::catalogue();
+    // A room names the workflow commands offered there (RFC 0004).
+    if let Some(room) = &query.room {
+        list.commands
+            .extend(crate::workflows::commands(&app, &account, room).await?);
+    }
+    let bytes = serde_json::to_vec(&list).map_err(|_| Error::internal())?;
     let lease = proof.lock(&app, &hash, &[], None).await?;
     Ok(crate::delivery::leased_bytes(
         bytes.into(),
@@ -2638,4 +2673,121 @@ async fn reset_bot_avatar(
     Ok(secret_session(
         crate::bots::avatar(&app, &actor, &id, None).await?,
     ))
+}
+
+#[derive(Deserialize)]
+struct WorkflowListQuery {
+    #[serde(default)]
+    all: bool,
+}
+async fn workflow_list(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(query): Query<WorkflowListQuery>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::workflows::list(&app, &actor, query.all).await?,
+    ))
+}
+async fn create_workflow(
+    State(app): State<App>,
+    headers: HeaderMap,
+    input: Input<rv_protocol::workflows::CreateWorkflow>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::workflows::create(&app, &actor, body(input)?).await?,
+    ))
+}
+async fn workflow(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::workflows::get(&app, &actor, &id).await?,
+    ))
+}
+async fn update_workflow(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    input: Input<rv_protocol::workflows::UpdateWorkflow>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::workflows::update(&app, &actor, &id, body(input)?).await?,
+    ))
+}
+async fn delete_workflow(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<StatusCode> {
+    let actor = account(&app, &headers).await?;
+    crate::workflows::delete(&app, &actor, &id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+async fn disable_workflow(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::workflows::disable(&app, &actor, &id).await?,
+    ))
+}
+async fn workflow_webhook(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::workflows::webhook(&app, &actor, &id).await?,
+    ))
+}
+async fn workflow_runs(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::workflows::runs(&app, &actor, &id).await?,
+    ))
+}
+async fn test_workflow(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::workflows::test(&app, &actor, &id).await?,
+    ))
+}
+/// No session: the secret in the path is the credential.
+async fn workflow_hook(
+    State(app): State<App>,
+    Path((id, secret)): Path<(String, String)>,
+    bytes: std::result::Result<axum::body::Bytes, axum::extract::rejection::BytesRejection>,
+) -> Result<Response> {
+    let bytes =
+        bytes.map_err(|_| Error::new(StatusCode::PAYLOAD_TOO_LARGE, "webhook_too_large"))?;
+    let started = crate::workflows::hook(&app, &id, &secret, &bytes).await?;
+    Ok((StatusCode::ACCEPTED, Json(started)).into_response())
+}
+async fn answer_form(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(message): Path<String>,
+    input: Input<rv_protocol::workflows::AnswerForm>,
+) -> Result<StatusCode> {
+    let actor = account(&app, &headers).await?;
+    crate::workflows::answer(&app, &actor, &message, body(input)?).await?;
+    Ok(StatusCode::NO_CONTENT)
 }

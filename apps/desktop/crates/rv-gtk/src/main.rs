@@ -54,6 +54,7 @@ mod widgets;
 mod window;
 #[cfg(windows)]
 mod windows;
+mod workflow_forms;
 
 use std::future::Future;
 use std::sync::OnceLock;

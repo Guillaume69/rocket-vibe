@@ -341,7 +341,7 @@ impl BotRow {
     }
 }
 
-const BOT_SELECT: &str = "SELECT u.id,u.username,u.display_name,u.disabled,u.avatar_file_id,o.id AS owner_id,o.username AS owner_username,o.display_name AS owner_display_name,o.deleted AS owner_deleted,b.description,b.scopes,b.created_at,(SELECT count(*) FROM bot_keys k JOIN sessions s ON s.device_id=k.device_id WHERE k.bot_id=b.user_id AND s.expires_at>now()) AS live_keys FROM bots b JOIN users u ON u.id=b.user_id JOIN users o ON o.id=b.owner_id WHERE NOT u.deleted";
+const BOT_SELECT: &str = "SELECT u.id,u.username,u.display_name,u.disabled,u.avatar_file_id,o.id AS owner_id,o.username AS owner_username,o.display_name AS owner_display_name,o.deleted AS owner_deleted,b.description,b.scopes,b.created_at,(SELECT count(*) FROM bot_keys k JOIN sessions s ON s.device_id=k.device_id WHERE k.bot_id=b.user_id AND NOT k.internal AND s.expires_at>now()) AS live_keys FROM bots b JOIN users u ON u.id=b.user_id JOIN users o ON o.id=b.owner_id WHERE NOT u.deleted";
 
 async fn bot_in(tx: &mut Transaction<'_, Postgres>, id: &str) -> Result<Bot> {
     let row: BotRow = sqlx::query_as(&format!("{BOT_SELECT} AND b.user_id=$1"))
@@ -597,6 +597,15 @@ pub(crate) async fn delete(app: &App, actor: &Account, id: &str) -> Result<()> {
         .bind(id)
         .execute(&mut *tx)
         .await?;
+    // Its workflows stop with it (RFC 0004).
+    sqlx::query("UPDATE workflows SET enabled=false WHERE bot_id=$1")
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("UPDATE workflow_runs SET state='cancelled',lease_id=NULL,lease_expires_at=NULL WHERE state IN ('pending','waiting') AND workflow_id IN (SELECT id FROM workflows WHERE bot_id=$1)")
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
     operator::record(&mut tx, "bot.deleted", id, json!({"owner":actor.id})).await?;
     settle(tx, actor, &operation, &hash).await?;
     if let (Some(store), Some(avatar)) = (&app.objects, avatar) {
@@ -694,7 +703,7 @@ impl KeyRow {
     }
 }
 
-const KEY_SELECT: &str = "SELECT k.id,k.label,k.hint,k.created_at,k.expires_at,k.last_used_at FROM bot_keys k JOIN sessions s ON s.device_id=k.device_id WHERE k.bot_id=$1 AND s.expires_at>now()";
+const KEY_SELECT: &str = "SELECT k.id,k.label,k.hint,k.created_at,k.expires_at,k.last_used_at FROM bot_keys k JOIN sessions s ON s.device_id=k.device_id WHERE k.bot_id=$1 AND NOT k.internal AND s.expires_at>now()";
 
 pub(crate) async fn keys(app: &App, actor: &Account, id: &str) -> Result<BotKeyList> {
     person(actor)?;
@@ -738,7 +747,7 @@ pub(crate) async fn create_key(
     if managed(&mut tx, actor, id, false).await? {
         return Err(Error::new(StatusCode::CONFLICT, "bot_disabled"));
     }
-    let live: i64 = sqlx::query_scalar("SELECT count(*) FROM bot_keys k JOIN sessions s ON s.device_id=k.device_id WHERE k.bot_id=$1 AND s.expires_at>now()")
+    let live: i64 = sqlx::query_scalar("SELECT count(*) FROM bot_keys k JOIN sessions s ON s.device_id=k.device_id WHERE k.bot_id=$1 AND NOT k.internal AND s.expires_at>now()")
         .bind(id)
         .fetch_one(&mut *tx)
         .await?;
@@ -801,7 +810,7 @@ pub(crate) async fn revoke_key(app: &App, actor: &Account, id: &str, key: &str) 
     let hash = fingerprint(json!(["bot.revoke", id, key]));
     let (mut tx, _) = admit(app, actor, false, &operation, &hash).await?;
     managed(&mut tx, actor, id, true).await?;
-    let revoked = sqlx::query("DELETE FROM session_devices WHERE id=(SELECT device_id FROM bot_keys WHERE id=$1 AND bot_id=$2)")
+    let revoked = sqlx::query("DELETE FROM session_devices WHERE id=(SELECT device_id FROM bot_keys WHERE id=$1 AND bot_id=$2 AND NOT internal)")
         .bind(key)
         .bind(id)
         .execute(&mut *tx)

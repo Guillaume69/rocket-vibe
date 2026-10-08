@@ -26,6 +26,7 @@ import type { RestClient } from '../lib/rest.ts';
 import { avatarUrl } from '../lib/upload.ts';
 import type { NativeChat } from '../providers/rocketvibe/chat.ts';
 import { BotsSection } from './bots.tsx';
+import { WorkflowsSection } from './workflows.tsx';
 import { DevicesSection } from './devices.tsx';
 import { useE2EUnlocked } from './e2e.ts';
 import { EncryptedIdentitySection } from './encryptedIdentity.tsx';
@@ -182,6 +183,8 @@ export function SettingsCategoryContent({
       return <DevicesSection c={c} />;
     case 'bots':
       return <BotsSection c={c} client={account.client} baseUrl={account.baseUrl} />;
+    case 'workflows':
+      return <WorkflowsSection c={c} baseUrl={account.baseUrl} />;
     case 'accounts':
       return <AccountsCategory c={c} account={account} />;
     case 'app':

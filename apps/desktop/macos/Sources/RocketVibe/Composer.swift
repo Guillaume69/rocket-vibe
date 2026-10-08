@@ -161,7 +161,7 @@ struct Composer: View {
     }
 
     func suggest(_ before: String) {
-        let fresh = app.chat?.suggestions(rid: model.rid, beforeCursor: before) ?? app.native?.suggestions(beforeCursor:before)
+        let fresh = app.chat?.suggestions(rid: model.rid, beforeCursor: before) ?? app.native?.suggestions(rid: model.rid, beforeCursor: before)
         if fresh?.start != suggestions?.start || fresh?.items != suggestions?.items { selected = 0 }
         suggestions = fresh
     }

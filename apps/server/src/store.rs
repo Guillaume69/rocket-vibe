@@ -62,6 +62,7 @@ pub(crate) struct MessageRow {
     pub previews: Json<Vec<rv_protocol::link_previews::LinkPreview>>,
     pub cards: Json<Vec<rv_protocol::cards::IntegrationCard>>,
     pub call: Option<Json<rv_protocol::voice::CallSummary>>,
+    pub form: Option<Json<rv_protocol::workflows::WorkflowForm>>,
 }
 
 impl MessageRow {
@@ -112,6 +113,11 @@ impl MessageRow {
             personal_star: None,
             personal_mention: None,
             call: self.call.map(|call| Box::new(call.0)),
+            form: if self.deleted {
+                None
+            } else {
+                self.form.map(|form| Box::new(form.0))
+            },
             cards: if self.deleted {
                 Vec::new()
             } else {
@@ -131,7 +137,7 @@ impl MessageRow {
     }
 }
 
-pub(crate) const MESSAGE_SELECT: &str = "SELECT m.id,m.room_id,m.author_id,u.username,u.display_name,u.deleted AS author_deleted,u.bot AS author_bot,m.text,m.reply_to,(SELECT count(*) FROM messages r WHERE r.reply_to=m.id AND NOT r.deleted) AS thread_replies,(SELECT max(r.created_at) FROM messages r WHERE r.reply_to=m.id AND NOT r.deleted) AS thread_last_reply,m.system,m.created_at,m.position,m.revision,m.deleted,m.edited_at,m.pinned,m.quote_references,m.files,m.previews,m.cards,(SELECT jsonb_strip_nulls(jsonb_build_object('state',v.state,'duration_seconds',CASE WHEN v.answered_at IS NOT NULL AND v.ended_at IS NOT NULL THEN floor(extract(epoch FROM v.ended_at-v.answered_at))::int END)) FROM voice_rings v WHERE v.message_id=m.id) AS call,COALESCE((SELECT jsonb_agg(jsonb_build_object('emoji',g.emoji,'users',g.users) ORDER BY g.emoji) FROM (SELECT e.emoji,jsonb_agg(jsonb_build_object('id',a.id,'username',a.username,'display_name',a.display_name,'deleted',a.deleted) ORDER BY a.id) AS users FROM message_reactions e JOIN users a ON a.id=e.user_id WHERE e.message_id=m.id GROUP BY e.emoji) g),'[]'::jsonb) AS reactions FROM messages m JOIN users u ON u.id=m.author_id";
+pub(crate) const MESSAGE_SELECT: &str = "SELECT m.id,m.room_id,m.author_id,u.username,u.display_name,u.deleted AS author_deleted,u.bot AS author_bot,m.text,m.reply_to,(SELECT count(*) FROM messages r WHERE r.reply_to=m.id AND NOT r.deleted) AS thread_replies,(SELECT max(r.created_at) FROM messages r WHERE r.reply_to=m.id AND NOT r.deleted) AS thread_last_reply,m.system,m.created_at,m.position,m.revision,m.deleted,m.edited_at,m.pinned,m.quote_references,m.files,m.previews,m.cards,(SELECT jsonb_strip_nulls(jsonb_build_object('state',v.state,'duration_seconds',CASE WHEN v.answered_at IS NOT NULL AND v.ended_at IS NOT NULL THEN floor(extract(epoch FROM v.ended_at-v.answered_at))::int END)) FROM voice_rings v WHERE v.message_id=m.id) AS call,(SELECT jsonb_strip_nulls(jsonb_build_object('title',f.title,'fields',f.fields,'recipient',CASE WHEN r.id IS NULL THEN NULL ELSE jsonb_build_object('id',r.id,'username',r.username,'display_name',r.display_name) END,'answered_by',CASE WHEN a.id IS NULL THEN NULL ELSE jsonb_build_object('id',a.id,'username',a.username,'display_name',a.display_name) END,'answered_at',to_jsonb(f.answered_at),'expires_at',to_jsonb(f.expires_at),'people',(SELECT jsonb_agg(jsonb_build_object('id',p.id,'username',p.username,'display_name',p.display_name) ORDER BY p.username) FROM users p WHERE p.id IN (SELECT jsonb_array_elements_text(x->'people') FROM jsonb_array_elements(f.fields) x)))) FROM workflow_forms f LEFT JOIN users r ON r.id=f.recipient_id LEFT JOIN users a ON a.id=f.answered_by WHERE f.message_id=m.id) AS form,COALESCE((SELECT jsonb_agg(jsonb_build_object('emoji',g.emoji,'users',g.users) ORDER BY g.emoji) FROM (SELECT e.emoji,jsonb_agg(jsonb_build_object('id',a.id,'username',a.username,'display_name',a.display_name,'deleted',a.deleted) ORDER BY a.id) AS users FROM message_reactions e JOIN users a ON a.id=e.user_id WHERE e.message_id=m.id GROUP BY e.emoji) g),'[]'::jsonb) AS reactions FROM messages m JOIN users u ON u.id=m.author_id";
 
 pub(crate) fn send_fingerprint(room: &str, text: &str) -> String {
     crate::auth::hash_token(&serde_json::json!([room, text]).to_string())
@@ -190,6 +196,27 @@ pub(crate) async fn event(
         .execute(&mut **tx)
         .await?;
     Ok(())
+}
+
+/// Publishes a message again under a new revision, when something it shows
+/// changed outside an edit (a workflow form, once answered).
+pub(crate) async fn republish(
+    tx: &mut Transaction<'_, Postgres>,
+    room: &str,
+    id: &str,
+) -> Result<()> {
+    let position = next_position(tx).await?;
+    sqlx::query("UPDATE messages SET revision=$2 WHERE id=$1")
+        .bind(id)
+        .bind(position)
+        .execute(&mut **tx)
+        .await?;
+    let current = sqlx::query_as::<_, MessageRow>(&format!("{MESSAGE_SELECT} WHERE m.id=$1"))
+        .bind(id)
+        .fetch_one(&mut **tx)
+        .await?
+        .wire();
+    event(tx, position, room, None, Change::MessageUpsert(current)).await
 }
 
 pub(crate) async fn require_member(
@@ -380,6 +407,7 @@ pub async fn join_public(app: &App, account: &Account, room_id: &str) -> Result<
             rv_protocol::system::SystemMessage::MemberJoined {},
         )
         .await?;
+        crate::workflows::on_join(&mut tx, room_id, &account.id).await?;
     }
     tx.commit().await?;
     Ok(room)
@@ -546,6 +574,9 @@ pub async fn membership(
             rv_protocol::system::SystemMessage::MemberAdded { user }
         };
         crate::system_messages::publish(&mut tx, account, room_id, activity).await?;
+        if !remove {
+            crate::workflows::on_join(&mut tx, room_id, target).await?;
+        }
     }
     tx.commit().await?;
     Ok(())
@@ -713,6 +744,7 @@ pub(crate) async fn send_in_tx(
         crate::threads::refresh(tx, room_id, root).await?;
     }
     crate::room_reads::message_changed(tx, room_id).await?;
+    crate::workflows::on_message(tx, account, room_id, &message).await?;
     Ok(message)
 }
 

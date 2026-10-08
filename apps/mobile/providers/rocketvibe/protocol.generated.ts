@@ -18,6 +18,7 @@ export type AdminUploadCounts = { "bytes": number; "count": number; };
 export type AdminUser = { "admin": boolean; "avatar_file_id"?: string | null; "bot"?: boolean; "created_at"?: string | null; "disabled": boolean; "display_name": string; "id": string; "last_seen_at"?: string | null; "revision": string; "status": PresenceStatus; "username": string; };
 export type AdminUserCounts = { "active": number; "admins": number; "away": number; "busy": number; "deactivated": number; "offline": number; "online": number; "total": number; };
 export type AdminUserPage = { "items": (AdminUser)[]; "next"?: string | null; };
+export type AnswerForm = { "answers": {  }; "operation_id": string; };
 export type AnswerRing = { "data_epoch": string; "e2ee"?: boolean; "membership_version": string; };
 export type ApiError = { "code": string; "request_id": string; };
 export type ApplicationCancellation = { "fingerprint": string; "header": string; "operation_id": string; "room_id": string; "scope": Scope; };
@@ -43,7 +44,7 @@ export type BotScope = "rooms:read" | "messages:write" | "files:write" | "reacti
 export type BotScopeRoutes = { "routes": (BotRoute)[]; "scope"?: BotScope | null; };
 export type BotsContract = { "bot": Bot; "bot_key": BotKey; "bot_key_created": BotKeyCreated; "bot_key_list": BotKeyList; "bot_list": BotList; "bot_reference": BotReference; "create_bot": CreateBot; "create_bot_key": CreateBotKey; "instance_settings": InstanceSettings; "update_bot": UpdateBot; "update_instance_settings": UpdateInstanceSettings; };
 export type CallSummary = { "duration_seconds"?: number | null; "state": RingState; };
-export type Capabilities = { "account_invitations"?: boolean; "account_recovery"?: boolean; "administration"?: boolean; "bots"?: boolean; "calls": boolean; "custom_emojis"?: boolean; "deletion"?: boolean; "device_sessions"?: boolean; "direct_messages": boolean; "durable_sync": boolean; "e2ee": boolean; "editing"?: boolean; "email_factor_delivery"?: boolean; "email_factors"?: boolean; "email_recovery"?: boolean; "email_removal"?: boolean; "email_verification"?: boolean; "favorites"?: boolean; "fine_permissions"?: boolean; "idempotent_room_creation"?: boolean; "link_previews"?: boolean; "pins"?: boolean; "presence"?: boolean; "private_rooms": boolean; "profile_avatars"?: boolean; "profiles"?: boolean; "push": boolean; "quotes"?: boolean; "reactions": boolean; "read_markers"?: boolean; "reauthentication"?: boolean; "reauthentication_retirement"?: boolean; "reports"?: boolean; "room_discovery"?: boolean; "room_info"?: boolean; "room_leave"?: boolean; "room_roles"?: boolean; "room_settings"?: boolean; "search"?: boolean; "second_factors"?: boolean; "session_rotation"?: boolean; "slash_commands"?: boolean; "snapshot_paging"?: boolean; "stars"?: boolean; "structured_cards"?: boolean; "text_messages": boolean; "threads": boolean; "typing"?: boolean; "uploads": boolean; "voice"?: boolean; };
+export type Capabilities = { "account_invitations"?: boolean; "account_recovery"?: boolean; "administration"?: boolean; "bots"?: boolean; "calls": boolean; "custom_emojis"?: boolean; "deletion"?: boolean; "device_sessions"?: boolean; "direct_messages": boolean; "durable_sync": boolean; "e2ee": boolean; "editing"?: boolean; "email_factor_delivery"?: boolean; "email_factors"?: boolean; "email_recovery"?: boolean; "email_removal"?: boolean; "email_verification"?: boolean; "favorites"?: boolean; "fine_permissions"?: boolean; "idempotent_room_creation"?: boolean; "link_previews"?: boolean; "pins"?: boolean; "presence"?: boolean; "private_rooms": boolean; "profile_avatars"?: boolean; "profiles"?: boolean; "push": boolean; "quotes"?: boolean; "reactions": boolean; "read_markers"?: boolean; "reauthentication"?: boolean; "reauthentication_retirement"?: boolean; "reports"?: boolean; "room_discovery"?: boolean; "room_info"?: boolean; "room_leave"?: boolean; "room_roles"?: boolean; "room_settings"?: boolean; "search"?: boolean; "second_factors"?: boolean; "session_rotation"?: boolean; "slash_commands"?: boolean; "snapshot_paging"?: boolean; "stars"?: boolean; "structured_cards"?: boolean; "text_messages": boolean; "threads": boolean; "typing"?: boolean; "uploads": boolean; "voice"?: boolean; "workflows"?: boolean; };
 export type CardField = { "short"?: boolean; "title": string; "value": string; };
 export type Change = { "data": Room; "type": "room_upsert"; } | { "data": Message; "type": "message_upsert"; } | { "data": { "room_id": string; }; "type": "room_removed"; };
 export type ChangeEmailFactor = { "context": ReauthenticationContext; "email_version": string; "factor_version"?: string | null; "operation_id": string; };
@@ -55,6 +56,7 @@ export type ConfirmEmailVerification = { "code": string; "context": Reauthentica
 export type CreateBot = { "description"?: string; "display_name": string; "operation_id": string; "scopes"?: (BotScope)[]; "username": string; };
 export type CreateBotKey = { "expires_in_days"?: number | null; "label": string; "operation_id": string; };
 export type CreateRoom = { "name": string; "operation_id"?: string | null; "private": boolean; "voice"?: boolean; };
+export type CreateWorkflow = { "bot_id": string; "description"?: string; "enabled"?: boolean; "name": string; "operation_id": string; "steps": (Step)[]; "trigger": Trigger; };
 export type CustomEmoji = { "aliases": (string)[]; "bytes": string; "file_id": string; "id": string; "media_type": string; "name": string; "revision": string; "sha256": string; };
 export type DeleteAdminUser = { "operation_id": string; "revision": string; };
 export type DeleteMessage = { "expected_revision": string; "operation_id": string; };
@@ -80,6 +82,7 @@ export type EmojiCatalog = { "items": (CustomEmoji)[]; "revision": string; };
 export type EnableFactor = { "code": string; "operation_id": string; "setup_id": string; };
 export type EncryptedFile = { "bytes": string; "filename": string; "id": string; "key": string; "media_type": string; "sha256": string; };
 export type EncryptedKeyBackup = { "ciphertext": string; "crypto_identity": string; "format": string; "kdf": string; "revision": string; "user_id": string; };
+export type Every = "hour" | "day" | "week";
 export type FactorBackupCodes = { "codes": (string)[]; "factor_version"?: string | null; };
 export type FactorEmailDelivery = { "delivery": EmailDeliveryState; "expires_at": string; "resend_after_seconds": number; };
 export type FactorSetup = { "expires_at": string; "provisioning_uri": string; "secret": string; "setup_id": string; };
@@ -87,6 +90,10 @@ export type FactorStatus = { "backup_codes_remaining": number; "email": boolean;
 export type FileDescriptor = { "bytes": string; "encrypted": boolean; "filename"?: string | null; "id": string; "media_type": string; "room_id": string; "sha256": string; };
 export type FinishFactor = { "challenge_id": string; "code": string; "method": SecondFactor; "next_token": string; "operation_id": string; };
 export type FinishReauthentication = { "challenge_id": string; "code": string; "method": SecondFactor; "operation_id": string; };
+export type FormAnswer = string | (string)[];
+export type FormField = { "id": string; "kind": FormFieldKind; "label": string; "multiple"?: boolean; "options"?: (string)[]; "people"?: (string)[]; "required"?: boolean; };
+export type FormFieldKind = "text" | "long_text" | "number" | "choice" | "person";
+export type FormRecipient = "trigger_user" | "anyone";
 export type Format = "native1";
 export type GroupCancellation = { "device_id": string; "fingerprint": string; "incarnation": string; "operation_id": string; "room_id": string; "scope": Scope; };
 export type GroupEvent = { "commit"?: string | null; "receipt": GroupReceipt; "transition": string; "welcome"?: GroupWelcome | null; };
@@ -112,6 +119,8 @@ export type HistoryRecordsReceipt = { "count": string; "period": number; };
 export type HistoryRequestEntry = { "committed": boolean; "device_id": string; "expires_at": string; "fingerprint": string; "request": string; "sharer_device_id"?: string | null; };
 export type HistoryRequests = { "requests": (HistoryRequestEntry)[]; "scope": Scope; };
 export type HistoryShareState = { "fingerprint": string; "scope": Scope; "share": string; "sharer_device_id": string; };
+export type HttpHeader = { "name": string; "value": string; };
+export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 export type Identity = { "fingerprint": string; "revision": string; "root": string; "user_id": string; };
 export type InstanceSettings = { "user_bots": boolean; };
 export type IntegrationCard = { "author"?: string | null; "color"?: string | null; "fields"?: (CardField)[]; "text"?: string | null; "title"?: string | null; "url"?: string | null; };
@@ -124,7 +133,7 @@ export type LiveState = { "emoji_catalog_revision"?: string | null; "limited": b
 export type Login = { "password": string; "username": string; };
 export type MarkRead = { "reply_position": string; "root_position": string; };
 export type MarkThreadRead = { "position": string; };
-export type Message = { "author": User; "body"?: Document | null; "call"?: CallSummary | null; "cards"?: (IntegrationCard)[]; "created_at": string; "deleted"?: boolean; "edited_at"?: string | null; "files"?: (FileDescriptor)[]; "id": string; "personal_mention"?: boolean | null; "personal_star"?: PersonalStar | null; "pinned"?: boolean; "position": string; "previews"?: (LinkPreview)[]; "quotes"?: (MessageQuote)[]; "reactions"?: (MessageReaction)[]; "reply_to"?: string | null; "revision": string; "room_id": string; "system"?: SystemMessage | null; "text": string; "thread"?: ThreadSummary | null; };
+export type Message = { "author": User; "body"?: Document | null; "call"?: CallSummary | null; "cards"?: (IntegrationCard)[]; "created_at": string; "deleted"?: boolean; "edited_at"?: string | null; "files"?: (FileDescriptor)[]; "form"?: WorkflowForm | null; "id": string; "personal_mention"?: boolean | null; "personal_star"?: PersonalStar | null; "pinned"?: boolean; "position": string; "previews"?: (LinkPreview)[]; "quotes"?: (MessageQuote)[]; "reactions"?: (MessageReaction)[]; "reply_to"?: string | null; "revision": string; "room_id": string; "system"?: SystemMessage | null; "text": string; "thread"?: ThreadSummary | null; };
 export type MessageContent = { "files": (string)[]; "kind": "plain"; "markdown": string; "mentions": (string)[]; "quotes": (QuoteReference)[]; } | { "format": string; "key_version": string; "kind": "encrypted"; "payload": string; };
 export type MessagePage = { "has_more": boolean; "messages": (Message)[]; };
 export type MessagePermissions = { "delete": boolean; "edit": boolean; "edit_until"?: string | null; "message_id": string; "pin": boolean; "react": boolean; "revision": string; "star": boolean; };
@@ -192,6 +201,8 @@ export type RootBackupSettlement = { "data": RootBackupReceipt; "kind": "accepte
 export type RootBackupState = { "active"?: RootBackupVersion | null; "scope": Scope; };
 export type RootBackupVersion = { "publication": string; "receipt": RootBackupReceipt; };
 export type RunCommand = { "command": string; "params": string; "room_id": string; };
+export type RunStarted = { "run_id": string; };
+export type RunState = "pending" | "waiting" | "done" | "failed" | "cancelled";
 export type Scope = { "data_epoch": string; "instance_id": string; };
 export type SearchMessages = { "before"?: string | null; "limit"?: number | null; "q": string; };
 export type SearchPage = { "has_more": boolean; "membership_version": string; "messages": (Message)[]; };
@@ -203,15 +214,17 @@ export type SetPresence = { "status": PresenceStatus; };
 export type SetReaction = { "emoji": string; "operation_id": string; "present": boolean; };
 export type SetRoomFavorite = { "expected_revision": string; "operation_id": string; "present": boolean; };
 export type SetTyping = { "active": boolean; "membership_version": string; "root_id"?: string | null; };
-export type SlashCommand = { "client_side": boolean; "command": string; "description": string; "params": string; };
+export type SlashCommand = { "client_side": boolean; "command": string; "description": string; "literal"?: boolean; "params": string; };
 export type Snapshot = { "cursor": string; "messages": (Message)[]; "protocol_version": number; "rooms": (Room)[]; };
 export type SnapshotPage = { "cursor"?: string | null; "messages": (Message)[]; "next"?: string | null; "page_index": number; "protocol_version": number; "rooms": (Room)[]; "snapshot_id": string; };
 export type SocketTicket = { "expires_at": string; "ticket": string; };
+export type Step = { "cards"?: (IntegrationCard)[]; "in_thread"?: boolean; "kind": "message"; "room": string; "save_as"?: string | null; "text": string; } | { "kind": "wait"; "seconds": number; } | { "body"?: string | null; "continue_on_error"?: boolean; "headers"?: (HttpHeader)[]; "kind": "http"; "method": HttpMethod; "save_as"?: string | null; "url": string; } | { "fields": (FormField)[]; "kind": "form"; "recipient": FormRecipient; "room": string; "save_as": string; "title": string; };
 export type SyncBatch = { "changes": (Change)[]; "cursor": string; "has_more": boolean; "protocol_version": number; };
 export type SystemMessage = { "kind": "call_started"; "meeting_id": string; } | { "kind": "room_created"; "name": string; } | { "kind": "room_renamed"; "name": string; } | { "kind": "topic_changed"; "topic": string; } | { "description": string; "kind": "description_changed"; } | { "announcement": string; "kind": "announcement_changed"; } | { "kind": "privacy_changed"; "private": boolean; } | { "kind": "read_only_changed"; "read_only": boolean; } | { "kind": "member_joined"; } | { "kind": "member_left"; } | { "kind": "member_added"; "user": User; } | { "kind": "member_removed"; "user": User; } | { "kind": "role_changed"; "previous_role": RoomRole; "role": RoomRole; "user": User; };
 export type ThreadPage = { "has_more": boolean; "messages": (Message)[]; "read_state": ThreadReadState; "root": Message; };
 export type ThreadReadState = { "membership_version": string; "position": string; "revision": string; "room_id": string; "root_id": string; "unread": string; };
 export type ThreadSummary = { "last_reply_at"?: string | null; "replies": string; };
+export type Trigger = { "kind": "command"; "name": string; } | { "days"?: (number)[]; "every": Every; "kind": "schedule"; "room": string; "time": string; "timezone": string; } | { "kind": "member_joined"; "room": string; } | { "emoji"?: string | null; "kind": "reaction_added"; "room": string; } | { "contains": string; "kind": "message_posted"; "room": string; } | { "kind": "webhook"; };
 export type Typist = { "root_id"?: string | null; "user": User; };
 export type UpdateAdminUser = { "admin"?: boolean | null; "disabled"?: boolean | null; "operation_id": string; "revision": string; };
 export type UpdateBot = { "description"?: string | null; "display_name"?: string | null; "operation_id": string; "scopes"?: (BotScope)[] | null; };
@@ -219,6 +232,7 @@ export type UpdateInstanceSettings = { "operation_id": string; "user_bots"?: boo
 export type UpdatePreferences = { "clock_24h": boolean; "desktop_notifications": DesktopNotifications; "expected_revision": string; "language": string; "operation_id": string; "push_enabled": boolean; "push_mentions_only": boolean; };
 export type UpdateProfile = { "bio": string; "display_name": string; "expected_revision": string; "operation_id": string; "status": PresenceStatus; "status_text": string; "username": string; };
 export type UpdateRoom = { "announcement": string; "description": string; "expected_revision": string; "name": string; "operation_id": string; "private": boolean; "read_only": boolean; "topic": string; "voice"?: boolean | null; };
+export type UpdateWorkflow = { "bot_id": string; "description"?: string; "enabled": boolean; "name": string; "operation_id": string; "revision": string; "steps": (Step)[]; "trigger": Trigger; };
 export type Upload = { "expires_at": string; "file": FileDescriptor; "id": string; "message_id"?: string | null; "state": UploadState; };
 export type UploadHistoryBackup = { "checkpoint": string; "records": (string)[]; "scope": Scope; "start": string; };
 export type UploadHistoryRecords = { "period": number; "records": (string)[]; "scope": Scope; "start": string; };
@@ -230,8 +244,15 @@ export type VerifyFactor = { "challenge_id": string; "code": string; "method": S
 export type VoiceGrant = { "can_publish": boolean; "e2ee"?: boolean; "expires_at": string; "ring"?: VoiceRing | null; "room_id": string; "token": string; "url": string; };
 export type VoiceParticipant = { "camera"?: boolean; "deafened": boolean; "muted": boolean; "screen"?: boolean; "user": User; };
 export type VoiceRing = { "callee": User; "caller": User; "expires_in_ms": number; "id": string; "room_id": string; "state": RingState; };
+export type WebhookSecret = { "path": string; };
+export type Workflow = { "bot": User; "created_at": string; "description": string; "enabled": boolean; "has_webhook"?: boolean; "id": string; "last_run"?: WorkflowRun | null; "name": string; "next_fire_at"?: string | null; "owner": User; "revision": string; "steps": (Step)[]; "trigger": Trigger; "updated_at": string; };
+export type WorkflowForm = { "answered_at"?: string | null; "answered_by"?: User | null; "expires_at": string; "fields": (FormField)[]; "people"?: (User)[]; "recipient"?: User | null; "title": string; };
+export type WorkflowList = { "workflows": (Workflow)[]; };
+export type WorkflowRun = { "created_at": string; "error"?: string | null; "id": string; "state": RunState; "step": number; "updated_at": string; };
+export type WorkflowRunList = { "runs": (WorkflowRun)[]; };
+export type WorkflowsContract = { "answer_form": AnswerForm; "create_workflow": CreateWorkflow; "run_started": RunStarted; "update_workflow": UpdateWorkflow; "webhook_secret": WebhookSecret; "workflow": Workflow; "workflow_form": WorkflowForm; "workflow_list": WorkflowList; "workflow_run_list": WorkflowRunList; };
 
-export type NativeTypes = { AcceptInvitation: AcceptInvitation; AccountPermissions: AccountPermissions; AdminContract: AdminContract; AdminMessageCounts: AdminMessageCounts; AdminOperation: AdminOperation; AdminOverview: AdminOverview; AdminReport: AdminReport; AdminReportCounts: AdminReportCounts; AdminReportedMessage: AdminReportedMessage; AdminReportedMessagePage: AdminReportedMessagePage; AdminReportedUser: AdminReportedUser; AdminReportedUserPage: AdminReportedUserPage; AdminRoom: AdminRoom; AdminRoomCounts: AdminRoomCounts; AdminRoomPage: AdminRoomPage; AdminUploadCounts: AdminUploadCounts; AdminUser: AdminUser; AdminUserCounts: AdminUserCounts; AdminUserPage: AdminUserPage; AnswerRing: AnswerRing; ApiError: ApiError; ApplicationCancellation: ApplicationCancellation; ApplicationMessage: ApplicationMessage; ApplicationReceipt: ApplicationReceipt; ApplicationSettlement: ApplicationSettlement; ApplicationSubmission: ApplicationSubmission; AuthChallenge: AuthChallenge; AuthenticationStep: AuthenticationStep; AvailableKeyPackage: AvailableKeyPackage; AvatarCommand: AvatarCommand; BeginEmailVerification: BeginEmailVerification; BeginFactorSetup: BeginFactorSetup; BeginReauthentication: BeginReauthentication; Bot: Bot; BotKey: BotKey; BotKeyCreated: BotKeyCreated; BotKeyList: BotKeyList; BotList: BotList; BotReference: BotReference; BotRoute: BotRoute; BotScope: BotScope; BotScopeRoutes: BotScopeRoutes; BotsContract: BotsContract; CallSummary: CallSummary; Capabilities: Capabilities; CardField: CardField; Change: Change; ChangeEmailFactor: ChangeEmailFactor; ChangeRoomRole: ChangeRoomRole; CommandList: CommandList; CommitHistoryShare: CommitHistoryShare; CompleteUpload: CompleteUpload; ConfirmEmailVerification: ConfirmEmailVerification; CreateBot: CreateBot; CreateBotKey: CreateBotKey; CreateRoom: CreateRoom; CustomEmoji: CustomEmoji; DeleteAdminUser: DeleteAdminUser; DeleteMessage: DeleteMessage; DeliveryContent: DeliveryContent; DeliveryEvent: DeliveryEvent; DeliveryPage: DeliveryPage; DesktopNotifications: DesktopNotifications; Device: Device; DeviceSession: DeviceSession; DirectMessage: DirectMessage; Directory: Directory; DisableFactor: DisableFactor; Discovery: Discovery; Document: Document; EditMessage: EditMessage; EmailDeliveryState: EmailDeliveryState; EmailFactorChange: EmailFactorChange; EmailRecoveryRequested: EmailRecoveryRequested; EmailRemovalReceipt: EmailRemovalReceipt; EmailStatus: EmailStatus; EmailVerificationStep: EmailVerificationStep; EmojiCatalog: EmojiCatalog; EnableFactor: EnableFactor; EncryptedFile: EncryptedFile; EncryptedKeyBackup: EncryptedKeyBackup; FactorBackupCodes: FactorBackupCodes; FactorEmailDelivery: FactorEmailDelivery; FactorSetup: FactorSetup; FactorStatus: FactorStatus; FileDescriptor: FileDescriptor; FinishFactor: FinishFactor; FinishReauthentication: FinishReauthentication; Format: Format; GroupCancellation: GroupCancellation; GroupEvent: GroupEvent; GroupEventPage: GroupEventPage; GroupMember: GroupMember; GroupReceipt: GroupReceipt; GroupRoster: GroupRoster; GroupSettlement: GroupSettlement; GroupState: GroupState; GroupSubmission: GroupSubmission; GroupWelcome: GroupWelcome; HistoryBackupPage: HistoryBackupPage; HistoryBackupPeriod: HistoryBackupPeriod; HistoryBackupPeriods: HistoryBackupPeriods; HistoryBackupReceipt: HistoryBackupReceipt; HistoryKeyCancellation: HistoryKeyCancellation; HistoryKeyReceipt: HistoryKeyReceipt; HistoryKeySettlement: HistoryKeySettlement; HistoryKeyState: HistoryKeyState; HistoryKeyVersion: HistoryKeyVersion; HistoryRecordsPage: HistoryRecordsPage; HistoryRecordsReceipt: HistoryRecordsReceipt; HistoryRequestEntry: HistoryRequestEntry; HistoryRequests: HistoryRequests; HistoryShareState: HistoryShareState; Identity: Identity; InstanceSettings: InstanceSettings; IntegrationCard: IntegrationCard; JoinVoice: JoinVoice; LeaveRoom: LeaveRoom; LinkPreview: LinkPreview; LiveFrame: LiveFrame; LiveRoom: LiveRoom; LiveState: LiveState; Login: Login; MarkRead: MarkRead; MarkThreadRead: MarkThreadRead; Message: Message; MessageContent: MessageContent; MessagePage: MessagePage; MessagePermissions: MessagePermissions; MessageQuote: MessageQuote; MessageReaction: MessageReaction; Node: Node; OperationReceipt: OperationReceipt; OwnProfile: OwnProfile; ParityContract: ParityContract; PersonalStar: PersonalStar; PrepareUpload: PrepareUpload; PresenceEntry: PresenceEntry; PresenceStatus: PresenceStatus; PreviewImage: PreviewImage; PreviewKind: PreviewKind; ProfileReceipt: ProfileReceipt; ProfileStamp: ProfileStamp; PublicDeviceKey: PublicDeviceKey; PublicRoom: PublicRoom; PublicRoomPage: PublicRoomPage; PublishHistoryKey: PublishHistoryKey; PublishHistoryRequest: PublishHistoryRequest; PublishKeyPackages: PublishKeyPackages; PublishRootBackup: PublishRootBackup; PushContent: PushContent; PushRegistration: PushRegistration; QuoteExcerpt: QuoteExcerpt; QuoteReference: QuoteReference; ReadState: ReadState; ReauthenticationContext: ReauthenticationContext; ReauthenticationGrant: ReauthenticationGrant; ReauthenticationStatus: ReauthenticationStatus; ReauthenticationStep: ReauthenticationStep; RecoverAccount: RecoverAccount; RegenerateFactorBackups: RegenerateFactorBackups; RegisterDevice: RegisterDevice; RegisterPush: RegisterPush; RemoveVerifiedEmail: RemoveVerifiedEmail; RenameDevice: RenameDevice; RenewSession: RenewSession; ReportInput: ReportInput; RequestEmailRecovery: RequestEmailRecovery; RequestFactorEmail: RequestFactorEmail; ResumeEmailRemoval: ResumeEmailRemoval; ResumeEmailVerification: ResumeEmailVerification; ResumeReauthentication: ResumeReauthentication; RetireEmailRemoval: RetireEmailRemoval; RetireEmailVerification: RetireEmailVerification; RetireReauthentication: RetireReauthentication; Revocation: Revocation; RevokeDevice: RevokeDevice; RingState: RingState; Room: Room; RoomCommandReceipt: RoomCommandReceipt; RoomDetails: RoomDetails; RoomKeyEnvelope: RoomKeyEnvelope; RoomKind: RoomKind; RoomMember: RoomMember; RoomMemberPage: RoomMemberPage; RoomPermissions: RoomPermissions; RoomRole: RoomRole; RootBackupCancellation: RootBackupCancellation; RootBackupReceipt: RootBackupReceipt; RootBackupSettlement: RootBackupSettlement; RootBackupState: RootBackupState; RootBackupVersion: RootBackupVersion; RunCommand: RunCommand; Scope: Scope; SearchMessages: SearchMessages; SearchPage: SearchPage; SecondFactor: SecondFactor; SendMessage: SendMessage; Session: Session; SetMark: SetMark; SetPresence: SetPresence; SetReaction: SetReaction; SetRoomFavorite: SetRoomFavorite; SetTyping: SetTyping; SlashCommand: SlashCommand; Snapshot: Snapshot; SnapshotPage: SnapshotPage; SocketTicket: SocketTicket; SyncBatch: SyncBatch; SystemMessage: SystemMessage; ThreadPage: ThreadPage; ThreadReadState: ThreadReadState; ThreadSummary: ThreadSummary; Typist: Typist; UpdateAdminUser: UpdateAdminUser; UpdateBot: UpdateBot; UpdateInstanceSettings: UpdateInstanceSettings; UpdatePreferences: UpdatePreferences; UpdateProfile: UpdateProfile; UpdateRoom: UpdateRoom; Upload: Upload; UploadHistoryBackup: UploadHistoryBackup; UploadHistoryRecords: UploadHistoryRecords; UploadState: UploadState; User: User; UserPreferences: UserPreferences; UserProfile: UserProfile; VerifyFactor: VerifyFactor; VoiceGrant: VoiceGrant; VoiceParticipant: VoiceParticipant; VoiceRing: VoiceRing; };
+export type NativeTypes = { AcceptInvitation: AcceptInvitation; AccountPermissions: AccountPermissions; AdminContract: AdminContract; AdminMessageCounts: AdminMessageCounts; AdminOperation: AdminOperation; AdminOverview: AdminOverview; AdminReport: AdminReport; AdminReportCounts: AdminReportCounts; AdminReportedMessage: AdminReportedMessage; AdminReportedMessagePage: AdminReportedMessagePage; AdminReportedUser: AdminReportedUser; AdminReportedUserPage: AdminReportedUserPage; AdminRoom: AdminRoom; AdminRoomCounts: AdminRoomCounts; AdminRoomPage: AdminRoomPage; AdminUploadCounts: AdminUploadCounts; AdminUser: AdminUser; AdminUserCounts: AdminUserCounts; AdminUserPage: AdminUserPage; AnswerForm: AnswerForm; AnswerRing: AnswerRing; ApiError: ApiError; ApplicationCancellation: ApplicationCancellation; ApplicationMessage: ApplicationMessage; ApplicationReceipt: ApplicationReceipt; ApplicationSettlement: ApplicationSettlement; ApplicationSubmission: ApplicationSubmission; AuthChallenge: AuthChallenge; AuthenticationStep: AuthenticationStep; AvailableKeyPackage: AvailableKeyPackage; AvatarCommand: AvatarCommand; BeginEmailVerification: BeginEmailVerification; BeginFactorSetup: BeginFactorSetup; BeginReauthentication: BeginReauthentication; Bot: Bot; BotKey: BotKey; BotKeyCreated: BotKeyCreated; BotKeyList: BotKeyList; BotList: BotList; BotReference: BotReference; BotRoute: BotRoute; BotScope: BotScope; BotScopeRoutes: BotScopeRoutes; BotsContract: BotsContract; CallSummary: CallSummary; Capabilities: Capabilities; CardField: CardField; Change: Change; ChangeEmailFactor: ChangeEmailFactor; ChangeRoomRole: ChangeRoomRole; CommandList: CommandList; CommitHistoryShare: CommitHistoryShare; CompleteUpload: CompleteUpload; ConfirmEmailVerification: ConfirmEmailVerification; CreateBot: CreateBot; CreateBotKey: CreateBotKey; CreateRoom: CreateRoom; CreateWorkflow: CreateWorkflow; CustomEmoji: CustomEmoji; DeleteAdminUser: DeleteAdminUser; DeleteMessage: DeleteMessage; DeliveryContent: DeliveryContent; DeliveryEvent: DeliveryEvent; DeliveryPage: DeliveryPage; DesktopNotifications: DesktopNotifications; Device: Device; DeviceSession: DeviceSession; DirectMessage: DirectMessage; Directory: Directory; DisableFactor: DisableFactor; Discovery: Discovery; Document: Document; EditMessage: EditMessage; EmailDeliveryState: EmailDeliveryState; EmailFactorChange: EmailFactorChange; EmailRecoveryRequested: EmailRecoveryRequested; EmailRemovalReceipt: EmailRemovalReceipt; EmailStatus: EmailStatus; EmailVerificationStep: EmailVerificationStep; EmojiCatalog: EmojiCatalog; EnableFactor: EnableFactor; EncryptedFile: EncryptedFile; EncryptedKeyBackup: EncryptedKeyBackup; Every: Every; FactorBackupCodes: FactorBackupCodes; FactorEmailDelivery: FactorEmailDelivery; FactorSetup: FactorSetup; FactorStatus: FactorStatus; FileDescriptor: FileDescriptor; FinishFactor: FinishFactor; FinishReauthentication: FinishReauthentication; FormAnswer: FormAnswer; FormField: FormField; FormFieldKind: FormFieldKind; FormRecipient: FormRecipient; Format: Format; GroupCancellation: GroupCancellation; GroupEvent: GroupEvent; GroupEventPage: GroupEventPage; GroupMember: GroupMember; GroupReceipt: GroupReceipt; GroupRoster: GroupRoster; GroupSettlement: GroupSettlement; GroupState: GroupState; GroupSubmission: GroupSubmission; GroupWelcome: GroupWelcome; HistoryBackupPage: HistoryBackupPage; HistoryBackupPeriod: HistoryBackupPeriod; HistoryBackupPeriods: HistoryBackupPeriods; HistoryBackupReceipt: HistoryBackupReceipt; HistoryKeyCancellation: HistoryKeyCancellation; HistoryKeyReceipt: HistoryKeyReceipt; HistoryKeySettlement: HistoryKeySettlement; HistoryKeyState: HistoryKeyState; HistoryKeyVersion: HistoryKeyVersion; HistoryRecordsPage: HistoryRecordsPage; HistoryRecordsReceipt: HistoryRecordsReceipt; HistoryRequestEntry: HistoryRequestEntry; HistoryRequests: HistoryRequests; HistoryShareState: HistoryShareState; HttpHeader: HttpHeader; HttpMethod: HttpMethod; Identity: Identity; InstanceSettings: InstanceSettings; IntegrationCard: IntegrationCard; JoinVoice: JoinVoice; LeaveRoom: LeaveRoom; LinkPreview: LinkPreview; LiveFrame: LiveFrame; LiveRoom: LiveRoom; LiveState: LiveState; Login: Login; MarkRead: MarkRead; MarkThreadRead: MarkThreadRead; Message: Message; MessageContent: MessageContent; MessagePage: MessagePage; MessagePermissions: MessagePermissions; MessageQuote: MessageQuote; MessageReaction: MessageReaction; Node: Node; OperationReceipt: OperationReceipt; OwnProfile: OwnProfile; ParityContract: ParityContract; PersonalStar: PersonalStar; PrepareUpload: PrepareUpload; PresenceEntry: PresenceEntry; PresenceStatus: PresenceStatus; PreviewImage: PreviewImage; PreviewKind: PreviewKind; ProfileReceipt: ProfileReceipt; ProfileStamp: ProfileStamp; PublicDeviceKey: PublicDeviceKey; PublicRoom: PublicRoom; PublicRoomPage: PublicRoomPage; PublishHistoryKey: PublishHistoryKey; PublishHistoryRequest: PublishHistoryRequest; PublishKeyPackages: PublishKeyPackages; PublishRootBackup: PublishRootBackup; PushContent: PushContent; PushRegistration: PushRegistration; QuoteExcerpt: QuoteExcerpt; QuoteReference: QuoteReference; ReadState: ReadState; ReauthenticationContext: ReauthenticationContext; ReauthenticationGrant: ReauthenticationGrant; ReauthenticationStatus: ReauthenticationStatus; ReauthenticationStep: ReauthenticationStep; RecoverAccount: RecoverAccount; RegenerateFactorBackups: RegenerateFactorBackups; RegisterDevice: RegisterDevice; RegisterPush: RegisterPush; RemoveVerifiedEmail: RemoveVerifiedEmail; RenameDevice: RenameDevice; RenewSession: RenewSession; ReportInput: ReportInput; RequestEmailRecovery: RequestEmailRecovery; RequestFactorEmail: RequestFactorEmail; ResumeEmailRemoval: ResumeEmailRemoval; ResumeEmailVerification: ResumeEmailVerification; ResumeReauthentication: ResumeReauthentication; RetireEmailRemoval: RetireEmailRemoval; RetireEmailVerification: RetireEmailVerification; RetireReauthentication: RetireReauthentication; Revocation: Revocation; RevokeDevice: RevokeDevice; RingState: RingState; Room: Room; RoomCommandReceipt: RoomCommandReceipt; RoomDetails: RoomDetails; RoomKeyEnvelope: RoomKeyEnvelope; RoomKind: RoomKind; RoomMember: RoomMember; RoomMemberPage: RoomMemberPage; RoomPermissions: RoomPermissions; RoomRole: RoomRole; RootBackupCancellation: RootBackupCancellation; RootBackupReceipt: RootBackupReceipt; RootBackupSettlement: RootBackupSettlement; RootBackupState: RootBackupState; RootBackupVersion: RootBackupVersion; RunCommand: RunCommand; RunStarted: RunStarted; RunState: RunState; Scope: Scope; SearchMessages: SearchMessages; SearchPage: SearchPage; SecondFactor: SecondFactor; SendMessage: SendMessage; Session: Session; SetMark: SetMark; SetPresence: SetPresence; SetReaction: SetReaction; SetRoomFavorite: SetRoomFavorite; SetTyping: SetTyping; SlashCommand: SlashCommand; Snapshot: Snapshot; SnapshotPage: SnapshotPage; SocketTicket: SocketTicket; Step: Step; SyncBatch: SyncBatch; SystemMessage: SystemMessage; ThreadPage: ThreadPage; ThreadReadState: ThreadReadState; ThreadSummary: ThreadSummary; Trigger: Trigger; Typist: Typist; UpdateAdminUser: UpdateAdminUser; UpdateBot: UpdateBot; UpdateInstanceSettings: UpdateInstanceSettings; UpdatePreferences: UpdatePreferences; UpdateProfile: UpdateProfile; UpdateRoom: UpdateRoom; UpdateWorkflow: UpdateWorkflow; Upload: Upload; UploadHistoryBackup: UploadHistoryBackup; UploadHistoryRecords: UploadHistoryRecords; UploadState: UploadState; User: User; UserPreferences: UserPreferences; UserProfile: UserProfile; VerifyFactor: VerifyFactor; VoiceGrant: VoiceGrant; VoiceParticipant: VoiceParticipant; VoiceRing: VoiceRing; WebhookSecret: WebhookSecret; Workflow: Workflow; WorkflowForm: WorkflowForm; WorkflowList: WorkflowList; WorkflowRun: WorkflowRun; WorkflowRunList: WorkflowRunList; WorkflowsContract: WorkflowsContract; };
 
 export const nativeSchema = {
   "$defs": {
@@ -886,6 +907,26 @@ export const nativeSchema = {
       },
       "required": [
         "items"
+      ],
+      "type": "object"
+    },
+    "AnswerForm": {
+      "additionalProperties": false,
+      "properties": {
+        "answers": {
+          "additionalProperties": {
+            "$ref": "#/$defs/FormAnswer"
+          },
+          "description": "Field id to its value; a number is sent as its text, a `multiple`\nfield's answers as a list.",
+          "type": "object"
+        },
+        "operation_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "answers"
       ],
       "type": "object"
     },
@@ -1790,6 +1831,11 @@ export const nativeSchema = {
           "default": false,
           "description": "Voice sessions in every room, voice channels and ringing direct calls.",
           "type": "boolean"
+        },
+        "workflows": {
+          "default": false,
+          "description": "Workflows acting through bots (RFC 0004).",
+          "type": "boolean"
         }
       },
       "required": [
@@ -2091,6 +2137,45 @@ export const nativeSchema = {
       "required": [
         "name",
         "private"
+      ],
+      "type": "object"
+    },
+    "CreateWorkflow": {
+      "additionalProperties": false,
+      "properties": {
+        "bot_id": {
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "type": "string"
+        },
+        "enabled": {
+          "default": false,
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/Step"
+          },
+          "type": "array"
+        },
+        "trigger": {
+          "$ref": "#/$defs/Trigger"
+        }
+      },
+      "required": [
+        "operation_id",
+        "name",
+        "bot_id",
+        "trigger",
+        "steps"
       ],
       "type": "object"
     },
@@ -2752,6 +2837,14 @@ export const nativeSchema = {
       ],
       "type": "object"
     },
+    "Every": {
+      "enum": [
+        "hour",
+        "day",
+        "week"
+      ],
+      "type": "string"
+    },
     "FactorBackupCodes": {
       "properties": {
         "codes": {
@@ -2935,6 +3028,93 @@ export const nativeSchema = {
         "code"
       ],
       "type": "object"
+    },
+    "FormAnswer": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      ],
+      "description": "One answer, or the list a `multiple` field takes."
+    },
+    "FormField": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/FormFieldKind"
+        },
+        "label": {
+          "type": "string"
+        },
+        "multiple": {
+          "description": "`choice` and `person` only: several answers (checkboxes) instead of one.",
+          "type": "boolean"
+        },
+        "options": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "people": {
+          "description": "`person` only: the user ids it offers; empty, any member of the form's\nroom who is not a bot.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "required": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "kind"
+      ],
+      "type": "object"
+    },
+    "FormFieldKind": {
+      "oneOf": [
+        {
+          "enum": [
+            "text",
+            "long_text",
+            "number",
+            "choice"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "person",
+          "description": "Someone: one of `people`, or any member of the room. The answer is a user id.",
+          "type": "string"
+        }
+      ]
+    },
+    "FormRecipient": {
+      "oneOf": [
+        {
+          "const": "trigger_user",
+          "description": "The person whose action started the run (a command, a join).",
+          "type": "string"
+        },
+        {
+          "const": "anyone",
+          "description": "Any member of the room.",
+          "type": "string"
+        }
+      ]
     },
     "Format": {
       "enum": [
@@ -3636,6 +3816,32 @@ export const nativeSchema = {
       ],
       "type": "object"
     },
+    "HttpHeader": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "value"
+      ],
+      "type": "object"
+    },
+    "HttpMethod": {
+      "enum": [
+        "GET",
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE"
+      ],
+      "type": "string"
+    },
     "Identity": {
       "additionalProperties": false,
       "properties": {
@@ -4005,6 +4211,17 @@ export const nativeSchema = {
             "$ref": "#/$defs/FileDescriptor"
           },
           "type": "array"
+        },
+        "form": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WorkflowForm"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A form a workflow asks (RFC 0004)."
         },
         "id": {
           "type": "string"
@@ -6967,6 +7184,27 @@ export const nativeSchema = {
       ],
       "type": "object"
     },
+    "RunStarted": {
+      "properties": {
+        "run_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
+    "RunState": {
+      "enum": [
+        "pending",
+        "waiting",
+        "done",
+        "failed",
+        "cancelled"
+      ],
+      "type": "string"
+    },
     "Scope": {
       "additionalProperties": false,
       "properties": {
@@ -7202,6 +7440,10 @@ export const nativeSchema = {
           "description": "i18n key of the description (`Slash_Shrug_Description`).",
           "type": "string"
         },
+        "literal": {
+          "description": "The description is plain text to show as is (a workflow's name), not a key.",
+          "type": "boolean"
+        },
         "params": {
           "description": "i18n key of what follows the name (`Slash_Topic_Params`), or literal\ntext (`@username`), as Rocket.Chat's `commands.list` gives it.",
           "type": "string"
@@ -7311,6 +7553,143 @@ export const nativeSchema = {
         "expires_at"
       ],
       "type": "object"
+    },
+    "Step": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "cards": {
+              "items": {
+                "$ref": "#/$defs/IntegrationCard"
+              },
+              "type": "array"
+            },
+            "in_thread": {
+              "type": "boolean"
+            },
+            "kind": {
+              "const": "message",
+              "type": "string"
+            },
+            "room": {
+              "type": "string"
+            },
+            "save_as": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "room",
+            "text"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "wait",
+              "type": "string"
+            },
+            "seconds": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "seconds"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "continue_on_error": {
+              "type": "boolean"
+            },
+            "headers": {
+              "items": {
+                "$ref": "#/$defs/HttpHeader"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "const": "http",
+              "type": "string"
+            },
+            "method": {
+              "$ref": "#/$defs/HttpMethod"
+            },
+            "save_as": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "url": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "method",
+            "url"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "fields": {
+              "items": {
+                "$ref": "#/$defs/FormField"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "const": "form",
+              "type": "string"
+            },
+            "recipient": {
+              "$ref": "#/$defs/FormRecipient"
+            },
+            "room": {
+              "type": "string"
+            },
+            "save_as": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "room",
+            "recipient",
+            "title",
+            "fields",
+            "save_as"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "SyncBatch": {
       "properties": {
@@ -7641,6 +8020,146 @@ export const nativeSchema = {
       ],
       "type": "object"
     },
+    "Trigger": {
+      "description": "What starts a run.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "`/name text` in a room where the workflow's bot is a member.",
+          "properties": {
+            "kind": {
+              "const": "command",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "At `time` in `timezone` (IANA), every hour (minutes only), every day,\nor on the given ISO weekdays (1 Monday .. 7 Sunday).",
+          "properties": {
+            "days": {
+              "items": {
+                "format": "uint8",
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "every": {
+              "$ref": "#/$defs/Every"
+            },
+            "kind": {
+              "const": "schedule",
+              "type": "string"
+            },
+            "room": {
+              "type": "string"
+            },
+            "time": {
+              "type": "string"
+            },
+            "timezone": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "every",
+            "time",
+            "timezone",
+            "room"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Someone (never a bot) joins or is added to the room.",
+          "properties": {
+            "kind": {
+              "const": "member_joined",
+              "type": "string"
+            },
+            "room": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "room"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A person (never a bot) adds a reaction to a message of the room: any\nemoji, or only `emoji` (a shortcode or a custom emoji's name).",
+          "properties": {
+            "emoji": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "const": "reaction_added",
+              "type": "string"
+            },
+            "room": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "room"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A person (never a bot) posts a message whose text contains `contains`,\nignoring case. Edits never fire it.",
+          "properties": {
+            "contains": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "message_posted",
+              "type": "string"
+            },
+            "room": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "room",
+            "contains"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`POST /api/v1/hooks/{workflow}/{secret}` with a JSON body.",
+          "properties": {
+            "kind": {
+              "const": "webhook",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "Typist": {
       "properties": {
         "root_id": {
@@ -7859,6 +8378,50 @@ export const nativeSchema = {
         "description",
         "announcement",
         "read_only"
+      ],
+      "type": "object"
+    },
+    "UpdateWorkflow": {
+      "additionalProperties": false,
+      "description": "The whole definition at the expected revision.",
+      "properties": {
+        "bot_id": {
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/Step"
+          },
+          "type": "array"
+        },
+        "trigger": {
+          "$ref": "#/$defs/Trigger"
+        }
+      },
+      "required": [
+        "operation_id",
+        "revision",
+        "name",
+        "bot_id",
+        "trigger",
+        "steps",
+        "enabled"
       ],
       "type": "object"
     },
@@ -8187,6 +8750,260 @@ export const nativeSchema = {
         "expires_in_ms"
       ],
       "type": "object"
+    },
+    "WebhookSecret": {
+      "description": "The only answer that carries the webhook secret.",
+      "properties": {
+        "path": {
+          "description": "`/api/v1/hooks/{workflow}/{secret}`, to put after the server address.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "Workflow": {
+      "description": "A workflow as its owner and the administrators see it.",
+      "properties": {
+        "bot": {
+          "$ref": "#/$defs/User"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "has_webhook": {
+          "default": false,
+          "description": "Whether a webhook secret exists; the secret itself is shown once.",
+          "type": "boolean"
+        },
+        "id": {
+          "type": "string"
+        },
+        "last_run": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WorkflowRun"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "next_fire_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "owner": {
+          "$ref": "#/$defs/User"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/Step"
+          },
+          "type": "array"
+        },
+        "trigger": {
+          "$ref": "#/$defs/Trigger"
+        },
+        "updated_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "owner",
+        "bot",
+        "name",
+        "description",
+        "enabled",
+        "trigger",
+        "steps",
+        "revision",
+        "created_at",
+        "updated_at"
+      ],
+      "type": "object"
+    },
+    "WorkflowForm": {
+      "description": "A form a workflow posted, carried by its message.",
+      "properties": {
+        "answered_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "answered_by": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/User"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "expires_at": {
+          "description": "Past it the form takes no answer.",
+          "type": "string"
+        },
+        "fields": {
+          "items": {
+            "$ref": "#/$defs/FormField"
+          },
+          "type": "array"
+        },
+        "people": {
+          "description": "The people the `person` fields name, to show them.",
+          "items": {
+            "$ref": "#/$defs/User"
+          },
+          "type": "array"
+        },
+        "recipient": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/User"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Only this person may answer; absent: any member of the room."
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "fields",
+        "expires_at"
+      ],
+      "type": "object"
+    },
+    "WorkflowList": {
+      "properties": {
+        "workflows": {
+          "items": {
+            "$ref": "#/$defs/Workflow"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "workflows"
+      ],
+      "type": "object"
+    },
+    "WorkflowRun": {
+      "properties": {
+        "created_at": {
+          "type": "string"
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/$defs/RunState"
+        },
+        "step": {
+          "description": "The step about to run, or the last one run.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "updated_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "state",
+        "step",
+        "created_at",
+        "updated_at"
+      ],
+      "type": "object"
+    },
+    "WorkflowRunList": {
+      "properties": {
+        "runs": {
+          "items": {
+            "$ref": "#/$defs/WorkflowRun"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "runs"
+      ],
+      "type": "object"
+    },
+    "WorkflowsContract": {
+      "properties": {
+        "answer_form": {
+          "$ref": "#/$defs/AnswerForm"
+        },
+        "create_workflow": {
+          "$ref": "#/$defs/CreateWorkflow"
+        },
+        "run_started": {
+          "$ref": "#/$defs/RunStarted"
+        },
+        "update_workflow": {
+          "$ref": "#/$defs/UpdateWorkflow"
+        },
+        "webhook_secret": {
+          "$ref": "#/$defs/WebhookSecret"
+        },
+        "workflow": {
+          "$ref": "#/$defs/Workflow"
+        },
+        "workflow_form": {
+          "$ref": "#/$defs/WorkflowForm"
+        },
+        "workflow_list": {
+          "$ref": "#/$defs/WorkflowList"
+        },
+        "workflow_run_list": {
+          "$ref": "#/$defs/WorkflowRunList"
+        }
+      },
+      "required": [
+        "workflow",
+        "workflow_list",
+        "create_workflow",
+        "update_workflow",
+        "workflow_run_list",
+        "webhook_secret",
+        "run_started",
+        "workflow_form",
+        "answer_form"
+      ],
+      "type": "object"
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -8311,6 +9128,9 @@ export const nativeSchema = {
     },
     "voice_ring": {
       "$ref": "#/$defs/VoiceRing"
+    },
+    "workflows": {
+      "$ref": "#/$defs/WorkflowsContract"
     }
   },
   "required": [
@@ -8353,6 +9173,7 @@ export const nativeSchema = {
     "run_command",
     "administration",
     "bots",
+    "workflows",
     "parity"
   ],
   "title": "Contract",

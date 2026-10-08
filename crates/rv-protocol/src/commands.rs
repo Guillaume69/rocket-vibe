@@ -20,6 +20,9 @@ pub struct SlashCommand {
     pub description: String,
     /// Written by the client (`decorate`), never sent to `commands/run`.
     pub client_side: bool,
+    /// The description is plain text to show as is (a workflow's name), not a key.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub literal: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
@@ -99,6 +102,7 @@ pub fn catalogue() -> CommandList {
         commands: CATALOGUE
             .iter()
             .map(|(command, params, description, client_side)| SlashCommand {
+                literal: false,
                 command: (*command).into(),
                 params: (*params).into(),
                 description: (*description).into(),

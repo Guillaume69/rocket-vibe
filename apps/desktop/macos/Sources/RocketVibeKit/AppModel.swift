@@ -52,6 +52,9 @@ public final class AppModel {
     /// A bot key just made (`BotsModel.createKey`), for the window's sheet:
     /// shown once, in memory only, dropped when dismissed or the account ends.
     public internal(set) var botKey: NativeBotKeyCreated?
+    /// A workflow's new webhook URL (`WorkflowsModel.generateWebhook`), for
+    /// the window's sheet: shown once, in memory only, like `botKey`.
+    public internal(set) var workflowWebhook: String?
 
     /// Room ids opened, for back and forward.
     var history: [String] = []
@@ -83,6 +86,8 @@ public final class AppModel {
 
     /// The new bot key's sheet closed: the key is gone for good.
     public func dismissBotKey() { botKey = nil }
+    /// The webhook URL's sheet closed: the secret is gone for good.
+    public func dismissWorkflowWebhook() { workflowWebhook = nil }
 
     public var unreadRooms: Int { rooms.filter { $0.unread > 0 || $0.alert }.count }
 
@@ -224,6 +229,7 @@ public final class AppModel {
         administrator = false
         reporting = nil
         botKey = nil
+        workflowWebhook = nil
         room?.deactivate()
         thread?.deactivate()
         provider?.shutdown()

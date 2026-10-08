@@ -22,6 +22,7 @@ pub mod read_presentation;
 mod room_operations;
 mod search;
 mod voice;
+pub mod workflows;
 pub use room_operations::{
     ChangeRoomRole, LeaveRoom, RoomDetails, RoomMemberPage, RoomRole, UpdateRoom, room_operation_id,
 };
@@ -313,6 +314,8 @@ pub struct NativeSession {
     command_lock: tokio::sync::Mutex<()>,
     room_access_lock: tokio::sync::Mutex<()>,
     commands: tokio::sync::OnceCell<Vec<crate::commands::Command>>,
+    /// Each room's commands, workflows included, as last read (`room_commands`).
+    room_commands: Mutex<std::collections::HashMap<String, Vec<crate::commands::Command>>>,
     task: Mutex<Option<tokio::task::JoinHandle<()>>>,
     credentials: Option<Arc<dyn credentials::Provider>>,
     security_generation: AtomicU64,
@@ -382,6 +385,7 @@ impl NativeSession {
             command_lock: tokio::sync::Mutex::new(()),
             room_access_lock: tokio::sync::Mutex::new(()),
             commands: tokio::sync::OnceCell::new(),
+            room_commands: Mutex::default(),
             task: Mutex::new(None),
             credentials,
             security_generation: AtomicU64::new(0),
@@ -649,6 +653,7 @@ impl NativeSession {
                     administration: true,
                     reports: true,
                     bots: true,
+                    workflows: true,
                     ..Default::default()
                 })
             })
@@ -967,12 +972,47 @@ impl NativeSession {
     pub fn loaded_commands(&self) -> Vec<crate::commands::Command> {
         self.commands.get().cloned().unwrap_or_default()
     }
-    /// Runs `text` as a slash command when it names one the server lists;
+    /// The commands offered in `rid`: the core ones and, on a server with
+    /// workflows, the workflow commands whose bot is a member there (read
+    /// again on each call, kept for `loaded_room_commands`). Without
+    /// workflows, the server's list.
+    pub async fn room_commands(&self, rid: &str) -> Result<Vec<crate::commands::Command>, Error> {
+        if !self.workflows_supported() {
+            return self.commands().await.map(<[_]>::to_vec);
+        }
+        self.ready()?;
+        let list = self.client.room_commands(rid).await?;
+        self.ready()?;
+        let parsed = crate::commands::parse_native(&list, crate::i18n::current());
+        self.room_commands.lock().unwrap().insert(rid.into(), parsed.clone());
+        Ok(parsed)
+    }
+    /// The commands `room_commands` read for `rid`, else the server's list,
+    /// for completion as one types.
+    pub fn loaded_room_commands(&self, rid: &str) -> Vec<crate::commands::Command> {
+        self.room_commands.lock().unwrap().get(rid).cloned().unwrap_or_else(|| self.loaded_commands())
+    }
+    /// Whether `name` is a command of `rid`: the room's list as read, read
+    /// again when it does not have it (a workflow made since).
+    async fn offers_command(&self, rid: &str, name: &str) -> bool {
+        let known = |list: &[crate::commands::Command]| list.iter().any(|c| c.name == name);
+        if !self.workflows_supported() {
+            return self.commands().await.is_ok_and(known);
+        }
+        if self.room_commands.lock().unwrap().get(rid).is_some_and(|list| known(list)) {
+            return true;
+        }
+        match self.room_commands(rid).await {
+            Ok(list) => known(&list),
+            Err(_) => self.commands().await.is_ok_and(known),
+        }
+    }
+    /// Runs `text` as a slash command when it names one the room offers;
     /// None when it is a message to send. A text command comes back as the
     /// message to send through the room's own path, encrypted or not.
     pub async fn run_command(&self, rid: &str, text: &str) -> Option<Result<crate::commands::Run, Error>> {
         let (name, params) = crate::commands::split(text)?;
-        if !self.commands().await.ok()?.iter().any(|c| c.name == name) {
+        if !self.offers_command(rid, name).await {
             return None;
         }
         if let Some(run) = crate::commands::text(name, params) {

@@ -4,6 +4,7 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { useServerAdmin } from '../../ui/adminAccess.ts';
 import { hasBots } from '../../ui/bots.tsx';
+import { hasWorkflows } from '../../ui/workflows.tsx';
 import { hasDevices } from '../../ui/devices.tsx';
 import { hasEncryptedIdentity } from '../../ui/encryptedIdentity.tsx';
 import { useT } from '../../ui/i18n.ts';
@@ -52,6 +53,7 @@ function Settings({ c, account }: { c: Colors; account: SettingsAccount }) {
     security: hasNativeSecurity(chat),
     devices: hasDevices(chat),
     bots: hasBots(chat),
+    workflows: hasWorkflows(chat),
   });
 
   const handleLogOut = useCallback(() => {

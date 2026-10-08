@@ -67,6 +67,7 @@ Each feature doc covers mobile and desktop, and says where they differ.
 | [room-view.md](features/room-view.md) | History paging, live messages, grouping, markdown, system messages, cards, jumps, unread bar. |
 | [composer.md](features/composer.md) | Where a send goes, drafts, quote replies, mentions, editing, formatting, staged attachments. |
 | [bots.md](features/bots.md) | RocketVibe server: bots owned by a person, API keys and scopes, the API reference, the BOT badge, the administrators' switch. |
+| [workflows.md](features/workflows.md) | RocketVibe server: automations acting through a bot, their triggers and steps, the run engine, forms in messages. |
 | [slash-commands.md](features/slash-commands.md) | `commands.list` / `commands.run`, the RocketVibe server's commands, the command panel, the server's private answers. |
 | [uploads.md](features/uploads.md) | The two-step upload behind a persisted queue, local dedup, retries, progress, protected downloads. |
 | [voice-messages.md](features/voice-messages.md) | Recording and playback, and why the formats differ per app. |

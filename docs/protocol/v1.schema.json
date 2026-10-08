@@ -659,9 +659,9 @@
       "properties": {
         "answers": {
           "additionalProperties": {
-            "type": "string"
+            "$ref": "#/$defs/FormAnswer"
           },
-          "description": "Field id to its value; a number is sent as its text.",
+          "description": "Field id to its value; a number is sent as its text, a `multiple`\nfield's answers as a list.",
           "type": "object"
         },
         "operation_id": {
@@ -2773,6 +2773,20 @@
       ],
       "type": "object"
     },
+    "FormAnswer": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      ],
+      "description": "One answer, or the list a `multiple` field takes."
+    },
     "FormField": {
       "additionalProperties": false,
       "properties": {
@@ -2784,6 +2798,10 @@
         },
         "label": {
           "type": "string"
+        },
+        "multiple": {
+          "description": "`choice` and `person` only: several answers (checkboxes) instead of one.",
+          "type": "boolean"
         },
         "options": {
           "items": {

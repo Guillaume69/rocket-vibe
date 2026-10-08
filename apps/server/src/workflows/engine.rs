@@ -387,26 +387,49 @@ async fn form(
                 Ok(by) => by,
                 Err(error) => return failure(error),
             };
-            // A person is answered by id: the run sees the username, and the person.
+            // A person is answered by id: the run sees the username, the person
+            // and a mention; several answers read as a list joined by commas.
             let mut answers = answers.map(|a| a.0).unwrap_or(json!({}));
             let mut people = serde_json::Map::new();
-            for field in fields.iter().filter(|f| f.kind == FormFieldKind::Person) {
-                let Some(id) = answers
-                    .get(&field.id)
-                    .and_then(Value::as_str)
-                    .map(str::to_owned)
-                else {
-                    continue;
+            let mut mentions = serde_json::Map::new();
+            for field in fields {
+                let values: Vec<String> = match answers.get(&field.id) {
+                    Some(Value::String(one)) => vec![one.clone()],
+                    Some(Value::Array(many)) => many
+                        .iter()
+                        .filter_map(|v| v.as_str().map(str::to_owned))
+                        .collect(),
+                    _ => continue,
                 };
-                let person = match user_context(&mut tx, &id).await {
-                    Ok(person) => person,
-                    Err(error) => return failure(error),
+                let shown = if field.kind == FormFieldKind::Person {
+                    let mut found = Vec::new();
+                    for id in &values {
+                        match user_context(&mut tx, id).await {
+                            Ok(person) => found.push(person),
+                            Err(error) => return failure(error),
+                        }
+                    }
+                    let names: Vec<String> = found
+                        .iter()
+                        .filter_map(|p| p["username"].as_str().map(str::to_owned))
+                        .collect();
+                    let mention: Vec<String> = names.iter().map(|n| format!("@{n}")).collect();
+                    mentions.insert(field.id.clone(), json!(mention.join(", ")));
+                    let person = if field.multiple {
+                        json!(found)
+                    } else {
+                        found.into_iter().next().unwrap_or(Value::Null)
+                    };
+                    people.insert(field.id.clone(), person);
+                    names
+                } else {
+                    values
                 };
-                answers[&field.id] = person["username"].clone();
-                people.insert(field.id.clone(), person);
+                answers[&field.id] = json!(shown.join(", "));
             }
             let _ = tx.commit().await;
-            context[save_as] = json!({"answers": answers, "by": by, "people": people});
+            context[save_as] =
+                json!({"answers": answers, "by": by, "people": people, "mentions": mentions});
             return Outcome::Next;
         }
         Ok(Some((_, None, expires))) => {

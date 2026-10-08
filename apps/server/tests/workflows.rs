@@ -7,8 +7,8 @@ use rv_protocol::{
     commands::RunCommand,
     parity::SetReaction,
     workflows::{
-        AnswerForm, CreateWorkflow, Every, FormField, FormFieldKind, FormRecipient, HttpMethod,
-        RunState, Step, Trigger, UpdateWorkflow,
+        AnswerForm, CreateWorkflow, Every, FormAnswer, FormField, FormFieldKind, FormRecipient,
+        HttpMethod, RunState, Step, Trigger, UpdateWorkflow,
     },
 };
 use rv_server::{App, auth};
@@ -539,6 +539,7 @@ async fn a_form_waits_for_its_answer(pool: PgPool) {
                             kind: FormFieldKind::Number,
                             options: Vec::new(),
                             people: Vec::new(),
+                            multiple: false,
                             required: true,
                         },
                         FormField {
@@ -547,6 +548,7 @@ async fn a_form_waits_for_its_answer(pool: PgPool) {
                             kind: FormFieldKind::Choice,
                             options: vec!["paid".into(), "unpaid".into()],
                             people: Vec::new(),
+                            multiple: false,
                             required: true,
                         },
                     ],
@@ -574,8 +576,8 @@ async fn a_form_waits_for_its_answer(pool: PgPool) {
     let answer = |days: &str, kind: &str, op: &str| AnswerForm {
         operation_id: op.into(),
         answers: [
-            ("days".to_owned(), days.to_owned()),
-            ("kind".to_owned(), kind.to_owned()),
+            ("days".to_owned(), days.into()),
+            ("kind".to_owned(), kind.into()),
         ]
         .into_iter()
         .collect(),
@@ -965,13 +967,14 @@ async fn a_person_field_offers_its_list_or_the_room(pool: PgPool) {
     let bot = bench
         .bot(&admin, "who-bot", &[BotScope::MessagesWrite], &general)
         .await;
-    let person = |id: &str, people: Vec<String>, required: bool| FormField {
+    let person = |id: &str, people: Vec<String>, multiple: bool| FormField {
         id: id.into(),
         label: id.into(),
         kind: FormFieldKind::Person,
         options: Vec::new(),
         people,
-        required,
+        multiple,
+        required: !multiple,
     };
     let assign = |reviewers: Vec<String>| {
         workflow(
@@ -986,14 +989,14 @@ async fn a_person_field_offers_its_list_or_the_room(pool: PgPool) {
                     recipient: FormRecipient::TriggerUser,
                     title: "Assign".into(),
                     fields: vec![
-                        person("owner", Vec::new(), true),
-                        person("reviewer", reviewers, false),
+                        person("owner", Vec::new(), false),
+                        person("reviewer", reviewers, true),
                     ],
                     save_as: "task".into(),
                 },
                 message(
                     "trigger",
-                    "@{{task.answers.owner}} owns it, {{task.people.reviewer.display_name}} reviews",
+                    "@{{task.answers.owner}} owns it, {{task.mentions.reviewer}} review ({{task.answers.reviewer}}, {{task.people.reviewer.0.display_name}} first)",
                 ),
             ],
         )
@@ -1021,39 +1024,73 @@ async fn a_person_field_offers_its_list_or_the_room(pool: PgPool) {
         .collect();
     assert_eq!(named, vec!["who-carol", "who-dave"]);
 
-    let answer = |owner: &str, reviewer: &str, op: &str| AnswerForm {
+    let answer = |owner: FormAnswer, reviewer: FormAnswer, op: &str| AnswerForm {
         operation_id: op.into(),
         answers: [
-            ("owner".to_owned(), owner.to_owned()),
-            ("reviewer".to_owned(), reviewer.to_owned()),
+            ("owner".to_owned(), owner),
+            ("reviewer".to_owned(), reviewer),
         ]
         .into_iter()
         .collect(),
     };
     // Any member of the room: not someone outside it, not a bot.
     code(
-        bob.answer_form(&posted.id, &answer(&dave_id, &carol_id, "w1"))
-            .await,
+        bob.answer_form(
+            &posted.id,
+            &answer(dave_id.as_str().into(), carol_id.as_str().into(), "w1"),
+        )
+        .await,
         "form_value",
     );
     code(
-        bob.answer_form(&posted.id, &answer(&bot, &carol_id, "w2"))
-            .await,
+        bob.answer_form(
+            &posted.id,
+            &answer(bot.as_str().into(), carol_id.as_str().into(), "w2"),
+        )
+        .await,
         "form_value",
     );
     // The list: not someone else, member or not.
     code(
-        bob.answer_form(&posted.id, &answer(&carol_id, &bob_id, "w3"))
-            .await,
+        bob.answer_form(
+            &posted.id,
+            &answer(
+                carol_id.as_str().into(),
+                FormAnswer::Many(vec![carol_id.clone(), bob_id.clone()]),
+                "w3",
+            ),
+        )
+        .await,
         "form_value",
     );
-    bob.answer_form(&posted.id, &answer(&carol_id, &dave_id, "w4"))
-        .await
-        .unwrap();
+    // One answer only where the field takes one.
+    code(
+        bob.answer_form(
+            &posted.id,
+            &answer(
+                FormAnswer::Many(vec![carol_id.clone(), bob_id.clone()]),
+                dave_id.as_str().into(),
+                "w5",
+            ),
+        )
+        .await,
+        "form_value",
+    );
+    // Several, in the list's order whatever the order sent.
+    bob.answer_form(
+        &posted.id,
+        &answer(
+            carol_id.as_str().into(),
+            FormAnswer::Many(vec![dave_id.clone(), carol_id.clone()]),
+            "w4",
+        ),
+    )
+    .await
+    .unwrap();
     bench.drain().await;
     assert!(
         texts(&bob, &general)
             .await
-            .contains(&"@who-carol owns it, who-dave reviews".to_owned())
+            .contains(&"@who-carol owns it, @who-carol, @who-dave review (who-carol, who-dave, who-carol first)".to_owned())
     );
 }

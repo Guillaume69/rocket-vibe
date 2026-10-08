@@ -289,6 +289,8 @@ async fn check(
                             || !short_text(&f.label, 256)
                             || (f.kind == FormFieldKind::Choice) != !f.options.is_empty()
                             || (f.kind != FormFieldKind::Person && !f.people.is_empty())
+                            || (f.multiple
+                                && !matches!(f.kind, FormFieldKind::Choice | FormFieldKind::Person))
                             || f.people.len() > PEOPLE_PER_FIELD
                             || f.people.iter().any(|p| !auth::identifier(p))
                             || f.options.len() > 20
@@ -1145,14 +1147,25 @@ pub(crate) async fn answer(
     }
     let mut answers = serde_json::Map::new();
     for field in &fields.0 {
-        let value = input.answers.get(&field.id).map(|v| v.trim()).unwrap_or("");
-        if value.is_empty() {
+        let mut values = input
+            .answers
+            .get(&field.id)
+            .map(|v| v.values())
+            .unwrap_or_default();
+        values.sort_unstable();
+        values.dedup();
+        if values.is_empty() {
             if field.required {
                 return Err(refused("form_required"));
             }
             continue;
         }
-        let ok = match field.kind {
+        if values.len() > 1 && !field.multiple {
+            return Err(refused("form_value"));
+        }
+        for value in &values {
+            let value = *value;
+            let ok = match field.kind {
             FormFieldKind::Text => value.len() <= 1024 && !value.contains('\n'),
             FormFieldKind::LongText => value.len() <= 4096,
             FormFieldKind::Number => value.parse::<f64>().is_ok_and(f64::is_finite),
@@ -1169,11 +1182,24 @@ pub(crate) async fn answer(
                     .fetch_one(&mut *tx)
                     .await?
             }
-        };
-        if !ok || value.contains('\0') {
-            return Err(refused("form_value"));
+            };
+            if !ok || value.contains('\0') {
+                return Err(refused("form_value"));
+            }
         }
-        answers.insert(field.id.clone(), Value::String(value.to_owned()));
+        // A multiple field keeps the order its options or people have.
+        let answer = if field.multiple {
+            let order: &[String] = if field.kind == FormFieldKind::Choice {
+                &field.options
+            } else {
+                &field.people
+            };
+            values.sort_by_key(|v| order.iter().position(|o| o == v).unwrap_or(usize::MAX));
+            json!(values)
+        } else {
+            json!(values[0])
+        };
+        answers.insert(field.id.clone(), answer);
     }
     if input
         .answers

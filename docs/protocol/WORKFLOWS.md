@@ -51,7 +51,7 @@ A test run (`POST /workflows/{id}/test`) has `trigger.kind` `test`, the caller a
 | `message` | `room` (`trigger` or a room id), `text`, `cards?`, `in_thread?`, `save_as?` | `{message_id}` |
 | `wait` | `seconds`, 1 to 2,592,000 (30 days) | |
 | `http` | `method` (`GET` `POST` `PUT` `PATCH` `DELETE`), `url` (starts with `http://` or `https://`), `headers?` `[{name, value}]` (10 at most), `body?`, `save_as?`, `continue_on_error?` | `{status, body}`: JSON when it parses, else text, 64 KiB at most; `{status: 0, error}` on a failure kept by `continue_on_error` |
-| `form` | `room`, `recipient` (`trigger_user` or `anyone`), `title`, `fields` (1 to 10: `{id, label, kind: text\|long_text\|number\|choice\|person, options?, people?, required}`), `save_as` | `{answers: {field id: text}, by: user, people: {field id: user}}` |
+| `form` | `room`, `recipient` (`trigger_user` or `anyone`), `title`, `fields` (1 to 10: `{id, label, kind: text\|long_text\|number\|choice\|person, options?, people?, multiple?, required}`), `save_as` | `{answers: {field id: text}, by: user, people: {field id: user or list}, mentions: {field id: text}}` |
 
 - `room: "trigger"` needs a trigger that has a room (not `webhook`). A fixed room
   must be one the bot belongs to, plaintext.
@@ -62,7 +62,12 @@ A test run (`POST /workflows/{id}/test`) has `trigger.kind` `test`, the caller a
 - A `person` field offers `people` (up to 50 user ids, people only, no bot), or any
   member of the form's room who is not a bot when `people` is empty. Its answer is a
   user id; the run sees the username in `answers` (`@{{x.answers.owner}}` mentions
-  them) and the person in `people` (`{{x.people.owner.display_name}}`).
+  them) and the person in `people` (`{{x.people.owner.display_name}}`); `mentions`
+  gives `@username` ready to post (`{{x.mentions.owner}}`).
+- `multiple` (a `choice` or a `person` only): several answers, ticked as checkboxes.
+  The answer is a list; the run sees the values joined by `, ` in `answers`, in the
+  options' or people's order (`a, c`, `alice, bob`), `@alice, @bob` in `mentions`, and
+  a list of users in `people` (`{{x.people.owner.0.display_name}}`).
 - Text, URL, header values and body are templates: `{{path.to.value}}` looks up
   the run's context (`trigger`, `webhook`, `now`, every `save_as`); a list index is
   a number (`{{order.body.items.0.name}}`); a missing path renders empty, an object
@@ -88,7 +93,7 @@ calls included), 100 unfinished runs per workflow, a form open 7 days.
 | `GET /api/v1/workflows/{id}/runs` | `WorkflowRunList`: the last 50 runs, `state` (`pending`, `waiting`, `done`, `failed`, `cancelled`), `step`, `error` |
 | `POST /api/v1/workflows/{id}/test` | `RunStarted{run_id}`: a run now |
 | `POST /api/v1/hooks/{id}/{secret}` | No session. JSON body (16 KiB) → `202 RunStarted`; `404` for anything wrong |
-| `POST /api/v1/forms/{message}/answer` | `AnswerForm{operation_id, answers}` → `204` |
+| `POST /api/v1/forms/{message}/answer` | `AnswerForm{operation_id, answers}` (a field id to a text, or to a list for a `multiple` field) → `204` |
 | `GET /api/v1/commands?room={id}` | The core commands plus the workflow commands offered in that room |
 
 The owner edits; an administrator lists, disables and deletes any workflow, never
@@ -108,7 +113,7 @@ members. When answered, the message is published again with
   no recipient;
 - `form_required` (a required field empty), `form_value` (a number that does not
   parse, a choice not in `options`, a person outside the list or the room, or a
-  bot, an unknown field, a text too long: 1,024 bytes,
+  bot, several answers to a field without `multiple`, an unknown field, a text too long: 1,024 bytes,
   long text 4,096), `form_answered` (someone answered first; the same operation
   again succeeds), `form_expired`.
 

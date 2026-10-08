@@ -152,6 +152,9 @@ pub struct FormField {
     /// room who is not a bot.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub people: Vec<String>,
+    /// `choice` and `person` only: several answers (checkboxes) instead of one.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub multiple: bool,
     #[serde(default)]
     pub required: bool,
 }
@@ -286,8 +289,36 @@ pub struct WorkflowForm {
 #[serde(deny_unknown_fields)]
 pub struct AnswerForm {
     pub operation_id: String,
-    /// Field id to its value; a number is sent as its text.
-    pub answers: std::collections::BTreeMap<String, String>,
+    /// Field id to its value; a number is sent as its text, a `multiple`
+    /// field's answers as a list.
+    pub answers: std::collections::BTreeMap<String, FormAnswer>,
+}
+
+/// One answer, or the list a `multiple` field takes.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[serde(untagged)]
+pub enum FormAnswer {
+    One(String),
+    Many(Vec<String>),
+}
+
+impl FormAnswer {
+    /// The values, trimmed, the empty ones left out.
+    pub fn values(&self) -> Vec<&str> {
+        match self {
+            Self::One(value) => vec![value.trim()],
+            Self::Many(values) => values.iter().map(|v| v.trim()).collect(),
+        }
+        .into_iter()
+        .filter(|v| !v.is_empty())
+        .collect()
+    }
+}
+
+impl From<&str> for FormAnswer {
+    fn from(value: &str) -> Self {
+        Self::One(value.to_owned())
+    }
 }
 
 #[derive(Serialize, Deserialize, JsonSchema)]

@@ -7,6 +7,7 @@
 //! a CSRF token answers 401 `session_expired` (probed on 11.11).
 
 pub mod actions;
+pub mod categories;
 pub mod directory;
 pub mod pusher;
 pub mod socket;

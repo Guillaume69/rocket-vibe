@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-521 production files scanned; 582 occurrences.
+522 production files scanned; 585 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -123,48 +123,51 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/mattermost/actions.rs:51](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L51) | call:GET | &format!("posts/{…}") |
 | [apps/desktop/crates/rv-core/src/mattermost/actions.rs:58](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L58) | call:PUT | "users/me/preferences" |
 | [apps/desktop/crates/rv-core/src/mattermost/actions.rs:60](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L60) | call:POST | "users/me/preferences/delete" |
-| [apps/desktop/crates/rv-core/src/mattermost/actions.rs:66](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L66) | call:GET | "users/me/posts/flagged", options).await?)) |
-| [apps/desktop/crates/rv-core/src/mattermost/actions.rs:70](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L70) | call:GET | &format!("channels/{…}/pinned") |
-| [apps/desktop/crates/rv-core/src/mattermost/actions.rs:74](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L74) | call:POST | "channels/members/me/view" |
-| [apps/desktop/crates/rv-core/src/mattermost/actions.rs:80](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L80) | call:POST | "channels/direct" |
-| [apps/desktop/crates/rv-core/src/mattermost/actions.rs:85](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L85) | call:POST | &format!("channels/{…}/members") |
-| [apps/desktop/crates/rv-core/src/mattermost/actions.rs:89](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L89) | call:GET | "users/me/teams" |
-| [apps/desktop/crates/rv-core/src/mattermost/actions.rs:109](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L109) | call:POST | &format!("teams/{…}/posts/search") |
-| [apps/desktop/crates/rv-core/src/mattermost/actions.rs:119](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L119) | call:GET | &channel_path |
-| [apps/desktop/crates/rv-core/src/mattermost/actions.rs:148](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L148) | call:GET | &format!("teams/{…}/channels/name/{…}") |
-| [apps/desktop/crates/rv-core/src/mattermost/actions.rs:154](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L154) | call:GET | &path |
-| [apps/desktop/crates/rv-core/src/mattermost/actions.rs:159](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L159) | call:GET | &format!("users/{…}/status") |
-| [apps/desktop/crates/rv-core/src/mattermost/actions.rs:186](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L186) | call:GET | "users/me" |
-| [apps/desktop/crates/rv-core/src/mattermost/actions.rs:211](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L211) | call:PUT | "users/me/status" |
-| [apps/desktop/crates/rv-core/src/mattermost/actions.rs:213](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L213) | call:DELETE | "users/me/status/custom" |
-| [apps/desktop/crates/rv-core/src/mattermost/actions.rs:215](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L215) | call:PUT | "users/me/status/custom" |
-| [apps/desktop/crates/rv-core/src/mattermost/actions.rs:222](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L222) | call:GET | "users/me" |
-| [apps/desktop/crates/rv-core/src/mattermost/actions.rs:225](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L225) | call:PUT | "users/me/patch" |
-| [apps/desktop/crates/rv-core/src/mattermost/actions.rs:247](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L247) | call:PUT | "users/me/patch" |
-| [apps/desktop/crates/rv-core/src/mattermost/actions.rs:253](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L253) | call:POST | "users/search" |
-| [apps/desktop/crates/rv-core/src/mattermost/actions.rs:266](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L266) | call:POST | &format!("teams/{…}/channels/search") |
-| [apps/desktop/crates/rv-core/src/mattermost/actions.rs:285](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L285) | call:POST | "users/status/ids" |
+| [apps/desktop/crates/rv-core/src/mattermost/actions.rs:67](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L67) | call:PUT | "users/me/preferences" |
+| [apps/desktop/crates/rv-core/src/mattermost/actions.rs:72](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L72) | call:GET | "users/me/posts/flagged", options).await?)) |
+| [apps/desktop/crates/rv-core/src/mattermost/actions.rs:76](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L76) | call:GET | &format!("channels/{…}/pinned") |
+| [apps/desktop/crates/rv-core/src/mattermost/actions.rs:80](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L80) | call:POST | "channels/members/me/view" |
+| [apps/desktop/crates/rv-core/src/mattermost/actions.rs:86](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L86) | call:POST | "channels/direct" |
+| [apps/desktop/crates/rv-core/src/mattermost/actions.rs:91](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L91) | call:POST | &format!("channels/{…}/members") |
+| [apps/desktop/crates/rv-core/src/mattermost/actions.rs:95](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L95) | call:GET | "users/me/teams" |
+| [apps/desktop/crates/rv-core/src/mattermost/actions.rs:115](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L115) | call:POST | &format!("teams/{…}/posts/search") |
+| [apps/desktop/crates/rv-core/src/mattermost/actions.rs:125](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L125) | call:GET | &channel_path |
+| [apps/desktop/crates/rv-core/src/mattermost/actions.rs:154](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L154) | call:GET | &format!("teams/{…}/channels/name/{…}") |
+| [apps/desktop/crates/rv-core/src/mattermost/actions.rs:160](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L160) | call:GET | &path |
+| [apps/desktop/crates/rv-core/src/mattermost/actions.rs:165](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L165) | call:GET | &format!("users/{…}/status") |
+| [apps/desktop/crates/rv-core/src/mattermost/actions.rs:192](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L192) | call:GET | "users/me" |
+| [apps/desktop/crates/rv-core/src/mattermost/actions.rs:217](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L217) | call:PUT | "users/me/status" |
+| [apps/desktop/crates/rv-core/src/mattermost/actions.rs:219](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L219) | call:DELETE | "users/me/status/custom" |
+| [apps/desktop/crates/rv-core/src/mattermost/actions.rs:221](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L221) | call:PUT | "users/me/status/custom" |
+| [apps/desktop/crates/rv-core/src/mattermost/actions.rs:228](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L228) | call:GET | "users/me" |
+| [apps/desktop/crates/rv-core/src/mattermost/actions.rs:231](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L231) | call:PUT | "users/me/patch" |
+| [apps/desktop/crates/rv-core/src/mattermost/actions.rs:253](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L253) | call:PUT | "users/me/patch" |
+| [apps/desktop/crates/rv-core/src/mattermost/actions.rs:259](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L259) | call:POST | "users/search" |
+| [apps/desktop/crates/rv-core/src/mattermost/actions.rs:272](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L272) | call:POST | &format!("teams/{…}/channels/search") |
+| [apps/desktop/crates/rv-core/src/mattermost/actions.rs:291](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L291) | call:POST | "users/status/ids" |
+| [apps/desktop/crates/rv-core/src/mattermost/categories.rs:25](../../apps/desktop/crates/rv-core/src/mattermost/categories.rs#L25) | call:GET | "users/me/teams" |
+| [apps/desktop/crates/rv-core/src/mattermost/categories.rs:29](../../apps/desktop/crates/rv-core/src/mattermost/categories.rs#L29) | call:GET | &format!("users/me/teams/{…}/channels/categories") |
 | [apps/desktop/crates/rv-core/src/mattermost/directory.rs:65](../../apps/desktop/crates/rv-core/src/mattermost/directory.rs#L65) | call:POST | "users/ids" |
 | [apps/desktop/crates/rv-core/src/mattermost/directory.rs:76](../../apps/desktop/crates/rv-core/src/mattermost/directory.rs#L76) | call:GET | &format!("users/username/{…}") |
-| [apps/desktop/crates/rv-core/src/mattermost/mod.rs:69](../../apps/desktop/crates/rv-core/src/mattermost/mod.rs#L69) | url | /api/v4/system/ping |
-| [apps/desktop/crates/rv-core/src/mattermost/mod.rs:102](../../apps/desktop/crates/rv-core/src/mattermost/mod.rs#L102) | url | /api/v4/users/login |
-| [apps/desktop/crates/rv-core/src/mattermost/mod.rs:128](../../apps/desktop/crates/rv-core/src/mattermost/mod.rs#L128) | call:GET | "users/me" |
-| [apps/desktop/crates/rv-core/src/mattermost/mod.rs:135](../../apps/desktop/crates/rv-core/src/mattermost/mod.rs#L135) | call:POST | "users/logout" |
-| [apps/desktop/crates/rv-core/src/mattermost/mod.rs:149](../../apps/desktop/crates/rv-core/src/mattermost/mod.rs#L149) | call:GET | "users/me/servers" |
-| [apps/desktop/crates/rv-core/src/mattermost/mod.rs:227](../../apps/desktop/crates/rv-core/src/mattermost/mod.rs#L227) | call:GET | "users/me/channels", page()), rest.get("users/me/channel_members", page()))?; |
+| [apps/desktop/crates/rv-core/src/mattermost/mod.rs:70](../../apps/desktop/crates/rv-core/src/mattermost/mod.rs#L70) | url | /api/v4/system/ping |
+| [apps/desktop/crates/rv-core/src/mattermost/mod.rs:103](../../apps/desktop/crates/rv-core/src/mattermost/mod.rs#L103) | url | /api/v4/users/login |
+| [apps/desktop/crates/rv-core/src/mattermost/mod.rs:129](../../apps/desktop/crates/rv-core/src/mattermost/mod.rs#L129) | call:GET | "users/me" |
+| [apps/desktop/crates/rv-core/src/mattermost/mod.rs:136](../../apps/desktop/crates/rv-core/src/mattermost/mod.rs#L136) | call:POST | "users/logout" |
+| [apps/desktop/crates/rv-core/src/mattermost/mod.rs:150](../../apps/desktop/crates/rv-core/src/mattermost/mod.rs#L150) | call:GET | "users/me/servers" |
+| [apps/desktop/crates/rv-core/src/mattermost/mod.rs:228](../../apps/desktop/crates/rv-core/src/mattermost/mod.rs#L228) | call:GET | "users/me/channels", page()), rest.get("users/me/channel_members", page()))?; |
 | [apps/desktop/crates/rv-core/src/mattermost/pusher.rs:102](../../apps/desktop/crates/rv-core/src/mattermost/pusher.rs#L102) | call:GET | "config/client", config), rest.get("users/me" |
 | [apps/desktop/crates/rv-core/src/mattermost/socket.rs:83](../../apps/desktop/crates/rv-core/src/mattermost/socket.rs#L83) | url | /api/v4/websocket |
-| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:120](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L120) | call:GET | &format!("posts/{…}") |
-| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:132](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L132) | call:GET | "users/me/preferences/flagged_post" |
-| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:175](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L175) | call:GET | path, options).await?; |
-| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:270](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L270) | call:GET | &format!("channels/{…}/posts") |
-| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:279](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L279) | call:GET | &format!("channels/{…}/deleted_posts") |
-| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:307](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L307) | call:GET | &format!("channels/{…}/posts"), options).await?); |
-| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:382](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L382) | call:GET | &format!("posts/{…}") |
-| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:394](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L394) | call:GET | &format!("posts/{…}/thread") |
-| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:404](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L404) | call:GET | &channel_path |
-| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:405](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L405) | call:GET | &member_path |
-| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:456](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L456) | call:GET | &format!("posts/{…}") |
+| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:124](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L124) | call:GET | &format!("posts/{…}") |
+| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:170](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L170) | call:GET | "users/me/preferences/flagged_post" |
+| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:213](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L213) | call:GET | path, options).await?; |
+| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:309](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L309) | call:GET | &format!("channels/{…}/posts") |
+| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:318](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L318) | call:GET | &format!("channels/{…}/deleted_posts") |
+| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:346](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L346) | call:GET | &format!("channels/{…}/posts"), options).await?); |
+| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:421](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L421) | call:GET | &format!("posts/{…}") |
+| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:433](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L433) | call:GET | &format!("posts/{…}/thread") |
+| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:443](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L443) | call:GET | &channel_path |
+| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:444](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L444) | call:GET | &member_path |
+| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:495](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L495) | call:GET | &format!("posts/{…}") |
 | [apps/desktop/crates/rv-core/src/mattermost/translate.rs:11](../../apps/desktop/crates/rv-core/src/mattermost/translate.rs#L11) | url | /api/v4/files |
 | [apps/desktop/crates/rv-core/src/media.rs:26](../../apps/desktop/crates/rv-core/src/media.rs#L26) | resource | /avatar/{…} |
 | [apps/desktop/crates/rv-core/src/media.rs:27](../../apps/desktop/crates/rv-core/src/media.rs#L27) | resource | /avatar/uid/{…} |
@@ -232,14 +235,14 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/session.rs:1098](../../apps/desktop/crates/rv-core/src/session.rs#L1098) | call:GET | "me" |
 | [apps/desktop/crates/rv-core/src/session.rs:1119](../../apps/desktop/crates/rv-core/src/session.rs#L1119) | call:GET | "commands.list" |
 | [apps/desktop/crates/rv-core/src/session.rs:1153](../../apps/desktop/crates/rv-core/src/session.rs#L1153) | call:POST | "commands.run" |
-| [apps/desktop/crates/rv-core/src/session.rs:1246](../../apps/desktop/crates/rv-core/src/session.rs#L1246) | call:GET | "chat.getMessage" |
-| [apps/desktop/crates/rv-core/src/session.rs:1246](../../apps/desktop/crates/rv-core/src/session.rs#L1246) | endpoint | chat.getMessage |
-| [apps/desktop/crates/rv-core/src/session.rs:1334](../../apps/desktop/crates/rv-core/src/session.rs#L1334) | call:GET | "chat.getMessage" |
-| [apps/desktop/crates/rv-core/src/session.rs:1334](../../apps/desktop/crates/rv-core/src/session.rs#L1334) | endpoint | chat.getMessage |
-| [apps/desktop/crates/rv-core/src/session.rs:1345](../../apps/desktop/crates/rv-core/src/session.rs#L1345) | call:GET | "chat.getThreadMessages", options).await?; |
-| [apps/desktop/crates/rv-core/src/session.rs:1345](../../apps/desktop/crates/rv-core/src/session.rs#L1345) | endpoint | chat.getThreadMessages |
-| [apps/desktop/crates/rv-core/src/store.rs:328](../../apps/desktop/crates/rv-core/src/store.rs#L328) | resource | /file-upload/{…}/% |
-| [apps/desktop/crates/rv-core/src/store.rs:329](../../apps/desktop/crates/rv-core/src/store.rs#L329) | url | /api/v4/files/{…} |
+| [apps/desktop/crates/rv-core/src/session.rs:1248](../../apps/desktop/crates/rv-core/src/session.rs#L1248) | call:GET | "chat.getMessage" |
+| [apps/desktop/crates/rv-core/src/session.rs:1248](../../apps/desktop/crates/rv-core/src/session.rs#L1248) | endpoint | chat.getMessage |
+| [apps/desktop/crates/rv-core/src/session.rs:1336](../../apps/desktop/crates/rv-core/src/session.rs#L1336) | call:GET | "chat.getMessage" |
+| [apps/desktop/crates/rv-core/src/session.rs:1336](../../apps/desktop/crates/rv-core/src/session.rs#L1336) | endpoint | chat.getMessage |
+| [apps/desktop/crates/rv-core/src/session.rs:1347](../../apps/desktop/crates/rv-core/src/session.rs#L1347) | call:GET | "chat.getThreadMessages", options).await?; |
+| [apps/desktop/crates/rv-core/src/session.rs:1347](../../apps/desktop/crates/rv-core/src/session.rs#L1347) | endpoint | chat.getThreadMessages |
+| [apps/desktop/crates/rv-core/src/store.rs:333](../../apps/desktop/crates/rv-core/src/store.rs#L333) | resource | /file-upload/{…}/% |
+| [apps/desktop/crates/rv-core/src/store.rs:334](../../apps/desktop/crates/rv-core/src/store.rs#L334) | url | /api/v4/files/{…} |
 | [apps/desktop/crates/rv-core/src/sync.rs:14](../../apps/desktop/crates/rv-core/src/sync.rs#L14) | stream | stream-room-messages |
 | [apps/desktop/crates/rv-core/src/sync.rs:15](../../apps/desktop/crates/rv-core/src/sync.rs#L15) | stream | stream-notify-user |
 | [apps/desktop/crates/rv-core/src/sync.rs:16](../../apps/desktop/crates/rv-core/src/sync.rs#L16) | stream | stream-notify-room |
@@ -267,22 +270,22 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/uploads.rs:476](../../apps/desktop/crates/rv-core/src/uploads.rs#L476) | call:UPLOAD | &path, field, upload.bytes, &upload.name, &upload.mime, upload.texts, move \|sent, total\| { |
 | [apps/desktop/crates/rv-gtk/src/chat_native.rs:1015](../../apps/desktop/crates/rv-gtk/src/chat_native.rs#L1015) | endpoint | rooms.new |
 | [apps/desktop/crates/rv-gtk/src/chat_quotes.rs:98](../../apps/desktop/crates/rv-gtk/src/chat_quotes.rs#L98) | endpoint | spotlight |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:87](../../apps/desktop/crates/rv-gtk/src/chat.rs#L87) | endpoint | rooms.favorite_add |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:87](../../apps/desktop/crates/rv-gtk/src/chat.rs#L87) | endpoint | rooms.favorite_remove |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:255](../../apps/desktop/crates/rv-gtk/src/chat.rs#L255) | endpoint | rooms.offline |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:259](../../apps/desktop/crates/rv-gtk/src/chat.rs#L259) | endpoint | rooms.sign_out |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:269](../../apps/desktop/crates/rv-gtk/src/chat.rs#L269) | endpoint | rooms.back_to_room |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:278](../../apps/desktop/crates/rv-gtk/src/chat.rs#L278) | endpoint | rooms.new |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:363](../../apps/desktop/crates/rv-gtk/src/chat.rs#L363) | endpoint | e2e.banner |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:365](../../apps/desktop/crates/rv-gtk/src/chat.rs#L365) | endpoint | e2e.unlock |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1272](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1272) | endpoint | rooms.online |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1273](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1273) | endpoint | rooms.connecting |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1274](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1274) | endpoint | rooms.offline |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1819](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1819) | endpoint | rooms.section_unread |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1820](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1820) | endpoint | rooms.section_favorites |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1821](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1821) | endpoint | rooms.section_channels |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1822](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1822) | endpoint | rooms.section_direct |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1938](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1938) | endpoint | e2e.read_only |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:78](../../apps/desktop/crates/rv-gtk/src/chat.rs#L78) | endpoint | rooms.favorite_add |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:78](../../apps/desktop/crates/rv-gtk/src/chat.rs#L78) | endpoint | rooms.favorite_remove |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:243](../../apps/desktop/crates/rv-gtk/src/chat.rs#L243) | endpoint | rooms.offline |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:247](../../apps/desktop/crates/rv-gtk/src/chat.rs#L247) | endpoint | rooms.sign_out |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:257](../../apps/desktop/crates/rv-gtk/src/chat.rs#L257) | endpoint | rooms.back_to_room |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:266](../../apps/desktop/crates/rv-gtk/src/chat.rs#L266) | endpoint | rooms.new |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:351](../../apps/desktop/crates/rv-gtk/src/chat.rs#L351) | endpoint | e2e.banner |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:353](../../apps/desktop/crates/rv-gtk/src/chat.rs#L353) | endpoint | e2e.unlock |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1260](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1260) | endpoint | rooms.online |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1261](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1261) | endpoint | rooms.connecting |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1262](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1262) | endpoint | rooms.offline |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1807](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1807) | endpoint | rooms.section_unread |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1808](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1808) | endpoint | rooms.section_favorites |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1810](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1810) | endpoint | rooms.section_channels |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1811](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1811) | endpoint | rooms.section_direct |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1927](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1927) | endpoint | e2e.read_only |
 | [apps/desktop/crates/rv-gtk/src/details/native_favorites.rs:19](../../apps/desktop/crates/rv-gtk/src/details/native_favorites.rs#L19) | endpoint | rooms.favorite_add |
 | [apps/desktop/crates/rv-gtk/src/details/native_favorites.rs:19](../../apps/desktop/crates/rv-gtk/src/details/native_favorites.rs#L19) | endpoint | rooms.favorite_remove |
 | [apps/desktop/crates/rv-gtk/src/details/native_favorites.rs:31](../../apps/desktop/crates/rv-gtk/src/details/native_favorites.rs#L31) | endpoint | rooms.conflict |
@@ -345,16 +348,16 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-gtk/src/unlock.rs:62](../../apps/desktop/crates/rv-gtk/src/unlock.rs#L62) | endpoint | e2e.failed |
 | [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:281](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L281) | endpoint | rooms.section_unread |
 | [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:282](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L282) | endpoint | rooms.section_favorites |
-| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:283](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L283) | endpoint | rooms.section_channels |
-| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:284](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L284) | endpoint | rooms.section_direct |
-| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:312](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L312) | resource | /avatar/room/\(id) |
-| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:391](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L391) | endpoint | rooms.favorite_add |
-| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:391](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L391) | endpoint | rooms.favorite_remove |
-| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:395](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L395) | endpoint | rooms.failed |
-| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:408](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L408) | endpoint | rooms.encrypted |
-| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:482](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L482) | endpoint | rooms.online |
-| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:483](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L483) | endpoint | rooms.connecting |
-| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:484](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L484) | endpoint | rooms.offline |
+| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:285](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L285) | endpoint | rooms.section_channels |
+| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:286](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L286) | endpoint | rooms.section_direct |
+| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:314](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L314) | resource | /avatar/room/\(id) |
+| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:393](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L393) | endpoint | rooms.favorite_add |
+| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:393](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L393) | endpoint | rooms.favorite_remove |
+| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:397](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L397) | endpoint | rooms.failed |
+| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:410](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L410) | endpoint | rooms.encrypted |
+| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:484](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L484) | endpoint | rooms.online |
+| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:485](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L485) | endpoint | rooms.connecting |
+| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:486](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L486) | endpoint | rooms.offline |
 | [apps/desktop/macos/Sources/RocketVibe/NativeFavoriteControls.swift:13](../../apps/desktop/macos/Sources/RocketVibe/NativeFavoriteControls.swift#L13) | endpoint | rooms.favorite_add |
 | [apps/desktop/macos/Sources/RocketVibe/NativeFavoriteControls.swift:13](../../apps/desktop/macos/Sources/RocketVibe/NativeFavoriteControls.swift#L13) | endpoint | rooms.favorite_remove |
 | [apps/desktop/macos/Sources/RocketVibe/NativeFavoriteControls.swift:17](../../apps/desktop/macos/Sources/RocketVibe/NativeFavoriteControls.swift#L17) | endpoint | rooms.pending |
@@ -404,10 +407,10 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:243](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L243) | endpoint | e2e.unlocked |
 | [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:246](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L246) | endpoint | e2e.lock |
 | [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:248](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L248) | endpoint | e2e.unlock |
-| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:617](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L617) | endpoint | e2e.wrong |
-| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:618](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L618) | endpoint | e2e.no_keys |
-| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:619](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L619) | endpoint | e2e.failed |
-| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:622](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L622) | endpoint | e2e.failed |
+| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:618](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L618) | endpoint | e2e.wrong |
+| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:619](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L619) | endpoint | e2e.no_keys |
+| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:620](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L620) | endpoint | e2e.failed |
+| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:623](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L623) | endpoint | e2e.failed |
 | [apps/mobile/app/login.tsx:474](../../apps/mobile/app/login.tsx#L474) | endpoint | chat.example.org |
 | [apps/mobile/app/message-actions.tsx:97](../../apps/mobile/app/message-actions.tsx#L97) | call:GET | 'settings.public' |
 | [apps/mobile/app/message-actions.tsx:98](../../apps/mobile/app/message-actions.tsx#L98) | endpoint | settings.public |

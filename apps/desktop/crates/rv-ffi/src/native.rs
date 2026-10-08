@@ -412,9 +412,8 @@ impl NativeChat {
         let rows = self.session.room_rows().map_err(native_error)?;
         Ok(rv_core::rooms::sections(&rows)
             .into_iter()
-            .map(|(section, rows)| RoomGroup {
-                section: section.into(),
-                rooms: rows
+            .map(|(section, rows)| {
+                let rooms = rows
                     .into_iter()
                     .map(|row| {
                         let presence = self.session.room_presence(&row.rid).map(crate::Presence::from);
@@ -423,7 +422,8 @@ impl NativeChat {
                         room.avatar = avatar;
                         room
                     })
-                    .collect(),
+                    .collect();
+                RoomGroup::new(&section, rooms)
             })
             .collect())
     }

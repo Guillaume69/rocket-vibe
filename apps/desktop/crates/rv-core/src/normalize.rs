@@ -110,6 +110,11 @@ pub struct Subscription {
     pub e2e_key: Option<String>,
     /// My roles in the room (`owner`, `moderator`, `leader`), comma-separated.
     pub roles: Option<String>,
+    /// A sidebar category of my own (Mattermost): the room is listed under it.
+    pub group_id: Option<String>,
+    pub group_name: Option<String>,
+    /// Where the room's section sits in my sidebar order; `None` keeps the default order.
+    pub group_rank: Option<i64>,
 }
 
 pub fn to_message(raw: &Value) -> Option<Message> {
@@ -243,6 +248,9 @@ pub fn to_subscription(raw: &Value) -> Option<Subscription> {
             .and_then(Value::as_array)
             .map(|roles| roles.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(","))
             .filter(|r| !r.is_empty()),
+        group_id: None,
+        group_name: None,
+        group_rank: None,
     })
 }
 

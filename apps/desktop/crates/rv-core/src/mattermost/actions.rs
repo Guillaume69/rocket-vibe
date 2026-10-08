@@ -61,6 +61,12 @@ pub async fn flag(rest: &RestClient, me: &str, post_id: &str, on: bool) -> Resul
     }
 }
 
+/// The server moves the room in or out of my Favorites category, and says so with `sidebar_category_updated`.
+pub async fn favorite(rest: &RestClient, me: &str, rid: &str, on: bool) -> Result<(), RestError> {
+    let preference = json!([{"user_id": me, "category": "favorite_channel", "name": rid, "value": on.to_string()}]);
+    rest.put("users/me/preferences", CallOptions::body(preference)).await.map(|_| ())
+}
+
 pub async fn flagged(rest: &RestClient, rid: &str) -> Result<Vec<Value>, RestError> {
     let options = CallOptions::params([("channel_id", rid), ("per_page", "100")]);
     Ok(ordered(&rest.get("users/me/posts/flagged", options).await?))

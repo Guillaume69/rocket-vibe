@@ -141,15 +141,18 @@ impl From<rv_core::server::ServerProfile> for ServerProfile {
 pub enum RoomSection {
     Unread,
     Favorites,
+    /// A sidebar category of my own (Mattermost): its name is the group's `title`.
+    Group,
     Channels,
     Direct,
 }
 
-impl From<Section> for RoomSection {
-    fn from(s: Section) -> Self {
+impl From<&Section> for RoomSection {
+    fn from(s: &Section) -> Self {
         match s {
             Section::Unread => RoomSection::Unread,
             Section::Favorites => RoomSection::Favorites,
+            Section::Group { .. } => RoomSection::Group,
             Section::Channels => RoomSection::Channels,
             Section::Direct => RoomSection::Direct,
         }
@@ -213,7 +216,21 @@ pub struct Room {
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct RoomGroup {
     pub section: RoomSection,
+    /// What the folded-sections file stores, unique per section.
+    pub key: String,
+    /// The category's own name, for a `Group`.
+    pub title: Option<String>,
     pub rooms: Vec<Room>,
+}
+
+impl RoomGroup {
+    pub fn new(section: &Section, rooms: Vec<Room>) -> Self {
+        let title = match section {
+            Section::Group { name, .. } => Some(name.clone()),
+            _ => None,
+        };
+        RoomGroup { section: section.into(), key: section.key(), title, rooms }
+    }
 }
 
 pub fn room(r: RoomRow, clear_last: Option<String>, presence: Option<Presence>) -> Room {
@@ -631,6 +648,7 @@ mod tests {
             last_author: None,
             last_encrypted: None,
             voice: false,
+            ..Default::default()
         };
         let quoted = RoomRow { last_message: Some("[ ](https://x/?msg=1) hi :smile:".into()), ..base.clone() };
         assert_eq!(room(quoted, None, None).preview, RoomPreview::Text { text: "hi 😄".into() });

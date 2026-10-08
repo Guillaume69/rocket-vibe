@@ -430,16 +430,16 @@ impl Chat {
         let rows = self.session.store.rooms();
         rv_core::rooms::sections(&rows)
             .into_iter()
-            .map(|(section, members)| RoomGroup {
-                section: section.into(),
-                rooms: members
+            .map(|(section, members)| {
+                let rooms = members
                     .into_iter()
                     .map(|r| {
                         let clear = r.last_encrypted.as_deref().and_then(|raw| self.session.decrypt(&r.rid, raw));
                         let presence = r.dm_other_uid.as_deref().and_then(|uid| self.session.presence(uid));
                         model::room(r, clear, presence.map(Presence::from))
                     })
-                    .collect(),
+                    .collect();
+                RoomGroup::new(&section, rooms)
             })
             .collect()
     }

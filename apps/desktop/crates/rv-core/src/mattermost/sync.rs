@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex};
 
 use serde_json::{Value, json};
 
+use super::categories::{self, Placement};
 use super::directory::{Directory, User};
 use super::translate::{Translator, deleted, object};
 use crate::normalize::Message;
@@ -45,6 +46,8 @@ pub struct MmSync {
     index: Mutex<HashMap<String, BTreeMap<i64, String>>>,
     /// My stars: Mattermost's flagged posts, a preference rather than a post field.
     flagged: Mutex<HashSet<String>>,
+    /// Where my sidebar categories put each room.
+    placements: Mutex<HashMap<String, Placement>>,
 }
 
 fn int(v: &Value, key: &str) -> i64 {
@@ -89,6 +92,7 @@ impl MmSync {
             live: Mutex::default(),
             index: Mutex::default(),
             flagged: Mutex::default(),
+            placements: Mutex::default(),
         }
     }
 
@@ -126,6 +130,40 @@ impl MmSync {
 
     pub fn note_flagged(&self, posts: &[Value]) {
         self.flagged.lock().unwrap().extend(posts.iter().filter_map(|p| text(p, "id").map(str::to_owned)));
+    }
+
+    /// A server older than 5.32 has no categories: the rooms keep the default sections.
+    async fn load_categories(&self) {
+        if let Ok(placements) = categories::load(&self.rest).await {
+            *self.placements.lock().unwrap() = placements;
+        }
+    }
+
+    fn subscription(&self, channel: &Value, member: &Value) -> Option<crate::normalize::Subscription> {
+        let mut s = self.translator().subscription(channel, member)?;
+        let placement = self.placements.lock().unwrap().get(&s.rid).cloned();
+        categories::place(&mut s, placement.as_ref());
+        Some(s)
+    }
+
+    /// Until the server's `sidebar_category_updated` brings the new categories.
+    pub fn note_favorite(&self, rid: &str, on: bool) {
+        if let Some(placement) = self.placements.lock().unwrap().get_mut(rid) {
+            placement.favorite = on;
+        }
+    }
+
+    /// Categories come without their content: read them again, then rewrite every membership row.
+    async fn regroup(&self) {
+        self.load_categories().await;
+        let live = self.live.lock().unwrap();
+        let rows: Vec<_> = live
+            .channels
+            .iter()
+            .filter_map(|(rid, channel)| self.subscription(channel, live.members.get(rid)?))
+            .collect();
+        drop(live);
+        self.store.write(|w| rows.iter().for_each(|s| w.upsert_subscription(s)));
     }
 
     async fn load_flagged(&self) {
@@ -193,6 +231,7 @@ impl MmSync {
     pub async fn catch_up_global(&self) -> Result<(), RestError> {
         let (channels, members) = tokio::try_join!(self.channels(), self.pages("users/me/channel_members"))?;
         self.load_flagged().await;
+        self.load_categories().await;
         let member_of: HashMap<String, Value> =
             members.into_iter().filter_map(|m| Some((text(&m, "channel_id")?.to_owned(), m))).collect();
         let channels: Vec<Value> =
@@ -230,7 +269,7 @@ impl MmSync {
             }
             for channel in &channels {
                 let id = text(channel, "id").unwrap_or_default();
-                if let Some(s) = member_of.get(id).and_then(|m| t.subscription(channel, m)) {
+                if let Some(s) = member_of.get(id).and_then(|m| self.subscription(channel, m)) {
                     w.upsert_subscription(&s);
                 }
             }
@@ -421,7 +460,7 @@ impl MmSync {
         let Some(channel) = live.channels.get(rid) else { return };
         let t = self.translator();
         let room = room.then(|| t.room(channel, live.last_posts.get(rid))).flatten();
-        let subscription = live.members.get(rid).and_then(|m| t.subscription(channel, m));
+        let subscription = live.members.get(rid).and_then(|m| self.subscription(channel, m));
         self.store.write(|w| {
             if let Some(r) = &room {
                 w.upsert_room(r);
@@ -507,6 +546,13 @@ impl MmSync {
                 if !ids.is_empty() {
                     self.set_flagged(&ids, name == "preferences_changed").await;
                 }
+                None
+            }
+            "sidebar_category_created"
+            | "sidebar_category_updated"
+            | "sidebar_category_deleted"
+            | "sidebar_category_order_updated" => {
+                self.regroup().await;
                 None
             }
             "channel_deleted" => {

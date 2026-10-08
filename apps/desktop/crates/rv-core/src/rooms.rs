@@ -4,29 +4,71 @@ use serde_json::Value;
 
 use crate::store::RoomRow;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Section {
     Unread,
     Favorites,
+    /// A sidebar category of my own (Mattermost).
+    Group {
+        id: String,
+        name: String,
+    },
     Channels,
     Direct,
 }
 
-/// Unread first, then the rooms I starred, then channels and groups, then
-/// direct messages; each keeps the list's order (latest activity first), and
-/// empty sections are left out.
+impl Section {
+    /// What the folded-sections file stores.
+    pub fn key(&self) -> String {
+        match self {
+            Section::Unread => "unread".into(),
+            Section::Favorites => "favorites".into(),
+            Section::Group { id, .. } => format!("group:{id}"),
+            Section::Channels => "channels".into(),
+            Section::Direct => "direct".into(),
+        }
+    }
+
+    fn default_rank(&self) -> i64 {
+        match self {
+            Section::Unread => -1,
+            Section::Favorites => 0,
+            Section::Channels => 1,
+            Section::Direct => 2,
+            Section::Group { .. } => 3,
+        }
+    }
+}
+
+/// Unread first, then the rooms I starred, then each category of my own, then
+/// channels and groups, then direct messages; each keeps the list's order
+/// (latest activity first), and empty sections are left out. After Unread,
+/// the sections follow my sidebar order (`group_rank`) when the server has one.
 pub fn sections(rooms: &[RoomRow]) -> Vec<(Section, Vec<RoomRow>)> {
     let unread = |r: &RoomRow| r.unread > 0 || r.alert;
-    let pick = |f: &dyn Fn(&RoomRow) -> bool| rooms.iter().filter(|r| f(r)).cloned().collect::<Vec<_>>();
-    [
-        (Section::Unread, pick(&|r| unread(r))),
-        (Section::Favorites, pick(&|r| !unread(r) && r.favorite)),
-        (Section::Channels, pick(&|r| !unread(r) && !r.favorite && r.kind != "d")),
-        (Section::Direct, pick(&|r| !unread(r) && !r.favorite && r.kind == "d")),
-    ]
-    .into_iter()
-    .filter(|(_, rows)| !rows.is_empty())
-    .collect()
+    let mut out: Vec<(Section, i64, Vec<RoomRow>)> = Vec::new();
+    for room in rooms.iter().filter(|r| !unread(r)) {
+        let section = match (&room.group_id, &room.group_name) {
+            _ if room.favorite => Section::Favorites,
+            (Some(id), Some(name)) => Section::Group { id: id.clone(), name: name.clone() },
+            _ if room.kind == "d" => Section::Direct,
+            _ => Section::Channels,
+        };
+        let rank = room.group_rank.unwrap_or_else(|| section.default_rank());
+        match out.iter_mut().find(|(s, ..)| *s == section) {
+            Some((_, best, rows)) => {
+                *best = (*best).min(rank);
+                rows.push(room.clone());
+            }
+            None => out.push((section, rank, vec![room.clone()])),
+        }
+    }
+    out.sort_by_key(|(section, rank, _)| (*rank, section.default_rank()));
+    let first = (Section::Unread, rooms.iter().filter(|r| unread(r)).cloned().collect::<Vec<_>>());
+    std::iter::once(first)
+        .chain(out.into_iter().map(|(section, _, rows)| (section, rows)))
+        .filter(|(_, rows)| !rows.is_empty())
+        .collect()
 }
 
 /// Rooms with something unread: what the window title counts.
@@ -105,6 +147,7 @@ mod tests {
             last_author: None,
             last_encrypted: None,
             voice: false,
+            ..Default::default()
         }
     }
 
@@ -113,7 +156,7 @@ mod tests {
         let rooms = [room("a", "c", 0), room("b", "d", 2), room("c", "p", 0), room("d", "d", 0)];
         let s = sections(&rooms);
         let names: Vec<(Section, Vec<&str>)> =
-            s.iter().map(|(k, rows)| (*k, rows.iter().map(|r| r.rid.as_str()).collect())).collect();
+            s.iter().map(|(k, rows)| (k.clone(), rows.iter().map(|r| r.rid.as_str()).collect())).collect();
         assert_eq!(
             names,
             [(Section::Unread, vec!["b"]), (Section::Channels, vec!["a", "c"]), (Section::Direct, vec!["d"])]
@@ -124,7 +167,7 @@ mod tests {
         let mut starred_unread = room("f", "c", 1);
         starred_unread.favorite = true;
         let kinds: Vec<(Section, usize)> =
-            sections(&[starred, starred_unread, room("g", "c", 0)]).iter().map(|(k, r)| (*k, r.len())).collect();
+            sections(&[starred, starred_unread, room("g", "c", 0)]).iter().map(|(k, r)| (k.clone(), r.len())).collect();
         assert_eq!(kinds, [(Section::Unread, 1), (Section::Favorites, 1), (Section::Channels, 1)]);
         assert_eq!(unread_rooms(&rooms), 1);
     }

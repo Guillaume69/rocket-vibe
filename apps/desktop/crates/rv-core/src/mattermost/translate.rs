@@ -181,6 +181,7 @@ impl Translator<'_> {
             updated_at: num_of(member, "last_update_at").max(num_of(channel, "update_at")),
             e2e_key: None,
             roles: owner.then(|| "owner".to_owned()),
+            ..Default::default()
         })
     }
 

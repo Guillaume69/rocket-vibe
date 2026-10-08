@@ -60,16 +60,16 @@ func sampleRoom(_ rid: String, _ kind: String, _ name: String, _ preview: RoomPr
 }
 
 let galleryGroups: [RoomGroup] = [
-    RoomGroup(section: .unread, rooms: [
+    RoomGroup(section: .unread, key: "unread", title: nil, rooms: [
         sampleRoom("general", "c", "general", .text(text: "@alice see you at 2 pm?"), minutesAgo: 2, unread: 3, mentions: 1),
         sampleRoom("bob", "d", "bob", .text(text: "Look at this 🚀"), minutesAgo: 9, unread: 1, presence: .online),
     ]),
-    RoomGroup(section: .channels, rooms: [
+    RoomGroup(section: .channels, key: "channels", title: nil, rooms: [
         sampleRoom("random", "c", "random", .system(author: "carol", kind: "uj", param: ""), minutesAgo: 40),
         sampleRoom("laprivitude", "p", "laprivitude", .encrypted, minutesAgo: 300, encrypted: true),
         sampleRoom("test-prive", "p", "test-prive", .text(text: "Some code, some italics and some strikethrough."), minutesAgo: 60 * 30),
     ]),
-    RoomGroup(section: .direct, rooms: [
+    RoomGroup(section: .direct, key: "direct", title: nil, rooms: [
         sampleRoom("carol", "d", "carol", .text(text: "thanks!"), minutesAgo: 60 * 24 * 3, presence: .away),
         sampleRoom("dave", "d", "dave", .empty, minutesAgo: 60 * 24 * 20, presence: .offline),
     ]),
@@ -80,7 +80,7 @@ let galleryGroups: [RoomGroup] = [
 struct GalleryView: View {
     @State var messages = ScrollBench.requested ? ScrollBench.messages : gallerySamples
     @State var selected: String? = "general"
-    @State var collapsed: Set<RoomSection> = []
+    @State var collapsed: Set<String> = []
     @State var rounds = 0
     @State var editing: String?
     @State var deleting: MessageItem?
@@ -88,8 +88,8 @@ struct GalleryView: View {
     var body: some View {
         NavigationSplitView {
             List(selection: $selected) {
-                RoomSections(groups: galleryGroups, collapsed: collapsed) { section in
-                    if collapsed.contains(section) { collapsed.remove(section) } else { collapsed.insert(section) }
+                RoomSections(groups: galleryGroups, collapsed: collapsed) { key in
+                    if collapsed.contains(key) { collapsed.remove(key) } else { collapsed.insert(key) }
                 }
             }
             .listStyle(.sidebar)

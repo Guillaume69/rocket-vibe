@@ -1201,10 +1201,12 @@ impl Session {
 
     /// Stars a room, or takes the star away: it moves to the Favorites section.
     pub async fn set_favorite(&self, rid: &str, on: bool) -> Result<(), RestError> {
-        if self.sync.mattermost().is_some() {
-            return Err(RestError::incomplete("favorites: not on this server"));
+        if let Some(mm) = self.sync.mattermost() {
+            mattermost::actions::favorite(&self.rest, mm.me(), rid, on).await?;
+            mm.note_favorite(rid, on);
+        } else {
+            actions::favorite(&self.rest, rid, on).await?;
         }
-        actions::favorite(&self.rest, rid, on).await?;
         self.store.write(|w| w.set_favorite(rid, on));
         Ok(())
     }

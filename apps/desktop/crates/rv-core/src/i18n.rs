@@ -2171,6 +2171,7 @@ mod tests {
         assert_eq!(call_summary("rv-call-missed", "").as_deref(), Some("📞 Missed call"));
         assert_eq!(call_summary("rv-call-answered", "754").as_deref(), Some("📞 Call · 12 min"));
         assert_eq!(call_summary("rv-call-answered", "").as_deref(), Some("📞 Call"));
+        assert_eq!(call_summary("videoconf-ended", "2887").as_deref(), Some("📞 Call · 48 min"));
         assert_eq!(call_summary("rv-call-ringing", "").as_deref(), Some("📞 Calling…"));
         assert_eq!(call_summary("uj", ""), None);
         assert_eq!(system_message("rv-call-declined", ""), "📞 Declined call");

@@ -129,3 +129,22 @@ describe('MmTranslator.translateEvent', () => {
     assert.equal(record('[1]'), null);
   });
 });
+
+describe('kMeet call posts (kChat)', () => {
+  const call = (props: Record<string, unknown>) => translator().toMessage(post('c1', { type: 'custom_call', message: 'bob started a call', props }));
+
+  test('a running call is joined at its kMeet address', () => {
+    const m = call({ url: 'https://kmeet.infomaniak.com/room-1', status: 'started', start_at: 1000 });
+    assert.deepEqual([m?.systemType, m?.callId, m?.text], ['videoconf', 'https://kmeet.infomaniak.com/room-1', '']);
+  });
+
+  test('an ended call carries its length and nothing to join', () => {
+    const m = call({ url: 'https://kmeet.infomaniak.com/room-1', status: 'ended', start_at: 1_000, end_at: 2_888_000 });
+    assert.deepEqual([m?.systemType, m?.callId, m?.text], ['videoconf-ended', null, '2887']);
+    assert.equal(call({ status: 'missed' })?.text, '');
+  });
+
+  test('only an https meeting is offered', () => {
+    assert.equal(call({ url: 'javascript:alert(1)' })?.callId, null);
+  });
+});

@@ -378,4 +378,17 @@ mod tests {
         assert_eq!(object(&json!({"a": 1})).unwrap()["a"], json!(1));
         assert!(object(&json!("[1]")).is_none());
     }
+
+    #[test]
+    fn kmeet_call_posts() {
+        let running =
+            kmeet_call(&json!({"url": "https://kmeet.infomaniak.com/r1", "status": "started", "start_at": 1000}));
+        assert_eq!(running, ("videoconf", String::new(), Some("https://kmeet.infomaniak.com/r1".to_owned())));
+        let ended = kmeet_call(
+            &json!({"url": "https://kmeet.infomaniak.com/r1", "status": "ended", "start_at": 1000, "end_at": 2_888_000}),
+        );
+        assert_eq!(ended, ("videoconf-ended", "2887".to_owned(), None));
+        assert_eq!(kmeet_call(&json!({"status": "missed"})).1, "");
+        assert_eq!(kmeet_call(&json!({"url": "javascript:alert(1)"})).2, None);
+    }
 }

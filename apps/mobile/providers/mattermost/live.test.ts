@@ -120,3 +120,18 @@ describe('sidebar categories', () => {
     assert.equal(translator.toSubscription(events[0]!.args[0] as Record<string, unknown>)?.favorite, true);
   });
 });
+
+describe('kChat reads made elsewhere', () => {
+  test('badge_updated reads my memberships again and rewrites only the rooms that moved', async () => {
+    const { live, translator } = setup((call) =>
+      call.path === '/users/me/channel_members'
+        ? { body: [{ channel_id: 'ch1', user_id: 'u-me', msg_count: 11, msg_count_root: 9, mention_count: 0, last_viewed_at: 99 }, { channel_id: 'other', msg_count: 1 }] }
+        : undefined,
+    );
+    await live.expand('posted', { post: post('p9', { create_at: 50 }) }, {});
+    const events = await live.expand('badge_updated', { badge: 0 }, {});
+    assert.deepEqual(events.map((e) => [e.collection, e.eventKey]), [[MM_MEMBERSHIP, 'ch1']]);
+    assert.equal(translator.toSubscription(events[0]!.args[0] as Record<string, unknown>)?.unread, 0);
+    assert.deepEqual(await live.expand('badge_updated', { badge: 0 }, {}), []);
+  });
+});

@@ -37,6 +37,8 @@ CREATE TABLE workflow_runs (
     revision text NOT NULL,
     -- The steps as they were when the run began: editing never touches a run.
     definition jsonb NOT NULL,
+    -- So is the bot: a run never changes identity halfway.
+    bot_id text NOT NULL REFERENCES users(id),
     context jsonb NOT NULL,
     step integer NOT NULL DEFAULT 0,
     state text NOT NULL DEFAULT 'pending' CHECK (state IN ('pending','waiting','done','failed','cancelled')),

@@ -3421,6 +3421,7 @@ dependencies = [
  "openmls_basic_credential",
  "openmls_rust_crypto",
  "openmls_traits",
+ "percent-encoding",
  "rand_core 0.6.4",
  "reqwest",
  "rv-client",

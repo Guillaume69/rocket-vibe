@@ -1,5 +1,7 @@
 //! When a schedule fires next, in its own time zone (daylight saving included).
-use chrono::{DateTime, Datelike, Duration, LocalResult, NaiveTime, TimeZone, Utc};
+use chrono::{
+    DateTime, Datelike, Duration, DurationRound, LocalResult, NaiveTime, TimeZone, Timelike, Utc,
+};
 use chrono_tz::Tz;
 use rv_protocol::workflows::Every;
 
@@ -27,19 +29,14 @@ pub(crate) fn next(
     let local = after.with_timezone(&zone);
     match every {
         Every::Hour => {
-            // The minute of `at` past every hour.
-            let mut candidate =
-                local
-                    .naive_local()
-                    .date()
-                    .and_hms_opt(local.hour_of_day(), at_minute(at), 0)?;
-            for _ in 0..50 {
-                if let Some(time) = resolve(zone, candidate)
-                    && time > after
-                {
+            // The minute of `at` past every real hour: walked in UTC, so a repeated
+            // hour fires twice and a skipped one not at all, like the clock.
+            let mut time = after.duration_trunc(Duration::minutes(1)).ok()?;
+            for _ in 0..=120 {
+                time += Duration::minutes(1);
+                if time.with_timezone(&zone).minute() == at.minute() {
                     return Some(time);
                 }
-                candidate += Duration::hours(1);
             }
             None
         }
@@ -60,19 +57,6 @@ pub(crate) fn next(
             }
             None
         }
-    }
-}
-
-fn at_minute(at: NaiveTime) -> u32 {
-    chrono::Timelike::minute(&at)
-}
-
-trait HourOfDay {
-    fn hour_of_day(&self) -> u32;
-}
-impl<T: chrono::Timelike> HourOfDay for T {
-    fn hour_of_day(&self) -> u32 {
-        self.hour()
     }
 }
 
@@ -143,5 +127,55 @@ mod tests {
             Some(utc("2026-10-07T13:15:00Z"))
         );
         assert!(time("9:00").is_none() && time("24:00").is_none() && zone("Mars/Base").is_none());
+    }
+
+    #[test]
+    fn clock_changes_neither_skip_nor_double_a_firing() {
+        let paris = zone("Europe/Paris").unwrap();
+        let quarter = time("00:15").unwrap();
+        // 2026-10-25: 03:00 CEST becomes 02:00 CET, 02:15 happens twice.
+        assert_eq!(
+            next(
+                Every::Hour,
+                quarter,
+                &[],
+                paris,
+                utc("2026-10-25T00:15:00Z")
+            ),
+            Some(utc("2026-10-25T01:15:00Z"))
+        );
+        assert_eq!(
+            next(
+                Every::Hour,
+                quarter,
+                &[],
+                paris,
+                utc("2026-10-25T01:15:00Z")
+            ),
+            Some(utc("2026-10-25T02:15:00Z"))
+        );
+        // A repeated time fires once a day, at its first instant.
+        let half_two = time("02:30").unwrap();
+        assert_eq!(
+            next(
+                Every::Day,
+                half_two,
+                &[],
+                paris,
+                utc("2026-10-24T12:00:00Z")
+            ),
+            Some(utc("2026-10-25T00:30:00Z"))
+        );
+        // 2026-03-29: 02:00 CET becomes 03:00 CEST, 02:30 never happens: 03:30.
+        assert_eq!(
+            next(
+                Every::Day,
+                half_two,
+                &[],
+                paris,
+                utc("2026-03-28T12:00:00Z")
+            ),
+            Some(utc("2026-03-29T01:30:00Z"))
+        );
     }
 }

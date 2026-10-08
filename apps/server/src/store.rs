@@ -113,7 +113,11 @@ impl MessageRow {
             personal_star: None,
             personal_mention: None,
             call: self.call.map(|call| Box::new(call.0)),
-            form: self.form.map(|form| Box::new(form.0)),
+            form: if self.deleted {
+                None
+            } else {
+                self.form.map(|form| Box::new(form.0))
+            },
             cards: if self.deleted {
                 Vec::new()
             } else {

@@ -382,8 +382,23 @@ fn person(id: String, username: String, display_name: String, bot: bool) -> User
     }
 }
 
+/// What an administrator overseeing someone else's workflow sees of a header.
+const HIDDEN: &str = "••••";
+
 impl Row {
-    fn wire(self) -> Workflow {
+    /// `viewer` other than the owner (an administrator's oversight) gets the
+    /// HTTP header values hidden: they are the owner's credentials elsewhere.
+    fn wire(self, viewer: &str) -> Workflow {
+        let mut steps = self.steps.0;
+        if viewer != self.owner_id {
+            for step in &mut steps {
+                if let Step::Http { headers, .. } = step {
+                    for header in headers {
+                        header.value = HIDDEN.to_owned();
+                    }
+                }
+            }
+        }
         let last_run = match (self.run_id, self.run_created_at, self.run_updated_at) {
             (Some(id), Some(created), Some(updated)) => Some(WorkflowRun {
                 id,
@@ -408,7 +423,7 @@ impl Row {
             description: self.description,
             enabled: self.enabled,
             trigger: self.trigger.0,
-            steps: self.steps.0,
+            steps,
             revision: self.revision,
             has_webhook: self.has_webhook,
             next_fire_at: self.next_fire_at.map(|t| t.to_rfc3339()),
@@ -419,13 +434,13 @@ impl Row {
     }
 }
 
-async fn row(tx: &mut Transaction<'_, Postgres>, id: &str) -> Result<Workflow> {
+async fn row(tx: &mut Transaction<'_, Postgres>, id: &str, viewer: &str) -> Result<Workflow> {
     let row: Row = sqlx::query_as(&format!("{SELECT} WHERE w.id=$1"))
         .bind(id)
         .fetch_optional(&mut **tx)
         .await?
         .ok_or_else(Error::missing)?;
-    Ok(row.wire())
+    Ok(row.wire(viewer))
 }
 
 /// Locks a workflow the actor may manage: its owner, or (`oversight`) an
@@ -470,7 +485,7 @@ pub(crate) async fn list(app: &App, actor: &Account, all: bool) -> Result<Workfl
     .fetch_all(&app.pool)
     .await?;
     Ok(WorkflowList {
-        workflows: rows.into_iter().map(Row::wire).collect(),
+        workflows: rows.into_iter().map(|r| r.wire(&actor.id)).collect(),
     })
 }
 
@@ -478,7 +493,7 @@ pub(crate) async fn get(app: &App, actor: &Account, id: &str) -> Result<Workflow
     person_only(actor)?;
     let mut tx = app.pool.begin().await?;
     managed(&mut tx, actor, id, true).await?;
-    let workflow = row(&mut tx, id).await?;
+    let workflow = row(&mut tx, id, &actor.id).await?;
     tx.commit().await?;
     Ok(workflow)
 }
@@ -503,7 +518,7 @@ pub(crate) async fn create(app: &App, actor: &Account, input: CreateWorkflow) ->
                 .fetch_optional(&mut *tx)
                 .await?
                 .ok_or_else(Error::missing)?;
-        let workflow = row(&mut tx, &id).await?;
+        let workflow = row(&mut tx, &id, &actor.id).await?;
         tx.commit().await?;
         return Ok(workflow);
     }
@@ -550,7 +565,7 @@ pub(crate) async fn create(app: &App, actor: &Account, input: CreateWorkflow) ->
         json!({"bot":input.bot_id,"enabled":input.enabled}),
     )
     .await?;
-    let workflow = row(&mut tx, &id).await?;
+    let workflow = row(&mut tx, &id, &actor.id).await?;
     settle(tx, actor, &input.operation_id, &hash).await?;
     Ok(workflow)
 }
@@ -595,7 +610,7 @@ pub(crate) async fn update(
     ]));
     let (mut tx, replay) = admit(app, actor, false, &input.operation_id, &hash).await?;
     if replay {
-        let workflow = row(&mut tx, id).await?;
+        let workflow = row(&mut tx, id, &actor.id).await?;
         tx.commit().await?;
         return Ok(workflow);
     }
@@ -619,7 +634,8 @@ pub(crate) async fn update(
         &input.steps,
     )
     .await?;
-    sqlx::query("UPDATE workflows SET name=$2,description=$3,bot_id=$4,enabled=$5,trigger=$6,steps=$7,command=$8,next_fire_at=$9,revision=gen_random_uuid()::text,updated_at=clock_timestamp() WHERE id=$1")
+    // A trigger moved off webhook forgets its secret: switching back needs a new one.
+    sqlx::query("UPDATE workflows SET name=$2,description=$3,bot_id=$4,enabled=$5,trigger=$6,steps=$7,command=$8,next_fire_at=$9,webhook_hash=CASE WHEN $6->>'kind'='webhook' THEN webhook_hash END,revision=gen_random_uuid()::text,updated_at=clock_timestamp() WHERE id=$1")
         .bind(id)
         .bind(input.name.trim())
         .bind(&input.description)
@@ -646,7 +662,7 @@ pub(crate) async fn update(
         json!({"enabled":input.enabled}),
     )
     .await?;
-    let workflow = row(&mut tx, id).await?;
+    let workflow = row(&mut tx, id, &actor.id).await?;
     settle(tx, actor, &input.operation_id, &hash).await?;
     Ok(workflow)
 }
@@ -672,7 +688,7 @@ pub(crate) async fn disable(app: &App, actor: &Account, id: &str) -> Result<Work
         .await?;
     cancel_runs(&mut tx, id).await?;
     operator::record(&mut tx, "workflow.disabled", id, json!({})).await?;
-    let workflow = row(&mut tx, id).await?;
+    let workflow = row(&mut tx, id, &actor.id).await?;
     settle(tx, actor, &operation, &hash).await?;
     Ok(workflow)
 }
@@ -782,19 +798,30 @@ async fn room_context(tx: &mut Transaction<'_, Postgres>, id: &str) -> Result<Va
     Ok(json!({"id": id, "name": name}))
 }
 
-/// Starts a run of an enabled workflow with its current definition, inside
-/// the caller's transaction; refuses past the workflow's budgets.
+/// Starts a run of an enabled workflow with its current definition and bot,
+/// inside the caller's transaction; refuses past the workflow's budgets.
 pub(crate) async fn start(
     tx: &mut Transaction<'_, Postgres>,
     workflow: &str,
     trigger: Value,
 ) -> Result<String> {
-    let definition: Option<(String, Json<Vec<Step>>)> =
-        sqlx::query_as("SELECT revision,steps FROM workflows WHERE id=$1 AND enabled FOR SHARE")
-            .bind(workflow)
-            .fetch_optional(&mut **tx)
-            .await?;
-    let Some((revision, steps)) = definition else {
+    start_run(tx, workflow, trigger, true).await
+}
+
+async fn start_run(
+    tx: &mut Transaction<'_, Postgres>,
+    workflow: &str,
+    trigger: Value,
+    enabled_only: bool,
+) -> Result<String> {
+    let definition: Option<(String, Json<Vec<Step>>, String)> = sqlx::query_as(
+        "SELECT revision,steps,bot_id FROM workflows WHERE id=$1 AND (enabled OR NOT $2) FOR SHARE",
+    )
+    .bind(workflow)
+    .bind(enabled_only)
+    .fetch_optional(&mut **tx)
+    .await?;
+    let Some((revision, steps, bot)) = definition else {
         return Err(Error::missing());
     };
     let (attempts, retry): (i32, i64) = sqlx::query_as("INSERT INTO workflow_windows(workflow_id,attempts,expires_at) VALUES($1,1,clock_timestamp()+interval '60 seconds') ON CONFLICT(workflow_id) DO UPDATE SET attempts=CASE WHEN workflow_windows.expires_at<=clock_timestamp() THEN 1 ELSE workflow_windows.attempts+1 END,expires_at=CASE WHEN workflow_windows.expires_at<=clock_timestamp() THEN clock_timestamp()+interval '60 seconds' ELSE workflow_windows.expires_at END RETURNING attempts,GREATEST(1,ceil(extract(epoch from expires_at-clock_timestamp())))::bigint")
@@ -814,19 +841,21 @@ pub(crate) async fn start(
         return Err(Error::throttled("workflow_busy", 60));
     }
     let id = random_token()[..24].to_owned();
-    sqlx::query("INSERT INTO workflow_runs(id,workflow_id,revision,definition,context) VALUES($1,$2,$3,$4,$5)")
+    sqlx::query("INSERT INTO workflow_runs(id,workflow_id,revision,definition,context,bot_id) VALUES($1,$2,$3,$4,$5,$6)")
         .bind(&id)
         .bind(workflow)
         .bind(revision)
         .bind(steps)
         .bind(Json(trigger))
+        .bind(bot)
         .execute(&mut **tx)
         .await?;
     Ok(id)
 }
 
-/// `POST /workflows/{id}/test`: a run now, the owner as `trigger.user`, in the
-/// room the trigger names when it names one.
+/// `POST /workflows/{id}/test`: a run now, enabled or not, the owner as
+/// `trigger.user`, in the room the trigger names. A command names no room: it is
+/// tried by typing it in one (`workflow_test_command`).
 pub(crate) async fn test(app: &App, actor: &Account, id: &str) -> Result<RunStarted> {
     person_only(actor)?;
     let mut tx = app.pool.begin().await?;
@@ -836,6 +865,9 @@ pub(crate) async fn test(app: &App, actor: &Account, id: &str) -> Result<RunStar
         .bind(id)
         .fetch_one(&mut *tx)
         .await?;
+    if matches!(trigger.0, Trigger::Command { .. }) {
+        return Err(refused("workflow_test_command"));
+    }
     let mut context = json!({"kind": "test", "user": user_context(&mut tx, &actor.id).await?});
     if let Trigger::Schedule { room, .. }
     | Trigger::MemberJoined { room }
@@ -844,7 +876,13 @@ pub(crate) async fn test(app: &App, actor: &Account, id: &str) -> Result<RunStar
     {
         context["room"] = room_context(&mut tx, room).await?;
     }
-    let run_id = start(&mut tx, id, json!({"trigger": context, "webhook": {}})).await?;
+    let run_id = start_run(
+        &mut tx,
+        id,
+        json!({"trigger": context, "webhook": {}}),
+        false,
+    )
+    .await?;
     tx.commit().await?;
     Ok(RunStarted { run_id })
 }
@@ -882,7 +920,6 @@ pub(crate) async fn run_command(
     room: &str,
     name: &str,
     text: &str,
-    thread: Option<&str>,
 ) -> Result<Option<()>> {
     let mut tx = app.pool.begin().await?;
     auth::lock_active(&mut tx, actor).await?;
@@ -898,15 +935,12 @@ pub(crate) async fn run_command(
     bot_room(&mut tx, &bot, room)
         .await
         .map_err(|_| Error::new(StatusCode::CONFLICT, "workflow_unavailable"))?;
-    let mut trigger = json!({
+    let trigger = json!({
         "kind": "command",
         "user": user_context(&mut tx, &actor.id).await?,
         "room": room_context(&mut tx, room).await?,
         "text": text,
     });
-    if let Some(thread) = thread {
-        trigger["thread"] = json!(thread);
-    }
     start(&mut tx, &workflow, json!({"trigger": trigger})).await?;
     tx.commit().await?;
     Ok(Some(()))
@@ -1016,8 +1050,10 @@ async fn watching(
     room: &str,
     kind: &str,
 ) -> Result<Vec<(String, Json<Trigger>)>> {
+    // Checked when the event happens, not only when saved: a bot removed from the
+    // room, disabled, or stripped of `rooms:read` stops watching it.
     Ok(sqlx::query_as(
-        "SELECT id,trigger FROM workflows WHERE enabled AND trigger->>'room'=$1 AND trigger->>'kind'=$2",
+        "SELECT w.id,w.trigger FROM workflows w JOIN users b ON b.id=w.bot_id JOIN bots s ON s.user_id=w.bot_id WHERE w.enabled AND w.trigger->>'room'=$1 AND w.trigger->>'kind'=$2 AND NOT b.disabled AND NOT b.deleted AND EXISTS(SELECT 1 FROM members m WHERE m.room_id=$1 AND m.user_id=w.bot_id) AND ($2='member_joined' OR 'rooms:read'=ANY(s.scopes)) AND NOT EXISTS(SELECT 1 FROM e2ee_groups g WHERE g.room_id=$1)",
     )
     .bind(room)
     .bind(kind)
@@ -1047,7 +1083,8 @@ async fn message_trigger(
     }))
 }
 
-/// Starts each workflow's run; one past its budget is skipped, never the event.
+/// Starts each workflow's run; one past its budget, or disabled or deleted since
+/// it was read, is skipped, never the event.
 async fn fire(
     tx: &mut Transaction<'_, Postgres>,
     workflows: impl IntoIterator<Item = String>,
@@ -1056,7 +1093,9 @@ async fn fire(
     for workflow in workflows {
         match start(tx, &workflow, json!({"trigger": trigger})).await {
             Ok(_) => {}
-            Err(error) if error.status == StatusCode::TOO_MANY_REQUESTS => {}
+            Err(error)
+                if error.status == StatusCode::TOO_MANY_REQUESTS
+                    || error.status == StatusCode::NOT_FOUND => {}
             Err(error) => return Err(error),
         }
     }
@@ -1123,7 +1162,7 @@ pub(crate) async fn answer(
         Option<String>,
         bool,
     );
-    let form: Option<FormRow> = sqlx::query_as("SELECT run_id,room_id,recipient_id,fields,answered_by,operation_id,expires_at<=clock_timestamp() FROM workflow_forms WHERE message_id=$1 FOR UPDATE")
+    let form: Option<FormRow> = sqlx::query_as("SELECT run_id,room_id,recipient_id,fields,answered_by,operation_id,expires_at<=clock_timestamp() FROM workflow_forms f WHERE message_id=$1 AND NOT EXISTS(SELECT 1 FROM messages m WHERE m.id=f.message_id AND m.deleted) FOR UPDATE")
         .bind(message)
         .fetch_optional(&mut *tx)
         .await?;

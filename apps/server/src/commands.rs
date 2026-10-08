@@ -128,7 +128,7 @@ pub async fn run(app: &App, actor: &Account, input: RunCommand) -> Result<()> {
             return Err(Error::new(StatusCode::BAD_REQUEST, "client_side_command"));
         }
         name => {
-            if crate::workflows::run_command(app, actor, room, name, params, None)
+            if crate::workflows::run_command(app, actor, room, name, params)
                 .await?
                 .is_none()
             {

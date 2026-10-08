@@ -2,7 +2,11 @@
 //! step index and context saved after each, so a crash resumes where it stopped.
 //! Every post carries the operation id `wf-<run>-<step>`: a step replayed after a
 //! crash returns the message already sent, never a second one.
-use super::{room_context, schedule, start, template::render, user_context};
+use super::{
+    room_context, schedule, start,
+    template::{render, render_message, render_url},
+    user_context,
+};
 use crate::{
     App,
     auth::{self, Account, random_token},
@@ -22,6 +26,7 @@ use std::net::SocketAddr;
 
 /// The engine's session of a bot, created with its first workflow.
 pub(crate) async fn ensure_session(tx: &mut Transaction<'_, Postgres>, bot: &str) -> Result<()> {
+    session_lock(tx, bot).await?;
     let exists: bool =
         sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bot_keys WHERE bot_id=$1 AND internal)")
             .bind(bot)
@@ -54,6 +59,7 @@ pub(crate) async fn ensure_session(tx: &mut Transaction<'_, Postgres>, bot: &str
 
 /// Removes a bot's engine session once no workflow uses the bot.
 pub(crate) async fn release_session(tx: &mut Transaction<'_, Postgres>, bot: &str) -> Result<()> {
+    session_lock(tx, bot).await?;
     sqlx::query("DELETE FROM session_devices WHERE id=(SELECT device_id FROM bot_keys WHERE bot_id=$1 AND internal) AND NOT EXISTS(SELECT 1 FROM workflows WHERE bot_id=$1)")
         .bind(bot)
         .execute(&mut **tx)
@@ -61,21 +67,55 @@ pub(crate) async fn release_session(tx: &mut Transaction<'_, Postgres>, bot: &st
     Ok(())
 }
 
-async fn bot_account(app: &App, workflow: &str) -> Option<(Account, Vec<String>)> {
-    let row: Option<(String, Vec<String>)> = sqlx::query_as("SELECT s.token_hash,b.scopes FROM workflows w JOIN bots b ON b.user_id=w.bot_id JOIN bot_keys k ON k.bot_id=w.bot_id AND k.internal JOIN sessions s ON s.device_id=k.device_id WHERE w.id=$1")
-        .bind(workflow)
-        .fetch_optional(&app.pool)
-        .await
-        .ok()?;
-    let (hash, scopes) = row?;
-    Some((auth::authenticate(app, &hash).await.ok()?, scopes))
+/// Serializes a bot's engine session: one transaction creates or removes it at a time.
+async fn session_lock(tx: &mut Transaction<'_, Postgres>, bot: &str) -> Result<()> {
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('workflow-session:' || $1, 0))")
+        .bind(bot)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
+/// The bot a run started with, acting through its engine session. The session is
+/// made again when something removed it (a policy change drops a bot's devices)
+/// while the bot is still live.
+async fn bot_account(app: &App, bot: &str) -> Option<(Account, Vec<String>)> {
+    type Row = Option<(Option<String>, Vec<String>)>;
+    let read = |pool| async move {
+        let row: Row = sqlx::query_as("SELECT (SELECT s.token_hash FROM bot_keys k JOIN sessions s ON s.device_id=k.device_id WHERE k.bot_id=b.user_id AND k.internal LIMIT 1),b.scopes FROM bots b JOIN users u ON u.id=b.user_id WHERE b.user_id=$1 AND NOT u.disabled AND NOT u.deleted")
+            .bind(bot)
+            .fetch_optional(pool)
+            .await
+            .ok()?;
+        row
+    };
+    let (mut hash, mut scopes) = read(&app.pool).await?;
+    if hash.is_none() {
+        let mut tx = app.pool.begin().await.ok()?;
+        ensure_session(&mut tx, bot).await.ok()?;
+        tx.commit().await.ok()?;
+        (hash, scopes) = read(&app.pool).await?;
+    }
+    Some((auth::authenticate(app, &hash?).await.ok()?, scopes))
+}
+
+/// Before each step: the run is still this worker's and still live (a disabled
+/// or deleted workflow cancelled it), and its lease lasts for the step.
+async fn renew(app: &App, lease: &str, run: &str) -> Result<bool> {
+    let kept = sqlx::query("UPDATE workflow_runs SET lease_expires_at=clock_timestamp()+interval '2 minutes' WHERE id=$1 AND lease_id=$2 AND state IN ('pending','waiting')")
+        .bind(run)
+        .bind(lease)
+        .execute(&app.pool)
+        .await?
+        .rows_affected();
+    Ok(kept > 0)
 }
 
 /// One tick: due schedules start their runs, then due runs advance.
 pub async fn drain(app: &App) -> Result<()> {
     schedules(app).await?;
     let lease = random_token();
-    let runs: Vec<RunRow> = sqlx::query_as("WITH due AS (SELECT id FROM workflow_runs WHERE state IN ('pending','waiting') AND wake_at<=clock_timestamp() AND (lease_expires_at IS NULL OR lease_expires_at<=clock_timestamp()) ORDER BY wake_at,id LIMIT 8 FOR UPDATE SKIP LOCKED) UPDATE workflow_runs r SET lease_id=$1,lease_expires_at=clock_timestamp()+interval '2 minutes',attempts=attempts+1 FROM due WHERE r.id=due.id RETURNING r.id,r.workflow_id,r.definition,r.context,r.step,r.attempts")
+    let runs: Vec<RunRow> = sqlx::query_as("WITH due AS (SELECT id FROM workflow_runs WHERE state IN ('pending','waiting') AND wake_at<=clock_timestamp() AND (lease_expires_at IS NULL OR lease_expires_at<=clock_timestamp()) ORDER BY wake_at,id LIMIT 8 FOR UPDATE SKIP LOCKED) UPDATE workflow_runs r SET lease_id=$1,lease_expires_at=clock_timestamp()+interval '2 minutes',attempts=attempts+1 FROM due WHERE r.id=due.id RETURNING r.id,r.bot_id,r.definition,r.context,r.step,r.attempts")
         .bind(&lease)
         .fetch_all(&app.pool)
         .await?;
@@ -127,7 +167,7 @@ async fn schedules(app: &App) -> Result<()> {
 #[derive(FromRow)]
 struct RunRow {
     id: String,
-    workflow_id: String,
+    bot_id: String,
     definition: Json<Vec<Step>>,
     context: Json<Value>,
     step: i32,
@@ -152,7 +192,7 @@ async fn advance(app: &App, lease: &str, run: RunRow) -> Result<()> {
     if run.attempts > MAX_ATTEMPTS {
         return finish(app, lease, &run.id, "failed", Some("workflow_retries")).await;
     }
-    let Some((account, scopes)) = bot_account(app, &run.workflow_id).await else {
+    let Some((account, scopes)) = bot_account(app, &run.bot_id).await else {
         return finish(app, lease, &run.id, "failed", Some("bot_unavailable")).await;
     };
     let steps = run.definition.0;
@@ -162,6 +202,10 @@ async fn advance(app: &App, lease: &str, run: RunRow) -> Result<()> {
         let Some(current) = steps.get(step) else {
             return finish(app, lease, &run.id, "done", None).await;
         };
+        if !renew(app, lease, &run.id).await? {
+            // Cancelled (the workflow was disabled or deleted) or taken over.
+            return Ok(());
+        }
         context["now"] = json!(Utc::now().to_rfc3339());
         let outcome = execute(app, &account, &scopes, &run.id, step, current, &mut context).await;
         let (next, state, wake) = match outcome {
@@ -201,7 +245,7 @@ async fn save(
     wake: Option<DateTime<Utc>>,
     release: bool,
 ) -> Result<bool> {
-    let saved = sqlx::query("UPDATE workflow_runs SET step=$3,context=$4,state=$5,wake_at=COALESCE($6,clock_timestamp()),lease_id=CASE WHEN $7 THEN NULL ELSE lease_id END,lease_expires_at=CASE WHEN $7 THEN NULL ELSE lease_expires_at END,attempts=CASE WHEN $5='waiting' THEN 0 ELSE attempts END,updated_at=clock_timestamp() WHERE id=$1 AND lease_id=$2 AND state IN ('pending','waiting')")
+    let saved = sqlx::query("UPDATE workflow_runs SET step=$3,context=$4,state=$5,wake_at=CASE WHEN EXISTS(SELECT 1 FROM workflow_forms f WHERE f.run_id=$1 AND f.step=$3 AND f.answered_by IS NOT NULL) THEN clock_timestamp() ELSE COALESCE($6,clock_timestamp()) END,lease_id=CASE WHEN $7 THEN NULL ELSE lease_id END,lease_expires_at=CASE WHEN $7 THEN NULL ELSE lease_expires_at END,attempts=CASE WHEN $5='waiting' THEN 0 ELSE attempts END,updated_at=clock_timestamp() WHERE id=$1 AND lease_id=$2 AND state IN ('pending','waiting')")
         .bind(run)
         .bind(lease)
         .bind(step as i32)
@@ -282,16 +326,34 @@ async fn execute(
                 .flatten();
             let input = SendMessage {
                 operation_id: operation(run, step),
-                text: render(text, context),
+                text: render_message(text, context),
                 reply_to,
                 quotes: Vec::new(),
                 cards: cards.clone(),
                 files: Vec::new(),
             };
-            match crate::store::send(app, bot, &room, input).await {
-                Ok(message) => {
+            let sent = match crate::store::send(app, bot, &room, input).await {
+                Ok(message) => Ok(message.id),
+                // Already posted by this step before a crash, with a text that has
+                // moved since (`{{now}}`): that message is the step's.
+                Err(error) if error.status == StatusCode::CONFLICT => {
+                    sqlx::query_scalar::<_, String>(
+                        "SELECT id FROM messages WHERE author_id=$1 AND operation_id=$2",
+                    )
+                    .bind(&bot.id)
+                    .bind(operation(run, step))
+                    .fetch_optional(&app.pool)
+                    .await
+                    .ok()
+                    .flatten()
+                    .ok_or(error)
+                }
+                Err(error) => Err(error),
+            };
+            match sent {
+                Ok(id) => {
                     if let Some(name) = save_as {
-                        context[name] = json!({"message_id": message.id});
+                        context[name] = json!({"message_id": id});
                     }
                     Outcome::Next
                 }
@@ -310,7 +372,7 @@ async fn execute(
             save_as,
             continue_on_error,
         } => {
-            let url = render(url, context);
+            let url = render_url(url, context);
             let headers: Vec<(String, String)> = headers
                 .iter()
                 .map(|h| (h.name.clone(), render(&h.value, context)))
@@ -408,6 +470,9 @@ async fn form(
                             Ok(person) => found.push(person),
                             Err(error) => return failure(error),
                         }
+                    }
+                    if field.people.is_empty() {
+                        found.sort_by(|a, b| a["username"].as_str().cmp(&b["username"].as_str()));
                     }
                     let names: Vec<String> = found
                         .iter()
@@ -520,6 +585,11 @@ async fn call(
     }
     let host = url.host_str().ok_or("http_url")?.to_owned();
     let port = url.port_or_known_default().ok_or("http_url")?;
+    // The web's ports only: a public address of the server's own host may expose
+    // services a firewall in front of it would otherwise keep out.
+    if !app.private_http && !matches!(port, 80 | 443) {
+        return Err("http_address");
+    }
     let addresses: Vec<SocketAddr> = tokio::time::timeout(
         std::time::Duration::from_secs(5),
         tokio::net::lookup_host((host.as_str(), port)),
@@ -538,6 +608,8 @@ async fn call(
     }
     // Pin the checked addresses: a second lookup cannot rebind to a private one.
     let client = reqwest::Client::builder()
+        // A proxy would resolve the host again, past the pinned addresses.
+        .no_proxy()
         .redirect(reqwest::redirect::Policy::none())
         .timeout(std::time::Duration::from_secs(10))
         .resolve_to_addrs(&host, &addresses)

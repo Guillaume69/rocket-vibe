@@ -29,6 +29,7 @@ import { avatarUrl } from '../lib/upload.ts';
 import { translateCurrent, useT } from '../ui/i18n.ts';
 import { useAvatarEtags } from '../ui/identities.tsx';
 import { AvatarTile } from '../ui/kit.tsx';
+import { BotBadge } from '../ui/botBadge.tsx';
 import { PRESENCE_KEYS, presenceColors } from '../ui/presence.ts';
 import { useSession } from '../ui/session.tsx';
 import { useSync } from '../ui/sync.tsx';
@@ -53,6 +54,9 @@ type Profile = {
    * the way, so the list and the messages benefit too.
    */
   avatarEtag: string | null;
+  /** A bot account (RocketVibe, RFC 0003), and its owner's username when known. */
+  bot: boolean;
+  botOwner: string | null;
 };
 
 function asString(v: unknown): string | null {
@@ -75,6 +79,8 @@ function profileOf(raw: Record<string, unknown> | undefined): Profile | null {
     roles: Array.isArray(raw.roles) ? raw.roles.filter((r): r is string => typeof r === 'string') : [],
     bio: asString(raw.bio) ?? asString(raw.statusText),
     avatarEtag: asString(raw.avatarETag),
+    bot: raw.bot === true,
+    botOwner: asString(raw.botOwner),
   };
 }
 
@@ -311,12 +317,20 @@ export default function ProfileScreen() {
         <View style={styles.identity}>
           {/* `|| ' '` reserves the line height while the name is not there yet
               (DM opened by uid), so nothing moves when it arrives. */}
-          <Text style={[styles.name, { color: c.text }]} numberOfLines={1}>
-            {shownName || ' '}
-          </Text>
+          <View style={styles.nameRow}>
+            <Text style={[styles.name, styles.nameText, { color: c.text }]} numberOfLines={1}>
+              {shownName || ' '}
+            </Text>
+            {profile?.bot === true && <BotBadge c={c} />}
+          </View>
           {shownUsername !== null && (
             <Text style={[styles.username, { color: c.dimmed }]} numberOfLines={1}>
               @{shownUsername}
+            </Text>
+          )}
+          {profile?.bot === true && profile.botOwner !== null && (
+            <Text style={[styles.username, { color: c.dimmed }]} numberOfLines={1}>
+              {t('bots.ownedBy', { owner: profile.botOwner })}
             </Text>
           )}
           <View style={styles.presence}>
@@ -443,6 +457,8 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', gap: 16 },
   identity: { flex: 1, gap: 2 },
   name: { fontFamily: FONTS.title, fontSize: 20 },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  nameText: { flexShrink: 1 },
   username: { fontFamily: FONTS.body, fontSize: 14 },
   presence: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
   badge: { width: 9, height: 9, borderRadius: 5 },

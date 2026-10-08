@@ -755,7 +755,7 @@ export class NativeChat {
    * on a verified session, against the server signed in, with the capability
    * it announces now, and answered only to the session generation that asked.
    * `operation` gives a fresh `operation_id` per command. */
-  async administration<T>(capability:'administration'|'reports',call:(transport:NativeTransport,operation:()=>string)=>Promise<T>):Promise<T> {
+  async administration<T>(capability:'administration'|'reports'|'bots',call:(transport:NativeTransport,operation:()=>string)=>Promise<T>):Promise<T> {
     await this.verifiedReady();
     const generation=this.generation,discovery=await this.transport.discover();
     checkIdentity(this.session,discovery);this.roomOperationGeneration(generation);
@@ -764,6 +764,11 @@ export class NativeChat {
     const result=await call(this.transport,()=>this.id());
     this.roomOperationGeneration(generation);
     return result;
+  }
+  /** Bot management (`bots` capability, `ui/bots.tsx`), with the guarantees of
+   * `administration`: verified session, same server, same generation. */
+  bots<T>(call:(transport:NativeTransport,operation:()=>string)=>Promise<T>):Promise<T> {
+    return this.administration('bots',call);
   }
   async messagePermissions(id: string): Promise<import('./protocol.generated.ts').MessagePermissions> {
     this.ready();

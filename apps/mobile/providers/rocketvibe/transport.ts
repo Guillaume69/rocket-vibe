@@ -378,6 +378,18 @@ export class NativeTransport {
   async dismissUserReports(user:string,input:NativeTypes['AdminOperation']):Promise<void> { await this.value(`/api/v1/admin/reports/users/${encodeURIComponent(user)}/dismiss`,input); }
   async reportMessage(message:string,input:NativeTypes['ReportInput']):Promise<void> { await this.value(`/api/v1/messages/${encodeURIComponent(message)}/report`,input); }
   async reportUser(user:string,input:NativeTypes['ReportInput']):Promise<void> { await this.value(`/api/v1/users/${encodeURIComponent(user)}/report`,input); }
+  // Bot accounts (`bots` capability, RFC 0003, `docs/protocol/BOTS.md`), managed
+  // with the person's session; the instance switch is administration.
+  bots():Promise<NativeTypes['BotList']> { return this.request('BotList','/api/v1/bots'); }
+  createBot(input:NativeTypes['CreateBot']):Promise<NativeTypes['Bot']> { return this.request('Bot','/api/v1/bots',input); }
+  updateBot(id:string,input:NativeTypes['UpdateBot']):Promise<NativeTypes['Bot']> { return this.request('Bot',`/api/v1/bots/${encodeURIComponent(id)}`,input,false,undefined,'PATCH'); }
+  async deleteBot(id:string):Promise<void> { await this.value(`/api/v1/bots/${encodeURIComponent(id)}`,undefined,false,undefined,'DELETE'); }
+  botKeys(id:string):Promise<NativeTypes['BotKeyList']> { return this.request('BotKeyList',`/api/v1/bots/${encodeURIComponent(id)}/keys`); }
+  createBotKey(id:string,input:NativeTypes['CreateBotKey']):Promise<NativeTypes['BotKeyCreated']> { return this.request('BotKeyCreated',`/api/v1/bots/${encodeURIComponent(id)}/keys`,input); }
+  async revokeBotKey(id:string,key:string):Promise<void> { await this.value(`/api/v1/bots/${encodeURIComponent(id)}/keys/${encodeURIComponent(key)}`,undefined,false,undefined,'DELETE'); }
+  botReference():Promise<NativeTypes['BotReference']> { return this.request('BotReference','/api/v1/bots/reference'); }
+  instanceSettings():Promise<NativeTypes['InstanceSettings']> { return this.request('InstanceSettings','/api/v1/admin/settings'); }
+  updateInstanceSettings(input:NativeTypes['UpdateInstanceSettings']):Promise<NativeTypes['InstanceSettings']> { return this.request('InstanceSettings','/api/v1/admin/settings',input,false,undefined,'PATCH'); }
   accountPermissions(): Promise<NativeTypes['AccountPermissions']> { return this.request('AccountPermissions','/api/v1/me/permissions'); }
   roomPermissions(room: string): Promise<NativeTypes['RoomPermissions']> { return this.request('RoomPermissions',`/api/v1/rooms/${encodeURIComponent(room)}/permissions`); }
   roomDetails(room:string):Promise<NativeTypes['RoomDetails']> { return this.request('RoomDetails',`/api/v1/rooms/${encodeURIComponent(room)}`); }

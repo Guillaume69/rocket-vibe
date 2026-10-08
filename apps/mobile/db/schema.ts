@@ -139,6 +139,12 @@ export const messages = sqliteTable(
     /** `starred` reduced to uids, serialised; `null` if nobody. See `lib/marks.ts`. */
     starred: text('starred'),
     updatedAt: integer('updated_at').notNull().default(0),
+    /**
+     * The author is a bot account (RocketVibe, RFC 0003): the row shows a
+     * "BOT" badge after the name. Written by the native store only, after its
+     * upsert (`providers/rocketvibe/store.ts`); always false on Rocket.Chat.
+     */
+    authorBot: integer('author_bot', { mode: 'boolean' }).notNull().default(false),
   },
   // The index covers the room screen's query: `WHERE rid = ? ORDER BY ts DESC`.
   (t) => [index('idx_messages_room_ts').on(t.rid, t.ts), index('idx_messages_thread').on(t.threadId)],

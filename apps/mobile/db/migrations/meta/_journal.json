@@ -148,6 +148,13 @@
       "when": 1791408929030,
       "tag": "0020_emoji_usage",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1791478743774,
+      "tag": "0021_author_bot",
+      "breakpoints": true
     }
   ]
 }

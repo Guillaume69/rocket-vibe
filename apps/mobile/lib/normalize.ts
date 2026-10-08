@@ -57,6 +57,11 @@ export type LocalMessage = {
   /** Uids that starred the message, serialized (`lib/marks.ts`). */
   starred: string | null;
   updatedAt: number;
+  /**
+   * The author is a bot account (RocketVibe only, RFC 0003). Not written by
+   * the shared upsert: the native store sets the column itself.
+   */
+  authorBot?: boolean;
 };
 
 export type LocalRoom = {

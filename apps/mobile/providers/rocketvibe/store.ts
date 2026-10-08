@@ -69,6 +69,7 @@ export function localMessage(message: Message, selfId?: string): LocalMessage {
     callId: null,
     encryptedRaw: null, pinned: message.pinned ?? false,
     starred: message.personal_star?.present && selfId ? JSON.stringify([selfId]) : null, updatedAt: time,
+    authorBot: message.author.bot === true,
   };
 }
 
@@ -329,7 +330,11 @@ export class NativeStore {
     if (message.deleted) {
       await this.db.runAsync('DELETE FROM messages WHERE id=?',[message.id]);
       await this.db.runAsync('DELETE FROM native_star_states WHERE id=?',[message.id]);
-    } else await this.db.runAsync(NATIVE_UPSERT_MESSAGE, messageParams(local));
+    } else {
+      await this.db.runAsync(NATIVE_UPSERT_MESSAGE, messageParams(local));
+      // Native only: the shared upsert, also Rocket.Chat's, never names it.
+      await this.db.runAsync('UPDATE messages SET author_bot=? WHERE id=?',[Number(local.authorBot===true),message.id]);
+    }
     await this.db.runAsync('INSERT INTO native_positions(id,rid,position,revision,reply_to) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET position=excluded.position,revision=excluded.revision,reply_to=excluded.reply_to', [message.id, message.room_id, message.position, message.revision,message.reply_to??null]);
     await this.quotes.project(message,true);
     await this.db.runAsync(DELETE_OUTBOX, [message.id]);

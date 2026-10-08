@@ -233,6 +233,19 @@ export class NativeAdmin implements ProviderAdmin {
   latestVersion(): Promise<string | null> {
     return fetchLatestVersion('rocketvibe');
   }
+
+  /** The instance switch of bot creation (`/admin/settings`), on a server announcing `bots`. */
+  async userBots(): Promise<boolean | null> {
+    if (!this.chat.capabilities?.bots) return null;
+    return (await this.chat.administration('administration', (t) => t.instanceSettings())).user_bots;
+  }
+
+  async setUserBots(on: boolean): Promise<boolean> {
+    const settings = await this.chat.administration('administration', (t, operation) =>
+      t.updateInstanceSettings({ operation_id: operation(), user_bots: on }),
+    );
+    return settings.user_bots;
+  }
 }
 
 /** Member reports, each with its own `operation_id`. */

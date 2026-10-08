@@ -34,6 +34,7 @@ import { customEmojiUrl } from '../lib/customEmojis.ts';
 import {ImageEmoji,useCatalogueEmojis} from './emojiImage.tsx';
 import { recordReaction } from './emojiUsage.ts';
 import { isDeletedUsername } from '../lib/deletedUser.ts';
+import { BotBadge } from './botBadge.tsx';
 import { messageTree } from '../lib/markdown.ts';
 import { useJoinVoice, useVoice } from './voice.tsx';
 import { callSummaryText, systemText } from '../lib/systemMessages.ts';
@@ -67,7 +68,8 @@ import {
 import { useImageViewer } from './imageViewer.tsx';
 import { Tappable } from './tappable.tsx';
 
-export type MessageRowData = typeof messages.$inferSelect;
+/** `authorBot` optional: render-only rows (search, pins, encrypted projections) may not carry it. */
+export type MessageRowData = Omit<typeof messages.$inferSelect, 'authorBot'> & { authorBot?: boolean };
 
 export const MessageRow = memo(function MessageRow({
   c,
@@ -248,6 +250,7 @@ export const MessageRow = memo(function MessageRow({
                 {author}
               </TappableText>
             )}
+            {!continuation && message.authorBot && <BotBadge c={c} />}
             {!continuation && <Text style={[styles.time, { color: c.tertiaryText }]}>{time}</Text>}
             {message.editedAt !== null && (
               <Text style={[styles.time, { color: c.tertiaryText }]}>{t('messageRow.edited')}</Text>

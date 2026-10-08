@@ -498,11 +498,13 @@ impl Uploads {
         if self.store.file_posted(rid, file_id) {
             return true;
         }
-        let Some(kind) = self.store.room_kind(rid) else { return false };
-        if self.sync.load_history(rid, &kind, None).await.is_err() {
-            return false;
-        }
-        self.store.file_posted(rid, file_id)
+        let read = if self.sync.mattermost().is_some() {
+            self.sync.catch_up_room(rid).await
+        } else {
+            let Some(kind) = self.store.room_kind(rid) else { return false };
+            self.sync.load_history(rid, &kind, None).await.map(|_| ())
+        };
+        read.is_ok() && self.store.file_posted(rid, file_id)
     }
 
     fn settle(&self, row: &UploadRow) {

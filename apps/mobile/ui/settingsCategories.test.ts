@@ -6,6 +6,7 @@ import { settingsCategory, visibleCategories, type SettingsContent } from './set
 const nothing: SettingsContent = {
   native: false,
   push: false,
+  e2ee: false,
   encryptedIdentity: false,
   security: false,
   devices: false,
@@ -16,7 +17,7 @@ const keys = (content: SettingsContent) => visibleCategories(content).map((c) =>
 
 describe('visibleCategories', () => {
   test('Rocket.Chat: notifications and encryption, never the native blocks', () => {
-    assert.deepEqual(keys({ ...nothing, security: true, devices: true, bots: true, workflows: true }), [
+    assert.deepEqual(keys({ ...nothing, push: true, e2ee: true, security: true, devices: true, bots: true, workflows: true }), [
       'account', 'notifications', 'language', 'encryption', 'accounts', 'app',
     ]);
   });
@@ -27,10 +28,14 @@ describe('visibleCategories', () => {
 
   test('a native server shows each block it offers, in the fixed order', () => {
     assert.deepEqual(
-      keys({ native: true, push: true, encryptedIdentity: true, security: true, devices: true, bots: true, workflows: true }),
+      keys({ native: true, push: true, e2ee: false, encryptedIdentity: true, security: true, devices: true, bots: true, workflows: true }),
       ['account', 'notifications', 'language', 'encryption', 'security', 'devices', 'bots', 'workflows', 'accounts', 'app'],
     );
   });
+});
+
+test('Mattermost and kChat: no push and no end-to-end encryption, so neither page', () => {
+  assert.deepEqual(keys(nothing), ['account', 'language', 'accounts', 'app']);
 });
 
 test('bots: only a native server announcing them', () => {

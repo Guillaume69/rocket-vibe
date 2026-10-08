@@ -251,3 +251,55 @@ describe('forms in messages', () => {
     assert.deepEqual(answerInput(fields, { today: 'x', note: 'a\nb' }), { field: 'note', problem: 'value' });
   });
 });
+
+describe('reactions, matching messages and person fields', () => {
+  const draft = (trigger: Trigger, steps: Step[]): WorkflowDraft => ({ name: 'n', description: '', botId: 'bot', enabled: true, trigger, steps });
+  const say: Step = { kind: 'message', room: 'trigger', text: 'hi' };
+
+  test('a reaction trigger takes any emoji or one, colons dropped', () => {
+    assert.deepEqual(definition(draft({ kind: 'reaction_added', room: 'room-id', emoji: ' :tada: ' }, [say])).trigger, { kind: 'reaction_added', room: 'room-id', emoji: 'tada' });
+    assert.deepEqual(definition(draft({ kind: 'reaction_added', room: 'room-id', emoji: '  ' }, [say])).trigger, { kind: 'reaction_added', room: 'room-id' });
+    assert.equal(triggerSummary({ kind: 'reaction_added', room: 'room-id', emoji: 'tada' }, en, rooms), 'Reaction :tada: in #general');
+    assert.equal(triggerSummary({ kind: 'reaction_added', room: 'room-id' }, en, rooms), 'Any reaction in #general');
+    assert.equal(draftProblem(draft({ kind: 'reaction_added', room: '' }, [say])), 'workflows.needRoom');
+  });
+
+  test('a matching message needs its text and offers the message to the steps', () => {
+    assert.equal(draftProblem(draft({ kind: 'message_posted', room: 'room-id', contains: ' ' }, [say])), 'workflows.needMatch');
+    assert.equal(draftProblem(draft({ kind: 'message_posted', room: 'room-id', contains: 'x'.repeat(101) }, [say])), 'workflows.needMatch');
+    assert.equal(draftProblem(draft({ kind: 'message_posted', room: 'room-id', contains: 'deploy' }, [say])), null);
+    assert.equal(triggerSummary({ kind: 'message_posted', room: 'room-id', contains: 'deploy' }, en, rooms), 'Message containing “deploy” in #general');
+    const trigger: Trigger = { kind: 'message_posted', room: 'room-id', contains: 'deploy' };
+    assert.ok(variablesAt(trigger, [say], 0).includes('trigger.message.text'));
+    // The author can be the one a form asks.
+    assert.equal((defaultStep('form', trigger, []) as Extract<Step, { kind: 'form' }>).recipient, 'trigger_user');
+    assert.equal(workflowErrorKey('workflow_emoji', 400), 'workflows.errEmoji');
+  });
+
+  test('a person field sends its people only when it names some', () => {
+    const form = (people?: string[]): Step => ({
+      kind: 'form',
+      room: 'trigger',
+      recipient: 'anyone',
+      title: 'Assign',
+      save_as: 'task',
+      fields: [{ id: 'owner', label: 'Owner', kind: 'person', options: ['stale'], ...(people === undefined ? {} : { people }), required: true }],
+    });
+    const fields = (step: Step) => (step.kind === 'form' ? step.fields : []);
+    assert.deepEqual(fields(cleanStep(form([]))), [{ id: 'owner', label: 'Owner', kind: 'person', required: true }]);
+    assert.deepEqual(fields(cleanStep(form(['u1', 'u2']))), [{ id: 'owner', label: 'Owner', kind: 'person', required: true, people: ['u1', 'u2'] }]);
+    assert.ok(variablesAt({ kind: 'command', name: 'x' }, [form(), say], 1).includes('task.people.owner.display_name'));
+    const field = fields(form(['u1']))[0]!;
+    assert.deepEqual(answerInput([field], { owner: 'u1' }), { answers: { owner: 'u1' } });
+    assert.deepEqual(answerInput([field], { owner: 'u9' }), { field: 'owner', problem: 'value' });
+    // Anyone in the room: the server checks the membership.
+    assert.deepEqual(answerInput(fields(form()), { owner: 'u9' }), { answers: { owner: 'u9' } });
+  });
+
+  test('every new wording exists in both languages', () => {
+    for (const key of ['workflows.triggerReaction', 'workflows.triggerMessage', 'workflows.fieldPerson', 'workflows.peopleRoom', 'forms.choosePerson'] as const) {
+      assert.notEqual(en(key), key);
+      assert.notEqual(fr(key), key);
+    }
+  });
+});

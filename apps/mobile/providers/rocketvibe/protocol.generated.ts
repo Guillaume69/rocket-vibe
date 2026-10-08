@@ -90,8 +90,8 @@ export type FactorStatus = { "backup_codes_remaining": number; "email": boolean;
 export type FileDescriptor = { "bytes": string; "encrypted": boolean; "filename"?: string | null; "id": string; "media_type": string; "room_id": string; "sha256": string; };
 export type FinishFactor = { "challenge_id": string; "code": string; "method": SecondFactor; "next_token": string; "operation_id": string; };
 export type FinishReauthentication = { "challenge_id": string; "code": string; "method": SecondFactor; "operation_id": string; };
-export type FormField = { "id": string; "kind": FormFieldKind; "label": string; "options"?: (string)[]; "required"?: boolean; };
-export type FormFieldKind = "text" | "long_text" | "number" | "choice";
+export type FormField = { "id": string; "kind": FormFieldKind; "label": string; "options"?: (string)[]; "people"?: (string)[]; "required"?: boolean; };
+export type FormFieldKind = "text" | "long_text" | "number" | "choice" | "person";
 export type FormRecipient = "trigger_user" | "anyone";
 export type Format = "native1";
 export type GroupCancellation = { "device_id": string; "fingerprint": string; "incarnation": string; "operation_id": string; "room_id": string; "scope": Scope; };
@@ -223,7 +223,7 @@ export type SystemMessage = { "kind": "call_started"; "meeting_id": string; } | 
 export type ThreadPage = { "has_more": boolean; "messages": (Message)[]; "read_state": ThreadReadState; "root": Message; };
 export type ThreadReadState = { "membership_version": string; "position": string; "revision": string; "room_id": string; "root_id": string; "unread": string; };
 export type ThreadSummary = { "last_reply_at"?: string | null; "replies": string; };
-export type Trigger = { "kind": "command"; "name": string; } | { "days"?: (number)[]; "every": Every; "kind": "schedule"; "room": string; "time": string; "timezone": string; } | { "kind": "member_joined"; "room": string; } | { "kind": "webhook"; };
+export type Trigger = { "kind": "command"; "name": string; } | { "days"?: (number)[]; "every": Every; "kind": "schedule"; "room": string; "time": string; "timezone": string; } | { "kind": "member_joined"; "room": string; } | { "emoji"?: string | null; "kind": "reaction_added"; "room": string; } | { "contains": string; "kind": "message_posted"; "room": string; } | { "kind": "webhook"; };
 export type Typist = { "root_id"?: string | null; "user": User; };
 export type UpdateAdminUser = { "admin"?: boolean | null; "disabled"?: boolean | null; "operation_id": string; "revision": string; };
 export type UpdateBot = { "description"?: string | null; "display_name"?: string | null; "operation_id": string; "scopes"?: (BotScope)[] | null; };
@@ -245,7 +245,7 @@ export type VoiceParticipant = { "camera"?: boolean; "deafened": boolean; "muted
 export type VoiceRing = { "callee": User; "caller": User; "expires_in_ms": number; "id": string; "room_id": string; "state": RingState; };
 export type WebhookSecret = { "path": string; };
 export type Workflow = { "bot": User; "created_at": string; "description": string; "enabled": boolean; "has_webhook"?: boolean; "id": string; "last_run"?: WorkflowRun | null; "name": string; "next_fire_at"?: string | null; "owner": User; "revision": string; "steps": (Step)[]; "trigger": Trigger; "updated_at": string; };
-export type WorkflowForm = { "answered_at"?: string | null; "answered_by"?: User | null; "expires_at": string; "fields": (FormField)[]; "recipient"?: User | null; "title": string; };
+export type WorkflowForm = { "answered_at"?: string | null; "answered_by"?: User | null; "expires_at": string; "fields": (FormField)[]; "people"?: (User)[]; "recipient"?: User | null; "title": string; };
 export type WorkflowList = { "workflows": (Workflow)[]; };
 export type WorkflowRun = { "created_at": string; "error"?: string | null; "id": string; "state": RunState; "step": number; "updated_at": string; };
 export type WorkflowRunList = { "runs": (WorkflowRun)[]; };
@@ -3046,6 +3046,13 @@ export const nativeSchema = {
           },
           "type": "array"
         },
+        "people": {
+          "description": "`person` only: the user ids it offers; empty, any member of the form's\nroom who is not a bot.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "required": {
           "default": false,
           "type": "boolean"
@@ -3059,13 +3066,22 @@ export const nativeSchema = {
       "type": "object"
     },
     "FormFieldKind": {
-      "enum": [
-        "text",
-        "long_text",
-        "number",
-        "choice"
-      ],
-      "type": "string"
+      "oneOf": [
+        {
+          "enum": [
+            "text",
+            "long_text",
+            "number",
+            "choice"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "person",
+          "description": "Someone: one of `people`, or any member of the room. The answer is a user id.",
+          "type": "string"
+        }
+      ]
     },
     "FormRecipient": {
       "oneOf": [
@@ -8061,6 +8077,52 @@ export const nativeSchema = {
         },
         {
           "additionalProperties": false,
+          "description": "A person (never a bot) adds a reaction to a message of the room: any\nemoji, or only `emoji` (a shortcode or a custom emoji's name).",
+          "properties": {
+            "emoji": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "const": "reaction_added",
+              "type": "string"
+            },
+            "room": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "room"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A person (never a bot) posts a message whose text contains `contains`,\nignoring case. Edits never fire it.",
+          "properties": {
+            "contains": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "message_posted",
+              "type": "string"
+            },
+            "room": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "room",
+            "contains"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "description": "`POST /api/v1/hooks/{workflow}/{secret}` with a JSON body.",
           "properties": {
             "kind": {
@@ -8781,6 +8843,13 @@ export const nativeSchema = {
         "fields": {
           "items": {
             "$ref": "#/$defs/FormField"
+          },
+          "type": "array"
+        },
+        "people": {
+          "description": "The people the `person` fields name, to show them.",
+          "items": {
+            "$ref": "#/$defs/User"
           },
           "type": "array"
         },

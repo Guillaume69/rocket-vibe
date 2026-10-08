@@ -5,7 +5,8 @@
  * `ui/messageRow.tsx` with the message id; the form is read from the stored
  * message (`messages.form`). One field per row: a text input (one line, or
  * several for a long text, a numeric keyboard for a number), a list of
- * options for a choice. Submit checks what the server would refuse first,
+ * options for a choice, a list of people for a person (the field's own, or the
+ * room's members who are not bots, searchable). Submit checks what the server would refuse first,
  * then `POST /api/v1/forms/{message}/answer`; the answered message comes back
  * through sync.
  */
@@ -15,7 +16,8 @@ import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { messages } from '../db/schema.ts';
-import type { FormField, WorkflowForm } from '../providers/rocketvibe/protocol.generated.ts';
+import type { NativeChat } from '../providers/rocketvibe/chat.ts';
+import type { FormField, User, WorkflowForm } from '../providers/rocketvibe/protocol.generated.ts';
 import { NativeError } from '../providers/rocketvibe/transport.ts';
 import { useT } from '../ui/i18n.ts';
 import type { TranslationKey } from '../ui/messages.ts';
@@ -39,6 +41,7 @@ export default function AnswerFormScreen() {
   const me = state.phase === 'connected' ? state.session.userId : null;
   // `undefined` while reading, `null` when there is no form to answer.
   const [form, setForm] = useState<WorkflowForm | null | undefined>(undefined);
+  const [room, setRoom] = useState<string | null>(null);
   const [values, setValues] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -57,13 +60,15 @@ export default function AnswerFormScreen() {
     if (base === null || typeof id !== 'string') return;
     let canceled = false;
     void base
-      .select({ form: messages.form })
+      .select({ form: messages.form, rid: messages.rid })
       .from(messages)
       .where(eq(messages.id, id))
       .limit(1)
       .then(
         (rows) => {
-          if (!canceled) setForm(parseForm(rows[0]?.form));
+          if (canceled) return;
+          setRoom(rows[0]?.rid ?? null);
+          setForm(parseForm(rows[0]?.form));
         },
         () => {
           if (!canceled) setForm(null);
@@ -124,7 +129,21 @@ export default function AnswerFormScreen() {
           {!open && <Text style={[styles.text, { color: c.dimmed }]}>{t('forms.unavailable')}</Text>}
           {open &&
             form.fields.map((field) => (
-              <FieldInput key={field.id} c={c} field={field} value={values[field.id] ?? ''} disabled={busy} onChange={(value) => change(field.id, value)} />
+              field.kind === 'person' ? (
+                <PersonInput
+                  key={field.id}
+                  c={c}
+                  field={field}
+                  named={form.people ?? []}
+                  chat={chat}
+                  room={room}
+                  value={values[field.id] ?? ''}
+                  disabled={busy}
+                  onChange={(value) => change(field.id, value)}
+                />
+              ) : (
+                <FieldInput key={field.id} c={c} field={field} value={values[field.id] ?? ''} disabled={busy} onChange={(value) => change(field.id, value)} />
+              )
             ))}
           {error !== null && (
             <Text accessibilityRole="alert" style={[styles.text, { color: c.errorText }]}>
@@ -190,6 +209,107 @@ function FieldInput({ c, field, value, disabled, onChange }: { c: Colors; field:
         />
       )}
     </View>
+  );
+}
+
+/** Pages of room members read at most: a form names someone among the first thousands. */
+const MEMBER_PAGES = 20;
+
+/**
+ * A person: one of the field's people, or any member of the room who is not a
+ * bot (read here, page by page). A search narrows a long list; the value is a
+ * user id.
+ */
+function PersonInput({ c, field, named, chat, room, value, disabled, onChange }: {
+  c: Colors;
+  field: FormField;
+  named: readonly User[];
+  chat: NativeChat | null;
+  room: string | null;
+  value: string;
+  disabled: boolean;
+  onChange: (value: string) => void;
+}) {
+  const t = useT();
+  const label = `${field.label}${field.required === true ? ' *' : ''}`;
+  const fixed = field.people ?? [];
+  const [members, setMembers] = useState<User[] | null | undefined>(fixed.length > 0 ? null : undefined);
+  const [search, setSearch] = useState('');
+  useEffect(() => {
+    if (fixed.length > 0 || chat === null || room === null) return;
+    let canceled = false;
+    void (async () => {
+      const found: User[] = [];
+      let after: string | undefined;
+      let revision: string | undefined;
+      for (let page = 0; page < MEMBER_PAGES; page++) {
+        const current = await chat.roomMembers(room, after, revision);
+        found.push(...current.members.filter((m) => !m.disabled && m.user.bot !== true && m.user.deleted !== true).map((m) => m.user));
+        if (current.next == null) break;
+        after = current.next;
+        revision = current.revision;
+      }
+      return found.sort((a, b) => a.username.localeCompare(b.username));
+    })().then(
+      (found) => {
+        if (!canceled) setMembers(found);
+      },
+      () => {
+        if (!canceled) setMembers(null);
+      },
+    );
+    return () => {
+      canceled = true;
+    };
+    // `fixed` is the field's, stable for the sheet's life.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chat, room]);
+  const candidates = fixed.length > 0 ? fixed.flatMap((id) => named.filter((u) => u.id === id)) : (members ?? []);
+  const query = search.trim().toLowerCase();
+  const shown = (query === '' ? candidates : candidates.filter((u) => u.username.toLowerCase().includes(query) || u.display_name.toLowerCase().includes(query))).slice(0, 50);
+  const chosen = candidates.find((u) => u.id === value);
+  return (
+    <View style={styles.field}>
+      <Text style={[styles.label, { color: c.secondaryText }]}>{label}</Text>
+      {fixed.length === 0 && members === undefined && <ActivityIndicator color={c.accent} />}
+      {fixed.length === 0 && members === null && <Text style={[styles.hint, { color: c.errorText }]}>{t('forms.membersFailed')}</Text>}
+      {candidates.length > 8 && (
+        <TextInput
+          style={[styles.input, { color: c.text, backgroundColor: c.card, borderColor: c.border }]}
+          value={search}
+          editable={!disabled}
+          autoCapitalize="none"
+          autoCorrect={false}
+          placeholder={t('forms.searchPerson')}
+          placeholderTextColor={c.tertiaryText}
+          accessibilityLabel={t('forms.searchPerson')}
+          onChangeText={setSearch}
+        />
+      )}
+      <View accessibilityRole="radiogroup" accessibilityLabel={label}>
+        {/* The chosen one stays in sight while the search moves on. */}
+        {chosen !== undefined && !shown.includes(chosen) && (
+          <PersonRow c={c} user={chosen} on disabled={disabled} onPress={() => onChange(field.required === true ? chosen.id : '')} />
+        )}
+        {shown.map((u) => {
+          const on = u.id === value;
+          return <PersonRow key={u.id} c={c} user={u} on={on} disabled={disabled} onPress={() => onChange(on && field.required !== true ? '' : u.id)} />;
+        })}
+      </View>
+      {query !== '' && shown.length === 0 && <Text style={[styles.hint, { color: c.dimmed }]}>{t('forms.noPerson')}</Text>}
+      {value === '' && candidates.length > 0 && <Text style={[styles.hint, { color: c.dimmed }]}>{t('forms.choosePerson')}</Text>}
+    </View>
+  );
+}
+
+function PersonRow({ c, user, on, disabled, onPress }: { c: Colors; user: User; on: boolean; disabled: boolean; onPress: () => void }) {
+  return (
+    <Tappable disabled={disabled} accessibilityRole="radio" accessibilityState={{ selected: on, disabled }} onPress={onPress} style={styles.option}>
+      <Text style={[styles.check, { color: on ? c.accent : c.dimmed }]}>{on ? '◉' : '○'}</Text>
+      <Text style={[styles.text, styles.grow, { color: c.text }]} numberOfLines={1}>
+        {user.display_name || user.username} <Text style={{ color: c.dimmed }}>@{user.username}</Text>
+      </Text>
+    </Tappable>
   );
 }
 

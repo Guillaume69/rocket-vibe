@@ -23,7 +23,7 @@ import { ActivityIndicator, Alert, AppState, Platform, StyleSheet, Switch, Text,
 import { rooms as roomsTable } from '../db/schema.ts';
 import type { LocalDatabase } from '../db/client.ts';
 import type { NativeChat } from '../providers/rocketvibe/chat.ts';
-import type { Bot, FormField, FormRecipient, Step, Trigger, Workflow, WorkflowRun } from '../providers/rocketvibe/protocol.generated.ts';
+import type { Bot, FormField, FormRecipient, Step, Trigger, User, Workflow, WorkflowRun } from '../providers/rocketvibe/protocol.generated.ts';
 import { NativeError } from '../providers/rocketvibe/transport.ts';
 import { useAdminFormat } from './adminKit.tsx';
 import { dismissible } from './alerts.ts';
@@ -72,6 +72,7 @@ import {
   variablesAt,
   waitParts,
   waitSeconds,
+  watchesRoom,
   workflowErrorKey,
   type WaitUnit,
   type WorkflowDraft,
@@ -131,6 +132,8 @@ function Workflows({ c, chat, base, baseUrl }: { c: Colors; chat: NativeChat; ba
   const [canCreate, setCanCreate] = useState(false);
   const [bots, setBots] = useState<Bot[]>([]);
   const [rooms, setRooms] = useState<RoomChoice[]>([]);
+  // The people a form's person field may name: everyone but bots and the deleted.
+  const [people, setPeople] = useState<User[]>([]);
   const [screen, setScreen] = useState<Screen>({ kind: 'list' });
   const [loaded, setLoaded] = useState<Workflow | null>(null);
   const [runs, setRuns] = useState<WorkflowRun[] | null>(null);
@@ -177,7 +180,9 @@ function Workflows({ c, chat, base, baseUrl }: { c: Colors; chat: NativeChat; ba
           Promise.all([tr.workflows(), tr.accountPermissions(), tr.bots().catch(() => ({ bots: [] as Bot[] }))]),
         );
         const mine = await readRooms(base).catch(() => [] as RoomChoice[]);
+        const everyone = await chat.users().catch(() => [] as User[]);
         if (!visible()) return;
+        setPeople(everyone.filter((u) => u.bot !== true && u.deleted !== true).sort((a, b) => a.username.localeCompare(b.username)));
         setList(listed.workflows);
         setCanCreate(permissions.create_bot === true);
         setBots(owned.bots);
@@ -387,6 +392,7 @@ function Workflows({ c, chat, base, baseUrl }: { c: Colors; chat: NativeChat; ba
             workflow={loaded}
             bots={bots}
             rooms={rooms}
+            people={people}
             runs={runs}
             busy={busy}
             webhookUrl={webhook !== null && webhook.workflow === loaded?.id ? webhook.url : null}
@@ -597,12 +603,13 @@ function TemplateField({ c, label, value, variables, disabled, multiline, maxLen
   );
 }
 
-function Editor({ c, workflow, bots, rooms, runs, busy, webhookUrl, roomName, onChange, onSave, onTest, onDisable, onDelete, onWebhook, onDismissWebhook, onCopy, onRefreshRuns, onBack, webhookRefusal }: {
+function Editor({ c, workflow, bots, rooms, people, runs, busy, webhookUrl, roomName, onChange, onSave, onTest, onDisable, onDelete, onWebhook, onDismissWebhook, onCopy, onRefreshRuns, onBack, webhookRefusal }: {
   c: Colors;
   /** `null`: a new workflow. */
   workflow: Workflow | null;
   bots: readonly Bot[];
   rooms: readonly RoomChoice[];
+  people: readonly User[];
   runs: readonly WorkflowRun[] | null;
   busy: boolean;
   webhookUrl: string | null;
@@ -722,6 +729,21 @@ function Editor({ c, workflow, bots, rooms, runs, busy, webhookUrl, roomName, on
       {trigger.kind === 'member_joined' && (
         <RoomPicker c={c} rooms={rooms} value={trigger.room} allowTrigger={false} disabled={busy} roomName={roomName} onChange={(room) => setTrigger({ ...trigger, room })} />
       )}
+      {trigger.kind === 'reaction_added' && (
+        <>
+          <RoomPicker c={c} rooms={rooms} value={trigger.room} allowTrigger={false} disabled={busy} roomName={roomName} onChange={(room) => setTrigger({ ...trigger, room })} />
+          <PillField c={c} label={t('workflows.emoji')} value={trigger.emoji ?? ''} editable={!busy} maxLength={80} autoCapitalize="none" onChangeText={(emoji) => setTrigger({ ...trigger, emoji })} />
+          <Text style={[styles.hint, { color: c.dimmed }]}>{t('workflows.emojiHint')}</Text>
+        </>
+      )}
+      {trigger.kind === 'message_posted' && (
+        <>
+          <RoomPicker c={c} rooms={rooms} value={trigger.room} allowTrigger={false} disabled={busy} roomName={roomName} onChange={(room) => setTrigger({ ...trigger, room })} />
+          <PillField c={c} label={t('workflows.contains')} value={trigger.contains} editable={!busy} maxLength={LIMITS.match} onChangeText={(contains) => setTrigger({ ...trigger, contains })} />
+          <Text style={[styles.hint, { color: c.dimmed }]}>{t('workflows.containsHint')}</Text>
+        </>
+      )}
+      {watchesRoom(trigger) && <Text style={[styles.hint, { color: c.dimmed }]}>{t('workflows.watchHint')}</Text>}
       {trigger.kind === 'webhook' && (
         <View style={styles.group}>
           <Text style={[styles.hint, { color: c.dimmed }]}>{t('workflows.webhookHint')}</Text>
@@ -764,6 +786,7 @@ function Editor({ c, workflow, bots, rooms, runs, busy, webhookUrl, roomName, on
             trigger={trigger}
             variables={variablesAt(trigger, draft.steps, index)}
             rooms={rooms}
+            people={people}
             busy={busy}
             roomName={roomName}
             onChange={(next) => setStep(index, next)}
@@ -814,12 +837,13 @@ function Editor({ c, workflow, bots, rooms, runs, busy, webhookUrl, roomName, on
   );
 }
 
-function StepEditor({ c, step, trigger, variables, rooms, busy, roomName, onChange }: {
+function StepEditor({ c, step, trigger, variables, rooms, people, busy, roomName, onChange }: {
   c: Colors;
   step: Step;
   trigger: Trigger;
   variables: readonly string[];
   rooms: readonly RoomChoice[];
+  people: readonly User[];
   busy: boolean;
   roomName: (id: string) => string;
   onChange: (step: Step) => void;
@@ -903,6 +927,7 @@ function StepEditor({ c, step, trigger, variables, rooms, busy, roomName, onChan
                   onChangeText={(text) => setField(i, { ...field, options: text.split('\n').slice(0, LIMITS.options) })}
                 />
               )}
+              {field.kind === 'person' && <PeoplePicker c={c} people={people} value={field.people ?? []} disabled={busy} onChange={(chosen) => setField(i, { ...field, people: chosen })} />}
               <Toggle c={c} label={t('workflows.required')} value={field.required === true} disabled={busy} onChange={(required) => setField(i, { ...field, required })} />
               {fields.length > 1 && <Action c={c} label={t('workflows.removeField')} danger disabled={busy} onPress={() => onChange({ ...step, fields: removeAt(fields, i) })} />}
             </View>
@@ -920,6 +945,75 @@ function StepEditor({ c, step, trigger, variables, rooms, busy, roomName, onChan
       );
     }
   }
+}
+
+/**
+ * Who a person field offers: anyone in the form's room (no one listed), or the
+ * people picked here, found by name among everyone but bots.
+ */
+function PeoplePicker({ c, people, value, disabled, onChange }: { c: Colors; people: readonly User[]; value: readonly string[]; disabled: boolean; onChange: (people: string[]) => void }) {
+  const t = useT();
+  const [listed, setListed] = useState(value.length > 0);
+  const [search, setSearch] = useState('');
+  const name = (id: string) => {
+    const user = people.find((u) => u.id === id);
+    return user === undefined ? id : `${user.display_name || user.username} (@${user.username})`;
+  };
+  const query = search.trim().toLowerCase();
+  const found =
+    query === ''
+      ? []
+      : people.filter((u) => !value.includes(u.id) && (u.username.toLowerCase().includes(query) || u.display_name.toLowerCase().includes(query))).slice(0, 8);
+  return (
+    <View style={styles.group}>
+      <Chips
+        c={c}
+        options={['room', 'list'] as const}
+        value={[listed ? 'list' : 'room']}
+        label={(source) => t(source === 'room' ? 'workflows.peopleRoom' : 'workflows.peopleList')}
+        disabled={disabled}
+        onPick={(source) => {
+          setListed(source === 'list');
+          if (source === 'room') onChange([]);
+        }}
+      />
+      {!listed && <Text style={[styles.hint, { color: c.dimmed }]}>{t('workflows.peopleRoomHint')}</Text>}
+      {listed && (
+        <>
+          {value.length === 0 && <Text style={[styles.hint, { color: c.dimmed }]}>{t('workflows.peopleNone')}</Text>}
+          {value.map((id) => (
+            <View key={id} style={styles.choice}>
+              <Text style={[styles.text, styles.grow, { color: c.text }]} numberOfLines={1}>
+                {name(id)}
+              </Text>
+              <Action c={c} label={t('workflows.peopleRemove')} danger disabled={disabled} onPress={() => onChange(value.filter((p) => p !== id))} />
+            </View>
+          ))}
+          {value.length < LIMITS.people && (
+            <PillField c={c} label={t('workflows.peopleSearch')} value={search} editable={!disabled} maxLength={64} autoCapitalize="none" onChangeText={setSearch} />
+          )}
+          {found.map((user) => (
+            <Tappable
+              key={user.id}
+              disabled={disabled}
+              accessibilityRole="button"
+              onPress={() => {
+                onChange([...value, user.id]);
+                setSearch('');
+              }}
+              style={styles.choice}
+            >
+              <Text style={[styles.check, { color: c.cyan }]}>+</Text>
+              <Text style={[styles.text, styles.grow, { color: c.text }]} numberOfLines={1}>
+                {user.display_name || user.username} (@{user.username})
+              </Text>
+            </Tappable>
+          ))}
+          {query !== '' && found.length === 0 && <Text style={[styles.hint, { color: c.dimmed }]}>{t('workflows.peopleNoMatch')}</Text>}
+        </>
+      )}
+    </View>
+  );
 }
 
 /** A wait: a number and a unit, kept as typed; the step holds its seconds (0 while invalid, refused before saving). */

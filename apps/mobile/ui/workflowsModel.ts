@@ -25,17 +25,17 @@ import type { TranslateFn, TranslationKey } from './messages.ts';
 export type TriggerKind = Trigger['kind'];
 export type StepKind = Step['kind'];
 
-export const TRIGGER_KINDS: readonly TriggerKind[] = ['command', 'schedule', 'member_joined', 'webhook'];
+export const TRIGGER_KINDS: readonly TriggerKind[] = ['command', 'schedule', 'member_joined', 'reaction_added', 'message_posted', 'webhook'];
 export const STEP_KINDS: readonly StepKind[] = ['message', 'wait', 'http', 'form'];
 export const HTTP_METHODS: readonly HttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
-export const FIELD_KINDS: readonly FormFieldKind[] = ['text', 'long_text', 'number', 'choice'];
+export const FIELD_KINDS: readonly FormFieldKind[] = ['text', 'long_text', 'number', 'choice', 'person'];
 export const EVERY: readonly Every[] = ['hour', 'day', 'week'];
 /** ISO weekdays, 1 Monday to 7 Sunday, the order of the chips. */
 export const WEEKDAYS: readonly number[] = [1, 2, 3, 4, 5, 6, 7];
 /** `room: "trigger"`: the room of what started the run. */
 export const TRIGGER_ROOM = 'trigger';
 /** The server's limits (`crates/rv-protocol/src/workflows.rs`). */
-export const LIMITS = { workflows: 20, steps: 20, fields: 10, headers: 10, options: 20, waitSeconds: 30 * 24 * 3600 } as const;
+export const LIMITS = { workflows: 20, steps: 20, fields: 10, headers: 10, options: 20, people: 50, match: 100, waitSeconds: 30 * 24 * 3600 } as const;
 /** Names a `save_as` or a field id may not take: the run's own context. */
 const RESERVED = ['trigger', 'webhook', 'now'];
 /** The server's core commands: a workflow command cannot take their names. */
@@ -45,6 +45,8 @@ export const TRIGGER_TEXT: Record<TriggerKind, TranslationKey> = {
   command: 'workflows.triggerCommand',
   schedule: 'workflows.triggerSchedule',
   member_joined: 'workflows.triggerJoined',
+  reaction_added: 'workflows.triggerReaction',
+  message_posted: 'workflows.triggerMessage',
   webhook: 'workflows.triggerWebhook',
 };
 export const STEP_TEXT: Record<StepKind, TranslationKey> = {
@@ -58,6 +60,7 @@ export const FIELD_TEXT: Record<FormFieldKind, TranslationKey> = {
   long_text: 'workflows.fieldLongText',
   number: 'workflows.fieldNumber',
   choice: 'workflows.fieldChoice',
+  person: 'workflows.fieldPerson',
 };
 export const EVERY_TEXT: Record<Every, TranslationKey> = {
   hour: 'workflows.everyHour',
@@ -98,7 +101,12 @@ export function hasTriggerRoom(trigger: Trigger): boolean {
   return trigger.kind !== 'webhook';
 }
 export function hasTriggerUser(trigger: Trigger): boolean {
-  return trigger.kind === 'command' || trigger.kind === 'member_joined';
+  return trigger.kind !== 'schedule' && trigger.kind !== 'webhook';
+}
+
+/** The triggers that watch what people do in a room: they need the bot's `rooms:read`. */
+export function watchesRoom(trigger: Trigger): boolean {
+  return trigger.kind === 'reaction_added' || trigger.kind === 'message_posted';
 }
 
 export function defaultTrigger(kind: TriggerKind, timezone: string): Trigger {
@@ -109,6 +117,10 @@ export function defaultTrigger(kind: TriggerKind, timezone: string): Trigger {
       return { kind, every: 'day', time: '09:00', days: [1, 2, 3, 4, 5], timezone, room: '' };
     case 'member_joined':
       return { kind, room: '' };
+    case 'reaction_added':
+      return { kind, room: '' };
+    case 'message_posted':
+      return { kind, room: '', contains: '' };
     case 'webhook':
       return { kind };
   }
@@ -202,6 +214,12 @@ export function variablesAt(trigger: Trigger, steps: readonly Step[], index: num
     case 'member_joined':
       names.push('trigger.user.username', 'trigger.user.display_name', 'trigger.room.name');
       break;
+    case 'reaction_added':
+      names.push('trigger.user.username', 'trigger.user.display_name', 'trigger.room.name', 'trigger.emoji', 'trigger.message.text', 'trigger.message.author.username');
+      break;
+    case 'message_posted':
+      names.push('trigger.user.username', 'trigger.user.display_name', 'trigger.room.name', 'trigger.message.text');
+      break;
     case 'webhook':
       names.push('webhook');
       break;
@@ -213,7 +231,11 @@ export function variablesAt(trigger: Trigger, steps: readonly Step[], index: num
     if (step.kind === 'http') names.push(`${saved}.status`, `${saved}.body`);
     if (step.kind === 'form') {
       names.push(`${saved}.by.username`, `${saved}.by.display_name`);
-      for (const field of step.fields) if (validName(field.id)) names.push(`${saved}.answers.${field.id}`);
+      for (const field of step.fields) {
+        if (!validName(field.id)) continue;
+        names.push(`${saved}.answers.${field.id}`);
+        if (field.kind === 'person') names.push(`${saved}.people.${field.id}.display_name`);
+      }
     }
   }
   names.push('now');
@@ -294,6 +316,12 @@ export function triggerSummary(trigger: Trigger, t: TranslateFn, roomName: (id: 
       return t('workflows.summaryCommand', { name: trigger.name });
     case 'member_joined':
       return t('workflows.summaryJoined', { room: roomName(trigger.room) });
+    case 'reaction_added':
+      return trigger.emoji != null && trigger.emoji !== ''
+        ? t('workflows.summaryReaction', { emoji: trigger.emoji, room: roomName(trigger.room) })
+        : t('workflows.summaryAnyReaction', { room: roomName(trigger.room) });
+    case 'message_posted':
+      return t('workflows.summaryMessage', { text: trigger.contains, room: roomName(trigger.room) });
     case 'webhook':
       return t('workflows.summaryWebhook');
     case 'schedule': {
@@ -320,6 +348,13 @@ export function cleanTrigger(trigger: Trigger): Trigger {
         ? { ...rest, timezone: rest.timezone.trim(), days: WEEKDAYS.filter((d) => (days ?? []).includes(d)) }
         : { ...rest, timezone: rest.timezone.trim() };
     }
+    case 'reaction_added': {
+      // `:tada:` as typed is `tada`; nothing at all is any emoji.
+      const emoji = (trigger.emoji ?? '').trim().replace(/^:+|:+$/g, '');
+      return emoji === '' ? { kind: 'reaction_added', room: trigger.room } : { kind: 'reaction_added', room: trigger.room, emoji };
+    }
+    case 'message_posted':
+      return { kind: 'message_posted', room: trigger.room, contains: trigger.contains.trim() };
     default:
       return trigger;
   }
@@ -353,11 +388,14 @@ export function cleanStep(step: Step): Step {
         title: step.title.trim(),
         save_as: step.save_as.trim(),
         fields: step.fields.map((field) => {
-          const { options, ...rest } = field;
+          const { options, people, ...rest } = field;
           const label = rest.label.trim();
-          return field.kind === 'choice'
-            ? { ...rest, label, required: rest.required === true, options: (options ?? []).map((o) => o.trim()).filter((o) => o !== '') }
-            : { ...rest, label, required: rest.required === true };
+          if (field.kind === 'choice') {
+            return { ...rest, label, required: rest.required === true, options: (options ?? []).map((o) => o.trim()).filter((o) => o !== '') };
+          }
+          // A person field without people offers the whole room.
+          if (field.kind === 'person' && people != null && people.length > 0) return { ...rest, label, required: rest.required === true, people: [...people] };
+          return { ...rest, label, required: rest.required === true };
         }),
       };
   }
@@ -398,7 +436,11 @@ export function draftProblem(draft: WorkflowDraft): TranslationKey | null {
     if (trigger.every === 'week' && (trigger.days ?? []).length === 0) return 'workflows.needDays';
     if (trigger.timezone.trim() === '') return 'workflows.badZone';
   }
-  if ((trigger.kind === 'schedule' || trigger.kind === 'member_joined') && trigger.room === '') return 'workflows.needRoom';
+  if (trigger.kind !== 'command' && trigger.kind !== 'webhook' && trigger.room === '') return 'workflows.needRoom';
+  if (trigger.kind === 'message_posted') {
+    const contains = trigger.contains.trim();
+    if (contains === '' || new TextEncoder().encode(contains).length > LIMITS.match) return 'workflows.needMatch';
+  }
   if (draft.steps.length === 0) return 'workflows.needStep';
   if (draft.steps.length > LIMITS.steps) return 'workflows.tooManySteps';
   const names = new Set<string>();
@@ -429,6 +471,7 @@ export function draftProblem(draft: WorkflowDraft): TranslationKey | null {
         if (!validName(field.id) || ids.has(field.id)) return 'workflows.badFieldId';
         ids.add(field.id);
         if (field.kind === 'choice' && (field.options ?? []).filter((o) => o.trim() !== '').length === 0) return 'workflows.needOptions';
+        if (field.kind === 'person' && (field.people ?? []).length > LIMITS.people) return 'workflows.tooManyPeople';
       }
     }
   }
@@ -481,6 +524,10 @@ function codeKey(code: string): TranslationKey | null {
       return 'workflows.errHttp';
     case 'workflow_form':
       return 'workflows.errForm';
+    case 'workflow_match':
+      return 'workflows.needMatch';
+    case 'workflow_emoji':
+      return 'workflows.errEmoji';
     case 'revision_conflict':
       return 'workflows.errConflict';
     case 'workflow_unavailable':
@@ -580,6 +627,8 @@ export function answerInput(
         ? Number.isFinite(Number(value.replace(',', '.'))) && /^[-+]?(\d+([.,]\d*)?|[.,]\d+)([eE][-+]?\d+)?$/.test(value)
         : field.kind === 'choice'
           ? (field.options ?? []).includes(value)
+          : field.kind === 'person'
+            ? (field.people ?? []).length === 0 || (field.people ?? []).includes(value)
           : field.kind === 'text'
             ? !value.includes('\n') && new TextEncoder().encode(value).length <= 1024
             : new TextEncoder().encode(value).length <= 4096;

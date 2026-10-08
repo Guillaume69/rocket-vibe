@@ -23,6 +23,7 @@ import m0018 from './0018_upload_thread.sql';
 import m0019 from './0019_voice_channels.sql';
 import m0020 from './0020_emoji_usage.sql';
 import m0021 from './0021_author_bot.sql';
+import m0022 from './0022_message_form.sql';
 
   export default {
     journal,
@@ -48,7 +49,8 @@ m0017,
 m0018,
 m0019,
 m0020,
-m0021
+m0021,
+m0022
     }
   }
   

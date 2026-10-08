@@ -75,9 +75,10 @@ const WORDS: readonly (readonly [string, string, string])[] = [
  * has its catalogue: ours covers the core commands, and an app's key at least
  * reads as words.
  */
-export function words(key: string, language: Language): string {
+export function words(key: string, language: Language, verbatim = false): string {
   const known = WORDS.find(([k]) => k === key);
   if (known !== undefined) return language === 'fr' ? known[1] : known[2];
+  if (verbatim) return key;
   // A Rocket.Chat app namespaces its keys: `app-<id>.GIPHY_Search_Term`.
   const dot = key.indexOf('.');
   const own = key.startsWith('app-') && dot > 0 && !/\s/.test(key.slice(0, dot)) ? key.slice(dot + 1) : key;
@@ -87,8 +88,13 @@ export function words(key: string, language: Language): string {
 
 const asString = (v: unknown): string => (typeof v === 'string' ? v : '');
 
-/** The commands `commands.list` returns, their i18n keys put into words. */
-export function readCommands(response: unknown, language: Language): Command[] {
+/**
+ * The commands `commands.list` returns, their i18n keys put into words.
+ * `native`: a RocketVibe server's list, whose core keys are all in `WORDS`
+ * and whose other entries are workflow commands described by the workflow's
+ * name (RFC 0004), shown as sent.
+ */
+export function readCommands(response: unknown, language: Language, native = false): Command[] {
   const list = (response as { commands?: unknown } | null)?.commands;
   if (!Array.isArray(list)) return [];
   const commands: Command[] = [];
@@ -100,8 +106,8 @@ export function readCommands(response: unknown, language: Language): Command[] {
       typeof p === 'string' ? [p] : Array.isArray(p) ? p.filter((x): x is string => typeof x === 'string') : [];
     commands.push({
       name,
-      params: words(asString(raw.params), language),
-      description: words(asString(raw.description), language),
+      params: words(asString(raw.params), language, native),
+      description: words(asString(raw.description), language, native),
       permissions,
     });
   }
@@ -185,8 +191,25 @@ export function textCommand(name: string, params: string): CommandRun | null {
 }
 
 /** The message key of what a RocketVibe server's refusal of a command means. */
-export function commandErrorKey(code: string): 'command.notFound' | 'command.forbidden' | 'command.invalid' | 'command.encrypted' | null {
+export function commandErrorKey(
+  code: string,
+):
+  | 'command.notFound'
+  | 'command.forbidden'
+  | 'command.invalid'
+  | 'command.encrypted'
+  | 'command.workflowUnavailable'
+  | 'command.workflowRate'
+  | 'command.workflowBusy'
+  | null {
   switch (code) {
+    // A workflow command (RFC 0004) refused as it starts.
+    case 'workflow_unavailable':
+      return 'command.workflowUnavailable';
+    case 'workflow_rate_limited':
+      return 'command.workflowRate';
+    case 'workflow_busy':
+      return 'command.workflowBusy';
     case 'not_found':
     case 'unknown_command':
       return 'command.notFound';

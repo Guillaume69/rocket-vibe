@@ -145,6 +145,13 @@ export const messages = sqliteTable(
      * upsert (`providers/rocketvibe/store.ts`); always false on Rocket.Chat.
      */
     authorBot: integer('author_bot', { mode: 'boolean' }).notNull().default(false),
+    /**
+     * The form a workflow posted with this message (RocketVibe, RFC 0004):
+     * `Message.form` (`WorkflowForm`) as JSON, `null` without one. Written by
+     * the native store only, after its upsert, like `author_bot`; drawn as a
+     * card by `ui/messageRow.tsx` and answered in `app/answer-form.tsx`.
+     */
+    form: text('form'),
   },
   // The index covers the room screen's query: `WHERE rid = ? ORDER BY ts DESC`.
   (t) => [index('idx_messages_room_ts').on(t.rid, t.ts), index('idx_messages_thread').on(t.threadId)],

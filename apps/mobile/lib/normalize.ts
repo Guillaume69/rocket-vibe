@@ -62,6 +62,11 @@ export type LocalMessage = {
    * the shared upsert: the native store sets the column itself.
    */
   authorBot?: boolean;
+  /**
+   * A workflow's form (RocketVibe only, RFC 0004), `Message.form` as JSON.
+   * Like `authorBot`, set by the native store itself, never the shared upsert.
+   */
+  form?: string | null;
 };
 
 export type LocalRoom = {

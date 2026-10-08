@@ -18,6 +18,15 @@ release, and its notes are that version's section here.
   owner) and room members; the administration dashboard has the "Users can create bots"
   switch, and its Users list marks RocketVibe bots and no longer offers making a bot an
   administrator. A room with a bot member cannot be encrypted, and the app says so.
+- Workflows on a RocketVibe server: a "Workflows" settings page lists your automations
+  (trigger in words, on or off, last run and its error) and edits them: a name, the bot
+  they act through, a trigger (a slash command, a schedule by hour, day or week in your
+  time zone, someone joining a room, or a webhook whose URL is shown once), and steps to
+  add, reorder and remove (send a message, wait, call an HTTP service, ask a form), with
+  the variables each text may use one tap away. Save, test now, turn off, delete and the
+  last 50 runs. A form a workflow posts shows as a card in the room; its recipient, or any
+  member, answers it in a native sheet, and the card then says who answered. Workflow
+  commands appear in the composer's command list of the rooms where they are offered.
 
 ## [0.8.0] - 2026-10-08
 

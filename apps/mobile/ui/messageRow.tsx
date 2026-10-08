@@ -35,6 +35,7 @@ import {ImageEmoji,useCatalogueEmojis} from './emojiImage.tsx';
 import { recordReaction } from './emojiUsage.ts';
 import { isDeletedUsername } from '../lib/deletedUser.ts';
 import { BotBadge } from './botBadge.tsx';
+import { formState, parseForm } from './workflowsModel.ts';
 import { messageTree } from '../lib/markdown.ts';
 import { useJoinVoice, useVoice } from './voice.tsx';
 import { callSummaryText, systemText } from '../lib/systemMessages.ts';
@@ -68,8 +69,8 @@ import {
 import { useImageViewer } from './imageViewer.tsx';
 import { Tappable } from './tappable.tsx';
 
-/** `authorBot` optional: render-only rows (search, pins, encrypted projections) may not carry it. */
-export type MessageRowData = Omit<typeof messages.$inferSelect, 'authorBot'> & { authorBot?: boolean };
+/** `authorBot` and `form` optional: render-only rows (search, pins, encrypted projections) may not carry them. */
+export type MessageRowData = Omit<typeof messages.$inferSelect, 'authorBot' | 'form'> & { authorBot?: boolean; form?: string | null };
 
 export const MessageRow = memo(function MessageRow({
   c,
@@ -266,6 +267,7 @@ export const MessageRow = memo(function MessageRow({
         <MessageLongPress.Provider value={longPress}>
           <MessageContent c={c} message={message} />
         </MessageLongPress.Provider>
+        {message.form != null && client.kind === 'rocketvibe' && <FormCard c={c} id={message.id} json={message.form} />}
         {message.systemType === null && (
             <EmbedLinks c={c} client={client} text={message.text} urls={message.urls} onLongPress={longPress} />
         )}
@@ -650,6 +652,52 @@ function AttachedImage({
       />
       <TransferBar transfer={source} c={c} radius={10} />
     </Pressable>
+  );
+}
+
+/**
+ * A form a workflow posted (RocketVibe, RFC 0004, `Message.form` stored as
+ * JSON): its title, who it asks, its fields, then "Answer" for whoever may
+ * (the recipient, or any member when there is none) while it is open, or who
+ * answered. Answering opens the native sheet `app/answer-form.tsx`; the
+ * answered message comes back through sync.
+ */
+function FormCard({ c, id, json }: { c: Colors; id: string; json: string }) {
+  const t = useT();
+  const router = useRouter();
+  const { state } = useSession();
+  const form = useMemo(() => parseForm(json), [json]);
+  // The clock read when the card mounts: a form stays open for days.
+  const [shownAt] = useState(() => Date.now());
+  if (form === null) return null;
+  const me = state.phase === 'connected' ? state.session.userId : null;
+  const status = formState(form, me, shownAt);
+  return (
+    <View style={[styles.formCard, { backgroundColor: c.card, borderColor: c.border }]}>
+      <Text style={[styles.callCardTitle, { color: c.text }]}>📝 {form.title}</Text>
+      {form.recipient != null && <Text style={[styles.formLine, { color: c.secondaryText }]}>{t('forms.for', { username: form.recipient.username })}</Text>}
+      <Text style={[styles.formLine, { color: c.dimmed }]} numberOfLines={3}>
+        {form.fields.map((f) => `${f.label}${f.required === true ? ' *' : ''}`).join(' · ')}
+      </Text>
+      {status === 'answer' && (
+        <Tappable
+          onPress={() => router.push({ pathname: '/answer-form', params: { id } })}
+          android_ripple={{ color: c.ripple }}
+          unstable_pressDelay={LIST_PRESS_DELAY}
+          accessibilityRole="button"
+          accessibilityLabel={`${t('forms.answer')}: ${form.title}`}
+          style={({ pressed }) => [styles.join, { alignSelf: 'flex-start', backgroundColor: c.accent, opacity: pressed ? 0.7 : 1 }]}
+        >
+          <Text style={[styles.joinText, { color: c.onAccent }]}>{t('forms.answer')}</Text>
+        </Tappable>
+      )}
+      {status === 'answered' && form.answered_by != null && (
+        <Text style={[styles.formLine, { color: c.online }]}>
+          {t('forms.answeredBy', { name: form.answered_by.display_name || form.answered_by.username })}
+        </Text>
+      )}
+      {status === 'expired' && <Text style={[styles.formLine, { color: c.dimmed }]}>{t('forms.expired')}</Text>}
+    </View>
   );
 }
 
@@ -1124,4 +1172,6 @@ const styles = StyleSheet.create({
   callCardTitle: { fontFamily: FONTS.bodyBold, fontSize: 14, flexShrink: 1 },
   join: { borderRadius: 999, paddingHorizontal: 16, paddingVertical: 7 },
   joinText: { fontFamily: FONTS.bodyStrong, fontSize: 13 },
+  formCard: { alignSelf: 'stretch', borderRadius: 12, borderWidth: 1, padding: 10, gap: 4, marginTop: 4 },
+  formLine: { fontFamily: FONTS.body, fontSize: 12.5, lineHeight: 17 },
 });

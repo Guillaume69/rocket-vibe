@@ -395,6 +395,21 @@ export class NativeTransport {
     const value=await this.value(`/api/v1/bots/${encodeURIComponent(id)}/avatar`,undefined,false,undefined,upload?'PUT':'DELETE',upload?{mime:upload.mime,body:Uint8Array.from(upload.bytes).buffer}:undefined);
     return decodeNative('Bot',value);
   }
+  // Workflows (`workflows` capability, RFC 0004, `docs/protocol/WORKFLOWS.md`):
+  // a person's session only, acting through one of their bots.
+  workflows(all=false):Promise<NativeTypes['WorkflowList']> { return this.request('WorkflowList',`/api/v1/workflows${all?'?all=true':''}`); }
+  workflow(id:string):Promise<NativeTypes['Workflow']> { return this.request('Workflow',`/api/v1/workflows/${encodeURIComponent(id)}`); }
+  createWorkflow(input:NativeTypes['CreateWorkflow']):Promise<NativeTypes['Workflow']> { return this.request('Workflow','/api/v1/workflows',input); }
+  /** The whole definition at the expected `revision`; `revision_conflict` when it moved. */
+  updateWorkflow(id:string,input:NativeTypes['UpdateWorkflow']):Promise<NativeTypes['Workflow']> { return this.request('Workflow',`/api/v1/workflows/${encodeURIComponent(id)}`,input,false,undefined,'PUT'); }
+  async deleteWorkflow(id:string):Promise<void> { await this.value(`/api/v1/workflows/${encodeURIComponent(id)}`,undefined,false,undefined,'DELETE'); }
+  disableWorkflow(id:string):Promise<NativeTypes['Workflow']> { return this.request('Workflow',`/api/v1/workflows/${encodeURIComponent(id)}/disable`,undefined,false,undefined,'POST'); }
+  /** A new webhook secret, shown once (the old one stops working); needs a recent sign-in. */
+  workflowWebhook(id:string):Promise<NativeTypes['WebhookSecret']> { return this.request('WebhookSecret',`/api/v1/workflows/${encodeURIComponent(id)}/webhook`,undefined,false,undefined,'POST'); }
+  workflowRuns(id:string):Promise<NativeTypes['WorkflowRunList']> { return this.request('WorkflowRunList',`/api/v1/workflows/${encodeURIComponent(id)}/runs`); }
+  testWorkflow(id:string):Promise<NativeTypes['RunStarted']> { return this.request('RunStarted',`/api/v1/workflows/${encodeURIComponent(id)}/test`,undefined,false,undefined,'POST'); }
+  /** Answers a form a workflow posted (`Message.form`); 204. */
+  async answerForm(message:string,input:NativeTypes['AnswerForm']):Promise<void> { await this.value(`/api/v1/forms/${encodeURIComponent(message)}/answer`,input); }
   instanceSettings():Promise<NativeTypes['InstanceSettings']> { return this.request('InstanceSettings','/api/v1/admin/settings'); }
   updateInstanceSettings(input:NativeTypes['UpdateInstanceSettings']):Promise<NativeTypes['InstanceSettings']> { return this.request('InstanceSettings','/api/v1/admin/settings',input,false,undefined,'PATCH'); }
   accountPermissions(): Promise<NativeTypes['AccountPermissions']> { return this.request('AccountPermissions','/api/v1/me/permissions'); }
@@ -424,8 +439,9 @@ export class NativeTransport {
   searchMessages(room:string,q:string,before?:string):Promise<NativeTypes['SearchPage']> {
     return this.request('SearchPage',`/api/v1/rooms/${encodeURIComponent(room)}/messages/search?q=${encodeURIComponent(q)}${before?`&before=${encodeURIComponent(before)}`:''}`);
   }
-  /** The slash commands the server offers (`rv_protocol::commands`). */
-  commands(): Promise<NativeTypes['CommandList']> { return this.request('CommandList', '/api/v1/commands'); }
+  /** The slash commands the server offers (`rv_protocol::commands`); with `room`,
+   * the workflow commands offered there too (RFC 0004). */
+  commands(room?: string): Promise<NativeTypes['CommandList']> { return this.request('CommandList', room === undefined ? '/api/v1/commands' : `/api/v1/commands?room=${encodeURIComponent(room)}`); }
   /** Runs a server-side slash command; the text commands never come here. */
   async runCommand(input: NativeTypes['RunCommand']): Promise<void> { await this.value('/api/v1/commands/run', input); }
   /** My rooms with their read states: what the server rail reads of an account not open. */

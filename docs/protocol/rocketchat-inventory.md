@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-501 production files scanned; 517 occurrences.
+504 production files scanned; 517 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -378,8 +378,8 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/lib/catchUp.ts:212](../../apps/mobile/lib/catchUp.ts#L212) | endpoint | chat.syncMessages |
 | [apps/mobile/lib/catchUp.ts:391](../../apps/mobile/lib/catchUp.ts#L391) | call:GET | 'chat.syncMessages' |
 | [apps/mobile/lib/catchUp.ts:391](../../apps/mobile/lib/catchUp.ts#L391) | endpoint | chat.syncMessages |
-| [apps/mobile/lib/commands.ts:223](../../apps/mobile/lib/commands.ts#L223) | call:GET | 'commands.list' |
-| [apps/mobile/lib/commands.ts:257](../../apps/mobile/lib/commands.ts#L257) | call:POST | 'commands.run' |
+| [apps/mobile/lib/commands.ts:246](../../apps/mobile/lib/commands.ts#L246) | call:GET | 'commands.list' |
+| [apps/mobile/lib/commands.ts:280](../../apps/mobile/lib/commands.ts#L280) | call:POST | 'commands.run' |
 | [apps/mobile/lib/customEmojis.ts:111](../../apps/mobile/lib/customEmojis.ts#L111) | resource | /emoji-custom/{…}.{…} |
 | [apps/mobile/lib/customEmojis.ts:164](../../apps/mobile/lib/customEmojis.ts#L164) | call:GET | 'emoji-custom.list' |
 | [apps/mobile/lib/customEmojis.ts:164](../../apps/mobile/lib/customEmojis.ts#L164) | endpoint | emoji-custom.list |
@@ -510,19 +510,19 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/providers/rocketchat/index.ts:57](../../apps/mobile/providers/rocketchat/index.ts#L57) | call:GET | 'chat.search' |
 | [apps/mobile/providers/rocketchat/index.ts:57](../../apps/mobile/providers/rocketchat/index.ts#L57) | endpoint | chat.search |
 | [apps/mobile/ui/botsModel.ts:162](../../apps/mobile/ui/botsModel.ts#L162) | url | /api/v1/rooms |
-| [apps/mobile/ui/messages.ts:658](../../apps/mobile/ui/messages.ts#L658) | endpoint | e2e.title |
-| [apps/mobile/ui/messages.ts:659](../../apps/mobile/ui/messages.ts#L659) | endpoint | e2e.explanation |
-| [apps/mobile/ui/messages.ts:661](../../apps/mobile/ui/messages.ts#L661) | endpoint | e2e.field |
-| [apps/mobile/ui/messages.ts:662](../../apps/mobile/ui/messages.ts#L662) | endpoint | e2e.unlock |
-| [apps/mobile/ui/messages.ts:663](../../apps/mobile/ui/messages.ts#L663) | endpoint | e2e.wrongPassword |
-| [apps/mobile/ui/messages.ts:664](../../apps/mobile/ui/messages.ts#L664) | endpoint | e2e.genericError |
-| [apps/mobile/ui/messages.ts:1682](../../apps/mobile/ui/messages.ts#L1682) | endpoint | e2e.title |
-| [apps/mobile/ui/messages.ts:1683](../../apps/mobile/ui/messages.ts#L1683) | endpoint | e2e.explanation |
-| [apps/mobile/ui/messages.ts:1685](../../apps/mobile/ui/messages.ts#L1685) | endpoint | e2e.field |
-| [apps/mobile/ui/messages.ts:1686](../../apps/mobile/ui/messages.ts#L1686) | endpoint | e2e.unlock |
-| [apps/mobile/ui/messages.ts:1687](../../apps/mobile/ui/messages.ts#L1687) | endpoint | e2e.wrongPassword |
-| [apps/mobile/ui/messages.ts:1688](../../apps/mobile/ui/messages.ts#L1688) | endpoint | e2e.genericError |
+| [apps/mobile/ui/messages.ts:857](../../apps/mobile/ui/messages.ts#L857) | endpoint | e2e.title |
+| [apps/mobile/ui/messages.ts:858](../../apps/mobile/ui/messages.ts#L858) | endpoint | e2e.explanation |
+| [apps/mobile/ui/messages.ts:860](../../apps/mobile/ui/messages.ts#L860) | endpoint | e2e.field |
+| [apps/mobile/ui/messages.ts:861](../../apps/mobile/ui/messages.ts#L861) | endpoint | e2e.unlock |
+| [apps/mobile/ui/messages.ts:862](../../apps/mobile/ui/messages.ts#L862) | endpoint | e2e.wrongPassword |
+| [apps/mobile/ui/messages.ts:863](../../apps/mobile/ui/messages.ts#L863) | endpoint | e2e.genericError |
+| [apps/mobile/ui/messages.ts:2083](../../apps/mobile/ui/messages.ts#L2083) | endpoint | e2e.title |
+| [apps/mobile/ui/messages.ts:2084](../../apps/mobile/ui/messages.ts#L2084) | endpoint | e2e.explanation |
+| [apps/mobile/ui/messages.ts:2086](../../apps/mobile/ui/messages.ts#L2086) | endpoint | e2e.field |
+| [apps/mobile/ui/messages.ts:2087](../../apps/mobile/ui/messages.ts#L2087) | endpoint | e2e.unlock |
+| [apps/mobile/ui/messages.ts:2088](../../apps/mobile/ui/messages.ts#L2088) | endpoint | e2e.wrongPassword |
+| [apps/mobile/ui/messages.ts:2089](../../apps/mobile/ui/messages.ts#L2089) | endpoint | e2e.genericError |
 | [apps/mobile/ui/serverRail.tsx:38](../../apps/mobile/ui/serverRail.tsx#L38) | endpoint | subscriptions.get |
-| [apps/mobile/ui/settingsSections.tsx:224](../../apps/mobile/ui/settingsSections.tsx#L224) | call:GET | 'me' |
-| [apps/mobile/ui/settingsSections.tsx:253](../../apps/mobile/ui/settingsSections.tsx#L253) | call:POST | 'users.setPreferences' |
-| [apps/mobile/ui/settingsSections.tsx:253](../../apps/mobile/ui/settingsSections.tsx#L253) | endpoint | users.setPreferences |
+| [apps/mobile/ui/settingsSections.tsx:227](../../apps/mobile/ui/settingsSections.tsx#L227) | call:GET | 'me' |
+| [apps/mobile/ui/settingsSections.tsx:256](../../apps/mobile/ui/settingsSections.tsx#L256) | call:POST | 'users.setPreferences' |
+| [apps/mobile/ui/settingsSections.tsx:256](../../apps/mobile/ui/settingsSections.tsx#L256) | endpoint | users.setPreferences |

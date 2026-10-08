@@ -8,8 +8,10 @@
  * through untouched.
  *
  * The cache key is the whole URL: a new photo version moves the URL, so a new
- * file. A failure is remembered for the session, so a missing photo is not
- * fetched again on every render; the tile's fallback stays.
+ * file. Bytes land in a `.part` file renamed once complete, so a download cut
+ * short never passes for the image. A failure is remembered for thirty
+ * seconds, so a missing photo is not fetched on every render, and is then
+ * retried by the next row that shows it.
  */
 
 import * as FileSystem from 'expo-file-system/legacy';
@@ -18,9 +20,12 @@ import { useEffect, useReducer } from 'react';
 import { mediaHeaders } from '../lib/mediaAuth.ts';
 
 const ready = new Map<string, string>();
-const failed = new Set<string>();
+const failedAt = new Map<string, number>();
 const pending = new Map<string, Promise<void>>();
-const listeners = new Set<() => void>();
+const listeners = new Map<string, Set<() => void>>();
+
+/** A failure (offline, a hiccup) is retried by the next row that shows the image after this long. */
+const RETRY_AFTER_MS = 30_000;
 
 function key(uri: string): string {
   let a = 0x811c9dc5;
@@ -34,9 +39,11 @@ function key(uri: string): string {
 }
 
 function load(uri: string, headers: Record<string, string>): void {
-  if (ready.has(uri) || failed.has(uri) || pending.has(uri)) return;
+  if (ready.has(uri) || pending.has(uri)) return;
+  if (Date.now() - (failedAt.get(uri) ?? -Infinity) < RETRY_AFTER_MS) return;
   const folder = `${FileSystem.cacheDirectory ?? ''}authorized-media/`;
   const target = `${folder}${key(uri)}`;
+  const partial = `${target}.part`;
   const run = (async () => {
     try {
       if ((await FileSystem.getInfoAsync(target)).exists) {
@@ -44,17 +51,21 @@ function load(uri: string, headers: Record<string, string>): void {
         return;
       }
       await FileSystem.makeDirectoryAsync(folder, { intermediates: true }).catch(() => {});
-      const result = await FileSystem.downloadAsync(uri, target, { headers });
-      if (result.status >= 200 && result.status < 300) ready.set(uri, result.uri);
-      else {
-        failed.add(uri);
-        await FileSystem.deleteAsync(target, { idempotent: true }).catch(() => {});
+      const result = await FileSystem.downloadAsync(uri, partial, { headers });
+      if (result.status >= 200 && result.status < 300) {
+        await FileSystem.moveAsync({ from: partial, to: target });
+        ready.set(uri, target);
+        failedAt.delete(uri);
+      } else {
+        failedAt.set(uri, Date.now());
+        await FileSystem.deleteAsync(partial, { idempotent: true }).catch(() => {});
       }
     } catch {
-      failed.add(uri);
+      failedAt.set(uri, Date.now());
+      await FileSystem.deleteAsync(partial, { idempotent: true }).catch(() => {});
     } finally {
       pending.delete(uri);
-      for (const listener of listeners) listener();
+      for (const listener of listeners.get(uri) ?? []) listener();
     }
   })();
   pending.set(uri, run);
@@ -66,9 +77,14 @@ export function useAuthorizedUri(uri: string | null | undefined): string | null 
   const authorization = typeof uri === 'string' && uri !== '' ? mediaHeaders(uri)?.Authorization : undefined;
   useEffect(() => {
     if (authorization === undefined || typeof uri !== 'string') return;
-    listeners.add(refresh);
+    const own = listeners.get(uri) ?? new Set<() => void>();
+    listeners.set(uri, own);
+    own.add(refresh);
     load(uri, { Authorization: authorization });
-    return () => void listeners.delete(refresh);
+    return () => {
+      own.delete(refresh);
+      if (own.size === 0) listeners.delete(uri);
+    };
   }, [uri, authorization]);
   if (authorization === undefined || typeof uri !== 'string') return uri;
   return ready.get(uri) ?? null;

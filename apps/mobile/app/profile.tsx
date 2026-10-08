@@ -371,7 +371,7 @@ export default function ProfileScreen() {
       {error !== null && (
         <Text style={[styles.error, { color: c.errorText }]}>{error}</Text>
       )}
-      {client?.kind==='rocketvibe' && profile && <EncryptedTrustSection c={c} user={profile.uid}/>}
+      {client?.kind==='rocketvibe' && profile && !profile.bot && <EncryptedTrustSection c={c} user={profile.uid}/>}
       {client?.kind==='rocketvibe' && typeof cryptoRoom==='string' && sync.phase==='ready' && chat?.capabilities?.e2ee &&
         <RoomMembershipBound base={sync.base} rid={cryptoRoom}>{membership=>membership?<EncryptedGroupSection c={c} room={cryptoRoom} membership={membership}/>:null}</RoomMembershipBound>}
 

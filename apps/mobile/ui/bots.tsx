@@ -499,24 +499,6 @@ function Detail({ c, bot, busy, reference, keys, created, baseUrl, onSave, onCre
       </View>
       {bot.disabled && <Text style={[styles.text, { color: c.errorText }]}>{t('bots.disabledBody')}</Text>}
 
-      {created !== null && (
-        <View style={[styles.secret, { borderColor: c.yellow, backgroundColor: c.card }]}>
-          <Text accessibilityRole="alert" style={[styles.strong, { color: c.yellow }]}>
-            {t('bots.keyOnce')}
-          </Text>
-          <Text selectable style={[styles.code, { color: c.text }]}>
-            {created.key}
-          </Text>
-          <Action c={c} label={t('bots.copyKey')} onPress={() => onCopy(created.key)} />
-          <Text style={[styles.text, { color: c.secondaryText }]}>{t('bots.example')}</Text>
-          <Text selectable style={[styles.code, { color: c.text }]}>
-            {example}
-          </Text>
-          <Action c={c} label={t('bots.copyExample')} onPress={() => onCopy(example)} />
-          <Action c={c} label={t('bots.keyDone')} onPress={onDismissKey} />
-        </View>
-      )}
-
       <PillField c={c} label={t('bots.description')} value={description} editable={!busy} multiline maxLength={512} onChangeText={setDescription} />
       <ScopeList c={c} scopes={scopes} reference={reference} disabled={busy} onToggle={(scope) => setScopes(toggleScope(scopes, scope))} />
       <Action c={c} label={t('common.save')} disabled={busy || !changed} onPress={() => onSave(description, scopes)} />
@@ -539,6 +521,24 @@ function Detail({ c, bot, busy, reference, keys, created, baseUrl, onSave, onCre
           <Action c={c} label={t('bots.revoke')} danger disabled={busy} onPress={() => onRevokeKey(key)} />
         </View>
       ))}
+      {/* Shown where the key was asked for, beside the form the user just used. */}
+      {created !== null && (
+        <View style={[styles.secret, { borderColor: c.yellow, backgroundColor: c.card }]}>
+          <Text accessibilityRole="alert" style={[styles.strong, { color: c.yellow }]}>
+            {t('bots.keyOnce')}
+          </Text>
+          <Text selectable style={[styles.code, { color: c.text }]}>
+            {created.key}
+          </Text>
+          <Action c={c} label={t('bots.copyKey')} onPress={() => onCopy(created.key)} />
+          <Text style={[styles.text, { color: c.secondaryText }]}>{t('bots.example')}</Text>
+          <Text selectable style={[styles.code, { color: c.text }]}>
+            {example}
+          </Text>
+          <Action c={c} label={t('bots.copyExample')} onPress={() => onCopy(example)} />
+          <Action c={c} label={t('bots.keyDone')} onPress={onDismissKey} />
+        </View>
+      )}
       {/* Remounted by each new key: the form empties only once a key exists, so
           a refusal (a sign-in to confirm first) keeps what was typed. */}
       {!bot.disabled && <KeyForm key={created?.info.id ?? 'new'} c={c} busy={busy} onCreateKey={onCreateKey} />}

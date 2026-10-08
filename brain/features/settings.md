@@ -16,7 +16,7 @@ The settings gather my profile, the notification preference, the language, the e
 
 ## Layout: the same categories everywhere
 
-The three apps group the settings in one list of categories, in this order, each shown only when it has something for the open account and server: **My account** (profile card, edit profile, presence and status text), **Notifications**, **Language**, **Voice** (desktop only, RocketVibe accounts with voice: microphone, speakers, noise remover; mobile has no voice settings), **Encryption**, **Security** and **Devices** (RocketVibe accounts only), **Accounts**, **App**. Under them: **Server administration**, for an administrator of the open server only ([administration.md](administration.md)), and **Sign out**. Desktop shows them as a large modal with the categories on the left (why: [decisions](../decisions.md#desktop)); mobile as a list of full pages.
+The three apps group the settings in one list of categories, in this order, each shown only when it has something for the open account and server: **My account** (profile card, edit profile, presence and status text), **Notifications**, **Language**, **Voice** (desktop only, RocketVibe accounts with voice: microphone, speakers, noise remover; mobile has no voice settings), **Encryption**, **Security**, **Devices** and **Bots** (RocketVibe accounts only; Bots when the server announces `bots`, [bots.md](bots.md)), **Accounts**, **App**. Under them: **Server administration**, for an administrator of the open server only ([administration.md](administration.md)), and **Sign out**. Desktop shows them as a large modal with the categories on the left (why: [decisions](../decisions.md#desktop)); mobile as a list of full pages.
 
 ## Mobile
 

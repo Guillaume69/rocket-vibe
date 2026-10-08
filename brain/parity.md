@@ -258,6 +258,18 @@ beta does.
 | Users list with actions: admin right, activation, deletion (confirmed); none on my own account | done | done | done | Bot badge on Rocket.Chat. RocketVibe deletion keeps the messages under "Deleted user"; Rocket.Chat follows its erasure setting and also deletes the person's direct conversations; a last owner of rooms gets a second confirmation naming the rooms deleted and those whose owner changes. SwiftUI checked by the Linux build of RocketVibeKit and the macOS CI build only. |
 | Deleted RocketVibe account shown as "Deleted user" (author, reactions, quotes, notifications) | partial | partial | partial | All three: messages ingested before the deletion keep the old name until the server sends them again, names the server computes (DM names) keep it, and private (E2EE) conversations do not apply it (desktop shows the author's raw id, mobile the username its `users` table knows). Mobile covers authors and quote authors; GTK and SwiftUI get authors, reactions, quotes and notifications from rv-core's native projection, plus the admin lists; SwiftUI's profile of a deleted account reads "Deleted user". |
 
+## 16. Bots (RocketVibe server) - [bots](features/bots.md)
+
+| Feature | Mobile | GTK | SwiftUI | Notes |
+|---|---|---|---|---|
+| "BOT" badge on bot authors, members and profiles, with the owner on the profile | done | done | done | Not on search results, pins or encrypted rows on mobile; messages cached before the update until the server resends them. SwiftUI views compiled by the macOS CI only. |
+| "My bots": list, create with scopes, edit description and scopes, delete | done | done | done | Scope sentences and their API routes read from `GET /api/v1/bots/reference`. Renaming the bot and its avatar are the bot's own `/me`, not in the apps. SwiftUI views compiled by the macOS CI only. |
+| Bot keys: create after a recent sign-in, shown once with copy and a curl example, list, revoke | done | done | done | Never stored. SwiftUI views compiled by the macOS CI only. |
+| Administrators' switch "Users can create bots" | done | done | done | Dashboard card, RocketVibe only. |
+| Bot badge in the administrators' user list | done | done | done | Rocket.Chat already had it (`type` bot or app). |
+| Encrypted-room refusals worded (`bot_encrypted_room`, `crypto_bot_member`) | done | done | done | Wherever the app can trigger them: mobile and SwiftUI have no member-invitation screen, so there only the encryption refusal can show; mobile also hides the encryption actions when a bot is a member. |
+| Rocket.Chat bots and integrations | n/a | n/a | n/a | Managed in Rocket.Chat itself. |
+
 ## Open debt
 
 What each app owes, from the tables above. Rows missing in all three are product

@@ -14,6 +14,12 @@ shared docs or to the app you are working on. Back to [../BRAIN.md](../BRAIN.md)
 | [i18n.md](i18n.md) | French and English: mobile `ui/messages.ts` and `ui/i18n.ts` plus the native push strings, desktop `rv-core` `i18n.rs` shared by GTK and SwiftUI. |
 | [web-client.md](web-client.md) | Embedded browser distribution, GTK design synchronization, one origin/account, indexed storage and browser media. |
 
+## Planned provider contracts
+
+| Doc | What is here |
+|---|---|
+| [slack-session.md](slack-session.md) | Slack Session mode research: measured token/cookie RTM behaviour, protocol handoff, provider parity limits and pending qualification. No implemented Slack driver. |
+
 ## Mobile (`apps/mobile`)
 
 | Doc | What's here |

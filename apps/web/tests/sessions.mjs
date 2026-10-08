@@ -58,16 +58,30 @@ try {
   await due(page);
   let lostIntent;
   let committed = false;
+  let renewalAccepted;
+  const accepted = new Promise((resolve, reject) => {
+    const timeout = setTimeout(
+      () => reject(new Error("Renewal did not reach the server")),
+      30000,
+    );
+    timeout.unref();
+    renewalAccepted = () => {
+      clearTimeout(timeout);
+      resolve();
+    };
+  });
   await page.route("**/api/v1/auth/renew", async (route) => {
     if (!committed) {
       lostIntent = route.request().postDataJSON();
       const response = await route.fetch();
       assert.ok(response.ok());
       committed = true;
+      renewalAccepted();
     }
     await route.abort("connectionreset");
   });
   await page.reload();
+  await accepted;
   await page.waitForFunction(() =>
     document.querySelector(".status-dot")?.classList.contains("offline"),
   );

@@ -1,0 +1,2008 @@
+{
+  "format_version": 1,
+  "investigation_date": "2026-10-08",
+  "repository_base": "55115b26495f6ff097ec5f6239528f519ba6a37b",
+  "reference": {
+    "repository": "https://github.com/punarinta/make-slack-great-again",
+    "commit": "a71c460c2df0db097b9748c80a7a1b75200dfba9"
+  },
+  "scope": {
+    "selected_workspace_count": 1,
+    "acquisition": "Existing user-authorized Firefox session, narrow d-cookie lookup and selected Slack workspace boot data",
+    "mutations_submitted": false,
+    "platform_driver_implemented": false,
+    "privacy": "Only envelopes, field names, counts, timings and validation booleans retained. No credentials, URLs carrying credentials, workspace/user/channel identifiers, message/profile values, command names or emoji names."
+  },
+  "unauthenticated_baseline": [
+    {
+      "method": "auth.test",
+      "utc": "2026-10-08T20:48:05.1148863Z",
+      "status": 200,
+      "ok": false,
+      "error": "not_authed",
+      "content_type": "application/json; charset=utf-8",
+      "retry_after": null,
+      "elapsed_ms": 489
+    },
+    {
+      "method": "rtm.connect",
+      "utc": "2026-10-08T20:48:05.3888476Z",
+      "status": 200,
+      "ok": false,
+      "error": "not_authed",
+      "content_type": "application/json; charset=utf-8",
+      "retry_after": null,
+      "elapsed_ms": 264
+    }
+  ],
+  "first_authenticated_socket": {
+    "started_approximately_utc": "2026-10-08T20:57:05Z",
+    "cookie_on_upgrade": true,
+    "identity_matches": true,
+    "hello": true,
+    "pongs": 4,
+    "event_counts": {
+      "hello": 1,
+      "pong": 4
+    },
+    "elapsed_ms": 45059,
+    "limits": [
+      "No application events during this first passive interval."
+    ]
+  },
+  "authenticated_reads_and_no_cookie_socket": [
+    {
+      "probe": "firefox_cookie_discovery",
+      "candidate_count": 1
+    },
+    {
+      "probe": "workspace_host_discovery",
+      "candidate_count": 1
+    },
+    {
+      "probe": "boot",
+      "host_kind": "app",
+      "status": 200,
+      "candidate_tokens": 0,
+      "body_bytes": 40262,
+      "error": null
+    },
+    {
+      "probe": "boot",
+      "host_kind": "workspace",
+      "status": 403,
+      "candidate_tokens": 1,
+      "body_bytes": 649683,
+      "error": null
+    },
+    {
+      "method": "auth.test",
+      "utc": "2026-10-08T20:58:37.092Z",
+      "status": 200,
+      "ok": true,
+      "error": null,
+      "retry_after": null,
+      "elapsed_ms": 207,
+      "keys": [
+        "is_enterprise_install",
+        "ok",
+        "response_metadata",
+        "team",
+        "team_id",
+        "url",
+        "user",
+        "user_id",
+        "warning"
+      ],
+      "target_workspace_matched": true,
+      "has_team_id": true,
+      "has_user_id": true
+    },
+    {
+      "probe": "auth_without_cookie",
+      "status": 200,
+      "ok": false,
+      "error": "invalid_auth"
+    },
+    {
+      "method": "team.info",
+      "utc": "2026-10-08T20:58:37.385Z",
+      "status": 200,
+      "ok": true,
+      "error": null,
+      "retry_after": null,
+      "elapsed_ms": 145,
+      "keys": [
+        "ok",
+        "response_metadata",
+        "team",
+        "warning"
+      ],
+      "item_count": null,
+      "has_next_cursor": false,
+      "field_keys": [
+        "avatar_base_url",
+        "domain",
+        "email_domain",
+        "icon",
+        "id",
+        "is_sfdc_auto_slack",
+        "is_verified",
+        "lob_sales_home_enabled",
+        "name",
+        "url"
+      ]
+    },
+    {
+      "method": "conversations.list",
+      "utc": "2026-10-08T20:58:37.549Z",
+      "status": 200,
+      "ok": true,
+      "error": null,
+      "retry_after": null,
+      "elapsed_ms": 164,
+      "keys": [
+        "channels",
+        "ok",
+        "response_metadata",
+        "warning"
+      ],
+      "item_count": 20,
+      "has_next_cursor": true,
+      "field_keys": null
+    },
+    {
+      "method": "client.userBoot",
+      "utc": "2026-10-08T20:58:37.751Z",
+      "status": 200,
+      "ok": true,
+      "error": null,
+      "retry_after": null,
+      "elapsed_ms": 202,
+      "keys": [
+        "accept_tos_url",
+        "account_types",
+        "app_commands_cache_ts",
+        "cache_ts_version",
+        "cache_version",
+        "can_access_client_v2",
+        "channels",
+        "channels_priority",
+        "default_workspace",
+        "dnd",
+        "emoji_cache_ts",
+        "has_more_mpdms",
+        "ims",
+        "is_content_reporting_enabled",
+        "is_eligible_invited_user_glow_up",
+        "is_europe",
+        "is_open",
+        "is_slack_first_crm",
+        "links",
+        "mobile_app_requires_upgrade",
+        "non_threadable_channels",
+        "ok",
+        "prefs",
+        "prefs_version",
+        "read_only_channels",
+        "response_metadata",
+        "self",
+        "slack_route",
+        "starred",
+        "subteams",
+        "team",
+        "thread_only_channels",
+        "translations_cache_ts",
+        "warning",
+        "workspaces"
+      ],
+      "item_count": 18,
+      "has_next_cursor": false,
+      "field_keys": null
+    },
+    {
+      "method": "client.counts",
+      "utc": "2026-10-08T20:58:37.904Z",
+      "status": 200,
+      "ok": true,
+      "error": null,
+      "retry_after": null,
+      "elapsed_ms": 153,
+      "keys": [
+        "activity_v2",
+        "alerts",
+        "channel_badges",
+        "channels",
+        "counts_last_fetched",
+        "ims",
+        "mpims",
+        "ok",
+        "response_metadata",
+        "saved",
+        "threads",
+        "warning"
+      ],
+      "item_count": null,
+      "has_next_cursor": false,
+      "field_keys": null
+    },
+    {
+      "probe": "counts_shape",
+      "channel_item_keys": [
+        "has_unreads",
+        "history_invalid",
+        "id",
+        "last_read",
+        "latest",
+        "mention_count",
+        "updated"
+      ],
+      "thread_keys": [
+        "has_unreads",
+        "mention_count"
+      ],
+      "im_item_keys": [
+        "has_unreads",
+        "history_invalid",
+        "id",
+        "last_read",
+        "latest",
+        "mention_count",
+        "updated"
+      ]
+    },
+    {
+      "method": "emoji.list",
+      "utc": "2026-10-08T20:58:38.046Z",
+      "status": 200,
+      "ok": true,
+      "error": null,
+      "retry_after": null,
+      "elapsed_ms": 142,
+      "keys": [
+        "cache_ts",
+        "emoji",
+        "ok",
+        "response_metadata",
+        "warning"
+      ],
+      "item_count": 301,
+      "has_next_cursor": false,
+      "field_keys": null
+    },
+    {
+      "method": "users.profile.get",
+      "utc": "2026-10-08T20:58:38.288Z",
+      "status": 200,
+      "ok": true,
+      "error": null,
+      "retry_after": null,
+      "elapsed_ms": 242,
+      "keys": [
+        "ok",
+        "profile",
+        "response_metadata",
+        "warning"
+      ],
+      "item_count": null,
+      "has_next_cursor": false,
+      "field_keys": [
+        "avatar_hash",
+        "display_name",
+        "display_name_normalized",
+        "email",
+        "fields",
+        "first_name",
+        "huddle_state",
+        "huddle_state_expiration_ts",
+        "image_1024",
+        "image_192",
+        "image_24",
+        "image_32",
+        "image_48",
+        "image_512",
+        "image_72",
+        "image_original",
+        "is_custom_image",
+        "last_name",
+        "phone",
+        "real_name",
+        "real_name_normalized",
+        "skype",
+        "status_clear_on_focus_end",
+        "status_emoji",
+        "status_emoji_display_info",
+        "status_expiration",
+        "status_text",
+        "status_text_canonical",
+        "title"
+      ]
+    },
+    {
+      "method": "users.list",
+      "utc": "2026-10-08T20:58:38.452Z",
+      "status": 200,
+      "ok": true,
+      "error": null,
+      "retry_after": null,
+      "elapsed_ms": 164,
+      "keys": [
+        "cache_ts",
+        "members",
+        "offset",
+        "ok",
+        "response_metadata",
+        "warning"
+      ],
+      "item_count": 20,
+      "has_next_cursor": true,
+      "field_keys": null
+    },
+    {
+      "method": "users.prefs.get",
+      "utc": "2026-10-08T20:58:38.678Z",
+      "status": 200,
+      "ok": true,
+      "error": null,
+      "retry_after": null,
+      "elapsed_ms": 226,
+      "keys": [
+        "ok",
+        "prefs",
+        "response_metadata",
+        "warning"
+      ],
+      "item_count": null,
+      "has_next_cursor": false
+    },
+    {
+      "method": "usergroups.list",
+      "utc": "2026-10-08T20:58:38.861Z",
+      "status": 200,
+      "ok": true,
+      "error": null,
+      "retry_after": null,
+      "elapsed_ms": 182,
+      "keys": [
+        "ok",
+        "response_metadata",
+        "usergroups",
+        "warning"
+      ],
+      "item_count": 0,
+      "has_next_cursor": false,
+      "field_keys": null
+    },
+    {
+      "method": "stars.list",
+      "utc": "2026-10-08T20:58:39.014Z",
+      "status": 200,
+      "ok": true,
+      "error": null,
+      "retry_after": null,
+      "elapsed_ms": 152,
+      "keys": [
+        "items",
+        "ok",
+        "response_metadata",
+        "warning"
+      ],
+      "item_count": 0,
+      "has_next_cursor": false,
+      "field_keys": null
+    },
+    {
+      "method": "saved.list",
+      "utc": "2026-10-08T20:58:39.264Z",
+      "status": 200,
+      "ok": true,
+      "error": null,
+      "retry_after": null,
+      "elapsed_ms": 250,
+      "keys": [
+        "counts",
+        "ok",
+        "response_metadata",
+        "saved_items",
+        "warning"
+      ],
+      "item_count": 6,
+      "has_next_cursor": false,
+      "field_keys": null
+    },
+    {
+      "method": "subscriptions.thread.getView",
+      "utc": "2026-10-08T20:58:39.473Z",
+      "status": 200,
+      "ok": true,
+      "error": null,
+      "retry_after": null,
+      "elapsed_ms": 209,
+      "keys": [
+        "has_more",
+        "max_ts",
+        "new_threads_count",
+        "ok",
+        "response_metadata",
+        "threads",
+        "total_unread_replies",
+        "warning"
+      ],
+      "item_count": 3,
+      "has_next_cursor": false,
+      "field_keys": null
+    },
+    {
+      "probe": "thread_entry_shape",
+      "keys": [
+        "latest_replies",
+        "root_msg"
+      ],
+      "has_root_ts": true,
+      "has_channel": true
+    },
+    {
+      "method": "commands.list",
+      "utc": "2026-10-08T20:58:39.717Z",
+      "status": 200,
+      "ok": true,
+      "error": null,
+      "retry_after": null,
+      "elapsed_ms": 244,
+      "keys": [
+        "cache_ts",
+        "commands",
+        "ok",
+        "response_metadata",
+        "warning"
+      ],
+      "item_count": null,
+      "has_next_cursor": false
+    },
+    {
+      "method": "conversations.info",
+      "utc": "2026-10-08T20:58:39.871Z",
+      "status": 200,
+      "ok": true,
+      "error": null,
+      "retry_after": null,
+      "elapsed_ms": 153,
+      "keys": [
+        "channel",
+        "ok",
+        "response_metadata",
+        "warning"
+      ],
+      "item_count": null,
+      "has_more": false,
+      "has_next_cursor": false,
+      "first_item_keys": null
+    },
+    {
+      "method": "conversations.members",
+      "utc": "2026-10-08T20:58:40.018Z",
+      "status": 200,
+      "ok": true,
+      "error": null,
+      "retry_after": null,
+      "elapsed_ms": 147,
+      "keys": [
+        "members",
+        "ok",
+        "response_metadata",
+        "warning"
+      ],
+      "item_count": 6,
+      "has_more": false,
+      "has_next_cursor": false,
+      "first_item_keys": null
+    },
+    {
+      "method": "conversations.history",
+      "utc": "2026-10-08T20:58:40.198Z",
+      "status": 200,
+      "ok": true,
+      "error": null,
+      "retry_after": null,
+      "elapsed_ms": 180,
+      "keys": [
+        "channel_actions_count",
+        "channel_actions_ts",
+        "has_more",
+        "is_limited",
+        "messages",
+        "ok",
+        "pin_count",
+        "response_metadata",
+        "warning"
+      ],
+      "item_count": 0,
+      "has_more": false,
+      "has_next_cursor": false,
+      "first_item_keys": null
+    },
+    {
+      "method": "pins.list",
+      "utc": "2026-10-08T20:58:40.444Z",
+      "status": 200,
+      "ok": true,
+      "error": null,
+      "retry_after": null,
+      "elapsed_ms": 246,
+      "keys": [
+        "items",
+        "ok",
+        "response_metadata",
+        "warning"
+      ],
+      "item_count": 3,
+      "has_more": false,
+      "has_next_cursor": false,
+      "first_item_keys": [
+        "channel",
+        "created",
+        "created_by",
+        "message",
+        "type"
+      ]
+    },
+    {
+      "method": "search.messages",
+      "utc": "2026-10-08T20:58:40.667Z",
+      "status": 200,
+      "ok": true,
+      "error": null,
+      "retry_after": null,
+      "elapsed_ms": 223,
+      "keys": [
+        "messages",
+        "ok",
+        "query",
+        "response_metadata",
+        "warning"
+      ],
+      "item_count": null,
+      "has_more": false,
+      "has_next_cursor": false,
+      "first_item_keys": null
+    },
+    {
+      "method": "conversations.replies",
+      "utc": "2026-10-08T20:58:40.834Z",
+      "status": 200,
+      "ok": true,
+      "error": null,
+      "retry_after": null,
+      "elapsed_ms": 167,
+      "keys": [
+        "has_more",
+        "messages",
+        "ok",
+        "response_metadata",
+        "warning"
+      ],
+      "item_count": 3,
+      "has_more": false,
+      "first_item_keys": [
+        "blocks",
+        "client_msg_id",
+        "is_locked",
+        "last_read",
+        "latest_reply",
+        "reply_count",
+        "reply_users",
+        "reply_users_count",
+        "subscribed",
+        "team",
+        "text",
+        "thread_ts",
+        "ts",
+        "type",
+        "user"
+      ]
+    },
+    {
+      "method": "rtm.connect",
+      "utc": "2026-10-08T20:58:40.992Z",
+      "status": 200,
+      "ok": true,
+      "error": null,
+      "retry_after": null,
+      "elapsed_ms": 158,
+      "keys": [
+        "ok",
+        "response_metadata",
+        "self",
+        "team",
+        "url",
+        "warning"
+      ],
+      "identity_matches": true,
+      "has_socket_url": true
+    },
+    {
+      "probe": "rtm_socket",
+      "cookie_on_upgrade": false,
+      "hello": false,
+      "pongs": 0,
+      "event_counts": {
+        "error": 1
+      },
+      "event_shapes": {
+        "error": [
+          "error",
+          "type"
+        ]
+      },
+      "error_codes": [
+        401
+      ],
+      "elapsed_ms": 5206
+    }
+  ],
+  "longer_authenticated_capture": [
+    {
+      "probe": "firefox_cookie_discovery",
+      "candidate_count": 1
+    },
+    {
+      "probe": "workspace_host_discovery",
+      "candidate_count": 1
+    },
+    {
+      "probe": "boot",
+      "host_kind": "app",
+      "status": 200,
+      "candidate_tokens": 0,
+      "body_bytes": 40262,
+      "error": null
+    },
+    {
+      "probe": "boot",
+      "host_kind": "workspace",
+      "status": 403,
+      "candidate_tokens": 1,
+      "body_bytes": 649475,
+      "error": null
+    },
+    {
+      "method": "auth.test",
+      "utc": "2026-10-08T21:01:15.104Z",
+      "status": 200,
+      "ok": true,
+      "error": null,
+      "retry_after": null,
+      "elapsed_ms": 288,
+      "keys": [
+        "is_enterprise_install",
+        "ok",
+        "response_metadata",
+        "team",
+        "team_id",
+        "url",
+        "user",
+        "user_id",
+        "warning"
+      ],
+      "target_workspace_matched": true,
+      "has_team_id": true,
+      "has_user_id": true
+    },
+    {
+      "method": "client.counts",
+      "utc": "2026-10-08T21:01:15.367Z",
+      "status": 200,
+      "ok": true,
+      "error": null,
+      "retry_after": null,
+      "elapsed_ms": 262,
+      "keys": [
+        "activity_v2",
+        "alerts",
+        "channel_badges",
+        "channels",
+        "counts_last_fetched",
+        "ims",
+        "mpims",
+        "ok",
+        "response_metadata",
+        "saved",
+        "threads",
+        "warning"
+      ],
+      "phase": "before_socket"
+    },
+    {
+      "method": "rtm.connect",
+      "utc": "2026-10-08T21:01:15.631Z",
+      "status": 200,
+      "ok": true,
+      "error": null,
+      "retry_after": null,
+      "elapsed_ms": 264,
+      "keys": [
+        "ok",
+        "response_metadata",
+        "self",
+        "team",
+        "url",
+        "warning"
+      ],
+      "identity_matches": true
+    },
+    {
+      "probe": "live_frame",
+      "utc": "2026-10-08T21:01:15.921Z",
+      "type": "hello",
+      "subtype": null,
+      "keys": [
+        "fast_reconnect",
+        "host_id",
+        "region",
+        "start",
+        "type"
+      ]
+    },
+    {
+      "probe": "live_frame",
+      "utc": "2026-10-08T21:03:15.904Z",
+      "type": "user_typing",
+      "subtype": null,
+      "keys": [
+        "channel",
+        "id",
+        "type",
+        "user"
+      ]
+    },
+    {
+      "probe": "live_frame",
+      "utc": "2026-10-08T21:03:16.786Z",
+      "type": "message",
+      "subtype": null,
+      "keys": [
+        "blocks",
+        "channel",
+        "client_msg_id",
+        "event_ts",
+        "source_team",
+        "suppress_notification",
+        "team",
+        "text",
+        "ts",
+        "type",
+        "user",
+        "user_team"
+      ]
+    },
+    {
+      "probe": "live_frame",
+      "utc": "2026-10-08T21:03:16.918Z",
+      "type": "badge_counts_updated",
+      "subtype": null,
+      "keys": [
+        "activity_v2",
+        "event_ts",
+        "type"
+      ]
+    },
+    {
+      "probe": "live_frame",
+      "utc": "2026-10-08T21:03:16.924Z",
+      "type": "activity",
+      "subtype": "activity_updated",
+      "keys": [
+        "entry",
+        "event_ts",
+        "key",
+        "subtype",
+        "type"
+      ]
+    },
+    {
+      "probe": "live_frame",
+      "utc": "2026-10-08T21:03:20.904Z",
+      "type": "user_typing",
+      "subtype": null,
+      "keys": [
+        "channel",
+        "id",
+        "type",
+        "user"
+      ]
+    },
+    {
+      "probe": "live_frame",
+      "utc": "2026-10-08T21:03:21.779Z",
+      "type": "message",
+      "subtype": null,
+      "keys": [
+        "blocks",
+        "channel",
+        "client_msg_id",
+        "event_ts",
+        "source_team",
+        "suppress_notification",
+        "team",
+        "text",
+        "ts",
+        "type",
+        "user",
+        "user_team"
+      ]
+    },
+    {
+      "probe": "rtm_socket",
+      "cookie_on_upgrade": true,
+      "hello": true,
+      "pongs": 14,
+      "event_counts": {
+        "hello": 1,
+        "pong": 14,
+        "user_typing": 2,
+        "message": 2,
+        "badge_counts_updated": 1,
+        "activity": 1
+      },
+      "event_shapes": {
+        "hello": [
+          "fast_reconnect",
+          "host_id",
+          "region",
+          "start",
+          "type"
+        ],
+        "pong": [
+          "reply_to",
+          "type"
+        ],
+        "user_typing": [
+          "channel",
+          "id",
+          "type",
+          "user"
+        ],
+        "message": [
+          "blocks",
+          "channel",
+          "client_msg_id",
+          "event_ts",
+          "source_team",
+          "suppress_notification",
+          "team",
+          "text",
+          "ts",
+          "type",
+          "user",
+          "user_team"
+        ],
+        "badge_counts_updated": [
+          "activity_v2",
+          "event_ts",
+          "type"
+        ],
+        "activity": [
+          "entry",
+          "event_ts",
+          "key",
+          "subtype",
+          "type"
+        ]
+      },
+      "error_codes": [],
+      "elapsed_ms": 150055
+    },
+    {
+      "method": "client.counts",
+      "utc": "2026-10-08T21:03:45.905Z",
+      "status": 200,
+      "ok": true,
+      "error": null,
+      "retry_after": null,
+      "elapsed_ms": 217,
+      "keys": [
+        "activity_v2",
+        "alerts",
+        "channel_badges",
+        "channels",
+        "counts_last_fetched",
+        "ims",
+        "mpims",
+        "ok",
+        "response_metadata",
+        "saved",
+        "threads",
+        "warning"
+      ],
+      "phase": "after_socket"
+    },
+    {
+      "probe": "room_activity_during_socket",
+      "changed_conversation_counts": {
+        "channels": 1,
+        "ims": 1,
+        "mpims": 0
+      },
+      "both_counts_succeeded": true
+    }
+  ],
+  "additional_read_controls": [
+    {
+      "probe": "firefox_cookie_discovery",
+      "candidate_count": 1
+    },
+    {
+      "probe": "workspace_host_discovery",
+      "candidate_count": 1
+    },
+    {
+      "probe": "boot",
+      "host_kind": "app",
+      "status": 200,
+      "candidate_tokens": 0,
+      "body_bytes": 40262,
+      "error": null
+    },
+    {
+      "probe": "boot",
+      "host_kind": "workspace",
+      "status": 403,
+      "candidate_tokens": 1,
+      "body_bytes": 649467,
+      "error": null
+    },
+    {
+      "method": "auth.test",
+      "utc": "2026-10-08T21:04:27.889Z",
+      "status": 200,
+      "ok": true,
+      "error": null,
+      "retry_after": null,
+      "elapsed_ms": 192,
+      "keys": [
+        "is_enterprise_install",
+        "ok",
+        "response_metadata",
+        "team",
+        "team_id",
+        "url",
+        "user",
+        "user_id",
+        "warning"
+      ],
+      "target_workspace_matched": true,
+      "has_team_id": true,
+      "has_user_id": true
+    },
+    {
+      "probe": "auth_cookie_only",
+      "status": 200,
+      "ok": false,
+      "error": "not_authed"
+    },
+    {
+      "method": "im.list",
+      "utc": "2026-10-08T21:04:28.178Z",
+      "status": 200,
+      "ok": true,
+      "error": null,
+      "retry_after": null,
+      "elapsed_ms": 161,
+      "keys": [
+        "ims",
+        "ok",
+        "response_metadata",
+        "warning"
+      ],
+      "item_count": 3,
+      "has_next_cursor": true,
+      "first_item_keys": [
+        "context_team_id",
+        "created",
+        "id",
+        "is_archived",
+        "is_frozen",
+        "is_im",
+        "is_open",
+        "is_org_shared",
+        "is_slackbot_channel_enabled",
+        "last_read",
+        "latest",
+        "priority",
+        "properties",
+        "updated",
+        "user"
+      ]
+    },
+    {
+      "method": "subscriptions.thread.getView",
+      "utc": "2026-10-08T21:04:28.435Z",
+      "status": 200,
+      "ok": true,
+      "error": null,
+      "retry_after": null,
+      "elapsed_ms": 257,
+      "keys": [
+        "has_more",
+        "max_ts",
+        "new_threads_count",
+        "ok",
+        "response_metadata",
+        "threads",
+        "total_unread_replies",
+        "warning"
+      ],
+      "item_count": 3,
+      "has_more": false,
+      "has_max_ts": true
+    },
+    {
+      "method": "conversations.history",
+      "utc": "2026-10-08T21:04:28.592Z",
+      "status": 200,
+      "ok": true,
+      "error": null,
+      "retry_after": null,
+      "elapsed_ms": 157,
+      "keys": [
+        "channel_actions_count",
+        "channel_actions_ts",
+        "has_more",
+        "is_limited",
+        "messages",
+        "ok",
+        "pin_count",
+        "response_metadata",
+        "warning"
+      ],
+      "item_count": 0,
+      "has_more": false,
+      "has_next_cursor": false,
+      "all_ts_strings": false,
+      "first_item_keys": []
+    },
+    {
+      "method": "conversations.replies",
+      "utc": "2026-10-08T21:04:28.775Z",
+      "status": 200,
+      "ok": true,
+      "error": null,
+      "retry_after": null,
+      "elapsed_ms": 183,
+      "keys": [
+        "has_more",
+        "messages",
+        "ok",
+        "response_metadata",
+        "warning"
+      ],
+      "item_count": 3,
+      "all_ts_strings": true,
+      "root_identity_matches": true
+    },
+    {
+      "method": "search.messages",
+      "utc": "2026-10-08T21:04:29.051Z",
+      "status": 200,
+      "ok": true,
+      "error": null,
+      "retry_after": null,
+      "elapsed_ms": 276,
+      "keys": [
+        "messages",
+        "ok",
+        "query",
+        "response_metadata",
+        "warning"
+      ],
+      "match_count": 0,
+      "messages_keys": [
+        "matches",
+        "pagination",
+        "paging",
+        "total"
+      ],
+      "first_match_keys": []
+    }
+  ],
+  "fresh_channel_and_dm_history": [
+    {
+      "probe": "firefox_cookie_discovery",
+      "candidate_count": 1
+    },
+    {
+      "probe": "workspace_host_discovery",
+      "candidate_count": 1
+    },
+    {
+      "probe": "boot",
+      "host_kind": "app",
+      "status": 200,
+      "candidate_tokens": 0,
+      "body_bytes": 40262,
+      "error": null
+    },
+    {
+      "probe": "boot",
+      "host_kind": "workspace",
+      "status": 403,
+      "candidate_tokens": 1,
+      "body_bytes": 649481,
+      "error": null
+    },
+    {
+      "method": "auth.test",
+      "utc": "2026-10-08T21:09:35.169Z",
+      "status": 200,
+      "ok": true,
+      "error": null,
+      "retry_after": null,
+      "elapsed_ms": 795,
+      "keys": [
+        "is_enterprise_install",
+        "ok",
+        "response_metadata",
+        "team",
+        "team_id",
+        "url",
+        "user",
+        "user_id",
+        "warning"
+      ],
+      "target_workspace_matched": true,
+      "has_team_id": true,
+      "has_user_id": true
+    },
+    {
+      "method": "client.counts",
+      "utc": "2026-10-08T21:09:35.441Z",
+      "status": 200,
+      "ok": true,
+      "error": null,
+      "retry_after": null,
+      "elapsed_ms": 261,
+      "keys": [
+        "activity_v2",
+        "alerts",
+        "channel_badges",
+        "channels",
+        "counts_last_fetched",
+        "ims",
+        "mpims",
+        "ok",
+        "response_metadata",
+        "saved",
+        "threads",
+        "warning"
+      ],
+      "phase": "fresh_history_target"
+    },
+    {
+      "method": "conversations.history",
+      "utc": "2026-10-08T21:09:35.736Z",
+      "status": 200,
+      "ok": true,
+      "error": null,
+      "retry_after": null,
+      "elapsed_ms": 267,
+      "keys": [
+        "channel_actions_count",
+        "channel_actions_ts",
+        "has_more",
+        "is_limited",
+        "messages",
+        "ok",
+        "pin_count",
+        "response_metadata",
+        "warning"
+      ],
+      "conversation_family": "channels",
+      "item_count": 3,
+      "has_more": true,
+      "is_limited": false,
+      "has_next_cursor": true,
+      "all_ts_strings": true,
+      "first_item_keys": [
+        "blocks",
+        "client_msg_id",
+        "reactions",
+        "team",
+        "text",
+        "ts",
+        "type",
+        "user"
+      ]
+    },
+    {
+      "method": "conversations.history",
+      "utc": "2026-10-08T21:09:35.989Z",
+      "status": 200,
+      "ok": true,
+      "error": null,
+      "retry_after": null,
+      "elapsed_ms": 253,
+      "keys": [
+        "channel_actions_count",
+        "channel_actions_ts",
+        "has_more",
+        "is_limited",
+        "latest",
+        "messages",
+        "ok",
+        "pin_count",
+        "response_metadata",
+        "warning"
+      ],
+      "conversation_family": "channels",
+      "phase": "older_page",
+      "item_count": 3,
+      "strictly_older": true,
+      "has_more": true
+    },
+    {
+      "method": "conversations.history",
+      "utc": "2026-10-08T21:09:36.241Z",
+      "status": 200,
+      "ok": true,
+      "error": null,
+      "retry_after": null,
+      "elapsed_ms": 251,
+      "keys": [
+        "channel_actions_count",
+        "channel_actions_ts",
+        "has_more",
+        "is_limited",
+        "messages",
+        "ok",
+        "pin_count",
+        "response_metadata",
+        "warning"
+      ],
+      "conversation_family": "ims",
+      "item_count": 2,
+      "has_more": false,
+      "is_limited": true,
+      "has_next_cursor": false,
+      "all_ts_strings": true,
+      "first_item_keys": [
+        "blocks",
+        "client_msg_id",
+        "team",
+        "text",
+        "ts",
+        "type",
+        "user"
+      ]
+    }
+  ],
+  "user_coordinated_action_capture": {
+    "event_shapes_and_counts": [
+      {
+        "event": "hello",
+        "count": 1,
+        "first_utc": "2026-10-08T21:11:28.589Z",
+        "last_utc": "2026-10-08T21:11:28.589Z",
+        "shape": {
+          "probe": "live_frame",
+          "utc": "2026-10-08T21:11:28.589Z",
+          "type": "hello",
+          "subtype": null,
+          "keys": [
+            "fast_reconnect",
+            "host_id",
+            "region",
+            "start",
+            "type"
+          ],
+          "nested_message_keys": null,
+          "item_keys": null,
+          "has_deleted_ts": false,
+          "deleted_target_differs_from_event_ts": false
+        }
+      },
+      {
+        "event": "user_interaction_changed",
+        "count": 1,
+        "first_utc": "2026-10-08T21:12:22.883Z",
+        "last_utc": "2026-10-08T21:12:22.883Z",
+        "shape": {
+          "probe": "live_frame",
+          "utc": "2026-10-08T21:12:22.883Z",
+          "type": "user_interaction_changed",
+          "subtype": null,
+          "keys": [
+            "event_ts",
+            "interaction",
+            "type"
+          ],
+          "nested_message_keys": null,
+          "item_keys": null,
+          "has_deleted_ts": false,
+          "deleted_target_differs_from_event_ts": false
+        }
+      },
+      {
+        "event": "reaction_added",
+        "count": 1,
+        "first_utc": "2026-10-08T21:12:24.049Z",
+        "last_utc": "2026-10-08T21:12:24.049Z",
+        "shape": {
+          "probe": "live_frame",
+          "utc": "2026-10-08T21:12:24.049Z",
+          "type": "reaction_added",
+          "subtype": null,
+          "keys": [
+            "event_ts",
+            "item",
+            "item_user",
+            "reaction",
+            "ts",
+            "type",
+            "user"
+          ],
+          "nested_message_keys": null,
+          "item_keys": [
+            "channel",
+            "ts",
+            "type"
+          ],
+          "has_deleted_ts": false,
+          "deleted_target_differs_from_event_ts": false
+        }
+      },
+      {
+        "event": "user_typing",
+        "count": 10,
+        "first_utc": "2026-10-08T21:12:25.492Z",
+        "last_utc": "2026-10-08T21:13:50.345Z",
+        "shape": {
+          "probe": "live_frame",
+          "utc": "2026-10-08T21:12:25.492Z",
+          "type": "user_typing",
+          "subtype": null,
+          "keys": [
+            "channel",
+            "id",
+            "type",
+            "user"
+          ],
+          "nested_message_keys": null,
+          "item_keys": null,
+          "has_deleted_ts": false,
+          "deleted_target_differs_from_event_ts": false
+        }
+      },
+      {
+        "event": "message",
+        "count": 9,
+        "first_utc": "2026-10-08T21:12:26.233Z",
+        "last_utc": "2026-10-08T21:13:55.577Z",
+        "shape": {
+          "probe": "live_frame",
+          "utc": "2026-10-08T21:12:26.233Z",
+          "type": "message",
+          "subtype": null,
+          "keys": [
+            "blocks",
+            "channel",
+            "client_msg_id",
+            "event_ts",
+            "source_team",
+            "suppress_notification",
+            "team",
+            "text",
+            "ts",
+            "type",
+            "user",
+            "user_team"
+          ],
+          "nested_message_keys": null,
+          "item_keys": null,
+          "has_deleted_ts": false,
+          "deleted_target_differs_from_event_ts": false
+        }
+      },
+      {
+        "event": "channel_marked",
+        "count": 10,
+        "first_utc": "2026-10-08T21:12:26.263Z",
+        "last_utc": "2026-10-08T21:13:55.655Z",
+        "shape": {
+          "probe": "live_frame",
+          "utc": "2026-10-08T21:12:26.263Z",
+          "type": "channel_marked",
+          "subtype": null,
+          "keys": [
+            "channel",
+            "event_ts",
+            "mention_count",
+            "mention_count_display",
+            "num_mentions",
+            "num_mentions_display",
+            "ts",
+            "type",
+            "unread_count",
+            "unread_count_display",
+            "vip_count"
+          ],
+          "nested_message_keys": null,
+          "item_keys": null,
+          "has_deleted_ts": false,
+          "deleted_target_differs_from_event_ts": false
+        }
+      },
+      {
+        "event": "message/message_changed",
+        "count": 2,
+        "first_utc": "2026-10-08T21:12:28.624Z",
+        "last_utc": "2026-10-08T21:12:41.562Z",
+        "shape": {
+          "probe": "live_frame",
+          "utc": "2026-10-08T21:12:28.624Z",
+          "type": "message",
+          "subtype": "message_changed",
+          "keys": [
+            "channel",
+            "event_ts",
+            "hidden",
+            "message",
+            "previous_message",
+            "subtype",
+            "ts",
+            "type"
+          ],
+          "nested_message_keys": [
+            "blocks",
+            "client_msg_id",
+            "edited",
+            "source_team",
+            "team",
+            "text",
+            "ts",
+            "type",
+            "user",
+            "user_team"
+          ],
+          "item_keys": null,
+          "has_deleted_ts": false,
+          "deleted_target_differs_from_event_ts": false
+        }
+      },
+      {
+        "event": "message/message_deleted",
+        "count": 1,
+        "first_utc": "2026-10-08T21:12:34.229Z",
+        "last_utc": "2026-10-08T21:12:34.229Z",
+        "shape": {
+          "probe": "live_frame",
+          "utc": "2026-10-08T21:12:34.229Z",
+          "type": "message",
+          "subtype": "message_deleted",
+          "keys": [
+            "channel",
+            "deleted_ts",
+            "event_ts",
+            "hidden",
+            "previous_message",
+            "subtype",
+            "ts",
+            "type"
+          ],
+          "nested_message_keys": null,
+          "item_keys": null,
+          "has_deleted_ts": true,
+          "deleted_target_differs_from_event_ts": true
+        }
+      },
+      {
+        "event": "badge_counts_updated",
+        "count": 4,
+        "first_utc": "2026-10-08T21:12:39.557Z",
+        "last_utc": "2026-10-08T21:13:47.457Z",
+        "shape": {
+          "probe": "live_frame",
+          "utc": "2026-10-08T21:12:39.557Z",
+          "type": "badge_counts_updated",
+          "subtype": null,
+          "keys": [
+            "activity_v2",
+            "event_ts",
+            "type"
+          ],
+          "nested_message_keys": null,
+          "item_keys": null,
+          "has_deleted_ts": false,
+          "deleted_target_differs_from_event_ts": false
+        }
+      },
+      {
+        "event": "file_public",
+        "count": 3,
+        "first_utc": "2026-10-08T21:13:15.972Z",
+        "last_utc": "2026-10-08T21:13:55.606Z",
+        "shape": {
+          "probe": "live_frame",
+          "utc": "2026-10-08T21:13:15.972Z",
+          "type": "file_public",
+          "subtype": null,
+          "keys": [
+            "event_ts",
+            "file",
+            "file_id",
+            "ts",
+            "type",
+            "user_id"
+          ],
+          "nested_message_keys": null,
+          "item_keys": null,
+          "has_deleted_ts": false,
+          "deleted_target_differs_from_event_ts": false
+        }
+      },
+      {
+        "event": "file_shared",
+        "count": 3,
+        "first_utc": "2026-10-08T21:13:15.988Z",
+        "last_utc": "2026-10-08T21:13:55.612Z",
+        "shape": {
+          "probe": "live_frame",
+          "utc": "2026-10-08T21:13:15.988Z",
+          "type": "file_shared",
+          "subtype": null,
+          "keys": [
+            "channel_id",
+            "event_ts",
+            "file",
+            "file_id",
+            "ts",
+            "type",
+            "user_id"
+          ],
+          "nested_message_keys": null,
+          "item_keys": null,
+          "has_deleted_ts": false,
+          "deleted_target_differs_from_event_ts": false
+        }
+      },
+      {
+        "event": "channel_updated",
+        "count": 2,
+        "first_utc": "2026-10-08T21:13:16.209Z",
+        "last_utc": "2026-10-08T21:13:16.219Z",
+        "shape": {
+          "probe": "live_frame",
+          "utc": "2026-10-08T21:13:16.209Z",
+          "type": "channel_updated",
+          "subtype": null,
+          "keys": [
+            "channel",
+            "channels",
+            "event_ts",
+            "ts",
+            "type",
+            "updates"
+          ],
+          "nested_message_keys": null,
+          "item_keys": null,
+          "has_deleted_ts": false,
+          "deleted_target_differs_from_event_ts": false
+        }
+      },
+      {
+        "event": "file_change",
+        "count": 2,
+        "first_utc": "2026-10-08T21:13:16.291Z",
+        "last_utc": "2026-10-08T21:13:19.545Z",
+        "shape": {
+          "probe": "live_frame",
+          "utc": "2026-10-08T21:13:16.291Z",
+          "type": "file_change",
+          "subtype": null,
+          "keys": [
+            "event_ts",
+            "file",
+            "file_id",
+            "type",
+            "user_id"
+          ],
+          "nested_message_keys": null,
+          "item_keys": null,
+          "has_deleted_ts": false,
+          "deleted_target_differs_from_event_ts": false
+        }
+      },
+      {
+        "event": "message/huddle_thread",
+        "count": 1,
+        "first_utc": "2026-10-08T21:13:46.842Z",
+        "last_utc": "2026-10-08T21:13:46.842Z",
+        "shape": {
+          "probe": "live_frame",
+          "utc": "2026-10-08T21:13:46.842Z",
+          "type": "message",
+          "subtype": "huddle_thread",
+          "keys": [
+            "blocks",
+            "channel",
+            "event_ts",
+            "metadata",
+            "no_notifications",
+            "permalink",
+            "room",
+            "subtype",
+            "suppress_notification",
+            "team",
+            "text",
+            "ts",
+            "type",
+            "user"
+          ],
+          "nested_message_keys": null,
+          "item_keys": null,
+          "has_deleted_ts": false,
+          "deleted_target_differs_from_event_ts": false
+        }
+      },
+      {
+        "event": "file_thumbnail_generated",
+        "count": 1,
+        "first_utc": "2026-10-08T21:13:48.818Z",
+        "last_utc": "2026-10-08T21:13:48.818Z",
+        "shape": {
+          "probe": "live_frame",
+          "utc": "2026-10-08T21:13:48.818Z",
+          "type": "file_thumbnail_generated",
+          "subtype": null,
+          "keys": [
+            "client_file_id",
+            "event_ts",
+            "file_id",
+            "permalink",
+            "thumb_160",
+            "thumb_360",
+            "thumb_64",
+            "thumb_80",
+            "thumb_url",
+            "type"
+          ],
+          "nested_message_keys": null,
+          "item_keys": null,
+          "has_deleted_ts": false,
+          "deleted_target_differs_from_event_ts": false
+        }
+      },
+      {
+        "event": "file_created",
+        "count": 1,
+        "first_utc": "2026-10-08T21:13:48.843Z",
+        "last_utc": "2026-10-08T21:13:48.843Z",
+        "shape": {
+          "probe": "live_frame",
+          "utc": "2026-10-08T21:13:48.843Z",
+          "type": "file_created",
+          "subtype": null,
+          "keys": [
+            "event_ts",
+            "file",
+            "file_id",
+            "type",
+            "user_id"
+          ],
+          "nested_message_keys": null,
+          "item_keys": null,
+          "has_deleted_ts": false,
+          "deleted_target_differs_from_event_ts": false
+        }
+      },
+      {
+        "event": "sh_room_join",
+        "count": 1,
+        "first_utc": "2026-10-08T21:13:49.289Z",
+        "last_utc": "2026-10-08T21:13:49.289Z",
+        "shape": {
+          "probe": "live_frame",
+          "utc": "2026-10-08T21:13:49.289Z",
+          "type": "sh_room_join",
+          "subtype": null,
+          "keys": [
+            "event_ts",
+            "huddle",
+            "room",
+            "ts",
+            "type",
+            "user"
+          ],
+          "nested_message_keys": null,
+          "item_keys": null,
+          "has_deleted_ts": false,
+          "deleted_target_differs_from_event_ts": false
+        }
+      }
+    ],
+    "summary": {
+      "probe": "rtm_socket",
+      "cookie_on_upgrade": true,
+      "hello": true,
+      "pongs": 14,
+      "event_counts": {
+        "hello": 1,
+        "pong": 14,
+        "user_interaction_changed": 1,
+        "reaction_added": 1,
+        "user_typing": 10,
+        "message": 13,
+        "channel_marked": 10,
+        "badge_counts_updated": 4,
+        "file_public": 3,
+        "file_shared": 3,
+        "channel_updated": 2,
+        "file_change": 2,
+        "file_thumbnail_generated": 1,
+        "file_created": 1,
+        "sh_room_join": 1
+      },
+      "event_shapes": {
+        "hello": [
+          "fast_reconnect",
+          "host_id",
+          "region",
+          "start",
+          "type"
+        ],
+        "pong": [
+          "reply_to",
+          "type"
+        ],
+        "user_interaction_changed": [
+          "event_ts",
+          "interaction",
+          "type"
+        ],
+        "reaction_added": [
+          "event_ts",
+          "item",
+          "item_user",
+          "reaction",
+          "ts",
+          "type",
+          "user"
+        ],
+        "user_typing": [
+          "channel",
+          "id",
+          "type",
+          "user"
+        ],
+        "message": [
+          "blocks",
+          "channel",
+          "client_msg_id",
+          "display_as_bot",
+          "event_ts",
+          "files",
+          "source_team",
+          "team",
+          "text",
+          "ts",
+          "type",
+          "upload",
+          "user",
+          "user_team"
+        ],
+        "channel_marked": [
+          "channel",
+          "event_ts",
+          "mention_count",
+          "mention_count_display",
+          "num_mentions",
+          "num_mentions_display",
+          "ts",
+          "type",
+          "unread_count",
+          "unread_count_display",
+          "vip_count"
+        ],
+        "badge_counts_updated": [
+          "activity_v2",
+          "event_ts",
+          "type"
+        ],
+        "file_public": [
+          "event_ts",
+          "file",
+          "file_id",
+          "ts",
+          "type",
+          "user_id"
+        ],
+        "file_shared": [
+          "channel_id",
+          "event_ts",
+          "file",
+          "file_id",
+          "ts",
+          "type",
+          "user_id"
+        ],
+        "channel_updated": [
+          "channel",
+          "channels",
+          "event_ts",
+          "type",
+          "updates"
+        ],
+        "file_change": [
+          "event_ts",
+          "file",
+          "file_id",
+          "type",
+          "user_id"
+        ],
+        "file_thumbnail_generated": [
+          "client_file_id",
+          "event_ts",
+          "file_id",
+          "permalink",
+          "thumb_160",
+          "thumb_360",
+          "thumb_64",
+          "thumb_80",
+          "thumb_url",
+          "type"
+        ],
+        "file_created": [
+          "event_ts",
+          "file",
+          "file_id",
+          "type",
+          "user_id"
+        ],
+        "sh_room_join": [
+          "event_ts",
+          "huddle",
+          "room",
+          "ts",
+          "type",
+          "user"
+        ]
+      },
+      "error_codes": [],
+      "elapsed_ms": 150055
+    },
+    "activity_comparison": {
+      "probe": "room_activity_during_socket",
+      "changed_conversation_counts": {
+        "channels": 1,
+        "ims": 0,
+        "mpims": 0
+      },
+      "both_counts_succeeded": true
+    },
+    "method_boundaries": [
+      {
+        "method": "client.counts",
+        "utc": "2026-10-08T21:11:27.766Z",
+        "status": 200,
+        "ok": true,
+        "error": null,
+        "retry_after": null,
+        "elapsed_ms": 166,
+        "keys": [
+          "activity_v2",
+          "alerts",
+          "channel_badges",
+          "channels",
+          "counts_last_fetched",
+          "ims",
+          "mpims",
+          "ok",
+          "response_metadata",
+          "saved",
+          "threads",
+          "warning"
+        ],
+        "phase": "before_socket"
+      },
+      {
+        "method": "rtm.connect",
+        "utc": "2026-10-08T21:11:28.013Z",
+        "status": 200,
+        "ok": true,
+        "error": null,
+        "retry_after": null,
+        "elapsed_ms": 246,
+        "keys": [
+          "ok",
+          "response_metadata",
+          "self",
+          "team",
+          "url",
+          "warning"
+        ],
+        "identity_matches": true
+      },
+      {
+        "method": "client.counts",
+        "utc": "2026-10-08T21:13:58.283Z",
+        "status": 200,
+        "ok": true,
+        "error": null,
+        "retry_after": null,
+        "elapsed_ms": 212,
+        "keys": [
+          "activity_v2",
+          "alerts",
+          "channel_badges",
+          "channels",
+          "counts_last_fetched",
+          "ims",
+          "mpims",
+          "ok",
+          "response_metadata",
+          "saved",
+          "threads",
+          "warning"
+        ],
+        "phase": "after_socket"
+      }
+    ]
+  },
+  "source_findings": [
+    {
+      "id": "R01",
+      "path": "src/app/slack/session.cpp",
+      "finding": "Boot-data token derivation and auth.test validation; credentials are not mathematically derived from the cookie."
+    },
+    {
+      "id": "R02",
+      "path": "src/app/slack/browser_login.cpp",
+      "finding": "Throwaway Chromium/CDP acquisition: Storage.getCookies and localConfig_v2; not exercised by this bench."
+    },
+    {
+      "id": "R03",
+      "path": "src/app/slack/rtm_presence.cpp",
+      "finding": "Session rtm.connect plus d cookie on WS upgrade; application frames ignored by this reference handler."
+    },
+    {
+      "id": "R04",
+      "path": "src/app/slack/slack_backend.cpp",
+      "finding": "Session polling remains; counts, followed threads and session roster fallbacks use internal methods."
+    },
+    {
+      "id": "R05",
+      "path": "src/app/slack/local_import_linux.cpp",
+      "finding": "Linux cookie/Secret Service/LevelDB importer; other platforms return unsupported_platform."
+    },
+    {
+      "id": "R06",
+      "path": "src/app/slack/slack_actions.cpp",
+      "finding": "Web API actions, external uploads and one-shot completion; reference text/author send matching is not a unique receipt."
+    }
+  ],
+  "qualification": {
+    "S00": "measured",
+    "S01": "partial: existing Firefox acquisition measured; product Chromium/mobile flows pending",
+    "S02": "paired credentials, token-only and cookie-only controls measured in one workspace",
+    "S03": "authenticated hello/pong and no-upgrade-cookie failure measured; expiry/outage pending",
+    "S04": "partial: messages/typing/activity, user-coordinated reaction-add/edit/delete/channel-read events observed; reaction removal/thread/permission variants pending",
+    "S05": "pending: reconnect and offline old-edit/delete recovery",
+    "S06": "partial: precise nonempty channel/DM history, exclusive older channel page and replies; DM history limited, search matches empty; exhaustive paging/types/renderer pending",
+    "S07": "pending: probe client submitted no HTTP writes; user-generated live mutation events observed but idempotency untested",
+    "S08": "partial: thread/Saved/prefs reads and channel-read event; our mutations and full pagination pending",
+    "S09": "pending: no file transfer or interaction tests",
+    "S10": "partial: no 429 seen in bounded requests; quota maximum unmeasured",
+    "S11": "pending: no desktop-app import",
+    "S12": "partial: one workspace pinned; multi-account and links pending",
+    "S13": "pending: no installed-client notification test"
+  },
+  "interpretation_limits": [
+    "Read acceptance proves only the sampled session/workspace/request and does not prove mutation permission or all variants.",
+    "Two message and two typing frames were received while channel and DM latest markers moved; individual frame-to-room correlation was not retained.",
+    "Empty room-history/search samples are not passing rendering, paging or precision tests.",
+    "Freshest channel/DM samples were nonempty; DM history was is_limited=true, so absent older messages do not prove deletion.",
+    "Incoming client_msg_id is observed; outgoing acceptance and deduplication remain untested.",
+    "No durable RTM replay or complete offline deletion recovery established.",
+    "No killed-app Android push, native Slack calls, client E2EE, administration or reports established.",
+    "Socket connections may affect connected presence; no tickle, presence subscription or typing frames were submitted."
+  ]
+}

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
 import type { BotReference } from '../providers/rocketvibe/protocol.generated.ts';
-import { BOT_SCOPES, botErrorKey, curlExample, expiryDays, sameScopes, scopeRoutes, toggleScope } from './botsModel.ts';
+import { BOT_SCOPES, botChanges, botDisplayName, botErrorKey, curlExample, expiryDays, sameScopes, scopeRoutes, toggleScope } from './botsModel.ts';
 
 const reference: BotReference = {
   key_prefix: 'rvb_',
@@ -61,12 +61,50 @@ describe('botErrorKey', () => {
     assert.equal(botErrorKey('not_found', 404), 'bots.errNotFound');
     assert.equal(botErrorKey('bot_encrypted_room', 409), 'bots.errEncryptedRoom');
     assert.equal(botErrorKey('crypto_bot_member', 409), 'bots.errBotMember');
+    assert.equal(botErrorKey('invalid_avatar', 415), 'bots.errInvalidAvatar');
+    assert.equal(botErrorKey('avatar_too_large', 413), 'bots.errAvatarTooLarge');
+    assert.equal(botErrorKey('avatar_busy', 429), 'bots.errAvatarBusy');
+    assert.equal(botErrorKey('storage_unavailable', 503), 'bots.errStorageUnavailable');
   });
 
   test('falls back on offline, rate limit, then a generic sentence', () => {
     assert.equal(botErrorKey('network_or_protocol_error', 0), 'bots.errOffline');
     assert.equal(botErrorKey('anything', 429), 'bots.errRateLimited');
     assert.equal(botErrorKey('anything', 418), 'bots.failed');
+  });
+});
+
+describe('display name and edits', () => {
+  const bot = { user: { id: 'helper-id', username: 'helper', display_name: 'Helper' }, description: 'Builds', scopes: ['rooms:read', 'messages:write'] as const };
+  const form = { displayName: 'Helper', description: 'Builds', scopes: ['messages:write', 'rooms:read'] as const };
+
+  test('a display name is trimmed, non-empty, 256 UTF-8 bytes at most, without control characters', () => {
+    assert.equal(botDisplayName('  Build bot '), 'Build bot');
+    assert.equal(botDisplayName('   '), null);
+    assert.equal(botDisplayName('a'.repeat(256)), 'a'.repeat(256));
+    assert.equal(botDisplayName('a'.repeat(257)), null);
+    assert.equal(botDisplayName('é'.repeat(128)), 'é'.repeat(128));
+    assert.equal(botDisplayName('é'.repeat(129)), null);
+    assert.equal(botDisplayName('Build\u0007bot'), null);
+    assert.equal(botDisplayName('Build\u0085bot'), null);
+  });
+
+  test('saving sends only what changed, trimmed', () => {
+    assert.deepEqual(botChanges({ ...bot, scopes: [...bot.scopes] }, { ...form, scopes: [...form.scopes] }), { changes: {}, invalid: false });
+    assert.deepEqual(botChanges({ ...bot, scopes: [...bot.scopes] }, { ...form, displayName: ' Builder ', scopes: [...form.scopes] }), {
+      changes: { display_name: 'Builder' },
+      invalid: false,
+    });
+    assert.deepEqual(botChanges({ ...bot, scopes: [...bot.scopes] }, { displayName: 'Helper ', description: ' Ships ', scopes: ['rooms:read'] }), {
+      changes: { description: 'Ships', scopes: ['rooms:read'] },
+      invalid: false,
+    });
+  });
+
+  test('a refused display name blocks the save', () => {
+    const edit = botChanges({ ...bot, scopes: [...bot.scopes] }, { displayName: ' ', description: 'Other', scopes: [...form.scopes] });
+    assert.equal(edit.invalid, true);
+    assert.equal(edit.changes.display_name, undefined);
   });
 });
 

@@ -2,7 +2,8 @@
  * "My bots", a settings category on a RocketVibe server announcing `bots`
  * (RFC 0003, `docs/protocol/BOTS.md`): my bot accounts, creating one (when
  * `create_bot` allows it), its description and scopes, its keys, and deleting
- * it. Built like `ui/devices.tsx`: remounted per provider, every answer
+ * it, its display name and its photo (picked and sent like my own,
+ * `ui/pickAvatar.ts` then `PUT /api/v1/bots/{id}/avatar`). Built like `ui/devices.tsx`: remounted per provider, every answer
  * dropped once the page lost focus or a newer call started, and a key needing
  * a recent sign-in confirmed in place (`ConfirmNativeIdentity`).
  *
@@ -14,6 +15,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
+import { File } from 'expo-file-system';
 import { ActivityIndicator, Alert, AppState, Platform, StyleSheet, Text, View } from 'react-native';
 
 import { dismissible } from './alerts.ts';
@@ -28,7 +30,10 @@ import { FONTS, type Colors } from './theme.ts';
 import { ConfirmNativeIdentity } from './nativeSecurity.tsx';
 import { providerKey } from './devices.tsx';
 import type { TranslationKey } from './messages.ts';
-import { BOT_SCOPES, SCOPE_TEXT, botErrorKey, curlExample, expiryDays, sameScopes, scopeRoutes, toggleScope } from './botsModel.ts';
+import type { RestClient } from '../lib/rest.ts';
+import { avatarUrl } from '../lib/upload.ts';
+import { pickAvatar } from './pickAvatar.ts';
+import { BOT_SCOPES, SCOPE_TEXT, botChanges, botErrorKey, curlExample, expiryDays, scopeRoutes, toggleScope, type BotForm } from './botsModel.ts';
 
 const MONO = Platform.select({ android: 'monospace', default: 'Menlo' });
 
@@ -37,10 +42,15 @@ export function hasBots(chat: NativeChat | null | undefined): boolean {
   return !!chat?.capabilities?.bots;
 }
 
-export function BotsSection({ c, baseUrl }: { c: Colors; baseUrl: string }) {
+export function BotsSection({ c, client, baseUrl }: { c: Colors; client: RestClient; baseUrl: string }) {
   const sync = useSync();
   const chat = sync.phase === 'ready' ? sync.provider.native?.chat : null;
-  return chat && hasBots(chat) ? <Bots key={providerKey(chat)} c={c} chat={chat} baseUrl={baseUrl} /> : null;
+  return chat && hasBots(chat) ? <Bots key={providerKey(chat)} c={c} chat={chat} client={client} baseUrl={baseUrl} /> : null;
+}
+
+/** A bot's photo, drawn like any native avatar: its file, `none` without one (`providers/rocketvibe/admin.ts`). */
+function botPhoto(client: RestClient, bot: Bot): string | null {
+  return avatarUrl(client, { username: bot.user.username, etag: bot.avatar_file_id ?? 'none' });
 }
 
 type Screen = { kind: 'list' } | { kind: 'create' } | { kind: 'bot'; id: string };
@@ -51,7 +61,7 @@ function failure(e: unknown): Failure {
   return { key: 'bots.failed', reauth: false };
 }
 
-function Bots({ c, chat, baseUrl }: { c: Colors; chat: NativeChat; baseUrl: string }) {
+function Bots({ c, chat, client, baseUrl }: { c: Colors; chat: NativeChat; client: RestClient; baseUrl: string }) {
   const t = useT();
   const [bots, setBots] = useState<Bot[] | null>(null);
   const [canCreate, setCanCreate] = useState(false);
@@ -167,9 +177,38 @@ function Bots({ c, chat, baseUrl }: { c: Colors; chat: NativeChat; baseUrl: stri
       }
     });
 
-  const save = (bot: Bot, description: string, scopes: BotScope[]) =>
+  const save = (bot: Bot, form: BotForm) => {
+    const { changes, invalid } = botChanges(bot, form);
+    if (invalid || Object.keys(changes).length === 0) return;
     void run(async () => {
-      await chat.bots((tr, operation) => tr.updateBot(bot.user.id, { operation_id: operation(), description: description.trim(), scopes }));
+      await chat.bots((tr, operation) => tr.updateBot(bot.user.id, { operation_id: operation(), ...changes }));
+    });
+  };
+
+  // The photo: picked, cropped and resized like my own (`app/my-profile.tsx`),
+  // then sent to the bot's route; the list read after it carries the new file.
+  const changePhoto = async (bot: Bot) => {
+    if (busy || !alive.current) return;
+    const n = epoch.current;
+    let picked: Awaited<ReturnType<typeof pickAvatar>>;
+    try {
+      picked = await pickAvatar(true);
+    } catch {
+      if (alive.current && epoch.current === n) setError({ key: 'myProfile.selectionFailed', reauth: false });
+      return;
+    }
+    if (picked === null || !alive.current || epoch.current !== n) return;
+    const image = picked;
+    void run(async () => {
+      const file = new File(image.uri);
+      if (file.size > 2 * 1024 * 1024) throw new NativeError(413, 'avatar_too_large');
+      await chat.botAvatar(bot.user.id, { mime: image.type, bytes: new Uint8Array(await file.arrayBuffer()) });
+    });
+  };
+
+  const removePhoto = (bot: Bot) =>
+    void run(async () => {
+      await chat.botAvatar(bot.user.id);
     });
 
   const remove = (bot: Bot) => {
@@ -264,7 +303,7 @@ function Bots({ c, chat, baseUrl }: { c: Colors; chat: NativeChat; baseUrl: stri
             <Text style={[styles.text, { color: c.secondaryText }]}>{t('bots.intro')}</Text>
             {bots !== null && bots.length === 0 && <Text style={[styles.text, { color: c.dimmed }]}>{t('bots.empty')}</Text>}
             {bots?.map((bot) => (
-              <BotRow key={bot.user.id} c={c} bot={bot} disabled={busy} onPress={() => open(bot.user.id)} />
+              <BotRow key={bot.user.id} c={c} bot={bot} photo={botPhoto(client, bot)} disabled={busy} onPress={() => open(bot.user.id)} />
             ))}
             {bots !== null &&
               (canCreate ? (
@@ -294,12 +333,15 @@ function Bots({ c, chat, baseUrl }: { c: Colors; chat: NativeChat; baseUrl: stri
             key={shown.user.id}
             c={c}
             bot={shown}
+            photo={botPhoto(client, shown)}
             busy={busy}
             reference={reference}
             keys={keys?.bot === shown.user.id ? keys.keys : null}
             created={created?.bot === shown.user.id ? created.value : null}
             baseUrl={baseUrl}
-            onSave={(description, scopes) => save(shown, description, scopes)}
+            onSave={(form) => save(shown, form)}
+            onChangePhoto={() => void changePhoto(shown)}
+            onRemovePhoto={() => removePhoto(shown)}
             onCreateKey={(label, days) => createKey(shown, label, days)}
             onRevokeKey={(key) => revokeKey(shown, key)}
             onDismissKey={() => setCreated(null)}
@@ -325,7 +367,7 @@ function Action({ c, label, onPress, disabled = false, danger = false }: { c: Co
   );
 }
 
-function BotRow({ c, bot, disabled, onPress }: { c: Colors; bot: Bot; disabled: boolean; onPress: () => void }) {
+function BotRow({ c, bot, photo, disabled, onPress }: { c: Colors; bot: Bot; photo: string | null; disabled: boolean; onPress: () => void }) {
   const t = useT();
   const name = bot.user.display_name || bot.user.username;
   return (
@@ -336,7 +378,7 @@ function BotRow({ c, bot, disabled, onPress }: { c: Colors; bot: Bot; disabled: 
       onPress={onPress}
       style={[styles.bot, { borderColor: c.softBorder }]}
     >
-      <AvatarTile c={c} hueKey={bot.user.username} initial={bot.user.username.charAt(0)} size={40} radius={13} />
+      <AvatarTile c={c} hueKey={bot.user.username} initial={bot.user.username.charAt(0)} size={40} radius={13} uri={photo} />
       <View style={styles.botTexts}>
         <Text style={[styles.title, { color: c.text }]} numberOfLines={1}>
           {name}
@@ -457,15 +499,18 @@ function CreateForm({ c, busy, reference, onChange, onCreate, onCancel }: {
   );
 }
 
-function Detail({ c, bot, busy, reference, keys, created, baseUrl, onSave, onCreateKey, onRevokeKey, onDismissKey, onCopy, onDelete, onBack }: {
+function Detail({ c, bot, photo, busy, reference, keys, created, baseUrl, onSave, onChangePhoto, onRemovePhoto, onCreateKey, onRevokeKey, onDismissKey, onCopy, onDelete, onBack }: {
   c: Colors;
   bot: Bot;
+  photo: string | null;
   busy: boolean;
   reference: BotReference | null;
   keys: BotKey[] | null;
   created: BotKeyCreated | null;
   baseUrl: string;
-  onSave: (description: string, scopes: BotScope[]) => void;
+  onSave: (form: BotForm) => void;
+  onChangePhoto: () => void;
+  onRemovePhoto: () => void;
   onCreateKey: (label: string, days: number | null) => void;
   onRevokeKey: (key: BotKey) => void;
   onDismissKey: () => void;
@@ -474,9 +519,12 @@ function Detail({ c, bot, busy, reference, keys, created, baseUrl, onSave, onCre
   onBack: () => void;
 }) {
   const t = useT();
+  const [displayName, setDisplayName] = useState(bot.user.display_name);
   const [description, setDescription] = useState(bot.description);
   const [scopes, setScopes] = useState<BotScope[]>(bot.scopes);
-  const changed = description.trim() !== bot.description || !sameScopes(scopes, bot.scopes);
+  const form: BotForm = { displayName, description, scopes };
+  const edit = botChanges(bot, form);
+  const changed = !edit.invalid && Object.keys(edit.changes).length > 0;
   const date = (value: string) => {
     const parsed = new Date(value);
     return Number.isFinite(parsed.getTime()) ? parsed.toLocaleString() : value;
@@ -486,7 +534,7 @@ function Detail({ c, bot, busy, reference, keys, created, baseUrl, onSave, onCre
     <View style={styles.form}>
       <Action c={c} label={`‹ ${t('bots.back')}`} disabled={busy} onPress={onBack} />
       <View style={styles.bot}>
-        <AvatarTile c={c} hueKey={bot.user.username} initial={bot.user.username.charAt(0)} size={48} radius={15} />
+        <AvatarTile c={c} hueKey={bot.user.username} initial={bot.user.username.charAt(0)} size={48} radius={15} uri={photo} />
         <View style={styles.botTexts}>
           <Text style={[styles.title, { color: c.text }]} numberOfLines={1}>
             {bot.user.display_name || bot.user.username}
@@ -497,11 +545,17 @@ function Detail({ c, bot, busy, reference, keys, created, baseUrl, onSave, onCre
           <Text style={[styles.text, { color: c.dimmed }]}>{t('bots.created', { date: date(bot.created_at) })}</Text>
         </View>
       </View>
+      <View style={styles.photoActions}>
+        <Action c={c} label={t('bots.changePhoto')} disabled={busy} onPress={onChangePhoto} />
+        {bot.avatar_file_id != null && <Action c={c} label={t('bots.removePhoto')} danger disabled={busy} onPress={onRemovePhoto} />}
+      </View>
       {bot.disabled && <Text style={[styles.text, { color: c.errorText }]}>{t('bots.disabledBody')}</Text>}
 
+      <PillField c={c} label={t('bots.displayName')} value={displayName} editable={!busy} maxLength={256} onChangeText={setDisplayName} />
+      {edit.invalid && <Text style={[styles.text, { color: c.errorText }]}>{t('bots.displayNameInvalid')}</Text>}
       <PillField c={c} label={t('bots.description')} value={description} editable={!busy} multiline maxLength={512} onChangeText={setDescription} />
       <ScopeList c={c} scopes={scopes} reference={reference} disabled={busy} onToggle={(scope) => setScopes(toggleScope(scopes, scope))} />
-      <Action c={c} label={t('common.save')} disabled={busy || !changed} onPress={() => onSave(description, scopes)} />
+      <Action c={c} label={t('common.save')} disabled={busy || !changed} onPress={() => onSave(form)} />
 
       <Text style={[styles.label, { color: c.dimmed }]}>{t('bots.keys')}</Text>
       {keys === null && busy && <ActivityIndicator color={c.accent} />}
@@ -593,4 +647,5 @@ const styles = StyleSheet.create({
   route: { fontFamily: MONO, fontSize: 11.5, lineHeight: 16 },
   secret: { borderWidth: 1, borderRadius: 12, padding: 12, gap: 8 },
   key: { gap: 4, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth },
+  photoActions: { flexDirection: 'row', flexWrap: 'wrap', columnGap: 20 },
 });

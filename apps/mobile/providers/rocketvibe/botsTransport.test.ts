@@ -39,17 +39,39 @@ test('bot management and the instance switch use typed authenticated routes', as
     [fixture.create_bot,fixture.update_bot,fixture.create_bot_key,fixture.update_instance_settings]);
 });
 
+test('a bot photo is a raw PNG or JPEG body on the bot route, removed with DELETE', async()=>{
+  const sent:{verb:string|undefined;url:string;type:string|null;body:unknown}[]=[];
+  const client=new NativeTransport('https://example.org',async(url,options)=>{
+    sent.push({verb:options?.method,url:new URL(String(url)).pathname,type:new Headers(options?.headers).get('content-type'),body:options?.body});
+    return Response.json(options?.method==='PUT'?{...fixture.bot,avatar_file_id:'a'.repeat(64)}:fixture.bot);
+  });
+  client.restore('saved-token');
+  const bytes=new Uint8Array([0x89,0x50,0x4e,0x47]);
+  assert.equal((await client.setBotAvatar('helper id',{mime:'image/png',bytes})).avatar_file_id,'a'.repeat(64));
+  assert.equal((await client.setBotAvatar('helper id')).avatar_file_id,undefined);
+  assert.deepEqual(sent.map(r=>[r.verb,r.url,r.type]),[
+    ['PUT','/api/v1/bots/helper%20id/avatar','image/png'],['DELETE','/api/v1/bots/helper%20id/avatar',null],
+  ]);
+  assert.deepEqual([...new Uint8Array(sent[0].body as ArrayBuffer)],[...bytes]);
+  assert.equal(sent[1].body,undefined);
+  await assert.rejects(client.setBotAvatar('helper-id',{mime:'image/jpeg',bytes:new Uint8Array(2*1024*1024+1)}),
+    (error:unknown)=>error instanceof NativeError && error.code==='avatar_too_large');
+  assert.equal(sent.length,2);
+});
+
 test('bot refusals keep their codes and never revoke the session', async()=>{
   let revoked=false;
   const client=new NativeTransport('https://example.org',async url=>{
     const path=new URL(String(url)).pathname;
     if(path.endsWith('/keys'))return Response.json({code:'reauthentication_required',request_id:'reauth'},{status:403});
+    if(path.endsWith('/avatar'))return Response.json({code:'avatar_busy',request_id:'busy'},{status:429,headers:{'retry-after':'1'}});
     return Response.json({code:'bots_disabled',request_id:'closed'},{status:403});
   });
   client.restore('saved-token');client.onTokenRejected=()=>{revoked=true;};
   const code=(expected:string)=>(error:unknown)=>error instanceof NativeError && error.code===expected;
   await assert.rejects(client.createBot(fixture.create_bot),code('bots_disabled'));
   await assert.rejects(client.createBotKey('helper-id',fixture.create_bot_key),code('reauthentication_required'));
+  await assert.rejects(client.setBotAvatar('helper-id',{mime:'image/png',bytes:new Uint8Array([1])}),code('avatar_busy'));
   assert.equal(revoked,false);
 });
 

@@ -770,6 +770,12 @@ export class NativeChat {
   bots<T>(call:(transport:NativeTransport,operation:()=>string)=>Promise<T>):Promise<T> {
     return this.administration('bots',call);
   }
+  /** A bot's photo, set from a picked image (`ui/pickAvatar.ts`, PNG or JPEG)
+   * or removed without `upload`: the own-avatar rules, on the bot's route. */
+  botAvatar(id:string,upload?:{mime:string;bytes:Uint8Array}):Promise<import('./protocol.generated.ts').Bot> {
+    if(upload&&!['image/png','image/jpeg'].includes(upload.mime))return Promise.reject(new NativeError(422,'invalid_avatar'));
+    return this.bots(transport=>transport.setBotAvatar(id,upload));
+  }
   async messagePermissions(id: string): Promise<import('./protocol.generated.ts').MessagePermissions> {
     this.ready();
     if (!this.capabilities?.fine_permissions) throw new NativeError(501,'unsupported_feature');

@@ -181,7 +181,7 @@ export function SettingsCategoryContent({
     case 'devices':
       return <DevicesSection c={c} />;
     case 'bots':
-      return <BotsSection c={c} baseUrl={account.baseUrl} />;
+      return <BotsSection c={c} client={account.client} baseUrl={account.baseUrl} />;
     case 'accounts':
       return <AccountsCategory c={c} account={account} />;
     case 'app':

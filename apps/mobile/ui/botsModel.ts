@@ -2,11 +2,12 @@
  * The pure part of the "My bots" page (`ui/bots.tsx`, RFC 0003,
  * `docs/protocol/BOTS.md`): the scopes in the server's order with their
  * sentence, the reference's routes grouped by scope, the wording of the
- * server's refusals, the key's expiry field and the ready-to-copy example.
+ * server's refusals, the key's expiry field, what an edit sends and the
+ * ready-to-copy example.
  * Loadable by plain Node, tested in `ui/botsModel.test.ts`.
  */
 
-import type { BotReference, BotRoute, BotScope } from '../providers/rocketvibe/protocol.generated.ts';
+import type { Bot, BotReference, BotRoute, BotScope, UpdateBot } from '../providers/rocketvibe/protocol.generated.ts';
 import type { TranslationKey } from './messages.ts';
 
 /** Every scope, in the order of `BotScope::ALL` (`crates/rv-protocol/src/bots.rs`). */
@@ -53,6 +54,40 @@ export function sameScopes(a: readonly BotScope[], b: readonly BotScope[]): bool
   return left.size === new Set(b).size && b.every((s) => left.has(s));
 }
 
+/** Unicode `Cc`, what Rust's `char::is_control` refuses. */
+const control = (ch: string) => {
+  const code = ch.codePointAt(0)!;
+  return code <= 0x1f || (code >= 0x7f && code <= 0x9f);
+};
+
+/**
+ * A display name as the server takes it (`valid_display_name`,
+ * `apps/server/src/bots.rs`): trimmed, 1 to 256 UTF-8 bytes, no control
+ * character. `null` when it would be refused.
+ */
+export function botDisplayName(text: string): string | null {
+  const trimmed = text.trim();
+  if (trimmed === '' || new TextEncoder().encode(trimmed).length > 256 || [...trimmed].some(control)) return null;
+  return trimmed;
+}
+
+export type BotForm = { displayName: string; description: string; scopes: readonly BotScope[] };
+
+/**
+ * What saving a bot's page sends (`PATCH /api/v1/bots/{id}`, absent fields
+ * kept): only the fields that changed, trimmed. `invalid` when the display
+ * name would be refused, and then nothing is sent.
+ */
+export function botChanges(bot: Pick<Bot, 'user' | 'description' | 'scopes'>, form: BotForm): { changes: Omit<UpdateBot, 'operation_id'>; invalid: boolean } {
+  const changes: Omit<UpdateBot, 'operation_id'> = {};
+  const name = botDisplayName(form.displayName);
+  if (name !== null && name !== bot.user.display_name) changes.display_name = name;
+  const description = form.description.trim();
+  if (description !== bot.description) changes.description = description;
+  if (!sameScopes(form.scopes, bot.scopes)) changes.scopes = [...form.scopes];
+  return { changes, invalid: name === null };
+}
+
 /**
  * The expiry field of a new key: empty means never (`null`), otherwise a whole
  * number of days from 1 to 3650 (`KEY_DAYS`); `undefined` for anything else.
@@ -92,6 +127,14 @@ export function botErrorKey(code: string, status: number): TranslationKey {
       return 'bots.errBotMember';
     case 'rate_limited':
       return 'bots.errRateLimited';
+    case 'invalid_avatar':
+      return 'bots.errInvalidAvatar';
+    case 'avatar_too_large':
+      return 'bots.errAvatarTooLarge';
+    case 'avatar_busy':
+      return 'bots.errAvatarBusy';
+    case 'storage_unavailable':
+      return 'bots.errStorageUnavailable';
   }
   if (status === 429) return 'bots.errRateLimited';
   if (status === 0 || status >= 500 || code === 'offline' || code === 'session_closed') return 'bots.errOffline';

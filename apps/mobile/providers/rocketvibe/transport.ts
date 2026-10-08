@@ -388,6 +388,13 @@ export class NativeTransport {
   createBotKey(id:string,input:NativeTypes['CreateBotKey']):Promise<NativeTypes['BotKeyCreated']> { return this.request('BotKeyCreated',`/api/v1/bots/${encodeURIComponent(id)}/keys`,input); }
   async revokeBotKey(id:string,key:string):Promise<void> { await this.value(`/api/v1/bots/${encodeURIComponent(id)}/keys/${encodeURIComponent(key)}`,undefined,false,undefined,'DELETE'); }
   botReference():Promise<NativeTypes['BotReference']> { return this.request('BotReference','/api/v1/bots/reference'); }
+  /** Sets (PNG or JPEG, 2 MiB, re-encoded by the server) or, without `upload`,
+   * removes a bot's photo; same body rules as `setAvatar`, answers the `Bot`. */
+  async setBotAvatar(id:string,upload?:{mime:string;bytes:Uint8Array}):Promise<NativeTypes['Bot']> {
+    if(upload && upload.bytes.length>2*1024*1024)throw new NativeError(413,'avatar_too_large');
+    const value=await this.value(`/api/v1/bots/${encodeURIComponent(id)}/avatar`,undefined,false,undefined,upload?'PUT':'DELETE',upload?{mime:upload.mime,body:Uint8Array.from(upload.bytes).buffer}:undefined);
+    return decodeNative('Bot',value);
+  }
   instanceSettings():Promise<NativeTypes['InstanceSettings']> { return this.request('InstanceSettings','/api/v1/admin/settings'); }
   updateInstanceSettings(input:NativeTypes['UpdateInstanceSettings']):Promise<NativeTypes['InstanceSettings']> { return this.request('InstanceSettings','/api/v1/admin/settings',input,false,undefined,'PATCH'); }
   accountPermissions(): Promise<NativeTypes['AccountPermissions']> { return this.request('AccountPermissions','/api/v1/me/permissions'); }

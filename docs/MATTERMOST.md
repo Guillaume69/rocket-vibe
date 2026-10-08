@@ -151,8 +151,10 @@ Live updates to that state (section 5):
 Marking read: `POST /channels/members/me/view {"channel_id": rid}`. The server
 answers the reading device with `multiple_channels_viewed`, not
 `channel_viewed` [probed]. **kChat sends neither** [kChat]: a read emits only
-`badge_updated` (`{badge}`, no room), so a read made elsewhere clears the counter
-at the next catch-up, not live.
+`badge_updated` (`{badge}`, no room). On it the apps read
+`GET /users/me/channel_members` again and rewrite the rooms whose `msg_count`,
+`msg_count_root`, `mention_count`, `mention_count_root` or `last_viewed_at`
+moved, so a read made elsewhere clears the counter live.
 
 ### 4.3 History
 
@@ -317,7 +319,8 @@ kChat replaced the WebSocket with the **Pusher protocol**:
 | `user_updated` | `data.user`; a new `last_picture_update` versions the photo |
 | `preferences_changed`, `preferences_deleted` | stars (4.7) |
 | `sidebar_category_created`, `sidebar_category_updated`, `sidebar_category_deleted`, `sidebar_category_order_updated` | categories (4.8) |
-| `hello`, `thread_*`, `config_changed`, `license_changed`, `plugin_statuses_changed`, `badge_updated` (kChat) | ignored |
+| `badge_updated` (kChat) | read my memberships again (4.2) |
+| `hello`, `thread_*`, `config_changed`, `license_changed`, `plugin_statuses_changed` | ignored |
 
 Presence snapshot at each connection: `POST /users/status/ids` with known user
 ids, `[{user_id, status}]`.
@@ -378,6 +381,30 @@ refuses an oversize file with 413.
 | People search | `POST /users/search {term, limit}`; channels `POST /teams/<team>/channels/search {term}` |
 | Permalink | `<server>/_redirect/pl/<postId>` (the server finds the team) |
 
+### 6.4 Custom emoji [probed]
+
+- List: `GET /emoji?page=<n>&per_page=200` → `[{id, name, creator_id, ...}]`
+  (6 on the kChat account, `EnableCustomEmoji` true on both). No aliases.
+- Image: `GET /api/v4/emoji/<id>/image`, **by id only**, bearer required. The
+  apps keep `name → image URL` (mobile persists it in `custom_emojis.uri`).
+- A message carries them as `:name:` in its text, names may hold `-`
+  (`:alb-youpi:`); a reaction's `emoji_name` is the bare name. Resolution
+  order as on Rocket.Chat: Unicode glyph, then custom image, then `:name:`.
+
+### 6.5 kMeet calls [kChat]
+
+kChat calls are kMeet (Infomaniak's Jitsi) meetings, announced by a post of
+type `custom_call`, e.g. "bob started a call", whose `props` are
+`{url, conference_id, status, start_at, end_at}` (`status: "ended"` seen;
+`FeatureFlagIkCallDialing` true on the server).
+
+- Running (no `end_at`, `status` not `ended`, `missed`, `declined` or
+  `cancelled`): the apps show a call card whose Join opens `props.url` (https
+  only) in the locked call view, origin `kmeet.infomaniak.com`.
+- Over: a `videoconf-ended` row, "📞 Call · <end_at − start_at>".
+- Starting a call is not mapped: its route was not probed (it would ring the
+  room's members).
+
 ## 7. Media [probed]
 
 - File: `GET /api/v4/files/<id>`; image preview `GET /api/v4/files/<id>/preview`.
@@ -395,8 +422,7 @@ refuses an oversize file with 413.
 ## 8. Not mapped
 
 Push (a third-party app gets none on kChat: Infomaniak's proxy routes to its own
-app id), custom emoji, calls, quotes, room
-settings and roles, end-to-end encryption, sending who types.
+app id), starting a kMeet call, quotes, room settings and roles, end-to-end encryption, sending who types.
 
 ## 9. Validating an implementation
 

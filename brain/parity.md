@@ -26,7 +26,7 @@ beta does.
 | Session in the system keychain, resumed at launch; a 401 on an authenticated call signs out | done | done | done | |
 | Server probe before login (`/api/info`, `settings.public`) | done | done | done | |
 | Choose the server type at sign-in (automatic, Rocket.Chat, RocketVibe) | done | done | done | SwiftUI checked by the Linux build of RocketVibeKit and the macOS CI build only. |
-| Mattermost server: login with MFA, rooms, history, threads, live messages, unread, who types, presence, text and files, reactions, edits, deletions, pins, stars, search - [mattermost-and-kchat](features/mattermost-and-kchat.md) | done | done | done | Push, custom emoji and quotes are not mapped on that server. SwiftUI: only the sign-in picker is Swift, checked by the macOS CI build. |
+| Mattermost server: login with MFA, rooms, history, threads, live messages, unread, who types, presence, text and files, reactions, edits, deletions, pins, stars, search - [mattermost-and-kchat](features/mattermost-and-kchat.md) | done | done | done | Push and quotes are not mapped on that server; kMeet calls are joined, not started. SwiftUI: only the sign-in picker is Swift, checked by the macOS CI build. |
 | kChat server (Infomaniak): Infomaniak sign-in or API token, Pusher real time, team servers of the account | partial | partial | partial | Run on a real kChat account with an API token (mobile on the emulator, desktop core through `kchat-smoke`, GTK and SwiftUI on that same core). Mobile: "Sign in with Infomaniak" not yet run. GTK, SwiftUI: API token only, no "Sign in with Infomaniak" (its redirect is a custom URL scheme the desktop apps do not register). |
 | Known servers offered on the login screen | done | done | done | |
 | Several servers side by side, switch without signing out | done | done | done | One database per (server, account) everywhere. |
@@ -207,6 +207,7 @@ beta does.
 |---|---|---|---|---|
 | Start and join a Jitsi call (`video-conference.start`, `.join`), Rocket.Chat servers | done | done | done | Locked on the call's origin: mobile WebView, WebView2 on Windows, WKWebView on macOS; on Linux a Chromium app window, else the browser. |
 | Meeting information: the link without the token (`video-conference.info`) | missing | done | missing | |
+| kChat kMeet calls: running call card with Join, ended call with its length | done | done | done | Starting a kMeet call is not mapped. SwiftUI: checked by the macOS CI build only. |
 
 ## 12b. Voice (RocketVibe server) - [voice](features/voice.md)
 

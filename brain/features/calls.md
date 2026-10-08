@@ -43,6 +43,10 @@ The desktop applies the same exception with the same bounds (2026-09-30), and th
 - **Linux** (`rv-gtk/src/call_window.rs`): no embedded engine, because distributions build WebKitGTK without WebRTC (`RTCPeerConnection` absent on Fedora 44 and Arch). The call opens as an app window (`--app=<url>`) of the first Chromium-family browser found in `PATH` (Chromium, Chrome, Brave, Edge, Vivaldi), with a dedicated profile under the user data dir and `--class=rocket-vibe-call`. Because the browser ignores `--class` on Wayland and derives an app id from the URL, `name_window` writes hidden `.desktop` entries (`call::app_window_id`, read from Chromium's `set_app_id`) so the window gets the app's icon, and removes stale ones. No such browser: the default browser takes the call and a toast says so.
 - Any failure to open the window falls back to the browser with the `call.in_browser` toast.
 
+## kChat (kMeet)
+
+kChat calls are kMeet meetings announced by a `custom_call` post carrying the meeting URL (`docs/MATTERMOST.md` §6.5). Both apps show a running one as the call card above, whose Join opens that URL in the same locked call view (mobile: a `NativeCalls` binding for kChat in `lib/providerCalls.ts` whose `join` returns the URL; desktop: `Session::join_call`), and an ended one as "📞 Call · duration". No start button: starting a kMeet call is not mapped.
+
 ## Parity
 
 Start, join, call card with Join, profile Call: both apps ([parity](../parity.md) §12). Desktop only: meeting info dialog with the token-free link. The origin lock is the same rule on Android, Windows and macOS; Linux delegates to a browser.

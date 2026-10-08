@@ -6,7 +6,9 @@ threads, live messages, unread counts, who types (received only, as on
 Rocket.Chat), presence, sending text and files, reactions, edits, deletions,
 pins, stars (Mattermost's flagged posts), favourites and my own sidebar
 categories as room-list sections, search in a room, room info and profiles.
-Push, custom emoji, calls, quotes and E2EE are not mapped.
+custom emoji, kChat's kMeet calls (joined from their post; starting one is not
+mapped) and live clearing of a read made in another kChat client. Push, quotes
+and E2EE are not mapped.
 A DM shows its unread count, never mentions: Mattermost counts every DM message
 in `mention_count`.
 
@@ -75,6 +77,16 @@ Rocket.Chat call fails cleanly instead of hitting the wrong server.
   `groupRank`, its position in my sidebar order (team index × 1000 + position).
   Favouriting a room is the `favorite_channel` preference
   (`MmActions.roomFavorite`). See [room-list](room-list.md).
+- Custom emoji: `Provider.listCustomEmojis` pages `GET /emoji` and gives each
+  name its image `/api/v4/emoji/<id>/image`; `syncCustomEmojis` stores it in
+  `custom_emojis.uri` (migration `0023_custom_emoji_uri`) and `ImageEmoji`
+  fetches it with the bearer (`useAuthorizedUri`). See [emoji](emoji.md).
+- kChat kMeet calls: `kmeetCall` (`providers/mattermost/translator.ts`) maps a
+  `custom_call` post to a `videoconf` whose `callId` is the meeting URL, or to
+  `videoconf-ended` with its length; `mountProviderCalls` binds a join that
+  returns that URL as is (`lib/providerCalls.ts`). See [calls](calls.md).
+- kChat reads made elsewhere: `badge_updated` makes `MmLive.recount` read my
+  memberships again and emit the rooms whose counts moved.
 - Both hand each event to `MmLive.expand` (`providers/mattermost/live.ts`), which
   does the asynchronous part (unknown users, an unknown channel, the post behind a
   reaction) and turns one event into `mm:*` envelopes: a new post becomes the
@@ -183,6 +195,13 @@ there, so the UIs read the same store:
   the subscription, as on mobile. `Session::set_favorite` writes the
   `favorite_channel` preference (`mattermost::actions::favorite`) and moves the
   room at once (`MmSync::note_favorite`) until the server's event arrives.
+- Custom emoji: `mattermost::actions::custom_emojis` in `once_per_session`
+  fills the same code→path map as Rocket.Chat, paths `/api/v4/emoji/<id>/image`.
+- kMeet calls: `translate::kmeet_call`, as on mobile; `Session::join_call` and
+  `call_link` hand back the meeting URL (`kmeet_url`). GTK draws an ended call
+  with `cards::voice_call` (no button), SwiftUI with `VoiceCallCard` (no voice
+  model, so no button).
+- `badge_updated`: `MmSync::recount`, as on mobile.
 - `mattermost::socket`: one actor for both dialects, Mattermost's
   `authentication_challenge` or kChat's Pusher (`mattermost::pusher`), a ping every
   30 s, `Lost` after 75 s of silence, the reconnection back-off of DDP.

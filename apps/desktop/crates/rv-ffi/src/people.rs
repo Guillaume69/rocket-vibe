@@ -53,6 +53,10 @@ pub struct Person {
     pub local_time: Option<String>,
     pub bio: Option<String>,
     pub avatar: String,
+    /// A RocketVibe bot account; false on Rocket.Chat.
+    pub bot: bool,
+    /// The username of the person who owns this bot.
+    pub bot_owner: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
@@ -117,6 +121,8 @@ impl Chat {
             status_text: p.status_text,
             roles: p.roles,
             bio: p.bio,
+            bot: p.bot,
+            bot_owner: p.bot_owner,
         })
     }
 

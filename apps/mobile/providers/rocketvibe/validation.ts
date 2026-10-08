@@ -10,7 +10,8 @@ type Schema = {
   items?: Schema;
   properties?: Readonly<Record<string, Schema>>;
   required?: readonly string[];
-  additionalProperties?: boolean;
+  /** `false`: no other key; a schema: every other key's value matches it (a map, `AnswerForm.answers`). */
+  additionalProperties?: boolean | Schema;
   minimum?: number;
   maximum?: number;
 };
@@ -37,6 +38,8 @@ function valid(schema: Schema, value: unknown, depth=0): boolean {
       const object = value as Record<string, unknown>;
       if (schema.required?.some(k => !Object.hasOwn(object, k))) return false;
       if (schema.additionalProperties === false && Object.keys(object).some(k => !(k in (schema.properties ?? {})))) return false;
+      const extra = schema.additionalProperties;
+      if (typeof extra === 'object' && Object.keys(object).some(k => !(k in (schema.properties ?? {})) && !valid(extra, object[k], depth+1))) return false;
       // Recursive tagged unions must reject a different kind before walking
       // children. Otherwise every impossible alternative repeats that walk.
       if(Object.entries(schema.properties??{}).some(([key,property])=>Object.hasOwn(object,key) &&

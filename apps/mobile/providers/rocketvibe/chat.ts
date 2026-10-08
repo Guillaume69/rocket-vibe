@@ -405,8 +405,29 @@ export class NativeChat {
     await this.submitRoomOperation(room,{kind:'role',target,input:{...input,operation_id:this.id()}});
   }
   private slashList:Promise<import('./protocol.generated.ts').CommandList>|null=null;
-  /** The server's slash commands, read once per session (a failure is not kept); none on a server without them. */
-  slashCommands():Promise<import('./protocol.generated.ts').CommandList> {
+  /**
+   * The server's slash commands, read once per session (a failure is not kept);
+   * none on a server without them. With `room` on a server announcing
+   * `workflows`, the list of that room, read each time the room binds: the core
+   * commands plus the workflow commands offered there (RFC 0004); when it cannot
+   * be read, the session's list.
+   */
+  async slashCommands(room?:string):Promise<import('./protocol.generated.ts').CommandList> {
+    if(room!==undefined && this.capabilities?.slash_commands && this.capabilities.workflows){
+      // A composer re-renders often: one read per room and minute is enough.
+      const now=Date.now(),kept=this.roomCommands.get(room);
+      let request=kept!==undefined && now-kept.at<60_000?kept.list:null;
+      if(request===null){
+        const read=(async()=>{this.ready();return this.transport.commands(room);})();
+        request=read;this.roomCommands.set(room,{at:now,list:read});
+        read.catch(()=>{if(this.roomCommands.get(room)?.list===read)this.roomCommands.delete(room);});
+      }
+      try{return await request;}catch{/* the core list below */}
+    }
+    return this.coreCommands();
+  }
+  private roomCommands=new Map<string,{at:number;list:Promise<import('./protocol.generated.ts').CommandList>}>();
+  private coreCommands():Promise<import('./protocol.generated.ts').CommandList> {
     if(!this.capabilities?.slash_commands)return Promise.resolve({commands:[]});
     if(this.slashList===null){
       const request=(async()=>{this.ready();return this.transport.commands();})();
@@ -755,7 +776,7 @@ export class NativeChat {
    * on a verified session, against the server signed in, with the capability
    * it announces now, and answered only to the session generation that asked.
    * `operation` gives a fresh `operation_id` per command. */
-  async administration<T>(capability:'administration'|'reports',call:(transport:NativeTransport,operation:()=>string)=>Promise<T>):Promise<T> {
+  async administration<T>(capability:'administration'|'reports'|'bots'|'workflows',call:(transport:NativeTransport,operation:()=>string)=>Promise<T>):Promise<T> {
     await this.verifiedReady();
     const generation=this.generation,discovery=await this.transport.discover();
     checkIdentity(this.session,discovery);this.roomOperationGeneration(generation);
@@ -764,6 +785,30 @@ export class NativeChat {
     const result=await call(this.transport,()=>this.id());
     this.roomOperationGeneration(generation);
     return result;
+  }
+  /** Bot management (`bots` capability, `ui/bots.tsx`), with the guarantees of
+   * `administration`: verified session, same server, same generation. */
+  bots<T>(call:(transport:NativeTransport,operation:()=>string)=>Promise<T>):Promise<T> {
+    return this.administration('bots',call);
+  }
+  /** Workflows (`workflows` capability, `ui/workflows.tsx`, RFC 0004), with the
+   * guarantees of `administration`: verified session, same server, same generation. */
+  workflows<T>(call:(transport:NativeTransport,operation:()=>string)=>Promise<T>):Promise<T> {
+    return this.administration('workflows',call);
+  }
+  /** Answers a workflow's form (`Message.form`, `app/answer-form.tsx`); the message
+   * comes back answered through sync. `operation` is the sheet's intent, kept
+   * across its retries: the same answer again succeeds. */
+  answerForm(message:string,answers:Record<string,import('./protocol.generated.ts').FormAnswer>,operation:string):Promise<void> {
+    return this.workflows(transport=>transport.answerForm(message,{operation_id:operation,answers}));
+  }
+  /** A fresh operation id, for an intent a screen keeps across its retries. */
+  operationId():string { return this.id(); }
+  /** A bot's photo, set from a picked image (`ui/pickAvatar.ts`, PNG or JPEG)
+   * or removed without `upload`: the own-avatar rules, on the bot's route. */
+  botAvatar(id:string,upload?:{mime:string;bytes:Uint8Array}):Promise<import('./protocol.generated.ts').Bot> {
+    if(upload&&!['image/png','image/jpeg'].includes(upload.mime))return Promise.reject(new NativeError(422,'invalid_avatar'));
+    return this.bots(transport=>transport.setBotAvatar(id,upload));
   }
   async messagePermissions(id: string): Promise<import('./protocol.generated.ts').MessagePermissions> {
     this.ready();

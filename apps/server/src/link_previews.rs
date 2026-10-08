@@ -8,6 +8,7 @@ use crate::{
     store::{self, MESSAGE_SELECT, MessageRow},
 };
 use axum::{http::header, response::Response};
+pub(crate) use network::public_address;
 use rv_protocol::{
     Change,
     link_previews::{LinkPreview, PreviewImage},

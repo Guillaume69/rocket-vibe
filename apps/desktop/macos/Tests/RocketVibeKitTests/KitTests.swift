@@ -186,3 +186,24 @@ final class PeerGuidanceTests: XCTestCase {
         XCTAssertEqual(cryptoFailure(RvError.Local(message: "crypto_operation_failed")), L("crypto.failed"))
     }
 }
+
+final class BotsTests: XCTestCase {
+    @MainActor
+    func testARouteNamesTheFurtherScopesItNeeds() async {
+        XCTAssertEqual(
+            BotsModel.routeText(NativeBotRoute(method: "POST", path: "/api/v1/uploads/{id}/complete", also: ["messages:write"])),
+            "POST /api/v1/uploads/{id}/complete + messages:write"
+        )
+        XCTAssertEqual(BotsModel.routeText(NativeBotRoute(method: "GET", path: "/api/v1/me", also: [])), "GET /api/v1/me")
+    }
+
+    func testABotFailureWordsTheServersCodeAndRateLimits() {
+        setFrench(french: false)
+        let limited = RvError.Server(status: 429, message: "", error: "bot_create_limit", twoFactor: nil, requestId: nil, retryAfter: 3600)
+        XCTAssertEqual(botFailure(limited), "Too many bots created today, try again later")
+        let busy = RvError.Server(status: 429, message: "", error: "bot_rate_limited", twoFactor: nil, requestId: nil, retryAfter: 1)
+        XCTAssertEqual(botFailure(busy), L("bots.error_rate_limited"))
+        let blocked = RvError.Server(status: 409, message: "", error: "crypto_bot_member", twoFactor: nil, requestId: nil, retryAfter: nil)
+        XCTAssertEqual(cryptoFailure(blocked), L("bots.error_crypto_member"))
+    }
+}

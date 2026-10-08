@@ -45,9 +45,10 @@ export function useCommands(
     const native = client.kind === 'rocketvibe' && sync.phase === 'ready' ? sync.provider.native : undefined;
     void (async () => {
       // A RocketVibe server lists its commands in Rocket.Chat's shape and
-      // checks rights when one runs: nothing to leave out here.
+      // checks rights when one runs: nothing to leave out here. Asked for this
+      // room, so the workflow commands offered here come with the core ones.
       if (native !== undefined) {
-        const raw = await native.chat.slashCommands().catch(() => null);
+        const raw = await native.chat.slashCommands(rid).catch(() => null);
         if (!canceled) setState({ raw, granted: null });
         return;
       }
@@ -69,7 +70,8 @@ export function useCommands(
     };
   }, [client, base, rid, sync]);
 
-  const commands = useMemo(() => readCommands(state.raw, language), [state.raw, language]);
+  const native = client.kind === 'rocketvibe';
+  const commands = useMemo(() => readCommands(state.raw, language, native), [state.raw, language, native]);
   return { commands, granted: state.granted };
 }
 

@@ -1,9 +1,10 @@
 # Native integration cards (P15)
 
 `SendMessage.cards` and `Message.cards` carry structured attachments.
-An integration uses a normal session and `POST /api/v1/rooms/{room}/messages`:
-it must belong to the room and have the right to write in it. No anonymous
-webhook, implicit privileged role or marketplace is added.
+An integration uses a normal session, or a [bot](BOTS.md) key with the
+`messages:write` scope, and `POST /api/v1/rooms/{room}/messages`: it must belong
+to the room and have the right to write in it. No anonymous webhook, implicit
+privileged role or marketplace is added.
 
 ```json
 {

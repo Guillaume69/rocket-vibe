@@ -409,6 +409,8 @@ pub async fn submit(
                 .map_err(|_| Error::internal())
         })
         .transpose()?;
+    // No plan can represent a bot, which has no crypto device (RFC 0003 §8).
+    crate::bots::refuse_group(&mut tx, room).await?;
     match &old {
         Some(head)
             if head.data_epoch == scope.data_epoch

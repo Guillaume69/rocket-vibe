@@ -5,7 +5,7 @@ import RocketVibeCore
 /// (`rv-gtk/src/settings.rs`), each shown only when it has something for the
 /// open account.
 public enum SettingsCategory: String, CaseIterable, Identifiable, Sendable {
-    case account, notifications, language, voice, encryption, security, devices, accounts, app
+    case account, notifications, language, voice, encryption, security, devices, bots, workflows, accounts, app
 
     public var id: String { rawValue }
     public var title: String { L("settings.cat.\(rawValue)") }
@@ -20,11 +20,15 @@ public enum SettingsCategory: String, CaseIterable, Identifiable, Sendable {
         public var crypto: Bool
         public var security: Bool
         public var devices: Bool
+        /// RocketVibe with bot accounts (RFC 0003): my bots and their keys.
+        public var bots: Bool
+        /// RocketVibe with workflows (RFC 0004): mine, their steps and runs.
+        public var workflows: Bool
         /// RocketVibe with voice: the microphone, speakers and noise remover.
         public var voice: Bool
 
-        public init(signedIn: Bool = false, legacy: Bool = false, crypto: Bool = false, security: Bool = false, devices: Bool = false, voice: Bool = false) {
-            self.signedIn = signedIn; self.legacy = legacy; self.crypto = crypto; self.security = security; self.devices = devices; self.voice = voice
+        public init(signedIn: Bool = false, legacy: Bool = false, crypto: Bool = false, security: Bool = false, devices: Bool = false, bots: Bool = false, workflows: Bool = false, voice: Bool = false) {
+            self.signedIn = signedIn; self.legacy = legacy; self.crypto = crypto; self.security = security; self.devices = devices; self.bots = bots; self.workflows = workflows; self.voice = voice
         }
     }
 
@@ -36,6 +40,8 @@ public enum SettingsCategory: String, CaseIterable, Identifiable, Sendable {
             case .encryption: return scope.signedIn && (scope.legacy || scope.crypto)
             case .security: return scope.signedIn && scope.security
             case .devices: return scope.signedIn && scope.devices
+            case .bots: return scope.signedIn && scope.bots
+            case .workflows: return scope.signedIn && scope.workflows
             case .voice: return scope.signedIn && scope.voice
             }
         }
@@ -68,6 +74,8 @@ extension AppModel {
             crypto: native?.cryptoSettingsSupported() == true,
             security: native?.securitySupported() == true,
             devices: native?.supportedFeatures().contains("device_sessions") == true,
+            bots: native?.supportedFeatures().contains("bots") == true,
+            workflows: native?.supportedFeatures().contains("workflows") == true,
             voice: voice != nil
         )
     }

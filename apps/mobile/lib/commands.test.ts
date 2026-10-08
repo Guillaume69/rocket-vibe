@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
 import {
+  commandErrorKey,
   completeCommand,
   splitCommand,
   detectCommandToken,
@@ -39,6 +40,27 @@ describe('readCommands', () => {
     assert.equal(readCommands(LIST, 'fr')[1]!.description, "Retirer quelqu'un du salon");
     assert.equal(words('Slash_Topic_Params', 'fr'), 'sujet');
     assert.equal(words('app-8b88-42.GIPHY_Search_Term', 'en'), 'GIPHY Search Term');
+  });
+
+  test('a RocketVibe list keeps the core wording and shows a workflow command as sent', () => {
+    const native = {
+      commands: [
+        { command: 'shrug', params: 'your_message_optional', description: 'Slash_Shrug_Description', client_side: true },
+        { command: 'standup', params: '', description: 'Daily_Standup of the team', client_side: false },
+        { command: 'deploy', params: '', description: 'Deploy_App', client_side: false },
+      ],
+    };
+    const c = readCommands(native, 'en', true);
+    assert.equal(c[0]!.description, 'Puts ¯\\_(ツ)_/¯ after your message');
+    assert.equal(c[1]!.description, 'Daily_Standup of the team');
+    assert.equal(c[2]!.description, 'Deploy_App');
+    assert.equal(readCommands(native, 'en')[2]!.description, 'Deploy App');
+  });
+
+  test("a workflow named like a catalogue key keeps its name", () => {
+    const list = { commands: [{ command: 'archive-old', params: '', description: 'Archive', client_side: false, literal: true }] };
+    assert.equal(readCommands(list, 'en', true)[0]!.description, 'Archive');
+    assert.equal(readCommands(list, 'fr', true)[0]!.description, 'Archive');
   });
 
   test('a response without a list yields nothing', () => {
@@ -158,4 +180,12 @@ describe('textCommand', () => {
     assert.deepEqual(textCommand('me', '  '), { kind: 'done' });
     assert.equal(textCommand('topic', 'x'), null);
   });
+});
+
+test('a workflow command refused as it starts is worded', () => {
+  assert.equal(commandErrorKey('workflow_unavailable'), 'command.workflowUnavailable');
+  assert.equal(commandErrorKey('workflow_rate_limited'), 'command.workflowRate');
+  assert.equal(commandErrorKey('workflow_busy'), 'command.workflowBusy');
+  assert.equal(commandErrorKey('unknown_command'), 'command.notFound');
+  assert.equal(commandErrorKey('something_else'), null);
 });

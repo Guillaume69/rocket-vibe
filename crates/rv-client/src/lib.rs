@@ -1211,7 +1211,7 @@ impl NativeClient {
             .request(method, format!("{}{path}", self.base))
             .bearer_auth(&sent);
         if let Some((mime, bytes)) = upload {
-            if bytes.len() > 2 * 1024 * 1024 {
+            if bytes.len() > rv_protocol::bots::AVATAR_BYTES {
                 return Err(Error::InvalidAvatar);
             }
             request = request
@@ -1596,6 +1596,16 @@ impl NativeClient {
     pub async fn commands(&self) -> Result<rv_protocol::commands::CommandList, Error> {
         self.get("/api/v1/commands").await
     }
+    /// The commands of a room: the core ones and the workflows offered there.
+    pub async fn room_commands(
+        &self,
+        room: &str,
+    ) -> Result<rv_protocol::commands::CommandList, Error> {
+        if !path_segment(room) {
+            return Err(Error::InvalidUrl);
+        }
+        self.get(&format!("/api/v1/commands?room={room}")).await
+    }
     /// Runs a server-side slash command; text commands never come here.
     pub async fn run_command(
         &self,
@@ -1696,6 +1706,232 @@ impl NativeClient {
             Some(input),
         )
         .await
+    }
+    /// Signs in as a bot with one of its keys (RFC 0003); nothing is renewed.
+    pub fn with_bot_key(&mut self, key: String) -> Result<(), Error> {
+        if !rv_protocol::bots::is_key(&key) {
+            return Err(Error::SessionMissing);
+        }
+        self.update_token(key);
+        Ok(())
+    }
+    /// The routes a key may call, by scope, as the server enforces them.
+    pub async fn bot_reference(&self) -> Result<rv_protocol::bots::BotReference, Error> {
+        self.get("/api/v1/bots/reference").await
+    }
+    /// My bots, or every bot with `all` for an administrator.
+    pub async fn bots(&self, all: bool) -> Result<rv_protocol::bots::BotList, Error> {
+        self.get(if all {
+            "/api/v1/bots?all=true"
+        } else {
+            "/api/v1/bots"
+        })
+        .await
+    }
+    pub async fn create_bot(
+        &self,
+        input: &rv_protocol::bots::CreateBot,
+    ) -> Result<rv_protocol::bots::Bot, Error> {
+        self.post("/api/v1/bots", input).await
+    }
+    pub async fn update_bot(
+        &self,
+        id: &str,
+        input: &rv_protocol::bots::UpdateBot,
+    ) -> Result<rv_protocol::bots::Bot, Error> {
+        if !path_segment(id) {
+            return Err(Error::InvalidUrl);
+        }
+        self.request(
+            Method::PATCH,
+            &format!("/api/v1/bots/{id}"),
+            Some(input),
+            false,
+        )
+        .await
+    }
+    /// Sets (PNG or JPEG) or, with `None`, removes the bot's photo.
+    pub async fn set_bot_avatar(
+        &self,
+        id: &str,
+        upload: Option<(&str, Vec<u8>)>,
+    ) -> Result<rv_protocol::bots::Bot, Error> {
+        if !path_segment(id) {
+            return Err(Error::InvalidUrl);
+        }
+        self.check_cooldown(Some("profile"))?;
+        let sent = self.saved_token().ok_or(Error::SessionMissing)?;
+        let method = if upload.is_some() {
+            Method::PUT
+        } else {
+            Method::DELETE
+        };
+        let mut request = self
+            .http
+            .request(method, format!("{}/api/v1/bots/{id}/avatar", self.base))
+            .bearer_auth(&sent);
+        if let Some((mime, bytes)) = upload {
+            if bytes.len() > rv_protocol::bots::AVATAR_BYTES {
+                return Err(Error::InvalidAvatar);
+            }
+            request = request
+                .header(reqwest::header::CONTENT_TYPE, mime)
+                .body(bytes);
+        }
+        let response = self
+            .accepted(request.send().await?, Some("profile"), Some(sent))
+            .await?;
+        Ok(response.json().await?)
+    }
+    /// Tombstones the bot and revokes its keys; repeating it is harmless.
+    pub async fn delete_bot(&self, id: &str) -> Result<(), Error> {
+        if !path_segment(id) {
+            return Err(Error::InvalidUrl);
+        }
+        self.empty(Method::DELETE, &format!("/api/v1/bots/{id}"), false)
+            .await
+    }
+    pub async fn bot_keys(&self, id: &str) -> Result<rv_protocol::bots::BotKeyList, Error> {
+        if !path_segment(id) {
+            return Err(Error::InvalidUrl);
+        }
+        self.get(&format!("/api/v1/bots/{id}/keys")).await
+    }
+    /// The only answer that carries the key. Needs a recent sign-in.
+    pub async fn create_bot_key(
+        &self,
+        id: &str,
+        input: &rv_protocol::bots::CreateBotKey,
+    ) -> Result<rv_protocol::bots::BotKeyCreated, Error> {
+        if !path_segment(id) {
+            return Err(Error::InvalidUrl);
+        }
+        self.post(&format!("/api/v1/bots/{id}/keys"), input).await
+    }
+    pub async fn revoke_bot_key(&self, id: &str, key: &str) -> Result<(), Error> {
+        if !path_segment(id) || !path_segment(key) {
+            return Err(Error::InvalidUrl);
+        }
+        self.empty(
+            Method::DELETE,
+            &format!("/api/v1/bots/{id}/keys/{key}"),
+            false,
+        )
+        .await
+    }
+    /// My workflows, or every workflow with `all` for an administrator.
+    pub async fn workflows(
+        &self,
+        all: bool,
+    ) -> Result<rv_protocol::workflows::WorkflowList, Error> {
+        self.get(if all {
+            "/api/v1/workflows?all=true"
+        } else {
+            "/api/v1/workflows"
+        })
+        .await
+    }
+    pub async fn workflow(&self, id: &str) -> Result<rv_protocol::workflows::Workflow, Error> {
+        if !path_segment(id) {
+            return Err(Error::InvalidUrl);
+        }
+        self.get(&format!("/api/v1/workflows/{id}")).await
+    }
+    pub async fn create_workflow(
+        &self,
+        input: &rv_protocol::workflows::CreateWorkflow,
+    ) -> Result<rv_protocol::workflows::Workflow, Error> {
+        self.post("/api/v1/workflows", input).await
+    }
+    pub async fn update_workflow(
+        &self,
+        id: &str,
+        input: &rv_protocol::workflows::UpdateWorkflow,
+    ) -> Result<rv_protocol::workflows::Workflow, Error> {
+        if !path_segment(id) {
+            return Err(Error::InvalidUrl);
+        }
+        self.request(
+            Method::PUT,
+            &format!("/api/v1/workflows/{id}"),
+            Some(input),
+            false,
+        )
+        .await
+    }
+    pub async fn delete_workflow(&self, id: &str) -> Result<(), Error> {
+        if !path_segment(id) {
+            return Err(Error::InvalidUrl);
+        }
+        self.empty(Method::DELETE, &format!("/api/v1/workflows/{id}"), false)
+            .await
+    }
+    /// Owner or administrator: stops it and its unfinished runs.
+    pub async fn disable_workflow(
+        &self,
+        id: &str,
+    ) -> Result<rv_protocol::workflows::Workflow, Error> {
+        if !path_segment(id) {
+            return Err(Error::InvalidUrl);
+        }
+        self.post(&format!("/api/v1/workflows/{id}/disable"), &())
+            .await
+    }
+    /// A new webhook secret, the only answer that carries it.
+    pub async fn workflow_webhook(
+        &self,
+        id: &str,
+    ) -> Result<rv_protocol::workflows::WebhookSecret, Error> {
+        if !path_segment(id) {
+            return Err(Error::InvalidUrl);
+        }
+        self.post(&format!("/api/v1/workflows/{id}/webhook"), &())
+            .await
+    }
+    pub async fn workflow_runs(
+        &self,
+        id: &str,
+    ) -> Result<rv_protocol::workflows::WorkflowRunList, Error> {
+        if !path_segment(id) {
+            return Err(Error::InvalidUrl);
+        }
+        self.get(&format!("/api/v1/workflows/{id}/runs")).await
+    }
+    pub async fn test_workflow(
+        &self,
+        id: &str,
+    ) -> Result<rv_protocol::workflows::RunStarted, Error> {
+        if !path_segment(id) {
+            return Err(Error::InvalidUrl);
+        }
+        self.post(&format!("/api/v1/workflows/{id}/test"), &())
+            .await
+    }
+    /// Answers a form a workflow posted in a message.
+    pub async fn answer_form(
+        &self,
+        message: &str,
+        input: &rv_protocol::workflows::AnswerForm,
+    ) -> Result<(), Error> {
+        if !path_segment(message) {
+            return Err(Error::InvalidUrl);
+        }
+        self.empty_input(
+            Method::POST,
+            &format!("/api/v1/forms/{message}/answer"),
+            Some(input),
+        )
+        .await
+    }
+    pub async fn instance_settings(&self) -> Result<rv_protocol::bots::InstanceSettings, Error> {
+        self.get("/api/v1/admin/settings").await
+    }
+    pub async fn update_instance_settings(
+        &self,
+        input: &rv_protocol::bots::UpdateInstanceSettings,
+    ) -> Result<rv_protocol::bots::InstanceSettings, Error> {
+        self.request(Method::PATCH, "/api/v1/admin/settings", Some(input), false)
+            .await
     }
     /// Every room, direct conversations included; metadata and counts only.
     pub async fn admin_rooms(

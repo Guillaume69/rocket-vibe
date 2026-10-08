@@ -11,9 +11,10 @@ import {Tappable} from './tappable.tsx';
 import {useT} from './i18n.ts';
 import {useCoalescedLiveQuery} from './liveQuery.ts';
 import {FONTS,type Colors} from './theme.ts';
+import {BotBadge} from './botBadge.tsx';
 import type {TranslationKey} from './messages.ts';
 
-const errors:Record<string,TranslationKey>={last_room_owner:'roomManagement.lastOwner',revision_conflict:'roomManagement.conflict',room_action_pending:'roomManagement.pending',room_action_failed:'roomManagement.rejected',rate_limited:'roomManagement.rateLimited',offline:'roomManagement.offline',delivery_revalidate:'roomManagement.refresh',invalid_room_receipt:'roomManagement.refresh',unsupported_feature:'roomManagement.unavailable'};
+const errors:Record<string,TranslationKey>={last_room_owner:'roomManagement.lastOwner',revision_conflict:'roomManagement.conflict',room_action_pending:'roomManagement.pending',room_action_failed:'roomManagement.rejected',rate_limited:'roomManagement.rateLimited',offline:'roomManagement.offline',delivery_revalidate:'roomManagement.refresh',invalid_room_receipt:'roomManagement.refresh',unsupported_feature:'roomManagement.unavailable',bot_encrypted_room:'bots.errEncryptedRoom',crypto_bot_member:'bots.errBotMember'};
 const roleKey:Record<RoomRole,TranslationKey>={owner:'roomManagement.owner',moderator:'roomManagement.moderator',member:'roomManagement.member'};
 function fields(details:RoomSettings):RoomFields{return {name:details.name,isPrivate:details.isPrivate,topic:details.topic,description:details.description,announcement:details.announcement,readOnly:details.readOnly,...(details.voice!==undefined?{voice:details.voice}:{})};}
 
@@ -68,7 +69,7 @@ export function RoomCommands({rid,base,details,actions,c,refresh}:{rid:string;ba
     </View>:details.canEdit && button(t('roomManagement.edit'),()=>setEdit({revision:details.revision,fields:fields(details)}),!!intent)}
     {button(t('roomManagement.members'),()=>loadMembers(false))}
     {members?.members.map(member=><View key={member.id} style={[styles.member,{borderColor:c.softBorder}]}>
-      <Text style={{color:c.text}}>{member.name||member.username} · @{member.username}</Text>
+      <View style={styles.memberName}><Text style={[styles.memberText,{color:c.text}]}>{member.name||member.username} · @{member.username}</Text>{member.bot===true && <BotBadge c={c}/>}</View>
       <Text style={{color:c.dimmed}}>{t(roleKey[member.role])}{member.deactivated?' · '+t('roomManagement.deactivated'):''}</Text>
       {details.canChangeRoles && <View style={styles.roles}>{(['member','moderator','owner'] as const).map(role=>button(t(roleKey[role]),()=>void run(()=>actions.changeRole(rid,members.revision,member.id,role)),member.deactivated||member.role===role||!!intent))}</View>}
     </View>)}
@@ -76,4 +77,4 @@ export function RoomCommands({rid,base,details,actions,c,refresh}:{rid:string;ba
     {details.canLeave && button(t('roomManagement.leave'),()=>Alert.alert(t('roomManagement.leave'),t('roomManagement.confirmLeave'),[{text:t('common.cancel'),style:'cancel'},{text:t('roomManagement.leave'),style:'destructive',onPress:()=>void run(()=>actions.leave(rid,details.revision))}],dismissible()),!!intent)}
   </View>;
 }
-const styles=StyleSheet.create({root:{gap:12,marginTop:12},fields:{gap:10},field:{gap:6},input:{borderRadius:12,padding:12,fontFamily:FONTS.body,fontSize:15,textAlignVertical:'top'},toggle:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',gap:12},label:{flex:1,gap:2},button:{padding:12,borderRadius:12},buttonText:{fontFamily:FONTS.body,fontSize:15},saved:{padding:12,borderRadius:12,gap:8},member:{gap:6,paddingVertical:10,borderBottomWidth:1},roles:{flexDirection:'row',flexWrap:'wrap',gap:6}});
+const styles=StyleSheet.create({root:{gap:12,marginTop:12},fields:{gap:10},field:{gap:6},input:{borderRadius:12,padding:12,fontFamily:FONTS.body,fontSize:15,textAlignVertical:'top'},toggle:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',gap:12},label:{flex:1,gap:2},button:{padding:12,borderRadius:12},buttonText:{fontFamily:FONTS.body,fontSize:15},saved:{padding:12,borderRadius:12,gap:8},member:{gap:6,paddingVertical:10,borderBottomWidth:1},memberName:{flexDirection:'row',alignItems:'center',gap:8},memberText:{flexShrink:1},roles:{flexDirection:'row',flexWrap:'wrap',gap:6}});

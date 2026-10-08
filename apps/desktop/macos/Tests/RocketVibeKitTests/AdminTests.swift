@@ -18,6 +18,8 @@ final class FakeAdmin: ServerAdminProtocol, @unchecked Sendable {
     /// Rocket.Chat deleting a reported message only with all of its author's.
     var bulkOnly: UInt64?
     var product_: AdminProduct = .rocketVibe
+    /// Nil: a server without bots.
+    var userBots_: Bool? = false
 
     static func user(_ id: String, admin: Bool = false, active: Bool = true) -> AdminUser {
         AdminUser(id: id, username: id, name: id.capitalized, avatar: nil, avatarVersion: nil, admin: admin, active: active,
@@ -54,6 +56,13 @@ final class FakeAdmin: ServerAdminProtocol, @unchecked Sendable {
             asOf: "2026-10-07T09:00:00Z")
     }
     func latestVersion() async -> String? { "1.0.0" }
+    func userBots() async throws -> Bool? { userBots_ }
+    func setUserBots(on: Bool) async throws -> Bool {
+        calls.append("userBots:\(on)")
+        try refuse()
+        userBots_ = on
+        return on
+    }
     func users(after: String?, query: String) async throws -> AdminUserPage {
         calls.append("users:\(query):\(after ?? "")")
         if let delay = delays[query] { try await Task.sleep(nanoseconds: delay) }
@@ -192,6 +201,11 @@ final class AdminTests: XCTestCase {
         XCTAssertEqual(model.asOf, "Figures as of 7 Oct 2026")
         XCTAssertEqual(model.updateNote, "Update available: 1.0.0")
         XCTAssertEqual(model.deleteUserBody, L("admin.delete_user_body_rv"))
+        try await until { model.userBots != nil }
+        XCTAssertEqual(model.userBots, false, "bots closed to members by default")
+        await model.setUserBots(true)
+        XCTAssertEqual(model.userBots, true)
+        XCTAssertEqual(fake.calls.last, "userBots:true")
 
         model.show(.moderation)
         try await until { model.reportedMessages.loaded }

@@ -23,7 +23,13 @@ rv-server set-user <uid> --disabled true --operation-id suspend-account-001
 rv-server set-user <uid> --disabled false --operation-id restore-account-001
 rv-server set-user <uid> --admin true --revision <revision> --operation-id grant-admin-001
 rv-server set-user <uid> --create-public-room false --operation-id creation-policy-001
+rv-server set-instance --user-bots true
 ```
+
+`set-instance --user-bots true|false` opens bot creation to every account
+(administrators always may), see [BOTS.md](BOTS.md). A bot is never made an
+administrator (`bot_privilege`), nor re-enabled while it is a member of an
+encrypted room (`bot_encrypted_room`).
 
 Absent fields are kept. A supplied policy version is
 verified under lock; a conflict modifies nothing. An effective change
@@ -120,7 +126,12 @@ reported message.
   version.
 - `PATCH /admin/users/{id}` takes `UpdateAdminUser {operation_id, revision,
   admin?, disabled?}` and answers the current `AdminUser`. It applies the CLI's
-  `set-user` change (same revocations) with the expected revision.
+  `set-user` change (same revocations) with the expected revision. `AdminUser.bot`
+  marks a bot account ([BOTS.md](BOTS.md)): it is refused the admin right
+  (`409 bot_privilege`).
+- `GET`/`PATCH /admin/settings` read and change the instance settings,
+  `InstanceSettings {user_bots}` and `UpdateInstanceSettings {operation_id,
+  user_bots?}`: whether every account may create bots.
 - `POST /admin/users/{id}/delete` takes `DeleteAdminUser {operation_id,
   revision}` and answers `204`.
 - `GET /admin/rooms?q=&after=&limit=` pages every room by name, direct

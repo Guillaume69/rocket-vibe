@@ -373,6 +373,10 @@ pub struct MessageItem {
     pub thread_id: Option<String>,
     pub pinned: bool,
     pub starred: bool,
+    /// Written by a bot account (RocketVibe): a "BOT" badge beside the name.
+    pub author_bot: bool,
+    /// A form a workflow asks (RocketVibe, RFC 0004): its card and who may answer.
+    pub form: Option<crate::native_workflows::FormItem>,
 }
 
 pub fn quote(q: content::Quote, me: &str) -> Quote {
@@ -396,6 +400,7 @@ pub fn message(d: Display, me_id: &str, me: &str) -> MessageItem {
     let encrypted = row.system_type.as_deref() == Some("e2e");
     let is_call = row.system_type.as_deref() == Some("videoconf");
     let system = row.system_type.clone().filter(|k| k != "e2e");
+    let form = rv_core::native::workflows::row_form(&row);
     let (body, text, locked) = if system.is_some() {
         (Vec::new(), None, false)
     } else if encrypted {
@@ -403,6 +408,10 @@ pub fn message(d: Display, me_id: &str, me: &str) -> MessageItem {
             Some(t) => (markup::blocks(markdown::render(None, Some(t), &ctx)), Some(t.clone()), false),
             None => (Vec::new(), None, true),
         }
+    } else if form.as_ref().is_some_and(|f| rv_core::native::workflows::text_is_form_title(row.text.as_deref(), f)) {
+        // A form step's text is its title, which the card shows already;
+        // the text stays for copy and quote.
+        (Vec::new(), row.text.clone(), false)
     } else {
         (markup::blocks(markdown::render(row.md.as_deref(), row.text.as_deref(), &ctx)), row.text.clone(), false)
     };
@@ -472,6 +481,8 @@ pub fn message(d: Display, me_id: &str, me: &str) -> MessageItem {
         thread_count: row.thread_count,
         pinned: row.pinned,
         starred: row.starred_by(me_id),
+        author_bot: row.author_bot,
+        form: form.map(|form| crate::native_workflows::form_item(form, me_id)),
         id: row.id,
         rid: row.rid,
         ts: row.ts,
@@ -510,6 +521,22 @@ mod tests {
 
     fn display(row: MessageRow) -> Display {
         Display { row, show_header: true, show_day: false, gutter_time: false, new_marker: false }
+    }
+
+    #[test]
+    fn a_form_message_shows_its_title_once() {
+        let form = r#"{"title":"Standup","fields":[{"id":"today","label":"Today","kind":"text","required":true}],"expires_at":"2099-01-01T00:00:00+00:00"}"#;
+        let asked = MessageRow {
+            text: Some("Standup".into()),
+            form: Some(form.into()),
+            author_id: "bot".into(),
+            ..Default::default()
+        };
+        let m = message(display(asked.clone()), "U1", "me");
+        assert!(m.body.is_empty(), "the card says the title");
+        assert_eq!((m.text.as_deref(), m.form.map(|f| f.can_answer)), (Some("Standup"), Some(true)));
+        let other = message(display(MessageRow { text: Some("Answer this".into()), ..asked }), "U1", "me");
+        assert!(!other.body.is_empty());
     }
 
     #[test]

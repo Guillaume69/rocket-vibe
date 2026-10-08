@@ -11,9 +11,32 @@ section here.
 
 - A pill over the top of a room (GTK and SwiftUI), "N new messages since HH:MM", while the
   first unread message is above the view; a click jumps to it.
+- Bot accounts on RocketVibe servers (GTK and SwiftUI): a Bots category in the settings
+  lists my bots, creates one (when the administrator allows it), edits its display name,
+  description and scopes (each with the API routes the server opens to it), changes or
+  removes its photo, creates a key shown once with a ready-to-paste example, revokes keys
+  and deletes the bot. Messages, profiles and room members show a "BOT" badge; a bot's
+  profile names its owner and shows no encryption identity. The administration's
+  dashboard gets a "Users can create bots" switch, and its Users list marks RocketVibe
+  bots and does not offer making a bot an administrator.
+- Workflows on RocketVibe servers (GTK and SwiftUI): a Workflows category in the settings
+  lists my workflows (trigger in words, on or off, last run) and edits them: a name, one of
+  my bots, a trigger (a slash command, a schedule in a time zone, someone joining a room, a
+  reaction in a room, a message containing some text, an incoming webhook whose URL is shown
+  once) and steps to add, reorder and remove (send a message, wait, call an HTTP service, ask
+  a form whose fields are a short or long text, a number, a choice or a person, a choice or a
+  person taking one answer or several), with a Variables menu inserting `{{…}}`; Save, Test
+  (not for a command, which is tried by typing it), Disable, Delete and the run history. A
+  form a workflow posts shows as a card in the room, with an Answer dialog for its recipient,
+  or for any member of the room when it names none, and who answered once done. Workflow
+  commands join the room's command list.
 
 ### Fixed
 
+- GTK: buttons in the settings and administration lists (Save, Create key, Confirm my identity,
+  Open moderation...) were flattened to a thin line and their icons oversized; expandable rows,
+  entry rows and combo rows lost their look the same way. Monospace texts (bot keys, API routes)
+  now use a monospace font, and a wrapped key or command is never hyphenated.
 - GTK: Restart, after an update installed in place, did nothing on Linux tarball installs.
 - GTK: a message no longer disappears and comes back when someone reacts to it or
   edits it.

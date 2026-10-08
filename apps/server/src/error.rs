@@ -9,7 +9,7 @@ use rv_protocol::ApiError;
 pub struct Error {
     pub status: StatusCode,
     pub code: &'static str,
-    retry_after: Option<u64>,
+    pub(crate) retry_after: Option<u64>,
 }
 pub type Result<T> = std::result::Result<T, Error>;
 

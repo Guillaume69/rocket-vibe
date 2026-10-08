@@ -525,7 +525,7 @@ public final class RoomModel {
 
     func load() async {
         guard active, !loading else { return }
-        if let native = provider.native { Task { await native.prepareCommands() } }
+        if let native = provider.native { let rid = room.rid; Task { await native.prepareCommands(room: rid) } }
         if privateMode { await refreshPrivate(); return }
         refreshRoomAccess()
         reload()

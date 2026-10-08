@@ -48,6 +48,36 @@ test('native room activity survives SQLite and uses the existing translated syst
   db.close();
 });
 
+test('a bot author is stored natively and follows the author on each update',async()=>{
+  const {db,store}=setup();
+  const bot=decodeNative('Message',{...message,author:{...message.author,bot:true}});
+  await store.applySnapshot({...snapshot,messages:[bot]});
+  assert.equal(db.prepare('SELECT author_bot FROM messages WHERE id=?').get(message.id)!.author_bot,1);
+  assert.equal(localMessage(bot).authorBot,true);
+  await store.applySnapshot({...snapshot,messages:[message],cursor:'person'});
+  assert.equal(db.prepare('SELECT author_bot FROM messages WHERE id=?').get(message.id)!.author_bot,0);
+  db.close();
+});
+
+test('a workflow form is stored natively as JSON and follows each update of its message',async()=>{
+  const {db,store}=setup();
+  const form=fixture.workflows.workflow_form;
+  const asked=decodeNative('Message',{...message,text:form.title,author:{...message.author,bot:true},form});
+  await store.applySnapshot({...snapshot,messages:[asked]});
+  const stored=()=>(db.prepare('SELECT form FROM messages WHERE id=?').get(message.id) as {form:string|null}).form;
+  assert.deepEqual(JSON.parse(stored()!),form);
+  assert.equal(localMessage(asked).form,JSON.stringify(form));
+  // Answered: the server publishes the message again with `answered_by`.
+  const answered=decodeNative('Message',{...asked,revision:String(BigInt(asked.revision)+1n),form:{...form,answered_by:form.recipient,answered_at:'2026-10-08T10:00:00+00:00'}});
+  await store.applySnapshot({...snapshot,messages:[answered],cursor:'answered'});
+  assert.equal(JSON.parse(stored()!).answered_by.username,'alice');
+  // A message without a form clears it.
+  await store.applySnapshot({...snapshot,messages:[{...message,revision:String(BigInt(asked.revision)+2n)}],cursor:'plain'});
+  assert.equal(stored(),null);
+  assert.equal(localMessage(message).form,null);
+  db.close();
+});
+
 test('closing and reopening an on-disk SQLite database preserves the outbox and committed cursor',async () => {
   const directory = mkdtempSync(join(tmpdir(),'rocketvibe-native-'));
   const filename = join(directory,'account.sqlite');

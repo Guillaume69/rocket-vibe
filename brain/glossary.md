@@ -18,6 +18,31 @@ All code, comments and docs are in English. French survives in two places only: 
 | Listening choices | How this device hears a call and shares its screen: each person's volume and a mute for oneself, input and output volumes, the noise remover, the share's quality. Kept per device, never sent to the server. | [voice](features/voice.md) |
 | Noise remover | RNNoise (`nnnoiseless`) on the microphone, on by default; its voice probability also tells whether you speak. | [voice](features/voice.md) |
 
+## Bots (RocketVibe server)
+
+| Term | Meaning | More |
+|---|---|---|
+| Bot | An account owned by a person (`users.bot`, `bots`), acting with API keys inside its scopes; never signs in, never in an encrypted room. | [bots](features/bots.md) |
+| Bot key | `rvb_` and 64 hex digits; a session of its own device, shown once at creation, revocable. | [bots](features/bots.md) |
+| Scope | One of the seven rights a bot is granted (`rooms:read`, `messages:write`, ...); each opens a fixed list of routes. | [bots](features/bots.md) |
+| Bot gate | The route layer (`apps/server/src/bots.rs`, `gate`) that admits a key only on the routes of its scopes; deny by default. | [bots](features/bots.md) |
+| Bot reference | `GET /api/v1/bots/reference`: the gate's table, by scope, which the apps show as the bot API. | [bots](features/bots.md) |
+
+## Workflows (RocketVibe server)
+
+| Term | Meaning | More |
+|---|---|---|
+| Workflow | A person's automation: a trigger and ordered steps, acting through one of their bots (`workflows` table). | [workflows](features/workflows.md) |
+| Trigger | What starts a run: `command`, `schedule`, `member_joined`, `reaction_added`, `message_posted`, `webhook`. | [workflows](features/workflows.md) |
+| Step | One action of a run: `message`, `wait`, `http`, `form`. | [workflows](features/workflows.md) |
+| Run | One execution (`workflow_runs`): its own copy of the definition, a context, the current step, a lease while advanced. | [workflows](features/workflows.md) |
+| Run context | The JSON a run's templates read: `trigger`, `webhook`, `now` and each step's `save_as`. | [workflows](features/workflows.md) |
+| `save_as` | The name under which a step's result (a message id, an HTTP answer, a form's answers) joins the run context. | [workflows](features/workflows.md) |
+| Template | A step text with `{{path.to.value}}` placeholders, rendered from the run context (`workflows/template.rs`). | [workflows](features/workflows.md) |
+| Form | A message a form step posts, with `Message.form` (fields, recipient, who answered); answered in a native sheet. | [workflows](features/workflows.md) |
+| Person field | A form field answered with someone: from a list, or any non-bot member of the room; the run sees the username. | [workflows](features/workflows.md) |
+| Internal bot session | A `bot_keys` row flagged `internal`: the session the engine posts with as the bot, never listed nor counted. | [workflows](features/workflows.md) |
+
 ## Rocket.Chat protocol
 
 | Term | Meaning | More |

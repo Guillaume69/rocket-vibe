@@ -460,6 +460,7 @@ struct MessageRow: View, Equatable {
                             Text(message.author)
                                 .font(.vibe(13.5, .heavy))
                                 .foregroundStyle(message.mine ? Vibe.pink : Vibe.text)
+                            if message.authorBot { AdminBadge(text: L("bots.badge"), color: Vibe.sky) }
                             Text(Formatting.time(message.ts)).font(.vibe(11, .semibold)).foregroundStyle(Vibe.faint)
                                 .help(model?.messageTimeHelp ?? "")
                         }
@@ -541,6 +542,9 @@ struct MessageRow: View, Equatable {
             } else {
                 LinkCard(card: card)
             }
+        }
+        if let form = message.form {
+            WorkflowFormCard(messageId: message.id, rid: message.rid, form: form, model: model)
         }
         if !message.reactions.isEmpty {
             HStack(spacing: 6) {
@@ -1018,6 +1022,216 @@ struct CallCard: View {
         )
         .padding(10)
         .vibeCard()
+    }
+}
+
+/// The form a workflow's message carries (RFC 0004): its title, who answers,
+/// then Answer while it is mine to answer, who answered, or that it expired.
+struct WorkflowFormCard: View {
+    let messageId: String
+    let rid: String
+    let form: FormItem
+    /// None in the sample gallery: no answering there.
+    let model: RoomModel?
+    @State private var answering = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Image(systemName: "list.bullet.rectangle").foregroundStyle(Vibe.violet)
+                Text(form.title).font(.vibe(13.5, .bold))
+            }
+            Text(form.recipient.map { L("workflows.form_for", ["user": $0]) } ?? L("workflows.form_anyone"))
+                .font(.vibe(12, .semibold))
+                .foregroundStyle(.secondary)
+            if let name = form.answeredBy {
+                Label(L("workflows.form_answered_by", ["name": name]), systemImage: "checkmark.circle")
+                    .foregroundStyle(Vibe.mint)
+            } else if form.expired {
+                Label(L("workflows.form_expired"), systemImage: "clock").foregroundStyle(.secondary)
+            } else if form.canAnswer, model != nil {
+                Button(L("workflows.form_answer")) { answering = true }
+                    .buttonStyle(VibeButtonStyle())
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: 420, alignment: .leading)
+        .vibeCard()
+        .modalOverlay(isPresented: $answering, style: .sheet(width: 520, height: 560)) {
+            if let model { WorkflowFormSheet(messageId: messageId, rid: rid, form: form, model: model) }
+        }
+    }
+}
+
+/// One option of a form field: what is sent, and its words.
+struct WorkflowPick: Identifiable {
+    let id: String
+    let name: String
+}
+
+/// Answering a workflow's form: each field as its kind asks, the required
+/// ones marked. Submit sends it; a refusal shows here, worded; once sent it
+/// closes. A click outside closes it, nothing sent.
+struct WorkflowFormSheet: View {
+    @Environment(AppModel.self) var app
+    @Environment(\.closeModal) var dismiss
+    let messageId: String
+    let rid: String
+    let form: FormItem
+    let model: RoomModel
+    /// Each field's values: one for most, the ticked ones for a multiple field.
+    @State private var values: [String: [String]] = [:]
+    @State private var error: String?
+    @State private var busy = false
+    /// The room's members, for a person field that lists nobody; read on open.
+    @State private var members: [NativeWorkflowUser]?
+    /// Each such field's search, by field id.
+    @State private var searches: [String: String] = [:]
+
+    var body: some View {
+        SheetFrame(title: form.title) {
+            Form {
+                ForEach(form.fields, id: \.id) { field in
+                    fieldView(field)
+                }
+                if let error { Text(error).foregroundStyle(.red) }
+                HStack {
+                    Spacer()
+                    Button(L("actions.cancel")) { dismiss() }
+                    Button(L("workflows.form_submit"), action: submit)
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(busy)
+                }
+            }
+            .formStyle(.grouped)
+            .scrollContentBackground(.hidden)
+        }
+        .task {
+            guard form.fields.contains(where: { $0.kind == "person" && $0.people.isEmpty }) else { return }
+            switch await model.formMembers(rid: rid) {
+            case let .success(found): members = found
+            case let .failure(failure): members = []; error = failure.text
+            }
+        }
+        .onAppear {
+            // A required single choice starts on its first option: it has no empty entry.
+            for field in form.fields where field.kind == "choice" && field.required && !field.multiple && values[field.id] == nil {
+                values[field.id] = field.options.first.map { [$0] } ?? []
+            }
+        }
+    }
+
+    private func label(_ field: NativeFormField) -> String {
+        field.required ? field.label + " *" : field.label
+    }
+
+    /// A field's one value.
+    private func value(_ id: String) -> Binding<String> {
+        Binding(get: { values[id]?.first ?? "" }, set: { values[id] = $0.isEmpty ? [] : [$0] })
+    }
+
+    /// Whether `item` is ticked among a multiple field's values.
+    private func ticked(_ id: String, _ item: String) -> Binding<Bool> {
+        Binding(get: { values[id]?.contains(item) ?? false },
+                set: { values[id] = workflowTick(values[id] ?? [], item, $0) })
+    }
+
+    /// A choice among `items`: radios for one answer,
+    /// checkboxes for several.
+    @ViewBuilder func pick(_ field: NativeFormField, _ items: [WorkflowPick]) -> some View {
+        if field.multiple {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(items) { item in
+                    Toggle(item.name, isOn: ticked(field.id, item.id)).toggleStyle(.checkbox)
+                }
+            }
+        } else {
+            Picker("", selection: value(field.id)) {
+                if !field.required { Text(L("workflows.form_choose")).tag("") }
+                ForEach(items) { item in Text(item.name).tag(item.id) }
+            }
+            .pickerStyle(.radioGroup)
+            .labelsHidden()
+        }
+    }
+
+    @ViewBuilder func fieldView(_ field: NativeFormField) -> some View {
+        switch field.kind {
+        case "long_text":
+            VStack(alignment: .leading, spacing: 4) {
+                Text(label(field))
+                TextEditor(text: value(field.id))
+                    .frame(minHeight: 80, maxHeight: 200)
+                    .scrollContentBackground(.hidden)
+                    .padding(4)
+                    .background(Vibe.deep, in: RoundedRectangle(cornerRadius: 6))
+                    .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Vibe.line))
+            }
+        case "choice":
+            if field.multiple {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(label(field))
+                    pick(field, field.options.map { WorkflowPick(id: $0, name: $0) })
+                }
+            } else {
+                Picker(label(field), selection: value(field.id)) {
+                    if !field.required { Text(L("workflows.form_choose")).tag("") }
+                    ForEach(field.options, id: \.self) { option in Text(option).tag(option) }
+                }
+            }
+        case "person":
+            person(field)
+        default:
+            // Text and numbers: one line, a number checked by the server.
+            TextField(label(field), text: value(field.id))
+        }
+    }
+
+    /// A person field: its fixed people, or the room's members to search;
+    /// one or several are chosen, the answer being their user ids.
+    @ViewBuilder func person(_ field: NativeFormField) -> some View {
+        let chosen = values[field.id] ?? []
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label(field))
+            if !field.people.isEmpty {
+                pick(field, field.people.map { WorkflowPick(id: $0, name: workflowPersonName($0, in: form.people)) })
+            } else if let members {
+                TextField(L("workflows.people_search"), text: Binding(
+                    get: { searches[field.id] ?? "" }, set: { searches[field.id] = $0 }
+                ))
+                let matching = Array(workflowPeopleMatching(members, searches[field.id] ?? "").prefix(50))
+                // Those chosen stay shown while the search hides them.
+                let shown = members.filter { member in chosen.contains(member.id) && !matching.contains { $0.id == member.id } }
+                    + matching
+                if shown.isEmpty {
+                    Text(L("workflows.people_none")).foregroundStyle(.secondary)
+                } else {
+                    pick(field, shown.map { WorkflowPick(id: $0.id, name: workflowPersonName($0)) })
+                }
+            } else {
+                ProgressView().controlSize(.small)
+            }
+        }
+    }
+
+    func submit() {
+        let checked = workflowFormAnswers(form.fields, values)
+        guard case let .ready(answers) = checked else {
+            error = checked.problem
+            return
+        }
+        busy = true
+        error = nil
+        Task {
+            let failure = await model.answerForm(message: messageId, answers: answers)
+            busy = false
+            if let failure {
+                error = failure
+            } else {
+                app.notice = L("workflows.form_sent")
+                dismiss()
+            }
+        }
     }
 }
 

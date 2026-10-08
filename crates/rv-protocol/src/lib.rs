@@ -4,6 +4,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 pub mod admin;
+pub mod bots;
 pub mod cards;
 pub mod commands;
 pub mod custom_emojis;
@@ -18,6 +19,7 @@ pub mod push;
 pub mod search;
 pub mod system;
 pub mod voice;
+pub mod workflows;
 
 pub const VERSION: u32 = 1;
 
@@ -115,6 +117,12 @@ pub struct Capabilities {
     /// Members can report a message or an account to the administrators.
     #[serde(default)]
     pub reports: bool,
+    /// Bot accounts with API keys and scopes (RFC 0003).
+    #[serde(default)]
+    pub bots: bool,
+    /// Workflows acting through bots (RFC 0004).
+    #[serde(default)]
+    pub workflows: bool,
 }
 
 impl Default for Capabilities {
@@ -169,6 +177,8 @@ impl Default for Capabilities {
             voice: false,
             administration: false,
             reports: false,
+            bots: false,
+            workflows: false,
         }
     }
 }
@@ -229,7 +239,9 @@ impl Capabilities {
             slash_commands,
             voice,
             administration,
-            reports
+            reports,
+            bots,
+            workflows
         );
         features
     }
@@ -255,6 +267,9 @@ pub struct User {
     /// username is a reserved `deleted-` placeholder and its display name empty.
     #[serde(default, skip_serializing_if = "is_false")]
     pub deleted: bool,
+    /// A bot account (RFC 0003), owned by a person and acting with API keys.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub bot: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -393,6 +408,9 @@ pub struct Message {
     /// The outcome of a direct call, on its `call_started` row.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub call: Option<Box<voice::CallSummary>>,
+    /// A form a workflow asks (RFC 0004).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub form: Option<Box<workflows::WorkflowForm>>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -583,6 +601,8 @@ pub struct Contract {
     pub command_list: commands::CommandList,
     pub run_command: commands::RunCommand,
     pub administration: admin::AdminContract,
+    pub bots: bots::BotsContract,
+    pub workflows: workflows::WorkflowsContract,
     pub parity: parity::ParityContract,
 }
 

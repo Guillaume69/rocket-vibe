@@ -54,7 +54,7 @@ struct Resource {
 /// Conservative public-unicast policy: rejects special IPv4 assignments,
 /// transition/mapped IPv6, documentation and unallocated IPv6 space too.
 /// Some globally reachable special-purpose anycast assignments are excluded.
-pub(super) fn public_address(ip: IpAddr) -> bool {
+pub(crate) fn public_address(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(ip) => {
             let [a, b, c, _] = ip.octets();

@@ -948,11 +948,12 @@ pub enum CommandRun {
 
 #[uniffi::export]
 impl NativeChat {
-    /// Reads the server's slash commands, once, for `suggestions`.
-    pub async fn prepare_commands(&self) {
+    /// Reads the commands `room` offers (workflow commands included), for
+    /// `suggestions`.
+    pub async fn prepare_commands(&self, room: String) {
         let s = self.session.clone();
         on_tokio(async move {
-            let _ = s.commands().await;
+            let _ = s.room_commands(&room).await;
         })
         .await
     }
@@ -1056,6 +1057,8 @@ mod tests {
             starred: false,
             reply_to: None,
             thread_replies: 0,
+            author_bot: false,
+            form: None,
         };
         let items = native_message_items(
             vec![

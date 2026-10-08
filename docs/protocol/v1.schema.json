@@ -23,6 +23,11 @@
     },
     "AccountPermissions": {
       "properties": {
+        "create_bot": {
+          "default": false,
+          "description": "Administrators, or everyone when the instance allows bots (RFC 0003).",
+          "type": "boolean"
+        },
         "create_private_room": {
           "type": "boolean"
         },
@@ -522,6 +527,11 @@
             "null"
           ]
         },
+        "bot": {
+          "default": false,
+          "description": "A bot account (RFC 0003); absent from older servers.",
+          "type": "boolean"
+        },
         "created_at": {
           "type": [
             "string",
@@ -641,6 +651,26 @@
       },
       "required": [
         "items"
+      ],
+      "type": "object"
+    },
+    "AnswerForm": {
+      "additionalProperties": false,
+      "properties": {
+        "answers": {
+          "additionalProperties": {
+            "$ref": "#/$defs/FormAnswer"
+          },
+          "description": "Field id to its value; a number is sent as its text, a `multiple`\nfield's answers as a list.",
+          "type": "object"
+        },
+        "operation_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "answers"
       ],
       "type": "object"
     },
@@ -1025,6 +1055,310 @@
       ],
       "type": "object"
     },
+    "Bot": {
+      "description": "A bot as its owner and the administrators see it.",
+      "properties": {
+        "avatar_file_id": {
+          "default": null,
+          "description": "Its photo (`/api/v1/avatars/{id}`), set by its owner or by itself.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "disabled": {
+          "description": "Deactivated by an administrator, or with its owner.",
+          "type": "boolean"
+        },
+        "live_keys": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "owner": {
+          "$ref": "#/$defs/User"
+        },
+        "scopes": {
+          "items": {
+            "$ref": "#/$defs/BotScope"
+          },
+          "type": "array"
+        },
+        "user": {
+          "$ref": "#/$defs/User",
+          "description": "The bot's account: `user.bot` is always true."
+        }
+      },
+      "required": [
+        "user",
+        "owner",
+        "description",
+        "scopes",
+        "created_at",
+        "disabled",
+        "live_keys"
+      ],
+      "type": "object"
+    },
+    "BotKey": {
+      "description": "A key's public description; the key itself is shown once, at creation.",
+      "properties": {
+        "created_at": {
+          "type": "string"
+        },
+        "expires_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "hint": {
+          "description": "The key's last four characters, to recognise it.",
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "last_used_at": {
+          "description": "At most a minute behind.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "hint",
+        "created_at"
+      ],
+      "type": "object"
+    },
+    "BotKeyCreated": {
+      "properties": {
+        "info": {
+          "$ref": "#/$defs/BotKey"
+        },
+        "key": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "info"
+      ],
+      "type": "object"
+    },
+    "BotKeyList": {
+      "properties": {
+        "keys": {
+          "items": {
+            "$ref": "#/$defs/BotKey"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "keys"
+      ],
+      "type": "object"
+    },
+    "BotList": {
+      "properties": {
+        "bots": {
+          "items": {
+            "$ref": "#/$defs/Bot"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "bots"
+      ],
+      "type": "object"
+    },
+    "BotReference": {
+      "description": "What a key can reach, read from the table the server enforces, so the apps\nshow their people the same API the gate admits. Every other route is closed.",
+      "properties": {
+        "direct_per_minute": {
+          "description": "New direct conversations a minute per bot.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "groups": {
+          "items": {
+            "$ref": "#/$defs/BotScopeRoutes"
+          },
+          "type": "array"
+        },
+        "key_prefix": {
+          "type": "string"
+        },
+        "sends_per_minute": {
+          "description": "Sends (and replies) a minute per bot.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "key_prefix",
+        "groups",
+        "sends_per_minute",
+        "direct_per_minute"
+      ],
+      "type": "object"
+    },
+    "BotRoute": {
+      "description": "One route a key may call, as the server matches it (`{room}` is a parameter).",
+      "properties": {
+        "also": {
+          "description": "Further scopes the route needs besides its group's.",
+          "items": {
+            "$ref": "#/$defs/BotScope"
+          },
+          "type": "array"
+        },
+        "method": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "path"
+      ],
+      "type": "object"
+    },
+    "BotScope": {
+      "description": "What a key may do. Routes outside every scope are never open to a key.",
+      "oneOf": [
+        {
+          "const": "rooms:read",
+          "description": "Rooms it belongs to: list, details, members, history, threads, files, sync and socket.",
+          "type": "string"
+        },
+        {
+          "const": "messages:write",
+          "description": "Send and reply; edit and delete its own messages; typing.",
+          "type": "string"
+        },
+        {
+          "const": "files:write",
+          "description": "Upload files.",
+          "type": "string"
+        },
+        {
+          "const": "reactions:write",
+          "description": "Add and remove reactions.",
+          "type": "string"
+        },
+        {
+          "const": "rooms:join",
+          "description": "Browse public rooms, join one, leave a room.",
+          "type": "string"
+        },
+        {
+          "const": "users:read",
+          "description": "User directory, lookup and profiles.",
+          "type": "string"
+        },
+        {
+          "const": "dm:write",
+          "description": "Open a direct conversation.",
+          "type": "string"
+        }
+      ]
+    },
+    "BotScopeRoutes": {
+      "description": "The routes one scope opens; `scope` absent: open to every key.",
+      "properties": {
+        "routes": {
+          "items": {
+            "$ref": "#/$defs/BotRoute"
+          },
+          "type": "array"
+        },
+        "scope": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BotScope"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "routes"
+      ],
+      "type": "object"
+    },
+    "BotsContract": {
+      "properties": {
+        "bot": {
+          "$ref": "#/$defs/Bot"
+        },
+        "bot_key": {
+          "$ref": "#/$defs/BotKey"
+        },
+        "bot_key_created": {
+          "$ref": "#/$defs/BotKeyCreated"
+        },
+        "bot_key_list": {
+          "$ref": "#/$defs/BotKeyList"
+        },
+        "bot_list": {
+          "$ref": "#/$defs/BotList"
+        },
+        "bot_reference": {
+          "$ref": "#/$defs/BotReference"
+        },
+        "create_bot": {
+          "$ref": "#/$defs/CreateBot"
+        },
+        "create_bot_key": {
+          "$ref": "#/$defs/CreateBotKey"
+        },
+        "instance_settings": {
+          "$ref": "#/$defs/InstanceSettings"
+        },
+        "update_bot": {
+          "$ref": "#/$defs/UpdateBot"
+        },
+        "update_instance_settings": {
+          "$ref": "#/$defs/UpdateInstanceSettings"
+        }
+      },
+      "required": [
+        "bot",
+        "bot_list",
+        "create_bot",
+        "update_bot",
+        "bot_key",
+        "bot_key_list",
+        "create_bot_key",
+        "bot_key_created",
+        "bot_reference",
+        "instance_settings",
+        "update_instance_settings"
+      ],
+      "type": "object"
+    },
     "CallSummary": {
       "description": "The outcome carried by a direct call's `call_started` row.",
       "properties": {
@@ -1059,6 +1393,11 @@
         "administration": {
           "default": false,
           "description": "The `/api/v1/admin/*` routes, for an account with `users.admin`.",
+          "type": "boolean"
+        },
+        "bots": {
+          "default": false,
+          "description": "Bot accounts with API keys and scopes (RFC 0003).",
           "type": "boolean"
         },
         "calls": {
@@ -1235,6 +1574,11 @@
         "voice": {
           "default": false,
           "description": "Voice sessions in every room, voice channels and ringing direct calls.",
+          "type": "boolean"
+        },
+        "workflows": {
+          "default": false,
+          "description": "Workflows acting through bots (RFC 0004).",
           "type": "boolean"
         }
       },
@@ -1455,6 +1799,64 @@
       ],
       "type": "object"
     },
+    "CreateBot": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "default": "",
+          "type": "string"
+        },
+        "display_name": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "scopes": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/BotScope"
+          },
+          "type": "array"
+        },
+        "username": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "username",
+        "display_name"
+      ],
+      "type": "object"
+    },
+    "CreateBotKey": {
+      "additionalProperties": false,
+      "description": "Needs a recent sign-in of the person creating it. Replaying the operation\nanswers `bot_key_replayed`: the key is never shown twice.",
+      "properties": {
+        "expires_in_days": {
+          "default": null,
+          "description": "None: the key never expires.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "label": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "label"
+      ],
+      "type": "object"
+    },
     "CreateRoom": {
       "additionalProperties": false,
       "properties": {
@@ -1479,6 +1881,45 @@
       "required": [
         "name",
         "private"
+      ],
+      "type": "object"
+    },
+    "CreateWorkflow": {
+      "additionalProperties": false,
+      "properties": {
+        "bot_id": {
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "type": "string"
+        },
+        "enabled": {
+          "default": false,
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/Step"
+          },
+          "type": "array"
+        },
+        "trigger": {
+          "$ref": "#/$defs/Trigger"
+        }
+      },
+      "required": [
+        "operation_id",
+        "name",
+        "bot_id",
+        "trigger",
+        "steps"
       ],
       "type": "object"
     },
@@ -2140,6 +2581,14 @@
       ],
       "type": "object"
     },
+    "Every": {
+      "enum": [
+        "hour",
+        "day",
+        "week"
+      ],
+      "type": "string"
+    },
     "FactorBackupCodes": {
       "properties": {
         "codes": {
@@ -2323,6 +2772,93 @@
         "code"
       ],
       "type": "object"
+    },
+    "FormAnswer": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      ],
+      "description": "One answer, or the list a `multiple` field takes."
+    },
+    "FormField": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/FormFieldKind"
+        },
+        "label": {
+          "type": "string"
+        },
+        "multiple": {
+          "description": "`choice` and `person` only: several answers (checkboxes) instead of one.",
+          "type": "boolean"
+        },
+        "options": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "people": {
+          "description": "`person` only: the user ids it offers; empty, any member of the form's\nroom who is not a bot.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "required": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "kind"
+      ],
+      "type": "object"
+    },
+    "FormFieldKind": {
+      "oneOf": [
+        {
+          "enum": [
+            "text",
+            "long_text",
+            "number",
+            "choice"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "person",
+          "description": "Someone: one of `people`, or any member of the room. The answer is a user id.",
+          "type": "string"
+        }
+      ]
+    },
+    "FormRecipient": {
+      "oneOf": [
+        {
+          "const": "trigger_user",
+          "description": "The person whose action started the run (a command, a join).",
+          "type": "string"
+        },
+        {
+          "const": "anyone",
+          "description": "Any member of the room.",
+          "type": "string"
+        }
+      ]
     },
     "Format": {
       "enum": [
@@ -3024,6 +3560,32 @@
       ],
       "type": "object"
     },
+    "HttpHeader": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "value"
+      ],
+      "type": "object"
+    },
+    "HttpMethod": {
+      "enum": [
+        "GET",
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE"
+      ],
+      "type": "string"
+    },
     "Identity": {
       "additionalProperties": false,
       "properties": {
@@ -3045,6 +3607,19 @@
         "root",
         "fingerprint",
         "revision"
+      ],
+      "type": "object"
+    },
+    "InstanceSettings": {
+      "description": "Instance-wide settings, administrators only.",
+      "properties": {
+        "user_bots": {
+          "description": "Every account may create bots; administrators always may.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "user_bots"
       ],
       "type": "object"
     },
@@ -3380,6 +3955,17 @@
             "$ref": "#/$defs/FileDescriptor"
           },
           "type": "array"
+        },
+        "form": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WorkflowForm"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A form a workflow asks (RFC 0004)."
         },
         "id": {
           "type": "string"
@@ -6342,6 +6928,27 @@
       ],
       "type": "object"
     },
+    "RunStarted": {
+      "properties": {
+        "run_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
+    "RunState": {
+      "enum": [
+        "pending",
+        "waiting",
+        "done",
+        "failed",
+        "cancelled"
+      ],
+      "type": "string"
+    },
     "Scope": {
       "additionalProperties": false,
       "properties": {
@@ -6577,6 +7184,10 @@
           "description": "i18n key of the description (`Slash_Shrug_Description`).",
           "type": "string"
         },
+        "literal": {
+          "description": "The description is plain text to show as is (a workflow's name), not a key.",
+          "type": "boolean"
+        },
         "params": {
           "description": "i18n key of what follows the name (`Slash_Topic_Params`), or literal\ntext (`@username`), as Rocket.Chat's `commands.list` gives it.",
           "type": "string"
@@ -6686,6 +7297,143 @@
         "expires_at"
       ],
       "type": "object"
+    },
+    "Step": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "cards": {
+              "items": {
+                "$ref": "#/$defs/IntegrationCard"
+              },
+              "type": "array"
+            },
+            "in_thread": {
+              "type": "boolean"
+            },
+            "kind": {
+              "const": "message",
+              "type": "string"
+            },
+            "room": {
+              "type": "string"
+            },
+            "save_as": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "room",
+            "text"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "wait",
+              "type": "string"
+            },
+            "seconds": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "seconds"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "continue_on_error": {
+              "type": "boolean"
+            },
+            "headers": {
+              "items": {
+                "$ref": "#/$defs/HttpHeader"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "const": "http",
+              "type": "string"
+            },
+            "method": {
+              "$ref": "#/$defs/HttpMethod"
+            },
+            "save_as": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "url": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "method",
+            "url"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "fields": {
+              "items": {
+                "$ref": "#/$defs/FormField"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "const": "form",
+              "type": "string"
+            },
+            "recipient": {
+              "$ref": "#/$defs/FormRecipient"
+            },
+            "room": {
+              "type": "string"
+            },
+            "save_as": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "room",
+            "recipient",
+            "title",
+            "fields",
+            "save_as"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "SyncBatch": {
       "properties": {
@@ -7016,6 +7764,146 @@
       ],
       "type": "object"
     },
+    "Trigger": {
+      "description": "What starts a run.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "`/name text` in a room where the workflow's bot is a member.",
+          "properties": {
+            "kind": {
+              "const": "command",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "At `time` in `timezone` (IANA), every hour (minutes only), every day,\nor on the given ISO weekdays (1 Monday .. 7 Sunday).",
+          "properties": {
+            "days": {
+              "items": {
+                "format": "uint8",
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "every": {
+              "$ref": "#/$defs/Every"
+            },
+            "kind": {
+              "const": "schedule",
+              "type": "string"
+            },
+            "room": {
+              "type": "string"
+            },
+            "time": {
+              "type": "string"
+            },
+            "timezone": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "every",
+            "time",
+            "timezone",
+            "room"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Someone (never a bot) joins or is added to the room.",
+          "properties": {
+            "kind": {
+              "const": "member_joined",
+              "type": "string"
+            },
+            "room": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "room"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A person (never a bot) adds a reaction to a message of the room: any\nemoji, or only `emoji` (a shortcode or a custom emoji's name).",
+          "properties": {
+            "emoji": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "const": "reaction_added",
+              "type": "string"
+            },
+            "room": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "room"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A person (never a bot) posts a message whose text contains `contains`,\nignoring case. Edits never fire it.",
+          "properties": {
+            "contains": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "message_posted",
+              "type": "string"
+            },
+            "room": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "room",
+            "contains"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`POST /api/v1/hooks/{workflow}/{secret}` with a JSON body.",
+          "properties": {
+            "kind": {
+              "const": "webhook",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "Typist": {
       "properties": {
         "root_id": {
@@ -7059,6 +7947,62 @@
       "required": [
         "operation_id",
         "revision"
+      ],
+      "type": "object"
+    },
+    "UpdateBot": {
+      "additionalProperties": false,
+      "description": "Absent fields keep their value. The photo has its own route,\n`PUT`/`DELETE /api/v1/bots/{id}/avatar`; the bot may also edit its own\nprofile with its key through `/me`.",
+      "properties": {
+        "description": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "display_name": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "scopes": {
+          "default": null,
+          "items": {
+            "$ref": "#/$defs/BotScope"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "operation_id"
+      ],
+      "type": "object"
+    },
+    "UpdateInstanceSettings": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "type": "string"
+        },
+        "user_bots": {
+          "default": null,
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "operation_id"
       ],
       "type": "object"
     },
@@ -7181,6 +8125,50 @@
       ],
       "type": "object"
     },
+    "UpdateWorkflow": {
+      "additionalProperties": false,
+      "description": "The whole definition at the expected revision.",
+      "properties": {
+        "bot_id": {
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/Step"
+          },
+          "type": "array"
+        },
+        "trigger": {
+          "$ref": "#/$defs/Trigger"
+        }
+      },
+      "required": [
+        "operation_id",
+        "revision",
+        "name",
+        "bot_id",
+        "trigger",
+        "steps",
+        "enabled"
+      ],
+      "type": "object"
+    },
     "Upload": {
       "properties": {
         "expires_at": {
@@ -7280,6 +8268,10 @@
     },
     "User": {
       "properties": {
+        "bot": {
+          "description": "A bot account (RFC 0003), owned by a person and acting with API keys.",
+          "type": "boolean"
+        },
         "deleted": {
           "description": "A tombstoned account: its messages stay, shown as a deleted user. Its\nusername is a reserved `deleted-` placeholder and its display name empty.",
           "type": "boolean"
@@ -7343,6 +8335,17 @@
         },
         "bio": {
           "type": "string"
+        },
+        "bot_owner": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/User"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The person who owns this bot; absent for a person."
         },
         "revision": {
           "type": "string"
@@ -7491,6 +8494,260 @@
         "expires_in_ms"
       ],
       "type": "object"
+    },
+    "WebhookSecret": {
+      "description": "The only answer that carries the webhook secret.",
+      "properties": {
+        "path": {
+          "description": "`/api/v1/hooks/{workflow}/{secret}`, to put after the server address.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "Workflow": {
+      "description": "A workflow as its owner and the administrators see it.",
+      "properties": {
+        "bot": {
+          "$ref": "#/$defs/User"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "has_webhook": {
+          "default": false,
+          "description": "Whether a webhook secret exists; the secret itself is shown once.",
+          "type": "boolean"
+        },
+        "id": {
+          "type": "string"
+        },
+        "last_run": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WorkflowRun"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "next_fire_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "owner": {
+          "$ref": "#/$defs/User"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/Step"
+          },
+          "type": "array"
+        },
+        "trigger": {
+          "$ref": "#/$defs/Trigger"
+        },
+        "updated_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "owner",
+        "bot",
+        "name",
+        "description",
+        "enabled",
+        "trigger",
+        "steps",
+        "revision",
+        "created_at",
+        "updated_at"
+      ],
+      "type": "object"
+    },
+    "WorkflowForm": {
+      "description": "A form a workflow posted, carried by its message.",
+      "properties": {
+        "answered_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "answered_by": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/User"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "expires_at": {
+          "description": "Past it the form takes no answer.",
+          "type": "string"
+        },
+        "fields": {
+          "items": {
+            "$ref": "#/$defs/FormField"
+          },
+          "type": "array"
+        },
+        "people": {
+          "description": "The people the `person` fields name, to show them.",
+          "items": {
+            "$ref": "#/$defs/User"
+          },
+          "type": "array"
+        },
+        "recipient": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/User"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Only this person may answer; absent: any member of the room."
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "fields",
+        "expires_at"
+      ],
+      "type": "object"
+    },
+    "WorkflowList": {
+      "properties": {
+        "workflows": {
+          "items": {
+            "$ref": "#/$defs/Workflow"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "workflows"
+      ],
+      "type": "object"
+    },
+    "WorkflowRun": {
+      "properties": {
+        "created_at": {
+          "type": "string"
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/$defs/RunState"
+        },
+        "step": {
+          "description": "The step about to run, or the last one run.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "updated_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "state",
+        "step",
+        "created_at",
+        "updated_at"
+      ],
+      "type": "object"
+    },
+    "WorkflowRunList": {
+      "properties": {
+        "runs": {
+          "items": {
+            "$ref": "#/$defs/WorkflowRun"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "runs"
+      ],
+      "type": "object"
+    },
+    "WorkflowsContract": {
+      "properties": {
+        "answer_form": {
+          "$ref": "#/$defs/AnswerForm"
+        },
+        "create_workflow": {
+          "$ref": "#/$defs/CreateWorkflow"
+        },
+        "run_started": {
+          "$ref": "#/$defs/RunStarted"
+        },
+        "update_workflow": {
+          "$ref": "#/$defs/UpdateWorkflow"
+        },
+        "webhook_secret": {
+          "$ref": "#/$defs/WebhookSecret"
+        },
+        "workflow": {
+          "$ref": "#/$defs/Workflow"
+        },
+        "workflow_form": {
+          "$ref": "#/$defs/WorkflowForm"
+        },
+        "workflow_list": {
+          "$ref": "#/$defs/WorkflowList"
+        },
+        "workflow_run_list": {
+          "$ref": "#/$defs/WorkflowRunList"
+        }
+      },
+      "required": [
+        "workflow",
+        "workflow_list",
+        "create_workflow",
+        "update_workflow",
+        "workflow_run_list",
+        "webhook_secret",
+        "run_started",
+        "workflow_form",
+        "answer_form"
+      ],
+      "type": "object"
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -7504,6 +8761,9 @@
     },
     "avatar_command": {
       "$ref": "#/$defs/AvatarCommand"
+    },
+    "bots": {
+      "$ref": "#/$defs/BotsContract"
     },
     "command_list": {
       "$ref": "#/$defs/CommandList"
@@ -7612,6 +8872,9 @@
     },
     "voice_ring": {
       "$ref": "#/$defs/VoiceRing"
+    },
+    "workflows": {
+      "$ref": "#/$defs/WorkflowsContract"
     }
   },
   "required": [
@@ -7653,6 +8916,8 @@
     "command_list",
     "run_command",
     "administration",
+    "bots",
+    "workflows",
     "parity"
   ],
   "title": "Contract",

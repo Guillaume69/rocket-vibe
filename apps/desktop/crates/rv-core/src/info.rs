@@ -76,6 +76,10 @@ pub struct Profile {
     pub utc_offset: Option<f64>,
     pub bio: Option<String>,
     pub avatar_etag: Option<String>,
+    /// A RocketVibe bot account (RFC 0003); false on Rocket.Chat.
+    pub bot: bool,
+    /// The username of the person who owns this bot.
+    pub bot_owner: Option<String>,
 }
 
 /// `users.info`'s `user`.
@@ -94,6 +98,8 @@ pub fn profile(user: &Value) -> Option<Profile> {
         utc_offset: user.get("utcOffset").and_then(Value::as_f64),
         bio: text(user, "bio"),
         avatar_etag: text(user, "avatarETag"),
+        bot: false,
+        bot_owner: None,
     })
 }
 

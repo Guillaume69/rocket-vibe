@@ -34,6 +34,8 @@ pub struct NativeRoomMember {
     pub name: String,
     pub role: String,
     pub disabled: bool,
+    /// A bot account (RFC 0003): a "BOT" badge beside the name.
+    pub bot: bool,
 }
 #[derive(Clone, uniffi::Record)]
 pub struct NativeRoomMemberPage {
@@ -146,6 +148,7 @@ impl NativeChat {
                     .members
                     .into_iter()
                     .map(|member| NativeRoomMember {
+                        bot: member.user.bot,
                         id: member.user.id,
                         username: member.user.username,
                         name: member.user.display_name,

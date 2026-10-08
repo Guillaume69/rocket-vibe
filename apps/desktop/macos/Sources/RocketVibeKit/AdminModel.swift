@@ -179,6 +179,10 @@ public final class AdminModel {
     public private(set) var latestVersion: String?
     /// Open reports, for the Moderation badge.
     public private(set) var reportCount: UInt64 = 0
+    /// RocketVibe with bots: whether every account may create one (an
+    /// administrator always may); nil where the server has no bots.
+    public private(set) var userBots: Bool?
+    public private(set) var settingUserBots = false
     public let users: AdminList<AdminUser>
     public let rooms: AdminList<AdminRoom>
     public let reportedMessages: AdminList<AdminReportedMessage>
@@ -245,6 +249,9 @@ public final class AdminModel {
             guard alive, expected == overviewGeneration else { return }
             overview = fresh
             reportCount = (fresh.reportedMessages ?? 0) + (fresh.reportedUsers ?? 0)
+            let bots = try? await source.userBots()
+            guard alive, expected == overviewGeneration else { return }
+            userBots = bots
         } catch {
             guard alive, expected == overviewGeneration else { return }
             overviewError = AdminText.error(error)
@@ -253,6 +260,20 @@ public final class AdminModel {
             askedLatest = true
             let found = await source.latestVersion()
             if alive { latestVersion = found }
+        }
+    }
+
+    /// Opens bot creation to every account, or back to administrators only;
+    /// the switch follows the server's answer.
+    public func setUserBots(_ on: Bool) async {
+        guard alive, userBots != nil, !settingUserBots else { return }
+        settingUserBots = true
+        defer { settingUserBots = false }
+        do {
+            let now = try await source.setUserBots(on: on)
+            if alive { userBots = now }
+        } catch {
+            if alive { notice = AdminText.error(error) }
         }
     }
 

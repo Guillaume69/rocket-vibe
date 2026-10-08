@@ -118,7 +118,7 @@ pub fn with_native_photo(
             let key = id.clone();
             let reader = s.clone();
             let bytes = crate::on_tokio(async move { reader.profile_avatar(&key).await }).await;
-            if s.is_closed() || !s.store.avatar_current(&id).unwrap_or(false) {
+            if !s.avatar_current(&id).unwrap_or(false) {
                 return;
             }
             if let (Some(tile), Ok(bytes)) = (weak.upgrade(), bytes)
@@ -596,6 +596,11 @@ fn message_from_provider(
         }
         opens_profile(&name, on_event.clone(), &author);
         header.append(&name);
+        if row.author_bot {
+            let bot = widgets::bot_badge();
+            bot.set_valign(gtk::Align::Center);
+            header.append(&bot);
+        }
         let time = label(&local(row.ts).format("%H:%M").to_string(), &["message-time"]);
         name.set_valign(gtk::Align::BaselineCenter);
         time.set_valign(gtk::Align::BaselineCenter);
@@ -607,7 +612,10 @@ fn message_from_provider(
     let failed = row.outbox_status.as_deref() == Some("failed");
     let me = session.map(|s| s.info.username.clone()).unwrap_or_default();
     let encrypted = row.system_type.as_deref() == Some("e2e");
-    let blocks = if is_call {
+    let form = native.and_then(|_| rv_core::native::workflows::row_form(row));
+    // A form step's text is its title, which the card shows already.
+    let titled = form.as_ref().is_some_and(|f| rv_core::native::workflows::text_is_form_title(row.text.as_deref(), f));
+    let blocks = if is_call || titled {
         Vec::new()
     } else if encrypted {
         // Opened by the list (`Session::open_row`): in clear when unlocked.
@@ -674,6 +682,9 @@ fn message_from_provider(
         }
         for preview in content::link_previews(row.urls.as_deref(), 3) {
             column.append(&cards::link_preview_provider(provider.clone(), &preview));
+        }
+        if let Some(form) = form {
+            column.append(&crate::workflow_forms::card(native, &row.rid, &row.id, form, my_id));
         }
     }
     if let Some(native) = native.filter(|_| is_call) {

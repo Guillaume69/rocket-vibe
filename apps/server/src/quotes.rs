@@ -34,6 +34,7 @@ impl Resolution {
                 username: self.source_username.clone()?,
                 display_name: self.source_display_name.clone()?,
                 deleted: self.source_author_deleted.unwrap_or_default(),
+                ..Default::default()
             },
             text: self.source_text.clone()?,
             created_at: self.source_created_at?.to_rfc3339(),

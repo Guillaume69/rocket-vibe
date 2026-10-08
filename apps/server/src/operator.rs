@@ -302,6 +302,7 @@ pub(crate) async fn set_user(
             before.create_public_room,
             before.create_private_room,
         );
+    crate::bots::refuse_policy(tx, id, admin, before.disabled && !disabled).await?;
     if before.admin && !before.disabled && (!admin || disabled) {
         // The instance keeps an active administrator, whoever asks.
         let others: bool = sqlx::query_scalar(
@@ -501,6 +502,9 @@ async fn set_member(
             .await?;
     if exists.is_none() || exists == Some(true) && role.is_some() {
         return Err(Error::missing());
+    }
+    if role.is_some() {
+        crate::bots::refuse_encrypted(tx, room, user).await?;
     }
     let previous: Option<String> =
         sqlx::query_scalar("SELECT role FROM members WHERE room_id=$1 AND user_id=$2 FOR UPDATE")

@@ -50,7 +50,9 @@ pub fn bearer(headers: &HeaderMap) -> Result<String> {
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
         .ok_or_else(Error::unauthorized)?;
-    if token.len() != 64 {
+    // A bot key hashes whole, prefix included: stripped of it, or a person's
+    // token given it, matches no session.
+    if token.len() != 64 && !rv_protocol::bots::is_key(token) {
         return Err(Error::unauthorized());
     }
     Ok(hash_token(token))
@@ -62,6 +64,8 @@ pub struct Account {
     pub username: String,
     pub display_name: String,
     pub admin: bool,
+    /// A bot acting with one of its keys (RFC 0003).
+    pub bot: bool,
     pub(crate) session_hash: String,
     pub(crate) activation_version: String,
 }
@@ -72,6 +76,7 @@ impl Account {
             id: self.id.clone(),
             username: self.username.clone(),
             display_name: self.display_name.clone(),
+            bot: self.bot,
             ..Default::default()
         }
     }
@@ -80,7 +85,7 @@ impl Account {
 pub async fn authenticate(app: &App, session_hash: &str) -> Result<Account> {
     // Approximate last activity, at most once per five minutes. Skip a device
     // already being rotated/revoked instead of holding up HTTP authentication.
-    sqlx::query_as::<_, Account>("WITH seen AS (SELECT d.id FROM session_devices d JOIN sessions s ON s.device_id=d.id JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now() AND NOT u.disabled AND d.last_seen_at<now()-interval '5 minutes' FOR UPDATE OF d SKIP LOCKED), touched AS (UPDATE session_devices d SET last_seen_at=GREATEST(d.last_seen_at,now()) FROM seen WHERE d.id=seen.id) SELECT u.id, u.username, u.display_name, u.admin,u.activation_version,s.token_hash AS session_hash FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now() AND NOT u.disabled")
+    sqlx::query_as::<_, Account>("WITH seen AS (SELECT d.id FROM session_devices d JOIN sessions s ON s.device_id=d.id JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now() AND NOT u.disabled AND d.last_seen_at<now()-interval '5 minutes' FOR UPDATE OF d SKIP LOCKED), touched AS (UPDATE session_devices d SET last_seen_at=GREATEST(d.last_seen_at,now()) FROM seen WHERE d.id=seen.id) SELECT u.id, u.username, u.display_name, u.admin,u.bot,u.activation_version,s.token_hash AS session_hash FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now() AND NOT u.disabled")
         .bind(session_hash).fetch_optional(&app.pool).await?.ok_or_else(Error::unauthorized)
 }
 
@@ -228,7 +233,7 @@ async fn password_login(
         .try_acquire_owned()
         .map_err(|_| Error::throttled("auth_busy", 1))?;
     crate::limits::login_attempt(app, &username, peer).await?;
-    let record: Option<(String,String,String,String)> = sqlx::query_as("SELECT id,username,display_name,password_hash FROM users WHERE username=$1 AND NOT disabled")
+    let record: Option<(String,String,String,String)> = sqlx::query_as("SELECT id,username,display_name,password_hash FROM users WHERE username=$1 AND NOT disabled AND NOT bot")
         .bind(username).fetch_optional(&app.pool).await?;
     let hash = record
         .as_ref()
@@ -305,6 +310,14 @@ pub(crate) async fn create_session(
             .await?;
     if existing {
         return Err(Error::conflict());
+    }
+    let bot: bool = sqlx::query_scalar("SELECT bot FROM users WHERE id=$1")
+        .bind(&user.id)
+        .fetch_one(&mut **tx)
+        .await?;
+    if bot {
+        // Bots authenticate with their keys only (RFC 0003).
+        return Err(Error::forbidden());
     }
     let count: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM sessions WHERE user_id=$1 AND expires_at>now()")

@@ -17,7 +17,9 @@ two-way parity tracker is [../parity.md](../parity.md). Back to
 |---|---|
 | [login-and-servers.md](login-and-servers.md) | Server probe, password login, 2FA (TOTP, email, password), optimistic session resume, revocation on a real 401, deferred sign-out; one account per server on mobile, several per server on desktop. |
 | [offline-and-sync.md](offline-and-sync.md) | Catch-up layers (global delta, history, per-room `chat.syncMessages`, reconciliation), mobile hot rooms and connection generations, write queue and outbox, retention, desktop's `__my_messages__` stream, known differences. |
-| [settings.md](settings.md) | What is stored where, the same clickable categories in all three apps (mobile pages, GTK sidebar dialog, SwiftUI overlay): account, notifications, language, encryption, security, devices, accounts, app. |
+| [settings.md](settings.md) | What is stored where, the same clickable categories in all three apps (mobile pages, GTK sidebar dialog, SwiftUI overlay): account, notifications, language, encryption, security, devices, bots, workflows, accounts, app. |
+| [bots.md](bots.md) | RocketVibe server: bot accounts owned by a person, API keys shown once, scopes and the API each opens (served by the server), the BOT badge, the instance switch, kept out of encrypted rooms. |
+| [workflows.md](workflows.md) | RocketVibe server: automations acting through a bot: triggers (command, schedule, join, reaction, matching message, webhook), steps (message, wait, HTTP, form), the durable engine, forms answered in a native sheet. |
 | [administration.md](administration.md) | Server administration for an administrator (Dashboard, Moderation, Rooms, Users), reporting a message or a user, the Rocket.Chat mapping and the RocketVibe contract, deleted accounts shown as "Deleted user". |
 
 ## Reading

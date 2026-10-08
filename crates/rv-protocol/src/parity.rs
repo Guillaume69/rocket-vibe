@@ -321,6 +321,9 @@ pub struct AccountPermissions {
     pub create_private_room: bool,
     pub manage_accounts: bool,
     pub manage_instance: bool,
+    /// Administrators, or everyone when the instance allows bots (RFC 0003).
+    #[serde(default)]
+    pub create_bot: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
@@ -450,6 +453,9 @@ pub struct UserProfile {
     pub status: crate::live::PresenceStatus,
     /// Protected resource ID, never an arbitrary URL carrying credentials.
     pub avatar_file_id: Option<String>,
+    /// The person who owns this bot; absent for a person.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bot_owner: Option<crate::User>,
 }
 
 fn default_profile_status() -> crate::live::PresenceStatus {

@@ -150,6 +150,21 @@ export default function RootLayout() {
                         contentStyle: { backgroundColor: darkColors.deepCard },
                       }}
                     />
+                    {/* Answering a workflow's form (RocketVibe server): its
+                        fields scroll, so a tall sheet rather than one fitted
+                        to its content. */}
+                    <Stack.Screen
+                      name="answer-form"
+                      options={{
+                        presentation: 'formSheet',
+                        headerShown: false,
+                        sheetAllowedDetents: [0.75, 1.0],
+                        sheetGrabberVisible: true,
+                        sheetCornerRadius: 24,
+                        sheetElevation: 24,
+                        contentStyle: { backgroundColor: darkColors.deepCard },
+                      }}
+                    />
                     {/* New room, voice channels included (RocketVibe server). */}
                     <Stack.Screen
                       name="new-room"

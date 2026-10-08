@@ -68,6 +68,19 @@ describe('NativeAdmin', () => {
     assert.equal(await new NativeAdmin(fakeChat({ accountPermissions: async () => permissions }, { administration: false }).chat).isAdmin(), false);
   });
 
+  test('the bot switch: absent without bots, read and set with an operation id', async () => {
+    const inputs: unknown[] = [];
+    const transport: Partial<NativeTransport> = {
+      instanceSettings: async () => ({ user_bots: false }),
+      updateInstanceSettings: async (input) => { inputs.push(input); return { user_bots: input.user_bots === true }; },
+    };
+    assert.equal(await new NativeAdmin(fakeChat(transport).chat).userBots(), null);
+    const admin = new NativeAdmin(fakeChat(transport, { administration: true, bots: true }).chat);
+    assert.equal(await admin.userBots(), false);
+    assert.equal(await admin.setUserBots(true), true);
+    assert.deepEqual(inputs, [{ operation_id: 'op-1', user_bots: true }]);
+  });
+
   test('a change carries the revision and a fresh operation id', async () => {
     const inputs: unknown[] = [];
     const { chat } = fakeChat({

@@ -323,6 +323,8 @@ pub fn error_key(code: &str) -> &'static str {
         "offline" | "connection_failed" | "session_closed" => "native.offline",
         "invalid_reason" => "report.failed",
         "permission_denied" | "unsupported_feature" => "admin.error_denied",
+        "bot_privilege" => "admin.error_bot_privilege",
+        "bot_encrypted_room" => "admin.error_bot_encrypted_room",
         code if code.starts_with("error-") => "admin.error_denied",
         _ => "admin.failed",
     }
@@ -606,6 +608,24 @@ impl Admin {
         }
     }
 
+    /// Whether every account may create bots (administrators always may):
+    /// None where the server has no bots, Rocket.Chat included.
+    pub async fn user_bots(&self) -> Result<Option<bool>, AdminError> {
+        match self {
+            Self::RocketChat(_) => Ok(None),
+            Self::Native(s) => Ok(s.instance_settings().await?.map(|settings| settings.user_bots)),
+        }
+    }
+
+    /// Opens bots to every account, or back to administrators only; the
+    /// setting as the server now has it.
+    pub async fn set_user_bots(&self, on: bool) -> Result<bool, AdminError> {
+        match self {
+            Self::RocketChat(_) => Err(AdminError::new("unsupported_feature")),
+            Self::Native(s) => Ok(s.update_instance_settings(on).await?.user_bots),
+        }
+    }
+
     /// Reports a message to the administrators, for any member.
     pub async fn report_message(&self, message_id: &str, reason: &str) -> Result<(), AdminError> {
         let reason = valid_reason(reason).ok_or(AdminError::new("invalid_reason"))?;
@@ -700,7 +720,7 @@ fn native_user(u: &rv_protocol::admin::AdminUser) -> AdminUser {
         avatar: u.avatar_file_id.clone(),
         admin: u.admin,
         active: !u.disabled,
-        bot: false,
+        bot: u.bot,
         status: presence(u.status),
         created_at: u.created_at.clone(),
         last_seen_at: u.last_seen_at.clone(),
@@ -1226,9 +1246,12 @@ mod tests {
             ("self_report", "report.error_self"),
             ("offline", "native.offline"),
             ("error-not-allowed", "admin.error_denied"),
+            ("bot_privilege", "admin.error_bot_privilege"),
+            ("bot_encrypted_room", "admin.error_bot_encrypted_room"),
             ("anything", "admin.failed"),
         ] {
             assert_eq!(error_key(code), key, "{code}");
+            assert_ne!(crate::i18n::t(key), "?", "{key}");
         }
     }
 

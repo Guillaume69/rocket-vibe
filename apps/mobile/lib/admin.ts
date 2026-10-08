@@ -171,6 +171,14 @@ export interface ProviderAdmin {
   deactivate(person: AdminPerson, relinquish?: boolean): Promise<void>;
   /** The newest published release of this server software; `null` = unknown. */
   latestVersion(): Promise<string | null>;
+  /**
+   * RocketVibe with bots (RFC 0003): whether every account may create bots
+   * (administrators always may). Absent on Rocket.Chat; `null` when this
+   * server offers no bots.
+   */
+  userBots?(): Promise<boolean | null>;
+  /** Opens or closes bot creation to every account; answers the setting as it now is. */
+  setUserBots?(on: boolean): Promise<boolean>;
 }
 
 /**

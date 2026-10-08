@@ -26,6 +26,12 @@ export class MmCategories {
     return this.placements.get(rid);
   }
 
+  /** Until the server's `sidebar_category_updated` brings the new categories. */
+  noteFavorite(rid: string, on: boolean): void {
+    const placement = this.placements.get(rid);
+    if (placement !== undefined) this.placements.set(rid, { ...placement, favorite: on });
+  }
+
   async load(): Promise<void> {
     const teams = await this.client.get<Doc[]>('/users/me/teams');
     const next = new Map<string, Placement>();

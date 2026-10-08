@@ -6,6 +6,7 @@
 
 import type { LocalMessage } from '../../lib/normalize.ts';
 import type { ProviderActions, RoomFavorite, RoomInformation } from '../../lib/provider.ts';
+import type { MmCategories } from './categories.ts';
 import type { MmClient } from './client.ts';
 import type { MmDirectory } from './directory.ts';
 import { ordered } from './history.ts';
@@ -20,13 +21,15 @@ export class MmActions implements ProviderActions {
   private readonly live: MmLive;
   private readonly translator: MmTranslator;
   private readonly myId: string;
+  private readonly categories: MmCategories | null;
 
-  constructor(options: { client: MmClient; directory: MmDirectory; live: MmLive; translator: MmTranslator; myId: string }) {
+  constructor(options: { client: MmClient; directory: MmDirectory; live: MmLive; translator: MmTranslator; myId: string; categories?: MmCategories }) {
     this.client = options.client;
     this.directory = options.directory;
     this.live = options.live;
     this.translator = options.translator;
     this.myId = options.myId;
+    this.categories = options.categories ?? null;
   }
 
   /** The server moves the room in or out of my Favorites category, and says so with `sidebar_category_updated`. */
@@ -35,6 +38,7 @@ export class MmActions implements ProviderActions {
       await this.client.put('/users/me/preferences', {
         body: [{ user_id: this.myId, category: 'favorite_channel', name: rid, value: String(present) }],
       });
+      this.categories?.noteFavorite(rid, present);
     },
   };
 

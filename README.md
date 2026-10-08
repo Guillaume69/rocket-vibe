@@ -14,6 +14,11 @@ mobile is tracked in [`brain/parity.md`](brain/parity.md).
 
 ## Shared
 
+- [Slack Session mode protocol and implementation handoff](docs/protocol/SLACK_SESSION.md):
+  measured session/RTM behaviour, provider parity targets and qualification probes;
+  the Slack driver is not implemented.
+
+
 - [Native RocketVibe server, experimental](apps/server/README.md): a Rust server
   independent of Rocket.Chat; [progress log](docs/NATIVE_SERVER_EXECUTION.md).
 - [Two providers on mobile](docs/NATIVE_MOBILE_PILOT.md): shared screens, rooms / DMs,

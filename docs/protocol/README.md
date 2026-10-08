@@ -29,6 +29,15 @@ The [native quotes contract](QUOTES.md) describes references, per-reader resolut
 and delivery protections; its wiring into the existing cards
 remains a distinct batch before the capability is advertised.
 
+## Other provider research
+
+[Slack Session mode](SLACK_SESSION.md) is a separate researched provider contract:
+workspace token/cookie acquisition, cookie-authenticated RTM, HTTP/event mapping,
+P01-P23 parity and [qualification probes](SLACK_SESSION_PROBES.md).
+Its [evidence ledger](slack-session-evidence.json) distinguishes live observations
+from source evidence and untested behaviour. No Slack driver is delivered by this
+documentation, and these methods are not native RocketVibe server routes.
+
 ## Transport and identity
 
 [Native voice](VOICE.md) gives every room a voice session over the operator's

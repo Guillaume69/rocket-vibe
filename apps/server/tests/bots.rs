@@ -486,3 +486,341 @@ async fn owners_name_and_picture_their_bots_and_see_key_use(pool: PgPool) {
     let keys = admin.bot_keys(&bot_id).await.unwrap().keys;
     assert!(keys[0].last_used_at.is_some());
 }
+
+async fn admin_revision(admin: &NativeClient, username: &str) -> rv_protocol::admin::AdminUser {
+    admin
+        .admin_users(None, None, Some(username))
+        .await
+        .unwrap()
+        .items
+        .into_iter()
+        .find(|u| u.username == username)
+        .unwrap()
+}
+
+async fn encrypt(pool: &PgPool, room: &str) {
+    sqlx::query("INSERT INTO e2ee_groups(room_id,data_epoch,incarnation,revision,epoch,fingerprint,transition,tree,receipt) SELECT $1,data_epoch,'test',1,0,'test','\\x00','\\x00','{}' FROM instance")
+        .bind(room)
+        .execute(pool)
+        .await
+        .unwrap();
+}
+
+#[sqlx::test]
+async fn administrators_oversee_other_bots_but_never_act_as_them(pool: PgPool) {
+    let bench = Bench::start(pool).await;
+    let (admin, _) = bench.user("watch-admin", true).await;
+    let (alice, _) = bench.user("watch-alice", false).await;
+    bench.allow_everyone(&admin).await;
+    let (bot, bot_id) = bench.bot(&alice, "watch-bot", &[BotScope::RoomsRead]).await;
+
+    // A key, wider scopes or a new face would let an administrator in as the bot.
+    code(
+        admin.create_bot_key(&bot_id, &key("admin-key")).await,
+        "not_found",
+    );
+    code(
+        admin
+            .update_bot(
+                &bot_id,
+                &UpdateBot {
+                    operation_id: "widen".into(),
+                    display_name: None,
+                    description: None,
+                    scopes: Some(vec![BotScope::RoomsRead, BotScope::DmWrite]),
+                },
+            )
+            .await,
+        "not_found",
+    );
+    code(
+        admin
+            .set_bot_avatar(&bot_id, Some(("image/png", png(9))))
+            .await,
+        "not_found",
+    );
+    // Looking, revoking and deleting stay theirs.
+    let keys = admin.bot_keys(&bot_id).await.unwrap().keys;
+    assert_eq!(keys.len(), 1);
+    admin.revoke_bot_key(&bot_id, &keys[0].id).await.unwrap();
+    code(bot.me().await, "session_rejected");
+    admin.delete_bot(&bot_id).await.unwrap();
+    assert!(alice.bots(false).await.unwrap().bots.is_empty());
+}
+
+#[sqlx::test]
+async fn a_bot_is_refused_administration_and_encrypted_rooms_in_every_way(pool: PgPool) {
+    let bench = Bench::start(pool.clone()).await;
+    let (admin, _) = bench.user("policy-admin", true).await;
+    let (_, bot_id) = bench
+        .bot(&admin, "policy-bot", &[BotScope::RoomsJoin])
+        .await;
+    let user = admin_revision(&admin, "policy-bot").await;
+    assert!(user.bot);
+    code(
+        admin
+            .update_admin_user(
+                &bot_id,
+                &rv_protocol::admin::UpdateAdminUser {
+                    operation_id: "promote".into(),
+                    revision: user.revision.clone(),
+                    admin: Some(true),
+                    disabled: None,
+                },
+            )
+            .await,
+        "bot_privilege",
+    );
+
+    // Encrypted while the bot was disabled: it is not re-enabled into it.
+    let room = public_room(&admin, "policy-room", true).await;
+    admin.add_member(&room, &bot_id).await.unwrap();
+    let disabled = admin
+        .update_admin_user(
+            &bot_id,
+            &rv_protocol::admin::UpdateAdminUser {
+                operation_id: "disable".into(),
+                revision: user.revision,
+                admin: None,
+                disabled: Some(true),
+            },
+        )
+        .await
+        .unwrap();
+    encrypt(&pool, &room).await;
+    code(
+        admin
+            .update_admin_user(
+                &bot_id,
+                &rv_protocol::admin::UpdateAdminUser {
+                    operation_id: "enable".into(),
+                    revision: disabled.revision,
+                    admin: None,
+                    disabled: Some(false),
+                },
+            )
+            .await,
+        "bot_encrypted_room",
+    );
+
+    // Nor does a bot join an encrypted public room by itself.
+    let (joiner, _) = bench
+        .bot(&admin, "policy-joiner", &[BotScope::RoomsJoin])
+        .await;
+    let public = public_room(&admin, "policy-public", false).await;
+    encrypt(&pool, &public).await;
+    code(joiner.join_public(&public).await, "bot_encrypted_room");
+}
+
+#[sqlx::test]
+async fn a_bot_never_holds_a_person_session_even_with_a_password(pool: PgPool) {
+    let bench = Bench::start(pool.clone()).await;
+    let (admin, _) = bench.user("pw-admin", true).await;
+    let (_, bot_id) = bench.bot(&admin, "pw-bot", &[]).await;
+    // Give the bot the very hash of a known password.
+    let hash: String =
+        sqlx::query_scalar("SELECT password_hash FROM users WHERE username='pw-admin'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    sqlx::query("UPDATE users SET password_hash=$2 WHERE id=$1")
+        .bind(&bot_id)
+        .bind(hash)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let mut stranger = NativeClient::new(&bench.base).unwrap();
+    code(
+        stranger.login("pw-bot", PASSWORD).await.map(|_| ()),
+        "session_rejected",
+    );
+    assert!(
+        rv_server::recovery::issue(&bench.app, "pw-bot", 1)
+            .await
+            .is_err()
+    );
+    // The database refuses a session that is not one of its keys.
+    sqlx::query("INSERT INTO session_devices(id,user_id) VALUES('forged-device',$1)")
+        .bind(&bot_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let forged = sqlx::query("INSERT INTO sessions(token_hash,user_id,expires_at,device_id) VALUES('forged',$1,now()+interval '1 day','forged-device')")
+        .bind(&bot_id)
+        .execute(&pool)
+        .await;
+    assert!(forged.is_err());
+}
+
+#[sqlx::test]
+async fn creation_keys_and_budgets_have_their_limits(pool: PgPool) {
+    let bench = Bench::start(pool.clone()).await;
+    let (admin, _) = bench.user("limit-admin", true).await;
+    for n in 0..10 {
+        admin
+            .create_bot(&create(&format!("limit-{n}"), &[]))
+            .await
+            .unwrap();
+    }
+    code(
+        admin.create_bot(&create("limit-10", &[])).await,
+        "bot_limit",
+    );
+    // Deleting frees a live slot, not the day's budget: names are not retired at will.
+    let first = admin.bots(false).await.unwrap().bots[0].user.id.clone();
+    admin.delete_bot(&first).await.unwrap();
+    code(
+        admin.create_bot(&create("limit-11", &[])).await,
+        "bot_create_limit",
+    );
+    sqlx::query("UPDATE bots SET created_at=created_at-interval '2 days'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    for bot in admin.bots(false).await.unwrap().bots {
+        admin.delete_bot(&bot.user.id).await.unwrap();
+    }
+    sqlx::query("UPDATE bots SET created_at=created_at-interval '2 days'")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    // A disabled bot gets no key.
+    let (_, quiet_id) = bench.bot(&admin, "limit-quiet", &[]).await;
+    sqlx::query("UPDATE users SET disabled=true WHERE id=$1")
+        .bind(&quiet_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    code(
+        admin
+            .create_bot_key(
+                &quiet_id,
+                &CreateBotKey {
+                    operation_id: "late".into(),
+                    ..key("late")
+                },
+            )
+            .await,
+        "bot_disabled",
+    );
+
+    // Only new conversations spend the direct budget; replays never spend sends.
+    let (_, alice_id) = bench.user("limit-alice", false).await;
+    let (dm, _) = bench
+        .bot(
+            &admin,
+            "limit-dm",
+            &[BotScope::DmWrite, BotScope::MessagesWrite],
+        )
+        .await;
+    for _ in 0..12 {
+        dm.direct(&alice_id).await.unwrap();
+    }
+    let room = dm.direct(&alice_id).await.unwrap().id;
+    for _ in 0..61 {
+        dm.send(&room, &message("same", "same-op")).await.unwrap();
+    }
+    for n in 0..10 {
+        let (_, id) = bench.user(&format!("limit-p{n}"), false).await;
+        if n < 9 {
+            dm.direct(&id).await.unwrap();
+        } else {
+            code(dm.direct(&id).await, "bot_rate_limited");
+        }
+    }
+}
+
+#[sqlx::test]
+async fn each_scope_opens_its_routes_and_profiles_stay_the_owners(pool: PgPool) {
+    let bench = Bench::start(pool).await;
+    let (admin, admin_id) = bench.user("scope-admin", true).await;
+    let (bot, _) = bench
+        .bot(
+            &admin,
+            "scope-bot",
+            &[
+                BotScope::RoomsJoin,
+                BotScope::UsersRead,
+                BotScope::ReactionsWrite,
+                BotScope::MessagesWrite,
+            ],
+        )
+        .await;
+    let room = public_room(&admin, "scope-room", false).await;
+    bot.join_public(&room).await.unwrap();
+    assert!(bot.users().await.unwrap().iter().any(|u| u.id == admin_id));
+    let sent = bot
+        .send(&room, &message("react", "react-to"))
+        .await
+        .unwrap();
+    bot.set_reaction(
+        &sent.id,
+        &rv_protocol::parity::SetReaction {
+            operation_id: "react-1".into(),
+            emoji: ":+1:".into(),
+            present: true,
+        },
+    )
+    .await
+    .unwrap();
+    // Its profile is read-only to its keys.
+    let own = bot.own_profile().await.unwrap();
+    code(
+        bot.update_profile(&rv_protocol::profiles::UpdateProfile {
+            operation_id: "rename".into(),
+            expected_revision: own.profile.revision,
+            username: "scope-impostor".into(),
+            display_name: "Impostor".into(),
+            bio: String::new(),
+            status: own.profile.status,
+            status_text: String::new(),
+        })
+        .await,
+        "bot_forbidden",
+    );
+    // The operator switch is the same setting.
+    rv_server::bots::set_user_bots(&bench.app, false)
+        .await
+        .unwrap();
+    assert!(!admin.instance_settings().await.unwrap().user_bots);
+}
+
+#[sqlx::test]
+async fn an_open_socket_closes_when_the_bot_loses_rooms_read(pool: PgPool) {
+    use futures_util::StreamExt;
+    let bench = Bench::start(pool).await;
+    let (admin, _) = bench.user("socket-admin", true).await;
+    let (bot, bot_id) = bench
+        .bot(&admin, "socket-bot", &[BotScope::RoomsRead])
+        .await;
+    let cursor = bot.snapshot().await.unwrap().cursor;
+    let url = bot.socket_url(&cursor).await.unwrap();
+    let (mut socket, _) = tokio_tungstenite::connect_async(url.as_str())
+        .await
+        .unwrap();
+    admin
+        .update_bot(
+            &bot_id,
+            &UpdateBot {
+                operation_id: "mute".into(),
+                display_name: None,
+                description: None,
+                scopes: Some(Vec::new()),
+            },
+        )
+        .await
+        .unwrap();
+    let closed = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            match socket.next().await {
+                None
+                | Some(Err(_))
+                | Some(Ok(tokio_tungstenite::tungstenite::Message::Close(_))) => break,
+                Some(Ok(_)) => continue,
+            }
+        }
+    })
+    .await;
+    assert!(closed.is_ok(), "the socket outlived the scope");
+}

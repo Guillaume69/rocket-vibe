@@ -310,12 +310,24 @@ export default function LoginScreen() {
       async text => new Uint8Array(await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, new TextEncoder().encode(text))),
     );
     const redirect = new Promise<string>((resolve, reject) => {
-      const timer = setTimeout(() => { subscription.remove(); reject(new Error(t('login.kchatTimeout'))); }, 180_000);
-      const subscription = Linking.addEventListener('url', ({ url }) => {
-        if (!isKchatRedirect(url)) return;
+      let away = false;
+      let grace: ReturnType<typeof setTimeout> | null = null;
+      const finish = (url: string | null): void => {
         clearTimeout(timer);
+        if (grace !== null) clearTimeout(grace);
         subscription.remove();
-        resolve(url);
+        appState.remove();
+        if (url === null) reject(new Error(t('login.kchatTimeout')));
+        else resolve(url);
+      };
+      const timer = setTimeout(() => finish(null), 180_000);
+      const subscription = Linking.addEventListener('url', ({ url }) => {
+        if (isKchatRedirect(url)) finish(url);
+      });
+      // Back in the app without the redirect: the browser was closed, or another app took the link.
+      const appState = AppState.addEventListener('change', state => {
+        if (state !== 'active') away = true;
+        else if (away && grace === null) grace = setTimeout(() => finish(null), 2_000);
       });
     });
     await Linking.openURL(authorizeUrl(pkce));

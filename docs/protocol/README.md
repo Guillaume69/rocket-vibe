@@ -11,6 +11,9 @@ are versioned and checked for zero diff in CI.
 The [native in-room search](SEARCH.md) uses PostgreSQL, temporary results
 and the existing screens; its encrypted local index remains tied to J4.
 
+[Workflows](WORKFLOWS.md) run triggers and steps through a bot, forms included
+([RFC 0004](../rfcs/0004-workflows.md)).
+
 [Bot accounts](BOTS.md) act with API keys inside the scopes their owner grants,
 out of encrypted rooms ([RFC 0003](../rfcs/0003-bots.md)).
 

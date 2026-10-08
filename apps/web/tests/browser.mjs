@@ -86,6 +86,11 @@ try {
   await page.goto(base);
   await page.evaluate(() => document.fonts.ready);
   await visible(page.getByLabel("Username or email"));
+  assert.equal(await page.getByLabel("Server", { exact: true }).count(), 0);
+  assert.equal(
+    await page.locator(".login-origin").textContent(),
+    new URL(base).host,
+  );
   await page.getByLabel("Username or email").fill("webalice");
   await page.getByLabel("Password", { exact: true }).fill("wrong-password");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
@@ -280,6 +285,11 @@ try {
   pass("narrow screen navigation");
   await page.getByRole("button", { name: "Sign out", exact: true }).click();
   await visible(page.getByLabel("Username or email"));
+  assert.equal(await page.getByLabel("Server", { exact: true }).count(), 0);
+  assert.equal(
+    await page.locator(".login-origin").textContent(),
+    new URL(base).host,
+  );
   const accounts = await page.evaluate(
     () =>
       new Promise((resolve, reject) => {

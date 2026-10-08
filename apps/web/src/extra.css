@@ -1,3 +1,29 @@
+.login-origin {
+  color: #6e6890;
+  font-size: 12px;
+  margin-top: 6px;
+}
+.room-header {
+  position: relative;
+  justify-content: flex-end;
+}
+.room-header .room-heading {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: calc(100% - 220px);
+  justify-content: center;
+}
+.room-header .mobile-back {
+  margin-right: auto;
+}
+@media (max-width: 640px) {
+  .room-header .room-heading {
+    max-width: calc(100% - 220px);
+  }
+}
+
 .rich-composer {
   white-space: pre-wrap;
   overflow-wrap: anywhere;

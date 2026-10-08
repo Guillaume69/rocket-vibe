@@ -203,9 +203,7 @@ export class App implements RowActions {
     for (const color of ["pink", "yellow", "cyan", "violet"])
       rainbow.append(el("i", "rainbow-bar rainbow-" + color));
     hero.append(rainbow, brand("hero"), el("div", "slogan", t("slogan")));
-    const server = field(t("server"), location.origin)[0];
-    const serverInput = server.querySelector("input")!;
-    serverInput.readOnly = true;
+    hero.append(el("div", "login-origin", location.host));
     const [usernameWrap, username] = field(t("username"));
     username.autocomplete = "username";
     username.required = true;
@@ -283,7 +281,6 @@ export class App implements RowActions {
     );
     form.append(
       hero,
-      server,
       usernameWrap,
       passwordWrap,
       extra,

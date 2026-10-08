@@ -7,6 +7,8 @@ All notable changes are documented here in English.
 ### Fixed
 
 - Center unread and mention counters vertically and horizontally in their badges.
+- Remove the redundant server field from sign-in; the service origin is shown as plain text.
+- Center the conversation title in its header as GTK does.
 
 ### Added
 

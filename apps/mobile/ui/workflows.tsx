@@ -25,6 +25,7 @@ import type { LocalDatabase } from '../db/client.ts';
 import type { NativeChat } from '../providers/rocketvibe/chat.ts';
 import type { Bot, FormField, FormRecipient, Step, Trigger, Workflow, WorkflowRun } from '../providers/rocketvibe/protocol.generated.ts';
 import { NativeError } from '../providers/rocketvibe/transport.ts';
+import { useAdminFormat } from './adminKit.tsx';
 import { dismissible } from './alerts.ts';
 import { providerKey } from './devices.tsx';
 import { useT } from './i18n.ts';
@@ -102,10 +103,14 @@ function failure(e: unknown, at: Failure['at']): Failure {
   return { key: 'workflows.failed', reauth: false, at };
 }
 
-function date(value: string | null | undefined): string {
-  if (value == null) return '';
-  const parsed = new Date(value);
-  return Number.isFinite(parsed.getTime()) ? parsed.toLocaleString() : value;
+/** A server timestamp in the app's language, to the minute. */
+function useDate(): (value: string | null | undefined) => string {
+  const { dateTime } = useAdminFormat();
+  return (value) => {
+    if (value == null) return '';
+    const ms = new Date(value).getTime();
+    return Number.isFinite(ms) ? dateTime(ms) : value;
+  };
 }
 
 /** My unencrypted rooms, by name: what a trigger or a step may name. */
@@ -463,6 +468,7 @@ function Toggle({ c, label, value, disabled, onChange }: { c: Colors; label: str
 
 function WorkflowRow({ c, workflow, summary, disabled, onPress }: { c: Colors; workflow: Workflow; summary: string; disabled: boolean; onPress: () => void }) {
   const t = useT();
+  const date = useDate();
   const last = workflow.last_run;
   const runText =
     last == null
@@ -614,6 +620,7 @@ function Editor({ c, workflow, bots, rooms, runs, busy, webhookUrl, roomName, on
   webhookRefusal: ReactNode;
 }) {
   const t = useT();
+  const date = useDate();
   const live = bots.filter((b) => !b.disabled || b.user.id === workflow?.bot.id);
   const [draft, setDraft] = useState<WorkflowDraft>(() => {
     const trigger = workflow?.trigger ?? defaultTrigger('command', deviceTimeZone());
@@ -792,7 +799,9 @@ function Editor({ c, workflow, bots, rooms, runs, busy, webhookUrl, roomName, on
           {runs !== null && runs.length === 0 && <Text style={[styles.text, { color: c.dimmed }]}>{t('workflows.noRuns')}</Text>}
           {runs?.map((r) => (
             <View key={r.id} style={[styles.run, { borderColor: c.softBorder }]}>
-              <Text style={[styles.strong, { color: r.state === 'failed' ? c.errorText : c.text }]}>{t('workflows.runLine', { state: t(RUN_STATE_TEXT[r.state]), step: r.step + 1 })}</Text>
+              <Text style={[styles.strong, { color: r.state === 'failed' ? c.errorText : c.text }]}>{r.state === 'done' || r.state === 'cancelled'
+                  ? t(RUN_STATE_TEXT[r.state])
+                  : t('workflows.runLine', { state: t(RUN_STATE_TEXT[r.state]), step: r.step + 1 })}</Text>
               {r.error != null && r.error !== '' && <Text style={[styles.text, { color: c.errorText }]}>{t('workflows.runError', { error: runError(t, r.error) })}</Text>}
               <Text style={[styles.hint, { color: c.dimmed }]}>{t('workflows.runDates', { start: date(r.created_at), end: date(r.updated_at) })}</Text>
             </View>

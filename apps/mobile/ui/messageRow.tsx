@@ -155,6 +155,13 @@ export const MessageRow = memo(function MessageRow({
   // Attachments: quotes (`message_link`) split from files. The quote renders
   // ABOVE the body (one reads first what is being replied to); files stay below.
   const attachments = useMemo(() => parseAttachments(message.attachments), [message.attachments]);
+  // A form's message text is its title, for clients that cannot show the card:
+  // shown above the card it would only say the title twice.
+  const formTitle = useMemo(
+    () => (message.form != null && client.kind === 'rocketvibe' ? (parseForm(message.form)?.title ?? null) : null),
+    [message.form, client.kind],
+  );
+  const textIsFormTitle = formTitle !== null && (message.text ?? '').trim() === formTitle.trim();
   const quotes = attachments.filter((j) => isQuoteAttachment(j));
   const attachedFiles = attachments.filter((j) => !isQuoteAttachment(j));
 
@@ -264,9 +271,11 @@ export const MessageRow = memo(function MessageRow({
         {quotes.map((attachment, i) => (
           <Quote key={i} c={c} attachment={attachment} client={client} onLongPress={longPress} />
         ))}
-        <MessageLongPress.Provider value={longPress}>
-          <MessageContent c={c} message={message} />
-        </MessageLongPress.Provider>
+        {!textIsFormTitle && (
+          <MessageLongPress.Provider value={longPress}>
+            <MessageContent c={c} message={message} />
+          </MessageLongPress.Provider>
+        )}
         {message.form != null && client.kind === 'rocketvibe' && <FormCard c={c} id={message.id} json={message.form} />}
         {message.systemType === null && (
             <EmbedLinks c={c} client={client} text={message.text} urls={message.urls} onLongPress={longPress} />

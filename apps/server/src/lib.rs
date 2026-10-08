@@ -42,6 +42,7 @@ mod sync;
 mod system_messages;
 mod threads;
 pub mod voice;
+pub mod workflows;
 
 use argon2::{Argon2, PasswordHasher, password_hash::SaltString};
 use rand_core::OsRng;
@@ -58,6 +59,9 @@ pub struct App {
     /// Advertises the `e2ee` capability: on by default, an operator may turn
     /// native end-to-end encryption off for an instance (`RV_E2EE=false`).
     pub e2ee: bool,
+    /// Lets workflow HTTP steps reach private addresses: tests and local
+    /// development only (`RV_WORKFLOW_PRIVATE_HTTP=true`).
+    pub private_http: bool,
     /// This process's start, reported by the administration overview.
     pub(crate) started_at: chrono::DateTime<chrono::Utc>,
     pub(crate) objects: Option<objects::LocalObjects>,
@@ -116,6 +120,7 @@ impl App {
             push: None,
             livekit: None,
             e2ee: true,
+            private_http: false,
             started_at: chrono::Utc::now(),
             objects: None,
             image_slots: Arc::new(tokio::sync::Semaphore::new(2)),
@@ -148,6 +153,11 @@ impl App {
 
     pub fn with_livekit(mut self, livekit: Option<livekit::LiveKit>) -> Self {
         self.livekit = livekit.map(Arc::new);
+        self
+    }
+
+    pub fn with_private_http(mut self, private_http: bool) -> Self {
+        self.private_http = private_http;
         self
     }
 

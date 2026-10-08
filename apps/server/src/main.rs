@@ -27,6 +27,15 @@ struct Args {
         value_parser = clap::builder::BoolishValueParser::new()
     )]
     e2ee: bool,
+    /// Lets workflow HTTP steps reach private addresses: local development only.
+    #[arg(
+        long,
+        env = "RV_WORKFLOW_PRIVATE_HTTP",
+        default_value_t = false,
+        action = clap::ArgAction::Set,
+        value_parser = clap::builder::BoolishValueParser::new()
+    )]
+    workflow_private_http: bool,
     /// Durable volume; include it with PostgreSQL in backups.
     #[arg(long, env = "RV_OBJECTS_DIR", default_value = "data/objects")]
     objects_dir: std::path::PathBuf,
@@ -245,7 +254,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 .map(rv_server::livekit::LiveKit::from_file)
                 .transpose()?,
         )
-        .with_e2ee(args.e2ee);
+        .with_e2ee(args.e2ee)
+        .with_private_http(args.workflow_private_http);
     match args.command {
         Command::Emoji { command } => match command {
             EmojiCommand::List => operator_output(rv_server::custom_emojis::catalog(&app).await)?,
@@ -326,6 +336,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     }
                 }
             });
+            let workflow_app = app.clone();
+            let workflow_worker = tokio::spawn(async move {
+                let mut tick = tokio::time::interval(std::time::Duration::from_secs(1));
+                tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                loop {
+                    tick.tick().await;
+                    if let Err(error) = rv_server::workflows::engine::drain(&workflow_app).await {
+                        tracing::error!(code = error.code, "workflow iteration failed");
+                    }
+                }
+            });
             let preview_app = app.clone();
             let preview_worker = tokio::spawn(async move {
                 let mut tick = tokio::time::interval(std::time::Duration::from_secs(1));
@@ -360,6 +381,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             cleanup.abort();
             mail_worker.abort();
             preview_worker.abort();
+            workflow_worker.abort();
             push_worker.abort();
             voice_worker.abort();
         }

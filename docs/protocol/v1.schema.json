@@ -654,6 +654,26 @@
       ],
       "type": "object"
     },
+    "AnswerForm": {
+      "additionalProperties": false,
+      "properties": {
+        "answers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Field id to its value; a number is sent as its text.",
+          "type": "object"
+        },
+        "operation_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "answers"
+      ],
+      "type": "object"
+    },
     "AnswerRing": {
       "additionalProperties": false,
       "properties": {
@@ -1555,6 +1575,11 @@
           "default": false,
           "description": "Voice sessions in every room, voice channels and ringing direct calls.",
           "type": "boolean"
+        },
+        "workflows": {
+          "default": false,
+          "description": "Workflows acting through bots (RFC 0004).",
+          "type": "boolean"
         }
       },
       "required": [
@@ -1856,6 +1881,45 @@
       "required": [
         "name",
         "private"
+      ],
+      "type": "object"
+    },
+    "CreateWorkflow": {
+      "additionalProperties": false,
+      "properties": {
+        "bot_id": {
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "type": "string"
+        },
+        "enabled": {
+          "default": false,
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/Step"
+          },
+          "type": "array"
+        },
+        "trigger": {
+          "$ref": "#/$defs/Trigger"
+        }
+      },
+      "required": [
+        "operation_id",
+        "name",
+        "bot_id",
+        "trigger",
+        "steps"
       ],
       "type": "object"
     },
@@ -2517,6 +2581,14 @@
       ],
       "type": "object"
     },
+    "Every": {
+      "enum": [
+        "hour",
+        "day",
+        "week"
+      ],
+      "type": "string"
+    },
     "FactorBackupCodes": {
       "properties": {
         "codes": {
@@ -2700,6 +2772,59 @@
         "code"
       ],
       "type": "object"
+    },
+    "FormField": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/FormFieldKind"
+        },
+        "label": {
+          "type": "string"
+        },
+        "options": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "required": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "kind"
+      ],
+      "type": "object"
+    },
+    "FormFieldKind": {
+      "enum": [
+        "text",
+        "long_text",
+        "number",
+        "choice"
+      ],
+      "type": "string"
+    },
+    "FormRecipient": {
+      "oneOf": [
+        {
+          "const": "trigger_user",
+          "description": "The person whose action started the run (a command, a join).",
+          "type": "string"
+        },
+        {
+          "const": "anyone",
+          "description": "Any member of the room.",
+          "type": "string"
+        }
+      ]
     },
     "Format": {
       "enum": [
@@ -3401,6 +3526,32 @@
       ],
       "type": "object"
     },
+    "HttpHeader": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "value"
+      ],
+      "type": "object"
+    },
+    "HttpMethod": {
+      "enum": [
+        "GET",
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE"
+      ],
+      "type": "string"
+    },
     "Identity": {
       "additionalProperties": false,
       "properties": {
@@ -3770,6 +3921,17 @@
             "$ref": "#/$defs/FileDescriptor"
           },
           "type": "array"
+        },
+        "form": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WorkflowForm"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A form a workflow asks (RFC 0004)."
         },
         "id": {
           "type": "string"
@@ -6732,6 +6894,27 @@
       ],
       "type": "object"
     },
+    "RunStarted": {
+      "properties": {
+        "run_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
+    "RunState": {
+      "enum": [
+        "pending",
+        "waiting",
+        "done",
+        "failed",
+        "cancelled"
+      ],
+      "type": "string"
+    },
     "Scope": {
       "additionalProperties": false,
       "properties": {
@@ -7077,6 +7260,143 @@
       ],
       "type": "object"
     },
+    "Step": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "cards": {
+              "items": {
+                "$ref": "#/$defs/IntegrationCard"
+              },
+              "type": "array"
+            },
+            "in_thread": {
+              "type": "boolean"
+            },
+            "kind": {
+              "const": "message",
+              "type": "string"
+            },
+            "room": {
+              "type": "string"
+            },
+            "save_as": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "room",
+            "text"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "wait",
+              "type": "string"
+            },
+            "seconds": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "seconds"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "continue_on_error": {
+              "type": "boolean"
+            },
+            "headers": {
+              "items": {
+                "$ref": "#/$defs/HttpHeader"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "const": "http",
+              "type": "string"
+            },
+            "method": {
+              "$ref": "#/$defs/HttpMethod"
+            },
+            "save_as": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "url": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "method",
+            "url"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "fields": {
+              "items": {
+                "$ref": "#/$defs/FormField"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "const": "form",
+              "type": "string"
+            },
+            "recipient": {
+              "$ref": "#/$defs/FormRecipient"
+            },
+            "room": {
+              "type": "string"
+            },
+            "save_as": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "room",
+            "recipient",
+            "title",
+            "fields",
+            "save_as"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "SyncBatch": {
       "properties": {
         "changes": {
@@ -7406,6 +7726,100 @@
       ],
       "type": "object"
     },
+    "Trigger": {
+      "description": "What starts a run.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "`/name text` in a room where the workflow's bot is a member.",
+          "properties": {
+            "kind": {
+              "const": "command",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "At `time` in `timezone` (IANA), every hour (minutes only), every day,\nor on the given ISO weekdays (1 Monday .. 7 Sunday).",
+          "properties": {
+            "days": {
+              "items": {
+                "format": "uint8",
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "every": {
+              "$ref": "#/$defs/Every"
+            },
+            "kind": {
+              "const": "schedule",
+              "type": "string"
+            },
+            "room": {
+              "type": "string"
+            },
+            "time": {
+              "type": "string"
+            },
+            "timezone": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "every",
+            "time",
+            "timezone",
+            "room"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Someone (never a bot) joins or is added to the room.",
+          "properties": {
+            "kind": {
+              "const": "member_joined",
+              "type": "string"
+            },
+            "room": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "room"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`POST /api/v1/hooks/{workflow}/{secret}` with a JSON body.",
+          "properties": {
+            "kind": {
+              "const": "webhook",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "Typist": {
       "properties": {
         "root_id": {
@@ -7624,6 +8038,50 @@
         "description",
         "announcement",
         "read_only"
+      ],
+      "type": "object"
+    },
+    "UpdateWorkflow": {
+      "additionalProperties": false,
+      "description": "The whole definition at the expected revision.",
+      "properties": {
+        "bot_id": {
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/Step"
+          },
+          "type": "array"
+        },
+        "trigger": {
+          "$ref": "#/$defs/Trigger"
+        }
+      },
+      "required": [
+        "operation_id",
+        "revision",
+        "name",
+        "bot_id",
+        "trigger",
+        "steps",
+        "enabled"
       ],
       "type": "object"
     },
@@ -7952,6 +8410,253 @@
         "expires_in_ms"
       ],
       "type": "object"
+    },
+    "WebhookSecret": {
+      "description": "The only answer that carries the webhook secret.",
+      "properties": {
+        "path": {
+          "description": "`/api/v1/hooks/{workflow}/{secret}`, to put after the server address.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "Workflow": {
+      "description": "A workflow as its owner and the administrators see it.",
+      "properties": {
+        "bot": {
+          "$ref": "#/$defs/User"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "has_webhook": {
+          "default": false,
+          "description": "Whether a webhook secret exists; the secret itself is shown once.",
+          "type": "boolean"
+        },
+        "id": {
+          "type": "string"
+        },
+        "last_run": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WorkflowRun"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "next_fire_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "owner": {
+          "$ref": "#/$defs/User"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/Step"
+          },
+          "type": "array"
+        },
+        "trigger": {
+          "$ref": "#/$defs/Trigger"
+        },
+        "updated_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "owner",
+        "bot",
+        "name",
+        "description",
+        "enabled",
+        "trigger",
+        "steps",
+        "revision",
+        "created_at",
+        "updated_at"
+      ],
+      "type": "object"
+    },
+    "WorkflowForm": {
+      "description": "A form a workflow posted, carried by its message.",
+      "properties": {
+        "answered_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "answered_by": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/User"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "expires_at": {
+          "description": "Past it the form takes no answer.",
+          "type": "string"
+        },
+        "fields": {
+          "items": {
+            "$ref": "#/$defs/FormField"
+          },
+          "type": "array"
+        },
+        "recipient": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/User"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Only this person may answer; absent: any member of the room."
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "fields",
+        "expires_at"
+      ],
+      "type": "object"
+    },
+    "WorkflowList": {
+      "properties": {
+        "workflows": {
+          "items": {
+            "$ref": "#/$defs/Workflow"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "workflows"
+      ],
+      "type": "object"
+    },
+    "WorkflowRun": {
+      "properties": {
+        "created_at": {
+          "type": "string"
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/$defs/RunState"
+        },
+        "step": {
+          "description": "The step about to run, or the last one run.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "updated_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "state",
+        "step",
+        "created_at",
+        "updated_at"
+      ],
+      "type": "object"
+    },
+    "WorkflowRunList": {
+      "properties": {
+        "runs": {
+          "items": {
+            "$ref": "#/$defs/WorkflowRun"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "runs"
+      ],
+      "type": "object"
+    },
+    "WorkflowsContract": {
+      "properties": {
+        "answer_form": {
+          "$ref": "#/$defs/AnswerForm"
+        },
+        "create_workflow": {
+          "$ref": "#/$defs/CreateWorkflow"
+        },
+        "run_started": {
+          "$ref": "#/$defs/RunStarted"
+        },
+        "update_workflow": {
+          "$ref": "#/$defs/UpdateWorkflow"
+        },
+        "webhook_secret": {
+          "$ref": "#/$defs/WebhookSecret"
+        },
+        "workflow": {
+          "$ref": "#/$defs/Workflow"
+        },
+        "workflow_form": {
+          "$ref": "#/$defs/WorkflowForm"
+        },
+        "workflow_list": {
+          "$ref": "#/$defs/WorkflowList"
+        },
+        "workflow_run_list": {
+          "$ref": "#/$defs/WorkflowRunList"
+        }
+      },
+      "required": [
+        "workflow",
+        "workflow_list",
+        "create_workflow",
+        "update_workflow",
+        "workflow_run_list",
+        "webhook_secret",
+        "run_started",
+        "workflow_form",
+        "answer_form"
+      ],
+      "type": "object"
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -8076,6 +8781,9 @@
     },
     "voice_ring": {
       "$ref": "#/$defs/VoiceRing"
+    },
+    "workflows": {
+      "$ref": "#/$defs/WorkflowsContract"
     }
   },
   "required": [
@@ -8118,6 +8826,7 @@
     "run_command",
     "administration",
     "bots",
+    "workflows",
     "parity"
   ],
   "title": "Contract",

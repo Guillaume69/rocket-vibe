@@ -19,6 +19,7 @@ pub mod push;
 pub mod search;
 pub mod system;
 pub mod voice;
+pub mod workflows;
 
 pub const VERSION: u32 = 1;
 
@@ -119,6 +120,9 @@ pub struct Capabilities {
     /// Bot accounts with API keys and scopes (RFC 0003).
     #[serde(default)]
     pub bots: bool,
+    /// Workflows acting through bots (RFC 0004).
+    #[serde(default)]
+    pub workflows: bool,
 }
 
 impl Default for Capabilities {
@@ -174,6 +178,7 @@ impl Default for Capabilities {
             administration: false,
             reports: false,
             bots: false,
+            workflows: false,
         }
     }
 }
@@ -235,7 +240,8 @@ impl Capabilities {
             voice,
             administration,
             reports,
-            bots
+            bots,
+            workflows
         );
         features
     }
@@ -402,6 +408,9 @@ pub struct Message {
     /// The outcome of a direct call, on its `call_started` row.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub call: Option<Box<voice::CallSummary>>,
+    /// A form a workflow asks (RFC 0004).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub form: Option<Box<workflows::WorkflowForm>>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -593,6 +602,7 @@ pub struct Contract {
     pub run_command: commands::RunCommand,
     pub administration: admin::AdminContract,
     pub bots: bots::BotsContract,
+    pub workflows: workflows::WorkflowsContract,
     pub parity: parity::ParityContract,
 }
 

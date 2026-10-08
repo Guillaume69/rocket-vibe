@@ -148,7 +148,7 @@ async fn members_are_refused_and_the_overview_counts_the_instance(pool: PgPool) 
     let overview = root.admin_overview().await.unwrap();
     assert_eq!(overview.server_version, env!("CARGO_PKG_VERSION"));
     assert!(chrono::DateTime::parse_from_rfc3339(&overview.started_at).is_ok());
-    assert_eq!(overview.migration_version.as_deref(), Some("52"));
+    assert_eq!(overview.migration_version.as_deref(), Some("53"));
     assert!(!overview.postgres_version.is_empty());
     let users = overview.users;
     assert_eq!(

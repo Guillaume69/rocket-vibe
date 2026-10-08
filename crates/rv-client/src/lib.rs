@@ -1596,6 +1596,16 @@ impl NativeClient {
     pub async fn commands(&self) -> Result<rv_protocol::commands::CommandList, Error> {
         self.get("/api/v1/commands").await
     }
+    /// The commands of a room: the core ones and the workflows offered there.
+    pub async fn room_commands(
+        &self,
+        room: &str,
+    ) -> Result<rv_protocol::commands::CommandList, Error> {
+        if !path_segment(room) {
+            return Err(Error::InvalidUrl);
+        }
+        self.get(&format!("/api/v1/commands?room={room}")).await
+    }
     /// Runs a server-side slash command; text commands never come here.
     pub async fn run_command(
         &self,
@@ -1806,6 +1816,110 @@ impl NativeClient {
             Method::DELETE,
             &format!("/api/v1/bots/{id}/keys/{key}"),
             false,
+        )
+        .await
+    }
+    /// My workflows, or every workflow with `all` for an administrator.
+    pub async fn workflows(
+        &self,
+        all: bool,
+    ) -> Result<rv_protocol::workflows::WorkflowList, Error> {
+        self.get(if all {
+            "/api/v1/workflows?all=true"
+        } else {
+            "/api/v1/workflows"
+        })
+        .await
+    }
+    pub async fn workflow(&self, id: &str) -> Result<rv_protocol::workflows::Workflow, Error> {
+        if !path_segment(id) {
+            return Err(Error::InvalidUrl);
+        }
+        self.get(&format!("/api/v1/workflows/{id}")).await
+    }
+    pub async fn create_workflow(
+        &self,
+        input: &rv_protocol::workflows::CreateWorkflow,
+    ) -> Result<rv_protocol::workflows::Workflow, Error> {
+        self.post("/api/v1/workflows", input).await
+    }
+    pub async fn update_workflow(
+        &self,
+        id: &str,
+        input: &rv_protocol::workflows::UpdateWorkflow,
+    ) -> Result<rv_protocol::workflows::Workflow, Error> {
+        if !path_segment(id) {
+            return Err(Error::InvalidUrl);
+        }
+        self.request(
+            Method::PUT,
+            &format!("/api/v1/workflows/{id}"),
+            Some(input),
+            false,
+        )
+        .await
+    }
+    pub async fn delete_workflow(&self, id: &str) -> Result<(), Error> {
+        if !path_segment(id) {
+            return Err(Error::InvalidUrl);
+        }
+        self.empty(Method::DELETE, &format!("/api/v1/workflows/{id}"), false)
+            .await
+    }
+    /// Owner or administrator: stops it and its unfinished runs.
+    pub async fn disable_workflow(
+        &self,
+        id: &str,
+    ) -> Result<rv_protocol::workflows::Workflow, Error> {
+        if !path_segment(id) {
+            return Err(Error::InvalidUrl);
+        }
+        self.post(&format!("/api/v1/workflows/{id}/disable"), &())
+            .await
+    }
+    /// A new webhook secret, the only answer that carries it.
+    pub async fn workflow_webhook(
+        &self,
+        id: &str,
+    ) -> Result<rv_protocol::workflows::WebhookSecret, Error> {
+        if !path_segment(id) {
+            return Err(Error::InvalidUrl);
+        }
+        self.post(&format!("/api/v1/workflows/{id}/webhook"), &())
+            .await
+    }
+    pub async fn workflow_runs(
+        &self,
+        id: &str,
+    ) -> Result<rv_protocol::workflows::WorkflowRunList, Error> {
+        if !path_segment(id) {
+            return Err(Error::InvalidUrl);
+        }
+        self.get(&format!("/api/v1/workflows/{id}/runs")).await
+    }
+    pub async fn test_workflow(
+        &self,
+        id: &str,
+    ) -> Result<rv_protocol::workflows::RunStarted, Error> {
+        if !path_segment(id) {
+            return Err(Error::InvalidUrl);
+        }
+        self.post(&format!("/api/v1/workflows/{id}/test"), &())
+            .await
+    }
+    /// Answers a form a workflow posted in a message.
+    pub async fn answer_form(
+        &self,
+        message: &str,
+        input: &rv_protocol::workflows::AnswerForm,
+    ) -> Result<(), Error> {
+        if !path_segment(message) {
+            return Err(Error::InvalidUrl);
+        }
+        self.empty_input(
+            Method::POST,
+            &format!("/api/v1/forms/{message}/answer"),
+            Some(input),
         )
         .await
     }

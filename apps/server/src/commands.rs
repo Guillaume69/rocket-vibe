@@ -127,7 +127,14 @@ pub async fn run(app: &App, actor: &Account, input: RunCommand) -> Result<()> {
         name if rv_protocol::commands::decorate(name, "").is_some() => {
             return Err(Error::new(StatusCode::BAD_REQUEST, "client_side_command"));
         }
-        _ => return Err(unknown()),
+        name => {
+            if crate::workflows::run_command(app, actor, room, name, params, None)
+                .await?
+                .is_none()
+            {
+                return Err(unknown());
+            }
+        }
     }
     Ok(())
 }

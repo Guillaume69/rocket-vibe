@@ -48,6 +48,7 @@ Optimistic messages are `messages` rows with `updated_at = 0`: only a local copy
 - `db/migrate.ts#migrateDatabase` runs drizzle's expo migrator on one database. It is memoized per file name by promise, so two callers in the same tick share one run; a failure is not memoized, so the next call retries. The body is async so that even a synchronous throw from opening a corrupt file becomes a rejection the caller can catch.
 - Migration is done by whoever opens the database (`SyncProvider` for the session's), never globally at app start.
 - **Migration 0021 (`db/migrations/0021_author_bot.sql`)** adds `messages.author_bot` (default false), written only by the RocketVibe store after the shared upsert, for the bot badge ([../features/bots.md](../features/bots.md)).
+- **Migration 0022 (`db/migrations/0022_message_form.sql`)** adds `messages.form`, the JSON of a workflow's form (`Message.form`), written only by the RocketVibe store, read by the form card and the answer sheet ([../features/workflows.md](../features/workflows.md)).
 - **Migration 0020 (`db/migrations/0020_emoji_usage.sql`)** adds `emoji_usage` with `CREATE TABLE IF NOT EXISTS`: development builds of this feature had created it as 0019 before the rebase put it after `0019_voice_channels`, and there it must be a no-op.
 - **Migration 0016 (`db/migrations/0016_english_names.sql`) moved the schema to English names in place.** Until 0015 the tables and columns had French names; 0016 renames the tables (`rooms`, `subscriptions`, `drafts`, `custom_emojis`, `users`, `cursors`) and their columns with `ALTER TABLE ... RENAME`, recreates the indexes under English names, and rebuilds `outbox` and `uploads` by copy (their `status` default and values change: `pending`, `sending`, `failed`). It also rewrites the stored values: cursor `stream` names (`rooms`, `subscriptions`, `messages-deleted`) and the removed-photo marker in `avatar_etag` (`none`). Data survives the upgrade; the old SQL names now appear only in migrations 0000 to 0015. The move is one-way: a build from before 0016 cannot open a database migrated by it (on a test device, going back means reinstalling).
 - `db/schema.test.ts` applies every `.sql` file, split on `--> statement-breakpoint`, to an in-memory `node:sqlite` and checks the result, because generated is not the same as valid.
@@ -104,6 +105,7 @@ Side effects baked into writes:
 - apps/mobile/db/migrations/0019_voice_channels.sql
 - apps/mobile/db/migrations/0020_emoji_usage.sql
 - apps/mobile/db/migrations/0021_author_bot.sql
+- apps/mobile/db/migrations/0022_message_form.sql
 - apps/mobile/providers/rocketvibe/store.ts
 - apps/mobile/lib/emojiUsage.ts
 - apps/mobile/db/migrations/migrations.js

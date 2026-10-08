@@ -593,6 +593,10 @@ impl MmSync {
         self.store.write(|w| w.delete_room(rid));
     }
 
+    pub fn me(&self) -> &str {
+        &self.me
+    }
+
     pub fn team_of(&self, rid: &str) -> Option<String> {
         let live = self.live.lock().unwrap();
         text(live.channels.get(rid)?, "team_id").map(str::to_owned)

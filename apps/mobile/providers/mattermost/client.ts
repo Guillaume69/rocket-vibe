@@ -36,6 +36,12 @@ export type MmClientOptions = {
   timeoutMs?: number;
   /** Called with the rejected token when an authenticated request answers 401. */
   onTokenRejected?: (token: string) => void;
+  /**
+   * kChat's errors are `{message}` without Mattermost's `id` (probed: a revoked
+   * token answers `401 {"message": "Unauthorized"}`): a JSON body with a
+   * `message` is then enough to believe the status.
+   */
+  plainErrors?: boolean;
 };
 
 const MAX_RATE_LIMIT_WAIT_MS = 30_000;
@@ -48,6 +54,7 @@ export class MmClient {
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly timeoutMs: number;
   private readonly onTokenRejected: ((token: string) => void) | null;
+  private readonly plainErrors: boolean;
 
   constructor(baseUrl: string, token: string | null, options: MmClientOptions = {}) {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
@@ -56,6 +63,7 @@ export class MmClient {
     this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
     this.timeoutMs = options.timeoutMs ?? 20_000;
     this.onTokenRejected = options.onTokenRejected ?? null;
+    this.plainErrors = options.plainErrors ?? false;
   }
 
   url(path: string, query?: MmQuery): string {
@@ -101,7 +109,8 @@ export class MmClient {
       const envelope = isRecord(parsed) ? parsed : {};
       const id = typeof envelope.id === 'string' ? envelope.id : null;
       const message = typeof envelope.message === 'string' ? envelope.message : `HTTP ${response.status}`;
-      if (response.status === 401 && !options.anonymous && !options.quiet && this.token !== null && id !== null) {
+      const understood = id !== null || (this.plainErrors && typeof envelope.message === 'string');
+      if (response.status === 401 && !options.anonymous && !options.quiet && this.token !== null && understood) {
         this.onTokenRejected?.(this.token);
       }
       throw new MmError(response.status, id, message);

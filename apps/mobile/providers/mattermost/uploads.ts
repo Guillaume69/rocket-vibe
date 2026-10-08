@@ -10,6 +10,7 @@ import type { FileOutbox, Ingest } from '../../lib/provider.ts';
 import type { FileToSend, TransportUpload } from '../../lib/upload.ts';
 import type { UploadRow, UploadStore } from '../../lib/uploadQueue.ts';
 import { MmError, type MmClient } from './client.ts';
+import { pendingPostId } from './outbox.ts';
 
 /** Rows this process is sending; the others found `sending` were orphaned by a killed run. */
 const IN_FLIGHT_HERE = new Set<string>();
@@ -20,6 +21,7 @@ export class MmUploadQueue implements FileOutbox {
   private readonly client: MmClient;
   private readonly transport: TransportUpload;
   private readonly generateId: () => string;
+  private readonly myId: string;
   private readonly ingest: Ingest;
   private readonly deleteLocalFile: ((uri: string) => Promise<void>) | undefined;
   private readonly refreshRoom: ((rid: string) => Promise<void>) | undefined;
@@ -35,6 +37,7 @@ export class MmUploadQueue implements FileOutbox {
     client: MmClient;
     transport: TransportUpload;
     generateId: () => string;
+    myId: string;
     ingest: Ingest;
     deleteLocalFile?: (uri: string) => Promise<void>;
     refreshRoom?: (rid: string) => Promise<void>;
@@ -43,6 +46,7 @@ export class MmUploadQueue implements FileOutbox {
     this.client = options.client;
     this.transport = options.transport;
     this.generateId = options.generateId;
+    this.myId = options.myId;
     this.ingest = options.ingest;
     this.deleteLocalFile = options.deleteLocalFile;
     this.refreshRoom = options.refreshRoom;
@@ -146,7 +150,7 @@ export class MmUploadQueue implements FileOutbox {
         message: row.caption ?? '',
         root_id: row.tmid ?? '',
         file_ids: [fileId],
-        pending_post_id: row.id,
+        pending_post_id: pendingPostId(this.myId, row.id),
       },
     });
     await this.settle(row);

@@ -135,6 +135,8 @@ pub struct RestClient {
     credentials: Arc<RwLock<Option<Credentials>>>,
     token_rejected: broadcast::Sender<String>,
     api: Api,
+    /// kChat: a `{message}` error body is believed (`interpret_mattermost`).
+    plain_errors: bool,
 }
 
 impl RestClient {
@@ -147,6 +149,11 @@ impl RestClient {
         Self::with_api(base, Api::Mattermost)
     }
 
+    /// kChat: Mattermost's API, but errors are `{message}` without `id`.
+    pub fn kchat(base: Url) -> Self {
+        RestClient { plain_errors: true, ..Self::with_api(base, Api::Mattermost) }
+    }
+
     fn with_api(base: Url, api: Api) -> Self {
         let http = reqwest::Client::builder()
             .timeout(TIMEOUT)
@@ -154,7 +161,7 @@ impl RestClient {
             .build()
             .expect("HTTP client");
         let (token_rejected, _) = broadcast::channel(8);
-        RestClient { http, base, credentials: Arc::default(), token_rejected, api }
+        RestClient { http, base, credentials: Arc::default(), token_rejected, api, plain_errors: false }
     }
 
     pub fn base(&self) -> &Url {
@@ -429,14 +436,16 @@ impl RestClient {
     fn interpret(&self, path: &str, status: u16, text: &str) -> Result<Value, RestError> {
         match self.api {
             Api::RocketChat => interpret(path, status, text),
-            Api::Mattermost => interpret_mattermost(path, status, text),
+            Api::Mattermost => interpret_mattermost(path, status, text, self.plain_errors),
         }
     }
 }
 
 /// Mattermost answers lists as JSON arrays and errors as
 /// `{id, message, status_code}`; that envelope is what makes a 401 believable.
-pub(crate) fn interpret_mattermost(path: &str, status: u16, text: &str) -> Result<Value, RestError> {
+/// kChat (`plain`) answers `{message}` alone, a revoked token included
+/// (`401 {"message": "Unauthorized"}`, probed).
+pub(crate) fn interpret_mattermost(path: &str, status: u16, text: &str, plain: bool) -> Result<Value, RestError> {
     let http_ok = (200..300).contains(&status);
     if text.trim().is_empty() && http_ok {
         return Ok(json!({}));
@@ -451,7 +460,8 @@ pub(crate) fn interpret_mattermost(path: &str, status: u16, text: &str) -> Resul
     }
     let str_of = |key: &str| parsed.as_ref().and_then(|v| v.get(key)).and_then(Value::as_str).map(str::to_owned);
     let error = str_of("id");
-    let understood = error.is_some() && parsed.as_ref().and_then(|v| v.get("status_code")).is_some();
+    let understood = (error.is_some() && parsed.as_ref().and_then(|v| v.get("status_code")).is_some())
+        || (plain && str_of("message").is_some());
     Err(RestError {
         status,
         message: str_of("message").unwrap_or_else(|| format!("{path} failed")),

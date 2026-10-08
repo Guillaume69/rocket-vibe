@@ -48,7 +48,7 @@ describe('MmOutbox', () => {
     );
     await outbox.send('ch1', 'hi', 'root1');
     const body = server.calls[0]?.body as Record<string, unknown>;
-    assert.equal(body.pending_post_id, 'local1');
+    assert.equal(body.pending_post_id, 'u-me:3233');
     assert.equal(body.root_id, 'root1');
     assert.equal(ingested[0]?.id, 'real1');
     assert.equal(rows.size, 0);

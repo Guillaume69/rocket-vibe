@@ -148,7 +148,7 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/mattermost/mod.rs:125](../../apps/desktop/crates/rv-core/src/mattermost/mod.rs#L125) | call:GET | "users/me" |
 | [apps/desktop/crates/rv-core/src/mattermost/mod.rs:132](../../apps/desktop/crates/rv-core/src/mattermost/mod.rs#L132) | call:POST | "users/logout" |
 | [apps/desktop/crates/rv-core/src/mattermost/mod.rs:146](../../apps/desktop/crates/rv-core/src/mattermost/mod.rs#L146) | call:GET | "users/me/servers" |
-| [apps/desktop/crates/rv-core/src/mattermost/mod.rs:203](../../apps/desktop/crates/rv-core/src/mattermost/mod.rs#L203) | call:GET | "users/me/channels", page()), rest.get("users/me/channel_members", page()))?; |
+| [apps/desktop/crates/rv-core/src/mattermost/mod.rs:221](../../apps/desktop/crates/rv-core/src/mattermost/mod.rs#L221) | call:GET | "users/me/channels", page()), rest.get("users/me/channel_members", page()))?; |
 | [apps/desktop/crates/rv-core/src/mattermost/pusher.rs:102](../../apps/desktop/crates/rv-core/src/mattermost/pusher.rs#L102) | call:GET | "config/client", config), rest.get("users/me" |
 | [apps/desktop/crates/rv-core/src/mattermost/socket.rs:83](../../apps/desktop/crates/rv-core/src/mattermost/socket.rs#L83) | url | /api/v4/websocket |
 | [apps/desktop/crates/rv-core/src/mattermost/sync.rs:120](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L120) | call:GET | &format!("posts/{…}") |
@@ -174,12 +174,12 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/native/workflows.rs:324](../../apps/desktop/crates/rv-core/src/native/workflows.rs#L324) | url | /api/v1/hooks |
 | [apps/desktop/crates/rv-core/src/outbox.rs:118](../../apps/desktop/crates/rv-core/src/outbox.rs#L118) | call:POST | "chat.sendMessage" |
 | [apps/desktop/crates/rv-core/src/outbox.rs:118](../../apps/desktop/crates/rv-core/src/outbox.rs#L118) | endpoint | chat.sendMessage |
-| [apps/desktop/crates/rv-core/src/outbox.rs:168](../../apps/desktop/crates/rv-core/src/outbox.rs#L168) | call:POST | "posts" |
-| [apps/desktop/crates/rv-core/src/outbox.rs:191](../../apps/desktop/crates/rv-core/src/outbox.rs#L191) | call:GET | &format!("channels/{…}/posts", entry.rid), options).await { |
-| [apps/desktop/crates/rv-core/src/outbox.rs:207](../../apps/desktop/crates/rv-core/src/outbox.rs#L207) | call:GET | "chat.getMessage" |
-| [apps/desktop/crates/rv-core/src/outbox.rs:207](../../apps/desktop/crates/rv-core/src/outbox.rs#L207) | endpoint | chat.getMessage |
-| [apps/desktop/crates/rv-core/src/rest.rs:357](../../apps/desktop/crates/rv-core/src/rest.rs#L357) | url | /api/v1 |
-| [apps/desktop/crates/rv-core/src/rest.rs:358](../../apps/desktop/crates/rv-core/src/rest.rs#L358) | url | /api/v4 |
+| [apps/desktop/crates/rv-core/src/outbox.rs:169](../../apps/desktop/crates/rv-core/src/outbox.rs#L169) | call:POST | "posts" |
+| [apps/desktop/crates/rv-core/src/outbox.rs:192](../../apps/desktop/crates/rv-core/src/outbox.rs#L192) | call:GET | &format!("channels/{…}/posts", entry.rid), options).await { |
+| [apps/desktop/crates/rv-core/src/outbox.rs:208](../../apps/desktop/crates/rv-core/src/outbox.rs#L208) | call:GET | "chat.getMessage" |
+| [apps/desktop/crates/rv-core/src/outbox.rs:208](../../apps/desktop/crates/rv-core/src/outbox.rs#L208) | endpoint | chat.getMessage |
+| [apps/desktop/crates/rv-core/src/rest.rs:364](../../apps/desktop/crates/rv-core/src/rest.rs#L364) | url | /api/v1 |
+| [apps/desktop/crates/rv-core/src/rest.rs:365](../../apps/desktop/crates/rv-core/src/rest.rs#L365) | url | /api/v4 |
 | [apps/desktop/crates/rv-core/src/server.rs:121](../../apps/desktop/crates/rv-core/src/server.rs#L121) | call:GET | "api/info", info), rest.get("settings.public", settings)); |
 | [apps/desktop/crates/rv-core/src/server.rs:121](../../apps/desktop/crates/rv-core/src/server.rs#L121) | endpoint | api/info |
 | [apps/desktop/crates/rv-core/src/server.rs:121](../../apps/desktop/crates/rv-core/src/server.rs#L121) | endpoint | settings.public |
@@ -257,11 +257,11 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/uploads.rs:89](../../apps/desktop/crates/rv-core/src/uploads.rs#L89) | resource | /file-upload/{…}/{…} |
 | [apps/desktop/crates/rv-core/src/uploads.rs:323](../../apps/desktop/crates/rv-core/src/uploads.rs#L323) | call:POST | &format!("rooms.mediaConfirm/{…}/{…}", row.rid) |
 | [apps/desktop/crates/rv-core/src/uploads.rs:323](../../apps/desktop/crates/rv-core/src/uploads.rs#L323) | endpoint | rooms.mediaConfirm/{…}/{…} |
-| [apps/desktop/crates/rv-core/src/uploads.rs:365](../../apps/desktop/crates/rv-core/src/uploads.rs#L365) | call:POST | "posts" |
-| [apps/desktop/crates/rv-core/src/uploads.rs:449](../../apps/desktop/crates/rv-core/src/uploads.rs#L449) | call:POST | &format!("rooms.mediaConfirm/{…}/{…}", row.rid) |
-| [apps/desktop/crates/rv-core/src/uploads.rs:449](../../apps/desktop/crates/rv-core/src/uploads.rs#L449) | endpoint | rooms.mediaConfirm/{…}/{…} |
-| [apps/desktop/crates/rv-core/src/uploads.rs:473](../../apps/desktop/crates/rv-core/src/uploads.rs#L473) | endpoint | rooms.media/{…} |
-| [apps/desktop/crates/rv-core/src/uploads.rs:475](../../apps/desktop/crates/rv-core/src/uploads.rs#L475) | call:UPLOAD | &path, field, upload.bytes, &upload.name, &upload.mime, upload.texts, move \|sent, total\| { |
+| [apps/desktop/crates/rv-core/src/uploads.rs:366](../../apps/desktop/crates/rv-core/src/uploads.rs#L366) | call:POST | "posts" |
+| [apps/desktop/crates/rv-core/src/uploads.rs:450](../../apps/desktop/crates/rv-core/src/uploads.rs#L450) | call:POST | &format!("rooms.mediaConfirm/{…}/{…}", row.rid) |
+| [apps/desktop/crates/rv-core/src/uploads.rs:450](../../apps/desktop/crates/rv-core/src/uploads.rs#L450) | endpoint | rooms.mediaConfirm/{…}/{…} |
+| [apps/desktop/crates/rv-core/src/uploads.rs:474](../../apps/desktop/crates/rv-core/src/uploads.rs#L474) | endpoint | rooms.media/{…} |
+| [apps/desktop/crates/rv-core/src/uploads.rs:476](../../apps/desktop/crates/rv-core/src/uploads.rs#L476) | call:UPLOAD | &path, field, upload.bytes, &upload.name, &upload.mime, upload.texts, move \|sent, total\| { |
 | [apps/desktop/crates/rv-gtk/src/chat_native.rs:1015](../../apps/desktop/crates/rv-gtk/src/chat_native.rs#L1015) | endpoint | rooms.new |
 | [apps/desktop/crates/rv-gtk/src/chat_quotes.rs:98](../../apps/desktop/crates/rv-gtk/src/chat_quotes.rs#L98) | endpoint | spotlight |
 | [apps/desktop/crates/rv-gtk/src/chat.rs:87](../../apps/desktop/crates/rv-gtk/src/chat.rs#L87) | endpoint | rooms.favorite_add |

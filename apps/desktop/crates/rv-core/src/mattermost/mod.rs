@@ -104,7 +104,7 @@ pub async fn login(
     let status = response.status().as_u16();
     let token = response.headers().get("token").and_then(|v| v.to_str().ok()).map(str::to_owned);
     let text = response.text().await.map_err(|_| RestError::network("users/login: connection lost.".into()))?;
-    let me = match crate::rest::interpret_mattermost("users/login", status, &text) {
+    let me = match crate::rest::interpret_mattermost("users/login", status, &text, false) {
         Ok(me) => me,
         Err(mut e) if e.error.as_deref() == Some(MFA_REQUIRED) && answered.is_none() => {
             e.two_factor =
@@ -120,7 +120,7 @@ pub async fn login(
 /// A bearer token (Mattermost personal access token, Infomaniak token for
 /// kChat), checked against `/users/me`, which names the account.
 pub async fn login_with_token(base: &Url, token: &str, flavor: Flavor) -> Result<SessionInfo, RestError> {
-    let rest = RestClient::mattermost(base.clone());
+    let rest = client(base.clone(), Some(flavor));
     rest.set_credentials(Some(Credentials { auth_token: token.trim().to_owned(), user_id: String::new() }));
     let me = rest.get("users/me", CallOptions::default()).await?;
     session_info(base, token.trim(), &me, flavor)
@@ -141,7 +141,7 @@ pub struct KchatServer {
 
 /// The kChat servers the Infomaniak token opens.
 pub async fn kchat_servers(token: &str) -> Result<Vec<KchatServer>, RestError> {
-    let rest = RestClient::mattermost(KCHAT_DIRECTORY.parse().expect("kChat directory URL"));
+    let rest = RestClient::kchat(KCHAT_DIRECTORY.parse().expect("kChat directory URL"));
     rest.set_credentials(Some(Credentials { auth_token: token.trim().to_owned(), user_id: String::new() }));
     let list = rest.get("users/me/servers", CallOptions::default()).await?;
     Ok(list
@@ -178,6 +178,24 @@ pub async fn login_kchat(base: &Url, token: &str) -> Result<SessionInfo, RestErr
     }
 }
 
+/// The REST client of a Mattermost account, kChat's error envelope included.
+pub fn client(base: Url, flavor: Option<Flavor>) -> RestClient {
+    match flavor {
+        Some(Flavor::Kchat) => RestClient::kchat(base),
+        _ => RestClient::mattermost(base),
+    }
+}
+
+/// `<my user id>:<digits>`, the web client's format: kChat refuses any other
+/// with 422 (probed). The digits are the client id's hex read as a number, so a
+/// replay of the same row sends the same value and the server deduplicates it.
+pub fn pending_post_id(me: &str, client_id: &str) -> String {
+    let hex: String = client_id.chars().filter(char::is_ascii_hexdigit).collect();
+    let digits =
+        u128::from_str_radix(if hex.is_empty() { "0" } else { &hex }, 16).map_or(hex.clone(), |n| n.to_string());
+    format!("{me}:{digits}")
+}
+
 fn session_info(base: &Url, token: &str, me: &Value, flavor: Flavor) -> Result<SessionInfo, RestError> {
     let field = |key: &str| me.get(key).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
     let (Some(user_id), Some(username)) = (field("id"), field("username")) else {
@@ -196,7 +214,7 @@ fn session_info(base: &Url, token: &str, me: &Value, flavor: Flavor) -> Result<S
 /// Does an account that is not open have something unread?
 pub async fn unread(info: &SessionInfo) -> Result<bool, RestError> {
     let base: Url = info.base_url.parse().map_err(|_| error("base URL"))?;
-    let rest = RestClient::mattermost(base);
+    let rest = client(base, info.mattermost);
     rest.set_credentials(Some(Credentials { auth_token: info.auth_token.clone(), user_id: info.user_id.clone() }));
     let page = || CallOptions::params([("per_page", "200")]);
     let (channels, members) =

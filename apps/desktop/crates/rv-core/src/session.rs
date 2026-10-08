@@ -285,7 +285,7 @@ impl Session {
         let store = Arc::new(Store::open(db_path)?);
         let flavor = info.mattermost;
         let rest = match flavor {
-            Some(_) => RestClient::mattermost(base.clone()),
+            Some(flavor) => mattermost::client(base.clone(), Some(flavor)),
             None => RestClient::new(base.clone()),
         };
         rest.set_credentials(Some(Credentials { auth_token: info.auth_token.clone(), user_id: info.user_id.clone() }));

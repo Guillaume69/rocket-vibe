@@ -60,6 +60,7 @@ export function createMattermostProvider(
   setMediaBearer(session.baseUrl, session.authToken);
   const client = new MmClient(session.baseUrl, session.authToken, {
     fetch: options.fetch,
+    plainErrors: kchat,
     onTokenRejected: (token) => rest.onTokenRejected?.(token),
   });
   const directory = new MmDirectory(client);
@@ -143,6 +144,7 @@ export function createMattermostProvider(
         client,
         transport,
         generateId,
+        myId: session.userId,
         ingest,
         deleteLocalFile: hooks?.deleteLocalFile,
         refreshRoom: hooks?.refreshRoom,

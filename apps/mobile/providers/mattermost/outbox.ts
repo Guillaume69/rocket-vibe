@@ -18,6 +18,16 @@ import { MmError, type MmClient } from './client.ts';
 import { ordered } from './history.ts';
 
 const UNKNOWN = Symbol('delivery unknown');
+
+/**
+ * `<my user id>:<digits>`, the web client's format: kChat refuses any other with
+ * 422 (probed). The digits are the client id's hex read as a number, so a replay
+ * of the same row sends the same value and the server deduplicates it.
+ */
+export function pendingPostId(myId: string, clientId: string): string {
+  const hex = clientId.toLowerCase().replace(/[^0-9a-f]/g, '');
+  return `${myId}:${hex === '' ? '0' : BigInt(`0x${hex}`).toString()}`;
+}
 const CHECK_DEPTH = 30;
 
 export class MmOutbox implements Outbox {
@@ -102,7 +112,7 @@ export class MmOutbox implements Outbox {
     for (const row of await this.store.listToSend()) {
       try {
         const post = await this.client.post<Record<string, unknown>>('/posts', {
-          body: { channel_id: row.rid, message: row.text, root_id: row.threadId ?? '', pending_post_id: row.id },
+          body: { channel_id: row.rid, message: row.text, root_id: row.threadId ?? '', pending_post_id: pendingPostId(this.me.id, row.id) },
         });
         await this.delivered(row.id, post);
       } catch (e) {

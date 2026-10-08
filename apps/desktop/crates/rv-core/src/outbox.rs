@@ -164,7 +164,8 @@ impl Outbox {
     async fn pass_mattermost(&self, mm: &MmSync) -> bool {
         for entry in self.store.pending_outbox() {
             let body = json!({"channel_id": entry.rid, "message": entry.text,
-                "root_id": entry.thread_id.clone().unwrap_or_default(), "pending_post_id": entry.id});
+                "root_id": entry.thread_id.clone().unwrap_or_default(),
+                "pending_post_id": crate::mattermost::pending_post_id(&self.me_id, &entry.id)});
             let post = match self.rest.post("posts", CallOptions::body(body)).await {
                 Ok(post) => post,
                 Err(e) if e.status == 0 => return false,

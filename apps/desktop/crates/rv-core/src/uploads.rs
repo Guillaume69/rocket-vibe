@@ -361,7 +361,8 @@ impl Uploads {
             return Ok(Outcome::Done);
         }
         let body = json!({"channel_id": row.rid, "message": row.caption.clone().unwrap_or_default(),
-            "root_id": row.tmid.clone().unwrap_or_default(), "file_ids": [file_id], "pending_post_id": row.id});
+            "root_id": row.tmid.clone().unwrap_or_default(), "file_ids": [file_id],
+            "pending_post_id": crate::mattermost::pending_post_id(mm.me(), &row.id)});
         let post = match self.rest.post("posts", CallOptions::body(body)).await {
             Ok(v) => v,
             Err(e) if e.status == 0 => return Ok(Outcome::Offline),

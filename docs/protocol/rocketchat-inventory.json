@@ -1368,7 +1368,7 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/mod.rs",
-      "line": 203,
+      "line": 221,
       "kind": "call:GET",
       "surface": "\"users/me/channels\", page()), rest.get(\"users/me/channel_members\", page()))?;"
     },
@@ -1524,37 +1524,37 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/outbox.rs",
-      "line": 168,
+      "line": 169,
       "kind": "call:POST",
       "surface": "\"posts\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/outbox.rs",
-      "line": 191,
+      "line": 192,
       "kind": "call:GET",
       "surface": "&format!(\"channels/{…}/posts\", entry.rid), options).await {"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/outbox.rs",
-      "line": 207,
+      "line": 208,
       "kind": "call:GET",
       "surface": "\"chat.getMessage\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/outbox.rs",
-      "line": 207,
+      "line": 208,
       "kind": "endpoint",
       "surface": "chat.getMessage"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/rest.rs",
-      "line": 357,
+      "line": 364,
       "kind": "url",
       "surface": "/api/v1"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/rest.rs",
-      "line": 358,
+      "line": 365,
       "kind": "url",
       "surface": "/api/v4"
     },
@@ -2022,31 +2022,31 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/uploads.rs",
-      "line": 365,
+      "line": 366,
       "kind": "call:POST",
       "surface": "\"posts\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/uploads.rs",
-      "line": 449,
+      "line": 450,
       "kind": "call:POST",
       "surface": "&format!(\"rooms.mediaConfirm/{…}/{…}\", row.rid)"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/uploads.rs",
-      "line": 449,
+      "line": 450,
       "kind": "endpoint",
       "surface": "rooms.mediaConfirm/{…}/{…}"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/uploads.rs",
-      "line": 473,
+      "line": 474,
       "kind": "endpoint",
       "surface": "rooms.media/{…}"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/uploads.rs",
-      "line": 475,
+      "line": 476,
       "kind": "call:UPLOAD",
       "surface": "&path, field, upload.bytes, &upload.name, &upload.mime, upload.texts, move |sent, total| {"
     },

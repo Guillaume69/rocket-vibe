@@ -25,8 +25,9 @@ beta does.
 | 2FA by email: send and resend the code | done | partial | partial | Desktop requests the code automatically when the server has not sent one, with no resend control. |
 | Session in the system keychain, resumed at launch; a 401 on an authenticated call signs out | done | done | done | |
 | Server probe before login (`/api/info`, `settings.public`) | done | done | done | |
-| Choose the server type at sign-in (automatic, Rocket.Chat, RocketVibe) | done | done | done | SwiftUI checked by the Linux build of RocketVibeKit and the macOS CI build only. |
-| Mattermost server: login with MFA, rooms, history, threads, live messages, unread, who types, presence, text and files, reactions, edits, deletions, pins, stars, search - [mattermost-and-kchat](features/mattermost-and-kchat.md) | done | done | done | Push and quotes are not mapped on that server; kMeet calls are joined, not started. SwiftUI: only the sign-in picker is Swift, checked by the macOS CI build. |
+| Choose the server type at sign-in (automatic, Rocket.Chat, RocketVibe, Mattermost, kChat) | done | done | done | SwiftUI checked by the Linux build of RocketVibeKit and the macOS CI build only. |
+| Mattermost server: login with MFA, rooms, history, threads, live messages, unread, who types, presence, text and files, reactions, edits, deletions, pins, stars, search - [mattermost-and-kchat](features/mattermost-and-kchat.md) | done | done | done | Push and quotes are not mapped on that server; kMeet calls are joined, not started. Mobile: stars changed in another client show only once the room's starred list is read again. SwiftUI: the Swift parts (sign-in and kChat server picker, category sections, ended kMeet row) are checked by the Linux build of RocketVibeKit and the macOS CI build only. |
+| kChat: a room read in another kChat client clears here at once (`badge_updated`) | done | done | done | |
 | kChat server (Infomaniak): Infomaniak sign-in or API token, Pusher real time, team servers of the account | partial | partial | partial | Run on a real kChat account with an API token (mobile on the emulator, desktop core through `kchat-smoke`, GTK and SwiftUI on that same core). Mobile: "Sign in with Infomaniak" not yet run. GTK, SwiftUI: API token only, no "Sign in with Infomaniak" (its redirect is a custom URL scheme the desktop apps do not register). |
 | Known servers offered on the login screen | done | done | done | |
 | Several servers side by side, switch without signing out | done | done | done | One database per (server, account) everywhere. |
@@ -291,7 +292,7 @@ beta does.
 What each app owes, from the tables above. Rows missing in all three are product
 gaps, listed last.
 
-- **Mobile**: kChat "Sign in with Infomaniak" run on a real account; several accounts per server; time and `@n` badge in the room list;
+- **Mobile**: kChat "Sign in with Infomaniak" run on a real account; Mattermost stars changed elsewhere, live; several accounts per server; time and `@n` badge in the room list;
   `mailto:` links; mentions of me highlighted; formatting toolbar; list
   continuation; removing my photo; logs folder; meeting information.
 - **GTK**: kChat "Sign in with Infomaniak"; email 2FA resend; replay of an offline sign-out; padlock tile once

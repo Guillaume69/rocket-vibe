@@ -5,10 +5,11 @@ Mattermost), next to their Rocket.Chat and RocketVibe accounts: rooms, history,
 threads, live messages, unread counts, who types (received only, as on
 Rocket.Chat), presence, sending text and files, reactions, edits, deletions,
 pins, stars (Mattermost's flagged posts), favourites and my own sidebar
-categories as room-list sections, search in a room, room info and profiles.
+categories as room-list sections, search in a room, room info and profiles,
 custom emoji, kChat's kMeet calls (joined from their post; starting one is not
 mapped) and live clearing of a read made in another kChat client. Push, quotes
-and E2EE are not mapped.
+and E2EE are not mapped; neither are muted channels, live thread reply counts,
+or, on mobile, stars changed elsewhere (`docs/MATTERMOST.md` §8).
 A DM shows its unread count, never mentions: Mattermost counts every DM message
 in `mention_count`.
 
@@ -87,6 +88,22 @@ Rocket.Chat call fails cleanly instead of hitting the wrong server.
   returns that URL as is (`lib/providerCalls.ts`). See [calls](calls.md).
 - kChat reads made elsewhere: `badge_updated` makes `MmLive.recount` read my
   memberships again and emit the rooms whose counts moved.
+- Lists: `MmClient.pages` walks `page`/`per_page`; `/users/me/channels` is read
+  once (`MmCatchUp.channels`), it ignores paging.
+- A 401 revokes only with the server's own body (`MmError.rejectsToken`, set by
+  `MmClient.failure`), except Mattermost's wrong-password id; `sessionRejected`
+  (`lib/sessionTransport.ts`), `describeMmError` and logout read that flag.
+- The global catch-up skips rooms a live event changed during its requests
+  (`MmLive.mark`, `changedSince`), and a room written without its last post
+  keeps its stored preview (`LocalRoom.keepPreview`, `UPSERT_ROOM`).
+- The outbox confirms a refused send only with a post created since the row
+  was queued (`OutboxRow.createdAt`).
+- kMeet: only `https://kmeet.infomaniak.com` (`isKmeetUrl`), in the post and in
+  the join binding. The kChat directory's servers must be https on
+  `kchat.infomaniak.com` (`isKchatServer`). Leaving the Infomaniak sign-in page
+  ends the wait (`app/login.tsx`, AppState).
+- `ui/authorizedImage.ts`: bytes land in a `.part` file renamed once complete; a
+  failure is retried after 30 s.
 - Both hand each event to `MmLive.expand` (`providers/mattermost/live.ts`), which
   does the asynchronous part (unknown users, an unknown channel, the post behind a
   reaction) and turns one event into `mm:*` envelopes: a new post becomes the
@@ -202,6 +219,18 @@ there, so the UIs read the same store:
   with `cards::voice_call` (no button), SwiftUI with `VoiceCallCard` (no voice
   model, so no button).
 - `badge_updated`: `MmSync::recount`, as on mobile.
+- Lists: `mattermost::pages`; `MmSync::channels` reads `/users/me/channels`
+  once. The catch-up skips rooms live events stamped during it (`Live::touch`,
+  `changed_since`); `Room.keep_preview` keeps a stored preview.
+- `rest::interpret_mattermost` does not count Mattermost's wrong-password 401 as
+  understood, so it never signs out; `delay_after_429` reads Mattermost's reset
+  as seconds. The outbox's `mine_on_server` needs a post created since the row
+  (`OutboxEntry.created_at`).
+- `translate::is_kmeet` gates kMeet posts and `Session::join_call`. The delayed
+  reconnect is one of the session's tasks, aborted by `shutdown`.
+- A message fetched alone (`fetch_message`) is indexed for paging, and a file
+  replay on Mattermost reads the room's `since=` catch-up first (replies
+  included).
 - `mattermost::socket`: one actor for both dialects, Mattermost's
   `authentication_challenge` or kChat's Pusher (`mattermost::pusher`), a ping every
   30 s, `Lost` after 75 s of silence, the reconnection back-off of DDP.
@@ -216,7 +245,10 @@ there, so the UIs read the same store:
 
 ### Tests
 
-Unit tests in each `mattermost/*.rs`; `examples/mattermost-smoke.rs` drives a
+Unit tests in `mattermost/*.rs` (all but `directory.rs`) and
+`tests/mattermost.rs` against a fake server (paging, the channel list read
+once, `badge_updated`, sidebar categories, custom emoji, the 401 rule, kMeet,
+kept previews); `examples/mattermost-smoke.rs` drives a
 real `Session` against the bench (`cargo run -p rv-core --example
 mattermost-smoke`), and `scripts/smoke.sh` the GTK app.
 

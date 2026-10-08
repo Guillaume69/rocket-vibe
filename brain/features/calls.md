@@ -45,7 +45,7 @@ The desktop applies the same exception with the same bounds (2026-09-30), and th
 
 ## kChat (kMeet)
 
-kChat calls are kMeet meetings announced by a `custom_call` post carrying the meeting URL (`docs/MATTERMOST.md` §6.5). Both apps show a running one as the call card above, whose Join opens that URL in the same locked call view (mobile: a `NativeCalls` binding for kChat in `lib/providerCalls.ts` whose `join` returns the URL; desktop: `Session::join_call`), and an ended one as "📞 Call · duration". No start button: starting a kMeet call is not mapped.
+kChat calls are kMeet meetings announced by a `custom_call` post carrying the meeting URL (`docs/MATTERMOST.md` §6.5). Any room member can post one with any URL, so both apps accept only `https://kmeet.infomaniak.com`, in the post and again at join: the call view's origin lock then holds kMeet's origin, never one a post chose. Both apps show a running one as the call card above, whose Join opens that URL in the same locked call view (mobile: a `NativeCalls` binding for kChat in `lib/providerCalls.ts` whose `join` returns the URL; desktop: `Session::join_call`), and an ended one as "📞 Call · duration". No start button: starting a kMeet call is not mapped.
 
 ## Parity
 

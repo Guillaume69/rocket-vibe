@@ -40,6 +40,9 @@ inside the Android app ([`docs/WHATSAPP_ANDROID.md`](docs/WHATSAPP_ANDROID.md)).
 - [`brain/`](brain/BRAIN.md): the knowledge base. How every feature works on each app, the
   architecture, the servers' facts and the decisions, written to be understood without reading
   the source. Start there.
+- [Slack Session mode protocol and implementation handoff](docs/protocol/SLACK_SESSION.md):
+  measured session/RTM behaviour, provider parity targets and qualification probes;
+  the Slack driver is not implemented.
 - [`ROADMAP.md`](ROADMAP.md): the product decisions and their justification.
 - [`docs/`](docs): the development environment and the survey of the target server
   ([`DEV.md`](docs/DEV.md)), push ([`PUSH.md`](docs/PUSH.md)), WhatsApp

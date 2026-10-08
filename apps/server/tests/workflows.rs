@@ -358,16 +358,22 @@ async fn a_wait_resumes_later_and_a_replayed_step_never_posts_twice(pool: PgPool
                 name: "later".into(),
             },
             vec![
-                message("trigger", "first"),
+                message("trigger", "first {{now}}"),
                 Step::Wait { seconds: 3600 },
                 message("trigger", "second"),
             ],
         ))
         .await
         .unwrap();
+    // Each attempt sees a new {{now}}: only the first word is stable.
+    let words = |all: Vec<String>| -> Vec<String> {
+        all.into_iter()
+            .map(|t| t.split(' ').next().unwrap_or_default().to_owned())
+            .collect()
+    };
     run_command(&admin, &general, "later", "").await.unwrap();
     bench.drain().await;
-    assert_eq!(texts(&admin, &general).await, vec!["first"]);
+    assert_eq!(words(texts(&admin, &general).await), vec!["first"]);
     let runs = admin.workflow_runs(&flow.id).await.unwrap().runs;
     assert_eq!(runs[0].state, RunState::Waiting);
 
@@ -377,14 +383,21 @@ async fn a_wait_resumes_later_and_a_replayed_step_never_posts_twice(pool: PgPool
         .await
         .unwrap();
     bench.drain().await;
-    assert_eq!(texts(&admin, &general).await, vec!["first"]);
+    assert_eq!(words(texts(&admin, &general).await), vec!["first"]);
+    assert_eq!(
+        admin.workflow_runs(&flow.id).await.unwrap().runs[0].state,
+        RunState::Waiting
+    );
     // The hour has passed.
     sqlx::query("UPDATE workflow_runs SET wake_at=now()")
         .execute(&pool)
         .await
         .unwrap();
     bench.drain().await;
-    assert_eq!(texts(&admin, &general).await, vec!["first", "second"]);
+    assert_eq!(
+        words(texts(&admin, &general).await),
+        vec!["first", "second"]
+    );
     assert_eq!(
         admin.workflow_runs(&flow.id).await.unwrap().runs[0].state,
         RunState::Done
@@ -435,7 +448,7 @@ async fn a_webhook_starts_a_run_with_its_body(pool: PgPool) {
     bench.drain().await;
     assert_eq!(texts(&admin, &general).await, vec!["Order 42 by Ada"]);
     // A rotated secret replaces the old one.
-    admin.workflow_webhook(&flow.id).await.unwrap();
+    let current = admin.workflow_webhook(&flow.id).await.unwrap();
     let old = http
         .post(format!("{}{}", bench.base, secret.path))
         .body("{}")
@@ -443,6 +456,47 @@ async fn a_webhook_starts_a_run_with_its_body(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(old.status(), 404);
+
+    // Moved to a command and back, the workflow needs a new secret.
+    let edit = |trigger: Trigger, revision: String, op: &str| UpdateWorkflow {
+        operation_id: op.into(),
+        revision,
+        name: flow.name.clone(),
+        description: String::new(),
+        bot_id: bot.clone(),
+        trigger,
+        steps: flow.steps.clone(),
+        enabled: true,
+    };
+    let moved = admin
+        .update_workflow(
+            &flow.id,
+            &edit(
+                Trigger::Command {
+                    name: "orders".into(),
+                },
+                admin.workflow(&flow.id).await.unwrap().revision,
+                "to-command",
+            ),
+        )
+        .await;
+    // A webhook-only step room ("trigger" is not used here): the move is valid.
+    let moved = moved.unwrap();
+    let back = admin
+        .update_workflow(
+            &flow.id,
+            &edit(Trigger::Webhook {}, moved.revision, "to-hook"),
+        )
+        .await
+        .unwrap();
+    assert!(!back.has_webhook);
+    let revived = http
+        .post(format!("{}{}", bench.base, current.path))
+        .body("{}")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(revived.status(), 404);
 }
 
 #[sqlx::test]
@@ -455,7 +509,8 @@ async fn an_http_step_saves_the_answer_and_private_addresses_are_refused(pool: P
         }),
     );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let service_url = format!("http://{}/item", listener.local_addr().unwrap());
+    let base_url = format!("http://{}", listener.local_addr().unwrap());
+    let service_url = format!("{base_url}/item");
     let server = tokio::spawn(async move { axum::serve(listener, service).await.unwrap() });
 
     for private in [true, false] {
@@ -503,6 +558,78 @@ async fn an_http_step_saves_the_answer_and_private_addresses_are_refused(pool: P
             assert!(texts(&admin, &general).await.is_empty());
             assert_eq!(runs[0].state, RunState::Failed);
             assert_eq!(runs[0].error.as_deref(), Some("http_address"));
+        }
+        if !private {
+            // On the web's ports a private address is refused for what it is, and
+            // any other port is refused whatever the address.
+            for (n, url) in ["http://127.0.0.1/item", "https://example.com:8443/item"]
+                .into_iter()
+                .enumerate()
+            {
+                let command = format!("closed-{n}");
+                let flow = admin
+                    .create_workflow(&workflow(
+                        &command,
+                        &bot,
+                        Trigger::Command {
+                            name: command.clone(),
+                        },
+                        vec![Step::Http {
+                            method: HttpMethod::Get,
+                            url: url.into(),
+                            headers: Vec::new(),
+                            body: None,
+                            save_as: None,
+                            continue_on_error: false,
+                        }],
+                    ))
+                    .await
+                    .unwrap();
+                run_command(&admin, &general, &command, "").await.unwrap();
+                bench.drain().await;
+                let run = &admin.workflow_runs(&flow.id).await.unwrap().runs[0];
+                assert_eq!(run.error.as_deref(), Some("http_address"), "{url}");
+            }
+            continue;
+        }
+        // A 404 fails the run, unless the step carries on with what it got.
+        for carry_on in [true, false] {
+            let command = format!("missing-{carry_on}");
+            let flow = admin
+                .create_workflow(&workflow(
+                    &command,
+                    &bot,
+                    Trigger::Command {
+                        name: command.clone(),
+                    },
+                    vec![
+                        Step::Http {
+                            method: HttpMethod::Get,
+                            url: format!("{base_url}/missing"),
+                            headers: Vec::new(),
+                            body: None,
+                            save_as: Some("miss".into()),
+                            continue_on_error: carry_on,
+                        },
+                        message("trigger", "after {{miss.status}}"),
+                    ],
+                ))
+                .await
+                .unwrap();
+            run_command(&admin, &general, &command, "").await.unwrap();
+            bench.drain().await;
+            let run = &admin.workflow_runs(&flow.id).await.unwrap().runs[0];
+            if carry_on {
+                assert_eq!(run.state, RunState::Done);
+                assert!(
+                    texts(&admin, &general)
+                        .await
+                        .contains(&"after 404".to_owned())
+                );
+            } else {
+                assert_eq!(run.state, RunState::Failed);
+                assert_eq!(run.error.as_deref(), Some("http_failed"));
+            }
         }
     }
     server.abort();
@@ -646,9 +773,30 @@ async fn joins_and_schedules_start_runs(pool: PgPool) {
         ))
         .await
         .unwrap();
+    // A bot added later is nobody's arrival.
+    bench
+        .bot(&admin, "join-late", &[BotScope::MessagesWrite], &general)
+        .await;
     bob.join_public(&general).await.unwrap();
     bench.drain().await;
     assert_eq!(texts(&admin, &general).await, vec!["Welcome join-bob"]);
+    let welcome = admin
+        .workflows(false)
+        .await
+        .unwrap()
+        .workflows
+        .into_iter()
+        .find(|w| w.name == "welcome")
+        .unwrap();
+    // Turned off, it can still be tried: the run names its room and me.
+    admin.disable_workflow(&welcome.id).await.unwrap();
+    admin.test_workflow(&welcome.id).await.unwrap();
+    bench.drain().await;
+    assert!(
+        texts(&admin, &general)
+            .await
+            .contains(&"Welcome join-admin".to_owned())
+    );
 
     let flow = admin
         .create_workflow(&workflow(
@@ -748,6 +896,7 @@ async fn owners_edit_administrators_oversee_and_disabling_cancels_runs(pool: PgP
     );
     let stopped = admin.disable_workflow(&flow.id).await.unwrap();
     assert!(!stopped.enabled);
+    code(alice.test_workflow(&flow.id).await, "workflow_test_command");
     assert_eq!(
         alice.workflow_runs(&flow.id).await.unwrap().runs[0].state,
         RunState::Cancelled
@@ -952,6 +1101,42 @@ async fn reactions_and_matching_messages_start_runs_for_people_only(pool: PgPool
         ]
     );
     assert_eq!(run_count(&pool).await, 4);
+
+    // What a person wrote never pings the whole room through the bot.
+    bob.send(&general, &said("@all deploy now", "watch-4"))
+        .await
+        .unwrap();
+    bench.drain().await;
+    assert_eq!(run_count(&pool).await, 5);
+    let echoes: Vec<String> =
+        sqlx::query_scalar("SELECT text FROM messages WHERE text LIKE '%deploy noted'")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert!(echoes.iter().any(|t| t.contains("@\u{2060}all deploy now")));
+    let pinged: i64 = sqlx::query_scalar("SELECT count(*) FROM message_mentions n JOIN messages m ON m.id=n.message_id WHERE n.kind='all' AND m.author_id=$1")
+        .bind(&reader)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(pinged, 0);
+
+    // Taken out of the room, the bot no longer watches it.
+    sqlx::query("DELETE FROM members WHERE room_id=$1 AND user_id=$2")
+        .bind(&general)
+        .bind(&reader)
+        .execute(&pool)
+        .await
+        .unwrap();
+    bob.send(&general, &said("deploy again", "watch-5"))
+        .await
+        .unwrap();
+    admin
+        .set_reaction(&nothing.id, &react("tada", "watch-r4", true))
+        .await
+        .unwrap();
+    bench.drain().await;
+    assert_eq!(run_count(&pool).await, 5);
 }
 
 #[sqlx::test]
@@ -1092,5 +1277,241 @@ async fn a_person_field_offers_its_list_or_the_room(pool: PgPool) {
         texts(&bob, &general)
             .await
             .contains(&"@who-carol owns it, @who-carol, @who-dave review (who-carol, who-dave, who-carol first)".to_owned())
+    );
+}
+
+#[sqlx::test]
+async fn administrators_never_read_credentials_and_a_deleted_bot_stops_its_workflows(pool: PgPool) {
+    let bench = Bench::start(pool.clone(), false).await;
+    let (admin, _) = bench.user("cred-admin", true).await;
+    let (alice, _) = bench.user("cred-alice", false).await;
+    admin
+        .update_instance_settings(&UpdateInstanceSettings {
+            operation_id: "allow".into(),
+            user_bots: Some(true),
+        })
+        .await
+        .unwrap();
+    let general = room(&alice, "cred-general", false).await;
+    let bot = bench
+        .bot(&alice, "cred-bot", &[BotScope::MessagesWrite], &general)
+        .await;
+    let flow = alice
+        .create_workflow(&workflow(
+            "crm",
+            &bot,
+            Trigger::Webhook {},
+            vec![Step::Http {
+                method: HttpMethod::Post,
+                url: "https://crm.example.com/notes".into(),
+                headers: vec![rv_protocol::workflows::HttpHeader {
+                    name: "Authorization".into(),
+                    value: "Bearer s3cret".into(),
+                }],
+                body: None,
+                save_as: None,
+                continue_on_error: false,
+            }],
+        ))
+        .await
+        .unwrap();
+    let header = |w: &rv_protocol::workflows::Workflow| match &w.steps[0] {
+        Step::Http { headers, .. } => headers[0].value.clone(),
+        _ => unreachable!(),
+    };
+    assert_eq!(
+        header(&alice.workflow(&flow.id).await.unwrap()),
+        "Bearer s3cret"
+    );
+    let overseen = admin.workflow(&flow.id).await.unwrap();
+    assert_ne!(header(&overseen), "Bearer s3cret");
+    let listed = admin.workflows(true).await.unwrap().workflows;
+    assert!(
+        listed
+            .iter()
+            .filter(|w| w.id == flow.id)
+            .all(|w| header(w) != "Bearer s3cret")
+    );
+
+    // The engine's session of the bot is not one of its five keys.
+    for n in 0..5 {
+        alice
+            .create_bot_key(
+                &bot,
+                &rv_protocol::bots::CreateBotKey {
+                    operation_id: format!("key-{n}"),
+                    label: format!("key {n}"),
+                    expires_in_days: None,
+                },
+            )
+            .await
+            .unwrap();
+    }
+    assert_eq!(alice.bot_keys(&bot).await.unwrap().keys.len(), 5);
+    let internal: String =
+        sqlx::query_scalar("SELECT id FROM bot_keys WHERE bot_id=$1 AND internal")
+            .bind(&bot)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    // Revoking it by its id does nothing: the engine keeps its session.
+    let _ = alice.revoke_bot_key(&bot, &internal).await;
+    let kept: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bot_keys WHERE id=$1)")
+        .bind(&internal)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(kept);
+
+    // Deleting the bot turns its workflows off.
+    alice.delete_bot(&bot).await.unwrap();
+    assert!(!alice.workflow(&flow.id).await.unwrap().enabled);
+}
+
+#[sqlx::test]
+async fn form_answers_are_checked_and_a_deleted_or_expired_form_takes_none(pool: PgPool) {
+    let bench = Bench::start(pool.clone(), false).await;
+    let (admin, _) = bench.user("check-admin", true).await;
+    let (bob, bob_id) = bench.user("check-bob", false).await;
+    let general = room(&admin, "check-general", false).await;
+    admin.add_member(&general, &bob_id).await.unwrap();
+    let bot = bench
+        .bot(&admin, "check-bot", &[BotScope::MessagesWrite], &general)
+        .await;
+    admin
+        .create_workflow(&workflow(
+            "tags",
+            &bot,
+            Trigger::Command {
+                name: "tags".into(),
+            },
+            vec![
+                Step::Form {
+                    room: "trigger".into(),
+                    recipient: FormRecipient::Anyone,
+                    title: "Tags".into(),
+                    fields: vec![
+                        FormField {
+                            id: "tags".into(),
+                            label: "Tags".into(),
+                            kind: FormFieldKind::Choice,
+                            options: vec!["a".into(), "b".into(), "c".into()],
+                            people: Vec::new(),
+                            multiple: true,
+                            required: true,
+                        },
+                        FormField {
+                            id: "note".into(),
+                            label: "Note".into(),
+                            kind: FormFieldKind::Text,
+                            options: Vec::new(),
+                            people: Vec::new(),
+                            multiple: false,
+                            required: false,
+                        },
+                    ],
+                    save_as: "x".into(),
+                },
+                message("trigger", "tags: {{x.answers.tags}}"),
+            ],
+        ))
+        .await
+        .unwrap();
+    let forms = |history: &[rv_protocol::Message]| -> Vec<String> {
+        history
+            .iter()
+            .filter(|m| m.form.is_some())
+            .map(|m| m.id.clone())
+            .collect()
+    };
+    run_command(&bob, &general, "tags", "").await.unwrap();
+    bench.drain().await;
+    let posted = forms(&bob.history(&general, None).await.unwrap().messages)[0].clone();
+    let answer = |answers: Vec<(&str, FormAnswer)>, op: &str| AnswerForm {
+        operation_id: op.into(),
+        answers: answers
+            .into_iter()
+            .map(|(k, v)| (k.to_owned(), v))
+            .collect(),
+    };
+    let many = |values: &[&str]| FormAnswer::Many(values.iter().map(|v| (*v).to_owned()).collect());
+    for (answers, expected) in [
+        (vec![], "form_required"),
+        (vec![("tags", many(&[]))], "form_required"),
+        (vec![("tags", many(&["z"]))], "form_value"),
+        (
+            vec![("tags", "a".into()), ("extra", "x".into())],
+            "form_value",
+        ),
+        (
+            vec![("tags", "a".into()), ("note", "two\nlines".into())],
+            "form_value",
+        ),
+    ] {
+        code(
+            bob.answer_form(&posted, &answer(answers, "bad")).await,
+            expected,
+        );
+    }
+    bob.answer_form(
+        &posted,
+        &answer(vec![("tags", many(&["c", "a", "c"]))], "good"),
+    )
+    .await
+    .unwrap();
+    bench.drain().await;
+    assert!(
+        texts(&bob, &general)
+            .await
+            .contains(&"tags: a, c".to_owned())
+    );
+
+    // A deleted form shows no form and takes no answer; an expired one neither.
+    run_command(&bob, &general, "tags", "").await.unwrap();
+    run_command(&bob, &general, "tags", "").await.unwrap();
+    bench.drain().await;
+    let history = bob.history(&general, None).await.unwrap().messages;
+    let open: Vec<String> = history
+        .iter()
+        .filter(|m| m.form.as_ref().is_some_and(|f| f.answered_by.is_none()))
+        .map(|m| m.id.clone())
+        .collect();
+    assert_eq!(open.len(), 2);
+    let deleted = history.iter().find(|m| m.id == open[0]).unwrap();
+    admin
+        .delete_message(
+            &deleted.id,
+            &rv_protocol::parity::DeleteMessage {
+                operation_id: "remove-form".into(),
+                expected_revision: deleted.revision.clone(),
+            },
+        )
+        .await
+        .unwrap();
+    let after = bob.history(&general, None).await.unwrap().messages;
+    assert!(
+        after
+            .iter()
+            .find(|m| m.id == open[0])
+            .unwrap()
+            .form
+            .is_none()
+    );
+    code(
+        bob.answer_form(&open[0], &answer(vec![("tags", "a".into())], "late-1"))
+            .await,
+        "not_found",
+    );
+    sqlx::query(
+        "UPDATE workflow_forms SET expires_at=now()-interval '1 second' WHERE message_id=$1",
+    )
+    .bind(&open[1])
+    .execute(&pool)
+    .await
+    .unwrap();
+    code(
+        bob.answer_form(&open[1], &answer(vec![("tags", "a".into())], "late-2"))
+            .await,
+        "form_expired",
     );
 }

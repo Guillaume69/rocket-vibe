@@ -48,8 +48,6 @@ export const MATTERMOST_CAPABILITIES: Capabilities = {
   threadTemplate: 'root_id',
 };
 
-const EMOJI_PAGE = 200;
-
 export type MattermostOptions = {
   fetch?: typeof fetch;
   listener?: Listener;
@@ -115,15 +113,10 @@ export function createMattermostProvider(
     },
     async listCustomEmojis() {
       const out: CustomEmoji[] = [];
-      for (let page = 0; ; page++) {
-        const batch = await client.get<unknown>('/emoji', { query: { page, per_page: EMOJI_PAGE } });
-        if (!Array.isArray(batch)) break;
-        for (const raw of batch) {
-          const e = record(raw);
-          if (typeof e?.id !== 'string' || typeof e.name !== 'string') continue;
-          out.push({ name: e.name, extension: 'png', aliases: [], uri: client.url(`/emoji/${e.id}/image`) });
-        }
-        if (batch.length < EMOJI_PAGE) break;
+      for (const raw of await client.pages<unknown>('/emoji')) {
+        const e = record(raw);
+        if (typeof e?.id !== 'string' || typeof e.name !== 'string') continue;
+        out.push({ name: e.name, extension: 'png', aliases: [], uri: client.url(`/emoji/${e.id}/image`) });
       }
       return out;
     },

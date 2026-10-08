@@ -19,7 +19,6 @@ use crate::rest::{CallOptions, RestClient, RestError};
 use crate::store::{Store, Writer};
 use crate::sync::{HISTORY_PAGE, HistoryPage};
 
-const PER_PAGE: usize = 200;
 const PREVIEWS: usize = 40;
 const PREVIEW_CONCURRENCY: usize = 4;
 const MAX_WALK: usize = 20;
@@ -232,18 +231,7 @@ impl MmSync {
     }
 
     async fn pages(&self, path: &str) -> Result<Vec<Value>, RestError> {
-        let mut out = Vec::new();
-        for page in 0.. {
-            let options = CallOptions::params([("page", page.to_string()), ("per_page", PER_PAGE.to_string())]);
-            let batch = self.rest.get(path, options).await?;
-            let list = batch.as_array().cloned().unwrap_or_default();
-            let full = list.len() >= PER_PAGE;
-            out.extend(list);
-            if !full {
-                break;
-            }
-        }
-        Ok(out)
+        super::pages(&self.rest, path).await
     }
 
     pub async fn channels(&self) -> Result<Vec<Value>, RestError> {

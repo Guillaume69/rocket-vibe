@@ -17,6 +17,8 @@ export type MmRequest = {
   headers?: Record<string, string>;
 };
 
+export const MM_PAGE = 200;
+
 export class MmError extends Error {
   readonly status: number;
   /** Mattermost's translation key, e.g. `api.context.session_expired.app_error`. */
@@ -77,6 +79,17 @@ export class MmClient {
 
   get<T>(path: string, options: MmRequest = {}): Promise<T> {
     return this.request<T>('GET', path, options);
+  }
+
+  /** A list route read page after page until a short one. */
+  async pages<T>(path: string, options: MmRequest = {}): Promise<T[]> {
+    const out: T[] = [];
+    for (let page = 0; ; page++) {
+      const batch = await this.get<unknown>(path, { ...options, query: { ...options.query, page, per_page: MM_PAGE } });
+      if (!Array.isArray(batch)) return out;
+      out.push(...(batch as T[]));
+      if (batch.length < MM_PAGE) return out;
+    }
   }
 
   post<T>(path: string, options: MmRequest = {}): Promise<T> {

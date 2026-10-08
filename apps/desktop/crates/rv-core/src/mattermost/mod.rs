@@ -218,6 +218,23 @@ fn session_info(base: &Url, token: &str, me: &Value, flavor: Flavor) -> Result<S
     })
 }
 
+const PAGE: usize = 200;
+
+/// A list route read page after page until a short one.
+pub async fn pages(rest: &RestClient, path: &str) -> Result<Vec<Value>, RestError> {
+    let mut out = Vec::new();
+    for page in 0.. {
+        let options = CallOptions::params([("page", page.to_string()), ("per_page", PAGE.to_string())]);
+        let list = rest.get(path, options).await?.as_array().cloned().unwrap_or_default();
+        let full = list.len() >= PAGE;
+        out.extend(list);
+        if !full {
+            break;
+        }
+    }
+    Ok(out)
+}
+
 /// Does an account that is not open have something unread?
 pub async fn unread(info: &SessionInfo) -> Result<bool, RestError> {
     let base: Url = info.base_url.parse().map_err(|_| error("base URL"))?;

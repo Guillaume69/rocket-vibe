@@ -220,17 +220,12 @@ export class MmLive {
    */
   private async recount(): Promise<DdpEvent[]> {
     const out: (DdpEvent | null)[] = [];
-    for (let page = 0; ; page++) {
-      const batch = await this.client.get<Doc[]>('/users/me/channel_members', { query: { page, per_page: MEMBERS_PAGE } });
-      if (!Array.isArray(batch)) break;
-      for (const member of batch) {
-        const rid = str(member.channel_id);
-        const known = rid === null ? undefined : this.members.get(rid);
-        if (rid === null || known === undefined || !countsMoved(known, member)) continue;
-        this.members.set(rid, member);
-        out.push(this.membershipEvent(rid));
-      }
-      if (batch.length < MEMBERS_PAGE) break;
+    for (const member of await this.client.pages<Doc>('/users/me/channel_members')) {
+      const rid = str(member.channel_id);
+      const known = rid === null ? undefined : this.members.get(rid);
+      if (rid === null || known === undefined || !countsMoved(known, member)) continue;
+      this.members.set(rid, member);
+      out.push(this.membershipEvent(rid));
     }
     return compact(out);
   }
@@ -291,8 +286,6 @@ export class MmLive {
     await this.directory.ensure(ids);
   }
 }
-
-const MEMBERS_PAGE = 200;
 
 function countsMoved(before: Doc, after: Doc): boolean {
   return ['msg_count', 'msg_count_root', 'mention_count', 'mention_count_root', 'last_viewed_at'].some((k) => before[k] !== after[k]);

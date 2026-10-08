@@ -20,7 +20,6 @@ import type { MmRoomDoc } from './translator.ts';
 
 type Doc = Record<string, unknown>;
 
-const PER_PAGE = 200;
 const PREVIEWS = 40;
 const PREVIEW_CONCURRENCY = 4;
 const CURSOR_SCOPE = '*';
@@ -48,14 +47,14 @@ export class MmCatchUp {
   }
 
   async channels(): Promise<Doc[]> {
-    return this.pages<Doc>('/users/me/channels');
+    return this.client.pages<Doc>('/users/me/channels');
   }
 
   async global(engine: SyncEngine, isDiscarded: () => boolean): Promise<void> {
     // A server older than 5.32 has no categories: the rooms keep the default sections.
     const [channels, members] = await Promise.all([
       this.channels(),
-      this.pages<Doc>('/users/me/channel_members'),
+      this.client.pages<Doc>('/users/me/channel_members'),
       this.categories?.load().catch(() => {}),
     ]);
     if (isDiscarded()) return;
@@ -134,16 +133,6 @@ export class MmCatchUp {
     };
     await Promise.all(Array.from({ length: Math.min(PREVIEW_CONCURRENCY, channels.length) }, worker));
     return out;
-  }
-
-  private async pages<T>(path: string): Promise<T[]> {
-    const out: T[] = [];
-    for (let page = 0; ; page++) {
-      const batch = await this.client.get<T[]>(path, { query: { page, per_page: PER_PAGE } });
-      if (!Array.isArray(batch)) return out;
-      out.push(...batch);
-      if (batch.length < PER_PAGE) return out;
-    }
   }
 
   get me(): string {

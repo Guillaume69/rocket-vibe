@@ -20,7 +20,7 @@ The inherited inventory below retains the GTK feature descriptions. A native bro
 
 ## Verification evidence
 
-Local 2026-10-08: 18 main conversation scenarios, nine advanced scenarios, four two-browser LiveKit scenarios, six actual TLS email/TOTP scenarios, three session-rotation/tab scenarios, one synthetic locked-room UI scenario and six styled-editor scenarios. Eleven model/API/composition tests pass. Server library: 193 passed, one intentionally ignored; clippy passes with warnings denied. GTK reference built through the mandatory Fedora script and captured with the same server fixture. The synthetic locked-room test verifies UI exclusion, not cryptographic behavior.
+Local 2026-10-08: 18 main conversation scenarios, nine advanced scenarios, seven two-browser LiveKit scenarios, six actual TLS email/TOTP scenarios, three session-rotation/tab scenarios, one synthetic locked-room UI scenario and six styled-editor scenarios. Eleven model/API/composition tests pass. Server library: 193 passed, one intentionally ignored; clippy passes with warnings denied. GTK reference built through the mandatory Fedora script and captured with the same server fixture. The synthetic locked-room test verifies UI exclusion, not cryptographic behavior.
 
 ## GTK inventory
 
@@ -163,7 +163,7 @@ GTK baseline is inherited, not a new verification claim. Web status refers to th
 | Who speaks told from the sound itself, a whisper included | done | partial | LiveKit implementation in src/voice.ts; audio/video/mute/rejoin qualified, exhaustive device/ringing/share qualification remains. |
 | "Voice connected" panel: mute, deafen, leave | done | partial | LiveKit implementation in src/voice.ts; audio/video/mute/rejoin qualified, exhaustive device/ringing/share qualification remains. |
 | Call from any room's header (joins its voice) | done | partial | LiveKit implementation in src/voice.ts; audio/video/mute/rejoin qualified, exhaustive device/ringing/share qualification remains. |
-| Direct call rings the other member, accept or decline, original ringtone | done | partial | LiveKit implementation in src/voice.ts; audio/video/mute/rejoin qualified, exhaustive device/ringing/share qualification remains. |
+| Direct call rings the other member, accept or decline, original ringtone | done | done | Browser tests exchange actual audio after acceptance, verify decline stops the caller, and prevent delayed acceptance from reopening media after signout/signin. Original ring sounds in src/voice.ts. |
 | Call rows show the outcome (missed, declined, duration) and call back | done | partial | Implemented native browser equivalent requires row-specific GTK qualification; see docs/WEB_CLIENT_EXECUTION.md. |
 | Create a voice channel | done | partial | LiveKit implementation in src/voice.ts; audio/video/mute/rejoin qualified, exhaustive device/ringing/share qualification remains. |
 | Turn a room into a voice channel or back (room settings, owners) | done | partial | LiveKit implementation in src/voice.ts; audio/video/mute/rejoin qualified, exhaustive device/ringing/share qualification remains. |

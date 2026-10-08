@@ -18,7 +18,7 @@ The native RocketVibe server embeds the browser application in its binary. Node 
 
 ## Media and security
 
-`uploads.ts` persists preparation/completion operations; voice recordings and photos are staged before Send. `voice.ts` lazily loads LiveKit's Apache-2.0 browser transport for microphone/camera/screenshare calls; it is a transport dependency, not a UI kit. Browser permissions and HTTPS are required outside loopback.
+`uploads.ts` persists preparation/completion operations; voice recordings and photos are staged before Send. `voice.ts` lazily loads LiveKit's Apache-2.0 browser transport for microphone/camera/screenshare calls; it is a transport dependency, not a UI kit. Browser permissions and HTTPS are required outside loopback. Voice grants are scoped to the initiating account and call lifecycle across each asynchronous step. Serialized teardown completes before a new join, and its server request retains the departing session token.
 
 `security.ts` and `email.ts` expose native TOTP, recovery codes, verified contact and email factors. Encrypted rooms remain locked: no reading, plaintext send, file/recording or call action is offered. There is no browser crypto vault. Notifications require a live tab; closed-tab Web Push is not implemented.
 
@@ -34,6 +34,7 @@ The native RocketVibe server embeds the browser application in its binary. Node 
 - apps/web/src/media.ts
 - apps/web/src/uploads.ts
 - apps/web/src/voice.ts
+- apps/web/tests/voice.mjs
 - apps/web/src/security.ts
 - apps/web/src/email.ts
 - apps/web/scripts/sync-design.mjs

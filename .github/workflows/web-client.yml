@@ -42,6 +42,8 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
       - name: Build and verify committed browser assets
         working-directory: apps/web
         run: |

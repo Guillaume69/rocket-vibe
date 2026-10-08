@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
 import type { BotReference } from '../providers/rocketvibe/protocol.generated.ts';
-import { BOT_SCOPES, botChanges, botDisplayName, botErrorKey, curlExample, expiryDays, sameScopes, scopeRoutes, toggleScope } from './botsModel.ts';
+import { BOT_SCOPES, botChanges, botDisplayName, botErrorKey, curlExample, expiryDays, routeLine, sameScopes, scopeRoutes, toggleScope } from './botsModel.ts';
 
 const reference: BotReference = {
   key_prefix: 'rvb_',
@@ -12,6 +12,7 @@ const reference: BotReference = {
     { routes: [{ method: 'GET', path: '/api/v1/me' }] },
     { scope: 'rooms:read', routes: [{ method: 'GET', path: '/api/v1/rooms' }, { method: 'GET', path: '/api/v1/rooms/{room}' }] },
     { scope: 'dm:write', routes: [{ method: 'POST', path: '/api/v1/direct-messages' }] },
+    { scope: 'files:write', routes: [{ method: 'POST', path: '/api/v1/uploads/{id}/complete', also: ['messages:write'] }] },
   ],
 };
 
@@ -31,8 +32,17 @@ describe('scopes', () => {
   test('routes come from the reference, the scopeless group for `always`', () => {
     assert.deepEqual(scopeRoutes(reference, 'rooms:read').map((r) => r.path), ['/api/v1/rooms', '/api/v1/rooms/{room}']);
     assert.deepEqual(scopeRoutes(reference, 'always'), [{ method: 'GET', path: '/api/v1/me' }]);
-    assert.deepEqual(scopeRoutes(reference, 'files:write'), []);
+    assert.deepEqual(scopeRoutes(reference, 'reactions:write'), []);
     assert.deepEqual(scopeRoutes(null, 'rooms:read'), []);
+  });
+});
+
+describe('routeLine', () => {
+  test('the method, the path, then the scopes the route also needs', () => {
+    assert.equal(routeLine({ method: 'GET', path: '/api/v1/rooms' }), 'GET    /api/v1/rooms');
+    assert.equal(routeLine({ method: 'POST', path: '/api/v1/rooms', also: [] }), 'POST   /api/v1/rooms');
+    assert.equal(routeLine(scopeRoutes(reference, 'files:write')[0]!), 'POST   /api/v1/uploads/{id}/complete + messages:write');
+    assert.equal(routeLine({ method: 'POST', path: '/x', also: ['messages:write', 'rooms:read'] }), 'POST   /x + messages:write + rooms:read');
   });
 });
 
@@ -52,6 +62,7 @@ describe('botErrorKey', () => {
   test('words every refusal of the bot routes', () => {
     assert.equal(botErrorKey('bots_disabled', 403), 'bots.errDisabled');
     assert.equal(botErrorKey('bot_limit', 409), 'bots.errLimit');
+    assert.equal(botErrorKey('bot_create_limit', 429), 'bots.errCreateLimit');
     assert.equal(botErrorKey('username_taken', 409), 'bots.errUsernameTaken');
     assert.equal(botErrorKey('bot_key_limit', 409), 'bots.errKeyLimit');
     assert.equal(botErrorKey('bot_disabled', 409), 'bots.errBotDisabled');

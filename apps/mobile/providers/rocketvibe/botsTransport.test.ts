@@ -79,4 +79,8 @@ test('bot payloads are validated', ()=>{
   assert.throws(()=>decodeNative('Bot',{...fixture.bot,scopes:['admin:all']}));
   assert.throws(()=>decodeNative('BotKeyCreated',{...fixture.bot_key_created,key:12}));
   assert.equal(decodeNative('BotReference',fixture.bot_reference).groups[0].scope,undefined);
+  // A route needing a further scope names it (`also`), checked against the scope list.
+  const also={...fixture.bot_reference,groups:[{scope:'files:write',routes:[{method:'POST',path:'/api/v1/uploads/{id}/complete',also:['messages:write']}]}]};
+  assert.deepEqual(decodeNative('BotReference',also).groups[0].routes[0].also,['messages:write']);
+  assert.throws(()=>decodeNative('BotReference',{...also,groups:[{scope:'files:write',routes:[{method:'POST',path:'/x',also:['admin:all']}]}]}));
 });

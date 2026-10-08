@@ -41,6 +41,16 @@ export function scopeRoutes(reference: BotReference | null, scope: BotScope | 'a
     .flatMap((group) => group.routes);
 }
 
+/**
+ * One route of the "API" disclosure: the method, the path, then any scope the
+ * route needs besides its group's (`also`, e.g. completing an upload also
+ * needs `messages:write`).
+ */
+export function routeLine(route: BotRoute): string {
+  const also = (route.also ?? []).map((scope) => ` + ${scope}`).join('');
+  return `${route.method.padEnd(6)} ${route.path}${also}`;
+}
+
 /** Toggles one scope, keeping the server's order (the comparison of an edit relies on it). */
 export function toggleScope(scopes: readonly BotScope[], scope: BotScope): BotScope[] {
   const next = new Set(scopes);
@@ -107,6 +117,8 @@ export function botErrorKey(code: string, status: number): TranslationKey {
       return 'bots.errDisabled';
     case 'bot_limit':
       return 'bots.errLimit';
+    case 'bot_create_limit':
+      return 'bots.errCreateLimit';
     case 'username_taken':
       return 'bots.errUsernameTaken';
     case 'bot_key_limit':
@@ -125,8 +137,6 @@ export function botErrorKey(code: string, status: number): TranslationKey {
       return 'bots.errEncryptedRoom';
     case 'crypto_bot_member':
       return 'bots.errBotMember';
-    case 'rate_limited':
-      return 'bots.errRateLimited';
     case 'invalid_avatar':
       return 'bots.errInvalidAvatar';
     case 'avatar_too_large':

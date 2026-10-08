@@ -12,7 +12,7 @@
  * and the app active (`ui/encryptedIdentity.tsx` does the same).
  */
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef, useState, type ReactNode } from 'react';
 import { useFocusEffect } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import { File } from 'expo-file-system';
@@ -33,7 +33,7 @@ import type { TranslationKey } from './messages.ts';
 import type { RestClient } from '../lib/rest.ts';
 import { avatarUrl } from '../lib/upload.ts';
 import { pickAvatar } from './pickAvatar.ts';
-import { BOT_SCOPES, SCOPE_TEXT, botChanges, botErrorKey, curlExample, expiryDays, scopeRoutes, toggleScope, type BotForm } from './botsModel.ts';
+import { BOT_SCOPES, SCOPE_TEXT, botChanges, botDisplayName, botErrorKey, curlExample, expiryDays, routeLine, scopeRoutes, toggleScope, type BotForm } from './botsModel.ts';
 
 const MONO = Platform.select({ android: 'monospace', default: 'Menlo' });
 
@@ -54,11 +54,12 @@ function botPhoto(client: RestClient, bot: Bot): string | null {
 }
 
 type Screen = { kind: 'list' } | { kind: 'create' } | { kind: 'bot'; id: string };
-type Failure = { key: TranslationKey; reauth: boolean };
+/** Where a refusal shows: atop the card, or beside the key form when creating a key was refused. */
+type Failure = { key: TranslationKey; reauth: boolean; at: 'page' | 'key' };
 
-function failure(e: unknown): Failure {
-  if (e instanceof NativeError) return { key: botErrorKey(e.code, e.status), reauth: e.code === 'reauthentication_required' };
-  return { key: 'bots.failed', reauth: false };
+function failure(e: unknown, at: Failure['at']): Failure {
+  if (e instanceof NativeError) return { key: botErrorKey(e.code, e.status), reauth: e.code === 'reauthentication_required', at };
+  return { key: 'bots.failed', reauth: false, at };
 }
 
 function Bots({ c, chat, client, baseUrl }: { c: Colors; chat: NativeChat; client: RestClient; baseUrl: string }) {
@@ -88,17 +89,22 @@ function Bots({ c, chat, client, baseUrl }: { c: Colors; chat: NativeChat; clien
     setConfirming(false);
   }, []);
 
-  /** One call at a time; then the list, my permission and, on a bot's page, its keys. */
+  /**
+   * One call at a time; then the list, my permission and, on a bot's page, its
+   * keys. A refusal of the action itself shows at `at`; a failed reload, atop.
+   */
   const run = useCallback(
-    async (action: (visible: () => boolean) => Promise<void>) => {
+    async (action: (visible: () => boolean) => Promise<void>, at: Failure['at'] = 'page') => {
       if (!alive.current || inFlight.current !== null) return;
       const n = epoch.current;
       const visible = () => alive.current && epoch.current === n;
       inFlight.current = n;
       setBusy(true);
       setError(null);
+      let stage: Failure['at'] = at;
       try {
         await action(visible);
+        stage = 'page';
         if (!visible()) return;
         const [list, permissions] = await chat.bots((tr) => Promise.all([tr.bots(), tr.accountPermissions()]));
         if (!visible()) return;
@@ -123,7 +129,7 @@ function Bots({ c, chat, client, baseUrl }: { c: Colors; chat: NativeChat; clien
           if (visible() && screenRef.current === current) setKeys({ bot: current.id, keys: listed.keys });
         }
       } catch (e) {
-        if (visible()) setError(failure(e));
+        if (visible()) setError(failure(e, stage));
       } finally {
         if (inFlight.current === n) {
           inFlight.current = null;
@@ -172,6 +178,9 @@ function Bots({ c, chat, client, baseUrl }: { c: Colors; chat: NativeChat; clien
       });
       createOperation.current = null;
       if (visible()) {
+        // The new bot's page draws from the creation's answer, so a failed
+        // reload after it still shows the bot (the next reload replaces it).
+        setBots((list) => (list === null ? [bot] : list.some((b) => b.user.id === bot.user.id) ? list : [...list, bot]));
         setKeys(null);
         go({ kind: 'bot', id: bot.user.id });
       }
@@ -194,7 +203,7 @@ function Bots({ c, chat, client, baseUrl }: { c: Colors; chat: NativeChat; clien
     try {
       picked = await pickAvatar(true);
     } catch {
-      if (alive.current && epoch.current === n) setError({ key: 'myProfile.selectionFailed', reauth: false });
+      if (alive.current && epoch.current === n) setError({ key: 'myProfile.selectionFailed', reauth: false, at: 'page' });
       return;
     }
     if (picked === null || !alive.current || epoch.current !== n) return;
@@ -243,7 +252,7 @@ function Bots({ c, chat, client, baseUrl }: { c: Colors; chat: NativeChat; clien
         tr.createBotKey(bot.user.id, { operation_id: operation(), label: label.trim(), ...(days === null ? {} : { expires_in_days: days }) }),
       );
       if (visible()) setCreated({ bot: bot.user.id, value });
-    });
+    }, 'key');
 
   const revokeKey = (bot: Bot, key: BotKey) => {
     const n = epoch.current;
@@ -272,12 +281,17 @@ function Bots({ c, chat, client, baseUrl }: { c: Colors; chat: NativeChat; clien
   };
 
   const shown = screen.kind === 'bot' ? bots?.find((b) => b.user.id === screen.id) ?? null : null;
+  const back = () => {
+    setCreated(null);
+    go({ kind: 'list' });
+  };
 
-  return (
-    <>
-      <Text style={[styles.heading, { color: c.dimmed }]}>{t('bots.title')}</Text>
-      <View style={[styles.card, { backgroundColor: c.deepCard, borderColor: c.border }]}>
-        {busy && <ActivityIndicator color={c.accent} />}
+  // A refusal, and the identity check it may ask for, drawn where it belongs:
+  // beside the key form for a refused key, atop the card for anything else.
+  const refusalAt: Failure['at'] = error?.at === 'key' && shown !== null && !shown.disabled ? 'key' : 'page';
+  const refusal = (at: Failure['at']): ReactNode =>
+    refusalAt !== at ? null : (
+      <>
         {error !== null && (
           <Text accessibilityRole="alert" style={[styles.text, { color: c.errorText }]}>
             {t(error.key)}
@@ -297,6 +311,15 @@ function Bots({ c, chat, client, baseUrl }: { c: Colors; chat: NativeChat; clien
             }}
           />
         )}
+      </>
+    );
+
+  return (
+    <>
+      <Text style={[styles.heading, { color: c.dimmed }]}>{t('bots.title')}</Text>
+      <View style={[styles.card, { backgroundColor: c.deepCard, borderColor: c.border }]}>
+        {busy && <ActivityIndicator color={c.accent} />}
+        {refusal('page')}
 
         {screen.kind === 'list' && (
           <>
@@ -347,13 +370,18 @@ function Bots({ c, chat, client, baseUrl }: { c: Colors; chat: NativeChat; clien
             onDismissKey={() => setCreated(null)}
             onCopy={copy}
             onDelete={() => remove(shown)}
-            onBack={() => {
-              setCreated(null);
-              go({ kind: 'list' });
-            }}
+            onBack={back}
+            keyRefusal={refusal('key')}
           />
         )}
-        {screen.kind === 'bot' && shown === null && busy && <Text style={[styles.text, { color: c.dimmed }]}>…</Text>}
+        {/* A bot not (yet) in the list: never a dead end. */}
+        {screen.kind === 'bot' && shown === null && (
+          <>
+            {busy && <Text style={[styles.text, { color: c.dimmed }]}>…</Text>}
+            <Action c={c} label={`‹ ${t('bots.back')}`} disabled={busy} onPress={back} />
+            {!busy && <Action c={c} label={t('bots.refresh')} onPress={() => void run(async () => {})} />}
+          </>
+        )}
       </View>
     </>
   );
@@ -461,7 +489,7 @@ function Routes({ c, reference, scope }: { c: Colors; reference: BotReference | 
       {open &&
         routes.map((route) => (
           <Text key={`${route.method} ${route.path}`} selectable style={[styles.route, { color: c.secondaryText }]}>
-            {route.method.padEnd(6)} {route.path}
+            {routeLine(route)}
           </Text>
         ))}
     </View>
@@ -485,12 +513,14 @@ function CreateForm({ c, busy, reference, onChange, onCreate, onCancel }: {
     onChange();
     set(value);
   };
-  const ready = username.trim() !== '' && displayName.trim() !== '';
+  const nameInvalid = displayName.trim() !== '' && botDisplayName(displayName) === null;
+  const ready = username.trim() !== '' && botDisplayName(displayName) !== null;
   return (
     <View style={styles.form}>
       <Text style={[styles.title, { color: c.text }]}>{t('bots.create')}</Text>
       <PillField c={c} label={t('bots.username')} value={username} editable={!busy} autoCapitalize="none" autoCorrect={false} maxLength={64} onChangeText={edit(setUsername)} />
-      <PillField c={c} label={t('bots.displayName')} value={displayName} editable={!busy} maxLength={128} onChangeText={edit(setDisplayName)} />
+      <PillField c={c} label={t('bots.displayName')} value={displayName} editable={!busy} maxLength={256} onChangeText={edit(setDisplayName)} />
+      {nameInvalid && <Text style={[styles.text, { color: c.errorText }]}>{t('bots.displayNameInvalid')}</Text>}
       <PillField c={c} label={t('bots.description')} value={description} editable={!busy} multiline maxLength={512} onChangeText={edit(setDescription)} />
       <ScopeList c={c} scopes={scopes} reference={reference} disabled={busy} onToggle={(scope) => edit(setScopes)(toggleScope(scopes, scope))} />
       <Action c={c} label={t('bots.createConfirm')} disabled={busy || !ready} onPress={() => onCreate({ username, displayName, description, scopes })} />
@@ -499,7 +529,7 @@ function CreateForm({ c, busy, reference, onChange, onCreate, onCancel }: {
   );
 }
 
-function Detail({ c, bot, photo, busy, reference, keys, created, baseUrl, onSave, onChangePhoto, onRemovePhoto, onCreateKey, onRevokeKey, onDismissKey, onCopy, onDelete, onBack }: {
+function Detail({ c, bot, photo, busy, reference, keys, created, baseUrl, onSave, onChangePhoto, onRemovePhoto, onCreateKey, onRevokeKey, onDismissKey, onCopy, onDelete, onBack, keyRefusal }: {
   c: Colors;
   bot: Bot;
   photo: string | null;
@@ -517,6 +547,8 @@ function Detail({ c, bot, photo, busy, reference, keys, created, baseUrl, onSave
   onCopy: (value: string) => void;
   onDelete: () => void;
   onBack: () => void;
+  /** A refused key creation (a sign-in to confirm, say), drawn beside the key form. */
+  keyRefusal: ReactNode;
 }) {
   const t = useT();
   const [displayName, setDisplayName] = useState(bot.user.display_name);
@@ -596,6 +628,7 @@ function Detail({ c, bot, photo, busy, reference, keys, created, baseUrl, onSave
       {/* Remounted by each new key: the form empties only once a key exists, so
           a refusal (a sign-in to confirm first) keeps what was typed. */}
       {!bot.disabled && <KeyForm key={created?.info.id ?? 'new'} c={c} busy={busy} onCreateKey={onCreateKey} />}
+      {keyRefusal}
 
       <Action c={c} label={t('bots.delete')} danger disabled={busy} onPress={onDelete} />
       <Text style={[styles.text, { color: c.dimmed }]}>{t('bots.deleteHint')}</Text>

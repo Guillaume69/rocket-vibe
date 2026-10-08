@@ -5,6 +5,7 @@ import { describe, test } from 'node:test';
 import type { WebSocketLike } from '../../lib/ddp.ts';
 import { kchatServers, loginMattermost, MmMfaRequired } from './auth.ts';
 import { MmClient } from './client.ts';
+import { pendingPostId } from './outbox.ts';
 import { authorizeUrl, codeFromRedirect, createPkce, KCHAT_REDIRECT } from './kchatOAuth.ts';
 import { KchatPusher } from './pusher.ts';
 import { fakeServer } from './testing.ts';
@@ -78,6 +79,23 @@ describe('MmClient', () => {
     assert.deepEqual(revoked, []);
     await assert.rejects(client.get('/users/me'));
     assert.deepEqual(revoked, ['t']);
+  });
+  test("kChat's plain {message} 401 is believed, but not on upstream Mattermost", async () => {
+    const server = fakeServer(() => ({ status: 401, body: { message: 'Unauthorized' } }));
+    const revoked: string[] = [];
+    const upstream = new MmClient(server.base, 't', { fetch: server.fetcher, onTokenRejected: (t) => void revoked.push(t) });
+    await assert.rejects(upstream.get('/users/me'));
+    assert.equal(revoked.length, 0);
+    const kchat = new MmClient(server.base, 't', { fetch: server.fetcher, plainErrors: true, onTokenRejected: (t) => void revoked.push(t) });
+    await assert.rejects(kchat.get('/users/me'));
+    assert.deepEqual(revoked, ['t']);
+  });
+
+  test('pending_post_id is <my id>:<digits>, the same for the same row', () => {
+    const me = '0196fc24-9fdf-72a9-9dfe-81b84476e14f';
+    assert.equal(pendingPostId(me, 'ffffffffffffffffffffffff'), `${me}:79228162514264337593543950335`);
+    assert.equal(pendingPostId(me, 'a1b2c3d4e5f6a7b8c9d0e1f2'), pendingPostId(me, 'a1b2c3d4e5f6a7b8c9d0e1f2'));
+    assert.match(pendingPostId(me, 'a1b2c3d4e5f6a7b8c9d0e1f2'), /^[0-9a-f-]{36}:\d+$/);
   });
 });
 

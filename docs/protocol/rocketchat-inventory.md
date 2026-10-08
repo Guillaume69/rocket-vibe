@@ -2,13 +2,16 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-520 production files scanned; 579 occurrences.
+521 production files scanned; 582 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
 
 | Source | Kind | Surface / first argument |
 |---|---|---|
+| [apps/desktop/crates/rv-core/examples/kchat-smoke.rs:34](../../apps/desktop/crates/rv-core/examples/kchat-smoke.rs#L34) | call:POST | "channels/direct" |
+| [apps/desktop/crates/rv-core/examples/kchat-smoke.rs:57](../../apps/desktop/crates/rv-core/examples/kchat-smoke.rs#L57) | call:POST | "posts" |
+| [apps/desktop/crates/rv-core/examples/kchat-smoke.rs:70](../../apps/desktop/crates/rv-core/examples/kchat-smoke.rs#L70) | call:GET | &format!("channels/{…}/posts") |
 | [apps/desktop/crates/rv-core/src/account_unread.rs:34](../../apps/desktop/crates/rv-core/src/account_unread.rs#L34) | call:GET | "subscriptions.get" |
 | [apps/desktop/crates/rv-core/src/account_unread.rs:34](../../apps/desktop/crates/rv-core/src/account_unread.rs#L34) | endpoint | subscriptions.get |
 | [apps/desktop/crates/rv-core/src/actions.rs:51](../../apps/desktop/crates/rv-core/src/actions.rs#L51) | call:GET | "settings.public", options).await { |

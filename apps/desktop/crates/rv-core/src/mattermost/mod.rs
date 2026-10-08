@@ -228,3 +228,23 @@ pub async fn unread(info: &SessionInfo) -> Result<bool, RestError> {
         })
     }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pending_post_id_is_my_id_and_the_rows_digits() {
+        let me = "0196fc24-9fdf-72a9-9dfe-81b84476e14f";
+        assert_eq!(pending_post_id(me, "ffffffffffffffffffffffff"), format!("{me}:79228162514264337593543950335"));
+        assert_eq!(pending_post_id(me, "up-00000000000000ff"), format!("{me}:255"));
+    }
+
+    #[test]
+    fn kchat_plain_errors_are_believed_only_on_kchat() {
+        let body = r#"{"message": "Unauthorized"}"#;
+        assert!(!crate::rest::interpret_mattermost("users/me", 401, body, false).unwrap_err().understood);
+        assert!(crate::rest::interpret_mattermost("users/me", 401, body, true).unwrap_err().understood);
+        assert!(!crate::rest::interpret_mattermost("users/me", 401, "<html>", true).unwrap_err().understood);
+    }
+}

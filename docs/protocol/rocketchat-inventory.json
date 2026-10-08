@@ -11,6 +11,7 @@
   ],
   "scanned": [
     "apps/desktop/crates/rv-core/examples/export-native-rendering.rs",
+    "apps/desktop/crates/rv-core/examples/kchat-smoke.rs",
     "apps/desktop/crates/rv-core/examples/mattermost-smoke.rs",
     "apps/desktop/crates/rv-core/examples/native-files-smoke.rs",
     "apps/desktop/crates/rv-core/examples/native-smoke.rs",
@@ -532,6 +533,24 @@
     "apps/mobile/ui/workflowsModel.ts"
   ],
   "entries": [
+    {
+      "file": "apps/desktop/crates/rv-core/examples/kchat-smoke.rs",
+      "line": 34,
+      "kind": "call:POST",
+      "surface": "\"channels/direct\""
+    },
+    {
+      "file": "apps/desktop/crates/rv-core/examples/kchat-smoke.rs",
+      "line": 57,
+      "kind": "call:POST",
+      "surface": "\"posts\""
+    },
+    {
+      "file": "apps/desktop/crates/rv-core/examples/kchat-smoke.rs",
+      "line": 70,
+      "kind": "call:GET",
+      "surface": "&format!(\"channels/{…}/posts\")"
+    },
     {
       "file": "apps/desktop/crates/rv-core/src/account_unread.rs",
       "line": 34,

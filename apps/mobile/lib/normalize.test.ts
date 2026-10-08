@@ -222,6 +222,9 @@ describe('toSubscription', () => {
       e2eKey: null,
       e2eKeyId: null,
       roles: null,
+      groupId: null,
+      groupName: null,
+      groupRank: null,
       updatedAt: 0,
     });
   });
@@ -255,6 +258,9 @@ describe('toSubscription', () => {
       e2eKey: 'kid+base64',
       e2eKeyId: 'kid',
       roles: '["owner"]',
+      groupId: null,
+      groupName: null,
+      groupRank: null,
       updatedAt: 1000,
     });
   });

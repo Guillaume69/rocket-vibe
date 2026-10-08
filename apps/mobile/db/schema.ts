@@ -85,6 +85,11 @@ export const subscriptions = sqliteTable('subscriptions', {
   e2eKeyId: text('e2e_key_id'),
   /** `roles`: my roles IN this room (`owner`, `moderator`...), serialised; `null` if none. */
   roles: text('roles'),
+  /** A sidebar category of my own (Mattermost): the room is listed under it. */
+  groupId: text('group_id'),
+  groupName: text('group_name'),
+  /** Where the room's section sits in my sidebar order; `null` keeps the default order. */
+  groupRank: integer('group_rank'),
   updatedAt: integer('updated_at').notNull().default(0),
 });
 

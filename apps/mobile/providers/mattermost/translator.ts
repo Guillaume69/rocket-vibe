@@ -12,6 +12,7 @@
 import type { DdpEvent } from '../../lib/ddp.ts';
 import type { Translation, Translator } from '../../lib/provider.ts';
 import type { LocalMessage, LocalRoom, LocalSubscription } from '../../lib/normalize.ts';
+import type { MmCategories } from './categories.ts';
 import type { MmDirectory } from './directory.ts';
 
 export const MM_POST = 'mm:post';
@@ -47,11 +48,13 @@ const SYSTEM_TYPES: Record<string, { type: string; param: (props: Record<string,
 export class MmTranslator implements Translator {
   private readonly directory: MmDirectory;
   private readonly myId: string;
+  private readonly categories: MmCategories | null;
   private readonly fileBase: string;
 
-  constructor(directory: MmDirectory, myId: string, fileBase = '/api/v4/files') {
+  constructor(directory: MmDirectory, myId: string, categories: MmCategories | null = null, fileBase = '/api/v4/files') {
     this.directory = directory;
     this.myId = myId;
+    this.categories = categories;
     this.fileBase = fileBase;
   }
 
@@ -169,6 +172,7 @@ export class MmTranslator implements Translator {
     if (channel === null || member === null || rid === null) return null;
     const { unread, mentions } = membershipCounts(channel, member);
     const roles = (str(member.roles) ?? '').split(/\s+/);
+    const placement = this.categories?.placement(rid);
     return {
       rid,
       subId: rid,
@@ -177,11 +181,14 @@ export class MmTranslator implements Translator {
       groupMentions: 0,
       alert: unread > 0,
       open: true,
-      favorite: false,
+      favorite: placement?.favorite ?? false,
       lastSeen: positive(member.last_viewed_at),
       e2eKey: null,
       e2eKeyId: null,
       roles: roles.includes('channel_admin') ? JSON.stringify(['owner']) : null,
+      groupId: placement?.groupId ?? null,
+      groupName: placement?.groupName ?? null,
+      groupRank: placement?.rank ?? null,
       updatedAt: Math.max(positive(member.last_update_at) ?? 0, positive(channel.update_at) ?? 0),
     };
   }

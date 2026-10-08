@@ -117,6 +117,9 @@ export type LocalSubscription = {
   e2eKeyId: string | null;
   /** My roles in the room, serialized; `null` if the document carries none. */
   roles: string | null;
+  groupId: string | null;
+  groupName: string | null;
+  groupRank: number | null;
   updatedAt: number;
 };
 
@@ -336,6 +339,9 @@ export function toSubscription(raw: Record<string, unknown>): LocalSubscription 
     roles: Array.isArray(raw.roles)
       ? JSON.stringify(raw.roles.filter((r): r is string => typeof r === 'string'))
       : null,
+    groupId: null,
+    groupName: null,
+    groupRank: null,
     updatedAt: toEpoch(raw._updatedAt) ?? 0,
   };
 }

@@ -11,6 +11,7 @@
  */
 
 import type { SyncEngine } from '../../lib/sync.ts';
+import type { MmCategories } from './categories.ts';
 import type { MmClient } from './client.ts';
 import type { MmDirectory } from './directory.ts';
 import { MmHistory } from './history.ts';
@@ -30,16 +31,18 @@ export class MmCatchUp {
   private readonly directory: MmDirectory;
   private readonly live: MmLive;
   private readonly history: MmHistory;
+  private readonly categories: MmCategories | null;
   private readonly myId: string;
   /** kChat lists deletions on their own route; upstream returns them in `since`. */
   private readonly deletedRoute: boolean;
   private readonly running = new Map<string, Promise<void>>();
 
-  constructor(options: { client: MmClient; directory: MmDirectory; live: MmLive; history: MmHistory; myId: string; deletedRoute: boolean }) {
+  constructor(options: { client: MmClient; directory: MmDirectory; live: MmLive; history: MmHistory; categories?: MmCategories; myId: string; deletedRoute: boolean }) {
     this.client = options.client;
     this.directory = options.directory;
     this.live = options.live;
     this.history = options.history;
+    this.categories = options.categories ?? null;
     this.myId = options.myId;
     this.deletedRoute = options.deletedRoute;
   }
@@ -49,7 +52,12 @@ export class MmCatchUp {
   }
 
   async global(engine: SyncEngine, isDiscarded: () => boolean): Promise<void> {
-    const [channels, members] = await Promise.all([this.channels(), this.pages<Doc>('/users/me/channel_members')]);
+    // A server older than 5.32 has no categories: the rooms keep the default sections.
+    const [channels, members] = await Promise.all([
+      this.channels(),
+      this.pages<Doc>('/users/me/channel_members'),
+      this.categories?.load().catch(() => {}),
+    ]);
     if (isDiscarded()) return;
     const memberOf = new Map(members.map((m) => [String(m.channel_id), m]));
     const live = channels.filter((c) => !(typeof c.delete_at === 'number' && c.delete_at > 0) && memberOf.has(String(c.id)));

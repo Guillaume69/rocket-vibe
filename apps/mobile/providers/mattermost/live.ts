@@ -12,6 +12,7 @@
 import type { DdpEvent } from '../../lib/ddp.ts';
 import { PRESENCE_EVENT, STREAM_NOTIFY_LOGGED } from '../../lib/presence.ts';
 import { STREAM_NOTIFY_ROOM_TYPING, TYPING_ACTIVITY } from '../../lib/typing.ts';
+import type { MmCategories } from './categories.ts';
 import type { MmClient } from './client.ts';
 import type { MmDirectory } from './directory.ts';
 import { toMmUser } from './directory.ts';
@@ -36,20 +37,24 @@ const STATUS_CODES = new Map<string, number>([
   ['dnd', 3],
 ]);
 
-const QUIET_EVENTS = new Set(['hello', 'badge_updated', 'thread_read_changed', 'thread_updated', 'preferences_changed', 'sidebar_category_updated', 'sidebar_category_order_updated', 'plugin_statuses_changed', 'config_changed', 'license_changed', 'response']);
+const CATEGORY_EVENTS = new Set(['sidebar_category_created', 'sidebar_category_updated', 'sidebar_category_deleted', 'sidebar_category_order_updated']);
+
+const QUIET_EVENTS = new Set(['hello', 'badge_updated', 'thread_read_changed', 'thread_updated', 'preferences_changed', 'plugin_statuses_changed', 'config_changed', 'license_changed', 'response']);
 
 export class MmLive {
   private readonly client: MmClient;
   private readonly directory: MmDirectory;
   private readonly myId: string;
+  private readonly categories: MmCategories | null;
   readonly channels = new Map<string, Doc>();
   readonly members = new Map<string, Doc>();
   readonly lastPosts = new Map<string, Doc>();
 
-  constructor(client: MmClient, directory: MmDirectory, myId: string) {
+  constructor(client: MmClient, directory: MmDirectory, myId: string, categories: MmCategories | null = null) {
     this.client = client;
     this.directory = directory;
     this.myId = myId;
+    this.categories = categories;
   }
 
   remember(channel: Doc, member?: Doc | null): void {
@@ -96,6 +101,7 @@ export class MmLive {
 
   async expand(name: string, data: Doc, broadcast: Doc): Promise<DdpEvent[]> {
     if (QUIET_EVENTS.has(name)) return [{ collection: MM_QUIET, eventKey: name, args: [] }];
+    if (CATEGORY_EVENTS.has(name)) return this.regroup();
     const channelId = str(data.channel_id) ?? str(broadcast.channel_id);
     switch (name) {
       case 'typing': {
@@ -205,6 +211,13 @@ export class MmLive {
       }
     }
     return compact([postEvent(post), isRoot ? this.roomEvent(rid, post) : null, this.membershipEvent(rid)]);
+  }
+
+  /** Categories come without their content: read them again, then every membership row. */
+  private async regroup(): Promise<DdpEvent[]> {
+    if (this.categories === null) return [{ collection: MM_QUIET, eventKey: 'sidebar', args: [] }];
+    await this.categories.load();
+    return compact([...this.channels.keys()].map((rid) => this.membershipEvent(rid)));
   }
 
   private viewed(rids: string[]): DdpEvent[] {

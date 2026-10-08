@@ -278,7 +278,7 @@ export class NativeStore {
     if(previous && BigInt(previous.revision)>BigInt(room.revision)){
       if(reset){
         await this.db.runAsync('INSERT INTO native_room_access(rid,revision) VALUES(?,?)',[room.id,previous.revision]);
-        await this.db.runAsync(UPSERT_SUBSCRIPTION,subscriptionParams({rid:room.id,subId:null,...badges,open:true,favorite,lastSeen:null,e2eKey:null,e2eKeyId:null,roles:null,updatedAt:Date.now()}));
+        await this.db.runAsync(UPSERT_SUBSCRIPTION,subscriptionParams({rid:room.id,subId:null,...badges,open:true,favorite,lastSeen:null,e2eKey:null,e2eKeyId:null,roles:null,groupId:null,groupName:null,groupRank:null,updatedAt:Date.now()}));
         await this.preview(room.id);
       }
       return reset;
@@ -294,7 +294,7 @@ export class NativeStore {
     await this.db.runAsync(UPSERT_SUBSCRIPTION, subscriptionParams({
       rid: room.id, subId: null, ...badges,
       open: true, favorite, lastSeen: null, e2eKey: null, e2eKeyId: null,
-      roles: null, updatedAt: Date.now(),
+      roles: null, groupId: null, groupName: null, groupRank: null, updatedAt: Date.now(),
     }));
     await this.preview(room.id);
     return reset;

@@ -118,8 +118,8 @@ WHERE excluded.updated_at >= rooms.updated_at
 export const UPSERT_SUBSCRIPTION = `
 INSERT INTO subscriptions (
   rid, sub_id, unread, mentions, group_mentions, alert, open, favorite,
-  last_seen, e2e_key, e2e_key_id, roles, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  last_seen, e2e_key, e2e_key_id, roles, group_id, group_name, group_rank, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(rid) DO UPDATE SET
   sub_id = COALESCE(excluded.sub_id, subscriptions.sub_id),
   unread = excluded.unread,
@@ -136,6 +136,9 @@ ON CONFLICT(rid) DO UPDATE SET
   -- Same rule: a removed role leaves roles: [] ($pull), never a missing
   -- field, so absence says nothing.
   roles = COALESCE(excluded.roles, subscriptions.roles),
+  group_id = excluded.group_id,
+  group_name = excluded.group_name,
+  group_rank = excluded.group_rank,
   updated_at = excluded.updated_at
 WHERE excluded.updated_at >= subscriptions.updated_at
 `;
@@ -680,6 +683,9 @@ export function subscriptionParams(a: LocalSubscription): SqlParam[] {
     a.e2eKey,
     a.e2eKeyId,
     a.roles,
+    a.groupId,
+    a.groupName,
+    a.groupRank,
     a.updatedAt,
   ];
 }

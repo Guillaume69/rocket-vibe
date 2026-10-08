@@ -147,6 +147,9 @@ function sub(o: Partial<LocalSubscription> & { rid: string; updatedAt: number })
     e2eKey: null,
     e2eKeyId: null,
     roles: null,
+    groupId: null,
+    groupName: null,
+    groupRank: null,
     ...o,
   });
 }

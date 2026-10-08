@@ -5,7 +5,7 @@
  */
 
 import type { LocalMessage } from '../../lib/normalize.ts';
-import type { ProviderActions, RoomInformation } from '../../lib/provider.ts';
+import type { ProviderActions, RoomFavorite, RoomInformation } from '../../lib/provider.ts';
 import type { MmClient } from './client.ts';
 import type { MmDirectory } from './directory.ts';
 import { ordered } from './history.ts';
@@ -28,6 +28,15 @@ export class MmActions implements ProviderActions {
     this.translator = options.translator;
     this.myId = options.myId;
   }
+
+  /** The server moves the room in or out of my Favorites category, and says so with `sidebar_category_updated`. */
+  roomFavorite: RoomFavorite = {
+    edit: async (rid: string, present: boolean): Promise<void> => {
+      await this.client.put('/users/me/preferences', {
+        body: [{ user_id: this.myId, category: 'favorite_channel', name: rid, value: String(present) }],
+      });
+    },
+  };
 
   async roomInfo(rid: string): Promise<RoomInformation> {
     const [channel, stats] = await Promise.all([

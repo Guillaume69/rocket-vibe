@@ -11,7 +11,10 @@
  *   - "I have a message" = unreads > 0 OR the `alert` flag (a mention can raise
  *     it without the counter moving): those rooms rise to the top, ALL TYPES
  *     ALIKE; then come the rooms I starred (the server's star, `f`), then the
- *     rest splits into Rooms / Direct messages;
+ *     rooms of each category of my own (Mattermost), then the rest splits
+ *     into Rooms / Direct messages;
+ *   - the sections after Unread follow my sidebar order (`groupRank`) when the
+ *     server has one, the order above otherwise;
  *   - an empty section is dropped;
  *   - the input order (recency descending, sorted by the query) is PRESERVED
  *     by each section: no re-sort here.
@@ -19,16 +22,17 @@
 
 export type HomeEntry<S, A> = { room: S; subscription: A | null };
 
-export type SectionKey = 'unread' | 'favorites' | 'rooms' | 'directMessages';
+export type SectionKey = 'unread' | 'favorites' | 'rooms' | 'directMessages' | `group:${string}`;
 
-export type SectionTitles = Record<SectionKey, string>;
+export type SectionTitles = Record<'unread' | 'favorites' | 'rooms' | 'directMessages', string>;
 
 export type HomeSection<E> = { key: SectionKey; title: string; data: E[] };
 
-export function buildSections<
-  S extends { rid: string; type: string },
-  A extends { rid: string; unread: number; alert: boolean; open: boolean; favorite: boolean },
->(
+type Grouped = { rid: string; unread: number; alert: boolean; open: boolean; favorite: boolean; groupId?: string | null; groupName?: string | null; groupRank?: number | null };
+
+const DEFAULT_RANKS = { favorites: 0, rooms: 1, directMessages: 2 } as const;
+
+export function buildSections<S extends { rid: string; type: string }, A extends Grouped>(
   roomRows: S[] | undefined,
   subscriptionRows: A[] | undefined,
   titles: SectionTitles,
@@ -40,24 +44,35 @@ export function buildSections<
 
   const hasMessage = (e: HomeEntry<S, A>): boolean =>
     (e.subscription?.unread ?? 0) > 0 || e.subscription?.alert === true;
-  const unread = visible.filter(hasMessage);
-  const favorites = visible.filter((e) => !hasMessage(e) && e.subscription?.favorite === true);
-  const read = visible.filter((e) => !hasMessage(e) && e.subscription?.favorite !== true);
+  const unread: HomeSection<HomeEntry<S, A>> = { key: 'unread', title: titles.unread, data: visible.filter(hasMessage) };
 
-  const sections: HomeSection<HomeEntry<S, A>>[] = [
-    { key: 'unread', title: titles.unread, data: unread },
-    { key: 'favorites', title: titles.favorites, data: favorites },
-    { key: 'rooms', title: titles.rooms, data: read.filter((e) => e.room.type !== 'd') },
-    {
-      key: 'directMessages',
-      title: titles.directMessages,
-      data: read.filter((e) => e.room.type === 'd'),
-    },
-  ];
-  return sections.filter((s) => s.data.length > 0);
+  const placed = new Map<SectionKey, HomeSection<HomeEntry<S, A>> & { rank: number; order: number }>();
+  for (const entry of visible) {
+    if (hasMessage(entry)) continue;
+    const sub = entry.subscription;
+    const groupName = sub?.groupName ?? null;
+    const builtIn = sub?.favorite === true ? 'favorites' : entry.room.type === 'd' ? 'directMessages' : 'rooms';
+    const key: SectionKey = sub?.favorite !== true && groupName !== null && sub?.groupId ? `group:${sub.groupId}` : builtIn;
+    const rank = sub?.groupRank ?? DEFAULT_RANKS[builtIn];
+    const section = placed.get(key);
+    if (section === undefined) {
+      const title = key.startsWith('group:') ? (groupName ?? '') : titles[builtIn];
+      placed.set(key, { key, title, data: [entry], rank, order: key.startsWith('group:') ? 3 : DEFAULT_RANKS[builtIn] });
+    } else {
+      section.data.push(entry);
+      section.rank = Math.min(section.rank, rank);
+    }
+  }
+  const rest = [...placed.values()]
+    .sort((x, y) => x.rank - y.rank || x.order - y.order)
+    .map(({ key, title, data }) => ({ key, title, data }));
+  return [unread, ...rest].filter((s) => s.data.length > 0);
 }
 
 const SECTION_KEYS: readonly SectionKey[] = ['unread', 'favorites', 'rooms', 'directMessages'];
+
+const isSectionKey = (k: unknown): k is SectionKey =>
+  typeof k === 'string' && ((SECTION_KEYS as readonly string[]).includes(k) || (k.startsWith('group:') && k.length > 6));
 
 /** The keys as stored before the English rename (migration 0016). */
 const LEGACY_SECTION_KEYS: ReadonlyMap<unknown, SectionKey> = new Map([
@@ -81,12 +96,12 @@ export function readCollapsedSections(raw: string | null): ReadonlySet<SectionKe
     return new Set();
   }
   if (!Array.isArray(value)) return new Set();
-  const keys = value.map((k: unknown) => LEGACY_SECTION_KEYS.get(k) ?? k);
-  return new Set(SECTION_KEYS.filter((key) => keys.includes(key)));
+  return new Set(value.map((k: unknown) => LEGACY_SECTION_KEYS.get(k) ?? k).filter(isSectionKey));
 }
 
 export function writeCollapsedSections(collapsedKeys: ReadonlySet<SectionKey>): string {
-  return JSON.stringify(SECTION_KEYS.filter((key) => collapsedKeys.has(key)));
+  const groups = [...collapsedKeys].filter((key) => isSectionKey(key) && key.startsWith('group:')).sort();
+  return JSON.stringify([...SECTION_KEYS.filter((key) => collapsedKeys.has(key)), ...groups]);
 }
 
 export function toggleSection(

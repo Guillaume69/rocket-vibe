@@ -15,6 +15,7 @@ import type { OutboxStore } from '../../lib/outbox.ts';
 import type { UploadStore } from '../../lib/uploadQueue.ts';
 import type { TransportUpload } from '../../lib/upload.ts';
 import { MmActions } from './actions.ts';
+import { MmCategories } from './categories.ts';
 import { MmCatchUp } from './catchUp.ts';
 import { MmClient, MmError } from './client.ts';
 import { MmDirectory, toMmUser } from './directory.ts';
@@ -35,6 +36,7 @@ export const MATTERMOST_CAPABILITIES: Capabilities = {
   marks: true,
   profile: true,
   roomInfo: true,
+  roomFavorites: true,
   typing: true,
   presence: true,
   push: false,
@@ -65,10 +67,11 @@ export function createMattermostProvider(
   });
   const directory = new MmDirectory(client);
   directory.remember({ id: session.userId, username: session.username, displayName: null, lastPictureUpdate: null });
-  const live = new MmLive(client, directory, session.userId);
-  const translator = new MmTranslator(directory, session.userId);
+  const categories = new MmCategories(client);
+  const live = new MmLive(client, directory, session.userId, categories);
+  const translator = new MmTranslator(directory, session.userId, categories);
   const history = new MmHistory(client, live);
-  const catchUp = new MmCatchUp({ client, directory, live, history, myId: session.userId, deletedRoute: kchat });
+  const catchUp = new MmCatchUp({ client, directory, live, history, categories, myId: session.userId, deletedRoute: kchat });
   const actions = new MmActions({ client, directory, live, translator, myId: session.userId });
   const expand = (name: string, data: Record<string, unknown>, broadcast: Record<string, unknown>) =>
     live.expand(name, data, broadcast);

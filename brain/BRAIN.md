@@ -60,6 +60,9 @@ use the indexes.
 | [server.md](architecture/server.md) | The RocketVibe server: CLI and configuration, HTTP layers, sessions and limits, the journal, cursors and WebSocket, files, background loops, tests and release. |
 | [shared-crates.md](architecture/shared-crates.md) | `crates/`: the native protocol and its generated copies, the HTTP client, the MLS engine and its vault, the Android and wasm bridges, the seven workspaces and their locks. |
 
+The planned [Slack session provider](architecture/slack-session.md) has a
+protocol handoff and measured session/RTM evidence; it is not implemented.
+
 ## Features (the what) - [features/index.md](features/index.md)
 
 Each feature doc covers mobile and desktop, and says where they differ.

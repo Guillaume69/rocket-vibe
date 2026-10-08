@@ -85,22 +85,25 @@ pub async fn members(
     if expected.is_some_and(|value| value != revision) {
         return Err(revision_conflict());
     }
-    let rows: Vec<(String,String,String,String,bool)> = sqlx::query_as("SELECT u.id,u.username,u.display_name,m.role,u.disabled FROM members m JOIN users u ON u.id=m.user_id WHERE m.room_id=$1 AND u.id>$2 ORDER BY u.id LIMIT 51")
+    let rows: Vec<(String,String,String,String,bool,bool)> = sqlx::query_as("SELECT u.id,u.username,u.display_name,m.role,u.disabled,u.bot FROM members m JOIN users u ON u.id=m.user_id WHERE m.room_id=$1 AND u.id>$2 ORDER BY u.id LIMIT 51")
         .bind(room).bind(after.unwrap_or("")).fetch_all(&mut *tx).await?;
     let more = rows.len() > 50;
     let members: Vec<_> = rows
         .into_iter()
         .take(50)
-        .map(|(id, username, display_name, role, disabled)| RoomMember {
-            user: rv_protocol::User {
-                id,
-                username,
-                display_name,
-                ..Default::default()
+        .map(
+            |(id, username, display_name, role, disabled, bot)| RoomMember {
+                user: rv_protocol::User {
+                    id,
+                    username,
+                    display_name,
+                    bot,
+                    ..Default::default()
+                },
+                role: permissions::role(&role),
+                disabled,
             },
-            role: permissions::role(&role),
-            disabled,
-        })
+        )
         .collect();
     let next = more.then(|| members.last().unwrap().user.id.clone());
     tx.commit().await?;

@@ -41,6 +41,11 @@ struct Row {
     push_mentions_only: bool,
     desktop_notifications: String,
     email: Option<String>,
+    bot: bool,
+    owner_id: Option<String>,
+    owner_username: Option<String>,
+    owner_display_name: Option<String>,
+    owner_deleted: Option<bool>,
 }
 impl Row {
     fn profile(&self) -> UserProfile {
@@ -49,6 +54,7 @@ impl Row {
                 id: self.id.clone(),
                 username: self.username.clone(),
                 display_name: self.display_name.clone(),
+                bot: self.bot,
                 ..Default::default()
             },
             revision: self.profile_version.clone(),
@@ -56,6 +62,13 @@ impl Row {
             status_text: self.status_text.clone(),
             status: status(&self.chosen_status),
             avatar_file_id: self.avatar_file_id.clone(),
+            bot_owner: self.owner_id.clone().map(|id| User {
+                id,
+                username: self.owner_username.clone().unwrap_or_default(),
+                display_name: self.owner_display_name.clone().unwrap_or_default(),
+                deleted: self.owner_deleted.unwrap_or_default(),
+                ..Default::default()
+            }),
         }
     }
     fn own(self) -> OwnProfile {
@@ -78,9 +91,9 @@ impl Row {
         }
     }
 }
-const SELECT: &str = "SELECT u.*,e.address AS email FROM users u LEFT JOIN account_emails e ON e.user_id=u.id WHERE u.id=$1 AND NOT u.disabled";
-const PUBLIC_SELECT: &str =
-    "SELECT u.*,NULL::text AS email FROM users u WHERE u.id=$1 AND NOT u.disabled";
+// A bot's profile names its owner (RFC 0003).
+const SELECT: &str = "SELECT u.*,e.address AS email,o.id AS owner_id,o.username AS owner_username,o.display_name AS owner_display_name,o.deleted AS owner_deleted FROM users u LEFT JOIN account_emails e ON e.user_id=u.id LEFT JOIN bots b ON b.user_id=u.id LEFT JOIN users o ON o.id=b.owner_id WHERE u.id=$1 AND NOT u.disabled";
+const PUBLIC_SELECT: &str = "SELECT u.*,NULL::text AS email,o.id AS owner_id,o.username AS owner_username,o.display_name AS owner_display_name,o.deleted AS owner_deleted FROM users u LEFT JOIN bots b ON b.user_id=u.id LEFT JOIN users o ON o.id=b.owner_id WHERE u.id=$1 AND NOT u.disabled";
 pub(crate) fn status(value: &str) -> PresenceStatus {
     match value {
         "away" => PresenceStatus::Away,

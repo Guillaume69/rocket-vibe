@@ -326,6 +326,26 @@ pub fn router(app: App) -> Router {
         .route("/api/v1/sync/changes", get(changes))
         .route("/api/v1/sync/ticket", post(ticket))
         .route("/api/v1/sync/socket", get(socket))
+        .route("/api/v1/bots", get(bot_list).post(create_bot))
+        .route("/api/v1/bots/reference", get(bot_reference))
+        .route(
+            "/api/v1/bots/{id}",
+            axum::routing::patch(update_bot).delete(delete_bot),
+        )
+        .route("/api/v1/bots/{id}/keys", get(bot_keys).post(create_bot_key))
+        .route(
+            "/api/v1/bots/{id}/keys/{key}",
+            axum::routing::delete(revoke_bot_key),
+        )
+        .route(
+            "/api/v1/admin/settings",
+            get(admin_settings).patch(update_admin_settings),
+        )
+        // After routing: a bot key reaches only the routes of its scopes.
+        .route_layer(axum::middleware::from_fn_with_state(
+            app.clone(),
+            crate::bots::gate,
+        ))
         .fallback(|| async { Error::missing() })
         .layer(axum::middleware::from_fn(private_metadata_no_store))
         .layer(DefaultBodyLimit::max(64 * 1024))
@@ -347,7 +367,8 @@ async fn private_metadata_no_store(
     ) || request.uri().path().starts_with("/api/v1/e2ee/")
         || request.uri().path().starts_with("/api/v1/voice/")
         || request.uri().path().ends_with("/voice/join")
-        || request.uri().path().starts_with("/api/v1/admin/");
+        || request.uri().path().starts_with("/api/v1/admin/")
+        || request.uri().path().starts_with("/api/v1/bots");
     let mut response = next.run(request).await;
     // Rejections, including malformed input, have the same cache policy as
     // successful private receipts and delivery status.
@@ -470,6 +491,7 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
             slash_commands: true,
             administration: true,
             reports: true,
+            bots: true,
             ..Default::default()
         },
     }))
@@ -1630,17 +1652,18 @@ async fn report_user(
 
 async fn users(State(app): State<App>, headers: HeaderMap) -> Result<Response> {
     let (_, hash, proof) = read_access(&app, &headers, Scope::None).await?;
-    let users: Vec<(String, String, String)> = sqlx::query_as(
-        "SELECT id,username,display_name FROM users WHERE NOT disabled ORDER BY username LIMIT 100",
+    let users: Vec<(String, String, String, bool)> = sqlx::query_as(
+        "SELECT id,username,display_name,bot FROM users WHERE NOT disabled ORDER BY username LIMIT 100",
     )
     .fetch_all(&app.pool)
     .await?;
     let users: Vec<_> = users
         .into_iter()
-        .map(|(id, username, display_name)| rv_protocol::User {
+        .map(|(id, username, display_name, bot)| rv_protocol::User {
             id,
             username,
             display_name,
+            bot,
             ..Default::default()
         })
         .collect();
@@ -2488,4 +2511,96 @@ async fn live_state(State(app): State<App>, headers: HeaderMap) -> Result<Respon
             None,
         )
         .await
+}
+
+#[derive(serde::Deserialize)]
+struct BotListQuery {
+    #[serde(default)]
+    all: bool,
+}
+async fn bot_list(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(query): Query<BotListQuery>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::bots::list(&app, &actor, query.all).await?,
+    ))
+}
+async fn create_bot(
+    State(app): State<App>,
+    headers: HeaderMap,
+    input: Input<rv_protocol::bots::CreateBot>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::bots::create(&app, &actor, body(input)?).await?,
+    ))
+}
+async fn update_bot(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    input: Input<rv_protocol::bots::UpdateBot>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::bots::update(&app, &actor, &id, body(input)?).await?,
+    ))
+}
+async fn delete_bot(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<StatusCode> {
+    let actor = account(&app, &headers).await?;
+    crate::bots::delete(&app, &actor, &id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+async fn bot_keys(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    Ok(secret_session(crate::bots::keys(&app, &actor, &id).await?))
+}
+async fn create_bot_key(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    input: Input<rv_protocol::bots::CreateBotKey>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::bots::create_key(&app, &actor, &id, body(input)?).await?,
+    ))
+}
+async fn revoke_bot_key(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path((id, key)): Path<(String, String)>,
+) -> Result<StatusCode> {
+    let actor = account(&app, &headers).await?;
+    crate::bots::revoke_key(&app, &actor, &id, &key).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+async fn admin_settings(State(app): State<App>, headers: HeaderMap) -> Result<Response> {
+    let (hash, proof) = admin_read(&app, &headers).await?;
+    let value = crate::bots::settings(&app).await?;
+    proof.json(&app, &hash, &value, &[], None).await
+}
+async fn update_admin_settings(
+    State(app): State<App>,
+    headers: HeaderMap,
+    input: Input<rv_protocol::bots::UpdateInstanceSettings>,
+) -> Result<Response> {
+    let actor = admin_account(&app, &headers).await?;
+    Ok(Json(crate::bots::update_settings(&app, &actor, body(input)?).await?).into_response())
+}
+/// Any session or key: the API a key can reach, by scope.
+async fn bot_reference(State(app): State<App>, headers: HeaderMap) -> Result<Response> {
+    account(&app, &headers).await?;
+    Ok(Json(crate::bots::reference()).into_response())
 }

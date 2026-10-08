@@ -502,6 +502,9 @@ async fn set_member(
     if exists.is_none() || exists == Some(true) && role.is_some() {
         return Err(Error::missing());
     }
+    if role.is_some() {
+        crate::bots::refuse_encrypted(tx, room, user).await?;
+    }
     let previous: Option<String> =
         sqlx::query_scalar("SELECT role FROM members WHERE room_id=$1 AND user_id=$2 FOR UPDATE")
             .bind(room)

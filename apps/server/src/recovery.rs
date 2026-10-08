@@ -38,7 +38,7 @@ pub async fn issue(app: &App, username: &str, hours: u32) -> Result<IssuedRecove
         sqlx::query_scalar("SELECT data_epoch FROM instance WHERE singleton FOR UPDATE")
             .fetch_one(&mut *tx)
             .await?;
-    let (id,version):(String,String)=sqlx::query_as("SELECT id,activation_version FROM users WHERE username=$1 AND NOT disabled FOR NO KEY UPDATE")
+    let (id,version):(String,String)=sqlx::query_as("SELECT id,activation_version FROM users WHERE username=$1 AND NOT disabled AND NOT bot FOR NO KEY UPDATE")
         .bind(username).fetch_optional(&mut *tx).await?.ok_or_else(Error::missing)?;
     let (total,account):(i64,i64)=sqlx::query_as("SELECT count(*),count(*) FILTER(WHERE user_id=$1) FROM account_recovery_codes WHERE consumed_at IS NULL AND revoked_at IS NULL AND expires_at>clock_timestamp() AND data_epoch=$2 AND activation_version=(SELECT activation_version FROM users WHERE id=account_recovery_codes.user_id AND NOT disabled) AND (email_version IS NULL OR (email_instance_id=(SELECT instance_id FROM instance WHERE singleton) AND email_version=(SELECT email_version FROM users WHERE id=account_recovery_codes.user_id) AND EXISTS(SELECT 1 FROM account_emails WHERE user_id=account_recovery_codes.user_id)))")
         .bind(&id).bind(&epoch).fetch_one(&mut *tx).await?;

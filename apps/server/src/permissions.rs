@@ -17,13 +17,15 @@ pub(crate) fn role(value: &str) -> RoomRole {
 }
 
 pub async fn account(app: &App, actor: &Account) -> Result<AccountPermissions> {
-    let (public, private, admin): (bool, bool, bool) = sqlx::query_as("SELECT create_public_room,create_private_room,admin FROM users WHERE id=$1 AND NOT disabled")
+    let (public, private, admin, bot, user_bots): (bool, bool, bool, bool, bool) = sqlx::query_as("SELECT u.create_public_room,u.create_private_room,u.admin,u.bot,i.user_bots FROM users u CROSS JOIN instance i WHERE u.id=$1 AND NOT u.disabled AND i.singleton")
         .bind(&actor.id).fetch_optional(&app.pool).await?.ok_or_else(Error::unauthorized)?;
+    // A bot creates no room and no bot (RFC 0003): its keys never reach those routes.
     Ok(AccountPermissions {
-        create_public_room: public,
-        create_private_room: private,
+        create_public_room: public && !bot,
+        create_private_room: private && !bot,
         manage_accounts: admin,
         manage_instance: admin,
+        create_bot: !bot && (admin || user_bots),
     })
 }
 

@@ -88,3 +88,15 @@ describe('MmOutbox', () => {
     assert.equal(rows.get('local1')?.status, 'failed');
   });
 });
+
+describe('MmOutbox after a refusal', () => {
+  test('an older post of mine with the same text does not make a refused send delivered', async () => {
+    const { outbox, ingested, rows } = setup((call) => {
+      if (call.method === 'POST') return { status: 403, body: { id: 'api.post.create_post.archived', message: 'archived' } };
+      return { body: postList([post('old', { user_id: 'u-me', message: 'ok', create_at: Date.now() - 3_600_000 })]) };
+    });
+    await outbox.send('ch1', 'ok');
+    assert.equal(ingested.length, 0);
+    assert.equal([...rows.values()][0]?.status, 'failed');
+  });
+});

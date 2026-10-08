@@ -41,4 +41,18 @@ describe('sidebar categories', () => {
     assert.deepEqual(categories.placement('dm'), { favorite: false, groupId: null, groupName: null, rank: 1 });
     assert.deepEqual(categories.placement('cb'), { favorite: true, groupId: null, groupName: null, rank: 1000 });
   });
+
+  test('a favourite accepted by the server moves the room before the categories are read again', async () => {
+    const fetch = (async (input: string | URL | Request) => {
+      const url = String(input);
+      const body = url.endsWith('/users/me/teams') ? [{ id: 'A' }] : { categories: [category('ch', 'channels', ['c1'])], order: ['ch'] };
+      return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as typeof globalThis.fetch;
+    const categories = new MmCategories(new MmClient('http://x', 't', { fetch }));
+    await categories.load();
+    categories.noteFavorite('c1', true);
+    assert.equal(categories.placement('c1')?.favorite, true);
+    categories.noteFavorite('unknown', true);
+    assert.equal(categories.placement('unknown'), undefined);
+  });
 });

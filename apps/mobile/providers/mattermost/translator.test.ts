@@ -148,3 +148,20 @@ describe('kMeet call posts (kChat)', () => {
     assert.equal(call({ url: 'javascript:alert(1)' })?.callId, null);
   });
 });
+
+describe('kMeet origin', () => {
+  test('a call post pointing anywhere but kMeet offers nothing to join', () => {
+    for (const url of ['https://evil.example/r', 'https://kmeet.infomaniak.com@evil.example/r', 'http://kmeet.infomaniak.com/r']) {
+      const m = translator().toMessage(post('c2', { type: 'custom_call', props: { url } }));
+      assert.equal(m?.callId, null, url);
+    }
+  });
+});
+
+describe('Room previews', () => {
+  test('a room whose last post is unknown keeps the stored preview; a known one rewrites it', () => {
+    const channel = { id: 'ch1', type: 'O', name: 'dev', update_at: 5, last_post_at: 9 };
+    assert.equal(translator().toRoom({ channel })?.keepPreview, true);
+    assert.equal(translator().toRoom({ channel, lastPost: null })?.keepPreview, false);
+  });
+});

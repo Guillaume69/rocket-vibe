@@ -173,7 +173,7 @@ describe('sidebar categories (Mattermost)', () => {
     assert.deepEqual(sections.map((s) => s.key).slice(1, 3), ['group:g-tech', 'group:g-infra']);
   });
 
-  test('a favourite leaves its old category at once, before the server says so', () => {
+  test('a favourite goes to Favourites even while its row still names the category it left', () => {
     const sections = buildSections(
       [room('a', 'c'), room('b', 'c')],
       [subscription('a', { favorite: true, groupId: 'g', groupName: 'G', groupRank: 1 }), subscription('b', { groupId: 'g', groupName: 'G', groupRank: 1 })],

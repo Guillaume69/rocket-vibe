@@ -21,11 +21,13 @@ const MEMBERS = [
 
 function setup(extra: (call: Call) => ReturnType<Parameters<typeof fakeServer>[0]> = () => undefined, deletedRoute = false) {
   const server = fakeServer((call) => {
+    const own = extra(call);
+    if (own !== undefined) return own;
     if (call.path === '/users/me/channels') return { body: CHANNELS };
     if (call.path === '/users/me/channel_members') return { body: MEMBERS };
     if (call.path === '/users/ids') return { body: [{ id: 'u-bob', username: 'bob' }] };
     if (call.path === '/channels/ch1/posts' && call.query.get('per_page') === '1') return { body: postList([post('last', { channel_id: 'ch1', create_at: 100 })]) };
-    return extra(call) ?? { body: postList([]) };
+    return { body: postList([]) };
   });
   const client = new MmClient(server.base, 'tok', { fetch: server.fetcher });
   const directory = new MmDirectory(client);
@@ -35,7 +37,7 @@ function setup(extra: (call: Call) => ReturnType<Parameters<typeof fakeServer>[0
   const local = memoryStore();
   const engine = new SyncEngine(local.store, new MmTranslator(directory, 'u-me'));
   const catchUp = new MmCatchUp({ client, directory, live, history, myId: 'u-me', deletedRoute });
-  return { catchUp, engine, history, server, ...local };
+  return { catchUp, engine, history, server, live, ...local };
 }
 
 describe('MmCatchUp', () => {
@@ -96,3 +98,31 @@ describe('MmHistory', () => {
     assert.equal(server.calls.at(-1)?.query.get('collapsedThreads'), 'true');
   });
 });
+
+describe('MmCatchUp against a live session', () => {
+  test('the channel list is read once: the route ignores page and per_page', async () => {
+    const { catchUp, engine, server } = setup();
+    await catchUp.global(engine, () => false);
+    assert.equal(server.calls.filter((c) => c.path === '/users/me/channels').length, 1);
+  });
+
+  test('a room an event changed during the requests keeps its live counts', async () => {
+    const { catchUp, engine, subscriptions, live } = setupWithLive((call) => {
+      if (call.path === '/users/me/channel_members') void live.expand('channel_viewed', {}, { channel_id: 'ch1' });
+    });
+    live.remember(CHANNELS[0]!, MEMBERS[0]!);
+    await catchUp.global(engine, () => false);
+    assert.equal(subscriptions.get('ch1'), undefined, 'the stale snapshot is not written over the read');
+    assert.equal(subscriptions.get('d1')?.unread, 0);
+  });
+});
+
+function setupWithLive(onCall: (call: Call) => void) {
+  let live: MmLive | null = null;
+  const made = setup((call) => {
+    if (live !== null) onCall(call);
+    return undefined;
+  });
+  live = made.live;
+  return made;
+}

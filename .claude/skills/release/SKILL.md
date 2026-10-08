@@ -65,10 +65,15 @@ Per app, one commit `[release/<x.y.z>] chore(<app>): release <x.y.z>` holding:
   `npm version <x.y.z> --no-git-tag-version` (updates `package.json` and
   `package-lock.json` together).
 - **desktop**: `[workspace.package] version` in `apps/desktop/Cargo.toml`, and the
-  four workspace crates in `apps/desktop/Cargo.lock` (`rocket-vibe-gtk`, `rv-core`,
-  `rv-ffi`, `rv-native`). CI builds with `--locked`, so a stale lock fails every
-  job. The desktop gate below rewrites the lock if it is behind; check that
-  `git diff Cargo.lock` touches only those four versions.
+  workspace crates in `apps/desktop/Cargo.lock` (`rocket-vibe-gtk`, `rv-core`,
+  `rv-ffi`, `rv-native`, `rv-voice-protocol`). The voice sidecar is its own
+  workspace and follows too: `version` in `apps/desktop/voice/Cargo.toml` and
+  `apps/desktop/voice/screen-audio/Cargo.toml`, and the `rv-voice`,
+  `rv-screen-audio` and `rv-voice-protocol` entries of `apps/desktop/voice/Cargo.lock`
+  (desktop 0.11.0's tag run failed on that lock). CI builds with `--locked`, so a
+  stale lock fails every job. The desktop gate below rewrites the main lock if it
+  is behind; check that `git diff` of both locks touches only those versions, and
+  `cargo metadata --locked` in `apps/desktop/voice` (in the build container).
 
 Then both scripts must agree, or CI will refuse the tag:
 

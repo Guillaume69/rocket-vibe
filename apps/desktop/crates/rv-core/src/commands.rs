@@ -96,6 +96,9 @@ pub fn error_key(code: &str) -> Option<&'static str> {
         "permission_denied" => Some("command.forbidden"),
         "invalid_request" => Some("command.invalid"),
         "crypto_required" => Some("command.encrypted"),
+        "workflow_unavailable" => Some("command.workflow_unavailable"),
+        "workflow_rate_limited" => Some("command.workflow_rate_limited"),
+        "workflow_busy" => Some("command.workflow_busy"),
         _ => None,
     }
 }

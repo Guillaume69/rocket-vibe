@@ -38,9 +38,11 @@ impl NativeChat {
         .await
         .map_err(|e| rv_core::native::rest_error(e).into())
     }
-    pub fn suggestions(&self, before_cursor: String) -> Option<Suggestions> {
+    /// What to offer for the text before the cursor in `rid`: its commands
+    /// after a leading `/`, custom emojis after `:`.
+    pub fn suggestions(&self, rid: String, before_cursor: String) -> Option<Suggestions> {
         if let Some(prefix) = rv_core::commands::query(&before_cursor) {
-            return crate::writing::command_suggestions(&self.session.loaded_commands(), prefix, None);
+            return crate::writing::command_suggestions(&self.session.loaded_room_commands(&rid), prefix, None);
         }
         let q = rv_core::completion::query(&before_cursor)?;
         if q.trigger != rv_core::completion::Trigger::Emoji {

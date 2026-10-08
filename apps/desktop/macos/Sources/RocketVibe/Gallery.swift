@@ -29,7 +29,7 @@ func sample(_ id: String, _ minutesAgo: Int64, _ author: String, _ body: [BodyBl
         showHeader: header, showDay: day, gutterTime: !header, newMarker: marker, system: system, param: param,
         callId: nil, locked: false, body: body, text: nil, quotes: [], images: [], files: [], cards: [],
         reactions: reactions, edited: edited, delivery: delivery, threadCount: replies, threadId: nil,
-        pinned: false, starred: false, authorBot: false)
+        pinned: false, starred: false, authorBot: false, form: nil)
 }
 
 let gallerySamples: [MessageItem] = [

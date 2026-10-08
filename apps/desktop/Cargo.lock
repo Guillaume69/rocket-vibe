@@ -4243,6 +4243,7 @@ dependencies = [
  "futures-util",
  "getrandom 0.3.4",
  "gif",
+ "iana-time-zone",
  "reqwest 0.13.5",
  "rusqlite",
  "rustls",

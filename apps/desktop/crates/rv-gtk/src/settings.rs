@@ -1,6 +1,6 @@
 //! Settings and my profile, in categories (a sidebar dialog): my account and
-//! status, notifications, language, encryption, security, devices and bots
-//! (native accounts), the accounts on this machine, the app itself; sign out below.
+//! status, notifications, language, encryption, security, devices, bots and
+//! workflows (native accounts), the accounts on this machine, the app itself; sign out below.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -23,6 +23,7 @@ const NOTIFICATION_CHOICES: [&str; 4] = ["default", "all", "mention", "nothing"]
 const LANGUAGE_CHOICES: [&str; 3] = ["auto", "fr", "en"];
 mod native_bots;
 mod native_profiles;
+mod native_workflows;
 pub(crate) mod voice;
 
 /// A category of the sidebar: its id, icon and title key. They show in this
@@ -37,6 +38,7 @@ const ENCRYPTION: Category = ("encryption", "channel-secure-symbolic", "settings
 const SECURITY: Category = ("security", "security-high-symbolic", "settings.cat.security");
 const DEVICES: Category = ("devices", "computer-symbolic", "settings.cat.devices");
 const BOTS: Category = ("bots", "system-run-symbolic", "settings.cat.bots");
+const WORKFLOWS: Category = ("workflows", "media-playlist-repeat-symbolic", "settings.cat.workflows");
 const ACCOUNTS: Category = ("accounts", "system-users-symbolic", "settings.cat.accounts");
 const APP: Category = ("app", "emblem-system-symbolic", "settings.cat.app");
 
@@ -141,6 +143,10 @@ pub fn open_native(
     if session.supported_features().iter().any(|f| f == "bots") {
         let (s, security) = (session.clone(), session.security_supported().then_some(SECURITY.0));
         add_lazy(&dialog, BOTS, move |host| native_bots::page(host, s, security));
+    }
+    if session.workflows_supported() {
+        let (s, security) = (session.clone(), session.security_supported().then_some(SECURITY.0));
+        add_lazy(&dialog, WORKFLOWS, move |host| native_workflows::page(host, s, security));
     }
     add(&dialog, ACCOUNTS, &accounts_page(&host, info, accounts));
     add(&dialog, APP, &app_page(&host));

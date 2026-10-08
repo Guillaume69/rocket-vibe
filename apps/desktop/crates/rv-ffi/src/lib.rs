@@ -18,6 +18,7 @@ mod native_recovery;
 mod native_rooms;
 mod native_security;
 mod native_voice;
+mod native_workflows;
 pub mod people;
 mod reactions;
 pub mod writing;

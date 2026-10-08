@@ -543,6 +543,9 @@ struct MessageRow: View, Equatable {
                 LinkCard(card: card)
             }
         }
+        if let form = message.form {
+            WorkflowFormCard(messageId: message.id, rid: message.rid, form: form, model: model)
+        }
         if !message.reactions.isEmpty {
             HStack(spacing: 6) {
                 ForEach(message.reactions, id: \.shortcode) { reaction in
@@ -1019,6 +1022,189 @@ struct CallCard: View {
         )
         .padding(10)
         .vibeCard()
+    }
+}
+
+/// The form a workflow's message carries (RFC 0004): its title, who answers,
+/// then Answer while it is mine to answer, who answered, or that it expired.
+struct WorkflowFormCard: View {
+    let messageId: String
+    let rid: String
+    let form: FormItem
+    /// None in the sample gallery: no answering there.
+    let model: RoomModel?
+    @State private var answering = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Image(systemName: "list.bullet.rectangle").foregroundStyle(Vibe.violet)
+                Text(form.title).font(.vibe(13.5, .bold))
+            }
+            Text(form.recipient.map { L("workflows.form_for", ["user": $0]) } ?? L("workflows.form_anyone"))
+                .font(.vibe(12, .semibold))
+                .foregroundStyle(.secondary)
+            if let name = form.answeredBy {
+                Label(L("workflows.form_answered_by", ["name": name]), systemImage: "checkmark.circle")
+                    .foregroundStyle(Vibe.mint)
+            } else if form.expired {
+                Label(L("workflows.form_expired"), systemImage: "clock").foregroundStyle(.secondary)
+            } else if form.canAnswer, model != nil {
+                Button(L("workflows.form_answer")) { answering = true }
+                    .buttonStyle(VibeButtonStyle())
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: 420, alignment: .leading)
+        .vibeCard()
+        .modalOverlay(isPresented: $answering, style: .sheet(width: 520, height: 560)) {
+            if let model { WorkflowFormSheet(messageId: messageId, rid: rid, form: form, model: model) }
+        }
+    }
+}
+
+/// Answering a workflow's form: each field as its kind asks, the required
+/// ones marked. Submit sends it; a refusal shows here, worded; once sent it
+/// closes. A click outside closes it, nothing sent.
+struct WorkflowFormSheet: View {
+    @Environment(AppModel.self) var app
+    @Environment(\.closeModal) var dismiss
+    let messageId: String
+    let rid: String
+    let form: FormItem
+    let model: RoomModel
+    @State private var values: [String: String] = [:]
+    @State private var error: String?
+    @State private var busy = false
+    /// The room's members, for a person field that lists nobody; read on open.
+    @State private var members: [NativeWorkflowUser]?
+    /// Each such field's search, by field id.
+    @State private var searches: [String: String] = [:]
+
+    var body: some View {
+        SheetFrame(title: form.title) {
+            Form {
+                ForEach(form.fields, id: \.id) { field in
+                    fieldView(field)
+                }
+                if let error { Text(error).foregroundStyle(.red) }
+                HStack {
+                    Spacer()
+                    Button(L("actions.cancel")) { dismiss() }
+                    Button(L("workflows.form_submit"), action: submit)
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(busy)
+                }
+            }
+            .formStyle(.grouped)
+            .scrollContentBackground(.hidden)
+        }
+        .task {
+            guard form.fields.contains(where: { $0.kind == "person" && $0.people.isEmpty }) else { return }
+            switch await model.formMembers(rid: rid) {
+            case let .success(found): members = found
+            case let .failure(failure): members = []; error = failure.text
+            }
+        }
+        .onAppear {
+            // A required choice starts on its first option: it has no empty entry.
+            for field in form.fields where field.kind == "choice" && field.required && values[field.id] == nil {
+                values[field.id] = field.options.first ?? ""
+            }
+        }
+    }
+
+    private func label(_ field: NativeFormField) -> String {
+        field.required ? field.label + " *" : field.label
+    }
+
+    private func value(_ id: String) -> Binding<String> {
+        Binding(get: { values[id] ?? "" }, set: { values[id] = $0 })
+    }
+
+    @ViewBuilder func fieldView(_ field: NativeFormField) -> some View {
+        switch field.kind {
+        case "long_text":
+            VStack(alignment: .leading, spacing: 4) {
+                Text(label(field))
+                TextEditor(text: value(field.id))
+                    .frame(minHeight: 80, maxHeight: 200)
+                    .scrollContentBackground(.hidden)
+                    .padding(4)
+                    .background(Vibe.deep, in: RoundedRectangle(cornerRadius: 6))
+                    .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Vibe.line))
+            }
+        case "choice":
+            Picker(label(field), selection: value(field.id)) {
+                if !field.required { Text(L("workflows.form_choose")).tag("") }
+                ForEach(field.options, id: \.self) { option in Text(option).tag(option) }
+            }
+        case "person":
+            person(field)
+        default:
+            // Text and numbers: one line, a number checked by the server.
+            TextField(label(field), text: value(field.id))
+        }
+    }
+
+    /// A person field: its fixed people, or the room's members to search;
+    /// one is chosen, the answer being their user id.
+    @ViewBuilder func person(_ field: NativeFormField) -> some View {
+        let chosen = values[field.id] ?? ""
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label(field))
+            if !field.people.isEmpty {
+                Picker("", selection: value(field.id)) {
+                    if !field.required { Text(L("workflows.form_choose")).tag("") }
+                    ForEach(field.people, id: \.self) { id in
+                        Text(workflowPersonName(id, in: form.people)).tag(id)
+                    }
+                }
+                .pickerStyle(.radioGroup)
+                .labelsHidden()
+            } else if let members {
+                TextField(L("workflows.people_search"), text: Binding(
+                    get: { searches[field.id] ?? "" }, set: { searches[field.id] = $0 }
+                ))
+                let matching = Array(workflowPeopleMatching(members, searches[field.id] ?? "").prefix(50))
+                // The one chosen stays shown while the search hides it.
+                let shown = matching.contains(where: { $0.id == chosen }) ? matching
+                    : members.filter { $0.id == chosen } + matching
+                if shown.isEmpty {
+                    Text(L("workflows.people_none")).foregroundStyle(.secondary)
+                } else {
+                    Picker("", selection: value(field.id)) {
+                        if !field.required { Text(L("workflows.form_choose")).tag("") }
+                        ForEach(shown, id: \.id) { member in
+                            Text(workflowPersonName(member)).tag(member.id)
+                        }
+                    }
+                    .pickerStyle(.radioGroup)
+                    .labelsHidden()
+                }
+            } else {
+                ProgressView().controlSize(.small)
+            }
+        }
+    }
+
+    func submit() {
+        guard let answers = workflowFormAnswers(form.fields, values) else {
+            error = L("workflows.error_form_required")
+            return
+        }
+        busy = true
+        error = nil
+        Task {
+            let failure = await model.answerForm(message: messageId, answers: answers)
+            busy = false
+            if let failure {
+                error = failure
+            } else {
+                app.notice = L("workflows.form_sent")
+                dismiss()
+            }
+        }
     }
 }
 

@@ -53,6 +53,7 @@ extension SettingsCategory {
         case .security: return "checkmark.shield"
         case .devices: return "laptopcomputer"
         case .bots: return "cpu"
+        case .workflows: return "point.3.connected.trianglepath.dotted"
         case .accounts: return "person.2"
         case .app: return "gearshape"
         }
@@ -173,6 +174,7 @@ struct SettingsView: View {
                 case .security: SecuritySection()
                 case .devices: DevicesSection()
                 case .bots: BotsSection()
+                case .workflows: WorkflowsSection()
                 case .accounts: accounts
                 case .app: about
                 }

@@ -94,6 +94,9 @@ pub struct MessageRow {
     /// Written by a bot account (RocketVibe, RFC 0003): a "BOT" badge beside
     /// the name. Always false on Rocket.Chat.
     pub author_bot: bool,
+    /// A form a workflow asks (RocketVibe, RFC 0004), as JSON: read it with
+    /// `native::workflows::row_form`. Always None on Rocket.Chat.
+    pub form: Option<String>,
 }
 
 impl From<&Message> for MessageRow {
@@ -119,6 +122,7 @@ impl From<&Message> for MessageRow {
             pinned: m.pinned,
             starred: m.starred.clone(),
             author_bot: false,
+            form: None,
         }
     }
 }
@@ -533,6 +537,7 @@ impl Store {
                         pinned: r.get(17)?,
                         starred: r.get(18)?,
                         author_bot: false,
+                        form: None,
                     })
                 })?
                 .collect()

@@ -21,29 +21,30 @@ fn error_text(error: &rv_core::native::Error) -> &'static str {
     t(bots::failure_key(error))
 }
 
-/// Rows of a group that are replaced together on each load.
-struct Rows {
+/// Rows of a group that are replaced together on each load. Weak: the group
+/// owns them, and their handlers may hold what holds these.
+pub(super) struct Rows {
     group: glib::WeakRef<adw::PreferencesGroup>,
-    rows: RefCell<Vec<gtk::Widget>>,
+    rows: RefCell<Vec<glib::WeakRef<gtk::Widget>>>,
 }
 
 impl Rows {
-    fn new(group: &adw::PreferencesGroup) -> Rc<Self> {
+    pub(super) fn new(group: &adw::PreferencesGroup) -> Rc<Self> {
         Rc::new(Rows { group: group.downgrade(), rows: RefCell::default() })
     }
-    fn add(&self, row: &impl IsA<gtk::Widget>) {
+    pub(super) fn add(&self, row: &impl IsA<gtk::Widget>) {
         if let Some(group) = self.group.upgrade() {
             group.add(row);
-            self.rows.borrow_mut().push(row.as_ref().clone());
+            self.rows.borrow_mut().push(row.as_ref().downgrade());
         }
     }
-    fn note(&self, text: &str) {
+    pub(super) fn note(&self, text: &str) {
         self.add(&adw::ActionRow::builder().title(text).use_markup(false).css_classes(["bot-note"]).build());
     }
-    fn clear(&self) {
+    pub(super) fn clear(&self) {
         let rows = self.rows.take();
         if let Some(group) = self.group.upgrade() {
-            for row in rows {
+            for row in rows.iter().filter_map(|row| row.upgrade()) {
                 group.remove(&row);
             }
         }
@@ -558,7 +559,7 @@ fn key_row(ctx: &Ctx, bot: &str, rows: &Rc<Rows>, key: BotKey) -> adw::ExpanderR
 }
 
 /// A text to select and copy, monospace, with its Copy button.
-fn copyable(text: &str, class: &str) -> gtk::Box {
+pub(super) fn copyable(text: &str, class: &str) -> gtk::Box {
     let line = gtk::Box::builder().spacing(8).build();
     line.append(
         &gtk::Label::builder()
@@ -594,7 +595,7 @@ fn copyable(text: &str, class: &str) -> gtk::Box {
 }
 
 /// The application's window in front, for a key whose settings closed.
-fn active_window() -> Option<gtk::Widget> {
+pub(super) fn active_window() -> Option<gtk::Widget> {
     gtk::gio::Application::default()
         .and_downcast::<gtk::Application>()
         .and_then(|app| app.active_window())

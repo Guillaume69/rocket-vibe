@@ -108,6 +108,8 @@ pub struct MessageRow {
     pub thread_replies: i64,
     /// The author is a bot account (RFC 0003).
     pub author_bot: bool,
+    /// The form a workflow asks (RFC 0004), as JSON.
+    pub form: Option<String>,
 }
 impl MessageRow {
     pub fn presentation(self, rid: &str, uid: &str) -> crate::store::MessageRow {
@@ -131,6 +133,7 @@ impl MessageRow {
             system_type: self.system_type,
             author: Some(super::shown_username(&self.author)),
             author_bot: self.author_bot,
+            form: self.form,
             author_id: if self.status.is_some() { uid.into() } else { self.author_id },
             outbox_status: self.status.map(|s| if s == "failed" { "failed".into() } else { "pending".into() }),
             ..Default::default()
@@ -241,6 +244,7 @@ impl NativeStore {
             ("urls", "TEXT"),
             ("cards", "TEXT"),
             ("author_bot", "INTEGER NOT NULL DEFAULT 0"),
+            ("form", "TEXT"),
         ] {
             if !columns.iter().any(|c| c == name) {
                 conn.execute_batch(&format!("ALTER TABLE native_messages ADD COLUMN {name} {declaration}"))?;
@@ -578,6 +582,8 @@ impl NativeStore {
             return Err(rusqlite::Error::InvalidQuery);
         }
         tx.execute("UPDATE native_messages SET cards=?2 WHERE id=?1", params![message.id, json(&message.cards)?])?;
+        let form = message.form.as_deref().filter(|_| !message.deleted && message.system.is_none());
+        tx.execute("UPDATE native_messages SET form=?2 WHERE id=?1", params![message.id, form.map(json).transpose()?])?;
         tx.execute(
             "UPDATE native_messages SET urls=?2 WHERE id=?1",
             params![message.id, super::link_previews::urls(message).map_err(|_| rusqlite::Error::InvalidQuery)?],
@@ -811,6 +817,18 @@ impl NativeStore {
         }
         rows.reverse();
         Ok(rows)
+    }
+    /// The form a stored message carries (RFC 0004), as last received.
+    pub fn message_form(&self, id: &str) -> rusqlite::Result<Option<rv_protocol::workflows::WorkflowForm>> {
+        let conn = self.conn.lock().unwrap();
+        if !self.same(&conn)? {
+            return Ok(None);
+        }
+        let form: Option<String> = conn
+            .query_row("SELECT form FROM native_messages WHERE id=?1 AND NOT deleted", [id], |r| r.get(0))
+            .optional()?
+            .flatten();
+        Ok(form.and_then(|form| serde_json::from_str(&form).ok()))
     }
     pub fn oldest(&self, rid: &str) -> rusqlite::Result<Option<String>> {
         self.conn.lock().unwrap().query_row("SELECT position FROM native_messages WHERE rid=?1 AND reply_to IS NULL AND position IS NOT NULL ORDER BY length(position),position LIMIT 1",[rid],|r|r.get(0)).optional()

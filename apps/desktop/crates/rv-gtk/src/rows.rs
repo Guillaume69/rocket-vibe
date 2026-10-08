@@ -612,7 +612,10 @@ fn message_from_provider(
     let failed = row.outbox_status.as_deref() == Some("failed");
     let me = session.map(|s| s.info.username.clone()).unwrap_or_default();
     let encrypted = row.system_type.as_deref() == Some("e2e");
-    let blocks = if is_call {
+    let form = native.and_then(|_| rv_core::native::workflows::row_form(row));
+    // A form step's text is its title, which the card shows already.
+    let titled = form.as_ref().is_some_and(|f| rv_core::native::workflows::text_is_form_title(row.text.as_deref(), f));
+    let blocks = if is_call || titled {
         Vec::new()
     } else if encrypted {
         // Opened by the list (`Session::open_row`): in clear when unlocked.
@@ -679,6 +682,9 @@ fn message_from_provider(
         }
         for preview in content::link_previews(row.urls.as_deref(), 3) {
             column.append(&cards::link_preview_provider(provider.clone(), &preview));
+        }
+        if let Some(form) = form {
+            column.append(&crate::workflow_forms::card(native, &row.rid, &row.id, form, my_id));
         }
     }
     if let Some(native) = native.filter(|_| is_call) {

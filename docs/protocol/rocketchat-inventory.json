@@ -92,6 +92,7 @@
     "apps/desktop/crates/rv-core/src/native/store/threads.rs",
     "apps/desktop/crates/rv-core/src/native/store/threads/tests.rs",
     "apps/desktop/crates/rv-core/src/native/voice.rs",
+    "apps/desktop/crates/rv-core/src/native/workflows.rs",
     "apps/desktop/crates/rv-core/src/normalize.rs",
     "apps/desktop/crates/rv-core/src/notify.rs",
     "apps/desktop/crates/rv-core/src/outbox.rs",
@@ -139,6 +140,7 @@
     "apps/desktop/crates/rv-ffi/src/native_rooms.rs",
     "apps/desktop/crates/rv-ffi/src/native_security.rs",
     "apps/desktop/crates/rv-ffi/src/native_voice.rs",
+    "apps/desktop/crates/rv-ffi/src/native_workflows.rs",
     "apps/desktop/crates/rv-ffi/src/people.rs",
     "apps/desktop/crates/rv-ffi/src/reactions.rs",
     "apps/desktop/crates/rv-ffi/src/writing.rs",
@@ -197,6 +199,7 @@
     "apps/desktop/crates/rv-gtk/src/settings.rs",
     "apps/desktop/crates/rv-gtk/src/settings/native_bots.rs",
     "apps/desktop/crates/rv-gtk/src/settings/native_profiles.rs",
+    "apps/desktop/crates/rv-gtk/src/settings/native_workflows.rs",
     "apps/desktop/crates/rv-gtk/src/settings/voice.rs",
     "apps/desktop/crates/rv-gtk/src/sidebar_dialog.rs",
     "apps/desktop/crates/rv-gtk/src/sizer.rs",
@@ -222,6 +225,7 @@
     "apps/desktop/crates/rv-gtk/src/widgets.rs",
     "apps/desktop/crates/rv-gtk/src/window.rs",
     "apps/desktop/crates/rv-gtk/src/windows.rs",
+    "apps/desktop/crates/rv-gtk/src/workflow_forms.rs",
     "apps/desktop/crates/rv-native/src/lib.rs",
     "apps/desktop/crates/rv-native/src/macos_call.rs",
     "apps/desktop/crates/rv-native/src/macos_impl.rs",
@@ -265,6 +269,7 @@
     "apps/desktop/macos/Sources/RocketVibe/Theme.swift",
     "apps/desktop/macos/Sources/RocketVibe/ThreadView.swift",
     "apps/desktop/macos/Sources/RocketVibe/Voice.swift",
+    "apps/desktop/macos/Sources/RocketVibe/WorkflowsSection.swift",
     "apps/desktop/macos/Sources/RocketVibeKit/AdminModel.swift",
     "apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift",
     "apps/desktop/macos/Sources/RocketVibeKit/BotsModel.swift",
@@ -288,6 +293,7 @@
     "apps/desktop/macos/Sources/RocketVibeKit/Settings.swift",
     "apps/desktop/macos/Sources/RocketVibeKit/Strings.swift",
     "apps/desktop/macos/Sources/RocketVibeKit/VoiceModel.swift",
+    "apps/desktop/macos/Sources/RocketVibeKit/WorkflowsModel.swift",
     "apps/desktop/macos/Sources/rv-rooms/main.swift",
     "apps/mobile/app/+native-intent.tsx",
     "apps/mobile/app/_layout.tsx",
@@ -1165,6 +1171,12 @@
       "surface": "/api/v1/rooms"
     },
     {
+      "file": "apps/desktop/crates/rv-core/src/native/workflows.rs",
+      "line": 195,
+      "kind": "url",
+      "surface": "/api/v1/hooks"
+    },
+    {
       "file": "apps/desktop/crates/rv-core/src/outbox.rs",
       "line": 114,
       "kind": "call:POST",
@@ -1520,7 +1532,7 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/store.rs",
-      "line": 324,
+      "line": 328,
       "kind": "resource",
       "surface": "/file-upload/{…}/%"
     },
@@ -2036,43 +2048,43 @@
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/settings.rs",
-      "line": 73,
+      "line": 75,
       "kind": "endpoint",
       "surface": "rooms.sign_out"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/settings.rs",
-      "line": 367,
+      "line": 373,
       "kind": "endpoint",
       "surface": "e2e.status"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/settings.rs",
-      "line": 368,
+      "line": 374,
       "kind": "endpoint",
       "surface": "e2e.locked"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/settings.rs",
-      "line": 368,
+      "line": 374,
       "kind": "endpoint",
       "surface": "e2e.unlocked"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/settings.rs",
-      "line": 371,
+      "line": 377,
       "kind": "endpoint",
       "surface": "e2e.lock"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/settings.rs",
-      "line": 371,
+      "line": 377,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/settings.rs",
-      "line": 383,
+      "line": 389,
       "kind": "endpoint",
       "surface": "e2e.locked"
     },
@@ -2468,61 +2480,61 @@
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/SettingsView.swift",
-      "line": 152,
+      "line": 153,
       "kind": "endpoint",
       "surface": "rooms.sign_out"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/SettingsView.swift",
-      "line": 239,
+      "line": 241,
       "kind": "endpoint",
       "surface": "e2e.status"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/SettingsView.swift",
-      "line": 241,
+      "line": 243,
       "kind": "endpoint",
       "surface": "e2e.locked"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/SettingsView.swift",
-      "line": 241,
+      "line": 243,
       "kind": "endpoint",
       "surface": "e2e.unlocked"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/SettingsView.swift",
-      "line": 244,
+      "line": 246,
       "kind": "endpoint",
       "surface": "e2e.lock"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/SettingsView.swift",
-      "line": 246,
+      "line": 248,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift",
-      "line": 611,
+      "line": 617,
       "kind": "endpoint",
       "surface": "e2e.wrong"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift",
-      "line": 612,
+      "line": 618,
       "kind": "endpoint",
       "surface": "e2e.no_keys"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift",
-      "line": 613,
+      "line": 619,
       "kind": "endpoint",
       "surface": "e2e.failed"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift",
-      "line": 616,
+      "line": 622,
       "kind": "endpoint",
       "surface": "e2e.failed"
     },

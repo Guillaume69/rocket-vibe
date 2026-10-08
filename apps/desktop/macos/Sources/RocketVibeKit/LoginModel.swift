@@ -309,9 +309,17 @@ public final class LoginModel {
             if let attempt = nativeAttempt, !attempt.methods().isEmpty { refreshNativeForm(attempt) }
             if errorCode == "not_native" { error = L("login.not_rocketvibe"); return nil }
             if errorCode == "kchat_several_servers" {
-                kchatServers = (try? await client.kchatServers(token: secret)) ?? []
-                kchatServer = kchatServers.first?.url ?? ""
-                error = L("login.kchat_pick_server")
+                do {
+                    kchatServers = try await client.kchatServers(token: secret)
+                    kchatServer = kchatServers.first?.url ?? ""
+                    error = L("login.kchat_pick_server")
+                } catch let RvError.Server(status, message, _, _, _, _) {
+                    kchatServers = []
+                    error = Self.describe(status: status, message: message, askingCode: false)
+                } catch {
+                    kchatServers = []
+                    self.error = error.localizedDescription
+                }
                 return nil
             }
             if kind == .kchat && status == 401 { error = L("login.kchat_token_rejected"); return nil }

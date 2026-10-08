@@ -1,6 +1,8 @@
 import { readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { createHash } from "node:crypto";
-const assets = readdirSync("dist/assets").map((name) => "/assets/" + name);
+const assets = readdirSync("dist/assets")
+  .sort()
+  .map((name) => "/assets/" + name);
 const icon = readFileSync(
   "../desktop/data/icons/hicolor/256x256/apps/com.rocketvibe.app.png",
 );

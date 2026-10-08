@@ -74,7 +74,7 @@ export async function logoutMattermost(session: Session, options: MmLoginOptions
     await client.post('/users/logout', { quiet: true });
     return true;
   } catch (e) {
-    return e instanceof MmError && e.status === 401;
+    return e instanceof MmError && e.rejectsToken;
   }
 }
 

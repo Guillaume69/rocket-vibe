@@ -93,6 +93,9 @@ impl RestError {
 /// means "not authenticated" and nothing else, but a 401 without a
 /// Rocket.Chat envelope comes from something on the path, and a 2FA
 /// challenge is not a refusal.
+/// A 401 that judges a password typed now, not the session's token (probed on Mattermost 11.11).
+const MATTERMOST_PASSWORD_REFUSED: &str = "api.user.check_user_password.invalid.app_error";
+
 pub fn is_token_rejected(e: &RestError) -> bool {
     e.two_factor.is_none() && e.status == 401 && e.understood
 }
@@ -460,8 +463,9 @@ pub(crate) fn interpret_mattermost(path: &str, status: u16, text: &str, plain: b
     }
     let str_of = |key: &str| parsed.as_ref().and_then(|v| v.get(key)).and_then(Value::as_str).map(str::to_owned);
     let error = str_of("id");
-    let understood = (error.is_some() && parsed.as_ref().and_then(|v| v.get("status_code")).is_some())
+    let enveloped = (error.is_some() && parsed.as_ref().and_then(|v| v.get("status_code")).is_some())
         || (plain && str_of("message").is_some());
+    let understood = enveloped && error.as_deref() != Some(MATTERMOST_PASSWORD_REFUSED);
     Err(RestError {
         status,
         message: str_of("message").unwrap_or_else(|| format!("{path} failed")),

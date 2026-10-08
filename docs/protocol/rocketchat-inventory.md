@@ -186,8 +186,8 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/outbox.rs:192](../../apps/desktop/crates/rv-core/src/outbox.rs#L192) | call:GET | &format!("channels/{…}/posts", entry.rid), options).await { |
 | [apps/desktop/crates/rv-core/src/outbox.rs:208](../../apps/desktop/crates/rv-core/src/outbox.rs#L208) | call:GET | "chat.getMessage" |
 | [apps/desktop/crates/rv-core/src/outbox.rs:208](../../apps/desktop/crates/rv-core/src/outbox.rs#L208) | endpoint | chat.getMessage |
-| [apps/desktop/crates/rv-core/src/rest.rs:364](../../apps/desktop/crates/rv-core/src/rest.rs#L364) | url | /api/v1 |
-| [apps/desktop/crates/rv-core/src/rest.rs:365](../../apps/desktop/crates/rv-core/src/rest.rs#L365) | url | /api/v4 |
+| [apps/desktop/crates/rv-core/src/rest.rs:367](../../apps/desktop/crates/rv-core/src/rest.rs#L367) | url | /api/v1 |
+| [apps/desktop/crates/rv-core/src/rest.rs:368](../../apps/desktop/crates/rv-core/src/rest.rs#L368) | url | /api/v4 |
 | [apps/desktop/crates/rv-core/src/server.rs:121](../../apps/desktop/crates/rv-core/src/server.rs#L121) | call:GET | "api/info", info), rest.get("settings.public", settings)); |
 | [apps/desktop/crates/rv-core/src/server.rs:121](../../apps/desktop/crates/rv-core/src/server.rs#L121) | endpoint | api/info |
 | [apps/desktop/crates/rv-core/src/server.rs:121](../../apps/desktop/crates/rv-core/src/server.rs#L121) | endpoint | settings.public |

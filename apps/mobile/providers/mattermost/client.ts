@@ -23,14 +23,20 @@ export class MmError extends Error {
   readonly status: number;
   /** Mattermost's translation key, e.g. `api.context.session_expired.app_error`. */
   readonly id: string | null;
+  /** A 401 whose body comes from the server and says the session's token is refused. */
+  readonly rejectsToken: boolean;
 
-  constructor(status: number, id: string | null, message: string) {
+  constructor(status: number, id: string | null, message: string, rejectsToken = false) {
     super(message);
     this.name = 'MmError';
     this.status = status;
     this.id = id;
+    this.rejectsToken = rejectsToken;
   }
 }
+
+/** 401s that judge a password typed now, not the session's token (probed on 11.11). */
+const NOT_THE_TOKEN = new Set(['api.user.check_user_password.invalid.app_error']);
 
 export type MmClientOptions = {
   fetch?: typeof fetch;
@@ -119,14 +125,11 @@ export class MmClient {
       const text = await response.text().catch(() => '');
       const parsed = parseJson(text);
       if (response.ok) return { body: parsed as T, headers: response.headers };
-      const envelope = isRecord(parsed) ? parsed : {};
-      const id = typeof envelope.id === 'string' ? envelope.id : null;
-      const message = typeof envelope.message === 'string' ? envelope.message : `HTTP ${response.status}`;
-      const understood = id !== null || (this.plainErrors && typeof envelope.message === 'string');
-      if (response.status === 401 && !options.anonymous && !options.quiet && this.token !== null && understood) {
+      const error = this.failure(response.status, parsed);
+      if (error.rejectsToken && !options.anonymous && !options.quiet && this.token !== null) {
         this.onTokenRejected?.(this.token);
       }
-      throw new MmError(response.status, id, message);
+      throw error;
     }
   }
 
@@ -148,10 +151,20 @@ export class MmClient {
     }
     const parsed = parseJson(await response.text().catch(() => ''));
     if (!response.ok) {
-      if (response.status === 401 && this.token !== null) this.onTokenRejected?.(this.token);
-      throw new MmError(response.status, null, `HTTP ${response.status}`);
+      const error = this.failure(response.status, parsed);
+      if (error.rejectsToken && this.token !== null) this.onTokenRejected?.(this.token);
+      throw error;
     }
     return parsed as T;
+  }
+
+  /** A proxy's or a gateway's 401 (HTML, an unrelated body) never stands for a refused token. */
+  private failure(status: number, parsed: unknown): MmError {
+    const envelope = isRecord(parsed) ? parsed : {};
+    const id = typeof envelope.id === 'string' ? envelope.id : null;
+    const message = typeof envelope.message === 'string' ? envelope.message : `HTTP ${status}`;
+    const understood = id !== null || (this.plainErrors && typeof envelope.message === 'string');
+    return new MmError(status, id, message, status === 401 && understood && !NOT_THE_TOKEN.has(id ?? ''));
   }
 
   async request<T>(method: string, path: string, options: MmRequest = {}): Promise<T> {

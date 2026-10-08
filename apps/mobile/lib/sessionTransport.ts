@@ -18,7 +18,7 @@ export function clientForSession(session: Session, revoke: (token: string) => vo
 export function sessionRejected(error: unknown): boolean {
   return isTokenRejected(error)
     || (error instanceof NativeError && error.status === 401 && error.code === 'session_rejected')
-    || (error instanceof MmError && error.status === 401);
+    || (error instanceof MmError && error.rejectsToken);
 }
 export function resumeSession(client: RestClient, session: Session): Promise<Session> {
   switch (session.kind) {

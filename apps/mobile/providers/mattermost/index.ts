@@ -176,7 +176,7 @@ export function describeMmError(error: unknown, authenticated: boolean): Provide
       status: error.status,
       requestId: null,
       retryAfter: null,
-      rejectsSession: authenticated && error.status === 401,
+      rejectsSession: authenticated && error.rejectsToken,
       twoFactorChallenge: false,
     };
   }

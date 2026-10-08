@@ -17,6 +17,10 @@ pub const OPEN_RUNS: i64 = 100;
 pub const WEBHOOK_BYTES: usize = 16 * 1024;
 pub const HTTP_RESPONSE_BYTES: usize = 64 * 1024;
 pub const HTTP_HEADERS: usize = 10;
+/// The text a `message_posted` trigger looks for, in bytes.
+pub const MATCH_BYTES: usize = 100;
+/// The people a `person` field offers by name.
+pub const PEOPLE_PER_FIELD: usize = 50;
 
 /// What starts a run.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
@@ -36,6 +40,16 @@ pub enum Trigger {
     },
     /// Someone (never a bot) joins or is added to the room.
     MemberJoined { room: String },
+    /// A person (never a bot) adds a reaction to a message of the room: any
+    /// emoji, or only `emoji` (a shortcode or a custom emoji's name).
+    ReactionAdded {
+        room: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        emoji: Option<String>,
+    },
+    /// A person (never a bot) posts a message whose text contains `contains`,
+    /// ignoring case. Edits never fire it.
+    MessagePosted { room: String, contains: String },
     /// `POST /api/v1/hooks/{workflow}/{secret}` with a JSON body.
     Webhook {},
 }
@@ -134,6 +148,10 @@ pub struct FormField {
     pub kind: FormFieldKind,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub options: Vec<String>,
+    /// `person` only: the user ids it offers; empty, any member of the form's
+    /// room who is not a bot.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub people: Vec<String>,
     #[serde(default)]
     pub required: bool,
 }
@@ -145,6 +163,8 @@ pub enum FormFieldKind {
     LongText,
     Number,
     Choice,
+    /// Someone: one of `people`, or any member of the room. The answer is a user id.
+    Person,
 }
 
 /// A workflow as its owner and the administrators see it.
@@ -257,6 +277,9 @@ pub struct WorkflowForm {
     pub answered_at: Option<String>,
     /// Past it the form takes no answer.
     pub expires_at: String,
+    /// The people the `person` fields name, to show them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub people: Vec<crate::User>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

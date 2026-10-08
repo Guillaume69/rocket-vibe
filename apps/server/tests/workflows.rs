@@ -2,9 +2,10 @@
 //! driven by calling the engine's tick directly.
 use rv_client::NativeClient;
 use rv_protocol::{
-    CreateRoom,
+    CreateRoom, SendMessage,
     bots::{BotScope, CreateBot, CreateBotKey, UpdateInstanceSettings},
     commands::RunCommand,
+    parity::SetReaction,
     workflows::{
         AnswerForm, CreateWorkflow, Every, FormField, FormFieldKind, FormRecipient, HttpMethod,
         RunState, Step, Trigger, UpdateWorkflow,
@@ -358,7 +359,7 @@ async fn a_wait_resumes_later_and_a_replayed_step_never_posts_twice(pool: PgPool
             },
             vec![
                 message("trigger", "first"),
-                Step::Wait { seconds: 1 },
+                Step::Wait { seconds: 3600 },
                 message("trigger", "second"),
             ],
         ))
@@ -377,7 +378,11 @@ async fn a_wait_resumes_later_and_a_replayed_step_never_posts_twice(pool: PgPool
         .unwrap();
     bench.drain().await;
     assert_eq!(texts(&admin, &general).await, vec!["first"]);
-    tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
+    // The hour has passed.
+    sqlx::query("UPDATE workflow_runs SET wake_at=now()")
+        .execute(&pool)
+        .await
+        .unwrap();
     bench.drain().await;
     assert_eq!(texts(&admin, &general).await, vec!["first", "second"]);
     assert_eq!(
@@ -533,6 +538,7 @@ async fn a_form_waits_for_its_answer(pool: PgPool) {
                             label: "Days".into(),
                             kind: FormFieldKind::Number,
                             options: Vec::new(),
+                            people: Vec::new(),
                             required: true,
                         },
                         FormField {
@@ -540,6 +546,7 @@ async fn a_form_waits_for_its_answer(pool: PgPool) {
                             label: "Kind".into(),
                             kind: FormFieldKind::Choice,
                             options: vec!["paid".into(), "unpaid".into()],
+                            people: Vec::new(),
                             required: true,
                         },
                     ],
@@ -769,4 +776,284 @@ async fn owners_edit_administrators_oversee_and_disabling_cancels_runs(pool: PgP
     );
     alice.delete_workflow(&flow.id).await.unwrap();
     assert!(alice.workflows(false).await.unwrap().workflows.is_empty());
+}
+
+fn said(text: &str, operation: &str) -> SendMessage {
+    SendMessage {
+        operation_id: operation.into(),
+        text: text.into(),
+        reply_to: None,
+        quotes: Vec::new(),
+        cards: Vec::new(),
+        files: Vec::new(),
+    }
+}
+
+fn react(emoji: &str, operation: &str, present: bool) -> SetReaction {
+    SetReaction {
+        operation_id: operation.into(),
+        emoji: emoji.into(),
+        present,
+    }
+}
+
+async fn run_count(pool: &PgPool) -> i64 {
+    sqlx::query_scalar("SELECT count(*) FROM workflow_runs")
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+#[sqlx::test]
+async fn reactions_and_matching_messages_start_runs_for_people_only(pool: PgPool) {
+    let bench = Bench::start(pool.clone(), false).await;
+    let (admin, _) = bench.user("watch-admin", true).await;
+    let (bob, _) = bench.user("watch-bob", false).await;
+    let general = room(&admin, "watch-general", false).await;
+    bob.join_public(&general).await.unwrap();
+    let writer = bench
+        .bot(&admin, "watch-writer", &[BotScope::MessagesWrite], &general)
+        .await;
+    let reader = bench
+        .bot(
+            &admin,
+            "watch-reader",
+            &[BotScope::RoomsRead, BotScope::MessagesWrite],
+            &general,
+        )
+        .await;
+    let posted = |contains: &str| Trigger::MessagePosted {
+        room: general.clone(),
+        contains: contains.into(),
+    };
+    // Watching what is said in a room is reading it.
+    code(
+        admin
+            .create_workflow(&workflow(
+                "blind",
+                &writer,
+                posted("deploy"),
+                vec![message("trigger", "x")],
+            ))
+            .await,
+        "bot_scope_missing",
+    );
+    code(
+        admin
+            .create_workflow(&workflow(
+                "empty",
+                &reader,
+                posted("  "),
+                vec![message("trigger", "x")],
+            ))
+            .await,
+        "workflow_match",
+    );
+    code(
+        admin
+            .create_workflow(&workflow(
+                "odd",
+                &reader,
+                Trigger::ReactionAdded {
+                    room: general.clone(),
+                    emoji: Some("not-an-emoji-at-all".into()),
+                },
+                vec![message("trigger", "x")],
+            ))
+            .await,
+        "workflow_emoji",
+    );
+
+    // The bot's own answer says "deploy" too: it never starts another run.
+    let mut noted = message(
+        "trigger",
+        "{{trigger.user.username}} said {{trigger.message.text}}, deploy noted",
+    );
+    if let Step::Message { in_thread, .. } = &mut noted {
+        *in_thread = true;
+    }
+    admin
+        .create_workflow(&workflow("deploys", &reader, posted("Deploy"), vec![noted]))
+        .await
+        .unwrap();
+    let said_it = bob
+        .send(&general, &said("We DEPLOY today", "watch-1"))
+        .await
+        .unwrap();
+    bob.send(&general, &said("nothing to see", "watch-2"))
+        .await
+        .unwrap();
+    bench.drain().await;
+    assert_eq!(run_count(&pool).await, 1);
+    let replies: Vec<String> = sqlx::query_scalar("SELECT text FROM messages WHERE reply_to=$1")
+        .bind(&said_it.id)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        replies,
+        vec!["watch-bob said We DEPLOY today, deploy noted"]
+    );
+    assert_eq!(run_count(&pool).await, 1);
+
+    admin
+        .create_workflow(&workflow(
+            "party",
+            &reader,
+            Trigger::ReactionAdded {
+                room: general.clone(),
+                emoji: Some(":tada:".into()),
+            },
+            vec![message(
+                "trigger",
+                "{{trigger.user.username}} :{{trigger.emoji}}: on {{trigger.message.author.username}}",
+            )],
+        ))
+        .await
+        .unwrap();
+    admin
+        .create_workflow(&workflow(
+            "any",
+            &reader,
+            Trigger::ReactionAdded {
+                room: general.clone(),
+                emoji: None,
+            },
+            vec![message("trigger", "any reaction")],
+        ))
+        .await
+        .unwrap();
+    let nothing = bob.send(&general, &said("plain", "watch-3")).await.unwrap();
+    admin
+        .set_reaction(&nothing.id, &react("tada", "watch-r1", true))
+        .await
+        .unwrap();
+    admin
+        .set_reaction(&nothing.id, &react("+1", "watch-r2", true))
+        .await
+        .unwrap();
+    // Taking a reaction back starts nothing.
+    admin
+        .set_reaction(&nothing.id, &react("tada", "watch-r3", false))
+        .await
+        .unwrap();
+    bench.drain().await;
+    let mut all = texts(&admin, &general).await;
+    all.retain(|t| t.contains("reaction") || t.contains("on watch-bob"));
+    all.sort();
+    assert_eq!(
+        all,
+        vec![
+            "any reaction",
+            "any reaction",
+            "watch-admin :tada: on watch-bob"
+        ]
+    );
+    assert_eq!(run_count(&pool).await, 4);
+}
+
+#[sqlx::test]
+async fn a_person_field_offers_its_list_or_the_room(pool: PgPool) {
+    let bench = Bench::start(pool, false).await;
+    let (admin, _) = bench.user("who-admin", true).await;
+    let (bob, bob_id) = bench.user("who-bob", false).await;
+    let (_, carol_id) = bench.user("who-carol", false).await;
+    let (_, dave_id) = bench.user("who-dave", false).await;
+    let general = room(&admin, "who-general", false).await;
+    admin.add_member(&general, &bob_id).await.unwrap();
+    admin.add_member(&general, &carol_id).await.unwrap();
+    let bot = bench
+        .bot(&admin, "who-bot", &[BotScope::MessagesWrite], &general)
+        .await;
+    let person = |id: &str, people: Vec<String>, required: bool| FormField {
+        id: id.into(),
+        label: id.into(),
+        kind: FormFieldKind::Person,
+        options: Vec::new(),
+        people,
+        required,
+    };
+    let assign = |reviewers: Vec<String>| {
+        workflow(
+            "assign",
+            &bot,
+            Trigger::Command {
+                name: "assign".into(),
+            },
+            vec![
+                Step::Form {
+                    room: "trigger".into(),
+                    recipient: FormRecipient::TriggerUser,
+                    title: "Assign".into(),
+                    fields: vec![
+                        person("owner", Vec::new(), true),
+                        person("reviewer", reviewers, false),
+                    ],
+                    save_as: "task".into(),
+                },
+                message(
+                    "trigger",
+                    "@{{task.answers.owner}} owns it, {{task.people.reviewer.display_name}} reviews",
+                ),
+            ],
+        )
+    };
+    // A bot is never someone a form offers.
+    code(
+        admin.create_workflow(&assign(vec![bot.clone()])).await,
+        "workflow_form",
+    );
+    admin
+        .create_workflow(&assign(vec![carol_id.clone(), dave_id.clone()]))
+        .await
+        .unwrap();
+    run_command(&bob, &general, "assign", "").await.unwrap();
+    bench.drain().await;
+    let history = bob.history(&general, None).await.unwrap().messages;
+    let posted = history.iter().find(|m| m.form.is_some()).unwrap();
+    let named: Vec<&str> = posted
+        .form
+        .as_ref()
+        .unwrap()
+        .people
+        .iter()
+        .map(|p| p.username.as_str())
+        .collect();
+    assert_eq!(named, vec!["who-carol", "who-dave"]);
+
+    let answer = |owner: &str, reviewer: &str, op: &str| AnswerForm {
+        operation_id: op.into(),
+        answers: [
+            ("owner".to_owned(), owner.to_owned()),
+            ("reviewer".to_owned(), reviewer.to_owned()),
+        ]
+        .into_iter()
+        .collect(),
+    };
+    // Any member of the room: not someone outside it, not a bot.
+    code(
+        bob.answer_form(&posted.id, &answer(&dave_id, &carol_id, "w1"))
+            .await,
+        "form_value",
+    );
+    code(
+        bob.answer_form(&posted.id, &answer(&bot, &carol_id, "w2"))
+            .await,
+        "form_value",
+    );
+    // The list: not someone else, member or not.
+    code(
+        bob.answer_form(&posted.id, &answer(&carol_id, &bob_id, "w3"))
+            .await,
+        "form_value",
+    );
+    bob.answer_form(&posted.id, &answer(&carol_id, &dave_id, "w4"))
+        .await
+        .unwrap();
+    bench.drain().await;
+    assert!(
+        texts(&bob, &general)
+            .await
+            .contains(&"@who-carol owns it, who-dave reviews".to_owned())
+    );
 }

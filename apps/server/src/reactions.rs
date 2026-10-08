@@ -115,6 +115,10 @@ pub async fn apply(app: &App, account: &Account, id: &str, input: SetReaction) -
             .fetch_one(&mut *tx)
             .await?
             .wire();
+        if input.present {
+            crate::workflows::on_reaction(&mut tx, account, &room, &current, &emoji, requested)
+                .await?;
+        }
         store::event(
             &mut tx,
             position,

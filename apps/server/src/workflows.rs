@@ -16,10 +16,10 @@ use rv_protocol::{
     User,
     workflows::{
         AnswerForm, CreateWorkflow, DESCRIPTION_BYTES, FORM_FIELDS, FormFieldKind, FormRecipient,
-        HTTP_HEADERS, NAME_BYTES, OPEN_RUNS, RUNS_PER_MINUTE, RunStarted, RunState,
-        STEPS_PER_WORKFLOW, Step, TEMPLATE_BYTES, TRIGGER_ROOM, Trigger, UpdateWorkflow,
-        WAIT_SECONDS, WEBHOOK_BYTES, WORKFLOWS_PER_OWNER, WebhookSecret, Workflow, WorkflowList,
-        WorkflowRun, WorkflowRunList,
+        HTTP_HEADERS, MATCH_BYTES, NAME_BYTES, OPEN_RUNS, PEOPLE_PER_FIELD, RUNS_PER_MINUTE,
+        RunStarted, RunState, STEPS_PER_WORKFLOW, Step, TEMPLATE_BYTES, TRIGGER_ROOM, Trigger,
+        UpdateWorkflow, WAIT_SECONDS, WEBHOOK_BYTES, WORKFLOWS_PER_OWNER, WebhookSecret, Workflow,
+        WorkflowList, WorkflowRun, WorkflowRunList,
     },
 };
 use serde_json::{Value, json};
@@ -66,8 +66,19 @@ fn trigger_room(trigger: &Trigger) -> bool {
 fn trigger_user(trigger: &Trigger) -> bool {
     matches!(
         trigger,
-        Trigger::Command { .. } | Trigger::MemberJoined { .. }
+        Trigger::Command { .. }
+            | Trigger::MemberJoined { .. }
+            | Trigger::ReactionAdded { .. }
+            | Trigger::MessagePosted { .. }
     )
+}
+
+fn reads(scopes: &[String]) -> Result<()> {
+    if scopes.iter().any(|s| s == "rooms:read") {
+        Ok(())
+    } else {
+        Err(Error::new(StatusCode::FORBIDDEN, "bot_scope_missing"))
+    }
 }
 
 /// What a valid definition implies for its row.
@@ -168,6 +179,30 @@ async fn check(
             bot_room(tx, bot, room).await?;
         }
         Trigger::MemberJoined { room } => bot_room(tx, bot, room).await?,
+        // Watching what is said in a room is reading it: the bot's `rooms:read`.
+        Trigger::ReactionAdded { room, emoji } => {
+            if let Some(emoji) = emoji {
+                let code = emoji.trim_matches(':');
+                let custom: bool = sqlx::query_scalar(
+                    "SELECT EXISTS(SELECT 1 FROM custom_emoji_codes WHERE code=$1)",
+                )
+                .bind(code)
+                .fetch_one(&mut **tx)
+                .await?;
+                if rv_protocol::emojis::canonical(code).is_none() && !custom {
+                    return Err(refused("workflow_emoji"));
+                }
+            }
+            reads(&scopes)?;
+            bot_room(tx, bot, room).await?;
+        }
+        Trigger::MessagePosted { room, contains } => {
+            if contains.trim().is_empty() || !short_text(contains, MATCH_BYTES) {
+                return Err(refused("workflow_match"));
+            }
+            reads(&scopes)?;
+            bot_room(tx, bot, room).await?;
+        }
         Trigger::Webhook {} => {}
     }
     for step in steps {
@@ -253,12 +288,25 @@ async fn check(
                             || f.label.trim().is_empty()
                             || !short_text(&f.label, 256)
                             || (f.kind == FormFieldKind::Choice) != !f.options.is_empty()
+                            || (f.kind != FormFieldKind::Person && !f.people.is_empty())
+                            || f.people.len() > PEOPLE_PER_FIELD
+                            || f.people.iter().any(|p| !auth::identifier(p))
                             || f.options.len() > 20
                             || f.options
                                 .iter()
                                 .any(|o| o.trim().is_empty() || !short_text(o, 128))
                     })
                 {
+                    return Err(refused("workflow_form"));
+                }
+                // The people a field names are people, still here.
+                let named: Vec<String> = fields.iter().flat_map(|f| f.people.clone()).collect();
+                let known: i64 = sqlx::query_scalar("SELECT count(DISTINCT id) FROM users WHERE id=ANY($1) AND NOT bot AND NOT deleted AND NOT disabled")
+                    .bind(&named)
+                    .fetch_one(&mut **tx)
+                    .await?;
+                let distinct: std::collections::BTreeSet<&String> = named.iter().collect();
+                if known as usize != distinct.len() {
                     return Err(refused("workflow_form"));
                 }
             }
@@ -787,7 +835,11 @@ pub(crate) async fn test(app: &App, actor: &Account, id: &str) -> Result<RunStar
         .fetch_one(&mut *tx)
         .await?;
     let mut context = json!({"kind": "test", "user": user_context(&mut tx, &actor.id).await?});
-    if let Trigger::Schedule { room, .. } | Trigger::MemberJoined { room } = &trigger.0 {
+    if let Trigger::Schedule { room, .. }
+    | Trigger::MemberJoined { room }
+    | Trigger::ReactionAdded { room, .. }
+    | Trigger::MessagePosted { room, .. } = &trigger.0
+    {
         context["room"] = room_context(&mut tx, room).await?;
     }
     let run_id = start(&mut tx, id, json!({"trigger": context, "webhook": {}})).await?;
@@ -872,10 +924,7 @@ pub(crate) async fn on_join(
     if bot {
         return Ok(());
     }
-    let workflows: Vec<String> = sqlx::query_scalar("SELECT id FROM workflows WHERE enabled AND trigger->>'kind'='member_joined' AND trigger->>'room'=$1")
-        .bind(room)
-        .fetch_all(&mut **tx)
-        .await?;
+    let workflows = watching(tx, room, "member_joined").await?;
     if workflows.is_empty() {
         return Ok(());
     }
@@ -884,6 +933,124 @@ pub(crate) async fn on_join(
         "user": user_context(tx, user).await?,
         "room": room_context(tx, room).await?,
     });
+    fire(tx, workflows.into_iter().map(|(id, _)| id), trigger).await
+}
+
+/// Called inside a person's new message (never an edit, never a bot's): runs
+/// the room's `message_posted` workflows whose text it contains, ignoring case.
+pub(crate) async fn on_message(
+    tx: &mut Transaction<'_, Postgres>,
+    author: &Account,
+    room: &str,
+    message: &rv_protocol::Message,
+) -> Result<()> {
+    if author.bot || message.text.is_empty() {
+        return Ok(());
+    }
+    let text = message.text.to_lowercase();
+    let matching: Vec<String> = watching(tx, room, "message_posted")
+        .await?
+        .into_iter()
+        .filter_map(|(id, trigger)| match trigger.0 {
+            Trigger::MessagePosted { contains, .. }
+                if text.contains(&contains.trim().to_lowercase()) =>
+            {
+                Some(id)
+            }
+            _ => None,
+        })
+        .collect();
+    if matching.is_empty() {
+        return Ok(());
+    }
+    let trigger = message_trigger(tx, "message_posted", &author.id, room, message).await?;
+    fire(tx, matching, trigger).await
+}
+
+/// Called inside a person's new reaction (never a bot's, never a removal):
+/// runs the room's `reaction_added` workflows for any emoji or for this one.
+/// `emoji` is the stored name, `requested` the code the person sent.
+pub(crate) async fn on_reaction(
+    tx: &mut Transaction<'_, Postgres>,
+    actor: &Account,
+    room: &str,
+    message: &rv_protocol::Message,
+    emoji: &str,
+    requested: &str,
+) -> Result<()> {
+    if actor.bot {
+        return Ok(());
+    }
+    let canonical = rv_protocol::emojis::canonical(emoji).unwrap_or(emoji);
+    let matching: Vec<String> = watching(tx, room, "reaction_added")
+        .await?
+        .into_iter()
+        .filter_map(|(id, trigger)| match trigger.0 {
+            Trigger::ReactionAdded { emoji: None, .. } => Some(id),
+            Trigger::ReactionAdded {
+                emoji: Some(wanted),
+                ..
+            } => {
+                let wanted = wanted.trim_matches(':');
+                (wanted == requested
+                    || wanted == emoji
+                    || rv_protocol::emojis::canonical(wanted) == Some(canonical))
+                .then_some(id)
+            }
+            _ => None,
+        })
+        .collect();
+    if matching.is_empty() {
+        return Ok(());
+    }
+    let mut trigger = message_trigger(tx, "reaction_added", &actor.id, room, message).await?;
+    trigger["emoji"] = json!(canonical);
+    fire(tx, matching, trigger).await
+}
+
+/// The enabled workflows a room's event may start, with their trigger.
+async fn watching(
+    tx: &mut Transaction<'_, Postgres>,
+    room: &str,
+    kind: &str,
+) -> Result<Vec<(String, Json<Trigger>)>> {
+    Ok(sqlx::query_as(
+        "SELECT id,trigger FROM workflows WHERE enabled AND trigger->>'room'=$1 AND trigger->>'kind'=$2",
+    )
+    .bind(room)
+    .bind(kind)
+    .fetch_all(&mut **tx)
+    .await?)
+}
+
+/// `trigger` for an event about a message: who acted, where, the message, and
+/// its thread (its root, or itself) for a step that replies in it.
+async fn message_trigger(
+    tx: &mut Transaction<'_, Postgres>,
+    kind: &str,
+    user: &str,
+    room: &str,
+    message: &rv_protocol::Message,
+) -> Result<Value> {
+    Ok(json!({
+        "kind": kind,
+        "user": user_context(tx, user).await?,
+        "room": room_context(tx, room).await?,
+        "message": {
+            "id": message.id,
+            "text": message.text,
+            "author": user_json(&message.author.id, &message.author.username, &message.author.display_name),
+        },
+        "thread": message.reply_to.as_deref().unwrap_or(&message.id),
+    }))
+}
+
+/// Starts each workflow's run; one past its budget is skipped, never the event.
+async fn fire(
+    tx: &mut Transaction<'_, Postgres>,
+    workflows: impl IntoIterator<Item = String>,
+    trigger: Value,
+) -> Result<()> {
     for workflow in workflows {
         match start(tx, &workflow, json!({"trigger": trigger})).await {
             Ok(_) => {}
@@ -990,6 +1157,18 @@ pub(crate) async fn answer(
             FormFieldKind::LongText => value.len() <= 4096,
             FormFieldKind::Number => value.parse::<f64>().is_ok_and(f64::is_finite),
             FormFieldKind::Choice => field.options.iter().any(|o| o == value),
+            FormFieldKind::Person => {
+                auth::identifier(value)
+                    && (field.people.is_empty() || field.people.iter().any(|p| p == value))
+                    && sqlx::query_scalar::<_, bool>(
+                        "SELECT EXISTS(SELECT 1 FROM users u WHERE u.id=$1 AND NOT u.bot AND NOT u.deleted AND NOT u.disabled AND ($3 OR EXISTS(SELECT 1 FROM members m WHERE m.room_id=$2 AND m.user_id=u.id)))",
+                    )
+                    .bind(value)
+                    .bind(&room)
+                    .bind(!field.people.is_empty())
+                    .fetch_one(&mut *tx)
+                    .await?
+            }
         };
         if !ok || value.contains('\0') {
             return Err(refused("form_value"));

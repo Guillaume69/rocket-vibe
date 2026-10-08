@@ -28,7 +28,8 @@ CREATE TABLE workflows (
 CREATE INDEX workflows_owner ON workflows(owner_id);
 CREATE INDEX workflows_bot ON workflows(bot_id);
 CREATE INDEX workflows_due ON workflows(next_fire_at) WHERE enabled AND next_fire_at IS NOT NULL;
-CREATE INDEX workflows_joins ON workflows((trigger->>'room')) WHERE enabled AND trigger->>'kind' = 'member_joined';
+-- The workflows a room's join, message or reaction may start.
+CREATE INDEX workflows_room ON workflows((trigger->>'room'), (trigger->>'kind')) WHERE enabled;
 
 CREATE TABLE workflow_runs (
     id text PRIMARY KEY,

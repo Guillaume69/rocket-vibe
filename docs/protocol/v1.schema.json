@@ -2791,6 +2791,13 @@
           },
           "type": "array"
         },
+        "people": {
+          "description": "`person` only: the user ids it offers; empty, any member of the form's\nroom who is not a bot.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "required": {
           "default": false,
           "type": "boolean"
@@ -2804,13 +2811,22 @@
       "type": "object"
     },
     "FormFieldKind": {
-      "enum": [
-        "text",
-        "long_text",
-        "number",
-        "choice"
-      ],
-      "type": "string"
+      "oneOf": [
+        {
+          "enum": [
+            "text",
+            "long_text",
+            "number",
+            "choice"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "person",
+          "description": "Someone: one of `people`, or any member of the room. The answer is a user id.",
+          "type": "string"
+        }
+      ]
     },
     "FormRecipient": {
       "oneOf": [
@@ -7806,6 +7822,52 @@
         },
         {
           "additionalProperties": false,
+          "description": "A person (never a bot) adds a reaction to a message of the room: any\nemoji, or only `emoji` (a shortcode or a custom emoji's name).",
+          "properties": {
+            "emoji": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "const": "reaction_added",
+              "type": "string"
+            },
+            "room": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "room"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A person (never a bot) posts a message whose text contains `contains`,\nignoring case. Edits never fire it.",
+          "properties": {
+            "contains": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "message_posted",
+              "type": "string"
+            },
+            "room": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "room",
+            "contains"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "description": "`POST /api/v1/hooks/{workflow}/{secret}` with a JSON body.",
           "properties": {
             "kind": {
@@ -8526,6 +8588,13 @@
         "fields": {
           "items": {
             "$ref": "#/$defs/FormField"
+          },
+          "type": "array"
+        },
+        "people": {
+          "description": "The people the `person` fields name, to show them.",
+          "items": {
+            "$ref": "#/$defs/User"
           },
           "type": "array"
         },

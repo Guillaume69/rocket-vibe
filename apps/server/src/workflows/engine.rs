@@ -12,7 +12,9 @@ use axum::http::StatusCode;
 use chrono::{DateTime, Duration, Utc};
 use rv_protocol::{
     SendMessage,
-    workflows::{FORM_DAYS, FormRecipient, HTTP_RESPONSE_BYTES, Step, TRIGGER_ROOM, Trigger},
+    workflows::{
+        FORM_DAYS, FormFieldKind, FormRecipient, HTTP_RESPONSE_BYTES, Step, TRIGGER_ROOM, Trigger,
+    },
 };
 use serde_json::{Value, json};
 use sqlx::{FromRow, Postgres, Transaction, types::Json};
@@ -385,9 +387,26 @@ async fn form(
                 Ok(by) => by,
                 Err(error) => return failure(error),
             };
+            // A person is answered by id: the run sees the username, and the person.
+            let mut answers = answers.map(|a| a.0).unwrap_or(json!({}));
+            let mut people = serde_json::Map::new();
+            for field in fields.iter().filter(|f| f.kind == FormFieldKind::Person) {
+                let Some(id) = answers
+                    .get(&field.id)
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+                else {
+                    continue;
+                };
+                let person = match user_context(&mut tx, &id).await {
+                    Ok(person) => person,
+                    Err(error) => return failure(error),
+                };
+                answers[&field.id] = person["username"].clone();
+                people.insert(field.id.clone(), person);
+            }
             let _ = tx.commit().await;
-            context[save_as] =
-                json!({"answers": answers.map(|a| a.0).unwrap_or(json!({})), "by": by});
+            context[save_as] = json!({"answers": answers, "by": by, "people": people});
             return Outcome::Next;
         }
         Ok(Some((_, None, expires))) => {

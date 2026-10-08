@@ -153,7 +153,7 @@ export default function LoginScreen() {
     try {
       const profile = await discoverServer(address, controller.signal, fetch, kind);
       if (controller.signal.aborted) return;
-      if (!profile.loginForm) {
+      if (!profile.loginForm && profile.mattermost?.kind !== 'kchat') {
         // `Accounts_ShowFormLogin = false`: the server only offers SSO. The API
         // sometimes accepts a direct login anyway: we warn without blocking.
         setMessage(t('login.noPasswordLogin'));

@@ -36,7 +36,7 @@ const STATUS_CODES = new Map<string, number>([
   ['dnd', 3],
 ]);
 
-const QUIET_EVENTS = new Set(['hello', 'thread_read_changed', 'thread_updated', 'preferences_changed', 'sidebar_category_updated', 'sidebar_category_order_updated', 'plugin_statuses_changed', 'config_changed', 'license_changed', 'response']);
+const QUIET_EVENTS = new Set(['hello', 'badge_updated', 'thread_read_changed', 'thread_updated', 'preferences_changed', 'sidebar_category_updated', 'sidebar_category_order_updated', 'plugin_statuses_changed', 'config_changed', 'license_changed', 'response']);
 
 export class MmLive {
   private readonly client: MmClient;

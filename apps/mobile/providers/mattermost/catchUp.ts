@@ -46,8 +46,10 @@ export class MmCatchUp {
     this.deletedRoute = options.deletedRoute;
   }
 
+  /** The whole list in one answer: this route ignores `page` and `per_page`. */
   async channels(): Promise<Doc[]> {
-    return this.client.pages<Doc>('/users/me/channels');
+    const list = await this.client.get<unknown>('/users/me/channels');
+    return Array.isArray(list) ? (list as Doc[]) : [];
   }
 
   async global(engine: SyncEngine, isDiscarded: () => boolean): Promise<void> {

@@ -240,11 +240,12 @@ pub async fn unread(info: &SessionInfo) -> Result<bool, RestError> {
     let base: Url = info.base_url.parse().map_err(|_| error("base URL"))?;
     let rest = client(base, info.mattermost);
     rest.set_credentials(Some(Credentials { auth_token: info.auth_token.clone(), user_id: info.user_id.clone() }));
-    let page = || CallOptions::params([("per_page", "200")]);
-    let (channels, members) =
-        tokio::try_join!(rest.get("users/me/channels", page()), rest.get("users/me/channel_members", page()))?;
+    let (channels, members) = tokio::try_join!(
+        rest.get("users/me/channels", CallOptions::default()),
+        pages(&rest, "users/me/channel_members")
+    )?;
     let channels = channels.as_array().cloned().unwrap_or_default();
-    Ok(members.as_array().into_iter().flatten().any(|member| {
+    Ok(members.iter().any(|member| {
         let id = member.get("channel_id").and_then(Value::as_str);
         channels.iter().find(|c| c.get("id").and_then(Value::as_str) == id).is_some_and(|channel| {
             let (unread, mentions) = translate::counts(channel, member);

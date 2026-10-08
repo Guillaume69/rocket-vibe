@@ -234,8 +234,10 @@ impl MmSync {
         super::pages(&self.rest, path).await
     }
 
+    /// The whole list in one answer: this route ignores `page` and `per_page`.
     pub async fn channels(&self) -> Result<Vec<Value>, RestError> {
-        Ok(self.pages("users/me/channels").await?.into_iter().filter(|c| int(c, "delete_at") == 0).collect())
+        let list = self.rest.get("users/me/channels", CallOptions::default()).await?;
+        Ok(list.as_array().into_iter().flatten().filter(|c| int(c, "delete_at") == 0).cloned().collect())
     }
 
     /// Rooms and memberships in two calls across every team; previews for the

@@ -136,8 +136,8 @@ function sessionFrom(baseUrl: string, token: string, me: Record<string, unknown>
 export async function mattermostUnread(session: Session, options: MmLoginOptions = {}): Promise<boolean> {
   const client = new MmClient(session.baseUrl, session.authToken, { fetch: options.fetch });
   const [channels, members] = await Promise.all([
-    client.get<Record<string, unknown>[]>('/users/me/channels', { quiet: true, query: { per_page: 200 } }),
-    client.get<Record<string, unknown>[]>('/users/me/channel_members', { quiet: true, query: { per_page: 200 } }),
+    client.get<Record<string, unknown>[]>('/users/me/channels', { quiet: true }),
+    client.pages<Record<string, unknown>>('/users/me/channel_members', { quiet: true }),
   ]);
   const byId = new Map((Array.isArray(channels) ? channels : []).map((c) => [String(c.id), c]));
   return (Array.isArray(members) ? members : []).some((member) => {

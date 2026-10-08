@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-522 production files scanned; 586 occurrences.
+522 production files scanned; 587 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -156,19 +156,20 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/mattermost/mod.rs:136](../../apps/desktop/crates/rv-core/src/mattermost/mod.rs#L136) | call:POST | "users/logout" |
 | [apps/desktop/crates/rv-core/src/mattermost/mod.rs:150](../../apps/desktop/crates/rv-core/src/mattermost/mod.rs#L150) | call:GET | "users/me/servers" |
 | [apps/desktop/crates/rv-core/src/mattermost/mod.rs:228](../../apps/desktop/crates/rv-core/src/mattermost/mod.rs#L228) | call:GET | path, options).await?.as_array().cloned().unwrap_or_default(); |
-| [apps/desktop/crates/rv-core/src/mattermost/mod.rs:245](../../apps/desktop/crates/rv-core/src/mattermost/mod.rs#L245) | call:GET | "users/me/channels", page()), rest.get("users/me/channel_members", page()))?; |
+| [apps/desktop/crates/rv-core/src/mattermost/mod.rs:244](../../apps/desktop/crates/rv-core/src/mattermost/mod.rs#L244) | call:GET | "users/me/channels" |
 | [apps/desktop/crates/rv-core/src/mattermost/pusher.rs:102](../../apps/desktop/crates/rv-core/src/mattermost/pusher.rs#L102) | call:GET | "config/client", config), rest.get("users/me" |
 | [apps/desktop/crates/rv-core/src/mattermost/socket.rs:83](../../apps/desktop/crates/rv-core/src/mattermost/socket.rs#L83) | url | /api/v4/websocket |
 | [apps/desktop/crates/rv-core/src/mattermost/sync.rs:123](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L123) | call:GET | &format!("posts/{…}") |
 | [apps/desktop/crates/rv-core/src/mattermost/sync.rs:194](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L194) | call:GET | "users/me/preferences/flagged_post" |
-| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:322](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L322) | call:GET | &format!("channels/{…}/posts") |
-| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:331](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L331) | call:GET | &format!("channels/{…}/deleted_posts") |
-| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:359](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L359) | call:GET | &format!("channels/{…}/posts"), options).await?); |
-| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:434](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L434) | call:GET | &format!("posts/{…}") |
-| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:446](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L446) | call:GET | &format!("posts/{…}/thread") |
-| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:456](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L456) | call:GET | &channel_path |
-| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:457](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L457) | call:GET | &member_path |
-| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:508](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L508) | call:GET | &format!("posts/{…}") |
+| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:239](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L239) | call:GET | "users/me/channels" |
+| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:324](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L324) | call:GET | &format!("channels/{…}/posts") |
+| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:333](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L333) | call:GET | &format!("channels/{…}/deleted_posts") |
+| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:361](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L361) | call:GET | &format!("channels/{…}/posts"), options).await?); |
+| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:436](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L436) | call:GET | &format!("posts/{…}") |
+| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:448](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L448) | call:GET | &format!("posts/{…}/thread") |
+| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:458](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L458) | call:GET | &channel_path |
+| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:459](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L459) | call:GET | &member_path |
+| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:510](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L510) | call:GET | &format!("posts/{…}") |
 | [apps/desktop/crates/rv-core/src/mattermost/translate.rs:11](../../apps/desktop/crates/rv-core/src/mattermost/translate.rs#L11) | url | /api/v4/files |
 | [apps/desktop/crates/rv-core/src/media.rs:26](../../apps/desktop/crates/rv-core/src/media.rs#L26) | resource | /avatar/{…} |
 | [apps/desktop/crates/rv-core/src/media.rs:27](../../apps/desktop/crates/rv-core/src/media.rs#L27) | resource | /avatar/uid/{…} |

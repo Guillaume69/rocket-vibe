@@ -3,10 +3,7 @@ import "./style.css";
 import "./extra.css";
 import { App } from "./app";
 import { toast } from "./dom";
-document.documentElement.style.setProperty(
-  "--text-scale",
-  String(Number(localStorage.getItem("rv-text-size") || "100") / 100),
-);
+localStorage.removeItem("rv-text-size");
 const app = new App();
 void app.init().catch(toast);
 if ("serviceWorker" in navigator)

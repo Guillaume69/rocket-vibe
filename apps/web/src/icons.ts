@@ -9,7 +9,49 @@ import pinIcon from "./icons-native/view-pin-symbolic.svg";
 import backIcon from "./icons-native/go-previous-symbolic.svg";
 import closeIcon from "./icons-native/window-close-symbolic.svg";
 import videoIcon from "./icons-native/camera-video-symbolic.svg";
+import profileIcon from "./icons-native/avatar-default-symbolic.svg";
+import notificationsIcon from "./icons-native/preferences-system-notifications-symbolic.svg";
+import languageIcon from "./icons-native/preferences-desktop-locale-symbolic.svg";
+import securityIcon from "./icons-native/security-high-symbolic.svg";
+import devicesIcon from "./icons-native/computer-symbolic.svg";
+import appIcon from "./icons-native/emblem-system-symbolic.svg";
+import adminIcon from "./icons-native/network-server-symbolic.svg";
+import usersIcon from "./icons-native/system-users-symbolic.svg";
+import arrowIcon from "./icons-native/go-next-symbolic.svg";
+import imageIcon from "./icons-native/image-x-generic-symbolic.svg";
+import editIcon from "./icons-native/document-edit-symbolic.svg";
+import refreshIcon from "./icons-native/view-refresh-symbolic.svg";
+import playIcon from "./icons-native/media-playback-start-symbolic.svg";
+import pauseIcon from "./icons-native/media-playback-pause-symbolic.svg";
+import volumeIcon from "./icons-native/audio-volume-high-symbolic.svg";
+import headphonesIcon from "./icons-native/audio-headphones-symbolic.svg";
+import screenIcon from "./icons-native/video-display-symbolic.svg";
+import leaveIcon from "./icons-native/call-stop-symbolic.svg";
+import downloadIcon from "./icons-native/folder-download-symbolic.svg";
+import moderationIcon from "./icons-native/dialog-warning-symbolic.svg";
+import roomsIcon from "./icons-native/chat-message-new-symbolic.svg";
 const native: Record<string, string> = {
+  headphones: headphonesIcon,
+  screen: screenIcon,
+  "leave-call": leaveIcon,
+  download: downloadIcon,
+  moderation: moderationIcon,
+  rooms: roomsIcon,
+  play: playIcon,
+  pause: pauseIcon,
+  volume: volumeIcon,
+  profile: profileIcon,
+  notifications: notificationsIcon,
+  language: languageIcon,
+  security: securityIcon,
+  devices: devicesIcon,
+  app: appIcon,
+  admin: adminIcon,
+  users: usersIcon,
+  arrow: arrowIcon,
+  image: imageIcon,
+  edit: editIcon,
+  refresh: refreshIcon,
   search: searchIcon,
   plus: addIcon,
   attach: attachIcon,

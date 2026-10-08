@@ -3,6 +3,7 @@ import type { VoiceGrant, VoiceRing, LiveState } from "./protocol";
 import { Api, segment } from "./api";
 import { el, button, dialog, tile, toast } from "./dom";
 import { iconButton } from "./icons";
+import { preferencesGroup, actionRow } from "./sidebar";
 import { sound } from "./sounds";
 import { t, language } from "./i18n";
 export class Voice {
@@ -22,8 +23,11 @@ export class Voice {
   cards = new Map<string, HTMLElement>();
   loop?: HTMLAudioElement;
   tracks = new Map<string, HTMLElement>();
-  dialog?: HTMLDialogElement;
+  page = el("section", "voice-page");
+  controls = el("div", "voice-controls");
+  heading = el("h2", "voice-title");
   constructor(public app: App) {
+    this.page.append(this.heading, this.stage, this.controls);
     this.stage.addEventListener("dblclick", (event) => {
       const video = (event.target as HTMLElement).closest("video");
       if (video) void video.requestFullscreen().catch(toast);
@@ -38,7 +42,7 @@ export class Voice {
       this.busy
     )
       return;
-    if (this.current === id && this.room) {
+    if (this.current === id) {
       this.show();
       return;
     }
@@ -52,9 +56,22 @@ export class Voice {
       if (account !== this.app.account?.key || lifecycle !== this.lifecycle)
         return;
       this.cancelled = false;
-      const room = this.app.model.rooms.get(id);
-      const member = room?.read_state?.membership_version;
-      if (!member) return;
+      let room = this.app.model.rooms.get(id);
+      let member = room?.read_state?.membership_version;
+      if (!member) {
+        const details = await this.app.api.request<
+          import("./protocol").RoomDetails
+        >("/api/v1/rooms/" + segment(id));
+        if (account !== this.app.account?.key || lifecycle !== this.lifecycle)
+          return;
+        this.app.model.rooms.set(id, details.room);
+        room = details.room;
+        member = room.read_state?.membership_version;
+      }
+      if (!member) throw new Error("Conversation membership not ready");
+      this.current = id;
+      this.controls.replaceChildren(el("span", "dim", t("loading")));
+      this.show();
       const grant = await this.app.api.request<VoiceGrant>(
         "/api/v1/rooms/" + segment(id) + "/voice/join",
         "POST",
@@ -158,6 +175,11 @@ export class Voice {
     room.on(RoomEvent.ParticipantDisconnected, (participant) => {
       this.cards.get(participant.identity)?.remove();
       this.cards.delete(participant.identity);
+      if (
+        this.app.model.rooms.get(this.current || "")?.kind === "direct" &&
+        room.remoteParticipants.size === 0
+      )
+        void this.leave().catch(toast);
     });
     room.on(RoomEvent.ActiveSpeakersChanged, (participants) => {
       const active = new Set(
@@ -220,7 +242,8 @@ export class Voice {
       this.room = undefined;
       this.current = undefined;
       this.bar.remove();
-      this.stage.remove();
+      this.hide();
+      this.page.remove();
     });
     await room.connect(grant.url, grant.token);
     if (
@@ -237,8 +260,21 @@ export class Voice {
     );
     for (const participant of room.remoteParticipants.values())
       this.card(participant.identity, participant.name || participant.identity);
-    if (grant.can_publish)
-      await room.localParticipant.setMicrophoneEnabled(true);
+    this.muted = !grant.can_publish;
+    if (grant.can_publish) {
+      try {
+        await room.localParticipant.setMicrophoneEnabled(true);
+      } catch (error) {
+        this.muted = true;
+        toast(error);
+      }
+    }
+    await room
+      .switchActiveDevice(
+        "audiooutput",
+        localStorage.getItem("rv-audiooutput") || "default",
+      )
+      .catch(() => {});
     if (
       account !== this.app.account?.key ||
       lifecycle !== this.lifecycle ||
@@ -252,13 +288,15 @@ export class Voice {
       "mic",
       language === "fr" ? "Microphone" : "Microphone",
       async () => {
-        this.muted = !this.muted;
+        const next = !this.muted;
+        await room.localParticipant.setMicrophoneEnabled(!next);
+        this.muted = next;
         sound(this.muted ? "mute" : "unmute");
-        await room.localParticipant.setMicrophoneEnabled(!this.muted);
         mic.classList.toggle("muted", this.muted);
       },
     );
     mic.disabled = !grant.can_publish;
+    mic.classList.toggle("muted", this.muted);
     const camera = iconButton(
       "video",
       language === "fr" ? "Caméra" : "Camera",
@@ -268,7 +306,8 @@ export class Voice {
       },
     );
     camera.disabled = !grant.can_publish;
-    const screen = button(
+    const screen = iconButton(
+      "screen",
       language === "fr" ? "Partager l’écran" : "Share screen",
       async () => {
         if (!this.sharing) {
@@ -288,28 +327,49 @@ export class Voice {
       },
     );
     screen.disabled = !grant.can_publish;
-    const deaf = button(language === "fr" ? "Écoute" : "Listen", async () => {
-      this.deafened = !this.deafened;
-      for (const media of this.stage.querySelectorAll("audio"))
-        media.muted = this.deafened;
-      await room.localParticipant.setAttributes({
-        "rv.deafened": String(this.deafened),
-      });
-      deaf.classList.toggle("muted", this.deafened);
-    });
+    const deaf = iconButton(
+      "headphones",
+      language === "fr" ? "Écoute" : "Listen",
+      async () => {
+        this.deafened = !this.deafened;
+        for (const media of this.stage.querySelectorAll("audio"))
+          media.muted = this.deafened;
+        await room.localParticipant.setAttributes({
+          "rv.deafened": String(this.deafened),
+        });
+        deaf.classList.toggle("muted", this.deafened);
+      },
+    );
+    this.controls.replaceChildren(
+      mic,
+      deaf,
+      camera,
+      screen,
+      iconButton(
+        "leave-call",
+        language === "fr" ? "Quitter l’appel" : "Leave call",
+        () => this.leave(),
+        "destructive",
+      ),
+    );
+    const resume = button(
+      language === "fr" ? "Activer le son" : "Enable audio",
+      () => room.startAudio(),
+    );
+    const syncPlayback = () => {
+      resume.hidden = room.canPlaybackAudio;
+    };
+    room.on(RoomEvent.AudioPlaybackStatusChanged, syncPlayback);
+    syncPlayback();
+    this.controls.append(
+      resume,
+      button(language === "fr" ? "Messages" : "Messages", () => this.hide()),
+    );
     this.bar.replaceChildren(
       button(this.app.model.rooms.get(grant.room_id)?.name || t("voice"), () =>
         this.show(),
       ),
-      mic,
-      deaf,
-      camera,
       iconButton("close", t("close"), () => this.leave()),
-    );
-    this.stage.prepend(el("div", "voice-controls"));
-    this.stage.querySelector(".voice-controls")!.append(
-      screen,
-      button("Audio", () => room.startAudio()),
     );
     this.app.sidebar.insertBefore(this.bar, this.app.sidebar.lastElementChild);
     this.show();
@@ -328,74 +388,69 @@ export class Voice {
     return card;
   }
   async settings(page: HTMLElement): Promise<void> {
-    const show = async () => {
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      for (const [kind, label] of [
-        ["audioinput", language === "fr" ? "Microphone" : "Microphone"],
-        ["audiooutput", language === "fr" ? "Sortie audio" : "Audio output"],
-        ["videoinput", language === "fr" ? "Caméra" : "Camera"],
-      ] as const) {
-        const select = el("select", "pill-entry"),
-          title = el("label", "field");
-        title.append(el("span", "pill-caption", label), select);
-        for (const device of devices.filter((device) => device.kind === kind)) {
-          const option = el("option", "", device.label || label);
-          option.value = device.deviceId;
-          select.append(option);
-        }
-        select.value = localStorage.getItem("rv-" + kind) || "default";
-        select.addEventListener("change", () => {
-          localStorage.setItem("rv-" + kind, select.value);
-          void this.room?.switchActiveDevice(kind, select.value).catch(toast);
-        });
-        page.append(title);
-      }
-      const label = el("label", "toggle"),
-        noise = el("input");
-      noise.type = "checkbox";
-      noise.checked = localStorage.getItem("rv-voice-noise") !== "false";
-      noise.addEventListener("change", () =>
-        localStorage.setItem("rv-voice-noise", String(noise.checked)),
-      );
-      label.append(
-        noise,
-        el(
-          "span",
-          "",
-          language === "fr"
-            ? "Réduction du bruit au prochain appel"
-            : "Noise suppression on the next call",
-        ),
-      );
-      page.append(label);
-    };
-    page.append(
-      button(
-        language === "fr"
-          ? "Autoriser le micro et la caméra"
-          : "Allow microphone and camera",
-        async () => {
-          const stream = await navigator.mediaDevices.getUserMedia({
-            audio: true,
-            video: true,
-          });
-          stream.getTracks().forEach((track) => track.stop());
-          page.querySelectorAll("label").forEach((node) => node.remove());
-          await show();
-        },
-      ),
+    const [group, rows] = preferencesGroup(
+      language === "fr" ? "Voix" : "Voice",
     );
-    await show();
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    for (const [kind, label] of [
+      ["audioinput", language === "fr" ? "Microphone" : "Microphone"],
+      ["audiooutput", language === "fr" ? "Sortie audio" : "Audio output"],
+    ] as const) {
+      const row = actionRow(label),
+        select = el("select", "row-select");
+      select.setAttribute("aria-label", label);
+      const defaultOption = el(
+        "option",
+        "",
+        language === "fr" ? "Valeur par défaut du système" : "System default",
+      );
+      defaultOption.value = "default";
+      select.append(defaultOption);
+      for (const device of devices.filter(
+        (device) => device.kind === kind && device.deviceId !== "default",
+      )) {
+        const option = el("option", "", device.label || label);
+        option.value = device.deviceId;
+        select.append(option);
+      }
+      select.value = localStorage.getItem("rv-" + kind) || "default";
+      select.addEventListener("change", () => {
+        localStorage.setItem("rv-" + kind, select.value);
+        void this.room?.switchActiveDevice(kind, select.value).catch(toast);
+      });
+      row.append(select);
+      rows.append(row);
+    }
+    const noiseRow = actionRow(
+      language === "fr" ? "Réduction du bruit" : "Noise suppression",
+    );
+    const noise = el("input");
+    noise.type = "checkbox";
+    noise.setAttribute(
+      "aria-label",
+      language === "fr" ? "Réduction du bruit" : "Noise suppression",
+    );
+    noise.checked = localStorage.getItem("rv-voice-noise") !== "false";
+    noise.addEventListener("change", () => {
+      localStorage.setItem("rv-voice-noise", String(noise.checked));
+      void this.room?.localParticipant
+        .setMicrophoneEnabled(!this.muted, { noiseSuppression: noise.checked })
+        .catch(toast);
+    });
+    noiseRow.append(noise);
+    rows.append(noiseRow);
+    page.append(group);
   }
   show(): void {
     if (!this.current) return;
-    this.dialog?.close();
-    const [node, body] = dialog(
-      this.app.model.rooms.get(this.current)?.name || t("voice"),
-    );
-    this.dialog = node;
-    node.classList.add("voice-dialog");
-    body.append(this.stage);
+    this.heading.textContent =
+      this.app.model.rooms.get(this.current)?.name || t("voice");
+    this.app.roomPane.append(this.page);
+    this.app.roomPane.classList.add("voice-open");
+    this.app.threadPane.hidden = true;
+  }
+  hide(): void {
+    this.app.roomPane.classList.remove("voice-open");
   }
   async leave(notify = true): Promise<void> {
     this.lifecycle++;
@@ -403,8 +458,8 @@ export class Voice {
     this.loop?.pause();
     this.loop = undefined;
     this.cards.clear();
-    this.dialog?.close();
-    this.dialog = undefined;
+    this.hide();
+    this.page.remove();
     const active = this.current || this.room;
     const room = this.room;
     const api = new Api();
@@ -413,8 +468,8 @@ export class Voice {
     this.room = undefined;
     this.current = undefined;
     this.bar.remove();
-    this.stage.remove();
     this.stage.replaceChildren();
+    this.controls.replaceChildren();
     this.tracks.clear();
     this.muted = false;
     this.camera = false;

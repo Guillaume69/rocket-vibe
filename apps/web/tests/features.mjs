@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { chromium } from "playwright";
 const base = process.env.RV_WEB_TEST_URL || "http://127.0.0.1:3417";
 assert.ok(["localhost", "127.0.0.1"].includes(new URL(base).hostname));
+const aliceName = process.env.RV_WEB_ALICE || "webalice";
+const bobName = process.env.RV_WEB_BOB || "webbob";
 const password = "web-client-disposable-password";
 const api = async (
   path,
@@ -22,10 +24,10 @@ const api = async (
   return value;
 };
 const alice = await api("/api/v1/auth/login", null, {
-    username: "webalice",
+    username: aliceName,
     password,
   }),
-  bob = await api("/api/v1/auth/login", null, { username: "webbob", password }),
+  bob = await api("/api/v1/auth/login", null, { username: bobName, password }),
   tag = "features-" + crypto.randomUUID().slice(0, 8);
 const room = await api("/api/v1/rooms", alice.token, {
   name: tag,
@@ -62,7 +64,7 @@ async function history() {
     .messages;
 }
 try {
-  for (const username of ["webalice", "webbob"]) {
+  for (const username of [aliceName, bobName]) {
     const context = await browser.newContext({
       permissions: ["microphone", "camera"],
       locale: "en-US",
@@ -85,7 +87,7 @@ try {
   }
   const [a, b] = pages;
   await b.locator(".room-content .rich-composer").fill("Typing draft " + tag);
-  await a.locator(".typing").filter({ hasText: "webbob" }).waitFor();
+  await a.locator(".typing").filter({ hasText: bobName }).waitFor();
   console.log("PASS typing between two live browser sessions");
   await menu(a, message.id);
   await a.getByRole("button", { name: "Pin", exact: true }).click();
@@ -153,19 +155,25 @@ try {
     .getByRole("button", { name: "Send", exact: true })
     .click();
   await a.getByRole("button", { name: "Settings", exact: true }).click();
-  await a.getByRole("button", { name: "Administration", exact: true }).click();
   await a
-    .locator(".preferences-page .tabs")
-    .getByRole("button", { name: "Reports", exact: true })
+    .getByRole("button", { name: "Server administration", exact: true })
     .click();
-  const report = a
-    .locator(".preferences-page .file-card")
-    .filter({ hasText: "Browser moderation " + tag });
-  await report.waitFor();
-  await report.getByRole("button", { name: "Dismiss", exact: true }).click();
-  await a.getByRole("button", { name: "Verify", exact: true }).click();
-  await report.waitFor({ state: "detached" });
-  await a.locator(".sidebar-dialog .dialog-header button").click();
+  await a.getByRole("button", { name: "Moderation", exact: true }).click();
+  const reported = a
+    .locator(".admin-reports .action-row")
+    .filter({ hasText: message.text });
+  await reported.first().click();
+  await a
+    .locator(".preferences-page")
+    .getByText("Browser moderation " + tag, { exact: true })
+    .waitFor();
+  await a.getByRole("button", { name: "Dismiss", exact: true }).click();
+  await a
+    .locator(".alert-dialog")
+    .getByRole("button", { name: "Verify", exact: true })
+    .click();
+  await a.locator(".admin-reports").waitFor();
+  await a.locator(".sidebar-dialog .preferences-close").click();
   console.log("PASS report and moderator dismissal through the application");
   await a
     .locator(".room-content")
@@ -192,8 +200,25 @@ try {
     audioMessage?.files?.some((file) => file.media_type.startsWith("audio/")),
   );
   const card = a.locator('[data-id="' + audioMessage.id + '"] [data-file-id]');
-  await card.getByRole("button", { name: "Download", exact: true }).click();
-  await card.locator("audio").waitFor();
+  await card.getByRole("button", { name: "Play", exact: true }).click();
+  await card.locator("audio").waitFor({ state: "attached" });
+  await card.locator("audio").evaluate(
+    (player) =>
+      new Promise((resolve, reject) => {
+        if (player.currentTime > 0) return resolve();
+        const deadline = setTimeout(
+          () => reject(new Error("Audio did not advance")),
+          10000,
+        );
+        player.addEventListener("timeupdate", () => {
+          if (player.currentTime > 0) {
+            clearTimeout(deadline);
+            resolve();
+          }
+        });
+      }),
+  );
+  assert.equal(await card.locator(".audio-controls").count(), 1);
   await card.locator("audio").evaluate((player) => {
     player.dataset.proof = "retained";
   });
@@ -212,10 +237,8 @@ try {
   const offlineCard = a.locator(
     '[data-id="' + audioMessage.id + '"] [data-file-id]',
   );
-  await offlineCard
-    .getByRole("button", { name: "Download", exact: true })
-    .click();
-  await offlineCard.locator("audio").waitFor();
+  await offlineCard.getByRole("button", { name: "Play", exact: true }).click();
+  await offlineCard.locator("audio").waitFor({ state: "attached" });
   await contexts[0].setOffline(false);
   console.log("PASS private IndexedDB media cache survives offline reload");
   const metadata = await api("/api/v1/rooms/" + room.id, alice.token);

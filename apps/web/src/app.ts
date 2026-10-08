@@ -26,6 +26,7 @@ import type {
 } from "./protocol";
 import { el, button, field, tile, dialog, toast, stopMedia } from "./dom";
 import { icon, iconButton } from "./icons";
+import { audioControls } from "./audio";
 import { messageRow, type RowActions } from "./render";
 import { t, language, setLanguage } from "./i18n";
 import { enqueueUpload, flushUploads, type UploadJob } from "./uploads";
@@ -759,7 +760,7 @@ export class App implements RowActions {
       ),
       el("div", "account-host", location.host),
     );
-    accountButton.append(text, icon("settings"));
+    accountButton.append(text);
     this.sidebar.append(head, this.rooms, accountButton);
     this.roomPane = el("section", "room-content");
     this.header = el("header", "headerbar room-header");
@@ -1123,7 +1124,7 @@ export class App implements RowActions {
               new Date(message.created_at).toLocaleTimeString(language, {
                 hour: "2-digit",
                 minute: "2-digit",
-                hour12: this.preferences?.clock_24h === false,
+                hour12: false,
               }),
             ),
           );
@@ -1151,6 +1152,36 @@ export class App implements RowActions {
           void this.favorite(room).catch(toast);
         });
         this.rooms.append(row);
+        const participants =
+          this.live?.rooms.find((item) => item.room_id === room.id)?.voice ||
+          [];
+        if (participants.length) {
+          const roster = el("div", "room-voice-roster");
+          roster.dataset.voiceRoom = room.id;
+          for (const participant of participants) {
+            const entry = button(
+              "",
+              () => this.voice.join(room.id),
+              "room-voice-person",
+            );
+            const avatar = tile(participant.user.username);
+            this.avatar(participant.user, avatar);
+            entry.append(
+              avatar,
+              el(
+                "span",
+                "",
+                participant.user.display_name || participant.user.username,
+              ),
+            );
+            if (participant.muted || participant.deafened)
+              entry.append(icon(participant.deafened ? "headphones" : "mic"));
+            if (participant.camera) entry.append(icon("video"));
+            if (participant.screen) entry.append(icon("screen"));
+            roster.append(entry);
+          }
+          this.rooms.append(roster);
+        }
       }
     }
   }
@@ -1271,12 +1302,15 @@ export class App implements RowActions {
       opening !== this.roomOpening
     )
       return;
+    this.voice.hide();
     this.composer.value = draft;
     this.staged = staged;
     this.draftReady = true;
     this.renderHeader();
     this.renderUploads();
     this.composer.focus();
+    if (this.model.rooms.get(id)?.voice && this.info?.capabilities.voice)
+      void this.voice.join(id).catch(toast);
     if (this.model.rooms.get(id)?.encrypted) {
       this.timeline.replaceChildren(
         el("div", "e2e-banner", t("encryptedHint")),
@@ -1313,8 +1347,6 @@ export class App implements RowActions {
       this.renderTimeline();
       this.timeline.scrollTop = mark ? this.timeline.scrollHeight : 0;
       if (mark) await this.markRead();
-      if (this.model.rooms.get(id)?.voice && this.voice.current !== id)
-        void this.voice.join(id).catch(toast);
     } catch (error) {
       toast(error);
     }
@@ -2283,6 +2315,15 @@ export class App implements RowActions {
       throw new Error("Conversation no longer available");
     if (node.dataset.loaded) return;
     const generation = this.generation;
+    const membership = this.model.rooms.get(file.room_id)?.read_state
+      ?.membership_version;
+    const valid = () =>
+      generation === this.generation &&
+      this.account?.key === account &&
+      node.isConnected &&
+      this.model.rooms.has(file.room_id) &&
+      this.model.rooms.get(file.room_id)?.read_state?.membership_version ===
+        membership;
     const account = this.account.key,
       path = "/api/v1/files/" + segment(file.id);
     const blob = (await cached(account, path)) || (await this.api.blob(path));
@@ -2296,8 +2337,12 @@ export class App implements RowActions {
     if (hash !== file.sha256 || BigInt(blob.size) !== BigInt(file.bytes))
       throw new Error("File integrity check failed");
     if (generation !== this.generation) return;
+    if (!valid()) return;
     await cacheMedia(account, path, blob, file.room_id).catch(() => {});
-    if (generation !== this.generation || !node.isConnected) return;
+    if (!valid()) {
+      await write("media", account + ":" + path);
+      return;
+    }
     const url = URL.createObjectURL(blob);
     this.urls.add(url);
     const urls = this.roomURLs.get(file.room_id) || new Set<string>();
@@ -2324,14 +2369,27 @@ export class App implements RowActions {
       const player = file.media_type.startsWith("audio/")
         ? el("audio")
         : el("video");
-      player.controls = true;
+      player.controls = player instanceof HTMLVideoElement;
       player.src = url;
+      if (player instanceof HTMLAudioElement) {
+        player.classList.add("audio-engine");
+        node.prepend(audioControls(player));
+      }
       node.prepend(player);
     }
-    const link = el("a", "file-action", t("download"));
+    const link = el("a", "file-download");
+    link.setAttribute("aria-label", t("download"));
+    link.title = t("download");
+    link.append(icon("download"));
+    node.querySelector(".file-download-trigger")?.remove();
     link.href = url;
     link.download = file.filename || file.id;
-    node.append(link);
+    node.querySelector(".file-top")?.append(link);
+    if (
+      file.media_type.startsWith("audio/") ||
+      file.media_type.startsWith("video/")
+    )
+      node.querySelector(".file-play-trigger")?.remove();
   }
   async forgetRoom(room: string): Promise<void> {
     if (!this.account) return;

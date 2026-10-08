@@ -10,6 +10,7 @@ import { t, language } from "./i18n";
 import { systemText } from "./presentation";
 import { emojiGlyph } from "./emoji";
 import { videoCard } from "./video";
+import { iconButton } from "./icons";
 export function safeLink(href: string): string | undefined {
   try {
     const url = new URL(href, location.origin);
@@ -195,15 +196,52 @@ export function messageRow(
     const card = el("div", "file-card");
     card.dataset.fileId = file.id;
     card.dataset.fileHash = file.sha256;
-    card.append(
+    const top = el("div", "file-top"),
+      names = el("div", "file-names");
+    names.append(
       el("div", "file-title", file.filename || file.media_type),
       el(
         "div",
         "file-detail",
-        Number(file.bytes).toLocaleString(language) + " bytes",
+        Number(file.bytes).toLocaleString(language) +
+          " bytes · " +
+          file.media_type,
       ),
-      button(t("download"), () => actions.file(file, card), "file-action"),
     );
+    top.append(
+      el(
+        "span",
+        "file-icon",
+        file.media_type.startsWith("audio/") ? "🎵" : "📎",
+      ),
+      names,
+    );
+    const playable =
+      file.media_type.startsWith("audio/") ||
+      file.media_type.startsWith("video/");
+    if (playable)
+      top.append(
+        button(
+          language === "fr" ? "Lire" : "Play",
+          async () => {
+            await actions.file(file, card);
+            await card.querySelector<HTMLMediaElement>("audio,video")?.play();
+          },
+          "file-play-trigger",
+        ),
+      );
+    top.append(
+      iconButton(
+        "download",
+        t("download"),
+        async () => {
+          await actions.file(file, card);
+          card.querySelector<HTMLAnchorElement>("a.file-download")?.click();
+        },
+        "file-download-trigger",
+      ),
+    );
+    card.append(top);
     column.append(card);
     if (
       !file.encrypted &&

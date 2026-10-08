@@ -78,7 +78,7 @@ try {
   );
   await page.getByRole("button", { name: "Close", exact: true }).click();
   console.log("PASS TOTP enrollment and recovery codes");
-  await page.locator(".sidebar-dialog .dialog-header button").click();
+  await page.locator(".sidebar-dialog .preferences-close").click();
   await page.getByRole("button", { name: "Sign out", exact: true }).click();
   await page.getByLabel("Username or email").fill(username);
   await page.getByLabel("Password", { exact: true }).fill(password);
@@ -131,7 +131,7 @@ try {
   await page
     .getByRole("button", { name: "Disable email authentication", exact: true })
     .waitFor();
-  await page.locator(".sidebar-dialog .dialog-header button").click();
+  await page.locator(".sidebar-dialog .preferences-close").click();
   await page.getByRole("button", { name: "Sign out", exact: true }).click();
   await page.getByLabel("Username or email").fill(username);
   await page.getByLabel("Password", { exact: true }).fill(password);

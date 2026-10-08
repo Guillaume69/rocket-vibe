@@ -6,6 +6,12 @@ All notable changes are documented here in English.
 
 ### Fixed
 
+- Match GTK settings categories, icons, profile subpages and administration navigation; remove text zoom and clock controls without GTK equivalents.
+- Use thin rounded scrollbars, bounded administrator-list avatars and a styled profile-photo picker.
+- Enter voice channels automatically, show their participants under the room and display the call in the main pane.
+- Play audio attachments in place with seek, pause and volume controls, retaining playback during live reactions.
+- Match GTK initials and 24-hour conversation times.
+
 - Center unread and mention counters vertically and horizontally in their badges.
 - Remove the redundant server field from sign-in; the service origin is shown as plain text.
 - Center the conversation title in its header as GTK does.
@@ -13,6 +19,9 @@ All notable changes are documented here in English.
 - Restore drafts before enabling the editor so opening a fresh room cannot erase the first typed characters.
 
 ### Added
+
+- Original RocketVibe unicorn favicon from the GTK application icon.
+- Device-session details, renaming and confirmed revocation.
 
 - Server-delivered, single-origin web client with the GTK theme, fonts, icons, emoji and sounds.
 - GTK-style DOM composer with inline formatting, cursor-line markers, selection, undo/redo and plain-text paste.

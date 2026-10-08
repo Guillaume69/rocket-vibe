@@ -9,6 +9,7 @@
     "build": "node scripts/sync-design.mjs && node scripts/licenses.mjs && npm run check && vite build && node scripts/build-shell.mjs",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
     "test:browser": "node tests/browser.mjs",
+    "test:visual": "node tests/visual.mjs",
     "test:voice": "node tests/voice.mjs",
     "test:security": "node tests/security.mjs",
     "test:features": "node tests/features.mjs",

@@ -22,6 +22,10 @@ The inherited inventory below retains the GTK feature descriptions. A native bro
 
 Local 2026-10-08: 18 main conversation scenarios, nine advanced scenarios, seven two-browser LiveKit scenarios, six actual TLS email/TOTP scenarios, three session-rotation/tab scenarios, one synthetic locked-room UI scenario and six styled-editor scenarios. Eleven model/API/composition tests pass. Server library: 193 passed, one intentionally ignored; clippy passes with warnings denied. GTK reference built through the mandatory Fedora script and captured with the same server fixture. The synthetic locked-room test verifies UI exclusion, not cryptographic behavior.
 
+On 2026-10-09 the active checkout and bench moved to `D:/RocketVibe/.cache/worktrees/web-client`, on `codex/web-client`. Browser binaries, profiles, temporary files, object storage and PostgreSQL fixture data are on D:. The old managed checkout on C: was archived and its remaining directory removed. These are local bench paths, not deployment settings.
+
+The current correction pass compares actual connected GTK settings captures with browser captures. It removes invented display settings, restores GTK category icons and profile/admin subpages, adds inline audio playback, and restores automatic voice-channel entry and the room roster. Nine advanced browser scenarios pass on the moved bench, including actual audio progress and offline playback. Further visual and interoperability qualification remains in progress.
+
 ## GTK inventory
 
 GTK baseline is inherited, not a new verification claim. Web status refers to the native provider; mappings and exclusions follow the accepted origin/account/encryption scope.

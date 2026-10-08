@@ -13,12 +13,13 @@ import type {
 } from "./protocol";
 import { operation, segment } from "./api";
 import { el, button, field, tile, dialog, toast } from "./dom";
-import { t, language, setLanguage } from "./i18n";
+import { t, language } from "./i18n";
 import { messageRow } from "./render";
 import { securitySettings, recentProof } from "./security";
 import { administration, report } from "./admin";
 import packageInfo from "../package.json";
-import { licenses } from "./licenses";
+import { sidebarDialog, preferencesGroup, actionRow } from "./sidebar";
+import { icon, iconButton } from "./icons";
 
 export async function newConversation(app: App): Promise<void> {
   const [node, body] = dialog(t("new"));
@@ -502,265 +503,397 @@ export async function roomInfo(app: App): Promise<void> {
   );
 }
 export async function settings(app: App): Promise<void> {
-  const own = await app.api.request<OwnProfile>("/api/v1/me/profile");
-  const [node, body] = dialog(t("settings"));
-  node.classList.add("sidebar-dialog");
-  const nav = el("nav", "sidebar-categories"),
-    page = el("section", "preferences-page");
-  body.replaceChildren(nav, page);
-  const open = (key: string, build: () => Promise<void> | void) => {
-    nav.append(
-      button(
-        key,
-        async () => {
-          page.replaceChildren(el("h2", "", key));
-          await build();
-        },
-        "category",
-      ),
-    );
+  let own = await app.api.request<OwnProfile>("/api/v1/me/profile");
+  const host = sidebarDialog(t("settings"), "settings-dialog");
+  const phrase = (en: string, fr: string) => (language === "fr" ? fr : en);
+  const update = async (
+    changes: Partial<import("./protocol").UpdateProfile>,
+  ) => {
+    if (changes.username && changes.username !== own.profile.user.username)
+      await recentProof(app);
+    await app.api.request("/api/v1/me", "PATCH", {
+      operation_id: operation(),
+      expected_revision: own.profile.revision,
+      username: own.profile.user.username,
+      display_name: own.profile.user.display_name,
+      bio: own.profile.bio,
+      status: own.profile.status,
+      status_text: own.profile.status_text,
+      ...changes,
+    });
+    own = await app.api.request<OwnProfile>("/api/v1/me/profile");
+    app.profiles.delete(own.profile.user.id);
+    await app.reconnect();
   };
-  const profilePage = () => {
+  const editProfile = (page: HTMLElement) => {
+    const [identity, identityRows] = preferencesGroup();
+    const photo = actionRow(
+      own.profile.user.display_name || own.profile.user.username,
+      "@" + own.profile.user.username,
+    );
+    const portrait = tile(own.profile.user.username, "room");
+    app.avatar(own.profile.user, portrait);
+    photo.prepend(portrait);
+    identityRows.append(photo);
+    page.append(identity);
+    const picker = el("input", "visually-hidden");
+    picker.type = "file";
+    picker.hidden = true;
+    picker.accept = "image/png,image/jpeg";
+    picker.setAttribute(
+      "aria-label",
+      phrase("Profile photo", "Photo de profil"),
+    );
+    picker.addEventListener("change", () => {
+      const file = picker.files?.[0];
+      if (!file) return;
+      void app.api
+        .request(
+          "/api/v1/me/avatar?operation_id=" +
+            operation() +
+            "&expected_revision=" +
+            segment(own.profile.revision),
+          "PUT",
+          file,
+        )
+        .then(async () => {
+          own = await app.api.request<OwnProfile>("/api/v1/me/profile");
+          app.profiles.delete(own.profile.user.id);
+          app.avatar(own.profile.user, portrait);
+          app.refresh();
+        })
+        .catch(toast);
+    });
+    const [photos, photoRows] = preferencesGroup(phrase("Photo", "Photo"));
+    const choose = actionRow(
+      phrase("Change photo", "Changer la photo"),
+      "",
+      () => picker.click(),
+    );
+    choose.prepend(icon("image"));
+    photoRows.append(choose, picker);
+    const remove = actionRow(
+      phrase("Remove photo", "Supprimer la photo"),
+      "",
+      async () => {
+        await app.api.request(
+          "/api/v1/me/avatar?operation_id=" +
+            operation() +
+            "&expected_revision=" +
+            segment(own.profile.revision),
+          "DELETE",
+        );
+        own = await app.api.request<OwnProfile>("/api/v1/me/profile");
+        app.profiles.delete(own.profile.user.id);
+        app.refresh();
+        host.pop();
+      },
+    );
+    remove.classList.add("destructive");
+    photoRows.append(remove);
+    page.append(photos);
+    const [details, rows] = preferencesGroup(phrase("Profile", "Profil"));
     const fields = new Map<string, HTMLInputElement>();
     for (const [key, label, value] of [
       ["username", t("username"), own.profile.user.username],
       ["display_name", t("name"), own.profile.user.display_name],
       ["bio", t("bio"), own.profile.bio],
-      ["status_text", t("statusText"), own.profile.status_text],
     ]) {
       const [wrap, input] = field(label, value);
       fields.set(key, input);
-      page.append(wrap);
+      rows.append(wrap);
     }
-    const select = el("select", "pill-entry");
-    for (const value of ["online", "away", "busy", "offline"]) {
-      const option = el("option", "", value);
+    page.append(
+      details,
+      button(
+        t("save"),
+        async () => {
+          await update({
+            username: fields.get("username")!.value,
+            display_name: fields.get("display_name")!.value,
+            bio: fields.get("bio")!.value,
+          });
+          host.pop();
+          toast(phrase("Profile saved", "Profil enregistré"));
+        },
+        "cta preference-save",
+      ),
+    );
+  };
+  host.add("account", phrase("My account", "Mon compte"), "profile", (page) => {
+    const [identity, rows] = preferencesGroup();
+    const row = actionRow(
+      own.profile.user.display_name || own.profile.user.username,
+      "@" + own.profile.user.username + " · " + location.host,
+      () => host.push(phrase("My profile", "Mon profil"), editProfile),
+    );
+    const portrait = tile(own.profile.user.username, "room");
+    app.avatar(own.profile.user, portrait);
+    row.prepend(portrait);
+    row.querySelector(".symbolic-icon")?.remove();
+    row.append(
+      el("span", "action-row-suffix", phrase("My profile", "Mon profil")),
+    );
+    rows.append(row);
+    page.append(identity);
+    const [status, statusRows] = preferencesGroup(phrase("Status", "Statut"));
+    const presence = actionRow(phrase("Presence", "Présence"));
+    const select = el("select", "row-select");
+    select.setAttribute("aria-label", phrase("Presence", "Présence"));
+    for (const [value, text] of [
+      ["online", phrase("Online", "En ligne")],
+      ["away", phrase("Away", "Absent")],
+      ["busy", phrase("Busy", "Occupé")],
+      ["offline", phrase("Offline", "Hors ligne")],
+    ]) {
+      const option = el("option", "", text);
       option.value = value;
       select.append(option);
     }
     select.value = own.profile.status || "online";
-    page.append(select);
-    page.append(
-      button(
-        t("save"),
-        async () => {
-          await app.api.request("/api/v1/me", "PATCH", {
-            operation_id: operation(),
-            expected_revision: own.profile.revision,
-            username: fields.get("username")!.value,
-            display_name: fields.get("display_name")!.value,
-            bio: fields.get("bio")!.value,
-            status_text: fields.get("status_text")!.value,
-            status: select.value,
-          });
-          node.close();
-          await app.reconnect();
-        },
-        "cta",
-      ),
-    );
-    const avatar = el("input", "pill-entry");
-    avatar.type = "file";
-    avatar.accept = "image/png,image/jpeg";
-    avatar.addEventListener("change", () => {
-      const file = avatar.files?.[0];
-      if (file)
-        void app.api
-          .request(
-            "/api/v1/me/avatar?operation_id=" +
-              operation() +
-              "&expected_revision=" +
-              segment(own.profile.revision),
-            "PUT",
-            file,
-          )
-          .then(() => node.close())
-          .catch(toast);
-    });
-    page.append(
-      avatar,
-      button(
-        language === "fr" ? "Supprimer la photo" : "Remove photo",
-        () =>
-          app.api
-            .request(
-              "/api/v1/me/avatar?operation_id=" +
-                operation() +
-                "&expected_revision=" +
-                segment(own.profile.revision),
-              "DELETE",
-            )
-            .then(() => {
-              node.close();
-              app.profiles.delete(own.profile.user.id);
-              app.refresh();
-            }),
-        "destructive",
-      ),
-    );
-  };
-  open(t("profile"), profilePage);
-  open("App", () => {
-    page.append(
-      el("p", "", packageInfo.name + " " + packageInfo.version),
-      el("p", "dim", location.origin),
-      button(language === "fr" ? "Licences" : "Licenses", () => {
-        const [node, body] = dialog(
-          language === "fr" ? "Licences" : "Licenses",
-        );
-        body.append(el("pre", "license-text", licenses));
-        node.classList.add("licenses-dialog");
-      }),
-    );
-  });
-  open(t("appearance"), () => {
-    const select = el("select", "pill-entry");
-    for (const [value, label] of [
-      ["fr", "Français"],
-      ["en", "English"],
-    ]) {
-      const option = el("option", "", label);
-      option.value = value;
-      select.append(option);
-    }
-    select.value = language;
     select.addEventListener("change", () => {
-      setLanguage(select.value);
-      node.close();
-      app.build();
+      select.disabled = true;
+      void update({
+        status: select.value as import("./protocol").PresenceStatus,
+      })
+        .catch(toast)
+        .finally(() => (select.disabled = false));
     });
-    page.append(el("h3", "", t("language")), select);
-    const size = el("input");
-    size.type = "range";
-    size.min = "80";
-    size.max = "150";
-    size.value = localStorage.getItem("rv-text-size") || "100";
-    size.addEventListener("input", () => {
-      document.documentElement.style.setProperty(
-        "--text-scale",
-        String(Number(size.value) / 100),
-      );
-      localStorage.setItem("rv-text-size", size.value);
-    });
-    page.append(el("h3", "", t("size")), size);
-    const label = el("label", "toggle"),
-      clock = el("input");
-    clock.type = "checkbox";
-    clock.checked = own.preferences.clock_24h;
-    label.append(clock, el("span", "", t("clock")));
-    page.append(
-      label,
-      button(
-        t("save"),
-        async () => {
-          await app.api.request("/api/v1/me/preferences", "PATCH", {
-            ...own.preferences,
-            operation_id: operation(),
-            expected_revision: own.preferences.revision,
-            revision: undefined,
-            language: select.value,
-            clock_24h: clock.checked,
-          });
-          app.preferences = {
-            ...own.preferences,
-            language: select.value,
-            clock_24h: clock.checked,
-          };
-          node.close();
-          app.refresh();
-        },
-        "cta",
-      ),
+    presence.append(select);
+    statusRows.append(presence);
+    const [wrap, input] = field(t("statusText"), own.profile.status_text);
+    const apply = iconButton("edit", t("save"), async () =>
+      update({ status_text: input.value }),
     );
+    wrap.append(apply);
+    wrap.classList.add("entry-action-row");
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") apply.click();
+    });
+    statusRows.append(wrap);
+    page.append(status);
   });
-  open(t("notifications"), () => {
-    const select = el("select", "pill-entry");
-    for (const [value, label] of [
-      [
-        "default",
-        language === "fr"
-          ? "Messages directs et mentions"
-          : "Direct messages and mentions",
-      ],
+  host.add("notifications", t("notifications"), "notifications", (page) => {
+    const [group, rows] = preferencesGroup(t("notifications"));
+    const row = actionRow(phrase("Notify me", "Me notifier"));
+    const select = el("select", "row-select");
+    select.setAttribute("aria-label", t("notifications"));
+    for (const [value, text] of [
+      ["default", phrase("Server default", "Réglage du serveur")],
       ["all", t("all")],
       ["mention", t("mention")],
       ["nothing", t("nothing")],
     ]) {
-      const option = el("option", "", label);
+      const option = el("option", "", text);
       option.value = value;
       select.append(option);
     }
     select.value = own.preferences.desktop_notifications || "default";
-    page.append(
-      select,
-      button(t("notificationsEnable"), async () => {
+    select.addEventListener("change", () => {
+      select.disabled = true;
+      void app.api
+        .request("/api/v1/me/preferences", "PATCH", {
+          ...own.preferences,
+          operation_id: operation(),
+          expected_revision: own.preferences.revision,
+          revision: undefined,
+          desktop_notifications: select.value,
+        })
+        .then(async () => {
+          own = await app.api.request<OwnProfile>("/api/v1/me/profile");
+          app.preferences = own.preferences;
+        })
+        .catch(toast)
+        .finally(() => (select.disabled = false));
+    });
+    row.append(select);
+    rows.append(
+      row,
+      actionRow(t("notificationsEnable"), "", async () => {
         if ("Notification" in window) await Notification.requestPermission();
       }),
-      button(
-        t("save"),
-        async () => {
-          await app.api.request("/api/v1/me/preferences", "PATCH", {
-            ...own.preferences,
-            operation_id: operation(),
-            expected_revision: own.preferences.revision,
-            revision: undefined,
-            desktop_notifications: select.value,
-          });
-          app.preferences = {
-            ...own.preferences,
-            desktop_notifications:
-              select.value as import("./protocol").DesktopNotifications,
-          };
-          node.close();
-        },
-        "cta",
+    );
+    page.append(group);
+  });
+  host.add("language", t("language"), "language", (page) => {
+    const [group, rows] = preferencesGroup(t("language"));
+    const row = actionRow(
+      t("language"),
+      phrase(
+        "Takes effect on the next launch",
+        "Prend effet au prochain lancement",
       ),
     );
-  });
-  open(t("sessions"), async () => {
-    const sessions = await app.api.request<DeviceSession[]>(
-      "/api/v1/me/sessions",
-    );
-    for (const session of sessions) {
-      const row = el("div", "preference-row");
-      row.append(
-        el("div", "", session.label),
-        el(
-          "small",
-          "dim",
-          new Date(session.last_seen_at).toLocaleString(language),
-        ),
-      );
-      if (!session.current)
-        row.append(
-          button(
-            t("delete"),
-            async () => {
-              await recentProof(app);
-              await app.api.request(
-                "/api/v1/me/sessions/" + segment(session.id),
-                "DELETE",
-              );
-              row.remove();
-            },
-            "destructive",
-          ),
-        );
-      page.append(row);
+    const select = el("select", "row-select");
+    select.setAttribute("aria-label", t("language"));
+    for (const [value, text] of [
+      ["auto", phrase("Automatic", "Automatique")],
+      ["fr", "Français"],
+      ["en", "English"],
+    ]) {
+      const option = el("option", "", text);
+      option.value = value;
+      select.append(option);
     }
+    select.value =
+      own.preferences.language || localStorage.getItem("rv-language") || "auto";
+    select.addEventListener("change", () => {
+      select.disabled = true;
+      void app.api
+        .request("/api/v1/me/preferences", "PATCH", {
+          operation_id: operation(),
+          expected_revision: own.preferences.revision,
+          language: select.value,
+          desktop_notifications: own.preferences.desktop_notifications,
+          clock_24h: own.preferences.clock_24h,
+        })
+        .then(async () => {
+          own = await app.api.request<OwnProfile>("/api/v1/me/profile");
+          app.preferences = own.preferences;
+          localStorage.setItem("rv-language", select.value);
+        })
+        .catch(toast)
+        .finally(() => {
+          select.disabled = false;
+        });
+    });
+    row.append(select);
+    rows.append(row);
+    page.append(group);
   });
   if (app.info?.capabilities.voice)
-    open(language === "fr" ? "Audio et vidéo" : "Audio and video", () =>
+    host.add("voice", phrase("Voice", "Voix"), "mic", (page) =>
       app.voice.settings(page),
     );
-  open(t("security"), () => securitySettings(app, page));
+  host.add("security", t("security"), "security", (page) =>
+    securitySettings(app, page),
+  );
+  host.add(
+    "devices",
+    phrase("Devices", "Appareils"),
+    "devices",
+    async (page) => {
+      const sessions = await app.api.request<DeviceSession[]>(
+        "/api/v1/me/sessions",
+      );
+      const [group, rows] = preferencesGroup(
+        phrase("Signed-in devices", "Appareils connectés"),
+      );
+      rows.append(actionRow(t("verify"), "", () => host.select("security")));
+      for (const session of sessions) {
+        const expander = el("details", "device-expander");
+        const summary = el("summary", "action-row");
+        summary.append(
+          icon("devices"),
+          el(
+            "span",
+            "action-row-title",
+            session.label || phrase("Unnamed device", "Appareil sans nom"),
+          ),
+        );
+        if (session.current)
+          summary.append(
+            el(
+              "span",
+              "action-row-suffix",
+              phrase("This device", "Cet appareil"),
+            ),
+          );
+        expander.append(summary);
+        const [wrap, input] = field(phrase("Name", "Nom"), session.label);
+        const rename = iconButton("edit", t("save"), async () => {
+          await app.api.request(
+            "/api/v1/me/sessions/" + segment(session.id),
+            "PATCH",
+            { label: input.value.trim() },
+          );
+          session.label = input.value.trim();
+          summary.querySelector(".action-row-title")!.textContent =
+            session.label || phrase("Unnamed device", "Appareil sans nom");
+        });
+        wrap.classList.add("entry-action-row");
+        wrap.append(rename);
+        input.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") rename.click();
+        });
+        expander.append(wrap);
+        for (const [name, value] of [
+          [phrase("Created", "Créé"), session.created_at],
+          [phrase("Last seen", "Dernière activité"), session.last_seen_at],
+          [phrase("Expires", "Expire"), session.expires_at],
+        ])
+          expander.append(
+            actionRow(name, new Date(value).toLocaleString(language)),
+          );
+        if (!session.current) {
+          const revoke = actionRow(
+            phrase("Revoke access", "Révoquer l’accès"),
+            "",
+            () => {
+              const [confirmation, content] = dialog(
+                phrase("Revoke this device?", "Révoquer cet appareil ?"),
+              );
+              content.append(
+                el(
+                  "p",
+                  "",
+                  phrase(
+                    "This device will need to sign in again.",
+                    "Cet appareil devra se reconnecter.",
+                  ),
+                ),
+                button(t("cancel"), () => confirmation.close()),
+                button(
+                  phrase("Revoke access", "Révoquer l’accès"),
+                  async () => {
+                    await recentProof(app);
+                    await app.api.request(
+                      "/api/v1/me/sessions/" + segment(session.id),
+                      "DELETE",
+                    );
+                    expander.remove();
+                    confirmation.close();
+                  },
+                  "destructive",
+                ),
+              );
+            },
+          );
+          revoke.classList.add("destructive");
+          expander.append(revoke);
+        }
+        rows.append(expander);
+      }
+      page.append(group);
+    },
+  );
+  host.add("app", phrase("App", "Application"), "app", (page) => {
+    const [about, rows] = preferencesGroup(phrase("About", "À propos"));
+    rows.append(actionRow(phrase("Version", "Version"), packageInfo.version));
+    page.append(about);
+  });
   const permissions = await app.api.request<{
     manage_accounts: boolean;
     manage_instance: boolean;
   }>("/api/v1/me/permissions");
   if (permissions.manage_accounts || permissions.manage_instance)
-    open(t("admin"), () => administration(app, page));
-  page.append(el("h2", "", t("profile")));
-  profilePage();
+    host.footer(
+      phrase("Server administration", "Administration du serveur"),
+      "admin",
+      () => {
+        host.close();
+        return administration(app);
+      },
+    );
+  host.footer(
+    t("logout"),
+    "logout",
+    async () => {
+      host.close();
+      await app.logout();
+    },
+    true,
+  );
+  host.select("account");
 }
 // Administration lives in admin.ts.

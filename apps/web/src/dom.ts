@@ -87,13 +87,7 @@ export function dialog(title: string): [HTMLDialogElement, HTMLDivElement] {
   return [node, body];
 }
 export const initials = (name: string): string =>
-  name
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((part) => Array.from(part)[0] || "")
-    .join("")
-    .toUpperCase();
+  (Array.from(name)[0] || "?").toUpperCase();
 export function tile(
   name: string,
   size = "message",

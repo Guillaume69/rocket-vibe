@@ -114,12 +114,21 @@ const phrases = {
     "Un peu de magie dans vos conversations",
   ],
 } as const;
-export let language =
-  localStorage.getItem("rv-language") ||
-  (navigator.language.startsWith("fr") ? "fr" : "en");
+export let language = resolveLanguage(
+  localStorage.getItem("rv-language") || "auto",
+);
+function resolveLanguage(value: string): string {
+  return value === "auto"
+    ? navigator.language.startsWith("fr")
+      ? "fr"
+      : "en"
+    : value === "fr"
+      ? "fr"
+      : "en";
+}
 export function setLanguage(value: string): void {
-  language = value === "fr" ? "fr" : "en";
-  localStorage.setItem("rv-language", language);
+  language = resolveLanguage(value);
+  localStorage.setItem("rv-language", value === "auto" ? "auto" : language);
   document.documentElement.lang = language;
 }
 export const t = (key: keyof typeof phrases): string =>

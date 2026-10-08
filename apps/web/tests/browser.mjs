@@ -6,6 +6,8 @@ assert.ok(
   ["127.0.0.1", "localhost"].includes(new URL(base).hostname),
   "Use the isolated local test server",
 );
+const aliceName = process.env.RV_WEB_ALICE || "webalice";
+const bobName = process.env.RV_WEB_BOB || "webbob";
 const password = "web-client-disposable-password";
 const call = async (
   path,
@@ -29,11 +31,11 @@ const call = async (
   return value;
 };
 const alice = await call("/api/v1/auth/login", null, {
-  username: "webalice",
+  username: aliceName,
   password,
 });
 const bob = await call("/api/v1/auth/login", null, {
-  username: "webbob",
+  username: bobName,
   password,
 });
 const tag = "web-" + crypto.randomUUID().slice(0, 8);
@@ -91,7 +93,7 @@ try {
     await page.locator(".login-origin").textContent(),
     new URL(base).host,
   );
-  await page.getByLabel("Username or email").fill("webalice");
+  await page.getByLabel("Username or email").fill(aliceName);
   await page.getByLabel("Password", { exact: true }).fill("wrong-password");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await visible(page.locator(".login-error:not(:empty)"));
@@ -273,10 +275,10 @@ try {
   pass("room favourites and independent read state");
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await visible(page.locator(".sidebar-dialog"));
-  await page.getByRole("button", { name: "Appearance", exact: true }).click();
+  await page.getByRole("button", { name: "Language", exact: true }).click();
   await visible(page.locator(".preferences-page select"));
   await page.screenshot({ path: "../../.cache/web-shots/settings.png" });
-  await page.locator(".sidebar-dialog .dialog-header button").click();
+  await page.locator(".sidebar-dialog .preferences-close").click();
   pass("GTK category preferences dialog");
   await page.setViewportSize({ width: 540, height: 800 });
   assert.equal(await page.locator(".sidebar").isVisible(), false);

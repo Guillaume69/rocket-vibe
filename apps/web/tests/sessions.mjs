@@ -47,7 +47,9 @@ async function due(page) {
 }
 try {
   await page.goto(base);
-  await page.getByLabel("Username or email").fill("webalice");
+  await page
+    .getByLabel("Username or email")
+    .fill(process.env.RV_WEB_ALICE || "webalice");
   await page
     .getByLabel("Password", { exact: true })
     .fill("web-client-disposable-password");

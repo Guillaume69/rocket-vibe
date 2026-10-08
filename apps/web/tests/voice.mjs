@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { chromium } from "playwright";
 const base = process.env.RV_WEB_TEST_URL || "http://127.0.0.1:3417";
 assert.ok(["localhost", "127.0.0.1"].includes(new URL(base).hostname));
+const aliceName = process.env.RV_WEB_ALICE || "webalice";
+const bobName = process.env.RV_WEB_BOB || "webbob";
 const password = "web-client-disposable-password";
 const request = async (path, token, body) => {
   const response = await fetch(base + path, {
@@ -23,11 +25,11 @@ assert.equal(
   "Configure the isolated LiveKit bench before this test",
 );
 const alice = await request("/api/v1/auth/login", null, {
-    username: "webalice",
+    username: aliceName,
     password,
   }),
   bob = await request("/api/v1/auth/login", null, {
-    username: "webbob",
+    username: bobName,
     password,
   });
 const room = await request("/api/v1/rooms", alice.token, {
@@ -52,7 +54,7 @@ const browser = await chromium.launch({
 const contexts = [];
 const pages = [];
 try {
-  for (const username of ["webalice", "webbob"]) {
+  for (const username of [aliceName, bobName]) {
     const context = await browser.newContext({
       viewport: { width: 1280, height: 800 },
       permissions: ["microphone", "camera"],
@@ -70,11 +72,7 @@ try {
       .locator('[data-room="' + room.id + '"]')
       .first()
       .click();
-    if (!(await page.locator(".voice-dialog").count()))
-      await page
-        .getByRole("button", { name: "Join call", exact: true })
-        .click();
-    await page.locator(".voice-dialog").waitFor({ timeout: 30000 });
+    await page.locator(".voice-page").waitFor({ timeout: 30000 });
   }
   const [a, b] = pages;
   await a.waitForFunction(
@@ -96,9 +94,8 @@ try {
   console.log(
     "PASS two browser participants exchange real WebRTC microphone tracks through LiveKit",
   );
-  await a.locator(".voice-dialog .dialog-header button").click();
   await a
-    .locator(".voice-bar")
+    .locator(".voice-controls")
     .getByRole("button", { name: "Camera", exact: true })
     .click();
   await b.waitForFunction(
@@ -114,10 +111,12 @@ try {
   );
   console.log("PASS browser camera reaches the other participant");
   await a
-    .locator(".voice-bar")
+    .locator(".voice-controls")
     .getByRole("button", { name: "Microphone", exact: true })
     .click();
-  await a.waitForFunction(() => document.querySelector(".voice-bar .muted"));
+  await a.waitForFunction(() =>
+    document.querySelector(".voice-controls .muted"),
+  );
   console.log("PASS microphone mute control");
   await a
     .locator(".voice-bar")
@@ -125,14 +124,12 @@ try {
     .click();
   await a.locator(".voice-bar").waitFor({ state: "detached" });
   await a.getByRole("button", { name: "Join call", exact: true }).click();
-  await a.locator(".voice-dialog").waitFor();
+  await a.locator(".voice-page").waitFor();
   console.log("PASS leave and rejoin with fresh media resources");
-  await a.locator(".voice-dialog .dialog-header button").click();
   await a
     .locator(".voice-bar")
     .getByRole("button", { name: "Close", exact: true })
     .click();
-  await b.locator(".voice-dialog .dialog-header button").click();
   await b
     .locator(".voice-bar")
     .getByRole("button", { name: "Close", exact: true })
@@ -151,8 +148,8 @@ try {
   });
   await incoming.waitFor();
   await incoming.getByRole("button", { name: "Join", exact: true }).click();
-  await a.locator(".voice-dialog").waitFor();
-  await b.locator(".voice-dialog").waitFor();
+  await a.locator(".voice-page").waitFor();
+  await b.locator(".voice-page").waitFor();
   await a.waitForFunction(() =>
     [...document.querySelectorAll(".voice-stage audio")].some(
       (audio) => audio.srcObject?.getAudioTracks().length,
@@ -162,7 +159,6 @@ try {
     "PASS direct call rings the other browser and acceptance exchanges actual audio",
   );
   for (const page of [a, b]) {
-    await page.locator(".voice-dialog .dialog-header button").click();
     await page
       .locator(".voice-bar")
       .getByRole("button", { name: "Close", exact: true })
@@ -173,7 +169,7 @@ try {
   await incoming.waitFor();
   await incoming.getByRole("button", { name: "Cancel", exact: true }).click();
   await a.locator(".voice-bar").waitFor({ state: "detached" });
-  assert.equal(await a.locator(".voice-dialog").count(), 0);
+  assert.equal(await a.locator(".voice-page").count(), 0);
   console.log(
     "PASS declining a direct call stops the caller without creating a media session",
   );
@@ -207,7 +203,7 @@ try {
   await incoming.waitFor({ state: "detached" });
   await b.getByRole("button", { name: "Sign out", exact: true }).click();
   await b.getByLabel("Username or email").waitFor();
-  await b.getByLabel("Username or email").fill("webalice");
+  await b.getByLabel("Username or email").fill(aliceName);
   await b.getByLabel("Password", { exact: true }).fill(password);
   await b.getByRole("button", { name: "Sign in", exact: true }).click();
   await b.locator(".status-dot.online").waitFor();
@@ -217,12 +213,10 @@ try {
   await b.unroute("**/api/v1/voice/rings/*/accept");
   await b.waitForTimeout(1200);
   assert.equal(await b.locator(".voice-bar").count(), 0);
-  assert.equal(await b.locator(".voice-dialog").count(), 0);
+  assert.equal(await b.locator(".voice-page").count(), 0);
   console.log(
     "PASS delayed acceptance cannot reopen media after logout and sign-in as another user",
   );
-  if (await a.locator(".voice-dialog").count())
-    await a.locator(".voice-dialog .dialog-header button").click();
   if (await a.locator(".voice-bar").count())
     await a
       .locator(".voice-bar")

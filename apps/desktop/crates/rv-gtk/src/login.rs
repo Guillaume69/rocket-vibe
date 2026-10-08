@@ -27,6 +27,10 @@ pub struct LoginPage {
     credentials: gtk::Box,
     server: gtk::Entry,
     kind: gtk::DropDown,
+    /// kChat: the account's team servers, shown when it has several.
+    kchat_row: gtk::Box,
+    kchat_servers: gtk::DropDown,
+    kchat_urls: std::rc::Rc<std::cell::RefCell<Vec<String>>>,
     user: gtk::Entry,
     password: gtk::Entry,
     signup: gtk::CheckButton,
@@ -143,6 +147,11 @@ impl LoginPage {
         kind_row.append(&gtk::Label::builder().label(t("login.kind")).css_classes(["file-detail"]).build());
         kind_row.append(&kind);
         credentials.append(&kind_row);
+        let kchat_servers = gtk::DropDown::from_strings(&[]);
+        let kchat_row = gtk::Box::builder().spacing(10).margin_start(14).visible(false).build();
+        kchat_row.append(&gtk::Label::builder().label(t("login.kchat_server")).css_classes(["file-detail"]).build());
+        kchat_row.append(&kchat_servers);
+        credentials.append(&kchat_row);
         let probe =
             gtk::Label::builder().css_classes(["probe"]).xalign(0.0).wrap(true).visible(false).margin_start(14).build();
         credentials.append(&probe);
@@ -321,10 +330,24 @@ impl LoginPage {
 
         let generation = std::rc::Rc::new(std::cell::Cell::new(0u64));
         // Another kind asks the probe again, under that kind.
+        // kChat: no address and no user, the token names the account and its
+        // servers come from the kChat directory.
         kind.connect_selected_notify(glib::clone!(
             #[weak]
             server,
-            move |_| server.emit_by_name::<()>("changed", &[])
+            #[weak]
+            server_group,
+            #[weak]
+            user_group,
+            #[weak]
+            kchat_row,
+            move |kind| {
+                let kchat = server_kind(kind) == rv_core::native::ServerKind::Kchat;
+                server_group.set_visible(!kchat);
+                user_group.set_visible(!kchat);
+                kchat_row.set_visible(false);
+                server.emit_by_name::<()>("changed", &[])
+            }
         ));
         server.connect_changed(glib::clone!(
             #[weak]
@@ -346,7 +369,11 @@ impl LoginPage {
                 recovery.set_visible(false);
                 let current = generation.get() + 1;
                 generation.set(current);
-                let text = entry.text().to_string();
+                let text = if server_kind(&kind) == rv_core::native::ServerKind::Kchat {
+                    rv_core::mattermost::KCHAT_DIRECTORY.to_owned()
+                } else {
+                    entry.text().to_string()
+                };
                 let generation = generation.clone();
                 let recovery_email = recovery_email.clone();
                 glib::timeout_add_local_once(std::time::Duration::from_millis(600), move || {
@@ -408,6 +435,9 @@ impl LoginPage {
             credentials,
             server,
             kind,
+            kchat_row,
+            kchat_servers,
+            kchat_urls: std::rc::Rc::default(),
             user,
             password,
             signup,
@@ -495,8 +525,23 @@ impl LoginPage {
         self.mail_known.get()
     }
 
+    /// The address typed; for kChat the team server picked, else the kChat directory.
     pub fn server(&self) -> String {
-        self.server.text().into()
+        if self.server_kind() != rv_core::native::ServerKind::Kchat {
+            return self.server.text().into();
+        }
+        let picked = self.kchat_row.is_visible().then(|| self.kchat_servers.selected() as usize);
+        picked
+            .and_then(|i| self.kchat_urls.borrow().get(i).cloned())
+            .unwrap_or_else(|| rv_core::mattermost::KCHAT_DIRECTORY.to_owned())
+    }
+
+    /// The account's kChat team servers, as `(name, url)`, to pick one.
+    pub fn show_kchat_servers(&self, servers: &[(String, String)]) {
+        let names: Vec<&str> = servers.iter().map(|(name, _)| name.as_str()).collect();
+        self.kchat_servers.set_model(Some(&gtk::StringList::new(&names)));
+        self.kchat_urls.replace(servers.iter().map(|(_, url)| url.clone()).collect());
+        self.kchat_row.set_visible(true);
     }
 
     /// The kind of server chosen under the address.

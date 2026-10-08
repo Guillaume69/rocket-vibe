@@ -1080,10 +1080,17 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("login.kind_mattermost", "Mattermost", "Mattermost"),
     ("login.kind_kchat", "kChat", "kChat"),
     ("login.kchat_token", "Jeton d'API Infomaniak", "Infomaniak API token"),
+    ("login.kchat_server", "Serveur kChat", "kChat server"),
+    ("login.kchat_token_rejected", "Jeton refusé par kChat", "Token rejected by kChat"),
+    (
+        "login.kchat_pick_server",
+        "Ce compte a plusieurs serveurs kChat : choisissez-en un",
+        "This account has several kChat servers: pick one",
+    ),
     (
         "login.kchat_help",
-        "kChat : collez un jeton d'API Infomaniak (manager.infomaniak.com, Jetons d'API) ; l'utilisateur est ignoré",
-        "kChat: paste an Infomaniak API token (manager.infomaniak.com, API tokens); the user is not used",
+        "Collez un jeton d'API Infomaniak (manager.infomaniak.com, Jetons d'API)",
+        "Paste an Infomaniak API token (manager.infomaniak.com, API tokens)",
     ),
     (
         "login.probe_no_password",

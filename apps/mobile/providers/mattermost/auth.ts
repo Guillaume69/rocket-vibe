@@ -20,7 +20,7 @@ import { MmClient, MmError } from './client.ts';
 import { membershipCounts } from './translator.ts';
 
 export const MFA_REQUIRED = 'mfa.validate_token.authenticate.app_error';
-const KCHAT_DIRECTORY = 'https://kchat.infomaniak.com';
+export const KCHAT_DIRECTORY = 'https://kchat.infomaniak.com';
 
 export class MmMfaRequired extends Error {}
 

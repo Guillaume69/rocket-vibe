@@ -86,6 +86,13 @@ impl RvError {
     }
 }
 
+/// One kChat team server of an Infomaniak account.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct KchatServer {
+    pub name: String,
+    pub url: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct Account {
     pub genre: String,

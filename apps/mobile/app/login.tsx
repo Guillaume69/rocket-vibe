@@ -8,7 +8,7 @@ import { DEFAULT_SERVER } from '../db/migrate.ts';
 import { requestEmailCode, prepareTwoFactorCode, logIn } from '../lib/auth.ts';
 import { RestClient, TwoFactorError, RestError, type TwoFactorCode } from '../lib/rest.ts';
 import { discoverServer, NotMattermostError, NotRocketVibeError, type ServerKind, type ServerProfile as ServerProfile } from '../lib/serverKind.ts';
-import { kchatServers, loginMattermost, loginWithToken, MmMfaRequired, type KchatServer } from '../providers/mattermost/auth.ts';
+import { KCHAT_DIRECTORY, kchatServers, loginMattermost, loginWithToken, MmMfaRequired, type KchatServer } from '../providers/mattermost/auth.ts';
 import { MmError } from '../providers/mattermost/client.ts';
 import { authorizeUrl, codeFromRedirect, createPkce, exchangeCode, isKchatRedirect } from '../providers/mattermost/kchatOAuth.ts';
 import { startNativeLogin, startNativeAccountCodeLogin, type LoginChallenge } from '../providers/rocketvibe/authentication.ts';
@@ -151,7 +151,7 @@ export default function LoginScreen() {
     setBusy(true);
     setMessage(null);
     try {
-      const profile = await discoverServer(address, controller.signal, fetch, kind);
+      const profile = await discoverServer(kind === 'kchat' ? KCHAT_DIRECTORY : address, controller.signal, fetch, kind);
       if (controller.signal.aborted) return;
       if (!profile.loginForm && profile.mattermost?.kind !== 'kchat') {
         // `Accounts_ShowFormLogin = false`: the server only offers SSO. The API
@@ -454,14 +454,15 @@ export default function LoginScreen() {
         {phase.name !== 'server' && (
           <View style={[styles.serverChip, { backgroundColor: c.card, borderColor: c.border }]}>
             <Text style={[styles.chipText, { color: c.dimmed }]}>
-              {phase.client.baseUrl} · {phase.profile.native ? 'RocketVibe' : phase.profile.mattermost?.kind === 'kchat' ? 'kChat' : phase.profile.mattermost ? 'Mattermost' : 'Rocket.Chat'} {phase.profile.version}
+              {phase.client.baseUrl === KCHAT_DIRECTORY ? 'kChat' : <>{phase.client.baseUrl} · {phase.profile.native ? 'RocketVibe' : phase.profile.mattermost?.kind === 'kchat' ? 'kChat' : phase.profile.mattermost ? 'Mattermost' : 'Rocket.Chat'} {phase.profile.version}</>}
             </Text>
           </View>
         )}
 
         {phase.name === 'server' && (
           <>
-            <PillField
+            {/* kChat: the account's servers come from the directory once signed in. */}
+            {kind !== 'kchat' && <PillField
               c={c}
               label={t('login.serverAddress')}
               icon="🌐"
@@ -472,7 +473,7 @@ export default function LoginScreen() {
               inputMode="url"
               placeholder="chat.example.org"
               autoComplete="url"
-            />
+            />}
             {/* Found by probing; forced when the probe gets it wrong behind an unusual proxy. */}
             <View style={styles.kindRow} accessibilityRole="radiogroup" accessibilityLabel={t('login.kind')}>
               {([['auto','login.kindAuto'],['rocketchat','login.kindRocketChat'],['rocketvibe','login.kindRocketVibe'],['mattermost','login.kindMattermost'],['kchat','login.kindKchat']] as const).map(([value,label]) => (

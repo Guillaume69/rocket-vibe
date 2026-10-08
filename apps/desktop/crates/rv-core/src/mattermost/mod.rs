@@ -22,7 +22,10 @@ use crate::rest::{CallOptions, Credentials, RestClient, RestError, TwoFactorChal
 use crate::session::SessionInfo;
 
 pub const MFA_REQUIRED: &str = "mfa.validate_token.authenticate.app_error";
-const KCHAT_DIRECTORY: &str = "https://kchat.infomaniak.com";
+/// Where kChat sign-in starts: the account's team servers are listed there.
+pub const KCHAT_DIRECTORY: &str = "https://kchat.infomaniak.com";
+/// `RestError::error` of a kChat sign-in that must pick one of several team servers.
+pub const KCHAT_SEVERAL_SERVERS: &str = "kchat_several_servers";
 const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Upstream Mattermost, or kChat: a bearer from Infomaniak, its own socket.
@@ -174,7 +177,10 @@ pub async fn login_kchat(base: &Url, token: &str) -> Result<SessionInfo, RestErr
             let url: Url = one.url.parse().map_err(|_| error("kChat server URL"))?;
             login_with_token(&url, token, Flavor::Kchat).await
         }
-        many => Err(error(&many.iter().map(|s| format!("{} ({})", s.name, s.url)).collect::<Vec<_>>().join(", "))),
+        many => Err(RestError {
+            error: Some(KCHAT_SEVERAL_SERVERS.to_owned()),
+            ..error(&many.iter().map(|s| format!("{} ({})", s.name, s.url)).collect::<Vec<_>>().join(", "))
+        }),
     }
 }
 

@@ -147,6 +147,12 @@ impl Client {
         blocking(move || accounts::load_all(&dirs)).await.iter().map(account).collect()
     }
 
+    /// The kChat team servers an Infomaniak token opens, to pick one at sign-in.
+    pub async fn kchat_servers(&self, token: String) -> Result<Vec<KchatServer>, RvError> {
+        let list = on_tokio(async move { rv_core::mattermost::kchat_servers(&token).await }).await?;
+        Ok(list.into_iter().map(|s| KchatServer { name: s.name, url: s.url }).collect())
+    }
+
     pub async fn probe(&self, server: String, kind: ServerChoice) -> Result<ServerProfile, RvError> {
         let url = session::normalize_server(&server).ok_or_else(|| RvError::local("invalid server address"))?;
         Ok(on_tokio(async move { rv_core::server::probe_as(&url, kind.into()).await }).await?.into())

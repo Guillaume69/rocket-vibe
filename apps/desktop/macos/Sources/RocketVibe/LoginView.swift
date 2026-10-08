@@ -48,9 +48,12 @@ struct LoginView: View {
                         .focused($focus, equals: .code)
                         .onSubmit(submit)
                 } else {
-                    TextField(L("login.server"), text: $login.server)
-                        .focused($focus, equals: .server)
-                        .textContentType(.URL)
+                    // kChat: the token names the account, its servers come from the kChat directory.
+                    if login.kind != .kchat {
+                        TextField(L("login.server"), text: $login.server)
+                            .focused($focus, equals: .server)
+                            .textContentType(.URL)
+                    }
                     // Found by probing; forced when the probe gets it wrong.
                     Picker(L("login.kind"), selection: $login.kind) {
                         Text(L("login.kind_auto")).tag(ServerChoice.auto)
@@ -65,15 +68,22 @@ struct LoginView: View {
                             .font(.caption)
                             .foregroundStyle(login.probeBad ? .red : .secondary)
                     }
-                    if !login.knownServers.isEmpty {
+                    if login.kind == .kchat && !login.kchatServers.isEmpty {
+                        Picker(L("login.kchat_server"), selection: $login.kchatServer) {
+                            ForEach(login.kchatServers, id: \.url) { Text($0.name).tag($0.url) }
+                        }
+                    }
+                    if !login.knownServers.isEmpty && login.kind != .kchat {
                         Picker("", selection: $login.server) {
                             ForEach(login.knownServers, id: \.self) { Text($0).tag($0) }
                         }
                         .labelsHidden()
                     }
-                    TextField(L("login.user"), text: $login.user)
-                        .focused($focus, equals: .user)
-                        .textContentType(.username)
+                    if login.kind != .kchat {
+                        TextField(L("login.user"), text: $login.user)
+                            .focused($focus, equals: .user)
+                            .textContentType(.username)
+                    }
                     SecureField(L(login.recovering ? "login.new_password" : login.tokenLogin ? "login.kchat_token" : "login.password"), text: $login.password)
                         .focused($focus, equals: .password)
                         .textContentType(.password)
@@ -154,7 +164,7 @@ struct LoginView: View {
         .onDisappear { login.leave() }
         .onChange(of: login.method) { _, method in if method != nil { focus = .code } }
         .onChange(of: login.server) { _, _ in login.registering = false; login.recovering = false; login.invitation = "" }
-        .task(id: "\(login.server)|\(login.kind)") {
+        .task(id: "\(login.address)|\(login.kind)") {
             try? await Task.sleep(nanoseconds: 600_000_000)
             if !Task.isCancelled { await login.probe(client: app.client) }
         }

@@ -26,6 +26,8 @@ public final class LoginModel {
         didSet {
             if kind != oldValue {
                 probeRevision = UUID()
+                kchatServers = []
+                kchatServer = ""
                 leave()
                 probeLine = nil
                 probeBad = false
@@ -54,6 +56,14 @@ public final class LoginModel {
     public private(set) var probeLine: String?
     /// kChat signs in with an Infomaniak API token in the password field.
     public private(set) var tokenLogin = false
+    /// kChat: the account's team servers once it turned out to have several, and the one picked.
+    public private(set) var kchatServers: [KchatServer] = []
+    public var kchatServer = ""
+    /// What sign-in goes to: the address typed, or for kChat the server picked, else its directory.
+    public var address: String {
+        guard kind == .kchat else { return server }
+        return kchatServer.isEmpty ? "https://kchat.infomaniak.com" : kchatServer
+    }
     public private(set) var probeBad = false
     @ObservationIgnored private var nativeAttempt: NativeLoginAttempt?
     @ObservationIgnored private var recoveryAttempt: NativeRecoveryEmail?
@@ -83,14 +93,14 @@ public final class LoginModel {
 
     /// Asks the typed server about itself; nothing shown for an address that is not one.
     public func probe(client: Client) async {
-        let asked = server
+        let asked = address
         let expected = probeRevision
         canRegister = false
         canRecover = false
         canEmailRecover = false
         do {
             let p = try await client.probe(server: asked, kind: kind)
-            guard asked == server, expected == probeRevision else { return }
+            guard asked == address, expected == probeRevision else { return }
             tokenLogin = p.genre == "kchat"
             canRegister = p.genre == "rocketvibe" && p.accountInvitations
             canRecover = p.genre == "rocketvibe" && p.accountRecovery
@@ -110,13 +120,13 @@ public final class LoginModel {
             probeLine = facts.joined(separator: " · ")
             probeBad = false
         } catch RvError.Local {
-            if asked == server, expected == probeRevision { probeLine = nil }
+            if asked == address, expected == probeRevision { probeLine = nil }
         } catch let RvError.Server(_, _, errorCode, _, _, _) {
-            guard asked == server, expected == probeRevision else { return }
+            guard asked == address, expected == probeRevision else { return }
             probeLine = L(errorCode == "not_native" ? "login.not_rocketvibe" : "login.probe_failed")
             probeBad = true
         } catch {
-            guard asked == server, expected == probeRevision else { return }
+            guard asked == address, expected == probeRevision else { return }
             probeLine = L("login.probe_failed")
             probeBad = true
         }
@@ -199,7 +209,7 @@ public final class LoginModel {
     }
 
     private func current(_ expected: UUID, address: String, username: String) -> Bool {
-        expected == generation && address == server
+        expected == generation && address == self.address
             && username == user.trimmingCharacters(in: .whitespaces) && !Task.isCancelled
     }
 
@@ -240,7 +250,7 @@ public final class LoginModel {
     func submit(client: Client) async -> ChatProvider? {
         guard !busy else { return nil }
         let (address, username, secret, challenge, answer) =
-            (server, user.trimmingCharacters(in: .whitespaces), password, method, code)
+            (self.address, user.trimmingCharacters(in: .whitespaces), password, method, code)
         let invite = registering && canRegister ? invitation.trimmingCharacters(in: .whitespacesAndNewlines) : nil
         let recovery = recovering && canRecover ? invitation.trimmingCharacters(in: .whitespacesAndNewlines) : nil
         let asking = method != nil
@@ -298,6 +308,13 @@ public final class LoginModel {
             guard current(expected, address: address, username: username) else { return nil }
             if let attempt = nativeAttempt, !attempt.methods().isEmpty { refreshNativeForm(attempt) }
             if errorCode == "not_native" { error = L("login.not_rocketvibe"); return nil }
+            if errorCode == "kchat_several_servers" {
+                kchatServers = (try? await client.kchatServers(token: secret)) ?? []
+                kchatServer = kchatServers.first?.url ?? ""
+                error = L("login.kchat_pick_server")
+                return nil
+            }
+            if kind == .kchat && status == 401 { error = L("login.kchat_token_rejected"); return nil }
             if errorCode == "factor_rejected" || errorCode == "invalid_factor_code" { error = L("login.bad_code"); return nil }
             if errorCode == "factor_expired" { error = L("login.factor_expired"); return nil }
             if errorCode == "factor_unavailable" { error = L("login.factor_unavailable"); return nil }

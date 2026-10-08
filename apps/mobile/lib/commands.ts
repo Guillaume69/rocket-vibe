@@ -107,7 +107,8 @@ export function readCommands(response: unknown, language: Language, native = fal
     commands.push({
       name,
       params: words(asString(raw.params), language, native),
-      description: words(asString(raw.description), language, native),
+      // A workflow's name (`literal`) is never read as a catalogue key: "Archive" stays "Archive".
+      description: raw.literal === true ? asString(raw.description) : words(asString(raw.description), language, native),
       permissions,
     });
   }

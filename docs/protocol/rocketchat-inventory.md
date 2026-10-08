@@ -379,8 +379,8 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/lib/catchUp.ts:212](../../apps/mobile/lib/catchUp.ts#L212) | endpoint | chat.syncMessages |
 | [apps/mobile/lib/catchUp.ts:391](../../apps/mobile/lib/catchUp.ts#L391) | call:GET | 'chat.syncMessages' |
 | [apps/mobile/lib/catchUp.ts:391](../../apps/mobile/lib/catchUp.ts#L391) | endpoint | chat.syncMessages |
-| [apps/mobile/lib/commands.ts:246](../../apps/mobile/lib/commands.ts#L246) | call:GET | 'commands.list' |
-| [apps/mobile/lib/commands.ts:280](../../apps/mobile/lib/commands.ts#L280) | call:POST | 'commands.run' |
+| [apps/mobile/lib/commands.ts:247](../../apps/mobile/lib/commands.ts#L247) | call:GET | 'commands.list' |
+| [apps/mobile/lib/commands.ts:281](../../apps/mobile/lib/commands.ts#L281) | call:POST | 'commands.run' |
 | [apps/mobile/lib/customEmojis.ts:111](../../apps/mobile/lib/customEmojis.ts#L111) | resource | /emoji-custom/{…}.{…} |
 | [apps/mobile/lib/customEmojis.ts:164](../../apps/mobile/lib/customEmojis.ts#L164) | call:GET | 'emoji-custom.list' |
 | [apps/mobile/lib/customEmojis.ts:164](../../apps/mobile/lib/customEmojis.ts#L164) | endpoint | emoji-custom.list |

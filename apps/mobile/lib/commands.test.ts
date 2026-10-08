@@ -57,6 +57,12 @@ describe('readCommands', () => {
     assert.equal(readCommands(native, 'en')[2]!.description, 'Deploy App');
   });
 
+  test("a workflow named like a catalogue key keeps its name", () => {
+    const list = { commands: [{ command: 'archive-old', params: '', description: 'Archive', client_side: false, literal: true }] };
+    assert.equal(readCommands(list, 'en', true)[0]!.description, 'Archive');
+    assert.equal(readCommands(list, 'fr', true)[0]!.description, 'Archive');
+  });
+
   test('a response without a list yields nothing', () => {
     assert.deepEqual(readCommands(null, 'en'), []);
     assert.deepEqual(readCommands({ commands: 'no' }, 'en'), []);

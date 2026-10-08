@@ -214,7 +214,7 @@ export type SetPresence = { "status": PresenceStatus; };
 export type SetReaction = { "emoji": string; "operation_id": string; "present": boolean; };
 export type SetRoomFavorite = { "expected_revision": string; "operation_id": string; "present": boolean; };
 export type SetTyping = { "active": boolean; "membership_version": string; "root_id"?: string | null; };
-export type SlashCommand = { "client_side": boolean; "command": string; "description": string; "params": string; };
+export type SlashCommand = { "client_side": boolean; "command": string; "description": string; "literal"?: boolean; "params": string; };
 export type Snapshot = { "cursor": string; "messages": (Message)[]; "protocol_version": number; "rooms": (Room)[]; };
 export type SnapshotPage = { "cursor"?: string | null; "messages": (Message)[]; "next"?: string | null; "page_index": number; "protocol_version": number; "rooms": (Room)[]; "snapshot_id": string; };
 export type SocketTicket = { "expires_at": string; "ticket": string; };
@@ -7439,6 +7439,10 @@ export const nativeSchema = {
         "description": {
           "description": "i18n key of the description (`Slash_Shrug_Description`).",
           "type": "string"
+        },
+        "literal": {
+          "description": "The description is plain text to show as is (a workflow's name), not a key.",
+          "type": "boolean"
         },
         "params": {
           "description": "i18n key of what follows the name (`Slash_Topic_Params`), or literal\ntext (`@username`), as Rocket.Chat's `commands.list` gives it.",

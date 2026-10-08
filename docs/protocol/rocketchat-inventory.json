@@ -2744,13 +2744,13 @@
     },
     {
       "file": "apps/mobile/lib/commands.ts",
-      "line": 246,
+      "line": 247,
       "kind": "call:GET",
       "surface": "'commands.list'"
     },
     {
       "file": "apps/mobile/lib/commands.ts",
-      "line": 280,
+      "line": 281,
       "kind": "call:POST",
       "surface": "'commands.run'"
     },

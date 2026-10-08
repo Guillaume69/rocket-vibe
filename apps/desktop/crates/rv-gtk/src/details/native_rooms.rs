@@ -15,6 +15,7 @@ fn error_key(error: &str) -> &'static str {
         "room_action_pending" => "rooms.pending",
         "unsupported_feature" => "rooms.unavailable",
         "offline" => "rooms.command_offline",
+        "bot_encrypted_room" | "crypto_bot_member" => rv_core::native::bots::error_key(error),
         _ => "rooms.failed",
     }
 }
@@ -413,6 +414,9 @@ fn fill_roster(
             .title(format!("{} · @{}", member.user.display_name, member.user.username))
             .build();
         group.set_widget_name(&format!("native-room-member-{}", member.user.username));
+        if member.user.bot {
+            group.set_header_suffix(Some(&crate::widgets::bot_badge()));
+        }
         let names = gtk::StringList::new(&[t("rooms.member"), t("rooms.moderator"), t("rooms.owner")]);
         let selected = match member.role {
             RoomRole::Member => 0,

@@ -606,6 +606,24 @@ impl Admin {
         }
     }
 
+    /// Whether every account may create bots (administrators always may):
+    /// None where the server has no bots, Rocket.Chat included.
+    pub async fn user_bots(&self) -> Result<Option<bool>, AdminError> {
+        match self {
+            Self::RocketChat(_) => Ok(None),
+            Self::Native(s) => Ok(s.instance_settings().await?.map(|settings| settings.user_bots)),
+        }
+    }
+
+    /// Opens bots to every account, or back to administrators only; the
+    /// setting as the server now has it.
+    pub async fn set_user_bots(&self, on: bool) -> Result<bool, AdminError> {
+        match self {
+            Self::RocketChat(_) => Err(AdminError::new("unsupported_feature")),
+            Self::Native(s) => Ok(s.update_instance_settings(on).await?.user_bots),
+        }
+    }
+
     /// Reports a message to the administrators, for any member.
     pub async fn report_message(&self, message_id: &str, reason: &str) -> Result<(), AdminError> {
         let reason = valid_reason(reason).ok_or(AdminError::new("invalid_reason"))?;

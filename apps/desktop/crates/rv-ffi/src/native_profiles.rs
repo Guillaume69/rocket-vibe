@@ -123,6 +123,8 @@ impl NativeChat {
                 local_time: None,
                 bio: p.bio,
                 avatar: p.avatar_etag.map(|id| format!("rv-avatar:{id}")).unwrap_or_default(),
+                bot: p.bot,
+                bot_owner: p.bot_owner,
             })
         })
         .await

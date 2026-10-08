@@ -106,6 +106,8 @@ pub struct MessageRow {
     pub starred: bool,
     pub reply_to: Option<String>,
     pub thread_replies: i64,
+    /// The author is a bot account (RFC 0003).
+    pub author_bot: bool,
 }
 impl MessageRow {
     pub fn presentation(self, rid: &str, uid: &str) -> crate::store::MessageRow {
@@ -128,6 +130,7 @@ impl MessageRow {
             md: self.system_type.is_none().then_some(md),
             system_type: self.system_type,
             author: Some(super::shown_username(&self.author)),
+            author_bot: self.author_bot,
             author_id: if self.status.is_some() { uid.into() } else { self.author_id },
             outbox_status: self.status.map(|s| if s == "failed" { "failed".into() } else { "pending".into() }),
             ..Default::default()
@@ -237,6 +240,7 @@ impl NativeStore {
             ("files", "TEXT"),
             ("urls", "TEXT"),
             ("cards", "TEXT"),
+            ("author_bot", "INTEGER NOT NULL DEFAULT 0"),
         ] {
             if !columns.iter().any(|c| c == name) {
                 conn.execute_batch(&format!("ALTER TABLE native_messages ADD COLUMN {name} {declaration}"))?;
@@ -566,7 +570,7 @@ impl NativeStore {
         if (message.deleted || system_type.is_some()) && !message.files.is_empty() {
             return Err(rusqlite::Error::InvalidQuery);
         }
-        tx.execute("INSERT INTO native_messages(id,rid,position,revision,text,author,author_id,ts,deleted,edited,reactions,body,system_type,reply_to,thread_replies) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15) ON CONFLICT(id) DO UPDATE SET position=excluded.position,revision=excluded.revision,text=excluded.text,author=excluded.author,author_id=excluded.author_id,ts=excluded.ts,deleted=excluded.deleted,edited=excluded.edited,reactions=excluded.reactions,body=excluded.body,system_type=excluded.system_type,reply_to=excluded.reply_to,thread_replies=excluded.thread_replies",params![message.id,message.room_id,message.position,message.revision,text,message.author.username,message.author.id,ts,message.deleted,message.edited_at.is_some(),reactions,body,system_type,message.reply_to,replies])?;
+        tx.execute("INSERT INTO native_messages(id,rid,position,revision,text,author,author_id,ts,deleted,edited,reactions,body,system_type,reply_to,thread_replies,author_bot) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16) ON CONFLICT(id) DO UPDATE SET position=excluded.position,revision=excluded.revision,text=excluded.text,author=excluded.author,author_id=excluded.author_id,ts=excluded.ts,deleted=excluded.deleted,edited=excluded.edited,reactions=excluded.reactions,body=excluded.body,system_type=excluded.system_type,reply_to=excluded.reply_to,thread_replies=excluded.thread_replies,author_bot=excluded.author_bot",params![message.id,message.room_id,message.position,message.revision,text,message.author.username,message.author.id,ts,message.deleted,message.edited_at.is_some(),reactions,body,system_type,message.reply_to,replies,message.author.bot])?;
         tx.execute("UPDATE native_messages SET files=?2 WHERE id=?1", params![message.id, json(&message.files)?])?;
         if !rv_protocol::cards::validate(&message.cards)
             || (message.deleted || message.system.is_some()) && !message.cards.is_empty()
@@ -1364,6 +1368,7 @@ mod tests {
             username: "deleted-carol-id".into(),
             display_name: String::new(),
             deleted: true,
+            ..Default::default()
         };
         *message.author = gone.clone();
         message.reactions = vec![rv_protocol::MessageReaction { emoji: "heart".into(), users: vec![gone] }];
@@ -1374,6 +1379,30 @@ mod tests {
         assert_eq!(row.author_id, "carol-id");
         let groups: serde_json::Value = serde_json::from_str(row.reactions.as_deref().unwrap()).unwrap();
         assert_eq!(groups[":heart:"]["usernames"][0], crate::native::deleted_user());
+    }
+    #[test]
+    fn bot_authors_keep_their_badge_from_the_message_or_the_profile_cache() {
+        let store = store();
+        let mut snapshot = snapshot();
+        snapshot.messages[0].author.bot = true;
+        let rid = snapshot.messages[0].room_id.clone();
+        store.snapshot(&snapshot).unwrap();
+        let row = store.messages(&rid, 10).unwrap().remove(0);
+        assert!(row.author_bot);
+        assert!(row.presentation(&rid, "me").author_bot);
+        snapshot.messages[0].author.bot = false;
+        snapshot.messages[0].revision = "9007199254740994".into();
+        store.ingest(&[snapshot.messages[0].clone()]).unwrap();
+        assert!(!store.messages(&rid, 10).unwrap().remove(0).author_bot);
+        let author = (*snapshot.messages[0].author).clone();
+        let payload = serde_json::json!({"user": {"id": author.id, "username": author.username, "display_name": "", "bot": true}});
+        store
+            .conn
+            .lock()
+            .unwrap()
+            .execute("INSERT INTO native_users VALUES(?1,?2,1)", params![author.id, payload.to_string()])
+            .unwrap();
+        assert!(store.messages(&rid, 10).unwrap().remove(0).author_bot, "a cached bot profile marks the row");
     }
     #[test]
     fn reaction_migration_preserves_old_commands_and_projects_without_reordering_or_edit_markers() {

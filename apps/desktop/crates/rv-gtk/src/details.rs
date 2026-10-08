@@ -396,6 +396,14 @@ fn fill_profile(
     content.append(&tile);
     content.append(&centered(p.name.as_deref().unwrap_or(&p.username), &["details-name"]));
     content.append(&centered(&format!("@{}", p.username), &["details-sub"]));
+    if p.bot {
+        let line = gtk::Box::builder().spacing(6).halign(gtk::Align::Center).css_classes(["profile-bot"]).build();
+        line.append(&crate::widgets::bot_badge());
+        if let Some(owner) = &p.bot_owner {
+            line.append(&label(&tf("bots.owner", &[("owner", owner)]), &["details-sub"]));
+        }
+        content.append(&line);
+    }
     if let Some(presence) = match session {
         ProfileSource::Legacy(s) => s.presence(&p.id).or(p.presence),
         ProfileSource::Native(_) => p.presence,

@@ -2,6 +2,7 @@
 mod admin;
 pub mod authentication;
 pub mod authentication_vault;
+pub mod bots;
 mod cards;
 pub mod credentials;
 pub mod crypto;
@@ -643,6 +644,7 @@ impl NativeSession {
                     slash_commands: true,
                     administration: true,
                     reports: true,
+                    bots: true,
                     ..Default::default()
                 })
             })

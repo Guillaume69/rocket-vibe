@@ -64,7 +64,10 @@ struct NativeRoomControls: View {
                 if let members, members.revision == details.revision {
                     ForEach(members.members, id: \.id) { member in
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("\(member.name.isEmpty ? member.username : member.name) · @\(member.username)")
+                            HStack(spacing: 6) {
+                                Text("\(member.name.isEmpty ? member.username : member.name) · @\(member.username)")
+                                if member.bot { AdminBadge(text: L("bots.badge"), color: Vibe.sky) }
+                            }
                             Text(L("rooms.\(member.role)")).foregroundStyle(.secondary)
                             if member.disabled { Text(L("rooms.disabled")).foregroundStyle(.secondary) }
                             if details.canChangeRoles && !member.disabled {
@@ -103,7 +106,8 @@ struct NativeRoomControls: View {
     func field(_ key: WritableKeyPath<NativeRoomFields, String>) -> Binding<String> { Binding(get: { edit?[keyPath: key] ?? "" }, set: { edit?[keyPath: key] = $0 }) }
     func flag(_ key: WritableKeyPath<NativeRoomFields, Bool>) -> Binding<Bool> { Binding(get: { edit?[keyPath: key] ?? false }, set: { edit?[keyPath: key] = $0 }) }
     func roomError(_ code: String) -> String {
-        L(code == "last_room_owner" ? "rooms.last_owner" : code == "revision_conflict" ? "rooms.conflict" : code == "room_action_pending" ? "rooms.pending" : code == "offline" ? "rooms.command_offline" : "rooms.failed")
+        if code == "bot_encrypted_room" || code == "crypto_bot_member" { return L(botErrorKey(code: code)) }
+        return L(code == "last_room_owner" ? "rooms.last_owner" : code == "revision_conflict" ? "rooms.conflict" : code == "room_action_pending" ? "rooms.pending" : code == "offline" ? "rooms.command_offline" : "rooms.failed")
     }
     func run(_ operation: @escaping @MainActor () async throws -> Void) {
         guard !busy, model.supportsRoomManagement else { return }

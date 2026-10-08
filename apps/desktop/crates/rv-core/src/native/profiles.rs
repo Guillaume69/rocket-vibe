@@ -212,6 +212,8 @@ impl NativeSession {
             avatar_etag: p.avatar_file_id.clone(),
             roles: vec![],
             utc_offset: None,
+            bot: p.user.bot,
+            bot_owner: p.bot_owner.as_ref().map(|owner| super::shown_username(&owner.username)),
         }
     }
     pub async fn change_profile(&self, command: ProfileOperation) -> Result<OwnProfile, Error> {

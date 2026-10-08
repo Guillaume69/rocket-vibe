@@ -32,6 +32,11 @@ pub enum Error {
 }
 type Result<T> = std::result::Result<T, Error>;
 impl Error {
+    /// The server refused a group transition because a bot is a member of
+    /// the room (RFC 0003): no retry helps until the bot leaves.
+    pub fn bot_member(&self) -> bool {
+        matches!(self, Error::Session(error) if error.code() == "crypto_bot_member")
+    }
     /// A member's identity is not pinned, or a device of theirs is not
     /// approved (or revoked, expired, changed): fixed in that member's profile,
     /// not by retrying.

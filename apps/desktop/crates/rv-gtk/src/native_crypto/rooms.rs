@@ -326,7 +326,9 @@ impl Controller {
                     this.ui.clear();
                     this.ui.buttons(None, false);
                     this.ui.status.set_title(t("crypto.failed"));
-                    this.ui.status.set_subtitle(t(if error.untrusted() {
+                    this.ui.status.set_subtitle(t(if error.bot_member() {
+                        "bots.error_crypto_member"
+                    } else if error.untrusted() {
                         "crypto.group_untrusted"
                     } else {
                         "crypto.group_need_empty"

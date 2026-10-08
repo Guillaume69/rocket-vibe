@@ -60,6 +60,7 @@ mod tests {
             system_type: None,
             attachments: None,
             urls: None,
+            author_bot: false,
         };
         let rows = vec![
             row("read", Some("9007199254740992"), 5000, "other", None),

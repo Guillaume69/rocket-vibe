@@ -275,6 +275,10 @@ row.admin-reason > box.header, row.admin-message-text > box.header { padding-top
 .admin-badge.admin { background: rgba(167, 139, 250, 0.25); color: #C9B8FF; }
 .admin-badge.deactivated { background: rgba(255, 122, 138, 0.2); color: #FF7A8A; }
 .admin-badge.encrypted { background: rgba(52, 225, 208, 0.18); color: #34E1D0; }
+.admin-badge.bot { background: rgba(92, 200, 255, 0.18); color: #5CC8FF; }
+.admin-badge.bot-badge { font-size: 10px; padding: 0 6px; }
+.bot-key { font-size: 13px; padding: 6px 2px; }
+.bot-key-warning { color: #FFD166; font-weight: 700; }
 button.menu-action { padding: 6px 10px; min-height: 0; }
 button.menu-action.destructive { color: #FF7A8A; }
 .edit-field textview, .edit-field text { background: transparent; color: #F3F0FF; font-size: 14px; }

@@ -143,6 +143,12 @@ struct ProfileView: View {
                         VStack(alignment: .leading) {
                             Text(deleted ? L("user.deleted") : p.name ?? p.username).font(.title3.bold())
                             if !deleted { Text("@\(p.username)").foregroundStyle(.secondary) }
+                            if p.bot {
+                                HStack(spacing: 6) {
+                                    AdminBadge(text: L("bots.badge"), color: Vibe.sky)
+                                    if let owner = p.botOwner { Text(L("bots.owner", ["owner": owner])).foregroundStyle(.secondary) }
+                                }
+                            }
                             if let status = p.statusText, !status.isEmpty { Text(status).italic() }
                         }
                     }

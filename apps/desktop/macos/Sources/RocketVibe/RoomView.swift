@@ -460,6 +460,7 @@ struct MessageRow: View, Equatable {
                             Text(message.author)
                                 .font(.vibe(13.5, .heavy))
                                 .foregroundStyle(message.mine ? Vibe.pink : Vibe.text)
+                            if message.authorBot { AdminBadge(text: L("bots.badge"), color: Vibe.sky) }
                             Text(Formatting.time(message.ts)).font(.vibe(11, .semibold)).foregroundStyle(Vibe.faint)
                                 .help(model?.messageTimeHelp ?? "")
                         }

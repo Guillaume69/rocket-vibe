@@ -492,6 +492,16 @@ struct AdminDashboard: View {
                         AdminValue(title: L("admin.reported_users"), value: AdminText.figure(o.reportedUsers))
                         Button(L("admin.open_moderation")) { model.show(.moderation) }
                     }
+                    // RocketVibe with bots only: the model leaves it nil elsewhere.
+                    if let on = model.userBots {
+                        AdminCard(title: L("admin.bots")) {
+                            Toggle(isOn: Binding(get: { on }, set: { value in Task { await model.setUserBots(value) } })) {
+                                Text(L("admin.user_bots"))
+                                Text(L("admin.user_bots_hint"))
+                            }
+                            .disabled(model.settingUserBots)
+                        }
+                    }
                 }
                 .padding(20)
             } else if let error = model.overviewError {

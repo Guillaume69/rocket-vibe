@@ -134,10 +134,6 @@ fn instance_row(id: &str) -> adw::ActionRow {
     row
 }
 
-fn badge(text: &str, kind: &str) -> gtk::Label {
-    gtk::Label::builder().label(text).valign(gtk::Align::Center).css_classes(["admin-badge", kind]).build()
-}
-
 fn dot(presence: Presence) -> gtk::Widget {
     gtk::Box::builder()
         .css_classes(["presence", presence.key()])
@@ -372,6 +368,7 @@ fn load_dashboard(screen: &Screen, cards: &Cards, refresh: bool) {
                 for group in overview_groups(&s, &c, &overview) {
                     c.add(&group);
                 }
+                bots_card(&s, &c);
             }
             Err(error) => {
                 let group = adw::PreferencesGroup::new();
@@ -488,6 +485,50 @@ fn overview_groups(screen: &Screen, cards: &Cards, o: &Overview) -> Vec<adw::Pre
         uploads,
         reports,
     ]
+}
+
+/// RocketVibe with bots: whether every account may create one. The card
+/// shows only once the server said (None: no bots there).
+fn bots_card(screen: &Screen, cards: &Cards) {
+    let admin = screen.admin.clone();
+    let (s, c) = (screen.clone(), cards.clone());
+    spawn(&screen.host, async move { admin.user_bots().await }, move |found| {
+        let Ok(Some(on)) = found else { return };
+        let group = adw::PreferencesGroup::builder().title(t("admin.bots")).css_classes(["admin-bots"]).build();
+        let switch = adw::SwitchRow::builder()
+            .title(t("admin.user_bots"))
+            .subtitle(t("admin.user_bots_hint"))
+            .active(on)
+            .css_classes(["admin-user-bots"])
+            .build();
+        group.add(&switch);
+        c.add(&group);
+        // Set back by an answer: not a choice to send again.
+        let quiet = Rc::new(Cell::new(false));
+        switch.connect_active_notify(move |row| {
+            if quiet.get() {
+                return;
+            }
+            let (admin, wanted, row, quiet) = (s.admin.clone(), row.is_active(), row.clone(), quiet.clone());
+            row.set_sensitive(false);
+            let host = s.host.clone();
+            spawn(&s.host, async move { admin.set_user_bots(wanted).await }, move |result| {
+                row.set_sensitive(true);
+                let now = match result {
+                    Ok(now) => now,
+                    Err(error) => {
+                        host.toast(error_text(&error));
+                        !wanted
+                    }
+                };
+                if now != row.is_active() {
+                    quiet.set(true);
+                    row.set_active(now);
+                    quiet.set(false);
+                }
+            });
+        });
+    });
 }
 
 /// Reported messages and reported accounts; an item opens its reasons and actions.
@@ -876,10 +917,10 @@ fn rooms(screen: &Screen) -> adw::PreferencesPage {
             .build();
         row.add_prefix(&room_tile(&room));
         if room.read_only {
-            row.add_suffix(&badge(t("admin.badge_read_only"), "read-only"));
+            row.add_suffix(&widgets::badge(t("admin.badge_read_only"), "read-only"));
         }
         if room.encrypted {
-            row.add_suffix(&badge(t("admin.badge_encrypted"), "encrypted"));
+            row.add_suffix(&widgets::badge(t("admin.badge_encrypted"), "encrypted"));
         }
         list.push(&row);
     });
@@ -927,7 +968,7 @@ fn users(screen: &Screen) -> adw::PreferencesPage {
             (user.bot, "admin.badge_bot", "bot"),
         ] {
             if shown {
-                row.add_suffix(&badge(t(text), kind));
+                row.add_suffix(&widgets::badge(t(text), kind));
             }
         }
         row.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));

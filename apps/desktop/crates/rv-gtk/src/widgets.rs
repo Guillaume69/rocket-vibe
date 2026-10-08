@@ -160,6 +160,18 @@ pub fn unread_badge(unread: i64, mentions: i64) -> gtk::Label {
     gtk::Label::builder().label(text).css_classes(["badge", class]).valign(gtk::Align::Center).build()
 }
 
+/// A small capsule beside a name: `admin`, `deactivated`, `bot`...
+pub fn badge(text: &str, kind: &str) -> gtk::Label {
+    gtk::Label::builder().label(text).valign(gtk::Align::Center).css_classes(["admin-badge", kind]).build()
+}
+
+/// "BOT", beside the name of a bot account (RFC 0003).
+pub fn bot_badge() -> gtk::Label {
+    let label = badge(crate::i18n::t("bots.badge"), "bot");
+    label.add_css_class("bot-badge");
+    label
+}
+
 /// Send glyph drawn with Cairo, centred on the button whatever the icon theme:
 /// themed arrows (Papirus, Breeze) sit off-centre in their own canvas.
 pub fn send_arrow() -> gtk::DrawingArea {

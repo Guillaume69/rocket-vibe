@@ -1,6 +1,6 @@
 //! Settings and my profile, in categories (a sidebar dialog): my account and
-//! status, notifications, language, encryption, security and devices (native
-//! accounts), the accounts on this machine, the app itself; sign out below.
+//! status, notifications, language, encryption, security, devices and bots
+//! (native accounts), the accounts on this machine, the app itself; sign out below.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -21,6 +21,7 @@ use crate::widgets::{self, TileSize};
 
 const NOTIFICATION_CHOICES: [&str; 4] = ["default", "all", "mention", "nothing"];
 const LANGUAGE_CHOICES: [&str; 3] = ["auto", "fr", "en"];
+mod native_bots;
 mod native_profiles;
 pub(crate) mod voice;
 
@@ -35,6 +36,7 @@ const VOICE: Category = ("voice", "audio-input-microphone-symbolic", "settings.c
 const ENCRYPTION: Category = ("encryption", "channel-secure-symbolic", "settings.cat.encryption");
 const SECURITY: Category = ("security", "security-high-symbolic", "settings.cat.security");
 const DEVICES: Category = ("devices", "computer-symbolic", "settings.cat.devices");
+const BOTS: Category = ("bots", "system-run-symbolic", "settings.cat.bots");
 const ACCOUNTS: Category = ("accounts", "system-users-symbolic", "settings.cat.accounts");
 const APP: Category = ("app", "emblem-system-symbolic", "settings.cat.app");
 
@@ -135,6 +137,10 @@ pub fn open_native(
     if session.supported_features().iter().any(|f| f == "device_sessions") {
         let s = session.clone();
         add_lazy(&dialog, DEVICES, move |host| native_devices_page(host, s));
+    }
+    if session.supported_features().iter().any(|f| f == "bots") {
+        let (s, security) = (session.clone(), session.security_supported().then_some(SECURITY.0));
+        add_lazy(&dialog, BOTS, move |host| native_bots::page(host, s, security));
     }
     add(&dialog, ACCOUNTS, &accounts_page(&host, info, accounts));
     add(&dialog, APP, &app_page(&host));

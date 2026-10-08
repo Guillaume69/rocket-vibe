@@ -52,6 +52,7 @@ extension SettingsCategory {
         case .encryption: return "lock"
         case .security: return "checkmark.shield"
         case .devices: return "laptopcomputer"
+        case .bots: return "cpu"
         case .accounts: return "person.2"
         case .app: return "gearshape"
         }
@@ -171,6 +172,7 @@ struct SettingsView: View {
                 case .encryption: encryption
                 case .security: SecuritySection()
                 case .devices: DevicesSection()
+                case .bots: BotsSection()
                 case .accounts: accounts
                 case .app: about
                 }

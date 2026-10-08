@@ -568,6 +568,17 @@ impl ServerAdmin {
         let a = self.admin.clone();
         on_tokio(async move { a.dismiss_user_reports(&core_reported_user(&item)).await }).await.map_err(refused)
     }
+    /// Whether every account may create bots (administrators always may);
+    /// None where the server has no bots, Rocket.Chat included.
+    pub async fn user_bots(&self) -> Result<Option<bool>, AdminFailure> {
+        let a = self.admin.clone();
+        on_tokio(async move { a.user_bots().await }).await.map_err(refused)
+    }
+    /// The setting as the server now has it.
+    pub async fn set_user_bots(&self, on: bool) -> Result<bool, AdminFailure> {
+        let a = self.admin.clone();
+        on_tokio(async move { a.set_user_bots(on).await }).await.map_err(refused)
+    }
     /// Reports a message to the administrators; any member may.
     pub async fn report_message(&self, message_id: String, reason: String) -> Result<(), AdminFailure> {
         let a = self.admin.clone();

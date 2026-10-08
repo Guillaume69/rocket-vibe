@@ -277,6 +277,8 @@ function PersonInput({ c, field, named, chat, room, value, disabled, onChange }:
   const picked = typeof value === 'string' ? (value === '' ? [] : [value]) : value;
   const [members, setMembers] = useState<User[] | null | undefined>(fixed.length > 0 ? null : undefined);
   const [search, setSearch] = useState('');
+  // Bumped by "Retry" after the members could not be read.
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     if (fixed.length > 0 || chat === null || room === null) return;
     let canceled = false;
@@ -305,7 +307,7 @@ function PersonInput({ c, field, named, chat, room, value, disabled, onChange }:
     };
     // `fixed` is the field's, stable for the sheet's life.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chat, room]);
+  }, [chat, room, attempt]);
   const candidates = fixed.length > 0 ? fixed.flatMap((id) => named.filter((u) => u.id === id)) : (members ?? []);
   const query = search.trim().toLowerCase();
   const shown = (query === '' ? candidates : candidates.filter((u) => u.username.toLowerCase().includes(query) || u.display_name.toLowerCase().includes(query))).slice(0, 50);
@@ -315,7 +317,19 @@ function PersonInput({ c, field, named, chat, room, value, disabled, onChange }:
     <View style={styles.field}>
       <Text style={[styles.label, { color: c.secondaryText }]}>{label}</Text>
       {fixed.length === 0 && members === undefined && <ActivityIndicator color={c.accent} />}
-      {fixed.length === 0 && members === null && <Text style={[styles.hint, { color: c.errorText }]}>{t('forms.membersFailed')}</Text>}
+      {fixed.length === 0 && members === null && (
+        <>
+          <Text accessibilityRole="alert" style={[styles.hint, { color: c.errorText }]}>
+            {t('forms.membersFailed')}
+          </Text>
+          <Tappable disabled={disabled} accessibilityRole="button" onPress={() => {
+              setMembers(undefined);
+              setAttempt((n) => n + 1);
+            }} style={styles.option}>
+            <Text style={[styles.retry, { color: c.accent }]}>{t('common.retry')}</Text>
+          </Tappable>
+        </>
+      )}
       {candidates.length > 8 && (
         <TextInput
           style={[styles.input, { color: c.text, backgroundColor: c.card, borderColor: c.border }]}
@@ -379,4 +393,5 @@ const styles = StyleSheet.create({
   button: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', paddingVertical: 13, borderRadius: 14 },
   inactive: { opacity: 0.6 },
   buttonText: { fontFamily: FONTS.bodyStrong, fontSize: 15 },
+  retry: { fontFamily: FONTS.bodyStrong, fontSize: 14 },
 });

@@ -18,6 +18,7 @@ import type {
   RunState,
   Step,
   Trigger,
+  Workflow,
   WorkflowForm,
 } from '../providers/rocketvibe/protocol.generated.ts';
 import { decodeNative } from '../providers/rocketvibe/validation.ts';
@@ -37,6 +38,8 @@ export const WEEKDAYS: readonly number[] = [1, 2, 3, 4, 5, 6, 7];
 export const TRIGGER_ROOM = 'trigger';
 /** The server's limits (`crates/rv-protocol/src/workflows.rs`). */
 export const LIMITS = { workflows: 20, steps: 20, fields: 10, headers: 10, options: 20, people: 50, match: 100, waitSeconds: 30 * 24 * 3600 } as const;
+/** The server's limits on texts, in UTF-8 bytes (an input's `maxLength` counts UTF-16 units). */
+export const BYTES = { name: 128, description: 512, template: 8192, url: 2048, header: 1024, title: 256, label: 256, option: 128 } as const;
 /** Names a `save_as` or a field id may not take: the run's own context. */
 const RESERVED = ['trigger', 'webhook', 'now'];
 /** The server's core commands: a workflow command cannot take their names. */
@@ -103,6 +106,11 @@ export function hasTriggerRoom(trigger: Trigger): boolean {
 }
 export function hasTriggerUser(trigger: Trigger): boolean {
   return trigger.kind !== 'schedule' && trigger.kind !== 'webhook';
+}
+
+/** The triggers whose run has a message, hence a thread a step may reply in (`in_thread`). */
+export function hasTriggerThread(trigger: Trigger): boolean {
+  return trigger.kind === 'reaction_added' || trigger.kind === 'message_posted';
 }
 
 /** The triggers that watch what people do in a room: they need the bot's `rooms:read`. */
@@ -235,7 +243,9 @@ export function variablesAt(trigger: Trigger, steps: readonly Step[], index: num
       for (const field of step.fields) {
         if (!validName(field.id)) continue;
         names.push(`${saved}.answers.${field.id}`);
-        if (field.kind === 'person') names.push(field.multiple === true ? `${saved}.mentions.${field.id}` : `${saved}.people.${field.id}.display_name`, ...(field.multiple === true ? [] : [`${saved}.mentions.${field.id}`]));
+        if (field.kind === 'person') {
+          names.push(`${saved}.mentions.${field.id}`, field.multiple === true ? `${saved}.people.${field.id}.0.display_name` : `${saved}.people.${field.id}.display_name`);
+        }
       }
     }
   }
@@ -415,14 +425,50 @@ export type WorkflowDraft = {
 
 /** The body of a save (`CreateWorkflow` without its operation id, `UpdateWorkflow` without it and the revision). */
 export function definition(draft: WorkflowDraft): Omit<CreateWorkflow, 'operation_id'> & { enabled: boolean } {
+  const threads = hasTriggerThread(draft.trigger);
   return {
     name: draft.name.trim(),
     description: draft.description.trim(),
     bot_id: draft.botId,
     enabled: draft.enabled,
     trigger: cleanTrigger(draft.trigger),
-    steps: draft.steps.map(cleanStep),
+    steps: draft.steps.map((step) => {
+      const clean = cleanStep(step);
+      if (clean.kind !== 'message' || threads) return clean;
+      const { in_thread: _, ...rest } = clean;
+      return rest;
+    }),
   };
+}
+
+/** A saved workflow as the editor's draft. */
+export function draftOf(workflow: Workflow): WorkflowDraft {
+  return {
+    name: workflow.name,
+    description: workflow.description,
+    botId: workflow.bot.id,
+    enabled: workflow.enabled,
+    trigger: workflow.trigger,
+    steps: workflow.steps,
+  };
+}
+
+/** The draft sends something other than what `workflow` holds: a test would not run it. */
+export function unsaved(draft: WorkflowDraft, workflow: Workflow): boolean {
+  return canonical(definition(draft)) !== canonical(definition(draftOf(workflow)));
+}
+
+/** JSON with its keys sorted, so that two equal values compare equal whatever their key order. */
+function canonical(value: unknown): string {
+  return JSON.stringify(value, (_, v: unknown) =>
+    v !== null && typeof v === 'object' && !Array.isArray(v)
+      ? Object.fromEntries(Object.entries(v as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+      : v,
+  );
+}
+
+function bytes(text: string): number {
+  return new TextEncoder().encode(text).length;
 }
 
 /**
@@ -431,6 +477,8 @@ export function definition(draft: WorkflowDraft): Omit<CreateWorkflow, 'operatio
  */
 export function draftProblem(draft: WorkflowDraft): TranslationKey | null {
   if (draft.name.trim() === '') return 'workflows.needName';
+  if (bytes(draft.name.trim()) > BYTES.name) return 'workflows.nameTooLong';
+  if (bytes(draft.description.trim()) > BYTES.description) return 'workflows.descriptionTooLong';
   if (draft.botId === '') return 'workflows.needBot';
   const trigger = draft.trigger;
   if (trigger.kind === 'command' && !validCommand(trigger.name.trim())) return 'workflows.badCommand';
@@ -442,7 +490,7 @@ export function draftProblem(draft: WorkflowDraft): TranslationKey | null {
   if (trigger.kind !== 'command' && trigger.kind !== 'webhook' && trigger.room === '') return 'workflows.needRoom';
   if (trigger.kind === 'message_posted') {
     const contains = trigger.contains.trim();
-    if (contains === '' || new TextEncoder().encode(contains).length > LIMITS.match) return 'workflows.needMatch';
+    if (contains === '' || bytes(contains) > LIMITS.match) return 'workflows.needMatch';
   }
   if (draft.steps.length === 0) return 'workflows.needStep';
   if (draft.steps.length > LIMITS.steps) return 'workflows.tooManySteps';
@@ -461,19 +509,33 @@ export function draftProblem(draft: WorkflowDraft): TranslationKey | null {
     if (step.kind === 'message' || step.kind === 'form') {
       if (step.room === '' || (step.room === TRIGGER_ROOM && !hasTriggerRoom(trigger))) return 'workflows.needStepRoom';
     }
-    if (step.kind === 'message' && step.text.trim() === '') return 'workflows.needText';
-    if (step.kind === 'http' && !/^https?:\/\/\S/.test(step.url.trim())) return 'workflows.badUrl';
+    if (step.kind === 'message') {
+      if (step.text.trim() === '') return 'workflows.needText';
+      if (bytes(step.text) > BYTES.template) return 'workflows.templateTooLong';
+    }
+    if (step.kind === 'http') {
+      if (!/^https?:\/\/\S/.test(step.url.trim())) return 'workflows.badUrl';
+      if (bytes(step.url.trim()) > BYTES.url || bytes(step.body ?? '') > BYTES.template || (step.headers ?? []).some((h) => bytes(h.value) > BYTES.header)) {
+        return 'workflows.httpTooLong';
+      }
+    }
     if (step.kind === 'form') {
       if (step.title.trim() === '') return 'workflows.needTitle';
+      if (bytes(step.title.trim()) > BYTES.title) return 'workflows.titleTooLong';
       if (saved === '') return 'workflows.badSaveAs';
       if (step.recipient === 'trigger_user' && !hasTriggerUser(trigger)) return 'workflows.badRecipient';
       if (step.fields.length === 0 || step.fields.length > LIMITS.fields) return 'workflows.needFields';
       const ids = new Set<string>();
       for (const field of step.fields) {
         if (field.label.trim() === '') return 'workflows.needLabel';
+        if (bytes(field.label.trim()) > BYTES.label) return 'workflows.labelTooLong';
         if (!validName(field.id) || ids.has(field.id)) return 'workflows.badFieldId';
         ids.add(field.id);
-        if (field.kind === 'choice' && (field.options ?? []).filter((o) => o.trim() !== '').length === 0) return 'workflows.needOptions';
+        if (field.kind === 'choice') {
+          const options = (field.options ?? []).map((o) => o.trim()).filter((o) => o !== '');
+          if (options.length === 0) return 'workflows.needOptions';
+          if (options.some((o) => bytes(o) > BYTES.option)) return 'workflows.optionTooLong';
+        }
         if (field.kind === 'person' && (field.people ?? []).length > LIMITS.people) return 'workflows.tooManyPeople';
       }
     }
@@ -531,6 +593,10 @@ function codeKey(code: string): TranslationKey | null {
       return 'workflows.needMatch';
     case 'workflow_emoji':
       return 'workflows.errEmoji';
+    case 'workflow_test_command':
+      return 'workflows.errTestCommand';
+    case 'workflow_not_webhook':
+      return 'workflows.errNotWebhook';
     case 'revision_conflict':
       return 'workflows.errConflict';
     case 'workflow_unavailable':

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, test } from 'node:test';
 
-import type { Step, Trigger, WorkflowForm } from '../providers/rocketvibe/protocol.generated.ts';
+import type { Step, Trigger, Workflow, WorkflowForm } from '../providers/rocketvibe/protocol.generated.ts';
 import { translate, type TranslateFn } from './messages.ts';
 import {
   answerInput,
@@ -10,6 +10,7 @@ import {
   defaultStep,
   defaultTrigger,
   definition,
+  draftOf,
   draftProblem,
   fieldIdFor,
   formErrorKey,
@@ -23,6 +24,7 @@ import {
   toggleDay,
   triggerSummary,
   uniqueName,
+  unsaved,
   validCommand,
   validName,
   validTime,
@@ -205,12 +207,14 @@ describe('what a save sends', () => {
 
 describe('wording', () => {
   test('every error code of WORKFLOWS.md has its sentence', () => {
-    const saving = ['bots_disabled', 'workflow_limit', 'workflow_bot', 'bot_scope_missing', 'workflow_bot_not_member', 'crypto_required', 'workflow_room', 'workflow_command', 'workflow_command_taken', 'workflow_schedule', 'workflow_steps', 'workflow_message', 'workflow_wait', 'workflow_http', 'workflow_form', 'revision_conflict'];
+    const saving = ['bots_disabled', 'workflow_limit', 'workflow_bot', 'bot_scope_missing', 'workflow_bot_not_member', 'crypto_required', 'workflow_room', 'workflow_command', 'workflow_command_taken', 'workflow_schedule', 'workflow_steps', 'workflow_message', 'workflow_wait', 'workflow_http', 'workflow_form', 'workflow_match', 'workflow_emoji', 'revision_conflict', 'workflow_test_command', 'workflow_not_webhook'];
     const running = ['workflow_unavailable', 'workflow_rate_limited', 'workflow_busy', 'http_address', 'http_url', 'http_failed', 'form_expired', 'bot_unavailable', 'workflow_retries'];
     const keys = [...saving, ...running].map((code) => workflowErrorKey(code, 400));
     assert.ok(keys.every((key) => key !== 'workflows.failed'));
     assert.equal(new Set(keys).size, keys.length);
     for (const key of keys) assert.notEqual(en(key), fr(key));
+    assert.equal(en(workflowErrorKey('workflow_test_command', 400)), 'A command workflow is tried by typing it in a room.');
+    assert.equal(fr(workflowErrorKey('workflow_not_webhook', 400)), 'Enregistre d’abord le workflow avec un déclencheur webhook.');
     assert.equal(workflowErrorKey('mystery', 429), 'workflows.errRateLimited');
     assert.equal(workflowErrorKey('mystery', 0), 'workflows.errOffline');
     assert.equal(runErrorKey('something_new'), null);
@@ -331,7 +335,53 @@ describe('several answers', () => {
     assert.equal(field(cleanStep(step('choice')))?.multiple, true);
     const person: Step = { kind: 'form', room: 'trigger', recipient: 'anyone', title: 'T', save_as: 'x', fields: [{ id: 'who', label: 'Who', kind: 'person', multiple: true }] };
     const names = variablesAt({ kind: 'command', name: 'c' }, [person, { kind: 'message', room: 'trigger', text: '' }], 1);
-    assert.ok(names.includes('x.mentions.who'));
-    assert.ok(!names.includes('x.people.who.display_name'));
+    assert.deepEqual(names.slice(4), ['x.by.username', 'x.by.display_name', 'x.answers.who', 'x.mentions.who', 'x.people.who.0.display_name', 'now']);
+    const one: Step = { ...person, fields: [{ id: 'who', label: 'Who', kind: 'person' }] } as Step;
+    assert.deepEqual(variablesAt({ kind: 'command', name: 'c' }, [one], 1).slice(6, 9), ['x.answers.who', 'x.mentions.who', 'x.people.who.display_name']);
+  });
+});
+
+describe('threads, byte lengths and unsaved changes', () => {
+  const reply: Step = { kind: 'message', room: 'trigger', text: 'hi', in_thread: true };
+  const draft = (trigger: Trigger, steps: Step[] = [reply]): WorkflowDraft => ({ name: 'n', description: '', botId: 'bot', enabled: true, trigger, steps });
+
+  test('a thread reply is kept only for a trigger with a message', () => {
+    assert.deepEqual(definition(draft({ kind: 'message_posted', room: 'r', contains: 'x' })).steps, [reply]);
+    assert.deepEqual(definition(draft({ kind: 'reaction_added', room: 'r' })).steps, [reply]);
+    for (const trigger of [{ kind: 'command', name: 'c' }, { kind: 'member_joined', room: 'r' }, { kind: 'schedule', every: 'day', time: '09:00', timezone: 'UTC', room: 'r' }] as Trigger[]) {
+      assert.deepEqual(definition(draft(trigger)).steps, [{ kind: 'message', room: 'trigger', text: 'hi' }]);
+    }
+  });
+
+  test('lengths are counted in bytes, like the server counts them', () => {
+    const base = draft({ kind: 'command', name: 'c' });
+    // 64 two-byte letters: 64 UTF-16 units, 128 bytes.
+    assert.equal(draftProblem({ ...base, name: 'é'.repeat(64) }), null);
+    assert.equal(draftProblem({ ...base, name: 'é'.repeat(65) }), 'workflows.nameTooLong');
+    assert.equal(draftProblem({ ...base, description: '€'.repeat(171) }), 'workflows.descriptionTooLong');
+    assert.equal(draftProblem({ ...base, steps: [{ kind: 'message', room: 'trigger', text: 'é'.repeat(4097) }] }), 'workflows.templateTooLong');
+    assert.equal(draftProblem({ ...base, steps: [{ kind: 'http', method: 'POST', url: 'https://x', body: 'é'.repeat(4097) }] }), 'workflows.httpTooLong');
+    const form: Step = { kind: 'form', room: 'trigger', recipient: 'anyone', title: 'T', save_as: 'f', fields: [{ id: 'a', label: 'A', kind: 'choice', options: ['ok'] }] };
+    assert.equal(draftProblem({ ...base, steps: [form] }), null);
+    assert.equal(draftProblem({ ...base, steps: [{ ...form, title: 'é'.repeat(129) }] }), 'workflows.titleTooLong');
+    if (form.kind === 'form') {
+      assert.equal(draftProblem({ ...base, steps: [{ ...form, fields: [{ id: 'a', label: 'é'.repeat(129), kind: 'text' }] }] }), 'workflows.labelTooLong');
+      assert.equal(draftProblem({ ...base, steps: [{ ...form, fields: [{ id: 'a', label: 'A', kind: 'choice', options: ['é'.repeat(65)] }] }] }), 'workflows.optionTooLong');
+    }
+    for (const key of ['workflows.nameTooLong', 'workflows.templateTooLong', 'workflows.httpTooLong', 'workflows.optionTooLong', 'workflows.testUnsaved', 'workflows.webhookRegenerateBody'] as const) {
+      assert.notEqual(en(key), key);
+      assert.notEqual(fr(key), en(key));
+    }
+  });
+
+  test('a draft is unsaved only when it would send something else', () => {
+    const saved: Workflow = { ...fixture.workflow };
+    const same = draftOf(saved);
+    assert.equal(unsaved(same, saved), false);
+    // Spaces a save trims, and key order, change nothing.
+    const reordered = same.steps.map((step) => Object.fromEntries(Object.entries(step).reverse()) as Step);
+    assert.equal(unsaved({ ...same, name: ` ${same.name} `, steps: reordered }, saved), false);
+    assert.equal(unsaved({ ...same, name: 'Other' }, saved), true);
+    assert.equal(unsaved({ ...same, enabled: !same.enabled }, saved), true);
   });
 });

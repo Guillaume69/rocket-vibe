@@ -15,7 +15,7 @@
  * whether the bot belongs to them, its refusal worded.
  */
 
-import { useCallback, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useFocusEffect } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import { ActivityIndicator, Alert, AppState, Platform, StyleSheet, Switch, Text, View } from 'react-native';
@@ -56,9 +56,11 @@ import {
   defaultTrigger,
   definition,
   deviceTimeZone,
+  draftOf,
   draftProblem,
   fieldIdFor,
   hasTriggerRoom,
+  hasTriggerThread,
   hasTriggerUser,
   insertVariable,
   moveStep,
@@ -69,6 +71,7 @@ import {
   toggleDay,
   triggerSummary,
   uniqueName,
+  unsaved,
   variablesAt,
   waitParts,
   waitSeconds,
@@ -142,8 +145,17 @@ function Workflows({ c, chat, base, baseUrl }: { c: Colors; chat: NativeChat; ba
   const [error, setError] = useState<Failure | null>(null);
   const [notice, setNotice] = useState<TranslationKey | null>(null);
   const [confirming, setConfirming] = useState(false);
-  // A reload after a conflict replaces the draft even at the same revision.
+  // Bumped when the server's copy replaces the draft (a conflict, or a newer
+  // copy while nothing is unsaved): the editor starts over from `loaded`.
   const [editorEpoch, setEditorEpoch] = useState(0);
+  // The revision the draft builds on: a save sends it, so a copy moved
+  // elsewhere meanwhile is a conflict, never silently overwritten.
+  const basis = useRef<string | null>(null);
+  // The editor holds changes not saved yet (it says so as they come).
+  const dirty = useRef(false);
+  const setDirty = useCallback((value: boolean) => {
+    dirty.current = value;
+  }, []);
   const alive = useRef(false);
   const epoch = useRef(0);
   const inFlight = useRef<number | null>(null);
@@ -159,6 +171,8 @@ function Workflows({ c, chat, base, baseUrl }: { c: Colors; chat: NativeChat; ba
     setNotice(null);
     setConfirming(false);
     saveOperation.current = null;
+    basis.current = null;
+    dirty.current = false;
   }, []);
 
   /** One call at a time; then the list, my permission, my bots, my rooms and, in the editor, the workflow and its runs. */
@@ -198,6 +212,12 @@ function Workflows({ c, chat, base, baseUrl }: { c: Colors; chat: NativeChat; ba
           if (visible() && screenRef.current === current) {
             setLoaded(workflow);
             setRuns(history.runs);
+            if (basis.current === null) basis.current = workflow.revision;
+            else if (basis.current !== workflow.revision && !dirty.current) {
+              // Moved elsewhere, nothing unsaved here: the editor shows the new copy.
+              basis.current = workflow.revision;
+              setEditorEpoch((v) => v + 1);
+            }
           }
         }
       } catch (e) {
@@ -252,17 +272,24 @@ function Workflows({ c, chat, base, baseUrl }: { c: Colors; chat: NativeChat; ba
         setRuns([]);
         setList((l) => (l === null ? [created] : l.some((w) => w.id === created.id) ? l : [...l, created]));
         go({ kind: 'edit', id: created.id });
+        basis.current = created.revision;
       } else {
         try {
-          const updated = await chat.workflows((tr) => tr.updateWorkflow(current.id, { operation_id: operation, revision: current.revision, ...body }));
+          const revision = basis.current ?? current.revision;
+          const updated = await chat.workflows((tr) => tr.updateWorkflow(current.id, { operation_id: operation, revision, ...body }));
           saveOperation.current = null;
-          if (visible()) setLoaded(updated);
+          if (visible()) {
+            basis.current = updated.revision;
+            setLoaded(updated);
+          }
         } catch (e) {
           if (e instanceof NativeError && e.code === 'revision_conflict') {
             // Moved elsewhere: the server's copy replaces the draft, and says so.
             saveOperation.current = null;
             const fresh = await chat.workflows((tr) => tr.workflow(current.id));
             if (visible()) {
+              basis.current = fresh.revision;
+              dirty.current = false;
               setLoaded(fresh);
               setEditorEpoch((v) => v + 1);
             }
@@ -280,12 +307,14 @@ function Workflows({ c, chat, base, baseUrl }: { c: Colors; chat: NativeChat; ba
       if (visible()) setNotice('workflows.testStarted');
     });
 
-  const disable = (workflow: Workflow) =>
+  /** Off, the draft kept: `turnedOff` sets its switch, and a later save builds on the new revision. */
+  const disable = (workflow: Workflow, turnedOff: () => void) =>
     void run(async (visible) => {
       const off = await chat.workflows((tr) => tr.disableWorkflow(workflow.id));
       if (visible()) {
+        if (basis.current === workflow.revision) basis.current = off.revision;
         setLoaded(off);
-        setEditorEpoch((v) => v + 1);
+        turnedOff();
       }
     });
 
@@ -315,11 +344,33 @@ function Workflows({ c, chat, base, baseUrl }: { c: Colors; chat: NativeChat; ba
     );
   };
 
-  const generateWebhook = (workflow: Workflow) =>
-    void run(async (visible) => {
-      const secret = await chat.workflows((tr) => tr.workflowWebhook(workflow.id));
-      if (visible()) setWebhook({ workflow: workflow.id, url: `${baseUrl.replace(/\/+$/, '')}${secret.path}` });
-    }, 'webhook');
+  const generateWebhook = (workflow: Workflow) => {
+    const generate = () =>
+      void run(async (visible) => {
+        const secret = await chat.workflows((tr) => tr.workflowWebhook(workflow.id));
+        if (visible()) setWebhook({ workflow: workflow.id, url: `${baseUrl.replace(/\/+$/, '')}${secret.path}` });
+      }, 'webhook');
+    if (workflow.has_webhook !== true) {
+      generate();
+      return;
+    }
+    const n = epoch.current;
+    Alert.alert(
+      t('workflows.webhookRegenerateConfirm'),
+      t('workflows.webhookRegenerateBody'),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('workflows.webhookRegenerate'),
+          style: 'destructive',
+          onPress: () => {
+            if (alive.current && epoch.current === n) generate();
+          },
+        },
+      ],
+      dismissible(),
+    );
+  };
 
   const copy = (value: string) => {
     if (alive.current && AppState.currentState === 'active') void Clipboard.setStringAsync(value);
@@ -387,7 +438,7 @@ function Workflows({ c, chat, base, baseUrl }: { c: Colors; chat: NativeChat; ba
 
         {editing && (screen.id === null || loaded !== null) && (
           <Editor
-            key={`${loaded?.id ?? 'new'}:${loaded?.revision ?? ''}:${editorEpoch}`}
+            key={`${loaded?.id ?? 'new'}:${editorEpoch}`}
             c={c}
             workflow={loaded}
             bots={bots}
@@ -400,9 +451,10 @@ function Workflows({ c, chat, base, baseUrl }: { c: Colors; chat: NativeChat; ba
             onChange={() => {
               saveOperation.current = null;
             }}
+            onDirty={setDirty}
             onSave={save}
             onTest={() => loaded !== null && test(loaded)}
-            onDisable={() => loaded !== null && disable(loaded)}
+            onDisable={(turnedOff) => loaded !== null && disable(loaded, turnedOff)}
             onDelete={() => loaded !== null && remove(loaded)}
             onWebhook={() => loaded !== null && generateWebhook(loaded)}
             onDismissWebhook={() => setWebhook(null)}
@@ -424,9 +476,16 @@ function Workflows({ c, chat, base, baseUrl }: { c: Colors; chat: NativeChat; ba
   );
 }
 
-function Action({ c, label, onPress, disabled = false, danger = false }: { c: Colors; label: string; onPress: () => void; disabled?: boolean; danger?: boolean }) {
+function Action({ c, label, onPress, disabled = false, danger = false, accessibilityLabel }: {
+  c: Colors;
+  label: string;
+  onPress: () => void;
+  disabled?: boolean;
+  danger?: boolean;
+  accessibilityLabel?: string;
+}) {
   return (
-    <Tappable disabled={disabled} accessibilityRole="button" accessibilityState={{ disabled }} onPress={onPress}>
+    <Tappable disabled={disabled} accessibilityRole="button" accessibilityLabel={accessibilityLabel} accessibilityState={{ disabled }} onPress={onPress}>
       <Text style={[styles.action, { color: danger ? c.errorText : c.cyan, opacity: disabled ? 0.5 : 1 }]}>{label}</Text>
     </Tappable>
   );
@@ -603,7 +662,26 @@ function TemplateField({ c, label, value, variables, disabled, multiline, maxLen
   );
 }
 
-function Editor({ c, workflow, bots, rooms, people, runs, busy, webhookUrl, roomName, onChange, onSave, onTest, onDisable, onDelete, onWebhook, onDismissWebhook, onCopy, onRefreshRuns, onBack, webhookRefusal }: {
+/**
+ * Stable keys for a list edited in place (steps, fields, headers): each item's
+ * local state (a wait as typed, a person field's source) follows it when the
+ * list moves or shrinks, instead of staying at its index.
+ */
+function useKeys(count: number) {
+  const next = useRef(count);
+  const [keys, setKeys] = useState<number[]>(() => Array.from({ length: count }, (_, i) => i));
+  return {
+    key: (index: number) => keys[index] ?? `at-${index}`,
+    add: () => {
+      const key = next.current++;
+      setKeys((k) => [...k, key]);
+    },
+    remove: (index: number) => setKeys((k) => removeAt(k, index)),
+    move: (index: number, delta: number) => setKeys((k) => moveStep(k, index, delta)),
+  };
+}
+
+function Editor({ c, workflow, bots, rooms, people, runs, busy, webhookUrl, roomName, onChange, onDirty, onSave, onTest, onDisable, onDelete, onWebhook, onDismissWebhook, onCopy, onRefreshRuns, onBack, webhookRefusal }: {
   c: Colors;
   /** `null`: a new workflow. */
   workflow: Workflow | null;
@@ -615,9 +693,12 @@ function Editor({ c, workflow, bots, rooms, people, runs, busy, webhookUrl, room
   webhookUrl: string | null;
   roomName: (id: string) => string;
   onChange: () => void;
+  /** Whether the draft holds changes the saved workflow does not. */
+  onDirty: (dirty: boolean) => void;
   onSave: (draft: WorkflowDraft) => void;
   onTest: () => void;
-  onDisable: () => void;
+  /** Turns the saved workflow off; `turnedOff` runs once it is. */
+  onDisable: (turnedOff: () => void) => void;
   onDelete: () => void;
   onWebhook: () => void;
   onDismissWebhook: () => void;
@@ -630,16 +711,11 @@ function Editor({ c, workflow, bots, rooms, people, runs, busy, webhookUrl, room
   const date = useDate();
   const live = bots.filter((b) => !b.disabled || b.user.id === workflow?.bot.id);
   const [draft, setDraft] = useState<WorkflowDraft>(() => {
-    const trigger = workflow?.trigger ?? defaultTrigger('command', deviceTimeZone());
-    return {
-      name: workflow?.name ?? '',
-      description: workflow?.description ?? '',
-      botId: workflow?.bot.id ?? '',
-      enabled: workflow?.enabled ?? true,
-      trigger,
-      steps: workflow?.steps ?? [defaultStep('message', trigger, [])],
-    };
+    if (workflow !== null) return draftOf(workflow);
+    const trigger = defaultTrigger('command', deviceTimeZone());
+    return { name: '', description: '', botId: '', enabled: true, trigger, steps: [defaultStep('message', trigger, [])] };
   });
+  const stepKeys = useKeys(draft.steps.length);
   // A new workflow with a single bot, none picked yet: that one.
   const botId = draft.botId === '' && workflow === null && live.length === 1 ? live[0]!.user.id : draft.botId;
   const current: WorkflowDraft = { ...draft, botId };
@@ -651,6 +727,8 @@ function Editor({ c, workflow, bots, rooms, people, runs, busy, webhookUrl, room
   const setStep = (index: number, step: Step) => edit((d) => ({ ...d, steps: replaceAt(d.steps, index, step) }));
   const problem = draftProblem(current);
   const trigger = draft.trigger;
+  const changed = workflow !== null && unsaved(current, workflow);
+  useEffect(() => onDirty(changed), [changed, onDirty]);
 
   const removeStep = (index: number) =>
     Alert.alert(
@@ -658,7 +736,14 @@ function Editor({ c, workflow, bots, rooms, people, runs, busy, webhookUrl, room
       t('workflows.removeStepBody'),
       [
         { text: t('common.cancel'), style: 'cancel' },
-        { text: t('workflows.removeStep'), style: 'destructive', onPress: () => edit((d) => ({ ...d, steps: removeAt(d.steps, index) })) },
+        {
+          text: t('workflows.removeStep'),
+          style: 'destructive',
+          onPress: () => {
+            stepKeys.remove(index);
+            edit((d) => ({ ...d, steps: removeAt(d.steps, index) }));
+          },
+        },
       ],
       dismissible(),
     );
@@ -773,11 +858,29 @@ function Editor({ c, workflow, bots, rooms, people, runs, busy, webhookUrl, room
 
       <Text style={[styles.label, { color: c.dimmed }]}>{t('workflows.steps')}</Text>
       {draft.steps.map((step, index) => (
-        <View key={index} style={[styles.step, { borderColor: c.softBorder }]}>
+        <View key={stepKeys.key(index)} style={[styles.step, { borderColor: c.softBorder }]}>
           <View style={styles.stepHead}>
             <Text style={[styles.strong, styles.grow, { color: c.text }]}>{t('workflows.stepTitle', { n: index + 1, kind: t(STEP_TEXT[step.kind]) })}</Text>
-            <Action c={c} label="↑" disabled={busy || index === 0} onPress={() => edit((d) => ({ ...d, steps: moveStep(d.steps, index, -1) }))} />
-            <Action c={c} label="↓" disabled={busy || index === draft.steps.length - 1} onPress={() => edit((d) => ({ ...d, steps: moveStep(d.steps, index, 1) }))} />
+            <Action
+              c={c}
+              label="↑"
+              accessibilityLabel={t('workflows.moveUp', { n: index + 1 })}
+              disabled={busy || index === 0}
+              onPress={() => {
+                stepKeys.move(index, -1);
+                edit((d) => ({ ...d, steps: moveStep(d.steps, index, -1) }));
+              }}
+            />
+            <Action
+              c={c}
+              label="↓"
+              accessibilityLabel={t('workflows.moveDown', { n: index + 1 })}
+              disabled={busy || index === draft.steps.length - 1}
+              onPress={() => {
+                stepKeys.move(index, 1);
+                edit((d) => ({ ...d, steps: moveStep(d.steps, index, 1) }));
+              }}
+            />
             <Action c={c} label={t('workflows.removeStep')} danger disabled={busy} onPress={() => removeStep(index)} />
           </View>
           <StepEditor
@@ -802,7 +905,10 @@ function Editor({ c, workflow, bots, rooms, people, runs, busy, webhookUrl, room
                 key={kind}
                 disabled={busy}
                 accessibilityRole="button"
-                onPress={() => edit((d) => ({ ...d, steps: [...d.steps, defaultStep(kind, d.trigger, d.steps)] }))}
+                onPress={() => {
+                  stepKeys.add();
+                  edit((d) => ({ ...d, steps: [...d.steps, defaultStep(kind, d.trigger, d.steps)] }));
+                }}
                 style={[styles.chip, { borderColor: c.border }]}
               >
                 <Text style={[styles.chipText, { color: c.cyan }]}>+ {t(STEP_TEXT[kind])}</Text>
@@ -816,8 +922,15 @@ function Editor({ c, workflow, bots, rooms, people, runs, busy, webhookUrl, room
       <Action c={c} label={t('workflows.save')} disabled={busy || problem !== null} onPress={() => onSave(current)} />
       {workflow !== null && (
         <>
-          <Action c={c} label={t('workflows.test')} disabled={busy} onPress={onTest} />
-          {workflow.enabled && <Action c={c} label={t('workflows.disable')} disabled={busy} onPress={onDisable} />}
+          {workflow.trigger.kind === 'command' ? (
+            <Text style={[styles.hint, { color: c.dimmed }]}>{t('workflows.errTestCommand')}</Text>
+          ) : (
+            <>
+              <Action c={c} label={t('workflows.test')} disabled={busy || changed} onPress={onTest} />
+              {changed && <Text style={[styles.hint, { color: c.dimmed }]}>{t('workflows.testUnsaved')}</Text>}
+            </>
+          )}
+          {workflow.enabled && <Action c={c} label={t('workflows.disable')} disabled={busy} onPress={() => onDisable(() => setDraft((d) => ({ ...d, enabled: false })))} />}
           <Text style={[styles.label, { color: c.dimmed }]}>{t('workflows.runs')}</Text>
           {runs !== null && runs.length === 0 && <Text style={[styles.text, { color: c.dimmed }]}>{t('workflows.noRuns')}</Text>}
           {runs?.map((r) => (
@@ -849,13 +962,16 @@ function StepEditor({ c, step, trigger, variables, rooms, people, busy, roomName
   onChange: (step: Step) => void;
 }) {
   const t = useT();
+  const itemKeys = useKeys(step.kind === 'form' ? step.fields.length : step.kind === 'http' ? (step.headers ?? []).length : 0);
   switch (step.kind) {
     case 'message':
       return (
         <View style={styles.form}>
           <RoomPicker c={c} rooms={rooms} value={step.room} allowTrigger={hasTriggerRoom(trigger)} disabled={busy} roomName={roomName} onChange={(room) => onChange({ ...step, room })} />
           <TemplateField c={c} label={t('workflows.text')} value={step.text} variables={variables} disabled={busy} multiline maxLength={8192} onChange={(text) => onChange({ ...step, text })} />
-          <Toggle c={c} label={t('workflows.inThread')} value={step.in_thread === true} disabled={busy} onChange={(in_thread) => onChange({ ...step, in_thread })} />
+          {hasTriggerThread(trigger) && (
+            <Toggle c={c} label={t('workflows.inThread')} value={step.in_thread === true} disabled={busy} onChange={(in_thread) => onChange({ ...step, in_thread })} />
+          )}
           <PillField c={c} label={t('workflows.saveAs')} value={step.save_as ?? ''} editable={!busy} maxLength={32} onChangeText={(save_as) => onChange({ ...step, save_as: save_as.toLowerCase() })} />
         </View>
       );
@@ -870,13 +986,32 @@ function StepEditor({ c, step, trigger, variables, rooms, people, busy, roomName
           <TemplateField c={c} label={t('workflows.url')} value={step.url} variables={variables} disabled={busy} maxLength={2048} onChange={(url) => onChange({ ...step, url })} />
           <Text style={[styles.label, { color: c.dimmed }]}>{t('workflows.headers')}</Text>
           {headers.map((header, i) => (
-            <View key={i} style={[styles.nested, { borderColor: c.softBorder }]}>
+            <View key={itemKeys.key(i)} style={[styles.nested, { borderColor: c.softBorder }]}>
               <PillField c={c} label={t('workflows.headerName')} value={header.name} editable={!busy} maxLength={64} onChangeText={(name) => onChange({ ...step, headers: replaceAt(headers, i, { ...header, name }) })} />
               <TemplateField c={c} label={t('workflows.headerValue')} value={header.value} variables={variables} disabled={busy} maxLength={1024} onChange={(value) => onChange({ ...step, headers: replaceAt(headers, i, { ...header, value }) })} />
-              <Action c={c} label={t('workflows.removeHeader')} danger disabled={busy} onPress={() => onChange({ ...step, headers: removeAt(headers, i) })} />
+              <Action
+                c={c}
+                label={t('workflows.removeHeader')}
+                danger
+                disabled={busy}
+                onPress={() => {
+                  itemKeys.remove(i);
+                  onChange({ ...step, headers: removeAt(headers, i) });
+                }}
+              />
             </View>
           ))}
-          {headers.length < LIMITS.headers && <Action c={c} label={t('workflows.addHeader')} disabled={busy} onPress={() => onChange({ ...step, headers: [...headers, { name: '', value: '' }] })} />}
+          {headers.length < LIMITS.headers && (
+            <Action
+              c={c}
+              label={t('workflows.addHeader')}
+              disabled={busy}
+              onPress={() => {
+                itemKeys.add();
+                onChange({ ...step, headers: [...headers, { name: '', value: '' }] });
+              }}
+            />
+          )}
           <TemplateField c={c} label={t('workflows.body')} value={step.body ?? ''} variables={variables} disabled={busy} multiline maxLength={8192} onChange={(body) => onChange({ ...step, body })} />
           <PillField c={c} label={t('workflows.saveAs')} value={step.save_as ?? ''} editable={!busy} maxLength={32} onChangeText={(save_as) => onChange({ ...step, save_as: save_as.toLowerCase() })} />
           <Toggle c={c} label={t('workflows.continueOnError')} value={step.continue_on_error === true} disabled={busy} onChange={(continue_on_error) => onChange({ ...step, continue_on_error })} />
@@ -902,7 +1037,7 @@ function StepEditor({ c, step, trigger, variables, rooms, people, busy, roomName
           <PillField c={c} label={t('workflows.formTitle')} value={step.title} editable={!busy} maxLength={256} onChangeText={(title) => onChange({ ...step, title })} />
           <Text style={[styles.label, { color: c.dimmed }]}>{t('workflows.fields')}</Text>
           {fields.map((field, i) => (
-            <View key={i} style={[styles.nested, { borderColor: c.softBorder }]}>
+            <View key={itemKeys.key(i)} style={[styles.nested, { borderColor: c.softBorder }]}>
               <PillField
                 c={c}
                 label={t('workflows.fieldLabel')}
@@ -935,7 +1070,18 @@ function StepEditor({ c, step, trigger, variables, rooms, people, busy, roomName
                 </>
               )}
               <Toggle c={c} label={t('workflows.required')} value={field.required === true} disabled={busy} onChange={(required) => setField(i, { ...field, required })} />
-              {fields.length > 1 && <Action c={c} label={t('workflows.removeField')} danger disabled={busy} onPress={() => onChange({ ...step, fields: removeAt(fields, i) })} />}
+              {fields.length > 1 && (
+                <Action
+                  c={c}
+                  label={t('workflows.removeField')}
+                  danger
+                  disabled={busy}
+                  onPress={() => {
+                    itemKeys.remove(i);
+                    onChange({ ...step, fields: removeAt(fields, i) });
+                  }}
+                />
+              )}
             </View>
           ))}
           {fields.length < LIMITS.fields && (
@@ -943,7 +1089,10 @@ function StepEditor({ c, step, trigger, variables, rooms, people, busy, roomName
               c={c}
               label={t('workflows.addField')}
               disabled={busy}
-              onPress={() => onChange({ ...step, fields: [...fields, { id: uniqueName('field', fields.map((f) => f.id)), label: '', kind: 'text', required: false }] })}
+              onPress={() => {
+                itemKeys.add();
+                onChange({ ...step, fields: [...fields, { id: uniqueName('field', fields.map((f) => f.id)), label: '', kind: 'text', required: false }] });
+              }}
             />
           )}
           <PillField c={c} label={t('workflows.saveAsForm')} value={step.save_as} editable={!busy} maxLength={32} onChangeText={(save_as) => onChange({ ...step, save_as: save_as.toLowerCase() })} />

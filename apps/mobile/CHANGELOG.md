@@ -25,8 +25,8 @@ release, and its notes are that version's section here.
   containing some text, or a webhook whose URL is shown once; the room triggers fire for
   people only, never for a bot), and steps to
   add, reorder and remove (send a message, wait, call an HTTP service, ask a form), with
-  the variables each text may use one tap away. Save, test now, turn off, delete and the
-  last 50 runs. A form a workflow posts shows as a card in the room; its recipient, or any
+  the variables each text may use one tap away. Save, test now (a command is tried by
+  typing it), turn off, delete and the last 50 runs. A form a workflow posts shows as a card in the room; its recipient, or any
   member, answers it in a native sheet, and the card then says who answered. A form field
   can ask for a person, among a list picked in the editor or any member of the room, and
   a choice or a person field can take several answers, ticked as checkboxes. Workflow

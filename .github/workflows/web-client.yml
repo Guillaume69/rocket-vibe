@@ -29,6 +29,7 @@ jobs:
       DATABASE_URL: postgres://web:web-disposable-test-password@127.0.0.1:55435/web
       RV_WEB_TEST_URL: http://127.0.0.1:3417
       RV_WEB_SECURITY_USER: websecurity
+      RV_WEB_COMPOSER_USER: webcomposer
       RV_USER_PASSWORD: web-client-disposable-password
       RUST_TEST_THREADS: 4
     steps:
@@ -72,6 +73,7 @@ jobs:
           target/debug/rv-server create-user webalice --admin
           target/debug/rv-server create-user webbob
           target/debug/rv-server create-user websecurity
+          target/debug/rv-server create-user webcomposer --admin
           target/debug/rv-server serve --bind 127.0.0.1:3417 > .cache/web-server.log 2>&1 &
           for i in {1..60}; do
             if curl --fail --silent "$RV_WEB_TEST_URL/.well-known/rocketvibe" > /dev/null; then break; fi

@@ -39,7 +39,7 @@ RV_WEB_TEST_URL=http://127.0.0.1:3417 npm run test:composer
 RV_WEB_SECURITY_USER=websecurity npm run test:security
 ```
 
-Voice requires the server's isolated LiveKit configuration. Security requires the TLS SMTP fixture (`node apps/web/tests/smtp.mjs` from repository root), the server's SMTP configuration pointing to localhost:14653 and its fixture certificate, plus a fresh `websec*` account. Fixture captures are in ignored `.cache/smtp-mails.json`; screenshots in `.cache/web-shots`.
+Voice requires the server's isolated LiveKit configuration. Security requires the TLS SMTP fixture (`node apps/web/tests/smtp.mjs` from repository root), the server's SMTP configuration pointing to localhost:14653 and its fixture certificate, plus a fresh `websec*` account. The editor suite uses `RV_WEB_COMPOSER_USER` when set and creates its own room; CI seeds a separate `webcomposer` account to keep combined login scenarios within the native ten-per-minute account budget. Fixture captures are in ignored `.cache/smtp-mails.json`; screenshots in `.cache/web-shots`.
 
 ## Browser mappings and limits
 

@@ -56,6 +56,8 @@ export class App implements RowActions {
   account?: Account;
   info?: Discovery;
   room?: string;
+  draftReady = false;
+  roomOpening = 0;
   root?: string;
   firstUnread?: string;
   newPill = button(
@@ -442,6 +444,8 @@ export class App implements RowActions {
   }
   async stop(login = false): Promise<void> {
     this.generation++;
+    this.roomOpening++;
+    this.draftReady = false;
     await this.voice.leave(!login);
     clearTimeout(this.timer);
     clearTimeout(this.liveTimer);
@@ -1155,6 +1159,7 @@ export class App implements RowActions {
     const room = this.room ? this.model.rooms.get(this.room) : undefined;
     this.main.classList.toggle("room-open", !!room);
     this.composer.disabled =
+      !this.draftReady ||
       !room ||
       !!room.encrypted ||
       this.roomPermissions.get(room.id)?.send === false;
@@ -1244,7 +1249,10 @@ export class App implements RowActions {
   async openRoom(id: string, navigate = true, mark = true): Promise<void> {
     const account = this.account?.key;
     if (!account) return;
+    const opening = ++this.roomOpening;
+    this.draftReady = false;
     this.room = id;
+    this.composer.value = "";
     this.firstUnread = undefined;
     this.newPill.hidden = true;
     this.root = undefined;
@@ -1257,9 +1265,16 @@ export class App implements RowActions {
     this.refresh();
     const draft = (await read<string>("drafts", account + ":" + id)) || "";
     const staged = (await read<File[]>("staged", account + ":" + id)) || [];
-    if (account !== this.account?.key || id !== this.room) return;
+    if (
+      account !== this.account?.key ||
+      id !== this.room ||
+      opening !== this.roomOpening
+    )
+      return;
     this.composer.value = draft;
     this.staged = staged;
+    this.draftReady = true;
+    this.renderHeader();
     this.renderUploads();
     this.composer.focus();
     if (this.model.rooms.get(id)?.encrypted) {

@@ -10,6 +10,7 @@ All notable changes are documented here in English.
 - Remove the redundant server field from sign-in; the service origin is shown as plain text.
 - Center the conversation title in its header as GTK does.
 - Serialize call teardown before rejoining and ignore stale voice grants after leaving or signing out.
+- Restore drafts before enabling the editor so opening a fresh room cannot erase the first typed characters.
 
 ### Added
 

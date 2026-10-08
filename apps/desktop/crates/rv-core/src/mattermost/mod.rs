@@ -154,6 +154,10 @@ pub async fn kchat_servers(token: &str) -> Result<Vec<KchatServer>, RestError> {
         .flatten()
         .filter_map(|s| {
             let url = s.get("url")?.as_str()?.trim_end_matches('/').to_owned();
+            let parsed = Url::parse(&url).ok()?;
+            if parsed.scheme() != "https" || !is_kchat_host(&parsed) {
+                return None;
+            }
             let name = ["display_name", "name"]
                 .iter()
                 .find_map(|k| s.get(*k).and_then(Value::as_str).filter(|n| !n.is_empty()))

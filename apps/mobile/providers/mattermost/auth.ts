@@ -15,6 +15,7 @@
  */
 
 import type { Session } from '../../lib/auth.ts';
+import { originOf } from '../../lib/origin.ts';
 import type { ProviderKind } from '../../lib/provider.ts';
 import { MmClient, MmError } from './client.ts';
 import { membershipCounts } from './translator.ts';
@@ -86,7 +87,7 @@ export async function kchatServers(token: string, options: MmLoginOptions = {}):
   if (!Array.isArray(list)) return [];
   return list.flatMap((raw) => {
     const s = raw as Record<string, unknown>;
-    return typeof s.url === 'string' && typeof s.id === 'string'
+    return typeof s.url === 'string' && typeof s.id === 'string' && isKchatServer(s.url)
       ? [{ id: s.id, name: String(s.name ?? ''), displayName: String(s.display_name ?? s.name ?? s.url), url: s.url.replace(/\/+$/, '') }]
       : [];
   });
@@ -116,13 +117,16 @@ export async function probeMattermost(baseUrl: string, signal?: AbortSignal, fet
   }
 }
 
+const KCHAT_ORIGIN = /^https?:\/\/([a-z0-9-]+\.)*kchat\.infomaniak\.com(:443)?$/;
+
 export function isKchatHost(baseUrl: string): boolean {
-  try {
-    const host = new URL(baseUrl).hostname;
-    return host === 'kchat.infomaniak.com' || host.endsWith('.kchat.infomaniak.com');
-  } catch {
-    return false;
-  }
+  const origin = originOf(baseUrl);
+  return origin !== null && KCHAT_ORIGIN.test(origin);
+}
+
+/** The directory's answer decides where the account-wide Infomaniak token goes: https on Infomaniak only. */
+function isKchatServer(url: string): boolean {
+  return url.toLowerCase().startsWith('https://') && isKchatHost(url);
 }
 
 function sessionFrom(baseUrl: string, token: string, me: Record<string, unknown>, kind: ProviderKind): Session {

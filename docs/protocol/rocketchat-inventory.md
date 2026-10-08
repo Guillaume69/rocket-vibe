@@ -155,8 +155,8 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/mattermost/mod.rs:129](../../apps/desktop/crates/rv-core/src/mattermost/mod.rs#L129) | call:GET | "users/me" |
 | [apps/desktop/crates/rv-core/src/mattermost/mod.rs:136](../../apps/desktop/crates/rv-core/src/mattermost/mod.rs#L136) | call:POST | "users/logout" |
 | [apps/desktop/crates/rv-core/src/mattermost/mod.rs:150](../../apps/desktop/crates/rv-core/src/mattermost/mod.rs#L150) | call:GET | "users/me/servers" |
-| [apps/desktop/crates/rv-core/src/mattermost/mod.rs:228](../../apps/desktop/crates/rv-core/src/mattermost/mod.rs#L228) | call:GET | path, options).await?.as_array().cloned().unwrap_or_default(); |
-| [apps/desktop/crates/rv-core/src/mattermost/mod.rs:244](../../apps/desktop/crates/rv-core/src/mattermost/mod.rs#L244) | call:GET | "users/me/channels" |
+| [apps/desktop/crates/rv-core/src/mattermost/mod.rs:232](../../apps/desktop/crates/rv-core/src/mattermost/mod.rs#L232) | call:GET | path, options).await?.as_array().cloned().unwrap_or_default(); |
+| [apps/desktop/crates/rv-core/src/mattermost/mod.rs:248](../../apps/desktop/crates/rv-core/src/mattermost/mod.rs#L248) | call:GET | "users/me/channels" |
 | [apps/desktop/crates/rv-core/src/mattermost/pusher.rs:102](../../apps/desktop/crates/rv-core/src/mattermost/pusher.rs#L102) | call:GET | "config/client", config), rest.get("users/me" |
 | [apps/desktop/crates/rv-core/src/mattermost/socket.rs:83](../../apps/desktop/crates/rv-core/src/mattermost/socket.rs#L83) | url | /api/v4/websocket |
 | [apps/desktop/crates/rv-core/src/mattermost/sync.rs:138](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L138) | call:GET | &format!("posts/{…}") |

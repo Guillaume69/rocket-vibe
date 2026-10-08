@@ -195,8 +195,11 @@ struct AdminView: View {
                 if model.isMe(user) {
                     Text(L("admin.yourself")).foregroundStyle(.secondary)
                 } else {
-                    Button(L(user.admin ? "admin.remove_admin" : "admin.make_admin")) {
-                        Task { await model.setAdmin(user, !user.admin) }
+                    // A bot is never an administrator (the server refuses, `bot_privilege`).
+                    if !user.bot || user.admin {
+                        Button(L(user.admin ? "admin.remove_admin" : "admin.make_admin")) {
+                            Task { await model.setAdmin(user, !user.admin) }
+                        }
                     }
                     Button(L(user.active ? "admin.deactivate" : "admin.activate"), role: user.active ? .destructive : nil) {
                         if user.active {
@@ -491,6 +494,16 @@ struct AdminDashboard: View {
                         AdminValue(title: L("admin.reported_messages"), value: AdminText.figure(o.reportedMessages))
                         AdminValue(title: L("admin.reported_users"), value: AdminText.figure(o.reportedUsers))
                         Button(L("admin.open_moderation")) { model.show(.moderation) }
+                    }
+                    // RocketVibe with bots only: the model leaves it nil elsewhere.
+                    if let on = model.userBots {
+                        AdminCard(title: L("admin.bots")) {
+                            Toggle(isOn: Binding(get: { on }, set: { value in Task { await model.setUserBots(value) } })) {
+                                Text(L("admin.user_bots"))
+                                Text(L("admin.user_bots_hint"))
+                            }
+                            .disabled(model.settingUserBots)
+                        }
                     }
                 }
                 .padding(20)

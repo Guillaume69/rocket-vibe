@@ -1,6 +1,6 @@
 import { Redirect, Stack, useRouter } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 
 import { humanBytes, updateStatus, uptimeParts, type AdminOverview, type ProviderAdmin } from '../../lib/admin.ts';
 import { AdminCard, AdminGate, ItemAction, StatLine, adminStyles, useAdminError, useAdminFormat } from '../../ui/adminKit.tsx';
@@ -99,6 +99,7 @@ function Dashboard({ c, admin }: { c: Colors; admin: ProviderAdmin }) {
       {error !== null && <Text style={[styles.error, { color: c.errorText }]}>{t(error)}</Text>}
       {overview === null && error === null && <ActivityIndicator color={c.accent} style={styles.loading} />}
       {overview !== null && <Cards c={c} o={overview} latest={latest} units={units} refreshing={refreshing} onRefresh={refresh} onReports={() => router.push('/admin/moderation')} />}
+      {admin.userBots !== undefined && <BotSetting c={c} admin={admin} />}
 
       <View style={[styles.list, { backgroundColor: c.deepCard, borderColor: c.border }]}>
         <NavRow c={c} icon="🛡️" label={t('admin.moderation')} hint={t('admin.moderationHint')} count={reports} first onPress={() => router.push('/admin/moderation')} />
@@ -181,6 +182,52 @@ function Cards({ c, o, latest, units, refreshing, onRefresh, onReports }: { c: C
   );
 }
 
+/**
+ * RocketVibe with bots (RFC 0003): the instance switch that opens bot creation
+ * to every account. Hidden on Rocket.Chat and on a server without bots; the
+ * switch shows the server's answer, never an unconfirmed state.
+ */
+function BotSetting({ c, admin }: { c: Colors; admin: ProviderAdmin }) {
+  const t = useT();
+  const describe = useAdminError();
+  const [on, setOn] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<TranslationKey | null>(null);
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    admin.userBots?.().then(
+      (value) => { if (alive.current) setOn(value); },
+      (e: unknown) => { if (alive.current) setError(describe(e)); },
+    );
+    return () => {
+      alive.current = false;
+    };
+  }, [admin, describe]);
+  const change = (next: boolean) => {
+    if (busy || admin.setUserBots === undefined) return;
+    setBusy(true);
+    setError(null);
+    admin.setUserBots(next).then(
+      (value) => { if (alive.current) setOn(value); },
+      (e: unknown) => { if (alive.current) setError(describe(e)); },
+    ).finally(() => { if (alive.current) setBusy(false); });
+  };
+  if (on === null && error === null) return null;
+  return (
+    <AdminCard c={c} title={t('admin.bots')}>
+      {on !== null && (
+        <View style={styles.toggle}>
+          <Text style={[styles.toggleLabel, { color: c.text }]}>{t('admin.userBots')}</Text>
+          <Switch accessibilityLabel={t('admin.userBots')} value={on} disabled={busy} onValueChange={change} />
+        </View>
+      )}
+      <Text style={[styles.help, { color: c.dimmed }]}>{t('admin.userBotsHint')}</Text>
+      {error !== null && <Text style={[styles.error, { color: c.errorText }]}>{t(error)}</Text>}
+    </AdminCard>
+  );
+}
+
 function NavRow({ c, icon, label, hint, count, first = false, onPress }: { c: Colors; icon: string; label: string; hint: string; count?: number; first?: boolean; onPress: () => void }) {
   return (
     <Tappable
@@ -222,4 +269,7 @@ const styles = StyleSheet.create({
   count: { minWidth: 24, height: 24, borderRadius: 12, paddingHorizontal: 7, alignItems: 'center', justifyContent: 'center' },
   countText: { fontFamily: FONTS.bodyStrong, fontSize: 12.5 },
   chevron: { fontFamily: FONTS.title, fontSize: 24 },
+  toggle: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  toggleLabel: { flex: 1, fontFamily: FONTS.bodyBold, fontSize: 14 },
+  help: { fontFamily: FONTS.body, fontSize: 12.5, lineHeight: 17 },
 });

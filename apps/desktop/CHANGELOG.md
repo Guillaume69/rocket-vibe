@@ -11,9 +11,21 @@ section here.
 
 - A pill over the top of a room (GTK and SwiftUI), "N new messages since HH:MM", while the
   first unread message is above the view; a click jumps to it.
+- Bot accounts on RocketVibe servers (GTK and SwiftUI): a Bots category in the settings
+  lists my bots, creates one (when the administrator allows it), edits its display name,
+  description and scopes (each with the API routes the server opens to it), changes or
+  removes its photo, creates a key shown once with a ready-to-paste example, revokes keys
+  and deletes the bot. Messages, profiles and room members show a "BOT" badge; a bot's
+  profile names its owner and shows no encryption identity. The administration's
+  dashboard gets a "Users can create bots" switch, and its Users list marks RocketVibe
+  bots and does not offer making a bot an administrator.
 
 ### Fixed
 
+- GTK: buttons in the settings and administration lists (Save, Create key, Confirm my identity,
+  Open moderation...) were flattened to a thin line and their icons oversized; expandable rows,
+  entry rows and combo rows lost their look the same way. Monospace texts (bot keys, API routes)
+  now use a monospace font, and a wrapped key or command is never hyphenated.
 - GTK: Restart, after an update installed in place, did nothing on Linux tarball installs.
 - GTK: a message no longer disappears and comes back when someone reacts to it or
   edits it.

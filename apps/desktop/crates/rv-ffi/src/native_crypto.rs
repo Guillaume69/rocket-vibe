@@ -68,6 +68,12 @@ pub(crate) fn error(error: Error) -> RvError {
     match error {
         Error::Session(error) => rv_core::native::rest_error(error).into(),
         error if error.untrusted() => RvError::Local { message: "crypto_peer_untrusted".into() },
+        // The server's refusal of a group with a bot member, carried with its
+        // code so the apps word it (`PeerIdentityModel.cryptoFailure`).
+        error if error.bot_member() => match error.refusal() {
+            Some(refusal) => rv_core::native::rest_error(refusal).into(),
+            None => RvError::Local { message: "crypto_operation_failed".into() },
+        },
         _ => RvError::Local { message: "crypto_operation_failed".into() },
     }
 }
@@ -222,5 +228,31 @@ impl NativeCrypto {
 impl Drop for NativeCrypto {
     fn drop(&mut self) {
         self.close();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_bot_member_crosses_with_its_code() {
+        let refused = Error::Delivery(rv_crypto::delivery::Error::Network(rv_client::Error::Server {
+            status: 409,
+            code: "crypto_bot_member".into(),
+            request_id: Some("r1".into()),
+            retry_after: None,
+        }));
+        match error(refused) {
+            RvError::Server { status, error, request_id, .. } => {
+                assert_eq!(
+                    (status, error.as_deref(), request_id.as_deref()),
+                    (409, Some("crypto_bot_member"), Some("r1"))
+                );
+            }
+            other => panic!("{other:?}"),
+        }
+        let failed = error(Error::Delivery(rv_crypto::delivery::Error::Worker));
+        assert!(matches!(failed, RvError::Local { message } if message == "crypto_operation_failed"));
     }
 }

@@ -373,6 +373,8 @@ pub struct MessageItem {
     pub thread_id: Option<String>,
     pub pinned: bool,
     pub starred: bool,
+    /// Written by a bot account (RocketVibe): a "BOT" badge beside the name.
+    pub author_bot: bool,
 }
 
 pub fn quote(q: content::Quote, me: &str) -> Quote {
@@ -472,6 +474,7 @@ pub fn message(d: Display, me_id: &str, me: &str) -> MessageItem {
         thread_count: row.thread_count,
         pinned: row.pinned,
         starred: row.starred_by(me_id),
+        author_bot: row.author_bot,
         id: row.id,
         rid: row.rid,
         ts: row.ts,

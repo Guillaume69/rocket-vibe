@@ -50,7 +50,10 @@ private content: an admin reads a message only through an open report, as its re
 saw it. Members report messages and accounts (`reports` capability), at most 200 open
 reports each. Deleting an account tombstones it: its messages, reactions and quotes stay
 under "Deleted user", everything personal and its access are removed, and its former
-username is retired for good (`retired_usernames`). The [file lifecycle](../../docs/protocol/FILES.md)
+username is retired for good (`retired_usernames`). [Bots](../../docs/protocol/BOTS.md)
+are accounts owned by a person that act with API keys inside scopes, out of encrypted
+rooms; administrators open their creation to everyone with `set-instance --user-bots
+true` or the dashboard switch. The [file lifecycle](../../docs/protocol/FILES.md)
 offers preparation, streamed transfer, idempotent confirmation and protected
 download / Range. Outboxes and readers are wired to the existing clients.
 [Voice](../../docs/protocol/VOICE.md) runs over an operator LiveKit SFU

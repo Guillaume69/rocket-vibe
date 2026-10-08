@@ -44,6 +44,7 @@ pub(crate) struct MessageRow {
     pub username: String,
     pub display_name: String,
     pub author_deleted: bool,
+    pub author_bot: bool,
     pub text: String,
     pub reply_to: Option<String>,
     pub thread_replies: i64,
@@ -75,6 +76,7 @@ impl MessageRow {
                 username: self.username,
                 display_name: self.display_name,
                 deleted: self.author_deleted,
+                bot: self.author_bot,
             }),
             text: self.text,
             reply_to: self.reply_to,
@@ -129,7 +131,7 @@ impl MessageRow {
     }
 }
 
-pub(crate) const MESSAGE_SELECT: &str = "SELECT m.id,m.room_id,m.author_id,u.username,u.display_name,u.deleted AS author_deleted,m.text,m.reply_to,(SELECT count(*) FROM messages r WHERE r.reply_to=m.id AND NOT r.deleted) AS thread_replies,(SELECT max(r.created_at) FROM messages r WHERE r.reply_to=m.id AND NOT r.deleted) AS thread_last_reply,m.system,m.created_at,m.position,m.revision,m.deleted,m.edited_at,m.pinned,m.quote_references,m.files,m.previews,m.cards,(SELECT jsonb_strip_nulls(jsonb_build_object('state',v.state,'duration_seconds',CASE WHEN v.answered_at IS NOT NULL AND v.ended_at IS NOT NULL THEN floor(extract(epoch FROM v.ended_at-v.answered_at))::int END)) FROM voice_rings v WHERE v.message_id=m.id) AS call,COALESCE((SELECT jsonb_agg(jsonb_build_object('emoji',g.emoji,'users',g.users) ORDER BY g.emoji) FROM (SELECT e.emoji,jsonb_agg(jsonb_build_object('id',a.id,'username',a.username,'display_name',a.display_name,'deleted',a.deleted) ORDER BY a.id) AS users FROM message_reactions e JOIN users a ON a.id=e.user_id WHERE e.message_id=m.id GROUP BY e.emoji) g),'[]'::jsonb) AS reactions FROM messages m JOIN users u ON u.id=m.author_id";
+pub(crate) const MESSAGE_SELECT: &str = "SELECT m.id,m.room_id,m.author_id,u.username,u.display_name,u.deleted AS author_deleted,u.bot AS author_bot,m.text,m.reply_to,(SELECT count(*) FROM messages r WHERE r.reply_to=m.id AND NOT r.deleted) AS thread_replies,(SELECT max(r.created_at) FROM messages r WHERE r.reply_to=m.id AND NOT r.deleted) AS thread_last_reply,m.system,m.created_at,m.position,m.revision,m.deleted,m.edited_at,m.pinned,m.quote_references,m.files,m.previews,m.cards,(SELECT jsonb_strip_nulls(jsonb_build_object('state',v.state,'duration_seconds',CASE WHEN v.answered_at IS NOT NULL AND v.ended_at IS NOT NULL THEN floor(extract(epoch FROM v.ended_at-v.answered_at))::int END)) FROM voice_rings v WHERE v.message_id=m.id) AS call,COALESCE((SELECT jsonb_agg(jsonb_build_object('emoji',g.emoji,'users',g.users) ORDER BY g.emoji) FROM (SELECT e.emoji,jsonb_agg(jsonb_build_object('id',a.id,'username',a.username,'display_name',a.display_name,'deleted',a.deleted) ORDER BY a.id) AS users FROM message_reactions e JOIN users a ON a.id=e.user_id WHERE e.message_id=m.id GROUP BY e.emoji) g),'[]'::jsonb) AS reactions FROM messages m JOIN users u ON u.id=m.author_id";
 
 pub(crate) fn send_fingerprint(room: &str, text: &str) -> String {
     crate::auth::hash_token(&serde_json::json!([room, text]).to_string())
@@ -358,6 +360,7 @@ pub async fn join_public(app: &App, account: &Account, room_id: &str) -> Result<
     .await?
     .ok_or_else(Error::missing)?
     .wire();
+    crate::bots::refuse_encrypted(&mut tx, room_id, &account.id).await?;
     let inserted = sqlx::query(
         "INSERT INTO members(room_id,user_id,role) VALUES($1,$2,'member') ON CONFLICT DO NOTHING",
     )
@@ -416,6 +419,8 @@ pub async fn direct(app: &App, account: &Account, target: &str) -> Result<Room> 
         tx.commit().await?;
         return Ok(room.wire());
     }
+    // Only a new conversation spends a bot's budget.
+    crate::bots::budget(&mut tx, account, "direct", crate::bots::DIRECT_PER_MINUTE).await?;
     let id = random_token()[..24].to_owned();
     sqlx::query("INSERT INTO rooms(id,name,kind,direct_pair) VALUES($1,$3,'direct',$2)")
         .bind(&id)
@@ -505,6 +510,7 @@ pub async fn membership(
             .await?
             .rows_affected()
     } else {
+        crate::bots::refuse_encrypted(&mut tx, room_id, target).await?;
         sqlx::query("INSERT INTO members(room_id,user_id,role) VALUES($1,$2,'member') ON CONFLICT DO NOTHING")
             .bind(room_id).bind(target).execute(&mut *tx).await?.rows_affected()
     };
@@ -650,6 +656,8 @@ pub(crate) async fn send_in_tx(
         }
         return Ok(existing.wire());
     }
+    // Plain sends have no budget of their own; a bot's new ones do (RFC 0003 §9).
+    crate::bots::budget(tx, account, "send", crate::bots::SENDS_PER_MINUTE).await?;
     crate::permissions::require_send(tx, room_id, &account.id).await?;
     crate::e2ee::groups::require_plaintext(tx, room_id).await?;
     if let Some(root) = &input.reply_to {

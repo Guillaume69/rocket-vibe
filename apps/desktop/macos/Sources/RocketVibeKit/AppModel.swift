@@ -49,6 +49,9 @@ public final class AppModel {
     public internal(set) var admin: AdminModel?
     /// The report being written, for the window's sheet.
     public internal(set) var reporting: ReportDraft?
+    /// A bot key just made (`BotsModel.createKey`), for the window's sheet:
+    /// shown once, in memory only, dropped when dismissed or the account ends.
+    public internal(set) var botKey: NativeBotKeyCreated?
 
     /// Room ids opened, for back and forward.
     var history: [String] = []
@@ -77,6 +80,9 @@ public final class AppModel {
     }
 
     public var rooms: [Room] { groups.flatMap(\.rooms) }
+
+    /// The new bot key's sheet closed: the key is gone for good.
+    public func dismissBotKey() { botKey = nil }
 
     public var unreadRooms: Int { rooms.filter { $0.unread > 0 || $0.alert }.count }
 
@@ -217,6 +223,7 @@ public final class AppModel {
         closeAdmin()
         administrator = false
         reporting = nil
+        botKey = nil
         room?.deactivate()
         thread?.deactivate()
         provider?.shutdown()

@@ -78,6 +78,10 @@ public func peerNextStep(_ value: NativePeerState) -> String? {
 
 /// A crypto failure as shown: an untrusted member says what to do.
 public func cryptoFailure(_ error: Error) -> String {
+    // A bot member blocks the group: it must leave first (RFC 0003).
+    if case let RvError.Server(status, _, code, _, _, _) = error, code == "crypto_bot_member" {
+        return L(botErrorKey(code: "crypto_bot_member", status: status))
+    }
     if case RvError.Local(let message) = error, message == "crypto_peer_untrusted" {
         return L("crypto.group_untrusted")
     }

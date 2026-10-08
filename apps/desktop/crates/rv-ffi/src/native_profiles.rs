@@ -94,7 +94,7 @@ impl NativeChat {
         on_tokio(async move { s.direct_user(&user_id).await }).await.map_err(error)
     }
     pub fn profile_avatar_current(&self, id: String) -> bool {
-        !self.session.is_closed() && self.session.store.avatar_current(&id).unwrap_or(false)
+        self.session.avatar_current(&id).unwrap_or(false)
     }
     pub fn user_avatar(&self, username: String) -> Option<String> {
         if self.session.is_closed() {
@@ -123,6 +123,8 @@ impl NativeChat {
                 local_time: None,
                 bio: p.bio,
                 avatar: p.avatar_etag.map(|id| format!("rv-avatar:{id}")).unwrap_or_default(),
+                bot: p.bot,
+                bot_owner: p.bot_owner,
             })
         })
         .await

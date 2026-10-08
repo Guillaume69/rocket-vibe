@@ -118,7 +118,7 @@ pub fn with_native_photo(
             let key = id.clone();
             let reader = s.clone();
             let bytes = crate::on_tokio(async move { reader.profile_avatar(&key).await }).await;
-            if s.is_closed() || !s.store.avatar_current(&id).unwrap_or(false) {
+            if !s.avatar_current(&id).unwrap_or(false) {
                 return;
             }
             if let (Some(tile), Ok(bytes)) = (weak.upgrade(), bytes)
@@ -596,6 +596,11 @@ fn message_from_provider(
         }
         opens_profile(&name, on_event.clone(), &author);
         header.append(&name);
+        if row.author_bot {
+            let bot = widgets::bot_badge();
+            bot.set_valign(gtk::Align::Center);
+            header.append(&bot);
+        }
         let time = label(&local(row.ts).format("%H:%M").to_string(), &["message-time"]);
         name.set_valign(gtk::Align::BaselineCenter);
         time.set_valign(gtk::Align::BaselineCenter);

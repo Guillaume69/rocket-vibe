@@ -1,6 +1,6 @@
 // Generated from crates/rv-protocol. Run scripts/generate-native-protocol.mjs.
 export type AcceptInvitation = { "password": string; "token": string; "username": string; };
-export type AccountPermissions = { "create_private_room": boolean; "create_public_room": boolean; "manage_accounts": boolean; "manage_instance": boolean; };
+export type AccountPermissions = { "create_bot"?: boolean; "create_private_room": boolean; "create_public_room": boolean; "manage_accounts": boolean; "manage_instance": boolean; };
 export type AdminContract = { "delete_user": DeleteAdminUser; "operation": AdminOperation; "overview": AdminOverview; "report": ReportInput; "reported_messages": AdminReportedMessagePage; "reported_users": AdminReportedUserPage; "room_page": AdminRoomPage; "update_user": UpdateAdminUser; "user_page": AdminUserPage; };
 export type AdminMessageCounts = { "direct": number; "encrypted": number; "private": number; "public": number; "total": number; };
 export type AdminOperation = { "operation_id": string; };
@@ -15,7 +15,7 @@ export type AdminRoom = { "created_at"?: string | null; "direct_members"?: (User
 export type AdminRoomCounts = { "direct": number; "encrypted": number; "private": number; "public": number; "total": number; };
 export type AdminRoomPage = { "items": (AdminRoom)[]; "next"?: string | null; };
 export type AdminUploadCounts = { "bytes": number; "count": number; };
-export type AdminUser = { "admin": boolean; "avatar_file_id"?: string | null; "created_at"?: string | null; "disabled": boolean; "display_name": string; "id": string; "last_seen_at"?: string | null; "revision": string; "status": PresenceStatus; "username": string; };
+export type AdminUser = { "admin": boolean; "avatar_file_id"?: string | null; "bot"?: boolean; "created_at"?: string | null; "disabled": boolean; "display_name": string; "id": string; "last_seen_at"?: string | null; "revision": string; "status": PresenceStatus; "username": string; };
 export type AdminUserCounts = { "active": number; "admins": number; "away": number; "busy": number; "deactivated": number; "offline": number; "online": number; "total": number; };
 export type AdminUserPage = { "items": (AdminUser)[]; "next"?: string | null; };
 export type AnswerRing = { "data_epoch": string; "e2ee"?: boolean; "membership_version": string; };
@@ -32,8 +32,18 @@ export type AvatarCommand = { "expected_revision": string; "operation_id": strin
 export type BeginEmailVerification = { "address": string; "context": ReauthenticationContext; "expected_version": string; "operation_id": string; "verification_id": string; "verification_version": string; };
 export type BeginFactorSetup = { "operation_id": string; };
 export type BeginReauthentication = { "challenge_id": string; "context"?: ReauthenticationContext | null; "operation_id": string; "password": string; "proof_version": string; };
+export type Bot = { "avatar_file_id"?: string | null; "created_at": string; "description": string; "disabled": boolean; "live_keys": number; "owner": User; "scopes": (BotScope)[]; "user": User; };
+export type BotKey = { "created_at": string; "expires_at"?: string | null; "hint": string; "id": string; "label": string; "last_used_at"?: string | null; };
+export type BotKeyCreated = { "info": BotKey; "key": string; };
+export type BotKeyList = { "keys": (BotKey)[]; };
+export type BotList = { "bots": (Bot)[]; };
+export type BotReference = { "direct_per_minute": number; "groups": (BotScopeRoutes)[]; "key_prefix": string; "sends_per_minute": number; };
+export type BotRoute = { "also"?: (BotScope)[]; "method": string; "path": string; };
+export type BotScope = "rooms:read" | "messages:write" | "files:write" | "reactions:write" | "rooms:join" | "users:read" | "dm:write";
+export type BotScopeRoutes = { "routes": (BotRoute)[]; "scope"?: BotScope | null; };
+export type BotsContract = { "bot": Bot; "bot_key": BotKey; "bot_key_created": BotKeyCreated; "bot_key_list": BotKeyList; "bot_list": BotList; "bot_reference": BotReference; "create_bot": CreateBot; "create_bot_key": CreateBotKey; "instance_settings": InstanceSettings; "update_bot": UpdateBot; "update_instance_settings": UpdateInstanceSettings; };
 export type CallSummary = { "duration_seconds"?: number | null; "state": RingState; };
-export type Capabilities = { "account_invitations"?: boolean; "account_recovery"?: boolean; "administration"?: boolean; "calls": boolean; "custom_emojis"?: boolean; "deletion"?: boolean; "device_sessions"?: boolean; "direct_messages": boolean; "durable_sync": boolean; "e2ee": boolean; "editing"?: boolean; "email_factor_delivery"?: boolean; "email_factors"?: boolean; "email_recovery"?: boolean; "email_removal"?: boolean; "email_verification"?: boolean; "favorites"?: boolean; "fine_permissions"?: boolean; "idempotent_room_creation"?: boolean; "link_previews"?: boolean; "pins"?: boolean; "presence"?: boolean; "private_rooms": boolean; "profile_avatars"?: boolean; "profiles"?: boolean; "push": boolean; "quotes"?: boolean; "reactions": boolean; "read_markers"?: boolean; "reauthentication"?: boolean; "reauthentication_retirement"?: boolean; "reports"?: boolean; "room_discovery"?: boolean; "room_info"?: boolean; "room_leave"?: boolean; "room_roles"?: boolean; "room_settings"?: boolean; "search"?: boolean; "second_factors"?: boolean; "session_rotation"?: boolean; "slash_commands"?: boolean; "snapshot_paging"?: boolean; "stars"?: boolean; "structured_cards"?: boolean; "text_messages": boolean; "threads": boolean; "typing"?: boolean; "uploads": boolean; "voice"?: boolean; };
+export type Capabilities = { "account_invitations"?: boolean; "account_recovery"?: boolean; "administration"?: boolean; "bots"?: boolean; "calls": boolean; "custom_emojis"?: boolean; "deletion"?: boolean; "device_sessions"?: boolean; "direct_messages": boolean; "durable_sync": boolean; "e2ee": boolean; "editing"?: boolean; "email_factor_delivery"?: boolean; "email_factors"?: boolean; "email_recovery"?: boolean; "email_removal"?: boolean; "email_verification"?: boolean; "favorites"?: boolean; "fine_permissions"?: boolean; "idempotent_room_creation"?: boolean; "link_previews"?: boolean; "pins"?: boolean; "presence"?: boolean; "private_rooms": boolean; "profile_avatars"?: boolean; "profiles"?: boolean; "push": boolean; "quotes"?: boolean; "reactions": boolean; "read_markers"?: boolean; "reauthentication"?: boolean; "reauthentication_retirement"?: boolean; "reports"?: boolean; "room_discovery"?: boolean; "room_info"?: boolean; "room_leave"?: boolean; "room_roles"?: boolean; "room_settings"?: boolean; "search"?: boolean; "second_factors"?: boolean; "session_rotation"?: boolean; "slash_commands"?: boolean; "snapshot_paging"?: boolean; "stars"?: boolean; "structured_cards"?: boolean; "text_messages": boolean; "threads": boolean; "typing"?: boolean; "uploads": boolean; "voice"?: boolean; };
 export type CardField = { "short"?: boolean; "title": string; "value": string; };
 export type Change = { "data": Room; "type": "room_upsert"; } | { "data": Message; "type": "message_upsert"; } | { "data": { "room_id": string; }; "type": "room_removed"; };
 export type ChangeEmailFactor = { "context": ReauthenticationContext; "email_version": string; "factor_version"?: string | null; "operation_id": string; };
@@ -42,6 +52,8 @@ export type CommandList = { "commands": (SlashCommand)[]; };
 export type CommitHistoryShare = { "scope": Scope; "share": string; };
 export type CompleteUpload = { "content": MessageContent; "operation_id": string; "reply_to"?: string | null; };
 export type ConfirmEmailVerification = { "code": string; "context": ReauthenticationContext; "operation_id": string; "verification_id": string; };
+export type CreateBot = { "description"?: string; "display_name": string; "operation_id": string; "scopes"?: (BotScope)[]; "username": string; };
+export type CreateBotKey = { "expires_in_days"?: number | null; "label": string; "operation_id": string; };
 export type CreateRoom = { "name": string; "operation_id"?: string | null; "private": boolean; "voice"?: boolean; };
 export type CustomEmoji = { "aliases": (string)[]; "bytes": string; "file_id": string; "id": string; "media_type": string; "name": string; "revision": string; "sha256": string; };
 export type DeleteAdminUser = { "operation_id": string; "revision": string; };
@@ -101,6 +113,7 @@ export type HistoryRequestEntry = { "committed": boolean; "device_id": string; "
 export type HistoryRequests = { "requests": (HistoryRequestEntry)[]; "scope": Scope; };
 export type HistoryShareState = { "fingerprint": string; "scope": Scope; "share": string; "sharer_device_id": string; };
 export type Identity = { "fingerprint": string; "revision": string; "root": string; "user_id": string; };
+export type InstanceSettings = { "user_bots": boolean; };
 export type IntegrationCard = { "author"?: string | null; "color"?: string | null; "fields"?: (CardField)[]; "text"?: string | null; "title"?: string | null; "url"?: string | null; };
 export type JoinVoice = { "data_epoch": string; "e2ee"?: boolean; "membership_version": string; "ring"?: boolean; };
 export type LeaveRoom = { "expected_revision": string; "operation_id": string; };
@@ -201,6 +214,8 @@ export type ThreadReadState = { "membership_version": string; "position": string
 export type ThreadSummary = { "last_reply_at"?: string | null; "replies": string; };
 export type Typist = { "root_id"?: string | null; "user": User; };
 export type UpdateAdminUser = { "admin"?: boolean | null; "disabled"?: boolean | null; "operation_id": string; "revision": string; };
+export type UpdateBot = { "description"?: string | null; "display_name"?: string | null; "operation_id": string; "scopes"?: (BotScope)[] | null; };
+export type UpdateInstanceSettings = { "operation_id": string; "user_bots"?: boolean | null; };
 export type UpdatePreferences = { "clock_24h": boolean; "desktop_notifications": DesktopNotifications; "expected_revision": string; "language": string; "operation_id": string; "push_enabled": boolean; "push_mentions_only": boolean; };
 export type UpdateProfile = { "bio": string; "display_name": string; "expected_revision": string; "operation_id": string; "status": PresenceStatus; "status_text": string; "username": string; };
 export type UpdateRoom = { "announcement": string; "description": string; "expected_revision": string; "name": string; "operation_id": string; "private": boolean; "read_only": boolean; "topic": string; "voice"?: boolean | null; };
@@ -208,15 +223,15 @@ export type Upload = { "expires_at": string; "file": FileDescriptor; "id": strin
 export type UploadHistoryBackup = { "checkpoint": string; "records": (string)[]; "scope": Scope; "start": string; };
 export type UploadHistoryRecords = { "period": number; "records": (string)[]; "scope": Scope; "start": string; };
 export type UploadState = "prepared" | "ready" | "completed" | "cancelled" | "expired";
-export type User = { "deleted"?: boolean; "display_name": string; "id": string; "username": string; };
+export type User = { "bot"?: boolean; "deleted"?: boolean; "display_name": string; "id": string; "username": string; };
 export type UserPreferences = { "clock_24h": boolean; "desktop_notifications"?: DesktopNotifications; "language": string; "push_enabled": boolean; "push_mentions_only": boolean; "revision": string; };
-export type UserProfile = { "avatar_file_id"?: string | null; "bio": string; "revision": string; "status"?: PresenceStatus; "status_text": string; "user": User; };
+export type UserProfile = { "avatar_file_id"?: string | null; "bio": string; "bot_owner"?: User | null; "revision": string; "status"?: PresenceStatus; "status_text": string; "user": User; };
 export type VerifyFactor = { "challenge_id": string; "code": string; "method": SecondFactor; };
 export type VoiceGrant = { "can_publish": boolean; "e2ee"?: boolean; "expires_at": string; "ring"?: VoiceRing | null; "room_id": string; "token": string; "url": string; };
 export type VoiceParticipant = { "camera"?: boolean; "deafened": boolean; "muted": boolean; "screen"?: boolean; "user": User; };
 export type VoiceRing = { "callee": User; "caller": User; "expires_in_ms": number; "id": string; "room_id": string; "state": RingState; };
 
-export type NativeTypes = { AcceptInvitation: AcceptInvitation; AccountPermissions: AccountPermissions; AdminContract: AdminContract; AdminMessageCounts: AdminMessageCounts; AdminOperation: AdminOperation; AdminOverview: AdminOverview; AdminReport: AdminReport; AdminReportCounts: AdminReportCounts; AdminReportedMessage: AdminReportedMessage; AdminReportedMessagePage: AdminReportedMessagePage; AdminReportedUser: AdminReportedUser; AdminReportedUserPage: AdminReportedUserPage; AdminRoom: AdminRoom; AdminRoomCounts: AdminRoomCounts; AdminRoomPage: AdminRoomPage; AdminUploadCounts: AdminUploadCounts; AdminUser: AdminUser; AdminUserCounts: AdminUserCounts; AdminUserPage: AdminUserPage; AnswerRing: AnswerRing; ApiError: ApiError; ApplicationCancellation: ApplicationCancellation; ApplicationMessage: ApplicationMessage; ApplicationReceipt: ApplicationReceipt; ApplicationSettlement: ApplicationSettlement; ApplicationSubmission: ApplicationSubmission; AuthChallenge: AuthChallenge; AuthenticationStep: AuthenticationStep; AvailableKeyPackage: AvailableKeyPackage; AvatarCommand: AvatarCommand; BeginEmailVerification: BeginEmailVerification; BeginFactorSetup: BeginFactorSetup; BeginReauthentication: BeginReauthentication; CallSummary: CallSummary; Capabilities: Capabilities; CardField: CardField; Change: Change; ChangeEmailFactor: ChangeEmailFactor; ChangeRoomRole: ChangeRoomRole; CommandList: CommandList; CommitHistoryShare: CommitHistoryShare; CompleteUpload: CompleteUpload; ConfirmEmailVerification: ConfirmEmailVerification; CreateRoom: CreateRoom; CustomEmoji: CustomEmoji; DeleteAdminUser: DeleteAdminUser; DeleteMessage: DeleteMessage; DeliveryContent: DeliveryContent; DeliveryEvent: DeliveryEvent; DeliveryPage: DeliveryPage; DesktopNotifications: DesktopNotifications; Device: Device; DeviceSession: DeviceSession; DirectMessage: DirectMessage; Directory: Directory; DisableFactor: DisableFactor; Discovery: Discovery; Document: Document; EditMessage: EditMessage; EmailDeliveryState: EmailDeliveryState; EmailFactorChange: EmailFactorChange; EmailRecoveryRequested: EmailRecoveryRequested; EmailRemovalReceipt: EmailRemovalReceipt; EmailStatus: EmailStatus; EmailVerificationStep: EmailVerificationStep; EmojiCatalog: EmojiCatalog; EnableFactor: EnableFactor; EncryptedFile: EncryptedFile; EncryptedKeyBackup: EncryptedKeyBackup; FactorBackupCodes: FactorBackupCodes; FactorEmailDelivery: FactorEmailDelivery; FactorSetup: FactorSetup; FactorStatus: FactorStatus; FileDescriptor: FileDescriptor; FinishFactor: FinishFactor; FinishReauthentication: FinishReauthentication; Format: Format; GroupCancellation: GroupCancellation; GroupEvent: GroupEvent; GroupEventPage: GroupEventPage; GroupMember: GroupMember; GroupReceipt: GroupReceipt; GroupRoster: GroupRoster; GroupSettlement: GroupSettlement; GroupState: GroupState; GroupSubmission: GroupSubmission; GroupWelcome: GroupWelcome; HistoryBackupPage: HistoryBackupPage; HistoryBackupPeriod: HistoryBackupPeriod; HistoryBackupPeriods: HistoryBackupPeriods; HistoryBackupReceipt: HistoryBackupReceipt; HistoryKeyCancellation: HistoryKeyCancellation; HistoryKeyReceipt: HistoryKeyReceipt; HistoryKeySettlement: HistoryKeySettlement; HistoryKeyState: HistoryKeyState; HistoryKeyVersion: HistoryKeyVersion; HistoryRecordsPage: HistoryRecordsPage; HistoryRecordsReceipt: HistoryRecordsReceipt; HistoryRequestEntry: HistoryRequestEntry; HistoryRequests: HistoryRequests; HistoryShareState: HistoryShareState; Identity: Identity; IntegrationCard: IntegrationCard; JoinVoice: JoinVoice; LeaveRoom: LeaveRoom; LinkPreview: LinkPreview; LiveFrame: LiveFrame; LiveRoom: LiveRoom; LiveState: LiveState; Login: Login; MarkRead: MarkRead; MarkThreadRead: MarkThreadRead; Message: Message; MessageContent: MessageContent; MessagePage: MessagePage; MessagePermissions: MessagePermissions; MessageQuote: MessageQuote; MessageReaction: MessageReaction; Node: Node; OperationReceipt: OperationReceipt; OwnProfile: OwnProfile; ParityContract: ParityContract; PersonalStar: PersonalStar; PrepareUpload: PrepareUpload; PresenceEntry: PresenceEntry; PresenceStatus: PresenceStatus; PreviewImage: PreviewImage; PreviewKind: PreviewKind; ProfileReceipt: ProfileReceipt; ProfileStamp: ProfileStamp; PublicDeviceKey: PublicDeviceKey; PublicRoom: PublicRoom; PublicRoomPage: PublicRoomPage; PublishHistoryKey: PublishHistoryKey; PublishHistoryRequest: PublishHistoryRequest; PublishKeyPackages: PublishKeyPackages; PublishRootBackup: PublishRootBackup; PushContent: PushContent; PushRegistration: PushRegistration; QuoteExcerpt: QuoteExcerpt; QuoteReference: QuoteReference; ReadState: ReadState; ReauthenticationContext: ReauthenticationContext; ReauthenticationGrant: ReauthenticationGrant; ReauthenticationStatus: ReauthenticationStatus; ReauthenticationStep: ReauthenticationStep; RecoverAccount: RecoverAccount; RegenerateFactorBackups: RegenerateFactorBackups; RegisterDevice: RegisterDevice; RegisterPush: RegisterPush; RemoveVerifiedEmail: RemoveVerifiedEmail; RenameDevice: RenameDevice; RenewSession: RenewSession; ReportInput: ReportInput; RequestEmailRecovery: RequestEmailRecovery; RequestFactorEmail: RequestFactorEmail; ResumeEmailRemoval: ResumeEmailRemoval; ResumeEmailVerification: ResumeEmailVerification; ResumeReauthentication: ResumeReauthentication; RetireEmailRemoval: RetireEmailRemoval; RetireEmailVerification: RetireEmailVerification; RetireReauthentication: RetireReauthentication; Revocation: Revocation; RevokeDevice: RevokeDevice; RingState: RingState; Room: Room; RoomCommandReceipt: RoomCommandReceipt; RoomDetails: RoomDetails; RoomKeyEnvelope: RoomKeyEnvelope; RoomKind: RoomKind; RoomMember: RoomMember; RoomMemberPage: RoomMemberPage; RoomPermissions: RoomPermissions; RoomRole: RoomRole; RootBackupCancellation: RootBackupCancellation; RootBackupReceipt: RootBackupReceipt; RootBackupSettlement: RootBackupSettlement; RootBackupState: RootBackupState; RootBackupVersion: RootBackupVersion; RunCommand: RunCommand; Scope: Scope; SearchMessages: SearchMessages; SearchPage: SearchPage; SecondFactor: SecondFactor; SendMessage: SendMessage; Session: Session; SetMark: SetMark; SetPresence: SetPresence; SetReaction: SetReaction; SetRoomFavorite: SetRoomFavorite; SetTyping: SetTyping; SlashCommand: SlashCommand; Snapshot: Snapshot; SnapshotPage: SnapshotPage; SocketTicket: SocketTicket; SyncBatch: SyncBatch; SystemMessage: SystemMessage; ThreadPage: ThreadPage; ThreadReadState: ThreadReadState; ThreadSummary: ThreadSummary; Typist: Typist; UpdateAdminUser: UpdateAdminUser; UpdatePreferences: UpdatePreferences; UpdateProfile: UpdateProfile; UpdateRoom: UpdateRoom; Upload: Upload; UploadHistoryBackup: UploadHistoryBackup; UploadHistoryRecords: UploadHistoryRecords; UploadState: UploadState; User: User; UserPreferences: UserPreferences; UserProfile: UserProfile; VerifyFactor: VerifyFactor; VoiceGrant: VoiceGrant; VoiceParticipant: VoiceParticipant; VoiceRing: VoiceRing; };
+export type NativeTypes = { AcceptInvitation: AcceptInvitation; AccountPermissions: AccountPermissions; AdminContract: AdminContract; AdminMessageCounts: AdminMessageCounts; AdminOperation: AdminOperation; AdminOverview: AdminOverview; AdminReport: AdminReport; AdminReportCounts: AdminReportCounts; AdminReportedMessage: AdminReportedMessage; AdminReportedMessagePage: AdminReportedMessagePage; AdminReportedUser: AdminReportedUser; AdminReportedUserPage: AdminReportedUserPage; AdminRoom: AdminRoom; AdminRoomCounts: AdminRoomCounts; AdminRoomPage: AdminRoomPage; AdminUploadCounts: AdminUploadCounts; AdminUser: AdminUser; AdminUserCounts: AdminUserCounts; AdminUserPage: AdminUserPage; AnswerRing: AnswerRing; ApiError: ApiError; ApplicationCancellation: ApplicationCancellation; ApplicationMessage: ApplicationMessage; ApplicationReceipt: ApplicationReceipt; ApplicationSettlement: ApplicationSettlement; ApplicationSubmission: ApplicationSubmission; AuthChallenge: AuthChallenge; AuthenticationStep: AuthenticationStep; AvailableKeyPackage: AvailableKeyPackage; AvatarCommand: AvatarCommand; BeginEmailVerification: BeginEmailVerification; BeginFactorSetup: BeginFactorSetup; BeginReauthentication: BeginReauthentication; Bot: Bot; BotKey: BotKey; BotKeyCreated: BotKeyCreated; BotKeyList: BotKeyList; BotList: BotList; BotReference: BotReference; BotRoute: BotRoute; BotScope: BotScope; BotScopeRoutes: BotScopeRoutes; BotsContract: BotsContract; CallSummary: CallSummary; Capabilities: Capabilities; CardField: CardField; Change: Change; ChangeEmailFactor: ChangeEmailFactor; ChangeRoomRole: ChangeRoomRole; CommandList: CommandList; CommitHistoryShare: CommitHistoryShare; CompleteUpload: CompleteUpload; ConfirmEmailVerification: ConfirmEmailVerification; CreateBot: CreateBot; CreateBotKey: CreateBotKey; CreateRoom: CreateRoom; CustomEmoji: CustomEmoji; DeleteAdminUser: DeleteAdminUser; DeleteMessage: DeleteMessage; DeliveryContent: DeliveryContent; DeliveryEvent: DeliveryEvent; DeliveryPage: DeliveryPage; DesktopNotifications: DesktopNotifications; Device: Device; DeviceSession: DeviceSession; DirectMessage: DirectMessage; Directory: Directory; DisableFactor: DisableFactor; Discovery: Discovery; Document: Document; EditMessage: EditMessage; EmailDeliveryState: EmailDeliveryState; EmailFactorChange: EmailFactorChange; EmailRecoveryRequested: EmailRecoveryRequested; EmailRemovalReceipt: EmailRemovalReceipt; EmailStatus: EmailStatus; EmailVerificationStep: EmailVerificationStep; EmojiCatalog: EmojiCatalog; EnableFactor: EnableFactor; EncryptedFile: EncryptedFile; EncryptedKeyBackup: EncryptedKeyBackup; FactorBackupCodes: FactorBackupCodes; FactorEmailDelivery: FactorEmailDelivery; FactorSetup: FactorSetup; FactorStatus: FactorStatus; FileDescriptor: FileDescriptor; FinishFactor: FinishFactor; FinishReauthentication: FinishReauthentication; Format: Format; GroupCancellation: GroupCancellation; GroupEvent: GroupEvent; GroupEventPage: GroupEventPage; GroupMember: GroupMember; GroupReceipt: GroupReceipt; GroupRoster: GroupRoster; GroupSettlement: GroupSettlement; GroupState: GroupState; GroupSubmission: GroupSubmission; GroupWelcome: GroupWelcome; HistoryBackupPage: HistoryBackupPage; HistoryBackupPeriod: HistoryBackupPeriod; HistoryBackupPeriods: HistoryBackupPeriods; HistoryBackupReceipt: HistoryBackupReceipt; HistoryKeyCancellation: HistoryKeyCancellation; HistoryKeyReceipt: HistoryKeyReceipt; HistoryKeySettlement: HistoryKeySettlement; HistoryKeyState: HistoryKeyState; HistoryKeyVersion: HistoryKeyVersion; HistoryRecordsPage: HistoryRecordsPage; HistoryRecordsReceipt: HistoryRecordsReceipt; HistoryRequestEntry: HistoryRequestEntry; HistoryRequests: HistoryRequests; HistoryShareState: HistoryShareState; Identity: Identity; InstanceSettings: InstanceSettings; IntegrationCard: IntegrationCard; JoinVoice: JoinVoice; LeaveRoom: LeaveRoom; LinkPreview: LinkPreview; LiveFrame: LiveFrame; LiveRoom: LiveRoom; LiveState: LiveState; Login: Login; MarkRead: MarkRead; MarkThreadRead: MarkThreadRead; Message: Message; MessageContent: MessageContent; MessagePage: MessagePage; MessagePermissions: MessagePermissions; MessageQuote: MessageQuote; MessageReaction: MessageReaction; Node: Node; OperationReceipt: OperationReceipt; OwnProfile: OwnProfile; ParityContract: ParityContract; PersonalStar: PersonalStar; PrepareUpload: PrepareUpload; PresenceEntry: PresenceEntry; PresenceStatus: PresenceStatus; PreviewImage: PreviewImage; PreviewKind: PreviewKind; ProfileReceipt: ProfileReceipt; ProfileStamp: ProfileStamp; PublicDeviceKey: PublicDeviceKey; PublicRoom: PublicRoom; PublicRoomPage: PublicRoomPage; PublishHistoryKey: PublishHistoryKey; PublishHistoryRequest: PublishHistoryRequest; PublishKeyPackages: PublishKeyPackages; PublishRootBackup: PublishRootBackup; PushContent: PushContent; PushRegistration: PushRegistration; QuoteExcerpt: QuoteExcerpt; QuoteReference: QuoteReference; ReadState: ReadState; ReauthenticationContext: ReauthenticationContext; ReauthenticationGrant: ReauthenticationGrant; ReauthenticationStatus: ReauthenticationStatus; ReauthenticationStep: ReauthenticationStep; RecoverAccount: RecoverAccount; RegenerateFactorBackups: RegenerateFactorBackups; RegisterDevice: RegisterDevice; RegisterPush: RegisterPush; RemoveVerifiedEmail: RemoveVerifiedEmail; RenameDevice: RenameDevice; RenewSession: RenewSession; ReportInput: ReportInput; RequestEmailRecovery: RequestEmailRecovery; RequestFactorEmail: RequestFactorEmail; ResumeEmailRemoval: ResumeEmailRemoval; ResumeEmailVerification: ResumeEmailVerification; ResumeReauthentication: ResumeReauthentication; RetireEmailRemoval: RetireEmailRemoval; RetireEmailVerification: RetireEmailVerification; RetireReauthentication: RetireReauthentication; Revocation: Revocation; RevokeDevice: RevokeDevice; RingState: RingState; Room: Room; RoomCommandReceipt: RoomCommandReceipt; RoomDetails: RoomDetails; RoomKeyEnvelope: RoomKeyEnvelope; RoomKind: RoomKind; RoomMember: RoomMember; RoomMemberPage: RoomMemberPage; RoomPermissions: RoomPermissions; RoomRole: RoomRole; RootBackupCancellation: RootBackupCancellation; RootBackupReceipt: RootBackupReceipt; RootBackupSettlement: RootBackupSettlement; RootBackupState: RootBackupState; RootBackupVersion: RootBackupVersion; RunCommand: RunCommand; Scope: Scope; SearchMessages: SearchMessages; SearchPage: SearchPage; SecondFactor: SecondFactor; SendMessage: SendMessage; Session: Session; SetMark: SetMark; SetPresence: SetPresence; SetReaction: SetReaction; SetRoomFavorite: SetRoomFavorite; SetTyping: SetTyping; SlashCommand: SlashCommand; Snapshot: Snapshot; SnapshotPage: SnapshotPage; SocketTicket: SocketTicket; SyncBatch: SyncBatch; SystemMessage: SystemMessage; ThreadPage: ThreadPage; ThreadReadState: ThreadReadState; ThreadSummary: ThreadSummary; Typist: Typist; UpdateAdminUser: UpdateAdminUser; UpdateBot: UpdateBot; UpdateInstanceSettings: UpdateInstanceSettings; UpdatePreferences: UpdatePreferences; UpdateProfile: UpdateProfile; UpdateRoom: UpdateRoom; Upload: Upload; UploadHistoryBackup: UploadHistoryBackup; UploadHistoryRecords: UploadHistoryRecords; UploadState: UploadState; User: User; UserPreferences: UserPreferences; UserProfile: UserProfile; VerifyFactor: VerifyFactor; VoiceGrant: VoiceGrant; VoiceParticipant: VoiceParticipant; VoiceRing: VoiceRing; };
 
 export const nativeSchema = {
   "$defs": {
@@ -243,6 +258,11 @@ export const nativeSchema = {
     },
     "AccountPermissions": {
       "properties": {
+        "create_bot": {
+          "default": false,
+          "description": "Administrators, or everyone when the instance allows bots (RFC 0003).",
+          "type": "boolean"
+        },
         "create_private_room": {
           "type": "boolean"
         },
@@ -741,6 +761,11 @@ export const nativeSchema = {
             "string",
             "null"
           ]
+        },
+        "bot": {
+          "default": false,
+          "description": "A bot account (RFC 0003); absent from older servers.",
+          "type": "boolean"
         },
         "created_at": {
           "type": [
@@ -1245,6 +1270,310 @@ export const nativeSchema = {
       ],
       "type": "object"
     },
+    "Bot": {
+      "description": "A bot as its owner and the administrators see it.",
+      "properties": {
+        "avatar_file_id": {
+          "default": null,
+          "description": "Its photo (`/api/v1/avatars/{id}`), set by its owner or by itself.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "disabled": {
+          "description": "Deactivated by an administrator, or with its owner.",
+          "type": "boolean"
+        },
+        "live_keys": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "owner": {
+          "$ref": "#/$defs/User"
+        },
+        "scopes": {
+          "items": {
+            "$ref": "#/$defs/BotScope"
+          },
+          "type": "array"
+        },
+        "user": {
+          "$ref": "#/$defs/User",
+          "description": "The bot's account: `user.bot` is always true."
+        }
+      },
+      "required": [
+        "user",
+        "owner",
+        "description",
+        "scopes",
+        "created_at",
+        "disabled",
+        "live_keys"
+      ],
+      "type": "object"
+    },
+    "BotKey": {
+      "description": "A key's public description; the key itself is shown once, at creation.",
+      "properties": {
+        "created_at": {
+          "type": "string"
+        },
+        "expires_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "hint": {
+          "description": "The key's last four characters, to recognise it.",
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "last_used_at": {
+          "description": "At most a minute behind.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "hint",
+        "created_at"
+      ],
+      "type": "object"
+    },
+    "BotKeyCreated": {
+      "properties": {
+        "info": {
+          "$ref": "#/$defs/BotKey"
+        },
+        "key": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "info"
+      ],
+      "type": "object"
+    },
+    "BotKeyList": {
+      "properties": {
+        "keys": {
+          "items": {
+            "$ref": "#/$defs/BotKey"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "keys"
+      ],
+      "type": "object"
+    },
+    "BotList": {
+      "properties": {
+        "bots": {
+          "items": {
+            "$ref": "#/$defs/Bot"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "bots"
+      ],
+      "type": "object"
+    },
+    "BotReference": {
+      "description": "What a key can reach, read from the table the server enforces, so the apps\nshow their people the same API the gate admits. Every other route is closed.",
+      "properties": {
+        "direct_per_minute": {
+          "description": "New direct conversations a minute per bot.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "groups": {
+          "items": {
+            "$ref": "#/$defs/BotScopeRoutes"
+          },
+          "type": "array"
+        },
+        "key_prefix": {
+          "type": "string"
+        },
+        "sends_per_minute": {
+          "description": "Sends (and replies) a minute per bot.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "key_prefix",
+        "groups",
+        "sends_per_minute",
+        "direct_per_minute"
+      ],
+      "type": "object"
+    },
+    "BotRoute": {
+      "description": "One route a key may call, as the server matches it (`{room}` is a parameter).",
+      "properties": {
+        "also": {
+          "description": "Further scopes the route needs besides its group's.",
+          "items": {
+            "$ref": "#/$defs/BotScope"
+          },
+          "type": "array"
+        },
+        "method": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "path"
+      ],
+      "type": "object"
+    },
+    "BotScope": {
+      "description": "What a key may do. Routes outside every scope are never open to a key.",
+      "oneOf": [
+        {
+          "const": "rooms:read",
+          "description": "Rooms it belongs to: list, details, members, history, threads, files, sync and socket.",
+          "type": "string"
+        },
+        {
+          "const": "messages:write",
+          "description": "Send and reply; edit and delete its own messages; typing.",
+          "type": "string"
+        },
+        {
+          "const": "files:write",
+          "description": "Upload files.",
+          "type": "string"
+        },
+        {
+          "const": "reactions:write",
+          "description": "Add and remove reactions.",
+          "type": "string"
+        },
+        {
+          "const": "rooms:join",
+          "description": "Browse public rooms, join one, leave a room.",
+          "type": "string"
+        },
+        {
+          "const": "users:read",
+          "description": "User directory, lookup and profiles.",
+          "type": "string"
+        },
+        {
+          "const": "dm:write",
+          "description": "Open a direct conversation.",
+          "type": "string"
+        }
+      ]
+    },
+    "BotScopeRoutes": {
+      "description": "The routes one scope opens; `scope` absent: open to every key.",
+      "properties": {
+        "routes": {
+          "items": {
+            "$ref": "#/$defs/BotRoute"
+          },
+          "type": "array"
+        },
+        "scope": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BotScope"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "routes"
+      ],
+      "type": "object"
+    },
+    "BotsContract": {
+      "properties": {
+        "bot": {
+          "$ref": "#/$defs/Bot"
+        },
+        "bot_key": {
+          "$ref": "#/$defs/BotKey"
+        },
+        "bot_key_created": {
+          "$ref": "#/$defs/BotKeyCreated"
+        },
+        "bot_key_list": {
+          "$ref": "#/$defs/BotKeyList"
+        },
+        "bot_list": {
+          "$ref": "#/$defs/BotList"
+        },
+        "bot_reference": {
+          "$ref": "#/$defs/BotReference"
+        },
+        "create_bot": {
+          "$ref": "#/$defs/CreateBot"
+        },
+        "create_bot_key": {
+          "$ref": "#/$defs/CreateBotKey"
+        },
+        "instance_settings": {
+          "$ref": "#/$defs/InstanceSettings"
+        },
+        "update_bot": {
+          "$ref": "#/$defs/UpdateBot"
+        },
+        "update_instance_settings": {
+          "$ref": "#/$defs/UpdateInstanceSettings"
+        }
+      },
+      "required": [
+        "bot",
+        "bot_list",
+        "create_bot",
+        "update_bot",
+        "bot_key",
+        "bot_key_list",
+        "create_bot_key",
+        "bot_key_created",
+        "bot_reference",
+        "instance_settings",
+        "update_instance_settings"
+      ],
+      "type": "object"
+    },
     "CallSummary": {
       "description": "The outcome carried by a direct call's `call_started` row.",
       "properties": {
@@ -1279,6 +1608,11 @@ export const nativeSchema = {
         "administration": {
           "default": false,
           "description": "The `/api/v1/admin/*` routes, for an account with `users.admin`.",
+          "type": "boolean"
+        },
+        "bots": {
+          "default": false,
+          "description": "Bot accounts with API keys and scopes (RFC 0003).",
           "type": "boolean"
         },
         "calls": {
@@ -1672,6 +2006,64 @@ export const nativeSchema = {
         "operation_id",
         "code",
         "context"
+      ],
+      "type": "object"
+    },
+    "CreateBot": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "default": "",
+          "type": "string"
+        },
+        "display_name": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "scopes": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/BotScope"
+          },
+          "type": "array"
+        },
+        "username": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "username",
+        "display_name"
+      ],
+      "type": "object"
+    },
+    "CreateBotKey": {
+      "additionalProperties": false,
+      "description": "Needs a recent sign-in of the person creating it. Replaying the operation\nanswers `bot_key_replayed`: the key is never shown twice.",
+      "properties": {
+        "expires_in_days": {
+          "default": null,
+          "description": "None: the key never expires.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "label": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "label"
       ],
       "type": "object"
     },
@@ -3265,6 +3657,19 @@ export const nativeSchema = {
         "root",
         "fingerprint",
         "revision"
+      ],
+      "type": "object"
+    },
+    "InstanceSettings": {
+      "description": "Instance-wide settings, administrators only.",
+      "properties": {
+        "user_bots": {
+          "description": "Every account may create bots; administrators always may.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "user_bots"
       ],
       "type": "object"
     },
@@ -7282,6 +7687,62 @@ export const nativeSchema = {
       ],
       "type": "object"
     },
+    "UpdateBot": {
+      "additionalProperties": false,
+      "description": "Absent fields keep their value. The photo has its own route,\n`PUT`/`DELETE /api/v1/bots/{id}/avatar`; the bot may also edit its own\nprofile with its key through `/me`.",
+      "properties": {
+        "description": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "display_name": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "scopes": {
+          "default": null,
+          "items": {
+            "$ref": "#/$defs/BotScope"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "operation_id"
+      ],
+      "type": "object"
+    },
+    "UpdateInstanceSettings": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "type": "string"
+        },
+        "user_bots": {
+          "default": null,
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "operation_id"
+      ],
+      "type": "object"
+    },
     "UpdatePreferences": {
       "additionalProperties": false,
       "properties": {
@@ -7500,6 +7961,10 @@ export const nativeSchema = {
     },
     "User": {
       "properties": {
+        "bot": {
+          "description": "A bot account (RFC 0003), owned by a person and acting with API keys.",
+          "type": "boolean"
+        },
         "deleted": {
           "description": "A tombstoned account: its messages stay, shown as a deleted user. Its\nusername is a reserved `deleted-` placeholder and its display name empty.",
           "type": "boolean"
@@ -7563,6 +8028,17 @@ export const nativeSchema = {
         },
         "bio": {
           "type": "string"
+        },
+        "bot_owner": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/User"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The person who owns this bot; absent for a person."
         },
         "revision": {
           "type": "string"
@@ -7725,6 +8201,9 @@ export const nativeSchema = {
     "avatar_command": {
       "$ref": "#/$defs/AvatarCommand"
     },
+    "bots": {
+      "$ref": "#/$defs/BotsContract"
+    },
     "command_list": {
       "$ref": "#/$defs/CommandList"
     },
@@ -7873,6 +8352,7 @@ export const nativeSchema = {
     "command_list",
     "run_command",
     "administration",
+    "bots",
     "parity"
   ],
   "title": "Contract",

@@ -15,6 +15,7 @@ export type SettingsCategory =
   | 'encryption'
   | 'security'
   | 'devices'
+  | 'bots'
   | 'accounts'
   | 'app';
 
@@ -34,6 +35,7 @@ export const SETTINGS_CATEGORIES: readonly CategoryInfo[] = [
   { key: 'encryption', icon: '🔐', label: 'settings.categoryEncryption', hint: 'settings.categoryEncryptionHint' },
   { key: 'security', icon: '🛡️', label: 'settings.categorySecurity', hint: 'settings.categorySecurityHint' },
   { key: 'devices', icon: '📱', label: 'settings.categoryDevices', hint: 'settings.categoryDevicesHint' },
+  { key: 'bots', icon: '🤖', label: 'settings.categoryBots', hint: 'settings.categoryBotsHint' },
   { key: 'accounts', icon: '👥', label: 'settings.categoryAccounts', hint: 'settings.categoryAccountsHint' },
   { key: 'app', icon: 'ℹ️', label: 'settings.categoryApp', hint: 'settings.categoryAppHint' },
 ];
@@ -50,6 +52,8 @@ export type SettingsContent = {
   security: boolean;
   /** Native: device sessions (`ui/devices.tsx`). */
   devices: boolean;
+  /** Native: bot accounts, the `bots` capability (`ui/bots.tsx`). */
+  bots: boolean;
 };
 
 export function hasContent(category: SettingsCategory, content: SettingsContent): boolean {
@@ -63,6 +67,8 @@ export function hasContent(category: SettingsCategory, content: SettingsContent)
       return content.native && content.security;
     case 'devices':
       return content.native && content.devices;
+    case 'bots':
+      return content.native && content.bots;
     case 'account':
     case 'language':
     case 'accounts':

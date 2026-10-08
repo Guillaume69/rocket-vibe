@@ -91,6 +91,9 @@ pub struct MessageRow {
     pub pinned: bool,
     /// The users who starred it, by id, comma-separated.
     pub starred: Option<String>,
+    /// Written by a bot account (RocketVibe, RFC 0003): a "BOT" badge beside
+    /// the name. Always false on Rocket.Chat.
+    pub author_bot: bool,
 }
 
 impl From<&Message> for MessageRow {
@@ -115,6 +118,7 @@ impl From<&Message> for MessageRow {
             call_id: m.call_id.clone(),
             pinned: m.pinned,
             starred: m.starred.clone(),
+            author_bot: false,
         }
     }
 }
@@ -528,6 +532,7 @@ impl Store {
                         rid: r.get(16)?,
                         pinned: r.get(17)?,
                         starred: r.get(18)?,
+                        author_bot: false,
                     })
                 })?
                 .collect()

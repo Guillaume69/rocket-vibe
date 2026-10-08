@@ -67,7 +67,9 @@ export function createRocketVibeProvider(session: Session, client: RestClient, g
     historyRange:unsupported, fetchMessage:unsupported, historyPage:0,
     readProfile:async target=>{
       const p=await chat.profile(target);
-      return {_id:p.user.id,username:p.user.username,name:p.user.display_name,status:p.status??'online',statusText:p.status_text,bio:p.bio,avatarETag:p.avatar_file_id??'none'};
+      return {_id:p.user.id,username:p.user.username,name:p.user.display_name,status:p.status??'online',statusText:p.status_text,bio:p.bio,avatarETag:p.avatar_file_id??'none',
+        // A bot (RFC 0003): `app/profile.tsx` shows the badge and its owner.
+        ...(p.user.bot===true?{bot:true,botOwner:p.bot_owner?.username??null}:{})};
     },
     searchMessages:async(rid,text)=>(await chat.searchMessages(rid,text)).map(m=>localMessage(m,session.userId)),
     admin:new NativeAdmin(chat), reports:nativeReports(chat),
@@ -106,7 +108,7 @@ export function createRocketVibeProvider(session: Session, client: RestClient, g
             canEdit:details.permissions.change_settings && !!capabilities.roomSettings,canChangeRoles:details.permissions.role==='owner' && !!capabilities.roomRoleList && details.room.kind!=='direct',canLeave:!!capabilities.leaveRoom && details.room.kind!=='direct'}};
       },
       roomManagement:{
-        members:async(rid,continuation,revision)=>{const page=await chat.roomMembers(rid,continuation??undefined,revision);return {revision:page.revision,continuation:page.next??null,members:page.members.map(member=>({id:member.user.id,username:member.user.username,name:member.user.display_name??null,role:member.role,deactivated:member.disabled}))};},
+        members:async(rid,continuation,revision)=>{const page=await chat.roomMembers(rid,continuation??undefined,revision);return {revision:page.revision,continuation:page.next??null,members:page.members.map(member=>({id:member.user.id,username:member.user.username,name:member.user.display_name??null,role:member.role,deactivated:member.disabled,bot:member.user.bot===true}))};},
         edit:(rid,revision,fields)=>chat.updateRoom(rid,{expected_revision:revision,name:fields.name,private:fields.isPrivate,topic:fields.topic,description:fields.description,announcement:fields.announcement,read_only:fields.readOnly,...(fields.voice!==undefined?{voice:fields.voice}:{})}),
         changeRole:(rid,revision,target,role)=>chat.changeRoomRole(rid,target,{expected_revision:revision,role}),
         leave:(rid,revision)=>chat.leaveRoom(rid,revision),resume:rid=>chat.resumeRoomOperation(rid),clear:(rid,key)=>chat.dismissRoomOperation(rid,key),

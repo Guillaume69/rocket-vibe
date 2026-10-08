@@ -87,6 +87,9 @@ pub struct AdminUser {
     pub last_seen_at: Option<String>,
     /// Account authority version, expected back by every change.
     pub revision: String,
+    /// A bot account (RFC 0003); absent from older servers.
+    #[serde(default)]
+    pub bot: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]

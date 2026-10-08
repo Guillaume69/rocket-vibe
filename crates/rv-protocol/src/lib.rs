@@ -4,6 +4,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 pub mod admin;
+pub mod bots;
 pub mod cards;
 pub mod commands;
 pub mod custom_emojis;
@@ -115,6 +116,9 @@ pub struct Capabilities {
     /// Members can report a message or an account to the administrators.
     #[serde(default)]
     pub reports: bool,
+    /// Bot accounts with API keys and scopes (RFC 0003).
+    #[serde(default)]
+    pub bots: bool,
 }
 
 impl Default for Capabilities {
@@ -169,6 +173,7 @@ impl Default for Capabilities {
             voice: false,
             administration: false,
             reports: false,
+            bots: false,
         }
     }
 }
@@ -229,7 +234,8 @@ impl Capabilities {
             slash_commands,
             voice,
             administration,
-            reports
+            reports,
+            bots
         );
         features
     }
@@ -255,6 +261,9 @@ pub struct User {
     /// username is a reserved `deleted-` placeholder and its display name empty.
     #[serde(default, skip_serializing_if = "is_false")]
     pub deleted: bool,
+    /// A bot account (RFC 0003), owned by a person and acting with API keys.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub bot: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -583,6 +592,7 @@ pub struct Contract {
     pub command_list: commands::CommandList,
     pub run_command: commands::RunCommand,
     pub administration: admin::AdminContract,
+    pub bots: bots::BotsContract,
     pub parity: parity::ParityContract,
 }
 

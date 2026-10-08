@@ -162,6 +162,11 @@ enum Command {
     },
     /// Database, epoch, migration and counts; no connection string or secret.
     Health,
+    /// Instance settings (RFC 0003): whether every account may create bots.
+    SetInstance {
+        #[arg(long, action = clap::ArgAction::Set)]
+        user_bots: bool,
+    },
 }
 
 type CliResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
@@ -510,6 +515,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             operator_output(rv_server::operator::audit(&app, after.as_deref(), limit).await)?
         }
         Command::Health => operator_output(rv_server::operator::health(&app).await)?,
+        Command::SetInstance { user_bots } => {
+            rv_server::bots::set_user_bots(&app, user_bots)
+                .await
+                .map_err(|e| format!("Cannot change the instance settings: {}", e.code))?;
+            println!("Bots for every account: {user_bots}");
+        }
     }
     Ok(())
 }

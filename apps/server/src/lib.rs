@@ -1,5 +1,6 @@
 mod admin;
 pub mod auth;
+pub mod bots;
 mod commands;
 pub mod custom_emojis;
 mod delivery;

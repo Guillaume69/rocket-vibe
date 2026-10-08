@@ -2,6 +2,7 @@
 mod admin;
 pub mod authentication;
 pub mod authentication_vault;
+pub mod bots;
 mod cards;
 pub mod credentials;
 pub mod crypto;
@@ -329,6 +330,9 @@ pub struct NativeSession {
     runtime_handle: tokio::runtime::Handle,
     presence_request: Arc<tokio::sync::Mutex<()>>,
     avatars: Mutex<profiles::AvatarCache>,
+    /// The photo of each bot I own (bot id, file id), from the last answers
+    /// about my bots: the only bot photos `profile_avatar` serves.
+    bot_avatars: Mutex<std::collections::HashMap<String, String>>,
     emojis: Mutex<profiles::AvatarCache>,
     previews: link_previews::Previews,
     emoji_refresh: tokio::sync::Mutex<()>,
@@ -392,6 +396,7 @@ impl NativeSession {
             runtime_handle: tokio::runtime::Handle::current(),
             presence_request: Arc::new(tokio::sync::Mutex::new(())),
             avatars: Mutex::new(profiles::AvatarCache::default()),
+            bot_avatars: Mutex::default(),
             emojis: Mutex::new(profiles::AvatarCache::default()),
             previews: link_previews::Previews::default(),
             emoji_refresh: tokio::sync::Mutex::new(()),
@@ -643,6 +648,7 @@ impl NativeSession {
                     slash_commands: true,
                     administration: true,
                     reports: true,
+                    bots: true,
                     ..Default::default()
                 })
             })

@@ -20,6 +20,15 @@ use std::{
     sync::Arc,
 };
 
+/// A chosen picture as a native photo: upright, at most 512 pixels, PNG, at
+/// most 2 MiB; None when it is no image or still too heavy.
+pub(super) fn photo_png(path: &std::path::Path) -> Option<Vec<u8>> {
+    gdk_pixbuf::Pixbuf::from_file_at_scale(path, 512, 512, true)
+        .ok()
+        .and_then(|p| p.apply_embedded_orientation().unwrap_or(p).save_to_bufferv("png", &[]).ok())
+        .filter(|bytes| bytes.len() <= 2 * 1024 * 1024)
+}
+
 fn me(own: &OwnProfile) -> Me {
     let p = &own.profile;
     Me {
@@ -508,11 +517,7 @@ pub(super) fn editor(
             if !s.live.get() || s.session.is_closed() || !parent.alive() {
                 return;
             }
-            let Some(png) = gdk_pixbuf::Pixbuf::from_file_at_scale(&path, 512, 512, true)
-                .ok()
-                .and_then(|p| p.apply_embedded_orientation().unwrap_or(p).save_to_bufferv("png", &[]).ok())
-                .filter(|bytes| bytes.len() <= 2 * 1024 * 1024)
-            else {
+            let Some(png) = photo_png(&path) else {
                 parent.toast(t("settings.save_failed"));
                 return;
             };

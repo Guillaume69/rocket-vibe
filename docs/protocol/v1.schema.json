@@ -23,6 +23,11 @@
     },
     "AccountPermissions": {
       "properties": {
+        "create_bot": {
+          "default": false,
+          "description": "Administrators, or everyone when the instance allows bots (RFC 0003).",
+          "type": "boolean"
+        },
         "create_private_room": {
           "type": "boolean"
         },
@@ -521,6 +526,11 @@
             "string",
             "null"
           ]
+        },
+        "bot": {
+          "default": false,
+          "description": "A bot account (RFC 0003); absent from older servers.",
+          "type": "boolean"
         },
         "created_at": {
           "type": [
@@ -1025,6 +1035,310 @@
       ],
       "type": "object"
     },
+    "Bot": {
+      "description": "A bot as its owner and the administrators see it.",
+      "properties": {
+        "avatar_file_id": {
+          "default": null,
+          "description": "Its photo (`/api/v1/avatars/{id}`), set by its owner or by itself.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "disabled": {
+          "description": "Deactivated by an administrator, or with its owner.",
+          "type": "boolean"
+        },
+        "live_keys": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "owner": {
+          "$ref": "#/$defs/User"
+        },
+        "scopes": {
+          "items": {
+            "$ref": "#/$defs/BotScope"
+          },
+          "type": "array"
+        },
+        "user": {
+          "$ref": "#/$defs/User",
+          "description": "The bot's account: `user.bot` is always true."
+        }
+      },
+      "required": [
+        "user",
+        "owner",
+        "description",
+        "scopes",
+        "created_at",
+        "disabled",
+        "live_keys"
+      ],
+      "type": "object"
+    },
+    "BotKey": {
+      "description": "A key's public description; the key itself is shown once, at creation.",
+      "properties": {
+        "created_at": {
+          "type": "string"
+        },
+        "expires_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "hint": {
+          "description": "The key's last four characters, to recognise it.",
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "last_used_at": {
+          "description": "At most a minute behind.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "hint",
+        "created_at"
+      ],
+      "type": "object"
+    },
+    "BotKeyCreated": {
+      "properties": {
+        "info": {
+          "$ref": "#/$defs/BotKey"
+        },
+        "key": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "info"
+      ],
+      "type": "object"
+    },
+    "BotKeyList": {
+      "properties": {
+        "keys": {
+          "items": {
+            "$ref": "#/$defs/BotKey"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "keys"
+      ],
+      "type": "object"
+    },
+    "BotList": {
+      "properties": {
+        "bots": {
+          "items": {
+            "$ref": "#/$defs/Bot"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "bots"
+      ],
+      "type": "object"
+    },
+    "BotReference": {
+      "description": "What a key can reach, read from the table the server enforces, so the apps\nshow their people the same API the gate admits. Every other route is closed.",
+      "properties": {
+        "direct_per_minute": {
+          "description": "New direct conversations a minute per bot.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "groups": {
+          "items": {
+            "$ref": "#/$defs/BotScopeRoutes"
+          },
+          "type": "array"
+        },
+        "key_prefix": {
+          "type": "string"
+        },
+        "sends_per_minute": {
+          "description": "Sends (and replies) a minute per bot.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "key_prefix",
+        "groups",
+        "sends_per_minute",
+        "direct_per_minute"
+      ],
+      "type": "object"
+    },
+    "BotRoute": {
+      "description": "One route a key may call, as the server matches it (`{room}` is a parameter).",
+      "properties": {
+        "also": {
+          "description": "Further scopes the route needs besides its group's.",
+          "items": {
+            "$ref": "#/$defs/BotScope"
+          },
+          "type": "array"
+        },
+        "method": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "path"
+      ],
+      "type": "object"
+    },
+    "BotScope": {
+      "description": "What a key may do. Routes outside every scope are never open to a key.",
+      "oneOf": [
+        {
+          "const": "rooms:read",
+          "description": "Rooms it belongs to: list, details, members, history, threads, files, sync and socket.",
+          "type": "string"
+        },
+        {
+          "const": "messages:write",
+          "description": "Send and reply; edit and delete its own messages; typing.",
+          "type": "string"
+        },
+        {
+          "const": "files:write",
+          "description": "Upload files.",
+          "type": "string"
+        },
+        {
+          "const": "reactions:write",
+          "description": "Add and remove reactions.",
+          "type": "string"
+        },
+        {
+          "const": "rooms:join",
+          "description": "Browse public rooms, join one, leave a room.",
+          "type": "string"
+        },
+        {
+          "const": "users:read",
+          "description": "User directory, lookup and profiles.",
+          "type": "string"
+        },
+        {
+          "const": "dm:write",
+          "description": "Open a direct conversation.",
+          "type": "string"
+        }
+      ]
+    },
+    "BotScopeRoutes": {
+      "description": "The routes one scope opens; `scope` absent: open to every key.",
+      "properties": {
+        "routes": {
+          "items": {
+            "$ref": "#/$defs/BotRoute"
+          },
+          "type": "array"
+        },
+        "scope": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BotScope"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "routes"
+      ],
+      "type": "object"
+    },
+    "BotsContract": {
+      "properties": {
+        "bot": {
+          "$ref": "#/$defs/Bot"
+        },
+        "bot_key": {
+          "$ref": "#/$defs/BotKey"
+        },
+        "bot_key_created": {
+          "$ref": "#/$defs/BotKeyCreated"
+        },
+        "bot_key_list": {
+          "$ref": "#/$defs/BotKeyList"
+        },
+        "bot_list": {
+          "$ref": "#/$defs/BotList"
+        },
+        "bot_reference": {
+          "$ref": "#/$defs/BotReference"
+        },
+        "create_bot": {
+          "$ref": "#/$defs/CreateBot"
+        },
+        "create_bot_key": {
+          "$ref": "#/$defs/CreateBotKey"
+        },
+        "instance_settings": {
+          "$ref": "#/$defs/InstanceSettings"
+        },
+        "update_bot": {
+          "$ref": "#/$defs/UpdateBot"
+        },
+        "update_instance_settings": {
+          "$ref": "#/$defs/UpdateInstanceSettings"
+        }
+      },
+      "required": [
+        "bot",
+        "bot_list",
+        "create_bot",
+        "update_bot",
+        "bot_key",
+        "bot_key_list",
+        "create_bot_key",
+        "bot_key_created",
+        "bot_reference",
+        "instance_settings",
+        "update_instance_settings"
+      ],
+      "type": "object"
+    },
     "CallSummary": {
       "description": "The outcome carried by a direct call's `call_started` row.",
       "properties": {
@@ -1059,6 +1373,11 @@
         "administration": {
           "default": false,
           "description": "The `/api/v1/admin/*` routes, for an account with `users.admin`.",
+          "type": "boolean"
+        },
+        "bots": {
+          "default": false,
+          "description": "Bot accounts with API keys and scopes (RFC 0003).",
           "type": "boolean"
         },
         "calls": {
@@ -1452,6 +1771,64 @@
         "operation_id",
         "code",
         "context"
+      ],
+      "type": "object"
+    },
+    "CreateBot": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "default": "",
+          "type": "string"
+        },
+        "display_name": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "scopes": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/BotScope"
+          },
+          "type": "array"
+        },
+        "username": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "username",
+        "display_name"
+      ],
+      "type": "object"
+    },
+    "CreateBotKey": {
+      "additionalProperties": false,
+      "description": "Needs a recent sign-in of the person creating it. Replaying the operation\nanswers `bot_key_replayed`: the key is never shown twice.",
+      "properties": {
+        "expires_in_days": {
+          "default": null,
+          "description": "None: the key never expires.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "label": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "label"
       ],
       "type": "object"
     },
@@ -3045,6 +3422,19 @@
         "root",
         "fingerprint",
         "revision"
+      ],
+      "type": "object"
+    },
+    "InstanceSettings": {
+      "description": "Instance-wide settings, administrators only.",
+      "properties": {
+        "user_bots": {
+          "description": "Every account may create bots; administrators always may.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "user_bots"
       ],
       "type": "object"
     },
@@ -7062,6 +7452,62 @@
       ],
       "type": "object"
     },
+    "UpdateBot": {
+      "additionalProperties": false,
+      "description": "Absent fields keep their value. The photo has its own route,\n`PUT`/`DELETE /api/v1/bots/{id}/avatar`; the bot may also edit its own\nprofile with its key through `/me`.",
+      "properties": {
+        "description": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "display_name": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "scopes": {
+          "default": null,
+          "items": {
+            "$ref": "#/$defs/BotScope"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "operation_id"
+      ],
+      "type": "object"
+    },
+    "UpdateInstanceSettings": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "type": "string"
+        },
+        "user_bots": {
+          "default": null,
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "operation_id"
+      ],
+      "type": "object"
+    },
     "UpdatePreferences": {
       "additionalProperties": false,
       "properties": {
@@ -7280,6 +7726,10 @@
     },
     "User": {
       "properties": {
+        "bot": {
+          "description": "A bot account (RFC 0003), owned by a person and acting with API keys.",
+          "type": "boolean"
+        },
         "deleted": {
           "description": "A tombstoned account: its messages stay, shown as a deleted user. Its\nusername is a reserved `deleted-` placeholder and its display name empty.",
           "type": "boolean"
@@ -7343,6 +7793,17 @@
         },
         "bio": {
           "type": "string"
+        },
+        "bot_owner": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/User"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The person who owns this bot; absent for a person."
         },
         "revision": {
           "type": "string"
@@ -7505,6 +7966,9 @@
     "avatar_command": {
       "$ref": "#/$defs/AvatarCommand"
     },
+    "bots": {
+      "$ref": "#/$defs/BotsContract"
+    },
     "command_list": {
       "$ref": "#/$defs/CommandList"
     },
@@ -7653,6 +8117,7 @@
     "command_list",
     "run_command",
     "administration",
+    "bots",
     "parity"
   ],
   "title": "Contract",

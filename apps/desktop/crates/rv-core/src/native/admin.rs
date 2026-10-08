@@ -119,6 +119,34 @@ impl NativeSession {
         self.client.delete_reported_message(message, &AdminOperation { operation_id: room_operation_id() }).await?;
         self.ready()
     }
+    /// The instance settings (whether every account may create bots); None
+    /// on a server without bots.
+    pub async fn instance_settings(&self) -> Result<Option<rv_protocol::bots::InstanceSettings>, Error> {
+        self.admin_access()?;
+        if !self.bots_supported() {
+            return Ok(None);
+        }
+        self.refresh_credentials().await?;
+        let settings = self.client.instance_settings().await?;
+        self.ready()?;
+        Ok(Some(settings))
+    }
+    /// Opens bots to every account, or back to administrators only.
+    pub async fn update_instance_settings(
+        &self,
+        user_bots: bool,
+    ) -> Result<rv_protocol::bots::InstanceSettings, Error> {
+        self.admin_access()?;
+        if !self.bots_supported() {
+            return Err(Error::Protocol("unsupported_feature"));
+        }
+        self.refresh_credentials().await?;
+        let input =
+            rv_protocol::bots::UpdateInstanceSettings { operation_id: room_operation_id(), user_bots: Some(user_bots) };
+        let settings = self.client.update_instance_settings(&input).await?;
+        self.ready()?;
+        Ok(settings)
+    }
     pub async fn dismiss_user_reports(&self, user: &str) -> Result<(), Error> {
         self.admin_access()?;
         self.refresh_credentials().await?;

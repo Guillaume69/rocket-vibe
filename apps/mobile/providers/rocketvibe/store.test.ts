@@ -48,6 +48,17 @@ test('native room activity survives SQLite and uses the existing translated syst
   db.close();
 });
 
+test('a bot author is stored natively and follows the author on each update',async()=>{
+  const {db,store}=setup();
+  const bot=decodeNative('Message',{...message,author:{...message.author,bot:true}});
+  await store.applySnapshot({...snapshot,messages:[bot]});
+  assert.equal(db.prepare('SELECT author_bot FROM messages WHERE id=?').get(message.id)!.author_bot,1);
+  assert.equal(localMessage(bot).authorBot,true);
+  await store.applySnapshot({...snapshot,messages:[message],cursor:'person'});
+  assert.equal(db.prepare('SELECT author_bot FROM messages WHERE id=?').get(message.id)!.author_bot,0);
+  db.close();
+});
+
 test('closing and reopening an on-disk SQLite database preserves the outbox and committed cursor',async () => {
   const directory = mkdtempSync(join(tmpdir(),'rocketvibe-native-'));
   const filename = join(directory,'account.sqlite');

@@ -14,12 +14,17 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(
             SettingsCategory.visible(.init(signedIn: true)),
             [.account, .notifications, .language, .accounts, .app],
-            "a native server without encryption, security or devices"
+            "a native server without encryption, security, devices or bots"
         )
-        XCTAssertEqual(SettingsCategory.visible(.init(signedIn: true, crypto: true, security: true, devices: true, voice: true)), SettingsCategory.allCases)
+        XCTAssertEqual(
+            SettingsCategory.visible(.init(signedIn: true, devices: true, bots: true)),
+            [.account, .notifications, .language, .devices, .bots, .accounts, .app]
+        )
+        XCTAssertEqual(SettingsCategory.visible(.init(signedIn: true, crypto: true, security: true, devices: true, bots: true, voice: true)), SettingsCategory.allCases)
         setFrench(french: false)
         XCTAssertEqual(SettingsCategory.account.title, "My account")
         XCTAssertEqual(SettingsCategory.app.title, "App")
+        XCTAssertEqual(SettingsCategory.bots.title, "Bots")
     }
 
     func testThePanelFitsTheWindow() {

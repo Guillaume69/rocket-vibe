@@ -51,8 +51,9 @@ pub fn open(parent: &impl IsA<gtk::Widget>, admin: Admin) -> SidebarDialog {
     dialog
 }
 
-/// Runs provider work on tokio; `done` only while the dialog is open.
-fn spawn<T: Send + 'static>(
+/// Runs provider work on tokio; `done` only while the dialog is open (the
+/// settings' bots page uses it too).
+pub(crate) fn spawn<T: Send + 'static>(
     host: &Host,
     work: impl Future<Output = T> + Send + 'static,
     done: impl FnOnce(T) + 'static,
@@ -80,7 +81,7 @@ fn date(text: &str) -> String {
 }
 
 /// `2026-10-07T09:00:00Z` as a local date and time.
-fn date_time(text: &str) -> String {
+pub(crate) fn date_time(text: &str) -> String {
     chrono::DateTime::parse_from_rfc3339(text)
         .map(|d| {
             let local = d.with_timezone(&chrono::Local);
@@ -134,10 +135,6 @@ fn instance_row(id: &str) -> adw::ActionRow {
     row
 }
 
-fn badge(text: &str, kind: &str) -> gtk::Label {
-    gtk::Label::builder().label(text).valign(gtk::Align::Center).css_classes(["admin-badge", kind]).build()
-}
-
 fn dot(presence: Presence) -> gtk::Widget {
     gtk::Box::builder()
         .css_classes(["presence", presence.key()])
@@ -176,8 +173,16 @@ fn confirm(host: &Host, heading: &str, body: &str, action: &str, run: impl Fn() 
     confirm_class(host, heading, body, action, "admin-confirm", run);
 }
 
-/// `confirm`, with a class of its own (the second confirmations).
-fn confirm_class(host: &Host, heading: &str, body: &str, action: &str, class: &str, run: impl Fn() + 'static) {
+/// `confirm`, with a class of its own (the second confirmations, the bots
+/// page's).
+pub(crate) fn confirm_class(
+    host: &Host,
+    heading: &str,
+    body: &str,
+    action: &str,
+    class: &str,
+    run: impl Fn() + 'static,
+) {
     let Some(parent) = host.widget() else { return };
     let alert = adw::AlertDialog::builder()
         .heading(heading)
@@ -269,8 +274,10 @@ fn fill<T: Send + 'static>(
                     render(&l, item);
                 }
                 if let Some(next) = page.next {
-                    let more =
-                        adw::ButtonRow::builder().title(t("admin.load_more")).css_classes(["admin-more"]).build();
+                    let more = adw::ButtonRow::builder()
+                        .title(t("admin.load_more"))
+                        .css_classes(["button", "admin-more"])
+                        .build();
                     let (h, list) = (h.clone(), l.clone());
                     more.connect_activated(move |_| {
                         fill(&h, &list, Some(next.clone()), empty, fetch.clone(), render.clone());
@@ -372,6 +379,7 @@ fn load_dashboard(screen: &Screen, cards: &Cards, refresh: bool) {
                 for group in overview_groups(&s, &c, &overview) {
                     c.add(&group);
                 }
+                bots_card(&s, &c);
             }
             Err(error) => {
                 let group = adw::PreferencesGroup::new();
@@ -474,7 +482,7 @@ fn overview_groups(screen: &Screen, cards: &Cards, o: &Overview) -> Vec<adw::Pre
     let open = adw::ButtonRow::builder()
         .title(t("admin.open_moderation"))
         .end_icon_name("go-next-symbolic")
-        .css_classes(["admin-open-moderation"])
+        .css_classes(["button", "admin-open-moderation"])
         .build();
     let host = screen.host.clone();
     open.connect_activated(move |_| host.select(MODERATION.0));
@@ -488,6 +496,50 @@ fn overview_groups(screen: &Screen, cards: &Cards, o: &Overview) -> Vec<adw::Pre
         uploads,
         reports,
     ]
+}
+
+/// RocketVibe with bots: whether every account may create one. The card
+/// shows only once the server said (None: no bots there).
+fn bots_card(screen: &Screen, cards: &Cards) {
+    let admin = screen.admin.clone();
+    let (s, c) = (screen.clone(), cards.clone());
+    spawn(&screen.host, async move { admin.user_bots().await }, move |found| {
+        let Ok(Some(on)) = found else { return };
+        let group = adw::PreferencesGroup::builder().title(t("admin.bots")).css_classes(["admin-bots"]).build();
+        let switch = adw::SwitchRow::builder()
+            .title(t("admin.user_bots"))
+            .subtitle(t("admin.user_bots_hint"))
+            .active(on)
+            .css_classes(["admin-user-bots"])
+            .build();
+        group.add(&switch);
+        c.add(&group);
+        // Set back by an answer: not a choice to send again.
+        let quiet = Rc::new(Cell::new(false));
+        switch.connect_active_notify(move |row| {
+            if quiet.get() {
+                return;
+            }
+            let (admin, wanted, row, quiet) = (s.admin.clone(), row.is_active(), row.clone(), quiet.clone());
+            row.set_sensitive(false);
+            let host = s.host.clone();
+            spawn(&s.host, async move { admin.set_user_bots(wanted).await }, move |result| {
+                row.set_sensitive(true);
+                let now = match result {
+                    Ok(now) => now,
+                    Err(error) => {
+                        host.toast(error_text(&error));
+                        !wanted
+                    }
+                };
+                if now != row.is_active() {
+                    quiet.set(true);
+                    row.set_active(now);
+                    quiet.set(false);
+                }
+            });
+        });
+    });
 }
 
 /// Reported messages and reported accounts; an item opens its reasons and actions.
@@ -666,7 +718,7 @@ fn moderate(
 }
 
 fn action_row(key: &str, class: &str, destructive: bool) -> adw::ButtonRow {
-    let row = adw::ButtonRow::builder().title(t(key)).css_classes([class]).build();
+    let row = adw::ButtonRow::builder().title(t(key)).css_classes(["button", class]).build();
     if destructive {
         row.add_css_class("destructive-action");
     }
@@ -876,10 +928,10 @@ fn rooms(screen: &Screen) -> adw::PreferencesPage {
             .build();
         row.add_prefix(&room_tile(&room));
         if room.read_only {
-            row.add_suffix(&badge(t("admin.badge_read_only"), "read-only"));
+            row.add_suffix(&widgets::badge(t("admin.badge_read_only"), "read-only"));
         }
         if room.encrypted {
-            row.add_suffix(&badge(t("admin.badge_encrypted"), "encrypted"));
+            row.add_suffix(&widgets::badge(t("admin.badge_encrypted"), "encrypted"));
         }
         list.push(&row);
     });
@@ -927,7 +979,7 @@ fn users(screen: &Screen) -> adw::PreferencesPage {
             (user.bot, "admin.badge_bot", "bot"),
         ] {
             if shown {
-                row.add_suffix(&badge(t(text), kind));
+                row.add_suffix(&widgets::badge(t(text), kind));
             }
         }
         row.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));
@@ -999,14 +1051,17 @@ fn user_page(screen: &Screen, reload: &Reload, user: AdminUser) {
             Err(error) => s.host.toast(error_text(&error)),
         }
     };
-    let promote =
-        action_row(if user.admin { "admin.remove_admin" } else { "admin.make_admin" }, "admin-set-admin", false);
-    let (s, u, d) = (screen.clone(), user.clone(), done.clone());
-    promote.connect_activated(move |_| {
-        let (admin, user, d) = (s.admin.clone(), u.clone(), d.clone());
-        spawn(&s.host, async move { admin.set_admin(&user, !user.admin).await.map(|_| ()) }, d);
-    });
-    actions.add(&promote);
+    // A bot is never an administrator (the server refuses, `bot_privilege`).
+    if !user.bot || user.admin {
+        let promote =
+            action_row(if user.admin { "admin.remove_admin" } else { "admin.make_admin" }, "admin-set-admin", false);
+        let (s, u, d) = (screen.clone(), user.clone(), done.clone());
+        promote.connect_activated(move |_| {
+            let (admin, user, d) = (s.admin.clone(), u.clone(), d.clone());
+            spawn(&s.host, async move { admin.set_admin(&user, !user.admin).await.map(|_| ()) }, d);
+        });
+        actions.add(&promote);
+    }
     let activation =
         action_row(if user.active { "admin.deactivate" } else { "admin.activate" }, "admin-set-active", user.active);
     let (s, u, d) = (screen.clone(), user.clone(), done.clone());

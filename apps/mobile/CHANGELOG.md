@@ -11,6 +11,13 @@ release, and its notes are that version's section here.
 
 - A pill over the top of a room, "N new messages since HH:MM", while the first unread
   message is above the view; a tap scrolls to it.
+- Bots on a RocketVibe server: a "My bots" settings page lists your bot accounts, creates
+  one (when the administrator allows it), edits its description and scopes (each explained,
+  with the API routes it opens), creates keys shown once with a ready-to-copy `curl` example,
+  revokes keys, renames the bot, sets or removes its photo and deletes a bot. A "BOT" badge marks bots in messages, profiles (with their
+  owner) and room members; the administration dashboard has the "Users can create bots"
+  switch, and its Users list marks RocketVibe bots and no longer offers making a bot an
+  administrator. A room with a bot member cannot be encrypted, and the app says so.
 
 ## [0.8.0] - 2026-10-08
 

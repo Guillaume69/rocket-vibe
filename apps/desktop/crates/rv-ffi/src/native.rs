@@ -1056,6 +1056,7 @@ mod tests {
             starred: false,
             reply_to: None,
             thread_replies: 0,
+            author_bot: false,
         };
         let items = native_message_items(
             vec![

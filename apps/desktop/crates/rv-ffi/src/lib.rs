@@ -9,6 +9,7 @@ pub mod markup;
 pub mod model;
 mod native;
 mod native_auth;
+mod native_bots;
 mod native_crypto;
 mod native_emojis;
 mod native_files;

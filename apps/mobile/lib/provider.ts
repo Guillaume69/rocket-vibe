@@ -230,7 +230,8 @@ export type RoomRole = 'owner'|'moderator'|'member';
  * room that is not direct, on a server announcing voice); absent leaves the flag as it is. */
 export type RoomFields = {name:string;isPrivate:boolean;topic:string;description:string;announcement:string;readOnly:boolean;voice?:boolean};
 export type RoomSettings = RoomFields & {revision:string;canEdit:boolean;canChangeRoles:boolean;canLeave:boolean;role:RoomRole};
-export type ProviderRoomMember = {id:string;username:string;name:string|null;role:RoomRole;deactivated:boolean};
+/** `bot`: a bot account (RocketVibe, RFC 0003); absent on Rocket.Chat. */
+export type ProviderRoomMember = {id:string;username:string;name:string|null;role:RoomRole;deactivated:boolean;bot?:boolean};
 export type ProviderRoomMemberPage = {revision:string;members:ProviderRoomMember[];continuation:string|null};
 export type RoomIntent = {key:string;type:'settings'|'role'|'leave';settings:RoomFields|null;target:string|null;role:RoomRole|null;failed:boolean;error:string|null};
 export type RoomManagement = {

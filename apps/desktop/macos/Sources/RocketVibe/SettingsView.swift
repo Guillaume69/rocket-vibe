@@ -52,6 +52,7 @@ extension SettingsCategory {
         case .encryption: return "lock"
         case .security: return "checkmark.shield"
         case .devices: return "laptopcomputer"
+        case .bots: return "cpu"
         case .accounts: return "person.2"
         case .app: return "gearshape"
         }
@@ -171,6 +172,7 @@ struct SettingsView: View {
                 case .encryption: encryption
                 case .security: SecuritySection()
                 case .devices: DevicesSection()
+                case .bots: BotsSection()
                 case .accounts: accounts
                 case .app: about
                 }
@@ -426,7 +428,9 @@ struct MyProfileSection: View {
     }
 }
 
-private func profilePNG(_ url: URL) -> Data? {
+/// A chosen picture as a native photo: upright, at most 512 pixels, PNG, at
+/// most 2 MiB (my profile and my bots).
+func profilePNG(_ url: URL) -> Data? {
     guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
           let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
             kCGImageSourceCreateThumbnailFromImageAlways: true,

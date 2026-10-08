@@ -15,7 +15,7 @@ import {ConfirmNativeIdentity} from './nativeSecurity.tsx';
 // Object identity scopes retained alerts to one provider, without putting a
 // credential in a React key or re-mounting the form on every reconnect.
 const providerKeys=new WeakMap<NativeChat,number>();let nextProviderKey=0;
-function providerKey(chat:NativeChat):number {
+export function providerKey(chat:NativeChat):number {
   const known=providerKeys.get(chat);if(known!==undefined)return known;
   const key=++nextProviderKey;providerKeys.set(chat,key);return key;
 }

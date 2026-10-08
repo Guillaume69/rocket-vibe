@@ -28,7 +28,7 @@ use std::collections::HashMap;
 /// Live presence per account: the strongest unexpired lease of a live session.
 const PRESENCE: &str = "WITH presence AS (SELECT p.user_id,min(CASE p.status WHEN 'busy' THEN 0 WHEN 'online' THEN 1 ELSE 2 END) AS priority FROM presence_leases p JOIN instance i ON i.singleton AND p.data_epoch=i.data_epoch WHERE p.expires_at>clock_timestamp() AND EXISTS(SELECT 1 FROM sessions s WHERE s.device_id=p.device_id AND s.expires_at>clock_timestamp()) GROUP BY p.user_id)";
 /// A disabled account's avatar is no longer served, so it is not advertised.
-const USER_COLUMNS: &str = "u.id,u.username,u.display_name,CASE WHEN u.disabled THEN NULL ELSE u.avatar_file_id END AS avatar_file_id,u.admin,u.disabled,COALESCE(CASE p.priority WHEN 0 THEN 'busy' WHEN 1 THEN 'online' WHEN 2 THEN 'away' END,'offline') AS status,u.created_at,(SELECT max(d.last_seen_at) FROM session_devices d WHERE d.user_id=u.id) AS last_seen_at,u.activation_version AS revision";
+const USER_COLUMNS: &str = "u.id,u.username,u.display_name,CASE WHEN u.disabled THEN NULL ELSE u.avatar_file_id END AS avatar_file_id,u.admin,u.disabled,COALESCE(CASE p.priority WHEN 0 THEN 'busy' WHEN 1 THEN 'online' WHEN 2 THEN 'away' END,'offline') AS status,u.created_at,(SELECT max(d.last_seen_at) FROM session_devices d WHERE d.user_id=u.id) AS last_seen_at,u.activation_version AS revision,u.bot";
 const REPORTS_SHOWN: i64 = 20;
 /// Open reports one account may have at once, messages and accounts together.
 const OPEN_REPORTS: i64 = 200;
@@ -45,6 +45,7 @@ struct UserRow {
     created_at: Option<DateTime<Utc>>,
     last_seen_at: Option<DateTime<Utc>>,
     revision: String,
+    bot: bool,
 }
 impl UserRow {
     fn wire(self) -> AdminUser {
@@ -59,6 +60,7 @@ impl UserRow {
             created_at: self.created_at.map(|t| t.to_rfc3339()),
             last_seen_at: self.last_seen_at.map(|t| t.to_rfc3339()),
             revision: self.revision,
+            bot: self.bot,
         }
     }
 }
@@ -130,6 +132,7 @@ fn wire_user(id: String, username: String, display_name: String, deleted: bool) 
         username,
         display_name,
         deleted,
+        ..Default::default()
     }
 }
 fn room_kind(kind: &str) -> RoomKind {
@@ -275,9 +278,30 @@ async fn user_in(tx: &mut Transaction<'_, Postgres>, id: &str) -> Result<AdminUs
 
 /// Every command's prologue: authorization under lock, then its receipt.
 /// `Ok(None)` is the replay of an applied command, which is never reapplied.
-async fn admit(
+pub(crate) async fn admit(
     app: &App,
     actor: &Account,
+    administration: bool,
+    operation: &str,
+    fingerprint: &str,
+) -> Result<(Transaction<'static, Postgres>, bool)> {
+    admit_with(
+        app,
+        actor,
+        administration,
+        administration,
+        operation,
+        fingerprint,
+    )
+    .await
+}
+
+/// `queue`: takes the administration lock before the actor's, as every
+/// command that ends in `operator::set_user` must (a bot's deletion).
+pub(crate) async fn admit_with(
+    app: &App,
+    actor: &Account,
+    queue: bool,
     administration: bool,
     operation: &str,
     fingerprint: &str,
@@ -287,7 +311,7 @@ async fn admit(
     }
     let mut tx = app.pool.begin().await?;
     auth::mutation_deadlines(&mut tx).await?;
-    if administration {
+    if queue {
         // Account changes queue behind each other: two administrators demoting
         // each other can neither deadlock nor both succeed.
         operator::administration_lock(&mut tx).await?;
@@ -315,7 +339,7 @@ async fn admit(
         None => Ok((tx, false)),
     }
 }
-async fn settle(
+pub(crate) async fn settle(
     mut tx: Transaction<'static, Postgres>,
     actor: &Account,
     operation: &str,
@@ -332,7 +356,7 @@ async fn settle(
     tx.commit().await?;
     Ok(())
 }
-fn fingerprint(value: serde_json::Value) -> String {
+pub(crate) fn fingerprint(value: serde_json::Value) -> String {
     auth::hash_token(&value.to_string())
 }
 fn self_administration() -> Error {
@@ -423,14 +447,30 @@ pub(crate) async fn delete_user(
     if id == actor.id {
         return Err(self_administration());
     }
-    let (username, avatar) = target(&mut tx, id, &input.revision).await?;
+    let avatar = tombstone(&mut tx, id, &input.revision).await?;
+    settle(tx, actor, &input.operation_id, &hash).await?;
+    // The avatar is unreferenced now; collection would also reclaim it later.
+    if let (Some(store), Some(avatar)) = (&app.objects, avatar) {
+        let _ = store.remove(&avatar).await;
+    }
+    Ok(())
+}
+
+/// Deletes a live account at its expected revision, inside the caller's
+/// administration command; answers its avatar, to remove after the commit.
+pub(crate) async fn tombstone(
+    tx: &mut Transaction<'static, Postgres>,
+    id: &str,
+    revision: &str,
+) -> Result<Option<String>> {
+    let (username, avatar) = target(tx, id, revision).await?;
     // Deactivation first: devices (and with them sessions, tickets, push
     // registrations, presence and E2EE devices), cursors, snapshots, challenges;
     // it refuses to remove the last active administrator.
     operator::set_user(
-        &mut tx,
+        tx,
         id,
-        Some(&input.revision),
+        Some(revision),
         UserChanges {
             disabled: Some(true),
             admin: Some(false),
@@ -457,30 +497,30 @@ pub(crate) async fn delete_user(
         "DELETE FROM e2ee_history_keys WHERE user_id=$1",
         "DELETE FROM e2ee_history_key_generations WHERE user_id=$1",
     ] {
-        sqlx::query(query).bind(id).execute(&mut *tx).await?;
+        sqlx::query(query).bind(id).execute(&mut **tx).await?;
     }
     // The username is retired: no later account may take it.
     sqlx::query("INSERT INTO retired_usernames(username,user_id) VALUES(lower($1),$2) ON CONFLICT DO NOTHING")
         .bind(&username)
         .bind(id)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
     sqlx::query("UPDATE users SET deleted=true,username='deleted-'||id,display_name='',bio='',status_text='',chosen_status='offline',avatar_file_id=NULL,password_hash='',factor_version=gen_random_uuid()::text,email_version=gen_random_uuid()::text WHERE id=$1")
         .bind(id)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
     let rooms: Vec<(String, String)> = sqlx::query_as(
         "SELECT r.id,m.role FROM members m JOIN rooms r ON r.id=m.room_id WHERE m.user_id=$1 ORDER BY r.id FOR UPDATE OF r,m",
     )
     .bind(id)
-    .fetch_all(&mut *tx)
+    .fetch_all(&mut **tx)
     .await?;
     let mut heirs = Vec::new();
     for (room, role) in &rooms {
         if role == "owner" {
             // An ownerless room gets its earliest remaining active member.
             let heir: Option<String> = sqlx::query_scalar("UPDATE members SET role='owner' WHERE room_id=$1 AND user_id=(SELECT m.user_id FROM members m JOIN users u ON u.id=m.user_id WHERE m.room_id=$1 AND m.user_id<>$2 AND NOT EXISTS(SELECT 1 FROM members o WHERE o.room_id=$1 AND o.role='owner' AND o.user_id<>$2) ORDER BY u.disabled,m.joined_at,m.user_id LIMIT 1) RETURNING user_id")
-                .bind(room).bind(id).fetch_optional(&mut *tx).await?;
+                .bind(room).bind(id).fetch_optional(&mut **tx).await?;
             if let Some(heir) = heir {
                 heirs.push(json!({"room_id":room,"user_id":heir}));
             }
@@ -488,15 +528,15 @@ pub(crate) async fn delete_user(
         sqlx::query("DELETE FROM members WHERE room_id=$1 AND user_id=$2")
             .bind(room)
             .bind(id)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await?;
         sqlx::query("DELETE FROM snapshot_heads WHERE user_id IN (SELECT user_id FROM members WHERE room_id=$1) OR $1=ANY(room_ids)")
             .bind(room)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await?;
-        let position = store::next_position(&mut tx).await?;
+        let position = store::next_position(tx).await?;
         store::event(
-            &mut tx,
+            tx,
             position,
             room,
             Some(id),
@@ -505,21 +545,16 @@ pub(crate) async fn delete_user(
             },
         )
         .await?;
-        crate::room_details::publish(&mut tx, room).await?;
+        crate::room_details::publish(tx, room).await?;
     }
     operator::record(
-        &mut tx,
+        tx,
         "user.deleted",
         id,
         json!({"rooms":rooms.len(),"heirs":heirs}),
     )
     .await?;
-    settle(tx, actor, &input.operation_id, &hash).await?;
-    // The avatar is unreferenced now; collection would also reclaim it later.
-    if let (Some(store), Some(avatar)) = (&app.objects, avatar) {
-        let _ = store.remove(&avatar).await;
-    }
-    Ok(())
+    Ok(avatar)
 }
 
 #[derive(FromRow)]

@@ -38,7 +38,7 @@ export type BotKeyCreated = { "info": BotKey; "key": string; };
 export type BotKeyList = { "keys": (BotKey)[]; };
 export type BotList = { "bots": (Bot)[]; };
 export type BotReference = { "direct_per_minute": number; "groups": (BotScopeRoutes)[]; "key_prefix": string; "sends_per_minute": number; };
-export type BotRoute = { "method": string; "path": string; };
+export type BotRoute = { "also"?: (BotScope)[]; "method": string; "path": string; };
 export type BotScope = "rooms:read" | "messages:write" | "files:write" | "reactions:write" | "rooms:join" | "users:read" | "dm:write";
 export type BotScopeRoutes = { "routes": (BotRoute)[]; "scope"?: BotScope | null; };
 export type BotsContract = { "bot": Bot; "bot_key": BotKey; "bot_key_created": BotKeyCreated; "bot_key_list": BotKeyList; "bot_list": BotList; "bot_reference": BotReference; "create_bot": CreateBot; "create_bot_key": CreateBotKey; "instance_settings": InstanceSettings; "update_bot": UpdateBot; "update_instance_settings": UpdateInstanceSettings; };
@@ -1438,6 +1438,13 @@ export const nativeSchema = {
     "BotRoute": {
       "description": "One route a key may call, as the server matches it (`{room}` is a parameter).",
       "properties": {
+        "also": {
+          "description": "Further scopes the route needs besides its group's.",
+          "items": {
+            "$ref": "#/$defs/BotScope"
+          },
+          "type": "array"
+        },
         "method": {
           "type": "string"
         },

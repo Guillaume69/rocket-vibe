@@ -1211,7 +1211,7 @@ impl NativeClient {
             .request(method, format!("{}{path}", self.base))
             .bearer_auth(&sent);
         if let Some((mime, bytes)) = upload {
-            if bytes.len() > 2 * 1024 * 1024 {
+            if bytes.len() > rv_protocol::bots::AVATAR_BYTES {
                 return Err(Error::InvalidAvatar);
             }
             request = request
@@ -1761,7 +1761,7 @@ impl NativeClient {
             .request(method, format!("{}/api/v1/bots/{id}/avatar", self.base))
             .bearer_auth(&sent);
         if let Some((mime, bytes)) = upload {
-            if bytes.len() > 2 * 1024 * 1024 {
+            if bytes.len() > rv_protocol::bots::AVATAR_BYTES {
                 return Err(Error::InvalidAvatar);
             }
             request = request

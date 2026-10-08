@@ -393,7 +393,6 @@ pub async fn direct(app: &App, account: &Account, target: &str) -> Result<Room> 
     let mut users = [account.id.as_str(), target];
     users.sort_unstable();
     crate::auth::mutation_deadlines(&mut tx).await?;
-    crate::bots::budget(&mut tx, account, "direct", crate::bots::DIRECT_PER_MINUTE).await?;
     // Serialize concurrent creation in both directions, with a consistent lock order.
     // Keep foreign-key KEY SHARE checks compatible with these domain locks.
     let found: Vec<(String, String)> = sqlx::query_as(
@@ -420,6 +419,8 @@ pub async fn direct(app: &App, account: &Account, target: &str) -> Result<Room> 
         tx.commit().await?;
         return Ok(room.wire());
     }
+    // Only a new conversation spends a bot's budget.
+    crate::bots::budget(&mut tx, account, "direct", crate::bots::DIRECT_PER_MINUTE).await?;
     let id = random_token()[..24].to_owned();
     sqlx::query("INSERT INTO rooms(id,name,kind,direct_pair) VALUES($1,$3,'direct',$2)")
         .bind(&id)
@@ -616,8 +617,6 @@ pub(crate) async fn send_in_tx(
     // All sends by a user serialize before room / journal locks. This also protects
     // operation IDs across rooms, including malicious cross-room replays.
     lock_active(tx, account).await?;
-    // Plain sends have no budget of their own; a bot's do (RFC 0003 §9).
-    crate::bots::budget(tx, account, "send", crate::bots::SENDS_PER_MINUTE).await?;
     crate::quotes::lock_rooms(tx, room_id, &input.quotes).await?;
     require_member(tx, room_id, &account.id).await?;
     let used: bool = sqlx::query_scalar(
@@ -657,6 +656,8 @@ pub(crate) async fn send_in_tx(
         }
         return Ok(existing.wire());
     }
+    // Plain sends have no budget of their own; a bot's new ones do (RFC 0003 §9).
+    crate::bots::budget(tx, account, "send", crate::bots::SENDS_PER_MINUTE).await?;
     crate::permissions::require_send(tx, room_id, &account.id).await?;
     crate::e2ee::groups::require_plaintext(tx, room_id).await?;
     if let Some(root) = &input.reply_to {

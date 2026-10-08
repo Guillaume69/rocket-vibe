@@ -23,7 +23,7 @@ use rv_protocol::{
 use sqlx::{Postgres, Transaction};
 use std::io::Cursor;
 
-pub const AVATAR_BYTES: usize = 2 * 1024 * 1024;
+pub const AVATAR_BYTES: usize = rv_protocol::bots::AVATAR_BYTES;
 #[derive(sqlx::FromRow)]
 struct Row {
     id: String,
@@ -168,7 +168,7 @@ async fn replay(
     })
     .transpose()
 }
-async fn admission(tx: &mut Transaction<'_, Postgres>, actor: &Account) -> Result<()> {
+pub(crate) async fn admission(tx: &mut Transaction<'_, Postgres>, actor: &Account) -> Result<()> {
     let (count,retry):(i32,i64)=sqlx::query_as("INSERT INTO profile_windows(user_id,attempts,expires_at) VALUES($1,1,clock_timestamp()+interval '60 seconds') ON CONFLICT(user_id) DO UPDATE SET attempts=CASE WHEN profile_windows.expires_at<=clock_timestamp() THEN 1 ELSE profile_windows.attempts+1 END,expires_at=CASE WHEN profile_windows.expires_at<=clock_timestamp() THEN clock_timestamp()+interval '60 seconds' ELSE profile_windows.expires_at END RETURNING attempts,GREATEST(1,ceil(extract(epoch FROM expires_at-clock_timestamp())))::bigint").bind(&actor.id).fetch_one(&mut **tx).await?;
     if count > 20 {
         return Err(Error::throttled("profile_rate_limited", retry as u64));

@@ -30,13 +30,11 @@ use sqlx::{FromRow, Postgres, Transaction};
 use BotScope::*;
 
 /// `(method, matched route, scope)`; `None` is open to every key. A route
-/// missing here is closed to keys: new routes stay closed until listed.
+/// missing here is closed to keys: new routes stay closed until listed. The
+/// bot's own profile is read-only to its keys: its owner edits it.
 const ROUTES: &[(&str, &str, Option<BotScope>)] = &[
     ("GET", "/api/v1/me", None),
-    ("PATCH", "/api/v1/me", None),
     ("GET", "/api/v1/me/profile", None),
-    ("PUT", "/api/v1/me/avatar", None),
-    ("DELETE", "/api/v1/me/avatar", None),
     ("GET", "/api/v1/me/permissions", None),
     ("GET", "/api/v1/emoji", None),
     ("GET", "/api/v1/emoji/files/{id}", None),
@@ -102,6 +100,16 @@ const ROUTES: &[(&str, &str, Option<BotScope>)] = &[
     ("POST", "/api/v1/direct-messages", Some(DmWrite)),
 ];
 
+/// Routes that need a second scope: completing an upload posts a message.
+const ALSO: &[(&str, &str, BotScope)] = &[("POST", "/api/v1/uploads/{id}/complete", MessagesWrite)];
+
+fn also(method: &str, path: &str) -> Vec<BotScope> {
+    ALSO.iter()
+        .filter(|(m, p, _)| *m == method && *p == path)
+        .map(|(_, _, scope)| *scope)
+        .collect()
+}
+
 pub(crate) const SENDS_PER_MINUTE: i32 = 60;
 pub(crate) const DIRECT_PER_MINUTE: i32 = 10;
 
@@ -116,6 +124,7 @@ pub(crate) fn reference() -> rv_protocol::bots::BotReference {
             .map(|(method, path, _)| BotRoute {
                 method: (*method).into(),
                 path: (*path).into(),
+                also: also(method, path),
             })
             .collect(),
     };
@@ -176,7 +185,10 @@ pub(crate) async fn gate(State(app): State<App>, request: Request, next: Next) -
     let Some(scopes) = scopes else {
         return Error::unauthorized().into_response();
     };
-    if scope.is_some_and(|scope| !scopes.iter().any(|s| s == scope.as_str())) {
+    let held = |scope: BotScope| scopes.iter().any(|s| s == scope.as_str());
+    if scope.is_some_and(|scope| !held(scope))
+        || !also(request.method().as_str(), &path).into_iter().all(held)
+    {
         return Error::new(StatusCode::FORBIDDEN, "bot_scope_missing").into_response();
     }
     next.run(request).await
@@ -231,6 +243,50 @@ pub(crate) async fn refuse_group(tx: &mut Transaction<'_, Postgres>, room: &str)
         .await?;
     if bot {
         return Err(Error::new(StatusCode::CONFLICT, "crypto_bot_member"));
+    }
+    Ok(())
+}
+
+/// An open socket outlives the request that admitted its ticket: it asks
+/// again on every tick whether the bot still holds `rooms:read`.
+pub(crate) async fn still_reads(app: &App, actor: &Account) -> Result<bool> {
+    if !actor.bot {
+        return Ok(true);
+    }
+    Ok(sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM bots WHERE user_id=$1 AND 'rooms:read'=ANY(scopes))",
+    )
+    .bind(&actor.id)
+    .fetch_one(&app.pool)
+    .await?)
+}
+
+/// A bot never becomes an administrator, and is never re-enabled while it is a
+/// member of an encrypted room (it may have been disabled when the group began).
+pub(crate) async fn refuse_policy(
+    tx: &mut Transaction<'_, Postgres>,
+    id: &str,
+    admin: bool,
+    enabling: bool,
+) -> Result<()> {
+    let bot: bool = sqlx::query_scalar("SELECT bot FROM users WHERE id=$1")
+        .bind(id)
+        .fetch_one(&mut **tx)
+        .await?;
+    if !bot {
+        return Ok(());
+    }
+    if admin {
+        return Err(Error::new(StatusCode::CONFLICT, "bot_privilege"));
+    }
+    if enabling {
+        let encrypted: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM members m JOIN e2ee_groups g ON g.room_id=m.room_id WHERE m.user_id=$1)")
+            .bind(id)
+            .fetch_one(&mut **tx)
+            .await?;
+        if encrypted {
+            return Err(Error::new(StatusCode::CONFLICT, "bot_encrypted_room"));
+        }
     }
     Ok(())
 }
@@ -304,9 +360,17 @@ fn person(actor: &Account) -> Result<()> {
     Ok(())
 }
 
-/// Locks a live bot the actor may manage: its owner, or an administrator.
+/// Locks a live bot the actor may manage. `oversight`: an administrator may
+/// too (list keys, revoke, delete); everything that acts as the bot, or widens
+/// what it may do (keys, scopes, profile), is its owner's alone, so that no
+/// administrator gets a way into rooms the server otherwise keeps them out of.
 /// Someone else's bot is answered as missing.
-async fn managed(tx: &mut Transaction<'_, Postgres>, actor: &Account, id: &str) -> Result<bool> {
+async fn managed(
+    tx: &mut Transaction<'_, Postgres>,
+    actor: &Account,
+    id: &str,
+    oversight: bool,
+) -> Result<bool> {
     if !auth::identifier(id) {
         return Err(Error::invalid());
     }
@@ -315,7 +379,7 @@ async fn managed(tx: &mut Transaction<'_, Postgres>, actor: &Account, id: &str) 
         .fetch_optional(&mut **tx)
         .await?;
     match row {
-        Some((owner, disabled)) if owner == actor.id || actor.admin => Ok(disabled),
+        Some((owner, disabled)) if owner == actor.id || (oversight && actor.admin) => Ok(disabled),
         _ => Err(Error::missing()),
     }
 }
@@ -349,7 +413,9 @@ pub(crate) async fn list(app: &App, actor: &Account, all: bool) -> Result<BotLis
 }
 
 fn valid_display_name(value: &str) -> bool {
-    !value.is_empty() && value.len() <= 256 && !value.chars().any(char::is_control)
+    !value.is_empty()
+        && value.len() <= rv_protocol::bots::DISPLAY_NAME_BYTES
+        && !value.chars().any(char::is_control)
 }
 
 pub(crate) async fn create(app: &App, actor: &Account, input: CreateBot) -> Result<Bot> {
@@ -396,6 +462,15 @@ pub(crate) async fn create(app: &App, actor: &Account, input: CreateBot) -> Resu
     if owned >= BOTS_PER_OWNER {
         return Err(Error::new(StatusCode::CONFLICT, "bot_limit"));
     }
+    let today: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM bots WHERE owner_id=$1 AND created_at>clock_timestamp()-interval '1 day'",
+    )
+    .bind(&actor.id)
+    .fetch_one(&mut *tx)
+    .await?;
+    if today >= rv_protocol::bots::BOTS_PER_DAY {
+        return Err(Error::throttled("bot_create_limit", 3600));
+    }
     let id = random_token()[..24].to_owned();
     // An empty password hash never verifies; sign-in skips bots anyway.
     let inserted = sqlx::query("INSERT INTO users(id,username,display_name,password_hash,bot,create_public_room,create_private_room) VALUES($1,$2,$3,'',true,false,false)")
@@ -412,7 +487,7 @@ pub(crate) async fn create(app: &App, actor: &Account, input: CreateBot) -> Resu
             other?;
         }
     }
-    sqlx::query(
+    let inserted = sqlx::query(
         "INSERT INTO bots(user_id,owner_id,description,scopes,operation_id) VALUES($1,$2,$3,$4,$5)",
     )
     .bind(&id)
@@ -421,7 +496,14 @@ pub(crate) async fn create(app: &App, actor: &Account, input: CreateBot) -> Resu
     .bind(&scopes)
     .bind(&input.operation_id)
     .execute(&mut *tx)
-    .await?;
+    .await;
+    match inserted {
+        // The same operation once created another bot, its receipt since pruned.
+        Err(sqlx::Error::Database(e)) if e.is_unique_violation() => return Err(Error::conflict()),
+        other => {
+            other?;
+        }
+    }
     operator::record(
         &mut tx,
         "bot.created",
@@ -459,7 +541,7 @@ pub(crate) async fn update(app: &App, actor: &Account, id: &str, input: UpdateBo
         tx.commit().await?;
         return Ok(bot);
     }
-    managed(&mut tx, actor, id).await?;
+    managed(&mut tx, actor, id, false).await?;
     sqlx::query("UPDATE bots SET description=COALESCE($2,description),scopes=COALESCE($3,scopes) WHERE user_id=$1")
         .bind(id)
         .bind(&input.description)
@@ -503,12 +585,18 @@ pub(crate) async fn delete(app: &App, actor: &Account, id: &str) -> Result<()> {
         tx.commit().await?;
         return Ok(());
     }
-    managed(&mut tx, actor, id).await?;
+    managed(&mut tx, actor, id, true).await?;
     let revision: String = sqlx::query_scalar("SELECT activation_version FROM users WHERE id=$1")
         .bind(id)
         .fetch_one(&mut *tx)
         .await?;
     let avatar = crate::admin::tombstone(&mut tx, id, &revision).await?;
+    // A bot already disabled with its owner keeps its devices through the
+    // tombstone (no policy change): its keys go here in any case.
+    sqlx::query("DELETE FROM session_devices WHERE user_id=$1")
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
     operator::record(&mut tx, "bot.deleted", id, json!({"owner":actor.id})).await?;
     settle(tx, actor, &operation, &hash).await?;
     if let (Some(store), Some(avatar)) = (&app.objects, avatar) {
@@ -533,7 +621,9 @@ pub(crate) async fn avatar(
     {
         let mut tx = app.pool.begin().await?;
         auth::lock_active(&mut tx, actor).await?;
-        managed(&mut tx, actor, id).await?;
+        managed(&mut tx, actor, id, false).await?;
+        // The decode budget a person's own photo has, durable even when it fails.
+        crate::profiles::admission(&mut tx, actor).await?;
         tx.commit().await?;
     }
     let encoded = match upload {
@@ -557,7 +647,7 @@ pub(crate) async fn avatar(
     let operation = random_token()[..32].to_owned();
     let hash = fingerprint(json!(["bot.avatar", id, operation]));
     let (mut tx, _) = admit(app, actor, false, &operation, &hash).await?;
-    managed(&mut tx, actor, id).await?;
+    managed(&mut tx, actor, id, false).await?;
     let file = match encoded {
         Some(bytes) => Some(store.put(bytes).await?),
         None => None,
@@ -610,7 +700,7 @@ pub(crate) async fn keys(app: &App, actor: &Account, id: &str) -> Result<BotKeyL
     person(actor)?;
     let mut tx = app.pool.begin().await?;
     auth::lock_active(&mut tx, actor).await?;
-    managed(&mut tx, actor, id).await?;
+    managed(&mut tx, actor, id, true).await?;
     let rows: Vec<KeyRow> = sqlx::query_as(&format!("{KEY_SELECT} ORDER BY k.created_at,k.id"))
         .bind(id)
         .fetch_all(&mut *tx)
@@ -645,7 +735,7 @@ pub(crate) async fn create_key(
         return Err(Error::new(StatusCode::CONFLICT, "bot_key_replayed"));
     }
     crate::factors::recent(&mut tx, actor).await?;
-    if managed(&mut tx, actor, id).await? {
+    if managed(&mut tx, actor, id, false).await? {
         return Err(Error::new(StatusCode::CONFLICT, "bot_disabled"));
     }
     let live: i64 = sqlx::query_scalar("SELECT count(*) FROM bot_keys k JOIN sessions s ON s.device_id=k.device_id WHERE k.bot_id=$1 AND s.expires_at>now()")
@@ -710,7 +800,7 @@ pub(crate) async fn revoke_key(app: &App, actor: &Account, id: &str, key: &str) 
     let operation = random_token()[..32].to_owned();
     let hash = fingerprint(json!(["bot.revoke", id, key]));
     let (mut tx, _) = admit(app, actor, false, &operation, &hash).await?;
-    managed(&mut tx, actor, id).await?;
+    managed(&mut tx, actor, id, true).await?;
     let revoked = sqlx::query("DELETE FROM session_devices WHERE id=(SELECT device_id FROM bot_keys WHERE id=$1 AND bot_id=$2)")
         .bind(key)
         .bind(id)
@@ -819,6 +909,11 @@ mod tests {
             Some(Some(MessagesWrite))
         );
         assert_eq!(route_scope(&Method::GET, "/api/v1/me"), Some(None));
+        assert_eq!(route_scope(&Method::PATCH, "/api/v1/me"), None);
+        assert_eq!(
+            also("POST", "/api/v1/uploads/{id}/complete"),
+            vec![MessagesWrite]
+        );
         assert_eq!(route_scope(&Method::POST, "/api/v1/rooms"), None);
         assert_eq!(route_scope(&Method::POST, "/api/v1/auth/renew"), None);
     }

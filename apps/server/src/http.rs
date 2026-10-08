@@ -2452,6 +2452,8 @@ async fn stream(
             },
             _ = interval.tick() => {
                 let account = match auth::authenticate(&app, &session_hash).await { Ok(a) => a, Err(_) => break };
+                // A bot's scopes can shrink while its socket is open.
+                if !matches!(crate::bots::still_reads(&app, &account).await, Ok(true)) { break; }
                 let proof = match ReadProof::capture(&app,&account,Scope::All).await { Ok(p) => p, Err(_) => break };
                 let batch = match sync::changes(&app, &account, &cursor, 100).await { Ok(b) => b, Err(_) => break };
                 if live && last_live.elapsed()>=Duration::from_secs(2) {

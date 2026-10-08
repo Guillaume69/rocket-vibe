@@ -14,6 +14,13 @@ pub const DESCRIPTION_BYTES: usize = 512;
 pub const LABEL_BYTES: usize = 64;
 /// Longest expiry a key may be given at creation.
 pub const KEY_DAYS: u32 = 3650;
+/// Bytes of a bot's display name, as for any account.
+pub const DISPLAY_NAME_BYTES: usize = 256;
+/// Largest photo upload, as for any account.
+pub const AVATAR_BYTES: usize = 2 * 1024 * 1024;
+/// Bots one account may create in a day, deleted ones included: deleting a bot
+/// retires its username, which must not become a way to retire names at will.
+pub const BOTS_PER_DAY: i64 = 10;
 
 /// What a key may do. Routes outside every scope are never open to a key.
 #[derive(
@@ -171,6 +178,9 @@ pub struct BotKeyCreated {
 pub struct BotRoute {
     pub method: String,
     pub path: String,
+    /// Further scopes the route needs besides its group's.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub also: Vec<BotScope>,
 }
 
 /// The routes one scope opens; `scope` absent: open to every key.

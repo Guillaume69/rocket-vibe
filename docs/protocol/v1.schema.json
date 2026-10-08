@@ -1203,6 +1203,13 @@
     "BotRoute": {
       "description": "One route a key may call, as the server matches it (`{room}` is a parameter).",
       "properties": {
+        "also": {
+          "description": "Further scopes the route needs besides its group's.",
+          "items": {
+            "$ref": "#/$defs/BotScope"
+          },
+          "type": "array"
+        },
         "method": {
           "type": "string"
         },

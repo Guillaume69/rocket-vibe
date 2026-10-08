@@ -302,6 +302,7 @@ pub(crate) async fn set_user(
             before.create_public_room,
             before.create_private_room,
         );
+    crate::bots::refuse_policy(tx, id, admin, before.disabled && !disabled).await?;
     if before.admin && !before.disabled && (!admin || disabled) {
         // The instance keeps an active administrator, whoever asks.
         let others: bool = sqlx::query_scalar(

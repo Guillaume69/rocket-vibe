@@ -353,6 +353,12 @@ beta does.
 | Ephemeral voice reactions on Vibez | done | done | done | done | Connected voice participants only, six emoji, rate-limited and expiring; unencrypted rooms. |
 | Social cards and voice reactions in encrypted rooms | missing | missing | missing | missing | No plaintext fallback send in encrypted rooms. |
 
+## 19. Slack provider research
+
+| Feature | Mobile | GTK | SwiftUI | Web | Notes |
+|---|---|---|---|---|---|
+| Slack Session mode provider | missing | missing | missing | n/a | [Researched protocol](../docs/protocol/SLACK_SESSION.md), [probe plan](../docs/protocol/SLACK_SESSION_PROBES.md) and [evidence](../docs/protocol/slack-session-evidence.json). Paired token/cookie API and RTM messages, typing, edits, deletion and reaction-add measured in one workspace; no client driver or three-app feature delivery. The protocol maps P01-P23 and explicitly retains Android killed-app push, E2EE, native calls and administration/reporting gaps. Web: RocketVibe server only. |
+
 ## Open debt
 
 - **Unsent text messages**: Android and Web owe Copy on a message still in the outbox (the desktop apps offer it).
@@ -395,6 +401,7 @@ are product gaps, listed last.
   profile bio, thread/search navigation, call layouts/controls and durable outbox
   are audited and qualified; they no longer carry blanket visual-parity debt.
 - **All four**: social cards and voice reactions in encrypted rooms.
+- **All three**: the researched Slack provider is not implemented; see section 19.
 - **All three**: the thread list and following on Mattermost, kChat and Vibez servers; room members, roles and settings on Mattermost and kChat; creating an encrypted room; "Deleted
   user" on messages ingested before the deletion, on server-computed names and in
   private conversations; Rocket.Chat real names (`UI_Use_Real_Name`): group DMs

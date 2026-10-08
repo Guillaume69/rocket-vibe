@@ -55,6 +55,9 @@ use the indexes.
 | [desktop-gtk.md](architecture/desktop-gtk.md) | rv-gtk structure, core events to the main thread, rv-native per platform, video, packaging. |
 | [desktop-macos.md](architecture/desktop-macos.md) | The SwiftUI macOS app over rv-ffi (UniFFI), its view models, status. |
 
+The planned [Slack session provider](architecture/slack-session.md) has a
+protocol handoff and measured session/RTM evidence; it is not implemented.
+
 ## Features (the what) - [features/index.md](features/index.md)
 
 Each feature doc covers mobile and desktop, and says where they differ.

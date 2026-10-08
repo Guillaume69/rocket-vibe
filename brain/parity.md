@@ -270,6 +270,12 @@ beta does.
 | Encrypted-room refusals worded (`bot_encrypted_room`, `crypto_bot_member`) | done | done | done | Wherever the app can trigger them: mobile and SwiftUI have no member-invitation screen, so there only the encryption refusal can show; mobile also hides the encryption actions when a bot is a member. |
 | Rocket.Chat bots and integrations | n/a | n/a | n/a | Managed in Rocket.Chat itself. |
 
+## 17. Slack provider research
+
+| Feature | Mobile | GTK | SwiftUI | Notes |
+|---|---|---|---|---|
+| Slack Session mode provider | missing | missing | missing | [Researched protocol](../docs/protocol/SLACK_SESSION.md), [probe plan](../docs/protocol/SLACK_SESSION_PROBES.md) and [evidence](../docs/protocol/slack-session-evidence.json). Paired token/cookie API and RTM messages, typing, edits, deletion and reaction-add measured in one workspace; no client driver or three-app feature delivery. The protocol maps P01-P23 and explicitly retains Android killed-app push, E2EE, native calls and administration/reporting gaps. |
+
 ## Open debt
 
 What each app owes, from the tables above. Rows missing in all three are product
@@ -285,6 +291,7 @@ gaps, listed last.
   formatting toolbar; list continuation; notification backend description; logs
   folder; new versions; running with the window closed and starting at login;
   meeting information.
+- **All three**: the researched Slack provider is not implemented; see section 17.
 - **All three**: thread list, following and "also send to the room"; search across
   rooms; room members, settings and roles; creating an encrypted room; creating a
   channel or private group on Rocket.Chat; "Deleted

@@ -13,6 +13,12 @@ shared docs or to the app you are working on. Back to [../BRAIN.md](../BRAIN.md)
 | [e2ee.md](e2ee.md) | The E2EE key chain in both apps: private-key envelopes, room keys unwrapped with RSA-OAEP, message and file formats, quick-crypto aliasing, key rotation, per-account key storage. |
 | [i18n.md](i18n.md) | French and English: mobile `ui/messages.ts` and `ui/i18n.ts` plus the native push strings, desktop `rv-core` `i18n.rs` shared by GTK and SwiftUI. |
 
+## Planned provider contracts
+
+| Doc | What is here |
+|---|---|
+| [slack-session.md](slack-session.md) | Slack Session mode research: measured token/cookie RTM behaviour, protocol handoff, provider parity limits and pending qualification. No implemented Slack driver. |
+
 ## Mobile (`apps/mobile`)
 
 | Doc | What's here |

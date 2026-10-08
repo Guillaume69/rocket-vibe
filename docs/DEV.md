@@ -98,7 +98,7 @@ The script is **idempotent, even after an interruption**. Each seeded message ca
 
 ## Mattermost development server
 
-The Mattermost (kChat) provider has its own bench: the `mattermost-preview` image, which bundles its database.
+The protocol it speaks is in [MATTERMOST.md](MATTERMOST.md). The Mattermost (kChat) provider has its own bench: the `mattermost-preview` image, which bundles its database.
 
 ```sh
 docker compose -f docker/compose.mattermost.yml up -d    # http://localhost:8065

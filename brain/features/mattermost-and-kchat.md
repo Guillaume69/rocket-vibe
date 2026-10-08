@@ -181,6 +181,8 @@ mattermost-smoke`), and `scripts/smoke.sh` the GTK app.
 
 ## Sources
 
+- `docs/MATTERMOST.md`: the protocol both apps speak, with its provenance and how to validate it
+
 - `apps/desktop/crates/rv-core/src/mattermost/`
 - `apps/desktop/crates/rv-core/src/session.rs`, `sync.rs`, `outbox.rs`, `uploads.rs`, `media.rs`, `server.rs`, `native.rs`, `account_unread.rs`
 - `apps/desktop/crates/rv-gtk/src/login.rs`, `apps/desktop/crates/rv-ffi/src/model.rs`

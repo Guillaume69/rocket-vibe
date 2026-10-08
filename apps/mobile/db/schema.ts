@@ -284,6 +284,8 @@ export const customEmojis = sqliteTable('custom_emojis', {
   extension: text('extension').notNull(),
   /** JSON `string[]`. An alias serves the same image as its canonical name. */
   aliases: text('aliases').notNull().default('[]'),
+  /** The image's own address when the server does not serve it by name (Mattermost: by id). */
+  uri: text('uri'),
   updatedAt: integer('updated_at').notNull().default(0),
 });
 

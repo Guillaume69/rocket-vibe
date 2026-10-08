@@ -307,12 +307,13 @@ export function createEmojiStore(raw: SQLiteDatabase, serially: WriteQueue): Emo
       );
     },
     async list(): Promise<CustomEmoji[]> {
-      const rows = await raw.getAllAsync<{ name: string; extension: string; aliases: string }>(
+      const rows = await raw.getAllAsync<{ name: string; extension: string; aliases: string; uri: string | null }>(
         LIST_CUSTOM_EMOJIS,
       );
       return rows.map((l) => ({
         name: l.name,
         extension: l.extension,
+        ...(l.uri ? { uri: l.uri } : {}),
         // `aliases` is JSON written by us; a `catch` keeps one corrupt row from
         // depriving the whole room of its other emojis. The same filter
         // (`filterAliases`) as at network ingestion, once the JSON is parsed.

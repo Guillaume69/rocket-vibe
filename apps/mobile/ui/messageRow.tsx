@@ -368,6 +368,9 @@ function MessageContent({ c, message }: { c: Colors; message: MessageRowData }) 
   if (message.systemType === 'videoconf') {
     return <CallCard c={c} callId={message.callId} rid={message.rid} />;
   }
+  if (message.systemType === 'videoconf-ended') {
+    return <CallCard c={c} callId={null} rid={message.rid} title={callSummaryText(t, 'rv-call-answered', message.text ?? '')} />;
+  }
   if (message.systemType?.startsWith('rv-call')) {
     return <VoiceCallCard c={c} rid={message.rid} type={message.systemType} param={message.text ?? ''} />;
   }
@@ -719,13 +722,13 @@ function FormCard({ c, id, json }: { c: Colors; id: string; json: string }) {
  * from before the block was persisted, or an unreadable block) no join is
  * offered, just the label: better than a button that would not know where to go.
  */
-function CallCard({ c, callId,rid }: { c: Colors; callId: string | null;rid:string }) {
+function CallCard({ c, callId,rid,title }: { c: Colors; callId: string | null;rid:string;title?:string }) {
   const router = useRouter();
   const t = useT();
   const {state}=useSession();
   return (
     <View style={[styles.callCard, { backgroundColor: c.card, borderColor: c.border }]}>
-      <Text style={[styles.callCardTitle, { color: c.text }]}>{t('messageRow.videoCall')}</Text>
+      <Text style={[styles.callCardTitle, { color: c.text }]}>{title ?? t('messageRow.videoCall')}</Text>
       {callId !== null && (
         <Tappable
           onPress={() => {if(state.phase==='connected')router.push({ pathname: '/call/[callId]', params: { callId,rid,account:callContext(state.client) } });}}

@@ -458,20 +458,21 @@ SELECT MAX(updated_at) AS updated_at FROM messages WHERE rid = ?
 export const CLEAR_CUSTOM_EMOJIS = `DELETE FROM custom_emojis`;
 
 export const INSERT_CUSTOM_EMOJI = `
-INSERT INTO custom_emojis (name, extension, aliases, updated_at) VALUES (?, ?, ?, ?)
+INSERT INTO custom_emojis (name, extension, aliases, uri, updated_at) VALUES (?, ?, ?, ?, ?)
 `;
 
 export const LIST_CUSTOM_EMOJIS = `
-SELECT name, extension, aliases FROM custom_emojis
+SELECT name, extension, aliases, uri FROM custom_emojis
 `;
 
 export function customEmojiParams(e: {
   name: string;
   extension: string;
   aliases: string[];
+  uri?: string;
   updatedAt: number;
 }): SqlParam[] {
-  return [e.name, e.extension, JSON.stringify(e.aliases), e.updatedAt];
+  return [e.name, e.extension, JSON.stringify(e.aliases), e.uri ?? null, e.updatedAt];
 }
 
 // ---------------------------------------------------------------------------

@@ -7,6 +7,7 @@
 
 import type { Session } from '../../lib/auth.ts';
 import { setMediaBearer } from '../../lib/mediaAuth.ts';
+import type { CustomEmoji } from '../../lib/customEmojis.ts';
 import type { DdpEvent } from '../../lib/ddp.ts';
 import type { LocalMessage } from '../../lib/normalize.ts';
 import type { Capabilities, FileOutbox, Ingest, Listener, Outbox, Provider, ProviderError } from '../../lib/provider.ts';
@@ -41,11 +42,13 @@ export const MATTERMOST_CAPABILITIES: Capabilities = {
   presence: true,
   push: false,
   e2ee: false,
-  customEmojis: false,
+  customEmojis: true,
   videoCall: false,
   search: true,
   threadTemplate: 'root_id',
 };
+
+const EMOJI_PAGE = 200;
 
 export type MattermostOptions = {
   fetch?: typeof fetch;
@@ -109,6 +112,20 @@ export function createMattermostProvider(
           ? [{ user: { id: s.user_id }, status }]
           : [];
       });
+    },
+    async listCustomEmojis() {
+      const out: CustomEmoji[] = [];
+      for (let page = 0; ; page++) {
+        const batch = await client.get<unknown>('/emoji', { query: { page, per_page: EMOJI_PAGE } });
+        if (!Array.isArray(batch)) break;
+        for (const raw of batch) {
+          const e = record(raw);
+          if (typeof e?.id !== 'string' || typeof e.name !== 'string') continue;
+          out.push({ name: e.name, extension: 'png', aliases: [], uri: client.url(`/emoji/${e.id}/image`) });
+        }
+        if (batch.length < EMOJI_PAGE) break;
+      }
+      return out;
     },
     async readProfile(target) {
       const raw = target.uid

@@ -323,6 +323,8 @@ export interface Provider {
   /** Everyone's presence at once, when the protocol reads it its own way (`capabilities.presence`). */
   loadPresence?(): Promise<ReadonlyArray<{ user: { id: string }; status: import('./presence.ts').PresenceStatus }>>;
   /** Presentation data of the existing info sheet, supplied by each protocol. */
+  /** The server's custom emoji, when it does not speak Rocket.Chat's `emoji-custom.list`. */
+  listCustomEmojis?(): Promise<import('./customEmojis.ts').CustomEmoji[]>;
   readProfile?(target:import('./profilePreload.ts').ProfileParams):Promise<Record<string,unknown>|undefined>;
   /** Server administration (`lib/admin.ts`), when `capabilities.administration`. */
   readonly admin?: import('./admin.ts').ProviderAdmin;

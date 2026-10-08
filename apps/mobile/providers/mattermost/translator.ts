@@ -109,14 +109,15 @@ export class MmTranslator implements Translator {
     const system = SYSTEM_TYPES[mmType];
     const metadata = record(raw.metadata) ?? {};
     const rootId = str(raw.root_id);
+    const call = mmType === 'custom_call' ? kmeetCall(props) : null;
     return {
       id,
       rid,
-      text: system === undefined ? (str(raw.message) ?? '') : system.param(props, author?.username ?? null),
+      text: call !== null ? call.param : system === undefined ? (str(raw.message) ?? '') : system.param(props, author?.username ?? null),
       ts,
       authorId,
       authorName,
-      systemType: system?.type ?? null,
+      systemType: call?.type ?? system?.type ?? null,
       threadId: rootId,
       threadCount: rootId === null ? num(raw.reply_count) : 0,
       threadLast: rootId === null ? positive(raw.last_reply_at) : null,
@@ -126,7 +127,7 @@ export class MmTranslator implements Translator {
       attachments: this.attachments(metadata.files),
       reactions: this.reactions(metadata.reactions),
       urls: previews(metadata.embeds),
-      callId: null,
+      callId: call?.joinUrl ?? null,
       encryptedRaw: null,
       pinned: raw.is_pinned === true,
       starred: null,
@@ -329,4 +330,22 @@ function num(value: unknown): number {
 function positive(value: unknown): number | null {
   const n = num(value);
   return n > 0 ? n : null;
+}
+
+const CALL_OVER = new Set(['ended', 'missed', 'declined', 'cancelled']);
+
+/**
+ * kChat's kMeet call post (`custom_call`): `props.url` is the meeting, joined
+ * as is. A running call is a `videoconf` whose `callId` is that URL; one that
+ * is over is a `videoconf-ended` carrying its length in seconds, when known.
+ */
+export function kmeetCall(props: Record<string, unknown>): { type: string; param: string; joinUrl: string | null } {
+  const start = positive(props.start_at);
+  const end = positive(props.end_at);
+  if (end !== null || CALL_OVER.has(str(props.status) ?? '')) {
+    const seconds = start !== null && end !== null && end >= start ? Math.round((end - start) / 1000) : null;
+    return { type: 'videoconf-ended', param: seconds === null ? '' : String(seconds), joinUrl: null };
+  }
+  const url = str(props.url);
+  return { type: 'videoconf', param: '', joinUrl: url !== null && /^https:\/\//i.test(url) ? url : null };
 }

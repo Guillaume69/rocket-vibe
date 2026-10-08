@@ -3170,13 +3170,13 @@
     },
     {
       "file": "apps/mobile/lib/customEmojis.ts",
-      "line": 164,
+      "line": 168,
       "kind": "call:GET",
       "surface": "'emoji-custom.list'"
     },
     {
       "file": "apps/mobile/lib/customEmojis.ts",
-      "line": 164,
+      "line": 168,
       "kind": "endpoint",
       "surface": "emoji-custom.list"
     },

@@ -39,7 +39,7 @@ const STATUS_CODES = new Map<string, number>([
 
 const CATEGORY_EVENTS = new Set(['sidebar_category_created', 'sidebar_category_updated', 'sidebar_category_deleted', 'sidebar_category_order_updated']);
 
-const QUIET_EVENTS = new Set(['hello', 'badge_updated', 'thread_read_changed', 'thread_updated', 'preferences_changed', 'plugin_statuses_changed', 'config_changed', 'license_changed', 'response']);
+const QUIET_EVENTS = new Set(['hello', 'thread_read_changed', 'thread_updated', 'preferences_changed', 'plugin_statuses_changed', 'config_changed', 'license_changed', 'response']);
 
 export class MmLive {
   private readonly client: MmClient;
@@ -102,6 +102,7 @@ export class MmLive {
   async expand(name: string, data: Doc, broadcast: Doc): Promise<DdpEvent[]> {
     if (QUIET_EVENTS.has(name)) return [{ collection: MM_QUIET, eventKey: name, args: [] }];
     if (CATEGORY_EVENTS.has(name)) return this.regroup();
+    if (name === 'badge_updated') return this.recount();
     const channelId = str(data.channel_id) ?? str(broadcast.channel_id);
     switch (name) {
       case 'typing': {
@@ -213,6 +214,27 @@ export class MmLive {
     return compact([postEvent(post), isRoot ? this.roomEvent(rid, post) : null, this.membershipEvent(rid)]);
   }
 
+  /**
+   * kChat's only sign of a read made elsewhere: no room in it, so my
+   * memberships are read again and the rooms whose counts moved rewritten.
+   */
+  private async recount(): Promise<DdpEvent[]> {
+    const out: (DdpEvent | null)[] = [];
+    for (let page = 0; ; page++) {
+      const batch = await this.client.get<Doc[]>('/users/me/channel_members', { query: { page, per_page: MEMBERS_PAGE } });
+      if (!Array.isArray(batch)) break;
+      for (const member of batch) {
+        const rid = str(member.channel_id);
+        const known = rid === null ? undefined : this.members.get(rid);
+        if (rid === null || known === undefined || !countsMoved(known, member)) continue;
+        this.members.set(rid, member);
+        out.push(this.membershipEvent(rid));
+      }
+      if (batch.length < MEMBERS_PAGE) break;
+    }
+    return compact(out);
+  }
+
   /** Categories come without their content: read them again, then every membership row. */
   private async regroup(): Promise<DdpEvent[]> {
     if (this.categories === null) return [{ collection: MM_QUIET, eventKey: 'sidebar', args: [] }];
@@ -268,6 +290,12 @@ export class MmLive {
     }
     await this.directory.ensure(ids);
   }
+}
+
+const MEMBERS_PAGE = 200;
+
+function countsMoved(before: Doc, after: Doc): boolean {
+  return ['msg_count', 'msg_count_root', 'mention_count', 'mention_count_root', 'last_viewed_at'].some((k) => before[k] !== after[k]);
 }
 
 function postEvent(post: Doc): DdpEvent {

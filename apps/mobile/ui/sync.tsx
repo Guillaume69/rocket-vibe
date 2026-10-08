@@ -533,7 +533,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         // server we left. Failure → not armed, retried on the next flap.
         if (!syncedEmojis && provider.capabilities.customEmojis) {
           syncedEmojis = true;
-          syncCustomEmojis(client, emojiStore, isDiscarded).catch(() => {
+          syncCustomEmojis(client, emojiStore, isDiscarded, provider.listCustomEmojis).catch(() => {
             syncedEmojis = false;
           });
         }

@@ -448,8 +448,8 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/lib/commands.ts:247](../../apps/mobile/lib/commands.ts#L247) | call:GET | 'commands.list' |
 | [apps/mobile/lib/commands.ts:281](../../apps/mobile/lib/commands.ts#L281) | call:POST | 'commands.run' |
 | [apps/mobile/lib/customEmojis.ts:111](../../apps/mobile/lib/customEmojis.ts#L111) | resource | /emoji-custom/{…}.{…} |
-| [apps/mobile/lib/customEmojis.ts:164](../../apps/mobile/lib/customEmojis.ts#L164) | call:GET | 'emoji-custom.list' |
-| [apps/mobile/lib/customEmojis.ts:164](../../apps/mobile/lib/customEmojis.ts#L164) | endpoint | emoji-custom.list |
+| [apps/mobile/lib/customEmojis.ts:168](../../apps/mobile/lib/customEmojis.ts#L168) | call:GET | 'emoji-custom.list' |
+| [apps/mobile/lib/customEmojis.ts:168](../../apps/mobile/lib/customEmojis.ts#L168) | endpoint | emoji-custom.list |
 | [apps/mobile/lib/deferredLogout.ts:76](../../apps/mobile/lib/deferredLogout.ts#L76) | call:POST | 'logout' |
 | [apps/mobile/lib/e2e/engine.ts:103](../../apps/mobile/lib/e2e/engine.ts#L103) | call:GET | 'e2e.fetchMyKeys' |
 | [apps/mobile/lib/e2e/engine.ts:103](../../apps/mobile/lib/e2e/engine.ts#L103) | endpoint | e2e.fetchMyKeys |

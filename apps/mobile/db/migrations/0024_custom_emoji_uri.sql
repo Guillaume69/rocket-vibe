@@ -1,0 +1,1 @@
+ALTER TABLE `custom_emojis` ADD `uri` text;

@@ -127,8 +127,9 @@ export function createMattermostProvider(
       const user = toMmUser(raw);
       if (user === null) return undefined;
       directory.remember(user);
+      const named = directory.user(user.id) ?? user;
       const roles = String(raw.roles ?? '').split(/\s+/).includes('system_admin') ? ['admin'] : [];
-      return { _id: user.id, username: user.username, name: user.displayName, roles, bio: typeof raw.position === 'string' && raw.position !== '' ? raw.position : null };
+      return { _id: user.id, username: user.username, name: named.displayName, roles, bio: typeof raw.position === 'string' && raw.position !== '' ? raw.position : null };
     },
     initialSubscriptions: () => [],
     roomSubscriptions: (rid: string) => [[MM_ROOM, rid]],

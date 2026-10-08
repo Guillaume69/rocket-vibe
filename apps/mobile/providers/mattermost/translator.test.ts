@@ -84,7 +84,7 @@ describe('MmTranslator rooms and memberships', () => {
 
   test('a group DM drops my own name from its label', () => {
     const room = translator().toRoom({ channel: { id: 'g1', type: 'G', name: 'x', display_name: 'bob, me, carol' } });
-    assert.equal(room?.displayName, 'bob, carol');
+    assert.equal(room?.displayName, 'Bob Builder, carol');
   });
 
   test('the newest root post feeds the list preview', () => {

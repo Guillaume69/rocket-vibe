@@ -15,7 +15,7 @@ import { STREAM_NOTIFY_ROOM_TYPING, TYPING_ACTIVITY } from '../../lib/typing.ts'
 import type { MmCategories } from './categories.ts';
 import type { MmClient } from './client.ts';
 import type { MmDirectory } from './directory.ts';
-import { toMmUser } from './directory.ts';
+import { nameFormatOf, toMmUser } from './directory.ts';
 import {
   MM_AVATAR,
   MM_MEMBERSHIP,
@@ -39,7 +39,7 @@ const STATUS_CODES = new Map<string, number>([
 
 const CATEGORY_EVENTS = new Set(['sidebar_category_created', 'sidebar_category_updated', 'sidebar_category_deleted', 'sidebar_category_order_updated']);
 
-const QUIET_EVENTS = new Set(['hello', 'thread_read_changed', 'thread_updated', 'preferences_changed', 'plugin_statuses_changed', 'config_changed', 'license_changed', 'response']);
+const QUIET_EVENTS = new Set(['hello', 'thread_read_changed', 'thread_updated', 'plugin_statuses_changed', 'config_changed', 'license_changed', 'response']);
 
 export class MmLive {
   private readonly client: MmClient;
@@ -110,6 +110,8 @@ export class MmLive {
       const other = String(channel.name ?? '').split('__').find((id) => id !== this.myId);
       if (other !== undefined) await this.directory.ensure([other]);
     }
+    if (channel.type === 'G') await this.directory.ensureUsernames(String(channel.display_name ?? '').split(',').map((n) => n.trim()));
+    if (channel.type === 'G') await this.directory.ensureUsernames(String(channel.display_name ?? '').split(',').map((n) => n.trim()));
     this.remember(channel, member);
     this.touch(rid);
     return true;
@@ -119,6 +121,7 @@ export class MmLive {
     if (QUIET_EVENTS.has(name)) return [{ collection: MM_QUIET, eventKey: name, args: [] }];
     if (CATEGORY_EVENTS.has(name)) return this.regroup();
     if (name === 'badge_updated') return this.recount();
+    if (name === 'preferences_changed') return this.preferences(data.preferences);
     const channelId = str(data.channel_id) ?? str(broadcast.channel_id);
     switch (name) {
       case 'typing': {
@@ -247,6 +250,22 @@ export class MmLive {
       out.push(this.membershipEvent(rid));
     }
     return compact(out);
+  }
+
+  /** My name format set elsewhere (kChat web, another client): the DM and group DM rows name people again. */
+  private preferences(raw: unknown): DdpEvent[] {
+    let list: unknown = raw;
+    if (typeof raw === 'string') {
+      try {
+        list = JSON.parse(raw);
+      } catch {
+        return [];
+      }
+    }
+    const pref = Array.isArray(list) ? list.find((p: Doc) => p?.category === 'display_settings' && p?.name === 'name_format') : undefined;
+    const format = nameFormatOf((pref as Doc | undefined)?.value);
+    if (format === null || !this.directory.setNameFormat(format)) return [];
+    return compact([...this.channels.entries()].filter(([, c]) => c.type === 'D' || c.type === 'G').map(([rid]) => this.roomEvent(rid)));
   }
 
   /** Categories come without their content: read them again, then every membership row. */

@@ -210,7 +210,8 @@ export class MmTranslator implements Translator {
     if (mmType !== 'G' || display === null) return display ?? str(channel.name);
     const me = this.directory.username(this.myId);
     const others = display.split(',').map((n) => n.trim()).filter((n) => n !== '' && n !== me);
-    return others.length > 0 ? others.join(', ') : display;
+    const named = others.map((n) => this.directory.nameOf(n) ?? n);
+    return named.length > 0 ? named.join(', ') : display;
   }
 
   private reactions(raw: unknown): string | null {

@@ -13,7 +13,7 @@
 import type { SyncEngine } from '../../lib/sync.ts';
 import type { MmCategories } from './categories.ts';
 import type { MmClient } from './client.ts';
-import type { MmDirectory } from './directory.ts';
+import { nameFormatOf, type MmDirectory, type NameFormat } from './directory.ts';
 import { MmHistory } from './history.ts';
 import type { MmLive } from './live.ts';
 import type { MmRoomDoc } from './translator.ts';
@@ -24,6 +24,8 @@ const PREVIEWS = 40;
 const PREVIEW_CONCURRENCY = 4;
 const CURSOR_SCOPE = '*';
 const CURSOR_STREAM = 'mm-last-post';
+const NAME_STREAM = 'mm-names-';
+const NAME_FORMATS: readonly NameFormat[] = ['username', 'nickname_full_name', 'full_name'];
 
 export class MmCatchUp {
   private readonly client: MmClient;
@@ -53,23 +55,30 @@ export class MmCatchUp {
   }
 
   async global(engine: SyncEngine, isDiscarded: () => boolean): Promise<void> {
-    // A server older than 5.32 has no categories: the rooms keep the default sections.
     const mark = this.live.mark();
-    const [channels, members] = await Promise.all([
+    // A server older than 5.32 has no categories: the rooms keep the default sections.
+    const [channels, members, format] = await Promise.all([
       this.channels(),
       this.client.pages<Doc>('/users/me/channel_members'),
+      this.nameFormat(),
       this.categories?.load().catch(() => {}),
     ]);
+    if (format !== null) this.directory.setNameFormat(format);
     if (isDiscarded()) return;
     const memberOf = new Map(members.map((m) => [String(m.channel_id), m]));
     const live = channels.filter((c) => !(typeof c.delete_at === 'number' && c.delete_at > 0) && memberOf.has(String(c.id)));
     await this.directory.ensure(live.flatMap((c) => (c.type === 'D' ? String(c.name ?? '').split('__') : [])));
+    await this.directory.ensureUsernames(live.flatMap((c) => (c.type === 'G' ? String(c.display_name ?? '').split(',').map((n) => n.trim()) : [])));
     // A room an event changed during the requests has fresher counts than this snapshot.
     const fresh = live.filter((c) => !this.live.changedSince(String(c.id), mark));
     for (const channel of fresh) this.live.remember(channel, memberOf.get(String(channel.id)));
 
     const store = engine.syncStore;
-    const since = (await store.readCursor(CURSOR_SCOPE, CURSOR_STREAM)) ?? 0;
+    // DM names follow the name format: rooms written under another one are all written again.
+    const named = await Promise.all(NAME_FORMATS.map((f) => store.readCursor(CURSOR_SCOPE, `${NAME_STREAM}${f}`)));
+    const newest = Math.max(...named.map((at) => at ?? 0));
+    const current = named[NAME_FORMATS.indexOf(this.directory.nameFormat)] ?? 0;
+    const since = newest > current || current === 0 ? 0 : ((await store.readCursor(CURSOR_SCOPE, CURSOR_STREAM)) ?? 0);
     // An unchanged room is not re-ingested: its row would lose the preview,
     // the list's last message being written as is, null included.
     const changed = live.filter((c) => changedAt(c) > since).sort((a, b) => lastPostAt(b) - lastPostAt(a));
@@ -84,8 +93,21 @@ export class MmCatchUp {
         .filter((c) => !this.live.changedSince(String(c.id), mark))
         .map((channel) => ({ channel, member: memberOf.get(String(channel.id)) })),
     );
-    const newest = live.reduce((max, c) => Math.max(max, changedAt(c)), 0);
-    if (newest > 0) await store.writeCursor(CURSOR_SCOPE, CURSOR_STREAM, newest);
+    const latest = live.reduce((max, c) => Math.max(max, changedAt(c)), 0);
+    if (latest > 0) await store.writeCursor(CURSOR_SCOPE, CURSOR_STREAM, latest);
+    if (current === 0 || newest > current) await store.writeCursor(CURSOR_SCOPE, `${NAME_STREAM}${this.directory.nameFormat}`, Date.now());
+  }
+
+  /** My `name_format` preference, else the server's `TeammateNameDisplay`, which wins when locked. */
+  private async nameFormat(): Promise<NameFormat | null> {
+    const [config, prefs] = await Promise.all([
+      this.client.get<Doc>('/config/client', { query: { format: 'old' } }).catch(() => ({}) as Doc),
+      this.client.get<unknown>('/users/me/preferences/display_settings').catch(() => []),
+    ]);
+    const server = nameFormatOf(config.TeammateNameDisplay);
+    const preference = Array.isArray(prefs) ? prefs.find((p: Doc) => p?.name === 'name_format') : undefined;
+    const mine = nameFormatOf((preference as Doc | undefined)?.value);
+    return config.LockTeammateNameDisplay === 'true' ? server : (mine ?? server);
   }
 
   /** One pass per room at a time: a second call while one runs waits for it. */

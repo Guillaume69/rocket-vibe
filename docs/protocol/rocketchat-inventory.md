@@ -413,7 +413,7 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:619](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L619) | endpoint | e2e.no_keys |
 | [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:620](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L620) | endpoint | e2e.failed |
 | [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:623](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L623) | endpoint | e2e.failed |
-| [apps/mobile/app/login.tsx:486](../../apps/mobile/app/login.tsx#L486) | endpoint | chat.example.org |
+| [apps/mobile/app/login.tsx:469](../../apps/mobile/app/login.tsx#L469) | endpoint | chat.example.org |
 | [apps/mobile/app/message-actions.tsx:97](../../apps/mobile/app/message-actions.tsx#L97) | call:GET | 'settings.public' |
 | [apps/mobile/app/message-actions.tsx:98](../../apps/mobile/app/message-actions.tsx#L98) | endpoint | settings.public |
 | [apps/mobile/app/search.tsx:83](../../apps/mobile/app/search.tsx#L83) | call:GET | 'spotlight' |

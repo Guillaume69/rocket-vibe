@@ -1,6 +1,7 @@
 import { Redirect, Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import * as Crypto from 'expo-crypto';
+import * as WebBrowser from 'expo-web-browser';
 import { AppState, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -10,7 +11,7 @@ import { RestClient, TwoFactorError, RestError, type TwoFactorCode } from '../li
 import { discoverServer, NotMattermostError, NotRocketVibeError, type ServerKind, type ServerProfile as ServerProfile } from '../lib/serverKind.ts';
 import { KCHAT_DIRECTORY, kchatServers, loginMattermost, loginWithToken, MmMfaRequired, type KchatServer } from '../providers/mattermost/auth.ts';
 import { MmError } from '../providers/mattermost/client.ts';
-import { authorizeUrl, codeFromRedirect, createPkce, exchangeCode, isKchatRedirect } from '../providers/mattermost/kchatOAuth.ts';
+import { authorizeUrl, codeFromRedirect, createPkce, exchangeCode, isKchatRedirect, KCHAT_REDIRECT } from '../providers/mattermost/kchatOAuth.ts';
 import { startNativeLogin, startNativeAccountCodeLogin, type LoginChallenge } from '../providers/rocketvibe/authentication.ts';
 import type { SecondFactor } from '../providers/rocketvibe/protocol.generated.ts';
 import { nativeAuthenticationVault, completeNativeAuthentication } from '../lib/nativeAuthenticationStore.ts';
@@ -309,29 +310,11 @@ export default function LoginScreen() {
       size => Crypto.getRandomBytes(size),
       async text => new Uint8Array(await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, new TextEncoder().encode(text))),
     );
-    const redirect = new Promise<string>((resolve, reject) => {
-      let away = false;
-      let grace: ReturnType<typeof setTimeout> | null = null;
-      const finish = (url: string | null): void => {
-        clearTimeout(timer);
-        if (grace !== null) clearTimeout(grace);
-        subscription.remove();
-        appState.remove();
-        if (url === null) reject(new Error(t('login.kchatTimeout')));
-        else resolve(url);
-      };
-      const timer = setTimeout(() => finish(null), 180_000);
-      const subscription = Linking.addEventListener('url', ({ url }) => {
-        if (isKchatRedirect(url)) finish(url);
-      });
-      // Back in the app without the redirect: the browser was closed, or another app took the link.
-      const appState = AppState.addEventListener('change', state => {
-        if (state !== 'active') away = true;
-        else if (away && grace === null) grace = setTimeout(() => finish(null), 2_000);
-      });
-    });
-    await Linking.openURL(authorizeUrl(pkce));
-    const bearer = await exchangeCode(codeFromRedirect(await redirect, pkce), pkce);
+    // An auth session, not the browser app: Chrome refuses to open an app from a
+    // navigation no tap started (Infomaniak's page redirects by script after 2FA).
+    const result = await WebBrowser.openAuthSessionAsync(authorizeUrl(pkce), KCHAT_REDIRECT);
+    if (result.type !== 'success' || !isKchatRedirect(result.url)) throw new Error(t('login.kchatTimeout'));
+    const bearer = await exchangeCode(codeFromRedirect(result.url, pkce), pkce);
     await signInKchat(bearer);
   }), [runKchat, signInKchat, t]);
 

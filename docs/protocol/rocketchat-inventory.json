@@ -2960,7 +2960,7 @@
     },
     {
       "file": "apps/mobile/app/login.tsx",
-      "line": 486,
+      "line": 469,
       "kind": "endpoint",
       "surface": "chat.example.org"
     },

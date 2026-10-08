@@ -8,7 +8,7 @@ The native RocketVibe server embeds the browser application in its binary. Node 
 
 `scripts/sync-design.mjs` translates GTK's theme and extracts its decorative stars. Nunito, Baloo 2, Adwaita SVG icons, Noto emoji and original sounds retain their licences. Browser and GTK rasterizers differ; the GTK Fedora build and captures establish a visual reference, not proof of every screen's pixel parity.
 
-`composer.ts` implements a browser DOM text editor using the GTK draft spans: bold/italic/strike, inline/fenced code, headings, quotes and muted markers hidden away from the cursor line. Text and UTF-16 selections survive restyling. It handles native line breaks, plain-text paste, composition, undo/redo and programmatic toolbar edits.
+`composer.ts` implements a browser DOM text editor using the GTK draft spans: bold/italic/strike, inline/fenced code, headings, quotes and muted markers hidden away from the cursor line. Text and UTF-16 selections survive restyling. It handles native line breaks, plain-text paste, composition, undo/redo and programmatic toolbar edits. Room selection keeps the editor disabled until its draft and staged files are restored; a selection generation excludes late reads from another opening or session.
 
 ## State and transport
 

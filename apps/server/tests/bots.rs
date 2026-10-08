@@ -176,6 +176,9 @@ async fn people_create_bots_only_when_the_instance_allows_it(pool: PgPool) {
     assert_eq!(alice.bots(false).await.unwrap().bots.len(), 1);
     assert_eq!(admin.bots(false).await.unwrap().bots.len(), 1);
     assert_eq!(admin.bots(true).await.unwrap().bots.len(), 2);
+    // The administrators' user list marks bots.
+    let users = admin.admin_users(None, None, Some("helper")).await.unwrap();
+    assert!(users.items.iter().all(|u| u.bot) && users.items.len() == 2);
     code(alice.bots(true).await, "permission_denied");
     // Someone else's bot does not exist for alice.
     code(alice.bot_keys(&own.user.id).await, "not_found");

@@ -15,7 +15,7 @@ export type AdminRoom = { "created_at"?: string | null; "direct_members"?: (User
 export type AdminRoomCounts = { "direct": number; "encrypted": number; "private": number; "public": number; "total": number; };
 export type AdminRoomPage = { "items": (AdminRoom)[]; "next"?: string | null; };
 export type AdminUploadCounts = { "bytes": number; "count": number; };
-export type AdminUser = { "admin": boolean; "avatar_file_id"?: string | null; "created_at"?: string | null; "disabled": boolean; "display_name": string; "id": string; "last_seen_at"?: string | null; "revision": string; "status": PresenceStatus; "username": string; };
+export type AdminUser = { "admin": boolean; "avatar_file_id"?: string | null; "bot"?: boolean; "created_at"?: string | null; "disabled": boolean; "display_name": string; "id": string; "last_seen_at"?: string | null; "revision": string; "status": PresenceStatus; "username": string; };
 export type AdminUserCounts = { "active": number; "admins": number; "away": number; "busy": number; "deactivated": number; "offline": number; "online": number; "total": number; };
 export type AdminUserPage = { "items": (AdminUser)[]; "next"?: string | null; };
 export type AnswerRing = { "data_epoch": string; "e2ee"?: boolean; "membership_version": string; };
@@ -761,6 +761,11 @@ export const nativeSchema = {
             "string",
             "null"
           ]
+        },
+        "bot": {
+          "default": false,
+          "description": "A bot account (RFC 0003); absent from older servers.",
+          "type": "boolean"
         },
         "created_at": {
           "type": [

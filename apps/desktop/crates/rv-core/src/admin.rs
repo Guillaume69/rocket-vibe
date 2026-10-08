@@ -718,7 +718,7 @@ fn native_user(u: &rv_protocol::admin::AdminUser) -> AdminUser {
         avatar: u.avatar_file_id.clone(),
         admin: u.admin,
         active: !u.disabled,
-        bot: false,
+        bot: u.bot,
         status: presence(u.status),
         created_at: u.created_at.clone(),
         last_seen_at: u.last_seen_at.clone(),

@@ -28,7 +28,7 @@ use std::collections::HashMap;
 /// Live presence per account: the strongest unexpired lease of a live session.
 const PRESENCE: &str = "WITH presence AS (SELECT p.user_id,min(CASE p.status WHEN 'busy' THEN 0 WHEN 'online' THEN 1 ELSE 2 END) AS priority FROM presence_leases p JOIN instance i ON i.singleton AND p.data_epoch=i.data_epoch WHERE p.expires_at>clock_timestamp() AND EXISTS(SELECT 1 FROM sessions s WHERE s.device_id=p.device_id AND s.expires_at>clock_timestamp()) GROUP BY p.user_id)";
 /// A disabled account's avatar is no longer served, so it is not advertised.
-const USER_COLUMNS: &str = "u.id,u.username,u.display_name,CASE WHEN u.disabled THEN NULL ELSE u.avatar_file_id END AS avatar_file_id,u.admin,u.disabled,COALESCE(CASE p.priority WHEN 0 THEN 'busy' WHEN 1 THEN 'online' WHEN 2 THEN 'away' END,'offline') AS status,u.created_at,(SELECT max(d.last_seen_at) FROM session_devices d WHERE d.user_id=u.id) AS last_seen_at,u.activation_version AS revision";
+const USER_COLUMNS: &str = "u.id,u.username,u.display_name,CASE WHEN u.disabled THEN NULL ELSE u.avatar_file_id END AS avatar_file_id,u.admin,u.disabled,COALESCE(CASE p.priority WHEN 0 THEN 'busy' WHEN 1 THEN 'online' WHEN 2 THEN 'away' END,'offline') AS status,u.created_at,(SELECT max(d.last_seen_at) FROM session_devices d WHERE d.user_id=u.id) AS last_seen_at,u.activation_version AS revision,u.bot";
 const REPORTS_SHOWN: i64 = 20;
 /// Open reports one account may have at once, messages and accounts together.
 const OPEN_REPORTS: i64 = 200;
@@ -45,6 +45,7 @@ struct UserRow {
     created_at: Option<DateTime<Utc>>,
     last_seen_at: Option<DateTime<Utc>>,
     revision: String,
+    bot: bool,
 }
 impl UserRow {
     fn wire(self) -> AdminUser {
@@ -59,6 +60,7 @@ impl UserRow {
             created_at: self.created_at.map(|t| t.to_rfc3339()),
             last_seen_at: self.last_seen_at.map(|t| t.to_rfc3339()),
             revision: self.revision,
+            bot: self.bot,
         }
     }
 }

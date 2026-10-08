@@ -54,7 +54,7 @@ export function nativeUser(u: NativeTypes['AdminUser']): AdminUser {
     avatar: { username: u.username, etag: u.avatar_file_id ?? 'none' },
     admin: u.admin,
     active: !u.disabled,
-    bot: false,
+    bot: u.bot === true,
     status: u.status,
     createdAt: epoch(u.created_at),
     lastSeenAt: epoch(u.last_seen_at),

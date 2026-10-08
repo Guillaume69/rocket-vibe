@@ -527,6 +527,11 @@
             "null"
           ]
         },
+        "bot": {
+          "default": false,
+          "description": "A bot account (RFC 0003); absent from older servers.",
+          "type": "boolean"
+        },
         "created_at": {
           "type": [
             "string",

@@ -2,6 +2,7 @@ FROM rust:1.97-bookworm AS build
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY apps/server apps/server
+COPY apps/web/dist apps/web/dist
 COPY crates/rv-protocol crates/rv-protocol
 COPY crates/rv-client crates/rv-client
 COPY crates/rv-crypto-public crates/rv-crypto-public

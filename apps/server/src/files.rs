@@ -139,6 +139,7 @@ fn allowed(mime: &str) -> bool {
             | "audio/ogg"
             | "audio/wav"
             | "audio/mp4"
+            | "audio/webm"
             | "video/mp4"
             | "video/quicktime"
             | "video/webm"
@@ -161,7 +162,7 @@ pub(crate) fn valid_header(bytes: &[u8], mime: &str) -> bool {
                 || bytes.first() == Some(&0xff) && bytes.get(1).is_some_and(|b| b & 0xe0 == 0xe0)
         }
         "audio/mp4" | "video/mp4" | "video/quicktime" => bytes.get(4..8) == Some(b"ftyp"),
-        "video/webm" => bytes.starts_with(b"\x1a\x45\xdf\xa3"),
+        "audio/webm" | "video/webm" => bytes.starts_with(b"\x1a\x45\xdf\xa3"),
         _ => false,
     }
 }
@@ -591,4 +592,14 @@ fn byte_range(range: Option<&str>, size: u64) -> Result<(u64, u64)> {
         return Err(bad());
     }
     Ok((start, end))
+}
+
+#[cfg(test)]
+mod web_audio_tests {
+    #[test]
+    fn browser_webm_audio_requires_its_container_header() {
+        assert!(super::allowed("audio/webm"));
+        assert!(super::valid_header(b"\x1a\x45\xdf\xa3webm", "audio/webm"));
+        assert!(!super::valid_header(b"<html>not a recording", "audio/webm"));
+    }
 }

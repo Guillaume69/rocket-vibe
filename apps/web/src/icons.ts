@@ -1,0 +1,82 @@
+import searchIcon from "./icons-native/system-search-symbolic.svg";
+import addIcon from "./icons-native/list-add-symbolic.svg";
+import attachIcon from "./icons-native/mail-attachment-symbolic.svg";
+import micIcon from "./icons-native/audio-input-microphone-symbolic.svg";
+import smileIcon from "./icons-native/face-smile-symbolic.svg";
+import settingsIcon from "./icons-native/preferences-system-symbolic.svg";
+import logoutIcon from "./icons-native/system-log-out-symbolic.svg";
+import pinIcon from "./icons-native/view-pin-symbolic.svg";
+import backIcon from "./icons-native/go-previous-symbolic.svg";
+import closeIcon from "./icons-native/window-close-symbolic.svg";
+import videoIcon from "./icons-native/camera-video-symbolic.svg";
+const native: Record<string, string> = {
+  search: searchIcon,
+  plus: addIcon,
+  attach: attachIcon,
+  mic: micIcon,
+  smile: smileIcon,
+  settings: settingsIcon,
+  logout: logoutIcon,
+  pin: pinIcon,
+  back: backIcon,
+  close: closeIcon,
+  video: videoIcon,
+};
+import { button } from "./dom";
+const paths: Record<string, string> = {
+  plus: "M8 3v10M3 8h10",
+  search: "M10.8 10.8l3.7 3.7M12 7a5 5 0 1 1-10 0 5 5 0 0 1 10 0",
+  send: "M8 14.5v-13M2.5 7l5.5-5.5L13.5 7",
+  attach: "m6 10 5-5a2 2 0 0 1 3 3l-6 6a4 4 0 0 1-6-6l6-6",
+  mic: "M6 3a2 2 0 0 1 4 0v5a2 2 0 0 1-4 0V3ZM3 7v1a5 5 0 0 0 10 0V7M8 13v2M5 15h6",
+  smile: "M15 8A7 7 0 1 1 1 8a7 7 0 0 1 14 0ZM5 6h.01M11 6h.01M5 10q3 4 6 0",
+  settings: "M3 3h10v10H3V3ZM11 8a3 3 0 1 1-6 0 3 3 0 0 1 6 0",
+  logout: "M6 2H2v12h4M5 8h10m-4-4 4 4-4 4",
+  pin: "m5 2 6 0-1 5 3 3H3l3-3-1-5ZM8 10v5",
+  back: "m10 3-5 5 5 5",
+  close: "m4 4 8 8M12 4l-8 8",
+  more: "M3 8h.01M8 8h.01M13 8h.01",
+  video: "M2 4h8v8H2V4Zm8 3 4-2v6l-4-2",
+  arrow: "m5 3 6 5-6 5",
+  bold: "M5 2h4a3 3 0 0 1 0 6H5V2Zm0 6h5a3 3 0 0 1 0 6H5V8",
+  italic: "M7 2h6M3 14h6M10 2 6 14",
+  quote: "M2 4h5v5H3l-1 4M9 4h5v5h-4l-1 4",
+  code: "m5 4-4 4 4 4m6-8 4 4-4 4",
+  star: "m8 1 2 4 5 .8-3.5 3.5.9 5L8 12l-4.4 2.3.9-5L1 5.8 6 5l2-4",
+};
+export function icon(name: string): SVGSVGElement | HTMLSpanElement {
+  if (native[name]) {
+    const node = document.createElement("span");
+    node.className = "symbolic-icon";
+    node.style.maskImage = "url(" + JSON.stringify(native[name]) + ")";
+    node.setAttribute("aria-hidden", "true");
+    return node;
+  }
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 16 16");
+  svg.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS(svg.namespaceURI, "path");
+  path.setAttribute("d", paths[name] || paths.more);
+  for (const [key, value] of Object.entries({
+    fill: "none",
+    stroke: "currentColor",
+    "stroke-width": "1.6",
+    "stroke-linecap": "round",
+    "stroke-linejoin": "round",
+  }))
+    path.setAttribute(key, value);
+  svg.append(path);
+  return svg;
+}
+export function iconButton(
+  name: string,
+  label: string,
+  action: () => void | Promise<void>,
+  className = "flat",
+): HTMLButtonElement {
+  const node = button("", action, className);
+  node.title = label;
+  node.setAttribute("aria-label", label);
+  node.append(icon(name));
+  return node;
+}

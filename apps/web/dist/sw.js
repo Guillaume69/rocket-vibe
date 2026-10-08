@@ -1,0 +1,11 @@
+const CACHE='rv-shell-6258431c7eabd404';
+const ASSETS=["/","/assets/Baloo2_600SemiBold-BdWXeuOC.ttf","/assets/Baloo2_700Bold-Cjbtejvw.ttf","/assets/Baloo2_800ExtraBold-qOkBzYl0.ttf","/assets/cue-join-xgNC4jwo.ogg","/assets/cue-leave-DVXW9D-K.ogg","/assets/cue-missed-CTnauKK-.ogg","/assets/cue-mute-4QEtROfH.ogg","/assets/cue-unmute-BWSe_5VY.ogg","/assets/index-D3zzdykM.css","/assets/index-Ll9tDwQK.js","/assets/livekit-client.esm-B_zFazHw.js","/assets/Noto-COLRv1-BcXdrMyF.ttf","/assets/Nunito_400Regular-BaWrjX0c.ttf","/assets/Nunito_600SemiBold-B4qcAUfD.ttf","/assets/Nunito_700Bold-LWqDuPdh.ttf","/assets/Nunito_800ExtraBold-De0aZuyy.ttf","/assets/ringback-B5tbZIZJ.ogg","/assets/ringtone-BJS6bYjD.ogg","/assets/icon-b56deead0816.png","/manifest.webmanifest"];
+self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(ASSETS)).then(()=>self.skipWaiting())));
+self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(names=>Promise.all(names.filter(name=>name.startsWith('rv-shell-')&&name!==CACHE).slice(0,-1).map(name=>caches.delete(name)))).then(()=>self.clients.claim())));
+self.addEventListener('fetch',event=>{
+const url=new URL(event.request.url);
+if(event.request.method!=='GET'||url.origin!==self.location.origin||url.pathname.startsWith('/api/')||url.pathname.startsWith('/.well-known/'))return;
+if(event.request.mode==='navigate'&&(url.pathname==='/'||url.pathname.startsWith('/room/'))){
+event.respondWith(fetch(event.request).catch(()=>caches.open(CACHE).then(cache=>cache.match('/'))));return;}
+if(ASSETS.includes(url.pathname)||/^\/assets\/[a-zA-Z0-9_.-]+$/.test(url.pathname))event.respondWith(caches.match(event.request).then(response=>response||fetch(event.request)));
+});

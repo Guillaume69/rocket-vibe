@@ -1,0 +1,96 @@
+name: web-client
+on:
+  push:
+    paths: ['apps/web/**', 'apps/server/**', 'crates/rv-protocol/**', 'apps/desktop/crates/rv-gtk/src/style.rs', 'apps/desktop/crates/rv-core/data/emojis.tsv', 'apps/desktop/crates/rv-gtk/assets/fonts/**', 'apps/desktop/crates/rv-gtk/src/login.rs', 'apps/mobile/providers/rocketvibe/protocol.generated.ts', 'apps/desktop/data/**', 'assets/sounds/**', '.github/workflows/web-client.yml']
+  pull_request:
+    paths: ['apps/web/**', 'apps/server/**', 'crates/rv-protocol/**', 'apps/desktop/crates/rv-gtk/src/style.rs', 'apps/desktop/crates/rv-core/data/emojis.tsv', 'apps/desktop/crates/rv-gtk/assets/fonts/**', 'apps/desktop/crates/rv-gtk/src/login.rs', 'apps/mobile/providers/rocketvibe/protocol.generated.ts', 'apps/desktop/data/**', 'assets/sounds/**', '.github/workflows/web-client.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: web-client-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: web
+          POSTGRES_PASSWORD: web-disposable-test-password
+          POSTGRES_DB: web
+        ports: ['55435:5432']
+        options: >-
+          --health-cmd "pg_isready -U web -d web"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      DATABASE_URL: postgres://web:web-disposable-test-password@127.0.0.1:55435/web
+      RV_WEB_TEST_URL: http://127.0.0.1:3417
+      RV_WEB_SECURITY_USER: websecurity
+      RV_USER_PASSWORD: web-client-disposable-password
+      RUST_TEST_THREADS: 4
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Build and verify committed browser assets
+        working-directory: apps/web
+        run: |
+          npm ci
+          npm run format:check
+          npm test
+          npm run build
+          git diff --exit-code -- dist src/gtk.css src/design.generated.ts src/third-party.generated.ts
+          npx playwright install --with-deps chromium
+      - name: Build the actual server distribution
+        run: |
+          cargo fmt --all --check
+          cargo clippy --locked -p rv-server --all-targets -- -D warnings
+          cargo test --locked -p rv-server --lib
+          cargo build --locked -p rv-server
+      - name: Start isolated SMTP, SFU and server
+        run: |
+          mkdir -p .cache/web-shots .cache/web-objects
+          node apps/web/tests/configure-bench.mjs
+          node apps/web/tests/smtp.mjs > .cache/smtp.log 2>&1 &
+          docker run -d --name rv-web-test-sfu --network host -v "$PWD/.cache/livekit.yaml:/etc/livekit.yaml:ro" livekit/livekit-server:v1.13.8 --config /etc/livekit.yaml
+          export RV_AUTH_KEY_FILE="$PWD/.cache/auth-key"
+          export RV_OBJECTS_DIR="$PWD/.cache/web-objects"
+          export RV_SMTP_CONFIG_FILE="$PWD/.cache/smtp.json"
+          export RV_LIVEKIT_CONFIG_FILE="$PWD/.cache/livekit.json"
+          target/debug/rv-server create-user webalice --admin
+          target/debug/rv-server create-user webbob
+          target/debug/rv-server create-user websecurity
+          target/debug/rv-server serve --bind 127.0.0.1:3417 > .cache/web-server.log 2>&1 &
+          for i in {1..60}; do
+            if curl --fail --silent "$RV_WEB_TEST_URL/.well-known/rocketvibe" > /dev/null; then break; fi
+            sleep 1
+          done
+          curl --fail --silent "$RV_WEB_TEST_URL/.well-known/rocketvibe" > /dev/null
+      - name: Exercise real browser conversations and devices
+        working-directory: apps/web
+        run: |
+          npm run test:browser
+          npm run test:features
+          npm run test:voice
+          npm run test:sessions
+          npm run test:locked
+          npm run test:composer
+          npm run test:security
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: web-browser-evidence
+          path: |
+            .cache/web-shots
+            .cache/web-server.log
+          if-no-files-found: ignore

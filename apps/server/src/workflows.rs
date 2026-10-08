@@ -909,6 +909,7 @@ pub(crate) async fn commands(
             params: String::new(),
             description: name,
             client_side: false,
+            literal: true,
         })
         .collect())
 }

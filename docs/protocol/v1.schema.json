@@ -7184,6 +7184,10 @@
           "description": "i18n key of the description (`Slash_Shrug_Description`).",
           "type": "string"
         },
+        "literal": {
+          "description": "The description is plain text to show as is (a workflow's name), not a key.",
+          "type": "boolean"
+        },
         "params": {
           "description": "i18n key of what follows the name (`Slash_Topic_Params`), or literal\ntext (`@username`), as Rocket.Chat's `commands.list` gives it.",
           "type": "string"

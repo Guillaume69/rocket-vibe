@@ -49,6 +49,8 @@ export class MmLive {
   readonly channels = new Map<string, Doc>();
   readonly members = new Map<string, Doc>();
   readonly lastPosts = new Map<string, Doc>();
+  private clock = 0;
+  private readonly touched = new Map<string, number>();
 
   constructor(client: MmClient, directory: MmDirectory, myId: string, categories: MmCategories | null = null) {
     this.client = client;
@@ -62,6 +64,19 @@ export class MmLive {
     if (id === null) return;
     this.channels.set(id, channel);
     if (member) this.members.set(id, member);
+  }
+
+  /** Where a REST snapshot starts: a room an event changes after it is newer than the snapshot. */
+  mark(): number {
+    return this.clock;
+  }
+
+  changedSince(rid: string, mark: number): boolean {
+    return (this.touched.get(rid) ?? 0) > mark;
+  }
+
+  private touch(rid: string): void {
+    this.touched.set(rid, ++this.clock);
   }
 
   forget(rid: string): void {
@@ -96,6 +111,7 @@ export class MmLive {
       if (other !== undefined) await this.directory.ensure([other]);
     }
     this.remember(channel, member);
+    this.touch(rid);
     return true;
   }
 
@@ -152,6 +168,7 @@ export class MmLive {
         const rid = str(member?.channel_id);
         if (member === null || rid === null || member.user_id !== this.myId) return [];
         this.members.set(rid, member);
+        this.touch(rid);
         return compact([this.membershipEvent(rid)]);
       }
       case 'channel_created':
@@ -203,6 +220,7 @@ export class MmLive {
         next.last_root_post_at = createdAt;
       }
       this.channels.set(rid, next);
+      this.touch(rid);
       if (member !== undefined) {
         const mine = post.user_id === this.myId;
         const mentions = mentioned(data.mentions, this.myId);
@@ -225,6 +243,7 @@ export class MmLive {
       const known = rid === null ? undefined : this.members.get(rid);
       if (rid === null || known === undefined || !countsMoved(known, member)) continue;
       this.members.set(rid, member);
+      this.touch(rid);
       out.push(this.membershipEvent(rid));
     }
     return compact(out);
@@ -251,6 +270,7 @@ export class MmLive {
         mention_count_root: 0,
         last_viewed_at: Date.now(),
       });
+      this.touch(rid);
       out.push(this.membershipEvent(rid));
     }
     return compact(out);
@@ -266,6 +286,7 @@ export class MmLive {
       mention_count: data.mention_count ?? member.mention_count,
       last_viewed_at: data.last_viewed_at ?? member.last_viewed_at,
     });
+    this.touch(rid);
     return compact([this.membershipEvent(rid)]);
   }
 

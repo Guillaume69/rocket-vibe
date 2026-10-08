@@ -54,6 +54,7 @@ export class MmCatchUp {
 
   async global(engine: SyncEngine, isDiscarded: () => boolean): Promise<void> {
     // A server older than 5.32 has no categories: the rooms keep the default sections.
+    const mark = this.live.mark();
     const [channels, members] = await Promise.all([
       this.channels(),
       this.client.pages<Doc>('/users/me/channel_members'),
@@ -63,7 +64,9 @@ export class MmCatchUp {
     const memberOf = new Map(members.map((m) => [String(m.channel_id), m]));
     const live = channels.filter((c) => !(typeof c.delete_at === 'number' && c.delete_at > 0) && memberOf.has(String(c.id)));
     await this.directory.ensure(live.flatMap((c) => (c.type === 'D' ? String(c.name ?? '').split('__') : [])));
-    for (const channel of live) this.live.remember(channel, memberOf.get(String(channel.id)));
+    // A room an event changed during the requests has fresher counts than this snapshot.
+    const fresh = live.filter((c) => !this.live.changedSince(String(c.id), mark));
+    for (const channel of fresh) this.live.remember(channel, memberOf.get(String(channel.id)));
 
     const store = engine.syncStore;
     const since = (await store.readCursor(CURSOR_SCOPE, CURSOR_STREAM)) ?? 0;
@@ -76,7 +79,11 @@ export class MmCatchUp {
 
     const rooms: MmRoomDoc[] = changed.map((channel) => ({ channel, lastPost: this.live.lastPosts.get(String(channel.id)) }));
     await engine.ingestRooms(rooms as unknown as Doc[]);
-    await engine.ingestSubscriptions(live.map((channel) => ({ channel, member: memberOf.get(String(channel.id)) })));
+    await engine.ingestSubscriptions(
+      live
+        .filter((c) => !this.live.changedSince(String(c.id), mark))
+        .map((channel) => ({ channel, member: memberOf.get(String(channel.id)) })),
+    );
     const newest = live.reduce((max, c) => Math.max(max, changedAt(c)), 0);
     if (newest > 0) await store.writeCursor(CURSOR_SCOPE, CURSOR_STREAM, newest);
   }

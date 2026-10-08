@@ -30,6 +30,21 @@ struct Live {
     channels: HashMap<String, Value>,
     members: HashMap<String, Value>,
     last_posts: HashMap<String, Value>,
+    /// When an event last changed each room's counts, on `clock`: a REST
+    /// snapshot taken before that is older than what the room shows.
+    touched: HashMap<String, u64>,
+    clock: u64,
+}
+
+impl Live {
+    fn touch(&mut self, rid: &str) {
+        self.clock += 1;
+        self.touched.insert(rid.to_owned(), self.clock);
+    }
+
+    fn changed_since(&self, rid: &str, mark: u64) -> bool {
+        self.touched.get(rid).is_some_and(|at| *at > mark)
+    }
 }
 
 pub struct MmSync {
@@ -161,6 +176,7 @@ impl MmSync {
                         return None;
                     }
                     live.members.insert(rid.clone(), member);
+                    live.touch(&rid);
                     Some(rid)
                 })
                 .collect()
@@ -244,6 +260,7 @@ impl MmSync {
     /// rooms that changed. An unchanged room is not rewritten: its row would
     /// lose its preview.
     pub async fn catch_up_global(&self) -> Result<(), RestError> {
+        let mark = self.live.lock().unwrap().clock;
         let (channels, members) = tokio::try_join!(self.channels(), self.pages("users/me/channel_members"))?;
         self.load_flagged().await;
         self.load_categories().await;
@@ -265,6 +282,9 @@ impl MmSync {
             let mut live = self.live.lock().unwrap();
             for channel in &channels {
                 let id = text(channel, "id").unwrap_or_default().to_owned();
+                if live.changed_since(&id, mark) {
+                    continue;
+                }
                 live.channels.insert(id.clone(), channel.clone());
                 if let Some(member) = member_of.get(&id) {
                     live.members.insert(id.clone(), member.clone());
@@ -282,7 +302,7 @@ impl MmSync {
                     w.upsert_room(&room);
                 }
             }
-            for channel in &channels {
+            for channel in channels.iter().filter(|c| !live.changed_since(text(c, "id").unwrap_or_default(), mark)) {
                 let id = text(channel, "id").unwrap_or_default();
                 if let Some(s) = member_of.get(id).and_then(|m| self.subscription(channel, m)) {
                     w.upsert_subscription(&s);
@@ -466,6 +486,7 @@ impl MmSync {
         let mut live = self.live.lock().unwrap();
         live.channels.insert(rid.to_owned(), channel);
         live.members.insert(rid.to_owned(), member);
+        live.touch(rid);
         Ok(())
     }
 
@@ -531,6 +552,7 @@ impl MmSync {
                             member[key] = v.clone();
                         }
                     }
+                    live.touch(&rid);
                 }
                 self.write_room(&rid, false);
                 None
@@ -626,6 +648,7 @@ impl MmSync {
             if root {
                 live.last_posts.insert(rid.clone(), post.clone());
             }
+            live.touch(&rid);
         }
         self.ingest(std::slice::from_ref(&post));
         self.write_room(&rid, root);
@@ -643,6 +666,7 @@ impl MmSync {
                 member["msg_count_root"] = channel["total_msg_count_root"].clone();
                 member["mention_count"] = json!(0);
                 member["last_viewed_at"] = json!(chrono::Utc::now().timestamp_millis());
+                live.touch(rid);
             }
             self.write_room(rid, false);
         }

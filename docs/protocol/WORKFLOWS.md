@@ -39,10 +39,14 @@ budgets, refusal of encrypted rooms). Who may create one is who may create a bot
 `message_posted` fire for people only, never for a bot (so a workflow's own posts
 never start a run); a reaction taken back and an edited message fire nothing.
 `reaction_added` and `message_posted` need the bot's `rooms:read`: watching a room is
-reading it. A step with `in_thread` replies in the thread of what fired the run
-(the command's thread, the message or its thread root).
-A test run (`POST /workflows/{id}/test`) has `trigger.kind` `test`, the caller as
-`trigger.user`, and the trigger's room when it names one.
+reading it. The room triggers are checked again each time an event happens: a bot
+removed from the room, disabled, or without `rooms:read` any more stops watching it.
+A step with `in_thread` replies in the thread of the message that fired the run (the
+message's thread root, or the message itself): `reaction_added` and `message_posted`
+only; under another trigger it posts in the room.
+A test run (`POST /workflows/{id}/test`, enabled or not) has `trigger.kind` `test`,
+the caller as `trigger.user`, and the trigger's room when it names one; a `command`
+names none and is tried by typing it in a room (`workflow_test_command`).
 
 ### Steps (`kind`)
 
@@ -66,13 +70,18 @@ A test run (`POST /workflows/{id}/test`) has `trigger.kind` `test`, the caller a
   gives `@username` ready to post (`{{x.mentions.owner}}`).
 - `multiple` (a `choice` or a `person` only): several answers, ticked as checkboxes.
   The answer is a list; the run sees the values joined by `, ` in `answers`, in the
-  options' or people's order (`a, c`, `alice, bob`), `@alice, @bob` in `mentions`, and
-  a list of users in `people` (`{{x.people.owner.0.display_name}}`).
-- Text, URL, header values and body are templates: `{{path.to.value}}` looks up
-  the run's context (`trigger`, `webhook`, `now`, every `save_as`); a list index is
-  a number (`{{order.body.items.0.name}}`); a missing path renders empty, an object
-  or list renders as JSON.
-- HTTP reaches public addresses only, 10 s, no redirect followed.
+  options' or the listed people's order (`a, c`), by username for a field open to the
+  room (`alice, bob`), `@alice, @bob` in `mentions`, and a list of users in `people`
+  (`{{x.people.owner.0.display_name}}`).
+- A message's text, an HTTP step's URL, header values and body are templates (a
+  form's title is not): `{{path.to.value}}` looks up the run's context (`trigger`,
+  `webhook`, `now`, every `save_as`); a list index is a number
+  (`{{order.body.items.0.name}}`); a missing path renders empty, an object or list
+  renders as JSON. In a message's text a value never carries `@all` or `@here` (a
+  word joiner follows its `@`): only the owner's own words ping a room. In a URL each
+  value is percent-encoded.
+- HTTP reaches public addresses only, on ports 80 and 443, never through a proxy,
+  10 s, no redirect followed.
 
 ### Limits
 
@@ -89,16 +98,17 @@ calls included), 100 unfinished runs per workflow, a form open 7 days.
 | `PUT /api/v1/workflows/{id}` | `UpdateWorkflow` (the whole definition, the expected `revision`) → `Workflow`; `revision_conflict` when it moved |
 | `DELETE /api/v1/workflows/{id}` | Deletes it and its runs. Idempotent |
 | `POST /api/v1/workflows/{id}/disable` | Turns it off and cancels its unfinished runs (owner or administrator) |
-| `POST /api/v1/workflows/{id}/webhook` | `WebhookSecret{path}`: a new secret, the only time it is shown; needs a recent sign-in |
+| `POST /api/v1/workflows/{id}/webhook` | `WebhookSecret{path}`: a new secret, the only time it is shown; needs a recent sign-in and a saved `webhook` trigger (`workflow_not_webhook`). Moving the trigger off `webhook` drops the secret |
 | `GET /api/v1/workflows/{id}/runs` | `WorkflowRunList`: the last 50 runs, `state` (`pending`, `waiting`, `done`, `failed`, `cancelled`), `step`, `error` |
-| `POST /api/v1/workflows/{id}/test` | `RunStarted{run_id}`: a run now |
-| `POST /api/v1/hooks/{id}/{secret}` | No session. JSON body (16 KiB) → `202 RunStarted`; `404` for anything wrong |
+| `POST /api/v1/workflows/{id}/test` | `RunStarted{run_id}`: a run now, enabled or not; `workflow_test_command` for a command |
+| `POST /api/v1/hooks/{id}/{secret}` | No session. JSON body (16 KiB) → `202 RunStarted`; `413 webhook_too_large`, `400 webhook_json` (not JSON), `429 workflow_rate_limited` / `workflow_busy`, `404` for anything else (unknown, disabled, wrong secret) |
 | `POST /api/v1/forms/{message}/answer` | `AnswerForm{operation_id, answers}` (a field id to a text, or to a list for a `multiple` field) → `204` |
 | `GET /api/v1/commands?room={id}` | The core commands plus the workflow commands offered in that room |
 
 The owner edits; an administrator lists, disables and deletes any workflow, never
-edits one (`not_found`). Disabling cancels unfinished runs; editing leaves started
-runs on their own definition.
+edits one (`not_found`), and sees HTTP header values hidden (`••••`): they are the
+owner's credentials elsewhere. Disabling cancels unfinished runs, which stop before
+their next step; editing leaves started runs on their own definition and bot.
 
 ## Forms in messages
 
@@ -107,15 +117,16 @@ A `form` step posts a message whose text is the form's title and whose
 answered_at?, expires_at, people?}`, `people` being the users the `person` fields
 name, to show them; a field offering the whole room lets the app list the room's
 members. When answered, the message is published again with
-`answered_by`; the apps show the card answered. Answering:
+`answered_by`; the apps show the card answered. A deleted form message carries no
+form and takes no answer (`not_found`). Answering:
 
 - the recipient only (`permission_denied` for anyone else), any member when there is
   no recipient;
 - `form_required` (a required field empty), `form_value` (a number that does not
   parse, a choice not in `options`, a person outside the list or the room, or a
-  bot, several answers to a field without `multiple`, an unknown field, a text too long: 1,024 bytes,
-  long text 4,096), `form_answered` (someone answered first; the same operation
-  again succeeds), `form_expired`.
+  bot, several answers to a field without `multiple`, an unknown field, a line break
+  in a text, a text too long: 1,024 bytes, long text 4,096), `form_answered` (someone
+  answered first; the same operation again succeeds), `form_expired`.
 
 ## Errors
 
@@ -124,11 +135,15 @@ Saving: `bots_disabled`, `workflow_limit`, `workflow_bot` (not my live bot),
 room), `workflow_room`, `workflow_command`, `workflow_command_taken`,
 `workflow_schedule`, `workflow_steps`, `workflow_message`, `workflow_wait`,
 `workflow_http`, `workflow_form`, `workflow_match`, `workflow_emoji`,
-`revision_conflict`. Running a command:
+`revision_conflict`. Testing: `workflow_test_command`. A webhook URL:
+`workflow_not_webhook`. Running a command:
 `workflow_unavailable` (its bot is not in that room, or the room is encrypted),
 `workflow_rate_limited`, `workflow_busy`. A run's `error`: the failing step's code
-(`bot_scope_missing`, `crypto_required`, `http_address`, `http_url`,
-`http_failed`, `form_expired`, `bot_unavailable`, `workflow_retries`...).
+(`bot_scope_missing`, `crypto_required`, `workflow_room`, `workflow_form`,
+`http_address`, `http_url`, `http_failed`, `form_expired`, `bot_unavailable`,
+`workflow_retries`...). Only a `429` (a bot's send budget) is retried, 50 attempts at
+most (`workflow_retries`); any other failure ends the run, unless an `http` step has
+`continue_on_error`.
 
 ## Audit
 

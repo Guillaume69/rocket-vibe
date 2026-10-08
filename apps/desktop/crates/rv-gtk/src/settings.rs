@@ -161,8 +161,10 @@ fn native_devices_page(host: &Host, session: Arc<rv_core::native::NativeSession>
     group.add(&status);
     page.add(&group);
     if session.security_supported() {
-        let reauth =
-            adw::ButtonRow::builder().title(t("security.verify")).css_classes(["native-devices-reauth"]).build();
+        let reauth = adw::ButtonRow::builder()
+            .title(t("security.verify"))
+            .css_classes(["button", "native-devices-reauth"])
+            .build();
         group.add(&reauth);
         let host = host.clone();
         reauth.connect_activated(move |_| host.select(SECURITY.0));
@@ -236,7 +238,7 @@ fn native_devices_page(host: &Host, session: Arc<rv_core::native::NativeSession>
                     if !device.current {
                         let revoke = adw::ButtonRow::builder()
                             .title(t("devices.revoke"))
-                            .css_classes(["destructive-action"])
+                            .css_classes(["button", "destructive-action"])
                             .build();
                         let (s, id, h, weak_row, weak_group) =
                             (session.clone(), device.id, host.clone(), row.downgrade(), group.downgrade());
@@ -695,7 +697,7 @@ fn edit_profile_for(host: &Host, source: ProfileSource, me: Me) {
     }
     page.add(&group);
     let save_group = adw::PreferencesGroup::new();
-    let save = adw::ButtonRow::builder().title(t("settings.save")).css_classes(["suggested-action"]).build();
+    let save = adw::ButtonRow::builder().title(t("settings.save")).css_classes(["button", "suggested-action"]).build();
     save_group.add(&save);
     page.add(&save_group);
 

@@ -154,7 +154,7 @@ fn reload(ctx: &Ctx) {
                 let create = adw::ButtonRow::builder()
                     .title(t("bots.create"))
                     .start_icon_name("list-add-symbolic")
-                    .css_classes(["bot-create"])
+                    .css_classes(["button", "bot-create"])
                     .build();
                 let again = c.clone();
                 create.connect_activated(move |_| create_page(&again));
@@ -248,7 +248,7 @@ fn chosen(checks: &Checks) -> Vec<BotScope> {
 fn create_page(ctx: &Ctx) {
     let page = adw::PreferencesPage::builder().css_classes(["native-bot-create"]).build();
     let fields = adw::PreferencesGroup::new();
-    let username = adw::EntryRow::builder().title(t("bots.username")).css_classes(["bot-username"]).build();
+    let username = adw::EntryRow::builder().title(t("bots.username")).css_classes(["entry", "bot-username"]).build();
     let name = adw::EntryRow::builder().title(t("bots.display_name")).build();
     let description = adw::EntryRow::builder().title(t("bots.description")).build();
     fields.add(&username);
@@ -260,7 +260,7 @@ fn create_page(ctx: &Ctx) {
     let actions = adw::PreferencesGroup::new();
     let create = adw::ButtonRow::builder()
         .title(t("bots.create"))
-        .css_classes(["suggested-action", "bot-create-submit"])
+        .css_classes(["button", "suggested-action", "bot-create-submit"])
         .build();
     actions.add(&create);
     page.add(&actions);
@@ -394,13 +394,13 @@ fn detail_page(ctx: &Ctx, bot: Bot) {
     let name = adw::EntryRow::builder()
         .title(t("bots.display_name"))
         .text(&bot.user.display_name)
-        .css_classes(["bot-display-name"])
+        .css_classes(["entry", "bot-display-name"])
         .build();
     about.add(&name);
     let description = adw::EntryRow::builder()
         .title(t("bots.description"))
         .text(&bot.description)
-        .css_classes(["bot-description"])
+        .css_classes(["entry", "bot-description"])
         .build();
     about.add(&description);
     if bot.disabled {
@@ -409,8 +409,10 @@ fn detail_page(ctx: &Ctx, bot: Bot) {
     page.add(&about);
     let (scopes, checks) = scope_group(ctx.reference.borrow().as_ref(), &bot.scopes);
     page.add(&scopes);
-    let save =
-        adw::ButtonRow::builder().title(t("settings.save")).css_classes(["suggested-action", "bot-save"]).build();
+    let save = adw::ButtonRow::builder()
+        .title(t("settings.save"))
+        .css_classes(["button", "suggested-action", "bot-save"])
+        .build();
     scopes.add(&save);
     let (c, bot_id) = (ctx.clone(), id.clone());
     // The name as the server last answered it: only a change is sent.
@@ -444,16 +446,18 @@ fn detail_page(ctx: &Ctx, bot: Bot) {
     page.add(&keys);
     let list = Rows::new(&keys);
     let new_key = adw::PreferencesGroup::builder().title(t("bots.key_new")).build();
-    let label = adw::EntryRow::builder().title(t("bots.key_label")).css_classes(["bot-key-label"]).build();
+    let label = adw::EntryRow::builder().title(t("bots.key_label")).css_classes(["entry", "bot-key-label"]).build();
     let days = adw::SpinRow::with_range(0.0, f64::from(bots::KEY_DAYS), 1.0);
     days.set_title(t("bots.key_days"));
     days.set_value(0.0);
-    let create = adw::ButtonRow::builder().title(t("bots.key_create")).css_classes(["bot-key-create"]).build();
+    let create =
+        adw::ButtonRow::builder().title(t("bots.key_create")).css_classes(["button", "bot-key-create"]).build();
     new_key.add(&label);
     new_key.add(&days);
     new_key.add(&create);
     if let Some(security) = ctx.security {
-        let reauth = adw::ButtonRow::builder().title(t("security.verify")).css_classes(["bot-reauth"]).build();
+        let reauth =
+            adw::ButtonRow::builder().title(t("security.verify")).css_classes(["button", "bot-reauth"]).build();
         let host = ctx.host.clone();
         reauth.connect_activated(move |_| host.select(security));
         new_key.add(&reauth);
@@ -487,8 +491,10 @@ fn detail_page(ctx: &Ctx, bot: Bot) {
     });
 
     let danger = adw::PreferencesGroup::new();
-    let delete =
-        adw::ButtonRow::builder().title(t("bots.delete")).css_classes(["destructive-action", "bot-delete"]).build();
+    let delete = adw::ButtonRow::builder()
+        .title(t("bots.delete"))
+        .css_classes(["button", "destructive-action", "bot-delete"])
+        .build();
     danger.add(&delete);
     page.add(&danger);
     let shown = ctx.host.push(&format!("@{}", bot.user.username), &page).downgrade();
@@ -536,7 +542,7 @@ fn key_row(ctx: &Ctx, bot: &str, rows: &Rc<Rows>, key: BotKey) -> adw::ExpanderR
     let row = adw::ExpanderRow::builder()
         .title(glib::markup_escape_text(&key.label))
         .subtitle(format!("…{}", key.hint))
-        .css_classes(["bot-key-row"])
+        .css_classes(["expander", "bot-key-row"])
         .build();
     let expires = key.expires_at.as_deref().map_or_else(|| t("bots.key_never").to_owned(), when);
     let used = key.last_used_at.as_deref().map_or_else(|| t("bots.key_unused").to_owned(), when);
@@ -547,7 +553,7 @@ fn key_row(ctx: &Ctx, bot: &str, rows: &Rc<Rows>, key: BotKey) -> adw::ExpanderR
     }
     let revoke = adw::ButtonRow::builder()
         .title(t("bots.key_revoke"))
-        .css_classes(["destructive-action", "bot-key-revoke"])
+        .css_classes(["button", "destructive-action", "bot-key-revoke"])
         .build();
     let (c, bot, rows, id) = (ctx.clone(), bot.to_owned(), rows.clone(), key.id);
     revoke.connect_activated(move |_| {
@@ -590,6 +596,12 @@ fn copyable(text: &str, class: &str) -> gtk::Box {
             .xalign(0.0)
             .hexpand(true)
             .css_classes(["monospace", class])
+            .attributes(&{
+                // Wrapping a key or a command must never insert a hyphen.
+                let attributes = gtk::pango::AttrList::new();
+                attributes.insert(gtk::pango::AttrInt::new_insert_hyphens(false));
+                attributes
+            })
             .build(),
     );
     let copy = gtk::Button::builder()

@@ -33,15 +33,19 @@ pub fn page(host: &Host, session: Arc<NativeSession>) -> adw::PreferencesPage {
     status_group.add(&status);
     page.add(&status_group);
     let password_group = adw::PreferencesGroup::builder().title(t("security.required")).build();
-    let password =
-        adw::PasswordEntryRow::builder().title(t("login.password")).css_classes(["native-security-password"]).build();
+    let password = adw::PasswordEntryRow::builder()
+        .title(t("login.password"))
+        .css_classes(["entry", "native-security-password"])
+        .build();
     let password_submit = button("security.verify", "native-security-password-submit");
     password_group.add(&password);
     password_group.add(&password_submit);
     page.add(&password_group);
     let proof_group = adw::PreferencesGroup::builder().title(t("security.required")).build();
-    let methods = adw::ComboRow::builder().title(t("security.method")).css_classes(["native-security-method"]).build();
-    let proof_code = adw::EntryRow::builder().title(t("login.code_totp")).css_classes(["native-security-code"]).build();
+    let methods =
+        adw::ComboRow::builder().title(t("security.method")).css_classes(["combo", "native-security-method"]).build();
+    let proof_code =
+        adw::EntryRow::builder().title(t("login.code_totp")).css_classes(["entry", "native-security-code"]).build();
     let proof_submit = button("security.verify", "native-security-proof-submit");
     let proof_mail_send = button("email.send_code", "native-security-proof-mail-send");
     let proof_mail_resend = button("email.resend_code", "native-security-proof-mail-resend");
@@ -63,8 +67,10 @@ pub fn page(host: &Host, session: Arc<NativeSession>) -> adw::PreferencesPage {
     );
     setup_group.add(&copy_secret);
     setup_group.add(&copy_uri);
-    let setup_code =
-        adw::EntryRow::builder().title(t("login.code_totp")).css_classes(["native-security-setup-code"]).build();
+    let setup_code = adw::EntryRow::builder()
+        .title(t("login.code_totp"))
+        .css_classes(["entry", "native-security-setup-code"])
+        .build();
     let enable = button("security.enable", "native-security-enable");
     setup_group.add(&setup_code);
     setup_group.add(&enable);
@@ -98,8 +104,10 @@ pub fn page(host: &Host, session: Arc<NativeSession>) -> adw::PreferencesPage {
     let email_group = adw::PreferencesGroup::builder().title(t("email.title")).description(t("email.private")).build();
     let email_current =
         adw::ActionRow::builder().title(t("email.none")).css_classes(["native-security-email-current"]).build();
-    let email_address =
-        adw::EntryRow::builder().title(t("email.address")).css_classes(["native-security-email-address"]).build();
+    let email_address = adw::EntryRow::builder()
+        .title(t("email.address"))
+        .css_classes(["entry", "native-security-email-address"])
+        .build();
     let email_start = button("email.start", "native-security-email-start");
     let email_remove = button("email.remove", "native-security-email-remove");
     email_remove.add_css_class("destructive-action");
@@ -107,8 +115,10 @@ pub fn page(host: &Host, session: Arc<NativeSession>) -> adw::PreferencesPage {
     let email_factor = button("email.factor_enable", "native-security-email-factor");
     let email_pending =
         adw::ActionRow::builder().title(t("email.pending")).css_classes(["native-security-email-pending"]).build();
-    let email_code =
-        adw::PasswordEntryRow::builder().title(t("email.code")).css_classes(["native-security-email-code"]).build();
+    let email_code = adw::PasswordEntryRow::builder()
+        .title(t("email.code"))
+        .css_classes(["entry", "native-security-email-code"])
+        .build();
     let email_confirm = button("email.confirm", "native-security-email-confirm");
     let email_cancel = button("email.cancel", "native-security-email-cancel");
     let email_verified = adw::ActionRow::builder().title(t("email.verified")).build();
@@ -457,7 +467,7 @@ pub fn page(host: &Host, session: Arc<NativeSession>) -> adw::PreferencesPage {
     page
 }
 fn button(key: &str, class: &str) -> adw::ButtonRow {
-    adw::ButtonRow::builder().title(t(key)).css_classes([class]).build()
+    adw::ButtonRow::builder().title(t(key)).css_classes(["button", class]).build()
 }
 fn private_label(class: &str) -> gtk::Label {
     gtk::Label::builder()

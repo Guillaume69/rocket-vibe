@@ -265,8 +265,10 @@ fn fill<T: Send + 'static>(
                     render(&l, item);
                 }
                 if let Some(next) = page.next {
-                    let more =
-                        adw::ButtonRow::builder().title(t("admin.load_more")).css_classes(["admin-more"]).build();
+                    let more = adw::ButtonRow::builder()
+                        .title(t("admin.load_more"))
+                        .css_classes(["button", "admin-more"])
+                        .build();
                     let (h, list) = (h.clone(), l.clone());
                     more.connect_activated(move |_| {
                         fill(&h, &list, Some(next.clone()), empty, fetch.clone(), render.clone());
@@ -471,7 +473,7 @@ fn overview_groups(screen: &Screen, cards: &Cards, o: &Overview) -> Vec<adw::Pre
     let open = adw::ButtonRow::builder()
         .title(t("admin.open_moderation"))
         .end_icon_name("go-next-symbolic")
-        .css_classes(["admin-open-moderation"])
+        .css_classes(["button", "admin-open-moderation"])
         .build();
     let host = screen.host.clone();
     open.connect_activated(move |_| host.select(MODERATION.0));
@@ -707,7 +709,7 @@ fn moderate(
 }
 
 fn action_row(key: &str, class: &str, destructive: bool) -> adw::ButtonRow {
-    let row = adw::ButtonRow::builder().title(t(key)).css_classes([class]).build();
+    let row = adw::ButtonRow::builder().title(t(key)).css_classes(["button", class]).build();
     if destructive {
         row.add_css_class("destructive-action");
     }

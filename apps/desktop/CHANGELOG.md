@@ -21,6 +21,10 @@ section here.
 
 ### Fixed
 
+- GTK: buttons in the settings and administration lists (Save, Create key, Confirm my identity,
+  Open moderation...) were flattened to a thin line and their icons oversized; expandable rows,
+  entry rows and combo rows lost their look the same way. Monospace texts (bot keys, API routes)
+  now use a monospace font, and a wrapped key or command is never hyphenated.
 - GTK: Restart, after an update installed in place, did nothing on Linux tarball installs.
 - GTK: a message no longer disappears and comes back when someone reacts to it or
   edits it.

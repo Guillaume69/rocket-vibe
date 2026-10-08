@@ -2039,37 +2039,37 @@
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/settings.rs",
-      "line": 365,
+      "line": 367,
       "kind": "endpoint",
       "surface": "e2e.status"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/settings.rs",
-      "line": 366,
+      "line": 368,
       "kind": "endpoint",
       "surface": "e2e.locked"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/settings.rs",
-      "line": 366,
+      "line": 368,
       "kind": "endpoint",
       "surface": "e2e.unlocked"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/settings.rs",
-      "line": 369,
+      "line": 371,
       "kind": "endpoint",
       "surface": "e2e.lock"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/settings.rs",
-      "line": 369,
+      "line": 371,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/settings.rs",
-      "line": 381,
+      "line": 383,
       "kind": "endpoint",
       "surface": "e2e.locked"
     },

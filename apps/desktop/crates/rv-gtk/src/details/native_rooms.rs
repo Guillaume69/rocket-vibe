@@ -272,7 +272,7 @@ fn edit(parent: &adw::Dialog, session: Arc<NativeSession>, rid: String, input: U
     let name = adw::EntryRow::builder()
         .title(t("native.room_name"))
         .text(&input.name)
-        .css_classes(["native-room-name"])
+        .css_classes(["entry", "native-room-name"])
         .build();
     content.append(&name);
     let (topic, description, announcement) = (

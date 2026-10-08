@@ -210,6 +210,8 @@ label selection, textview text selection { background: rgba(92, 200, 255, 0.35);
 .md-quote { border-left: 3px solid #2C2946; padding-left: 10px; margin: 2px 0; }
 .md-code { background: #171529; border-radius: 8px; padding: 8px 10px; margin: 2px 0; }
 .md-code-text { font-family: monospace; font-size: 13px; color: #E7E3F5; }
+/* The app font is set on every label: Adwaita's .monospace needs restating. */
+label.monospace, .monospace label { font-family: monospace; }
 .md-big-emoji { font-size: 36px; }
 .message-body.failed { color: #FF7A8A; }
 .message-note { color: #6E6890; font-size: 11px; }

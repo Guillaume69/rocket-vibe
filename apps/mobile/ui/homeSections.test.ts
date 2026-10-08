@@ -22,7 +22,7 @@ const room = (rid: string, type: string) => ({ rid, type });
 
 const subscription = (
   rid: string,
-  extra: Partial<{ unread: number; alert: boolean; open: boolean; favorite: boolean }> = {},
+  extra: Partial<{ unread: number; alert: boolean; open: boolean; favorite: boolean; groupId: string; groupName: string; groupRank: number }> = {},
 ) => ({ rid, unread: 0, alert: false, open: true, favorite: false, ...extra });
 
 /** Compact projection for assertions: `title: rid1, rid2`. */
@@ -152,5 +152,41 @@ describe('collapsed sections', () => {
   test('keys stored before the English rename are still read', () => {
     const raw = '["nonLus","favoris","salons","messagesPrives"]';
     assert.deepEqual([...readCollapsedSections(raw)], ['unread', 'favorites', 'rooms', 'directMessages']);
+  });
+});
+
+describe('sidebar categories (Mattermost)', () => {
+  test('my own categories get a section each, and the sections follow my sidebar order', () => {
+    const sections = buildSections(
+      [room('t1', 'c'), room('fav', 'd'), room('c1', 'c'), room('u1', 'c'), room('i1', 'p'), room('d1', 'd')],
+      [
+        subscription('t1', { groupId: 'g-tech', groupName: 'TECH', groupRank: 0 }),
+        subscription('i1', { groupId: 'g-infra', groupName: 'Infra', groupRank: 2 }),
+        subscription('fav', { favorite: true, groupRank: 3 }),
+        subscription('c1', { groupRank: 4 }),
+        subscription('d1', { groupRank: 5 }),
+        subscription('u1', { unread: 2, groupId: 'g-tech', groupName: 'TECH', groupRank: 0 }),
+      ],
+      TITLES,
+    );
+    assert.deepEqual(resume(sections), ['Unread: u1', 'TECH: t1', 'Infra: i1', 'Favorites: fav', 'Rooms: c1', 'Direct messages: d1']);
+    assert.deepEqual(sections.map((s) => s.key).slice(1, 3), ['group:g-tech', 'group:g-infra']);
+  });
+
+  test('a favourite leaves its old category at once, before the server says so', () => {
+    const sections = buildSections(
+      [room('a', 'c'), room('b', 'c')],
+      [subscription('a', { favorite: true, groupId: 'g', groupName: 'G', groupRank: 1 }), subscription('b', { groupId: 'g', groupName: 'G', groupRank: 1 })],
+      TITLES,
+    );
+    assert.deepEqual(resume(sections), ['Favorites: a', 'G: b']);
+  });
+
+  test('a folded category is remembered by its id', () => {
+    const collapsed = new Set<SectionKey>(['group:g-tech', 'rooms']);
+    const raw = writeCollapsedSections(collapsed);
+    assert.equal(raw, '["rooms","group:g-tech"]');
+    assert.deepEqual(readCollapsedSections(raw), collapsed);
+    assert.deepEqual([...readCollapsedSections('["group:","nope"]')], []);
   });
 });

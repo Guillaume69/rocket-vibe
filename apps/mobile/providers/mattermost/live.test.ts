@@ -3,6 +3,7 @@ import { describe, test } from 'node:test';
 
 import { PresenceEngine } from '../../lib/presence.ts';
 import { TypingEngine } from '../../lib/typing.ts';
+import { MmCategories } from './categories.ts';
 import { MmClient } from './client.ts';
 import { MmDirectory } from './directory.ts';
 import { MmLive } from './live.ts';
@@ -94,5 +95,28 @@ describe('MmLive.expand', () => {
     assert.deepEqual(await live.expand('user_removed', { user_id: 'u-bob' }, { channel_id: 'ch1' }), []);
     const events = await live.expand('user_removed', { user_id: 'u-me' }, { channel_id: 'ch1' });
     assert.equal(events[0]?.collection, MM_ROOM_DELETED);
+  });
+});
+
+describe('sidebar categories', () => {
+  test('a category event reads them again and rewrites every membership', async () => {
+    let favorites: string[] = [];
+    const server = fakeServer((call) => {
+      if (call.path === '/users/me/teams') return { body: [{ id: 'T' }] };
+      if (call.path === '/users/me/teams/T/channels/categories') {
+        return { body: { categories: [{ id: 'fav', type: 'favorites', channel_ids: favorites }], order: ['fav'] } };
+      }
+      return undefined;
+    });
+    const client = new MmClient(server.base, 'tok', { fetch: server.fetcher });
+    const directory = new MmDirectory(client);
+    const categories = new MmCategories(client);
+    const live = new MmLive(client, directory, 'u-me', categories);
+    live.remember({ id: 'ch1', type: 'O', name: 'dev' }, { channel_id: 'ch1', user_id: 'u-me' });
+    const translator = new MmTranslator(directory, 'u-me', categories);
+    favorites = ['ch1'];
+    const events = await live.expand('sidebar_category_updated', {}, { team_id: 'T' });
+    assert.deepEqual(events.map((e) => e.collection), [MM_MEMBERSHIP]);
+    assert.equal(translator.toSubscription(events[0]!.args[0] as Record<string, unknown>)?.favorite, true);
   });
 });

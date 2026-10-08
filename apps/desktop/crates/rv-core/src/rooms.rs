@@ -173,6 +173,29 @@ mod tests {
     }
 
     #[test]
+    fn sidebar_categories_get_their_sections_in_my_order() {
+        let ranked = |rid: &str, kind: &str, rank: i64, group: Option<(&str, &str)>| RoomRow {
+            group_rank: Some(rank),
+            group_id: group.map(|g| g.0.to_owned()),
+            group_name: group.map(|g| g.1.to_owned()),
+            ..room(rid, kind, 0)
+        };
+        let mut fav = ranked("fav", "d", 2, None);
+        fav.favorite = true;
+        let rooms = [
+            ranked("c1", "c", 3, None),
+            ranked("i1", "p", 1, Some(("g-infra", "Infra"))),
+            fav,
+            ranked("t1", "c", 0, Some(("g-tech", "TECH"))),
+            ranked("d1", "d", 4, None),
+            room("u1", "c", 1),
+        ];
+        let keys: Vec<String> = sections(&rooms).iter().map(|(s, _)| s.key()).collect();
+        assert_eq!(keys, ["unread", "group:g-tech", "group:g-infra", "favorites", "channels", "direct"]);
+        assert_eq!(sections(&rooms)[1].0, Section::Group { id: "g-tech".into(), name: "TECH".into() });
+    }
+
+    #[test]
     fn spotlight() {
         let found = spotlight_results(&json!({
             "users": [{"_id": "u1", "username": "bob", "name": "Bob"}, {"_id": "u2"}],

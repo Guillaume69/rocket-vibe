@@ -66,3 +66,33 @@ pub fn place(subscription: &mut Subscription, placement: Option<&Placement>) {
     subscription.group_name = placement.and_then(|p| p.group_name.clone());
     subscription.group_rank = placement.map(|p| p.rank);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn a_room_takes_its_category_and_the_server_order() {
+        let list = json!({
+            "categories": [
+                {"id": "fav", "type": "favorites", "channel_ids": ["f1"]},
+                {"id": "tech", "type": "custom", "display_name": "TECH", "channel_ids": ["t1"]},
+                {"id": "ch", "type": "channels", "display_name": "Channels", "channel_ids": ["c1", "t1"]},
+            ],
+            "order": ["tech", "fav", "ch"],
+        });
+        let map = placements(&list, 1000);
+        let tech =
+            Placement { favorite: false, group_id: Some("tech".into()), group_name: Some("TECH".into()), rank: 1000 };
+        assert_eq!(map["t1"], tech);
+        assert_eq!(map["f1"], Placement { favorite: true, group_id: None, group_name: None, rank: 1001 });
+        assert_eq!(map["c1"], Placement { favorite: false, group_id: None, group_name: None, rank: 1002 });
+
+        let mut s = Subscription { rid: "t1".into(), favorite: true, ..Default::default() };
+        place(&mut s, map.get("t1"));
+        assert_eq!((s.favorite, s.group_name.as_deref(), s.group_rank), (false, Some("TECH"), Some(1000)));
+        place(&mut s, None);
+        assert_eq!((s.group_id, s.group_rank), (None, None));
+    }
+}

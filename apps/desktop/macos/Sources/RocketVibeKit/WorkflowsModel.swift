@@ -39,6 +39,8 @@ public final class WorkflowsModel {
     public private(set) var rooms: [NativeRoomChoice] = []
     /// Each opened workflow's last runs, by workflow id.
     public private(set) var runs: [String: [NativeWorkflowRun]] = [:]
+    /// The workflows whose runs are being read.
+    public private(set) var runsLoading: Set<String> = []
     public private(set) var loaded = false
     public private(set) var busy = false
     public private(set) var error: String?
@@ -174,6 +176,8 @@ public final class WorkflowsModel {
 
     public func loadRuns(_ workflow: NativeWorkflow) async {
         guard active, let chat else { return }
+        runsLoading.insert(workflow.id)
+        defer { runsLoading.remove(workflow.id) }
         do {
             let fresh = try await chat.workflowRuns(id: workflow.id)
             guard active else { return }
@@ -323,6 +327,8 @@ public struct WorkflowTriggerForm: Equatable {
 
     /// A step may name "the trigger's room" (every kind but the webhook).
     public var hasRoom: Bool { kind != "webhook" }
+    /// A message may reply in the trigger's thread (a reaction's or a message's).
+    public var hasThread: Bool { workflowTriggerHasThread(trigger: trigger) }
     /// A form may be for "the person who triggered it".
     public var hasUser: Bool { workflowTriggerHasPerson(trigger: trigger) }
 
@@ -368,8 +374,8 @@ public struct WorkflowTriggerForm: Equatable {
 /// which later steps may name.
 public struct WorkflowFieldForm: Equatable {
     public static let kinds = ["text", "long_text", "number", "choice", "person"]
-    /// The most people a person field may list.
-    public static let peopleLimit = 50
+    /// The most people a person field may list (rv-core's limit).
+    public static var peopleLimit: Int { Int(workflowLimits().people) }
 
     public var id: String
     public var label: String
@@ -508,12 +514,12 @@ public struct WorkflowStepForm: Equatable, Identifiable {
         }
     }
 
-    /// Where the Variables menu writes: the text of a message, the title of a
-    /// form, the body of a request that has one, else its URL. A wait has none.
+    /// Where the Variables menu writes: the text of a message, the body of a
+    /// request that has one, else its URL. A wait and a form have none (the
+    /// engine never renders a form's title).
     public var template: WritableKeyPath<WorkflowStepForm, String>? {
         switch kind {
         case "message": return \.text
-        case "form": return \.title
         case "http": return method == "GET" || method == "DELETE" ? \.url : \.body
         default: return nil
         }
@@ -529,6 +535,7 @@ public struct WorkflowStepForm: Equatable, Identifiable {
     }
 
     public mutating func addField() {
+        guard canAddField else { return }
         let taken = fields.map(\.id)
         let field = NativeFormField(id: workflowIdentifier(label: "", taken: taken), label: "", kind: "text",
                                     options: [], people: [], multiple: false, required: false)
@@ -539,7 +546,13 @@ public struct WorkflowStepForm: Equatable, Identifiable {
         if fields.indices.contains(index) { fields.remove(at: index) }
     }
 
-    public mutating func addHeader() { headers.append(NativeHttpHeader(name: "", value: "")) }
+    public var canAddField: Bool { fields.count < Int(WorkflowDraftEditor.limits.fields) }
+    public var canAddHeader: Bool { headers.count < Int(WorkflowDraftEditor.limits.headers) }
+
+    public mutating func addHeader() {
+        guard canAddHeader else { return }
+        headers.append(NativeHttpHeader(name: "", value: ""))
+    }
 
     public mutating func removeHeader(_ index: Int) {
         if headers.indices.contains(index) { headers.remove(at: index) }
@@ -592,21 +605,23 @@ public struct WorkflowDraftEditor: Equatable {
         trigger.setKind(kind)
     }
 
-    /// Why the definition cannot be saved as it is, worded; nil when it can.
-    /// A step naming the trigger's room under a trigger without one (a
-    /// webhook), a form for the triggering person under a trigger without one.
-    public var problem: String? {
-        let messages = steps.filter { $0.kind == "message" || $0.kind == "form" }
-        if !trigger.hasRoom && messages.contains(where: { $0.room == "trigger" }) { return L("workflows.error_room") }
-        if !trigger.hasUser && steps.contains(where: { $0.kind == "form" && $0.recipient == "trigger_user" }) {
-            return L("workflows.error_form")
-        }
-        return nil
-    }
+    /// What the server would refuse in the definition as it is (its error
+    /// code, rv-core checking the draft as a save would); nil when it may be saved.
+    public var problemCode: String? { workflowDraftProblem(draft: draft) }
+
+    /// `problemCode`, worded.
+    public var problem: String? { problemCode.map { L(workflowErrorKey(code: $0, status: 0)) } }
+
+    /// The limits a definition stays within, as the server enforces them.
+    public static var limits: NativeWorkflowLimits { workflowLimits() }
+
+    /// Another step may be added.
+    public var canAddStep: Bool { steps.count < Int(Self.limits.steps) }
 
     /// A step of `kind` at the end, as rv-core starts one; its index.
     @discardableResult
     public mutating func addStep(_ kind: String) -> Int? {
+        guard canAddStep else { return nil }
         guard let step = workflowNewStep(kind: kind, trigger: trigger.trigger, steps: steps.map(\.step)) else { return nil }
         steps.append(WorkflowStepForm(step))
         return steps.count - 1
@@ -679,10 +694,28 @@ public func workflowPeopleMatching(_ people: [NativeWorkflowUser], _ search: Str
     }
 }
 
-/// The answers a form card sends, each field's values as a list: trimmed,
-/// empty ones dropped, one value for a field that takes one answer, the
-/// fields with nothing picked left out; nil while a required field has none.
-public func workflowFormAnswers(_ fields: [NativeFormField], _ values: [String: [String]]) -> [String: [String]]? {
+/// The answers a form card sends, or the first field the server would refuse.
+public enum WorkflowAnswers: Equatable {
+    /// Each field's values as a list, the fields with nothing picked left out.
+    case ready([String: [String]])
+    /// A required field with nothing in it (`form_required`).
+    case missing(field: String)
+    /// Several values for a field that takes one, a short text on several
+    /// lines (`form_value`).
+    case invalid(field: String)
+
+    /// Why it cannot be sent, worded; nil when it can.
+    public var problem: String? {
+        switch self {
+        case .ready: return nil
+        case .missing: return L("workflows.error_form_required")
+        case .invalid: return L("workflows.error_form_value")
+        }
+    }
+}
+
+/// The answers a form card sends: trimmed, empty and repeated values dropped.
+public func workflowFormAnswers(_ fields: [NativeFormField], _ values: [String: [String]]) -> WorkflowAnswers {
     var answers: [String: [String]] = [:]
     for field in fields {
         var picked: [String] = []
@@ -690,14 +723,17 @@ public func workflowFormAnswers(_ fields: [NativeFormField], _ values: [String: 
             let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty && !picked.contains(trimmed) { picked.append(trimmed) }
         }
-        if !field.multiple { picked = Array(picked.prefix(1)) }
         if picked.isEmpty {
-            if field.required { return nil }
+            if field.required { return .missing(field: field.id) }
             continue
+        }
+        if !field.multiple && picked.count > 1 { return .invalid(field: field.id) }
+        if field.kind == "text" && picked.contains(where: { $0.contains(where: \.isNewline) }) {
+            return .invalid(field: field.id)
         }
         answers[field.id] = picked
     }
-    return answers
+    return .ready(answers)
 }
 
 /// A multiple field's values with `value` ticked or unticked, in the order

@@ -22,12 +22,14 @@ section here.
 - Workflows on RocketVibe servers (GTK and SwiftUI): a Workflows category in the settings
   lists my workflows (trigger in words, on or off, last run) and edits them: a name, one of
   my bots, a trigger (a slash command, a schedule in a time zone, someone joining a room, a
-  reaction, a message containing some text, an incoming webhook whose URL is shown once) and steps to add, reorder and remove (send a
-  message, wait, call an HTTP service, ask a form whose fields are a text, a number, a
-  choice or a person, a choice or a person taking one answer or several), with a Variables menu inserting
-  `{{…}}`; Save, Test, Disable, Delete and the run history. A form a workflow posts shows
-  as a card in the room, with an Answer dialog for its recipient and who answered once
-  done. Workflow commands join the room's command list.
+  reaction in a room, a message containing some text, an incoming webhook whose URL is shown
+  once) and steps to add, reorder and remove (send a message, wait, call an HTTP service, ask
+  a form whose fields are a short or long text, a number, a choice or a person, a choice or a
+  person taking one answer or several), with a Variables menu inserting `{{…}}`; Save, Test
+  (not for a command, which is tried by typing it), Disable, Delete and the run history. A
+  form a workflow posts shows as a card in the room, with an Answer dialog for its recipient,
+  or for any member of the room when it names none, and who answered once done. Workflow
+  commands join the room's command list.
 
 ### Fixed
 

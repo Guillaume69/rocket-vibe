@@ -100,12 +100,18 @@ struct WorkflowEditor: View {
     @State private var editor: WorkflowDraftEditor
     @State private var removing: Int?
     @State private var deleting = false
+    /// "Generate a new URL" asked: the current URL stops working once confirmed.
+    @State private var replacingWebhook = false
+    /// The definition as the editor opened it: a new workflow's problem shows
+    /// once something was typed, not on an empty form.
+    @State private var opened: NativeWorkflowDraft
 
     init(model: WorkflowsModel, workflow: NativeWorkflow?) {
         self.model = model
+        let start = workflow.map { WorkflowDraftEditor(workflow: $0) } ?? .blank(botId: model.liveBots.first?.id ?? "")
         _workflow = State(initialValue: workflow)
-        _editor = State(initialValue: workflow.map { WorkflowDraftEditor(workflow: $0) }
-            ?? .blank(botId: model.liveBots.first?.id ?? ""))
+        _editor = State(initialValue: start)
+        _opened = State(initialValue: start.draft)
     }
 
     /// Something to save: a new workflow, or a definition that differs from the saved one.
@@ -114,10 +120,20 @@ struct WorkflowEditor: View {
         return editor.draft != WorkflowDraftEditor(workflow: workflow).draft
     }
 
-    private var savable: Bool {
-        !model.busy && changed && !editor.name.trimmingCharacters(in: .whitespaces).isEmpty && !editor.botId.isEmpty
-            && (editor.trigger.kind != "message_posted" || !editor.trigger.contains.trimmingCharacters(in: .whitespaces).isEmpty)
-            && editor.problem == nil
+    /// What the server would refuse, as rv-core checks it before a save.
+    private var problem: String? { editor.problem }
+
+    private var savable: Bool { !model.busy && changed && problem == nil }
+
+    /// Only a saved workflow's own trigger counts: a webhook's URL is made,
+    /// and a test run started, for the saved definition.
+    private var savedWebhook: Bool {
+        if case .webhook = workflow?.trigger { return true }
+        return false
+    }
+    private var savedCommand: Bool {
+        if case .command = workflow?.trigger { return true }
+        return false
     }
 
     var body: some View {
@@ -140,6 +156,14 @@ struct WorkflowEditor: View {
             actions: [ModalAction(title: L("workflows.step_remove"), role: .destructive) {
                 if let index = removing { editor.removeStep(index) }
                 removing = nil
+            }]
+        )
+        .confirmOverlay(
+            isPresented: $replacingWebhook,
+            title: L("workflows.webhook_replace"),
+            message: L("workflows.webhook_replace_body"),
+            actions: [ModalAction(title: L("workflows.webhook_regenerate"), role: .destructive) {
+                if let workflow { generateWebhook(workflow) }
             }]
         )
         .confirmOverlay(
@@ -256,17 +280,14 @@ struct WorkflowEditor: View {
         Text(L("workflows.room_hint")).font(.caption).foregroundStyle(.secondary)
     }
 
-    /// A webhook's URL is made once the workflow is saved, and shown once.
+    /// A webhook's URL is made once the workflow is saved with a webhook
+    /// trigger, and shown once; a new one replaces the old after a confirmation.
     @ViewBuilder var webhook: some View {
-        if let workflow {
+        if let workflow, savedWebhook {
             if workflow.hasWebhook { Text(L("workflows.webhook_exists")).foregroundStyle(.secondary) }
             HStack {
                 Button(L(workflow.hasWebhook ? "workflows.webhook_regenerate" : "workflows.webhook_generate")) {
-                    Task {
-                        if await model.generateWebhook(workflow), let fresh = model.workflow(workflow.id) {
-                            self.workflow = fresh
-                        }
-                    }
+                    if workflow.hasWebhook { replacingWebhook = true } else { generateWebhook(workflow) }
                 }
                 .disabled(model.busy)
                 if model.needsReauth && app.native?.securitySupported() == true {
@@ -275,6 +296,14 @@ struct WorkflowEditor: View {
             }
         } else {
             Text(L("workflows.webhook_save_first")).foregroundStyle(.secondary)
+        }
+    }
+
+    func generateWebhook(_ workflow: NativeWorkflow) {
+        Task {
+            if await model.generateWebhook(workflow), let fresh = model.workflow(workflow.id) {
+                self.workflow = fresh
+            }
         }
     }
 
@@ -307,6 +336,7 @@ struct WorkflowEditor: View {
                 }
             }
             .fixedSize()
+            .disabled(!editor.canAddStep)
             Text(L("workflows.variables_hint")).font(.caption).foregroundStyle(.secondary)
         }
     }
@@ -326,17 +356,20 @@ struct WorkflowEditor: View {
 
     @ViewBuilder var actions: some View {
         Section {
-            if let problem = editor.problem { Text(problem).foregroundStyle(.red) }
+            if let problem = editor.problem, workflow != nil || editor.draft != opened { Text(problem).foregroundStyle(.red) }
             if let notice = model.notice { Text(notice).foregroundStyle(.secondary) }
             HStack {
                 Button(L("workflows.save"), action: save)
                     .keyboardShortcut(.defaultAction)
                     .disabled(!savable)
                 if let workflow {
-                    Button(L("workflows.test")) {
-                        Task { await model.test(workflow) }
+                    // A command runs where it is typed: no test run for it.
+                    if !savedCommand {
+                        Button(L("workflows.test")) {
+                            Task { await model.test(workflow) }
+                        }
+                        .disabled(model.busy || changed)
                     }
-                    .disabled(model.busy || changed)
                     if workflow.enabled {
                         Button(L("workflows.disable")) {
                             Task {
@@ -353,6 +386,9 @@ struct WorkflowEditor: View {
                         .foregroundStyle(.red)
                         .disabled(model.busy)
                 }
+            }
+            if savedCommand {
+                Text(L("workflows.error_test_command")).font(.caption).foregroundStyle(.secondary)
             }
         }
     }
@@ -379,6 +415,9 @@ struct WorkflowEditor: View {
 
     @ViewBuilder func runs(_ workflow: NativeWorkflow) -> some View {
         Section {
+            if model.runs[workflow.id] == nil && model.runsLoading.contains(workflow.id) {
+                ProgressView(L("workflows.runs_loading")).controlSize(.small)
+            }
             if let runs = model.runs[workflow.id] {
                 if runs.isEmpty { Text(L("workflows.no_runs")).foregroundStyle(.secondary) }
                 ForEach(runs, id: \.id) { run in
@@ -500,7 +539,9 @@ struct WorkflowStepEditor: View {
         WorkflowRoomPicker(title: L("workflows.room"), selection: $step.room, model: model, allowTrigger: trigger.hasRoom)
         Text(L("workflows.text"))
         WorkflowTextEditor(text: $step.text, selection: $selection)
-        Toggle(L("workflows.in_thread"), isOn: $step.inThread)
+        if trigger.hasThread {
+            Toggle(L("workflows.in_thread"), isOn: $step.inThread)
+        }
         saveAs
     }
 
@@ -537,7 +578,7 @@ struct WorkflowStepEditor: View {
             }
         }
         Button(L("workflows.header_add")) { step.addHeader() }
-            .disabled(step.headers.count >= 10)
+            .disabled(!step.canAddHeader)
         Text(L("workflows.body"))
         WorkflowTextEditor(text: $step.body, selection: step.template == \WorkflowStepForm.body ? $selection : nil)
         saveAs
@@ -559,7 +600,7 @@ struct WorkflowStepEditor: View {
             WorkflowFieldEditor(step: $step, index: field, people: model.people)
         }
         Button(L("workflows.field_add")) { step.addField() }
-            .disabled(step.fields.count >= 10)
+            .disabled(!step.canAddField)
         saveAs
     }
 

@@ -191,9 +191,13 @@ struct Editor {
     ctx: Ctx,
     /// None until the workflow is created.
     id: Option<String>,
-    revision: String,
-    has_webhook: bool,
+    /// The revision a save is sent at; a Disable moves it.
+    revision: RefCell<String>,
+    has_webhook: Cell<bool>,
     draft: RefCell<Draft>,
+    /// The definition as last saved (None: not created yet), against which
+    /// unsaved changes are told and the saved trigger read.
+    saved: RefCell<Option<Draft>>,
     /// Weak, like every widget here: the widgets' handlers hold the editor.
     page: glib::WeakRef<adw::PreferencesPage>,
     trigger_rows: Rc<Rows>,
@@ -225,8 +229,9 @@ fn open_editor(ctx: &Ctx, workflow: Option<Workflow>) -> Ed {
     let ed = Rc::new(Editor {
         ctx: ctx.clone(),
         id: workflow.as_ref().map(|w| w.id.clone()),
-        revision: workflow.as_ref().map(|w| w.revision.clone()).unwrap_or_default(),
-        has_webhook: workflow.as_ref().is_some_and(|w| w.has_webhook),
+        revision: RefCell::new(workflow.as_ref().map(|w| w.revision.clone()).unwrap_or_default()),
+        has_webhook: Cell::new(workflow.as_ref().is_some_and(|w| w.has_webhook)),
+        saved: RefCell::new(workflow.as_ref().map(Draft::of)),
         draft: RefCell::new(draft),
         page: page.downgrade(),
         trigger_rows: Rows::new(&trigger),
@@ -599,22 +604,25 @@ fn schedule_rows(ed: &Ed, rows: &Rc<Rows>, every: Every, time: &str, days: &[u8]
 
 /// A webhook has no settings; its URL is made on demand, once saved.
 fn webhook_rows(ed: &Ed, rows: &Rc<Rows>) {
-    let Some(id) = ed.id.clone() else {
+    // Only a workflow saved with a webhook trigger has a URL to make.
+    let saved_hook = ed.saved.borrow().as_ref().is_some_and(|d| matches!(d.trigger, Trigger::Webhook {}));
+    let (Some(id), true) = (ed.id.clone(), saved_hook) else {
         rows.note(t("workflows.webhook_save_first"));
         return;
     };
-    if ed.has_webhook {
+    let had = ed.has_webhook.get();
+    if had {
         rows.note(t("workflows.webhook_exists"));
     }
     let generate = button_row(
-        t(if ed.has_webhook { "workflows.webhook_regenerate" } else { "workflows.webhook_generate" }),
+        t(if had { "workflows.webhook_regenerate" } else { "workflows.webhook_generate" }),
         &["workflow-webhook"],
     );
-    let c = ed.ctx.clone();
-    generate.connect_activated(move |button| {
+    let (c, owner) = (ed.ctx.clone(), Rc::downgrade(ed));
+    let make: Rc<dyn Fn(adw::ButtonRow)> = Rc::new(move |button: adw::ButtonRow| {
         let (s, id) = (c.session.clone(), id.clone());
         button.set_sensitive(false);
-        let (c, button) = (c.clone(), button.clone());
+        let (c, owner) = (c.clone(), owner.clone());
         // Not `spawn`: the server made the secret, which it never shows again,
         // so it is shown even when the settings closed meanwhile.
         glib::spawn_future_local(async move {
@@ -629,10 +637,31 @@ fn webhook_rows(ed: &Ed, rows: &Rc<Rows>) {
             }
             button.set_sensitive(true);
             match result {
-                Ok(url) => show_webhook(c.host.widget().as_ref(), &url),
+                Ok(url) => {
+                    if let Some(ed) = owner.upgrade() {
+                        ed.has_webhook.set(true);
+                    }
+                    show_webhook(c.host.widget().as_ref(), &url);
+                }
                 Err(error) => c.host.toast(error_text(&error)),
             }
         });
+    });
+    let (e, owner) = (ed.ctx.clone(), Rc::downgrade(ed));
+    generate.connect_activated(move |button| {
+        // A new URL kills the one in use: ask first.
+        if owner.upgrade().is_some_and(|ed| ed.has_webhook.get()) {
+            let (make, button) = (make.clone(), button.clone());
+            confirm(
+                &e.host,
+                t("workflows.webhook_replace"),
+                t("workflows.webhook_replace_body"),
+                t("workflows.webhook_regenerate"),
+                move || make(button.clone()),
+            );
+        } else {
+            make(button.clone());
+        }
     });
     rows.add(&generate);
     if let Some(security) = ed.ctx.security {
@@ -783,6 +812,8 @@ fn step_group(ed: &Ed, index: usize) -> adw::PreferencesGroup {
             follow(&view, &target, Field::text(&view));
             group.add(&row);
             let thread = switch(t("workflows.in_thread"), in_thread, "workflow-in-thread");
+            // Only a reaction or a message has a thread to answer in.
+            thread.set_visible(workflows::has_thread(&trigger));
             let e = ed.clone();
             thread.connect_active_notify(move |row| {
                 let on = row.is_active();
@@ -1418,8 +1449,26 @@ fn actions_group(ed: &Ed, workflow: Option<&Workflow>) -> adw::PreferencesGroup 
     let e = ed.clone();
     save.connect_activated(move |button| save_workflow(&e, button));
     group.add(&save);
+    let saved_command = ed.saved.borrow().as_ref().is_some_and(|d| matches!(d.trigger, Trigger::Command { .. }));
+    if ed.id.is_some() && saved_command {
+        // A command runs where it is typed: the server cannot test it.
+        let note = adw::ActionRow::builder().title(t("workflows.error_test_command")).use_markup(false).build();
+        note.add_css_class("workflow-test-command");
+        group.add(&note);
+    }
     if let Some(id) = ed.id.clone() {
         let test = button_row(t("workflows.test"), &["workflow-test"]);
+        test.set_visible(!saved_command);
+        // Test runs what is saved: not while the draft has unsaved changes.
+        let (weak_test, owner) = (test.downgrade(), Rc::downgrade(ed));
+        glib::timeout_add_local(std::time::Duration::from_millis(300), move || {
+            let (Some(test), Some(ed)) = (weak_test.upgrade(), owner.upgrade()) else {
+                return glib::ControlFlow::Break;
+            };
+            let unchanged = ed.saved.borrow().as_ref() == Some(&*ed.draft.borrow());
+            test.set_sensitive(unchanged);
+            glib::ControlFlow::Continue
+        });
         let (c, test_id) = (ed.ctx.clone(), id.clone());
         let e = ed.clone();
         test.connect_activated(move |button| {
@@ -1446,7 +1495,10 @@ fn actions_group(ed: &Ed, workflow: Option<&Workflow>) -> adw::PreferencesGroup 
                 button.set_sensitive(false);
                 let (e, button) = (e.clone(), button.clone());
                 spawn(&e.ctx.host.clone(), async move { s.disable_workflow(&id).await }, move |result| match result {
-                    Ok(_) => {
+                    Ok(workflow) => {
+                        // A new revision: the next Save is sent at it.
+                        e.revision.replace(workflow.revision.clone());
+                        e.saved.replace(Some(Draft::of(&workflow)));
                         e.draft.borrow_mut().enabled = false;
                         if let Some(switch) = e.enabled.upgrade() {
                             switch.set_active(false);
@@ -1471,7 +1523,7 @@ fn actions_group(ed: &Ed, workflow: Option<&Workflow>) -> adw::PreferencesGroup 
 /// conflict reads it again and reopens it; a success reopens it as saved.
 fn save_workflow(ed: &Ed, button: &adw::ButtonRow) {
     let (s, draft, id, revision) =
-        (ed.ctx.session.clone(), ed.draft.borrow().clone(), ed.id.clone(), ed.revision.clone());
+        (ed.ctx.session.clone(), ed.draft.borrow().clone(), ed.id.clone(), ed.revision.borrow().clone());
     button.set_sensitive(false);
     let (e, button) = (ed.clone(), button.clone());
     spawn(
@@ -1526,7 +1578,7 @@ fn runs_group(ed: &Ed) -> adw::PreferencesGroup {
 fn load_runs(ed: &Ed) {
     let (Some(id), Some(rows)) = (ed.id.clone(), ed.runs.borrow().clone()) else { return };
     rows.clear();
-    rows.note(t("crypto.loading"));
+    rows.note(t("workflows.runs_loading"));
     let s = ed.ctx.session.clone();
     spawn(&ed.ctx.host, async move { s.workflow_runs(&id).await }, move |result| {
         rows.clear();

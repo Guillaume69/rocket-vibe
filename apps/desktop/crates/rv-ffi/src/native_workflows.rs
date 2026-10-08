@@ -305,27 +305,20 @@ pub(crate) fn step(s: Step) -> NativeWorkflowStep {
     }
 }
 
+/// The step as it crosses; trimming and dropping blank headers is
+/// `Draft::normalized`'s, on save.
 pub(crate) fn core_step(s: NativeWorkflowStep) -> Step {
-    let named = |name: Option<String>| name.map(|n| n.trim().to_owned()).filter(|n| !n.is_empty());
     match s {
-        NativeWorkflowStep::Message { room, text, in_thread, save_as, cards } => Step::Message {
-            room,
-            text,
-            cards: serde_json::from_str(&cards).unwrap_or_default(),
-            in_thread,
-            save_as: named(save_as),
-        },
+        NativeWorkflowStep::Message { room, text, in_thread, save_as, cards } => {
+            Step::Message { room, text, cards: serde_json::from_str(&cards).unwrap_or_default(), in_thread, save_as }
+        }
         NativeWorkflowStep::Wait { seconds } => Step::Wait { seconds },
         NativeWorkflowStep::Http { method, url, headers, body, save_as, continue_on_error } => Step::Http {
             method: method_of(&method),
-            url: url.trim().to_owned(),
-            headers: headers
-                .into_iter()
-                .filter(|h| !h.name.trim().is_empty())
-                .map(|h| HttpHeader { name: h.name.trim().to_owned(), value: h.value })
-                .collect(),
-            body: body.filter(|b| !b.is_empty()),
-            save_as: named(save_as),
+            url,
+            headers: headers.into_iter().map(|h| HttpHeader { name: h.name, value: h.value }).collect(),
+            body,
+            save_as,
             continue_on_error,
         },
         NativeWorkflowStep::Form { room, recipient, title, fields, save_as } => Step::Form {
@@ -333,7 +326,7 @@ pub(crate) fn core_step(s: NativeWorkflowStep) -> Step {
             recipient: if recipient == "trigger_user" { FormRecipient::TriggerUser } else { FormRecipient::Anyone },
             title,
             fields: fields.into_iter().map(core_field).collect(),
-            save_as: save_as.trim().to_owned(),
+            save_as,
         },
     }
 }
@@ -625,6 +618,49 @@ pub fn workflow_system_time_zone() -> String {
     workflows::system_time_zone()
 }
 
+/// What the server would refuse in this draft, by error code (worded by
+/// `workflow_error_key`), checked after normalizing as a save does; None:
+/// nothing seen.
+#[uniffi::export]
+pub fn workflow_draft_problem(draft: NativeWorkflowDraft) -> Option<String> {
+    match self::draft(draft).normalized() {
+        Ok(_) => None,
+        Err(error) => Some(error.code().to_owned()),
+    }
+}
+
+/// The limits a definition stays within, as the server enforces them.
+#[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
+pub struct NativeWorkflowLimits {
+    pub steps: u32,
+    pub fields: u32,
+    pub headers: u32,
+    /// People one person field may list.
+    pub people: u32,
+    /// Bytes of a message trigger's text.
+    pub match_bytes: u32,
+    pub wait_seconds: u64,
+}
+
+#[uniffi::export]
+pub fn workflow_limits() -> NativeWorkflowLimits {
+    NativeWorkflowLimits {
+        steps: workflows::STEPS_PER_WORKFLOW as u32,
+        fields: workflows::FORM_FIELDS as u32,
+        headers: workflows::HTTP_HEADERS as u32,
+        people: workflows::PEOPLE_PER_FIELD as u32,
+        match_bytes: workflows::MATCH_BYTES as u32,
+        wait_seconds: workflows::WAIT_SECONDS,
+    }
+}
+
+/// Whether a message step may answer in the trigger's thread (a reaction's
+/// or a message's).
+#[uniffi::export]
+pub fn workflow_trigger_has_thread(trigger: NativeWorkflowTrigger) -> bool {
+    workflows::has_thread(&core_trigger(trigger))
+}
+
 /// The i18n key of a weekday's short name, 1 Monday to 7 Sunday.
 #[uniffi::export]
 pub fn workflow_day_key(day: u8) -> String {
@@ -678,17 +714,35 @@ mod tests {
             workflow_variables(NativeWorkflowTrigger::Webhook, vec![], 0),
             vec!["webhook".to_owned(), "now".to_owned()]
         );
-        // An empty header name and an empty result name are dropped, not sent.
-        let http = core_step(NativeWorkflowStep::Http {
+        // An empty header name and an empty result name are dropped, not
+        // sent: by rv-core's normalizing, which the FFI draft goes through.
+        let http = NativeWorkflowStep::Http {
             method: "post".into(),
             url: " https://example.org ".into(),
             headers: vec![NativeHttpHeader { name: " ".into(), value: "x".into() }],
             body: Some(String::new()),
             save_as: Some(" ".into()),
             continue_on_error: false,
-        });
+        };
+        let message = NativeWorkflowStep::Message {
+            room: "trigger".into(),
+            text: "Hi".into(),
+            in_thread: false,
+            save_as: None,
+            cards: String::new(),
+        };
+        let input = NativeWorkflowDraft {
+            name: "Ping".into(),
+            description: String::new(),
+            bot_id: "bot".into(),
+            enabled: true,
+            trigger: NativeWorkflowTrigger::Command { name: "ping".into() },
+            steps: vec![message, http],
+        };
+        assert_eq!(workflow_draft_problem(input.clone()), None);
+        let normal = draft(input.clone()).normalized().unwrap();
         assert_eq!(
-            http,
+            normal.steps[1],
             Step::Http {
                 method: HttpMethod::Post,
                 url: "https://example.org".into(),
@@ -698,6 +752,15 @@ mod tests {
                 continue_on_error: false,
             }
         );
+        let mut hook = input;
+        hook.trigger = NativeWorkflowTrigger::Webhook;
+        assert_eq!(workflow_draft_problem(hook).as_deref(), Some("workflow_room"));
+        let limits = workflow_limits();
+        assert_eq!((limits.headers, limits.fields, limits.people), (10, 10, 50));
+        assert!(workflow_trigger_has_thread(NativeWorkflowTrigger::MessagePosted {
+            room: "r".into(),
+            contains: "x".into()
+        }));
     }
 
     #[test]
@@ -710,6 +773,15 @@ mod tests {
         assert!(mine.can_answer && !mine.expired);
         assert_eq!(mine.recipient.as_deref(), Some("alice"));
         assert_eq!(mine.fields[0].kind, "long_text");
+        // A person field taking several answers, its people resolved.
+        let person = mine.fields.iter().find(|f| f.kind == "person").expect("the fixture's person field");
+        assert!(person.multiple && person.people == ["bob-id"]);
+        assert_eq!(mine.people.iter().map(|p| p.username.as_str()).collect::<Vec<_>>(), ["bob"]);
+        // An answer list decodes as several answers.
+        let answers: BTreeMap<String, FormAnswer> =
+            serde_json::from_value(fixture["workflows"]["answer_form"]["answers"].clone()).unwrap();
+        assert_eq!(answers["reviewers"], FormAnswer::Many(vec!["bob-id".into()]));
+        assert_eq!(answers["today"], FormAnswer::One("Reviews".into()));
         assert!(!form_item(form.clone(), "bob-id").can_answer);
         form.expires_at = "2020-01-01T00:00:00+00:00".into();
         let late = form_item(form, "alice-id");

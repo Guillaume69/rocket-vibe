@@ -116,7 +116,7 @@ fn input(field: &FormField, form: &WorkflowForm, session: &Arc<NativeSession>, r
         FormFieldKind::Person => person(field, form, session, room),
         FormFieldKind::Choice if field.multiple => {
             let picked = Rc::new(RefCell::new(Vec::new()));
-            let expander = adw::ExpanderRow::builder().title(label(field)).expanded(true).build();
+            let expander = adw::ExpanderRow::builder().title(label(field)).use_markup(false).expanded(true).build();
             expander.add_css_class("workflow-form-field");
             for option in &field.options {
                 expander.add_row(&pick_row(option, None, None, &picked, option));
@@ -124,7 +124,7 @@ fn input(field: &FormField, form: &WorkflowForm, session: &Arc<NativeSession>, r
             (expander.upcast(), Input::Picked(picked))
         }
         FormFieldKind::Text | FormFieldKind::Number => {
-            let row = adw::EntryRow::builder().title(label(field)).build();
+            let row = adw::EntryRow::builder().title(label(field)).use_markup(false).build();
             row.add_css_class("workflow-form-field");
             if field.kind == FormFieldKind::Number {
                 row.set_input_purpose(gtk::InputPurpose::Number);
@@ -165,7 +165,11 @@ fn input(field: &FormField, form: &WorkflowForm, session: &Arc<NativeSession>, r
             options.extend(field.options.iter().cloned());
             let names: Vec<&str> =
                 options.iter().map(|o| if o.is_empty() { t("workflows.form_choose") } else { o.as_str() }).collect();
-            let row = adw::ComboRow::builder().title(label(field)).model(&gtk::StringList::new(&names)).build();
+            let row = adw::ComboRow::builder()
+                .title(label(field))
+                .use_markup(false)
+                .model(&gtk::StringList::new(&names))
+                .build();
             row.add_css_class("workflow-form-field");
             (row.clone().upcast(), Input::Choice(row, options))
         }
@@ -177,7 +181,7 @@ fn input(field: &FormField, form: &WorkflowForm, session: &Arc<NativeSession>, r
 fn person(field: &FormField, form: &WorkflowForm, session: &Arc<NativeSession>, room: &str) -> (gtk::Widget, Input) {
     let chosen = Rc::new(RefCell::new(Vec::<String>::new()));
     let multiple = field.multiple;
-    let expander = adw::ExpanderRow::builder().title(label(field)).expanded(true).build();
+    let expander = adw::ExpanderRow::builder().title(label(field)).use_markup(false).expanded(true).build();
     expander.add_css_class("workflow-form-field");
     expander.add_css_class("workflow-form-person");
     // Each person's row and what a search looks in.
@@ -220,10 +224,21 @@ fn person(field: &FormField, form: &WorkflowForm, session: &Arc<NativeSession>, 
                 }
             });
             expander.add_row(&gtk::ListBoxRow::builder().activatable(false).child(&search).build());
-            let (s, room) = (session.clone(), room.to_owned());
+            let (s, room, failed) = (session.clone(), room.to_owned(), expander.downgrade());
             glib::spawn_future_local(async move {
-                if let Ok(members) = on_tokio(async move { s.form_members(&room).await }).await {
-                    fill(members);
+                match on_tokio(async move { s.form_members(&room).await }).await {
+                    Ok(members) => fill(members),
+                    // Said, not an empty list that reads as "nobody".
+                    Err(error) => {
+                        if let Some(expander) = failed.upgrade() {
+                            let note = adw::ActionRow::builder()
+                                .title(t(workflows::failure_key(&error)))
+                                .use_markup(false)
+                                .build();
+                            note.add_css_class("workflow-form-person-error");
+                            expander.add_row(&note);
+                        }
+                    }
                 }
             });
         }

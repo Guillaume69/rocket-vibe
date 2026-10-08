@@ -1215,8 +1215,9 @@ struct WorkflowFormSheet: View {
     }
 
     func submit() {
-        guard let answers = workflowFormAnswers(form.fields, values) else {
-            error = L("workflows.error_form_required")
+        let checked = workflowFormAnswers(form.fields, values)
+        guard case let .ready(answers) = checked else {
+            error = checked.problem
             return
         }
         busy = true

@@ -1695,7 +1695,7 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("workflows.move_up", "Monter", "Move up"),
     ("workflows.move_down", "Descendre", "Move down"),
     ("workflows.text", "Texte", "Text"),
-    ("workflows.in_thread", "Dans le fil du déclencheur", "In the trigger’s thread"),
+    ("workflows.in_thread", "Répondre dans le fil du déclencheur", "Reply in the trigger’s thread"),
     ("workflows.save_as", "Garder le résultat sous", "Keep the result as"),
     (
         "workflows.save_as_hint",
@@ -1856,6 +1856,23 @@ const CATALOG: &[(&str, &str, &str)] = &[
         "workflows.error_command",
         "Nom de commande invalide ou réservé : lettres minuscules, chiffres, - et _, 32 au plus.",
         "Invalid or reserved command name: lower case letters, digits, - and _, 32 at most.",
+    ),
+    (
+        "workflows.error_test_command",
+        "Une commande se teste en la tapant dans un salon.",
+        "A command workflow is tried by typing it in a room.",
+    ),
+    (
+        "workflows.error_not_webhook",
+        "Enregistrez d’abord le workflow avec un déclencheur webhook.",
+        "Save the workflow with a webhook trigger first.",
+    ),
+    ("workflows.runs_loading", "Chargement des exécutions…", "Loading runs…"),
+    ("workflows.webhook_replace", "Remplacer l’URL du webhook ?", "Replace the webhook URL?"),
+    (
+        "workflows.webhook_replace_body",
+        "L’URL actuelle cessera de fonctionner tout de suite.",
+        "The current URL stops working at once.",
     ),
     (
         "workflows.error_match",

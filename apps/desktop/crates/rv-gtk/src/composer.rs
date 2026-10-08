@@ -734,15 +734,26 @@ impl Composer {
     /// are left out here.
     pub fn load_native_commands(self: &Rc<Self>, session: &Arc<rv_core::native::NativeSession>, rid: &str) {
         let key = format!("native:{rid}");
-        self.commands.replace(Commands { key: key.clone(), ..Default::default() });
+        // Meanwhile, the room's list as last read, else the server's: a typed
+        // `/leave` must never go out as text.
+        let known = session.loaded_room_commands(rid);
+        self.commands.replace(Commands { key: key.clone(), list: known, granted: None });
         let (weak, s, rid) = (Rc::downgrade(self), session.clone(), rid.to_owned());
         glib::spawn_future_local(async move {
-            let list = on_tokio(async move { s.room_commands(&rid).await }).await;
+            let list = on_tokio(async move {
+                match s.room_commands(&rid).await {
+                    Ok(list) => Ok(list),
+                    Err(_) => s.commands().await.map(<[_]>::to_vec),
+                }
+            })
+            .await;
             let Some(this) = weak.upgrade() else { return };
             if this.commands.borrow().key != key {
                 return;
             }
-            this.commands.replace(Commands { key, list: list.unwrap_or_default(), granted: None });
+            if let Ok(list) = list {
+                this.commands.replace(Commands { key, list, granted: None });
+            }
             this.update_completion();
         });
     }

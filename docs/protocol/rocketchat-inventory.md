@@ -117,7 +117,7 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/media.rs:28](../../apps/desktop/crates/rv-core/src/media.rs#L28) | resource | /avatar/room/{…} |
 | [apps/desktop/crates/rv-core/src/media.rs:191](../../apps/desktop/crates/rv-core/src/media.rs#L191) | call:FETCH_PROTECTED | path_or_url).await?; |
 | [apps/desktop/crates/rv-core/src/native/bots.rs:261](../../apps/desktop/crates/rv-core/src/native/bots.rs#L261) | url | /api/v1/rooms |
-| [apps/desktop/crates/rv-core/src/native/workflows.rs:195](../../apps/desktop/crates/rv-core/src/native/workflows.rs#L195) | url | /api/v1/hooks |
+| [apps/desktop/crates/rv-core/src/native/workflows.rs:324](../../apps/desktop/crates/rv-core/src/native/workflows.rs#L324) | url | /api/v1/hooks |
 | [apps/desktop/crates/rv-core/src/outbox.rs:114](../../apps/desktop/crates/rv-core/src/outbox.rs#L114) | call:POST | "chat.sendMessage" |
 | [apps/desktop/crates/rv-core/src/outbox.rs:114](../../apps/desktop/crates/rv-core/src/outbox.rs#L114) | endpoint | chat.sendMessage |
 | [apps/desktop/crates/rv-core/src/outbox.rs:158](../../apps/desktop/crates/rv-core/src/outbox.rs#L158) | call:GET | "chat.getMessage" |

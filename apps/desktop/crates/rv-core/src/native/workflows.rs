@@ -10,8 +10,8 @@ use super::{Error, NativeSession, room_operation_id};
 pub use rv_protocol::User;
 pub use rv_protocol::workflows::{
     DESCRIPTION_BYTES, Every, FORM_FIELDS, FormAnswer, FormField, FormFieldKind, FormRecipient, HTTP_HEADERS,
-    HttpHeader, HttpMethod, NAME_BYTES, PEOPLE_PER_FIELD, RunState, STEPS_PER_WORKFLOW, Step, TRIGGER_ROOM, Trigger,
-    WAIT_SECONDS, Workflow, WorkflowForm, WorkflowRun,
+    HttpHeader, HttpMethod, MATCH_BYTES, NAME_BYTES, PEOPLE_PER_FIELD, RunState, STEPS_PER_WORKFLOW, Step,
+    TRIGGER_ROOM, Trigger, WAIT_SECONDS, Workflow, WorkflowForm, WorkflowRun,
 };
 
 use crate::i18n::{t, tf};
@@ -57,10 +57,13 @@ impl Draft {
             steps: workflow.steps.clone(),
         }
     }
-    /// Trimmed as the server stores it; a command loses the `/` typed before
-    /// its name. `invalid_request` for what the server would refuse anyway
-    /// without a word for it.
-    fn normalized(&self) -> Result<Self, Error> {
+    /// Trimmed as the server stores it: a command loses the `/` typed before
+    /// its name, an emoji its colons, a header without a name is dropped, an
+    /// empty result name or body is none, and "in the trigger's thread" stays
+    /// only where a trigger has a thread (a reaction, a message). Then
+    /// `draft_problem` is checked: `invalid_request` for a missing name, else
+    /// the code of what the server would refuse.
+    pub fn normalized(&self) -> Result<Self, Error> {
         let mut draft = self.clone();
         draft.name = draft.name.trim().to_owned();
         draft.description = draft.description.trim().to_owned();
@@ -77,10 +80,136 @@ impl Draft {
                 *emoji = emoji.as_deref().map(|e| e.trim().trim_matches(':').to_owned()).filter(|e| !e.is_empty());
             }
             Trigger::MessagePosted { contains, .. } => *contains = contains.trim().to_owned(),
+            Trigger::Schedule { timezone, .. } => *timezone = timezone.trim().to_owned(),
             _ => {}
+        }
+        let threaded = has_thread(&draft.trigger);
+        let named = |name: &mut Option<String>| {
+            *name = name.as_deref().map(str::trim).filter(|n| !n.is_empty()).map(str::to_owned);
+        };
+        for step in &mut draft.steps {
+            match step {
+                Step::Message { in_thread, save_as, .. } => {
+                    *in_thread &= threaded;
+                    named(save_as);
+                }
+                Step::Http { url, headers, body, save_as, .. } => {
+                    *url = url.trim().to_owned();
+                    headers.retain(|h| !h.name.trim().is_empty());
+                    for header in headers.iter_mut() {
+                        header.name = header.name.trim().to_owned();
+                    }
+                    if body.as_deref().is_some_and(str::is_empty) {
+                        *body = None;
+                    }
+                    named(save_as);
+                }
+                Step::Form { title, fields, save_as, .. } => {
+                    *title = title.trim().to_owned();
+                    *save_as = save_as.trim().to_owned();
+                    for field in fields.iter_mut() {
+                        field.label = field.label.trim().to_owned();
+                        if field.kind != FormFieldKind::Choice {
+                            field.options.clear();
+                        }
+                        if field.kind != FormFieldKind::Person {
+                            field.people.clear();
+                        }
+                        field.multiple &= matches!(field.kind, FormFieldKind::Choice | FormFieldKind::Person);
+                    }
+                }
+                Step::Wait { .. } => {}
+            }
+        }
+        if let Some(code) = draft_problem(&draft) {
+            return Err(Error::Protocol(code));
         }
         Ok(draft)
     }
+}
+
+/// What the server would refuse in a normalized draft, by its error code
+/// (worded by `error_key`), checked before saving: a missing name, a trigger
+/// without its settings, "the trigger's room" or "the person who triggered
+/// it" under a trigger without one, the limits of steps, fields, headers and
+/// people. None: nothing seen here, the server has the last word.
+pub fn draft_problem(draft: &Draft) -> Option<&'static str> {
+    if draft.name.trim().is_empty()
+        || draft.name.len() > NAME_BYTES
+        || draft.description.len() > DESCRIPTION_BYTES
+        || draft.bot_id.is_empty()
+    {
+        return Some("invalid_request");
+    }
+    let trigger_room = match &draft.trigger {
+        Trigger::Command { name } if name.trim().trim_start_matches('/').is_empty() => {
+            return Some("workflow_command");
+        }
+        Trigger::MessagePosted { contains, .. } if contains.trim().is_empty() || contains.len() > MATCH_BYTES => {
+            return Some("workflow_match");
+        }
+        Trigger::Schedule { time, timezone, .. } if time_parts(time).is_none() || timezone.trim().is_empty() => {
+            return Some("workflow_schedule");
+        }
+        Trigger::Schedule { every: Every::Week, days, .. } if days.is_empty() => return Some("workflow_schedule"),
+        Trigger::Schedule { room, .. }
+        | Trigger::MemberJoined { room }
+        | Trigger::ReactionAdded { room, .. }
+        | Trigger::MessagePosted { room, .. }
+            if room.is_empty() =>
+        {
+            return Some("workflow_room");
+        }
+        trigger => has_room(trigger),
+    };
+    if draft.steps.is_empty() || draft.steps.len() > STEPS_PER_WORKFLOW {
+        return Some("workflow_steps");
+    }
+    let room_fits = |room: &str| !room.is_empty() && (room != TRIGGER_ROOM || trigger_room);
+    for step in &draft.steps {
+        match step {
+            Step::Message { room, .. } | Step::Form { room, .. } if !room_fits(room) => return Some("workflow_room"),
+            Step::Message { text, .. } if text.trim().is_empty() => return Some("workflow_message"),
+            Step::Wait { seconds } if *seconds == 0 || *seconds > WAIT_SECONDS => return Some("workflow_wait"),
+            Step::Http { url, headers, .. }
+                if headers.len() > HTTP_HEADERS || !(url.starts_with("http://") || url.starts_with("https://")) =>
+            {
+                return Some("workflow_http");
+            }
+            Step::Form { recipient, title, fields, save_as, .. } => {
+                let bad_field = |f: &FormField| {
+                    f.label.trim().is_empty()
+                        || f.kind == FormFieldKind::Choice && f.options.is_empty()
+                        || f.people.len() > PEOPLE_PER_FIELD
+                        || !valid_identifier(&f.id)
+                };
+                if *recipient == FormRecipient::TriggerUser && !has_person(&draft.trigger)
+                    || title.trim().is_empty()
+                    || fields.is_empty()
+                    || fields.len() > FORM_FIELDS
+                    || fields.iter().any(bad_field)
+                    || !valid_identifier(save_as)
+                {
+                    return Some("workflow_form");
+                }
+            }
+            _ => {}
+        }
+    }
+    let saved = saved_names(&draft.steps);
+    let mut unique = saved.clone();
+    unique.sort();
+    unique.dedup();
+    if unique.len() != saved.len() || saved.iter().any(|n| !valid_identifier(n)) {
+        return Some("workflow_steps");
+    }
+    None
+}
+
+/// Whether the trigger has a thread a message step may answer in (a
+/// reaction's or a message's).
+pub fn has_thread(trigger: &Trigger) -> bool {
+    matches!(trigger, Trigger::ReactionAdded { .. } | Trigger::MessagePosted { .. })
 }
 
 /// The plaintext rooms a step or a trigger may name, by name.
@@ -640,65 +769,53 @@ pub fn saved_names(steps: &[Step]) -> Vec<String> {
 /// trigger gives, `now`, then what each earlier step saved.
 pub fn variables(trigger: &Trigger, steps: &[Step], index: usize) -> Vec<String> {
     let mut names: Vec<String> = match trigger {
-        Trigger::Command { .. } => vec![
-            "trigger.user.username",
-            "trigger.user.display_name",
-            "trigger.user.id",
-            "trigger.room.name",
-            "trigger.room.id",
-            "trigger.text",
-        ],
-        Trigger::Schedule { .. } => vec!["trigger.room.name", "trigger.room.id", "trigger.at"],
-        Trigger::MemberJoined { .. } => vec![
-            "trigger.user.username",
-            "trigger.user.display_name",
-            "trigger.user.id",
-            "trigger.room.name",
-            "trigger.room.id",
-        ],
+        Trigger::Command { .. } => {
+            vec!["trigger.user.username", "trigger.user.display_name", "trigger.room.name", "trigger.text"]
+        }
+        Trigger::Schedule { .. } => vec!["trigger.room.name", "trigger.at"],
+        Trigger::MemberJoined { .. } => vec!["trigger.user.username", "trigger.user.display_name", "trigger.room.name"],
         Trigger::ReactionAdded { .. } => vec![
             "trigger.user.username",
             "trigger.user.display_name",
             "trigger.room.name",
-            "trigger.message.text",
-            "trigger.message.author.username",
             "trigger.emoji",
-        ],
-        Trigger::MessagePosted { .. } => vec![
-            "trigger.user.username",
-            "trigger.user.display_name",
-            "trigger.room.name",
             "trigger.message.text",
             "trigger.message.author.username",
         ],
+        Trigger::MessagePosted { .. } => {
+            vec!["trigger.user.username", "trigger.user.display_name", "trigger.room.name", "trigger.message.text"]
+        }
         Trigger::Webhook {} => vec!["webhook"],
     }
     .into_iter()
     .map(str::to_owned)
     .collect();
-    names.push("now".into());
     for step in steps.iter().take(index) {
         match step {
-            Step::Message { save_as: Some(name), .. } => names.push(format!("{name}.message_id")),
-            Step::Http { save_as: Some(name), .. } => {
+            Step::Message { save_as: Some(name), .. } if valid_identifier(name) => {
+                names.push(format!("{name}.message_id"));
+            }
+            Step::Http { save_as: Some(name), .. } if valid_identifier(name) => {
                 names.push(format!("{name}.status"));
                 names.push(format!("{name}.body"));
             }
-            Step::Form { save_as, fields, .. } => {
-                for field in fields {
-                    names.push(format!("{save_as}.answers.{}", field.id));
+            Step::Form { save_as, fields, .. } if valid_identifier(save_as) => {
+                names.push(format!("{save_as}.by.username"));
+                names.push(format!("{save_as}.by.display_name"));
+                for field in fields.iter().filter(|f| valid_identifier(&f.id)) {
+                    let id = &field.id;
+                    names.push(format!("{save_as}.answers.{id}"));
                     if field.kind == FormFieldKind::Person {
-                        names.push(format!("{save_as}.mentions.{}", field.id));
-                        let person = if field.multiple { format!("{}.0", field.id) } else { field.id.clone() };
+                        names.push(format!("{save_as}.mentions.{id}"));
+                        let person = if field.multiple { format!("{id}.0") } else { id.clone() };
                         names.push(format!("{save_as}.people.{person}.display_name"));
                     }
                 }
-                names.push(format!("{save_as}.by.username"));
-                names.push(format!("{save_as}.by.display_name"));
             }
             _ => {}
         }
     }
+    names.push("now".into());
     names
 }
 
@@ -782,6 +899,7 @@ pub fn checked_answers(
     let mut out = BTreeMap::new();
     for field in &form.fields {
         let mut values: Vec<&str> = answers.get(&field.id).map(FormAnswer::values).unwrap_or_default();
+        values.sort_unstable();
         values.dedup();
         if values.is_empty() {
             if field.required {
@@ -793,8 +911,8 @@ pub fn checked_answers(
             return Err("form_value");
         }
         let fits = |value: &str| match field.kind {
-            FormFieldKind::Text => value.len() <= TEXT_ANSWER,
-            FormFieldKind::LongText => value.len() <= LONG_ANSWER,
+            FormFieldKind::Text => value.len() <= TEXT_ANSWER && !value.contains(['\n', '\0']),
+            FormFieldKind::LongText => value.len() <= LONG_ANSWER && !value.contains('\0'),
             FormFieldKind::Number => value.parse::<f64>().is_ok_and(f64::is_finite),
             FormFieldKind::Choice => field.options.iter().any(|o| o == value),
             // A user id; with no list, the server checks room membership.
@@ -836,6 +954,8 @@ pub fn run_error_text(code: &str) -> String {
         "bot_unavailable" => "workflows.run_error.bot_unavailable",
         "workflow_retries" => "workflows.run_error.retries",
         "bot_rate_limited" => "workflows.run_error.rate_limited",
+        "workflow_room" => "workflows.error_room",
+        "workflow_form" => "workflows.error_form",
         _ => return tf("workflows.run_error.other", &[("code", code)]),
     };
     t(key).to_owned()
@@ -866,6 +986,8 @@ pub fn error_key(code: &str, status: u16) -> &'static str {
         "workflow_command" => "workflows.error_command",
         "workflow_command_taken" => "workflows.error_command_taken",
         "workflow_schedule" => "workflows.error_schedule",
+        "workflow_test_command" => "workflows.error_test_command",
+        "workflow_not_webhook" => "workflows.error_not_webhook",
         "workflow_match" => "workflows.error_match",
         "workflow_emoji" => "workflows.error_emoji",
         "workflow_steps" => "workflows.error_steps",
@@ -905,7 +1027,9 @@ pub fn failure_key(error: &Error) -> &'static str {
 mod tests {
     use super::*;
 
-    const CODES: [&str; 35] = [
+    const CODES: [&str; 37] = [
+        "workflow_test_command",
+        "workflow_not_webhook",
         "workflow_match",
         "workflow_emoji",
         "bots_disabled",
@@ -1103,6 +1227,71 @@ mod tests {
     }
 
     #[test]
+    fn a_draft_is_normalized_then_checked_before_saving() {
+        let mut draft = Draft::new("bot");
+        draft.name = " Triage ".into();
+        draft.trigger = Trigger::Webhook {};
+        assert_eq!(draft_problem(&draft), Some("workflow_steps"), "no step");
+        draft.steps.push(Step::Message {
+            room: TRIGGER_ROOM.into(),
+            text: "Hi".into(),
+            cards: vec![],
+            in_thread: true,
+            save_as: Some("  ".into()),
+        });
+        assert_eq!(draft.normalized().unwrap_err().code(), "workflow_room", "a webhook has no room");
+        draft.trigger = Trigger::Command { name: "/Triage".into() };
+        let normal = draft.normalized().unwrap();
+        assert_eq!(normal.name, "Triage");
+        assert_eq!(normal.trigger, Trigger::Command { name: "triage".into() });
+        let Step::Message { in_thread, save_as, .. } = &normal.steps[0] else { panic!() };
+        assert!(!in_thread && save_as.is_none(), "no thread under a command; a blank name is none");
+        draft.trigger = Trigger::MessagePosted { room: "r".into(), contains: "help".into() };
+        let Step::Message { in_thread, .. } = &draft.normalized().unwrap().steps[0] else { panic!() };
+        assert!(in_thread, "a message has a thread");
+        draft.steps.push(Step::Http {
+            method: HttpMethod::Post,
+            url: " https://example.org ".into(),
+            headers: vec![
+                HttpHeader { name: " X-A ".into(), value: "1".into() },
+                HttpHeader { name: " ".into(), value: "2".into() },
+            ],
+            body: Some(String::new()),
+            save_as: None,
+            continue_on_error: false,
+        });
+        let Step::Http { url, headers, body, .. } = &draft.normalized().unwrap().steps[1] else { panic!() };
+        assert_eq!(
+            (url.as_str(), headers.len(), headers[0].name.as_str(), body),
+            ("https://example.org", 1, "X-A", &None)
+        );
+        let mut form = new_step("form", &Trigger::Webhook {}, &draft.steps).unwrap();
+        if let Step::Form { recipient, room, fields, title, .. } = &mut form {
+            *title = "Check".into();
+            *recipient = FormRecipient::TriggerUser;
+            *room = "r".into();
+            fields[0].label = "Who".into();
+        }
+        draft.trigger = Trigger::Schedule {
+            every: Every::Day,
+            time: "09:00".into(),
+            days: vec![],
+            timezone: "UTC".into(),
+            room: "r".into(),
+        };
+        draft.steps = vec![form];
+        assert_eq!(draft_problem(&draft), Some("workflow_form"), "nobody triggers a schedule");
+        draft.trigger = Trigger::MemberJoined { room: "r".into() };
+        assert_eq!(draft_problem(&draft), None);
+        draft.trigger = Trigger::MessagePosted { room: "r".into(), contains: "x".repeat(MATCH_BYTES + 1) };
+        assert_eq!(draft_problem(&draft), Some("workflow_match"));
+        draft.trigger = Trigger::Command { name: " ".into() };
+        assert_eq!(draft_problem(&draft), Some("workflow_command"));
+        draft.name = " ".into();
+        assert_eq!(draft_problem(&draft), Some("invalid_request"));
+    }
+
+    #[test]
     fn each_step_sees_what_came_before() {
         let steps = vec![
             Step::Form {
@@ -1244,6 +1433,12 @@ mod tests {
             Ok(answers(&[("today", "Reviews"), ("mood", "good")]))
         );
         assert_eq!(checked_answers(&form, &answers(&[("today", "  ")])), Err("form_required"));
+        // A short text is one line; nothing carries a NUL.
+        let mut short = form.clone();
+        short.fields[0].kind = FormFieldKind::Text;
+        assert_eq!(checked_answers(&short, &answers(&[("today", "a\nb")])), Err("form_value"));
+        assert_eq!(checked_answers(&form, &answers(&[("today", "a\nb")])).unwrap()["today"], "a\nb".into());
+        assert_eq!(checked_answers(&form, &answers(&[("today", "a\0b")])), Err("form_value"));
         assert_eq!(checked_answers(&form, &answers(&[("today", "x"), ("hours", "two")])), Err("form_value"));
         assert_eq!(checked_answers(&form, &answers(&[("today", "x"), ("mood", "great")])), Err("form_value"));
         assert_eq!(checked_answers(&form, &answers(&[("today", "x"), ("other", "y")])), Err("form_value"));

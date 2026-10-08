@@ -59,7 +59,7 @@ async fn workflows_forms_and_room_commands_follow_the_contract() {
                 list["commands"]
                     .as_array_mut()
                     .unwrap()
-                    .push(json!({"command":"standup","params":"","description":"Standup","client_side":false}));
+                    .push(json!({"command":"standup","params":"","description":"Daily_Standup","client_side":false,"literal":true}));
                 respond(200, &list.to_string())
             }
             ("GET", "/api/v1/commands") => respond(200, &responses["command_list"].to_string()),
@@ -180,7 +180,8 @@ async fn workflows_forms_and_room_commands_follow_the_contract() {
 
     // The room's commands include its workflows, and a refusal has its words.
     let offered = session.room_commands("room-id").await.unwrap();
-    assert!(offered.iter().any(|c| c.name == "standup"));
+    let standup = offered.iter().find(|c| c.name == "standup").expect("the workflow command");
+    assert_eq!(standup.description, "Daily_Standup", "a workflow's name, as written");
     assert!(session.loaded_room_commands("room-id").iter().any(|c| c.name == "standup"));
     assert!(!session.loaded_room_commands("elsewhere").iter().any(|c| c.name == "standup"));
     let run = session.run_command("room-id", "/standup now").await.expect("a command of the room").unwrap_err();
@@ -204,11 +205,14 @@ async fn workflows_forms_and_room_commands_follow_the_contract() {
         sent.iter().filter(|(m, t, _)| m == "PUT" && t == "/api/v1/workflows/wf-id").map(|(_, _, b)| b).collect();
     assert_eq!((puts[0]["revision"].clone(), puts[1]["revision"].clone()), (json!("old"), json!("rev-1")));
     let steps = |value: &serde_json::Value| serde_json::from_value::<Vec<Step>>(value.clone()).unwrap();
-    assert_eq!(
-        steps(&puts[1]["steps"]),
-        steps(&fixture["workflows"]["workflow"]["steps"]),
-        "the definition goes back whole"
-    );
+    let mut expected = steps(&fixture["workflows"]["workflow"]["steps"]);
+    // A command has no thread to answer in: normalizing drops `in_thread`.
+    for step in &mut expected {
+        if let Step::Message { in_thread, .. } = step {
+            *in_thread = false;
+        }
+    }
+    assert_eq!(steps(&puts[1]["steps"]), expected, "the definition goes back whole, normalized");
     let answered: Vec<_> = sent
         .iter()
         .filter(|(m, t, _)| m == "POST" && t == "/api/v1/forms/message-id/answer")

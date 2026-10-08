@@ -51,6 +51,15 @@ fn the_editor_and_the_form_card_follow_the_contract() {
     let mut asked = fixture["message"].clone();
     asked["form"] = fixture["workflows"]["workflow_form"].clone();
     asked["form"]["expires_at"] = serde_json::json!((chrono::Utc::now() + chrono::Duration::days(3)).to_rfc3339());
+    // Two fields taking several answers: a choice, and the fixture's person
+    // field (whatever the fixture holds, it is set here).
+    let fields = asked["form"]["fields"].as_array_mut().unwrap();
+    fields.retain(|f| f["id"] == "today");
+    fields.extend([
+        serde_json::json!({"id":"mood","label":"Mood <b>","kind":"choice","options":["good","meh"],"multiple":true}),
+        serde_json::json!({"id":"reviewers","label":"Reviewers","kind":"person","people":["bob-id"],"multiple":true}),
+    ]);
+    asked["form"]["people"] = serde_json::json!([{"id":"bob-id","username":"bob","display_name":"Bob"}]);
     raw["messages"] = serde_json::json!([asked]);
     let sent = Arc::new(Mutex::new(Vec::<(String, String, serde_json::Value)>::new()));
     let log = sent.clone();
@@ -184,16 +193,29 @@ fn the_editor_and_the_form_card_follow_the_contract() {
     let fields = find(answer.upcast_ref(), "workflow-form-field");
     let view = fields[0].downcast_ref::<gtk::TextView>().unwrap();
     view.buffer().set_text(" Reviews ");
+    // Checkboxes, not radios: mood "good" and the person Bob ticked.
+    let picks = find(answer.upcast_ref(), "workflow-form-pick");
+    assert_eq!(picks.len(), 3, "good, meh, Bob");
+    let check = |i: usize| picks[i].downcast_ref::<gtk::CheckButton>().unwrap().clone();
+    check(0).set_active(true);
+    check(1).set_active(true);
+    assert!(check(0).is_active() && check(1).is_active(), "no radio group: both stay ticked");
+    check(1).set_active(false);
+    check(2).set_active(true);
     find(answer.upcast_ref(), "workflow-form-submit")[0].downcast_ref::<gtk::Button>().unwrap().emit_clicked();
     until(|| sent.lock().unwrap().iter().any(|(_, p, _)| p == "/api/v1/forms/message-id/answer"));
     let answered = sent.lock().unwrap().iter().find(|(_, p, _)| p.ends_with("/answer")).unwrap().2.clone();
-    assert_eq!(answered["answers"], serde_json::json!({"today":"Reviews"}));
+    assert_eq!(
+        answered["answers"],
+        serde_json::json!({"today":"Reviews","mood":["good"],"reviewers":["bob-id"]}),
+        "a multiple field sends a list (FormAnswer::Many), a single one its value"
+    );
     session.shutdown();
     // The widgets hold the session in their handlers: let them all go first.
     answer.force_close();
     window.destroy();
     // Widgets found above hold editor handlers, and so the session.
-    drop((ups, labels, url, fields));
+    drop((ups, labels, url, fields, picks));
     drop((answer, card, other, window, ed, ctx, list, host, dialog, page));
     until(|| Arc::strong_count(&session) == 1);
     runtime.block_on(http::close_native(session));

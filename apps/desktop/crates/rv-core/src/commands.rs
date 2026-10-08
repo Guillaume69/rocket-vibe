@@ -69,9 +69,23 @@ pub fn complete<'a>(
 }
 
 /// The commands a RocketVibe server lists (`rv_protocol::commands`), in the
-/// shape of Rocket.Chat's so both read alike.
+/// shape of Rocket.Chat's so both read alike. A `literal` command (a
+/// workflow's, described by its name) is shown as written, never through the
+/// i18n key catalogue.
 pub fn parse_native(list: &rv_protocol::commands::CommandList, lang: Lang) -> Vec<Command> {
-    parse_list(&serde_json::to_value(list).unwrap_or_default(), lang)
+    list.commands
+        .iter()
+        .filter(|c| !c.command.is_empty())
+        .map(|c| {
+            let said = |text: &str| if c.literal { text.to_owned() } else { words(text, lang) };
+            Command {
+                name: c.command.clone(),
+                params: said(&c.params),
+                description: said(&c.description),
+                permissions: Vec::new(),
+            }
+        })
+        .collect()
 }
 
 /// What running a draft as a command left to do.
@@ -247,5 +261,16 @@ mod tests {
         assert_eq!(text("me", ""), Some(Run::Done));
         assert_eq!(text("topic", "x"), None);
         assert_eq!(words("app-8b88-42.GIPHY_Search_Term", Lang::En), "GIPHY Search Term");
+        // A workflow command is described by its name, as written.
+        let mut list = rv_protocol::commands::catalogue();
+        list.commands.push(rv_protocol::commands::SlashCommand {
+            command: "report".into(),
+            params: String::new(),
+            description: "Daily_Report".into(),
+            client_side: false,
+            literal: true,
+        });
+        let report = parse_native(&list, Lang::En).into_iter().find(|c| c.name == "report").unwrap();
+        assert_eq!(report.description, "Daily_Report");
     }
 }

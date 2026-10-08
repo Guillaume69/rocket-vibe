@@ -543,7 +543,10 @@ fn message_from_provider(
         outer.append(&day);
     }
 
-    let is_call = row.system_type.as_deref().is_some_and(|kind| kind == "videoconf" || kind.starts_with("rv-call"));
+    let is_call = row
+        .system_type
+        .as_deref()
+        .is_some_and(|kind| kind == "videoconf" || kind == "videoconf-ended" || kind.starts_with("rv-call"));
     if d.new_marker {
         let marker = gtk::Box::builder().spacing(6).margin_top(8).margin_bottom(4).build();
         marker.append(&widgets::sparkle());
@@ -691,6 +694,9 @@ fn message_from_provider(
         let kind = row.system_type.as_deref().unwrap_or_default();
         let param = row.text.as_deref().unwrap_or_default();
         column.append(&cards::voice_call(kind, param, native.voice_supported(), on_event.clone()));
+    } else if row.system_type.as_deref() == Some("videoconf-ended") {
+        let param = row.text.as_deref().unwrap_or_default();
+        column.append(&cards::voice_call("videoconf-ended", param, false, on_event.clone()));
     } else if is_call {
         column.append(&cards::call(row.call_id.as_deref(), on_event.clone()));
     }

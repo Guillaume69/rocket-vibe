@@ -67,6 +67,25 @@ pub async fn favorite(rest: &RestClient, me: &str, rid: &str, on: bool) -> Resul
     rest.put("users/me/preferences", CallOptions::body(preference)).await.map(|_| ())
 }
 
+/// The server's custom emoji: each name → its image, which Mattermost serves by id only.
+pub async fn custom_emojis(rest: &RestClient) -> Result<Vec<(String, String)>, RestError> {
+    const PAGE: usize = 200;
+    let mut out = Vec::new();
+    for page in 0.. {
+        let options = CallOptions::params([("page", page.to_string()), ("per_page", PAGE.to_string())]);
+        let batch = rest.get("emoji", options).await?;
+        let list = batch.as_array().cloned().unwrap_or_default();
+        out.extend(list.iter().filter_map(|e| {
+            let (id, name) = (e.get("id")?.as_str()?, e.get("name")?.as_str()?);
+            Some((name.to_owned(), format!("/api/v4/emoji/{id}/image")))
+        }));
+        if list.len() < PAGE {
+            break;
+        }
+    }
+    Ok(out)
+}
+
 pub async fn flagged(rest: &RestClient, rid: &str) -> Result<Vec<Value>, RestError> {
     let options = CallOptions::params([("channel_id", rid), ("per_page", "100")]);
     Ok(ordered(&rest.get("users/me/posts/flagged", options).await?))

@@ -2101,7 +2101,7 @@ pub fn call_summary(kind: &str, param: &str) -> Option<String> {
         "rv-call-missed" => t("voice_call.missed").to_owned(),
         "rv-call-declined" => t("voice_call.declined").to_owned(),
         "rv-call-cancelled" => t("voice_call.cancelled").to_owned(),
-        "rv-call-answered" => match param.parse::<u64>() {
+        "rv-call-answered" | "videoconf-ended" => match param.parse::<u64>() {
             Ok(seconds) => tf("voice_call.answered_for", &[("d", &call_duration(seconds))]),
             Err(_) => t("voice_session.call").to_owned(),
         },

@@ -505,7 +505,7 @@ struct MessageRow: View, Equatable {
 
     @ViewBuilder var content: some View {
         if let system = message.system {
-            if system.hasPrefix("rv-call"), let model {
+            if system.hasPrefix("rv-call") || system == "videoconf-ended", let model {
                 VoiceCallCard(rid: model.rid, kind: system, param: message.param)
             } else if let callId = message.callId {
                 CallCard(callId: callId, model: model)

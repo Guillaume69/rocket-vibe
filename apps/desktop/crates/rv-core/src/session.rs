@@ -274,6 +274,14 @@ pub enum UnlockError {
     Key(crate::e2e::E2eError),
 }
 
+/// kChat's call id is the kMeet meeting's own URL (`mattermost::translate::kmeet_call`).
+fn kmeet_url(call_id: &str) -> Result<String, RestError> {
+    match call_id.get(..8) {
+        Some(scheme) if scheme.eq_ignore_ascii_case("https://") => Ok(call_id.to_owned()),
+        _ => Err(RestError::incomplete("call: not a meeting link")),
+    }
+}
+
 impl Session {
     /// Must run inside a tokio runtime.
     pub fn start(info: SessionInfo, db_path: &Path) -> rusqlite::Result<Arc<Session>> {
@@ -976,6 +984,11 @@ impl Session {
     /// the REST budget being ten calls a minute.
     async fn once_per_session(&self) {
         if self.sync.mattermost().is_some() {
+            if let Ok(index) = mattermost::actions::custom_emojis(&self.rest).await {
+                *self.custom_emoji_names.lock().unwrap() = crate::emoji::custom_names(&index);
+                self.custom_emoji.lock().unwrap().extend(index);
+                let _ = self.events.send(SessionEvent::Avatar);
+            }
             if let Ok(me) = self.me().await {
                 *self.notification_preference.lock().unwrap() = me.desktop_notifications;
             }
@@ -1313,11 +1326,17 @@ impl Session {
     }
 
     pub async fn join_call(&self, call_id: &str) -> Result<String, RestError> {
+        if self.sync.mattermost().is_some() {
+            return kmeet_url(call_id);
+        }
         actions::join_call(&self.rest, call_id).await
     }
 
     /// The meeting's link to share, without anyone's token.
     pub async fn call_link(&self, call_id: &str) -> Result<String, RestError> {
+        if self.sync.mattermost().is_some() {
+            return kmeet_url(call_id);
+        }
         let url = match actions::call_url(&self.rest, call_id).await? {
             Some(url) => url,
             None => actions::join_call(&self.rest, call_id).await?,

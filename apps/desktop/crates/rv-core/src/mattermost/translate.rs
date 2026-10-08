@@ -32,9 +32,27 @@ fn positive(v: &Value, key: &str) -> Option<i64> {
 }
 
 /// Mattermost's system posts onto the types the renderer knows, with their parameter.
+/// kChat's kMeet call post (`custom_call`): `props.url` is the meeting, joined
+/// as is. A running call is a `videoconf` whose call id is that URL; one that
+/// is over is a `videoconf-ended` carrying its length in seconds, when known.
+pub fn kmeet_call(props: &Value) -> (&'static str, String, Option<String>) {
+    let (start, end) = (positive(props, "start_at"), positive(props, "end_at"));
+    let over = matches!(str_of(props, "status"), Some("ended" | "missed" | "declined" | "cancelled"));
+    if end.is_some() || over {
+        let seconds = start.zip(end).filter(|(s, e)| e >= s).map(|(s, e)| ((e - s + 500) / 1000).to_string());
+        return ("videoconf-ended", seconds.unwrap_or_default(), None);
+    }
+    let url = str_of(props, "url").filter(|u| u.get(..8).is_some_and(|p| p.eq_ignore_ascii_case("https://")));
+    ("videoconf", String::new(), url.map(str::to_owned))
+}
+
 fn system(kind: &str, props: &Value, author: Option<&str>) -> Option<(&'static str, Option<String>)> {
     let prop = |key: &str| str_of(props, key).map(str::to_owned);
     let who = || prop("username").or_else(|| author.map(str::to_owned));
+    if kind == "custom_call" {
+        let (kind, param, _) = kmeet_call(props);
+        return Some((kind, Some(param)));
+    }
     Some(match kind {
         "system_join_channel" | "system_join_team" => ("uj", who()),
         "system_leave_channel" | "system_leave_team" => ("ul", who()),
@@ -109,7 +127,7 @@ impl Translator<'_> {
             updated_at: positive(post, "update_at").unwrap_or(ts),
             md: None,
             urls: previews(metadata.get("embeds")),
-            call_id: None,
+            call_id: (mm_kind == "custom_call").then(|| kmeet_call(&props).2).flatten(),
             pinned: post.get("is_pinned").and_then(Value::as_bool).unwrap_or(false),
             starred: None,
         })

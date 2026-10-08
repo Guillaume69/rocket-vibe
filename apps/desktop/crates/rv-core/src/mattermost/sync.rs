@@ -146,6 +146,31 @@ impl MmSync {
         Some(s)
     }
 
+    /// kChat's only sign of a read made elsewhere: no room in it, so my
+    /// memberships are read again and the rooms whose counts moved rewritten.
+    async fn recount(&self) {
+        let Ok(members) = self.pages("users/me/channel_members").await else { return };
+        let moved: Vec<String> = {
+            let mut live = self.live.lock().unwrap();
+            members
+                .into_iter()
+                .filter_map(|member| {
+                    let rid = text(&member, "channel_id")?.to_owned();
+                    let known = live.members.get(&rid)?;
+                    let keys = ["msg_count", "msg_count_root", "mention_count", "mention_count_root", "last_viewed_at"];
+                    if keys.iter().all(|k| known.get(k) == member.get(k)) {
+                        return None;
+                    }
+                    live.members.insert(rid.clone(), member);
+                    Some(rid)
+                })
+                .collect()
+        };
+        for rid in moved {
+            self.write_room(&rid, false);
+        }
+    }
+
     /// Until the server's `sidebar_category_updated` brings the new categories.
     pub fn note_favorite(&self, rid: &str, on: bool) {
         if let Some(placement) = self.placements.lock().unwrap().get_mut(rid) {
@@ -546,6 +571,10 @@ impl MmSync {
                 if !ids.is_empty() {
                     self.set_flagged(&ids, name == "preferences_changed").await;
                 }
+                None
+            }
+            "badge_updated" => {
+                self.recount().await;
                 None
             }
             "sidebar_category_created"

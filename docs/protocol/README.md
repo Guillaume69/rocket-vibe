@@ -1,5 +1,14 @@
 # RocketVibe native protocol: first increment
 
+## External provider handoffs
+
+[Microsoft Teams](MICROSOFT_TEAMS.md) records the supplied investigation archive,
+private client request shapes, documented alternatives, integration work and a
+feature-parity delivery ledger for Android, GTK and SwiftUI. It is a proposed
+client provider, not a delivered native-server capability.
+
+## Native server contract
+
 The server is experimental. [RFC 0001](../rfcs/0001-rocketvibe-rust-server.md)
 describes the destination; this contract covers only the delivered foundation, not full parity.
 

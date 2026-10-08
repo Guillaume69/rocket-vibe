@@ -39,6 +39,8 @@ A bot is an account owned by a person, acting with API keys inside the scopes it
 ## Limits
 
 - No bot in an encrypted room; a bot with its own crypto device is a later layer.
+- Disabling an owner locks the owner row, then its bots' rows (trigger); a bot transaction locks its own row, then may take a key-share lock on its owner (a mention, a direct conversation). The two can deadlock: Postgres aborts one, which answers 500 and is safe to retry. Rare, left as is.
+- `crypto_bot_member` is tested through the apps' fake servers and the server guard's placement, not through a real MLS transition in the server suite.
 - Messages cached before the update show no badge until the server sends them again.
 - Later layers of RFC 0003: commands declared by bots, outbound events over HTTP, interactive messages, workflows.
 

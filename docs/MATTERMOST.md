@@ -96,9 +96,9 @@ server of the account:
 - **Team servers** [kChat]: `GET https://kchat.infomaniak.com/api/v4/users/me/servers`
   with that bearer lists the account's teams, Mattermost team documents plus
   `url` (`https://<team>.kchat.infomaniak.com`), `account_id`, `product_id`,
-  `pack_name`. One server is taken,
-  several are offered. The desktop apps take the address typed, or the only
-  server of the account.
+  `pack_name`. One server is taken, several are offered. Choosing kChat asks
+  no address in any app: sign-in starts at the directory, and a team host typed
+  in automatic mode (or a known server) signs in there directly.
 
 ### 3.4 Session
 

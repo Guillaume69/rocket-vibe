@@ -43,8 +43,10 @@ Rocket.Chat call fails cleanly instead of hitting the wrong server.
   `com.infomaniak.chat` is declared in `app.json` and swallowed by
   `app/+native-intent.tsx` so the login screen's `Linking` listener reads it.
   Or paste a personal API token. The servers come from
-  `GET https://kchat.infomaniak.com/api/v4/users/me/servers`; the typed address
-  picks one, a single server is taken, several are offered.
+  `GET https://kchat.infomaniak.com/api/v4/users/me/servers`. Choosing kChat
+  hides the address (`app/login.tsx` probes `KCHAT_DIRECTORY`); a team host typed
+  in automatic mode picks its server, a single server is taken, several are
+  offered.
 - Resume is `GET /users/me`; a 401 there signs out (`sessionRejected`). Sign-out
   is `POST /users/logout` on Mattermost, nothing on kChat (the token is the
   account's).
@@ -143,11 +145,14 @@ Rocket.Chat probe (`server::probe_as`, `session::login_as`).
 - Mattermost: `mattermost::login`, the token from the `Token` header, no
   `X-Requested-With`. A missing MFA code comes back as a `totp` 2FA challenge, so
   both UIs ask it with the step they already have for Rocket.Chat.
-- kChat: an Infomaniak API token in the password field (the field is relabelled
-  once the probe says kChat); `mattermost::login_kchat` signs in on the team
-  server typed, or on the only one of the account from `kchat.infomaniak.com`
-  (several are named in the error). No OAuth: the redirect is a custom scheme a
-  desktop would have to register.
+- kChat: choosing it hides the address and user fields; the password field
+  becomes the Infomaniak API token. Sign-in starts at
+  `mattermost::KCHAT_DIRECTORY`: `mattermost::login_kchat` takes the account's
+  only server, and with several answers `KCHAT_SEVERAL_SERVERS`; the UIs then
+  list them (`mattermost::kchat_servers`, `Client.kchat_servers` in rv-ffi) in a
+  picker and sign in on the one chosen. A team host typed in automatic mode signs
+  in there directly. No OAuth: the redirect is a custom scheme a desktop would
+  have to register.
 - The account persists with `genre` `mattermost` or `kchat`
   (`SessionInfo.mattermost`, `native.rs#from_secret`); the server rail's unread dot
   reads channels and memberships (`mattermost::unread`).

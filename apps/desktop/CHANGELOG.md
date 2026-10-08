@@ -35,9 +35,8 @@ section here.
   mentions, live messages and notifications, who is typing, presence, threads, files,
   reactions, edits, deletions, pins, stars, search in a room, room information and
   profiles. Push and custom emoji are not available on these servers.
-- kChat (Infomaniak): choose kChat and paste an Infomaniak API token in the password
-  field; the address of your kChat server, or kchat.infomaniak.com when the account has
-  only one.
+- kChat (Infomaniak): choose kChat and paste an Infomaniak API token; no address to
+  type. An account with several kChat servers is asked which one.
 - The sign-in screen's server type offers Mattermost and kChat; in automatic mode both
   are recognised on their own.
 

@@ -27,7 +27,7 @@ beta does.
 | Server probe before login (`/api/info`, `settings.public`) | done | done | done | |
 | Choose the server type at sign-in (automatic, Rocket.Chat, RocketVibe) | done | done | done | SwiftUI checked by the Linux build of RocketVibeKit and the macOS CI build only. |
 | Mattermost server: login with MFA, rooms, history, threads, live messages, unread, who types, presence, text and files, reactions, edits, deletions, pins, stars, search - [mattermost-and-kchat](features/mattermost-and-kchat.md) | done | done | done | Push, custom emoji, quotes and favourites are not mapped on that server. SwiftUI: only the sign-in picker is Swift, checked by the macOS CI build. |
-| kChat server (Infomaniak): Infomaniak sign-in or API token, Pusher real time, team servers of the account | partial | partial | partial | All three written from Infomaniak's open-source clients, not yet run against a real kChat account. GTK, SwiftUI: API token only, no "Sign in with Infomaniak" (its redirect is a custom URL scheme the desktop apps do not register). |
+| kChat server (Infomaniak): Infomaniak sign-in or API token, Pusher real time, team servers of the account | partial | partial | partial | Run on a real kChat account with an API token (mobile on the emulator, desktop core through `kchat-smoke`, GTK and SwiftUI on that same core). Mobile: "Sign in with Infomaniak" not yet run. GTK, SwiftUI: API token only, no "Sign in with Infomaniak" (its redirect is a custom URL scheme the desktop apps do not register). |
 | Known servers offered on the login screen | done | done | done | |
 | Several servers side by side, switch without signing out | done | done | done | One database per (server, account) everywhere. |
 | Server rail: a button per account, "+" to add one, a dot on another account with unread | done | done | done | Other accounts read once a minute (mobile: in the foreground only). Mobile: a push lights the dot at once only where it reaches JS (iOS); Android waits for the next read. SwiftUI checked by the Linux build only. |
@@ -289,7 +289,7 @@ beta does.
 What each app owes, from the tables above. Rows missing in all three are product
 gaps, listed last.
 
-- **Mobile**: kChat run against a real account (all three); several accounts per server; time and `@n` badge in the room list;
+- **Mobile**: kChat "Sign in with Infomaniak" run on a real account; several accounts per server; time and `@n` badge in the room list;
   `mailto:` links; mentions of me highlighted; formatting toolbar; list
   continuation; removing my photo; logs folder; meeting information.
 - **GTK**: kChat "Sign in with Infomaniak"; email 2FA resend; replay of an offline sign-out; padlock tile once

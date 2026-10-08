@@ -9,9 +9,11 @@ Provenance of each fact:
 - **[probed]**: observed on the bench, `mattermost-preview` 11.11.1
   (`docker/compose.mattermost.yml`, seeded by `scripts/seed-mattermost.mjs`, see
   [DEV.md](DEV.md#mattermost-development-server)).
+- **[kChat]**: observed on a real kChat account (server 10.5.0, 2026-10-08),
+  with an Infomaniak API token.
 - **[kChat src]**: read in Infomaniak's open-source clients
-  (`Infomaniak/mobile-kchat`, `webapp-kChat`). Not yet run against a real kChat
-  account: treat these as the first things to verify.
+  (`Infomaniak/mobile-kchat`, `webapp-kChat`) and not yet run: today only the
+  OAuth sign-in.
 - **[doc]**: Mattermost's public API reference, not contradicted by the bench.
 
 Implementations: mobile `apps/mobile/providers/mattermost/`, desktop
@@ -42,6 +44,13 @@ In automatic mode the apps try, in order: kChat host, RocketVibe discovery
 - **Error envelope:** `{"id": "<translation key>", "message": "...", "status_code": n, "request_id": "..."}`.
   A status is believed only when the body has `id` and `status_code`; a proxy's
   401 or HTML page is a network failure, never a session expiry.
+- **kChat's errors are different** [kChat]: validation errors are
+  `{"id", "message", "errors": {field: [...]}, "request_id"}` (Laravel style,
+  messages in French), and a revoked or wrong token answers
+  **`401 {"message": "Unauthorized"}`**, a 404 `{"message": "The route ... could
+  not be found."}`, neither with `id`. On a kChat account a JSON body with a
+  `message` is enough to believe the status, or a revoked token would never sign
+  the account out.
 - **401 with the envelope on an authenticated call = the session is over.**
   Anonymous calls (login) and "quiet" checks (resume, token test, another
   account's unread badge) judge their 401 themselves and never sign out.
@@ -69,12 +78,12 @@ plus `"token": "<6 digits>"` for MFA.
 Any bearer the server accepts. Validate with `GET /api/v4/users/me` (quiet), which
 also names the account.
 
-### 3.3 kChat [kChat src]
+### 3.3 kChat
 
 No Mattermost login. An **Infomaniak bearer** is sent as is to every kChat team
 server of the account:
 
-- **OAuth (mobile only):** authorization code + PKCE (S256) against
+- **OAuth (mobile only)** [kChat src]: authorization code + PKCE (S256) against
   `https://login.infomaniak.com`, with the client id and redirect of Infomaniak's
   own app: `client_id=20af5539-a4fb-421c-b45a-f43af3d90c14`,
   `redirect_uri=com.infomaniak.chat://oauth2redirect`, no scope, plus
@@ -82,9 +91,12 @@ server of the account:
   (`grant_type=authorization_code`, `code`, `code_verifier`, `client_id`,
   `redirect_uri`). The access token does not expire and no refresh token comes
   back. Check `state` on the redirect.
-- **Personal API token:** created at manager.infomaniak.com (API tokens).
-- **Team servers:** `GET https://kchat.infomaniak.com/api/v4/users/me/servers`
-  with that bearer lists `[{id, name, display_name, url}]`. One server is taken,
+- **Personal API token** [kChat]: created at manager.infomaniak.com (API
+  tokens), works as is on the team server.
+- **Team servers** [kChat]: `GET https://kchat.infomaniak.com/api/v4/users/me/servers`
+  with that bearer lists the account's teams, Mattermost team documents plus
+  `url` (`https://<team>.kchat.infomaniak.com`), `account_id`, `product_id`,
+  `pack_name`. One server is taken,
   several are offered. The desktop apps take the address typed, or the only
   server of the account.
 
@@ -138,7 +150,9 @@ Live updates to that state (section 5):
 
 Marking read: `POST /channels/members/me/view {"channel_id": rid}`. The server
 answers the reading device with `multiple_channels_viewed`, not
-`channel_viewed` [probed].
+`channel_viewed` [probed]. **kChat sends neither** [kChat]: a read emits only
+`badge_updated` (`{badge}`, no room), so a read made elsewhere clears the counter
+at the next catch-up, not live.
 
 ### 4.3 History
 
@@ -157,11 +171,13 @@ answers the reading device with `multiple_channels_viewed`, not
 ### 4.4 Room catch-up (after a gap)
 
 `GET /channels/<id>/posts?since=<ms>` returns everything **changed** since then:
-new posts, edits, and deletions as posts with `delete_at > 0` [probed]. It is
+new posts, edits, and deletions as posts with `delete_at > 0` [probed]. **On
+kChat `since=` leaves deleted posts out** [kChat]: they come only from the route
+below. It is
 fast server-side, unlike Rocket.Chat's `chat.syncMessages`. The cursor is the
 newest `update_at` stored for the room; a room never loaded is skipped. kChat
-also lists deletions at `GET /channels/<id>/deleted_posts?since=<ms>` (an array
-of ids) [kChat src].
+lists deletions at `GET /channels/<id>/deleted_posts?since=<ms>`, a JSON array
+of post ids [kChat].
 
 Ghost rooms: once per session, rooms missing from a non-empty
 `/users/me/channels` are purged.
@@ -230,7 +246,7 @@ post id.
 - Typing out: action `user_typing` `{channel_id, parent_id}` (no app sends it
   yet; Rocket.Chat typing is receive-only too).
 
-### 5.2 kChat Pusher [kChat src]
+### 5.2 kChat Pusher [kChat]
 
 kChat replaced the WebSocket with the **Pusher protocol**:
 
@@ -246,10 +262,16 @@ kChat replaced the WebSocket with the **Pusher protocol**:
    `{"event": "pusher:subscribe", "data": {"channel", "auth", "channel_data"}}`;
    wait `pusher_internal:subscription_succeeded` on that channel.
 4. Answer `pusher:ping` with `pusher:pong`; send `pusher:ping` on the server's
-   `activity_timeout` (120 s default). `pusher:error` fails the handshake.
+   `activity_timeout` (30 s on kChat; 120 s is Pusher's default when absent).
+   `pusher:error` fails the handshake.
 5. Events have **Mattermost names** and `data` is the Mattermost event's `data`,
-   **without the `broadcast` envelope**, nested documents as **objects**. Ignore
-   `pusher*` and `client-*` events.
+   **without the `broadcast` envelope**, nested documents as **objects**, all of
+   them on the `presence-teamUser.<id>` channel. A `posted` adds
+   `channel_display_name`, `channel_name`, `channel_type`, `sender_name`,
+   `set_online` and `team_id`. Ignore `pusher*` and `client-*` events, and
+   `badge_updated`.
+6. **Ids are UUIDs** (posts UUIDv7), not Mattermost's 26-character ids; a DM's
+   `name` is still `<idA>__<idB>`.
 
 ### 5.3 Events used
 
@@ -267,7 +289,7 @@ kChat replaced the WebSocket with the **Pusher protocol**:
 | `status_change` | `data.user_id`, `data.status`: `online`, `away`, `dnd` (busy), `offline` |
 | `user_updated` | `data.user`; a new `last_picture_update` versions the photo |
 | `preferences_changed`, `preferences_deleted` | stars (4.7) |
-| `hello`, `thread_*`, `sidebar_*`, `config_changed`, `license_changed`, `plugin_statuses_changed` | ignored |
+| `hello`, `thread_*`, `sidebar_*`, `config_changed`, `license_changed`, `plugin_statuses_changed`, `badge_updated` (kChat) | ignored |
 
 Presence snapshot at each connection: `POST /users/status/ids` with known user
 ids, `[{user_id, status}]`.
@@ -278,9 +300,14 @@ ids, `[{user_id, status}]`.
 
 - **A client cannot choose the post id**: `POST /posts` with `id` answers 400
   `app.post.save.existing.app_error` [probed].
-- Send `POST /posts` `{"channel_id", "message", "root_id": "<parent or empty>", "pending_post_id": "<client id>"}`.
+- Send `POST /posts` `{"channel_id", "message", "root_id": "<parent or empty>", "pending_post_id": "<my user id>:<digits>"}`.
   The server **echoes `pending_post_id` and deduplicates on it**: replaying the
-  same value returns the post already created [probed]. Any string works.
+  same value returns the post already created [probed] [kChat].
+- **The format matters on kChat** [kChat]: anything but `<my own user id>:<digits>`
+  (the web client's format) answers **422** "Le format du champ pending post id
+  est invalide", another user's id included; any number of digits is accepted.
+  Upstream accepts any string. The apps send `<my id>:<the client id's hex read
+  as a decimal number>`, so a replay of the same row sends the same value.
 - That memory is a **short-lived cache, not stored**: a replay much later may
   create a duplicate. Before declaring a refusal, the apps read the room's 30
   newest posts for one of mine with the same text and thread.
@@ -295,7 +322,7 @@ ids, `[{user_id, status}]`.
 2. Persist that file id **before** the next step, so a replay never uploads the
    bytes twice.
 3. `POST /posts` with `file_ids: [id]`, the caption as `message`, `root_id`, and
-   the upload row id as `pending_post_id`.
+   `pending_post_id` built from the upload row id as in 6.1.
 4. Before replaying step 3 for a known file id, look for a stored message that
    already carries it (attachment link `/api/v4/files/<id>`), refreshing the room
    once when none is found.
@@ -355,6 +382,9 @@ settings and roles, end-to-end encryption, sending who types.
 - **GTK:** `apps/desktop/scripts/smoke.sh http://localhost:8065 rvadmin <password> Dev out.png`.
 - **Unit tests:** mobile `node --test providers/mattermost/*.test.ts` (fake server
   in `testing.ts`), desktop `cargo test -p rv-core mattermost`.
-- **kChat:** nothing above covers it. The first real run should check, in order:
-  OAuth exchange, `users/me/servers`, `broadcasting/auth`, the three Pusher
-  channels and the shape of a `posted` event, and `deleted_posts`.
+- **kChat end to end:** `RV_KCHAT_TOKEN=<Infomaniak API token> cargo run -p rv-core
+  --example kchat-smoke [server]` on a real account, writing only to the DM with
+  oneself: token sign-in, room list, the Pusher channels, a post made elsewhere
+  arriving live, a send accepted once, reaction, edit, upload, then it deletes
+  what it posted. It prints `ALL OK`.
+- **Still unrun:** the mobile "Sign in with Infomaniak" (OAuth).

@@ -120,8 +120,11 @@ and `scripts/seed-mattermost.mjs` ([docs/DEV.md](../../docs/DEV.md)).
 
 ### Limits
 
-kChat has not been run against a real account yet: its OAuth, Pusher channels
-and `deleted_posts` route follow Infomaniak's open-source clients. A kChat
+kChat runs on a real account with an API token (2026-10-08), which found two
+things the open-source clients did not say: `pending_post_id` must be
+`<my id>:<digits>` (any other answers 422) and errors are `{message}` without
+`id` (`MmClient` `plainErrors`, `RestClient::kchat`). The OAuth sign-in follows
+Infomaniak's open-source clients and has not been run yet. A kChat
 account has no push for a third-party app (Infomaniak's proxy routes to its own
 app id). Favourites (Mattermost sidebar categories) and room settings are not
 mapped. Who types is received, not sent, as on Rocket.Chat.

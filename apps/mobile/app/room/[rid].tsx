@@ -547,8 +547,6 @@ function Room({
     () => (protectedRoom ? null : unreadSummary(listData, native ? provider.identity.accountId : client.auth?.userId)),
     [listData, protectedRoom, native, provider.identity.accountId, client],
   );
-  const unreadRef = useRef(unread);
-  unreadRef.current = unread;
   const [pill, setPill] = useState(INITIAL_PILL_STATE);
   const updatePill = useCallback(() => {
     let range: { startIndex: number; endIndex: number } | undefined;
@@ -557,20 +555,20 @@ function Room({
     } catch {
       range = undefined;
     }
-    setPill((state) => nextPillState(state, unreadRef.current?.barIndex ?? null, range));
-  }, []);
+    setPill((state) => nextPillState(state, unread?.barIndex ?? null, range));
+  }, [unread]);
   useEffect(() => {
     const measured = setTimeout(updatePill, 120);
     return () => clearTimeout(measured);
   }, [unread, updatePill]);
   const goToUnread = useCallback(() => {
     setPill(onPillPress());
-    const index = unreadRef.current?.barIndex;
+    const index = unread?.barIndex;
     if (index === undefined) return;
     const scroll = () => list.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 });
     scroll();
     setTimeout(scroll, 450);
-  }, []);
+  }, [unread]);
   const formatTime = useTimeFormatter();
   useLayoutEffect(()=>{
     readVisible.current=()=>{

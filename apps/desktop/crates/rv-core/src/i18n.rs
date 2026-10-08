@@ -1528,11 +1528,13 @@ pub fn call_ongoing(kind: &str, param: &str) -> bool {
     kind == "rv-call-ringing" || kind == "rv-call-answered" && param.is_empty()
 }
 
+/// Held by every test that reads a translation: some tests switch the language.
+#[cfg(test)]
+pub(crate) static LANGUAGE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    static LANGUAGE: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     #[test]
     fn keys_are_unique_and_both_languages_filled() {

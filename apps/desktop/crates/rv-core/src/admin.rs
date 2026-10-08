@@ -1181,6 +1181,7 @@ mod tests {
 
     #[test]
     fn deleted_people_read_as_deleted_users() {
+        let _serial = crate::i18n::LANGUAGE.lock().unwrap();
         let rooms: rv_protocol::admin::AdminRoomPage =
             serde_json::from_value(fixture()["administration"]["room_page"].clone()).unwrap();
         let direct = native_room(&rooms.items[1]);

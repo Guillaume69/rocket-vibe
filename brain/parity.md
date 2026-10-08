@@ -275,8 +275,8 @@ beta does.
 | Feature | Mobile | GTK | SwiftUI | Notes |
 |---|---|---|---|---|
 | "Workflows" settings page: list (trigger in words, on or off, last run), create, edit, test now, turn off, delete, last 50 runs | done | done | done | Whoever may create a bot. SwiftUI views compiled by the macOS CI only. |
-| Triggers: slash command, schedule (hour, day, weekdays, IANA zone), someone joining, a reaction (any or one emoji), a message containing a text, webhook (URL shown once) | done | done | done | The room triggers fire for people only. |
-| Steps: message (trigger's room or a fixed one, in the thread), wait, HTTP call, form; variables offered per step | done | done | partial | SwiftUI inserts a variable at the cursor in the message text and request body, but appends it to the form title and a URL (one-line fields). GTK leaves the trigger-room and recipient checks to the server's refusal; mobile and SwiftUI refuse the save themselves. |
+| Triggers: slash command, schedule (hour, day, chosen days of the week, IANA zone), someone joining, a reaction (any or one emoji), a message containing a text, webhook (URL shown once) | done | done | done | The room triggers fire for people only. |
+| Steps: message (trigger's room or a fixed one, in the thread), wait, HTTP call, form; variables offered per step | done | done | partial | SwiftUI inserts a variable at the cursor in the message text and request body, but appends it to a GET or DELETE step's URL (a one-line field). The thread option shows for reaction and message triggers only, in all three. |
 | Workflow commands in the composer's command list, per room | done | done | done | `GET /api/v1/commands?room=`. |
 | Form card in the room ("For @recipient", "Answered by ..."), the message's text not repeated above it | done | done | done | |
 | Answering a form: text, long text, number, choice, person (a list or the room's members), one answer or several (checkboxes) | done | done | done | Mobile: a native sheet; GTK: an `adw::Dialog`; SwiftUI: an overlay; all three close on a backdrop click. |
@@ -294,7 +294,7 @@ gaps, listed last.
   unlocked; DM avatar versions in the list; video reduction; reconciliation snapshot; catch-up of
   deletions in rooms already caught up; message retention.
 - **SwiftUI**: everything GTK owes, plus `-wal` / `-shm` cleanup on sign-out;
-  workflow variables inserted at the cursor in one-line fields;
+  workflow variables inserted at the cursor in a one-line URL;
   formatting toolbar; list continuation; notification backend description; logs
   folder; new versions; running with the window closed and starting at login;
   meeting information.

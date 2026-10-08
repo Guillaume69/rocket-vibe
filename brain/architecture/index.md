@@ -12,6 +12,7 @@ shared docs or to the app you are working on. Back to [../BRAIN.md](../BRAIN.md)
 | [testing.md](testing.md) | Mobile `node --test` (type stripping, real-SQLite tests, fake-store traps), the Maestro suite, desktop unit and integration tests over fake HTTP/DDP servers, live tests gated by `RV_TEST_SERVER`, smoke and e2e scripts, coverage, CI package smoke runs. |
 | [e2ee.md](e2ee.md) | The E2EE key chain in both apps: private-key envelopes, room keys unwrapped with RSA-OAEP, message and file formats, quick-crypto aliasing, key rotation, per-account key storage. |
 | [i18n.md](i18n.md) | French and English: mobile `ui/messages.ts` and `ui/i18n.ts` plus the native push strings, desktop `rv-core` `i18n.rs` shared by GTK and SwiftUI. |
+| [web-client.md](web-client.md) | Embedded browser distribution, GTK design synchronization, one origin/account, indexed storage and browser media. |
 
 ## Mobile (`apps/mobile`)
 

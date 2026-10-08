@@ -54,6 +54,7 @@ use the indexes.
 | [desktop-core.md](architecture/desktop-core.md) | rv-core module by module: async model, session, REST, DDP, store, sync, outbox, uploads. |
 | [desktop-gtk.md](architecture/desktop-gtk.md) | rv-gtk structure, core events to the main thread, rv-native per platform, video, packaging. |
 | [desktop-macos.md](architecture/desktop-macos.md) | The SwiftUI macOS app over rv-ffi (UniFFI), its view models, status. |
+| [web-client.md](architecture/web-client.md) | Server-embedded browser application, origin/session rules, IndexedDB and browser transports. |
 
 ## Features (the what) - [features/index.md](features/index.md)
 
@@ -89,6 +90,7 @@ Each feature doc covers mobile and desktop, and says where they differ.
 | [calls.md](features/calls.md) | Rocket.Chat servers: Jitsi calls, the mobile WebView exception, desktop call windows. |
 | [sharing-and-links.md](features/sharing-and-links.md) | `rocketvibe://` deep links, the incoming share screen, outgoing-link guard, drag and paste. |
 | [desktop-updates.md](features/desktop-updates.md) | The desktop self-update from GitHub releases, per platform. |
+| [web-client.md](features/web-client.md) | Server-delivered web client, one origin/account, GTK design and browser limits. |
 
 ## Find by question
 

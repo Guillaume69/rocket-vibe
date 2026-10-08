@@ -7,10 +7,13 @@ branch adds a **RocketVibe** server in Rust; both providers use the existing int
 | App | Where | Tech | Version |
 |---|---|---|---|
 | **Mobile** (Android first) | [`apps/mobile`](apps/mobile/README.md) | Expo / React Native, SQLite | `apps/mobile/app.json` |
+| **Web** | [`apps/web`](apps/web/README.md) | TypeScript browser app embedded in the native server | `apps/web/package.json` |
 | **Desktop** (Linux, Windows, macOS) | [`apps/desktop`](apps/desktop/README.md) | Rust, GTK 4 + libadwaita | `apps/desktop/Cargo.toml` |
 
 Each app has its own version number and its own builds; the desktop's feature parity with
 mobile is tracked in [`brain/parity.md`](brain/parity.md).
+
+The native server also delivers a real [web client](apps/web/README.md), with the GTK design, one account on the serving origin, and encrypted rooms currently unsupported. Its dedicated browser CI checks build, conversations, files, security and WebRTC.
 
 ## Shared
 

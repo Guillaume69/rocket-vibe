@@ -1,107 +1,49 @@
 # RFC 0003: server-delivered web client with GTK visual parity
 
-Status: browser-client direction selected, 2026-10-08. Detailed construction plan remains a proposal. No web client or browser parity is implemented by this document.
+Status: implemented on `codex/web-client`; qualification and remaining parity tracked in [execution](../WEB_CLIENT_EXECUTION.md). Scope amended by the user on 2026-10-08.
 
-## Intent
+## Accepted scope
 
-Deliver a browser client from the RocketVibe server itself, with the same product design and user-facing capabilities as the GTK app. Keep its implementation on a dedicated branch and worktree. GTK is the visual reference for this request; the existing Android, GTK and SwiftUI functional parity contract remains applicable.
+Deliver a true browser client directly from the native RocketVibe server, in its own worktree and branch, with GTK as the design reference. The browser signs into only the service that delivers it, with one account. Server/account switching and the GTK rail are intentionally absent. Encrypted rooms are unsupported for now: show locked metadata and prevent content, plaintext sends, file/recording and call actions. Installed GTK/mobile behavior is unchanged.
 
-## Current evidence
+## Implemented architecture
 
-- The server's Axum router exposes authentication, room/message operations, files, profiles, commands, voice calls and synchronization. It ends with a missing-resource fallback and currently serves no web application.
-- GTK defines its Nuit Etoilee theme in `style.rs`, its layout and behavior in `chat.rs`, `rail.rs`, `rows.rs`, `message_list.rs` and `composer.rs`. Fonts are bundled: Nunito for body text and Baloo 2 for titles.
-- GTK has both Rocket.Chat and RocketVibe providers. Feature availability depends on the provider. The native-server parity backlog is a separate contract from the three-app matrix.
-- Neither `rv-core` nor `rv-crypto` is currently a browser-ready library. The former uses native Tokio networking, filesystem access and SQLite; the latter also uses durable filesystem storage, SQLite and optional system keychains. Reusing the cryptographic algorithms does not solve the browser storage and device lifecycle.
-- Native encrypted-room rollout is still disabled in GTK's crypto settings code. The web client must respect the same qualification boundary.
+`apps/web` uses strict TypeScript, native browser DOM controls and Vite. No UI kit or remote GTK process. Production assets are committed and embedded by `apps/server/build.rs`; the standalone binary and Docker image need no Node runtime. The explicit root/room routes never replace missing API/assets with HTML. HTML/worker/manifest are no-store and hashed assets immutable.
 
-## Proposed delivery
+The native HTTP API supplies actions and ticketed WebSocket frames supply updates. IndexedDB stores the model, sole session, drafts, operation intents, pending text/files and private media. Revision/position and membership-lifetime checks prevent old operations/content reappearing after withdrawal and rejoin. Web Locks serialize replay/rotation and BroadcastChannel coordinates tabs. Protected media is hash-verified, separate from public worker caches.
 
-Use `apps/web/` for a TypeScript browser application with HTML and CSS components reproducing the GTK widgets. Framework/build-tool selection is deferred until implementation. Ship production assets in the server distribution, with no frontend development server or Node runtime required in production.
-
-The RocketVibe server serves the application at `/` and versioned assets under a dedicated path. Retain the existing `/api/v1/` and socket routes, error envelopes, authentication and file behavior. A navigation fallback must never turn unknown API endpoints or missing assets into a successful HTML response.
-
-Use the current HTTP and ticketed WebSocket contracts. Keep sessions and local data scoped by origin, server instance and account. Use a browser store for cached state, drafts and a persisted outbox; drive the UI from that store. Add reconnect catch-up, gap recovery, idempotency and account switching before calling it functional parity. Coordinate simultaneous tabs so they do not independently replay the same pending operation.
-
-The first deployment target is the RocketVibe origin serving the assets. GTK's support for several servers, accounts and Rocket.Chat remains part of the requested inventory: define browser CORS, CSP and authentication requirements for additional origins, then implement a provider adapter or record explicit remaining debt. Do not silently reduce the scope to features common to both servers.
+Implemented screens cover sign-in, invitation/operator/email recovery, factors, room groups/history, message actions, threads/search, staged files/recording, profiles/room/member management, preferences, device sessions, administration and browser calls. LiveKit's Apache-2.0 SDK handles browser WebRTC only; the project implements the UI. Production dependency and original asset notices are delivered in the Licences screen.
 
 ## Visual contract
 
-Reproduce the server rail, room sections, headers, message grouping, cards, replies, threads, menus, composer, preferences, login and security dialogs. Preserve the exact application palette, gradients, radii, spacing, text sizes/weights, avatars, icons, focus states and animations.
+The build derives theme CSS and decorative stars from GTK source, reuses Nunito/Baloo 2 fonts, original sounds, Adwaita SVG icons and Fedora's Noto emoji font. Layout follows GTK's sidebar, headings, timeline, composer toolbar, cards, popovers and category preferences. The account rail is removed per the accepted scope.
 
-Reuse the bundled font assets and their licenses. GTK patches font strikeout thickness at runtime; account for this in the web rendering rather than assuming the raw font files produce an identical result. Inventory Adwaita defaults and GTK layout measurements in addition to the custom CSS: copying colors alone is insufficient. Extract shared design values with a check against GTK to prevent later drift.
+Actual GTK reference builds/captures use the mandatory Fedora build script. The browser's room/settings/narrow screens and fonts/palette are checked with Playwright. Complete comparison of login/factors, long histories, menus, files, threads, search, error and security states is still qualification debt. Pango/browser rasterization differences do not change the same-design target.
 
-Capture the actual GTK app and browser using the same fixtures, viewport/content size, locale, clock, font assets and UI state. Cover login/2FA, room list, empty and populated rooms, long messages, uploads, reactions, threads, search, errors, settings and security dialogs. Compare layout and screenshot differences, then inspect them visually.
+## Platform mappings
 
-Identical design is the acceptance target. Byte-identical screenshots across Pango/GTK, browser text rasterizers and operating systems are not promised; choose a reference environment and document narrowly bounded rendering differences. Browser chrome is outside the application design.
+Browser origin storage replaces native SQLite/keyring; clearing site data removes local pending work. HTTPS room links replace the custom application scheme. Browser capture/media permission dialogs control devices/screens. Foreground browser notifications, title unread count and click-to-room are implemented; closed-tab Web Push and inline notification reply are absent. Browser installation/public asset updates map binary updates, while native tray/autostart remain unavailable.
 
-## Functional inventory and browser mappings
+Only the native serving provider is in scope. Rocket.Chat, cross-origin authentication and CORS account switching are not enabled. No encrypted keys/plaintext are delegated to the server. A future crypto/browser-vault proposal needs its own lifecycle and delivery trust qualification.
 
-Before implementation, enumerate every GTK capability from both provider implementations and the source-backed parity documents. Maintain a web status per row, with acceptance evidence and explicit debt.
+## Evidence and remaining work
 
-| Area | Required outcome |
-|---|---|
-| Authentication and accounts | Login, applicable factors/recovery, session resume/revocation, account/server switching and logout cleanup. |
-| Rooms and timeline | Sections, favorites, presence, unread/mentions, pagination, grouping, markdown, custom emoji, link previews, read state and navigation. |
-| Compose and actions | Drafts, mentions, commands, quoting, editing/deleting, reactions, pinned/starred messages, formatting and retries. |
-| Threads, search and management | Thread behavior, message/context search, room/member/profile/role controls exposed by GTK and each provider. |
-| Files and media | Durable uploads, progress/retry, captions, protected downloads, image/audio/video playback, drag/drop/paste and voice recording. |
-| Offline and realtime | Cached reads, persisted pending operations, reconnection and race-safe synchronization. |
-| Calls | Existing provider voice/call lifecycle and browser microphone/camera flows with origin controls. |
-| Encryption | Provider-specific message/file formats and client-side private state, with full enrollment, recovery, history and revocation qualification. |
-| Preferences and accessibility | French/English, keyboard commands, focus management, selection and zoom/size behavior. |
-| Notifications and platform integration | Browser permission and notification behavior; closed-tab delivery requires separately implemented Web Push/service worker support. Badge/title and app installation are browser-dependent. |
-| Native lifecycle | Tray, start-at-login, external file handlers and desktop binary self-update need explicit browser mappings or documented platform limits. Asset updates replace desktop binary updates. |
-
-The current server push endpoints do not establish Web Push support. Browser notifications while a tab is alive and notifications with the tab closed are separate acceptance cases.
-
-## Encryption and trust
-
-Private keys and decrypted private content stay on the user's device. Do not move GTK's cryptographic session to the server to avoid porting browser storage. First prove a browser build of the shared algorithms with matching protocol vectors; then isolate native persistence and define durable browser vault, locking, backup, recovery and multiple-tab behavior. WASM reuse is a candidate to qualify, not an existing capability.
-
-A web client delivered by the server has a different trust model: a compromised server can change the JavaScript/WASM that a browser receives. State that difference from installed signed clients and define the release/integrity policy. Keep private data out of static/service-worker caches, render messages as untrusted input, constrain resource/call origins, and never log credentials or vault material.
-
-## Implementation batches and evidence
-
-1. Freeze the source-backed GTK feature inventory and reference screenshots. Define design values, assets and browser platform mappings.
-2. Add the frontend build and server asset delivery. Prove root/navigation routes, API errors, missing assets, caching and release packaging. Reproduce the full GTK shell and login states.
-3. Implement live ordinary messaging, local state/outbox, threads, actions and search. Validate reload, offline send, reconnection, duplicates, account switching and keyboard use against the real test server.
-4. Complete files/media/voice, room and profile management, preferences, calls and notification mappings, with visual comparisons for every delivered screen.
-5. Qualify provider-specific encrypted lifecycle in the browser. Close all GTK parity rows or name the remaining debt precisely. Add release and deployed-browser verification.
-
-These are construction batches, not independent definitions of completion. A shell or ordinary chat pilot is not the requested finished client.
-
-## Alternative: GTK Broadway
-
-GTK can display applications in a browser with Broadway. This could preserve the GTK widget rendering while the application process runs on the server. It requires separate per-user runtime/storage and browser integration, changes the privacy boundary for encrypted content, and does not establish file, microphone, media or notification parity.
-
-GTK's own documentation calls Broadway experimental and not actively developed. It is not the proposed production browser architecture.
-
-## Documentation and validation
-
-As implementation lands, add the web architecture entry and a web column/status to the functional parity documents in the same branch. Update the affected feature pages and changelogs. This proposal changes no shipped capability, so it does not mark any parity row done.
-
-Run behavior tests for API delivery and client synchronization, real browser flows against the test server, and screenshot comparisons against GTK. All GTK builds/captures use the existing Fedora container workflow.
+See the source-backed [inventory](../WEB_CLIENT_EXECUTION.md), [web README](../../apps/web/README.md), [brain architecture](../../brain/architecture/web-client.md) and [parity](../../brain/parity.md). Implementation status and tested scenarios are separate claims. The browser CI rebuilds committed assets and exercises the actual server with isolated PostgreSQL, TLS SMTP and LiveKit fixtures. No public deployment or full visual parity is claimed by this branch.
 
 ## Sources
 
-- apps/server/src/http.rs
-- apps/server/Cargo.toml
-- crates/rv-protocol/src/lib.rs
-- crates/rv-client/Cargo.toml
-- crates/rv-crypto/Cargo.toml
-- crates/rv-crypto/src/installation.rs
-- apps/desktop/crates/rv-core/Cargo.toml
+- apps/web/src/app.ts
+- apps/web/src/store.ts
+- apps/web/src/api.ts
+- apps/web/src/session.ts
+- apps/web/src/voice.ts
+- apps/web/src/security.ts
+- apps/web/src/email.ts
+- apps/web/scripts/sync-design.mjs
+- apps/server/build.rs
+- apps/server/src/web.rs
+- apps/server/Dockerfile
 - apps/desktop/crates/rv-gtk/src/style.rs
 - apps/desktop/crates/rv-gtk/src/fonts.rs
-- apps/desktop/crates/rv-gtk/src/chat.rs
-- apps/desktop/crates/rv-gtk/src/rail.rs
-- apps/desktop/crates/rv-gtk/src/rows.rs
-- apps/desktop/crates/rv-gtk/src/message_list.rs
-- apps/desktop/crates/rv-gtk/src/composer.rs
-- apps/desktop/crates/rv-gtk/src/native_crypto.rs
-- apps/desktop/crates/rv-gtk/src/sidebar_dialog.rs
-- brain/parity.md
-- docs/protocol/PARITY.md
-- [GTK Broadway](https://docs.gtk.org/gtk4/broadway.html)
-- [Tokio browser/WASM limits](https://docs.rs/tokio/latest/tokio/#wasm-support)
-- [Browser Push API](https://developer.mozilla.org/en-US/docs/Web/API/Push_API)
+- docs/WEB_CLIENT_EXECUTION.md
+- .github/workflows/web-client.yml

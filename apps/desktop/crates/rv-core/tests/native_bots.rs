@@ -145,17 +145,17 @@ async fn bots_keys_and_the_instance_setting_follow_the_contract() {
     assert!(session.avatar_current(PHOTO).unwrap());
     assert_eq!(session.profile_avatar(PHOTO).await.unwrap(), b"\x89PNG-bot");
     let refused = session.set_bot_avatar("helper-id", Some(("image/gif", b"GIF89a".to_vec()))).await.unwrap_err();
-    assert_eq!(native::bots::error_key(refused.code()), "bots.error_invalid_avatar");
+    assert_eq!(native::bots::failure_key(&refused), "bots.error_invalid_avatar");
     let huge = vec![0u8; native::bots::AVATAR_BYTES + 1];
     let refused = session.set_bot_avatar("helper-id", Some(("image/jpeg", huge))).await.unwrap_err();
-    assert_eq!(native::bots::error_key(refused.code()), "bots.error_avatar_too_large");
+    assert_eq!(native::bots::failure_key(&refused), "bots.error_avatar_too_large");
     let bare = session.set_bot_avatar("helper-id", None).await.unwrap();
     assert!(bare.avatar_file_id.is_none() && !session.avatar_current(PHOTO).unwrap());
 
     assert_eq!(session.bot_keys("helper-id").await.unwrap()[0].hint, "9f3a");
 
     let refused = session.create_bot_key("helper-id", "CI", Some(365)).await.unwrap_err();
-    assert_eq!(native::bots::error_key(refused.code()), "bots.error_reauth");
+    assert_eq!(native::bots::failure_key(&refused), "bots.error_reauth");
     recent.store(true, Ordering::SeqCst);
     let created = session.create_bot_key("helper-id", " CI ", Some(365)).await.unwrap();
     assert!(created.key.starts_with("rvb_") && created.info.id == "key-id");

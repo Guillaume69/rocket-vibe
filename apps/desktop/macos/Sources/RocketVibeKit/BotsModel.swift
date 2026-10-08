@@ -5,13 +5,13 @@ import RocketVibeCore
 /// A bot refusal (`RvError` carries the server's code), as rv-core words it
 /// for both desktop apps.
 public func botFailure(_ error: Error) -> String {
-    if case let RvError.Server(_, _, code, _, _, _) = error { return L(botErrorKey(code: code ?? "")) }
+    if case let RvError.Server(status, _, code, _, _, _) = error { return L(botErrorKey(code: code ?? "", status: status)) }
     return L("bots.failed")
 }
 
 /// The bots of the open RocketVibe account (RFC 0003): the list, whether I
 /// may create one, the API reference, and the keys of the bot I opened. A new
-/// key is held in memory only, until its sheet closes.
+/// key goes to `AppModel.botKey`, in memory only, until its sheet closes.
 @MainActor @Observable
 public final class BotsModel {
     public private(set) var bots: [NativeBot] = []
@@ -24,8 +24,6 @@ public final class BotsModel {
     public var notice: String?
     /// Each opened bot's keys, by bot id, read when it opens.
     public private(set) var keys: [String: [NativeBotKey]] = [:]
-    /// The key just created: shown once, then dropped.
-    public var created: NativeBotKeyCreated?
     @ObservationIgnored private weak var app: AppModel?
     @ObservationIgnored private let chat: NativeChat?
     @ObservationIgnored private let accountId: UUID
@@ -40,6 +38,12 @@ public final class BotsModel {
     /// Every scope's wire name, in the order the form lists them.
     public static var scopes: [String] { botScopes() }
     public static func scopeText(_ scope: String) -> String { L(botScopeKey(scope: scope)) }
+
+    /// A route as the list shows it: method, path, then the further scopes it
+    /// needs (`POST /api/v1/uploads/{id}/complete + messages:write`).
+    public static func routeText(_ route: NativeBotRoute) -> String {
+        ([route.method + " " + route.path] + route.also).joined(separator: " + ")
+    }
 
     /// The routes a scope opens; nil: those open to every key.
     public func routes(_ scope: String?) -> [NativeBotRoute] {
@@ -117,11 +121,28 @@ public final class BotsModel {
             notice = botFailure(error)
         }
     }
-    /// `days` 0: the key never expires. The key lands in `created`, once.
-    public func createKey(_ bot: NativeBot, label: String, days: UInt32) async {
-        if let made = await act({ try await $0.createBotKey(id: bot.id, label: label, expiresInDays: days > 0 ? days : nil) }) {
-            created = made
+    /// `days` 0: the key never expires. The key lands in `AppModel.botKey`,
+    /// shown once by the window: the server never shows it again, so it is
+    /// shown even when this section closed meanwhile, as long as the same
+    /// account is open. True once made.
+    public func createKey(_ bot: NativeBot, label: String, days: UInt32) async -> Bool {
+        guard active, !busy, let chat else { return false }
+        busy = true
+        notice = nil
+        do {
+            let made = try await chat.createBotKey(id: bot.id, label: label, expiresInDays: days > 0 ? days : nil)
+            busy = false
+            guard let app, app.sessionId == accountId else { return false }
+            app.botKey = made
+            guard active else { return true }
+            await load()
             await loadKeys(bot)
+            return true
+        } catch {
+            busy = false
+            guard active else { return false }
+            notice = botFailure(error)
+            return false
         }
     }
     public func revoke(_ bot: NativeBot, _ key: NativeBotKey) async {

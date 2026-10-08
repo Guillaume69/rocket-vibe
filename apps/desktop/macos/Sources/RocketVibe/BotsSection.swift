@@ -61,12 +61,6 @@ struct BotsSection: View {
         .modalOverlay(isPresented: $creating, style: .sheet(width: 640, height: 680)) {
             if let model { BotForm(model: model) }
         }
-        .modalOverlay(
-            isPresented: Binding(get: { model?.created != nil }, set: { if !$0 { model?.created = nil } }),
-            style: .sheet(width: 640, height: 440)
-        ) {
-            if let created = model?.created { BotKeySheet(created: created) }
-        }
         .confirmOverlay(
             isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
             title: L("bots.delete_confirm", ["name": "@" + (deleting?.username ?? "")]),
@@ -161,8 +155,7 @@ struct BotDetail: View {
                 Button(L("bots.key_create")) {
                     let (name, expires) = (label, expiry ?? 0)
                     Task {
-                        await model.createKey(bot, label: name, days: expires)
-                        if model.created != nil { label = ""; days = "" }
+                        if await model.createKey(bot, label: name, days: expires) { label = ""; days = "" }
                     }
                 }
                 .disabled(model.busy || label.trimmingCharacters(in: .whitespaces).isEmpty || expiry == nil)
@@ -225,7 +218,7 @@ struct BotRoutes: View {
             DisclosureGroup(L("bots.api")) {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(Array(routes.enumerated()), id: \.offset) { _, route in
-                        Text("\(route.method) \(route.path)")
+                        Text(BotsModel.routeText(route))
                             .font(.system(.caption, design: .monospaced))
                             .textSelection(.enabled)
                     }
@@ -269,7 +262,8 @@ struct BotForm: View {
     }
 }
 
-/// The new key, once: copy it now. It lives only in the model until this closes.
+/// The new key, once: copy it now. It lives only in `AppModel.botKey` until
+/// this closes; the window shows it (`RootView`), the settings closed or not.
 struct BotKeySheet: View {
     let created: NativeBotKeyCreated
 

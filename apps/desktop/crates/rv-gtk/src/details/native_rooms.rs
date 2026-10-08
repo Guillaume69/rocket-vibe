@@ -15,7 +15,7 @@ fn error_key(error: &str) -> &'static str {
         "room_action_pending" => "rooms.pending",
         "unsupported_feature" => "rooms.unavailable",
         "offline" => "rooms.command_offline",
-        "bot_encrypted_room" | "crypto_bot_member" => rv_core::native::bots::error_key(error),
+        "bot_encrypted_room" | "crypto_bot_member" => rv_core::native::bots::error_key(error, 409),
         _ => "rooms.failed",
     }
 }

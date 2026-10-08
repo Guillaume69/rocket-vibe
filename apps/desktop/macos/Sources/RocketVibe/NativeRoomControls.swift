@@ -106,7 +106,7 @@ struct NativeRoomControls: View {
     func field(_ key: WritableKeyPath<NativeRoomFields, String>) -> Binding<String> { Binding(get: { edit?[keyPath: key] ?? "" }, set: { edit?[keyPath: key] = $0 }) }
     func flag(_ key: WritableKeyPath<NativeRoomFields, Bool>) -> Binding<Bool> { Binding(get: { edit?[keyPath: key] ?? false }, set: { edit?[keyPath: key] = $0 }) }
     func roomError(_ code: String) -> String {
-        if code == "bot_encrypted_room" || code == "crypto_bot_member" { return L(botErrorKey(code: code)) }
+        if code == "bot_encrypted_room" || code == "crypto_bot_member" { return L(botErrorKey(code: code, status: 409)) }
         return L(code == "last_room_owner" ? "rooms.last_owner" : code == "revision_conflict" ? "rooms.conflict" : code == "room_action_pending" ? "rooms.pending" : code == "offline" ? "rooms.command_offline" : "rooms.failed")
     }
     func run(_ operation: @escaping @MainActor () async throws -> Void) {

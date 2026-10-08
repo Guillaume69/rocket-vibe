@@ -43,6 +43,9 @@ pub struct NativeBotKeyCreated {
 pub struct NativeBotRoute {
     pub method: String,
     pub path: String,
+    /// Wire names of the further scopes it needs besides its group's
+    /// (completing an upload also needs `messages:write`).
+    pub also: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
@@ -89,7 +92,7 @@ fn key(k: BotKey) -> NativeBotKey {
 }
 
 fn route(r: BotRoute) -> NativeBotRoute {
-    NativeBotRoute { method: r.method, path: r.path }
+    NativeBotRoute { method: r.method, path: r.path, also: r.also.into_iter().map(|s| s.as_str().to_owned()).collect() }
 }
 
 /// Unknown names are dropped: the server would refuse them anyway.
@@ -214,10 +217,11 @@ pub fn bot_scope_key(scope: String) -> String {
     BotScope::parse(&scope).map_or("bots.scope.always", bots::scope_key).to_owned()
 }
 
-/// The i18n key of the text for a bot refusal's code, as the GTK app shows it.
+/// The i18n key of the text for a bot refusal's code and HTTP status (0: no
+/// answer), as the GTK app shows it.
 #[uniffi::export]
-pub fn bot_error_key(code: String) -> String {
-    bots::error_key(&code).to_owned()
+pub fn bot_error_key(code: String, status: u16) -> String {
+    bots::error_key(&code, status).to_owned()
 }
 
 #[cfg(test)]
@@ -230,6 +234,14 @@ mod tests {
         assert_eq!(bot_scope_key("dm:write".into()), "bots.scope.dm_write");
         assert_eq!(bot_scope_key("admin".into()), "bots.scope.always");
         assert_eq!(scopes(&["rooms:read".into(), "admin".into()]), vec![BotScope::RoomsRead]);
-        assert_eq!(bot_error_key("bot_key_replayed".into()), "bots.error_key_replayed");
+        assert_eq!(bot_error_key("bot_key_replayed".into(), 409), "bots.error_key_replayed");
+        assert_eq!(bot_error_key("bot_create_limit".into(), 429), "bots.error_create_limit");
+        assert_eq!(bot_error_key("bot_rate_limited".into(), 429), "bots.error_rate_limited");
+        let upload = route(BotRoute {
+            method: "POST".into(),
+            path: "/api/v1/uploads/{id}/complete".into(),
+            also: vec![BotScope::MessagesWrite],
+        });
+        assert_eq!(upload.also, vec!["messages:write".to_owned()]);
     }
 }

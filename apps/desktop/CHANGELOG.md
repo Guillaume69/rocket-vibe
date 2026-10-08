@@ -17,7 +17,8 @@ section here.
   removes its photo, creates a key shown once with a ready-to-paste example, revokes keys
   and deletes the bot. Messages, profiles and room members show a "BOT" badge; a bot's
   profile names its owner and shows no encryption identity. The administration's
-  dashboard gets a "Users can create bots" switch.
+  dashboard gets a "Users can create bots" switch, and its Users list marks RocketVibe
+  bots and does not offer making a bot an administrator.
 
 ### Fixed
 

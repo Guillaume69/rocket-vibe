@@ -825,6 +825,12 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("admin.error_conflict", "Le compte a changé entre-temps : rechargez", "The account changed meanwhile: reload"),
     ("admin.error_denied", "Action refusée par le serveur", "The server refused this action"),
     ("admin.error_not_found", "Introuvable : rechargez", "Not found: reload"),
+    ("admin.error_bot_privilege", "Un bot ne peut pas être administrateur", "A bot can't be an administrator"),
+    (
+        "admin.error_bot_encrypted_room",
+        "Ce bot est membre d’un salon chiffré : il ne peut pas être réactivé",
+        "This bot is a member of an encrypted room: it can't be reactivated",
+    ),
     ("report.error_self", "Vous ne pouvez pas vous signaler vous-même", "You cannot report yourself"),
     ("admin.as_of", "Chiffres du {date}", "Figures as of {date}"),
     ("admin.refresh_figures", "Recalculer les chiffres", "Compute the figures again"),
@@ -1446,7 +1452,11 @@ const CATALOG: &[(&str, &str, &str)] = &[
         "Écrire dans ses salons, répondre en fil, modifier ou supprimer ses propres messages",
         "Post in its rooms, reply in threads, edit or delete its own messages",
     ),
-    ("bots.scope.files_write", "Envoyer des fichiers", "Upload files"),
+    (
+        "bots.scope.files_write",
+        "Envoyer des fichiers (les poster demande aussi messages:write)",
+        "Upload files (posting them also needs messages:write)",
+    ),
     ("bots.scope.reactions_write", "Ajouter et retirer des réactions", "Add and remove reactions"),
     (
         "bots.scope.rooms_join",
@@ -1461,8 +1471,8 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ),
     (
         "bots.scope.always",
-        "Toujours permis : son propre profil (nom, avatar), les emojis, les avatars",
-        "Always allowed: its own profile (name, avatar), emoji, avatars",
+        "Toujours permis : lire son propre profil, les emojis, les avatars",
+        "Always allowed: read its own profile, emoji, avatars",
     ),
     ("bots.api", "API", "API"),
     (
@@ -1519,6 +1529,16 @@ const CATALOG: &[(&str, &str, &str)] = &[
         "The administrator has not opened bots to everyone.",
     ),
     ("bots.error_limit", "Vous avez atteint la limite de dix bots.", "You have reached the limit of ten bots."),
+    (
+        "bots.error_create_limit",
+        "Trop de bots créés aujourd’hui, réessayez plus tard",
+        "Too many bots created today, try again later",
+    ),
+    (
+        "bots.error_rate_limited",
+        "Trop de demandes : réessayez dans un instant.",
+        "Too many requests: try again in a moment.",
+    ),
     ("bots.error_username_taken", "Ce nom d’utilisateur est déjà pris.", "This username is taken."),
     (
         "bots.error_key_limit",

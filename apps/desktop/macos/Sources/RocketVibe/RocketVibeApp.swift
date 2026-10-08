@@ -99,6 +99,13 @@ struct RootView: View {
                     .modalOverlay(item: Binding(get: { app.reporting }, set: { if $0 == nil { app.cancelReport() } })) { draft in
                         ReportSheet(draft: draft)
                     }
+                    // A new bot key, shown once, whether the settings are still open or not.
+                    .modalOverlay(
+                        isPresented: Binding(get: { app.botKey != nil }, set: { if !$0 { app.dismissBotKey() } }),
+                        style: .sheet(width: 640, height: 440)
+                    ) {
+                        if let created = app.botKey { BotKeySheet(created: created) }
+                    }
             }
         }
         // Over everything, the settings and the administration included.

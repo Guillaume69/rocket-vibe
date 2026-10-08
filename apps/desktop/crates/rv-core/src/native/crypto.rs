@@ -33,9 +33,35 @@ pub enum Error {
 type Result<T> = std::result::Result<T, Error>;
 impl Error {
     /// The server refused a group transition because a bot is a member of
-    /// the room (RFC 0003): no retry helps until the bot leaves.
+    /// the room (RFC 0003): no retry helps until the bot leaves. The refusal
+    /// reaches here through the delivery worker, which submits the group.
     pub fn bot_member(&self) -> bool {
-        matches!(self, Error::Session(error) if error.code() == "crypto_bot_member")
+        self.refusal().is_some_and(|error| error.code() == "crypto_bot_member")
+    }
+    /// The server's own refusal behind this error, as the session reports
+    /// one; None for a local failure.
+    pub fn refusal(&self) -> Option<super::Error> {
+        match self {
+            Error::Session(super::Error::Network(rv_client::Error::Server {
+                status,
+                code,
+                request_id,
+                retry_after,
+            }))
+            | Error::Delivery(delivery::Error::Network(rv_client::Error::Server {
+                status,
+                code,
+                request_id,
+                retry_after,
+            })) => Some(super::Error::Network(rv_client::Error::Server {
+                status: *status,
+                code: code.clone(),
+                request_id: request_id.clone(),
+                retry_after: *retry_after,
+            })),
+            Error::Session(super::Error::Protocol(code)) => Some(super::Error::Protocol(code)),
+            _ => None,
+        }
     }
     /// A member's identity is not pinned, or a device of theirs is not
     /// approved (or revoked, expired, changed): fixed in that member's profile,
@@ -379,5 +405,21 @@ mod tests {
         assert!(Error::Delivery(delivery::Error::Group(groups::Error::Identity(identity::Error::Revoked))).untrusted());
         assert!(!Error::Storage(rv_crypto::vault::Error::Busy).untrusted());
         assert!(!Error::Delivery(delivery::Error::Group(groups::Error::Mls)).untrusted());
+    }
+
+    fn refused(code: &str) -> rv_client::Error {
+        rv_client::Error::Server { status: 409, code: code.into(), request_id: Some("r1".into()), retry_after: None }
+    }
+
+    #[test]
+    fn a_bot_member_is_recognised_as_the_delivery_worker_reports_it() {
+        // The server's 409 on a group submission, as `NativeCrypto::call` returns it.
+        let blocked = Error::Delivery(delivery::Error::Network(refused("crypto_bot_member")));
+        assert!(blocked.bot_member());
+        assert_eq!(blocked.refusal().unwrap().code(), "crypto_bot_member");
+        assert!(Error::Session(super::super::Error::Network(refused("crypto_bot_member"))).bot_member());
+        assert!(!Error::Delivery(delivery::Error::Network(refused("crypto_group_cancelled"))).bot_member());
+        assert!(!Error::Delivery(delivery::Error::Worker).bot_member());
+        assert!(Error::Delivery(delivery::Error::Worker).refusal().is_none());
     }
 }

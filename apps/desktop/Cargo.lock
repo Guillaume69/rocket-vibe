@@ -4306,6 +4306,7 @@ dependencies = [
  "chrono",
  "futures",
  "keyring",
+ "rv-client",
  "rv-core",
  "rv-crypto",
  "serde",

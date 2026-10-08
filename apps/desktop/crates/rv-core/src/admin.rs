@@ -323,6 +323,8 @@ pub fn error_key(code: &str) -> &'static str {
         "offline" | "connection_failed" | "session_closed" => "native.offline",
         "invalid_reason" => "report.failed",
         "permission_denied" | "unsupported_feature" => "admin.error_denied",
+        "bot_privilege" => "admin.error_bot_privilege",
+        "bot_encrypted_room" => "admin.error_bot_encrypted_room",
         code if code.starts_with("error-") => "admin.error_denied",
         _ => "admin.failed",
     }
@@ -1244,9 +1246,12 @@ mod tests {
             ("self_report", "report.error_self"),
             ("offline", "native.offline"),
             ("error-not-allowed", "admin.error_denied"),
+            ("bot_privilege", "admin.error_bot_privilege"),
+            ("bot_encrypted_room", "admin.error_bot_encrypted_room"),
             ("anything", "admin.failed"),
         ] {
             assert_eq!(error_key(code), key, "{code}");
+            assert_ne!(crate::i18n::t(key), "?", "{key}");
         }
     }
 

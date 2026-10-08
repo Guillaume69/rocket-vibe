@@ -51,8 +51,9 @@ pub fn open(parent: &impl IsA<gtk::Widget>, admin: Admin) -> SidebarDialog {
     dialog
 }
 
-/// Runs provider work on tokio; `done` only while the dialog is open.
-fn spawn<T: Send + 'static>(
+/// Runs provider work on tokio; `done` only while the dialog is open (the
+/// settings' bots page uses it too).
+pub(crate) fn spawn<T: Send + 'static>(
     host: &Host,
     work: impl Future<Output = T> + Send + 'static,
     done: impl FnOnce(T) + 'static,
@@ -80,7 +81,7 @@ fn date(text: &str) -> String {
 }
 
 /// `2026-10-07T09:00:00Z` as a local date and time.
-fn date_time(text: &str) -> String {
+pub(crate) fn date_time(text: &str) -> String {
     chrono::DateTime::parse_from_rfc3339(text)
         .map(|d| {
             let local = d.with_timezone(&chrono::Local);
@@ -172,8 +173,16 @@ fn confirm(host: &Host, heading: &str, body: &str, action: &str, run: impl Fn() 
     confirm_class(host, heading, body, action, "admin-confirm", run);
 }
 
-/// `confirm`, with a class of its own (the second confirmations).
-fn confirm_class(host: &Host, heading: &str, body: &str, action: &str, class: &str, run: impl Fn() + 'static) {
+/// `confirm`, with a class of its own (the second confirmations, the bots
+/// page's).
+pub(crate) fn confirm_class(
+    host: &Host,
+    heading: &str,
+    body: &str,
+    action: &str,
+    class: &str,
+    run: impl Fn() + 'static,
+) {
     let Some(parent) = host.widget() else { return };
     let alert = adw::AlertDialog::builder()
         .heading(heading)
@@ -1042,14 +1051,17 @@ fn user_page(screen: &Screen, reload: &Reload, user: AdminUser) {
             Err(error) => s.host.toast(error_text(&error)),
         }
     };
-    let promote =
-        action_row(if user.admin { "admin.remove_admin" } else { "admin.make_admin" }, "admin-set-admin", false);
-    let (s, u, d) = (screen.clone(), user.clone(), done.clone());
-    promote.connect_activated(move |_| {
-        let (admin, user, d) = (s.admin.clone(), u.clone(), d.clone());
-        spawn(&s.host, async move { admin.set_admin(&user, !user.admin).await.map(|_| ()) }, d);
-    });
-    actions.add(&promote);
+    // A bot is never an administrator (the server refuses, `bot_privilege`).
+    if !user.bot || user.admin {
+        let promote =
+            action_row(if user.admin { "admin.remove_admin" } else { "admin.make_admin" }, "admin-set-admin", false);
+        let (s, u, d) = (screen.clone(), user.clone(), done.clone());
+        promote.connect_activated(move |_| {
+            let (admin, user, d) = (s.admin.clone(), u.clone(), d.clone());
+            spawn(&s.host, async move { admin.set_admin(&user, !user.admin).await.map(|_| ()) }, d);
+        });
+        actions.add(&promote);
+    }
     let activation =
         action_row(if user.active { "admin.deactivate" } else { "admin.activate" }, "admin-set-active", user.active);
     let (s, u, d) = (screen.clone(), user.clone(), done.clone());

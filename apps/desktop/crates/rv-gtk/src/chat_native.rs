@@ -1106,7 +1106,7 @@ fn native_error_key(code: &str) -> &'static str {
         "revision_conflict" => "native.message_changed",
         "message_action_pending" => "native.action_pending",
         "user_not_found" => "native.user_missing",
-        "bot_encrypted_room" | "crypto_bot_member" => rv_core::native::bots::error_key(code),
+        "bot_encrypted_room" | "crypto_bot_member" => rv_core::native::bots::error_key(code, 409),
         _ => "native.error",
     }
 }

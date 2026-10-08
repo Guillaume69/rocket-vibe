@@ -11,23 +11,14 @@ use gtk::glib;
 use rv_core::native::NativeSession;
 use rv_core::native::bots::{self, Bot, BotKey, BotKeyCreated, BotReference, BotRoute, BotScope};
 
-use crate::i18n::{self, t, tf, tn};
+use crate::admin::{confirm_class, date_time, spawn};
+use crate::i18n::{t, tf, tn};
 use crate::on_tokio;
 use crate::sidebar_dialog::Host;
 use crate::widgets::{self, TileSize};
 
 fn error_text(error: &rv_core::native::Error) -> &'static str {
-    t(bots::error_key(error.code()))
-}
-
-/// `2026-10-07T09:00:00Z` as a local date and time.
-fn when(text: &str) -> String {
-    chrono::DateTime::parse_from_rfc3339(text)
-        .map(|d| {
-            let local = d.with_timezone(&chrono::Local);
-            local.format_localized("%e %b %Y %H:%M", i18n::locale()).to_string().trim().to_owned()
-        })
-        .unwrap_or_else(|_| text.to_owned())
+    t(bots::failure_key(error))
 }
 
 /// Rows of a group that are replaced together on each load.
@@ -70,35 +61,9 @@ struct Ctx {
     security: Option<&'static str>,
 }
 
-/// Runs bot work on tokio; `done` only while the settings are open.
-fn spawn<T: Send + 'static>(
-    host: &Host,
-    work: impl std::future::Future<Output = T> + Send + 'static,
-    done: impl FnOnce(T) + 'static,
-) {
-    let host = host.clone();
-    glib::spawn_future_local(async move {
-        let result = on_tokio(work).await;
-        if host.alive() {
-            done(result);
-        }
-    });
-}
-
 /// Asks before an action that cannot be taken back.
 fn confirm(host: &Host, heading: &str, body: &str, action: &str, run: impl Fn() + 'static) {
-    let Some(parent) = host.widget() else { return };
-    let alert = adw::AlertDialog::builder()
-        .heading(heading)
-        .body(body)
-        .default_response("cancel")
-        .close_response("cancel")
-        .css_classes(["alert", "bot-confirm"])
-        .build();
-    alert.add_responses(&[("cancel", t("actions.cancel")), ("confirm", action)]);
-    alert.set_response_appearance("confirm", adw::ResponseAppearance::Destructive);
-    alert.connect_response(Some("confirm"), move |_, _| run());
-    widgets::present(&alert, Some(&parent));
+    confirm_class(host, heading, body, action, "bot-confirm", run);
 }
 
 /// The Bots category: my bots, then "Create a bot" when I may.
@@ -191,7 +156,7 @@ fn api_rows(row: &adw::ExpanderRow, routes: Vec<BotRoute>) {
     for route in routes {
         row.add_row(
             &adw::ActionRow::builder()
-                .title(format!("{} {}", route.method, route.path))
+                .title(bots::route_text(&route))
                 .use_markup(false)
                 .css_classes(["monospace", "bot-route"])
                 .build(),
@@ -472,22 +437,30 @@ fn detail_page(ctx: &Ctx, bot: Bot) {
         button.set_sensitive(false);
         let (c, button, rows, label, key_bot) =
             (c.clone(), button.clone(), rows.clone(), label.clone(), bot_id.clone());
-        spawn(
-            &c.host.clone(),
-            async move { s.create_bot_key(&id, &name, (expiry > 0).then_some(expiry)).await },
-            move |result| {
-                button.set_sensitive(true);
-                match result {
-                    Ok(created) => {
-                        label.set_text("");
-                        show_key(&c.host, created, &c.session.info.base_url);
-                        load_keys(&c, &key_bot, &rows);
-                        reload(&c);
-                    }
-                    Err(error) => c.host.toast(error_text(&error)),
+        // Not `spawn`: the server made the key, which it never shows again, so
+        // it is shown even when the settings closed meanwhile.
+        glib::spawn_future_local(async move {
+            let result =
+                on_tokio(async move { s.create_bot_key(&id, &name, (expiry > 0).then_some(expiry)).await }).await;
+            if !c.host.alive() {
+                if let Ok(created) = result
+                    && !c.session.is_closed()
+                {
+                    show_key(active_window().as_ref(), created, &c.session.info.base_url);
                 }
-            },
-        );
+                return;
+            }
+            button.set_sensitive(true);
+            match result {
+                Ok(created) => {
+                    label.set_text("");
+                    show_key(c.host.widget().as_ref(), created, &c.session.info.base_url);
+                    load_keys(&c, &key_bot, &rows);
+                    reload(&c);
+                }
+                Err(error) => c.host.toast(error_text(&error)),
+            }
+        });
     });
 
     let danger = adw::PreferencesGroup::new();
@@ -544,10 +517,10 @@ fn key_row(ctx: &Ctx, bot: &str, rows: &Rc<Rows>, key: BotKey) -> adw::ExpanderR
         .subtitle(format!("…{}", key.hint))
         .css_classes(["expander", "bot-key-row"])
         .build();
-    let expires = key.expires_at.as_deref().map_or_else(|| t("bots.key_never").to_owned(), when);
-    let used = key.last_used_at.as_deref().map_or_else(|| t("bots.key_unused").to_owned(), when);
+    let expires = key.expires_at.as_deref().map_or_else(|| t("bots.key_never").to_owned(), date_time);
+    let used = key.last_used_at.as_deref().map_or_else(|| t("bots.key_unused").to_owned(), date_time);
     for (title, value) in
-        [("bots.key_created", when(&key.created_at)), ("bots.key_expires", expires), ("bots.key_used", used)]
+        [("bots.key_created", date_time(&key.created_at)), ("bots.key_expires", expires), ("bots.key_used", used)]
     {
         row.add_row(&adw::ActionRow::builder().title(t(title)).subtitle(value).use_markup(false).build());
     }
@@ -620,10 +593,18 @@ fn copyable(text: &str, class: &str) -> gtk::Box {
     line
 }
 
+/// The application's window in front, for a key whose settings closed.
+fn active_window() -> Option<gtk::Widget> {
+    gtk::gio::Application::default()
+        .and_downcast::<gtk::Application>()
+        .and_then(|app| app.active_window())
+        .map(|window| window.upcast())
+}
+
 /// The new key, once: copy it now, it will not be shown again. The text
-/// lives only in this dialog's widgets.
-fn show_key(host: &Host, created: BotKeyCreated, base_url: &str) {
-    let Some(parent) = host.widget() else { return };
+/// lives only in this dialog's widgets. Over `parent` (the settings), or over
+/// the window in front when they closed while the key was being made.
+fn show_key(parent: Option<&gtk::Widget>, created: BotKeyCreated, base_url: &str) {
     let content = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
         .spacing(12)
@@ -657,5 +638,5 @@ fn show_key(host: &Host, created: BotKeyCreated, base_url: &str) {
             .build(),
     ));
     let dialog = adw::Dialog::builder().title(t("bots.key_title")).content_width(560).child(&view).build();
-    widgets::present(&dialog, Some(&parent));
+    widgets::present(&dialog, parent);
 }

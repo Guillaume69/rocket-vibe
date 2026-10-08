@@ -38,4 +38,5 @@ keyring = "3.6"
 
 
 [dev-dependencies]
+rv-client = { path = "../../../../crates/rv-client" }
 futures = { version = "0.3.31", default-features = false, features = ["executor", "std"] }

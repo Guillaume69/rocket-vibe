@@ -1,9 +1,9 @@
 name: web-client
 on:
   push:
-    paths: ['apps/web/**', 'apps/server/**', 'crates/rv-protocol/**', 'apps/desktop/crates/rv-gtk/src/style.rs', 'apps/desktop/crates/rv-core/data/emojis.tsv', 'apps/desktop/crates/rv-gtk/assets/fonts/**', 'apps/desktop/crates/rv-gtk/src/login.rs', 'apps/mobile/providers/rocketvibe/protocol.generated.ts', 'apps/desktop/data/**', 'assets/sounds/**', '.github/workflows/web-client.yml']
+    paths: ['apps/web/**', 'apps/server/**', 'crates/rv-protocol/**', 'apps/desktop/crates/rv-gtk/src/style.rs', 'apps/desktop/crates/rv-core/data/emojis.tsv', 'apps/desktop/crates/rv-core/src/i18n.rs', 'apps/desktop/crates/rv-core/src/native/bots.rs', 'apps/desktop/crates/rv-core/src/native/workflows.rs', 'apps/desktop/crates/rv-gtk/assets/fonts/**', 'apps/desktop/crates/rv-gtk/src/login.rs', 'apps/mobile/providers/rocketvibe/protocol.generated.ts', 'apps/desktop/data/**', 'assets/sounds/**', '.github/workflows/web-client.yml']
   pull_request:
-    paths: ['apps/web/**', 'apps/server/**', 'crates/rv-protocol/**', 'apps/desktop/crates/rv-gtk/src/style.rs', 'apps/desktop/crates/rv-core/data/emojis.tsv', 'apps/desktop/crates/rv-gtk/assets/fonts/**', 'apps/desktop/crates/rv-gtk/src/login.rs', 'apps/mobile/providers/rocketvibe/protocol.generated.ts', 'apps/desktop/data/**', 'assets/sounds/**', '.github/workflows/web-client.yml']
+    paths: ['apps/web/**', 'apps/server/**', 'crates/rv-protocol/**', 'apps/desktop/crates/rv-gtk/src/style.rs', 'apps/desktop/crates/rv-core/data/emojis.tsv', 'apps/desktop/crates/rv-core/src/i18n.rs', 'apps/desktop/crates/rv-core/src/native/bots.rs', 'apps/desktop/crates/rv-core/src/native/workflows.rs', 'apps/desktop/crates/rv-gtk/assets/fonts/**', 'apps/desktop/crates/rv-gtk/src/login.rs', 'apps/mobile/providers/rocketvibe/protocol.generated.ts', 'apps/desktop/data/**', 'assets/sounds/**', '.github/workflows/web-client.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -52,7 +52,7 @@ jobs:
           npm run format:check
           npm test
           npm run build
-          git diff --exit-code -- dist src/gtk.css src/design.generated.ts src/third-party.generated.ts
+          git diff --exit-code -- dist src/gtk.css src/design.generated.ts src/third-party.generated.ts src/native-strings.generated.json src/native-errors.generated.json
           npx playwright install --with-deps chromium
       - name: Build the actual server distribution
         run: |
@@ -75,6 +75,7 @@ jobs:
           target/debug/rv-server create-user websecurity
           target/debug/rv-server create-user webcomposer --admin
           target/debug/rv-server create-user webvisual --admin
+          target/debug/rv-server create-user webworkflows --admin
           target/debug/rv-server serve --bind 127.0.0.1:3417 > .cache/web-server.log 2>&1 &
           for i in {1..60}; do
             if curl --fail --silent "$RV_WEB_TEST_URL/.well-known/rocketvibe" > /dev/null; then break; fi
@@ -92,6 +93,7 @@ jobs:
           npm run test:composer
           npm run test:security
           npm run test:visual
+          npm run test:workflows
       - uses: actions/upload-artifact@v4
         if: always()
         with:

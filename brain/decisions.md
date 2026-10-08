@@ -186,7 +186,7 @@ The non-obvious choices behind rocket-vibe and why they were made, grouped by ar
 
 The user chose a true server-delivered browser client, on its own branch/worktree, using GTK as the visual reference. The browser signs into only the serving service and one account: no account/server rail. Encrypted rooms are explicitly unsupported for now; retain locked metadata and reject content/media/call actions. No server-side substitute for a browser vault. Installed clients retain their existing capabilities.
 
-Sources: apps/web/src/app.ts; apps/web/src/api.ts; docs/rfcs/0003-web-client.md.
+Sources: apps/web/src/app.ts; apps/web/src/api.ts; docs/rfcs/0005-web-client.md.
 
 ## Sources
 

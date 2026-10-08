@@ -1,6 +1,6 @@
 # Web client execution
 
-Reference: [RFC 0003](rfcs/0003-web-client.md). Direction selected on 2026-10-08: a real browser client, delivered by the RocketVibe server, with GTK as the visual reference.
+Reference: [RFC 0005](rfcs/0005-web-client.md). Direction selected on 2026-10-08: a real browser client, delivered by the RocketVibe server, with GTK as the visual reference.
 
 Current state: real application implemented and embedded in the server. One serving origin/account; encrypted conversations explicitly unsupported. Statuses below describe native RocketVibe equivalents, not Rocket.Chat endpoint support.
 
@@ -18,13 +18,17 @@ Current state: real application implemented and embedded in the server. One serv
 
 The inherited inventory below retains the GTK feature descriptions. A native browser equivalent uses the native protocol, not the endpoint named for Rocket.Chat. "done" is implementation status; qualified scenarios are listed separately. This branch does not claim all GTK parity is complete.
 
+## Master integration
+
+The web branch merges master `fdef824c` (bots and workflows). Browser screens follow `native_bots.rs`, `native_workflows.rs` and `workflow_forms.rs`; categories, labels and refusals use the shared desktop catalog. The merge preserves the server web delivery module alongside the workflow module and all main parity rows. The browser RFC is now 0005, leaving 0003 for bots and 0004 for workflows. New feature implementation is distinguished from comprehensive GTK qualification below.
+
 ## Verification evidence
 
 Local 2026-10-08: 18 main conversation scenarios, nine advanced scenarios, seven two-browser LiveKit scenarios, six actual TLS email/TOTP scenarios, three session-rotation/tab scenarios, one synthetic locked-room UI scenario and six styled-editor scenarios. Eleven model/API/composition tests pass. Server library: 193 passed, one intentionally ignored; clippy passes with warnings denied. GTK reference built through the mandatory Fedora script and captured with the same server fixture. The synthetic locked-room test verifies UI exclusion, not cryptographic behavior.
 
 On 2026-10-09 the active checkout and bench moved to `D:/RocketVibe/.cache/worktrees/web-client`, on `codex/web-client`. Browser binaries, profiles, temporary files, object storage and PostgreSQL fixture data are on D:. The old managed checkout on C: was archived and its remaining directory removed. These are local bench paths, not deployment settings.
 
-The current correction pass compares actual connected GTK settings captures with browser captures. It removes invented display settings, restores GTK category icons and profile/admin subpages, adds inline audio playback, and restores automatic voice-channel entry and the room roster. Nine advanced browser scenarios pass on the moved bench, including actual audio progress and offline playback. Further visual and interoperability qualification remains in progress.
+The current correction pass compares actual connected GTK settings captures with browser captures. It removes invented display settings, restores GTK category icons and profile/admin subpages, adds inline audio playback, and restores automatic voice-channel entry and the room roster. Nine advanced browser scenarios pass on the moved bench, including actual audio progress and offline playback. The merged master is qualified on 2026-10-09: 18 conversation, nine advanced, eight voice (including automatic peer departure), three session, one locked-room, six editor, six visual and five bot/workflow browser scenarios. Fourteen Node model/API/composition/workflow tests and 200 server library tests pass (one ignored); server clippy has warnings denied. The mandatory Fedora desktop fmt/clippy/tests/build gate passes. A current GTK settings capture is connected to the same server; the GTK native voice smoke connects with two occupants and its real audio track reaches the browser through LiveKit. This qualifies interoperability, not physical-device audibility. Further GTK visual-state comparison remains in progress, including the voice grid and controls.
 
 ## GTK inventory
 

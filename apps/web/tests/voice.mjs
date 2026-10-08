@@ -158,13 +158,15 @@ try {
   console.log(
     "PASS direct call rings the other browser and acceptance exchanges actual audio",
   );
-  for (const page of [a, b]) {
-    await page
-      .locator(".voice-bar")
-      .getByRole("button", { name: "Close", exact: true })
-      .click();
-    await page.locator(".voice-bar").waitFor({ state: "detached" });
-  }
+  await a
+    .locator(".voice-bar")
+    .getByRole("button", { name: "Close", exact: true })
+    .click();
+  await a.locator(".voice-bar").waitFor({ state: "detached" });
+  await b.locator(".voice-bar").waitFor({ state: "detached" });
+  console.log(
+    "PASS the remaining direct-call participant hangs up automatically",
+  );
   await a.getByRole("button", { name: "Join call", exact: true }).click();
   await incoming.waitFor();
   await incoming.getByRole("button", { name: "Cancel", exact: true }).click();

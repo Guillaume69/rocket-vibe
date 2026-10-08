@@ -20,6 +20,10 @@ All notable changes are documented here in English.
 
 ### Added
 
+- Match the new master bots and workflows features: bot badges, scoped bot profiles and one-time keys, administrator policy, workflow triggers and steps, variable insertion, history, webhook URLs and message forms.
+- Scope workflow command completion to the current room and dispatch hyphenated commands without plaintext fallback.
+- Generate the feature labels and failure messages from the shared GTK catalog.
+
 - Original RocketVibe unicorn favicon from the GTK application icon.
 - Device-session details, renaming and confirmed revocation.
 

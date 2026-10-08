@@ -1,3 +1,4 @@
+import { nt } from "./native-i18n";
 import { Api, ApiError, operation, secret, segment } from "./api";
 import {
   Model,
@@ -1536,7 +1537,8 @@ export class App implements RowActions {
     if (text.trim().startsWith("/")) {
       const decorated = decorate(text);
       if (decorated === undefined) {
-        const match = /^\/(\w+)(?:\s+([\s\S]*))?$/.exec(text.trim());
+        const match = /^\/([a-zA-Z0-9_-]+)(?:\s+([\s\S]*))?$/.exec(text.trim());
+        if (!match) throw new Error("Invalid slash command");
         if (match) {
           await this.api.request("/api/v1/commands/run", "POST", {
             room_id: this.room,
@@ -2157,12 +2159,17 @@ export class App implements RowActions {
       };
     }
   }
+  async answerForm(message: Message): Promise<void> {
+    await (await import("./workflow-forms")).answerForm(this, message);
+  }
   async complete(): Promise<void> {
     this.completion.replaceChildren();
     if (!this.room) return;
     const text = this.composer.value.slice(0, this.composer.selectionStart);
     const emojiMatch = /(?:^|\\s):([a-z0-9_+-]*)$/.exec(text);
-    const command = /^\/([a-z]*)$/.exec(text);
+    const command = /^\/([a-z0-9_-]*)$/.exec(text);
+    const room = this.room,
+      account = this.account?.key;
     const mention = /(?:^|\s)@([\w.-]*)$/.exec(text);
     if (emojiMatch) {
       for (const code of [...new Set([...glyphs.keys(), ...this.emojis.keys()])]
@@ -2187,18 +2194,28 @@ export class App implements RowActions {
         this.completion.append(option);
       }
     } else if (command && this.info?.capabilities.slash_commands) {
-      const list =
-        await this.api.request<import("./protocol").CommandList>(
-          "/api/v1/commands",
-        );
-      if (text !== this.composer.value.slice(0, this.composer.selectionStart))
+      const list = await this.api.request<import("./protocol").CommandList>(
+        "/api/v1/commands?room=" + segment(room),
+      );
+      if (
+        room !== this.room ||
+        account !== this.account?.key ||
+        text !== this.composer.value.slice(0, this.composer.selectionStart)
+      )
         return;
       for (const item of list.commands
         .filter((item) => item.command.startsWith(command[1]))
         .slice(0, 8))
         this.completion.append(
           button(
-            "/" + item.command + " " + item.params,
+            "/" +
+              item.command +
+              " " +
+              item.params +
+              (item.description
+                ? " · " +
+                  (item.literal ? item.description : nt(item.description))
+                : ""),
             () => {
               this.composer.value = "/" + item.command + " ";
               this.completion.replaceChildren();
@@ -2211,7 +2228,11 @@ export class App implements RowActions {
     } else if (mention) {
       const users =
         await this.api.request<import("./protocol").User[]>("/api/v1/users");
-      if (text !== this.composer.value.slice(0, this.composer.selectionStart))
+      if (
+        room !== this.room ||
+        account !== this.account?.key ||
+        text !== this.composer.value.slice(0, this.composer.selectionStart)
+      )
         return;
       for (const user of [
         { id: "all", username: "all", display_name: "" },

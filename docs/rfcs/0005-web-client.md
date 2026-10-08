@@ -1,4 +1,4 @@
-# RFC 0003: server-delivered web client with GTK visual parity
+# RFC 0005: server-delivered web client with GTK visual parity
 
 Status: implemented on `codex/web-client`; qualification and remaining parity tracked in [execution](../WEB_CLIENT_EXECUTION.md). Scope amended by the user on 2026-10-08.
 

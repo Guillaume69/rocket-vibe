@@ -11,6 +11,10 @@ import { operation, segment } from "./api";
 import { button, dialog, el, field, tile, toast } from "./dom";
 import { sidebarDialog, preferencesGroup, actionRow } from "./sidebar";
 import { language, t } from "./i18n";
+import { botBadge } from "./bots";
+import { nt } from "./native-i18n";
+import { switchRow, accountFence } from "./preferences-controls";
+import type { InstanceSettings } from "./protocol";
 import { roomInfo } from "./panels";
 const label = (en: string, fr: string) => (language === "fr" ? fr : en);
 export function report(app: App, kind: "messages" | "users", id: string): void {
@@ -53,7 +57,15 @@ async function confirm(title: string, run: () => Promise<void>): Promise<void> {
 }
 export async function administration(app: App): Promise<void> {
   const host = sidebarDialog(t("admin"), "admin-dialog");
+  const valid = accountFence(app);
   let overview = await app.api.request<AdminOverview>("/api/v1/admin/overview");
+  let instanceSettings = app.info?.capabilities.bots
+    ? await app.api.request<InstanceSettings>("/api/v1/admin/settings")
+    : undefined;
+  if (!valid()) {
+    host.close();
+    return;
+  }
   const textValue = (name: string, value: string | number) => {
     const row = actionRow(name);
     row.append(el("span", "admin-value", String(value)));
@@ -115,6 +127,23 @@ export async function administration(app: App): Promise<void> {
       ["Messages", overview.reports.messages],
       [t("people"), overview.reports.users],
     ]);
+    if (instanceSettings) {
+      const [group, rows] = preferencesGroup(nt("admin.bots"));
+      rows.append(
+        switchRow(nt("admin.user_bots"), instanceSettings.user_bots, (on) => {
+          void (async () => {
+            if (!valid()) return;
+            instanceSettings = await app.api.request<InstanceSettings>(
+              "/api/v1/admin/settings",
+              "PATCH",
+              { operation_id: operation(), user_bots: on },
+            );
+          })().catch(toast);
+        }),
+      );
+      group.append(el("p", "dim", nt("admin.user_bots_hint")));
+      columns[nextCard++ % columns.length].append(group);
+    }
     page.append(
       button(
         label("Refresh", "Actualiser"),
@@ -201,6 +230,7 @@ export async function administration(app: App): Promise<void> {
           ),
           row.lastElementChild,
         );
+      if (user.bot) row.insertBefore(botBadge(), row.lastElementChild);
       rows.append(row);
     }
     result.append(group);
@@ -230,6 +260,7 @@ export async function administration(app: App): Promise<void> {
           new Date(user.created_at).toLocaleDateString(language),
         ),
       );
+    if (user.bot) info.append(botBadge());
     page.append(identity);
     if (user.id === app.account?.session.user.id) {
       page.append(
@@ -256,14 +287,17 @@ export async function administration(app: App): Promise<void> {
         () =>
           confirm(user.username, () => change({ disabled: !user.disabled })),
       ),
-      actionRow(
-        user.admin
-          ? label("Remove administrator", "Retirer le rôle administrateur")
-          : label("Make administrator", "Rendre administrateur"),
-        "",
-        () => confirm(user.username, () => change({ admin: !user.admin })),
-      ),
     );
+    if (!user.bot || user.admin)
+      rows.append(
+        actionRow(
+          user.admin
+            ? label("Remove administrator", "Retirer le rôle administrateur")
+            : label("Make administrator", "Rendre administrateur"),
+          "",
+          () => confirm(user.username, () => change({ admin: !user.admin })),
+        ),
+      );
     const remove = actionRow(t("delete"), "", () =>
       confirm(t("delete") + " " + user.username, async () => {
         await app.api.request(

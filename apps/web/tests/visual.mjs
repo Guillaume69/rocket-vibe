@@ -58,6 +58,8 @@ try {
     "Voice",
     "Security",
     "Devices",
+    "Bots",
+    "Workflows",
     "App",
   ];
   assert.deepEqual(
@@ -154,6 +156,7 @@ try {
   await page.setViewportSize({ width: 540, height: 800 });
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.locator(".settings-dialog .preferences-sidebar-close").click();
+  await page.locator(".settings-dialog").waitFor({ state: "detached" });
   assert.equal(await page.locator(".settings-dialog").count(), 0);
   console.log("PASS narrow settings can close from the category pane");
   assert.deepEqual(errors, []);

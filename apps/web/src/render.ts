@@ -11,6 +11,8 @@ import { systemText } from "./presentation";
 import { emojiGlyph } from "./emoji";
 import { videoCard } from "./video";
 import { iconButton } from "./icons";
+import { botBadge } from "./bots";
+import { formCard } from "./workflow-forms";
 export function safeLink(href: string): string | undefined {
   try {
     const url = new URL(href, location.origin);
@@ -112,6 +114,7 @@ export function markdown(
 }
 export interface RowActions {
   menu(message: Message, anchor: HTMLElement): Promise<void>;
+  answerForm(message: Message): Promise<void>;
   thread(message: Message): Promise<void>;
   reaction(message: Message, emoji: string): Promise<void>;
   file(file: FileDescriptor, node: HTMLElement): Promise<void>;
@@ -174,6 +177,8 @@ export function messageRow(
         }),
       ),
     );
+    if (message.author.bot)
+      header.insertBefore(botBadge(), header.lastElementChild);
     column.append(header);
   }
   for (const quote of message.quotes || []) {
@@ -187,7 +192,11 @@ export function messageRow(
   const body = el("div", "message-body");
   if (message.body) body.append(markdown(message.body.nodes, 0, actions));
   else body.textContent = message.text;
-  column.append(body);
+  if (message.form)
+    column.append(
+      formCard(message, mine, (value) => actions.answerForm(value)),
+    );
+  else column.append(body);
   if (message.edited_at)
     column.append(
       el("span", "message-note", language === "fr" ? "modifié" : "edited"),

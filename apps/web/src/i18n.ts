@@ -115,11 +115,15 @@ const phrases = {
   ],
 } as const;
 export let language = resolveLanguage(
-  localStorage.getItem("rv-language") || "auto",
+  (typeof localStorage !== "undefined"
+    ? localStorage.getItem("rv-language")
+    : null) || "auto",
 );
 function resolveLanguage(value: string): string {
   return value === "auto"
-    ? navigator.language.startsWith("fr")
+    ? (typeof navigator !== "undefined" ? navigator.language : "en").startsWith(
+        "fr",
+      )
       ? "fr"
       : "en"
     : value === "fr"

@@ -30,7 +30,17 @@ import leaveIcon from "./icons-native/call-stop-symbolic.svg";
 import downloadIcon from "./icons-native/folder-download-symbolic.svg";
 import moderationIcon from "./icons-native/dialog-warning-symbolic.svg";
 import roomsIcon from "./icons-native/chat-message-new-symbolic.svg";
+import botsIcon from "./icons-native/system-run-symbolic.svg";
+import workflowsIcon from "./icons-native/media-playlist-repeat-symbolic.svg";
+import upIcon from "./icons-native/go-up-symbolic.svg";
+import downIcon from "./icons-native/go-down-symbolic.svg";
+import trashIcon from "./icons-native/user-trash-symbolic.svg";
 const native: Record<string, string> = {
+  bots: botsIcon,
+  workflows: workflowsIcon,
+  up: upIcon,
+  down: downIcon,
+  trash: trashIcon,
   headphones: headphonesIcon,
   screen: screenIcon,
   "leave-call": leaveIcon,

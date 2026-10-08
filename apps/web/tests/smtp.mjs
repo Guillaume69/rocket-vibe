@@ -9,6 +9,7 @@ const key = createPrivateKey({
 }).export({ format: "pem", type: "pkcs8" });
 mkdirSync(".cache", { recursive: true });
 const messages = [];
+writeFileSync(".cache/smtp-mails.json", JSON.stringify(messages));
 const server = tls.createServer(
   { key, cert: readFileSync("apps/server/tests/fixtures/mail-cert.pem") },
   (socket) => {

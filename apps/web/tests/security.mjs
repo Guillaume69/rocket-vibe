@@ -76,7 +76,10 @@ try {
       .length,
     10,
   );
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Close", exact: true })
+    .filter({ hasText: /^Close$/ })
+    .click();
   console.log("PASS TOTP enrollment and recovery codes");
   await page.locator(".sidebar-dialog .preferences-close").click();
   await page.getByRole("button", { name: "Sign out", exact: true }).click();
@@ -127,7 +130,10 @@ try {
     .getByRole("button", { name: "Enable email authentication", exact: true })
     .click();
   await page.locator(".backup-codes").waitFor();
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Close", exact: true })
+    .filter({ hasText: /^Close$/ })
+    .click();
   await page
     .getByRole("button", { name: "Disable email authentication", exact: true })
     .waitFor();

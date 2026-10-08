@@ -1,5 +1,6 @@
 import { defineConfig } from "vite";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 const backend = process.env.RV_WEB_API_URL || "http://127.0.0.1:3400";
 export default defineConfig({
   plugins: [
@@ -19,6 +20,18 @@ export default defineConfig({
     },
   ],
   server: {
+    fs: {
+      allow: [
+        fileURLToPath(new URL(".", import.meta.url)),
+        fileURLToPath(
+          new URL("../desktop/crates/rv-gtk/assets/fonts/", import.meta.url),
+        ),
+        fileURLToPath(new URL("../../assets/sounds/", import.meta.url)),
+        fileURLToPath(
+          new URL("../desktop/crates/rv-core/data/", import.meta.url),
+        ),
+      ],
+    },
     proxy: {
       "/api": { target: backend, ws: true },
       "/.well-known/rocketvibe": { target: backend },

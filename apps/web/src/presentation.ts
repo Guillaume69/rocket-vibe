@@ -1,5 +1,5 @@
 import type { Message, Node as MarkdownNode } from "./protocol";
-import { language } from "./i18n";
+import { language } from "./i18n.ts";
 export function systemText(message: Message): string {
   const value = message.system;
   if (!value) return message.text;
@@ -65,8 +65,8 @@ export const previewText = (message: Message): string =>
       ? plain(message.body.nodes)
       : message.text;
 export function decorate(text: string): string | undefined {
-  const match = /^\/(\w+)(?:\s+([\s\S]*))?$/.exec(text.trim());
-  if (!match) return text;
+  const match = /^\/([a-zA-Z0-9_-]+)(?:\s+([\s\S]*))?$/.exec(text.trim());
+  if (!match) return text.trim().startsWith("/") ? undefined : text;
   const command = match[1],
     params = (match[2] || "").trim();
   const faces: Record<string, string> = {

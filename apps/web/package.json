@@ -6,10 +6,11 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "check": "tsc --noEmit",
-    "build": "node scripts/sync-design.mjs && node scripts/licenses.mjs && npm run check && vite build && node scripts/build-shell.mjs",
+    "build": "node scripts/sync-design.mjs && node scripts/sync-strings.mjs && node scripts/licenses.mjs && npm run check && vite build && node scripts/build-shell.mjs",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
     "test:browser": "node tests/browser.mjs",
     "test:visual": "node tests/visual.mjs",
+    "test:workflows": "node tests/workflows.mjs",
     "test:voice": "node tests/voice.mjs",
     "test:security": "node tests/security.mjs",
     "test:features": "node tests/features.mjs",

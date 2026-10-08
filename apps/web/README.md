@@ -2,7 +2,7 @@
 
 The native RocketVibe server serves this actual browser client at `/`. It uses that origin and one account. Encrypted conversations are currently unsupported and shown locked.
 
-The interface reuses the GTK theme, Nunito/Baloo 2 fonts, Adwaita icons, Noto emoji and project sounds. Chat, threads, actions, search, drafts, offline queues, uploads, recording, profiles, room management, administration, security settings and LiveKit calls are implemented. See [execution and remaining parity](../../docs/WEB_CLIENT_EXECUTION.md).
+The interface reuses the GTK theme, Nunito/Baloo 2 fonts, Adwaita icons, Noto emoji and project sounds. Chat, threads, actions, search, drafts, offline queues, uploads, recording, profiles, room management, administration, security settings, bots, workflows, their message forms and LiveKit calls are implemented. See [execution and remaining parity](../../docs/WEB_CLIENT_EXECUTION.md).
 
 ## Build
 
@@ -16,7 +16,7 @@ npm test
 npm run build
 ```
 
-The build synchronizes GTK design values and generates dependency licence notices before compiling. Commit `dist` and the generated design/licence files alongside source changes. Cargo embeds these committed files, so a fresh server checkout or Docker build needs no Node runtime. Rebuild the server after changing the web bundle:
+The build synchronizes GTK design values, the feature catalog and refusal wording and generates dependency licence notices before compiling. Commit `dist` and the generated design/licence files alongside source changes. Cargo embeds these committed files, so a fresh server checkout or Docker build needs no Node runtime. Rebuild the server after changing the web bundle:
 
 ```sh
 cargo build --locked -p rv-server
@@ -37,6 +37,8 @@ RV_WEB_TEST_URL=http://127.0.0.1:3417 npm run test:sessions
 RV_WEB_TEST_URL=http://127.0.0.1:3417 npm run test:locked
 RV_WEB_TEST_URL=http://127.0.0.1:3417 npm run test:composer
 RV_WEB_SECURITY_USER=websecurity npm run test:security
+RV_WEB_VISUAL_USER=webvisual npm run test:visual
+RV_WEB_WORKFLOWS_USER=webworkflows npm run test:workflows
 ```
 
 Voice requires the server's isolated LiveKit configuration. Security requires the TLS SMTP fixture (`node apps/web/tests/smtp.mjs` from repository root), the server's SMTP configuration pointing to localhost:14653 and its fixture certificate, plus a fresh `websec*` account. The editor suite uses `RV_WEB_COMPOSER_USER` when set and creates its own room; CI seeds a separate `webcomposer` account to keep combined login scenarios within the native ten-per-minute account budget. Fixture captures are in ignored `.cache/smtp-mails.json`; screenshots in `.cache/web-shots`.
@@ -49,4 +51,4 @@ Encrypted rooms, browser crypto enrolment/recovery and Rocket.Chat provider supp
 
 ## Licences
 
-LiveKit browser transport is Apache-2.0. Original fonts and Adwaita assets include their licence files. The in-app Licences page also ships generated production dependency notices.
+LiveKit browser transport is Apache-2.0. Original fonts and Adwaita assets include their licence files. Generated production dependency notices are included in the bundle.

@@ -2,7 +2,7 @@
 
 What a user can do in each app, tracked both ways: the Android app (`apps/mobile`),
 the GTK app (`apps/desktop`, Linux, Windows, macOS) and the SwiftUI app
-(`apps/desktop/macos`, over the same rv-core). Neither app is the reference. A row
+(`apps/desktop/macos`, over the same rv-core). The server-delivered web app (`apps/web`) uses GTK as its requested visual reference. A row
 that is not `done` or `mapped` in an app is debt that app owes, and is listed again
 under [Open debt](#open-debt). The rule that keeps this file true is in `CLAUDE.md`
 ("Parity"); the mechanism behind each row is in the linked feature doc.
@@ -262,25 +262,25 @@ beta does.
 
 | Feature | Mobile | GTK | SwiftUI | Web | Notes |
 |---|---|---|---|---|---|
-| "BOT" badge on bot authors, members and profiles, with the owner on the profile | done | done | done | missing | Not on search results, pins or encrypted rows on mobile; messages cached before the update until the server resends them. SwiftUI views compiled by the macOS CI only. Web: Web implementation and GTK qualification owed. |
-| "My bots": list, create with scopes, edit display name, photo, description and scopes, delete | done | done | done | missing | Scope sentences and their API routes read from `GET /api/v1/bots/reference`. SwiftUI views compiled by the macOS CI only. Web: Web implementation and GTK qualification owed. |
-| Bot keys: create after a recent sign-in, shown once with copy and a curl example, list, revoke | done | done | done | missing | Never stored. SwiftUI views compiled by the macOS CI only. Web: Web implementation and GTK qualification owed. |
-| Administrators' switch "Users can create bots" | done | done | done | missing | Dashboard card, RocketVibe only. Web: Web implementation and GTK qualification owed. |
-| Bot badge in the administrators' user list | done | done | done | missing | Rocket.Chat already had it (`type` bot or app). Web: Web implementation and GTK qualification owed. |
-| Encrypted-room refusals worded (`bot_encrypted_room`, `crypto_bot_member`) | done | done | done | missing | Wherever the app can trigger them: mobile and SwiftUI have no member-invitation screen, so there only the encryption refusal can show; mobile also hides the encryption actions when a bot is a member. Web: Web implementation and GTK qualification owed. |
-| Rocket.Chat bots and integrations | n/a | n/a | n/a | missing | Managed in Rocket.Chat itself. Web: Web implementation and GTK qualification owed. |
+| "BOT" badge on bot authors, members and profiles, with the owner on the profile | done | done | done | partial | Not on search results, pins or encrypted rows on mobile; messages cached before the update until the server resends them. SwiftUI views compiled by the macOS CI only. Web: Implemented in apps/web/src/bots.ts, workflows.ts and workflow-forms.ts; full GTK state qualification remains. |
+| "My bots": list, create with scopes, edit display name, photo, description and scopes, delete | done | done | done | partial | Scope sentences and their API routes read from `GET /api/v1/bots/reference`. SwiftUI views compiled by the macOS CI only. Web: Implemented in apps/web/src/bots.ts, workflows.ts and workflow-forms.ts; full GTK state qualification remains. |
+| Bot keys: create after a recent sign-in, shown once with copy and a curl example, list, revoke | done | done | done | partial | Never stored. SwiftUI views compiled by the macOS CI only. Web: Implemented in apps/web/src/bots.ts, workflows.ts and workflow-forms.ts; full GTK state qualification remains. |
+| Administrators' switch "Users can create bots" | done | done | done | partial | Dashboard card, RocketVibe only. Web: Implemented in apps/web/src/bots.ts, workflows.ts and workflow-forms.ts; full GTK state qualification remains. |
+| Bot badge in the administrators' user list | done | done | done | partial | Rocket.Chat already had it (`type` bot or app). Web: Implemented in apps/web/src/bots.ts, workflows.ts and workflow-forms.ts; full GTK state qualification remains. |
+| Encrypted-room refusals worded (`bot_encrypted_room`, `crypto_bot_member`) | done | done | done | n/a | Wherever the app can trigger them: mobile and SwiftUI have no member-invitation screen, so there only the encryption refusal can show; mobile also hides the encryption actions when a bot is a member. Web: Native-origin client; browser encryption and Rocket.Chat provider explicitly excluded. |
+| Rocket.Chat bots and integrations | n/a | n/a | n/a | n/a | Managed in Rocket.Chat itself. Web: Native-origin client; browser encryption and Rocket.Chat provider explicitly excluded. |
 
 ## 17. Workflows (RocketVibe server) - [workflows](features/workflows.md)
 
 | Feature | Mobile | GTK | SwiftUI | Web | Notes |
 |---|---|---|---|---|---|
-| "Workflows" settings page: list (trigger in words, on or off, last run), create, edit, test now, turn off, delete, last 50 runs | done | done | done | missing | Whoever may create a bot. SwiftUI views compiled by the macOS CI only. Web: Web implementation and GTK qualification owed. |
-| Triggers: slash command, schedule (hour, day, chosen days of the week, IANA zone), someone joining, a reaction (any or one emoji), a message containing a text, webhook (URL shown once) | done | done | done | missing | The room triggers fire for people only. Web: Web implementation and GTK qualification owed. |
-| Steps: message (trigger's room or a fixed one, in the thread), wait, HTTP call, form; variables offered per step | done | done | partial | missing | SwiftUI inserts a variable at the cursor in the message text and request body, but appends it to a GET or DELETE step's URL (a one-line field). The thread option shows for reaction and message triggers only, in all three. Web: Web implementation and GTK qualification owed. |
-| Workflow commands in the composer's command list, per room | done | done | done | missing | `GET /api/v1/commands?room=`. Web: Web implementation and GTK qualification owed. |
-| Form card in the room ("For @recipient", "Answered by ..."), the message's text not repeated above it | done | done | done | missing | Web: Web implementation and GTK qualification owed. |
-| Answering a form: text, long text, number, choice, person (a list or the room's members), one answer or several (checkboxes) | done | done | done | missing | Mobile: a native sheet; GTK: an `adw::Dialog`; SwiftUI: an overlay; all three close on a backdrop click. Web: Web implementation and GTK qualification owed. |
-| Workflows on Rocket.Chat | n/a | n/a | n/a | missing | Rocket.Chat has its own integrations. Web: Web implementation and GTK qualification owed. |
+| "Workflows" settings page: list (trigger in words, on or off, last run), create, edit, test now, turn off, delete, last 50 runs | done | done | done | partial | Whoever may create a bot. SwiftUI views compiled by the macOS CI only. Web: Implemented in apps/web/src/bots.ts, workflows.ts and workflow-forms.ts; full GTK state qualification remains. |
+| Triggers: slash command, schedule (hour, day, chosen days of the week, IANA zone), someone joining, a reaction (any or one emoji), a message containing a text, webhook (URL shown once) | done | done | done | partial | The room triggers fire for people only. Web: Implemented in apps/web/src/bots.ts, workflows.ts and workflow-forms.ts; full GTK state qualification remains. |
+| Steps: message (trigger's room or a fixed one, in the thread), wait, HTTP call, form; variables offered per step | done | done | partial | partial | SwiftUI inserts a variable at the cursor in the message text and request body, but appends it to a GET or DELETE step's URL (a one-line field). The thread option shows for reaction and message triggers only, in all three. Web: Implemented in apps/web/src/bots.ts, workflows.ts and workflow-forms.ts; full GTK state qualification remains. |
+| Workflow commands in the composer's command list, per room | done | done | done | partial | `GET /api/v1/commands?room=`. Web: Implemented in apps/web/src/bots.ts, workflows.ts and workflow-forms.ts; full GTK state qualification remains. |
+| Form card in the room ("For @recipient", "Answered by ..."), the message's text not repeated above it | done | done | done | partial | Web: Implemented in apps/web/src/bots.ts, workflows.ts and workflow-forms.ts; full GTK state qualification remains. |
+| Answering a form: text, long text, number, choice, person (a list or the room's members), one answer or several (checkboxes) | done | done | done | partial | Mobile: a native sheet; GTK: an `adw::Dialog`; SwiftUI: an overlay; all three close on a backdrop click. Web: Implemented in apps/web/src/bots.ts, workflows.ts and workflow-forms.ts; full GTK state qualification remains. |
+| Workflows on Rocket.Chat | n/a | n/a | n/a | n/a | Rocket.Chat has its own integrations. Web: Native-origin client; browser encryption and Rocket.Chat provider explicitly excluded. |
 
 ## Open debt
 

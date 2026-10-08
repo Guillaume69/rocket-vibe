@@ -20,6 +20,9 @@ import { administration, report } from "./admin";
 import packageInfo from "../package.json";
 import { sidebarDialog, preferencesGroup, actionRow } from "./sidebar";
 import { icon, iconButton } from "./icons";
+import { botsPage, botBadge } from "./bots";
+import { workflowsPage } from "./workflows";
+import { nt } from "./native-i18n";
 
 export async function newConversation(app: App): Promise<void> {
   const [node, body] = dialog(t("new"));
@@ -266,7 +269,18 @@ export async function profile(app: App, id: string): Promise<void> {
       portrait.replaceChildren(img);
     }
   }
-  if (id !== app.account?.session.user.id && app.info?.capabilities.voice)
+  if (value.user.bot) {
+    body.append(botBadge());
+    if (value.bot_owner)
+      body.append(
+        el("p", "dim", nt("bots.owner", { owner: value.bot_owner.username })),
+      );
+  }
+  if (
+    !value.user.bot &&
+    id !== app.account?.session.user.id &&
+    app.info?.capabilities.voice
+  )
     body.append(
       button(language === "fr" ? "Appeler" : "Call", async () => {
         const room = await app.api.request<Room>(
@@ -450,6 +464,7 @@ export async function roomInfo(app: App): Promise<void> {
             "destructive",
           ),
         );
+      if (member.user.bot) row.append(botBadge());
       members.append(row);
     }
   };
@@ -867,6 +882,14 @@ export async function settings(app: App): Promise<void> {
       page.append(group);
     },
   );
+  if (app.info?.capabilities.bots)
+    host.add("bots", nt("settings.cat.bots"), "bots", (page) =>
+      botsPage(app, host, page),
+    );
+  if (app.info?.capabilities.workflows)
+    host.add("workflows", nt("settings.cat.workflows"), "workflows", (page) =>
+      workflowsPage(app, host, page),
+    );
   host.add("app", phrase("App", "Application"), "app", (page) => {
     const [about, rows] = preferencesGroup(phrase("About", "À propos"));
     rows.append(actionRow(phrase("Version", "Version"), packageInfo.version));

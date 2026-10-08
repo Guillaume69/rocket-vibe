@@ -36,6 +36,10 @@ A bot is an account owned by a person, acting with API keys inside the scopes it
 - GTK: `widgets::bot_badge` in `rows.rs`, the profile and members (no encryption identity on a bot's profile); `settings/native_bots.rs` (category shown with `bots`; the photo through `photo_png`, shared with my own photo), the key in a one-time dialog, opened on the application's window when the settings closed while the key was being created (never for another account); the dashboard's "Bots" card with a switch.
 - SwiftUI: `BotsModel.swift` and `BotsSection.swift` (the new key in `AppModel.botKey`, in memory, shown by `RootView` whether the settings are open or not, dropped on an account switch), `.bots` in `Settings.swift`, the badge in `RoomView`, `Details` and `NativeRoomControls`, the toggle card in `AdminDashboard`; through rv-ffi `native_bots.rs`, `MessageItem.author_bot`, `Person.bot`/`bot_owner`, `NativeRoomMember.bot`, `ServerAdmin.user_bots`. The app target is compiled by the macOS CI only.
 
+## Web
+
+The server-delivered single-account browser shows the BOT badge on authors, members, profiles and administrator rows, with the owner on the profile. `src/bots.ts` provides owned bot creation, profile/photo/scope editing, reference routes, key creation after recent proof, one-time copyable key dialogs, listing, revocation and confirmed deletion. Administrator user details retain activation and confirmed deletion for bots and hide the administrator-role grant, as GTK does. The dashboard exposes the instance creation policy. `preferences-controls.ts` fences asynchronous results to the account; one-time values never enter browser persistence. Labels and refusals are generated from rv-core. Comprehensive GTK state comparison remains owed.
+
 ## Limits
 
 - No bot in an encrypted room; a bot with its own crypto device is a later layer.
@@ -45,6 +49,11 @@ A bot is an account owned by a person, acting with API keys inside the scopes it
 - Later layers of RFC 0003: commands declared by bots, outbound events over HTTP, interactive messages. Workflows, the last layer, act through a bot ([workflows](workflows.md)): the engine posts with the bot's internal session (a `bot_keys` row flagged `internal`, never listed, counted nor revocable by hand), and deleting a bot disables its workflows and cancels their runs.
 
 ## Sources
+
+- apps/web/src/bots.ts
+- apps/web/src/workflows.ts
+- apps/web/src/workflow-forms.ts
+- apps/web/tests/workflows.mjs
 
 - docs/rfcs/0003-bots.md
 - docs/protocol/BOTS.md

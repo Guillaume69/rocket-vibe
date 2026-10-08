@@ -1,4 +1,6 @@
 import type { Discovery, Snapshot, SnapshotPage } from "./protocol";
+import { nt } from "./native-i18n.ts";
+import nativeErrors from "./native-errors.generated.json" with { type: "json" };
 export class ApiError extends Error {
   status: number;
   code: string;
@@ -60,11 +62,28 @@ export class Api {
         typeof value.request_id === "string"
       )
         this.expired();
-      throw new ApiError(
+      const error = new ApiError(
         response.status,
         code,
         Math.min(300, Number(response.headers.get("Retry-After")) || 0),
       );
+      const area = path.startsWith("/api/v1/bots")
+        ? "bots"
+        : /^\/api\/v1\/(workflows|forms)/.test(path)
+          ? "workflows"
+          : undefined;
+      if (area) {
+        const key = (nativeErrors[area] as Record<string, string>)[code];
+        error.message = nt(
+          key ??
+            (response.status === 429
+              ? "bots.error_rate_limited"
+              : area === "bots"
+                ? "bots.failed"
+                : "workflows.failed"),
+        );
+      }
+      throw error;
     }
     if (response.status === 204) return undefined as T;
     return (await response.json()) as T;

@@ -544,6 +544,17 @@ impl LoginPage {
         self.kchat_row.set_visible(true);
     }
 
+    pub fn set_server_kind(&self, kind: rv_core::native::ServerKind) {
+        use rv_core::native::ServerKind;
+        self.kind.set_selected(match kind {
+            ServerKind::Auto => 0,
+            ServerKind::RocketChat => 1,
+            ServerKind::RocketVibe => 2,
+            ServerKind::Mattermost => 3,
+            ServerKind::Kchat => 4,
+        });
+    }
+
     /// The kind of server chosen under the address.
     pub fn server_kind(&self) -> rv_core::native::ServerKind {
         server_kind(&self.kind)

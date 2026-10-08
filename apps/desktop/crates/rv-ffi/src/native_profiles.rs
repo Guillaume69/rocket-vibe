@@ -94,7 +94,7 @@ impl NativeChat {
         on_tokio(async move { s.direct_user(&user_id).await }).await.map_err(error)
     }
     pub fn profile_avatar_current(&self, id: String) -> bool {
-        !self.session.is_closed() && self.session.store.avatar_current(&id).unwrap_or(false)
+        self.session.avatar_current(&id).unwrap_or(false)
     }
     pub fn user_avatar(&self, username: String) -> Option<String> {
         if self.session.is_closed() {

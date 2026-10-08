@@ -14,7 +14,7 @@ release, and its notes are that version's section here.
 - Bots on a RocketVibe server: a "My bots" settings page lists your bot accounts, creates
   one (when the administrator allows it), edits its description and scopes (each explained,
   with the API routes it opens), creates keys shown once with a ready-to-copy `curl` example,
-  revokes keys and deletes a bot. A "BOT" badge marks bots in messages, profiles (with their
+  revokes keys, renames the bot, sets or removes its photo and deletes a bot. A "BOT" badge marks bots in messages, profiles (with their
   owner) and room members; the administration dashboard has the "Users can create bots"
   switch. A room with a bot member cannot be encrypted, and the app says so.
 

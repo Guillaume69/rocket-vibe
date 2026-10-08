@@ -118,7 +118,7 @@ pub fn with_native_photo(
             let key = id.clone();
             let reader = s.clone();
             let bytes = crate::on_tokio(async move { reader.profile_avatar(&key).await }).await;
-            if s.is_closed() || !s.store.avatar_current(&id).unwrap_or(false) {
+            if !s.avatar_current(&id).unwrap_or(false) {
                 return;
             }
             if let (Some(tile), Ok(bytes)) = (weak.upgrade(), bytes)

@@ -297,6 +297,16 @@ impl NativeSession {
         })?;
         Ok(own)
     }
+    /// A photo still worn: by a person the store knows, or by one of my bots.
+    pub fn avatar_current(&self, id: &str) -> Result<bool, Error> {
+        if self.is_closed() {
+            return Ok(false);
+        }
+        if self.bot_avatars.lock().unwrap().values().any(|file| file == id) {
+            return Ok(true);
+        }
+        Ok(self.store.avatar_current(id)?)
+    }
     pub async fn profile_avatar(&self, id: &str) -> Result<Vec<u8>, Error> {
         self.ready()?;
         if !self.profiles_supported(true) {
@@ -307,13 +317,13 @@ impl NativeSession {
         self.profile_generation(generation)?;
         if id.len() != 64
             || !id.bytes().all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
-            || !self.store.avatar_current(id)?
+            || !self.avatar_current(id)?
         {
             return Err(Error::Protocol("avatar_retired"));
         }
         let _permit = self.avatar_slots.acquire().await.map_err(|_| Error::Protocol("session_closed"))?;
         self.profile_generation(generation)?;
-        if !self.store.avatar_current(id)? {
+        if !self.avatar_current(id)? {
             return Err(Error::Protocol("avatar_retired"));
         }
         if let Some(bytes) = self.avatars.lock().unwrap().get(id) {
@@ -322,7 +332,7 @@ impl NativeSession {
         let bytes = self.client.avatar_bytes(id).await?;
         self.identity().await?;
         self.profile_generation(generation)?;
-        if !self.store.avatar_current(id)? {
+        if !self.avatar_current(id)? {
             return Err(Error::Protocol("avatar_retired"));
         }
         self.avatars.lock().unwrap().put(id, bytes.clone());

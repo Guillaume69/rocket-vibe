@@ -435,8 +435,10 @@ fn fill_profile(
     if let Some(bio) = &p.bio {
         section(content, t("info.bio"), bio, session.username());
     }
+    // A bot never has a crypto device: no identity to compare.
     if let ProfileSource::Native(native) = session
         && native.crypto_settings_supported()
+        && !p.bot
     {
         crate::native_crypto::profile_button(content, dialog, native.clone(), p.id.clone());
     }

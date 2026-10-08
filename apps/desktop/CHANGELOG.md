@@ -12,10 +12,11 @@ section here.
 - A pill over the top of a room (GTK and SwiftUI), "N new messages since HH:MM", while the
   first unread message is above the view; a click jumps to it.
 - Bot accounts on RocketVibe servers (GTK and SwiftUI): a Bots category in the settings
-  lists my bots, creates one (when the administrator allows it), edits its description
-  and scopes (each with the API routes the server opens to it), creates a key shown once
-  with a ready-to-paste example, revokes keys and deletes the bot. Messages, profiles and
-  room members show a "BOT" badge; a bot's profile names its owner. The administration's
+  lists my bots, creates one (when the administrator allows it), edits its display name,
+  description and scopes (each with the API routes the server opens to it), changes or
+  removes its photo, creates a key shown once with a ready-to-paste example, revokes keys
+  and deletes the bot. Messages, profiles and room members show a "BOT" badge; a bot's
+  profile names its owner and shows no encryption identity. The administration's
   dashboard gets a "Users can create bots" switch.
 
 ### Fixed

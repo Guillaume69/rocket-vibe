@@ -174,7 +174,7 @@ fn bot_row(ctx: &Ctx, bot: Bot) -> adw::ActionRow {
         .activatable(true)
         .css_classes(["bot-row"])
         .build();
-    row.add_prefix(&widgets::tile(&bot.user.username, &widgets::initial(&bot.user.username), TileSize::Message, false));
+    row.add_prefix(&photo(ctx, &bot, TileSize::Message));
     row.add_suffix(&widgets::bot_badge());
     if bot.disabled {
         row.add_suffix(&widgets::badge(t("bots.disabled"), "deactivated"));
@@ -288,13 +288,115 @@ fn create_page(ctx: &Ctx) {
     });
 }
 
+/// The bot's tile: its real photo once loaded, as people's photos are drawn.
+fn photo(ctx: &Ctx, bot: &Bot, size: TileSize) -> gtk::Widget {
+    let tile = widgets::tile(&bot.user.username, &widgets::initial(&bot.user.username), size, false);
+    crate::rows::with_native_photo(tile, &ctx.session, bot.avatar_file_id.clone())
+}
+
+/// The bot's photo, name and username, with "Change…" and "Remove", as on
+/// my own profile.
+fn photo_group(ctx: &Ctx, bot: &Bot) -> (adw::PreferencesGroup, adw::ActionRow) {
+    let group = adw::PreferencesGroup::new();
+    let row = adw::ActionRow::builder()
+        .title(&bot.user.display_name)
+        .subtitle(format!("@{}", bot.user.username))
+        .use_markup(false)
+        .css_classes(["bot-photo"])
+        .build();
+    let tile = Rc::new(RefCell::new(photo(ctx, bot, TileSize::Room)));
+    tile.borrow().set_margin_top(6);
+    tile.borrow().set_margin_bottom(6);
+    row.add_prefix(&*tile.borrow());
+    let change = gtk::Button::builder()
+        .label(t("settings.photo_change"))
+        .valign(gtk::Align::Center)
+        .css_classes(["flat", "bot-photo-change"])
+        .build();
+    let remove = gtk::Button::builder()
+        .label(t("settings.photo_remove"))
+        .valign(gtk::Align::Center)
+        .sensitive(bot.avatar_file_id.is_some())
+        .css_classes(["flat", "bot-photo-remove"])
+        .build();
+    row.add_suffix(&change);
+    row.add_suffix(&remove);
+    group.add(&row);
+    // Sends the new photo (None: removes it), then shows what the server kept.
+    let apply: Rc<dyn Fn(Option<Vec<u8>>)> = {
+        let (c, id, row, change, remove) =
+            (ctx.clone(), bot.user.id.clone(), row.clone(), change.clone(), remove.clone());
+        let worn = Rc::new(std::cell::Cell::new(bot.avatar_file_id.is_some()));
+        Rc::new(move |png: Option<Vec<u8>>| {
+            let (s, id, removing) = (c.session.clone(), id.clone(), png.is_none());
+            change.set_sensitive(false);
+            remove.set_sensitive(false);
+            let (c, row, change, remove, tile, worn) =
+                (c.clone(), row.clone(), change.clone(), remove.clone(), tile.clone(), worn.clone());
+            spawn(
+                &c.host.clone(),
+                async move { s.set_bot_avatar(&id, png.map(|bytes| ("image/png", bytes))).await },
+                move |result| {
+                    change.set_sensitive(true);
+                    match result {
+                        Ok(bot) => {
+                            let fresh = photo(&c, &bot, TileSize::Room);
+                            fresh.set_margin_top(6);
+                            fresh.set_margin_bottom(6);
+                            row.remove(&*tile.borrow());
+                            row.add_prefix(&fresh);
+                            tile.replace(fresh);
+                            worn.set(bot.avatar_file_id.is_some());
+                            remove.set_sensitive(worn.get());
+                            c.host.toast(t(if removing { "bots.photo_removed" } else { "bots.photo_saved" }));
+                            reload(&c);
+                        }
+                        Err(error) => {
+                            remove.set_sensitive(worn.get());
+                            c.host.toast(error_text(&error));
+                        }
+                    }
+                },
+            );
+        })
+    };
+    let (c, send) = (ctx.clone(), apply.clone());
+    change.connect_clicked(move |button| {
+        let chooser = gtk::FileDialog::builder().title(t("settings.photo_change")).modal(true).build();
+        let window = button.root().and_downcast::<gtk::Window>();
+        let (c, send) = (c.clone(), send.clone());
+        chooser.open(window.as_ref(), None::<&gtk::gio::Cancellable>, move |file| {
+            let Some(path) = file.ok().and_then(|file| file.path()) else {
+                return;
+            };
+            if !c.host.alive() || c.session.is_closed() {
+                return;
+            }
+            match super::native_profiles::photo_png(&path) {
+                Some(png) => send(Some(png)),
+                None => c.host.toast(t("bots.error_invalid_avatar")),
+            }
+        });
+    });
+    remove.connect_clicked(move |_| apply(None));
+    (group, row)
+}
+
 /// One bot: its description and scopes, its keys, and its deletion.
 fn detail_page(ctx: &Ctx, bot: Bot) {
     let page = adw::PreferencesPage::builder().css_classes(["native-bot"]).build();
     let id = bot.user.id.clone();
+    let (header, title) = photo_group(ctx, &bot);
+    page.add(&header);
 
     let about =
         adw::PreferencesGroup::builder().description(tf("bots.owner", &[("owner", &bot.owner.username)])).build();
+    let name = adw::EntryRow::builder()
+        .title(t("bots.display_name"))
+        .text(&bot.user.display_name)
+        .css_classes(["bot-display-name"])
+        .build();
+    about.add(&name);
     let description = adw::EntryRow::builder()
         .title(t("bots.description"))
         .text(&bot.description)
@@ -311,21 +413,31 @@ fn detail_page(ctx: &Ctx, bot: Bot) {
         adw::ButtonRow::builder().title(t("settings.save")).css_classes(["suggested-action", "bot-save"]).build();
     scopes.add(&save);
     let (c, bot_id) = (ctx.clone(), id.clone());
+    // The name as the server last answered it: only a change is sent.
+    let saved_name = Rc::new(RefCell::new(bot.user.display_name.clone()));
     save.connect_activated(move |button| {
         let (s, id, chosen) = (c.session.clone(), bot_id.clone(), chosen(&checks));
         let text = description.text().to_string();
+        let typed = name.text().trim().to_owned();
+        let renamed = (typed != *saved_name.borrow()).then_some(typed);
         button.set_sensitive(false);
-        let (c, button) = (c.clone(), button.clone());
-        spawn(&c.host.clone(), async move { s.update_bot(&id, Some(&text), Some(&chosen)).await }, move |result| {
-            button.set_sensitive(true);
-            match result {
-                Ok(_) => {
-                    c.host.toast(t("bots.saved"));
-                    reload(&c);
+        let (c, button, saved_name, title) = (c.clone(), button.clone(), saved_name.clone(), title.clone());
+        spawn(
+            &c.host.clone(),
+            async move { s.update_bot(&id, renamed.as_deref(), Some(&text), Some(&chosen)).await },
+            move |result| {
+                button.set_sensitive(true);
+                match result {
+                    Ok(bot) => {
+                        title.set_title(&bot.user.display_name);
+                        saved_name.replace(bot.user.display_name);
+                        c.host.toast(t("bots.saved"));
+                        reload(&c);
+                    }
+                    Err(error) => c.host.toast(error_text(&error)),
                 }
-                Err(error) => c.host.toast(error_text(&error)),
-            }
-        });
+            },
+        );
     });
 
     let keys = adw::PreferencesGroup::builder().title(t("bots.keys")).css_classes(["bot-keys"]).build();

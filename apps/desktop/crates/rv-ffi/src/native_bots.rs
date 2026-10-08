@@ -16,6 +16,8 @@ pub struct NativeBot {
     /// Deactivated by an administrator, or with its owner.
     pub disabled: bool,
     pub live_keys: u32,
+    /// Its photo (`rv-avatar:<file id>`), for the media store; None: initials.
+    pub avatar: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
@@ -71,6 +73,7 @@ fn bot(b: Bot) -> NativeBot {
         created_at: b.created_at,
         disabled: b.disabled,
         live_keys: b.live_keys,
+        avatar: b.avatar_file_id.map(|id| format!("rv-avatar:{id}")),
     }
 }
 
@@ -143,11 +146,25 @@ impl NativeChat {
     pub async fn update_bot(
         &self,
         id: String,
+        display_name: Option<String>,
         description: Option<String>,
         scopes: Option<Vec<String>>,
     ) -> Result<NativeBot, RvError> {
         let (s, chosen) = (self.session.clone(), scopes.as_deref().map(self::scopes));
-        on_tokio(async move { s.update_bot(&id, description.as_deref(), chosen.as_deref()).await })
+        on_tokio(
+            async move { s.update_bot(&id, display_name.as_deref(), description.as_deref(), chosen.as_deref()).await },
+        )
+        .await
+        .map(bot)
+        .map_err(native_error)
+    }
+    /// Sets the bot's photo (`mime` PNG or JPEG) or, with `mime` None, removes it.
+    pub async fn set_bot_avatar(&self, id: String, mime: Option<String>, bytes: Vec<u8>) -> Result<NativeBot, RvError> {
+        if mime.is_none() && !bytes.is_empty() {
+            return Err(native_error(rv_core::native::Error::Protocol("invalid_avatar")));
+        }
+        let s = self.session.clone();
+        on_tokio(async move { s.set_bot_avatar(&id, mime.as_deref().map(|mime| (mime, bytes))).await })
             .await
             .map(bot)
             .map_err(native_error)

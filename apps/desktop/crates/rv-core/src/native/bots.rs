@@ -7,6 +7,11 @@ pub use rv_protocol::bots::{
     LABEL_BYTES,
 };
 
+/// Bytes of a bot's display name, as the server bounds it.
+pub const DISPLAY_NAME_BYTES: usize = 256;
+/// Bytes of a bot's photo (PNG or JPEG).
+pub const AVATAR_BYTES: usize = 2 * 1024 * 1024;
+
 impl NativeSession {
     /// The server offers bot accounts (its `bots` capability).
     pub fn bots_supported(&self) -> bool {
@@ -41,6 +46,8 @@ impl NativeSession {
         self.bot_access()?;
         let list = self.client.bots(false).await?;
         self.ready()?;
+        *self.bot_avatars.lock().unwrap() =
+            list.bots.iter().filter_map(|bot| Some((bot.user.id.clone(), bot.avatar_file_id.clone()?))).collect();
         Ok(list.bots)
     }
     pub async fn create_bot(
@@ -66,22 +73,28 @@ impl NativeSession {
         self.bot_access()?;
         let bot = self.client.create_bot(&input).await?;
         self.ready()?;
-        Ok(bot)
+        Ok(self.remember(bot))
     }
-    /// Changes the description and/or the scopes; None keeps a field.
+    /// Changes the display name, the description and/or the scopes; None
+    /// keeps a field. A display name is trimmed and never empty.
     pub async fn update_bot(
         &self,
         id: &str,
+        display_name: Option<&str>,
         description: Option<&str>,
         scopes: Option<&[BotScope]>,
     ) -> Result<Bot, Error> {
         self.bot_access()?;
-        let description = description.map(str::trim);
-        if description.is_some_and(|d| d.len() > DESCRIPTION_BYTES) {
+        let (display_name, description) = (display_name.map(str::trim), description.map(str::trim));
+        if description.is_some_and(|d| d.len() > DESCRIPTION_BYTES)
+            || display_name
+                .is_some_and(|n| n.is_empty() || n.len() > DISPLAY_NAME_BYTES || n.chars().any(char::is_control))
+        {
             return Err(Error::Protocol("invalid_request"));
         }
         let input = rv_protocol::bots::UpdateBot {
             operation_id: room_operation_id(),
+            display_name: display_name.map(str::to_owned),
             description: description.map(str::to_owned),
             scopes: scopes.map(sorted),
         };
@@ -89,7 +102,37 @@ impl NativeSession {
         self.bot_access()?;
         let bot = self.client.update_bot(id, &input).await?;
         self.ready()?;
-        Ok(bot)
+        Ok(self.remember(bot))
+    }
+    /// Sets the bot's photo (`mime` PNG or JPEG, at most `AVATAR_BYTES`) or,
+    /// with None, removes it. Its owner or an administrator only.
+    pub async fn set_bot_avatar(&self, id: &str, upload: Option<(&str, Vec<u8>)>) -> Result<Bot, Error> {
+        self.bot_access()?;
+        if let Some((mime, bytes)) = &upload {
+            if !matches!(*mime, "image/png" | "image/jpeg") || bytes.is_empty() {
+                return Err(Error::Protocol("invalid_avatar"));
+            }
+            if bytes.len() > AVATAR_BYTES {
+                return Err(Error::Protocol("avatar_too_large"));
+            }
+        }
+        self.refresh_credentials().await?;
+        self.bot_access()?;
+        let bot = self.client.set_bot_avatar(id, upload).await.map_err(|error| match error {
+            rv_client::Error::InvalidAvatar => Error::Protocol("invalid_avatar"),
+            other => Error::Network(other),
+        })?;
+        self.ready()?;
+        Ok(self.remember(bot))
+    }
+    /// Keeps the bot's photo as the one `profile_avatar` may serve for it.
+    fn remember(&self, bot: Bot) -> Bot {
+        let mut avatars = self.bot_avatars.lock().unwrap();
+        match &bot.avatar_file_id {
+            Some(file) => avatars.insert(bot.user.id.clone(), file.clone()),
+            None => avatars.remove(&bot.user.id),
+        };
+        bot
     }
     /// Final: the keys are revoked, the bot leaves its rooms and its username
     /// is never given again.
@@ -98,6 +141,7 @@ impl NativeSession {
         self.refresh_credentials().await?;
         self.bot_access()?;
         self.client.delete_bot(id).await?;
+        self.bot_avatars.lock().unwrap().remove(id);
         self.ready()
     }
     pub async fn bot_keys(&self, id: &str) -> Result<Vec<BotKey>, Error> {
@@ -161,6 +205,10 @@ pub fn error_key(code: &str) -> &'static str {
         "not_found" => "bots.error_not_found",
         "bot_encrypted_room" => "bots.error_encrypted_room",
         "crypto_bot_member" => "bots.error_crypto_member",
+        "invalid_avatar" => "bots.error_invalid_avatar",
+        "avatar_too_large" => "bots.error_avatar_too_large",
+        "avatar_busy" => "bots.error_avatar_busy",
+        "storage_unavailable" => "bots.error_storage_unavailable",
         "offline" | "connection_failed" | "session_closed" => "native.offline",
         _ => "bots.failed",
     }
@@ -214,11 +262,16 @@ mod tests {
             "not_found",
             "bot_encrypted_room",
             "crypto_bot_member",
+            "invalid_avatar",
+            "avatar_too_large",
+            "avatar_busy",
+            "storage_unavailable",
             "something_else",
         ] {
             assert!(!crate::i18n::t(error_key(code)).is_empty(), "{code}");
         }
         assert_eq!(error_key("bot_key_replayed"), "bots.error_key_replayed");
+        assert_eq!(error_key("avatar_too_large"), "bots.error_avatar_too_large");
     }
 
     #[test]

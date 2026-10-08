@@ -1157,7 +1157,7 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/native/bots.rs",
-      "line": 191,
+      "line": 239,
       "kind": "url",
       "surface": "/api/v1/rooms"
     },

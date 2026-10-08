@@ -263,7 +263,7 @@ beta does.
 | Feature | Mobile | GTK | SwiftUI | Notes |
 |---|---|---|---|---|
 | "BOT" badge on bot authors, members and profiles, with the owner on the profile | done | done | done | Not on search results, pins or encrypted rows on mobile; messages cached before the update until the server resends them. SwiftUI views compiled by the macOS CI only. |
-| "My bots": list, create with scopes, edit description and scopes, delete | done | done | done | Scope sentences and their API routes read from `GET /api/v1/bots/reference`. Renaming the bot and its avatar are the bot's own `/me`, not in the apps. SwiftUI views compiled by the macOS CI only. |
+| "My bots": list, create with scopes, edit display name, photo, description and scopes, delete | done | done | done | Scope sentences and their API routes read from `GET /api/v1/bots/reference`. SwiftUI views compiled by the macOS CI only. |
 | Bot keys: create after a recent sign-in, shown once with copy and a curl example, list, revoke | done | done | done | Never stored. SwiftUI views compiled by the macOS CI only. |
 | Administrators' switch "Users can create bots" | done | done | done | Dashboard card, RocketVibe only. |
 | Bot badge in the administrators' user list | done | done | done | Rocket.Chat already had it (`type` bot or app). |

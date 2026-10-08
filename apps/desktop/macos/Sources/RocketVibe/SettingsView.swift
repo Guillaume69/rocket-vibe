@@ -428,7 +428,9 @@ struct MyProfileSection: View {
     }
 }
 
-private func profilePNG(_ url: URL) -> Data? {
+/// A chosen picture as a native photo: upright, at most 512 pixels, PNG, at
+/// most 2 MiB (my profile and my bots).
+func profilePNG(_ url: URL) -> Data? {
     guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
           let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
             kCGImageSourceCreateThumbnailFromImageAlways: true,

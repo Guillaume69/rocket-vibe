@@ -32,7 +32,7 @@ struct BotsSection: View {
                         BotDetail(model: model, bot: bot, deleting: $deleting, revoking: $revoking)
                     } label: {
                         HStack(spacing: 8) {
-                            Avatar(path: nil, name: bot.username, size: 22)
+                            Avatar(path: bot.avatar, name: bot.username, size: 22)
                             Text(bot.displayName)
                             Text("@\(bot.username)").foregroundStyle(.secondary)
                             AdminBadge(text: L("bots.badge"), color: Vibe.sky)
@@ -95,6 +95,7 @@ struct BotDetail: View {
     let bot: NativeBot
     @Binding var deleting: NativeBot?
     @Binding var revoking: BotKeyTarget?
+    @State private var displayName = ""
     @State private var description = ""
     @State private var scopes: Set<String> = []
     @State private var label = ""
@@ -109,13 +110,29 @@ struct BotDetail: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                Avatar(path: bot.avatar, name: bot.username, size: 48)
+                VStack(alignment: .leading) {
+                    Text(bot.displayName).font(.title3.bold())
+                    Text("@\(bot.username)").foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button(L("settings.photo_change"), action: changePhoto)
+                Button(L("settings.photo_remove")) { Task { await model.setPhoto(bot, png: nil) } }
+                    .disabled(bot.avatar == nil)
+            }
+            .disabled(model.busy)
+            TextField(L("bots.display_name"), text: $displayName)
             TextField(L("bots.description"), text: $description, axis: .vertical).lineLimit(1 ... 4)
             BotScopes(model: model, selected: $scopes)
             Button(L("settings.save")) {
                 let chosen = BotsModel.scopes.filter(scopes.contains)
-                Task { _ = await model.update(bot, description: description, scopes: chosen) }
+                Task { _ = await model.update(bot, displayName: displayName, description: description, scopes: chosen) }
             }
-            .disabled(model.busy || (description == bot.description && scopes == Set(bot.scopes)))
+            .disabled(model.busy || (
+                displayName.trimmingCharacters(in: .whitespacesAndNewlines) == bot.displayName
+                    && description == bot.description && scopes == Set(bot.scopes)
+            ))
 
             Text(L("bots.keys")).font(.headline)
             if let keys = model.keys[bot.id] {
@@ -155,8 +172,17 @@ struct BotDetail: View {
             }
             Button(L("bots.delete"), role: .destructive) { deleting = bot }.disabled(model.busy)
         }
-        .onAppear { description = bot.description; scopes = Set(bot.scopes) }
+        .onAppear { displayName = bot.displayName; description = bot.description; scopes = Set(bot.scopes) }
         .task(id: bot.id) { await model.loadKeys(bot) }
+    }
+
+    /// The same picker and conversion as my own photo, aimed at the bot.
+    func changePhoto() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard let png = profilePNG(url) else { model.photoRejected(); return }
+        Task { await model.setPhoto(bot, png: png) }
     }
 }
 

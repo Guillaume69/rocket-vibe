@@ -82,11 +82,24 @@ public final class BotsModel {
             try await $0.createBot(username: username, displayName: displayName, description: description, scopes: scopes)
         }
     }
-    public func update(_ bot: NativeBot, description: String, scopes: [String]) async -> Bool {
-        let saved = await act { try await $0.updateBot(id: bot.id, description: description, scopes: scopes) }
+    /// The display name is sent only when it changed; rv-core trims it and
+    /// refuses an empty one.
+    public func update(_ bot: NativeBot, displayName: String, description: String, scopes: [String]) async -> Bool {
+        let name = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let renamed: String? = name == bot.displayName ? nil : name
+        let saved = await act {
+            try await $0.updateBot(id: bot.id, displayName: renamed, description: description, scopes: scopes)
+        }
         if saved != nil { notice = L("bots.saved") }
         return saved != nil
     }
+    /// Sets the bot's photo (a PNG) or, with nil, removes it.
+    public func setPhoto(_ bot: NativeBot, png: Data?) async {
+        let saved = await act { try await $0.setBotAvatar(id: bot.id, mime: png == nil ? nil : "image/png", bytes: png ?? Data()) }
+        if saved != nil { notice = L(png == nil ? "bots.photo_removed" : "bots.photo_saved") }
+    }
+    /// The chosen picture could not be made a photo.
+    public func photoRejected() { if active && !busy { notice = L("bots.error_invalid_avatar") } }
     /// Final: its keys revoked, its rooms left, its username retired.
     public func delete(_ bot: NativeBot) async -> Bool {
         let done: Void? = await act { try await $0.deleteBot(id: bot.id) }

@@ -14,24 +14,35 @@ use std::{
     time::Duration,
 };
 
+/// The file id of the bot's photo the fake server hands out.
+const PHOTO: &str = "b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0";
+
 #[tokio::test]
 async fn bots_keys_and_the_instance_setting_follow_the_contract() {
     let fixture: serde_json::Value =
         serde_json::from_str(include_str!("../../../../../docs/protocol/v1.fixture.json")).unwrap();
     let recent = Arc::new(AtomicBool::new(false));
     let bodies = Arc::new(Mutex::new(Vec::<(String, String, serde_json::Value)>::new()));
-    let (responses, fresh, log) = (fixture.clone(), recent.clone(), bodies.clone());
+    let photos = Arc::new(Mutex::new(Vec::<(String, Option<String>, Vec<u8>)>::new()));
+    let (responses, fresh, log, uploads) = (fixture.clone(), recent.clone(), bodies.clone(), photos.clone());
     let server = FakeHttp::start(move |request| {
-        if request.method != "GET" {
+        if request.path().ends_with("/avatar") {
+            let mime = request.headers.get("content-type").cloned();
+            uploads.lock().unwrap().push((request.method.clone(), mime, request.raw.clone()));
+        } else if request.method != "GET" {
             let body = serde_json::from_str(&request.body).unwrap_or(serde_json::Value::Null);
             log.lock().unwrap().push((request.method.clone(), request.target.clone(), body));
         }
         let bots = &responses["bots"];
+        let mut pictured = bots["bot"].clone();
+        pictured["avatar_file_id"] = json!(PHOTO);
         match (request.method.as_str(), request.path()) {
             (_, "/.well-known/rocketvibe") => {
                 let mut discovery = responses["discovery"].clone();
                 discovery["capabilities"]["administration"] = json!(true);
                 discovery["capabilities"]["bots"] = json!(true);
+                discovery["capabilities"]["profiles"] = json!(true);
+                discovery["capabilities"]["profile_avatars"] = json!(true);
                 respond(200, &discovery.to_string())
             }
             (_, "/api/v1/me") => respond(200, &responses["session"]["user"].to_string()),
@@ -52,6 +63,14 @@ async fn bots_keys_and_the_instance_setting_follow_the_contract() {
             ("POST", "/api/v1/bots") => respond(201, &bots["bot"].to_string()),
             ("PATCH", "/api/v1/bots/helper-id") => respond(200, &bots["bot"].to_string()),
             ("DELETE", "/api/v1/bots/helper-id") => respond(204, ""),
+            ("PUT", "/api/v1/bots/helper-id/avatar") => respond(200, &pictured.to_string()),
+            ("DELETE", "/api/v1/bots/helper-id/avatar") => respond(200, &bots["bot"].to_string()),
+            ("GET", path) if path == format!("/api/v1/avatars/{PHOTO}") => common::Response {
+                status: 200,
+                binary: Some(b"\x89PNG-bot".to_vec()),
+                headers: vec![("Content-Type".into(), "image/png".into())],
+                ..Default::default()
+            },
             ("GET", "/api/v1/bots/helper-id/keys") => respond(200, &bots["bot_key_list"].to_string()),
             ("POST", "/api/v1/bots/helper-id/keys") if fresh.load(Ordering::SeqCst) => {
                 respond(201, &bots["bot_key_created"].to_string())
@@ -112,7 +131,27 @@ async fn bots_keys_and_the_instance_setting_follow_the_contract() {
         .unwrap();
     assert_eq!(made.user.id, "helper-id");
     assert_eq!(session.create_bot("  ", "Name", "", &[]).await.unwrap_err().code(), "invalid_request");
-    session.update_bot("helper-id", Some(" Builds "), Some(&[BotScope::RoomsRead])).await.unwrap();
+    session.update_bot("helper-id", None, Some(" Builds "), Some(&[BotScope::RoomsRead])).await.unwrap();
+    session.update_bot("helper-id", Some(" Build bot "), None, None).await.unwrap();
+    for name in ["   ", &"n".repeat(257)] {
+        let refused = session.update_bot("helper-id", Some(name), None, None).await.unwrap_err();
+        assert_eq!(refused.code(), "invalid_request", "{name:?}");
+    }
+
+    assert!(!session.avatar_current(PHOTO).unwrap(), "no bot wears it yet");
+    assert_eq!(session.profile_avatar(PHOTO).await.unwrap_err().code(), "avatar_retired");
+    let pictured = session.set_bot_avatar("helper-id", Some(("image/png", b"\x89PNG-bot".to_vec()))).await.unwrap();
+    assert_eq!(pictured.avatar_file_id.as_deref(), Some(PHOTO));
+    assert!(session.avatar_current(PHOTO).unwrap());
+    assert_eq!(session.profile_avatar(PHOTO).await.unwrap(), b"\x89PNG-bot");
+    let refused = session.set_bot_avatar("helper-id", Some(("image/gif", b"GIF89a".to_vec()))).await.unwrap_err();
+    assert_eq!(native::bots::error_key(refused.code()), "bots.error_invalid_avatar");
+    let huge = vec![0u8; native::bots::AVATAR_BYTES + 1];
+    let refused = session.set_bot_avatar("helper-id", Some(("image/jpeg", huge))).await.unwrap_err();
+    assert_eq!(native::bots::error_key(refused.code()), "bots.error_avatar_too_large");
+    let bare = session.set_bot_avatar("helper-id", None).await.unwrap();
+    assert!(bare.avatar_file_id.is_none() && !session.avatar_current(PHOTO).unwrap());
+
     assert_eq!(session.bot_keys("helper-id").await.unwrap()[0].hint, "9f3a");
 
     let refused = session.create_bot_key("helper-id", "CI", Some(365)).await.unwrap_err();
@@ -138,8 +177,23 @@ async fn bots_keys_and_the_instance_setting_follow_the_contract() {
     assert_eq!(create["display_name"], "helper", "an empty name falls back to the username");
     assert_eq!(create["scopes"], json!(["rooms:read", "messages:write"]), "canonical order");
     assert!(create["operation_id"].as_str().is_some_and(|id| !id.is_empty()));
-    let update = body("PATCH", "/api/v1/bots/helper-id");
-    assert_eq!((update["description"].clone(), update["scopes"].clone()), (json!("Builds"), json!(["rooms:read"])));
+    let updates: Vec<_> =
+        sent.iter().filter(|(m, t, _)| m == "PATCH" && t == "/api/v1/bots/helper-id").map(|(_, _, b)| b).collect();
+    assert_eq!(updates.len(), 2, "refused names never leave");
+    assert_eq!(
+        (updates[0]["description"].clone(), updates[0]["scopes"].clone()),
+        (json!("Builds"), json!(["rooms:read"]))
+    );
+    assert!(updates[0].get("display_name").is_none_or(|n| n.is_null()), "a kept name is not sent");
+    assert_eq!(updates[1]["display_name"], "Build bot", "trimmed");
+    assert!(
+        updates[1].get("description").is_none_or(|d| d.is_null())
+            && updates[1].get("scopes").is_none_or(|s| s.is_null())
+    );
+    let photos = photos.lock().unwrap().clone();
+    assert_eq!(photos.len(), 2, "refused photos never leave: {photos:?}");
+    assert_eq!(photos[0], ("PUT".into(), Some("image/png".into()), b"\x89PNG-bot".to_vec()));
+    assert_eq!((photos[1].0.as_str(), photos[1].2.is_empty()), ("DELETE", true));
     let key = sent.iter().rfind(|(m, t, _)| m == "POST" && t == "/api/v1/bots/helper-id/keys").unwrap();
     assert_eq!((key.2["label"].clone(), key.2["expires_in_days"].clone()), (json!("CI"), json!(365)));
     assert_eq!(body("PATCH", "/api/v1/admin/settings")["user_bots"], true);

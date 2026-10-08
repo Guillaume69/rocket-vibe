@@ -51,13 +51,23 @@ In automatic mode the apps try, in order: kChat host, RocketVibe discovery
   not be found."}`, neither with `id`. On a kChat account a JSON body with a
   `message` is enough to believe the status, or a revoked token would never sign
   the account out.
-- **401 with the envelope on an authenticated call = the session is over.**
+- **401 with the envelope on an authenticated call = the session is over**,
+  with one exception: **a wrong current password answers 401 with the full
+  envelope**, `api.user.check_user_password.invalid.app_error` (e.g.
+  `PUT /users/me/patch` changing the email or username) [probed]. It judges the
+  password typed, not the token, and must not sign out. The same envelope rule
+  applies to kChat's `/broadcasting/auth` and to the resume at startup: a 401
+  whose body is not the server's own never ends a session.
   Anonymous calls (login) and "quiet" checks (resume, token test, another
   account's unread badge) judge their 401 themselves and never sign out.
-- **429:** wait `X-Ratelimit-Reset` seconds (1 s when absent), capped at 30 s,
-  3 attempts.
+- **429:** wait `X-Ratelimit-Reset` **seconds** (1 s when absent), capped at
+  30 s, 3 attempts. Rocket.Chat's header with the same name is an instant in
+  epoch milliseconds: a client speaking both tells them apart by size.
 - Lists are bare JSON arrays, paged by `page` (from 0) and `per_page` (max 200);
-  stop on a short page.
+  stop on a short page. **Except `GET /users/me/channels`**, which ignores both
+  and answers the whole list on every page [probed] [kChat]: read it once, or a
+  page walk never ends past 200 channels. `/users/me/channel_members` and
+  `/emoji` do page.
 
 ## 3. Sign-in
 
@@ -90,7 +100,11 @@ server of the account:
   `hide_create_account=` and `prompt=login`. Exchange at `POST /token`
   (`grant_type=authorization_code`, `code`, `code_verifier`, `client_id`,
   `redirect_uri`). The access token does not expire and no refresh token comes
-  back. Check `state` on the redirect.
+  back. Check `state` on the redirect. The redirect scheme is the official kChat
+  app's: with that app installed, Android may hand the redirect to it. The login
+  screen stops waiting as soon as the user is back without it, and the API
+  token remains the way in. Logout does not revoke this token (no revocation
+  route probed): known limit.
 - **Personal API token** [kChat]: created at manager.infomaniak.com (API
   tokens), works as is on the team server.
 - **Team servers** [kChat]: `GET https://kchat.infomaniak.com/api/v4/users/me/servers`
@@ -98,7 +112,9 @@ server of the account:
   `url` (`https://<team>.kchat.infomaniak.com`), `account_id`, `product_id`,
   `pack_name`. One server is taken, several are offered. Choosing kChat asks
   no address in any app: sign-in starts at the directory, and a team host typed
-  in automatic mode (or a known server) signs in there directly.
+  in automatic mode (or a known server) signs in there directly. That answer
+  decides where the account-wide token goes, so the apps keep only `https`
+  addresses on `kchat.infomaniak.com` or its subdomains.
 
 ### 3.4 Session
 
@@ -111,8 +127,8 @@ the Infomaniak account's).
 
 ### 4.1 Rooms and memberships
 
-- `GET /users/me/channels` and `GET /users/me/channel_members`, paged. Both cover
-  **every team and the DMs** in one list each [probed]. Drop channels with
+- `GET /users/me/channels` (one answer, see 2) and `GET /users/me/channel_members`
+  (paged). Both cover **every team and the DMs** in one list each [probed]. Drop channels with
   `delete_at > 0` and channels without my membership.
 - Channel `type`: `O` public, `P` private, `D` direct, `G` group DM.
   - A `D` channel's `name` is `<userIdA>__<userIdB>`: the other one is the peer
@@ -121,10 +137,15 @@ the Infomaniak account's).
     the apps drop mine.
 - Neither carries the last message: fetch the newest root post (4.3,
   `per_page=1`) of the rooms that changed. The apps do it for the 40 most
-  recently active, 4 at a time.
+  recently active, 4 at a time. A room written without its last post (past
+  those 40, or rewritten by a channel event) keeps its stored preview
+  (`keepPreview` / `keep_preview`); only its time moves.
 - Changed since the last pass: `max(update_at, last_root_post_at || last_post_at)`
-  above a stored cursor. An unchanged room is not rewritten, or its preview would
-  be lost.
+  above a stored cursor. An unchanged room is not rewritten.
+- The pass is a snapshot: a `posted` or a read that arrives during its requests
+  is newer, and memberships' `last_update_at` does not move on either, so no
+  update-time guard can tell. The live side stamps each room an event changes;
+  the catch-up leaves alone the rooms stamped after it began.
 
 ### 4.2 Unread counts (derived, nothing is pushed)
 
@@ -177,7 +198,10 @@ new posts, edits, and deletions as posts with `delete_at > 0` [probed]. **On
 kChat `since=` leaves deleted posts out** [kChat]: they come only from the route
 below. It is
 fast server-side, unlike Rocket.Chat's `chat.syncMessages`. The cursor is the
-newest `update_at` stored for the room; a room never loaded is skipped. kChat
+newest `update_at` stored for the room; a room never loaded is skipped. Its
+answer is capped at 1000 posts, in no promised order (read in the 11.11
+server); after a gap with more changes than that in one room, the apps ingest
+what came and miss the rest (known limit, see `apps/mobile/WORKSTREAMS.md`). kChat
 lists deletions at `GET /channels/<id>/deleted_posts?since=<ms>`, a JSON array
 of post ids [kChat].
 
@@ -297,8 +321,8 @@ kChat replaced the WebSocket with the **Pusher protocol**:
    **without the `broadcast` envelope**, nested documents as **objects**, all of
    them on the `presence-teamUser.<id>` channel. A `posted` adds
    `channel_display_name`, `channel_name`, `channel_type`, `sender_name`,
-   `set_online` and `team_id`. Ignore `pusher*` and `client-*` events, and
-   `badge_updated`.
+   `set_online` and `team_id`. Ignore `pusher*` and `client-*` events;
+   `badge_updated` is kChat's only sign of a read made elsewhere (4.2).
 6. **Ids are UUIDs** (posts UUIDv7), not Mattermost's 26-character ids; a DM's
    `name` is still `<idA>__<idB>`.
 
@@ -340,8 +364,11 @@ ids, `[{user_id, status}]`.
   Upstream accepts any string. The apps send `<my id>:<the client id's hex read
   as a decimal number>`, so a replay of the same row sends the same value.
 - That memory is a **short-lived cache, not stored**: a replay much later may
-  create a duplicate. Before declaring a refusal, the apps read the room's 30
-  newest posts for one of mine with the same text and thread.
+  create a duplicate, and a stored post does not keep `pending_post_id`
+  [probed]. Before declaring a refusal, the apps read the room's 30 newest
+  posts for one of mine with the same text and thread **created since the row
+  was queued** (two minutes of clock skew allowed): an older identical message
+  is not this one.
 - On success the optimistic row (client id) is replaced by the server's post
   (server id).
 
@@ -399,8 +426,11 @@ type `custom_call`, e.g. "bob started a call", whose `props` are
 `FeatureFlagIkCallDialing` true on the server).
 
 - Running (no `end_at`, `status` not `ended`, `missed`, `declined` or
-  `cancelled`): the apps show a call card whose Join opens `props.url` (https
-  only) in the locked call view, origin `kmeet.infomaniak.com`.
+  `cancelled`): the apps show a call card whose Join opens `props.url` in the
+  locked call view. **Any room member can post a `custom_call` with any
+  `props.url`**, and that view grants camera and microphone to its origin, so
+  only `https://kmeet.infomaniak.com` is accepted, in the post and again at
+  join (a `rocketvibe://call/<url>` link included).
 - Over: a `videoconf-ended` row, "📞 Call · <end_at − start_at>".
 - Starting a call is not mapped: its route was not probed (it would ring the
   room's members).
@@ -422,7 +452,11 @@ type `custom_call`, e.g. "bob started a call", whose `props` are
 ## 8. Not mapped
 
 Push (a third-party app gets none on kChat: Infomaniak's proxy routes to its own
-app id), starting a kMeet call, quotes, room settings and roles, end-to-end encryption, sending who types.
+app id), starting a kMeet call, quotes, room settings and roles, end-to-end
+encryption, sending who types, muted channels (`notify_props.mark_unread`:
+they count as unread), the live update of a thread's reply count
+(`thread_updated`), and, on mobile, stars changed elsewhere
+(`preferences_changed`; the desktop follows them).
 
 ## 9. Validating an implementation
 

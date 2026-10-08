@@ -35,8 +35,8 @@ release, and its notes are that version's section here.
 - Mattermost servers: sign in with your username and password (and your MFA code), then
   read and write as on Rocket.Chat: rooms, unread counts and mentions, live messages,
   threads, files, reactions, edits, deletions, pins, saved messages, search in a room,
-  room information and profiles, who is typing and presence. Push and custom emoji
-  are not available on these servers yet.
+  room information and profiles, who is typing and presence. Push is not available on
+  these servers yet.
 - kChat (Infomaniak): choose kChat, no address to type, then sign in with your
   Infomaniak account in the browser or paste an Infomaniak API token, and pick your
   kChat server when the account has several.

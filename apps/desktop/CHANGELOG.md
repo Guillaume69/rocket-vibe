@@ -34,7 +34,7 @@ section here.
   your MFA code), then read and write as on Rocket.Chat: rooms, unread counts and
   mentions, live messages and notifications, who is typing, presence, threads, files,
   reactions, edits, deletions, pins, stars, search in a room, room information and
-  profiles. Push and custom emoji are not available on these servers.
+  profiles. Push is not available on these servers.
 - kChat (Infomaniak): choose kChat and paste an Infomaniak API token; no address to
   type. An account with several kChat servers is asked which one.
 - Mattermost and kChat: the server's custom emoji show in messages, reactions, the picker

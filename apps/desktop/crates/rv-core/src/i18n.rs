@@ -1743,6 +1743,7 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("workflows.people_limit", "50 personnes au plus par champ", "50 people at most per field"),
     ("workflows.field_options", "Choix, séparés par des virgules", "Options, separated by commas"),
     ("workflows.field_required", "Obligatoire", "Required"),
+    ("workflows.field_multiple", "Plusieurs réponses", "Several answers"),
     ("workflows.field_remove", "Retirer le champ", "Remove field"),
     ("workflows.field_id", "Variable : {id}", "Variable: {id}"),
     ("workflows.variables", "Variables", "Variables"),

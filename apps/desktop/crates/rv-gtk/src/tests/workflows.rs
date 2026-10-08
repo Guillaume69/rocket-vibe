@@ -153,6 +153,15 @@ fn the_editor_and_the_form_card_follow_the_contract() {
     let Step::Form { fields, .. } = step else { panic!() };
     assert_eq!((fields[2].kind, fields[2].people.len()), (FormFieldKind::Person, 0));
     drop(kinds);
+    // "Several answers" shows for a choice or a person only.
+    let several = find(&page, "workflow-field-multiple");
+    let shown: Vec<bool> = several.iter().map(|w| w.is_visible()).collect();
+    assert_eq!(shown, [false, true, true], "long text, choice, person");
+    several[2].downcast_ref::<adw::SwitchRow>().unwrap().set_active(true);
+    let step = ed.draft.borrow().steps[0].clone();
+    let Step::Form { fields, .. } = step else { panic!() };
+    assert!(fields[2].multiple && !fields[1].multiple);
+    drop(several);
     // Save sends the whole definition at the revision it was read at.
     find(&page, "workflow-save")[0].downcast_ref::<adw::ButtonRow>().unwrap().emit_by_name::<()>("activated", &[]);
     until(|| sent.lock().unwrap().iter().any(|(m, p, _)| m == "PUT" && p == "/api/v1/workflows/wf-id"));

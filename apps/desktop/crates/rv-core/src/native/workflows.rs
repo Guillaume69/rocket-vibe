@@ -9,9 +9,9 @@ use std::collections::BTreeMap;
 use super::{Error, NativeSession, room_operation_id};
 pub use rv_protocol::User;
 pub use rv_protocol::workflows::{
-    DESCRIPTION_BYTES, Every, FORM_FIELDS, FormField, FormFieldKind, FormRecipient, HTTP_HEADERS, HttpHeader,
-    HttpMethod, NAME_BYTES, PEOPLE_PER_FIELD, RunState, STEPS_PER_WORKFLOW, Step, TRIGGER_ROOM, Trigger, WAIT_SECONDS,
-    Workflow, WorkflowForm, WorkflowRun,
+    DESCRIPTION_BYTES, Every, FORM_FIELDS, FormAnswer, FormField, FormFieldKind, FormRecipient, HTTP_HEADERS,
+    HttpHeader, HttpMethod, NAME_BYTES, PEOPLE_PER_FIELD, RunState, STEPS_PER_WORKFLOW, Step, TRIGGER_ROOM, Trigger,
+    WAIT_SECONDS, Workflow, WorkflowForm, WorkflowRun,
 };
 
 use crate::i18n::{t, tf};
@@ -215,9 +215,11 @@ impl NativeSession {
         self.ready()?;
         Ok(started.run_id)
     }
-    /// Answers the form `message` carries, field id to text. Checked first
-    /// against the form as stored, when it is (`form_required`, `form_value`).
-    pub async fn answer_form(&self, message: &str, answers: &BTreeMap<String, String>) -> Result<(), Error> {
+    /// Answers the form `message` carries, field id to its answer (a list for
+    /// a `multiple` field). Checked first against the form as stored, when it
+    /// is (`form_required`, `form_value`), which also gives each field the
+    /// shape it takes.
+    pub async fn answer_form(&self, message: &str, answers: &BTreeMap<String, FormAnswer>) -> Result<(), Error> {
         self.workflow_access()?;
         let answers = match self.store.message_form(message)? {
             Some(form) => checked_answers(&form, answers).map_err(Error::Protocol)?,
@@ -530,6 +532,7 @@ pub fn new_step(kind: &str, trigger: &Trigger, steps: &[Step]) -> Option<Step> {
                 kind: FormFieldKind::Text,
                 options: vec![],
                 people: vec![],
+                multiple: false,
                 required: true,
             }],
             save_as: identifier("form", &taken),
@@ -685,7 +688,9 @@ pub fn variables(trigger: &Trigger, steps: &[Step], index: usize) -> Vec<String>
                 for field in fields {
                     names.push(format!("{save_as}.answers.{}", field.id));
                     if field.kind == FormFieldKind::Person {
-                        names.push(format!("{save_as}.people.{}.display_name", field.id));
+                        names.push(format!("{save_as}.mentions.{}", field.id));
+                        let person = if field.multiple { format!("{}.0", field.id) } else { field.id.clone() };
+                        names.push(format!("{save_as}.people.{person}.display_name"));
                     }
                 }
                 names.push(format!("{save_as}.by.username"));
@@ -762,26 +767,32 @@ pub fn can_answer(form: &WorkflowForm, me: &str, now: chrono::DateTime<chrono::U
     form_open(form, now) && form.recipient.as_ref().is_none_or(|r| r.id == me)
 }
 
-/// The answers as the server takes them: trimmed, an optional field left
-/// empty left out; `form_required` or `form_value` (a number that does not
-/// parse, a choice not offered, an unknown field, a text too long) otherwise.
+/// The answers as the server takes them: trimmed, a field left empty left
+/// out, one value for a single field and a list for a `multiple` one;
+/// `form_required` or `form_value` (several values for a single field, a
+/// number that does not parse, a choice not offered, a person not listed, an
+/// unknown field, a text too long) otherwise.
 pub fn checked_answers(
     form: &WorkflowForm,
-    answers: &BTreeMap<String, String>,
-) -> Result<BTreeMap<String, String>, &'static str> {
+    answers: &BTreeMap<String, FormAnswer>,
+) -> Result<BTreeMap<String, FormAnswer>, &'static str> {
     if answers.keys().any(|id| !form.fields.iter().any(|f| f.id == *id)) {
         return Err("form_value");
     }
     let mut out = BTreeMap::new();
     for field in &form.fields {
-        let value = answers.get(&field.id).map(|v| v.trim()).unwrap_or_default();
-        if value.is_empty() {
+        let mut values: Vec<&str> = answers.get(&field.id).map(FormAnswer::values).unwrap_or_default();
+        values.dedup();
+        if values.is_empty() {
             if field.required {
                 return Err("form_required");
             }
             continue;
         }
-        let fits = match field.kind {
+        if values.len() > 1 && !field.multiple {
+            return Err("form_value");
+        }
+        let fits = |value: &str| match field.kind {
             FormFieldKind::Text => value.len() <= TEXT_ANSWER,
             FormFieldKind::LongText => value.len() <= LONG_ANSWER,
             FormFieldKind::Number => value.parse::<f64>().is_ok_and(f64::is_finite),
@@ -789,10 +800,15 @@ pub fn checked_answers(
             // A user id; with no list, the server checks room membership.
             FormFieldKind::Person => field.people.is_empty() || field.people.iter().any(|p| p == value),
         };
-        if !fits {
+        if !values.iter().all(|v| fits(v)) {
             return Err("form_value");
         }
-        out.insert(field.id.clone(), value.to_owned());
+        let answer = if field.multiple {
+            FormAnswer::Many(values.into_iter().map(str::to_owned).collect())
+        } else {
+            FormAnswer::One(values[0].to_owned())
+        };
+        out.insert(field.id.clone(), answer);
     }
     Ok(out)
 }
@@ -1099,6 +1115,7 @@ mod tests {
                     kind: FormFieldKind::LongText,
                     options: vec![],
                     people: vec![],
+                    multiple: false,
                     required: true,
                 }],
                 save_as: "standup".into(),
@@ -1142,6 +1159,7 @@ mod tests {
                     kind: FormFieldKind::LongText,
                     options: vec![],
                     people: vec![],
+                    multiple: false,
                     required: true,
                 },
                 FormField {
@@ -1150,6 +1168,7 @@ mod tests {
                     kind: FormFieldKind::Number,
                     options: vec![],
                     people: vec![],
+                    multiple: false,
                     required: false,
                 },
                 FormField {
@@ -1158,6 +1177,7 @@ mod tests {
                     kind: FormFieldKind::Choice,
                     options: vec!["good".into(), "meh".into()],
                     people: vec![],
+                    multiple: false,
                     required: false,
                 },
                 FormField {
@@ -1166,6 +1186,7 @@ mod tests {
                     kind: FormFieldKind::Person,
                     options: vec![],
                     people: vec!["bob-id".into()],
+                    multiple: false,
                     required: false,
                 },
             ],
@@ -1215,8 +1236,9 @@ mod tests {
     fn answers_are_checked_like_the_server() {
         let form = form();
         let answers = |pairs: &[(&str, &str)]| {
-            pairs.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect::<BTreeMap<_, _>>()
+            pairs.iter().map(|(k, v)| ((*k).to_owned(), FormAnswer::from(*v))).collect::<BTreeMap<_, _>>()
         };
+        let many = |values: &[&str]| FormAnswer::Many(values.iter().map(|v| (*v).to_owned()).collect());
         assert_eq!(
             checked_answers(&form, &answers(&[("today", " Reviews "), ("hours", ""), ("mood", "good")])),
             Ok(answers(&[("today", "Reviews"), ("mood", "good")]))
@@ -1226,11 +1248,30 @@ mod tests {
         assert_eq!(checked_answers(&form, &answers(&[("today", "x"), ("mood", "great")])), Err("form_value"));
         assert_eq!(checked_answers(&form, &answers(&[("today", "x"), ("other", "y")])), Err("form_value"));
         assert_eq!(checked_answers(&form, &answers(&[("today", &"x".repeat(4097))])), Err("form_value"));
-        assert_eq!(checked_answers(&form, &answers(&[("today", "x"), ("hours", "7.5")])).unwrap()["hours"], "7.5");
+        assert_eq!(
+            checked_answers(&form, &answers(&[("today", "x"), ("hours", "7.5")])).unwrap()["hours"],
+            "7.5".into()
+        );
         assert_eq!(
             checked_answers(&form, &answers(&[("today", "x"), ("reviewer", "bob-id")])).unwrap()["reviewer"],
-            "bob-id"
+            "bob-id".into()
         );
+        // Several values only for a multiple field, which always gets a list.
+        let mut two = answers(&[("today", "x")]);
+        two.insert("mood".into(), many(&["good", "meh"]));
+        assert_eq!(checked_answers(&form, &two), Err("form_value"));
+        let mut multiple = form.clone();
+        multiple.fields[2].multiple = true;
+        assert_eq!(checked_answers(&multiple, &two).unwrap()["mood"], many(&["good", "meh"]));
+        let one = answers(&[("today", "x"), ("mood", "good")]);
+        assert_eq!(checked_answers(&multiple, &one).unwrap()["mood"], many(&["good"]));
+        let mut list = answers(&[("today", "x")]);
+        list.insert("mood".into(), many(&["good"]));
+        assert_eq!(checked_answers(&form, &list).unwrap()["mood"], "good".into(), "a single field gets one value");
+        list.insert("mood".into(), many(&[]));
+        assert!(!checked_answers(&form, &list).unwrap().contains_key("mood"), "nothing picked, left out");
+        two.insert("mood".into(), many(&["good", "great"]));
+        assert_eq!(checked_answers(&multiple, &two), Err("form_value"));
         assert_eq!(checked_answers(&form, &answers(&[("today", "x"), ("reviewer", "eve-id")])), Err("form_value"));
         let listed = field_people(&form, &form.fields[3]).unwrap();
         assert_eq!((listed[0].username.as_str(), person_name(&listed[0])), ("bob", "Bob".to_owned()));

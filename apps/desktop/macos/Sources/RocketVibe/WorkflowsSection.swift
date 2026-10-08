@@ -117,6 +117,7 @@ struct WorkflowEditor: View {
     private var savable: Bool {
         !model.busy && changed && !editor.name.trimmingCharacters(in: .whitespaces).isEmpty && !editor.botId.isEmpty
             && (editor.trigger.kind != "message_posted" || !editor.trigger.contains.trimmingCharacters(in: .whitespaces).isEmpty)
+            && editor.problem == nil
     }
 
     var body: some View {
@@ -290,10 +291,9 @@ struct WorkflowEditor: View {
                     trigger: editor.trigger,
                     variables: editor.variables(index),
                     model: model,
-                    insert: { variable in
-                        if let at = editor.steps.firstIndex(where: { $0.id == step.id }) {
-                            editor.insertVariable(variable, step: at)
-                        }
+                    insert: { variable, range in
+                        guard let at = editor.steps.firstIndex(where: { $0.id == step.id }) else { return nil }
+                        return editor.insertVariable(variable, step: at, at: range)
                     },
                     move: { offset in
                         if let at = editor.steps.firstIndex(where: { $0.id == step.id }) { editor.moveStep(at, by: offset) }
@@ -326,6 +326,7 @@ struct WorkflowEditor: View {
 
     @ViewBuilder var actions: some View {
         Section {
+            if let problem = editor.problem { Text(problem).foregroundStyle(.red) }
             if let notice = model.notice { Text(notice).foregroundStyle(.secondary) }
             HStack {
                 Button(L("workflows.save"), action: save)
@@ -433,9 +434,24 @@ struct WorkflowStepEditor: View {
     let trigger: WorkflowTriggerForm
     let variables: [String]
     let model: WorkflowsModel
-    let insert: (String) -> Void
+    /// Puts a variable into the step's template over the range given (the
+    /// text editor's selection), else at its end; where the cursor goes next.
+    let insert: (String, Range<String.Index>?) -> String.Index?
     let move: (Int) -> Void
     let remove: () -> Void
+    /// The template's selection, when the template is a text editor (a
+    /// message's text, a request's body); a URL or a title gets it appended.
+    @State private var selection: TextSelection?
+
+    /// The template is the text editor that tracks `selection`.
+    private var editsTemplate: Bool {
+        step.template == \WorkflowStepForm.text || step.template == \WorkflowStepForm.body
+    }
+
+    private var selectedRange: Range<String.Index>? {
+        guard editsTemplate, let selection, case let .selection(range) = selection.indices else { return nil }
+        return range
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -447,7 +463,10 @@ struct WorkflowStepEditor: View {
                     Menu(L("workflows.variables")) {
                         if variables.isEmpty { Text(L("workflows.no_variables")) }
                         ForEach(variables, id: \.self) { variable in
-                            Button(variable) { insert(variable) }
+                            Button(variable) {
+                                let end = insert(variable, selectedRange)
+                                if editsTemplate, let end { selection = TextSelection(insertionPoint: end) }
+                            }
                         }
                     }
                     .fixedSize()
@@ -473,12 +492,14 @@ struct WorkflowStepEditor: View {
             }
         }
         .padding(.vertical, 4)
+        // The template moved between the URL and the body: its selection is stale.
+        .onChange(of: step.method) { _, _ in selection = nil }
     }
 
     @ViewBuilder var message: some View {
         WorkflowRoomPicker(title: L("workflows.room"), selection: $step.room, model: model, allowTrigger: trigger.hasRoom)
         Text(L("workflows.text"))
-        WorkflowTextEditor(text: $step.text)
+        WorkflowTextEditor(text: $step.text, selection: $selection)
         Toggle(L("workflows.in_thread"), isOn: $step.inThread)
         saveAs
     }
@@ -518,7 +539,7 @@ struct WorkflowStepEditor: View {
         Button(L("workflows.header_add")) { step.addHeader() }
             .disabled(step.headers.count >= 10)
         Text(L("workflows.body"))
-        WorkflowTextEditor(text: $step.body)
+        WorkflowTextEditor(text: $step.body, selection: step.template == \WorkflowStepForm.body ? $selection : nil)
         saveAs
         Toggle(L("workflows.continue_on_error"), isOn: $step.continueOnError)
     }
@@ -588,6 +609,9 @@ struct WorkflowFieldEditor: View {
                 if field.kind == "choice" {
                     TextField(L("workflows.field_options"), text: fieldBinding(\.options))
                 }
+                if field.kind == "choice" || field.kind == "person" {
+                    Toggle(L("workflows.field_multiple"), isOn: fieldBinding(\.multiple))
+                }
                 if field.kind == "person" {
                     WorkflowPeopleEditor(field: Binding(
                         get: { step.fields.indices.contains(index) ? step.fields[index] : Self.gone },
@@ -603,7 +627,7 @@ struct WorkflowFieldEditor: View {
     }
 
     /// What a binding reads once its field was removed, until the row goes.
-    private static let gone = WorkflowFieldForm(NativeFormField(id: "", label: "", kind: "text", options: [], people: [], required: false))
+    private static let gone = WorkflowFieldForm(NativeFormField(id: "", label: "", kind: "text", options: [], people: [], multiple: false, required: false))
 
     private func fieldBinding<T>(_ path: WritableKeyPath<WorkflowFieldForm, T>) -> Binding<T> {
         Binding(
@@ -664,15 +688,25 @@ struct WorkflowPeopleEditor: View {
 /// A template's text: a few lines, monospaced, growing with it.
 struct WorkflowTextEditor: View {
     @Binding var text: String
+    /// Its selection, kept for the Variables menu to insert at the cursor.
+    var selection: Binding<TextSelection?>? = nil
 
     var body: some View {
-        TextEditor(text: $text)
+        editor
             .font(.system(.body, design: .monospaced))
             .frame(minHeight: 70, maxHeight: 180)
             .scrollContentBackground(.hidden)
             .padding(4)
             .background(Vibe.deep, in: RoundedRectangle(cornerRadius: 6))
             .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Vibe.line))
+    }
+
+    @ViewBuilder private var editor: some View {
+        if let selection {
+            TextEditor(text: $text, selection: selection)
+        } else {
+            TextEditor(text: $text)
+        }
     }
 }
 

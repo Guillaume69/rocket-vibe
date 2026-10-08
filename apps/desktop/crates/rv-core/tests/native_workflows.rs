@@ -172,7 +172,7 @@ async fn workflows_forms_and_room_commands_follow_the_contract() {
     assert!(!session.disable_workflow("wf-id").await.unwrap().enabled);
 
     let answers = |pairs: &[(&str, &str)]| {
-        pairs.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect::<BTreeMap<_, _>>()
+        pairs.iter().map(|(k, v)| ((*k).to_owned(), workflows::FormAnswer::from(*v))).collect::<BTreeMap<_, _>>()
     };
     let empty = session.answer_form("message-id", &answers(&[("today", "  ")])).await.unwrap_err();
     assert_eq!(workflows::failure_key(&empty), "workflows.error_form_required");

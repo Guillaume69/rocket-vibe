@@ -232,9 +232,9 @@ public final class WorkflowsModel {
 }
 
 extension RoomModel {
-    /// Answers the form `message` carries (field id to text). Nil once sent,
-    /// else what went wrong, worded.
-    public func answerForm(message: String, answers: [String: String]) async -> String? {
+    /// Answers the form `message` carries (field id to its values). Nil once
+    /// sent, else what went wrong, worded.
+    public func answerForm(message: String, answers: [String: [String]]) async -> String? {
         guard active, membershipIsCurrent, let native = provider.native else { return L("workflows.failed") }
         do {
             try await native.answerForm(message: message, answers: answers)
@@ -379,6 +379,8 @@ public struct WorkflowFieldForm: Equatable {
     public var people: [String]
     /// A person field lists `people` ("These people"); off: any member of the room.
     public var choosesPeople: Bool
+    /// A choice or person field takes several answers (checkboxes), not one.
+    public var multiple: Bool
     public var required: Bool
     public var followsLabel: Bool
 
@@ -389,6 +391,7 @@ public struct WorkflowFieldForm: Equatable {
         options = Self.optionsText(field.options)
         people = field.people
         choosesPeople = !field.people.isEmpty
+        multiple = field.multiple
         required = field.required
         self.followsLabel = followsLabel
     }
@@ -396,16 +399,22 @@ public struct WorkflowFieldForm: Equatable {
     public var field: NativeFormField {
         NativeFormField(id: id, label: label.trimmingCharacters(in: .whitespaces), kind: kind,
                         options: kind == "choice" ? Self.options(options) : [],
-                        people: kind == "person" && choosesPeople ? people : [], required: required)
+                        people: kind == "person" && choosesPeople ? people : [],
+                        multiple: allowsMultiple && multiple, required: required)
     }
 
-    /// Another kind; leaving `person` forgets its people.
+    /// Only a choice or a person may take several answers.
+    public var allowsMultiple: Bool { kind == "choice" || kind == "person" }
+
+    /// Another kind; leaving `person` forgets its people, a kind that takes
+    /// one answer turns "Several answers" off.
     public mutating func setKind(_ kind: String) {
         self.kind = kind
         if kind != "person" {
             people = []
             choosesPeople = false
         }
+        if !allowsMultiple { multiple = false }
     }
 
     /// "Any member of the room" (false) or "These people" (true); any member forgets the list.
@@ -522,7 +531,7 @@ public struct WorkflowStepForm: Equatable, Identifiable {
     public mutating func addField() {
         let taken = fields.map(\.id)
         let field = NativeFormField(id: workflowIdentifier(label: "", taken: taken), label: "", kind: "text",
-                                    options: [], people: [], required: false)
+                                    options: [], people: [], multiple: false, required: false)
         fields.append(WorkflowFieldForm(field, followsLabel: true))
     }
 
@@ -577,14 +586,22 @@ public struct WorkflowDraftEditor: Equatable {
                             botId: botId, enabled: enabled, trigger: trigger.trigger, steps: steps.map(\.step))
     }
 
-    /// Another trigger kind, keeping its room. Without a trigger room, steps
-    /// naming it name none; without a triggering person, forms go to anyone.
+    /// Another trigger kind, keeping its room. The steps stay as they are:
+    /// one the new trigger cannot serve is named by `problem`, not changed.
     public mutating func setTriggerKind(_ kind: String) {
         trigger.setKind(kind)
-        for index in steps.indices {
-            if !trigger.hasRoom && steps[index].room == "trigger" { steps[index].room = "" }
-            if !trigger.hasUser && steps[index].recipient == "trigger_user" { steps[index].recipient = "anyone" }
+    }
+
+    /// Why the definition cannot be saved as it is, worded; nil when it can.
+    /// A step naming the trigger's room under a trigger without one (a
+    /// webhook), a form for the triggering person under a trigger without one.
+    public var problem: String? {
+        let messages = steps.filter { $0.kind == "message" || $0.kind == "form" }
+        if !trigger.hasRoom && messages.contains(where: { $0.room == "trigger" }) { return L("workflows.error_room") }
+        if !trigger.hasUser && steps.contains(where: { $0.kind == "form" && $0.recipient == "trigger_user" }) {
+            return L("workflows.error_form")
         }
+        return nil
     }
 
     /// A step of `kind` at the end, as rv-core starts one; its index.
@@ -614,11 +631,29 @@ public struct WorkflowDraftEditor: Equatable {
         workflowVariables(trigger: trigger.trigger, steps: steps.map(\.step), index: UInt32(max(index, 0)))
     }
 
-    /// `{{variable}}` appended to the step's template (`WorkflowStepForm.template`).
-    public mutating func insertVariable(_ variable: String, step index: Int) {
-        guard steps.indices.contains(index), let path = steps[index].template else { return }
-        steps[index][keyPath: path] += workflowPlaceholder(variable: variable)
+    /// `{{variable}}` put into the step's template (`WorkflowStepForm.template`):
+    /// over `range` (the editor's selection) when it lies in that text, else
+    /// at its end. Where the text's cursor goes next; nil when the step has
+    /// no template.
+    @discardableResult
+    public mutating func insertVariable(_ variable: String, step index: Int,
+                                        at range: Range<String.Index>? = nil) -> String.Index? {
+        guard steps.indices.contains(index), let path = steps[index].template else { return nil }
+        return workflowInsert(workflowPlaceholder(variable: variable), into: &steps[index][keyPath: path], replacing: range)
     }
+}
+
+/// `inserted` put into `text` over `range` when it lies within the text,
+/// else at its end; the index just past it.
+@discardableResult
+public func workflowInsert(_ inserted: String, into text: inout String, replacing range: Range<String.Index>?) -> String.Index {
+    guard let range, range.lowerBound >= text.startIndex, range.upperBound <= text.endIndex else {
+        text += inserted
+        return text.endIndex
+    }
+    let start = text.distance(from: text.startIndex, to: range.lowerBound)
+    text.replaceSubrange(range, with: inserted)
+    return text.index(text.startIndex, offsetBy: start + inserted.count)
 }
 
 /// A person as a list shows them: "Display Name (@username)", the username
@@ -644,17 +679,31 @@ public func workflowPeopleMatching(_ people: [NativeWorkflowUser], _ search: Str
     }
 }
 
-/// The answers a form card sends: trimmed, the empty optional ones left
-/// out; nil while a required field is empty.
-public func workflowFormAnswers(_ fields: [NativeFormField], _ values: [String: String]) -> [String: String]? {
-    var answers: [String: String] = [:]
+/// The answers a form card sends, each field's values as a list: trimmed,
+/// empty ones dropped, one value for a field that takes one answer, the
+/// fields with nothing picked left out; nil while a required field has none.
+public func workflowFormAnswers(_ fields: [NativeFormField], _ values: [String: [String]]) -> [String: [String]]? {
+    var answers: [String: [String]] = [:]
     for field in fields {
-        let value = (values[field.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        if value.isEmpty {
+        var picked: [String] = []
+        for value in values[field.id] ?? [] {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty && !picked.contains(trimmed) { picked.append(trimmed) }
+        }
+        if !field.multiple { picked = Array(picked.prefix(1)) }
+        if picked.isEmpty {
             if field.required { return nil }
             continue
         }
-        answers[field.id] = value
+        answers[field.id] = picked
     }
     return answers
+}
+
+/// A multiple field's values with `value` ticked or unticked, in the order
+/// they were ticked.
+public func workflowTick(_ values: [String], _ value: String, _ on: Bool) -> [String] {
+    var ticked = values.filter { $0 != value }
+    if on { ticked.append(value) }
+    return ticked
 }

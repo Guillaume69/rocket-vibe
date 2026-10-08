@@ -24,7 +24,7 @@ section here.
   my bots, a trigger (a slash command, a schedule in a time zone, someone joining a room, a
   reaction, a message containing some text, an incoming webhook whose URL is shown once) and steps to add, reorder and remove (send a
   message, wait, call an HTTP service, ask a form whose fields are a text, a number, a
-  choice or a person), with a Variables menu inserting
+  choice or a person, a choice or a person taking one answer or several), with a Variables menu inserting
   `{{…}}`; Save, Test, Disable, Delete and the run history. A form a workflow posts shows
   as a card in the room, with an Answer dialog for its recipient and who answered once
   done. Workflow commands join the room's command list.

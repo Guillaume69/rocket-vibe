@@ -90,8 +90,8 @@ final class WorkflowsTests: XCTestCase {
         form.fields[0].options = " good,  , meh ,bad"
         form.fields[1].options = "kept, out"
         XCTAssertEqual(form.step, .form(room: "trigger", recipient: "trigger_user", title: "", fields: [
-            NativeFormField(id: "mood", label: "Mood", kind: "choice", options: ["good", "meh", "bad"], people: [], required: false),
-            NativeFormField(id: "blockers_if_any", label: "Blockers, if any?", kind: "text", options: [], people: [], required: false),
+            NativeFormField(id: "mood", label: "Mood", kind: "choice", options: ["good", "meh", "bad"], people: [], multiple: false, required: false),
+            NativeFormField(id: "blockers_if_any", label: "Blockers, if any?", kind: "text", options: [], people: [], multiple: false, required: false),
         ], saveAs: "form"), "only a choice has options")
         XCTAssertEqual(WorkflowFieldForm.optionsText(["a", "b"]), "a, b")
     }
@@ -134,7 +134,21 @@ final class WorkflowsTests: XCTestCase {
         field.kind = "text"
         XCTAssertEqual(field.field.people, [], "only a person field sends people")
 
-        let saved = WorkflowFieldForm(NativeFormField(id: "who", label: "Who", kind: "person", options: [], people: ["u9"], required: true))
+        field.setKind("choice")
+        field.multiple = true
+        XCTAssertTrue(field.field.multiple)
+        field.setKind("person")
+        XCTAssertTrue(field.multiple, "a person may take several answers too")
+        field.setKind("number")
+        XCTAssertFalse(field.multiple, "a kind that takes one answer turns it off")
+        XCTAssertFalse(field.field.multiple)
+        field.setKind("choice")
+        XCTAssertFalse(field.field.multiple, "and it stays off")
+        field.multiple = true
+        field.kind = "long_text"
+        XCTAssertFalse(field.field.multiple, "only a choice or a person sends it")
+
+        let saved = WorkflowFieldForm(NativeFormField(id: "who", label: "Who", kind: "person", options: [], people: ["u9"], multiple: false, required: true))
         XCTAssertTrue(saved.choosesPeople)
         XCTAssertEqual(saved.field.people, ["u9"])
 
@@ -152,9 +166,9 @@ final class WorkflowsTests: XCTestCase {
         XCTAssertEqual(workflowPeopleMatching(people, "bo").map(\.id), ["u2"], "by username")
         XCTAssertEqual(workflowPeopleMatching(people, "", excluding: ["u1", "u3"]).map(\.id), ["u2"])
 
-        let fields = [NativeFormField(id: "who", label: "Who", kind: "person", options: [], people: [], required: true)]
+        let fields = [NativeFormField(id: "who", label: "Who", kind: "person", options: [], people: [], multiple: false, required: true)]
         XCTAssertNil(workflowFormAnswers(fields, [:]), "a required person")
-        XCTAssertEqual(workflowFormAnswers(fields, ["who": "u2"]), ["who": "u2"], "the answer is the user id")
+        XCTAssertEqual(workflowFormAnswers(fields, ["who": ["u2"]]), ["who": ["u2"]], "the answer is the user id")
     }
 
     func testHeadersAreAddedAndRemoved() {
@@ -218,7 +232,23 @@ final class WorkflowsTests: XCTestCase {
         XCTAssertEqual(editor.steps[2], wait, "a wait has no template")
         editor.insertVariable("trigger.text", step: 3)
         XCTAssertEqual(editor.steps[3].title, "{{trigger.text}}")
-        editor.insertVariable("now", step: 9)
+        XCTAssertNil(editor.insertVariable("now", step: 9))
+        XCTAssertNil(editor.insertVariable("now", step: 2), "a wait has no template")
+
+        // At the cursor, or over the selection; the cursor then goes after it.
+        editor.steps[0].text = "Hello world"
+        let text = editor.steps[0].text
+        let space = text.firstIndex(of: " ")!
+        let cursor = editor.insertVariable("now", step: 0, at: space ..< space)
+        XCTAssertEqual(editor.steps[0].text, "Hello{{now}} world")
+        XCTAssertEqual(cursor.map { editor.steps[0].text[..<$0] }, "Hello{{now}}")
+        let all = editor.steps[0].text.startIndex ..< editor.steps[0].text.endIndex
+        editor.insertVariable("trigger.text", step: 0, at: all)
+        XCTAssertEqual(editor.steps[0].text, "{{trigger.text}}", "the selection is replaced")
+        var short = "ab"
+        let far = "abcdef".index("abcdef".startIndex, offsetBy: 5)
+        XCTAssertEqual(workflowInsert("x", into: &short, replacing: far ..< far), short.endIndex)
+        XCTAssertEqual(short, "abx", "a range past the text: at its end")
     }
 
     func testWaitsConvertBetweenValueAndSeconds() {
@@ -257,15 +287,27 @@ final class WorkflowsTests: XCTestCase {
         XCTAssertEqual(editor.trigger.time, "09:00")
         XCTAssertFalse(editor.trigger.timezone.isEmpty, "the machine's zone")
         XCTAssertEqual(editor.trigger.timezone, workflowSystemTimeZone())
-        XCTAssertEqual(editor.steps[1].recipient, "anyone", "a schedule has no triggering person")
-        XCTAssertEqual(editor.steps[0].room, "trigger", "but it has a room")
+        XCTAssertEqual(editor.steps[1].recipient, "trigger_user", "kept as it was")
+        XCTAssertEqual(editor.problem, L("workflows.error_form"), "but a schedule has no triggering person")
+        XCTAssertEqual(editor.steps[0].room, "trigger", "it has a room")
 
         editor.setTriggerKind("member_joined")
         XCTAssertEqual(editor.trigger.trigger, .memberJoined(room: "room-1"))
+        XCTAssertNil(editor.problem, "the person is back")
         editor.setTriggerKind("webhook")
         XCTAssertEqual(editor.trigger.trigger, .webhook)
-        XCTAssertEqual(editor.steps.map(\.room), ["", ""], "no trigger room left to name")
+        XCTAssertEqual(editor.steps.map(\.room), ["trigger", "trigger"], "the steps are kept as they are")
+        XCTAssertEqual(editor.steps.count, 2)
+        XCTAssertEqual(editor.problem, L("workflows.error_room"), "a webhook has no room for them to name")
+        editor.steps[0].room = "room-2"
+        XCTAssertEqual(editor.problem, L("workflows.error_room"), "the form still names it")
+        editor.steps[1].room = "room-2"
+        XCTAssertEqual(editor.problem, L("workflows.error_form"), "nor a person to answer it")
+        editor.steps[1].recipient = "anyone"
+        XCTAssertNil(editor.problem)
+        editor.steps[1].recipient = "trigger_user"
         editor.setTriggerKind("command")
+        XCTAssertNil(editor.problem)
         XCTAssertEqual(editor.trigger.trigger, .command(name: ""))
         editor.trigger.name = " deploy "
         XCTAssertEqual(editor.draft.trigger, .command(name: "deploy"))
@@ -303,7 +345,8 @@ final class WorkflowsTests: XCTestCase {
         XCTAssertEqual(editor.trigger.trigger, .reactionAdded(room: "room-1", emoji: nil), "back again, the room still kept")
         editor.setTriggerKind("schedule")
         XCTAssertFalse(editor.trigger.hasUser)
-        XCTAssertEqual(editor.steps[0].recipient, "anyone", "a schedule has no person")
+        XCTAssertEqual(editor.steps[0].recipient, "trigger_user", "kept, the save refused instead")
+        XCTAssertEqual(editor.problem, L("workflows.error_form"))
         XCTAssertEqual(editor.trigger.room, "room-1")
     }
 
@@ -335,7 +378,7 @@ final class WorkflowsTests: XCTestCase {
         let user = NativeWorkflowUser(id: "bot-1", username: "standup_bot", displayName: "Standup")
         let steps: [NativeWorkflowStep] = [
             .form(room: "trigger", recipient: "trigger_user", title: "Standup", fields: [
-                NativeFormField(id: "today", label: "Today", kind: "long_text", options: [], people: [], required: true),
+                NativeFormField(id: "today", label: "Today", kind: "long_text", options: [], people: [], multiple: false, required: true),
             ], saveAs: "standup"),
             .message(room: "trigger", text: "{{standup.answers.today}}", inThread: true, saveAs: nil, cards: "[{\"title\":\"x\"}]"),
             .wait(seconds: 300),
@@ -353,12 +396,30 @@ final class WorkflowsTests: XCTestCase {
 
     func testFormAnswers() {
         let fields = [
-            NativeFormField(id: "today", label: "Today", kind: "long_text", options: [], people: [], required: true),
-            NativeFormField(id: "mood", label: "Mood", kind: "choice", options: ["good", "bad"], people: [], required: false),
+            NativeFormField(id: "today", label: "Today", kind: "long_text", options: [], people: [], multiple: false, required: true),
+            NativeFormField(id: "mood", label: "Mood", kind: "choice", options: ["good", "bad"], people: [], multiple: false, required: false),
         ]
-        XCTAssertNil(workflowFormAnswers(fields, ["today": "  ", "mood": "good"]), "a required field is empty")
-        XCTAssertEqual(workflowFormAnswers(fields, ["today": " shipping \n"]), ["today": "shipping"])
-        XCTAssertEqual(workflowFormAnswers(fields, ["today": "x", "mood": "bad", "other": "y"]), ["today": "x", "mood": "bad"])
+        XCTAssertNil(workflowFormAnswers(fields, ["today": ["  "], "mood": ["good"]]), "a required field is empty")
+        XCTAssertNil(workflowFormAnswers(fields, ["mood": ["good"]]), "or left out")
+        XCTAssertEqual(workflowFormAnswers(fields, ["today": [" shipping \n"]]), ["today": ["shipping"]])
+        XCTAssertEqual(workflowFormAnswers(fields, ["today": ["x"], "mood": [], "other": ["y"]]), ["today": ["x"]],
+                       "an optional field with nothing picked is left out, an unknown one too")
+        XCTAssertEqual(workflowFormAnswers(fields, ["today": ["x"], "mood": ["bad", "good"]]), ["today": ["x"], "mood": ["bad"]],
+                       "one answer for a field that takes one")
+
+        let several = [
+            NativeFormField(id: "langs", label: "Languages", kind: "choice", options: ["rust", "swift", "kotlin"],
+                            people: [], multiple: true, required: true),
+            NativeFormField(id: "who", label: "Who", kind: "person", options: [], people: [], multiple: true, required: false),
+        ]
+        XCTAssertNil(workflowFormAnswers(several, ["langs": []]), "required: at least one")
+        XCTAssertEqual(workflowFormAnswers(several, ["langs": ["swift", "rust", "swift"], "who": ["u1", "u2"]]),
+                       ["langs": ["swift", "rust"], "who": ["u1", "u2"]], "every value, once each, in order")
+        var ticked = workflowTick([], "swift", true)
+        ticked = workflowTick(ticked, "rust", true)
+        ticked = workflowTick(ticked, "swift", true)
+        XCTAssertEqual(ticked, ["rust", "swift"])
+        XCTAssertEqual(workflowTick(ticked, "rust", false), ["swift"])
     }
 
     func testRefusalsAreWorded() {

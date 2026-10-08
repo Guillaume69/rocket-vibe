@@ -6,8 +6,8 @@ use std::collections::{BTreeMap, HashMap};
 
 use crate::{model::RvError, native::NativeChat, native::native_error, on_tokio};
 use rv_core::native::workflows::{
-    self, Draft, Every, FormField, FormFieldKind, FormRecipient, HttpHeader, HttpMethod, RunState, Step, Trigger,
-    WaitUnit, Workflow, WorkflowForm, WorkflowRun,
+    self, Draft, Every, FormAnswer, FormField, FormFieldKind, FormRecipient, HttpHeader, HttpMethod, RunState, Step,
+    Trigger, WaitUnit, Workflow, WorkflowForm, WorkflowRun,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
@@ -46,6 +46,8 @@ pub struct NativeFormField {
     pub kind: String,
     pub options: Vec<String>,
     pub people: Vec<String>,
+    /// `choice` and `person` only: several answers (checkboxes), not one.
+    pub multiple: bool,
     pub required: bool,
 }
 
@@ -220,6 +222,7 @@ fn field(f: FormField) -> NativeFormField {
         kind: kind_name(f.kind).into(),
         options: f.options,
         people: f.people,
+        multiple: f.multiple,
         required: f.required,
     }
 }
@@ -231,6 +234,7 @@ fn core_field(f: NativeFormField) -> FormField {
         kind: kind_of(&f.kind),
         options: f.options,
         people: f.people,
+        multiple: f.multiple,
         required: f.required,
     }
 }
@@ -474,9 +478,18 @@ impl NativeChat {
         let s = self.session.clone();
         on_tokio(async move { s.test_workflow(&id).await }).await.map_err(native_error)
     }
-    /// Answers the form `message` carries, field id to text.
-    pub async fn answer_form(&self, message: String, answers: HashMap<String, String>) -> Result<(), RvError> {
-        let (s, answers): (_, BTreeMap<_, _>) = (self.session.clone(), answers.into_iter().collect());
+    /// Answers the form `message` carries: each field id to its values (one
+    /// for a single answer; the picked options, or user ids for a person).
+    pub async fn answer_form(&self, message: String, answers: HashMap<String, Vec<String>>) -> Result<(), RvError> {
+        let answers: BTreeMap<String, FormAnswer> = answers
+            .into_iter()
+            .map(|(id, mut values)| {
+                let answer =
+                    if values.len() == 1 { FormAnswer::One(values.remove(0)) } else { FormAnswer::Many(values) };
+                (id, answer)
+            })
+            .collect();
+        let s = self.session.clone();
         on_tokio(async move { s.answer_form(&message, &answers).await }).await.map_err(native_error)
     }
     /// The people a person field may list: no bot, no deleted account.

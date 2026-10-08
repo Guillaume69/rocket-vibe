@@ -1126,6 +1126,7 @@ fn form_rows(
                         kind: FormFieldKind::Text,
                         options: vec![],
                         people: vec![],
+                        multiple: false,
                         required: false,
                     });
                 }
@@ -1201,7 +1202,16 @@ fn field_row(ed: &Ed, index: usize, position: usize, field: &FormField) -> adw::
             entry.text().split(',').map(|o| o.trim().to_owned()).filter(|o| !o.is_empty()).collect();
         edit(&e, index, position, |field, _| field.options = list);
     });
-    let (e, choices, was) = (ed.clone(), options.clone(), field.kind);
+    // Several answers: checkboxes rather than radios, for a choice or a person.
+    let picks = |kind: FormFieldKind| matches!(kind, FormFieldKind::Choice | FormFieldKind::Person);
+    let several = switch(t("workflows.field_multiple"), field.multiple, "workflow-field-multiple");
+    several.set_visible(picks(field.kind));
+    let e = ed.clone();
+    several.connect_active_notify(move |row| {
+        let on = row.is_active();
+        edit(&e, index, position, |field, _| field.multiple = on);
+    });
+    let (e, choices, was, several_row) = (ed.clone(), options.clone(), field.kind, several.clone());
     kind.connect_selected_notify(move |row| {
         let Some(chosen) = FIELD_KINDS.get(row.selected() as usize).copied() else { return };
         edit(&e, index, position, |field, _| {
@@ -1209,14 +1219,22 @@ fn field_row(ed: &Ed, index: usize, position: usize, field: &FormField) -> adw::
             if chosen != FormFieldKind::Person {
                 field.people.clear();
             }
+            if !picks(chosen) {
+                field.multiple = false;
+            }
         });
         choices.set_visible(chosen == FormFieldKind::Choice);
+        several_row.set_visible(picks(chosen));
+        if !picks(chosen) {
+            several_row.set_active(false);
+        }
         // A person field has its own rows, put in or taken out.
         if (chosen == FormFieldKind::Person) != (was == FormFieldKind::Person) {
             rebuild_steps(&e);
         }
     });
     row.add_row(&options);
+    row.add_row(&several);
     if field.kind == FormFieldKind::Person {
         people_rows(ed, &row, index, position, &field.people);
     }

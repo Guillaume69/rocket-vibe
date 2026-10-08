@@ -10,7 +10,7 @@ use std::sync::Arc;
 use adw::prelude::*;
 use gtk::glib;
 use rv_core::native::NativeSession;
-use rv_core::native::workflows::{self, FormField, FormFieldKind, WorkflowForm};
+use rv_core::native::workflows::{self, FormAnswer, FormField, FormFieldKind, WorkflowForm};
 
 use crate::i18n::{t, tf};
 use crate::{on_tokio, widgets};
@@ -86,20 +86,23 @@ enum Input {
     Text(gtk::TextView),
     /// The choices shown, after "Choose…" when the field is optional.
     Choice(adw::ComboRow, Vec<String>),
-    /// The user id of the person chosen, empty until one is.
-    Person(Rc<RefCell<String>>),
+    /// What is ticked: user ids for a person, option texts for a choice of
+    /// several answers. One at most unless the field is `multiple`.
+    Picked(Rc<RefCell<Vec<String>>>),
 }
 
 impl Input {
-    fn value(&self) -> String {
+    fn value(&self) -> FormAnswer {
         match self {
-            Input::Line(row) => row.text().to_string(),
+            Input::Line(row) => FormAnswer::One(row.text().to_string()),
             Input::Text(view) => {
                 let buffer = view.buffer();
-                buffer.text(&buffer.start_iter(), &buffer.end_iter(), false).to_string()
+                FormAnswer::One(buffer.text(&buffer.start_iter(), &buffer.end_iter(), false).to_string())
             }
-            Input::Choice(row, options) => options.get(row.selected() as usize).cloned().unwrap_or_default(),
-            Input::Person(chosen) => chosen.borrow().clone(),
+            Input::Choice(row, options) => {
+                FormAnswer::One(options.get(row.selected() as usize).cloned().unwrap_or_default())
+            }
+            Input::Picked(picked) => FormAnswer::Many(picked.borrow().clone()),
         }
     }
 }
@@ -111,6 +114,15 @@ fn label(field: &FormField) -> String {
 fn input(field: &FormField, form: &WorkflowForm, session: &Arc<NativeSession>, room: &str) -> (gtk::Widget, Input) {
     match field.kind {
         FormFieldKind::Person => person(field, form, session, room),
+        FormFieldKind::Choice if field.multiple => {
+            let picked = Rc::new(RefCell::new(Vec::new()));
+            let expander = adw::ExpanderRow::builder().title(label(field)).expanded(true).build();
+            expander.add_css_class("workflow-form-field");
+            for option in &field.options {
+                expander.add_row(&pick_row(option, None, None, &picked, option));
+            }
+            (expander.upcast(), Input::Picked(picked))
+        }
         FormFieldKind::Text | FormFieldKind::Number => {
             let row = adw::EntryRow::builder().title(label(field)).build();
             row.add_css_class("workflow-form-field");
@@ -163,7 +175,8 @@ fn input(field: &FormField, form: &WorkflowForm, session: &Arc<NativeSession>, r
 /// A person field: its people as single-choice rows, or, with no list, the
 /// room's members, read as the dialog opens, with a search entry.
 fn person(field: &FormField, form: &WorkflowForm, session: &Arc<NativeSession>, room: &str) -> (gtk::Widget, Input) {
-    let chosen = Rc::new(RefCell::new(String::new()));
+    let chosen = Rc::new(RefCell::new(Vec::<String>::new()));
+    let multiple = field.multiple;
     let expander = adw::ExpanderRow::builder().title(label(field)).expanded(true).build();
     expander.add_css_class("workflow-form-field");
     expander.add_css_class("workflow-form-person");
@@ -173,30 +186,15 @@ fn person(field: &FormField, form: &WorkflowForm, session: &Arc<NativeSession>, 
         let (expander, chosen, rows) = (expander.downgrade(), chosen.clone(), rows.clone());
         move |people: Vec<workflows::User>| {
             let Some(expander) = expander.upgrade() else { return };
+            // Radios share a group; checkboxes (several answers) do not.
             let mut leader: Option<gtk::CheckButton> = None;
             for user in people {
                 let name = workflows::person_name(&user);
-                let row = adw::ActionRow::builder()
-                    .title(&name)
-                    .subtitle(format!("@{}", user.username))
-                    .use_markup(false)
-                    .activatable(true)
-                    .build();
+                let row = pick_row(&name, Some(&format!("@{}", user.username)), leader.as_ref(), &chosen, &user.id);
                 row.add_css_class("workflow-form-person-row");
-                let check = gtk::CheckButton::builder().valign(gtk::Align::Center).build();
-                if let Some(leader) = &leader {
-                    check.set_group(Some(leader));
-                } else {
-                    leader = Some(check.clone());
+                if !multiple && leader.is_none() {
+                    leader = row.activatable_widget().and_downcast::<gtk::CheckButton>();
                 }
-                let (chosen, id) = (chosen.clone(), user.id.clone());
-                check.connect_toggled(move |check| {
-                    if check.is_active() {
-                        chosen.replace(id.clone());
-                    }
-                });
-                row.add_prefix(&check);
-                row.set_activatable_widget(Some(&check));
                 expander.add_row(&row);
                 let haystack = format!("{} {}", name, user.username).to_lowercase();
                 rows.borrow_mut().push((row, haystack));
@@ -230,7 +228,38 @@ fn person(field: &FormField, form: &WorkflowForm, session: &Arc<NativeSession>, 
             });
         }
     }
-    (expander.upcast(), Input::Person(chosen))
+    (expander.upcast(), Input::Picked(chosen))
+}
+
+/// One pickable row: a radio in `group`'s group, or a checkbox without one.
+/// Ticking it puts `value` in `picked`, unticking takes it out.
+fn pick_row(
+    title: &str,
+    subtitle: Option<&str>,
+    group: Option<&gtk::CheckButton>,
+    picked: &Rc<RefCell<Vec<String>>>,
+    value: &str,
+) -> adw::ActionRow {
+    let row = adw::ActionRow::builder().title(title).use_markup(false).activatable(true).build();
+    if let Some(subtitle) = subtitle {
+        row.set_subtitle(subtitle);
+    }
+    let check = gtk::CheckButton::builder().valign(gtk::Align::Center).build();
+    check.add_css_class("workflow-form-pick");
+    check.set_group(group);
+    // A radio leaving its group's choice is toggled off too: the list
+    // follows every box, so it holds one value for radios.
+    let (picked, value) = (picked.clone(), value.to_owned());
+    check.connect_toggled(move |check| {
+        let mut list = picked.borrow_mut();
+        list.retain(|v| *v != value);
+        if check.is_active() {
+            list.push(value.clone());
+        }
+    });
+    row.add_prefix(&check);
+    row.set_activatable_widget(Some(&check));
+    row
 }
 
 /// The answer dialog: one row per field, then Submit. A click outside closes
@@ -282,7 +311,7 @@ pub(crate) fn open(
     let (session, message, weak, toasts) =
         (session.clone(), message.to_owned(), dialog.downgrade(), toasts.downgrade());
     submit.connect_clicked(move |button| {
-        let answers: BTreeMap<String, String> =
+        let answers: BTreeMap<String, FormAnswer> =
             inputs.borrow().iter().map(|(id, read)| (id.clone(), read.value())).collect();
         let (s, message, weak, toasts) = (session.clone(), message.clone(), weak.clone(), toasts.clone());
         button.set_sensitive(false);

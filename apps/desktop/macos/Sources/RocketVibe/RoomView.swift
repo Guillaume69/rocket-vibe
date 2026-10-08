@@ -1063,6 +1063,12 @@ struct WorkflowFormCard: View {
     }
 }
 
+/// One option of a form field: what is sent, and its words.
+struct WorkflowPick: Identifiable {
+    let id: String
+    let name: String
+}
+
 /// Answering a workflow's form: each field as its kind asks, the required
 /// ones marked. Submit sends it; a refusal shows here, worded; once sent it
 /// closes. A click outside closes it, nothing sent.
@@ -1073,7 +1079,8 @@ struct WorkflowFormSheet: View {
     let rid: String
     let form: FormItem
     let model: RoomModel
-    @State private var values: [String: String] = [:]
+    /// Each field's values: one for most, the ticked ones for a multiple field.
+    @State private var values: [String: [String]] = [:]
     @State private var error: String?
     @State private var busy = false
     /// The room's members, for a person field that lists nobody; read on open.
@@ -1107,9 +1114,9 @@ struct WorkflowFormSheet: View {
             }
         }
         .onAppear {
-            // A required choice starts on its first option: it has no empty entry.
-            for field in form.fields where field.kind == "choice" && field.required && values[field.id] == nil {
-                values[field.id] = field.options.first ?? ""
+            // A required single choice starts on its first option: it has no empty entry.
+            for field in form.fields where field.kind == "choice" && field.required && !field.multiple && values[field.id] == nil {
+                values[field.id] = field.options.first.map { [$0] } ?? []
             }
         }
     }
@@ -1118,8 +1125,34 @@ struct WorkflowFormSheet: View {
         field.required ? field.label + " *" : field.label
     }
 
+    /// A field's one value.
     private func value(_ id: String) -> Binding<String> {
-        Binding(get: { values[id] ?? "" }, set: { values[id] = $0 })
+        Binding(get: { values[id]?.first ?? "" }, set: { values[id] = $0.isEmpty ? [] : [$0] })
+    }
+
+    /// Whether `item` is ticked among a multiple field's values.
+    private func ticked(_ id: String, _ item: String) -> Binding<Bool> {
+        Binding(get: { values[id]?.contains(item) ?? false },
+                set: { values[id] = workflowTick(values[id] ?? [], item, $0) })
+    }
+
+    /// A choice among `items`: radios for one answer,
+    /// checkboxes for several.
+    @ViewBuilder func pick(_ field: NativeFormField, _ items: [WorkflowPick]) -> some View {
+        if field.multiple {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(items) { item in
+                    Toggle(item.name, isOn: ticked(field.id, item.id)).toggleStyle(.checkbox)
+                }
+            }
+        } else {
+            Picker("", selection: value(field.id)) {
+                if !field.required { Text(L("workflows.form_choose")).tag("") }
+                ForEach(items) { item in Text(item.name).tag(item.id) }
+            }
+            .pickerStyle(.radioGroup)
+            .labelsHidden()
+        }
     }
 
     @ViewBuilder func fieldView(_ field: NativeFormField) -> some View {
@@ -1135,9 +1168,16 @@ struct WorkflowFormSheet: View {
                     .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Vibe.line))
             }
         case "choice":
-            Picker(label(field), selection: value(field.id)) {
-                if !field.required { Text(L("workflows.form_choose")).tag("") }
-                ForEach(field.options, id: \.self) { option in Text(option).tag(option) }
+            if field.multiple {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(label(field))
+                    pick(field, field.options.map { WorkflowPick(id: $0, name: $0) })
+                }
+            } else {
+                Picker(label(field), selection: value(field.id)) {
+                    if !field.required { Text(L("workflows.form_choose")).tag("") }
+                    ForEach(field.options, id: \.self) { option in Text(option).tag(option) }
+                }
             }
         case "person":
             person(field)
@@ -1148,39 +1188,25 @@ struct WorkflowFormSheet: View {
     }
 
     /// A person field: its fixed people, or the room's members to search;
-    /// one is chosen, the answer being their user id.
+    /// one or several are chosen, the answer being their user ids.
     @ViewBuilder func person(_ field: NativeFormField) -> some View {
-        let chosen = values[field.id] ?? ""
+        let chosen = values[field.id] ?? []
         VStack(alignment: .leading, spacing: 4) {
             Text(label(field))
             if !field.people.isEmpty {
-                Picker("", selection: value(field.id)) {
-                    if !field.required { Text(L("workflows.form_choose")).tag("") }
-                    ForEach(field.people, id: \.self) { id in
-                        Text(workflowPersonName(id, in: form.people)).tag(id)
-                    }
-                }
-                .pickerStyle(.radioGroup)
-                .labelsHidden()
+                pick(field, field.people.map { WorkflowPick(id: $0, name: workflowPersonName($0, in: form.people)) })
             } else if let members {
                 TextField(L("workflows.people_search"), text: Binding(
                     get: { searches[field.id] ?? "" }, set: { searches[field.id] = $0 }
                 ))
                 let matching = Array(workflowPeopleMatching(members, searches[field.id] ?? "").prefix(50))
-                // The one chosen stays shown while the search hides it.
-                let shown = matching.contains(where: { $0.id == chosen }) ? matching
-                    : members.filter { $0.id == chosen } + matching
+                // Those chosen stay shown while the search hides them.
+                let shown = members.filter { member in chosen.contains(member.id) && !matching.contains { $0.id == member.id } }
+                    + matching
                 if shown.isEmpty {
                     Text(L("workflows.people_none")).foregroundStyle(.secondary)
                 } else {
-                    Picker("", selection: value(field.id)) {
-                        if !field.required { Text(L("workflows.form_choose")).tag("") }
-                        ForEach(shown, id: \.id) { member in
-                            Text(workflowPersonName(member)).tag(member.id)
-                        }
-                    }
-                    .pickerStyle(.radioGroup)
-                    .labelsHidden()
+                    pick(field, shown.map { WorkflowPick(id: $0.id, name: workflowPersonName($0)) })
                 }
             } else {
                 ProgressView().controlSize(.small)

@@ -252,6 +252,17 @@ All code, comments and docs are in English. French survives in two places only: 
 | Unreleased | The changelog section every visible change goes into. |
 | Workstream | A work item of the 2026-07-25 audit, numbered 1 to 16 in `apps/mobile/WORKSTREAMS.md`. |
 
+## Teams provider vocabulary
+
+| Term | Meaning |
+|---|---|
+| Teams account partition | Global cloud, tenant UUID and supported stable account identity encoded together; service hostname alone cannot distinguish accounts or guests. |
+| Audience token | An opaque access token for one service. The candidate reader uses separate Spaces, aggregator and chat tokens; it does not decode API JWTs. |
+| regionGtms | The Teams authz discovery map. The initial reader accepts chatSvcAggAfd and chatServiceAfd as a validated, replaceable route snapshot. |
+| backwardLink | An opaque older-history link, authorized only after verifying the discovered service and exact conversation path. It is not a general-purpose URL or a reconciliation cursor. |
+
+See [Teams architecture](architecture/teams.md) for the implementation boundary.
+
 ## Legacy French names
 
 The code had French names until the English rename. These are the only French words still meaningful, because users see them or an upgrade reads them once.
@@ -268,6 +279,10 @@ The code had French names until the English rename. These are the only French wo
 
 
 ## Sources
+
+- apps/mobile/providers/teams/protocol.ts
+- apps/mobile/providers/teams/reader.ts
+- apps/desktop/crates/rv-core/src/teams.rs
 
 - `CLAUDE.md`
 - `ROADMAP.md`

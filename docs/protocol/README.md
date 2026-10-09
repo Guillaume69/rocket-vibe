@@ -2,9 +2,11 @@
 
 ## External provider handoffs
 
-[Microsoft Teams](MICROSOFT_TEAMS.md) records the supplied investigation archive,
+[Microsoft Teams](MICROSOFT_TEAMS.md) now has a candidate read foundation in mobile
+and the shared Rust core; native sign-in and account integration remain pending.
+It records the supplied investigation archive,
 private client request shapes, documented alternatives, integration work and a
-feature-parity delivery ledger for Android, GTK and SwiftUI. It is a proposed
+feature-parity delivery ledger for Android, GTK and SwiftUI. It is a developing
 client provider, not a delivered native-server capability.
 
 ## Native server contract

@@ -967,10 +967,13 @@ impl AppWindow {
 
     /// Unless I am looking at that very room.
     fn notify(&self, incoming: &rv_core::notify::Incoming) {
-        let watching = self.window.is_active()
-            && self.chat.shows_room()
-            && self.chat.current_rid().as_deref() == Some(incoming.rid.as_str());
-        if !watching && let Some(notifier) = self.notifier.borrow().clone() {
+        let watching = |window: &adw::ApplicationWindow, chat: &ChatPage, rid: &str| {
+            window.is_active() && chat.shows_room() && chat.current_rid().as_deref() == Some(rid)
+        };
+        if !watching(&self.window, &self.chat, &incoming.rid)
+            && let Some(notifier) = self.notifier.borrow().clone()
+        {
+            let (window, chat, rid) = (self.window.clone(), self.chat.clone(), incoming.rid.clone());
             let native = self.chat.native_session();
             let scoped = native
                 .as_ref()
@@ -984,7 +987,10 @@ impl AppWindow {
                     Some(session) => crate::notifier::pictures::fetch(session, &incoming).await,
                     None => crate::notifier::Pictures::default(),
                 };
-                notifier.show(&incoming, &pictures);
+                // The room may have been opened while they came.
+                if !watching(&window, &chat, &rid) {
+                    notifier.show(&incoming, &pictures);
+                }
             });
         }
     }

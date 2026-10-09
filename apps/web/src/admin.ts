@@ -7,6 +7,7 @@ import type {
   AdminReportedMessagePage,
   AdminReportedUserPage,
   EmojiCatalog,
+  InstanceIcon,
 } from "./protocol";
 import { operation, segment } from "./api";
 import { button, dialog, el, field, tile, toast } from "./dom";
@@ -149,6 +150,75 @@ async function confirm(title: string, run: () => Promise<void>): Promise<void> {
       "destructive",
     ),
   );
+}
+/**
+ * The Dashboard's Server icon card: the icon the apps' server rails and this
+ * tab show, Change (a PNG or JPEG the server crops to a square) and Remove.
+ */
+function iconCard(app: App, valid: () => boolean): HTMLElement {
+  const [group, rows] = preferencesGroup(nt("admin.icon_title"));
+  group.dataset.adminCard = "icon";
+  const preview = el("img", "admin-icon-preview");
+  preview.alt = "";
+  const status = el("span", "action-row-title");
+  const row = el("div", "action-row admin-icon-row");
+  const text = el("div", "action-row-text");
+  text.append(status, el("span", "action-row-subtitle", nt("admin.icon_hint")));
+  const picker = el("input");
+  picker.type = "file";
+  picker.accept = "image/png,image/jpeg";
+  picker.hidden = true;
+  const change = button(nt("admin.icon_change"), () => picker.click());
+  const show = (revision: string | null) => {
+    preview.hidden = revision === null;
+    if (revision !== null)
+      preview.src = "/api/v1/instance/icon?v=" + encodeURIComponent(revision);
+    status.textContent = nt(
+      revision === null ? "admin.icon_none" : "admin.icon_current",
+    );
+    remove.hidden = revision === null;
+    app.serverIcon(revision);
+    if (app.info) app.info.icon_revision = revision;
+  };
+  const apply = async (file: File | null) => {
+    const icon = await app.api.request<InstanceIcon>(
+      "/api/v1/admin/icon?operation_id=" + operation(),
+      file ? "PUT" : "DELETE",
+      file ?? undefined,
+    );
+    if (!valid()) return;
+    show(icon.revision ?? null);
+    toast(nt(file ? "admin.icon_saved" : "admin.icon_removed"));
+  };
+  const remove = button(
+    nt("admin.icon_remove"),
+    () => {
+      const [node, body] = dialog(nt("admin.icon_remove_title"));
+      node.classList.add("alert-dialog");
+      body.append(
+        el("p", "", nt("admin.icon_remove_body")),
+        button(t("cancel"), () => node.close()),
+        button(
+          nt("admin.icon_remove"),
+          async () => {
+            await apply(null);
+            node.close();
+          },
+          "destructive",
+        ),
+      );
+    },
+    "destructive",
+  );
+  picker.addEventListener("change", () => {
+    const file = picker.files?.[0];
+    picker.value = "";
+    if (file) void apply(file).catch(toast);
+  });
+  row.append(preview, text, change, remove, picker);
+  rows.append(row);
+  show(app.info?.icon_revision ?? null);
+  return group;
 }
 /** A code the server takes as typed (rv-core's `valid_emoji_code`). */
 const emojiCode = /^[a-z0-9_-]{1,80}$/;
@@ -458,6 +528,10 @@ export async function administration(app: App): Promise<void> {
       toggle.prepend(text);
       rows.append(toggle);
       group.dataset.adminCard = "bots";
+      columns[nextCard++ % columns.length].append(group);
+    }
+    if (app.info?.capabilities.instance_icon) {
+      const group = iconCard(app, valid);
       columns[nextCard++ % columns.length].append(group);
     }
     page.append(cards);

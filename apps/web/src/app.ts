@@ -598,6 +598,7 @@ export class App implements RowActions {
         ]),
       );
       this.info = info;
+      this.serverIcon(info.icon_revision ?? null);
       await renew(this);
       if (generation !== this.generation) return;
       void this.loadEmojis().catch(() => {});
@@ -2976,6 +2977,20 @@ export class App implements RowActions {
     this.renderTimeline();
     if (this.root) this.renderThread();
     window.dispatchEvent(new Event("rv-profile-update"));
+  }
+  /**
+   * The tab shows the server's own icon when it has one (`icon_revision`,
+   * public at `/api/v1/instance/icon`), else the bundled one.
+   */
+  serverIcon(revision: string | null): void {
+    const link = document.querySelector<HTMLLinkElement>("link[rel=icon]");
+    if (!link) return;
+    link.dataset.bundled ??= link.href;
+    link.href =
+      revision === null
+        ? link.dataset.bundled
+        : "/api/v1/instance/icon?v=" + encodeURIComponent(revision);
+    link.type = "image/png";
   }
   async loadEmojis(): Promise<void> {
     if (!this.info?.capabilities.custom_emojis) return;

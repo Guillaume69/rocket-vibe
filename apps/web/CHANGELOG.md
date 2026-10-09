@@ -6,6 +6,7 @@ All notable changes are documented here in English.
 
 ### Added
 
+- Server administration: a Server icon card on the Dashboard to set or remove the server's icon; the tab shows it as its icon.
 - Server administration: a Custom emoji page where administrators add emoji (name, aliases, image) and delete them.
 
 ## [0.2.0] - 2026-10-09

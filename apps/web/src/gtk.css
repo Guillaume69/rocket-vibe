@@ -99,8 +99,9 @@ button.cta:active, button.cta:disabled { opacity: 0.75; }
 
 .server-rail { background: #08070F; padding: 12px 10px; border-right: 1px solid #1E1B33; }
 .rail-button { padding: 0; margin: 0; min-width: 0; min-height: 0; background: none; border: none; box-shadow: none; border-radius: 15px; }
-.rail-button:hover .tile-room, .rail-button:hover .rail-add { box-shadow: 0 0 0 2px #3A3560; }
-.rail-button.rail-active .tile-room { box-shadow: 0 0 0 2px #FF5FA2; }
+.rail-button:hover .tile-room, .rail-button:hover .rail-add, .rail-button:hover .rail-icon { box-shadow: 0 0 0 2px #3A3560; }
+.rail-button.rail-active .tile-room, .rail-button.rail-active .rail-icon { box-shadow: 0 0 0 2px #FF5FA2; }
+.rail-icon { border-radius: 15px; }
 .rail-dot { min-width: 12px; min-height: 12px; border-radius: 6px; background: #FFD34E; border: 2px solid #08070F; margin: -3px -3px 0 0; }
 .rail-add { border-radius: 15px; background: #171529; color: #34E1D0; }
 .badge { border-radius: 11px; min-width: 22px; min-height: 22px; padding: 0 7px; font-weight: 800; font-size: 12px; }

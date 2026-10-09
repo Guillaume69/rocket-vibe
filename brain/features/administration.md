@@ -64,6 +64,15 @@ An administrator adds and deletes the server's custom emoji ([emoji](emoji.md) f
 
 Where: mobile `app/admin/emoji.tsx` (form with the photo picker, list, delete confirmed in an `Alert`; `ProviderAdmin.canManageEmojis`, `emojis`, `createEmoji`, `deleteEmoji`, `lib/admin.ts#emojiCodes`; the multipart transport `transportEmojiExpo` and the bytes reader are injected by the screen; `useSync().refreshCustomEmojis`); desktop `rv_core::admin::{Admin::emoji_supported, emojis, create_emoji, delete_emoji, emoji_codes}`, GTK `rv-gtk/src/admin_emoji.rs` (list, an "Add" subpage, delete in an `adw::AlertDialog`), SwiftUI `AdminModel` (`.emoji` category, `emojis`, `createEmoji`, `deleteEmoji`) and `AdminEmojiSections` in `AdminView.swift` over rv-ffi `ServerAdmin::{emoji_supported, emojis, create_emoji, delete_emoji}`; web `apps/web/src/admin.ts#emojiPage`.
 
+## Server icon
+
+An administrator sets or removes the server's icon, which every app's server rail shows instead of the host's initial ([login-and-servers](login-and-servers.md)), from a Server icon card on the Dashboard (current icon, Change, Remove after a confirmation).
+
+- **Rocket.Chat**: the `favicon_192` asset. `assets.setAsset` multipart (`asset` file, `assetName`) **demands exactly 192 by 192 pixels** (`error-invalid-file-width` otherwise) and a PNG or JPEG (`error-invalid-file-type`); `assets.unsetAsset {assetName}` removes it. `manage-assets` belongs to `admin`. So the apps crop the picked image's center square and scale it to 192 px PNG first (mobile the photo picker's square crop then `expo-image-manipulator`; GTK `gdk_pixbuf` in `admin.rs#square_png`; SwiftUI `AdminIconCard.squarePNG`). The web client is RocketVibe-only.
+- **RocketVibe**: `PUT /api/v1/admin/icon` with the raw image and `DELETE`, both `?operation_id=`, capability `instance_icon` (`docs/protocol/ADMINISTRATION.md`); the server crops and scales to a 256 px PNG itself, keeps per-administrator receipts, journals `instance.icon`, and moves `Discovery.icon_revision`. The image is public at `GET /api/v1/instance/icon`. The web tab's favicon follows it (`App.serverIcon`).
+
+Where: mobile `ui/adminIcon.tsx` (`ProviderAdmin.canSetIcon`, `setIcon`, the multipart transport `transportAssetExpo`); desktop `rv_core::admin::{Admin::icon_supported, set_icon}` and `rv_core::server_icon`, GTK `admin.rs#icon_card`, SwiftUI `AdminModel.{iconSupported, icon, loadIcon, setIcon}` and `AdminIconCard` over rv-ffi `ServerAdmin::{icon_supported, icon, set_icon}` and `icon_side`; web `apps/web/src/admin.ts#iconCard`.
+
 ## Mobile
 
 - **Entry points**, only for an administrator (`useServerAdmin`, `ui/adminAccess.ts`): the "Server administration" card at the bottom of the settings list (`app/settings/index.tsx`), and a long press on the OPEN server's tile of the server rail (`ui/serverRail.tsx`, a native `Alert` with that choice); another server's tile does nothing more than a tap.
@@ -113,6 +122,10 @@ Actual GTK Fedora captures in English and French use the same local native serve
 ## Sources
 
 - apps/web/src/admin.ts
+- apps/mobile/ui/adminIcon.tsx
+- apps/mobile/lib/serverIcon.ts
+- apps/desktop/crates/rv-core/src/server_icon.rs
+- apps/server/src/instance_icon.rs
 - apps/web/src/api.ts
 - apps/web/src/sidebar.ts
 - apps/web/src/extra.css

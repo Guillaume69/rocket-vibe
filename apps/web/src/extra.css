@@ -259,6 +259,17 @@
 .emoji {
   font-family: "Noto Color Emoji", sans-serif;
 }
+.admin-icon-row {
+  align-items: center;
+  gap: 12px;
+}
+.admin-icon-preview {
+  width: 44px;
+  height: 44px;
+  border-radius: 15px;
+  object-fit: cover;
+  flex: none;
+}
 .admin-emoji-row {
   align-items: center;
   gap: 12px;

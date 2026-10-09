@@ -943,59 +943,6 @@ dialog::backdrop {
   mask-repeat: no-repeat;
   mask-position: center;
 }
-.voice-bar {
-  display: flex;
-  gap: 4px;
-  padding: 8px 10px;
-  border-top: 1px solid #2c2946;
-  background: #171529;
-  align-items: center;
-}
-.voice-bar > button:first-child {
-  flex: 1;
-  text-align: left;
-}
-.voice-stage {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  min-height: 180px;
-}
-.voice-controls {
-  width: 100%;
-  display: flex;
-  gap: 10px;
-}
-.voice-card {
-  position: relative;
-  background: #0c0b16;
-  border-radius: 12px;
-  overflow: hidden;
-  min-width: 220px;
-  max-width: 100%;
-}
-.voice-card video {
-  max-height: 50vh;
-  max-width: 100%;
-  display: block;
-}
-.voice-card-name {
-  position: absolute;
-  bottom: 10px;
-  left: 10px;
-  background: #0b0913bb;
-  border-radius: 8px;
-  padding: 3px 9px;
-}
-.voice-dialog {
-  width: min(1000px, 90vw);
-}
-.voice-bar .muted {
-  color: #ff7a8a;
-}
-
 /* Native EntryRow, ComboRow and ExpanderRow geometry in the browser. */
 .entry-row {
   display: flex;

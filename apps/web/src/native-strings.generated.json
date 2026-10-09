@@ -3,6 +3,149 @@
     "Hors ligne · les envois restent en attente",
     "Offline · sends remain queued"
   ],
+  "voice_session.channel": ["Canal vocal", "Voice channel"],
+  "voice_session.channel_hint": [
+    "Le sélectionner connecte au vocal ; on peut aussi y écrire.",
+    "Selecting it joins voice; you can write in it too."
+  ],
+  "voice_session.connected": ["Vocal connecté", "Voice connected"],
+  "voice_session.connecting": ["Connexion au vocal…", "Connecting to voice…"],
+  "voice_session.reconnecting": ["Reconnexion…", "Reconnecting…"],
+  "voice_session.ringing": ["Ça sonne…", "Ringing…"],
+  "voice_session.join": ["Rejoindre le vocal", "Join voice"],
+  "voice_session.leave": ["Quitter le vocal", "Leave voice"],
+  "voice_session.start_call": ["Démarrer un appel", "Start a call"],
+  "voice_session.mute": ["Couper le micro", "Mute"],
+  "voice_session.unmute": ["Réactiver le micro", "Unmute"],
+  "voice_session.deafen": ["Couper le son", "Deafen"],
+  "voice_session.undeafen": ["Réactiver le son", "Undeafen"],
+  "voice_session.listening": ["Écoute seulement", "Listening only"],
+  "voice_session.open_chat": ["Ouvrir le chat", "Open the chat"],
+  "voice_session.camera_on": ["Activer la caméra", "Turn the camera on"],
+  "voice_settings.share_call": [
+    "Inclure le vocal dans le son de l’écran partagé",
+    "Include the call in a shared screen's sound"
+  ],
+  "voice_settings.share_call_hint": [
+    "Pour enregistrer ou diffuser tout l’appel : les autres s’entendent alors eux-mêmes.",
+    "To record or stream the whole call: the others then hear themselves."
+  ],
+  "voice_session.camera_off": ["Couper la caméra", "Turn the camera off"],
+  "voice_session.share_screen": ["Partager l’écran", "Share the screen"],
+  "voice_session.stop_screen": ["Arrêter le partage", "Stop sharing"],
+  "voice_session.screen_of": ["Écran de {name}", "{name}'s screen"],
+  "voice_session.camera_unavailable": [
+    "Aucune caméra disponible.",
+    "No camera available."
+  ],
+  "voice_session.screen_unavailable": [
+    "Impossible de partager l’écran.",
+    "Couldn't share the screen."
+  ],
+  "voice_session.screen_taken": [
+    "Quelqu’un partage déjà son écran ici.",
+    "Someone is already sharing their screen here."
+  ],
+  "voice_session.empty": [
+    "Personne dans le vocal pour l’instant.",
+    "Nobody in voice yet."
+  ],
+  "voice_session.you": ["{name} (vous)", "{name} (you)"],
+  "voice_session.join_failed": [
+    "Impossible de rejoindre le vocal.",
+    "Couldn't join voice."
+  ],
+  "voice_session.unavailable": [
+    "Le vocal est indisponible sur ce serveur pour le moment.",
+    "Voice is unavailable on this server right now."
+  ],
+  "voice_session.encrypted": [
+    "Cet appareil ne sait pas chiffrer le vocal de ce salon.",
+    "This device cannot encrypt this room’s voice."
+  ],
+  "voice_session.key_unavailable": [
+    "Cet appareil n’a pas encore la clé actuelle de ce salon chiffré : acceptez le changement en attente dans son chiffrement, puis réessayez.",
+    "This device does not have this encrypted room’s current key yet: accept the pending change in its encryption, then try again."
+  ],
+  "voice_session.secure": [
+    "🔒 {status} · chiffré de bout en bout",
+    "🔒 {status} · end-to-end encrypted"
+  ],
+  "voice_session.moved": [
+    "Le vocal continue sur un autre appareil.",
+    "Voice continues on another device."
+  ],
+  "voice_session.removed": [
+    "Vous avez été retiré du vocal.",
+    "You were removed from voice."
+  ],
+  "voice_session.lost": [
+    "Le vocal a été interrompu.",
+    "Voice was interrupted."
+  ],
+  "voice_session.incoming": ["Appel entrant", "Incoming call"],
+  "voice_session.incoming_from": [
+    "{name} vous appelle",
+    "{name} is calling you"
+  ],
+  "voice_session.accept": ["Accepter", "Accept"],
+  "voice_session.decline": ["Refuser", "Decline"],
+  "voice_session.call": ["📞 Appel", "📞 Call"],
+  "voice_call.ringing": ["📞 Appel en cours…", "📞 Calling…"],
+  "voice_call.missed": ["📞 Appel manqué", "📞 Missed call"],
+  "voice_call.declined": ["📞 Appel refusé", "📞 Declined call"],
+  "voice_call.cancelled": ["📞 Appel annulé", "📞 Cancelled call"],
+  "voice_call.answered_for": ["📞 Appel · {d}", "📞 Call · {d}"],
+  "voice_call.seconds": ["{n} s", "{n} s"],
+  "voice_call.minutes": ["{n} min", "{n} min"],
+  "voice_call.hours": ["{h} h {m}", "{h} h {m}"],
+  "voice_call.back": ["Rappeler", "Call back"],
+  "voice_settings.title": ["Vocal", "Voice"],
+  "voice_settings.input": ["Micro", "Microphone"],
+  "voice_settings.output": ["Haut-parleurs", "Speakers"],
+  "voice_settings.default": ["Par défaut du système", "System default"],
+  "voice_settings.loading": [
+    "Recherche des appareils…",
+    "Looking for devices…"
+  ],
+  "voice_settings.failed": [
+    "Impossible de lister les appareils audio.",
+    "Couldn't list the audio devices."
+  ],
+  "voice_settings.noise": ["Suppression du bruit", "Noise suppression"],
+  "voice_settings.noise_hint": [
+    "Retire les bruits de fond de votre micro (RNNoise).",
+    "Removes background noise from your microphone (RNNoise)."
+  ],
+  "voice_menu.open": ["Options audio", "Audio options"],
+  "voice_menu.input_device": ["Périphérique d'entrée", "Input device"],
+  "voice_menu.output_device": ["Périphérique de sortie", "Output device"],
+  "voice_menu.input_volume": ["Volume d'entrée", "Input volume"],
+  "voice_menu.input_level": ["Niveau d'entrée", "Input level"],
+  "voice_menu.output_volume": ["Volume de sortie", "Output volume"],
+  "voice_menu.deafen": ["Sourdine", "Deafen"],
+  "voice_menu.settings": ["Paramètres vocaux", "Voice settings"],
+  "voice_person.volume": ["Volume de l'utilisateur", "User volume"],
+  "voice_person.mute": ["Couper pour moi", "Mute for me"],
+  "voice_person.muted_here": ["Coupé pour vous", "Muted for you"],
+  "voice_share.title": ["Partager l'écran", "Share your screen"],
+  "voice_share.screens": ["Écrans", "Screens"],
+  "voice_share.windows": ["Fenêtres", "Windows"],
+  "voice_share.screen_n": ["Écran {n}", "Screen {n}"],
+  "voice_share.loading": ["Recherche des écrans…", "Looking for screens…"],
+  "voice_share.portal": [
+    "Votre système vous demandera quoi partager.",
+    "Your system will ask what to share."
+  ],
+  "voice_share.none": ["Rien à partager ici.", "Nothing to share here."],
+  "voice_share.resolution": ["Résolution", "Resolution"],
+  "voice_share.fps": ["Images par seconde", "Frame rate"],
+  "voice_share.start": ["Partager", "Share"],
+  "voice_session.fullscreen": ["Plein écran", "Full screen"],
+  "voice_session.exit_fullscreen": [
+    "Quitter le plein écran",
+    "Exit full screen"
+  ],
   "settings.photo_change": ["Changer…", "Change…"],
   "settings.photo_remove": ["Retirer", "Remove"],
   "settings.cat.account": ["Mon compte", "My account"],
@@ -15,6 +158,24 @@
   "settings.cat.accounts": ["Comptes", "Accounts"],
   "settings.cat.app": ["Application", "App"],
   "security.refresh": ["Reprendre ou actualiser", "Resume or refresh"],
+  "voice.record": ["Enregistrer un message vocal", "Record a voice message"],
+  "voice.cancel": ["Annuler", "Cancel"],
+  "voice.send": ["Envoyer", "Send"],
+  "voice.stop": [
+    "Arrêter pour réécouter avant l'envoi",
+    "Stop to listen before sending"
+  ],
+  "voice.play": ["Écouter", "Listen"],
+  "voice.failed": [
+    "Enregistrement impossible : {error}",
+    "Couldn't record: {error}"
+  ],
+  "voice.empty": ["Rien n'a été enregistré", "Nothing was recorded"],
+  "voice.refused": [
+    "Le serveur refuse les messages vocaux",
+    "The server refuses voice messages"
+  ],
+  "voice.file_name": ["message-vocal", "voice-message"],
   "command.title": ["COMMANDES", "COMMANDS"],
   "command.keys": ["Tab ou Entrée pour compléter", "Tab or Enter to complete"],
   "command.only_you": ["Visible par toi uniquement", "Only you can see this"],

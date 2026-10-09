@@ -517,7 +517,10 @@ export async function roomInfo(app: App): Promise<void> {
     ),
   );
 }
-export async function settings(app: App): Promise<void> {
+export async function settings(
+  app: App,
+  initialCategory = "account",
+): Promise<void> {
   let own = await app.api.request<OwnProfile>("/api/v1/me/profile");
   const host = sidebarDialog(t("settings"), "settings-dialog");
   const phrase = (en: string, fr: string) => (language === "fr" ? fr : en);
@@ -917,6 +920,6 @@ export async function settings(app: App): Promise<void> {
     },
     true,
   );
-  host.select("account");
+  host.select(initialCategory);
 }
 // Administration lives in admin.ts.

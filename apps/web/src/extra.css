@@ -158,22 +158,6 @@
   border-bottom: 1px solid #ff5fa244;
   padding-bottom: 4px;
 }
-.voice-card {
-  position: relative;
-  overflow: hidden;
-  border-radius: 16px;
-  aspect-ratio: 16/9;
-  min-height: 160px;
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 2px solid transparent;
-}
-.voice-speaking {
-  border-color: #34e1d0;
-  box-shadow: 0 0 16px #34e1d055;
-}
 .voice-audio {
   display: none;
 }
@@ -184,14 +168,6 @@
   height: 100%;
   object-fit: cover;
   max-height: none !important;
-}
-.voice-card-name {
-  z-index: 2;
-}
-.voice-avatar {
-  width: 72px;
-  height: 72px;
-  font-size: 30px;
 }
 .custom-emoji {
   height: 1.4em;
@@ -743,4 +719,325 @@ progress {
 }
 .upload-row progress {
   flex: 1;
+}
+/* Match the native TileGrid and call page. Its outer header replaces the chat header. */
+.room-content.voice-open > .room-header {
+  display: none;
+}
+.voice-page {
+  padding: 0 16px 24px;
+  gap: 16px;
+  overflow: hidden;
+}
+.voice-header {
+  flex: none;
+  height: 46px;
+  min-height: 46px;
+  margin: 0 -16px;
+  padding: 0 16px;
+  position: relative;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+.voice-heading {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 280px);
+}
+.voice-heading .symbolic-icon {
+  width: 20px;
+  height: 20px;
+  flex: none;
+}
+.voice-title {
+  font-size: 16px;
+  font-weight: 800;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.voice-status {
+  text-align: center;
+  flex: none;
+  margin-top: 4px;
+  font-size: 13px;
+}
+.voice-stage {
+  position: relative;
+  display: block;
+  flex: 1;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.voice-stage .voice-card {
+  position: absolute;
+  min-height: 0;
+  flex: none;
+  aspect-ratio: auto;
+  border: 2px solid #2c2946;
+  background: #171529;
+  border-radius: 16px;
+  padding: 0;
+}
+.voice-stage .voice-card.speaking {
+  border-color: #3ed67f;
+  box-shadow:
+    0 0 0 1px #3ed67f,
+    0 0 22px rgba(62, 214, 127, 0.35);
+}
+.voice-card > .voice-avatar.large {
+  width: auto;
+  height: auto;
+  border: 2px solid transparent;
+  padding: 3px;
+}
+.voice-card > .voice-avatar.large.speaking {
+  border-color: #3ed67f;
+}
+.voice-avatar.large .tile-profile {
+  width: 96px;
+  height: 96px;
+  border-radius: 28px;
+  font-size: 40px;
+}
+.voice-tile-tag {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 20px);
+}
+.voice-tile-tag .voice-card-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.voice-media {
+  display: inline-flex;
+  gap: 5px;
+}
+.voice-media .symbolic-icon {
+  width: 12px;
+  height: 12px;
+}
+.voice-controls {
+  gap: 8px;
+  flex: none;
+}
+.voice-controls > button.voice-control {
+  width: 48px;
+  height: 48px;
+  min-width: 48px;
+  min-height: 48px;
+  border-radius: 999px;
+  padding: 0;
+}
+.voice-bar {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+}
+.voice-bar .voice-bar-info {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  align-items: flex-start;
+}
+.voice-bar-room {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.voice-bar > button:not(.voice-bar-info) {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  padding: 0;
+  border-radius: 999px;
+}
+.voice-bar > .voice-menu-button {
+  width: 22px !important;
+  min-width: 22px !important;
+}
+.voice-menu {
+  position: fixed;
+  z-index: 30;
+  width: 300px;
+  max-width: calc(100vw - 16px);
+  border: 1px solid #2c2946;
+  border-radius: 12px;
+  background: #0c0b16;
+  padding: 12px;
+  box-shadow: 0 5px 24px #0008;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.voice-menu hr {
+  width: 100%;
+  border: 0;
+  border-top: 1px solid #2c2946;
+  margin: 3px 0;
+}
+.voice-volume {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px;
+}
+.voice-volume input {
+  grid-column: 1 / -1;
+  width: 100%;
+  accent-color: #ff5fa2;
+}
+.voice-volume output {
+  color: #8f89ab;
+  font-size: 12px;
+}
+.voice-device {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.voice-device select {
+  width: 100%;
+}
+.voice-menu-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 13px;
+}
+.voice-menu-check input {
+  accent-color: #ff5fa2;
+}
+.voice-meter {
+  display: flex;
+  gap: 2px;
+  height: 8px;
+}
+.voice-meter > span {
+  flex: 1;
+  background: #2c2946;
+  border-radius: 2px;
+}
+.voice-meter > span.filled {
+  background: #3ed67f;
+}
+@media (max-width: 640px) {
+  .voice-page {
+    padding: 0 12px 16px;
+  }
+  .voice-header {
+    margin: 0 -12px;
+    padding: 0 12px;
+  }
+  .voice-heading {
+    left: 12px;
+    transform: none;
+    max-width: calc(100% - 150px);
+  }
+  .voice-avatar.large .tile-profile {
+    width: 64px;
+    height: 64px;
+    font-size: 28px;
+  }
+}
+.voice-stage .voice-card {
+  font-family: Nunito;
+}
+.voice-controls > button.voice-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.voice-bar {
+  background: #0c0b16;
+  border-color: #1e1b33;
+  padding: 8px 8px 8px 14px;
+}
+.voice-avatar.large .tile-profile {
+  font-size: 38px;
+}
+.room-top > .symbolic-icon {
+  width: 14px;
+  height: 14px;
+}
+.voice-stage .voice-card {
+  min-width: 0;
+}
+.voice-tile-tag .voice-card-name {
+  position: static;
+  background: transparent;
+  padding: 0;
+}
+.voice-bar > .voice-menu-button {
+  width: 22px;
+  min-width: 22px;
+}
+.room-row.selected.has-voice-roster {
+  border-radius: 20px 20px 0 0;
+}
+.room-voice-roster.selected {
+  background: #1e1b33;
+  border-radius: 0 0 20px 20px;
+  margin: 0 8px 4px;
+  padding-left: 52px;
+}
+.room-voice-person {
+  padding: 0;
+  margin-bottom: 3px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #c9c3e0;
+}
+.room-voice-person .voice-avatar.small {
+  border: 2px solid transparent;
+  padding: 1px;
+  border-radius: 10px;
+}
+.room-voice-person .voice-avatar.small.speaking {
+  border-color: #3ed67f;
+}
+.room-voice-person .voice-avatar.small .tile {
+  width: 22px;
+  height: 22px;
+  font-size: 10px;
+  border-radius: 7px;
+}
+.voice-controls > button.voice-menu-button {
+  width: 34px;
+  height: 34px;
+  min-width: 22px;
+  min-height: 32px;
+  padding: 2px;
+  border-radius: 8px;
+  background: #2c2946;
+}
+.voice-volume .voice-menu-heading {
+  grid-column: 1 / -1;
+}
+.voice-volume input {
+  grid-column: 1;
+  grid-row: 2;
+}
+.voice-volume output {
+  grid-column: 2;
+  grid-row: 2;
+  align-self: center;
 }

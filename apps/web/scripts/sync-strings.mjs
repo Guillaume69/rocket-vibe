@@ -13,7 +13,7 @@ writeFileSync(
     JSON.stringify(
       Object.fromEntries(
         entries.filter(([key]) =>
-          /^(bots\.|workflows\.|command\.|settings\.cat\.|settings\.photo_|admin\.(bots|workflows|user_bots)|security\.refresh$|native\.offline$)/.test(
+          /^(bots\.|workflows\.|voice[^.]*\.|command\.|settings\.cat\.|settings\.photo_|admin\.(bots|workflows|user_bots)|security\.refresh$|native\.offline$)/.test(
             key,
           ),
         ),

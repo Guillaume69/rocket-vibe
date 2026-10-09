@@ -1110,6 +1110,7 @@ export class App implements RowActions {
         }
         const column = el("div", "room-column");
         const top = el("div", "room-top");
+        if (room.voice) top.append(icon("volume"));
         top.append(
           el(
             "span",
@@ -1157,7 +1158,11 @@ export class App implements RowActions {
           this.live?.rooms.find((item) => item.room_id === room.id)?.voice ||
           [];
         if (participants.length) {
-          const roster = el("div", "room-voice-roster");
+          row.classList.add("has-voice-roster");
+          const roster = el(
+            "div",
+            "room-voice-roster" + (room.id === this.room ? " selected" : ""),
+          );
           roster.dataset.voiceRoom = room.id;
           for (const participant of participants) {
             const entry = button(
@@ -1165,19 +1170,52 @@ export class App implements RowActions {
               () => this.voice.join(room.id),
               "room-voice-person",
             );
-            const avatar = tile(participant.user.username);
+            const avatar = tile(
+              participant.user.id,
+              "header",
+              (participant.user.display_name || participant.user.username)
+                .slice(0, 1)
+                .toUpperCase(),
+            );
             this.avatar(participant.user, avatar);
+            const frame = el("div", "voice-avatar small");
+            frame.append(avatar);
+            entry.dataset.voiceUser = participant.user.id;
+            if (
+              this.voice.current === room.id &&
+              this.voice.speaking.has(participant.user.id)
+            )
+              frame.classList.add("speaking");
+            if (participant.user.id !== this.account?.session.user.id)
+              entry.addEventListener("contextmenu", (event) => {
+                event.preventDefault();
+                void this.voice
+                  .personMenu(
+                    participant.user.id,
+                    participant.user.display_name || participant.user.username,
+                    event.clientX,
+                    event.clientY,
+                  )
+                  .catch(toast);
+              });
             entry.append(
-              avatar,
+              frame,
               el(
                 "span",
                 "",
                 participant.user.display_name || participant.user.username,
               ),
             );
-            if (participant.muted || participant.deafened)
-              entry.append(icon(participant.deafened ? "headphones" : "mic"));
-            if (participant.camera) entry.append(icon("video"));
+            for (const [on, name] of [
+              [participant.muted, "mic-muted"],
+              [participant.deafened, "volume-muted"],
+            ] as const)
+              if (on) {
+                const state = icon(name);
+                state.classList.add("voice-state");
+                entry.append(state);
+              }
+            if (participant.camera) entry.append(icon("camera"));
             if (participant.screen) entry.append(icon("screen"));
             roster.append(entry);
           }

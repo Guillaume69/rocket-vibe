@@ -2,7 +2,11 @@ import type { App } from "./app";
 import type { VoiceGrant, VoiceRing, LiveState } from "./protocol";
 import { Api, segment } from "./api";
 import { el, button, dialog, tile, toast } from "./dom";
-import { iconButton } from "./icons";
+import { icon, iconButton } from "./icons";
+import { nt } from "./native-i18n";
+import { tileLayout } from "./voice-grid";
+import { MicrophoneGain, volumeValue } from "./voice-audio";
+import { read, write } from "./store";
 import { preferencesGroup, actionRow } from "./sidebar";
 import { sound } from "./sounds";
 import { t, language } from "./i18n";
@@ -12,6 +16,7 @@ export class Voice {
   busy = false;
   lifecycle = 0;
   leaving: Promise<void> = Promise.resolve();
+  voiceRequests: Promise<unknown> = Promise.resolve();
   cancelled = false;
   ringDialogs = new Map<string, HTMLDialogElement>();
   bar = el("div", "voice-bar");
@@ -21,13 +26,42 @@ export class Voice {
   sharing = false;
   deafened = false;
   cards = new Map<string, HTMLElement>();
+  speaking = new Set<string>();
+  peerLeaveTimer?: ReturnType<typeof setTimeout>;
+  listeningAccount = "";
   loop?: HTMLAudioElement;
   tracks = new Map<string, HTMLElement>();
   page = el("section", "voice-page");
   controls = el("div", "voice-controls");
   heading = el("h2", "voice-title");
+  status = el("div", "voice-status");
+  header = el("header", "headerbar voice-header");
+  gain = new MicrophoneGain(
+    volumeValue(Number(localStorage.getItem("rv-voice-input-volume") ?? 1)),
+  );
+  outputVolume = volumeValue(
+    Number(localStorage.getItem("rv-voice-output-volume") ?? 1),
+  );
+  listening = new Map<string, { volume: number; muted: boolean }>();
+  audioTracks = new Map<
+    string,
+    { identity: string; track: import("livekit-client").RemoteAudioTrack }
+  >();
+  syncControls: () => void = () => {};
+  closeMenu: () => void = () => {};
+  processors = new WeakMap<
+    import("livekit-client").LocalAudioTrack,
+    Promise<void>
+  >();
   constructor(public app: App) {
-    this.page.append(this.heading, this.stage, this.controls);
+    const title = el("div", "voice-heading");
+    title.append(icon("volume"), this.heading);
+    this.header.append(
+      title,
+      button(nt("voice_session.open_chat"), () => this.hide()),
+    );
+    this.page.append(this.header, this.status, this.stage, this.controls);
+    new ResizeObserver(() => this.layout()).observe(this.stage);
     this.stage.addEventListener("dblclick", (event) => {
       const video = (event.target as HTMLElement).closest("video");
       if (video) void video.requestFullscreen().catch(toast);
@@ -70,7 +104,9 @@ export class Voice {
       }
       if (!member) throw new Error("Conversation membership not ready");
       this.current = id;
-      this.controls.replaceChildren(el("span", "dim", t("loading")));
+      this.status.textContent = nt("voice_session.connecting");
+      this.status.classList.remove("connected");
+      this.controls.replaceChildren();
       this.show();
       const grant = await this.app.api.request<VoiceGrant>(
         "/api/v1/rooms/" + segment(id) + "/voice/join",
@@ -148,15 +184,26 @@ export class Voice {
     )
       throw new Error("Invalid voice service origin");
     const { Room, RoomEvent, Track } = await import("livekit-client");
+    const saved = await read<
+      Record<string, { volume: number; muted: boolean }>
+    >("operations", account + ":voice-listening");
     if (
       lifecycle !== this.lifecycle ||
       account !== this.app.account?.key ||
       this.cancelled
     )
       return;
+    this.listening = new Map(
+      Object.entries(saved || {}).map(([id, value]) => [
+        id,
+        { volume: volumeValue(value.volume), muted: value.muted === true },
+      ]),
+    );
+    this.listeningAccount = account || "";
     const room = new Room({
       adaptiveStream: true,
       dynacast: true,
+      webAudioMix: true,
       audioCaptureDefaults: {
         echoCancellation: true,
         noiseSuppression: localStorage.getItem("rv-voice-noise") !== "false",
@@ -169,30 +216,95 @@ export class Voice {
     });
     this.room = room;
     this.current = grant.room_id;
-    room.on(RoomEvent.ParticipantConnected, (participant) =>
-      this.card(participant.identity, participant.name || participant.identity),
-    );
+    const alive = () =>
+      this.room === room &&
+      account === this.app.account?.key &&
+      lifecycle === this.lifecycle &&
+      !this.cancelled;
+    room.on(RoomEvent.ParticipantConnected, (participant) => {
+      if (alive()) {
+        clearTimeout(this.peerLeaveTimer);
+        this.peerLeaveTimer = undefined;
+        this.card(
+          participant.identity,
+          participant.name || participant.identity,
+        );
+      }
+    });
     room.on(RoomEvent.ParticipantDisconnected, (participant) => {
+      if (!alive()) return;
       this.cards.get(participant.identity)?.remove();
       this.cards.delete(participant.identity);
+      this.layout();
+      for (const [sid, audio] of this.audioTracks)
+        if (audio.identity === participant.identity)
+          this.audioTracks.delete(sid);
       if (
         this.app.model.rooms.get(this.current || "")?.kind === "direct" &&
         room.remoteParticipants.size === 0
       )
-        void this.leave().catch(toast);
+        this.peerLeaveTimer = setTimeout(() => {
+          if (alive() && room.remoteParticipants.size === 0)
+            void this.leave().catch(toast);
+        }, 2000);
     });
     room.on(RoomEvent.ActiveSpeakersChanged, (participants) => {
+      if (!alive()) return;
       const active = new Set(
         participants.map((participant) => participant.identity),
       );
-      for (const [identity, card] of this.cards)
-        card.classList.toggle("voice-speaking", active.has(identity));
+      this.speaking = active;
+      for (const roster of this.app.rooms.querySelectorAll<HTMLElement>(
+        "[data-voice-room]",
+      ))
+        if (roster.dataset.voiceRoom === this.current)
+          for (const person of roster.querySelectorAll<HTMLElement>(
+            "[data-voice-user]",
+          ))
+            person
+              .querySelector(".voice-avatar")
+              ?.classList.toggle(
+                "speaking",
+                active.has(person.dataset.voiceUser || ""),
+              );
+      for (const [identity, card] of this.cards) {
+        card.classList.toggle("speaking", active.has(identity));
+        card
+          .querySelector(".voice-avatar")
+          ?.classList.toggle("speaking", active.has(identity));
+      }
+    });
+    room.on(RoomEvent.Reconnecting, () => {
+      if (alive()) {
+        this.status.textContent = nt("voice_session.reconnecting");
+        this.status.classList.remove("connected");
+      }
+    });
+    room.on(RoomEvent.Reconnected, () => {
+      if (alive()) {
+        this.status.textContent = nt("voice_session.connected");
+        this.status.classList.add("connected");
+      }
+    });
+    room.on(RoomEvent.TrackMuted, () => {
+      if (alive()) this.syncCards();
+    });
+    room.on(RoomEvent.TrackUnmuted, () => {
+      if (alive()) this.syncCards();
+    });
+    room.on(RoomEvent.ParticipantAttributesChanged, () => {
+      if (alive()) this.syncCards();
     });
     room.on(RoomEvent.TrackSubscribed, (track, _publication, participant) => {
+      if (!alive()) return;
       const media = track.attach();
       media.setAttribute("autoplay", "");
-      if (media instanceof HTMLAudioElement) {
-        media.muted = this.deafened;
+      if (track.kind === Track.Kind.Audio) {
+        this.audioTracks.set(track.sid!, {
+          identity: participant.identity,
+          track: track as import("livekit-client").RemoteAudioTrack,
+        });
+        this.mix();
         media.classList.add("voice-audio");
       }
       if (media instanceof HTMLVideoElement) {
@@ -204,16 +316,25 @@ export class Voice {
         participant.name || participant.identity,
       ).append(media);
       if (track.sid) this.tracks.set(track.sid, media);
+      this.syncCards();
     });
     room.on(RoomEvent.TrackUnsubscribed, (track) => {
+      if (!alive()) return;
       for (const media of track.detach()) media.remove();
       if (track.sid) {
         this.tracks.get(track.sid)?.remove();
         this.tracks.delete(track.sid);
+        this.audioTracks.delete(track.sid);
       }
+      this.syncCards();
     });
     room.on(RoomEvent.LocalTrackPublished, (publication) => {
+      if (!alive()) return;
       const track = publication.track;
+      if (track?.kind === Track.Kind.Audio) {
+        void this.processMicrophone(room).catch(toast);
+        return;
+      }
       if (!track || track.kind !== Track.Kind.Video) return;
       const media = track.attach();
       media.muted = true;
@@ -226,24 +347,21 @@ export class Voice {
       if (track.sid) this.tracks.set(track.sid, media);
     });
     room.on(RoomEvent.LocalTrackUnpublished, (publication) => {
+      if (!alive()) return;
       if (publication.trackSid) {
         this.tracks.get(publication.trackSid)?.remove();
         this.tracks.delete(publication.trackSid);
       }
       if (publication.source === Track.Source.ScreenShare && this.sharing) {
         this.sharing = false;
-        void this.app.api
-          .request("/api/v1/voice/screen", "DELETE")
-          .catch(() => {});
+        this.syncControls();
+        this.syncCards();
+        void this.screenRequest("DELETE").catch(() => {});
       }
     });
     room.on(RoomEvent.Disconnected, () => {
-      if (this.room !== room) return;
-      this.room = undefined;
-      this.current = undefined;
-      this.bar.remove();
-      this.hide();
-      this.page.remove();
+      if (!alive()) return;
+      void this.leave().catch(toast);
     });
     await room.connect(grant.url, grant.token);
     if (
@@ -264,6 +382,7 @@ export class Voice {
     if (grant.can_publish) {
       try {
         await room.localParticipant.setMicrophoneEnabled(true);
+        await this.processMicrophone(room);
       } catch (error) {
         this.muted = true;
         toast(error);
@@ -284,126 +403,587 @@ export class Voice {
       return;
     }
     sound("join");
-    const mic = iconButton(
-      "mic",
-      language === "fr" ? "Microphone" : "Microphone",
-      async () => {
-        const next = !this.muted;
-        await room.localParticipant.setMicrophoneEnabled(!next);
-        this.muted = next;
-        sound(this.muted ? "mute" : "unmute");
-        mic.classList.toggle("muted", this.muted);
-      },
-    );
-    mic.disabled = !grant.can_publish;
-    mic.classList.toggle("muted", this.muted);
-    const camera = iconButton(
-      "video",
-      language === "fr" ? "Caméra" : "Camera",
-      async () => {
-        this.camera = !this.camera;
-        await room.localParticipant.setCameraEnabled(this.camera);
-      },
-    );
-    camera.disabled = !grant.can_publish;
-    const screen = iconButton(
-      "screen",
-      language === "fr" ? "Partager l’écran" : "Share screen",
-      async () => {
-        if (!this.sharing) {
-          await this.app.api.request("/api/v1/voice/screen", "POST", null);
-          try {
-            await room.localParticipant.setScreenShareEnabled(true);
-            this.sharing = true;
-          } catch (error) {
-            await this.app.api.request("/api/v1/voice/screen", "DELETE");
-            throw error;
-          }
-        } else {
-          await room.localParticipant.setScreenShareEnabled(false);
-          await this.app.api.request("/api/v1/voice/screen", "DELETE");
-          this.sharing = false;
-        }
-      },
-    );
-    screen.disabled = !grant.can_publish;
-    const deaf = iconButton(
-      "headphones",
-      language === "fr" ? "Écoute" : "Listen",
-      async () => {
-        this.deafened = !this.deafened;
-        for (const media of this.stage.querySelectorAll("audio"))
-          media.muted = this.deafened;
-        await room.localParticipant.setAttributes({
-          "rv.deafened": String(this.deafened),
-        });
-        deaf.classList.toggle("muted", this.deafened);
-      },
-    );
-    this.controls.replaceChildren(
-      mic,
-      deaf,
-      camera,
-      screen,
-      iconButton(
+    this.status.textContent = nt("voice_session.connected");
+    this.status.classList.add("connected");
+    const controls = (sidebar = false) => {
+      const mic = iconButton(
+        "mic",
+        "Microphone",
+        async () => {
+          if (!alive()) return;
+          await room.localParticipant.setMicrophoneEnabled(this.muted);
+          if (!alive()) return;
+          this.muted = !this.muted;
+          sound(this.muted ? "mute" : "unmute");
+          this.syncControls();
+          this.syncCards();
+        },
+        sidebar ? "flat" : "voice-control",
+      );
+      mic.disabled = !grant.can_publish;
+      const menu = iconButton(
+        "audio-menu",
+        nt("voice_menu.open"),
+        () => (alive() ? this.audioMenu(menu) : undefined),
+        "flat voice-menu-button",
+      );
+      const deaf = iconButton(
+        "headphones",
+        language === "fr" ? "Écoute" : "Listen",
+        async () => {
+          if (!alive()) return;
+          this.deafened = !this.deafened;
+          this.mix();
+          this.syncControls();
+          this.syncCards();
+          await room.localParticipant.setAttributes({
+            "rv.deafened": String(this.deafened),
+          });
+        },
+        sidebar ? "flat" : "voice-control",
+      );
+      const leave = iconButton(
         "leave-call",
-        language === "fr" ? "Quitter l’appel" : "Leave call",
+        sidebar ? t("close") : nt("voice_session.leave"),
         () => this.leave(),
-        "destructive",
-      ),
-    );
+        sidebar ? "flat voice-leave" : "voice-control voice-leave",
+      );
+      leave.title = nt("voice_session.leave");
+      const nodes = [mic, menu, deaf];
+      const camera = iconButton(
+        "camera",
+        language === "fr" ? "Caméra" : "Camera",
+        async () => {
+          if (!alive()) return;
+          const next = !this.camera;
+          await room.localParticipant.setCameraEnabled(next);
+          if (!alive()) return;
+          this.camera = next;
+          this.syncControls();
+          this.syncCards();
+        },
+        "voice-control",
+      );
+      camera.disabled = !grant.can_publish;
+      const screen = iconButton(
+        "screen",
+        nt("voice_session.share_screen"),
+        async () => {
+          if (!alive()) return;
+          if (!this.sharing) {
+            await this.screenRequest("POST");
+            if (!alive()) return;
+            try {
+              await room.localParticipant.setScreenShareEnabled(true);
+              if (!alive()) return;
+              this.sharing = true;
+            } catch (error) {
+              if (alive()) await this.screenRequest("DELETE");
+              throw error;
+            }
+          } else {
+            await room.localParticipant.setScreenShareEnabled(false);
+            if (alive()) await this.screenRequest("DELETE");
+            if (!alive()) return;
+            this.sharing = false;
+          }
+          this.syncControls();
+          this.syncCards();
+        },
+        "voice-control",
+      );
+      screen.disabled = !grant.can_publish;
+      if (!sidebar) nodes.push(camera, screen);
+      nodes.push(leave);
+      const sync = () => {
+        mic.replaceChildren(icon(this.muted ? "mic-muted" : "mic"));
+        mic.classList.toggle("voice-off", this.muted);
+        mic.title = nt(
+          !grant.can_publish
+            ? "voice_session.listening"
+            : this.muted
+              ? "voice_session.unmute"
+              : "voice_session.mute",
+        );
+        mic.setAttribute("aria-pressed", String(this.muted));
+        deaf.replaceChildren(
+          icon(this.deafened ? "volume-muted" : "headphones"),
+        );
+        deaf.classList.toggle("voice-off", this.deafened);
+        deaf.title = nt(
+          this.deafened ? "voice_session.undeafen" : "voice_session.deafen",
+        );
+        deaf.setAttribute("aria-pressed", String(this.deafened));
+        camera.classList.toggle("voice-on", this.camera);
+        camera.title = nt(
+          this.camera ? "voice_session.camera_off" : "voice_session.camera_on",
+        );
+        camera.setAttribute("aria-pressed", String(this.camera));
+        screen.classList.toggle("voice-on", this.sharing);
+        screen.title = nt(
+          this.sharing
+            ? "voice_session.stop_screen"
+            : "voice_session.share_screen",
+        );
+        screen.setAttribute("aria-pressed", String(this.sharing));
+      };
+      return { nodes, sync };
+    };
+    const main = controls(),
+      sidebar = controls(true);
+    this.syncControls = () => {
+      main.sync();
+      sidebar.sync();
+    };
+    this.syncControls();
+    this.controls.replaceChildren(...main.nodes);
     const resume = button(
       language === "fr" ? "Activer le son" : "Enable audio",
       () => room.startAudio(),
     );
     const syncPlayback = () => {
-      resume.hidden = room.canPlaybackAudio;
+      if (alive()) resume.hidden = room.canPlaybackAudio;
     };
     room.on(RoomEvent.AudioPlaybackStatusChanged, syncPlayback);
     syncPlayback();
-    this.controls.append(
-      resume,
-      button(language === "fr" ? "Messages" : "Messages", () => this.hide()),
-    );
-    this.bar.replaceChildren(
-      button(this.app.model.rooms.get(grant.room_id)?.name || t("voice"), () =>
-        this.show(),
+    this.controls.append(resume);
+    const connection = button("", () => this.show(), "flat voice-bar-info");
+    connection.append(
+      el("span", "voice-bar-status connected", nt("voice_session.connected")),
+      el(
+        "span",
+        "voice-bar-room",
+        this.app.model.rooms.get(grant.room_id)?.name || t("voice"),
       ),
-      iconButton("close", t("close"), () => this.leave()),
     );
+    this.bar.replaceChildren(connection, ...sidebar.nodes);
     this.app.sidebar.insertBefore(this.bar, this.app.sidebar.lastElementChild);
+    this.syncCards();
     this.show();
+  }
+  layout(): void {
+    const cards = [...this.cards.values()],
+      bounds = this.stage.getBoundingClientRect();
+    const rectangles = tileLayout(cards.length, bounds.width, bounds.height);
+    cards.forEach((card, index) => {
+      const rectangle = rectangles[index];
+      if (!rectangle) return;
+      Object.assign(card.style, {
+        left: rectangle.left + "px",
+        top: rectangle.top + "px",
+        width: rectangle.width + "px",
+        height: rectangle.height + "px",
+      });
+    });
   }
   card(identity: string, name: string): HTMLElement {
     let card = this.cards.get(identity);
-    if (!card) {
-      card = el("div", "voice-card");
-      card.dataset.participant = identity;
-      const portrait = tile(name, "profile");
-      portrait.classList.add("voice-avatar");
-      card.append(portrait, el("span", "voice-card-name", name));
-      this.cards.set(identity, card);
-      this.stage.append(card);
+    if (card) return card;
+    card = el("div", "voice-card tile");
+    card.dataset.participant = identity;
+    const local = identity === this.app.account?.session.user.id;
+    const person = local
+      ? this.app.account?.session.user
+      : this.app.live?.rooms
+          .find((item) => item.room_id === this.current)
+          ?.voice?.find((item) => item.user.id === identity)?.user;
+    const avatar = el("div", "voice-avatar large"),
+      portrait = tile(
+        identity,
+        "profile",
+        (person?.display_name || person?.username || name)
+          .slice(0, 1)
+          .toUpperCase(),
+      );
+    avatar.append(portrait);
+    const tag = el("div", "voice-tile-tag"),
+      label = el(
+        "span",
+        "voice-card-name",
+        local
+          ? nt("voice_session.you", { name: person?.display_name || name })
+          : person?.display_name || name,
+      ),
+      media = el("span", "voice-media");
+    tag.append(label, media);
+    card.append(avatar, tag);
+    this.cards.set(identity, card);
+    this.stage.append(card);
+    this.layout();
+    if (person) this.app.avatar(person, portrait);
+    const generation = this.lifecycle;
+    if (!person) {
+      const request =
+        this.app.profiles.get(identity) ||
+        this.app.api.request<import("./protocol").UserProfile>(
+          "/api/v1/users/" + segment(identity),
+        );
+      this.app.profiles.set(identity, request);
+      void request
+        .then((profile) => {
+          if (generation !== this.lifecycle || !card?.isConnected) return;
+          const updated = tile(
+            identity,
+            "profile",
+            (profile.user.display_name || profile.user.username)
+              .slice(0, 1)
+              .toUpperCase(),
+          );
+          portrait.className = updated.className;
+          portrait.textContent = updated.textContent;
+          label.textContent =
+            profile.user.display_name || profile.user.username;
+          this.app.avatar(profile.user, portrait);
+        })
+        .catch(() => {});
     }
+    if (!local)
+      card.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        void this.personMenu(
+          identity,
+          label.textContent || name,
+          event.clientX,
+          event.clientY,
+        ).catch(toast);
+      });
+    this.syncCards();
     return card;
   }
-  async settings(page: HTMLElement): Promise<void> {
-    const [group, rows] = preferencesGroup(
-      language === "fr" ? "Voix" : "Voice",
+  syncCards(): void {
+    for (const [identity, card] of this.cards) {
+      const participant =
+        this.room?.localParticipant.identity === identity
+          ? this.room.localParticipant
+          : this.room?.remoteParticipants.get(identity);
+      const media = card.querySelector(".voice-media");
+      if (!media || !participant) continue;
+      media.replaceChildren();
+      const local = identity === this.room?.localParticipant.identity;
+      if (!participant.isMicrophoneEnabled) {
+        const mic = icon("mic-muted");
+        mic.classList.add("voice-state");
+        media.append(mic);
+      }
+      if (
+        local ? this.deafened : participant.attributes["rv.deafened"] === "true"
+      ) {
+        const deaf = icon("volume-muted");
+        deaf.classList.add("voice-deafened", "voice-state");
+        media.append(deaf);
+      }
+      if (participant.isCameraEnabled) media.append(icon("camera"));
+      if (participant.isScreenShareEnabled) media.append(icon("screen"));
+      if (this.listening.get(identity)?.muted) {
+        const muted = icon("volume-low");
+        muted.classList.add("voice-muted-here");
+        muted.setAttribute("title", nt("voice_person.muted_here"));
+        media.append(muted);
+      }
+    }
+  }
+  async processMicrophone(room: import("livekit-client").Room): Promise<void> {
+    const track = [
+      ...room.localParticipant.audioTrackPublications.values(),
+    ].find((publication) => publication.source === "microphone")?.audioTrack;
+    if (!track) return;
+    const pending = this.processors.get(track);
+    if (pending) {
+      await pending;
+      return;
+    }
+    if (track.getProcessor() === this.gain) return;
+    const processing = track.setProcessor(this.gain);
+    this.processors.set(track, processing);
+    try {
+      await processing;
+    } finally {
+      this.processors.delete(track);
+    }
+  }
+  screenRequest(method: "POST" | "DELETE"): Promise<unknown> {
+    const api = new Api();
+    api.token = this.app.api.token;
+    const request = this.voiceRequests
+      .catch(() => {})
+      .then(() => api.request("/api/v1/voice/screen", method, null));
+    this.voiceRequests = request;
+    return request;
+  }
+  mix(): void {
+    for (const { identity, track } of this.audioTracks.values()) {
+      const person = this.listening.get(identity);
+      track.setVolume(
+        this.deafened || person?.muted
+          ? 0
+          : this.outputVolume * (person?.volume ?? 1),
+      );
+    }
+  }
+  popover(x: number, y: number): HTMLElement {
+    this.closeMenu();
+    const menu = el("div", "voice-menu"),
+      abort = new AbortController();
+    menu.setAttribute("role", "dialog");
+    document.body.append(menu);
+    menu.style.left = Math.max(8, Math.min(x, window.innerWidth - 316)) + "px";
+    menu.style.top = Math.max(8, y) + "px";
+    const resize = new ResizeObserver(() => {
+      const rect = menu.getBoundingClientRect();
+      menu.style.top =
+        Math.max(8, Math.min(y, window.innerHeight - rect.height - 8)) + "px";
+    });
+    resize.observe(menu);
+    this.closeMenu = () => {
+      resize.disconnect();
+      abort.abort();
+      menu.remove();
+      this.closeMenu = () => {};
+    };
+    const signal = abort.signal;
+    document.addEventListener(
+      "pointerdown",
+      (event) => {
+        if (!menu.contains(event.target as Node)) this.closeMenu();
+      },
+      { signal },
     );
+    document.addEventListener(
+      "keydown",
+      (event) => {
+        if (event.key === "Escape") {
+          event.stopPropagation();
+          this.closeMenu();
+        }
+      },
+      { signal, capture: true },
+    );
+    requestAnimationFrame(() => {
+      const rect = menu.getBoundingClientRect();
+      menu.style.top =
+        Math.max(8, Math.min(y, window.innerHeight - rect.height - 8)) + "px";
+    });
+    return menu;
+  }
+  volumeControl(
+    menu: HTMLElement,
+    key: string,
+    value: number,
+    change: (value: number) => void,
+  ): void {
+    const row = el("label", "voice-volume"),
+      title = el("span", "voice-menu-heading", nt(key)),
+      amount = el("output", "", Math.round(value * 100) + " %"),
+      input = el("input");
+    input.type = "range";
+    input.min = "0";
+    input.max = "200";
+    input.step = "1";
+    input.value = String(Math.round(value * 100));
+    input.setAttribute("aria-label", nt(key));
+    input.addEventListener("input", () => {
+      amount.textContent = input.value + " %";
+      change(Number(input.value) / 100);
+    });
+    row.append(title, amount, input);
+    menu.append(row);
+  }
+  async personMenu(
+    identity: string,
+    name: string,
+    x: number,
+    y: number,
+  ): Promise<void> {
+    const openingAccount = this.app.account?.key,
+      openingLifecycle = this.lifecycle;
+    if (!openingAccount) return;
+    if (this.listeningAccount !== openingAccount) {
+      const stored = await read<
+        Record<string, { volume: number; muted: boolean }>
+      >("operations", openingAccount + ":voice-listening");
+      if (
+        openingAccount !== this.app.account?.key ||
+        openingLifecycle !== this.lifecycle
+      )
+        return;
+      this.listening = new Map(
+        Object.entries(stored || {}).map(([id, value]) => [
+          id,
+          { volume: volumeValue(value.volume), muted: value.muted === true },
+        ]),
+      );
+      this.listeningAccount = openingAccount;
+    }
+    const menu = this.popover(x, y);
+    menu.setAttribute("aria-label", name);
+    menu.append(el("div", "voice-menu-title", name));
+    const person = this.listening.get(identity) || { volume: 1, muted: false };
+    this.listening.set(identity, person);
+    const account = this.app.account?.key,
+      lifecycle = this.lifecycle;
+    const save = () => {
+      if (account !== this.app.account?.key || lifecycle !== this.lifecycle)
+        return;
+      this.mix();
+      this.syncCards();
+      void write(
+        "operations",
+        account + ":voice-listening",
+        Object.fromEntries(this.listening),
+      ).catch(toast);
+    };
+    this.volumeControl(menu, "voice_person.volume", person.volume, (value) => {
+      person.volume = value;
+      save();
+    });
+    const row = el("label", "voice-menu-check"),
+      mute = el("input");
+    mute.type = "checkbox";
+    mute.checked = person.muted;
+    mute.addEventListener("change", () => {
+      person.muted = mute.checked;
+      save();
+    });
+    row.append(mute, el("span", "", nt("voice_person.mute")));
+    menu.append(row);
+  }
+  async audioMenu(anchor: HTMLElement): Promise<void> {
+    const room = this.room;
+    if (!room) return;
+    const bounds = anchor.getBoundingClientRect(),
+      menu = this.popover(bounds.left, bounds.top),
+      lifecycle = this.lifecycle;
+    menu.setAttribute("aria-label", nt("voice_menu.open"));
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    if (!menu.isConnected || this.room !== room || lifecycle !== this.lifecycle)
+      return;
+    for (const kind of ["audioinput", "audiooutput"] as const) {
+      const row = el("label", "voice-device"),
+        key =
+          kind === "audioinput"
+            ? "voice_menu.input_device"
+            : "voice_menu.output_device",
+        select = el("select", "row-select");
+      select.setAttribute("aria-label", nt(key));
+      const defaultOption = el("option", "", nt("voice_settings.default"));
+      defaultOption.value = "default";
+      select.append(defaultOption);
+      for (const device of devices.filter(
+        (item) => item.kind === kind && item.deviceId !== "default",
+      )) {
+        const option = el("option", "", device.label || nt(key));
+        option.value = device.deviceId;
+        select.append(option);
+      }
+      select.value = localStorage.getItem("rv-" + kind) || "default";
+      select.addEventListener("change", () => {
+        void room
+          .switchActiveDevice(kind, select.value)
+          .then(() => localStorage.setItem("rv-" + kind, select.value))
+          .catch(toast);
+      });
+      row.append(el("span", "voice-menu-heading", nt(key)), select);
+      menu.append(row);
+    }
+    menu.append(el("hr"));
+    this.volumeControl(
+      menu,
+      "voice_menu.input_volume",
+      this.gain.volume,
+      (value) => {
+        this.gain.setVolume(value);
+        localStorage.setItem("rv-voice-input-volume", String(value));
+      },
+    );
+    menu.append(el("div", "voice-menu-heading", nt("voice_menu.input_level")));
+    const meter = el("div", "voice-meter");
+    meter.setAttribute("role", "meter");
+    meter.setAttribute("aria-label", nt("voice_menu.input_level"));
+    meter.setAttribute("aria-valuemin", "0");
+    meter.setAttribute("aria-valuemax", "100");
+    for (let i = 0; i < 24; i++) meter.append(el("span"));
+    menu.append(meter);
+    const tick = () => {
+      if (!menu.isConnected) return;
+      const level = this.muted ? 0 : this.gain.level();
+      meter.setAttribute("aria-valuenow", String(Math.round(level * 100)));
+      [...meter.children].forEach((block, index) =>
+        block.classList.toggle("filled", index < Math.round(level * 24)),
+      );
+      requestAnimationFrame(tick);
+    };
+    tick();
+    this.volumeControl(
+      menu,
+      "voice_menu.output_volume",
+      this.outputVolume,
+      (value) => {
+        this.outputVolume = value;
+        this.mix();
+        localStorage.setItem("rv-voice-output-volume", String(value));
+      },
+    );
+    menu.append(el("hr"));
+    const check = (
+      key: string,
+      value: boolean,
+      change: (value: boolean) => Promise<void>,
+    ) => {
+      const row = el("label", "voice-menu-check"),
+        input = el("input");
+      input.type = "checkbox";
+      input.checked = value;
+      input.addEventListener("change", () => {
+        input.disabled = true;
+        void change(input.checked)
+          .catch((error) => {
+            input.checked = !input.checked;
+            toast(error);
+          })
+          .finally(() => (input.disabled = false));
+      });
+      row.append(input, el("span", "", nt(key)));
+      menu.append(row);
+    };
+    check(
+      "voice_settings.noise",
+      localStorage.getItem("rv-voice-noise") !== "false",
+      async (value) => {
+        const track = [
+          ...room.localParticipant.audioTrackPublications.values(),
+        ].find((item) => item.source === "microphone")?.audioTrack;
+        await track?.applyConstraints({ noiseSuppression: value });
+        localStorage.setItem("rv-voice-noise", String(value));
+      },
+    );
+    check("voice_menu.deafen", this.deafened, async (value) => {
+      this.deafened = value;
+      this.mix();
+      this.syncControls();
+      this.syncCards();
+      await room.localParticipant.setAttributes({
+        "rv.deafened": String(value),
+      });
+    });
+    menu.append(
+      button(nt("voice_menu.settings"), async () => {
+        this.closeMenu();
+        const { settings } = await import("./panels");
+        await settings(this.app, "voice");
+      }),
+    );
+  }
+  async settings(page: HTMLElement): Promise<void> {
+    const [group, rows] = preferencesGroup(nt("voice_settings.title"));
     const devices = await navigator.mediaDevices.enumerateDevices();
     for (const [kind, label] of [
-      ["audioinput", language === "fr" ? "Microphone" : "Microphone"],
-      ["audiooutput", language === "fr" ? "Sortie audio" : "Audio output"],
+      ["audioinput", nt("voice_settings.input")],
+      ["audiooutput", nt("voice_settings.output")],
     ] as const) {
       const row = actionRow(label),
         select = el("select", "row-select");
       select.setAttribute("aria-label", label);
-      const defaultOption = el(
-        "option",
-        "",
-        language === "fr" ? "Valeur par défaut du système" : "System default",
-      );
+      const defaultOption = el("option", "", nt("voice_settings.default"));
       defaultOption.value = "default";
       select.append(defaultOption);
       for (const device of devices.filter(
@@ -421,20 +1001,18 @@ export class Voice {
       row.append(select);
       rows.append(row);
     }
-    const noiseRow = actionRow(
-      language === "fr" ? "Réduction du bruit" : "Noise suppression",
-    );
+    const noiseRow = actionRow(nt("voice_settings.noise"));
     const noise = el("input");
     noise.type = "checkbox";
-    noise.setAttribute(
-      "aria-label",
-      language === "fr" ? "Réduction du bruit" : "Noise suppression",
-    );
+    noise.setAttribute("aria-label", nt("voice_settings.noise"));
     noise.checked = localStorage.getItem("rv-voice-noise") !== "false";
     noise.addEventListener("change", () => {
       localStorage.setItem("rv-voice-noise", String(noise.checked));
-      void this.room?.localParticipant
-        .setMicrophoneEnabled(!this.muted, { noiseSuppression: noise.checked })
+      const track = [
+        ...(this.room?.localParticipant.audioTrackPublications.values() || []),
+      ].find((item) => item.source === "microphone")?.audioTrack;
+      void track
+        ?.applyConstraints({ noiseSuppression: noise.checked })
         .catch(toast);
     });
     noiseRow.append(noise);
@@ -454,10 +1032,18 @@ export class Voice {
   }
   async leave(notify = true): Promise<void> {
     this.lifecycle++;
+    this.closeMenu();
+    this.audioTracks.clear();
+    this.listening.clear();
+    this.listeningAccount = "";
+    clearTimeout(this.peerLeaveTimer);
+    this.peerLeaveTimer = undefined;
+    this.syncControls = () => {};
     this.cancelled = true;
     this.loop?.pause();
     this.loop = undefined;
     this.cards.clear();
+    this.speaking.clear();
     this.hide();
     this.page.remove();
     const active = this.current || this.room;
@@ -465,6 +1051,7 @@ export class Voice {
     const api = new Api();
     api.token = this.app.api.token;
     const previous = this.leaving;
+    const voiceRequests = this.voiceRequests;
     this.room = undefined;
     this.current = undefined;
     this.bar.remove();
@@ -481,6 +1068,7 @@ export class Voice {
         await room.disconnect(true);
         sound("leave");
       }
+      await voiceRequests.catch(() => {});
       if (active && notify)
         try {
           await api.request("/api/v1/voice/leave", "POST", null);
@@ -519,7 +1107,7 @@ export class Voice {
           ring.caller.display_name || ring.caller.username,
         ),
         button(
-          t("join"),
+          nt("voice_session.accept"),
           async () => {
             const member = this.app.model.rooms.get(ring.room_id)?.read_state
               ?.membership_version;
@@ -554,7 +1142,7 @@ export class Voice {
           "cta",
         ),
         button(
-          t("cancel"),
+          nt("voice_session.decline"),
           async () => {
             await this.app.api.request(
               "/api/v1/voice/rings/" + segment(ring.id) + "/decline",

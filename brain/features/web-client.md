@@ -18,6 +18,8 @@ The merged master bots and workflows are exposed in browser settings, with the b
 
 Settings follow the GTK category order and icons, with profile editing in a subpage and separate server administration. Display zoom and clock switches were removed because GTK exposes neither. Language supports automatic, French and English, saved to native preferences for the next launch. Device sessions expose renaming, dates and confirmed revocation. Audio attachments provide inline playback controls. Selecting a voice channel joins automatically and shows the main call page plus live room occupants.
 
+The voice page ports GTK's centered 16:9 TileGrid, native six-button controls, connection status and speaking halos. The audio menu applies microphone gain and a processed-input meter through Web Audio, plus output and per-person gains up to 200 percent. Local mute does not change the remote person's published microphone. Person preferences live in account-scoped browser storage and are purged on signout. Device selection and browser noise constraints use the browser's capture APIs; this is not the GTK RNNoise implementation. Screen claims are ordered before call teardown, and stale callbacks cannot reopen capture. Direct calls retain the native two-second peer reconnection grace.
+
 Known qualification debt: full GTK visual-state comparisons, closed-tab Web Push, offline signout replay, and exhaustive call/device/platform qualification. The detailed inventory and current evidence live in `docs/WEB_CLIENT_EXECUTION.md`. Implemented code is not a claim of complete GTK parity.
 
 ## Sources
@@ -26,6 +28,8 @@ Known qualification debt: full GTK visual-state comparisons, closed-tab Web Push
 - apps/web/src/app.ts
 - apps/web/src/panels.ts
 - apps/web/src/voice.ts
+- apps/web/src/voice-grid.ts
+- apps/web/src/voice-audio.ts
 - apps/web/src/security.ts
 - apps/web/src/email.ts
 - docs/WEB_CLIENT_EXECUTION.md

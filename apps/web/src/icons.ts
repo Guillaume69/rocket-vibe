@@ -35,7 +35,17 @@ import workflowsIcon from "./icons-native/media-playlist-repeat-symbolic.svg";
 import upIcon from "./icons-native/go-up-symbolic.svg";
 import downIcon from "./icons-native/go-down-symbolic.svg";
 import trashIcon from "./icons-native/user-trash-symbolic.svg";
+import panUpIcon from "./icons-native/pan-up-symbolic.svg";
+import micMutedIcon from "./icons-native/microphone-disabled-symbolic.svg";
+import volumeMutedIcon from "./icons-native/audio-volume-muted-symbolic.svg";
+import cameraWebIcon from "./icons-native/camera-web-symbolic.svg";
+import volumeLowIcon from "./icons-native/audio-volume-low-symbolic.svg";
 const native: Record<string, string> = {
+  camera: cameraWebIcon,
+  "volume-low": volumeLowIcon,
+  "audio-menu": panUpIcon,
+  "mic-muted": micMutedIcon,
+  "volume-muted": volumeMutedIcon,
   bots: botsIcon,
   workflows: workflowsIcon,
   up: upIcon,

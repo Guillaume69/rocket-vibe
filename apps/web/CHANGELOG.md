@@ -20,6 +20,10 @@ All notable changes are documented here in English.
 
 ### Added
 
+- GTK voice tile arrangement, connection header, native call controls and speaking halos in the call and room roster.
+- Audio-device menu with real microphone gain and meter, output gain, deafen, browser noise suppression and retained per-person volume or local mute.
+- Serialize screen claims with call teardown so a delayed share response cannot begin capture after leaving.
+
 - Match the new master bots and workflows features: bot badges, scoped bot profiles and one-time keys, administrator policy, workflow triggers and steps, variable insertion, history, webhook URLs and message forms.
 - Scope workflow command completion to the current room and dispatch hyphenated commands without plaintext fallback.
 - Generate the feature labels and failure messages from the shared GTK catalog.

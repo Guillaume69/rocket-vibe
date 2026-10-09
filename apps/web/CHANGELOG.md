@@ -4,14 +4,16 @@ All notable changes are documented here in English.
 
 ## [Unreleased]
 
-### Changed
-
-- The account block shows a gear and opens a menu (Settings, Server administration for administrators, Sign out); sign out left the header. The header's "+" is a menu (New message, Browse channels, Create a channel), and the Channels and Direct messages headings carry their own "+".
+## [0.3.0] - 2026-10-09
 
 ### Added
 
 - Server administration: a Server icon card on the Dashboard to set or remove the server's icon; the tab shows it as its icon.
 - Server administration: a Custom emoji page where administrators add emoji (name, aliases, image) and delete them.
+
+### Changed
+
+- The account block shows a gear and opens a menu (Settings, Server administration for administrators, Sign out); sign out left the header. The header's "+" is a menu (New message, Browse channels, Create a channel), and the Channels and Direct messages headings carry their own "+".
 
 ## [0.2.0] - 2026-10-09
 
@@ -94,5 +96,6 @@ All notable changes are documented here in English.
 - LiveKit audio/video calls, capture controls and browser notifications while the tab is alive.
 - Encrypted rooms shown locked, with sending and media/call actions unavailable.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/web-v0.2.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/web-v0.3.0...HEAD
+[0.3.0]: https://github.com/Guillaume69/rocket-vibe/compare/web-v0.2.0...web-v0.3.0
 [0.2.0]: https://github.com/Guillaume69/rocket-vibe/releases/tag/web-v0.2.0

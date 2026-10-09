@@ -68,6 +68,16 @@ the [pilot contract](../../docs/protocol/README.md).
 
 The server binary now embeds [apps/web](../web/README.md). Open its origin at `/` or a `/room/<id>` link. Built assets are checked in and embedded at Cargo build time; production and Docker need no Node runtime. Rebuild the web bundle with Node 24 before rebuilding the server when frontend code changes. The browser uses one account on this origin and leaves encrypted rooms locked. Use HTTPS outside the local bench.
 
+## Releases
+
+A `server-vX.Y.Z` tag publishes the server (`.github/workflows/server-release.yml`): a GitHub
+Release with `rocketvibe-server-X.Y.Z-linux-x86_64.tar.gz` (the binary built in
+`Dockerfile`'s Debian bookworm stage, so it needs glibc 2.36 or later) and its `SHA256SUMS`, and
+the image `ghcr.io/guillaume69/rocketvibe-server:X.Y.Z` (also `:latest`). The version lives in
+`Cargo.toml`, the notes are its section of [CHANGELOG.md](CHANGELOG.md). Each release embeds
+the web client of its commit. The apps' administration Dashboard compares the server's version
+with the newest `server-v*` release.
+
 ## Local start
 
 On a dedicated server, behind a domain in HTTPS and with voice: see

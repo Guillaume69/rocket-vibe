@@ -10,8 +10,8 @@ release task: the tag push does the publishing (`.github/workflows/mobile.yml`,
 `desktop.yml`), so the value of this skill is getting the files right before the
 tag, and watching CI after it.
 
-Each app has its own version, changelog and tag. A run can cut one app or both;
-when both, they share one release branch.
+Each app (mobile, desktop, web, server) has its own version, changelog and tag. A run
+can cut one app or several; they share one release branch.
 
 ## 1. Pre-flight
 
@@ -74,6 +74,14 @@ Per app, one commit `[release/<x.y.z>] chore(<app>): release <x.y.z>` holding:
   stale lock fails every job. The desktop gate below rewrites the main lock if it
   is behind; check that `git diff` of both locks touches only those versions, and
   `cargo metadata --locked` in `apps/desktop/voice` (in the build container).
+
+- **web**: from `apps/web/`, `npm version <x.y.z> --no-git-tag-version`, then
+  `npm run build` and commit the rebuilt `dist/` (the version is in the bundle).
+- **server**: `[package] version` in `apps/server/Cargo.toml` and the `rv-server`
+  entry of the root `Cargo.lock`. Its tag runs `server-release.yml` (gate, Docker
+  build, binary archive, `ghcr.io` image, release); the `release/**` branch push
+  runs the same without publishing, so wait for it to be green before tagging.
+  Release web before (or with) the server: the server embeds `apps/web/dist`.
 
 Then both scripts must agree, or CI will refuse the tag:
 

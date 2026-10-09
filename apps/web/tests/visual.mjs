@@ -304,7 +304,7 @@ try {
   releaseFixture = [
     { tag_name: "desktop-v99.0.0" },
     { tag_name: "server-v0.1.5" },
-    { tag_name: "server-v0.2.0" },
+    { tag_name: "server-v0.3.0" },
     { tag_name: "server-v0.1.9" },
     { tag_name: "server-v9.0.0", draft: true },
     { tag_name: "server-v8.0.0", prerelease: true },
@@ -329,7 +329,7 @@ try {
   await admin.locator(".admin-update.available").waitFor();
   assert.match(
     await admin.locator(".admin-update.available").textContent(),
-    /0\.2\.0$/,
+    /0\.3\.0$/,
   );
   assert.equal(
     await admin.locator(".preferences-sidebar h2").textContent(),

@@ -1,0 +1,133 @@
+name: server-release
+
+# A `server-vX.Y.Z` tag publishes the RocketVibe server: the server gate, then
+# one Docker build whose image goes to ghcr.io and whose binary is the Linux
+# archive, then the GitHub Release with that version's changelog section.
+# A release branch or a dispatch runs the same gate and packaging without
+# publishing anything: the tag only lands on a flow already seen green.
+on:
+  push:
+    tags: ['server-v*']
+    branches: ['release/**']
+  workflow_dispatch:
+
+concurrency:
+  group: server-release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: rocketvibe
+          POSTGRES_PASSWORD: native-ci-disposable-password
+          POSTGRES_DB: rocketvibe
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U rocketvibe -d rocketvibe"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+    env:
+      DATABASE_URL: postgres://rocketvibe:native-ci-disposable-password@localhost/rocketvibe
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - id: version
+        name: Version, tag and changelog agree
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            version=$(node scripts/version.mjs server --tag "$GITHUB_REF_NAME")
+          else
+            version=$(node scripts/version.mjs server)
+          fi
+          node scripts/changelog.mjs server "$version" > /dev/null
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: rustfmt, clippy
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: server-release-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            server-release-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            native-server-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+      - name: Install locked mobile dependencies
+        working-directory: apps/mobile
+        run: npm ci --no-audit --no-fund
+      - run: bash apps/server/scripts/check.sh
+
+  package:
+    needs: verify
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build the image once
+        run: docker build -f apps/server/Dockerfile -t "rocketvibe-server:$VERSION" .
+      - name: The image's binary as the Linux archive
+        run: |
+          mkdir -p dist package
+          id=$(docker create "rocketvibe-server:$VERSION")
+          docker cp "$id:/usr/local/bin/rv-server" package/rv-server
+          docker rm "$id"
+          cp apps/server/README.md apps/server/CHANGELOG.md package/
+          name="rocketvibe-server-$VERSION-linux-x86_64"
+          tar -C package -czf "dist/$name.tar.gz" rv-server README.md CHANGELOG.md
+          (cd dist && sha256sum *.tar.gz > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: server-package
+          path: dist
+          if-no-files-found: error
+      - name: Publish the image
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/rocketvibe-server"
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker tag "rocketvibe-server:$VERSION" "$image:$VERSION"
+          docker tag "rocketvibe-server:$VERSION" "$image:latest"
+          docker push "$image:$VERSION"
+          docker push "$image:latest"
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: [verify, package]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: server-package
+          path: dist
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          (cd dist && sha256sum -c SHA256SUMS)
+          node scripts/changelog.mjs server "$VERSION" > "$RUNNER_TEMP/notes.md"
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/rocketvibe-server:$VERSION"
+          printf '\n\nDocker image: `%s`\n' "$image" >> "$RUNNER_TEMP/notes.md"
+          gh release create "$GITHUB_REF_NAME" dist/*.tar.gz dist/SHA256SUMS --verify-tag \
+            --title "RocketVibe server $VERSION" --notes-file "$RUNNER_TEMP/notes.md"

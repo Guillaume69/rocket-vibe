@@ -1,5 +1,5 @@
 // A version's section of an app's changelog, for its release notes.
-//   node scripts/changelog.mjs mobile|desktop|web <version>
+//   node scripts/changelog.mjs mobile|desktop|web|server <version>
 // Fails when the changelog has no section for that version: a release
 // without its entry is a mistake worth stopping for.
 import { readFileSync } from 'node:fs';
@@ -14,7 +14,7 @@ function fail(message) {
   process.exit(1);
 }
 
-if (!['mobile', 'desktop', 'web'].includes(app) || !version) fail('usage: node scripts/changelog.mjs mobile|desktop|web <version>');
+if (!['mobile', 'desktop', 'web', 'server'].includes(app) || !version) fail('usage: node scripts/changelog.mjs mobile|desktop|web|server <version>');
 const text = readFileSync(join(ROOT, 'apps', app, 'CHANGELOG.md'), 'utf8');
 const lines = text.split('\n');
 const start = lines.findIndex((l) => l.startsWith(`## [${version}]`));

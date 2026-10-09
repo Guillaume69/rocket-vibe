@@ -9,7 +9,7 @@ members = ["screen-audio"]
 [package]
 name = "rv-voice"
 # Follows apps/desktop/Cargo.toml: one version per app.
-version = "0.12.1"
+version = "0.13.0"
 edition = "2024"
 license = "MIT"
 publish = false

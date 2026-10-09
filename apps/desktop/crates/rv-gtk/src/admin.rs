@@ -1,7 +1,8 @@
 //! Server administration, for an administrator: a sidebar dialog like the
-//! settings with the Dashboard, the Moderation of members' reports, the Rooms
-//! and the Users (rv-core's `admin`, both providers). Also the Report dialog
-//! every member uses on a message or an account.
+//! settings with the Dashboard, the Moderation of members' reports, the Rooms,
+//! the Users and the Custom emoji (`admin_emoji`; rv-core's `admin`, both
+//! providers). Also the Report dialog every member uses on a message or an
+//! account.
 
 use std::cell::{Cell, RefCell};
 use std::future::Future;
@@ -26,6 +27,7 @@ const DASHBOARD: Category = ("dashboard", "network-server-symbolic", "admin.cat.
 const MODERATION: Category = ("moderation", "dialog-warning-symbolic", "admin.cat.moderation");
 const ROOMS: Category = ("rooms", "chat-message-new-symbolic", "admin.cat.rooms");
 const USERS: Category = ("users", "system-users-symbolic", "admin.cat.users");
+const EMOJI: Category = ("emoji", "face-smile-symbolic", "admin.cat.emoji");
 
 /// The administration being shown: the provider, and its dialog.
 #[derive(Clone)]
@@ -46,6 +48,10 @@ pub fn open(parent: &impl IsA<gtk::Widget>, admin: Admin) -> SidebarDialog {
         let (id, icon, title) = category;
         let screen = screen.clone();
         dialog.add_lazy(id, icon, t(title), move |_| build(&screen));
+    }
+    if screen.admin.emoji_supported() {
+        let (id, icon, title) = EMOJI;
+        dialog.add_lazy(id, icon, t(title), move |_| crate::admin_emoji::page(&screen.admin, &screen.host));
     }
     dialog.present(parent);
     dialog

@@ -57,6 +57,25 @@ final class FakeAdmin: ServerAdminProtocol, @unchecked Sendable {
     }
     func latestVersion() async -> String? { "1.0.0" }
     func userBots() async throws -> Bool? { userBots_ }
+    var emojiSupported_ = true
+    var emojiList: [AdminEmoji] = []
+    func emojiSupported() -> Bool { emojiSupported_ }
+    func emojis() async throws -> [AdminEmoji] {
+        calls.append("emojis")
+        try refuse()
+        return emojiList
+    }
+    func createEmoji(name: String, aliases: String, file: String) async throws {
+        calls.append("createEmoji:\(name):\(aliases)")
+        try refuse()
+        emojiList.append(AdminEmoji(id: name, name: name, aliases: aliases.split(separator: ",").map(String.init),
+                                    revision: "1", image: "/emoji-custom/\(name).png"))
+    }
+    func deleteEmoji(item: AdminEmoji) async throws {
+        calls.append("deleteEmoji:\(item.name)")
+        try refuse()
+        emojiList.removeAll { $0.id == item.id }
+    }
     func setUserBots(on: Bool) async throws -> Bool {
         calls.append("userBots:\(on)")
         try refuse()
@@ -313,6 +332,28 @@ final class AdminTests: XCTestCase {
     }
 
     @MainActor
+    func testCustomEmojiAreListedAddedAndDeleted() async throws {
+        let fake = FakeAdmin()
+        let model = AdminModel(source: fake)
+        XCTAssertEqual(model.categories.last, .emoji)
+        model.show(.emoji)
+        try await until { model.emojis != nil }
+        XCTAssertEqual(model.emojis, [])
+        let added = await model.createEmoji(name: "shipit", aliases: "ship_it", file: URL(fileURLWithPath: "/tmp/shipit.png"))
+        XCTAssertTrue(added)
+        XCTAssertEqual(model.emojis?.map(\.name), ["shipit"])
+        XCTAssertEqual(model.notice, L("admin.emoji_added"))
+        fake.refusal = "emoji_name_taken"
+        let again = await model.createEmoji(name: "shipit", aliases: "", file: URL(fileURLWithPath: "/tmp/shipit.png"))
+        XCTAssertFalse(again)
+        XCTAssertEqual(model.notice, L("admin.emoji_error_taken"))
+        fake.refusal = nil
+        await model.deleteEmoji(model.emojis![0])
+        XCTAssertEqual(model.emojis, [])
+        fake.emojiSupported_ = false
+        XCTAssertFalse(AdminModel(source: fake).categories.contains(.emoji))
+    }
+
     func testTheAdministrationNeedsAnAdministrator() {
         let home = FileManager.default.temporaryDirectory.appendingPathComponent("rv-admin-\(UUID())")
         defer { try? FileManager.default.removeItem(at: home) }

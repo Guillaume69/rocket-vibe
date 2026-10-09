@@ -1033,16 +1033,22 @@ impl Session {
             let _ = self.sync.reconcile_rooms().await;
             return;
         }
-        if let Ok(list) = self.rest.get("emoji-custom.list", CallOptions::default()).await {
-            let index = crate::emoji::custom_index(&list);
-            *self.custom_emoji_names.lock().unwrap() = crate::emoji::custom_names(&index);
-            self.custom_emoji.lock().unwrap().extend(index);
-            let _ = self.events.send(SessionEvent::Avatar);
-        }
+        let _ = self.refresh_custom_emojis().await;
         if let Ok(me) = self.me().await {
             *self.notification_preference.lock().unwrap() = me.desktop_notifications;
         }
         let _ = self.sync.reconcile_rooms().await;
+    }
+
+    /// Reads the Rocket.Chat server's custom emoji again and REPLACES the
+    /// index, so a deleted one goes too; answers the list as received.
+    pub async fn refresh_custom_emojis(&self) -> Result<Value, RestError> {
+        let list = self.rest.get("emoji-custom.list", CallOptions::default()).await?;
+        let index = crate::emoji::custom_index(&list);
+        *self.custom_emoji_names.lock().unwrap() = crate::emoji::custom_names(&index);
+        *self.custom_emoji.lock().unwrap() = index.into_iter().collect();
+        let _ = self.events.send(SessionEvent::Avatar);
+        Ok(list)
     }
 
     pub fn reconnect_now(&self) {

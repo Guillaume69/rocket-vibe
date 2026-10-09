@@ -119,6 +119,44 @@ impl NativeSession {
         self.client.delete_reported_message(message, &AdminOperation { operation_id: room_operation_id() }).await?;
         self.ready()
     }
+    /// The server lets an administrator add and remove custom emoji.
+    pub fn emoji_admin_supported(&self) -> bool {
+        self.capabilities.lock().unwrap().as_ref().is_some_and(|c| c.custom_emoji_admin && c.custom_emojis)
+    }
+    /// The catalogue as the store holds it, read again first.
+    pub async fn admin_emojis(&self) -> Result<Vec<rv_protocol::custom_emojis::CustomEmoji>, Error> {
+        self.admin_access()?;
+        self.refresh_emojis().await?;
+        Ok(self.store.emoji_catalog()?.map(|c| c.items).unwrap_or_default())
+    }
+    /// Adds a custom emoji (`aliases` comma-separated), then reads the
+    /// catalogue again so pickers and messages see it at once.
+    pub async fn admin_create_emoji(&self, name: &str, aliases: &str, image: Vec<u8>) -> Result<(), Error> {
+        self.admin_access()?;
+        if !self.emoji_admin_supported() {
+            return Err(Error::Protocol("unsupported_feature"));
+        }
+        self.refresh_credentials().await?;
+        let input =
+            rv_protocol::custom_emojis::CreateEmoji { operation_id: room_operation_id(), aliases: aliases.to_owned() };
+        self.client.admin_create_emoji(name, &input, image).await?;
+        self.ready()?;
+        self.refresh_emojis().await
+    }
+    pub async fn admin_remove_emoji(&self, name: &str, revision: &str) -> Result<(), Error> {
+        self.admin_access()?;
+        if !self.emoji_admin_supported() {
+            return Err(Error::Protocol("unsupported_feature"));
+        }
+        self.refresh_credentials().await?;
+        let input = rv_protocol::custom_emojis::RemoveEmoji {
+            operation_id: room_operation_id(),
+            expected_revision: revision.to_owned(),
+        };
+        self.client.admin_remove_emoji(name, &input).await?;
+        self.ready()?;
+        self.refresh_emojis().await
+    }
     /// The instance settings (whether every account may create bots); None
     /// on a server without bots.
     pub async fn instance_settings(&self) -> Result<Option<rv_protocol::bots::InstanceSettings>, Error> {

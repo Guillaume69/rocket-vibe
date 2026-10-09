@@ -1,6 +1,6 @@
 //! rv-core's server administration for Swift: one `ServerAdmin` per open
-//! account, for both providers, with the dashboard, the users, the rooms and
-//! the moderation of reports, plus the Report every member uses. Records
+//! account, for both providers, with the dashboard, the users, the rooms, the
+//! moderation of reports and the custom emoji, plus the Report every member uses. Records
 //! carry the photo as a path `Chat::media`/`MediaStore` read, and the shown
 //! name rv-core computes ("Deleted user" for a deleted account). A refusal is
 //! `AdminFailure::Refused` with the server's code (`self_administration`,
@@ -201,6 +201,31 @@ pub struct AdminReportedMessagePage {
 pub struct AdminReportedUserPage {
     pub items: Vec<AdminReportedUser>,
     pub next: Option<String>,
+}
+
+/// A custom emoji of the server; `image` is the path `Media.customEmoji`
+/// would give for its name.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct AdminEmoji {
+    pub id: String,
+    pub name: String,
+    pub aliases: Vec<String>,
+    pub revision: String,
+    pub image: String,
+}
+
+fn emoji(e: admin::AdminEmoji) -> AdminEmoji {
+    AdminEmoji { id: e.id, name: e.name, aliases: e.aliases, revision: e.revision, image: e.image }
+}
+
+fn core_emoji(e: &AdminEmoji) -> admin::AdminEmoji {
+    admin::AdminEmoji {
+        id: e.id.clone(),
+        name: e.name.clone(),
+        aliases: e.aliases.clone(),
+        revision: e.revision.clone(),
+        image: e.image.clone(),
+    }
 }
 
 fn refused(error: admin::AdminError) -> AdminFailure {
@@ -578,6 +603,39 @@ impl ServerAdmin {
     pub async fn set_user_bots(&self, on: bool) -> Result<bool, AdminFailure> {
         let a = self.admin.clone();
         on_tokio(async move { a.set_user_bots(on).await }).await.map_err(refused)
+    }
+    /// The server lets this administrator add and remove custom emoji.
+    pub fn emoji_supported(&self) -> bool {
+        self.admin.emoji_supported()
+    }
+    /// The server's custom emoji by name; also refreshes the pickers' index.
+    pub async fn emojis(&self) -> Result<Vec<AdminEmoji>, AdminFailure> {
+        let a = self.admin.clone();
+        let list = on_tokio(async move { a.emojis().await }).await.map_err(refused)?;
+        Ok(list.into_iter().map(emoji).collect())
+    }
+    /// Adds a custom emoji from a PNG, JPEG or GIF file; `aliases` is
+    /// comma-separated. Refusals: `invalid_emoji_name`, `emoji_name_reserved`,
+    /// `emoji_name_taken`, `emoji_image_too_large`, the server's codes.
+    pub async fn create_emoji(&self, name: String, aliases: String, file: String) -> Result<(), AdminFailure> {
+        let a = self.admin.clone();
+        on_tokio(async move {
+            let path = std::path::PathBuf::from(&file);
+            let bytes = tokio::fs::read(&path).await.map_err(|_| admin::AdminError::new("failed"))?;
+            let file_name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let mime = match path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).as_deref() {
+                Some("gif") => "image/gif",
+                Some("jpg" | "jpeg") => "image/jpeg",
+                _ => "image/png",
+            };
+            a.create_emoji(&name, &aliases, &file_name, mime, bytes).await
+        })
+        .await
+        .map_err(refused)
+    }
+    pub async fn delete_emoji(&self, item: AdminEmoji) -> Result<(), AdminFailure> {
+        let a = self.admin.clone();
+        on_tokio(async move { a.delete_emoji(&core_emoji(&item)).await }).await.map_err(refused)
     }
     /// Reports a message to the administrators; any member may.
     pub async fn report_message(&self, message_id: String, reason: String) -> Result<(), AdminFailure> {

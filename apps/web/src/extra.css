@@ -259,6 +259,20 @@
 .emoji {
   font-family: "Noto Color Emoji", sans-serif;
 }
+.admin-emoji-row {
+  align-items: center;
+  gap: 12px;
+}
+.admin-emoji-image {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  flex: none;
+}
+.admin-emoji-image .custom-emoji {
+  width: 32px;
+  height: 32px;
+}
 .tile {
   position: relative;
 }

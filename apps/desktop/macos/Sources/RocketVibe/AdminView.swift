@@ -4,8 +4,8 @@ import RocketVibeKit
 import SwiftUI
 
 /// The server administration over the window, in the settings' panel: the
-/// Dashboard, the Moderation of reports (its count as a badge), the Rooms and
-/// the Users (`AdminModel`, the GTK app's `admin.rs`).
+/// Dashboard, the Moderation of reports (its count as a badge), the Rooms, the
+/// Users and the Custom emoji (`AdminModel`, the GTK app's `admin.rs`).
 struct AdminOverlay: View {
     @Environment(AppModel.self) var app
     let model: AdminModel
@@ -24,6 +24,7 @@ extension AdminCategory {
         case .moderation: return "exclamationmark.bubble"
         case .rooms: return "number"
         case .users: return "person.2"
+        case .emoji: return "face.smiling"
         }
     }
 }
@@ -110,7 +111,7 @@ struct AdminView: View {
             paging = true
         })
         return List(selection: selection) {
-            ForEach(AdminCategory.allCases) { category in
+            ForEach(model.categories) { category in
                 Label(category.title, systemImage: category.symbol)
                     .badge(category == .moderation ? Int(clamping: model.reportCount) : 0)
                     .tag(category)
@@ -143,6 +144,14 @@ struct AdminView: View {
                         Button { model.open(.user(user)) } label: { AdminUserRow(user: user) }
                             .buttonStyle(.plain)
                     }
+                case .emoji:
+                    Form { AdminEmojiSections(model: model) { item in
+                        confirming = AdminConfirm(
+                            title: L("admin.emoji_delete_title"), body: L("admin.emoji_delete_body", ["name": item.name]),
+                            action: L("admin.emoji_delete")) { await model.deleteEmoji(item) }
+                    } }
+                    .formStyle(.grouped)
+                    .scrollContentBackground(.hidden)
                 }
             }
         }
@@ -602,5 +611,77 @@ struct ReportSheet: View {
         }
         .padding()
         .frame(width: 420)
+    }
+}
+
+/// The Custom emoji page: the form adding one (name, aliases, image file),
+/// then the server's emoji, each deleted after `delete` asked.
+struct AdminEmojiSections: View {
+    let model: AdminModel
+    let delete: (AdminEmoji) -> Void
+    @State private var name = ""
+    @State private var aliases = ""
+    @State private var file: URL?
+
+    var body: some View {
+        Section {
+            TextField(L("admin.emoji_name"), text: $name)
+            TextField(L("admin.emoji_aliases"), text: $aliases)
+            LabeledContent(L("admin.emoji_image")) {
+                HStack {
+                    if let file, let image = NSImage(contentsOf: file) {
+                        Image(nsImage: image).resizable().scaledToFit().frame(width: 28, height: 28)
+                    }
+                    Text(file?.lastPathComponent ?? L("admin.emoji_image_hint")).foregroundStyle(.secondary)
+                    Button(L("admin.emoji_choose")) { choose() }
+                }
+            }
+            Button(L("admin.emoji_add")) {
+                guard let file else { return }
+                Task {
+                    if await model.createEmoji(name: name, aliases: aliases, file: file) {
+                        name = ""; aliases = ""; self.file = nil
+                    }
+                }
+            }
+            .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || file == nil || model.busy)
+        } header: {
+            Text(L("admin.emoji_add"))
+        } footer: {
+            Text(L("admin.emoji_hint")).foregroundStyle(.secondary)
+        }
+        Section(L("admin.cat.emoji")) {
+            if let error = model.emojisError {
+                Text(error).foregroundStyle(.secondary)
+            } else if let list = model.emojis {
+                if list.isEmpty { Text(L("admin.emoji_empty")).foregroundStyle(.secondary) }
+                ForEach(list, id: \.id) { item in
+                    HStack(spacing: 10) {
+                        RemoteImage(path: item.image, width: 28, height: 28)
+                        VStack(alignment: .leading) {
+                            Text(":\(item.name):")
+                            if !item.aliases.isEmpty {
+                                Text(item.aliases.map { ":\($0):" }.joined(separator: " "))
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer()
+                        Button { delete(item) } label: { Image(systemName: "trash") }
+                            .buttonStyle(.borderless)
+                            .help(L("admin.emoji_delete"))
+                            .disabled(model.busy)
+                    }
+                }
+            } else {
+                ProgressView()
+            }
+        }
+    }
+
+    func choose() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.png, .jpeg, .gif]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        file = url
     }
 }

@@ -1,5 +1,5 @@
 // Each app's version, from the file that owns it.
-//   node scripts/version.mjs mobile|desktop [--tag <git tag>]
+//   node scripts/version.mjs mobile|desktop|web [--tag <git tag>]
 // mobile: apps/mobile/app.json (expo.version), which package.json must match,
 //   and android.versionCode = major * 10000 + minor * 100 + patch, so that
 //   every release installs over the previous one.
@@ -37,8 +37,16 @@ function desktop() {
   return version;
 }
 
-const versions = { mobile, desktop };
-if (!(app in versions)) fail('usage: node scripts/version.mjs mobile|desktop [--tag <tag>]');
+function web() {
+  const pkg = JSON.parse(readFileSync(join(ROOT, 'apps/web/package.json'), 'utf8'));
+  const lock = JSON.parse(readFileSync(join(ROOT, 'apps/web/package-lock.json'), 'utf8'));
+  if (lock.version !== pkg.version || lock.packages?.['']?.version !== pkg.version)
+    fail(`web package-lock.json must match package.json ${pkg.version}`);
+  return pkg.version;
+}
+
+const versions = { mobile, desktop, web };
+if (!(app in versions)) fail('usage: node scripts/version.mjs mobile|desktop|web [--tag <tag>]');
 const version = versions[app]();
 if (!/^\d+\.\d+\.\d+$/.test(version)) fail(`${version} is not major.minor.patch`);
 if (flag === '--tag' && tag !== `${app}-v${version}`) fail(`tag ${tag} ≠ ${app}-v${version}`);

@@ -1,9 +1,11 @@
 name: web-client
 on:
   push:
-    paths: ['apps/web/**', 'apps/server/**', 'crates/rv-protocol/**', 'apps/desktop/crates/rv-gtk/src/style.rs', 'apps/desktop/crates/rv-core/data/emojis.tsv', 'apps/desktop/crates/rv-core/src/i18n.rs', 'apps/desktop/crates/rv-core/src/native/bots.rs', 'apps/desktop/crates/rv-core/src/native/workflows.rs', 'apps/desktop/crates/rv-gtk/assets/fonts/**', 'apps/desktop/crates/rv-gtk/src/login.rs', 'apps/mobile/providers/rocketvibe/protocol.generated.ts', 'apps/desktop/data/**', 'assets/sounds/**', '.github/workflows/web-client.yml']
+    branches: ['**']
+    tags: ['web-v*']
+    paths: ['apps/web/**', 'apps/server/**', 'crates/rv-protocol/**', 'apps/desktop/crates/rv-gtk/src/style.rs', 'apps/desktop/crates/rv-core/data/emojis.tsv', 'apps/desktop/crates/rv-core/src/i18n.rs', 'apps/desktop/crates/rv-core/src/native/bots.rs', 'apps/desktop/crates/rv-core/src/native/workflows.rs', 'apps/desktop/crates/rv-gtk/assets/fonts/**', 'apps/desktop/crates/rv-gtk/src/login.rs', 'apps/mobile/providers/rocketvibe/protocol.generated.ts', 'apps/desktop/data/**', 'assets/sounds/**', 'scripts/version.mjs', 'scripts/changelog.mjs', 'scripts/package-web.mjs', '.github/workflows/web-client.yml']
   pull_request:
-    paths: ['apps/web/**', 'apps/server/**', 'crates/rv-protocol/**', 'apps/desktop/crates/rv-gtk/src/style.rs', 'apps/desktop/crates/rv-core/data/emojis.tsv', 'apps/desktop/crates/rv-core/src/i18n.rs', 'apps/desktop/crates/rv-core/src/native/bots.rs', 'apps/desktop/crates/rv-core/src/native/workflows.rs', 'apps/desktop/crates/rv-gtk/assets/fonts/**', 'apps/desktop/crates/rv-gtk/src/login.rs', 'apps/mobile/providers/rocketvibe/protocol.generated.ts', 'apps/desktop/data/**', 'assets/sounds/**', '.github/workflows/web-client.yml']
+    paths: ['apps/web/**', 'apps/server/**', 'crates/rv-protocol/**', 'apps/desktop/crates/rv-gtk/src/style.rs', 'apps/desktop/crates/rv-core/data/emojis.tsv', 'apps/desktop/crates/rv-core/src/i18n.rs', 'apps/desktop/crates/rv-core/src/native/bots.rs', 'apps/desktop/crates/rv-core/src/native/workflows.rs', 'apps/desktop/crates/rv-gtk/assets/fonts/**', 'apps/desktop/crates/rv-gtk/src/login.rs', 'apps/mobile/providers/rocketvibe/protocol.generated.ts', 'apps/desktop/data/**', 'assets/sounds/**', 'scripts/version.mjs', 'scripts/changelog.mjs', 'scripts/package-web.mjs', '.github/workflows/web-client.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -14,6 +16,8 @@ jobs:
   browser:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     services:
       postgres:
         image: postgres:18-alpine
@@ -39,6 +43,16 @@ jobs:
           node-version: '24'
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
+      - id: version
+        name: Verify web version and release notes
+        run: |
+          if [ "${{ github.ref_type }}" = tag ]; then
+            version=$(node scripts/version.mjs web --tag "${{ github.ref_name }}")
+            node scripts/changelog.mjs web "$version" > /dev/null
+          else
+            version=$(node scripts/version.mjs web)
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
       - uses: dtolnay/rust-toolchain@1.97.1
         with:
           components: rustfmt, clippy
@@ -109,6 +123,18 @@ jobs:
           npm run test:visual
           npm run test:workflows
           npm run test:reads
+      - name: Package the verified frontend
+        if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
+        run: node scripts/package-web.mjs .cache/web-package
+      - uses: actions/upload-artifact@v4
+        if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
+        with:
+          name: web-package
+          path: |
+            .cache/web-package/*.tar.gz
+            .cache/web-package/*.zip
+            .cache/web-package/SHA256SUMS
+          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -117,3 +143,24 @@ jobs:
             .cache/web-shots
             .cache/web-server.log
           if-no-files-found: ignore
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/web-v')
+    needs: browser
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-package
+          path: dist
+      - name: Publish the tested frontend archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.browser.outputs.version }}
+        run: |
+          (cd dist && sha256sum -c SHA256SUMS)
+          node scripts/changelog.mjs web "$VERSION" > "$RUNNER_TEMP/web-release-notes.md"
+          gh release create "$GITHUB_REF_NAME" dist/*.tar.gz dist/*.zip dist/SHA256SUMS --verify-tag --title "rocket-vibe web $VERSION" --notes-file "$RUNNER_TEMP/web-release-notes.md"

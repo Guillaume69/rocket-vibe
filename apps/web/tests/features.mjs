@@ -180,7 +180,7 @@ try {
   await a
     .getByRole("button", { name: "Server administration", exact: true })
     .click();
-  await a.getByRole("button", { name: "Moderation", exact: true }).click();
+  await a.getByRole("button", { name: /^Moderation(?:\s+\d+)?$/ }).click();
   const reported = a
     .locator(".admin-reports .action-row")
     .filter({ hasText: message.text });

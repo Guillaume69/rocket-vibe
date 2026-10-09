@@ -298,15 +298,22 @@ async function emojiPage(
   const add = button(
     nt("admin.emoji_add"),
     async () => {
-      const code = name.value.trim().replace(/^:|:$/g, "");
+      const code = name.value.trim().replace(/^:+|:+$/g, "");
       const extra = aliases.value
         .split(",")
-        .map((alias) => alias.trim().replace(/^:|:$/g, ""))
+        .map((alias) => alias.trim().replace(/^:+|:+$/g, ""))
         .filter(Boolean);
       const file = image.files?.[0];
-      if (![code, ...extra].every((c) => emojiCode.test(c)) || extra.length > 8)
+      const codes = [code, ...extra];
+      // Like the other apps' check; a standard emoji's code is the server's
+      // refusal (`emoji_name_reserved`), worded from the catalog.
+      if (
+        !codes.every((c) => emojiCode.test(c)) ||
+        new Set(codes).size !== codes.length ||
+        extra.length > 8
+      )
         throw new Error(nt("admin.emoji_error_name"));
-      if (!file) throw new Error(nt("admin.emoji_image"));
+      if (!file) throw new Error(nt("admin.emoji_error_missing"));
       if (file.size > 1024 * 1024)
         throw new Error(nt("admin.emoji_error_size"));
       const next = await app.api.request<EmojiCatalog>(

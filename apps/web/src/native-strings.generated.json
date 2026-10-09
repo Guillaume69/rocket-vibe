@@ -213,6 +213,10 @@
     "Nom invalide : lettres minuscules, chiffres, _ ou -, 8 alias au plus",
     "Invalid name: lowercase letters, digits, _ or -, 8 aliases at most"
   ],
+  "admin.emoji_error_missing": [
+    "Un nom et une image, d'abord",
+    "A name and an image first"
+  ],
   "admin.emoji_error_reserved": [
     "Ce nom est celui d'un émoji standard",
     "This name belongs to a standard emoji"

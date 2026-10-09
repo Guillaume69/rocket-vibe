@@ -803,6 +803,7 @@ const CATALOG: &[(&str, &str, &str)] = &[
         "Nom invalide : lettres minuscules, chiffres, _ ou -, 8 alias au plus",
         "Invalid name: lowercase letters, digits, _ or -, 8 aliases at most",
     ),
+    ("admin.emoji_error_missing", "Un nom et une image, d'abord", "A name and an image first"),
     ("admin.emoji_error_reserved", "Ce nom est celui d'un émoji standard", "This name belongs to a standard emoji"),
     ("admin.emoji_error_taken", "Ce nom ou un alias est déjà pris", "This name or an alias is already taken"),
     ("admin.emoji_error_image", "Cette image n'est pas acceptée", "This image is not accepted"),

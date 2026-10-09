@@ -37,6 +37,7 @@ import {
   retainMessageMedia,
   initials,
   actionMenu,
+  menuRow,
 } from "./dom";
 import { icon, iconButton } from "./icons";
 import { audioControls } from "./audio";
@@ -78,6 +79,8 @@ export class App implements RowActions {
   model = new Model();
   account?: Account;
   info?: Discovery;
+  /** Whether this account administers its server, once asked (the account menu). */
+  administrator?: { key: string; value: boolean };
   room?: string;
   draftReady = false;
   roomOpening = 0;
@@ -559,22 +562,39 @@ export class App implements RowActions {
     toast("Session expired");
   }
   /** The account block's menu: settings, the administration for an administrator, sign out. */
-  async accountMenu(anchor: HTMLElement): Promise<void> {
-    const permissions = await this.api
-      .request<{ manage_accounts: boolean; manage_instance: boolean }>(
-        "/api/v1/me/permissions",
-      )
-      .catch(() => null);
+  /**
+   * The account block's menu, shown at once: settings, the administration
+   * for an administrator (asked once per account; the row joins an open menu
+   * when the answer comes), sign out.
+   */
+  accountMenu(anchor: HTMLElement): void {
+    const key = this.account?.key;
+    const known =
+      this.administrator?.key === key ? this.administrator?.value : undefined;
     const items: [string, () => void | Promise<void>][] = [
       [t("settings"), () => settings(this)],
     ];
-    if (
-      this.info?.capabilities.administration &&
-      (permissions?.manage_accounts || permissions?.manage_instance)
-    )
-      items.push([t("administration"), () => administration(this)]);
+    if (known) items.push([t("administration"), () => administration(this)]);
     items.push([t("logout"), () => this.logout()]);
-    actionMenu(anchor, items, true);
+    const menu = actionMenu(anchor, items, true);
+    if (known !== undefined || !key || !this.info?.capabilities.administration)
+      return;
+    void this.api
+      .request<{ manage_accounts: boolean; manage_instance: boolean }>(
+        "/api/v1/me/permissions",
+      )
+      .then((permissions) => {
+        if (this.account?.key !== key) return;
+        const value =
+          permissions.manage_accounts || permissions.manage_instance;
+        this.administrator = { key, value };
+        if (value && menu?.isConnected)
+          menu.insertBefore(
+            menuRow(menu, t("administration"), () => administration(this)),
+            menu.lastElementChild,
+          );
+      })
+      .catch(() => {});
   }
   async logout(): Promise<void> {
     if (!(await logoutSession(this))) toast(t("offline"));
@@ -861,13 +881,14 @@ export class App implements RowActions {
     const title = el("div", "brand-wrap");
     title.append(el("span", "unicorn-header", "🦄"), brand());
     // "+" names what it creates; sign out lives in the account menu.
-    const plus: HTMLButtonElement = iconButton("plus", t("new"), () =>
+    const plus: HTMLButtonElement = iconButton("plus", t("new"), () => {
       actionMenu(plus, [
         [t("newMessage"), () => newConversation(this, "people")],
         [t("browseChannels"), () => newConversation(this, "rooms")],
         [t("newChannel"), () => newConversation(this, "create")],
-      ]),
-    );
+      ]);
+    });
+    plus.setAttribute("aria-haspopup", "menu");
     head.append(statusButton, title, plus);
     const accountButton: HTMLButtonElement = button(
       "",
@@ -875,6 +896,7 @@ export class App implements RowActions {
       "account",
     );
     accountButton.setAttribute("aria-label", t("accountMenu"));
+    accountButton.setAttribute("aria-haspopup", "menu");
     accountButton.title = t("accountMenu");
     const portrait = tile(this.account.session.user.username, "message");
     this.avatar(this.account.session.user, portrait);
@@ -1163,11 +1185,12 @@ export class App implements RowActions {
     const unread = (room: Room) =>
       Number(room.read_state?.unread_roots || 0) +
       Number(room.read_state?.unread_replies || 0);
-    const groups: [string, Room[]][] = [
-      [t("unread"), rooms.filter((room) => unread(room) > 0)],
+    const groups: [string, Room[], string][] = [
+      [t("unread"), rooms.filter((room) => unread(room) > 0), "unread"],
       [
         t("favorites"),
         rooms.filter((room) => room.read_state?.favorite && unread(room) === 0),
+        "favorites",
       ],
       [
         t("channels"),
@@ -1177,6 +1200,7 @@ export class App implements RowActions {
             !room.read_state?.favorite &&
             unread(room) === 0,
         ),
+        "channels",
       ],
       [
         t("direct"),
@@ -1186,12 +1210,13 @@ export class App implements RowActions {
             !room.read_state?.favorite &&
             unread(room) === 0,
         ),
+        "direct",
       ],
     ];
     let total = 0;
     for (const room of rooms) total += unread(room);
     document.title = (total ? "(" + total + ") " : "") + "rocket-vibe";
-    for (const [label, values] of groups) {
+    for (const [label, values, key] of groups) {
       if (!values.length) continue;
       const collapsed = localStorage.getItem("rv-fold:" + label) === "true";
       const section = button(
@@ -1206,9 +1231,9 @@ export class App implements RowActions {
       );
       // Channels and Direct messages offer to create one right there.
       const tab =
-        label === t("channels")
+        key === "channels"
           ? ("create" as const)
-          : label === t("direct")
+          : key === "direct"
             ? ("people" as const)
             : null;
       if (tab) {

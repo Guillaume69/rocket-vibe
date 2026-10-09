@@ -175,6 +175,14 @@ export interface Translator {
  * Secondary reads (profile, search, room info, spotlight) will be added here
  * when their screens are routed; they carry DTOs we don't define in advance.
  */
+/** How people are named, and how many direct conversations the list keeps. */
+export type SidebarSettings = {
+  nameFormat: 'username' | 'nickname_full_name' | 'full_name';
+  /** The server imposes its format: the choice is shown, not offered. */
+  nameLocked: boolean;
+  dmLimit: number;
+};
+
 export interface ProviderActions {
   /** Decimal positions stay strings; a timer captures this opening membership. */
   roomReadState?(rid:string):Promise<RoomReadState|null>;
@@ -323,6 +331,11 @@ export interface Provider {
   /** Everyone's presence at once, when the protocol reads it its own way (`capabilities.presence`). */
   loadPresence?(): Promise<ReadonlyArray<{ user: { id: string }; status: import('./presence.ts').PresenceStatus }>>;
   /** Presentation data of the existing info sheet, supplied by each protocol. */
+  /** The account's own conversation list settings, kept on the server (Mattermost). */
+  sidebarSettings?: {
+    read(): Promise<SidebarSettings>;
+    write(change: Partial<Pick<SidebarSettings, 'nameFormat' | 'dmLimit'>>): Promise<void>;
+  };
   /** Conferences of the server's own (kChat's kMeet), in place of Rocket.Chat's `video-conference.*`. */
   calls?: import('./call.ts').NativeCalls;
   /** People's names by user id when the server sets them apart from usernames (`lib/displayNames.ts`). */

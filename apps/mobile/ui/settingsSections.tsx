@@ -25,6 +25,7 @@ import { getFcmToken } from '../lib/push.ts';
 import type { RestClient } from '../lib/rest.ts';
 import { avatarUrl } from '../lib/upload.ts';
 import type { NativeChat } from '../providers/rocketvibe/chat.ts';
+import type { Provider, SidebarSettings } from '../lib/provider.ts';
 import { BotsSection } from './bots.tsx';
 import { WorkflowsSection } from './workflows.tsx';
 import { DevicesSection } from './devices.tsx';
@@ -198,15 +199,123 @@ function AccountCategory({ c, account }: { c: Colors; account: SettingsAccount }
   const router = useRouter();
   const sync = useSync();
   const name = useMyName(account.client);
+  const sidebar = sync.phase === 'ready' ? sync.provider.sidebarSettings : undefined;
   return (
-    <ProfileCard
-      c={c}
-      account={account}
-      name={name}
-      link={t('settings.editProfile')}
-      disabled={account.client.kind === 'rocketvibe' && (sync.phase !== 'ready' || !sync.provider.native?.chat.capabilities?.profiles)}
-      onPress={() => router.push('/my-profile')}
-    />
+    <>
+      <ProfileCard
+        c={c}
+        account={account}
+        name={name}
+        link={t('settings.editProfile')}
+        disabled={account.client.kind === 'rocketvibe' && (sync.phase !== 'ready' || !sync.provider.native?.chat.capabilities?.profiles)}
+        onPress={() => router.push('/my-profile')}
+      />
+      {sidebar !== undefined && <SidebarSettingsCard c={c} source={sidebar} />}
+    </>
+  );
+}
+
+const NAME_FORMATS: readonly { value: SidebarSettings['nameFormat']; key: TranslationKey }[] = [
+  { value: 'full_name', key: 'settings.nameFull' },
+  { value: 'nickname_full_name', key: 'settings.nameNicknameFull' },
+  { value: 'username', key: 'settings.nameUsername' },
+];
+
+/** Mattermost's own values: "all" is 10000, as its web app writes it. */
+const DM_LIMITS: readonly number[] = [10000, 10, 15, 20, 40];
+
+/**
+ * The account's conversation list settings, kept on the server and shared
+ * with kChat's own apps. Optimistic like the push preference: the choice
+ * moves at once and comes back if the server refuses it.
+ */
+function SidebarSettingsCard({ c, source }: { c: Colors; source: NonNullable<Provider['sidebarSettings']> }) {
+  const t = useT();
+  const [value, setValue] = useState<SidebarSettings | null>(null);
+  const [error, setError] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    source.read().then((v) => alive && setValue(v), () => alive && setError(true));
+    return () => {
+      alive = false;
+    };
+  }, [source]);
+  const change = (next: Partial<Pick<SidebarSettings, 'nameFormat' | 'dmLimit'>>) => {
+    if (value === null) return;
+    const before = value;
+    setValue({ ...value, ...next });
+    setError(false);
+    source.write(next).catch(() => {
+      setValue(before);
+      setError(true);
+    });
+  };
+  if (value === null) {
+    return (
+      <View style={[styles.card, { backgroundColor: c.deepCard, borderColor: c.border }]}>
+        <Text style={[styles.settingTitle, { color: c.text }]}>{t('settings.sidebarTitle')}</Text>
+        {error ? <Text style={[styles.error, { color: c.errorText }]}>{t('settings.sidebarFailed')}</Text> : <View style={styles.loading}><ActivityIndicator color={c.accent} /></View>}
+      </View>
+    );
+  }
+  return (
+    <View style={[styles.card, { backgroundColor: c.deepCard, borderColor: c.border }]}>
+      <Text style={[styles.settingTitle, { color: c.text }]}>{t('settings.sidebarTitle')}</Text>
+      <Text style={[styles.settingHelp, { color: c.dimmed }]}>{t('settings.sidebarHelp')}</Text>
+      <Text style={[styles.settingTitle, { color: c.text }]}>{t('settings.nameFormat')}</Text>
+      {value.nameLocked && <Text style={[styles.settingHelp, { color: c.dimmed }]}>{t('settings.nameLocked')}</Text>}
+      <RadioList
+        c={c}
+        options={NAME_FORMATS.map((o) => ({ id: o.value, label: t(o.key) }))}
+        selected={value.nameFormat}
+        disabled={value.nameLocked}
+        onSelect={(id) => change({ nameFormat: id as SidebarSettings['nameFormat'] })}
+      />
+      <Text style={[styles.settingTitle, { color: c.text }]}>{t('settings.dmLimit')}</Text>
+      <RadioList
+        c={c}
+        options={DM_LIMITS.map((n) => ({ id: String(n), label: n >= 10000 ? t('settings.dmAll') : String(n) }))}
+        selected={String(value.dmLimit)}
+        disabled={false}
+        onSelect={(id) => change({ dmLimit: Number(id) })}
+      />
+      {error && <Text style={[styles.error, { color: c.errorText }]}>{t('settings.sidebarFailed')}</Text>}
+    </View>
+  );
+}
+
+function RadioList({ c, options, selected, disabled, onSelect }: {
+  c: Colors;
+  options: readonly { id: string; label: string }[];
+  selected: string;
+  disabled: boolean;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <View style={styles.options}>
+      {options.map((o, i) => {
+        const active = o.id === selected;
+        return (
+          <View key={o.id} style={styles.optionWrapper}>
+            <Tappable
+              onPress={() => onSelect(o.id)}
+              disabled={disabled || active}
+              android_ripple={{ color: c.ripple }}
+              unstable_pressDelay={LIST_PRESS_DELAY}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: active, disabled }}
+              accessibilityLabel={o.label}
+              style={[styles.optionRow, i > 0 && { borderTopColor: c.softBorder, borderTopWidth: StyleSheet.hairlineWidth }]}
+            >
+              <View style={[styles.radio, { borderColor: active ? c.accent : c.border }]}>
+                {active && <View style={[styles.radioDot, { backgroundColor: c.accent }]} />}
+              </View>
+              <Text style={[styles.optionText, { color: active ? c.text : c.secondaryText }, active && styles.optionTextActive]}>{o.label}</Text>
+            </Tappable>
+          </View>
+        );
+      })}
+    </View>
   );
 }
 

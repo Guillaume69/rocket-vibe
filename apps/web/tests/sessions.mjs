@@ -24,6 +24,20 @@ async function saved(page) {
     });
   });
 }
+async function devices(page) {
+  const account = await saved(page);
+  const response = await fetch(base + "/api/v1/me/sessions", {
+    headers: { Authorization: "Bearer " + account.session.token },
+  });
+  assert.ok(response.ok, "Read the actual device-session list");
+  const sessions = await response.json();
+  return {
+    ids: sessions.map((session) => session.id).sort(),
+    current: sessions
+      .filter((session) => session.current)
+      .map((session) => session.id),
+  };
+}
 async function due(page) {
   await page.evaluate(async () => {
     const db = await new Promise((resolve) => {
@@ -56,6 +70,14 @@ try {
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await page.locator(".shell").waitFor();
   await page.locator(".status-dot.online").waitFor();
+  const originalDevices = await devices(page);
+  assert.equal(originalDevices.current.length, 1);
+  await page.reload();
+  await page.locator(".status-dot.online").waitFor();
+  assert.deepEqual(await devices(page), originalDevices);
+  console.log(
+    "PASS reloading the same tab reuses its device without creating another entry",
+  );
   const before = await saved(page);
   await due(page);
   let lostIntent;
@@ -103,6 +125,7 @@ try {
   assert.notEqual(recovered.session.token, before.session.token);
   assert.equal(recovered.session.token, lostIntent.next_token);
   assert.equal(replay, undefined);
+  assert.deepEqual(await devices(page), originalDevices);
   console.log(
     "PASS reload probes the durable successor and recovers the accepted session without a second rotation",
   );
@@ -124,6 +147,7 @@ try {
     (await saved(page)).session.token,
     (await saved(other)).session.token,
   );
+  assert.deepEqual(await devices(page), originalDevices);
   assert.deepEqual(errors, []);
   console.log(
     "PASS two tabs serialize session rotation without duplicate successor operations",

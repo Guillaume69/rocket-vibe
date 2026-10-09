@@ -75,6 +75,9 @@ jobs:
           target/debug/rv-server create-user webvoicefailure
           target/debug/rv-server create-user webconnection
           target/debug/rv-server create-user webconnectionpeer
+          target/debug/rv-server create-user webread
+          target/debug/rv-server create-user webreadpeer
+          target/debug/rv-server create-user webreadowner --admin
           target/debug/rv-server create-user webbob
           target/debug/rv-server create-user websecurity
           target/debug/rv-server create-user webcomposer --admin
@@ -105,6 +108,7 @@ jobs:
           npm run test:security
           npm run test:visual
           npm run test:workflows
+          npm run test:reads
       - uses: actions/upload-artifact@v4
         if: always()
         with:

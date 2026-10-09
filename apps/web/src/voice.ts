@@ -1556,6 +1556,7 @@ export class Voice {
   }
   hide(): void {
     this.app.roomPane.classList.remove("voice-open");
+    this.app.scheduleRead();
   }
   async leave(notify = true): Promise<void> {
     this.lifecycle++;

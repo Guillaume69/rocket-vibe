@@ -6,6 +6,9 @@ All notable changes are documented here in English.
 
 ### Fixed
 
+- Mark incoming messages read while their channel is visible, focused and at the latest message, even when the timeline never scrolls; preserve GTK's captured-message delay and cancel pending reads on navigation.
+- Keep inactive tabs, earlier history and hidden call views unread, and dismiss room notifications after their unread messages have been read.
+
 - Keep workflow messages marked BOT after live author-profile refreshes and page reloads.
 
 - Report failed initial WebRTC connections instead of silently closing the connecting page, and allow a clean retry after the failure.

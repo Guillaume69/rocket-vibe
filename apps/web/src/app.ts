@@ -107,6 +107,8 @@ export class App implements RowActions {
   timer?: ReturnType<typeof setTimeout>;
   live?: LiveState;
   liveTimer?: ReturnType<typeof setTimeout>;
+  readTimer?: ReturnType<typeof setTimeout>;
+  readWork?: Promise<boolean>;
   flushing = false;
   pending: Pending[] = [];
   staged: File[] = [];
@@ -191,7 +193,9 @@ export class App implements RowActions {
     }, 60000);
     window.addEventListener("online", () => void this.reconnect());
     window.addEventListener("offline", () => this.setConnection("offline"));
-    window.addEventListener("focus", () => void this.markRead());
+    window.addEventListener("focus", () => this.scheduleRead());
+    document.addEventListener("focusin", () => this.scheduleRead());
+    document.addEventListener("visibilitychange", () => this.scheduleRead());
     window.addEventListener("popstate", () => {
       const id = location.pathname.startsWith("/room/")
         ? decodeURIComponent(location.pathname.slice(6))
@@ -471,6 +475,9 @@ export class App implements RowActions {
   async stop(login = false): Promise<void> {
     this.generation++;
     this.roomOpening++;
+    clearTimeout(this.readTimer);
+    this.readTimer = undefined;
+    this.readWork = undefined;
     this.draftReady = false;
     await this.voice.leave(!login);
     clearTimeout(this.timer);
@@ -809,7 +816,7 @@ export class App implements RowActions {
           this.timeline.getBoundingClientRect().top;
       }
       if (this.timeline.scrollTop < 100) void this.older();
-      void this.markRead();
+      this.scheduleRead();
     });
     this.comet = el("div", "comet");
     this.typing = el("div", "typing");
@@ -1046,6 +1053,7 @@ export class App implements RowActions {
     this.renderPending();
     this.renderTyping();
     if (this.root) this.renderThread();
+    this.scheduleRead();
   }
   renderRooms(): void {
     this.rooms.replaceChildren();
@@ -1347,6 +1355,8 @@ export class App implements RowActions {
     const account = this.account?.key;
     if (!account) return;
     const opening = ++this.roomOpening;
+    clearTimeout(this.readTimer);
+    this.readTimer = undefined;
     this.draftReady = false;
     this.room = id;
     this.composer.value = "";
@@ -1416,7 +1426,7 @@ export class App implements RowActions {
       this.newPill.textContent = t("newMessages");
       this.renderTimeline();
       this.timeline.scrollTop = mark ? this.timeline.scrollHeight : 0;
-      if (mark) await this.markRead();
+      if (mark) this.scheduleRead();
     } catch (error) {
       toast(error);
     }
@@ -1773,42 +1783,127 @@ export class App implements RowActions {
       this.flushing = false;
     }
   }
-  async markRead(): Promise<void> {
-    if (
-      !this.room ||
-      !document.hasFocus() ||
-      document.hidden ||
+  viewingRoom(): boolean {
+    return (
+      !!this.room &&
+      document.hasFocus() &&
+      !document.hidden &&
+      (this.main.contains(document.activeElement) ||
+        // Disabling an action button briefly clears browser keyboard focus.
+        // The active document still shows the chat, unless a modal owns it.
+        (document.activeElement === document.body &&
+          !document.querySelector("dialog[open]"))) &&
+      this.timeline.clientHeight > 0 &&
       this.timeline.scrollHeight -
         this.timeline.scrollTop -
-        this.timeline.clientHeight >
+        this.timeline.clientHeight <=
         100
+    );
+  }
+  scheduleRead(): void {
+    if (
+      this.readTimer ||
+      this.readWork ||
+      this.connection !== "online" ||
+      !this.viewingRoom()
     )
       return;
-    const room = this.model.rooms.get(this.room),
-      messages = this.model.timeline(this.room),
-      position = messages.at(-1)?.position;
+    const room = this.model.rooms.get(this.room!),
+      membership = room?.read_state?.membership_version,
+      node = [...this.timeline.children].findLast(
+        (child) => (child as HTMLElement).dataset.id,
+      ) as HTMLElement | undefined,
+      message = node?.dataset.id
+        ? this.model.messages.get(node.dataset.id)
+        : undefined;
     if (
       !room ||
-      !position ||
-      BigInt(room.read_state?.root_position || "0") >= BigInt(position)
+      !membership ||
+      !message ||
+      message.deleted ||
+      message.reply_to ||
+      BigInt(room.read_state?.root_position || "0") >= BigInt(message.position)
     )
       return;
-    const id = this.room,
+    const generation = this.generation,
+      opening = this.roomOpening,
       account = this.account?.key;
+    // Capture the displayed message once, as GTK does. Further arrivals cannot
+    // postpone the pending read or advance its target before it is sent.
+    this.readTimer = setTimeout(() => {
+      this.readTimer = undefined;
+      if (
+        generation !== this.generation ||
+        opening !== this.roomOpening ||
+        account !== this.account?.key ||
+        this.room !== room.id ||
+        membership !==
+          this.model.rooms.get(room.id)?.read_state?.membership_version ||
+        this.model.messages.get(message.id)?.position !== message.position ||
+        ![...this.timeline.children].some(
+          (child) => (child as HTMLElement).dataset.id === message.id,
+        ) ||
+        !this.viewingRoom()
+      )
+        return;
+      const work = this.markRead(message.position);
+      this.readWork = work;
+      void work.then((applied) => {
+        if (this.readWork !== work) return;
+        this.readWork = undefined;
+        if (
+          applied ||
+          opening !== this.roomOpening ||
+          membership !==
+            this.model.rooms.get(room.id)?.read_state?.membership_version
+        )
+          this.scheduleRead();
+      });
+    }, 1500);
+  }
+  async markRead(position: string): Promise<boolean> {
+    if (!this.viewingRoom() || this.connection !== "online") return false;
+    const room = this.model.rooms.get(this.room!);
+    if (!room) return false;
+    if (BigInt(room.read_state?.root_position || "0") >= BigInt(position))
+      return true;
+    const id = this.room,
+      account = this.account?.key,
+      generation = this.generation,
+      membership = room.read_state?.membership_version;
     try {
       const state = await this.api.request<ReadState>(
-        "/api/v1/rooms/" + segment(id) + "/read",
+        "/api/v1/rooms/" + segment(id!) + "/read",
         "POST",
         {
           root_position: position,
           reply_position: room.read_state?.reply_position || "0",
         },
       );
-      if (account === this.account?.key && this.model.rooms.has(id)) {
-        this.model.rooms.get(id)!.read_state = state;
+      const current = this.model.rooms.get(id!);
+      if (
+        generation === this.generation &&
+        account === this.account?.key &&
+        current &&
+        current.read_state?.membership_version === membership &&
+        state.membership_version === membership
+      ) {
+        if (
+          BigInt(state.revision) >= BigInt(current.read_state?.revision || "0")
+        )
+          current.read_state = state;
+        if (
+          current.read_state?.unread_roots === "0" &&
+          current.read_state.unread_replies === "0"
+        ) {
+          this.notifications.get(id!)?.close();
+          this.notifications.delete(id!);
+        }
         this.renderRooms();
+        return true;
       }
     } catch {}
+    return false;
   }
   async favorite(room: Room): Promise<void> {
     await this.api.request(
@@ -2232,16 +2327,7 @@ export class App implements RowActions {
         !(mode === "default" && room.kind === "direct")
       )
         continue;
-      if (
-        message.room_id === this.room &&
-        document.hasFocus() &&
-        !document.hidden &&
-        this.timeline.scrollHeight -
-          this.timeline.scrollTop -
-          this.timeline.clientHeight <
-          100
-      )
-        continue;
+      if (message.room_id === this.room && this.viewingRoom()) continue;
       this.notifications.get(room.id)?.close();
       const note = new Notification(room.name, {
         body: previewText(message),

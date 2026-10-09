@@ -5,6 +5,7 @@
  * it runs `ensure` first and the lookups below never miss.
  */
 
+import { unicodeOfShortcode } from '../../lib/emojis.ts';
 import { rememberUserId } from '../../lib/mediaAuth.ts';
 import type { MmClient } from './client.ts';
 
@@ -16,6 +17,8 @@ export type MmUser = {
   lastPictureUpdate: number | null;
   fullName?: string | null;
   nickname?: string | null;
+  /** The custom status's emoji, as a glyph; `null` without one or once expired. */
+  statusEmoji?: string | null;
 };
 
 /**
@@ -47,7 +50,25 @@ export function toMmUser(raw: Record<string, unknown>): MmUser | null {
     ? raw.last_picture_update
     : null;
   const fullName = full === '' ? null : full;
-  return { id, username, displayName: fullName, lastPictureUpdate: picture, fullName, nickname };
+  return { id, username, displayName: fullName, lastPictureUpdate: picture, fullName, nickname, statusEmoji: statusEmojiOf(raw) };
+}
+
+/**
+ * `props.customStatus`: `{emoji, text, duration, expires_at}`, JSON-encoded on
+ * Mattermost, a plain object on kChat (probed).
+ */
+function statusEmojiOf(raw: Record<string, unknown>): string | null {
+  const props = raw.props;
+  const encoded = typeof props === 'object' && props !== null ? (props as Record<string, unknown>).customStatus : undefined;
+  if (encoded === undefined || encoded === null || encoded === '') return null;
+  try {
+    const status = (typeof encoded === 'string' ? JSON.parse(encoded) : encoded) as { emoji?: unknown; expires_at?: unknown };
+    const expires = typeof status.expires_at === 'string' ? Date.parse(status.expires_at) : NaN;
+    if (Number.isFinite(expires) && expires > 0 && expires < Date.now()) return null;
+    return typeof status.emoji === 'string' && status.emoji !== '' ? unicodeOfShortcode(status.emoji) : null;
+  } catch {
+    return null;
+  }
 }
 
 const BATCH = 100;
@@ -60,6 +81,7 @@ export class MmDirectory {
   private format: NameFormat = 'full_name';
   private readonly listeners = new Set<() => void>();
   private names: ReadonlyMap<string, string> | null = null;
+  private statuses: ReadonlyMap<string, string> | null = null;
   private notifying = false;
 
   constructor(client: MmClient) {
@@ -92,6 +114,12 @@ export class MmDirectory {
     return this.names;
   }
 
+  /** `user id → status emoji` for the people who set one. */
+  statusEmojis(): ReadonlyMap<string, string> {
+    this.statuses ??= new Map([...this.byId.values()].flatMap((u) => (u.statusEmoji ? [[u.id, u.statusEmoji] as const] : [])));
+    return this.statuses;
+  }
+
   onChange(listener: () => void): () => void {
     this.listeners.add(listener);
     return () => void this.listeners.delete(listener);
@@ -100,6 +128,7 @@ export class MmDirectory {
   /** Once per burst: a batch of a hundred users is one change. */
   private changed(): void {
     this.names = null;
+    this.statuses = null;
     if (this.notifying) return;
     this.notifying = true;
     queueMicrotask(() => {

@@ -15,7 +15,7 @@
 
 import { useSyncExternalStore } from 'react';
 
-import { displayNames, onDisplayNamesChange } from '../lib/displayNames.ts';
+import { displayNames, onDisplayNamesChange, statusEmojis } from '../lib/displayNames.ts';
 
 let identities: ReadonlyMap<string, string> = new Map();
 const listeners = new Set<() => void>();
@@ -105,4 +105,9 @@ export function forgetIdentities(): void {
 /** `uid → name` where the server names people apart from usernames (Mattermost); empty elsewhere. */
 export function useDisplayNames(): ReadonlyMap<string, string> {
   return useSyncExternalStore(onDisplayNamesChange, displayNames, displayNames);
+}
+
+/** `uid → custom status emoji` (Mattermost); empty elsewhere. */
+export function useStatusEmojis(): ReadonlyMap<string, string> {
+  return useSyncExternalStore(onDisplayNamesChange, statusEmojis, statusEmojis);
 }

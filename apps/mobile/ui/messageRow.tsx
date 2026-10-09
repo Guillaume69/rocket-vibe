@@ -51,7 +51,7 @@ import { offerDownloadOrShare } from './attachmentActions.ts';
 import { TransferBar } from './transferBar.tsx';
 import { decryptedFile } from './attachment.ts';
 import {subscribeNativeFile} from '../lib/nativeFiles.ts';
-import { useAvatarEtags, useDisplayNames, useIdentities } from './identities.tsx';
+import { useAvatarEtags, useDisplayNames, useIdentities, useStatusEmojis } from './identities.tsx';
 import { useTimeFormatter, useT } from './i18n.ts';
 import { AvatarTile } from './kit.tsx';
 import { AudioPlayer } from './audioPlayer.tsx';
@@ -137,7 +137,8 @@ export const MessageRow = memo(function MessageRow({
   // A deleted RocketVibe account keeps its messages (`lib/deletedUser.ts`).
   const deletedAuthor = client.kind === 'rocketvibe' && isDeletedUsername(username);
   const shownName = useDisplayNames().get(message.authorId);
-  const author = deletedAuthor ? t('common.deletedUser') : (shownName ?? username);
+  const statusEmoji = useStatusEmojis().get(message.authorId);
+  const author = deletedAuthor ? t('common.deletedUser') : (shownName ?? username) + (statusEmoji ? ` ${statusEmoji}` : '');
   // The username takes the first tint of its own avatar tile: name and avatar
   // match, and the same person keeps their color from one message to the next.
   const authorTint = avatarGradient(deletedAuthor ? author : username, c.avatarGradients)[0];

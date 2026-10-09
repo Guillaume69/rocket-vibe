@@ -6,15 +6,22 @@
  */
 
 let names: ReadonlyMap<string, string> = new Map();
+let statuses: ReadonlyMap<string, string> = new Map();
 const listeners = new Set<() => void>();
 
-export function setDisplayNames(next: ReadonlyMap<string, string>): void {
+export function setDisplayNames(next: ReadonlyMap<string, string>, nextStatuses: ReadonlyMap<string, string> = new Map()): void {
   names = next;
+  statuses = nextStatuses;
   for (const listener of [...listeners]) listener();
 }
 
 export function displayNames(): ReadonlyMap<string, string> {
   return names;
+}
+
+/** `user id → custom status emoji` (a glyph), shown after the name. */
+export function statusEmojis(): ReadonlyMap<string, string> {
+  return statuses;
 }
 
 export function onDisplayNamesChange(listener: () => void): () => void {
@@ -23,10 +30,16 @@ export function onDisplayNamesChange(listener: () => void): () => void {
 }
 
 /** The provider's own map, kept current for as long as the session lives. */
-export function mountDisplayNames(source: { names(): ReadonlyMap<string, string>; subscribe(listener: () => void): () => void } | undefined): () => void {
+export type DisplayNameSource = {
+  names(): ReadonlyMap<string, string>;
+  statuses(): ReadonlyMap<string, string>;
+  subscribe(listener: () => void): () => void;
+};
+
+export function mountDisplayNames(source: DisplayNameSource | undefined): () => void {
   if (source === undefined) return () => {};
-  setDisplayNames(source.names());
-  const unsubscribe = source.subscribe(() => setDisplayNames(source.names()));
+  setDisplayNames(source.names(), source.statuses());
+  const unsubscribe = source.subscribe(() => setDisplayNames(source.names(), source.statuses()));
   return () => {
     unsubscribe();
     setDisplayNames(new Map());

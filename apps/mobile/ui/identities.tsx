@@ -35,6 +35,7 @@ export {
   forgetIdentities,
   useAvatarEtags,
   useDisplayNames,
+  useStatusEmojis,
   useIdentities,
   type AvatarEtags,
 } from './identityStore.ts';

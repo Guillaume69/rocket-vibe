@@ -27,7 +27,9 @@ page of conversations.history. Load more carries the server cursor unchanged;
 repeated cursors fail explicitly. Refresh rereads the first page.
 
 providers/slack/client.ts sends form POSTs only to https://slack.com/api/, with
-Bearer and the exact original cookie bytes. Credentials are in memory only;
+Bearer and the exact original cookie bytes. credentials=omit disables the native
+shared cookie jar; the explicit d header remains the sole session cookie.
+Credentials are in memory only;
 disconnect, hide or leaving the screen closes the reader, aborts its outstanding
 reads and drops fields and results. A generation fence discards late completions.
 No credentials enter SQLite or known-server/session storage. IDs use workspace
@@ -64,6 +66,23 @@ claiming a complete page sequence. No automated quota retry or background pollin
 Next: own browser acquisition and vault lifecycle (S-A), then neutral projection
 (S-B), cookie RTM plus reconnect repair (S-C), then durable writes (S-D). Finish
 and qualify the Slack increments before beginning Teams implementation.
+
+## Validation
+
+2026-10-09: mobile TypeScript and touched-file lint pass, all 1,638 mobile tests
+pass, and the ten Slack/unlock tests pass again after disabling the native cookie
+jar. The Android export bundles successfully. The Fedora build.sh gate passes
+formatting, clippy, 572 desktop tests and the workspace binary build. Generated
+Slack bindings and RocketVibeCore/RocketVibeKit compile in the Swift container;
+both changed SwiftUI screens pass the frontend syntax check. This does not
+qualify AppKit linking or installed macOS behavior.
+
+The actual GTK login launches under Xvfb with RV_SMOKE_SLACK_UNLOCK=1: eight
+icon activations leave the preview hidden, the ninth shows it, and the device
+setting is written. A rendered screenshot confirms the masked credential form.
+The smoke sequence waits until login is visible, since GTK is_visible also
+checks ancestors. Real Slack credentials and installed Android/macOS remain
+unqualified.
 
 ## Sources
 

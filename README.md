@@ -40,6 +40,9 @@ inside the Android app ([`docs/WHATSAPP_ANDROID.md`](docs/WHATSAPP_ANDROID.md)).
 - [`brain/`](brain/BRAIN.md): the knowledge base. How every feature works on each app, the
   architecture, the servers' facts and the decisions, written to be understood without reading
   the source. Start there.
+- [Microsoft Teams protocol and implementation handoff](docs/protocol/MICROSOFT_TEAMS.md):
+  candidate private read transport and models now exist in mobile and the shared
+  Rust core; Teams sign-in and native account integration remain pending.
 - [Slack Session mode protocol and implementation handoff](docs/protocol/SLACK_SESSION.md):
   measured session/RTM behaviour, provider parity targets and qualification probes;
   a hidden read-only preview now validates manual sessions and pages conversations/history; persistent accounts, real-time sync and writes remain pending.

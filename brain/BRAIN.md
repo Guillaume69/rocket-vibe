@@ -63,13 +63,17 @@ use the indexes.
 The developing [Slack session provider](architecture/slack-session.md) has a
 protocol handoff, measured session/RTM evidence and a first hidden read-only preview. Persistent accounts and full chat remain pending.
 
+The developing [Teams provider](architecture/teams.md) has candidate private
+read transport and DTOs in mobile/shared Rust; authentication and native screens
+remain pending.
+
 ## Features (the what) - [features/index.md](features/index.md)
 
 Each feature doc covers mobile and desktop, and says where they differ.
 
 | Doc | What's here |
 |---|---|
-| [experimental-integrations.md](features/experimental-integrations.md) | Nine-activation unlock and the transient read-only Slack preview; Teams remains queued. |
+| [experimental-integrations.md](features/experimental-integrations.md) | Nine-activation unlock, transient read-only Slack preview and Teams read foundation; Teams sign-in remains pending. |
 | [login-and-servers.md](features/login-and-servers.md) | Server probe, login, 2FA, session resume and revocation, multi-server and multi-account. |
 | [whatsapp.md](features/whatsapp.md) | A personal WhatsApp account linked by QR through a local helper, as an account of the GTK app. |
 | [mattermost-and-kchat.md](features/mattermost-and-kchat.md) | Mattermost and kChat servers on the three apps: login, real time, sync, sending, media. |

@@ -358,7 +358,7 @@ beta does.
 | Feature | Mobile | GTK | SwiftUI | Web | Notes |
 |---|---|---|---|---|---|
 | Device-local nine-activation unlock on the login icon | done | done | done | n/a | Hidden until unlocked; hide removes the setting. Installed Android/macOS runtime checks pending. Web: RocketVibe server only. |
-| Teams provider | missing | missing | missing | n/a | Handoff integrated; implementation queued after Slack. Web: RocketVibe server only. |
+| Teams provider | missing | missing | missing | n/a | Handoff and candidate read foundation implemented in mobile and shared Rust core after the Slack preview. No sign-in, native Teams screen, persistent provider or live account qualification; all three still owe those. Web: RocketVibe server only. |
 
 | Feature | Mobile | GTK | SwiftUI | Web | Notes |
 |---|---|---|---|---|---|
@@ -406,7 +406,7 @@ are product gaps, listed last.
   profile bio, thread/search navigation, call layouts/controls and durable outbox
   are audited and qualified; they no longer carry blanket visual-parity debt.
 - **All four**: social cards and voice reactions in encrypted rooms.
-- **All three**: Slack has only a transient read-only preview; complete provider integration remains debt. Teams remains researched and queued. See section 19 and [experimental integrations](features/experimental-integrations.md).
+- **All three**: Slack has only a transient read-only preview; complete provider integration remains debt. Teams has candidate read code but still owes sign-in and native integration. See section 19 and [experimental integrations](features/experimental-integrations.md).
 - **All three**: the thread list and following on Mattermost, kChat and Vibez servers; room members, roles and settings on Mattermost and kChat; creating an encrypted room; "Deleted
   user" on messages ingested before the deletion, on server-computed names and in
   private conversations; Rocket.Chat real names (`UI_Use_Real_Name`): group DMs

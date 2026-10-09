@@ -1,10 +1,33 @@
 # Microsoft Teams provider: protocol and implementation handoff
 
-**Status:** proposed client provider; no Teams implementation delivered by this document.
+**Status:** client provider under development. A candidate private read foundation now exists; authentication and native account integration are not delivered.
 
 **Reviewed:** 2026-10-08. **Baseline:** master, commit 55115b26.
 
 **Clients:** Android, GTK and SwiftUI. **Goal:** existing-provider feature parity wherever Teams permits it, with explicit debt elsewhere.
+
+## Implementation increment: 2026-10-09
+
+After the hidden Slack read preview was pushed, implementation began in
+apps/mobile/providers/teams/{protocol,reader}.ts and
+apps/desktop/crates/rv-core/src/teams.rs. Candidate authz discovery, roster and
+history reads have runtime-validated DTOs, audience-specific in-memory tokens,
+conversation-scoped pagination and synthetic fixture tests. Current route policy
+accepts the observed global Teams proxy aliases only, with discovered regions.
+No archived credential was used. No production request or private DTO success
+has been qualified. See [Teams architecture](../../brain/architecture/teams.md).
+
+T0/T1 are still open: no project Entra registration was supplied, no OAuth client
+ID is embedded, and browser-session acquisition is not implemented. The read seam
+expects identity from a supported future broker/profile and never decodes API JWTs.
+T2 is candidate code, not a delivered persistent provider. GTK, SwiftUI and Android
+still owe native Teams sign-in and the entry under the existing nine-activation
+unlock. All mutation/realtime/media capabilities stay disabled. The original
+archive's evidence boundaries and qualification tasks below continue to apply.
+
+docs/protocol/fixtures/teams-read.json contains only synthetic fixtures shared by
+the TypeScript and Rust tests. Neither fixture success nor DTO source proves
+accepted application identity, complete membership or historic reconciliation.
 
 ## 1. Implementation brief
 

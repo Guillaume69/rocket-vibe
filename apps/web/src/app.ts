@@ -561,7 +561,6 @@ export class App implements RowActions {
     this.channel.postMessage({ purged: key });
     toast("Session expired");
   }
-  /** The account block's menu: settings, the administration for an administrator, sign out. */
   /**
    * The account block's menu, shown at once: settings, the administration
    * for an administrator (asked once per account; the row joins an open menu

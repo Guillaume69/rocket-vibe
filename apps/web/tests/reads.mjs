@@ -207,7 +207,12 @@ try {
 
   // The account block opens a menu: settings, administration, sign out.
 
-  await page.getByRole("button", { name: "My account, settings and sign out", exact: true }).click();
+  await page
+    .getByRole("button", {
+      name: "My account, settings and sign out",
+      exact: true,
+    })
+    .click();
 
   await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
   await page.locator(".settings-dialog").waitFor();

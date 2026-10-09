@@ -198,8 +198,15 @@ try {
     .filter({ hasText: "Away" })
     .waitFor();
   // The account block opens a menu: settings, administration, sign out.
-  await pages[1].getByRole("button", { name: "My account, settings and sign out", exact: true }).click();
-  await pages[1].getByRole("menuitem", { name: "Sign out", exact: true }).click();
+  await pages[1]
+    .getByRole("button", {
+      name: "My account, settings and sign out",
+      exact: true,
+    })
+    .click();
+  await pages[1]
+    .getByRole("menuitem", { name: "Sign out", exact: true })
+    .click();
   await popup
     .locator(".profile-presence")
     .filter({ hasText: "Offline" })

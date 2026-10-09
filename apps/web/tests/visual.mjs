@@ -59,7 +59,12 @@ try {
   // One icon: the gear saying the block opens the account menu.
   assert.equal(await page.locator(".account .symbolic-icon").count(), 1);
   // The account block opens a menu: settings, administration, sign out.
-  await page.getByRole("button", { name: "My account, settings and sign out", exact: true }).click();
+  await page
+    .getByRole("button", {
+      name: "My account, settings and sign out",
+      exact: true,
+    })
+    .click();
   await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
   const settings = page.locator(".settings-dialog");
   await settings.locator("[data-category=app]").waitFor();
@@ -285,7 +290,12 @@ try {
   await admin.locator(".preferences-close").click();
   await page.setViewportSize({ width: 540, height: 800 });
   // The account block opens a menu: settings, administration, sign out.
-  await page.getByRole("button", { name: "My account, settings and sign out", exact: true }).click();
+  await page
+    .getByRole("button", {
+      name: "My account, settings and sign out",
+      exact: true,
+    })
+    .click();
   await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
   await page.locator(".settings-dialog .preferences-sidebar-close").click();
   await page.locator(".settings-dialog").waitFor({ state: "detached" });
@@ -305,7 +315,12 @@ try {
   await page.reload();
   await page.locator(".status-dot.online").waitFor();
   // The account block opens a menu: settings, administration, sign out.
-  await page.getByRole("button", { name: "Mon compte, réglages et déconnexion", exact: true }).click();
+  await page
+    .getByRole("button", {
+      name: "Mon compte, réglages et déconnexion",
+      exact: true,
+    })
+    .click();
   await page.getByRole("menuitem", { name: "Paramètres", exact: true }).click();
   await page
     .locator(".settings-dialog")
@@ -355,7 +370,12 @@ try {
   releaseFixture = [];
   await admin.locator(".preferences-close").click();
   // The account block opens a menu: settings, administration, sign out.
-  await page.getByRole("button", { name: "Mon compte, réglages et déconnexion", exact: true }).click();
+  await page
+    .getByRole("button", {
+      name: "Mon compte, réglages et déconnexion",
+      exact: true,
+    })
+    .click();
   await page.getByRole("menuitem", { name: "Paramètres", exact: true }).click();
   await page
     .locator(".settings-dialog")

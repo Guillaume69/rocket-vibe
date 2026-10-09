@@ -31,7 +31,12 @@ const errors = [];
 page.on("pageerror", (error) => errors.push(error.message));
 const openSecurity = async () => {
   // The account block opens a menu: settings, administration, sign out.
-  await page.getByRole("button", { name: "My account, settings and sign out", exact: true }).click();
+  await page
+    .getByRole("button", {
+      name: "My account, settings and sign out",
+      exact: true,
+    })
+    .click();
   await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: "Security", exact: true }).click();
 };
@@ -85,7 +90,12 @@ try {
   console.log("PASS TOTP enrollment and recovery codes");
   await page.locator(".sidebar-dialog .preferences-close").click();
   // The account block opens a menu: settings, administration, sign out.
-  await page.getByRole("button", { name: "My account, settings and sign out", exact: true }).click();
+  await page
+    .getByRole("button", {
+      name: "My account, settings and sign out",
+      exact: true,
+    })
+    .click();
   await page.getByRole("menuitem", { name: "Sign out", exact: true }).click();
   await page.getByLabel("Username or email").fill(username);
   await page.getByLabel("Password", { exact: true }).fill(password);
@@ -143,7 +153,12 @@ try {
     .waitFor();
   await page.locator(".sidebar-dialog .preferences-close").click();
   // The account block opens a menu: settings, administration, sign out.
-  await page.getByRole("button", { name: "My account, settings and sign out", exact: true }).click();
+  await page
+    .getByRole("button", {
+      name: "My account, settings and sign out",
+      exact: true,
+    })
+    .click();
   await page.getByRole("menuitem", { name: "Sign out", exact: true }).click();
   await page.getByLabel("Username or email").fill(username);
   await page.getByLabel("Password", { exact: true }).fill(password);

@@ -276,7 +276,12 @@ try {
   );
   pass("room favourites and independent read state");
   // The account block opens a menu: settings, administration, sign out.
-  await page.getByRole("button", { name: "My account, settings and sign out", exact: true }).click();
+  await page
+    .getByRole("button", {
+      name: "My account, settings and sign out",
+      exact: true,
+    })
+    .click();
   await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
   await visible(page.locator(".sidebar-dialog"));
   await page.getByRole("button", { name: "Language", exact: true }).click();
@@ -290,7 +295,12 @@ try {
   await page.setViewportSize({ width: 1280, height: 800 });
   pass("narrow screen navigation");
   // The account block opens a menu: settings, administration, sign out.
-  await page.getByRole("button", { name: "My account, settings and sign out", exact: true }).click();
+  await page
+    .getByRole("button", {
+      name: "My account, settings and sign out",
+      exact: true,
+    })
+    .click();
   await page.getByRole("menuitem", { name: "Sign out", exact: true }).click();
   await visible(page.getByLabel("Username or email"));
   assert.equal(await page.getByLabel("Server", { exact: true }).count(), 0);

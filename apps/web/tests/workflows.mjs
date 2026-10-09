@@ -57,7 +57,12 @@ try {
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await page.locator(".status-dot.online").waitFor({ timeout: 45000 });
   // The account block opens a menu: settings, administration, sign out.
-  await page.getByRole("button", { name: "My account, settings and sign out", exact: true }).click();
+  await page
+    .getByRole("button", {
+      name: "My account, settings and sign out",
+      exact: true,
+    })
+    .click();
   await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
   const settings = page.locator(".settings-dialog");
   await settings.locator("[data-category=bots]").click();
@@ -243,7 +248,12 @@ try {
     path: "../../.cache/web-shots/web-workflow-form.png",
   });
   // The account block opens a menu: settings, administration, sign out.
-  await page.getByRole("button", { name: "My account, settings and sign out", exact: true }).click();
+  await page
+    .getByRole("button", {
+      name: "My account, settings and sign out",
+      exact: true,
+    })
+    .click();
   await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
   const preferences = page.locator(".settings-dialog");
   await preferences.locator("[data-category=workflows]").click();

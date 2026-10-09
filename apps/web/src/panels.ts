@@ -159,7 +159,8 @@ export async function newConversation(
   await refresh();
   input.focus();
   // "Create a channel" from a menu or a section's "+": straight to the form.
-  if (start === "create") tabs.querySelector<HTMLButtonElement>("button:last-child")?.click();
+  if (start === "create")
+    tabs.querySelector<HTMLButtonElement>("button:last-child")?.click();
 }
 export async function search(app: App): Promise<void> {
   if (!app.room) return;

@@ -384,15 +384,15 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-gtk/src/settings.rs:403](../../apps/desktop/crates/rv-gtk/src/settings.rs#L403) | endpoint | e2e.lock |
 | [apps/desktop/crates/rv-gtk/src/settings.rs:403](../../apps/desktop/crates/rv-gtk/src/settings.rs#L403) | endpoint | e2e.unlock |
 | [apps/desktop/crates/rv-gtk/src/settings.rs:417](../../apps/desktop/crates/rv-gtk/src/settings.rs#L417) | endpoint | e2e.locked |
-| [apps/desktop/crates/rv-gtk/src/smoke.rs:1008](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L1008) | call:GET | "subscriptions.getOne", options).await.ok()?; |
-| [apps/desktop/crates/rv-gtk/src/smoke.rs:1008](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L1008) | endpoint | subscriptions.getOne |
-| [apps/desktop/crates/rv-gtk/src/smoke.rs:1102](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L1102) | endpoint | chat.postMessage |
-| [apps/desktop/crates/rv-gtk/src/smoke.rs:1141](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L1141) | call:GET | "subscriptions.getOne", options).await.ok()?; |
-| [apps/desktop/crates/rv-gtk/src/smoke.rs:1141](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L1141) | endpoint | subscriptions.getOne |
-| [apps/desktop/crates/rv-gtk/src/smoke.rs:1837](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L1837) | call:POST | "im.create", rv_core::rest::CallOptions::body(serde_json::json!({…}))).await |
-| [apps/desktop/crates/rv-gtk/src/smoke.rs:1837](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L1837) | endpoint | im.create |
-| [apps/desktop/crates/rv-gtk/src/smoke.rs:1847](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L1847) | call:POST | "chat.postMessage", rv_core::rest::CallOptions::body(serde_json::json!({…}))) |
-| [apps/desktop/crates/rv-gtk/src/smoke.rs:1848](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L1848) | endpoint | chat.postMessage |
+| [apps/desktop/crates/rv-gtk/src/smoke.rs:1020](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L1020) | call:GET | "subscriptions.getOne", options).await.ok()?; |
+| [apps/desktop/crates/rv-gtk/src/smoke.rs:1020](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L1020) | endpoint | subscriptions.getOne |
+| [apps/desktop/crates/rv-gtk/src/smoke.rs:1114](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L1114) | endpoint | chat.postMessage |
+| [apps/desktop/crates/rv-gtk/src/smoke.rs:1153](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L1153) | call:GET | "subscriptions.getOne", options).await.ok()?; |
+| [apps/desktop/crates/rv-gtk/src/smoke.rs:1153](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L1153) | endpoint | subscriptions.getOne |
+| [apps/desktop/crates/rv-gtk/src/smoke.rs:1849](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L1849) | call:POST | "im.create", rv_core::rest::CallOptions::body(serde_json::json!({…}))).await |
+| [apps/desktop/crates/rv-gtk/src/smoke.rs:1849](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L1849) | endpoint | im.create |
+| [apps/desktop/crates/rv-gtk/src/smoke.rs:1859](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L1859) | call:POST | "chat.postMessage", rv_core::rest::CallOptions::body(serde_json::json!({…}))) |
+| [apps/desktop/crates/rv-gtk/src/smoke.rs:1860](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L1860) | endpoint | chat.postMessage |
 | [apps/desktop/crates/rv-gtk/src/smoke/rocket_chat.rs:196](../../apps/desktop/crates/rv-gtk/src/smoke/rocket_chat.rs#L196) | call:GET | "chat.getMessage", rv_core::rest::CallOptions::params([("msgId", id.as_str())])).await |
 | [apps/desktop/crates/rv-gtk/src/smoke/rocket_chat.rs:196](../../apps/desktop/crates/rv-gtk/src/smoke/rocket_chat.rs#L196) | endpoint | chat.getMessage |
 | [apps/desktop/crates/rv-gtk/src/smoke/rocket_chat.rs:420](../../apps/desktop/crates/rv-gtk/src/smoke/rocket_chat.rs#L420) | endpoint | rooms.quoted_message |

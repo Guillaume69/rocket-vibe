@@ -49,7 +49,7 @@ desktop): packages are only built on a release tag, or by hand through
 - **`mobile`**: typecheck, lint, tests, then a release Android APK (`expo prebuild` +
   Gradle on the runner, never EAS). It reads `google-services.json` from the
   `GOOGLE_SERVICES_JSON` secret.
-- **`server-release`**: on a `server-vX.Y.Z` tag, the server gate, then one Docker build: its binary as a Linux x86_64 archive with SHA-256 checksums, and the image at `ghcr.io/guillaume69/rocketvibe-server`. A `release/**` branch runs it without publishing.
+- **`server-release`**: on a `server-vX.Y.Z` tag, the server gate, then one Docker build: its binary as a Linux x86_64 archive with SHA-256 checksums (the image is not published; `apps/server/Dockerfile` builds it locally). A `release/**` branch runs it without publishing.
 - **`web-client`**: committed-bundle verification, server fmt/clippy/tests and actual browser scenarios. A `web-vX.Y.Z` tag publishes the verified frontend as `.tar.gz`, `.zip` and SHA-256 checksums. Deployment rebuilds the matching native server to embed this bundle.
 - **`desktop`**: Linux (the same Fedora as the local build: fmt, clippy, all tests, an
   archive; plus an AppImage built on Arch, launched in CI on a distribution without GTK),

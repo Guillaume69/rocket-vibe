@@ -79,7 +79,7 @@ Per app, one commit `[release/<x.y.z>] chore(<app>): release <x.y.z>` holding:
   `npm run build` and commit the rebuilt `dist/` (the version is in the bundle).
 - **server**: `[package] version` in `apps/server/Cargo.toml` and the `rv-server`
   entry of the root `Cargo.lock`. Its tag runs `server-release.yml` (gate, Docker
-  build, binary archive, `ghcr.io` image, release); the `release/**` branch push
+  build, binary archive, release; no image is pushed); the `release/**` branch push
   runs the same without publishing, so wait for it to be green before tagging.
   Release web before (or with) the server: the server embeds `apps/web/dist`.
 

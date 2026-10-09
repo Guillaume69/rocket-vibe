@@ -72,8 +72,8 @@ The server binary now embeds [apps/web](../web/README.md). Open its origin at `/
 
 A `server-vX.Y.Z` tag publishes the server (`.github/workflows/server-release.yml`): a GitHub
 Release with `rocketvibe-server-X.Y.Z-linux-x86_64.tar.gz` (the binary built in
-`Dockerfile`'s Debian bookworm stage, so it needs glibc 2.36 or later) and its `SHA256SUMS`, and
-the image `ghcr.io/guillaume69/rocketvibe-server:X.Y.Z` (also `:latest`). The version lives in
+`Dockerfile`'s Debian bookworm stage, so it needs glibc 2.36 or later) and its `SHA256SUMS`. No
+image is published: build it from `Dockerfile` (see below) to run in Docker. The version lives in
 `Cargo.toml`, the notes are its section of [CHANGELOG.md](CHANGELOG.md). Each release embeds
 the web client of its commit. The apps' administration Dashboard compares the server's version
 with the newest `server-v*` release.

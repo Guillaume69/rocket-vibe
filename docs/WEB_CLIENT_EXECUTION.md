@@ -46,7 +46,13 @@ The Windows SFU now uses the official checksummed LiveKit 1.13.8 Windows binary 
 
 ## Bot identity regression
 
-The workflow BOT regression on `36f32703` preserves `User.bot` in the server's live profile projection. Both the native bot integration assertion and the real workflow browser scenario failed before the correction and pass afterward. The browser waits for two actual socket profile refreshes and retains the message badge after reload. All six workflow scenarios pass against the updated embedded server. Server formatting, clippy with warnings denied and the library gate pass locally: 200 passed, one intentionally ignored. The continuous gate now includes 89 browser cases and the native bot projection integration test.
+The workflow BOT regression on `36f32703` preserves `User.bot` in the server's live profile projection. Both the native bot integration assertion and the real workflow browser scenario failed before the correction and pass afterward. The browser waits for two actual socket profile refreshes and retains the message badge after reload. All six workflow scenarios pass against the updated embedded server. Server formatting, clippy with warnings denied and the library gate pass locally: 200 passed, one intentionally ignored. The 89-case browser gate and native bot projection integration test pass in [CI](https://github.com/Guillaume69/rocket-vibe/actions/runs/37901957899).
+
+## Observed-read and device-session regressions
+
+The 2026-10-09 read regression failed against the preceding embedded bundle: a new message fitting in the already-open timeline stayed unread because no scroll occurred. The corrected scheduler passes six actual-server scenarios: ordinary no-scroll arrivals, a real command workflow's bot message, a settings dialog withholding reads, inactive visibility and notification withdrawal, navigation canceling a pending read, and earlier history withholding unseen arrivals. It also covers sending the command through the button, which temporarily clears browser keyboard focus. Headless browser tabs stay active after `bringToFront`, so the inactive cases inject document visibility events and notification objects; actual OS background notification delivery remains unqualified. All 18 existing conversation cases pass against the final embedded bundle.
+
+The session suite now has four cases and checks the server's actual device list before and after a same-tab reload, accepted rotation with a lost response, recovery and simultaneous two-tab renewal. The device IDs and current device remain unchanged. Repeated fresh test logins create separate device families; local automation uses fixture accounts separate from manual test accounts. The updated continuous gate includes 96 browser cases, with 25 Node cases and the server gate unchanged.
 
 ## GTK inventory
 
@@ -79,7 +85,7 @@ GTK baseline is inherited, not a new verification claim. Web status refers to th
 | Unread total on the app | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | History with paging on scroll up, live messages and edits, live deletions | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Author grouping (5 min), day separators, time | done | done | Native provider: see [web implementation](../apps/web/README.md). |
-| Mark as read on open and while viewing | done | done | Native provider: see [web implementation](../apps/web/README.md). |
+| Mark as read on open and while viewing | done | done | Captured 1.5-second root reads including no-scroll bot arrivals; six actual-server scenarios in tests/reads.mjs. Inactive visibility is controlled; actual OS background delivery remains separate qualification. |
 | Edited marker, sending state, failed with retry | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Markdown from the server's `md`, local parse as fallback | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | `mailto:` links open | done | done | Native provider: see [web implementation](../apps/web/README.md). |

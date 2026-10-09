@@ -59,7 +59,7 @@ beta does.
 |---|---|---|---|---|---|
 | History with paging on scroll up, live messages and edits, live deletions | done | done | done | done | Mobile keeps the 3 rooms last left subscribed; desktop gets new messages and edits for every room (`__my_messages__`), deletions for the open room only. Web: Native provider: see [web-client](features/web-client.md). |
 | Author grouping (5 min), day separators, time | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
-| Mark as read on open and while viewing | done | done | done | done | Mobile throttles with a 10 s floor; desktop needs the window focused and scrolled to the bottom. Web: Native provider: see [web-client](features/web-client.md). |
+| Mark as read on open and while viewing | done | done | done | done | Mobile throttles with a 10 s floor; desktop needs the window focused and scrolled to the bottom. Web: Captured 1.5-second root reads, including no-scroll workflow arrivals, cancel on navigation; modal/history and controlled visibility-event cases qualified in tests/reads.mjs. |
 | Edited marker, sending state, failed with retry | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | Markdown from the server's `md`, local parse as fallback | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | `mailto:` links open | missing | done | done | done | Mobile opens http(s) only. Web: Native provider: see [web-client](features/web-client.md). |

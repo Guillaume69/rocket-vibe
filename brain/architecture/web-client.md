@@ -18,6 +18,8 @@ The native RocketVibe server embeds the browser application in its binary. Node 
 
 `app.ts` drives the screens from the model, serializes socket frames and catches up before replay. Withdrawn rooms and changed membership lifetimes purge pending work and private media. Protected blobs are verified by SHA-256 and kept in IndexedDB, with a 250 MiB media budget. Object URLs are released on access loss and logout.
 
+`scheduleRead` captures a rendered root-message position and membership once, waits 1.5 seconds and rechecks the account, room opening, membership, visibility and latest scroll position before sending. Arrivals do not postpone the timer or advance its captured target. One read request runs at a time; acknowledgments preserve newer revisions. Browser focus on the body after disabling an action button still counts as the active chat when no modal owns it. Notifications use the same visibility guard and close only after current unread counts reach zero.
+
 ## Media and security
 
 `uploads.ts` persists preparation/completion operations; voice recordings and photos are staged before Send. `voice.ts` lazily loads LiveKit's Apache-2.0 browser transport for microphone/camera/screenshare calls; it is a transport dependency, not a UI kit. Browser permissions and HTTPS are required outside loopback. Voice grants are scoped to the initiating account and call lifecycle across each asynchronous step. Serialized teardown completes before a new join, and its server request retains the departing session token.
@@ -31,6 +33,7 @@ The SFU's WebSocket origin being reachable does not prove its ICE candidates are
 - apps/web/src/composer.ts
 - apps/web/tests/composer.mjs
 - apps/web/tests/sessions.mjs
+- apps/web/tests/reads.mjs
 - apps/web/src/api.ts
 - apps/web/src/store.ts
 - apps/web/src/session.ts

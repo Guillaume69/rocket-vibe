@@ -54,12 +54,18 @@ Same route: FCM token as `gcm`, FCM relays to APNs with the `.p8` key set in the
 - **Settings**: the `desktopNotifications` preference, which backend shows notifications, a test notification, and a link to the OS notification settings.
 - **SwiftUI** (`macos/Sources/RocketVibe/Notifier.swift`): `UNUserNotificationCenter` with a `message` category and a text-input Reply, one request per message grouped by `threadIdentifier = rid`, dock badge from `onAttention`. No background mode yet.
 
+## Web
+
+The native-origin browser posts notifications while the tab lives, following account and room preferences. The active latest timeline suppresses an incoming alert; an inactive document, earlier-history position, modal or hidden call timeline does not count as viewing the chat. Captured observed reads clear the sidebar unread state, including ordinary workflow bot messages that fit without scrolling. A room notification closes when the current read state has no unread roots or replies; a stale acknowledgment cannot clear newer unread state. The browser suite controls visibility events and notification objects while using actual messages and server read state. It does not qualify operating-system background delivery or closed-tab Web Push.
+
 ## Parity
 
 The desktop equivalent of push only works while the app runs. Both apps: DMs and mentions by default, click opens the room, inline reply where the platform allows, no ciphertext, unread badge. Mobile only: delivery with the app killed, hidden-content fetch, deferred catch-up. Different preference keys: mobile edits `pushNotifications`, desktop `desktopNotifications`.
 
 ## Sources
 
+- apps/web/src/app.ts
+- apps/web/tests/reads.mjs
 - docs/PUSH.md
 - docker/patch-push.mjs
 - apps/mobile/plugins/with-fcm-deeplink.js

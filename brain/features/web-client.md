@@ -18,6 +18,10 @@ The merged master bots and workflows are exposed in browser settings, with the b
 
 Settings follow the GTK category order and icons, with profile editing in a subpage and separate server administration. Display zoom and clock switches were removed because GTK exposes neither. Language supports automatic, French and English, saved to native preferences for the next launch. Device sessions expose renaming, dates and confirmed revocation. Audio attachments provide inline playback controls. Selecting a voice channel joins automatically and shows the main call page plus live room occupants.
 
+Incoming room messages become read after GTK's 1.5-second captured-message delay when the active document shows the latest timeline. Incoming messages schedule the read even on a short timeline with no scroll. A modal, inactive document, earlier-history position or hidden call timeline prevents it; navigation cancels the pending target. Read acknowledgments are fenced by account and membership, and older revisions cannot replace newer unread state. Reading all room messages withdraws its browser notification.
+
+Reloading the same tab, opening another tab with its saved account and renewing the token keep the same server device family. A new password login creates another device session, so isolated browser test contexts must use dedicated fixture accounts rather than the account reserved for manual testing. The generic RocketVibe label is not a count of distinct physical machines.
+
 The voice page ports GTK's centered 16:9 TileGrid, native six-button controls, connection status and speaking halos. The audio menu applies microphone gain and a processed-input meter through Web Audio, plus output and per-person gains up to 200 percent. Microphone processing is attached before publication. A processor failure stops capture, including a failed retry. Local mute does not change the remote person's published microphone. Person preferences live in account-scoped browser storage and are purged on signout. Device selection and browser noise constraints use the browser's capture APIs; this is not the GTK RNNoise implementation. Screen claims are ordered before call teardown, and stale callbacks cannot reopen capture. Direct calls retain the native two-second peer reconnection grace.
 
 Speaking now uses the native PCM thresholds, decay and hangover instead of SFU hints. Deafen uses the GTK/server wire attribute. Screen sharing keeps GTK's quality choices, stage label/fullscreen placement and mini participant presentation, with the browser's consent picker for sources. Capture quality reaches both capture and encoder. Fullscreen follows takeover and closes on capture ending. Shared sound is processed before publication, rejects capture with unconfirmed own-audio exclusion and implements GTK's opt-in call mix. Browser/OS program-sound capture remains partial; see [voice](voice.md) for the actual bench evidence and fallback.
@@ -46,6 +50,8 @@ Media uses GTK-style inline controls, protected video posters and native human-r
 - apps/web/src/media-format.ts
 - apps/web/src/image-attachment.ts
 - apps/web/tests/images.mjs
+- apps/web/tests/reads.mjs
+- apps/web/tests/sessions.mjs
 - apps/web/src/dom.ts
 - apps/web/tests/media.mjs
 - docs/WEB_CLIENT_EXECUTION.md

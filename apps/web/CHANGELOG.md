@@ -6,6 +6,8 @@ All notable changes are documented here in English.
 
 ### Fixed
 
+- Report failed initial WebRTC connections instead of silently closing the connecting page, and allow a clean retry after the failure.
+
 - Replace invented per-image 1600/960-pixel options with GTK's parked Original-quality choice; prepare JPEG at 1920 pixels and quality 82 only when sending.
 - Match staged-file thumbnails, name/type/size rows and inline sound replay, with no separate stock-player or caption/quality dialog.
 - Enqueue a file batch atomically in selection order and apply the caption to its first file only.

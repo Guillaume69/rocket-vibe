@@ -53,7 +53,7 @@ jobs:
           npm test
           npm run build
           git diff --exit-code -- dist src/gtk.css src/design.generated.ts src/third-party.generated.ts src/native-strings.generated.json src/native-errors.generated.json
-          npx playwright install --with-deps chromium
+          npx playwright install --with-deps chromium firefox
       - name: Build the actual server distribution
         run: |
           cargo fmt --all --check
@@ -63,7 +63,7 @@ jobs:
       - name: Start isolated SMTP, SFU and server
         run: |
           mkdir -p .cache/web-shots .cache/web-objects
-          node apps/web/tests/configure-bench.mjs
+          RV_WEB_SFU_IP="$(hostname -I | cut -d ' ' -f1)" node apps/web/tests/configure-bench.mjs
           node apps/web/tests/smtp.mjs > .cache/smtp.log 2>&1 &
           docker run -d --name rv-web-test-sfu --network host -v "$PWD/.cache/livekit.yaml:/etc/livekit.yaml:ro" livekit/livekit-server:v1.13.8 --config /etc/livekit.yaml
           export RV_AUTH_KEY_FILE="$PWD/.cache/auth-key"
@@ -72,6 +72,8 @@ jobs:
           export RV_LIVEKIT_CONFIG_FILE="$PWD/.cache/livekit.json"
           target/debug/rv-server create-user webalice --admin
           target/debug/rv-server create-user webvoicefailure
+          target/debug/rv-server create-user webconnection
+          target/debug/rv-server create-user webconnectionpeer
           target/debug/rv-server create-user webbob
           target/debug/rv-server create-user websecurity
           target/debug/rv-server create-user webcomposer --admin
@@ -95,6 +97,7 @@ jobs:
           npm run test:media
           npm run test:images
           npm run test:voice
+          npm run test:voice-connection
           npm run test:sessions
           npm run test:locked
           npm run test:composer

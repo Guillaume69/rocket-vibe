@@ -12,6 +12,7 @@
     "test:visual": "node tests/visual.mjs",
     "test:workflows": "node tests/workflows.mjs",
     "test:voice": "node tests/voice.mjs",
+    "test:voice-connection": "node tests/voice-connection.mjs",
     "test:security": "node tests/security.mjs",
     "test:features": "node tests/features.mjs",
     "test:media": "node tests/media.mjs",

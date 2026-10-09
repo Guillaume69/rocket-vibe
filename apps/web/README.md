@@ -35,6 +35,7 @@ RV_WEB_TEST_URL=http://127.0.0.1:3417 npm run test:features
 RV_WEB_TEST_URL=http://127.0.0.1:3417 npm run test:media
 RV_WEB_TEST_URL=http://127.0.0.1:3417 npm run test:images
 RV_WEB_TEST_URL=http://127.0.0.1:3417 npm run test:voice
+RV_WEB_TEST_URL=http://127.0.0.1:3417 npm run test:voice-connection
 RV_WEB_TEST_URL=http://127.0.0.1:3417 npm run test:sessions
 RV_WEB_TEST_URL=http://127.0.0.1:3417 npm run test:locked
 RV_WEB_TEST_URL=http://127.0.0.1:3417 npm run test:composer
@@ -46,6 +47,8 @@ RV_WEB_WORKFLOWS_USER=webworkflows npm run test:workflows
 Voice requires the server's isolated LiveKit configuration. Security requires the TLS SMTP fixture (`node apps/web/tests/smtp.mjs` from repository root), the server's SMTP configuration pointing to localhost:14653 and its fixture certificate, plus a fresh `websec*` account. The editor suite uses `RV_WEB_COMPOSER_USER` when set and creates its own room; CI seeds a separate `webcomposer` account to keep combined login scenarios within the native ten-per-minute account budget. Fixture captures are in ignored `.cache/smtp-mails.json`; screenshots in `.cache/web-shots`.
 
 ## Browser mappings and limits
+
+The connection suite runs Firefox with its ordinary ICE loopback policy and Chromium, exchanges actual audio in both directions, checks both live occupants, forces a real ICE timeout and verifies resource cleanup and successful retry. The SFU must advertise an address these browsers can reach. `RV_WEB_SFU_IP` configures that address in the disposable fixture; CI uses the isolated runner's interface address. On the Windows bench, the approved UDP 17882 listener uses the machine's local interface through the official Windows LiveKit 1.13.8 binary, avoiding Docker Desktop's loopback media path. The web and SFU API endpoints remain on 127.0.0.1. This is a local test configuration, not a deployment or a browser preference change.
 
 One origin/account intentionally replaces the GTK server rail. Browser storage replaces the native keyring/SQLite; clearing site data removes drafts and pending work. Private blobs stay out of worker caches and are removed on logout/access withdrawal. Notifications work while a tab lives; closed-tab Web Push is absent. Audio/video/share permissions and capture choices belong to the browser.
 

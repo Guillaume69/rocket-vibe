@@ -459,11 +459,19 @@ export class Voice {
         void this.screenRequest("DELETE").catch(() => {});
       }
     });
+    let connected = false;
     room.on(RoomEvent.Disconnected, () => {
-      if (!alive()) return;
+      // A failed initial connection also emits Disconnected. Let join's catch
+      // report that error before teardown advances the lifecycle.
+      if (!alive() || !connected) return;
       void this.leave().catch(toast);
     });
-    await room.connect(grant.url, grant.token);
+    try {
+      await room.connect(grant.url, grant.token);
+    } catch (error) {
+      throw new Error(nt("voice_session.join_failed"), { cause: error });
+    }
+    connected = true;
     if (
       account !== this.app.account?.key ||
       this.cancelled ||

@@ -86,6 +86,12 @@ Setting up an authenticator on a Vibez account (Security category, `POST /api/v1
 
 [parity](../parity.md) §9: the categories, profile card, notification preference, language, encryption, accounts and the version exist in all three; the Voice category in GTK and SwiftUI, mobile having no voice settings. Mobile only: FCM diagnostic. GTK only: backend description, background and login start, update checks, logs folder (the web maps it with its Diagnostics download). Mobile holds one account per server, so its Accounts page shows only the open one. The language changes live on mobile and after a restart on desktop.
 
+## Experimental integrations
+
+The login icon has a device-local nine-activation unlock for the Slack read-only
+preview. The flag is not a server preference. See
+[experimental-integrations](experimental-integrations.md).
+
 ## Sources
 
 - apps/web/src/sidebar.ts

@@ -311,6 +311,14 @@ kChat answers 422 to a post whose `props` hold any key it does not know, so the 
 
 Sources: apps/mobile/providers/mattermost/outbox.ts; apps/desktop/crates/rv-core/src/outbox.rs; docs/MATTERMOST.md.
 
+## Experimental provider access
+
+Slack and later Teams remain hidden behind nine activations of the login icon,
+as requested on 2026-10-09. The device retains the unlock; the preview provides
+a way to hide it again. Slack is implemented first. Start with transient reads
+so no unqualified mutation or incomplete credential lifecycle enters the normal
+account session. See [experimental integrations](features/experimental-integrations.md).
+
 ## Sources
 
 - `apps/desktop/crates/rv-gtk/src/notifier/custom.rs`

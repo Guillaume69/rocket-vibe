@@ -7,6 +7,8 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-09
+
 ### Added
 
 - A pill over the top of a room, "N new messages since HH:MM", while the first unread
@@ -641,7 +643,8 @@ First published version: Android, for Rocket.Chat 8 or later.
 - Profiles, room info, my profile (status, photo, information).
 - Interface in French and English.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.8.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.9.0...HEAD
+[0.9.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.8.0...mobile-v0.9.0
 [0.8.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.7.0...mobile-v0.8.0
 [0.7.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.6.0...mobile-v0.7.0
 [0.6.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.5.0...mobile-v0.6.0

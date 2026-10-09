@@ -135,3 +135,20 @@ describe('kChat reads made elsewhere', () => {
     assert.deepEqual(await live.expand('badge_updated', { badge: 0 }, {}), []);
   });
 });
+
+describe('Preferences set elsewhere', () => {
+  test('a new name format names the conversations again; a closed DM leaves the list', async () => {
+    const server = fakeServer(() => undefined);
+    const client = new MmClient(server.base, 'tok', { fetch: server.fetcher });
+    const directory = new MmDirectory(client);
+    directory.remember({ id: 'u-bob', username: 'bob', displayName: 'Bob Builder', lastPictureUpdate: null, fullName: 'Bob Builder', nickname: null });
+    const categories = new MmCategories(client, 'u-me');
+    const live = new MmLive(client, directory, 'u-me', categories);
+    const translator = new MmTranslator(directory, 'u-me', categories);
+    live.remember({ id: 'd1', type: 'D', name: 'u-bob__u-me', total_msg_count: 1, total_msg_count_root: 1 }, { channel_id: 'd1', user_id: 'u-me', msg_count: 1, msg_count_root: 1 });
+    const renamed = await live.expand('preferences_changed', { preferences: JSON.stringify([{ category: 'display_settings', name: 'name_format', value: 'username' }]) }, {});
+    assert.equal(translator.toRoom(renamed.find((e) => e.collection === MM_ROOM)!.args[0] as Record<string, unknown>)?.displayName, 'bob');
+    const closed = await live.expand('preferences_changed', { preferences: [{ category: 'direct_channel_show', name: 'u-bob', value: 'false' }] }, {});
+    assert.equal(translator.toSubscription(closed.find((e) => e.collection === MM_MEMBERSHIP)!.args[0] as Record<string, unknown>)?.open, false);
+  });
+});

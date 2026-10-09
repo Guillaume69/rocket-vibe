@@ -8,6 +8,7 @@ import { RestClient } from '../../lib/rest.ts';
 import { kchatServers, loginMattermost, MmMfaRequired } from './auth.ts';
 import { MmClient, MmError } from './client.ts';
 import { createMattermostProvider } from './index.ts';
+import { mattermostSidebarSettings } from './sidebarSettings.ts';
 import { pendingPostId } from './outbox.ts';
 import { authorizeUrl, codeFromRedirect, createPkce, KCHAT_REDIRECT } from './kchatOAuth.ts';
 import { KchatPusher } from './pusher.ts';
@@ -206,5 +207,25 @@ describe('Mattermost custom emoji', () => {
     const listener = { onEvent: () => () => {}, onLoss: () => () => {} } as unknown as Listener;
     const provider = createMattermostProvider(session, new RestClient(server.base), () => 'id', { fetch: server.fetcher, listener });
     assert.deepEqual(await provider.listCustomEmojis?.(), [{ name: 'alb-youpi', extension: 'png', aliases: [], uri: `${server.base}/api/v4/emoji/e1/image` }]);
+  });
+});
+
+describe('Conversation list settings', () => {
+  test("read from the account's preferences, the server's format winning when locked; written back as preferences", async () => {
+    let locked = 'false';
+    const server = fakeServer((call) => {
+      if (call.path === '/config/client') return { body: { TeammateNameDisplay: 'username', LockTeammateNameDisplay: locked } };
+      if (call.path === '/users/me/preferences' && call.method === 'GET') {
+        return { body: [{ category: 'display_settings', name: 'name_format', value: 'full_name' }, { category: 'sidebar_settings', name: 'limit_visible_dms_gms', value: '20' }] };
+      }
+      if (call.path === '/users/me/preferences' && call.method === 'PUT') return { body: true };
+      return undefined;
+    });
+    const settings = mattermostSidebarSettings(new MmClient(server.base, 't', { fetch: server.fetcher }), 'u-me');
+    assert.deepEqual(await settings.read(), { nameFormat: 'full_name', nameLocked: false, dmLimit: 20 });
+    locked = 'true';
+    assert.deepEqual(await settings.read(), { nameFormat: 'username', nameLocked: true, dmLimit: 20 });
+    await settings.write({ dmLimit: 10 });
+    assert.deepEqual(server.calls.at(-1)?.body, [{ user_id: 'u-me', category: 'sidebar_settings', name: 'limit_visible_dms_gms', value: '10' }]);
   });
 });

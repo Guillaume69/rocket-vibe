@@ -19,6 +19,8 @@ export class MmSidebar {
   private closedPeople = new Set<string>();
   private closedGroups = new Set<string>();
   private listed: Set<string> | null = null;
+  /** Opened in this session: listed whatever their age. */
+  private readonly revealed = new Set<string>();
   limit = DEFAULT_DM_LIMIT;
 
   constructor(client: MmClient, myId: string) {
@@ -64,11 +66,12 @@ export class MmSidebar {
   rank(channels: Iterable<Doc>, elsewhere: (rid: string) => boolean = () => false): void {
     const open = [...channels].filter((c) => (c.type === 'D' || c.type === 'G') && !this.closed(c) && !elsewhere(String(c.id)));
     open.sort((a, b) => lastPostAt(b) - lastPostAt(a));
-    this.listed = new Set(open.slice(0, this.limit).map((c) => String(c.id)));
+    this.listed = new Set([...open.slice(0, this.limit).map((c) => String(c.id)), ...this.revealed]);
   }
 
   /** A conversation I just opened: listed whatever its age, as Mattermost does. */
   reveal(rid: string): void {
+    this.revealed.add(rid);
     this.listed?.add(rid);
   }
 

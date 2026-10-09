@@ -169,3 +169,80 @@ fn a_room_without_its_last_post_keeps_the_stored_preview() {
     store.write(|w| w.upsert_room(&room(None, false, 3)));
     assert_eq!(store.rooms()[0].last_message, None);
 }
+
+#[test]
+fn closed_and_old_conversations_leave_the_list() {
+    use rv_core::mattermost::categories::Sidebar;
+    let mut s = Sidebar::new("u-me");
+    s.apply(
+        &json!([{"category": "direct_channel_show", "name": "u-bob", "value": "false"},
+                {"category": "sidebar_settings", "name": "limit_visible_dms_gms", "value": "1"}]),
+        true,
+    );
+    let dm = |id: &str, other: &str, at: i64| json!({"id": id, "type": "D", "name": format!("u-me__{other}"), "last_post_at": at});
+    let channels = [dm("fav", "u-a", 9), dm("bob", "u-bob", 8), dm("d1", "u-c", 7), dm("old", "u-d", 1)];
+    s.rank(&channels, |rid| rid == "fav");
+    let listed: Vec<bool> = channels.iter().map(|c| s.is_listed(c, 0, c["id"] == "fav")).collect();
+    assert_eq!(listed, [true, false, true, false]);
+    assert!(s.is_listed(&channels[1], 3, false), "something unread always shows");
+    s.reveal("old");
+    s.rank(&channels, |rid| rid == "fav");
+    assert!(s.is_listed(&channels[3], 0, false), "opened in this session");
+}
+
+#[test]
+fn names_follow_the_format_and_carry_the_status() {
+    use rv_core::mattermost::directory::{Directory, NameFormat, User};
+    let raw = json!({"id": "u-bob", "username": "bob", "first_name": "Bob", "last_name": "Builder", "nickname": "bob",
+                     "props": {"customStatus": {"emoji": "palm_tree", "expires_at": "2999-01-01T00:00:00Z"}}});
+    let d = Directory::default();
+    d.remember(User::from_json(&raw).unwrap());
+    assert_eq!(
+        (d.display_name("u-bob").as_deref(), d.status_emoji("u-bob").as_deref()),
+        (Some("Bob Builder"), Some("🌴"))
+    );
+    assert!(d.set_name_format(NameFormat::NicknameFullName));
+    assert_eq!(d.display_name("u-bob").as_deref(), Some("bob"));
+    let expired = json!({"id": "u-x", "username": "x", "props": {"customStatus": "{\"emoji\":\"palm_tree\",\"expires_at\":\"2001-01-01T00:00:00Z\"}"}});
+    d.remember(User::from_json(&expired).unwrap());
+    assert_eq!(d.status_emoji("u-x"), None);
+}
+
+#[tokio::test]
+async fn kchat_calls_open_kmeet_with_their_jwt_only() {
+    let url = std::sync::Arc::new(std::sync::Mutex::new("https://kmeet.infomaniak.com/room".to_owned()));
+    let shared = url.clone();
+    let server = FakeHttp::start(move |r| match r.path() {
+        "/api/v4/conferences" | "/api/v4/conferences/c1/answer" => {
+            respond(200, &json!({"id": "c1", "url": *shared.lock().unwrap(), "jwt": "j w"}).to_string())
+        }
+        _ => respond(404, "{}"),
+    })
+    .await;
+    let rest = RestClient::mattermost(server.url.clone());
+    assert_eq!(actions::start_conference(&rest, "room").await.unwrap(), "https://kmeet.infomaniak.com/room?jwt=j+w");
+    assert_eq!(actions::answer_conference(&rest, "c1").await.unwrap(), "https://kmeet.infomaniak.com/room?jwt=j+w");
+    *url.lock().unwrap() = "https://evil.example/room".into();
+    assert!(actions::answer_conference(&rest, "c1").await.is_err());
+}
+
+#[tokio::test]
+async fn conversation_list_settings_come_from_the_account() {
+    let server = FakeHttp::start(|r| match r.path() {
+        "/api/v4/config/client" => {
+            respond(200, r#"{"TeammateNameDisplay": "username", "LockTeammateNameDisplay": "true"}"#)
+        }
+        "/api/v4/users/me/preferences" => respond(
+            200,
+            r#"[{"category": "display_settings", "name": "name_format", "value": "full_name"},
+                {"category": "sidebar_settings", "name": "limit_visible_dms_gms", "value": "20"}]"#,
+        ),
+        _ => respond(404, "{}"),
+    })
+    .await;
+    let settings = actions::sidebar_settings(&RestClient::mattermost(server.url.clone())).await.unwrap();
+    assert_eq!(
+        (settings.name_format, settings.name_locked, settings.dm_limit),
+        (rv_core::mattermost::directory::NameFormat::Username, true, 20)
+    );
+}

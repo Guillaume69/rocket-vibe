@@ -54,6 +54,52 @@ test("an old history page never resurrects a deleted message", () => {
   assert.equal(model.messages.get("a")?.deleted, true);
   assert.deepEqual(model.timeline("room"), []);
 });
+test("stale history preserves the independently versioned private star", () => {
+  const model = new Model();
+  model.put({
+    ...message("a", "1"),
+    personal_star: { present: true, revision: "9" },
+  });
+  model.put({
+    ...message("a", "1"),
+    personal_star: { present: false, revision: "0" },
+  });
+  assert.deepEqual(model.messages.get("a")?.personal_star, {
+    present: true,
+    revision: "9",
+  });
+});
+test("a newer public edit keeps the latest private star when not personalized", () => {
+  const model = new Model();
+  model.put({
+    ...message("a", "1"),
+    personal_star: { present: true, revision: "9" },
+  });
+  model.put({ ...message("a", "1", "room", "2"), text: "edited" });
+  assert.equal(model.messages.get("a")?.text, "edited");
+  assert.deepEqual(model.messages.get("a")?.personal_star, {
+    present: true,
+    revision: "9",
+  });
+});
+test("a newer private star applies without rolling back a newer public edit", () => {
+  const model = new Model();
+  model.put({
+    ...message("a", "1", "room", "4"),
+    text: "edited",
+    personal_star: { present: true, revision: "9" },
+  });
+  model.put({
+    ...message("a", "1"),
+    personal_star: { present: false, revision: "10" },
+  });
+  assert.equal(model.messages.get("a")?.text, "edited");
+  assert.equal(model.messages.get("a")?.revision, "4");
+  assert.deepEqual(model.messages.get("a")?.personal_star, {
+    present: false,
+    revision: "10",
+  });
+});
 test("room removal purges its history and quoted private text in other rooms", () => {
   const model = new Model();
   model.rooms.set("secret", room("secret"));

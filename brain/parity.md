@@ -26,7 +26,7 @@ beta does.
 | Session in the system keychain, resumed at launch; a 401 on an authenticated call signs out | done | done | done | |
 | Server probe before login (`/api/info`, `settings.public`) | done | done | done | |
 | Choose the server type at sign-in (automatic, Rocket.Chat, RocketVibe, Mattermost, kChat) | done | done | done | SwiftUI checked by the Linux build of RocketVibeKit and the macOS CI build only. |
-| Mattermost server: login with MFA, rooms, history, threads, live messages, unread, who types, presence, text and files, reactions, edits, deletions, pins, stars, search - [mattermost-and-kchat](features/mattermost-and-kchat.md) | done | done | done | Push and quotes are not mapped on that server; kMeet calls are joined, not started. Mobile: stars changed in another client show only once the room's starred list is read again. SwiftUI: the Swift parts (sign-in and kChat server picker, category sections, ended kMeet row) are checked by the Linux build of RocketVibeKit and the macOS CI build only. |
+| Mattermost server: login with MFA, rooms, history, threads, live messages, unread, who types, presence, text and files, reactions, edits, deletions, pins, stars, search - [mattermost-and-kchat](features/mattermost-and-kchat.md) | done | done | done | Push and quotes are not mapped on that server. Mobile: stars changed in another client show only once the room's starred list is read again. SwiftUI: the Swift parts (sign-in and kChat server picker, category sections, ended kMeet row) are checked by the Linux build of RocketVibeKit and the macOS CI build only. |
 | kChat: a room read in another kChat client clears here at once (`badge_updated`) | done | done | done | |
 | kChat server (Infomaniak): Infomaniak sign-in or API token, Pusher real time, team servers of the account | partial | partial | partial | Run on a real kChat account with an API token (mobile on the emulator, desktop core through `kchat-smoke`, GTK and SwiftUI on that same core). Mobile: "Sign in with Infomaniak" not yet run. GTK, SwiftUI: API token only, no "Sign in with Infomaniak" (its redirect is a custom URL scheme the desktop apps do not register). |
 | Known servers offered on the login screen | done | done | done | |
@@ -208,7 +208,10 @@ beta does.
 |---|---|---|---|---|
 | Start and join a Jitsi call (`video-conference.start`, `.join`), Rocket.Chat servers | done | done | done | Locked on the call's origin: mobile WebView, WebView2 on Windows, WKWebView on macOS; on Linux a Chromium app window, else the browser. |
 | Meeting information: the link without the token (`video-conference.info`) | missing | done | missing | |
-| kChat kMeet calls: running call card with Join, ended call with its length | done | done | done | Starting a kMeet call is not mapped. SwiftUI: checked by the macOS CI build only. |
+| kChat kMeet calls: start from the room, Join from the call card, ended call with its length | done | done | done | SwiftUI: checked by the macOS CI build only. |
+| Mattermost and kChat people named under the account's name format, with their custom status emoji | done | done | done | SwiftUI: author labels and DM names come from rv-ffi; the views are checked by the macOS CI build only. |
+| Mattermost and kChat lists only the conversations the account lists (closed ones hidden, the Direct Messages limit) | done | done | done | |
+| Mattermost and kChat conversation list settings (name format, direct messages shown), synced with the account | done | done | done | SwiftUI: checked by the macOS CI build only. |
 
 ## 12b. Voice (RocketVibe server) - [voice](features/voice.md)
 

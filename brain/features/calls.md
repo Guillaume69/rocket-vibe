@@ -45,7 +45,7 @@ The desktop applies the same exception with the same bounds (2026-09-30), and th
 
 ## kChat (kMeet)
 
-kChat calls are kMeet meetings announced by a `custom_call` post carrying the meeting URL (`docs/MATTERMOST.md` §6.5). Any room member can post one with any URL, so both apps accept only `https://kmeet.infomaniak.com`, in the post and again at join: the call view's origin lock then holds kMeet's origin, never one a post chose. Both apps show a running one as the call card above, whose Join opens that URL in the same locked call view (mobile: a `NativeCalls` binding for kChat in `lib/providerCalls.ts` whose `join` returns the URL; desktop: `Session::join_call`), and an ended one as "📞 Call · duration". No start button: starting a kMeet call is not mapped.
+kChat calls are kMeet meetings its server opens (`docs/MATTERMOST.md` §6.5): `POST /conferences {channel_id}` starts one and posts its `custom_call`, `POST /conferences/<id>/answer` joins one, both answering the meeting's `url` and a `jwt`. Both apps work as on Rocket.Chat: the room header's call button starts, the call card's Join answers the post's `conference_id`, and the call view opens `url?jwt=`. Since any member can post a `custom_call` with any URL, only an answer's URL on `https://kmeet.infomaniak.com` is opened, so the view's origin lock holds kMeet's origin. Mobile: `Provider.calls` (`providers/mattermost/kmeet.ts`), bound by `lib/providerCalls.ts`; desktop: `Session::start_call`, `join_call`, `call_link` (`mattermost::actions::start_conference`, `answer_conference`). An ended call is "📞 Call · duration".
 
 ## Parity
 

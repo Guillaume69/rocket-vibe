@@ -41,11 +41,14 @@ Rocket.Chat call fails cleanly instead of hitting the wrong server.
   set: the server reads that cookie before the bearer, and a cookie-borne `POST`
   without CSRF token answers 401 like an expired session.
 - kChat: an Infomaniak bearer token used as is on every kChat server of the
-  account. "Sign in with Infomaniak" runs authorization code + PKCE in the system
-  browser with the client id and redirect of Infomaniak's own kChat app
-  (`providers/mattermost/kchatOAuth.ts`); the redirect scheme
-  `com.infomaniak.chat` is declared in `app.json` and swallowed by
-  `app/+native-intent.tsx` so the login screen's `Linking` listener reads it.
+  account. "Sign in with Infomaniak" runs authorization code + PKCE with the
+  client id and redirect of Infomaniak's own kChat app
+  (`providers/mattermost/kchatOAuth.ts`) as an auth session in a Custom Tab
+  (`expo-web-browser` `openAuthSessionAsync`, `app/login.tsx`): Infomaniak's page
+  redirects by script after its 2FA, and Chrome refuses to open an app from a
+  navigation no tap started, while an auth session hands the redirect back. The
+  scheme `com.infomaniak.chat` is declared in `app.json` and swallowed by
+  `app/+native-intent.tsx`. Run on a real account with 2FA (2026-10-09).
   Or paste a personal API token. The servers come from
   `GET https://kchat.infomaniak.com/api/v4/users/me/servers`. Choosing kChat
   hides the address (`app/login.tsx` probes `KCHAT_DIRECTORY`); a team host typed
@@ -88,6 +91,26 @@ Rocket.Chat call fails cleanly instead of hitting the wrong server.
   returns that URL as is (`lib/providerCalls.ts`). See [calls](calls.md).
 - kChat reads made elsewhere: `badge_updated` makes `MmLive.recount` read my
   memberships again and emit the rooms whose counts moved.
+- People: `MmDirectory` names users under the account's name format (my
+  `display_settings/name_format`, else `TeammateNameDisplay`, read by
+  `MmCatchUp.nameFormat` and followed live by `MmLive.preferences`), resolves
+  group DM members (`ensureUsernames`, one by one when a cut name refuses the
+  batch, `nameOfCut`), looks me up, and keeps each person's custom status emoji
+  (`props.customStatus`, object or JSON). It publishes `user id → name` and
+  `→ emoji` (`Provider.displayNames`, `lib/displayNames.ts`): message authors
+  (`ui/messageRow.tsx`) and DM rows (`app/index.tsx`) show them.
+- Listing: `MmSidebar` (`providers/mattermost/sidebar.ts`, reached through
+  `MmCategories.sidebar`) hides closed conversations and keeps the
+  `limit_visible_dms_gms` most recent of the Direct Messages category; a
+  conversation opened in the session stays. Conversations are written again at
+  each catch-up, their names moving with people.
+- Settings: `Provider.sidebarSettings` (`providers/mattermost/sidebarSettings.ts`)
+  reads and writes the name format and the limit; My account shows them
+  (`SidebarSettingsCard`, `ui/settingsSections.tsx`).
+- kMeet: `Provider.calls` (`providers/mattermost/kmeet.ts`) starts and answers
+  conferences; see [calls](calls.md).
+- Cards: integrations' `props.attachments` map to Rocket.Chat's attachment
+  shape, and a text-less post previews its first card or file.
 - Lists: `MmClient.pages` walks `page`/`per_page`; `/users/me/channels` is read
   once (`MmCatchUp.channels`), it ignores paging.
 - A 401 revokes only with the server's own body (`MmError.rejectsToken`, set by
@@ -163,8 +186,8 @@ and `scripts/seed-mattermost.mjs` ([docs/DEV.md](../../docs/DEV.md)).
 kChat runs on a real account with an API token (2026-10-08), which found two
 things the open-source clients did not say: `pending_post_id` must be
 `<my id>:<digits>` (any other answers 422) and errors are `{message}` without
-`id` (`MmClient` `plainErrors`, `RestClient::kchat`). The OAuth sign-in follows
-Infomaniak's open-source clients and has not been run yet. A kChat
+`id` (`MmClient` `plainErrors`, `RestClient::kchat`). The browser sign-in was
+then run on the same account, 2FA included. A kChat
 account has no push for a third-party app (Infomaniak's proxy routes to its own
 app id). Room settings are not mapped. Who types is received, not sent, as on Rocket.Chat.
 
@@ -219,6 +242,15 @@ there, so the UIs read the same store:
   with `cards::voice_call` (no button), SwiftUI with `VoiceCallCard` (no voice
   model, so no button).
 - `badge_updated`: `MmSync::recount`, as on mobile.
+- People, listing, cards and kMeet as on mobile: `directory::NameFormat`,
+  `Directory::ensure_usernames`, `name_of_cut`, `status_emoji`;
+  `categories::Sidebar`; `MmSync::load_preferences`, `preferences_changed`;
+  `translate::cards`, `preview_of`; `actions::start_conference`,
+  `answer_conference`, `sidebar_settings`. `Session::person_label` gives GTK and
+  rv-ffi (`MessageItem.author_label`) a person's name with their status emoji;
+  `Session::status_emoji` marks DM rows. Settings: GTK's account page
+  (`settings.rs` `sidebar_group`) and SwiftUI's (`SidebarSettingsSection`);
+  neither offers Encryption to a Mattermost account.
 - Lists: `mattermost::pages`; `MmSync::channels` reads `/users/me/channels`
   once. The catch-up skips rooms live events stamped during it (`Live::touch`,
   `changed_since`); `Room.keep_preview` keeps a stored preview.

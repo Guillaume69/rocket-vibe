@@ -46,7 +46,7 @@ The Windows SFU now uses the official checksummed LiveKit 1.13.8 Windows binary 
 
 ## Bot identity regression
 
-The workflow BOT regression on `36f32703` preserves `User.bot` in the server's live profile projection. Both the native bot integration assertion and the real workflow browser scenario failed before the correction and pass afterward. The browser waits for two actual socket profile refreshes and retains the message badge after reload. All six workflow scenarios pass against the updated embedded server. The continuous gate now includes 89 browser cases and the native bot projection integration test.
+The workflow BOT regression on `36f32703` preserves `User.bot` in the server's live profile projection. Both the native bot integration assertion and the real workflow browser scenario failed before the correction and pass afterward. The browser waits for two actual socket profile refreshes and retains the message badge after reload. All six workflow scenarios pass against the updated embedded server. Server formatting, clippy with warnings denied and the library gate pass locally: 200 passed, one intentionally ignored. The continuous gate now includes 89 browser cases and the native bot projection integration test.
 
 ## GTK inventory
 

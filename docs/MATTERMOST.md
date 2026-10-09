@@ -212,8 +212,26 @@ Ghost rooms: once per session, rooms missing from a non-empty
 
 Posts, reactions and DM names carry **user ids only**. Resolve them before
 showing a row: `POST /users/ids` with up to 100 ids (`[{id, username,
-first_name, last_name, nickname, last_picture_update}]`). Display name is
-`nickname`, else `first_name last_name`. By name: `GET /users/username/<u>`.
+first_name, last_name, nickname, last_picture_update, props}]`). By name:
+`GET /users/username/<u>`; several: `POST /users/usernames`, which refuses the
+whole batch when one name does not exist [kChat].
+
+- **The name follows the account's name format** [kChat]: my preference
+  `display_settings/name_format`, else the server's `TeammateNameDisplay`
+  (`GET /config/client?format=old`), which wins when `LockTeammateNameDisplay`
+  is `"true"`. `full_name` is `first_name last_name`, `nickname_full_name` the
+  nickname else the full name, `username` the username. **kChat sets
+  `nickname` to the username**, so preferring the nickname shows usernames.
+- **Group DMs**: `display_name` lists usernames, mine included, **cut at 64
+  characters** on kChat [kChat]: name each listed member; the cut one matches
+  a known username by prefix. Look the usernames up one by one when the batch
+  is refused.
+- **Custom status**: `props.customStatus` = `{emoji, text, duration,
+  expires_at}`, **a JSON string on Mattermost, an object on kChat** [kChat];
+  `emoji` is a shortcode, `expires_at` an RFC 3339 instant (empty or zero:
+  never). The apps show the emoji after the person's name in DMs and on their
+  messages.
+- Me: the session knows my id and username only; look me up like anyone.
 
 ### 4.6 Post to message
 
@@ -278,6 +296,21 @@ My sidebar (Mattermost 5.32+, kChat alike) is a list of categories per team:
   membership. A favourite also sends `preferences_changed` (`favorite_channel`).
 - A server without the route answers 404: the rooms keep the default sections.
 
+### 4.9 Which conversations are listed [kChat]
+
+- A closed conversation is a preference: `direct_channel_show` named by the
+  other person's id, or `group_channel_show` named by the channel id, valued
+  `"false"` (13 and 39 of them on the probed account). It reappears with
+  something unread.
+- `sidebar_settings/limit_visible_dms_gms` (20 there, 40 when never set,
+  10000 for "all"): the most recent conversations **of the Direct Messages
+  category** are listed, favourites and categories of my own not counted.
+- Opening a DM writes `direct_channel_show` `"true"` for that person, as
+  Mattermost's own client does.
+- Both preferences, and the name format, are offered in the apps' settings and
+  written back with `PUT /users/me/preferences`; the `preferences_changed` that
+  follows (any client) moves the list.
+
 ## 5. Real time
 
 ### 5.1 Mattermost WebSocket [probed]
@@ -341,7 +374,7 @@ kChat replaced the WebSocket with the **Pusher protocol**:
 | `typing` | `data.user_id`, room in `broadcast.channel_id`: who types, expires after 15 s |
 | `status_change` | `data.user_id`, `data.status`: `online`, `away`, `dnd` (busy), `offline` |
 | `user_updated` | `data.user`; a new `last_picture_update` versions the photo |
-| `preferences_changed`, `preferences_deleted` | stars (4.7) |
+| `preferences_changed`, `preferences_deleted` | stars (4.7), the name format (4.5), closed conversations and the list's limit (4.9) |
 | `sidebar_category_created`, `sidebar_category_updated`, `sidebar_category_deleted`, `sidebar_category_order_updated` | categories (4.8) |
 | `badge_updated` (kChat) | read my memberships again (4.2) |
 | `hello`, `thread_*`, `config_changed`, `license_changed`, `plugin_statuses_changed` | ignored |
@@ -420,20 +453,23 @@ refuses an oversize file with 413.
 
 ### 6.5 kMeet calls [kChat]
 
-kChat calls are kMeet (Infomaniak's Jitsi) meetings, announced by a post of
-type `custom_call`, e.g. "bob started a call", whose `props` are
-`{url, conference_id, status, start_at, end_at}` (`status: "ended"` seen;
-`FeatureFlagIkCallDialing` true on the server).
+kChat calls are kMeet (Infomaniak's Jitsi) meetings its server opens, read in
+Infomaniak's open-source app and probed in a note-to-self DM:
 
-- Running (no `end_at`, `status` not `ended`, `missed`, `declined` or
-  `cancelled`): the apps show a call card whose Join opens `props.url` in the
-  locked call view. **Any room member can post a `custom_call` with any
+- Start: `POST /conferences {channel_id}` answers 201 `{id, channel_id,
+  user_id, create_at, participants, registrants, url, jwt, name}` and posts a
+  `custom_call` in the room. `url` is `https://kmeet.infomaniak.com/<…>`.
+- Join: `POST /conferences/<id>/answer` answers the same, with a `jwt` for me.
+- End: `/cancel` (a call nobody joined), `/leave` (one I joined: 404
+  otherwise), `/decline`.
+- The `custom_call` post: `props = {url, conference_id, status, start_at,
+  end_at}`, `status` `calling`, then `ended` or `missed`, the post edited.
+- The apps: a running call is a call card whose Join answers its
+  `conference_id`; the room header's call button starts one; the call view
+  opens `url?jwt=<jwt>`. **Any member can post a `custom_call` with any
   `props.url`**, and that view grants camera and microphone to its origin, so
-  only `https://kmeet.infomaniak.com` is accepted, in the post and again at
-  join (a `rocketvibe://call/<url>` link included).
-- Over: a `videoconf-ended` row, "📞 Call · <end_at − start_at>".
-- Starting a call is not mapped: its route was not probed (it would ring the
-  room's members).
+  only an answer's `url` on `https://kmeet.infomaniak.com` is opened. An ended
+  call is a `videoconf-ended` row, "📞 Call · <end_at − start_at>".
 
 ## 7. Media [probed]
 
@@ -452,7 +488,7 @@ type `custom_call`, e.g. "bob started a call", whose `props` are
 ## 8. Not mapped
 
 Push (a third-party app gets none on kChat: Infomaniak's proxy routes to its own
-app id), starting a kMeet call, quotes, room settings and roles, end-to-end
+app id), ending a kMeet call nobody joined (`/cancel`), quotes, room settings and roles, end-to-end
 encryption, sending who types, muted channels (`notify_props.mark_unread`:
 they count as unread), the live update of a thread's reply count
 (`thread_updated`), and, on mobile, stars changed elsewhere

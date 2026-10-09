@@ -216,9 +216,8 @@ try {
   // Public membership is a fixture action; identity/pins/MLS admissions go
   // through the visible application and the actual native bridge.
   await identity(bob, users[1]);
-  const invitee = (await fixture(page, "/api/v1/users")).find(
-    (user) => user.username === users[1],
-  );
+  const invitee = await fixture(bob, "/api/v1/me");
+  assert.equal(invitee.username, users[1]);
   await fixture(
     page,
     "/api/v1/rooms/" + room + "/members/" + invitee.id,

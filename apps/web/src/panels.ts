@@ -25,14 +25,18 @@ import { botsPage, botBadge } from "./bots";
 import { workflowsPage } from "./workflows";
 import { nt } from "./native-i18n";
 
-export async function newConversation(app: App): Promise<void> {
+/** The new conversation dialog, opened on its people, rooms or create tab. */
+export async function newConversation(
+  app: App,
+  start: "people" | "rooms" | "create" = "people",
+): Promise<void> {
   const [node, body] = dialog(t("new"));
   const [wrap, input] = field(t("search"));
   body.append(wrap);
   const tabs = el("div", "tabs");
   const list = el("div", "spotlight");
   body.append(tabs, list);
-  let tab = "people",
+  let tab = start === "rooms" ? "rooms" : "people",
     generation = 0;
   const refresh = async () => {
     const current = ++generation;
@@ -154,6 +158,8 @@ export async function newConversation(app: App): Promise<void> {
   });
   await refresh();
   input.focus();
+  // "Create a channel" from a menu or a section's "+": straight to the form.
+  if (start === "create") tabs.querySelector<HTMLButtonElement>("button:last-child")?.click();
 }
 export async function search(app: App): Promise<void> {
   if (!app.room) return;

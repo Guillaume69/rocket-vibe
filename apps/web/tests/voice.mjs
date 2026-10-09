@@ -506,7 +506,9 @@ try {
   await b.locator(".voice-stage-full").click();
   await b.waitForFunction(() => !document.fullscreenElement);
   const includeCall = async (value) => {
-    await a.getByRole("button", { name: "Settings", exact: true }).click();
+    // The account block opens a menu: settings, administration, sign out.
+    await a.getByRole("button", { name: "My account, settings and sign out", exact: true }).click();
+    await a.getByRole("menuitem", { name: "Settings", exact: true }).click();
     const settings = a.locator(".settings-dialog");
     await settings.getByRole("button", { name: "Voice", exact: true }).click();
     await settings
@@ -827,7 +829,9 @@ try {
   await incoming.getByRole("button", { name: "Accept", exact: true }).click();
   await committed;
   await incoming.waitFor({ state: "detached" });
-  await b.getByRole("button", { name: "Sign out", exact: true }).click();
+  // The account block opens a menu: settings, administration, sign out.
+  await b.getByRole("button", { name: "My account, settings and sign out", exact: true }).click();
+  await b.getByRole("menuitem", { name: "Sign out", exact: true }).click();
   await b.getByLabel("Username or email").waitFor();
   await b.getByLabel("Username or email").fill(aliceName);
   await b.getByLabel("Password", { exact: true }).fill(password);

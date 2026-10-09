@@ -205,7 +205,11 @@ try {
     "PASS a real command workflow's BOT message is read while its channel is already open",
   );
 
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  // The account block opens a menu: settings, administration, sign out.
+
+  await page.getByRole("button", { name: "My account, settings and sign out", exact: true }).click();
+
+  await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
   await page.locator(".settings-dialog").waitFor();
   const behind = await send("A message behind the open settings dialog");
   await page.locator('[data-id="' + behind.id + '"]').waitFor();

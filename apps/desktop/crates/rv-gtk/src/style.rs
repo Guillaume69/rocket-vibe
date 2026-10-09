@@ -106,6 +106,12 @@ button.cta:active, button.cta:disabled { opacity: 0.75; }
 .rail-button:hover .tile-room, .rail-button:hover .rail-add, .rail-button:hover .rail-icon { box-shadow: 0 0 0 2px #3A3560; }
 .rail-button.rail-active .tile-room, .rail-button.rail-active .rail-icon { box-shadow: 0 0 0 2px #FF5FA2; }
 .rail-icon { border-radius: 15px; }
+.account-gear { color: #8F89AB; margin-right: 4px; }
+.account:hover .account-gear { color: #34E1D0; }
+.section-add { min-width: 24px; min-height: 24px; padding: 0; border-radius: 8px; color: #8F89AB; }
+.section-add:hover { color: #34E1D0; }
+.action-menu { padding: 4px; }
+.action-menu-row { padding: 6px 10px; border-radius: 8px; }
 .rail-dot { min-width: 12px; min-height: 12px; border-radius: 6px; background: #FFD34E; border: 2px solid #08070F; margin: -3px -3px 0 0; }
 .rail-add { border-radius: 15px; background: #171529; color: #34E1D0; }
 .badge { border-radius: 11px; min-width: 22px; min-height: 22px; padding: 0 7px; font-weight: 800; font-size: 12px; }

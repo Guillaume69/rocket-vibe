@@ -176,7 +176,9 @@ try {
     .locator("dialog")
     .getByRole("button", { name: "Send", exact: true })
     .click();
-  await a.getByRole("button", { name: "Settings", exact: true }).click();
+  // The account block opens a menu: settings, administration, sign out.
+  await a.getByRole("button", { name: "My account, settings and sign out", exact: true }).click();
+  await a.getByRole("menuitem", { name: "Settings", exact: true }).click();
   await a
     .getByRole("button", { name: "Server administration", exact: true })
     .click();

@@ -179,6 +179,8 @@ struct RoomListView: View {
     @State var found: [Found] = []
     @State var searching = false
     @State var creating = false
+    /// "New message" puts the cursor in the search, which finds people and channels.
+    @FocusState var searchFocused: Bool
 
     var body: some View {
         let selection = Binding<String?>(get: { app.room?.rid }, set: { if let rid = $0 { app.select(rid) } })
@@ -198,13 +200,17 @@ struct RoomListView: View {
                     }
                 }
             } else {
-                RoomSections(groups: app.groups, collapsed: app.collapsed, toggle: app.toggle)
+                RoomSections(groups: app.groups, collapsed: app.collapsed, toggle: app.toggle, add: { section in
+                    // Channels: create one where the server allows it, else find one.
+                    if section == .channels && app.native != nil { creating = true } else { searchFocused = true }
+                })
             }
         }
         .listStyle(.sidebar)
         .scrollContentBackground(.hidden)
         .background(Vibe.deep.opacity(0.78))
         .searchable(text: $query, placement: .sidebar, prompt: L("spotlight.placeholder"))
+        .searchFocused($searchFocused)
         .task(id: query) { await search() }
         .task(id: app.account?.key) { query = ""; found = []; creating = false }
         .modalOverlay(isPresented: $creating) { NewRoomSheet() }
@@ -213,11 +219,18 @@ struct RoomListView: View {
                 HStack {
                     Wordmark(size: 21)
                     Spacer()
-                    if app.native != nil {
-                        Button { creating = true } label: { Image(systemName: "plus.bubble") }
-                            .buttonStyle(.borderless)
-                            .help(L("native.create"))
+                    Menu {
+                        Button { searchFocused = true } label: { Label(L("rooms.new_message"), systemImage: "square.and.pencil") }
+                        if app.native != nil {
+                            Button { creating = true } label: { Label(L("rooms.new_channel"), systemImage: "number") }
+                        }
+                    } label: {
+                        Image(systemName: "plus")
                     }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .help(L("rooms.new"))
                 }
                 Comet(active: app.connection != .online)
             }
@@ -262,6 +275,8 @@ struct RoomSections: View {
     let groups: [RoomGroup]
     let collapsed: Set<String>
     let toggle: (String) -> Void
+    /// The "+" of the Channels and Direct messages headers; none when absent.
+    var add: ((RoomSection) -> Void)? = nil
 
     var body: some View {
         let titled = groups.count > 1
@@ -270,10 +285,18 @@ struct RoomSections: View {
                 Section(isExpanded: Binding(get: { !collapsed.contains(group.key) }, set: { _ in toggle(group.key) })) {
                     rows(group.rooms)
                 } header: {
-                    Text("\(title(group)) · \(group.rooms.count)")
-                        .font(.vibe(11.5, .heavy))
-                        .textCase(.uppercase)
-                        .foregroundStyle(Vibe.muted)
+                    HStack {
+                        Text("\(title(group)) · \(group.rooms.count)")
+                            .font(.vibe(11.5, .heavy))
+                            .textCase(.uppercase)
+                            .foregroundStyle(Vibe.muted)
+                        Spacer()
+                        if let add, group.section == .channels || group.section == .direct {
+                            Button { add(group.section) } label: { Image(systemName: "plus") }
+                                .buttonStyle(.borderless)
+                                .help(L(group.section == .channels ? "rooms.new_channel" : "rooms.new_message"))
+                        }
+                    }
                 }
             } else {
                 rows(group.rooms)
@@ -453,29 +476,45 @@ struct PresenceDot: View {
     }
 }
 
-/// Me, the connection, the way to settings.
+/// Me and the connection; the block opens the account menu: settings, the
+/// server administration for an administrator, sign out.
 struct AccountBar: View {
     @Environment(AppModel.self) var app
 
     var body: some View {
         HStack(spacing: 8) {
-            if let account = app.account {
-                Avatar(path: app.media?.avatar(user: account.username), name: account.username, size: 26)
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(account.username).font(.vibe(13.5, .heavy))
-                    Text(URL(string: account.baseUrl)?.host() ?? account.baseUrl)
-                        .font(.vibe(11.5)).foregroundStyle(Vibe.muted)
+            Menu {
+                Button { app.openSettings() } label: { Label(L("settings.title"), systemImage: "gearshape") }
+                if app.administrator {
+                    Button { app.openAdmin() } label: { Label(L("admin.title"), systemImage: "server.rack") }
                 }
+                Divider()
+                Button(role: .destructive) { Task { await app.signOut() } } label: {
+                    Label(L("rooms.sign_out"), systemImage: "rectangle.portrait.and.arrow.right")
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    if let account = app.account {
+                        Avatar(path: app.media?.avatar(user: account.username), name: account.username, size: 26)
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(account.username).font(.vibe(13.5, .heavy))
+                            Text(URL(string: account.baseUrl)?.host() ?? account.baseUrl)
+                                .font(.vibe(11.5)).foregroundStyle(Vibe.muted)
+                        }
+                    }
+                    Spacer()
+                    Image(systemName: "gearshape").foregroundStyle(Vibe.muted)
+                }
+                .contentShape(Rectangle())
             }
-            Spacer()
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .help(L("rooms.account_menu"))
             Button { app.reconnect() } label: {
                 Circle().fill(connectionColor).frame(width: 9, height: 9)
             }
             .buttonStyle(.plain)
             .help(connectionHelp)
-            Button { app.openSettings() } label: { Image(systemName: "gearshape") }
-                .buttonStyle(.borderless)
-                .help(L("settings.title"))
         }
         .padding(10)
         .background(Vibe.deep.opacity(0.9))

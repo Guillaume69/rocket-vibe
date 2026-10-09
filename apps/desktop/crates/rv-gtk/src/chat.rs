@@ -50,8 +50,36 @@ enum RoomItem {
     Room(Box<RoomRow>),
 }
 
+/// A row of an action menu: its icon, its words, what it does.
+pub(crate) type MenuItem = (&'static str, String, Rc<dyn Fn()>);
+/// A section's "+": its tooltip, what it does.
+type SectionAdd = (&'static str, Rc<dyn Fn()>);
+
+/// A menu of rows in a popover, each closing it before it runs: the account
+/// menu and the "+" menu of the room list.
+pub(crate) fn action_popover(items: Vec<MenuItem>) -> gtk::Popover {
+    let list = gtk::Box::builder().orientation(gtk::Orientation::Vertical).css_classes(["action-menu"]).build();
+    let popover = gtk::Popover::builder().child(&list).has_arrow(false).build();
+    for (icon, text, run) in items {
+        let content = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+        content.append(&gtk::Image::from_icon_name(icon));
+        content.append(&gtk::Label::builder().label(&text).xalign(0.0).build());
+        let button = gtk::Button::builder().child(&content).css_classes(["flat", "action-menu-row"]).build();
+        let weak = popover.downgrade();
+        button.connect_clicked(move |_| {
+            if let Some(popover) = weak.upgrade() {
+                popover.popdown();
+            }
+            run();
+        });
+        list.append(&button);
+    }
+    popover
+}
+
 /// A section title that folds its rooms away; folded, it tells how many there are.
-fn section_header(title: &str, collapsed: bool, count: usize) -> gtk::Box {
+/// `add`, on Channels and Direct messages: a "+" creating one there.
+fn section_header(title: &str, collapsed: bool, count: usize, add: Option<SectionAdd>) -> gtk::Box {
     let header = gtk::Box::builder().spacing(4).css_classes(["section-header"]).build();
     header.set_cursor(gdk::Cursor::from_name("pointer", None).as_ref());
     let chevron = gtk::Image::from_icon_name(if collapsed { "pan-end-symbolic" } else { "pan-down-symbolic" });
@@ -60,6 +88,18 @@ fn section_header(title: &str, collapsed: bool, count: usize) -> gtk::Box {
     header.append(&label(title, &["section-title"]));
     if collapsed {
         header.append(&label(&count.to_string(), &["section-count"]));
+    }
+    if let Some((tooltip, run)) = add {
+        let spacer = gtk::Box::builder().hexpand(true).build();
+        header.append(&spacer);
+        let plus = gtk::Button::builder()
+            .icon_name("list-add-symbolic")
+            .tooltip_text(tooltip)
+            .css_classes(["flat", "section-add"])
+            .valign(gtk::Align::Center)
+            .build();
+        plus.connect_clicked(move |_| run());
+        header.append(&plus);
     }
     header
 }
@@ -192,6 +232,9 @@ impl ChatPage {
         let native_shared = native_session.clone();
         let toggle_section: Rc<Handler<Section>> = Rc::default();
         let toggler = toggle_section.clone();
+        // The "+" of a section header: set once the page exists.
+        let add_in_section: Rc<Handler<Section>> = Rc::default();
+        let adder = add_in_section.clone();
         let voice_ui = voice::VoiceUi::new();
         let binder = voice_ui.clone();
         room_factory.connect_bind(move |_, item| {
@@ -202,7 +245,21 @@ impl ChatPage {
                 RoomItem::Header { section, title, collapsed, count } => {
                     item.set_selectable(false);
                     item.set_activatable(true);
-                    let header = section_header(title, *collapsed, *count);
+                    let add = match section {
+                        Section::Channels => Some(t("rooms.new_channel")),
+                        Section::Direct => Some(t("rooms.new_message")),
+                        _ => None,
+                    }
+                    .map(|tooltip| {
+                        let (adder, section) = (adder.clone(), section.clone());
+                        let run: Rc<dyn Fn()> = Rc::new(move || {
+                            if let Some(add) = adder.borrow().clone() {
+                                add(section.clone());
+                            }
+                        });
+                        (tooltip, run)
+                    });
+                    let header = section_header(title, *collapsed, *count, add);
                     let (toggler, section) = (toggler.clone(), section.clone());
                     let click = gtk::GestureClick::new();
                     click.connect_released(move |_, _, _, _| {
@@ -259,8 +316,8 @@ impl ChatPage {
             .build();
         sidebar_header.pack_start(&forward_button);
         sidebar_header.pack_start(&status_button);
-        sidebar_header.pack_end(&logout);
-        let new_conversation = gtk::Button::builder()
+        // Sign out lives in the account menu, away from "+".
+        let new_conversation = gtk::MenuButton::builder()
             .icon_name("list-add-symbolic")
             .css_classes(["flat"])
             .tooltip_text(t("rooms.new"))
@@ -276,9 +333,13 @@ impl ChatPage {
         account_text.append(&account_host);
         let account = gtk::Box::builder().spacing(10).css_classes(["account"]).build();
         account.append(&account_tile);
+        account_text.set_hexpand(true);
         account.append(&account_text);
+        // Says the block opens something: the account menu.
+        account
+            .append(&gtk::Image::builder().icon_name("emblem-system-symbolic").css_classes(["account-gear"]).build());
         account.set_cursor(gdk::Cursor::from_name("pointer", None).as_ref());
-        account.set_tooltip_text(Some(t("settings.title")));
+        account.set_tooltip_text(Some(t("rooms.account_menu")));
         let account_click = gtk::GestureClick::new();
         account.add_controller(account_click.clone());
 
@@ -485,23 +546,21 @@ impl ChatPage {
             }
         });
         let weak = Rc::downgrade(&this);
+        let anchor = account.downgrade();
         account_click.connect_released(move |_, _, _, _| {
-            let Some(this) = weak.upgrade() else { return };
-            if this.native_session().is_some() {
-                this.native_settings();
-                return;
+            if let (Some(this), Some(anchor)) = (weak.upgrade(), anchor.upgrade()) {
+                this.account_menu(&anchor);
             }
-            let Some(session) = this.session() else { return };
-            let signer = Rc::downgrade(&this);
-            let accounts = this.account_actions.borrow().clone();
-            crate::settings::open(&this.split, session, accounts, move || {
-                if let Some(this) = signer.upgrade() {
-                    for f in this.on_logout.borrow().iter() {
-                        f(());
-                    }
-                }
-            });
         });
+        let weak = Rc::downgrade(&this);
+        add_in_section.replace(Some(Rc::new(move |section| {
+            let Some(this) = weak.upgrade() else { return };
+            if section == Section::Channels && this.native_session().is_some() {
+                this.native_conversation(false);
+            } else {
+                this.new_conversation();
+            }
+        })));
         let weak = Rc::downgrade(&this);
         marked_button.connect_clicked(move |_| {
             let Some(this) = weak.upgrade() else { return };
@@ -649,10 +708,31 @@ impl ChatPage {
             }
         });
         let weak = Rc::downgrade(&this);
-        new_conversation.connect_clicked(move |_| {
-            if let Some(this) = weak.upgrade() {
-                this.new_conversation();
+        new_conversation.set_create_popup_func(move |button| {
+            let Some(this) = weak.upgrade() else { return };
+            let (w1, w2) = (Rc::downgrade(&this), Rc::downgrade(&this));
+            let mut items: Vec<MenuItem> = vec![(
+                "mail-message-new-symbolic",
+                t("rooms.new_message").to_owned(),
+                Rc::new(move || {
+                    if let Some(this) = w1.upgrade() {
+                        this.new_conversation();
+                    }
+                }),
+            )];
+            // Creating a room: RocketVibe servers.
+            if this.native_session().is_some() {
+                items.push((
+                    "list-add-symbolic",
+                    t("rooms.new_channel").to_owned(),
+                    Rc::new(move || {
+                        if let Some(this) = w2.upgrade() {
+                            this.native_conversation(false);
+                        }
+                    }),
+                ));
             }
+            button.set_popover(Some(&action_popover(items)));
         });
         let weak = Rc::downgrade(&this);
         drop.connect_drop(move |_, value, _, _| {
@@ -1494,6 +1574,84 @@ impl ChatPage {
             thread.list.rebind();
         }
         self.refresh_room_header();
+    }
+
+    /// The account block's menu: settings, the server administration for an
+    /// administrator (asked when the menu opens), sign out.
+    fn account_menu(self: &Rc<Self>, anchor: &gtk::Box) {
+        let (w1, w2) = (Rc::downgrade(self), Rc::downgrade(self));
+        let mut items: Vec<MenuItem> = vec![(
+            "emblem-system-symbolic",
+            t("settings.title").to_owned(),
+            Rc::new(move || {
+                if let Some(this) = w1.upgrade() {
+                    this.open_settings();
+                }
+            }),
+        )];
+        let sign_out: MenuItem = (
+            "system-log-out-symbolic",
+            t("rooms.sign_out").to_owned(),
+            Rc::new(move || {
+                if let Some(this) = w2.upgrade() {
+                    for f in this.on_logout.borrow().iter() {
+                        f(());
+                    }
+                }
+            }),
+        );
+        let Some(admin) = self.admin() else {
+            items.push(sign_out);
+            return self.show_menu(anchor, items);
+        };
+        let (this, anchor) = (Rc::downgrade(self), anchor.downgrade());
+        glib::spawn_future_local(async move {
+            let administrator = crate::on_tokio(async move { admin.is_admin().await }).await;
+            let (Some(this), Some(anchor)) = (this.upgrade(), anchor.upgrade()) else { return };
+            if administrator {
+                let w = Rc::downgrade(&this);
+                items.push((
+                    "network-server-symbolic",
+                    t("admin.title").to_owned(),
+                    Rc::new(move || {
+                        if let Some(this) = w.upgrade() {
+                            this.open_admin();
+                        }
+                    }),
+                ));
+            }
+            items.push(sign_out);
+            this.show_menu(&anchor, items);
+        });
+    }
+
+    fn show_menu(&self, anchor: &gtk::Box, items: Vec<MenuItem>) {
+        let popover = action_popover(items);
+        popover.set_parent(anchor);
+        popover.set_position(gtk::PositionType::Top);
+        popover.connect_closed(|popover| {
+            let popover = popover.clone();
+            glib::idle_add_local_once(move || popover.unparent());
+        });
+        popover.popup();
+    }
+
+    /// The settings of the open account.
+    fn open_settings(self: &Rc<Self>) {
+        if self.native_session().is_some() {
+            self.native_settings();
+            return;
+        }
+        let Some(session) = self.session() else { return };
+        let signer = Rc::downgrade(self);
+        let accounts = self.account_actions.borrow().clone();
+        crate::settings::open(&self.split, session, accounts, move || {
+            if let Some(this) = signer.upgrade() {
+                for f in this.on_logout.borrow().iter() {
+                    f(());
+                }
+            }
+        });
     }
 
     fn new_conversation(self: &Rc<Self>) {

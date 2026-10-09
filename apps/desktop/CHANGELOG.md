@@ -7,6 +7,10 @@ section here.
 
 ## [Unreleased]
 
+### Changed
+
+- The account block at the foot of the conversation list shows a gear and opens a menu (Settings, Server administration for administrators, Sign out); sign out left the header. The header's "+" is a menu (New message, Create a channel where the server allows it), and the Channels and Direct messages headings carry their own "+".
+
 ### Fixed
 
 - Rocket.Chat: people are named the way the server says (`UI_Use_Real_Name`): message authors, direct messages and notifications use real names when the server shows them. Search shows a channel's display name like the list; a direct message's details on macOS keep its name.

@@ -36,6 +36,7 @@ import {
   stopMedia,
   retainMessageMedia,
   initials,
+  actionMenu,
 } from "./dom";
 import { icon, iconButton } from "./icons";
 import { audioControls } from "./audio";
@@ -52,7 +53,7 @@ import {
   type UploadJob,
 } from "./uploads";
 import { Voice } from "./voice";
-import { report } from "./admin";
+import { administration, report } from "./admin";
 import { logoutSession, renew } from "./session";
 import { sky } from "./sky";
 import { listBreak } from "./composition";
@@ -557,6 +558,24 @@ export class App implements RowActions {
     this.channel.postMessage({ purged: key });
     toast("Session expired");
   }
+  /** The account block's menu: settings, the administration for an administrator, sign out. */
+  async accountMenu(anchor: HTMLElement): Promise<void> {
+    const permissions = await this.api
+      .request<{ manage_accounts: boolean; manage_instance: boolean }>(
+        "/api/v1/me/permissions",
+      )
+      .catch(() => null);
+    const items: [string, () => void | Promise<void>][] = [
+      [t("settings"), () => settings(this)],
+    ];
+    if (
+      this.info?.capabilities.administration &&
+      (permissions?.manage_accounts || permissions?.manage_instance)
+    )
+      items.push([t("administration"), () => administration(this)]);
+    items.push([t("logout"), () => this.logout()]);
+    actionMenu(anchor, items, true);
+  }
   async logout(): Promise<void> {
     if (!(await logoutSession(this))) toast(t("offline"));
   }
@@ -841,14 +860,22 @@ export class App implements RowActions {
     statusButton.append(this.status);
     const title = el("div", "brand-wrap");
     title.append(el("span", "unicorn-header", "🦄"), brand());
-    head.append(
-      statusButton,
-      title,
-      iconButton("plus", t("new"), () => newConversation(this)),
-      iconButton("logout", t("logout"), () => this.logout()),
+    // "+" names what it creates; sign out lives in the account menu.
+    const plus: HTMLButtonElement = iconButton("plus", t("new"), () =>
+      actionMenu(plus, [
+        [t("newMessage"), () => newConversation(this, "people")],
+        [t("browseChannels"), () => newConversation(this, "rooms")],
+        [t("newChannel"), () => newConversation(this, "create")],
+      ]),
     );
-    const accountButton = button("", () => settings(this), "account");
-    accountButton.setAttribute("aria-label", t("settings"));
+    head.append(statusButton, title, plus);
+    const accountButton: HTMLButtonElement = button(
+      "",
+      () => this.accountMenu(accountButton),
+      "account",
+    );
+    accountButton.setAttribute("aria-label", t("accountMenu"));
+    accountButton.title = t("accountMenu");
     const portrait = tile(this.account.session.user.username, "message");
     this.avatar(this.account.session.user, portrait);
     accountButton.append(portrait);
@@ -862,7 +889,7 @@ export class App implements RowActions {
       ),
       el("div", "account-host", location.host),
     );
-    accountButton.append(text);
+    accountButton.append(text, icon("app"));
     this.sidebar.append(head, this.rooms, accountButton);
     this.roomPane = el("section", "room-content");
     this.header = el("header", "headerbar room-header");
@@ -1177,7 +1204,26 @@ export class App implements RowActions {
         },
         "section-header",
       );
-      this.rooms.append(section);
+      // Channels and Direct messages offer to create one right there.
+      const tab =
+        label === t("channels")
+          ? ("create" as const)
+          : label === t("direct")
+            ? ("people" as const)
+            : null;
+      if (tab) {
+        const line = el("div", "section-line");
+        line.append(
+          section,
+          iconButton(
+            "plus",
+            t(tab === "create" ? "newChannel" : "newMessage"),
+            () => newConversation(this, tab),
+            "flat section-add",
+          ),
+        );
+        this.rooms.append(line);
+      } else this.rooms.append(section);
       if (collapsed) continue;
       for (const room of values) {
         const message = latest(room);

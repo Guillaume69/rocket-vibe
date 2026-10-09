@@ -19,6 +19,7 @@ import { sound } from "./sounds";
 import { t, language } from "./i18n";
 export class Voice {
   current?: string;
+  membership?: string | null;
   room?: import("livekit-client").Room;
   audioContext?: AudioContext;
   busy = false;
@@ -26,6 +27,8 @@ export class Voice {
   leaving: Promise<void> = Promise.resolve();
   voiceRequests: Promise<unknown> = Promise.resolve();
   microphoneWork: Promise<void> = Promise.resolve();
+  cameraWork: Promise<void> = Promise.resolve();
+  pendingCameras = new Set<import("livekit-client").LocalVideoTrack>();
   cancelled = false;
   ringDialogs = new Map<string, HTMLDialogElement>();
   bar = el("div", "voice-bar");
@@ -124,6 +127,21 @@ export class Voice {
       this.layout();
     });
   }
+  hasAccess(
+    id: string,
+    account: string | undefined,
+    membership: string | null | undefined,
+  ): boolean {
+    const room = this.app.model.rooms.get(id);
+    return Boolean(
+      account &&
+      this.app.account?.key === account &&
+      membership &&
+      room &&
+      !room.encrypted &&
+      room.read_state?.membership_version === membership,
+    );
+  }
   async join(id = this.app.room): Promise<void> {
     if (
       !id ||
@@ -160,7 +178,10 @@ export class Voice {
         member = room.read_state?.membership_version;
       }
       if (!member) throw new Error("Conversation membership not ready");
+      if (!this.hasAccess(id, account, member))
+        throw new Error(nt("voice_session.join_failed"));
       this.current = id;
+      this.membership = member;
       this.status.textContent = nt("voice_session.connecting");
       this.status.classList.remove("connected");
       this.controls.replaceChildren();
@@ -177,6 +198,8 @@ export class Voice {
       );
       if (account !== this.app.account?.key || lifecycle !== this.lifecycle)
         return;
+      if (!this.hasAccess(id, account, member))
+        throw new Error(nt("voice_session.join_failed"));
       if (grant.e2ee) throw new Error(t("encryptedHint"));
       this.current = id;
       this.bar.replaceChildren(
@@ -207,7 +230,7 @@ export class Voice {
         }
       }
       if (account === this.app.account?.key && !this.cancelled)
-        await this.connect(grant, lifecycle, account);
+        await this.connect(grant, lifecycle, account, member);
     } catch (error) {
       if (lifecycle !== this.lifecycle) return;
       await this.leave();
@@ -220,6 +243,8 @@ export class Voice {
     grant: VoiceGrant,
     lifecycle = this.lifecycle,
     account = this.app.account?.key,
+    membership = this.app.model.rooms.get(grant.room_id)?.read_state
+      ?.membership_version,
   ): Promise<void> {
     if (
       !this.app.account ||
@@ -228,6 +253,8 @@ export class Voice {
       this.cancelled
     )
       return;
+    if (!this.hasAccess(grant.room_id, account, membership))
+      throw new Error(nt("voice_session.join_failed"));
     if (grant.e2ee) throw new Error(t("encryptedHint"));
     this.loop?.pause();
     this.loop = undefined;
@@ -240,7 +267,8 @@ export class Voice {
       )
     )
       throw new Error("Invalid voice service origin");
-    const { Room, RoomEvent, Track } = await import("livekit-client");
+    const { Room, RoomEvent, Track, DisconnectReason } =
+      await import("livekit-client");
     const saved = await read<
       Record<string, { volume: number; muted: boolean }>
     >("operations", account + ":voice-listening");
@@ -250,6 +278,8 @@ export class Voice {
       this.cancelled
     )
       return;
+    if (!this.hasAccess(grant.room_id, account, membership))
+      throw new Error(nt("voice_session.join_failed"));
     this.listening = new Map(
       Object.entries(saved || {}).map(([id, value]) => [
         id,
@@ -278,11 +308,14 @@ export class Voice {
     });
     this.room = room;
     this.current = grant.room_id;
-    const alive = () =>
+    this.membership = membership;
+    const ownsCall = () =>
       this.room === room &&
       account === this.app.account?.key &&
       lifecycle === this.lifecycle &&
       !this.cancelled;
+    const alive = () =>
+      ownsCall() && this.hasAccess(grant.room_id, account, membership);
     room.on(RoomEvent.ParticipantConnected, (participant) => {
       if (alive()) {
         clearTimeout(this.peerLeaveTimer);
@@ -419,6 +452,7 @@ export class Voice {
       if (!track || track.kind !== Track.Kind.Video) return;
       const media = track.attach();
       media.muted = true;
+      media.dataset.voiceSource = publication.source;
       media.classList.add("voice-camera");
       if (media instanceof HTMLVideoElement) media.playsInline = true;
       if (
@@ -460,11 +494,18 @@ export class Voice {
       }
     });
     let connected = false;
-    room.on(RoomEvent.Disconnected, () => {
+    room.on(RoomEvent.Disconnected, (reason) => {
       // A failed initial connection also emits Disconnected. Let join's catch
       // report that error before teardown advances the lifecycle.
-      if (!alive() || !connected) return;
-      void this.leave().catch(toast);
+      if (!ownsCall() || !connected) return;
+      const notify =
+        reason !== DisconnectReason.DUPLICATE_IDENTITY &&
+        reason !== DisconnectReason.PARTICIPANT_REMOVED &&
+        reason !== DisconnectReason.ROOM_DELETED &&
+        reason !== DisconnectReason.ROOM_CLOSED;
+      void this.leave(notify).catch(toast);
+      if (reason === DisconnectReason.DUPLICATE_IDENTITY)
+        toast(nt("voice_session.moved"));
     });
     try {
       await room.connect(grant.url, grant.token);
@@ -480,6 +521,8 @@ export class Voice {
       await room.disconnect();
       return;
     }
+    if (!this.hasAccess(grant.room_id, account, membership))
+      throw new Error(nt("voice_session.join_failed"));
     this.card(
       room.localParticipant.identity,
       this.app.account?.session.user.display_name || "",
@@ -489,9 +532,10 @@ export class Voice {
     this.muted = !grant.can_publish;
     if (grant.can_publish) {
       try {
-        await this.setMicrophone(room, true);
+        await this.setMicrophone(room, true, alive);
       } catch (error) {
-        if (!alive()) return;
+        if (!ownsCall()) return;
+        if (!this.hasAccess(grant.room_id, account, membership)) throw error;
         await room.localParticipant.setMicrophoneEnabled(false);
         this.muted = true;
         toast(error);
@@ -511,6 +555,8 @@ export class Voice {
       await room.disconnect();
       return;
     }
+    if (!this.hasAccess(grant.room_id, account, membership))
+      throw new Error(nt("voice_session.join_failed"));
     sound("join");
     this.activityTimer = setInterval(() => {
       if (!alive() || this.audioContext?.state !== "running") return;
@@ -542,7 +588,7 @@ export class Voice {
         "Microphone",
         async () => {
           if (!alive()) return;
-          await this.setMicrophone(room, this.muted);
+          await this.setMicrophone(room, this.muted, alive);
           if (!alive()) return;
           sound(this.muted ? "mute" : "unmute");
           this.syncControls();
@@ -586,7 +632,7 @@ export class Voice {
         async () => {
           if (!alive()) return;
           const next = !this.camera;
-          await room.localParticipant.setCameraEnabled(next);
+          await this.setCamera(room, next, alive);
           if (!alive()) return;
           this.camera = next;
           this.syncControls();
@@ -612,7 +658,7 @@ export class Voice {
               await this.screenRequest("POST");
               if (!alive()) return;
               try {
-                await this.startSharing(room, quality, abort.signal);
+                await this.startSharing(room, quality, abort.signal, alive);
                 if (!alive()) return;
                 this.sharing = room.localParticipant.isScreenShareEnabled;
               } catch (error) {
@@ -788,7 +834,9 @@ export class Voice {
         screen.identity;
       this.screenLabel.textContent = nt("voice_session.screen_of", { name });
       const width = Math.min(
-        cards.some((card) => card.querySelector("video")) ? 180 : 130,
+        cards.some((card) => card.querySelector("video:not([hidden])"))
+          ? 180
+          : 130,
         Math.max(100, bounds.width * 0.22),
       );
       Object.assign(this.screenStage.style, {
@@ -800,7 +848,7 @@ export class Voice {
       this.minis.style.width = width + "px";
       let top = 0;
       cards.forEach((card) => {
-        const camera = Boolean(card.querySelector("video")),
+        const camera = Boolean(card.querySelector("video:not([hidden])")),
           height = camera ? Math.floor(((width - 20) * 9) / 16) + 40 : 92;
         this.minis.append(card);
         card.classList.add("mini");
@@ -921,6 +969,10 @@ export class Voice {
       if (!media || !participant) continue;
       media.replaceChildren();
       const local = identity === this.room?.localParticipant.identity;
+      for (const video of card.querySelectorAll<HTMLVideoElement>(
+        'video[data-voice-source="camera"]',
+      ))
+        video.hidden = !participant.isCameraEnabled;
       if (!participant.isMicrophoneEnabled) {
         const mic = icon("mic-muted");
         mic.classList.add("voice-state");
@@ -947,18 +999,21 @@ export class Voice {
   setMicrophone(
     room: import("livekit-client").Room,
     enabled: boolean,
+    valid: () => boolean,
   ): Promise<void> {
     const work = this.microphoneWork
       .catch(() => {})
-      .then(() => this.applyMicrophone(room, enabled));
+      .then(() => this.applyMicrophone(room, enabled, valid));
     this.microphoneWork = work;
     return work;
   }
   async applyMicrophone(
     room: import("livekit-client").Room,
     enabled: boolean,
+    valid: () => boolean,
   ): Promise<void> {
-    if (this.room !== room) return;
+    const alive = () => this.room === room && valid();
+    if (!alive()) return;
     const gain = this.gain,
       context = this.audioContext;
     let created: import("livekit-client").LocalAudioTrack | undefined;
@@ -968,27 +1023,41 @@ export class Voice {
       ].find((publication) => publication.source === "microphone");
       if (enabled && !existing) {
         const { createLocalAudioTrack, Track } = await import("livekit-client");
+        if (!alive()) return;
         created = await createLocalAudioTrack({
           echoCancellation: true,
           autoGainControl: true,
           noiseSuppression: localStorage.getItem("rv-voice-noise") !== "false",
           deviceId: localStorage.getItem("rv-audioinput") || undefined,
         });
-        if (this.room !== room) {
+        if (!alive()) {
           created.stop();
           return;
         }
         created.setAudioContext(context);
         await created.setProcessor(gain);
-        if (this.room !== room) {
+        if (!alive()) {
           created.stop();
           return;
         }
         await room.localParticipant.publishTrack(created, {
           source: Track.Source.Microphone,
         });
+        if (!alive()) {
+          created.stop();
+          await room.localParticipant.unpublishTrack(created).catch(() => {});
+          return;
+        }
       } else {
         await room.localParticipant.setMicrophoneEnabled(enabled);
+        if (!alive()) {
+          existing?.track?.stop();
+          if (existing?.track)
+            await room.localParticipant
+              .unpublishTrack(existing.track)
+              .catch(() => {});
+          return;
+        }
         if (enabled) await this.processMicrophone(room);
       }
     } catch (error) {
@@ -1005,6 +1074,52 @@ export class Voice {
         this.syncCards();
       }
     }
+  }
+  setCamera(
+    room: import("livekit-client").Room,
+    enabled: boolean,
+    valid: () => boolean,
+  ): Promise<void> {
+    const work = this.cameraWork
+      .catch(() => {})
+      .then(async () => {
+        const alive = () => this.room === room && valid();
+        if (!alive()) return;
+        const { createLocalVideoTrack, Track } = await import("livekit-client");
+        if (!alive()) return;
+        const existing = room.localParticipant.getTrackPublication(
+          Track.Source.Camera,
+        )?.track;
+        if (existing) {
+          if (enabled && !existing.isMuted) return;
+          await room.localParticipant.unpublishTrack(existing);
+        }
+        if (!enabled || !alive()) return;
+        const track = await createLocalVideoTrack({
+          deviceId: localStorage.getItem("rv-videoinput") || undefined,
+        });
+        if (!alive()) {
+          track.stop();
+          return;
+        }
+        this.pendingCameras.add(track);
+        try {
+          await room.localParticipant.publishTrack(track, {
+            source: Track.Source.Camera,
+          });
+          if (!alive()) {
+            track.stop();
+            await room.localParticipant.unpublishTrack(track).catch(() => {});
+          }
+        } catch (error) {
+          track.stop();
+          throw error;
+        } finally {
+          this.pendingCameras.delete(track);
+        }
+      });
+    this.cameraWork = work;
+    return work;
   }
   async processMicrophone(room: import("livekit-client").Room): Promise<void> {
     const track = [
@@ -1038,9 +1153,11 @@ export class Voice {
     room: import("livekit-client").Room,
     quality: import("./voice-share").ShareQuality,
     signal: AbortSignal,
+    valid: () => boolean,
   ): Promise<void> {
     const { Track } = await import("livekit-client");
-    const alive = () => this.room === room && !signal.aborted;
+    const alive = () => this.room === room && !signal.aborted && valid();
+    if (!alive()) return;
     const audio: import("livekit-client").AudioCaptureOptions & {
       restrictOwnAudio: boolean;
     } = {
@@ -1578,6 +1695,9 @@ export class Voice {
     this.peerLeaveTimer = undefined;
     this.syncControls = () => {};
     this.microphoneWork = Promise.resolve();
+    this.cameraWork = Promise.resolve();
+    for (const track of this.pendingCameras) track.stop();
+    this.pendingCameras.clear();
     this.cancelled = true;
     this.loop?.pause();
     this.loop = undefined;
@@ -1597,6 +1717,7 @@ export class Voice {
     const voiceRequests = this.voiceRequests;
     this.room = undefined;
     this.current = undefined;
+    this.membership = undefined;
     this.bar.remove();
     for (const screen of this.screens.values()) screen.video.remove();
     this.screens.clear();
@@ -1626,6 +1747,11 @@ export class Voice {
     await leaving;
   }
   observe(state: LiveState): void {
+    if (
+      this.current &&
+      !this.hasAccess(this.current, this.app.account?.key, this.membership)
+    )
+      void this.leave(false).catch(toast);
     if (this.current) this.layout();
     for (const [id, node] of this.ringDialogs)
       if (
@@ -1670,23 +1796,32 @@ export class Voice {
               lifecycle !== this.lifecycle
             )
               return;
-            const grant = await this.app.api.request<VoiceGrant>(
-              "/api/v1/voice/rings/" + segment(ring.id) + "/accept",
-              "POST",
-              {
-                data_epoch: this.app.account.epoch,
-                membership_version: member,
-                e2ee: false,
-              },
-            );
-            node.close();
-            if (
-              lifecycle !== this.lifecycle ||
-              account !== this.app.account?.key
-            )
-              return;
-            this.cancelled = false;
-            await this.connect(grant, lifecycle, account);
+            if (!this.hasAccess(ring.room_id, account, member)) return;
+            this.current = ring.room_id;
+            this.membership = member;
+            try {
+              const grant = await this.app.api.request<VoiceGrant>(
+                "/api/v1/voice/rings/" + segment(ring.id) + "/accept",
+                "POST",
+                {
+                  data_epoch: this.app.account.epoch,
+                  membership_version: member,
+                  e2ee: false,
+                },
+              );
+              node.close();
+              if (
+                lifecycle !== this.lifecycle ||
+                account !== this.app.account?.key
+              )
+                return;
+              this.cancelled = false;
+              await this.connect(grant, lifecycle, account, member);
+            } catch (error) {
+              if (lifecycle !== this.lifecycle) return;
+              await this.leave();
+              throw error;
+            }
           },
           "cta",
         ),

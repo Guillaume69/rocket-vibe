@@ -7,6 +7,8 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-09
+
 ### Added
 
 - The server bar shows each server's own icon when it has one, and administrators set or remove it from the Dashboard (Rocket.Chat and RocketVibe).
@@ -659,7 +661,8 @@ First published version: Android, for Rocket.Chat 8 or later.
 - Profiles, room info, my profile (status, photo, information).
 - Interface in French and English.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.9.1...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.10.0...HEAD
+[0.10.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.9.1...mobile-v0.10.0
 [0.9.1]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.9.0...mobile-v0.9.1
 [0.9.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.8.0...mobile-v0.9.0
 [0.8.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.7.0...mobile-v0.8.0

@@ -147,6 +147,23 @@
     "Exit full screen"
   ],
   "message.image": ["Image", "Image"],
+  "attach.choose": ["Joindre des fichiers", "Attach files"],
+  "attach.pasted_name": ["image-collee", "pasted-image"],
+  "attach.original": [
+    "Images en qualité d'origine",
+    "Images in original quality"
+  ],
+  "attach.preview": ["Aperçu", "Preview"],
+  "attach.remove": ["Retirer", "Remove"],
+  "attach.too_large": ["{name} dépasse {max} Mo", "{name} is over {max} MB"],
+  "attach.encrypted_off": [
+    "{name} : ce serveur n'accepte pas de fichiers dans un salon chiffré",
+    "{name}: this server accepts no files in an encrypted room"
+  ],
+  "attach.type_refused": [
+    "Le serveur refuse les fichiers {type} ({name})",
+    "The server refuses {type} files ({name})"
+  ],
   "player.stop": ["Arrêter la vidéo", "Stop the video"],
   "settings.photo_change": ["Changer…", "Change…"],
   "settings.photo_remove": ["Retirer", "Remove"],

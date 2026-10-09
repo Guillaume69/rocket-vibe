@@ -57,6 +57,8 @@ The media suite uses separate `webmedia` and `webmediapeer` disposable accounts.
 
 The image suite uses `webimage` and `webimagepeer`. It uploads original landscape, portrait and small PNGs, checks GTK inline size/crop and viewer dimensions, downloads the full-size PNG, retains the viewer through reactions and closes it on membership withdrawal. Copy verifies the real generated PNG payload through an intercepted clipboard write, leaving the OS clipboard unchanged; OS clipboard permission integration is not qualified by this case.
 
+Prepared attachments follow GTK's 40-pixel thumbnail, name/type/size and inline sound replay. One parked Original-quality checkbox replaces per-image size/caption options. Images reduce at send to JPEG 1920/82 when eligible; the batch moves atomically into the durable queue in selection order, caption on its first file. The image suite verifies original preservation and real reduced dimensions. The recording bar keeps the formatting toolbar visible and supplies elapsed time, Cancel and stop-to-listen; advanced cases check actual capture shutdown on cancel and constructor/start failure, staged replay, sending and offline playback.
+
 Encrypted rooms, browser crypto enrolment/recovery and Rocket.Chat provider support are outside the accepted scope. Complete GTK visual parity remains under qualification; the DOM editor follows GTK's draft styling, selection and marker visibility.
 
 ## Licences

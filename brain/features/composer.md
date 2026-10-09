@@ -60,9 +60,19 @@ Desktop: the file chooser, drag-and-drop on the page and paste (files, or a pict
 
 ## Parity
 
-Both apps: outbox send with retry, drafts per room and thread, `@`/`:` completion, picker, quote reply, attachments with captions and quality, voice, slash commands. Desktop only: the formatting toolbar and live styling (GTK), spell check, Up-to-edit, list continuation. Mobile only: video reduction, replaying a voice message before sending.
+Both apps: outbox send with retry, drafts per room and thread, `@`/`:` completion, picker, quote reply, attachments with captions and quality, voice, slash commands. Desktop only: the formatting toolbar and live styling (GTK), spell check, Up-to-edit, list continuation. Mobile only: video reduction. All clients can replay a staged voice message before sending.
+
+## Web
+
+The native serving-origin client uses the GTK toolbar/draft styling with a real DOM editor and ordinary native-protocol room/thread outboxes. Prepared files have GTK's 40-pixel thumbnail, name/type/size, remove and inline sound replay. Image preview opens the full-size viewer without invented caption or per-image size controls. The Original-quality checkbox is parked per room, defaults to reduction and applies JPEG 1920/82 when the batch leaves; [uploads](uploads.md) describes its atomic queue handoff, ordering and first-file caption. The native recording bar supplies elapsed time, Cancel and stop-to-listen; [voice messages](voice-messages.md) describes capture and replay. Browser tests qualify these flows on actual files.
 
 ## Sources
+
+- apps/web/src/app.ts
+- apps/web/src/staged.ts
+- apps/web/src/uploads.ts
+- apps/web/tests/images.mjs
+- apps/web/tests/features.mjs
 
 - apps/mobile/ui/composer.tsx
 - apps/mobile/ui/drafts.ts

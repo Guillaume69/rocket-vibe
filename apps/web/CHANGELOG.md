@@ -6,6 +6,11 @@ All notable changes are documented here in English.
 
 ### Fixed
 
+- Replace invented per-image 1600/960-pixel options with GTK's parked Original-quality choice; prepare JPEG at 1920 pixels and quality 82 only when sending.
+- Match staged-file thumbnails, name/type/size rows and inline sound replay, with no separate stock-player or caption/quality dialog.
+- Enqueue a file batch atomically in selection order and apply the caption to its first file only.
+- Use GTK's recording bar, elapsed counter, cancel action and stop-to-listen control; cancel releases the microphone and stages nothing.
+
 - Show image attachments in GTK's standalone cropped frame, with its inline size limits and full-size viewer geometry.
 - Add the native image context menu for copying, saving as PNG and downloading for another application; close and clear private viewers when room access is withdrawn.
 

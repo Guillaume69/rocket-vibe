@@ -64,8 +64,8 @@ export function attachImage(
     openImage(file, image, valid);
   });
 }
-function openImage(
-  file: FileDescriptor,
+export function openImage(
+  file: Pick<FileDescriptor, "filename" | "room_id">,
   image: HTMLImageElement,
   valid: () => boolean,
 ): void {

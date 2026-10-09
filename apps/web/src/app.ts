@@ -5,6 +5,7 @@ import {
   all,
   read,
   write,
+  writeBatch,
   purge,
   purgeRoom,
   type Account,
@@ -39,11 +40,17 @@ import {
 import { icon, iconButton } from "./icons";
 import { audioControls } from "./audio";
 import { attachVideo } from "./video-attachment";
-import { attachImage, inlineImage } from "./image-attachment";
+import { attachImage, inlineImage, openImage } from "./image-attachment";
+import { stagedChip, reducedImage } from "./staged";
 import { humanSize } from "./media-format";
 import { messageRow, type RowActions } from "./render";
 import { t, language, setLanguage } from "./i18n";
-import { enqueueUpload, flushUploads, type UploadJob } from "./uploads";
+import {
+  enqueueUpload,
+  enqueueUploads,
+  flushUploads,
+  type UploadJob,
+} from "./uploads";
 import { Voice } from "./voice";
 import { report } from "./admin";
 import { renew } from "./session";
@@ -103,6 +110,9 @@ export class App implements RowActions {
   flushing = false;
   pending: Pending[] = [];
   staged: File[] = [];
+  stagedOriginal = false;
+  stagedWidgets = new WeakMap<File, HTMLElement>();
+  stagedURLs = new WeakMap<File, string>();
   jobs: UploadJob[] = [];
   uploading = false;
   profiles = new Map<string, Promise<import("./protocol").UserProfile>>();
@@ -491,6 +501,9 @@ export class App implements RowActions {
     this.live = undefined;
     this.pending = [];
     this.staged = [];
+    this.stagedOriginal = false;
+    this.stagedWidgets = new WeakMap();
+    this.stagedURLs = new WeakMap();
     this.jobs = [];
     this.roomPermissions.clear();
     this.uploadProgress.clear();
@@ -1349,6 +1362,9 @@ export class App implements RowActions {
     this.refresh();
     const draft = (await read<string>("drafts", account + ":" + id)) || "";
     const staged = (await read<File[]>("staged", account + ":" + id)) || [];
+    const original =
+      (await read<boolean>("staged", account + ":" + id + ":original")) ===
+      true;
     if (
       account !== this.account?.key ||
       id !== this.room ||
@@ -1358,6 +1374,7 @@ export class App implements RowActions {
     this.voice.hide();
     this.composer.value = draft;
     this.staged = staged;
+    this.stagedOriginal = original;
     this.draftReady = true;
     this.renderHeader();
     this.renderUploads();
@@ -1565,20 +1582,50 @@ export class App implements RowActions {
     )
       return;
     if (this.staged.length) {
-      for (const file of this.staged)
-        await enqueueUpload(
-          this.account,
-          this.room,
-          file,
+      const account = this.account,
+        room = this.room,
+        generation = this.generation;
+      const batch = [...this.staged];
+      const membership =
+        this.model.rooms.get(room)?.read_state?.membership_version;
+      const files = this.stagedOriginal
+        ? batch
+        : await Promise.all(batch.map(reducedImage));
+      if (
+        generation !== this.generation ||
+        account.key !== this.account?.key ||
+        room !== this.room
+      )
+        return;
+      const active = () =>
+        generation === this.generation &&
+        account.key === this.account?.key &&
+        this.model.rooms.has(room) &&
+        membership ===
+          this.model.rooms.get(room)?.read_state?.membership_version;
+      const remaining = this.staged.filter((file) => !batch.includes(file));
+      if (
+        !(await enqueueUploads(
+          account,
+          room,
+          files,
           text,
           root,
-          this.model.rooms.get(this.room)?.read_state?.membership_version,
-        );
-      this.staged = [];
-      await write("staged", this.account.key + ":" + this.room);
-      if (root) this.threadComposer.value = "";
-      else this.composer.value = "";
-      await this.saveDraft();
+          membership,
+          remaining,
+          active,
+        ))
+      )
+        return;
+      if (!active()) return;
+      if (room === this.room) {
+        this.staged = remaining;
+        if (root && this.threadComposer.value === text)
+          this.threadComposer.value = "";
+        else if (!root && this.composer.value === text)
+          this.composer.value = "";
+        await this.saveDraft();
+      }
       await this.loadUploads();
       await flushUploads(this);
       return;
@@ -2502,6 +2549,14 @@ export class App implements RowActions {
   }
   async forgetRoom(room: string): Promise<void> {
     if (!this.account) return;
+    if (
+      this.recorder &&
+      this.roomPane.querySelector<HTMLElement>(".record-bar")?.dataset
+        .mediaRoom === room
+    ) {
+      if (this.recorder.state === "recording") this.recorder.stop();
+      this.recorder.stream.getTracks().forEach((track) => track.stop());
+    }
     for (const viewer of document.querySelectorAll<HTMLDialogElement>(
       "dialog[data-media-room]",
     ))
@@ -2679,43 +2734,71 @@ export class App implements RowActions {
   }
   renderUploads(): void {
     const recording = this.strip.querySelector(".record-bar");
+    for (const chip of this.strip.querySelectorAll<HTMLElement>(".staged-chip"))
+      if (!this.staged.some((file) => this.stagedWidgets.get(file) === chip))
+        stopMedia(chip);
     this.strip.replaceChildren();
     if (recording && this.recorder?.state === "recording")
       this.strip.append(recording);
+    const prepared = el("div", "staged");
+    const chips = el("div", "staged-files");
     for (const file of this.staged) {
-      const chip = el("div", "staged-chip");
-      chip.append(
-        button(file.name, () => this.previewFile(file)),
-        iconButton("close", t("cancel"), async () => {
-          this.staged = this.staged.filter((item) => item !== file);
-          if (this.account && this.room)
-            await write(
-              "staged",
-              this.account.key + ":" + this.room,
-              this.staged,
-            );
-          this.renderUploads();
-        }),
-      );
-      if (file.type.startsWith("audio/"))
-        chip.append(
-          button("▶", () => {
-            const [node, body] = dialog(file.name);
-            const player = el("audio");
-            player.controls = true;
-            const url = URL.createObjectURL(file);
-            this.urls.add(url);
-            player.src = url;
-            body.append(player);
-            node.addEventListener("close", () => {
-              player.pause();
-              URL.revokeObjectURL(url);
-              this.urls.delete(url);
-            });
-          }),
+      let chip = this.stagedWidgets.get(file);
+      if (!chip) {
+        const url = URL.createObjectURL(file);
+        this.urls.add(url);
+        this.stagedURLs.set(file, url);
+        const room = this.room;
+        if (room) {
+          const urls = this.roomURLs.get(room) || new Set<string>();
+          urls.add(url);
+          this.roomURLs.set(room, urls);
+        }
+        chip = stagedChip(
+          file,
+          url,
+          () => this.previewFile(file),
+          async () => {
+            this.staged = this.staged.filter((item) => item !== file);
+            stopMedia(this.stagedWidgets.get(file)!);
+            URL.revokeObjectURL(url);
+            this.urls.delete(url);
+            this.stagedWidgets.delete(file);
+            this.stagedURLs.delete(file);
+            if (this.account && this.room)
+              await write(
+                "staged",
+                this.account.key + ":" + this.room,
+                this.staged,
+              );
+            this.renderUploads();
+          },
         );
-      this.strip.append(chip);
+        this.stagedWidgets.set(file, chip);
+      }
+      chips.append(chip);
     }
+    prepared.append(chips);
+    if (this.staged.some((file) => file.type.startsWith("image/"))) {
+      const quality = el("label", "staged-quality");
+      const original = el("input");
+      original.type = "checkbox";
+      original.checked = this.stagedOriginal;
+      quality.append(original, document.createTextNode(nt("attach.original")));
+      const account = this.account?.key,
+        room = this.room;
+      original.addEventListener("change", () => {
+        this.stagedOriginal = original.checked;
+        if (account && room)
+          void write(
+            "staged",
+            account + ":" + room + ":original",
+            original.checked,
+          ).catch(toast);
+      });
+      prepared.append(quality);
+    }
+    if (this.staged.length) this.strip.append(prepared);
     for (const job of this.jobs.filter((job) => job.room === this.room)) {
       const row = el("div", "upload-row" + (job.error ? " failed" : ""));
       row.append(
@@ -2746,90 +2829,30 @@ export class App implements RowActions {
       this.strip.append(row);
     }
   }
-  previewFile(file: File): void {
+  async previewFile(file: File): Promise<void> {
     const account = this.account?.key,
       room = this.room;
     if (!account || !room) return;
-    const [node, body] = dialog(file.name);
-    const url = URL.createObjectURL(file);
-    this.urls.add(url);
-    node.addEventListener("close", () => {
-      URL.revokeObjectURL(url);
-      this.urls.delete(url);
-    });
-    if (file.type.startsWith("image/")) {
-      const image = el("img", "image-viewer");
+    const generation = this.generation;
+    const valid = () =>
+      generation === this.generation &&
+      account === this.account?.key &&
+      this.model.rooms.has(room) &&
+      this.staged.includes(file);
+    const url = this.stagedURLs.get(file);
+    if (!url) return;
+    if (file.type.startsWith("image/") && !file.type.includes("svg")) {
+      const image = el("img");
       image.src = url;
-      image.alt = file.name;
-      body.append(image);
+      await image.decode();
+      if (valid())
+        openImage({ filename: file.name, room_id: room }, image, valid);
+    } else if (!file.type.startsWith("audio/") && valid()) {
+      const link = el("a");
+      link.href = url;
+      link.download = file.name;
+      link.click();
     }
-    const [wrap, caption] = field(
-      language === "fr" ? "Légende" : "Caption",
-      this.composer.value,
-    );
-    body.append(wrap);
-    const quality = el("select", "pill-entry");
-    for (const [value, label] of [
-      ["original", language === "fr" ? "Original" : "Original"],
-      ["standard", language === "fr" ? "Photo 1600 px" : "Photo 1600 px"],
-      ["small", language === "fr" ? "Photo 960 px" : "Photo 960 px"],
-    ]) {
-      const option = el("option", "", label);
-      option.value = value;
-      quality.append(option);
-    }
-    if (["image/png", "image/jpeg", "image/webp"].includes(file.type))
-      body.append(quality);
-    body.append(
-      button(
-        t("save"),
-        async () => {
-          let selected = file;
-          if (quality.isConnected && quality.value !== "original") {
-            const bitmap = await createImageBitmap(file);
-            const max = quality.value === "small" ? 960 : 1600,
-              scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height));
-            const canvas = el("canvas");
-            canvas.width = Math.max(1, Math.round(bitmap.width * scale));
-            canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-            const context = canvas.getContext("2d");
-            if (!context) {
-              bitmap.close();
-              throw new Error("Image preview unavailable");
-            }
-            context.fillStyle = "#fff";
-            context.fillRect(0, 0, canvas.width, canvas.height);
-            context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-            bitmap.close();
-            const blob = await new Promise<Blob>((resolve, reject) =>
-              canvas.toBlob(
-                (blob) =>
-                  blob
-                    ? resolve(blob)
-                    : reject(new Error("Image conversion failed")),
-                "image/jpeg",
-                quality.value === "small" ? 0.75 : 0.88,
-              ),
-            );
-            selected = new File(
-              [blob],
-              file.name.replace(/\.[^.]+$/, "") + ".jpg",
-              { type: "image/jpeg" },
-            );
-          }
-          if (account !== this.account?.key || room !== this.room) return;
-          this.staged = this.staged.map((item) =>
-            item === file ? selected : item,
-          );
-          await write("staged", account + ":" + room, this.staged);
-          this.composer.value = caption.value;
-          await this.saveDraft();
-          this.renderUploads();
-          node.close();
-        },
-        "cta",
-      ),
-    );
   }
   async upload(file: File): Promise<void> {
     if (
@@ -2877,17 +2900,60 @@ export class App implements RowActions {
       return;
     }
     const chunks: Blob[] = [];
-    const recorder = new MediaRecorder(stream);
+    let recorder: MediaRecorder;
+    try {
+      recorder = new MediaRecorder(stream);
+    } catch (error) {
+      stream.getTracks().forEach((track) => track.stop());
+      throw error;
+    }
     this.recorder = recorder;
-    const stop = button(t("stop"), () => recorder.stop(), "record-bar");
-    this.strip.append(stop);
+    let keep = true;
+    const stop = el("div", "record-bar"),
+      time = el("span", "record-time", "0:00");
+    stop.dataset.mediaRoom = room;
+    const started = performance.now();
+    const clock = setInterval(() => {
+      const seconds = Math.floor((performance.now() - started) / 1000);
+      time.textContent =
+        Math.floor(seconds / 60) + ":" + String(seconds % 60).padStart(2, "0");
+    }, 250);
+    stop.append(
+      el("span", "record-dot"),
+      time,
+      button(nt("voice.cancel"), () => {
+        keep = false;
+        recorder.stop();
+      }),
+      iconButton(
+        "stop",
+        nt("voice.stop"),
+        () => recorder.stop(),
+        "send record-stop",
+      ),
+    );
+    this.roomPane.classList.add("recording");
+    this.roomPane.append(stop);
     recorder.ondataavailable = (event) => {
       if (event.data.size) chunks.push(event.data);
     };
     recorder.onstop = () => {
       stream.getTracks().forEach((track) => track.stop());
+      clearInterval(clock);
       stop.remove();
-      if (generation !== this.generation) return;
+      if (this.recorder === recorder) {
+        this.recorder = undefined;
+        this.roomPane.classList.remove("recording");
+      }
+      if (
+        !keep ||
+        generation !== this.generation ||
+        account !== this.account?.key ||
+        !this.model.rooms.has(room) ||
+        membership !==
+          this.model.rooms.get(room)?.read_state?.membership_version
+      )
+        return;
       const mime = recorder.mimeType.split(";")[0].trim().toLowerCase();
       const extension = mime.includes("ogg")
         ? "ogg"
@@ -2902,14 +2968,34 @@ export class App implements RowActions {
         const files =
           (await read<File[]>("staged", account + ":" + room)) || [];
         files.push(file);
-        await write("staged", account + ":" + room, files);
+        if (
+          !(await writeBatch(
+            [{ store: "staged", key: account + ":" + room, value: files }],
+            () =>
+              generation === this.generation &&
+              account === this.account?.key &&
+              this.model.rooms.has(room) &&
+              membership ===
+                this.model.rooms.get(room)?.read_state?.membership_version,
+          ))
+        )
+          return;
         if (account === this.account?.key && room === this.room) {
           this.staged = files;
           this.renderUploads();
         }
       })().catch(toast);
     };
-    recorder.start();
+    try {
+      recorder.start();
+    } catch (error) {
+      stream.getTracks().forEach((track) => track.stop());
+      clearInterval(clock);
+      stop.remove();
+      this.roomPane.classList.remove("recording");
+      this.recorder = undefined;
+      throw error;
+    }
   }
   formatLink(): void {
     const a = this.composer.selectionStart,

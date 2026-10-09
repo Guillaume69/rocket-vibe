@@ -6,5 +6,5 @@ import { toast } from "./dom";
 localStorage.removeItem("rv-text-size");
 const app = new App();
 void app.init().catch(toast);
-if ("serviceWorker" in navigator)
+if (!import.meta.env.DEV && "serviceWorker" in navigator)
   void navigator.serviceWorker.register("/sw.js").catch(toast);

@@ -25,7 +25,7 @@ A voice message is an audio file recorded from the microphone and sent through t
 
 ## Web
 
-`apps/web/src/app.ts::record` uses the browser's MediaRecorder format, with its actual MIME type and a matching WebM, Ogg or MP4 filename. Stopping stages the audio rather than sending it. The recording's stop control survives upload/live refreshes; a delayed microphone permission result is discarded after the originating room, account or membership changes. The advanced browser suite injects a real incoming message during recording, then records, stages, uploads and plays the resulting protected audio inline. Browser codec support differs from the native recording pipelines.
+`apps/web/src/app.ts::record` uses the browser's MediaRecorder format, with its actual MIME type and a matching WebM, Ogg or MP4 filename. GTK's recording bar replaces the composer while capture runs: dot, elapsed time updated every 250 ms, Cancel and the native stop icon/label. Stopping stages the audio rather than sending it; cancel ends the actual capture tracks and stages nothing. The recording's stop control survives upload/live refreshes; a delayed microphone permission result is discarded after the originating room, account or membership changes. Withdrawal stops capture. The advanced browser suite injects a real incoming message during recording, checks cancel and capture shutdown, then records, replays the staged clip inline, uploads and plays the resulting protected audio. Browser codec support differs from the native recording pipelines.
 
 ## Why the formats differ
 

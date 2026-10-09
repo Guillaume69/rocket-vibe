@@ -1,6 +1,6 @@
 import type { App } from "./app";
 import { ApiError, operation, segment } from "./api";
-import { all, write, type Account } from "./store";
+import { all, write, writeBatch, type Account } from "./store";
 import type { Upload, Message } from "./protocol";
 export interface UploadJob {
   id: string;
@@ -8,11 +8,52 @@ export interface UploadJob {
   room: string;
   file: File;
   caption: string;
+  created?: number;
   root?: string;
   slot?: string;
   complete: string;
   membership?: string | null;
   error?: string;
+}
+let lastCreated = 0;
+export async function enqueueUploads(
+  account: Account,
+  room: string,
+  files: File[],
+  caption: string,
+  root: string | undefined,
+  membership: string | null | undefined,
+  staged: File[],
+  active: () => boolean,
+): Promise<boolean> {
+  if (files.some((file) => file.size <= 0 || file.size > 100 * 1024 * 1024))
+    throw new Error("File size must be between 1 byte and 100 MiB");
+  const changes: { store: string; key: string; value?: unknown }[] = files.map(
+    (file, index) => {
+      const id = operation();
+      return {
+        store: "uploads",
+        key: account.key + ":" + id,
+        value: {
+          id,
+          account: account.key,
+          room,
+          file,
+          caption: index === 0 ? caption : "",
+          root,
+          membership,
+          created: (lastCreated = Math.max(Date.now(), lastCreated + 1)),
+          complete: operation(),
+        } satisfies UploadJob,
+      };
+    },
+  );
+  changes.push({
+    store: "staged",
+    key: account.key + ":" + room,
+    value: staged.length ? staged : undefined,
+  });
+  return writeBatch(changes, active);
 }
 export async function enqueueUpload(
   account: Account,
@@ -31,6 +72,7 @@ export async function enqueueUpload(
     room,
     file,
     caption,
+    created: (lastCreated = Math.max(Date.now(), lastCreated + 1)),
     root,
     membership,
     complete: operation(),
@@ -45,9 +87,9 @@ export async function flushUploads(app: App): Promise<void> {
     active = () =>
       account === app.account?.key && generation === app.generation;
   const run = async () => {
-    for (const job of (await all<UploadJob>("uploads")).filter(
-      (job) => job.account === account,
-    )) {
+    for (const job of (await all<UploadJob>("uploads"))
+      .filter((job) => job.account === account)
+      .sort((a, b) => (a.created || 0) - (b.created || 0))) {
       if (!active()) return;
       try {
         if (

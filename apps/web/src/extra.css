@@ -551,6 +551,119 @@
   max-width: 100%;
   width: fit-content;
 }
+.upload-strip .staged {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.staged-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.staged-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.staged-preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  text-align: left;
+}
+.staged-thumb {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+}
+.staged-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.staged-chip .file-names {
+  max-width: 22ch;
+  width: auto;
+  min-width: 0;
+}
+.staged-chip .file-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.staged-remove,
+.staged-play {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  padding: 7px;
+}
+.staged-quality {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.staged-quality input {
+  appearance: none;
+  position: relative;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  border: 2px solid #2c2946;
+  border-radius: 6px;
+  background: transparent;
+}
+.staged-quality input:checked {
+  background: #ff5fa2;
+  border-color: #ff5fa2;
+}
+.staged-quality input:checked::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 2px;
+  width: 5px;
+  height: 9px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+.staged-quality input:focus-visible {
+  outline: 2px solid #ff5fa2;
+  outline-offset: 2px;
+}
+.recording > .composer {
+  display: none;
+}
+.record-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: auto;
+  margin: 4px 16px 10px;
+  font-size: 13px;
+}
+.record-dot {
+  width: 10px;
+  height: 10px;
+}
+.record-time {
+  flex: 1;
+}
+.record-bar .record-stop {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 14px;
+  border-radius: 50%;
+}
 .image-card .attachment-title {
   color: #ff5fa2;
   text-decoration: underline;

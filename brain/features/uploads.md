@@ -77,11 +77,24 @@ Protected files (`FileUpload_ProtectFiles`) need `rc_uid` and `rc_token` in the 
 - `Session::download_with_progress` streams to `<dest>.part` (`RestClient::download_protected`, ended only by a 30 s silence, not the usual 15 s cap), decrypts files of encrypted rooms once whole, then renames.
 - GTK file cards (`rv-gtk/src/cards.rs`) cache under the user cache dir (`files/<url digest>-<name>`). "Open" uses the desktop's default application (GTK launcher, then GIO, then `xdg-open` on Linux); audio plays in the card. "Download" (card button or the message menu) copies into the Downloads folder under a free name (`n-name`). SwiftUI does the same through `rv-ffi`'s `download` (`RoomView.swift`).
 
+## Web
+
+The serving-origin client uses the native prepare/bytes/complete contract in `src/uploads.ts`, with File objects and durable operation ids in IndexedDB. The staged batch moves into the upload queue in one transaction; a session/membership fence runs before that transaction. Creation order is retained across retries, and only the first file receives the caption. Each job retains its originating room/thread and membership lifetime. The advanced browser suite qualifies offline media reload and excludes replay after withdrawal/rejoin.
+
+GTK's Original-quality checkbox is parked per room in browser storage. `src/staged.ts` prepares JPEG with longest side 1920 and quality 82 at send, leaving an image within 1920 and below 1 MiB unchanged. Browser decode failure keeps the original. The image suite verifies unchanged PNG originals and a real reduced 1920x960 JPEG from a 2400x1200 source. Browser codec and encoder implementations differ from GdkPixbuf, so this verifies the policy and resulting dimensions rather than identical JPEG bytes.
+
 ## Parity
 
-Same queue, dedup, retry and validation in both apps. Desktop adds drag-and-drop and paste in place of the Android share sheet, and automatic timed retries. Reduction differs: mobile reduces photos over 500 KB to JPEG 1920 px and transcodes videos to H.264 720p (`modules/video-compressor`); desktop reduces still images only (JPEG 1920 px, quality 82, skipped when not smaller). Each queued row keeps the thread it answers (`uploads.tmid`, mobile migration 0018 and desktop migration 9), sent as `tmid` with the confirm, or as the native intent's `complete.reply_to` (see [threads](threads.md)). Picking files and the pre-send strip are in [the composer](composer.md); sharing into the app is in [sharing and links](sharing-and-links.md).
+Same queue, dedup, retry and validation in both apps. Desktop adds drag-and-drop and paste in place of the Android share sheet, and automatic timed retries. Reduction differs: mobile reduces photos over 500 KB to JPEG 1920 px and transcodes videos to H.264 720p (`modules/video-compressor`); desktop reduces still images only (JPEG 1920 px, quality 82, skipped when within 1920 px and below 1 MiB). Each queued row keeps the thread it answers (`uploads.tmid`, mobile migration 0018 and desktop migration 9), sent as `tmid` with the confirm, or as the native intent's `complete.reply_to` (see [threads](threads.md)). Picking files and the pre-send strip are in [the composer](composer.md); sharing into the app is in [sharing and links](sharing-and-links.md).
 
 ## Sources
+
+- apps/web/src/app.ts
+- apps/web/src/staged.ts
+- apps/web/src/uploads.ts
+- apps/web/src/store.ts
+- apps/web/tests/images.mjs
+- apps/web/tests/features.mjs
 
 - apps/mobile/lib/uploadQueue.ts
 - apps/mobile/lib/upload.ts

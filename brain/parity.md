@@ -101,12 +101,12 @@ beta does.
 | List continuation on Enter | missing | done | missing | done | Web: Native provider: see [web-client](features/web-client.md). |
 | Reply with quote (permalink prefix) | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | Attach files | done | done | done | done | Desktop: file chooser, drag-and-drop and paste, in place of the Android share sheet. Web: Native provider: see [web-client](features/web-client.md). |
-| Pre-send preview with captions and quality | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
+| Pre-send preview with captions and quality | done | done | done | done | Web: GTK 40-pixel thumbnail/type/size, full-size preview and parked Original choice; actual JPEG 1920/82 reduction, atomic ordered batch and first-file caption qualified in tests/images.mjs. |
 | Reduce photos before sending | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | Reduce videos before sending (H.264 720p) | done | missing | missing | missing | Web: No browser implementation yet. |
 | Checks against `FileUpload_MaxFileSize` and `FileUpload_MediaTypeWhiteList` | done | done | done | partial | Web: Implemented native browser equivalent requires row-specific GTK qualification; see docs/WEB_CLIENT_EXECUTION.md. |
 | Two-step upload (`rooms.media`, `rooms.mediaConfirm`) with progress | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
-| Voice recording | done | done | done | done | Mobile and SwiftUI send AAC `.m4a`, GTK Ogg/Opus. Web: Native provider: see [web-client](features/web-client.md). |
+| Voice recording | done | done | done | done | Mobile and SwiftUI send AAC `.m4a`, GTK Ogg/Opus. Web: Browser MediaRecorder codec, GTK bar/clock/cancel/stop and inline staged replay; actual capture cancellation and constructor/start failures qualified in tests/features.mjs. |
 | Replay and caption a voice message before sending | done | done | done | done | SwiftUI checked by the macOS CI build only. Web: Native provider: see [web-client](features/web-client.md). |
 | Slash commands (`commands.list`, `commands.run`) and their private answers | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | Slash commands on a RocketVibe server (`/api/v1/commands`), text commands written by the client so they work in encrypted rooms | done | done | done | n/a | SwiftUI checked by the Linux build of RocketVibeKit and the macOS CI build only. Web: Encrypted rooms explicitly excluded by the user, 2026-10-08. |

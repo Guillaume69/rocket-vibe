@@ -71,6 +71,28 @@ try {
       viewport: { width: 1280, height: 800 },
     });
     contexts.push(context);
+    await context.addInitScript(() => {
+      const Native = window.MediaRecorder;
+      window.MediaRecorder = new Proxy(Native, {
+        construct(Target, args) {
+          window.rvRecorderTracks = args[0].getTracks();
+          if (window.rvRecorderFailure === "constructor")
+            throw new DOMException(
+              "Controlled recorder constructor failure",
+              "NotSupportedError",
+            );
+          const recorder = Reflect.construct(Target, args);
+          if (window.rvRecorderFailure === "start")
+            recorder.start = () => {
+              throw new DOMException(
+                "Controlled recorder start failure",
+                "NotSupportedError",
+              );
+            };
+          return recorder;
+        },
+      });
+    });
     const page = await context.newPage();
     pages.push(page);
     page.on("pageerror", (error) => errors.push(error.message));
@@ -175,12 +197,53 @@ try {
   await a.locator(".admin-reports").waitFor();
   await a.locator(".sidebar-dialog .preferences-close").click();
   console.log("PASS report and moderator dismissal through the application");
+  for (const failure of ["constructor", "start"]) {
+    await a.evaluate((value) => (window.rvRecorderFailure = value), failure);
+    await a
+      .locator(".room-content")
+      .getByRole("button", { name: "Record a voice message", exact: true })
+      .click();
+    await a
+      .locator(".toast")
+      .filter({ hasText: "Controlled recorder " + failure + " failure" })
+      .waitFor();
+    await a.waitForFunction(
+      () =>
+        window.rvRecorderTracks?.length > 0 &&
+        window.rvRecorderTracks.every((track) => track.readyState === "ended"),
+    );
+    assert.equal(await a.locator(".record-bar").count(), 0);
+  }
+  await a.evaluate(() => (window.rvRecorderFailure = undefined));
+  console.log(
+    "PASS constructor and start failures stop the actual microphone and leave no recording controls",
+  );
+  await a
+    .locator(".room-content")
+    .getByRole("button", { name: "Record a voice message", exact: true })
+    .click();
+  await a.locator(".record-bar").waitFor();
+  assert.equal(await a.locator(".room-content .composer").isVisible(), false);
+  await a
+    .locator(".record-bar")
+    .getByRole("button", { name: "Cancel", exact: true })
+    .click();
+  await a.locator(".record-bar").waitFor({ state: "detached" });
+  await a.waitForFunction(
+    () =>
+      window.rvRecorderTracks?.length > 0 &&
+      window.rvRecorderTracks.every((track) => track.readyState === "ended"),
+  );
+  assert.equal(await a.locator(".staged-chip").count(), 0);
+  console.log(
+    "PASS native recording cancel stops the actual capture and stages no file",
+  );
   await a
     .locator(".room-content")
     .getByRole("button", { name: "Record a voice message", exact: true })
     .click();
   await a
-    .getByRole("button", { name: "Stop recording", exact: true })
+    .getByRole("button", { name: "Stop to listen before sending", exact: true })
     .waitFor();
   const duringRecording = await api(
     "/api/v1/rooms/" + room.id + "/messages",
@@ -189,8 +252,24 @@ try {
   );
   await a.locator('[data-id="' + duringRecording.id + '"]').waitFor();
   await a.waitForTimeout(1200);
-  await a.getByRole("button", { name: "Stop recording", exact: true }).click();
+  assert.match(await a.locator(".record-time").textContent(), /^0:0[1-9]$/);
+  await a.screenshot({
+    path: "../../.cache/web-shots/web-recording-controls-reference.png",
+  });
+  await a
+    .getByRole("button", { name: "Stop to listen before sending", exact: true })
+    .click();
   await a.locator(".staged-chip").waitFor();
+  const staged = a.locator(".staged-chip");
+  await staged.getByRole("button", { name: "Listen", exact: true }).click();
+  await a.waitForFunction(
+    () => document.querySelector(".staged-chip audio")?.currentTime > 0.1,
+  );
+  await staged.getByRole("button", { name: "Listen", exact: true }).click();
+  assert.equal(
+    await staged.locator("audio").evaluate((player) => player.paused),
+    true,
+  );
   assert.ok(
     !(await history()).some((item) =>
       item.files?.some((file) => file.media_type.startsWith("audio/")),
@@ -198,7 +277,10 @@ try {
   );
   await a.locator(".room-content .rich-composer").fill("Audio caption " + tag);
   await a.locator(".room-content .rich-composer").press("Enter");
-  await a.locator(".file-title").filter({ hasText: "voice-" }).waitFor();
+  await a
+    .locator(".message [data-file-id] .file-title")
+    .filter({ hasText: "voice-" })
+    .waitFor();
   const audioMessage = (await history()).find(
     (item) => item.text === "Audio caption " + tag,
   );

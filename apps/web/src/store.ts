@@ -211,6 +211,27 @@ export async function write(
     transaction.onabort = () => reject(transaction.error);
   });
 }
+export async function writeBatch(
+  changes: { store: string; key: string; value?: unknown }[],
+  active: () => boolean,
+): Promise<boolean> {
+  const db = await open();
+  if (!active()) return false;
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(
+      [...new Set(changes.map((change) => change.store))],
+      "readwrite",
+    );
+    for (const change of changes) {
+      const target = tx.objectStore(change.store);
+      if (change.value === undefined) target.delete(change.key);
+      else target.put(change.value, change.key);
+    }
+    tx.oncomplete = () => resolve(true);
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
 export async function all<T>(store: string): Promise<T[]> {
   const db = await open();
   return new Promise((resolve, reject) => {

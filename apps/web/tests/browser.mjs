@@ -198,7 +198,9 @@ try {
   await composer.fill("File caption " + tag);
   await composer.press("Enter");
   await visible(
-    page.locator(".file-title").filter({ hasText: "web-proof.txt" }),
+    page
+      .locator(".message [data-file-id] .file-title")
+      .filter({ hasText: "web-proof.txt" }),
   );
   history = await call("/api/v1/rooms/" + room.id + "/messages", alice.token);
   const attachment = history.messages.find((message) =>

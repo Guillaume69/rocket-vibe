@@ -115,6 +115,21 @@ try {
     })),
   );
   await page.locator(".staged-chip").first().waitFor();
+  assert.deepEqual(
+    await page
+      .locator(".staged-thumb")
+      .evaluateAll((thumbs) =>
+        thumbs.map((thumb) => [
+          thumb.getBoundingClientRect().width,
+          thumb.getBoundingClientRect().height,
+        ]),
+      ),
+    [
+      [40, 40],
+      [40, 40],
+      [40, 40],
+    ],
+  );
   await page
     .locator(".room-content .rich-composer")
     .fill("GTK image references");
@@ -124,6 +139,19 @@ try {
     [...document.querySelectorAll(".image-frame img")].every(
       (image) => image.naturalWidth > 0,
     ),
+  );
+  const posted = (
+    await api("/api/v1/rooms/" + room.id + "/messages", user.token)
+  ).messages
+    .filter((message) => message.files?.length)
+    .sort((a, b) => (BigInt(a.position) < BigInt(b.position) ? -1 : 1));
+  assert.deepEqual(
+    posted.map((message) => message.files[0].filename),
+    ["gtk-image-0.png", "gtk-image-1.png", "gtk-image-2.png"],
+  );
+  assert.deepEqual(
+    posted.map((message) => message.text),
+    ["GTK image references", "", ""],
   );
   const sizes = await page.locator(".image-frame").evaluateAll((frames) =>
     frames.map((frame) => ({
@@ -239,6 +267,116 @@ try {
   assert.deepEqual(errors, []);
   console.log(
     "PASS live reactions retain the viewer and membership withdrawal closes it and removes private pixels",
+  );
+  const staging = await api("/api/v1/rooms", peer.token, {
+    name: "staged-" + crypto.randomUUID().slice(0, 8),
+    private: true,
+    operation_id: crypto.randomUUID(),
+  });
+  await api(
+    "/api/v1/rooms/" + staging.id + "/members/" + user.user.id,
+    peer.token,
+    null,
+  );
+  const parking = await api("/api/v1/rooms", user.token, {
+    name: "parking-" + crypto.randomUUID().slice(0, 8),
+    private: true,
+    operation_id: crypto.randomUUID(),
+  });
+  await page
+    .locator('[data-room="' + staging.id + '"]')
+    .first()
+    .click();
+  const large = Buffer.from(
+    await page.evaluate(() => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 2400;
+      canvas.height = 1200;
+      const draw = canvas.getContext("2d");
+      draw.fillStyle = "#34e1d0";
+      draw.fillRect(0, 0, 2400, 1200);
+      draw.fillStyle = "#ff5fa2";
+      draw.fillRect(100, 100, 2200, 1000);
+      return canvas.toDataURL("image/png").split(",")[1];
+    }),
+    "base64",
+  );
+  async function pick(name) {
+    const chosen = page.waitForEvent("filechooser");
+    await page
+      .getByRole("button", { name: "Attach a file", exact: true })
+      .click();
+    await (
+      await chosen
+    ).setFiles({ name, mimeType: "image/png", buffer: large });
+    await page.locator(".staged-chip").waitFor();
+  }
+  await pick("original-source.png");
+  await page.getByLabel("Images in original quality", { exact: true }).check();
+  await page
+    .getByRole("button", { name: "Preview original-source.png", exact: true })
+    .click();
+  await page.locator(".gtk-image-dialog").waitFor();
+  assert.equal(await page.locator(".gtk-image-dialog select").count(), 0);
+  assert.equal(await page.getByLabel("Caption", { exact: true }).count(), 0);
+  await page
+    .locator(".gtk-image-dialog")
+    .getByRole("button", { name: "Close", exact: true })
+    .click();
+  await page
+    .locator('[data-room="' + parking.id + '"]')
+    .first()
+    .click();
+  await page
+    .locator('[data-room="' + staging.id + '"]')
+    .first()
+    .click();
+  assert.equal(
+    await page
+      .getByLabel("Images in original quality", { exact: true })
+      .isChecked(),
+    true,
+  );
+  await page.screenshot({
+    path: "../../.cache/web-shots/web-staged-original-reference.png",
+  });
+  await page.locator(".room-content .rich-composer").fill("Original source");
+  await page.locator(".room-content .rich-composer").press("Enter");
+  await page.locator('img[alt="original-source.png"]').waitFor();
+  await page.waitForFunction(
+    () =>
+      document.querySelector('img[alt="original-source.png"]')?.naturalWidth ===
+      2400,
+  );
+  await pick("reduced-source.png");
+  await page
+    .getByLabel("Images in original quality", { exact: true })
+    .uncheck();
+  await page.locator(".room-content .rich-composer").fill("Reduced source");
+  await page.locator(".room-content .rich-composer").press("Enter");
+  await page.waitForFunction(
+    () =>
+      document.querySelector('img[alt="reduced-source.jpg"]')?.naturalWidth ===
+      1920,
+  );
+  assert.equal(
+    await page
+      .locator('img[alt="reduced-source.jpg"]')
+      .evaluate((image) => image.naturalHeight),
+    960,
+  );
+  const sent = (
+    await api("/api/v1/rooms/" + staging.id + "/messages", user.token)
+  ).messages
+    .filter((message) => message.files?.length)
+    .sort((a, b) => (BigInt(a.position) < BigInt(b.position) ? -1 : 1));
+  assert.deepEqual(
+    sent.map((message) => message.files[0].media_type),
+    ["image/png", "image/jpeg"],
+  );
+  assert.deepEqual(errors, []);
+  console.log(
+    "PASS GTK staged thumbnails and parked original-quality choice preserve originals or reduce to JPEG 1920, with ordered single-caption batches",
   );
 } catch (error) {
   await page

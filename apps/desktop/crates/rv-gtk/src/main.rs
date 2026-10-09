@@ -50,6 +50,7 @@ mod settings;
 mod sidebar_dialog;
 mod sign_in_window;
 mod sizer;
+mod slack_preview;
 mod smoke;
 mod social;
 mod sounds;

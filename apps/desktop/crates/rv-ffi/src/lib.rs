@@ -28,6 +28,7 @@ mod reactions;
 mod reminders;
 pub mod rocket_chat;
 pub mod room_members;
+mod slack;
 pub mod social;
 pub mod writing;
 

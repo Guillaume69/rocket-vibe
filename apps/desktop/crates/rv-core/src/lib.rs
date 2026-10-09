@@ -44,6 +44,7 @@ pub mod server;
 pub mod server_icon;
 pub mod server_rail;
 pub mod session;
+pub mod slack;
 pub mod social;
 pub mod store;
 pub mod supervisor;

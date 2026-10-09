@@ -101,3 +101,6 @@ export const transportExpo = expoTransportWith('file');
 
 /** Profile picture (`users.setAvatar`), `image` field. */
 export const transportAvatarExpo = expoTransportWith('image');
+
+/** Custom emoji (`emoji-custom.create`), `emoji` field. */
+export const transportEmojiExpo = expoTransportWith('emoji');

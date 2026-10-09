@@ -35,6 +35,10 @@
 import {
   ADMIN_PAGE,
   BulkDeleteRequired,
+  EmojiRefused,
+  emojiErrorKey,
+  type AdminEmoji,
+  type EmojiUploadIO,
   LastOwnerError,
   count,
   mapLimited,
@@ -55,7 +59,7 @@ import {
   type ReportedUser,
 } from '../../lib/admin.ts';
 import { RestError, type RestClient } from '../../lib/rest.ts';
-import { AVATAR_NO_PHOTO } from '../../lib/upload.ts';
+import { AVATAR_NO_PHOTO, type FileToSend } from '../../lib/upload.ts';
 
 type Doc = Record<string, unknown>;
 
@@ -376,6 +380,64 @@ export class AdminRC implements ProviderAdmin {
   latestVersion(): Promise<string | null> {
     return fetchLatestVersion('rocketchat');
   }
+
+  /** An administrator holds `manage-emoji` by default. */
+  canManageEmojis(): boolean {
+    return true;
+  }
+
+  /** `emoji-custom.list`: each emoji once, sorted by name. */
+  async emojis(): Promise<AdminEmoji[]> {
+    const list = await this.client.get<{ emojis?: { update?: unknown } }>('emoji-custom.list');
+    return rcEmojis(list.emojis?.update);
+  }
+
+  /**
+   * `emoji-custom.create`, multipart: the image in `emoji`, `name`, `aliases`
+   * comma-separated. A refusal arrives as `errorType` (400 `not_authorized`
+   * for a member, never 403).
+   */
+  async createEmoji(name: string, aliases: string[], image: FileToSend, io: EmojiUploadIO): Promise<void> {
+    const headers: Record<string, string> = {};
+    if (this.client.auth !== null) {
+      headers['X-Auth-Token'] = this.client.auth.authToken;
+      headers['X-User-Id'] = this.client.auth.userId;
+    }
+    const { status, body } = await io.transport(
+      `${this.client.baseUrl}/api/v1/emoji-custom.create`,
+      headers,
+      image,
+      undefined,
+      undefined,
+      { name, aliases: aliases.join(',') },
+    );
+    let json: { success?: boolean; errorType?: unknown; error?: unknown } = {};
+    try {
+      json = JSON.parse(body) as typeof json;
+    } catch {
+      // Not Rocket.Chat's envelope: an ordinary failure below.
+    }
+    if (status < 400 && json.success !== false) return;
+    const key = typeof json.errorType === 'string' ? emojiErrorKey(json.errorType) : null;
+    if (key !== null) throw new EmojiRefused(key);
+    throw new Error(typeof json.error === 'string' ? json.error : `emoji-custom.create failed (${status}).`);
+  }
+
+  async deleteEmoji(emoji: AdminEmoji): Promise<void> {
+    await this.client.post('emoji-custom.delete', { body: { emojiId: emoji.id } });
+  }
+}
+
+/** `emoji-custom.list`'s `update`, as the administration lists it. */
+export function rcEmojis(update: unknown): AdminEmoji[] {
+  if (!Array.isArray(update)) return [];
+  const found: AdminEmoji[] = [];
+  for (const raw of update as Doc[]) {
+    if (typeof raw?._id !== 'string' || typeof raw.name !== 'string') continue;
+    const aliases = Array.isArray(raw.aliases) ? raw.aliases.filter((a): a is string => typeof a === 'string') : [];
+    found.push({ id: raw._id, name: raw.name, aliases, revision: '' });
+  }
+  return found.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /** `chat.reportMessage` and `moderation.reportUser`, open to any member. */

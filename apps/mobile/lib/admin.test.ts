@@ -3,6 +3,8 @@ import { describe, test } from 'node:test';
 
 import {
   compareVersions,
+  emojiCodes,
+  emojiErrorKey,
   epoch,
   fetchLatestVersion,
   humanBytes,
@@ -159,5 +161,30 @@ describe('formatting helpers', () => {
     assert.equal(reportReason('   '), null);
     assert.equal(reportReason('x'.repeat(1001)), null);
     assert.equal(reportReason('x'.repeat(1000))?.length, 1000);
+  });
+});
+
+describe('custom emoji codes', () => {
+  test('trims colons and spaces, drops empty aliases', () => {
+    assert.deepEqual(emojiCodes(' :party_parrot: ', 'rv_parrot, ,vibe-parrot'), {
+      name: 'party_parrot',
+      aliases: ['rv_parrot', 'vibe-parrot'],
+    });
+  });
+  test('refuses what a server would rewrite, repeats and more than 8 aliases', () => {
+    for (const [name, aliases] of [['', ''], ['Bad Name', ''], ['ok', 'ok'], ['ok', 'a,b,c,d,e,f,g,h,i'], ['é', '']]) {
+      assert.equal(emojiCodes(name!, aliases!), 'admin.emojiErrorName', `${name} ${aliases}`);
+    }
+  });
+  test('never a standard emoji code', () => {
+    assert.equal(emojiCodes('smile', ''), 'admin.emojiErrorReserved');
+    assert.equal(emojiCodes('mine', 'thumbsup'), 'admin.emojiErrorReserved');
+  });
+  test('both servers refusals have their words', () => {
+    assert.equal(emojiErrorKey('Custom_Emoji_Error_Name_Or_Alias_Already_In_Use'), 'admin.emojiErrorTaken');
+    assert.equal(emojiErrorKey('revision_conflict'), 'admin.emojiErrorTaken');
+    assert.equal(emojiErrorKey('emoji-is-not-image'), 'admin.emojiErrorImage');
+    assert.equal(emojiErrorKey('emoji_name_reserved'), 'admin.emojiErrorReserved');
+    assert.equal(emojiErrorKey('session_rejected'), null);
   });
 });

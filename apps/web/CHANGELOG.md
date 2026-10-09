@@ -4,6 +4,10 @@ All notable changes are documented here in English.
 
 ## [Unreleased]
 
+### Added
+
+- Server administration: a Custom emoji page where administrators add emoji (name, aliases, image) and delete them.
+
 ## [0.2.0] - 2026-10-09
 
 ### Fixed

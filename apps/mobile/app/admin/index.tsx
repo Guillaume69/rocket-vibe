@@ -105,6 +105,9 @@ function Dashboard({ c, admin }: { c: Colors; admin: ProviderAdmin }) {
         <NavRow c={c} icon="🛡️" label={t('admin.moderation')} hint={t('admin.moderationHint')} count={reports} first onPress={() => router.push('/admin/moderation')} />
         <NavRow c={c} icon="#️⃣" label={t('admin.rooms')} hint={t('admin.roomsHint')} onPress={() => router.push('/admin/rooms')} />
         <NavRow c={c} icon="👥" label={t('admin.users')} hint={t('admin.usersHint')} onPress={() => router.push('/admin/users')} />
+        {admin.canManageEmojis?.() === true && (
+          <NavRow c={c} icon="😀" label={t('admin.emoji')} hint={t('admin.emojiHint')} onPress={() => router.push('/admin/emoji')} />
+        )}
       </View>
     </ScrollView>
   );

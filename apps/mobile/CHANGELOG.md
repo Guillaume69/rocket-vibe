@@ -9,6 +9,7 @@ release, and its notes are that version's section here.
 
 ### Added
 
+- Server administration: administrators add custom emoji (name, aliases, image) and delete them, on Rocket.Chat and RocketVibe servers.
 - Settings > Accounts can hide the server bar, giving its width to the conversation list; switching and adding a server stay on that page.
 
 ## [0.9.1] - 2026-10-09

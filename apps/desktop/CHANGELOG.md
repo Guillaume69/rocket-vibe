@@ -9,6 +9,7 @@ section here.
 
 ### Added
 
+- Server administration: a Custom emoji category (GTK and macOS) where administrators add emoji (name, aliases, image) and delete them, on Rocket.Chat and RocketVibe servers.
 - Settings > Accounts can hide the server bar (GTK and macOS), giving its width to the conversation list; switching and adding an account stay on that page.
 
 ## [0.12.2] - 2026-10-09

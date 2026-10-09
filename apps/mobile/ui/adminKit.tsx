@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { LastOwnerError, type AdminPage, type ProviderAdmin } from '../lib/admin.ts';
+import { EmojiRefused, LastOwnerError, type AdminPage, type ProviderAdmin } from '../lib/admin.ts';
 import { dismissible } from './alerts.ts';
 import { useAdminVerdict } from './adminAccess.ts';
 import type { ProviderError } from '../lib/provider.ts';
@@ -51,7 +51,12 @@ export function useAdminError(): (error: unknown) => TranslationKey {
   const sync = useSync();
   const provider = sync.phase === 'ready' ? sync.provider : null;
   return useCallback(
-    (error: unknown) => (provider === null ? 'admin.failed' : adminErrorKey(provider.describeError(error, true))),
+    (error: unknown) =>
+      error instanceof EmojiRefused
+        ? error.key
+        : provider === null
+          ? 'admin.failed'
+          : adminErrorKey(provider.describeError(error, true)),
     [provider],
   );
 }

@@ -3,7 +3,7 @@ import { describe, test } from 'node:test';
 
 import { BulkDeleteRequired, LastOwnerError, type ReportedMessage } from '../../lib/admin.ts';
 import { RestError, type RestClient } from '../../lib/rest.ts';
-import { AdminRC, rcOverview, rcReportedMessages, rcReports, rcRoom, rcUser } from './admin.ts';
+import { AdminRC, rcEmojis, rcOverview, rcReportedMessages, rcReports, rcRoom, rcUser } from './admin.ts';
 
 type Answer = unknown | ((options: unknown) => unknown);
 
@@ -247,5 +247,20 @@ describe('AdminRC', () => {
       ['chat.reportMessage', { body: { messageId: 'm1', description: 'spam' } }],
       ['moderation.reportUser', { body: { userId: 'u1', description: 'rude' } }],
     ]);
+  });
+});
+
+describe('custom emoji', () => {
+  test('the list keeps id, name and aliases, sorted, and skips broken entries', () => {
+    const list = rcEmojis([
+      { _id: 'e2', name: 'shipit', aliases: [], extension: 'png' },
+      { _id: 'e1', name: 'party_parrot', aliases: ['rv_parrot', 3], extension: 'gif' },
+      { name: 'no_id' },
+    ]);
+    assert.deepEqual(list, [
+      { id: 'e1', name: 'party_parrot', aliases: ['rv_parrot'], revision: '' },
+      { id: 'e2', name: 'shipit', aliases: [], revision: '' },
+    ]);
+    assert.deepEqual(rcEmojis(undefined), []);
   });
 });

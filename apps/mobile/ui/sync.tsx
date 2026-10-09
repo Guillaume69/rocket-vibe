@@ -148,6 +148,8 @@ export type SyncState =
       unlockE2E: (password: string) => Promise<void>;
       /** Relocks: forgets the key and re-masks the local plaintext. */
       lockE2E: () => Promise<void>;
+      /** Reads the server's custom emoji again now (after the administration changed them). */
+      refreshCustomEmojis: () => Promise<void>;
       /**
        * Incremented on each successful connection setup. A screen whose initial
        * load failed (opened offline) puts it in its effect's deps: the network
@@ -260,6 +262,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
           ddp:provider.listener,provider,actions:provider.actions,capabilities:provider.capabilities,
           declareOpenRoom:openRooms.declare,presence,activity,e2e,
           unlockE2E:async () => { throw new Error('Unsupported native feature'); },lockE2E:async () => {},generation:0,
+          refreshCustomEmojis:()=>chat.refreshEmojis(),
         });
         if (AppState.currentState === 'active') chat.start(); else chat.suspend();
       })().catch(() => { if (alive) setSync({phase:'error',message:translateCurrent('native.error')}); });
@@ -443,6 +446,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         e2e,
         unlockE2E,
         lockE2E,
+        refreshCustomEmojis: () => syncCustomEmojis(client, emojiStore, isDiscarded, provider.listCustomEmojis),
         generation: 0,
       });
 

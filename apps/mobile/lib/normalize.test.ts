@@ -207,6 +207,11 @@ describe('toRoom: last message preview', () => {
 });
 
 describe('toSubscription', () => {
+  test("a two-person DM carries its peer's real name, a channel none", () => {
+    assert.equal(toSubscription({ rid: 'd1', t: 'd', name: 'bob', fname: 'Bob Durand' })?.dmName, 'Bob Durand');
+    assert.equal(toSubscription({ rid: 'c1', t: 'c', name: 'general', fname: 'General' })?.dmName, null);
+  });
+
   test('absent counters are 0, flags false', () => {
     const a = toSubscription({ rid: 'r1' });
     assert.deepEqual(a, {
@@ -225,6 +230,7 @@ describe('toSubscription', () => {
       groupId: null,
       groupName: null,
       groupRank: null,
+      dmName: null,
       updatedAt: 0,
     });
   });
@@ -261,6 +267,7 @@ describe('toSubscription', () => {
       groupId: null,
       groupName: null,
       groupRank: null,
+      dmName: null,
       updatedAt: 1000,
     });
   });

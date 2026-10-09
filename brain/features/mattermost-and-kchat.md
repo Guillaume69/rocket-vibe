@@ -83,7 +83,7 @@ Rocket.Chat call fails cleanly instead of hitting the wrong server.
   (`MmActions.roomFavorite`). See [room-list](room-list.md).
 - Custom emoji: `Provider.listCustomEmojis` pages `GET /emoji` and gives each
   name its image `/api/v4/emoji/<id>/image`; `syncCustomEmojis` stores it in
-  `custom_emojis.uri` (migration `0023_custom_emoji_uri`) and `ImageEmoji`
+  `custom_emojis.uri` (migration `0024_custom_emoji_uri`) and `ImageEmoji`
   fetches it with the bearer (`useAuthorizedUri`). See [emoji](emoji.md).
 - kChat kMeet calls: `kmeetCall` (`providers/mattermost/translator.ts`) maps a
   `custom_call` post to a `videoconf` whose `callId` is the meeting URL, or to

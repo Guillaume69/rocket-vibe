@@ -29,7 +29,8 @@ import { Tappable } from '../ui/tappable.tsx';
  */
 
 type User = { _id: string; username?: string; name?: string };
-type PublicRoom = { _id: string; name?: string; t?: string };
+/** `fname`: the display name a channel shows in the list, when it differs from its slug. */
+type PublicRoom = { _id: string; name?: string; fname?: string; t?: string };
 type SpotlightResponse = { users?: User[]; rooms?: PublicRoom[] };
 
 /** Stable (module-level): a value recreated on every render would rerun the effect. */
@@ -207,7 +208,7 @@ function Search({
                 style={styles.row}
               >
                 <Text style={[styles.prefix, { color: c.dimmed }]}>#</Text>
-                <Text style={[styles.name, { color: c.text }]}>{item.room.name}</Text>
+                <Text style={[styles.name, { color: c.text }]}>{item.room.fname ?? item.room.name}</Text>
               </Tappable>
             </View>
           )

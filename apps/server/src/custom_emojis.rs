@@ -1,6 +1,8 @@
-//! Operator-owned catalogue, atomic receipts and authenticated immutable images.
+//! Instance catalogue, changed by the operator's CLI or an administrator in an
+//! app, with atomic receipts and authenticated immutable images.
 use crate::{
-    App, auth,
+    App,
+    auth::{self, Account},
     delivery::ReadProof,
     error::{Error, Result},
     operator,
@@ -242,44 +244,62 @@ async fn finish(
     tx.commit().await?;
     Ok(receipt)
 }
-pub async fn put(
-    app: &App,
-    operation: &str,
-    name: &str,
-    aliases: Vec<String>,
-    expected: Option<&str>,
-    input: Vec<u8>,
-) -> Result<operator::Receipt> {
+/// Name and aliases: shortcodes, at most 8 aliases, no repeat; a standard
+/// emoji's code is reserved (its glyph would win at render).
+fn check_codes(name: &str, aliases: &[String]) -> Result<()> {
     let mut names = std::collections::HashSet::new();
+    let codes = || std::iter::once(name).chain(aliases.iter().map(String::as_str));
     if aliases.len() > 8
-        || !std::iter::once(name)
-            .chain(aliases.iter().map(String::as_str))
-            .all(|c| {
-                rv_protocol::custom_emojis::shortcode(c) == Some(c)
-                    && rv_protocol::emojis::canonical(c).is_none()
-                    && names.insert(c)
-            })
+        || !codes().all(|c| rv_protocol::custom_emojis::shortcode(c) == Some(c) && names.insert(c))
     {
         return Err(Error::invalid());
     }
-    let fingerprint = auth::hash_token(
+    if codes().any(|c| rv_protocol::emojis::canonical(c).is_some()) {
+        return Err(Error::new(StatusCode::BAD_REQUEST, "emoji_name_reserved"));
+    }
+    Ok(())
+}
+fn put_fingerprint(name: &str, aliases: &[String], expected: Option<&str>, input: &[u8]) -> String {
+    auth::hash_token(
         &serde_json::json!([
             "emoji.put",
             name,
             aliases,
             expected,
-            auth::hash_token_bytes(&input)
+            auth::hash_token_bytes(input)
         ])
         .to_string(),
-    );
-    let (mut tx, epoch, old) = begin(app, operation, &fingerprint).await?;
-    if let Some(old) = old {
-        return Ok(old);
-    }
+    )
+}
+fn remove_fingerprint(name: &str, expected: &str) -> String {
+    auth::hash_token(&serde_json::json!(["emoji.remove", name, expected]).to_string())
+}
+/// The image re-encoded, on the bounded image pool, before any lock is
+/// taken: a busy pool never holds the catalogue or the administration.
+async fn decoded(app: &App, input: Vec<u8>) -> Result<(Vec<u8>, String)> {
+    let _slot = app
+        .image_slots
+        .acquire()
+        .await
+        .map_err(|_| Error::internal())?;
+    tokio::task::spawn_blocking(move || decode(input))
+        .await
+        .map_err(|_| Error::internal())?
+}
+/// Creates (no `expected`) or replaces (`expected` = its revision) an emoji
+/// inside a transaction that holds the catalogue row; returns (id, revision).
+async fn apply_put(
+    app: &App,
+    tx: &mut Transaction<'static, Postgres>,
+    name: &str,
+    aliases: &[String],
+    expected: Option<&str>,
+    decoded: (Vec<u8>, String),
+) -> Result<(String, i64)> {
     let existing: Option<(String, i64)> =
         sqlx::query_as("SELECT id,revision FROM custom_emojis WHERE name=$1")
             .bind(name)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut **tx)
             .await?;
     if existing.is_some() && expected.is_none()
         || expected.is_some_and(|r| existing.as_ref().is_none_or(|e| e.1.to_string() != r))
@@ -291,7 +311,7 @@ pub async fn put(
         .map(|e| e.0.clone())
         .unwrap_or_else(auth::random_token);
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM custom_emojis")
-        .fetch_one(&mut *tx)
+        .fetch_one(&mut **tx)
         .await?;
     if existing.is_none() && count >= 512 {
         return Err(Error::new(StatusCode::CONFLICT, "emoji_catalog_limit"));
@@ -300,20 +320,13 @@ pub async fn put(
         let owner: Option<String> =
             sqlx::query_scalar("SELECT emoji_id FROM custom_emoji_codes WHERE code=$1")
                 .bind(code)
-                .fetch_optional(&mut *tx)
+                .fetch_optional(&mut **tx)
                 .await?;
         if owner.is_some_and(|owner| owner != id) {
             return Err(Error::new(StatusCode::CONFLICT, "emoji_code_conflict"));
         }
     }
-    let _slot = app
-        .image_slots
-        .acquire()
-        .await
-        .map_err(|_| Error::internal())?;
-    let (bytes, mime) = tokio::task::spawn_blocking(move || decode(input))
-        .await
-        .map_err(|_| Error::internal())??;
+    let (bytes, mime) = decoded;
     let digest = auth::hash_token_bytes(&bytes);
     let size = bytes.len() as i32;
     let object = app
@@ -325,21 +338,72 @@ pub async fn put(
     let revision: i64 = sqlx::query_scalar(
         "UPDATE emoji_catalog SET revision=revision+1 WHERE singleton RETURNING revision",
     )
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut **tx)
     .await?;
-    sqlx::query("INSERT INTO custom_emojis(id,name,aliases,object_id,sha256,media_type,bytes,revision) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(name) DO UPDATE SET aliases=excluded.aliases,object_id=excluded.object_id,sha256=excluded.sha256,media_type=excluded.media_type,bytes=excluded.bytes,revision=excluded.revision").bind(&id).bind(name).bind(Json(&aliases)).bind(object).bind(&digest).bind(mime).bind(size).bind(revision).execute(&mut *tx).await?;
+    sqlx::query("INSERT INTO custom_emojis(id,name,aliases,object_id,sha256,media_type,bytes,revision) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(name) DO UPDATE SET aliases=excluded.aliases,object_id=excluded.object_id,sha256=excluded.sha256,media_type=excluded.media_type,bytes=excluded.bytes,revision=excluded.revision").bind(&id).bind(name).bind(Json(aliases)).bind(object).bind(&digest).bind(mime).bind(size).bind(revision).execute(&mut **tx).await?;
     sqlx::query("DELETE FROM custom_emoji_codes WHERE emoji_id=$1")
         .bind(&id)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
     for code in std::iter::once(name).chain(aliases.iter().map(String::as_str)) {
         sqlx::query("INSERT INTO custom_emoji_codes VALUES($1,$2)")
             .bind(code)
             .bind(&id)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await?;
     }
-    operator::record(&mut tx,"emoji.put",&id,serde_json::json!({"name":name,"aliases":aliases,"revision":revision.to_string(),"sha256":digest,"bytes":size})).await?;
+    operator::record(tx,"emoji.put",&id,serde_json::json!({"name":name,"aliases":aliases,"revision":revision.to_string(),"sha256":digest,"bytes":size})).await?;
+    Ok((id, revision))
+}
+async fn apply_remove(
+    tx: &mut Transaction<'static, Postgres>,
+    name: &str,
+    expected: &str,
+) -> Result<(String, i64)> {
+    let current: Option<(String, i64)> =
+        sqlx::query_as("SELECT id,revision FROM custom_emojis WHERE name=$1")
+            .bind(name)
+            .fetch_optional(&mut **tx)
+            .await?;
+    let (id, revision) = current.ok_or_else(Error::missing)?;
+    if revision.to_string() != expected {
+        return Err(Error::new(StatusCode::CONFLICT, "revision_conflict"));
+    }
+    sqlx::query("DELETE FROM custom_emojis WHERE id=$1")
+        .bind(&id)
+        .execute(&mut **tx)
+        .await?;
+    let revision: i64 = sqlx::query_scalar(
+        "UPDATE emoji_catalog SET revision=revision+1 WHERE singleton RETURNING revision",
+    )
+    .fetch_one(&mut **tx)
+    .await?;
+    operator::record(
+        tx,
+        "emoji.remove",
+        &id,
+        serde_json::json!({"name":name,"revision":revision.to_string()}),
+    )
+    .await?;
+    Ok((id, revision))
+}
+/// The operator's command line: receipts in `operator_commands`, no actor.
+pub async fn put(
+    app: &App,
+    operation: &str,
+    name: &str,
+    aliases: Vec<String>,
+    expected: Option<&str>,
+    input: Vec<u8>,
+) -> Result<operator::Receipt> {
+    check_codes(name, &aliases)?;
+    let fingerprint = put_fingerprint(name, &aliases, expected, &input);
+    let image = decoded(app, input).await?;
+    let (mut tx, epoch, old) = begin(app, operation, &fingerprint).await?;
+    if let Some(old) = old {
+        return Ok(old);
+    }
+    let (id, revision) = apply_put(app, &mut tx, name, &aliases, expected, image).await?;
     finish(tx, epoch, operation, fingerprint, id, revision).await
 }
 pub async fn remove(
@@ -348,36 +412,56 @@ pub async fn remove(
     name: &str,
     expected: &str,
 ) -> Result<operator::Receipt> {
-    let fingerprint =
-        auth::hash_token(&serde_json::json!(["emoji.remove", name, expected]).to_string());
+    let fingerprint = remove_fingerprint(name, expected);
     let (mut tx, epoch, old) = begin(app, operation, &fingerprint).await?;
     if let Some(old) = old {
         return Ok(old);
     }
-    let current: Option<(String, i64)> =
-        sqlx::query_as("SELECT id,revision FROM custom_emojis WHERE name=$1")
-            .bind(name)
-            .fetch_optional(&mut *tx)
-            .await?;
-    let (id, revision) = current.ok_or_else(Error::missing)?;
-    if revision.to_string() != expected {
-        return Err(Error::new(StatusCode::CONFLICT, "revision_conflict"));
-    }
-    sqlx::query("DELETE FROM custom_emojis WHERE id=$1")
-        .bind(&id)
-        .execute(&mut *tx)
-        .await?;
-    let revision: i64 = sqlx::query_scalar(
-        "UPDATE emoji_catalog SET revision=revision+1 WHERE singleton RETURNING revision",
-    )
-    .fetch_one(&mut *tx)
-    .await?;
-    operator::record(
-        &mut tx,
-        "emoji.remove",
-        &id,
-        serde_json::json!({"name":name,"revision":revision.to_string()}),
-    )
-    .await?;
+    let (id, revision) = apply_remove(&mut tx, name, expected).await?;
     finish(tx, epoch, operation, fingerprint, id, revision).await
+}
+/// An administrator in an app: authorized under lock by `admin::admit`, its
+/// receipt kept per account, the audit naming that account. Creation only
+/// (a taken name is `revision_conflict`); a replay answers the current
+/// catalogue without applying anything again.
+pub async fn admin_put(
+    app: &App,
+    actor: &Account,
+    operation: &str,
+    name: &str,
+    aliases: Vec<String>,
+    input: Vec<u8>,
+) -> Result<EmojiCatalog> {
+    check_codes(name, &aliases)?;
+    let fingerprint = put_fingerprint(name, &aliases, None, &input);
+    let image = decoded(app, input).await?;
+    let (mut tx, replay) = crate::admin::admit(app, actor, true, operation, &fingerprint).await?;
+    if !replay {
+        lock_catalog(&mut tx).await?;
+        apply_put(app, &mut tx, name, &aliases, None, image).await?;
+        crate::admin::settle(tx, actor, operation, &fingerprint).await?;
+    }
+    catalog(app).await
+}
+pub async fn admin_remove(
+    app: &App,
+    actor: &Account,
+    operation: &str,
+    name: &str,
+    expected: &str,
+) -> Result<EmojiCatalog> {
+    let fingerprint = remove_fingerprint(name, expected);
+    let (mut tx, replay) = crate::admin::admit(app, actor, true, operation, &fingerprint).await?;
+    if !replay {
+        lock_catalog(&mut tx).await?;
+        apply_remove(&mut tx, name, expected).await?;
+        crate::admin::settle(tx, actor, operation, &fingerprint).await?;
+    }
+    catalog(app).await
+}
+async fn lock_catalog(tx: &mut Transaction<'static, Postgres>) -> Result<()> {
+    sqlx::query("SELECT singleton FROM emoji_catalog WHERE singleton FOR UPDATE")
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
 }

@@ -208,6 +208,22 @@ pub struct ReportInput {
     pub reason: String,
 }
 
+/// The server's icon, as `PUT`/`DELETE /api/v1/admin/icon` answer it:
+/// `revision` is `None` without one. The image itself is public at
+/// `GET /api/v1/instance/icon` (PNG, square, 256 pixels at most).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct InstanceIcon {
+    pub revision: Option<String>,
+}
+
+/// Query of `PUT /api/v1/admin/icon` (raw PNG or JPEG body, 2 MiB at most)
+/// and `DELETE /api/v1/admin/icon`.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct IconCommand {
+    pub operation_id: String,
+}
+
 /// Export root of the administration fixture.
 #[derive(Serialize, Deserialize, JsonSchema)]
 pub struct AdminContract {
@@ -220,4 +236,8 @@ pub struct AdminContract {
     pub reported_users: AdminReportedUserPage,
     pub operation: AdminOperation,
     pub report: ReportInput,
+    pub create_emoji: crate::custom_emojis::CreateEmoji,
+    pub remove_emoji: crate::custom_emojis::RemoveEmoji,
+    pub instance_icon: InstanceIcon,
+    pub icon_command: IconCommand,
 }

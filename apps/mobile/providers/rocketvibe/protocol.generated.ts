@@ -1,7 +1,7 @@
 // Generated from crates/rv-protocol. Run scripts/generate-native-protocol.mjs.
 export type AcceptInvitation = { "password": string; "token": string; "username": string; };
 export type AccountPermissions = { "create_bot"?: boolean; "create_private_room": boolean; "create_public_room": boolean; "manage_accounts": boolean; "manage_instance": boolean; };
-export type AdminContract = { "delete_user": DeleteAdminUser; "operation": AdminOperation; "overview": AdminOverview; "report": ReportInput; "reported_messages": AdminReportedMessagePage; "reported_users": AdminReportedUserPage; "room_page": AdminRoomPage; "update_user": UpdateAdminUser; "user_page": AdminUserPage; };
+export type AdminContract = { "create_emoji": CreateEmoji; "delete_user": DeleteAdminUser; "icon_command": IconCommand; "instance_icon": InstanceIcon; "operation": AdminOperation; "overview": AdminOverview; "remove_emoji": RemoveEmoji; "report": ReportInput; "reported_messages": AdminReportedMessagePage; "reported_users": AdminReportedUserPage; "room_page": AdminRoomPage; "update_user": UpdateAdminUser; "user_page": AdminUserPage; };
 export type AdminMessageCounts = { "direct": number; "encrypted": number; "private": number; "public": number; "total": number; };
 export type AdminOperation = { "operation_id": string; };
 export type AdminOverview = { "data_epoch": string; "instance_id": string; "messages": AdminMessageCounts; "migration_version"?: string | null; "postgres_version": string; "reports": AdminReportCounts; "rooms": AdminRoomCounts; "server_version": string; "started_at": string; "uploads": AdminUploadCounts; "users": AdminUserCounts; };
@@ -44,7 +44,7 @@ export type BotScope = "rooms:read" | "messages:write" | "files:write" | "reacti
 export type BotScopeRoutes = { "routes": (BotRoute)[]; "scope"?: BotScope | null; };
 export type BotsContract = { "bot": Bot; "bot_key": BotKey; "bot_key_created": BotKeyCreated; "bot_key_list": BotKeyList; "bot_list": BotList; "bot_reference": BotReference; "create_bot": CreateBot; "create_bot_key": CreateBotKey; "instance_settings": InstanceSettings; "update_bot": UpdateBot; "update_instance_settings": UpdateInstanceSettings; };
 export type CallSummary = { "duration_seconds"?: number | null; "state": RingState; };
-export type Capabilities = { "account_invitations"?: boolean; "account_recovery"?: boolean; "administration"?: boolean; "bots"?: boolean; "calls": boolean; "custom_emojis"?: boolean; "deletion"?: boolean; "device_sessions"?: boolean; "direct_messages": boolean; "durable_sync": boolean; "e2ee": boolean; "editing"?: boolean; "email_factor_delivery"?: boolean; "email_factors"?: boolean; "email_recovery"?: boolean; "email_removal"?: boolean; "email_verification"?: boolean; "favorites"?: boolean; "fine_permissions"?: boolean; "idempotent_room_creation"?: boolean; "link_previews"?: boolean; "pins"?: boolean; "presence"?: boolean; "private_rooms": boolean; "profile_avatars"?: boolean; "profiles"?: boolean; "push": boolean; "quotes"?: boolean; "reactions": boolean; "read_markers"?: boolean; "reauthentication"?: boolean; "reauthentication_retirement"?: boolean; "reports"?: boolean; "room_discovery"?: boolean; "room_info"?: boolean; "room_leave"?: boolean; "room_roles"?: boolean; "room_settings"?: boolean; "search"?: boolean; "second_factors"?: boolean; "session_rotation"?: boolean; "slash_commands"?: boolean; "snapshot_paging"?: boolean; "stars"?: boolean; "structured_cards"?: boolean; "text_messages": boolean; "threads": boolean; "typing"?: boolean; "uploads": boolean; "voice"?: boolean; "workflows"?: boolean; };
+export type Capabilities = { "account_invitations"?: boolean; "account_recovery"?: boolean; "administration"?: boolean; "bots"?: boolean; "calls": boolean; "custom_emoji_admin"?: boolean; "custom_emojis"?: boolean; "deletion"?: boolean; "device_sessions"?: boolean; "direct_messages": boolean; "durable_sync": boolean; "e2ee": boolean; "editing"?: boolean; "email_factor_delivery"?: boolean; "email_factors"?: boolean; "email_recovery"?: boolean; "email_removal"?: boolean; "email_verification"?: boolean; "favorites"?: boolean; "fine_permissions"?: boolean; "idempotent_room_creation"?: boolean; "instance_icon"?: boolean; "link_previews"?: boolean; "pins"?: boolean; "presence"?: boolean; "private_rooms": boolean; "profile_avatars"?: boolean; "profiles"?: boolean; "push": boolean; "quotes"?: boolean; "reactions": boolean; "read_markers"?: boolean; "reauthentication"?: boolean; "reauthentication_retirement"?: boolean; "reports"?: boolean; "room_discovery"?: boolean; "room_info"?: boolean; "room_leave"?: boolean; "room_roles"?: boolean; "room_settings"?: boolean; "search"?: boolean; "second_factors"?: boolean; "session_rotation"?: boolean; "slash_commands"?: boolean; "snapshot_paging"?: boolean; "stars"?: boolean; "structured_cards"?: boolean; "text_messages": boolean; "threads": boolean; "typing"?: boolean; "uploads": boolean; "voice"?: boolean; "workflows"?: boolean; };
 export type CardField = { "short"?: boolean; "title": string; "value": string; };
 export type Change = { "data": Room; "type": "room_upsert"; } | { "data": Message; "type": "message_upsert"; } | { "data": { "room_id": string; }; "type": "room_removed"; };
 export type ChangeEmailFactor = { "context": ReauthenticationContext; "email_version": string; "factor_version"?: string | null; "operation_id": string; };
@@ -55,6 +55,7 @@ export type CompleteUpload = { "content": MessageContent; "operation_id": string
 export type ConfirmEmailVerification = { "code": string; "context": ReauthenticationContext; "operation_id": string; "verification_id": string; };
 export type CreateBot = { "description"?: string; "display_name": string; "operation_id": string; "scopes"?: (BotScope)[]; "username": string; };
 export type CreateBotKey = { "expires_in_days"?: number | null; "label": string; "operation_id": string; };
+export type CreateEmoji = { "aliases"?: string; "operation_id": string; };
 export type CreateRoom = { "name": string; "operation_id"?: string | null; "private": boolean; "voice"?: boolean; };
 export type CreateWorkflow = { "bot_id": string; "description"?: string; "enabled"?: boolean; "name": string; "operation_id": string; "steps": (Step)[]; "trigger": Trigger; };
 export type CustomEmoji = { "aliases": (string)[]; "bytes": string; "file_id": string; "id": string; "media_type": string; "name": string; "revision": string; "sha256": string; };
@@ -69,7 +70,7 @@ export type DeviceSession = { "created_at": string; "current": boolean; "expires
 export type DirectMessage = { "user_id": string; };
 export type Directory = { "devices": (Device)[]; "identity"?: Identity | null; "next_revocation"?: string | null; "revocations": (Revocation)[]; "scope": Scope; };
 export type DisableFactor = { "factor_version": string; };
-export type Discovery = { "api_path": string; "capabilities": Capabilities; "data_epoch": string; "instance_id": string; "product": string; "protocol_versions": (number)[]; "server_version": string; };
+export type Discovery = { "api_path": string; "capabilities": Capabilities; "data_epoch": string; "icon_revision"?: string | null; "instance_id": string; "product": string; "protocol_versions": (number)[]; "server_version": string; };
 export type Document = { "format": Format; "nodes": (Node)[]; };
 export type EditMessage = { "content": MessageContent; "expected_revision": string; "operation_id": string; };
 export type EmailDeliveryState = "queued" | "sending" | "deferred" | "accepted" | "exhausted";
@@ -121,7 +122,9 @@ export type HistoryRequests = { "requests": (HistoryRequestEntry)[]; "scope": Sc
 export type HistoryShareState = { "fingerprint": string; "scope": Scope; "share": string; "sharer_device_id": string; };
 export type HttpHeader = { "name": string; "value": string; };
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+export type IconCommand = { "operation_id": string; };
 export type Identity = { "fingerprint": string; "revision": string; "root": string; "user_id": string; };
+export type InstanceIcon = { "revision"?: string | null; };
 export type InstanceSettings = { "user_bots": boolean; };
 export type IntegrationCard = { "author"?: string | null; "color"?: string | null; "fields"?: (CardField)[]; "text"?: string | null; "title"?: string | null; "url"?: string | null; };
 export type JoinVoice = { "data_epoch": string; "e2ee"?: boolean; "membership_version": string; "ring"?: boolean; };
@@ -171,6 +174,7 @@ export type RecoverAccount = { "new_password": string; "token": string; "usernam
 export type RegenerateFactorBackups = { "factor_version": string; "operation_id": string; };
 export type RegisterDevice = { "expected_device_revision"?: string | null; "expected_root_fingerprint"?: string | null; "grant": string; "operation_id": string; "request": string; "revoke_previous"?: string | null; "scope": Scope; };
 export type RegisterPush = { "token": string; };
+export type RemoveEmoji = { "expected_revision": string; "operation_id": string; };
 export type RemoveVerifiedEmail = { "context": ReauthenticationContext; "expected_version": string; "operation_id": string; "verification_version": string; };
 export type RenameDevice = { "label": string; };
 export type RenewSession = { "next_token": string; "operation_id": string; };
@@ -252,7 +256,7 @@ export type WorkflowRun = { "created_at": string; "error"?: string | null; "id":
 export type WorkflowRunList = { "runs": (WorkflowRun)[]; };
 export type WorkflowsContract = { "answer_form": AnswerForm; "create_workflow": CreateWorkflow; "run_started": RunStarted; "update_workflow": UpdateWorkflow; "webhook_secret": WebhookSecret; "workflow": Workflow; "workflow_form": WorkflowForm; "workflow_list": WorkflowList; "workflow_run_list": WorkflowRunList; };
 
-export type NativeTypes = { AcceptInvitation: AcceptInvitation; AccountPermissions: AccountPermissions; AdminContract: AdminContract; AdminMessageCounts: AdminMessageCounts; AdminOperation: AdminOperation; AdminOverview: AdminOverview; AdminReport: AdminReport; AdminReportCounts: AdminReportCounts; AdminReportedMessage: AdminReportedMessage; AdminReportedMessagePage: AdminReportedMessagePage; AdminReportedUser: AdminReportedUser; AdminReportedUserPage: AdminReportedUserPage; AdminRoom: AdminRoom; AdminRoomCounts: AdminRoomCounts; AdminRoomPage: AdminRoomPage; AdminUploadCounts: AdminUploadCounts; AdminUser: AdminUser; AdminUserCounts: AdminUserCounts; AdminUserPage: AdminUserPage; AnswerForm: AnswerForm; AnswerRing: AnswerRing; ApiError: ApiError; ApplicationCancellation: ApplicationCancellation; ApplicationMessage: ApplicationMessage; ApplicationReceipt: ApplicationReceipt; ApplicationSettlement: ApplicationSettlement; ApplicationSubmission: ApplicationSubmission; AuthChallenge: AuthChallenge; AuthenticationStep: AuthenticationStep; AvailableKeyPackage: AvailableKeyPackage; AvatarCommand: AvatarCommand; BeginEmailVerification: BeginEmailVerification; BeginFactorSetup: BeginFactorSetup; BeginReauthentication: BeginReauthentication; Bot: Bot; BotKey: BotKey; BotKeyCreated: BotKeyCreated; BotKeyList: BotKeyList; BotList: BotList; BotReference: BotReference; BotRoute: BotRoute; BotScope: BotScope; BotScopeRoutes: BotScopeRoutes; BotsContract: BotsContract; CallSummary: CallSummary; Capabilities: Capabilities; CardField: CardField; Change: Change; ChangeEmailFactor: ChangeEmailFactor; ChangeRoomRole: ChangeRoomRole; CommandList: CommandList; CommitHistoryShare: CommitHistoryShare; CompleteUpload: CompleteUpload; ConfirmEmailVerification: ConfirmEmailVerification; CreateBot: CreateBot; CreateBotKey: CreateBotKey; CreateRoom: CreateRoom; CreateWorkflow: CreateWorkflow; CustomEmoji: CustomEmoji; DeleteAdminUser: DeleteAdminUser; DeleteMessage: DeleteMessage; DeliveryContent: DeliveryContent; DeliveryEvent: DeliveryEvent; DeliveryPage: DeliveryPage; DesktopNotifications: DesktopNotifications; Device: Device; DeviceSession: DeviceSession; DirectMessage: DirectMessage; Directory: Directory; DisableFactor: DisableFactor; Discovery: Discovery; Document: Document; EditMessage: EditMessage; EmailDeliveryState: EmailDeliveryState; EmailFactorChange: EmailFactorChange; EmailRecoveryRequested: EmailRecoveryRequested; EmailRemovalReceipt: EmailRemovalReceipt; EmailStatus: EmailStatus; EmailVerificationStep: EmailVerificationStep; EmojiCatalog: EmojiCatalog; EnableFactor: EnableFactor; EncryptedFile: EncryptedFile; EncryptedKeyBackup: EncryptedKeyBackup; Every: Every; FactorBackupCodes: FactorBackupCodes; FactorEmailDelivery: FactorEmailDelivery; FactorSetup: FactorSetup; FactorStatus: FactorStatus; FileDescriptor: FileDescriptor; FinishFactor: FinishFactor; FinishReauthentication: FinishReauthentication; FormAnswer: FormAnswer; FormField: FormField; FormFieldKind: FormFieldKind; FormRecipient: FormRecipient; Format: Format; GroupCancellation: GroupCancellation; GroupEvent: GroupEvent; GroupEventPage: GroupEventPage; GroupMember: GroupMember; GroupReceipt: GroupReceipt; GroupRoster: GroupRoster; GroupSettlement: GroupSettlement; GroupState: GroupState; GroupSubmission: GroupSubmission; GroupWelcome: GroupWelcome; HistoryBackupPage: HistoryBackupPage; HistoryBackupPeriod: HistoryBackupPeriod; HistoryBackupPeriods: HistoryBackupPeriods; HistoryBackupReceipt: HistoryBackupReceipt; HistoryKeyCancellation: HistoryKeyCancellation; HistoryKeyReceipt: HistoryKeyReceipt; HistoryKeySettlement: HistoryKeySettlement; HistoryKeyState: HistoryKeyState; HistoryKeyVersion: HistoryKeyVersion; HistoryRecordsPage: HistoryRecordsPage; HistoryRecordsReceipt: HistoryRecordsReceipt; HistoryRequestEntry: HistoryRequestEntry; HistoryRequests: HistoryRequests; HistoryShareState: HistoryShareState; HttpHeader: HttpHeader; HttpMethod: HttpMethod; Identity: Identity; InstanceSettings: InstanceSettings; IntegrationCard: IntegrationCard; JoinVoice: JoinVoice; LeaveRoom: LeaveRoom; LinkPreview: LinkPreview; LiveFrame: LiveFrame; LiveRoom: LiveRoom; LiveState: LiveState; Login: Login; MarkRead: MarkRead; MarkThreadRead: MarkThreadRead; Message: Message; MessageContent: MessageContent; MessagePage: MessagePage; MessagePermissions: MessagePermissions; MessageQuote: MessageQuote; MessageReaction: MessageReaction; Node: Node; OperationReceipt: OperationReceipt; OwnProfile: OwnProfile; ParityContract: ParityContract; PersonalStar: PersonalStar; PrepareUpload: PrepareUpload; PresenceEntry: PresenceEntry; PresenceStatus: PresenceStatus; PreviewImage: PreviewImage; PreviewKind: PreviewKind; ProfileReceipt: ProfileReceipt; ProfileStamp: ProfileStamp; PublicDeviceKey: PublicDeviceKey; PublicRoom: PublicRoom; PublicRoomPage: PublicRoomPage; PublishHistoryKey: PublishHistoryKey; PublishHistoryRequest: PublishHistoryRequest; PublishKeyPackages: PublishKeyPackages; PublishRootBackup: PublishRootBackup; PushContent: PushContent; PushRegistration: PushRegistration; QuoteExcerpt: QuoteExcerpt; QuoteReference: QuoteReference; ReadState: ReadState; ReauthenticationContext: ReauthenticationContext; ReauthenticationGrant: ReauthenticationGrant; ReauthenticationStatus: ReauthenticationStatus; ReauthenticationStep: ReauthenticationStep; RecoverAccount: RecoverAccount; RegenerateFactorBackups: RegenerateFactorBackups; RegisterDevice: RegisterDevice; RegisterPush: RegisterPush; RemoveVerifiedEmail: RemoveVerifiedEmail; RenameDevice: RenameDevice; RenewSession: RenewSession; ReportInput: ReportInput; RequestEmailRecovery: RequestEmailRecovery; RequestFactorEmail: RequestFactorEmail; ResumeEmailRemoval: ResumeEmailRemoval; ResumeEmailVerification: ResumeEmailVerification; ResumeReauthentication: ResumeReauthentication; RetireEmailRemoval: RetireEmailRemoval; RetireEmailVerification: RetireEmailVerification; RetireReauthentication: RetireReauthentication; Revocation: Revocation; RevokeDevice: RevokeDevice; RingState: RingState; Room: Room; RoomCommandReceipt: RoomCommandReceipt; RoomDetails: RoomDetails; RoomKeyEnvelope: RoomKeyEnvelope; RoomKind: RoomKind; RoomMember: RoomMember; RoomMemberPage: RoomMemberPage; RoomPermissions: RoomPermissions; RoomRole: RoomRole; RootBackupCancellation: RootBackupCancellation; RootBackupReceipt: RootBackupReceipt; RootBackupSettlement: RootBackupSettlement; RootBackupState: RootBackupState; RootBackupVersion: RootBackupVersion; RunCommand: RunCommand; RunStarted: RunStarted; RunState: RunState; Scope: Scope; SearchMessages: SearchMessages; SearchPage: SearchPage; SecondFactor: SecondFactor; SendMessage: SendMessage; Session: Session; SetMark: SetMark; SetPresence: SetPresence; SetReaction: SetReaction; SetRoomFavorite: SetRoomFavorite; SetTyping: SetTyping; SlashCommand: SlashCommand; Snapshot: Snapshot; SnapshotPage: SnapshotPage; SocketTicket: SocketTicket; Step: Step; SyncBatch: SyncBatch; SystemMessage: SystemMessage; ThreadPage: ThreadPage; ThreadReadState: ThreadReadState; ThreadSummary: ThreadSummary; Trigger: Trigger; Typist: Typist; UpdateAdminUser: UpdateAdminUser; UpdateBot: UpdateBot; UpdateInstanceSettings: UpdateInstanceSettings; UpdatePreferences: UpdatePreferences; UpdateProfile: UpdateProfile; UpdateRoom: UpdateRoom; UpdateWorkflow: UpdateWorkflow; Upload: Upload; UploadHistoryBackup: UploadHistoryBackup; UploadHistoryRecords: UploadHistoryRecords; UploadState: UploadState; User: User; UserPreferences: UserPreferences; UserProfile: UserProfile; VerifyFactor: VerifyFactor; VoiceGrant: VoiceGrant; VoiceParticipant: VoiceParticipant; VoiceRing: VoiceRing; WebhookSecret: WebhookSecret; Workflow: Workflow; WorkflowForm: WorkflowForm; WorkflowList: WorkflowList; WorkflowRun: WorkflowRun; WorkflowRunList: WorkflowRunList; WorkflowsContract: WorkflowsContract; };
+export type NativeTypes = { AcceptInvitation: AcceptInvitation; AccountPermissions: AccountPermissions; AdminContract: AdminContract; AdminMessageCounts: AdminMessageCounts; AdminOperation: AdminOperation; AdminOverview: AdminOverview; AdminReport: AdminReport; AdminReportCounts: AdminReportCounts; AdminReportedMessage: AdminReportedMessage; AdminReportedMessagePage: AdminReportedMessagePage; AdminReportedUser: AdminReportedUser; AdminReportedUserPage: AdminReportedUserPage; AdminRoom: AdminRoom; AdminRoomCounts: AdminRoomCounts; AdminRoomPage: AdminRoomPage; AdminUploadCounts: AdminUploadCounts; AdminUser: AdminUser; AdminUserCounts: AdminUserCounts; AdminUserPage: AdminUserPage; AnswerForm: AnswerForm; AnswerRing: AnswerRing; ApiError: ApiError; ApplicationCancellation: ApplicationCancellation; ApplicationMessage: ApplicationMessage; ApplicationReceipt: ApplicationReceipt; ApplicationSettlement: ApplicationSettlement; ApplicationSubmission: ApplicationSubmission; AuthChallenge: AuthChallenge; AuthenticationStep: AuthenticationStep; AvailableKeyPackage: AvailableKeyPackage; AvatarCommand: AvatarCommand; BeginEmailVerification: BeginEmailVerification; BeginFactorSetup: BeginFactorSetup; BeginReauthentication: BeginReauthentication; Bot: Bot; BotKey: BotKey; BotKeyCreated: BotKeyCreated; BotKeyList: BotKeyList; BotList: BotList; BotReference: BotReference; BotRoute: BotRoute; BotScope: BotScope; BotScopeRoutes: BotScopeRoutes; BotsContract: BotsContract; CallSummary: CallSummary; Capabilities: Capabilities; CardField: CardField; Change: Change; ChangeEmailFactor: ChangeEmailFactor; ChangeRoomRole: ChangeRoomRole; CommandList: CommandList; CommitHistoryShare: CommitHistoryShare; CompleteUpload: CompleteUpload; ConfirmEmailVerification: ConfirmEmailVerification; CreateBot: CreateBot; CreateBotKey: CreateBotKey; CreateEmoji: CreateEmoji; CreateRoom: CreateRoom; CreateWorkflow: CreateWorkflow; CustomEmoji: CustomEmoji; DeleteAdminUser: DeleteAdminUser; DeleteMessage: DeleteMessage; DeliveryContent: DeliveryContent; DeliveryEvent: DeliveryEvent; DeliveryPage: DeliveryPage; DesktopNotifications: DesktopNotifications; Device: Device; DeviceSession: DeviceSession; DirectMessage: DirectMessage; Directory: Directory; DisableFactor: DisableFactor; Discovery: Discovery; Document: Document; EditMessage: EditMessage; EmailDeliveryState: EmailDeliveryState; EmailFactorChange: EmailFactorChange; EmailRecoveryRequested: EmailRecoveryRequested; EmailRemovalReceipt: EmailRemovalReceipt; EmailStatus: EmailStatus; EmailVerificationStep: EmailVerificationStep; EmojiCatalog: EmojiCatalog; EnableFactor: EnableFactor; EncryptedFile: EncryptedFile; EncryptedKeyBackup: EncryptedKeyBackup; Every: Every; FactorBackupCodes: FactorBackupCodes; FactorEmailDelivery: FactorEmailDelivery; FactorSetup: FactorSetup; FactorStatus: FactorStatus; FileDescriptor: FileDescriptor; FinishFactor: FinishFactor; FinishReauthentication: FinishReauthentication; FormAnswer: FormAnswer; FormField: FormField; FormFieldKind: FormFieldKind; FormRecipient: FormRecipient; Format: Format; GroupCancellation: GroupCancellation; GroupEvent: GroupEvent; GroupEventPage: GroupEventPage; GroupMember: GroupMember; GroupReceipt: GroupReceipt; GroupRoster: GroupRoster; GroupSettlement: GroupSettlement; GroupState: GroupState; GroupSubmission: GroupSubmission; GroupWelcome: GroupWelcome; HistoryBackupPage: HistoryBackupPage; HistoryBackupPeriod: HistoryBackupPeriod; HistoryBackupPeriods: HistoryBackupPeriods; HistoryBackupReceipt: HistoryBackupReceipt; HistoryKeyCancellation: HistoryKeyCancellation; HistoryKeyReceipt: HistoryKeyReceipt; HistoryKeySettlement: HistoryKeySettlement; HistoryKeyState: HistoryKeyState; HistoryKeyVersion: HistoryKeyVersion; HistoryRecordsPage: HistoryRecordsPage; HistoryRecordsReceipt: HistoryRecordsReceipt; HistoryRequestEntry: HistoryRequestEntry; HistoryRequests: HistoryRequests; HistoryShareState: HistoryShareState; HttpHeader: HttpHeader; HttpMethod: HttpMethod; IconCommand: IconCommand; Identity: Identity; InstanceIcon: InstanceIcon; InstanceSettings: InstanceSettings; IntegrationCard: IntegrationCard; JoinVoice: JoinVoice; LeaveRoom: LeaveRoom; LinkPreview: LinkPreview; LiveFrame: LiveFrame; LiveRoom: LiveRoom; LiveState: LiveState; Login: Login; MarkRead: MarkRead; MarkThreadRead: MarkThreadRead; Message: Message; MessageContent: MessageContent; MessagePage: MessagePage; MessagePermissions: MessagePermissions; MessageQuote: MessageQuote; MessageReaction: MessageReaction; Node: Node; OperationReceipt: OperationReceipt; OwnProfile: OwnProfile; ParityContract: ParityContract; PersonalStar: PersonalStar; PrepareUpload: PrepareUpload; PresenceEntry: PresenceEntry; PresenceStatus: PresenceStatus; PreviewImage: PreviewImage; PreviewKind: PreviewKind; ProfileReceipt: ProfileReceipt; ProfileStamp: ProfileStamp; PublicDeviceKey: PublicDeviceKey; PublicRoom: PublicRoom; PublicRoomPage: PublicRoomPage; PublishHistoryKey: PublishHistoryKey; PublishHistoryRequest: PublishHistoryRequest; PublishKeyPackages: PublishKeyPackages; PublishRootBackup: PublishRootBackup; PushContent: PushContent; PushRegistration: PushRegistration; QuoteExcerpt: QuoteExcerpt; QuoteReference: QuoteReference; ReadState: ReadState; ReauthenticationContext: ReauthenticationContext; ReauthenticationGrant: ReauthenticationGrant; ReauthenticationStatus: ReauthenticationStatus; ReauthenticationStep: ReauthenticationStep; RecoverAccount: RecoverAccount; RegenerateFactorBackups: RegenerateFactorBackups; RegisterDevice: RegisterDevice; RegisterPush: RegisterPush; RemoveEmoji: RemoveEmoji; RemoveVerifiedEmail: RemoveVerifiedEmail; RenameDevice: RenameDevice; RenewSession: RenewSession; ReportInput: ReportInput; RequestEmailRecovery: RequestEmailRecovery; RequestFactorEmail: RequestFactorEmail; ResumeEmailRemoval: ResumeEmailRemoval; ResumeEmailVerification: ResumeEmailVerification; ResumeReauthentication: ResumeReauthentication; RetireEmailRemoval: RetireEmailRemoval; RetireEmailVerification: RetireEmailVerification; RetireReauthentication: RetireReauthentication; Revocation: Revocation; RevokeDevice: RevokeDevice; RingState: RingState; Room: Room; RoomCommandReceipt: RoomCommandReceipt; RoomDetails: RoomDetails; RoomKeyEnvelope: RoomKeyEnvelope; RoomKind: RoomKind; RoomMember: RoomMember; RoomMemberPage: RoomMemberPage; RoomPermissions: RoomPermissions; RoomRole: RoomRole; RootBackupCancellation: RootBackupCancellation; RootBackupReceipt: RootBackupReceipt; RootBackupSettlement: RootBackupSettlement; RootBackupState: RootBackupState; RootBackupVersion: RootBackupVersion; RunCommand: RunCommand; RunStarted: RunStarted; RunState: RunState; Scope: Scope; SearchMessages: SearchMessages; SearchPage: SearchPage; SecondFactor: SecondFactor; SendMessage: SendMessage; Session: Session; SetMark: SetMark; SetPresence: SetPresence; SetReaction: SetReaction; SetRoomFavorite: SetRoomFavorite; SetTyping: SetTyping; SlashCommand: SlashCommand; Snapshot: Snapshot; SnapshotPage: SnapshotPage; SocketTicket: SocketTicket; Step: Step; SyncBatch: SyncBatch; SystemMessage: SystemMessage; ThreadPage: ThreadPage; ThreadReadState: ThreadReadState; ThreadSummary: ThreadSummary; Trigger: Trigger; Typist: Typist; UpdateAdminUser: UpdateAdminUser; UpdateBot: UpdateBot; UpdateInstanceSettings: UpdateInstanceSettings; UpdatePreferences: UpdatePreferences; UpdateProfile: UpdateProfile; UpdateRoom: UpdateRoom; UpdateWorkflow: UpdateWorkflow; Upload: Upload; UploadHistoryBackup: UploadHistoryBackup; UploadHistoryRecords: UploadHistoryRecords; UploadState: UploadState; User: User; UserPreferences: UserPreferences; UserProfile: UserProfile; VerifyFactor: VerifyFactor; VoiceGrant: VoiceGrant; VoiceParticipant: VoiceParticipant; VoiceRing: VoiceRing; WebhookSecret: WebhookSecret; Workflow: Workflow; WorkflowForm: WorkflowForm; WorkflowList: WorkflowList; WorkflowRun: WorkflowRun; WorkflowRunList: WorkflowRunList; WorkflowsContract: WorkflowsContract; };
 
 export const nativeSchema = {
   "$defs": {
@@ -308,14 +312,26 @@ export const nativeSchema = {
     "AdminContract": {
       "description": "Export root of the administration fixture.",
       "properties": {
+        "create_emoji": {
+          "$ref": "#/$defs/CreateEmoji"
+        },
         "delete_user": {
           "$ref": "#/$defs/DeleteAdminUser"
+        },
+        "icon_command": {
+          "$ref": "#/$defs/IconCommand"
+        },
+        "instance_icon": {
+          "$ref": "#/$defs/InstanceIcon"
         },
         "operation": {
           "$ref": "#/$defs/AdminOperation"
         },
         "overview": {
           "$ref": "#/$defs/AdminOverview"
+        },
+        "remove_emoji": {
+          "$ref": "#/$defs/RemoveEmoji"
         },
         "report": {
           "$ref": "#/$defs/ReportInput"
@@ -345,7 +361,11 @@ export const nativeSchema = {
         "reported_messages",
         "reported_users",
         "operation",
-        "report"
+        "report",
+        "create_emoji",
+        "remove_emoji",
+        "instance_icon",
+        "icon_command"
       ],
       "type": "object"
     },
@@ -1659,6 +1679,11 @@ export const nativeSchema = {
         "calls": {
           "type": "boolean"
         },
+        "custom_emoji_admin": {
+          "default": false,
+          "description": "An administrator adds and removes custom emoji over\n`/api/v1/admin/emoji/{name}`.",
+          "type": "boolean"
+        },
         "custom_emojis": {
           "default": false,
           "type": "boolean"
@@ -1714,6 +1739,11 @@ export const nativeSchema = {
         },
         "idempotent_room_creation": {
           "default": false,
+          "type": "boolean"
+        },
+        "instance_icon": {
+          "default": false,
+          "description": "The server has an icon of its own (`Discovery.icon_revision`), which\nan administrator sets over `/api/v1/admin/icon`.",
           "type": "boolean"
         },
         "link_previews": {
@@ -2113,6 +2143,23 @@ export const nativeSchema = {
       ],
       "type": "object"
     },
+    "CreateEmoji": {
+      "additionalProperties": false,
+      "description": "Query of `PUT /api/v1/admin/emoji/{name}`, whose body is the raw PNG, JPEG\nor GIF (at most 1 MiB). `aliases` is comma-separated, empty for none. A\nname already taken answers 409 `revision_conflict`, a code another emoji\nholds `emoji_code_conflict`, a standard emoji's code `emoji_name_reserved`.",
+      "properties": {
+        "aliases": {
+          "default": "",
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id"
+      ],
+      "type": "object"
+    },
     "CreateRoom": {
       "additionalProperties": false,
       "properties": {
@@ -2494,6 +2541,13 @@ export const nativeSchema = {
         },
         "data_epoch": {
           "type": "string"
+        },
+        "icon_revision": {
+          "description": "The icon's revision when the server has one (`GET /api/v1/instance/icon?v=<it>`).",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "instance_id": {
           "type": "string"
@@ -3842,6 +3896,19 @@ export const nativeSchema = {
       ],
       "type": "string"
     },
+    "IconCommand": {
+      "additionalProperties": false,
+      "description": "Query of `PUT /api/v1/admin/icon` (raw PNG or JPEG body, 2 MiB at most)\nand `DELETE /api/v1/admin/icon`.",
+      "properties": {
+        "operation_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id"
+      ],
+      "type": "object"
+    },
     "Identity": {
       "additionalProperties": false,
       "properties": {
@@ -3864,6 +3931,18 @@ export const nativeSchema = {
         "fingerprint",
         "revision"
       ],
+      "type": "object"
+    },
+    "InstanceIcon": {
+      "description": "The server's icon, as `PUT`/`DELETE /api/v1/admin/icon` answer it:\n`revision` is `None` without one. The image itself is public at\n`GET /api/v1/instance/icon` (PNG, square, 256 pixels at most).",
+      "properties": {
+        "revision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
       "type": "object"
     },
     "InstanceSettings": {
@@ -6445,6 +6524,23 @@ export const nativeSchema = {
       },
       "required": [
         "token"
+      ],
+      "type": "object"
+    },
+    "RemoveEmoji": {
+      "additionalProperties": false,
+      "description": "Query of `DELETE /api/v1/admin/emoji/{name}`: the catalogue entry's revision.",
+      "properties": {
+        "expected_revision": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "expected_revision"
       ],
       "type": "object"
     },

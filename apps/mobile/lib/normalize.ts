@@ -32,6 +32,11 @@ export type LocalMessage = {
   ts: number;
   authorId: string;
   authorName: string | null;
+  /**
+   * `u.name`, the author's real name: not stored on the message, it feeds
+   * `users.name` (shown when the server's `UI_Use_Real_Name` is on).
+   */
+  authorRealName?: string | null;
   systemType: string | null;
   threadId: string | null;
   threadCount: number;
@@ -122,6 +127,8 @@ export type LocalSubscription = {
   groupId: string | null;
   groupName: string | null;
   groupRank: number | null;
+  /** Rocket.Chat two-person DM: the other person's real name (`fname`), for `users.name`. */
+  dmName?: string | null;
   updatedAt: number;
 };
 
@@ -158,7 +165,7 @@ export function toMessage(raw: Record<string, unknown>): LocalMessage | null {
   const id = asString(raw._id);
   const rid = asString(raw.rid);
   const ts = toEpoch(raw.ts);
-  const author = raw.u as { _id?: unknown; username?: unknown } | undefined;
+  const author = raw.u as { _id?: unknown; username?: unknown; name?: unknown } | undefined;
   const authorId = asString(author?._id);
   if (id === null || rid === null || ts === null || authorId === null) return null;
 
@@ -174,6 +181,7 @@ export function toMessage(raw: Record<string, unknown>): LocalMessage | null {
     ts,
     authorId,
     authorName: asString(author?.username),
+    authorRealName: asString(author?.name),
     systemType,
     threadId: asString(raw.tmid),
     threadCount: asInt(raw.tcount),
@@ -344,6 +352,8 @@ export function toSubscription(raw: Record<string, unknown>): LocalSubscription 
     groupId: null,
     groupName: null,
     groupRank: null,
+    // A two-person DM's `fname` is the other person's real name.
+    dmName: raw.t === 'd' ? asString(raw.fname) : null,
     updatedAt: toEpoch(raw._updatedAt) ?? 0,
   };
 }

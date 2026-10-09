@@ -5,7 +5,7 @@ import RocketVibeCore
 /// A category of the server administration, in sidebar order: the GTK
 /// app's (`rv-gtk/src/admin.rs`). It opens on the Dashboard.
 public enum AdminCategory: String, CaseIterable, Identifiable, Sendable {
-    case dashboard, moderation, rooms, users
+    case dashboard, moderation, rooms, users, emoji
 
     public var id: String { rawValue }
     public var title: String { L("admin.cat.\(rawValue)") }
@@ -183,6 +183,18 @@ public final class AdminModel {
     /// administrator always may); nil where the server has no bots.
     public private(set) var userBots: Bool?
     public private(set) var settingUserBots = false
+    /// The server lets this administrator add and remove custom emoji.
+    public let emojiSupported: Bool
+    /// The server's icon can be changed here (the Dashboard's Server icon card).
+    public let iconSupported: Bool
+    /// The server's icon as the rails show it, once read; nil without one.
+    public private(set) var icon: Data?
+    public private(set) var settingIcon = false
+    /// The categories this server offers, in sidebar order.
+    public var categories: [AdminCategory] { AdminCategory.allCases.filter { $0 != .emoji || emojiSupported } }
+    /// The server's custom emoji, once read; `emojisError` when they could not be.
+    public private(set) var emojis: [AdminEmoji]?
+    public private(set) var emojisError: String?
     public let users: AdminList<AdminUser>
     public let rooms: AdminList<AdminRoom>
     public let reportedMessages: AdminList<AdminReportedMessage>
@@ -207,6 +219,8 @@ public final class AdminModel {
         self.source = source
         product = source.product()
         myId = source.myId()
+        emojiSupported = source.emojiSupported()
+        iconSupported = source.iconSupported()
         users = AdminList { after, query in
             let page = try await source.users(after: after, query: query)
             return (page.items, page.next)
@@ -234,7 +248,75 @@ public final class AdminModel {
         case .moderation: reportedMessages.start(); reportedUsers.start()
         case .rooms: rooms.start()
         case .users: users.start()
+        case .emoji: if emojis == nil { Task { await loadEmojis() } }
         }
+    }
+
+    /// Reads the server's icon (the Dashboard asks once).
+    public func loadIcon() async {
+        guard alive, iconSupported else { return }
+        let found = await source.icon()
+        if alive { icon = found }
+    }
+
+    /// Sets the icon from a square PNG of `iconSide()` pixels, or removes it
+    /// (`nil`); true once the server has it.
+    public func setIcon(png: Data?) async -> Bool {
+        guard alive, iconSupported, !settingIcon else { return false }
+        settingIcon = true
+        defer { settingIcon = false }
+        do {
+            try await source.setIcon(png: png)
+            guard alive else { return false }
+            notice = L(png == nil ? "admin.icon_removed" : "admin.icon_saved")
+            await loadIcon()
+            return true
+        } catch {
+            if alive { notice = AdminText.error(error) }
+            return false
+        }
+    }
+
+    /// Reads the custom emoji again (also refreshing the pickers' index).
+    public func loadEmojis() async {
+        guard alive else { return }
+        emojisError = nil
+        do {
+            let list = try await source.emojis()
+            if alive { emojis = list }
+        } catch {
+            if alive { emojisError = AdminText.error(error) }
+        }
+    }
+
+    /// Adds an emoji from an image file; true once the server has it.
+    public func createEmoji(name: String, aliases: String, file: URL) async -> Bool {
+        guard alive, !busy else { return false }
+        busy = true
+        defer { busy = false }
+        do {
+            try await source.createEmoji(name: name, aliases: aliases, file: file.path)
+            guard alive else { return false }
+            notice = L("admin.emoji_added")
+            await loadEmojis()
+            return true
+        } catch {
+            if alive { notice = AdminText.error(error) }
+            return false
+        }
+    }
+
+    public func deleteEmoji(_ item: AdminEmoji) async {
+        guard alive, !busy else { return }
+        busy = true
+        defer { busy = false }
+        do {
+            try await source.deleteEmoji(item: item)
+            if alive { notice = L("admin.emoji_deleted") }
+        } catch {
+            if alive { notice = AdminText.error(error) }
+        }
+        await loadEmojis()
     }
 
     /// The figures; Rocket.Chat counts them again only with `refresh` (the

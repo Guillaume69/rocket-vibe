@@ -119,6 +119,16 @@ export async function reconcileRooms(
   if (alive.length === 0) return;
 
   await engine.syncStore.purgeMissingRooms(alive, known);
+  // The full list names every DM's other party: real names known even for
+  // conversations no catch-up has touched since the upgrade.
+  const names: { rid: string; name: string }[] = [];
+  for (const s of response.update ?? []) {
+    const doc = s as { rid?: unknown; t?: unknown; fname?: unknown };
+    if (doc.t === 'd' && typeof doc.rid === 'string' && typeof doc.fname === 'string' && doc.fname !== '') {
+      names.push({ rid: doc.rid, name: doc.fname });
+    }
+  }
+  if (names.length > 0) await engine.syncStore.saveDmNames?.(names);
 }
 
 type SyncResult = {

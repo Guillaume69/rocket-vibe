@@ -1,11 +1,12 @@
 import AppKit
+import ImageIO
 import RocketVibeCore
 import RocketVibeKit
 import SwiftUI
 
 /// The server administration over the window, in the settings' panel: the
-/// Dashboard, the Moderation of reports (its count as a badge), the Rooms and
-/// the Users (`AdminModel`, the GTK app's `admin.rs`).
+/// Dashboard, the Moderation of reports (its count as a badge), the Rooms, the
+/// Users and the Custom emoji (`AdminModel`, the GTK app's `admin.rs`).
 struct AdminOverlay: View {
     @Environment(AppModel.self) var app
     let model: AdminModel
@@ -24,6 +25,7 @@ extension AdminCategory {
         case .moderation: return "exclamationmark.bubble"
         case .rooms: return "number"
         case .users: return "person.2"
+        case .emoji: return "face.smiling"
         }
     }
 }
@@ -110,7 +112,7 @@ struct AdminView: View {
             paging = true
         })
         return List(selection: selection) {
-            ForEach(AdminCategory.allCases) { category in
+            ForEach(model.categories) { category in
                 Label(category.title, systemImage: category.symbol)
                     .badge(category == .moderation ? Int(clamping: model.reportCount) : 0)
                     .tag(category)
@@ -143,6 +145,14 @@ struct AdminView: View {
                         Button { model.open(.user(user)) } label: { AdminUserRow(user: user) }
                             .buttonStyle(.plain)
                     }
+                case .emoji:
+                    Form { AdminEmojiSections(model: model) { item in
+                        confirming = AdminConfirm(
+                            title: L("admin.emoji_delete_title"), body: L("admin.emoji_delete_body", ["name": item.name]),
+                            action: L("admin.emoji_delete")) { await model.deleteEmoji(item) }
+                    } }
+                    .formStyle(.grouped)
+                    .scrollContentBackground(.hidden)
                 }
             }
         }
@@ -495,6 +505,7 @@ struct AdminDashboard: View {
                         AdminValue(title: L("admin.reported_users"), value: AdminText.figure(o.reportedUsers))
                         Button(L("admin.open_moderation")) { model.show(.moderation) }
                     }
+                    if model.iconSupported { AdminIconCard(model: model) }
                     // RocketVibe with bots only: the model leaves it nil elsewhere.
                     if let on = model.userBots {
                         AdminCard(title: L("admin.bots")) {
@@ -602,5 +613,145 @@ struct ReportSheet: View {
         }
         .padding()
         .frame(width: 420)
+    }
+}
+
+/// The Custom emoji page: the form adding one (name, aliases, image file),
+/// then the server's emoji, each deleted after `delete` asked.
+struct AdminEmojiSections: View {
+    let model: AdminModel
+    let delete: (AdminEmoji) -> Void
+    @State private var name = ""
+    @State private var aliases = ""
+    @State private var file: URL?
+
+    var body: some View {
+        Section {
+            TextField(L("admin.emoji_name"), text: $name)
+            TextField(L("admin.emoji_aliases"), text: $aliases)
+            LabeledContent(L("admin.emoji_image")) {
+                HStack {
+                    if let file, let image = NSImage(contentsOf: file) {
+                        Image(nsImage: image).resizable().scaledToFit().frame(width: 28, height: 28)
+                    }
+                    Text(file?.lastPathComponent ?? L("admin.emoji_image_hint")).foregroundStyle(.secondary)
+                    Button(L("admin.emoji_choose")) { choose() }
+                }
+            }
+            Button(L("admin.emoji_add")) {
+                guard let file else { return }
+                Task {
+                    if await model.createEmoji(name: name, aliases: aliases, file: file) {
+                        name = ""; aliases = ""; self.file = nil
+                    }
+                }
+            }
+            .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || file == nil || model.busy)
+        } header: {
+            Text(L("admin.emoji_add"))
+        } footer: {
+            Text(L("admin.emoji_hint")).foregroundStyle(.secondary)
+        }
+        Section(L("admin.cat.emoji")) {
+            if let error = model.emojisError {
+                Text(error).foregroundStyle(.secondary)
+            } else if let list = model.emojis {
+                if list.isEmpty { Text(L("admin.emoji_empty")).foregroundStyle(.secondary) }
+                ForEach(list, id: \.id) { item in
+                    HStack(spacing: 10) {
+                        RemoteImage(path: item.image, width: 28, height: 28)
+                        VStack(alignment: .leading) {
+                            Text(":\(item.name):")
+                            if !item.aliases.isEmpty {
+                                Text(item.aliases.map { ":\($0):" }.joined(separator: " "))
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer()
+                        Button { delete(item) } label: { Image(systemName: "trash") }
+                            .buttonStyle(.borderless)
+                            .help(L("admin.emoji_delete"))
+                            .disabled(model.busy)
+                    }
+                }
+            } else {
+                ProgressView()
+            }
+        }
+    }
+
+    func choose() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.png, .jpeg, .gif]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        file = url
+    }
+}
+
+/// The Dashboard's Server icon card: the icon every app's rail shows, Change
+/// (a picked image cropped to its center square of `iconSide()` pixels, the
+/// size Rocket.Chat demands) and Remove. The rail reads its icons again after.
+struct AdminIconCard: View {
+    @Environment(AppModel.self) var app
+    let model: AdminModel
+
+    var body: some View {
+        AdminCard(title: L("admin.icon_title")) {
+            Text(L("admin.icon_hint")).font(.vibe(12)).foregroundStyle(Vibe.muted)
+            HStack(spacing: 12) {
+                if let data = model.icon, let image = NSImage(data: data) {
+                    Image(nsImage: image).resizable().scaledToFill()
+                        .frame(width: 44, height: 44).clipShape(RoundedRectangle(cornerRadius: 15))
+                    Text(L("admin.icon_current"))
+                } else {
+                    Text(L("admin.icon_none")).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button(L("admin.icon_change")) { choose() }.disabled(model.settingIcon)
+                if model.icon != nil {
+                    Button(L("admin.icon_remove"), role: .destructive) { apply(nil) }.disabled(model.settingIcon)
+                }
+            }
+        }
+        .task { await model.loadIcon() }
+    }
+
+    func choose() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.png, .jpeg]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard let png = Self.squarePNG(url, side: Int(iconSide())) else {
+            model.notice = L("admin.icon_error_image")
+            return
+        }
+        apply(png)
+    }
+
+    func apply(_ png: Data?) {
+        Task {
+            if await model.setIcon(png: png) { await app.refreshServerIcons() }
+        }
+    }
+
+    /// The image's center square, drawn at `side` pixels, as PNG.
+    static func squarePNG(_ url: URL, side: Int) -> Data? {
+        // Through ImageIO with its transform, so a camera photo stands upright.
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                  kCGImageSourceCreateThumbnailFromImageAlways: true,
+                  kCGImageSourceCreateThumbnailWithTransform: true,
+                  kCGImageSourceThumbnailMaxPixelSize: 4096,
+              ] as CFDictionary) else { return nil }
+        let edge = min(cg.width, cg.height)
+        guard edge > 0, let square = cg.cropping(to: CGRect(x: (cg.width - edge) / 2, y: (cg.height - edge) / 2, width: edge, height: edge)),
+              let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: side, pixelsHigh: side, bitsPerSample: 8,
+                                         samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                                         bytesPerRow: 0, bitsPerPixel: 0) else { return nil }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        NSGraphicsContext.current?.imageInterpolation = .high
+        NSImage(cgImage: square, size: NSSize(width: side, height: side)).draw(in: NSRect(x: 0, y: 0, width: side, height: side))
+        NSGraphicsContext.restoreGraphicsState()
+        return rep.representation(using: .png, properties: [:])
     }
 }

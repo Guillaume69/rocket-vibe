@@ -38,6 +38,7 @@ import { AttachmentPreview, type PendingFile } from '../ui/attachmentPreview.tsx
 import { KeyboardAvoidingContainer } from '../ui/keyboard.tsx';
 import { deleteIfTemporary } from '../ui/temporaryFiles.ts';
 import { useT } from '../ui/i18n.ts';
+import { roomTitle, useDisplayNames } from '../ui/identities.tsx';
 import { RoomAvatar } from '../ui/kit.tsx';
 import { fileEmoji, isImage } from '../ui/mime.ts';
 import { compressImageIfUseful } from '../ui/prepareAttachment.ts';
@@ -387,7 +388,7 @@ function TargetRow({
   onPick: () => void;
 }) {
   const t = useT();
-  const name = room.displayName ?? room.name ?? room.rid;
+  const name = roomTitle(room, useDisplayNames());
   const blocked = room.encrypted || room.readOnly;
   const reason = room.encrypted ? t('share.encrypted') : room.readOnly ? t('share.readOnly') : null;
   // Blocked, or another destination during a send: the row fades to focus

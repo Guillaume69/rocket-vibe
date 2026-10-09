@@ -76,6 +76,7 @@ import {
   UPSERT_MESSAGE,
   UPSERT_ROOM,
   UPSERT_USER,
+  UPDATE_DM_PEER_NAME,
   subscriptionParams,
   messageParams,
   roomParams,
@@ -116,7 +117,7 @@ export function createStore(raw: SQLiteDatabase, serially: WriteQueue): Store {
       if (m.authorName !== null) {
         await raw.runAsync(
           UPSERT_USER,
-          userParams({ uid: m.authorId, username: m.authorName, updatedAt: m.updatedAt }),
+          userParams({ uid: m.authorId, username: m.authorName, name: m.authorRealName, updatedAt: m.updatedAt }),
         );
       }
       // Outbox reconciliation: this store receives ONLY server-origin documents
@@ -141,6 +142,7 @@ export function createStore(raw: SQLiteDatabase, serially: WriteQueue): Store {
     },
     async upsertSubscription(a) {
       await raw.runAsync(UPSERT_SUBSCRIPTION, subscriptionParams(a));
+      if (a.dmName != null) await raw.runAsync(UPDATE_DM_PEER_NAME, [a.dmName, a.rid, a.dmName]);
     },
     async deleteMessage(id) {
       await raw.runAsync(DELETE_MESSAGE, [id]);
@@ -181,6 +183,10 @@ export function createStore(raw: SQLiteDatabase, serially: WriteQueue): Store {
     deleteRoom: (rid) => serially(() => direct.deleteRoom(rid)),
     deleteSubscription: (rid) => serially(() => direct.deleteSubscription(rid)),
     deleteBySubId: (subId) => serially(() => direct.deleteBySubId(subId)),
+    saveDmNames: (names) =>
+      serially(async () => {
+        for (const { rid, name } of names) await raw.runAsync(UPDATE_DM_PEER_NAME, [name, rid, name]);
+      }),
     async listKnownRids() {
       const rows = await raw.getAllAsync<{ rid: string }>(LIST_KNOWN_RIDS);
       return rows.map((l) => l.rid);

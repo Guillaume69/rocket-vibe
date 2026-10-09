@@ -410,6 +410,20 @@ export class NativeTransport {
   testWorkflow(id:string):Promise<NativeTypes['RunStarted']> { return this.request('RunStarted',`/api/v1/workflows/${encodeURIComponent(id)}/test`,undefined,false,undefined,'POST'); }
   /** Answers a form a workflow posted (`Message.form`); 204. */
   async answerForm(message:string,input:NativeTypes['AnswerForm']):Promise<void> { await this.value(`/api/v1/forms/${encodeURIComponent(message)}/answer`,input); }
+  async adminCreateEmoji(name:string,input:NativeTypes['CreateEmoji'],image:{mime:string;bytes:Uint8Array}):Promise<NativeTypes['EmojiCatalog']> {
+    if(image.bytes.length>1024*1024)throw new NativeError(413,'emoji_image_too_large');
+    const path=`/api/v1/admin/emoji/${encodeURIComponent(name)}?operation_id=${encodeURIComponent(input.operation_id)}&aliases=${encodeURIComponent(input.aliases??'')}`;
+    return emojiCatalog(await this.value(path,undefined,false,undefined,'PUT',{mime:image.mime,body:Uint8Array.from(image.bytes).buffer}));
+  }
+  async adminRemoveEmoji(name:string,input:NativeTypes['RemoveEmoji']):Promise<NativeTypes['EmojiCatalog']> {
+    const path=`/api/v1/admin/emoji/${encodeURIComponent(name)}?operation_id=${encodeURIComponent(input.operation_id)}&expected_revision=${encodeURIComponent(input.expected_revision)}`;
+    return emojiCatalog(await this.value(path,undefined,false,undefined,'DELETE'));
+  }
+  async adminSetIcon(operation:string,image:{mime:string;bytes:Uint8Array}|null):Promise<NativeTypes['InstanceIcon']> {
+    if(image && image.bytes.length>2*1024*1024)throw new NativeError(413,'icon_too_large');
+    const path=`/api/v1/admin/icon?operation_id=${encodeURIComponent(operation)}`;
+    return decodeNative('InstanceIcon',await this.value(path,undefined,false,undefined,image?'PUT':'DELETE',image?{mime:image.mime,body:Uint8Array.from(image.bytes).buffer}:undefined));
+  }
   instanceSettings():Promise<NativeTypes['InstanceSettings']> { return this.request('InstanceSettings','/api/v1/admin/settings'); }
   updateInstanceSettings(input:NativeTypes['UpdateInstanceSettings']):Promise<NativeTypes['InstanceSettings']> { return this.request('InstanceSettings','/api/v1/admin/settings',input,false,undefined,'PATCH'); }
   accountPermissions(): Promise<NativeTypes['AccountPermissions']> { return this.request('AccountPermissions','/api/v1/me/permissions'); }

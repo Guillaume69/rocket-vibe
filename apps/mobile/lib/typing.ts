@@ -28,6 +28,7 @@ type Cancellation = unknown;
 export class TypingEngine {
   private readonly rid: string;
   private readonly me: string | null;
+  private readonly myName: string | null;
   private readonly expirationMs: number;
   private readonly schedule: (fn: () => void, ms: number) => Cancellation;
   private readonly cancel: (a: Cancellation) => void;
@@ -41,12 +42,18 @@ export class TypingEngine {
     rid: string;
     /** My username: my own typing is not shown to me. */
     me: string | null;
+    /**
+     * My real name: a Rocket.Chat server with `UI_Use_Real_Name` makes its
+     * clients announce typing under it, so my other devices do too.
+     */
+    myName?: string | null;
     expirationMs?: number;
     schedule?: (fn: () => void, ms: number) => Cancellation;
     cancel?: (a: Cancellation) => void;
   }) {
     this.rid = options.rid;
     this.me = options.me;
+    this.myName = options.myName ?? null;
     this.expirationMs = options.expirationMs ?? EXPIRATION_MS;
     this.schedule = options.schedule ?? ((fn, ms) => setTimeout(fn, ms));
     this.cancel = options.cancel ?? ((a) => clearTimeout(a as ReturnType<typeof setTimeout>));
@@ -72,7 +79,7 @@ export class TypingEngine {
     }
     const username = event.args[0];
     const activities = event.args[1];
-    if (typeof username !== 'string' || username === '' || username === this.me) return;
+    if (typeof username !== 'string' || username === '' || username === this.me || username === this.myName) return;
     const typing = Array.isArray(activities) && activities.includes(TYPING_ACTIVITY);
 
     const existing = this.timers.get(username);

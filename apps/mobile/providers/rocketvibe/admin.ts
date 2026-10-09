@@ -9,7 +9,11 @@
 
 import {
   ADMIN_PAGE,
+  AdminRefused,
+  adminRefusalKey,
   epoch,
+  type AdminEmoji,
+  type AdminUploadIO,
   fetchLatestVersion,
   type AdminOverview,
   type AdminPage,
@@ -22,6 +26,7 @@ import {
   type ReportedMessage,
   type ReportedUser,
 } from '../../lib/admin.ts';
+import type { FileToSend } from '../../lib/upload.ts';
 import type { NativeChat } from './chat.ts';
 import type { NativeTypes } from './protocol.generated.ts';
 import { NativeError } from './transport.ts';
@@ -245,6 +250,63 @@ export class NativeAdmin implements ProviderAdmin {
       t.updateInstanceSettings({ operation_id: operation(), user_bots: on }),
     );
     return settings.user_bots;
+  }
+
+  canManageEmojis(): boolean {
+    return this.chat.capabilities?.custom_emoji_admin === true && this.chat.capabilities.custom_emojis === true;
+  }
+
+  /** The catalogue (`GET /emoji`), on a server announcing `custom_emoji_admin`. */
+  async emojis(): Promise<AdminEmoji[]> {
+    const catalog = await this.chat.administration('administration', (t) => t.emojiCatalog());
+    return catalog.items
+      .map((e) => ({ id: e.id, name: e.name, aliases: e.aliases, revision: e.revision }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /** `PUT /admin/emoji/{name}` with the raw image; a taken name is `revision_conflict`. */
+  async createEmoji(name: string, aliases: string[], image: FileToSend, io: AdminUploadIO): Promise<void> {
+    const bytes = await io.bytes();
+    await refusedAsAdmin(
+      'emoji',
+      this.chat.administration('administration', (t, operation) =>
+        t.adminCreateEmoji(name, { operation_id: operation(), aliases: aliases.join(',') }, { mime: image.type, bytes }),
+      ),
+    );
+  }
+
+  canSetIcon(): boolean {
+    return this.chat.capabilities?.instance_icon === true;
+  }
+
+  /** `PUT`/`DELETE /admin/icon`; the server crops and scales by itself. */
+  async setIcon(image: FileToSend | null, io: AdminUploadIO): Promise<void> {
+    const bytes = image === null ? null : await io.bytes();
+    await refusedAsAdmin(
+      'icon',
+      this.chat.administration('administration', (t, operation) =>
+        t.adminSetIcon(operation(), bytes === null || image === null ? null : { mime: image.type, bytes }),
+      ),
+    );
+  }
+
+  async deleteEmoji(emoji: AdminEmoji): Promise<void> {
+    await refusedAsAdmin(
+      'emoji',
+      this.chat.administration('administration', (t, operation) =>
+        t.adminRemoveEmoji(emoji.name, { operation_id: operation(), expected_revision: emoji.revision }),
+      ),
+    );
+  }
+}
+
+/** A native refusal of an emoji or of the icon as the words the screen shows. */
+async function refusedAsAdmin<T>(subject: 'emoji' | 'icon', work: Promise<T>): Promise<T> {
+  try {
+    return await work;
+  } catch (error) {
+    const key = error instanceof NativeError ? adminRefusalKey(error.code, subject) : null;
+    throw key === null ? error : new AdminRefused(key);
   }
 }
 

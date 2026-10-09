@@ -24,6 +24,9 @@ public final class AppModel {
     /// server rail. Only the open account is connected; `pollAccounts` checks
     /// the others with one read each.
     public private(set) var unreadAccounts: Set<String> = []
+    /// Each account's server icon (PNG or JPEG), when its server has one:
+    /// the rail shows it instead of the host's initial.
+    public private(set) var serverIcons: [String: Data] = [:]
     public private(set) var groups: [RoomGroup] = []
     public private(set) var connection = ConnectionState.offline
     /// Encrypted rooms readable and writable (my E2E key unlocked).
@@ -32,6 +35,8 @@ public final class AppModel {
     public private(set) var thread: RoomModel?
     /// Folded sections, by `RoomGroup.key`.
     public private(set) var collapsed: Set<String>
+    /// The user hid the server rail (Settings > Accounts), shared with GTK.
+    public private(set) var railHidden: Bool
     /// Bumped when photos or custom emoji change: views reload their images.
     public private(set) var imagesVersion = 0
     public private(set) var media: MediaStore?
@@ -81,6 +86,7 @@ public final class AppModel {
         client = Client(home: home)
         Strings.setUp(configDir: client.configDir())
         collapsed = Self.loadCollapsed(client.configDir())
+        railHidden = FileManager.default.fileExists(atPath: client.configDir() + "/hide-server-rail")
     }
 
     public var rooms: [Room] { groups.flatMap(\.rooms) }
@@ -158,9 +164,23 @@ public final class AppModel {
         }
     }
 
-    /// The signed-in accounts again, for the server rail.
+    /// The signed-in accounts again, for the server rail, and their icons.
     public func refreshAccounts() async {
         accounts = await client.accounts()
+        // Not awaited: the unread poll that follows does not wait for icons.
+        Task { await refreshServerIcons() }
+    }
+
+    /// Reads every account's server icon again (also after an administrator
+    /// changed one); a read that concludes nothing keeps the icon shown.
+    public func refreshServerIcons() async {
+        for one in accounts {
+            switch await client.serverIcon(key: one.key) {
+            case let .image(bytes): serverIcons[one.key] = bytes
+            case .absent: serverIcons.removeValue(forKey: one.key)
+            case .unknown: break
+            }
+        }
     }
 
     /// One read per account that is not the open one; an account it cannot
@@ -690,6 +710,18 @@ public final class AppModel {
         if collapsed.contains(key) { collapsed.remove(key) } else { collapsed.insert(key) }
         let lines = collapsed.sorted().joined(separator: "\n")
         try? lines.write(toFile: client.configDir() + "/collapsed-sections", atomically: true, encoding: .utf8)
+    }
+
+    /// GTK's convention: the file's presence hides the rail.
+    public func setRailHidden(_ hidden: Bool) {
+        railHidden = hidden
+        let path = client.configDir() + "/hide-server-rail"
+        if hidden {
+            try? FileManager.default.createDirectory(atPath: client.configDir(), withIntermediateDirectories: true)
+            FileManager.default.createFile(atPath: path, contents: Data())
+        } else {
+            try? FileManager.default.removeItem(atPath: path)
+        }
     }
 
     static func loadCollapsed(_ configDir: String) -> Set<String> {

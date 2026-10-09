@@ -144,6 +144,7 @@ function app() {
     refresh() {},
     loadPending: async () => {},
     loadEmojis: async () => {},
+    serverIcon() {},
     flush: async () => {},
     channel: { postMessage() {} },
     setConnection() {},

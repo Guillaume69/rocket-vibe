@@ -278,6 +278,10 @@ struct SettingsView: View {
                 }
             }
             Button(L("settings.add_account")) { app.showLogin(error: nil) }
+            Toggle(isOn: Binding(get: { app.railHidden }, set: { app.setRailHidden($0) })) {
+                Text(L("settings.hide_rail"))
+                Text(L("settings.hide_rail_hint"))
+            }
         }
         if let account = app.account {
             Section(L("settings.account")) {

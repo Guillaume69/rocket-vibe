@@ -34,6 +34,7 @@ pub mod rest;
 pub mod rooms;
 pub mod runs;
 pub mod server;
+pub mod server_icon;
 pub mod session;
 pub mod store;
 pub mod sync;

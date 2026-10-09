@@ -4,6 +4,15 @@ All notable changes are documented here in English.
 
 ## [Unreleased]
 
+### Changed
+
+- The account block shows a gear and opens a menu (Settings, Server administration for administrators, Sign out); sign out left the header. The header's "+" is a menu (New message, Browse channels, Create a channel), and the Channels and Direct messages headings carry their own "+".
+
+### Added
+
+- Server administration: a Server icon card on the Dashboard to set or remove the server's icon; the tab shows it as its icon.
+- Server administration: a Custom emoji page where administrators add emoji (name, aliases, image) and delete them.
+
 ## [0.2.0] - 2026-10-09
 
 ### Fixed

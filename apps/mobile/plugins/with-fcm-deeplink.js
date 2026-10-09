@@ -656,14 +656,20 @@ private fun showRoomNotification(
   }
 
   val sender = ejson.optJSONObject("sender")
-  val senderName = sender?.optString("name")?.takeIf { it.isNotEmpty() }
-    ?: sender?.optString("username")?.takeIf { it.isNotEmpty() }
-    ?: title
-  // RC often prefixes the text with "username: " when the style's Person
-  // already carries the name; we strip it so it is not shown twice.
-  val username = sender?.optString("username")
-  if (username != null && username.isNotEmpty() && text.startsWith(username + ": ")) {
-    text = text.substring(username.length + 2)
+  val username = sender?.optString("username")?.takeIf { it.isNotEmpty() }
+  // \`senderName\` is the server's own choice (\`getPushData\`): the real name
+  // when \`UI_Use_Real_Name\` is on, else the username, like the app's rows.
+  // Never \`sender.name\` by itself: that showed real names in pushes while
+  // the app showed usernames.
+  val chosen = ejson.optString("senderName").takeIf { it.isNotEmpty() }
+  val senderName = chosen ?: username ?: title
+  // RC prefixes a group's text with "<that name>: " while the style's Person
+  // already carries it; we strip it so it is not shown twice.
+  for (prefix in listOfNotNull(chosen, username)) {
+    if (text.startsWith(prefix + ": ")) {
+      text = text.substring(prefix.length + 2)
+      break
+    }
   }
 
   val nativeScope = ejson.optJSONObject("nativeScope")

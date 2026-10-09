@@ -11,6 +11,9 @@
  * Pure module, no React: tested under Node (`lib/admin.test.ts`).
  */
 
+import { unicodeOfShortcode } from './emojis.ts';
+import type { FileToSend, TransportUpload } from './upload.ts';
+
 export type AdminProduct = 'rocketchat' | 'rocketvibe';
 export type AdminPresence = 'online' | 'away' | 'busy' | 'offline';
 
@@ -179,6 +182,115 @@ export interface ProviderAdmin {
   userBots?(): Promise<boolean | null>;
   /** Opens or closes bot creation to every account; answers the setting as it now is. */
   setUserBots?(on: boolean): Promise<boolean>;
+  /** Whether this server lets an administrator manage custom emoji (the next three members). */
+  canManageEmojis?(): boolean;
+  /** The server's custom emoji by name. */
+  emojis?(): Promise<AdminEmoji[]>;
+  /**
+   * Adds one from a picked image. `io` carries what lives outside `lib/`: the
+   * multipart transport (field `emoji`, Rocket.Chat) and the file's bytes
+   * (RocketVibe). The screen then reads the app's index again
+   * (`useSync().refreshCustomEmojis`).
+   */
+  createEmoji?(name: string, aliases: string[], image: FileToSend, io: AdminUploadIO): Promise<void>;
+  deleteEmoji?(emoji: AdminEmoji): Promise<void>;
+  /** Whether this server's icon can be changed here (the next member). */
+  canSetIcon?(): boolean;
+  /**
+   * Sets the server's icon from a square PNG of `RC_ICON_SIDE` pixels
+   * (`lib/serverIcon.ts`; Rocket.Chat refuses any other size), or removes it
+   * with `null`. `io` as for `createEmoji`, the transport's field being `asset`.
+   */
+  setIcon?(image: FileToSend | null, io: AdminUploadIO): Promise<void>;
+}
+
+/** A custom emoji as the administration lists it. */
+export type AdminEmoji = {
+  id: string;
+  name: string;
+  aliases: string[];
+  /** RocketVibe's revision, which a removal names; '' on Rocket.Chat. */
+  revision: string;
+};
+
+export type AdminUploadIO = { transport: TransportUpload; bytes: () => Promise<Uint8Array> };
+
+export type AdminRefusalKey =
+  | 'admin.emojiErrorName'
+  | 'admin.emojiErrorReserved'
+  | 'admin.emojiErrorTaken'
+  | 'admin.emojiErrorImage'
+  | 'admin.emojiErrorSize'
+  | 'admin.emojiErrorLimit'
+  | 'admin.iconErrorImage'
+  | 'admin.iconErrorSize';
+
+/**
+ * A server's refusal of an emoji or of the server's icon (`subject`), by its
+ * code on either server; `null` = not one the screens word.
+ */
+export function adminRefusalKey(code: string, subject: 'emoji' | 'icon' = 'emoji'): AdminRefusalKey | null {
+  switch (code) {
+    case 'invalid_request':
+      return subject === 'emoji' ? 'admin.emojiErrorName' : 'admin.iconErrorImage';
+    case 'invalid_emoji_name':
+      return 'admin.emojiErrorName';
+    case 'emoji_name_reserved':
+      return 'admin.emojiErrorReserved';
+    case 'revision_conflict':
+    case 'emoji_code_conflict':
+    case 'Custom_Emoji_Error_Name_Or_Alias_Already_In_Use':
+      return 'admin.emojiErrorTaken';
+    case 'invalid_emoji_image':
+    case 'emoji-is-not-image':
+      return 'admin.emojiErrorImage';
+    case 'emoji_image_too_large':
+      return 'admin.emojiErrorSize';
+    case 'emoji_catalog_limit':
+      return 'admin.emojiErrorLimit';
+    case 'invalid_icon':
+    case 'error-invalid-file-type':
+      return 'admin.iconErrorImage';
+    case 'icon_too_large':
+    case 'error-invalid-file-width':
+    case 'error-invalid-file-height':
+      return 'admin.iconErrorSize';
+    default:
+      return null;
+  }
+}
+
+/** An emoji or an icon refused for a reason the screen words (`key`). */
+export class AdminRefused extends Error {
+  readonly key: AdminRefusalKey;
+  constructor(key: AdminRefusalKey) {
+    super(key);
+    this.key = key;
+  }
+}
+
+/** The largest image both servers take (RocketVibe's limit). */
+export const EMOJI_BYTES = 1024 * 1024;
+
+/**
+ * The name and comma-separated aliases as typed, trimmed and without colons,
+ * then checked like rv-core's `emoji_codes`: 1 to 80 lowercase ASCII letters,
+ * digits, `_` or `-` (Rocket.Chat would silently rewrite others), at most 8
+ * aliases, no repeat, never a standard emoji's code (its glyph would win).
+ */
+export function emojiCodes(
+  name: string,
+  aliases: string,
+): { name: string; aliases: string[] } | 'admin.emojiErrorName' | 'admin.emojiErrorReserved' {
+  const clean = (s: string) => s.trim().replace(/^:+|:+$/g, '');
+  const code = clean(name);
+  const extra = aliases.split(',').map(clean).filter((a) => a.length > 0);
+  const all = [code, ...extra];
+  if (extra.length > 8 || new Set(all).size !== all.length || !all.every((c) => /^[a-z0-9_-]{1,80}$/.test(c))) {
+    return 'admin.emojiErrorName';
+  }
+  if (all.some((c) => unicodeOfShortcode(c) !== null)) return 'admin.emojiErrorReserved';
+  return { name: code, aliases: extra };
 }
 
 /**

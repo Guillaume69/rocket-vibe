@@ -156,6 +156,87 @@
   "admin.cat.moderation": ["Modération", "Moderation"],
   "admin.cat.rooms": ["Salons", "Rooms"],
   "admin.cat.users": ["Utilisateurs", "Users"],
+  "admin.cat.emoji": ["Émojis personnalisés", "Custom emoji"],
+  "admin.icon_title": ["Icône du serveur", "Server icon"],
+  "admin.icon_hint": [
+    "Ce que la barre des serveurs montre de lui dans toutes les applications, à la place de son initiale",
+    "What the server bar of every app shows for it, instead of its initial"
+  ],
+  "admin.icon_none": [
+    "Aucune icône : son initiale s'affiche",
+    "No icon: its initial shows"
+  ],
+  "admin.icon_current": ["Icône actuelle", "Current icon"],
+  "admin.icon_change": ["Changer l'icône", "Change the icon"],
+  "admin.icon_remove": ["Retirer", "Remove"],
+  "admin.icon_remove_title": ["Retirer l'icône ?", "Remove the icon?"],
+  "admin.icon_remove_body": [
+    "La barre des serveurs montrera de nouveau son initiale.",
+    "The server bar will show its initial again."
+  ],
+  "admin.icon_saved": ["Icône changée", "Icon changed"],
+  "admin.icon_removed": ["Icône retirée", "Icon removed"],
+  "admin.icon_error_image": [
+    "Cette image n'est pas acceptée (PNG ou JPEG)",
+    "This image is not accepted (PNG or JPEG)"
+  ],
+  "admin.icon_error_size": [
+    "Image refusée par le serveur (taille)",
+    "Image refused by the server (size)"
+  ],
+  "admin.emoji_hint": [
+    "Les émojis du serveur, utilisables par tous dans les messages et les réactions",
+    "The server's emoji, for everyone to use in messages and reactions"
+  ],
+  "admin.emoji_add": ["Ajouter un émoji", "Add an emoji"],
+  "admin.emoji_empty": ["Aucun émoji personnalisé", "No custom emoji"],
+  "admin.emoji_name": ["Nom (sans les deux-points)", "Name (without colons)"],
+  "admin.emoji_aliases": [
+    "Alias, séparés par des virgules",
+    "Aliases, separated by commas"
+  ],
+  "admin.emoji_image": ["Image", "Image"],
+  "admin.emoji_image_hint": [
+    "PNG, JPEG ou GIF, 1 Mo au plus",
+    "PNG, JPEG or GIF, 1 MB at most"
+  ],
+  "admin.emoji_choose": ["Choisir une image", "Choose an image"],
+  "admin.emoji_added": ["Émoji ajouté", "Emoji added"],
+  "admin.emoji_delete": ["Supprimer", "Delete"],
+  "admin.emoji_delete_title": ["Supprimer l'émoji ?", "Delete the emoji?"],
+  "admin.emoji_delete_body": [
+    ":{name}: disparaîtra des sélecteurs ; les messages qui l'utilisent afficheront son nom.",
+    ":{name}: will leave the pickers; messages using it will show its name."
+  ],
+  "admin.emoji_deleted": ["Émoji supprimé", "Emoji deleted"],
+  "admin.emoji_error_name": [
+    "Nom invalide : lettres minuscules, chiffres, _ ou -, 8 alias au plus",
+    "Invalid name: lowercase letters, digits, _ or -, 8 aliases at most"
+  ],
+  "admin.emoji_error_missing": [
+    "Un nom et une image, d'abord",
+    "A name and an image first"
+  ],
+  "admin.emoji_error_reserved": [
+    "Ce nom est celui d'un émoji standard",
+    "This name belongs to a standard emoji"
+  ],
+  "admin.emoji_error_taken": [
+    "Ce nom ou un alias est déjà pris",
+    "This name or an alias is already taken"
+  ],
+  "admin.emoji_error_image": [
+    "Cette image n'est pas acceptée",
+    "This image is not accepted"
+  ],
+  "admin.emoji_error_size": [
+    "Image trop lourde (1 Mo au plus)",
+    "Image too large (1 MB at most)"
+  ],
+  "admin.emoji_error_limit": [
+    "Le serveur a atteint sa limite d'émojis",
+    "The server has reached its emoji limit"
+  ],
   "admin.deployment": ["Déploiement", "Deployment"],
   "admin.version": ["Version", "Version"],
   "admin.update_available": [

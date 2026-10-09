@@ -35,6 +35,10 @@
 import {
   ADMIN_PAGE,
   BulkDeleteRequired,
+  AdminRefused,
+  adminRefusalKey,
+  type AdminEmoji,
+  type AdminUploadIO,
   LastOwnerError,
   count,
   mapLimited,
@@ -55,7 +59,9 @@ import {
   type ReportedUser,
 } from '../../lib/admin.ts';
 import { RestError, type RestClient } from '../../lib/rest.ts';
-import { AVATAR_NO_PHOTO } from '../../lib/upload.ts';
+import { filterAliases } from '../../lib/customEmojis.ts';
+import { RC_ICON_ASSET } from '../../lib/serverIcon.ts';
+import { AVATAR_NO_PHOTO, type FileToSend } from '../../lib/upload.ts';
 
 type Doc = Record<string, unknown>;
 
@@ -376,6 +382,88 @@ export class AdminRC implements ProviderAdmin {
   latestVersion(): Promise<string | null> {
     return fetchLatestVersion('rocketchat');
   }
+
+  /** An administrator holds `manage-emoji` by default. */
+  canManageEmojis(): boolean {
+    return true;
+  }
+
+  /** `emoji-custom.list`: each emoji once, sorted by name. */
+  async emojis(): Promise<AdminEmoji[]> {
+    const list = await this.client.get<{ emojis?: { update?: unknown } }>('emoji-custom.list');
+    return rcEmojis(list.emojis?.update);
+  }
+
+  /**
+   * `emoji-custom.create`, multipart: the image in `emoji`, `name`, `aliases`
+   * comma-separated. A refusal arrives as `errorType` (400 `not_authorized`
+   * for a member, never 403).
+   */
+  async createEmoji(name: string, aliases: string[], image: FileToSend, io: AdminUploadIO): Promise<void> {
+    await postMultipart(this.client, io, 'emoji-custom.create', image, { name, aliases: aliases.join(',') }, 'emoji');
+  }
+
+  async deleteEmoji(emoji: AdminEmoji): Promise<void> {
+    await this.client.post('emoji-custom.delete', { body: { emojiId: emoji.id } });
+  }
+
+  /** `manage-assets` belongs to an administrator by default. */
+  canSetIcon(): boolean {
+    return true;
+  }
+
+  /** `assets.setAsset` (multipart `asset`, `assetName`) or `assets.unsetAsset`, on `favicon_192`. */
+  async setIcon(image: FileToSend | null, io: AdminUploadIO): Promise<void> {
+    if (image === null) {
+      await this.client.post('assets.unsetAsset', { body: { assetName: RC_ICON_ASSET } });
+      return;
+    }
+    await postMultipart(this.client, io, 'assets.setAsset', image, { assetName: RC_ICON_ASSET }, 'icon');
+  }
+}
+
+/**
+ * A multipart POST to Rocket.Chat (`emoji-custom.create`, `assets.setAsset`)
+ * through the screen's transport. Only the envelope's `success: true` is
+ * success: a proxy's 200 or an HTML page is not; a refusal comes as
+ * `errorType` (`emoji-custom.create` answers a member 400 `not_authorized`).
+ */
+async function postMultipart(
+  client: RestClient,
+  io: AdminUploadIO,
+  endpoint: string,
+  file: FileToSend,
+  fields: Record<string, string>,
+  subject: 'emoji' | 'icon',
+): Promise<void> {
+  const headers: Record<string, string> = {};
+  if (client.auth !== null) {
+    headers['X-Auth-Token'] = client.auth.authToken;
+    headers['X-User-Id'] = client.auth.userId;
+  }
+  const { status, body } = await io.transport(`${client.baseUrl}/api/v1/${endpoint}`, headers, file, undefined, undefined, fields);
+  let json: { success?: unknown; errorType?: unknown; error?: unknown } = {};
+  try {
+    json = JSON.parse(body) as typeof json;
+  } catch {
+    // Not Rocket.Chat's envelope: a failure below.
+  }
+  if (status < 400 && json.success === true) return;
+  const key = typeof json.errorType === 'string' ? adminRefusalKey(json.errorType, subject) : null;
+  if (key !== null) throw new AdminRefused(key);
+  throw new RestError(typeof json.error === 'string' ? json.error : `${endpoint} failed (${status}).`, status);
+}
+
+/** `emoji-custom.list`'s `update`, as the administration lists it. */
+export function rcEmojis(update: unknown): AdminEmoji[] {
+  if (!Array.isArray(update)) return [];
+  const found: AdminEmoji[] = [];
+  for (const raw of update as Doc[]) {
+    if (typeof raw?._id !== 'string' || typeof raw.name !== 'string') continue;
+    const aliases = filterAliases(raw.aliases);
+    found.push({ id: raw._id, name: raw.name, aliases, revision: '' });
+  }
+  return found.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /** `chat.reportMessage` and `moderation.reportUser`, open to any member. */

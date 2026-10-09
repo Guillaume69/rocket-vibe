@@ -30,7 +30,14 @@ const context = await browser.newContext({ locale: "en-US" }),
 const errors = [];
 page.on("pageerror", (error) => errors.push(error.message));
 const openSecurity = async () => {
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  // The account block opens a menu: settings, administration, sign out.
+  await page
+    .getByRole("button", {
+      name: "My account, settings and sign out",
+      exact: true,
+    })
+    .click();
+  await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: "Security", exact: true }).click();
 };
 const mailbox = async () =>
@@ -82,7 +89,14 @@ try {
     .click();
   console.log("PASS TOTP enrollment and recovery codes");
   await page.locator(".sidebar-dialog .preferences-close").click();
-  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  // The account block opens a menu: settings, administration, sign out.
+  await page
+    .getByRole("button", {
+      name: "My account, settings and sign out",
+      exact: true,
+    })
+    .click();
+  await page.getByRole("menuitem", { name: "Sign out", exact: true }).click();
   await page.getByLabel("Username or email").fill(username);
   await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
@@ -138,7 +152,14 @@ try {
     .getByRole("button", { name: "Disable email authentication", exact: true })
     .waitFor();
   await page.locator(".sidebar-dialog .preferences-close").click();
-  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  // The account block opens a menu: settings, administration, sign out.
+  await page
+    .getByRole("button", {
+      name: "My account, settings and sign out",
+      exact: true,
+    })
+    .click();
+  await page.getByRole("menuitem", { name: "Sign out", exact: true }).click();
   await page.getByLabel("Username or email").fill(username);
   await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();

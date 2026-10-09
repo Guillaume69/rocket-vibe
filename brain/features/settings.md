@@ -13,6 +13,7 @@ The settings gather my profile, the notification preference, the language, the e
 | E2EE key | device | Keystore | system keychain |
 | Keep running, start at login | device | n/a | Windows, macOS |
 | Automatic update checks | device | n/a | file `no-update-check` (absent = on) |
+| Hide the server rail | device | SecureStore `hide-server-rail` (`1` = hidden) | file `hide-server-rail` (present = hidden), GTK and SwiftUI |
 
 ## Layout: the same categories everywhere
 
@@ -29,7 +30,7 @@ The three apps group the settings in one list of categories, in this order, each
 - **Security** (`ui/nativeSecurity.tsx`) and **Devices** (`ui/devices.tsx`): RocketVibe 2FA, codes, email, reauthentication, and device sessions.
 - **Bots** (`ui/bots.tsx`): my bots, their scopes, keys and photo ([bots.md](bots.md)).
 - **Workflows** (`ui/workflows.tsx`): my workflows and their editor ([workflows.md](workflows.md)).
-- **Accounts**: signed in as `@username`, server URL, Change server (`/login?change=1`) ([login-and-servers.md](login-and-servers.md)).
+- **Accounts**: signed in as `@username`, server URL, the "Hide the server bar" switch (`ui/serverRailSetting.ts`), Change server (`/login?change=1`) ([login-and-servers.md](login-and-servers.md)).
 - **App**: the version (`expo-constants` `expoConfig.version`) and, on Rocket.Chat, the diagnostics: "Get the FCM token" (`FcmTokenSection`), which runs `getFcmToken` and prints the token, for push debugging ([notifications.md](notifications.md)).
 
 There is no theme setting: `useColors()` (`ui/theme.ts`) always returns the dark "Nuit Étoilée" palette. A light palette exists as data for a future "day" theme.
@@ -47,16 +48,16 @@ There is no theme setting: `useColors()` (`ui/theme.ts`) always returns the dark
 - **Encryption**: Rocket.Chat: state, and a button that locks or opens the unlock dialog. RocketVibe: `native_crypto::page`, built lazily; the recovery and history backup codes it may show are cleared as soon as the page is left (`unmap`), not only when the dialog closes.
 - **Security** (`native_security::page`) and **Devices** (`native_devices_page`): RocketVibe only, categories of the dialog rather than separate dialogs.
 - **Bots** (`settings/native_bots.rs`): RocketVibe with `bots`, see [bots.md](bots.md).
-- **Accounts**: every account signed in on this machine, the current one marked, switch to another, add an account (multi-account details in [login-and-servers.md](login-and-servers.md)); the server URL.
+- **Accounts** (`accounts_page`): every account signed in on this machine, the current one marked, switch to another, add an account (multi-account details in [login-and-servers.md](login-and-servers.md)); the "Hide the server bar" switch (an `adw::SwitchRow`, `AccountActions::hide_rail`, reading `rail::hidden`), whose subtitle says switching and adding stay possible there; the server URL.
 - **App**: background (Windows and macOS only, `background::SUPPORTED`: keep running when the window closes, tray icon or dock; start at login, Windows `Run` key, macOS launch agent, both launching with `--background`), then About: version (`CARGO_PKG_VERSION`), automatic update checks switch, "Check for updates" now ([desktop-updates.md](desktop-updates.md)), and the logs folder (`crashlog::dir()`) with a button to open it. RocketVibe accounts have it too.
 
 Fields are filled from `GET me` (`rv-core/src/account.rs::me`) before their change handlers are connected, so filling them writes nothing back.
 
 ### SwiftUI
 
-The settings are an overlay of the main window, not a `Settings` scene (removed): `SettingsOverlay` in `macos/Sources/RocketVibe/SettingsView.swift` puts the panel `SettingsView` in a `PanelOverlay` (dimmed backdrop, a click closes; shared with the administration), sized by `SettingsLayout` (`macos/Sources/RocketVibeKit/Settings.swift`: 85 % of the window, at least 360 x 360, at most 1100 x 800, one pane under 640 points). Command-comma (a `CommandGroup` replacing `.appSettings`) and the account bar's gear open it (`AppModel.openSettings`); Escape and the close button close it (`closeSettings`), and so does leaving for another account. The categories are `SettingsCategory` (same order; `visible(Scope)` decides: My account and Notifications once signed in, Voice when the account has voice (`AppModel.voice`), Encryption for Rocket.Chat's key or RocketVibe crypto, Security and Devices for RocketVibe, Bots with the `bots` feature), then, for an administrator, the "Server administration" link (`AppModel.administrator`, asked again each time the settings open; it closes the settings and opens the administration in the same `PanelOverlay`, [administration.md](administration.md)) and Sign out.
+The settings are an overlay of the main window, not a `Settings` scene (removed): `SettingsOverlay` in `macos/Sources/RocketVibe/SettingsView.swift` puts the panel `SettingsView` in a `PanelOverlay` (dimmed backdrop, a click closes; shared with the administration), sized by `SettingsLayout` (`macos/Sources/RocketVibeKit/Settings.swift`: 85 % of the window, at least 360 x 360, at most 1100 x 800, one pane under 640 points). Command-comma (a `CommandGroup` replacing `.appSettings`) and the account bar's menu (Settings, Server administration, Sign out) open it (`AppModel.openSettings`); Escape and the close button close it (`closeSettings`), and so does leaving for another account. The categories are `SettingsCategory` (same order; `visible(Scope)` decides: My account and Notifications once signed in, Voice when the account has voice (`AppModel.voice`), Encryption for Rocket.Chat's key or RocketVibe crypto, Security and Devices for RocketVibe, Bots with the `bots` feature), then, for an administrator, the "Server administration" link (`AppModel.administrator`, asked again each time the settings open; it closes the settings and opens the administration in the same `PanelOverlay`, [administration.md](administration.md)) and Sign out.
 
-- **My account**: `MyProfileSection` where the provider supports profiles. **Notifications**: `NotificationPreference` for `desktopNotifications`, a test notification, a link to the system settings. **Language**: the same config dir `language` file (or the RocketVibe preference). **Voice**: `VoiceSettings`. **Encryption**: Rocket.Chat state with Lock or Unlock (`UnlockSheet`, a modal overlay), RocketVibe `CryptoSection`. **Security**, **Devices**, **Bots**: `SecuritySection`, `DevicesSection`, `BotsSection`. **Accounts**: resume another, add one, the server. **App**: the version. No update checks, logs folder or background mode yet.
+- **My account**: `MyProfileSection` where the provider supports profiles. **Notifications**: `NotificationPreference` for `desktopNotifications`, a test notification, a link to the system settings. **Language**: the same config dir `language` file (or the RocketVibe preference). **Voice**: `VoiceSettings`. **Encryption**: Rocket.Chat state with Lock or Unlock (`UnlockSheet`, a modal overlay), RocketVibe `CryptoSection`. **Security**, **Devices**, **Bots**: `SecuritySection`, `DevicesSection`, `BotsSection`. **Accounts**: resume another, add one, the "Hide the server bar" `Toggle` (`AppModel.railHidden` / `setRailHidden`), the server. **App**: the version. No update checks, logs folder or background mode yet.
 
 ## Parity
 
@@ -95,3 +96,5 @@ The settings are an overlay of the main window, not a `Settings` scene (removed)
 - apps/mobile/ui/workflows.tsx
 - apps/desktop/crates/rv-gtk/src/settings/native_bots.rs
 - apps/desktop/macos/Sources/RocketVibe/BotsSection.swift
+- apps/mobile/ui/serverRailSetting.ts
+- apps/desktop/crates/rv-gtk/src/rail.rs

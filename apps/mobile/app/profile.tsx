@@ -210,6 +210,7 @@ export default function ProfileScreen() {
         uid: profile.uid,
         username: profile.username,
         avatarEtag: profile.avatarEtag,
+        name: profile.name,
       })
       .catch(() => {
         // An unavailable database must not prevent showing the profile.

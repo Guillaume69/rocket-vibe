@@ -1923,6 +1923,107 @@ impl NativeClient {
         )
         .await
     }
+    /// Sets the server's icon (PNG or JPEG, re-encoded as a square PNG), or
+    /// removes it with `None`; answers its new revision.
+    pub async fn admin_set_icon(
+        &self,
+        operation_id: &str,
+        image: Option<(&str, Vec<u8>)>,
+    ) -> Result<rv_protocol::admin::InstanceIcon, Error> {
+        let sent = self.saved_token().ok_or(Error::SessionMissing)?;
+        let url = format!(
+            "{}/api/v1/admin/icon?operation_id={}",
+            self.base,
+            encode(operation_id)
+        );
+        let request = match image {
+            Some((mime, bytes)) => self
+                .http
+                .put(url)
+                .header(reqwest::header::CONTENT_TYPE, mime)
+                .body(bytes),
+            None => self.http.delete(url),
+        };
+        let response = self
+            .accepted(request.bearer_auth(&sent).send().await?, None, Some(sent))
+            .await?;
+        Ok(response.json().await?)
+    }
+    /// The server's icon, public, at the revision its discovery announced.
+    pub async fn instance_icon(&self, revision: &str) -> Result<Vec<u8>, Error> {
+        let mut response = self
+            .accepted(
+                self.http
+                    .get(format!(
+                        "{}/api/v1/instance/icon?v={}",
+                        self.base,
+                        encode(revision)
+                    ))
+                    .send()
+                    .await?,
+                None,
+                None,
+            )
+            .await?;
+        if response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            != Some("image/png")
+        {
+            return Err(Error::InvalidAvatar);
+        }
+        let mut bytes = Vec::new();
+        while let Some(chunk) = response.chunk().await? {
+            if bytes.len() + chunk.len() > 2 * 1024 * 1024 {
+                return Err(Error::InvalidAvatar);
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        Ok(bytes)
+    }
+    /// Adds a custom emoji (raw PNG, JPEG or GIF); answers the new catalogue.
+    pub async fn admin_create_emoji(
+        &self,
+        name: &str,
+        input: &rv_protocol::custom_emojis::CreateEmoji,
+        image: Vec<u8>,
+    ) -> Result<rv_protocol::custom_emojis::EmojiCatalog, Error> {
+        if image.len() > 1024 * 1024 {
+            return Err(Error::InvalidEmoji);
+        }
+        let sent = self.saved_token().ok_or(Error::SessionMissing)?;
+        let path = format!(
+            "/api/v1/admin/emoji/{}?operation_id={}&aliases={}",
+            encode(name),
+            encode(&input.operation_id),
+            encode(&input.aliases)
+        );
+        let request = self
+            .http
+            .put(format!("{}{path}", self.base))
+            .bearer_auth(&sent)
+            .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
+            .body(image);
+        let response = self
+            .accepted(request.send().await?, None, Some(sent))
+            .await?;
+        Ok(response.json().await?)
+    }
+    pub async fn admin_remove_emoji(
+        &self,
+        name: &str,
+        input: &rv_protocol::custom_emojis::RemoveEmoji,
+    ) -> Result<rv_protocol::custom_emojis::EmojiCatalog, Error> {
+        let path = format!(
+            "/api/v1/admin/emoji/{}?operation_id={}&expected_revision={}",
+            encode(name),
+            encode(&input.operation_id),
+            encode(&input.expected_revision)
+        );
+        self.request(Method::DELETE, &path, None::<&()>, false)
+            .await
+    }
     pub async fn instance_settings(&self) -> Result<rv_protocol::bots::InstanceSettings, Error> {
         self.get("/api/v1/admin/settings").await
     }

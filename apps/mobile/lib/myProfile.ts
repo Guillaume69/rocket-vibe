@@ -93,14 +93,15 @@ export function readMyProfile(client: RestClient): Promise<MyProfile> {
  * the app was closed: no stream could announce it. `me` carries it without a
  * dedicated extra request (verified on 8.5).
  */
-export type MyIdentity = { uid: string; username: string; avatarEtag: string | null };
+export type MyIdentity = { uid: string; username: string; avatarEtag: string | null; name: string | null };
 
 export function identityFromMe(raw: MeResponse): MyIdentity | null {
   const uid = asString(raw._id);
   const username = asString(raw.username);
   if (uid === '' || username === '') return null;
   const etag = asString(raw.avatarETag);
-  return { uid, username, avatarEtag: etag === '' ? null : etag };
+  const name = asString(raw.name);
+  return { uid, username, avatarEtag: etag === '' ? null : etag, name: name === '' ? null : name };
 }
 
 export function readMyIdentity(client: RestClient): Promise<MyIdentity | null> {

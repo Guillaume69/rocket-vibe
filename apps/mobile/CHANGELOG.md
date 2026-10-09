@@ -7,15 +7,15 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
-### Fixed
-
-- Rocket.Chat: people are named the way the server says (`UI_Use_Real_Name`): usernames by default, real names when the server shows them, in notifications too, which showed real names while the app showed usernames. Search shows a channel's display name like the list.
-
 ### Added
 
 - The server bar shows each server's own icon when it has one, and administrators set or remove it from the Dashboard (Rocket.Chat and RocketVibe).
 - Server administration: administrators add custom emoji (name, aliases, image) and delete them, on Rocket.Chat and RocketVibe servers.
 - Settings > Accounts can hide the server bar, giving its width to the conversation list; switching and adding a server stay on that page.
+
+### Fixed
+
+- Rocket.Chat: people are named the way the server says (`UI_Use_Real_Name`): usernames by default, real names when the server shows them, in notifications too, which showed real names while the app showed usernames. Search shows a channel's display name like the list.
 
 ## [0.9.1] - 2026-10-09
 

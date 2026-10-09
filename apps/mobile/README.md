@@ -22,7 +22,7 @@ still in progress.
 
 A Rocket.Chat consumer client for Rocket.Chat **8** or newer (and the RocketVibe server),
 with a bounded **server administration** screen for administrators (dashboard,
-moderation of reports, rooms, accounts), not a settings console. The server URL is entered on the login screen.
+moderation of reports, rooms, accounts, custom emoji, the server's icon), not a settings console. The server URL is entered on the login screen.
 
 What it does today: password login + **2FA** (TOTP or password fallback), room list,
 message timeline (fast inverted list), native **markdown rendering**, sending /

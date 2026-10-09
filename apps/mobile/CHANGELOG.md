@@ -42,9 +42,13 @@ release, and its notes are that version's section here.
   kChat server when the account has several.
 - Mattermost and kChat: the server's custom emoji show in messages, reactions, the picker
   and completion.
-- kChat: kMeet calls show as call cards; join a running call, or see how long an ended
-  one lasted.
 - kChat: a room read in another kChat app is marked read here at once.
+- Mattermost and kChat: people show under your account's name setting (first and last
+  name by default on kChat), with their status emoji; conversations you closed in kChat
+  stay hidden, and only as many direct messages as your account asks are listed. Both
+  settings are in My account, shared with kChat's own apps. Integrations' cards show.
+- kChat: start a kMeet call from a room and join one from its card, as with Rocket.Chat's
+  calls.
 - Mattermost and kChat: the room list follows your sidebar, with your own categories as
   sections in your order and your favourites; favouriting a room from its information
   updates the server's sidebar too.

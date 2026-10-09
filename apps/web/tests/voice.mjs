@@ -142,6 +142,16 @@ try {
     exact: true,
   });
   await audioMenu.getByLabel("Output volume", { exact: true }).waitFor();
+  const dropdownWidth = await audioMenu
+    .getByLabel("Input device", { exact: true })
+    .evaluate((select) => select.getBoundingClientRect().width);
+  const menuWidth = await audioMenu.evaluate(
+    (menu) => menu.getBoundingClientRect().width,
+  );
+  assert.ok(
+    dropdownWidth >= menuWidth - 32,
+    "GTK device chooser fills the audio menu",
+  );
   const setRange = async (locator, value) =>
     locator.evaluate((input, value) => {
       input.value = String(value);
@@ -427,6 +437,104 @@ try {
       .locator(".voice-bar")
       .getByRole("button", { name: "Close", exact: true })
       .click();
+  const failureUser = await request("/api/v1/auth/login", null, {
+    username: process.env.RV_WEB_VOICE_FAILURE_USER || "webvoicefailure",
+    password,
+  });
+  await request(
+    "/api/v1/rooms/" + room.id + "/members/" + failureUser.user.id,
+    alice.token,
+    null,
+  );
+  const failedContext = await browser.newContext({
+    permissions: ["microphone"],
+    locale: "en-US",
+  });
+  contexts.push(failedContext);
+  await failedContext.addInitScript(() => {
+    window.__capturedMicrophones = [];
+    window.__peakMicrophones = 0;
+    const capture = navigator.mediaDevices.getUserMedia.bind(
+      navigator.mediaDevices,
+    );
+    navigator.mediaDevices.getUserMedia = async (options) => {
+      const stream = await capture(options);
+      window.__capturedMicrophones.push(...stream.getAudioTracks());
+      window.__peakMicrophones = Math.max(
+        window.__peakMicrophones,
+        window.__capturedMicrophones.filter(
+          (track) => track.enabled && track.readyState !== "ended",
+        ).length,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      return stream;
+    };
+    AudioContext.prototype.createMediaStreamDestination = function () {
+      throw new DOMException(
+        "Synthetic microphone processor failure",
+        "NotSupportedError",
+      );
+    };
+  });
+  const failurePage = await failedContext.newPage();
+  pages.push(failurePage);
+  await failurePage.goto(base);
+  await failurePage
+    .getByLabel("Username or email")
+    .fill(failureUser.user.username);
+  await failurePage.getByLabel("Password", { exact: true }).fill(password);
+  await failurePage
+    .getByRole("button", { name: "Sign in", exact: true })
+    .click();
+  await failurePage.locator(".status-dot.online").waitFor();
+  await failurePage
+    .locator('[data-room="' + room.id + '"]')
+    .first()
+    .click();
+  await failurePage.locator(".voice-status.connected").waitFor();
+  await failurePage
+    .locator('.voice-controls [aria-label="Microphone"][aria-pressed="true"]')
+    .waitFor();
+  await failurePage.waitForFunction(
+    () =>
+      window.__capturedMicrophones.length > 0 &&
+      window.__capturedMicrophones.every(
+        (track) => !track.enabled || track.readyState === "ended",
+      ),
+  );
+  await failurePage
+    .locator(".voice-controls")
+    .getByRole("button", { name: "Microphone", exact: true })
+    .click();
+  await failurePage
+    .locator(".voice-bar")
+    .getByRole("button", { name: "Microphone", exact: true })
+    .click();
+  await failurePage.waitForFunction(() =>
+    [
+      ...document.querySelectorAll(
+        '.voice-controls [aria-label="Microphone"],.voice-bar [aria-label="Microphone"]',
+      ),
+    ].every((button) => !button.disabled),
+  );
+  assert.equal(
+    await failurePage.evaluate(() => window.__peakMicrophones),
+    1,
+    "concurrent microphone controls must serialize capture attempts",
+  );
+  await failurePage.waitForFunction(() =>
+    window.__capturedMicrophones.every(
+      (track) => !track.enabled || track.readyState === "ended",
+    ),
+  );
+  await failurePage
+    .locator(".voice-bar")
+    .getByRole("button", { name: "Close", exact: true })
+    .click();
+  await failurePage.locator(".voice-bar").waitFor({ state: "detached" });
+  console.log(
+    "PASS a microphone processor failure really mutes capture before showing listening-only controls",
+  );
 } catch (error) {
   for (let i = 0; i < pages.length; i++) {
     console.log(

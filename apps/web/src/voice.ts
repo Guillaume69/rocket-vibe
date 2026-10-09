@@ -1,7 +1,7 @@
 import type { App } from "./app";
 import type { VoiceGrant, VoiceRing, LiveState } from "./protocol";
 import { Api, segment } from "./api";
-import { el, button, dialog, tile, toast } from "./dom";
+import { el, button, dialog, tile, toast, initials } from "./dom";
 import { icon, iconButton } from "./icons";
 import { nt } from "./native-i18n";
 import { tileLayout } from "./voice-grid";
@@ -13,10 +13,12 @@ import { t, language } from "./i18n";
 export class Voice {
   current?: string;
   room?: import("livekit-client").Room;
+  audioContext?: AudioContext;
   busy = false;
   lifecycle = 0;
   leaving: Promise<void> = Promise.resolve();
   voiceRequests: Promise<unknown> = Promise.resolve();
+  microphoneWork: Promise<void> = Promise.resolve();
   cancelled = false;
   ringDialogs = new Map<string, HTMLDialogElement>();
   bar = el("div", "voice-bar");
@@ -200,10 +202,15 @@ export class Voice {
       ]),
     );
     this.listeningAccount = account || "";
+    const audioContext = new AudioContext();
+    this.audioContext = audioContext;
+    this.gain = new MicrophoneGain(
+      volumeValue(Number(localStorage.getItem("rv-voice-input-volume") ?? 1)),
+    );
     const room = new Room({
       adaptiveStream: true,
       dynacast: true,
-      webAudioMix: true,
+      webAudioMix: { audioContext },
       audioCaptureDefaults: {
         echoCancellation: true,
         noiseSuppression: localStorage.getItem("rv-voice-noise") !== "false",
@@ -381,9 +388,10 @@ export class Voice {
     this.muted = !grant.can_publish;
     if (grant.can_publish) {
       try {
-        await room.localParticipant.setMicrophoneEnabled(true);
-        await this.processMicrophone(room);
+        await this.setMicrophone(room, true);
       } catch (error) {
+        if (!alive()) return;
+        await room.localParticipant.setMicrophoneEnabled(false);
         this.muted = true;
         toast(error);
       }
@@ -411,9 +419,8 @@ export class Voice {
         "Microphone",
         async () => {
           if (!alive()) return;
-          await room.localParticipant.setMicrophoneEnabled(this.muted);
+          await this.setMicrophone(room, this.muted);
           if (!alive()) return;
-          this.muted = !this.muted;
           sound(this.muted ? "mute" : "unmute");
           this.syncControls();
           this.syncCards();
@@ -591,9 +598,7 @@ export class Voice {
       portrait = tile(
         identity,
         "profile",
-        (person?.display_name || person?.username || name)
-          .slice(0, 1)
-          .toUpperCase(),
+        initials(person?.display_name || person?.username || name),
       );
     avatar.append(portrait);
     const tag = el("div", "voice-tile-tag"),
@@ -625,9 +630,7 @@ export class Voice {
           const updated = tile(
             identity,
             "profile",
-            (profile.user.display_name || profile.user.username)
-              .slice(0, 1)
-              .toUpperCase(),
+            initials(profile.user.display_name || profile.user.username),
           );
           portrait.className = updated.className;
           portrait.textContent = updated.textContent;
@@ -682,6 +685,68 @@ export class Voice {
       }
     }
   }
+  setMicrophone(
+    room: import("livekit-client").Room,
+    enabled: boolean,
+  ): Promise<void> {
+    const work = this.microphoneWork
+      .catch(() => {})
+      .then(() => this.applyMicrophone(room, enabled));
+    this.microphoneWork = work;
+    return work;
+  }
+  async applyMicrophone(
+    room: import("livekit-client").Room,
+    enabled: boolean,
+  ): Promise<void> {
+    if (this.room !== room) return;
+    const gain = this.gain,
+      context = this.audioContext;
+    let created: import("livekit-client").LocalAudioTrack | undefined;
+    try {
+      const existing = [
+        ...room.localParticipant.audioTrackPublications.values(),
+      ].find((publication) => publication.source === "microphone");
+      if (enabled && !existing) {
+        const { createLocalAudioTrack, Track } = await import("livekit-client");
+        created = await createLocalAudioTrack({
+          echoCancellation: true,
+          autoGainControl: true,
+          noiseSuppression: localStorage.getItem("rv-voice-noise") !== "false",
+          deviceId: localStorage.getItem("rv-audioinput") || undefined,
+        });
+        if (this.room !== room) {
+          created.stop();
+          return;
+        }
+        created.setAudioContext(context);
+        await created.setProcessor(gain);
+        if (this.room !== room) {
+          created.stop();
+          return;
+        }
+        await room.localParticipant.publishTrack(created, {
+          source: Track.Source.Microphone,
+        });
+      } else {
+        await room.localParticipant.setMicrophoneEnabled(enabled);
+        if (enabled) await this.processMicrophone(room);
+      }
+    } catch (error) {
+      if (created) {
+        created.stop();
+        await gain.destroy();
+      }
+      await room.localParticipant.setMicrophoneEnabled(false);
+      throw error;
+    } finally {
+      if (this.room === room) {
+        this.muted = !room.localParticipant.isMicrophoneEnabled;
+        this.syncControls();
+        this.syncCards();
+      }
+    }
+  }
   async processMicrophone(room: import("livekit-client").Room): Promise<void> {
     const track = [
       ...room.localParticipant.audioTrackPublications.values(),
@@ -720,18 +785,24 @@ export class Voice {
       );
     }
   }
-  popover(x: number, y: number): HTMLElement {
+  popover(x: number, y: number, above = false): HTMLElement {
     this.closeMenu();
-    const menu = el("div", "voice-menu"),
+    const menu = el("div", "voice-menu" + (above ? " above" : "")),
       abort = new AbortController();
     menu.setAttribute("role", "dialog");
     document.body.append(menu);
-    menu.style.left = Math.max(8, Math.min(x, window.innerWidth - 316)) + "px";
+    menu.style.left = Math.max(8, Math.min(x, window.innerWidth - 334)) + "px";
     menu.style.top = Math.max(8, y) + "px";
     const resize = new ResizeObserver(() => {
       const rect = menu.getBoundingClientRect();
       menu.style.top =
-        Math.max(8, Math.min(y, window.innerHeight - rect.height - 8)) + "px";
+        Math.max(
+          8,
+          Math.min(
+            above ? y - rect.height - 8 : y,
+            window.innerHeight - rect.height - 8,
+          ),
+        ) + "px";
     });
     resize.observe(menu);
     this.closeMenu = () => {
@@ -761,7 +832,13 @@ export class Voice {
     requestAnimationFrame(() => {
       const rect = menu.getBoundingClientRect();
       menu.style.top =
-        Math.max(8, Math.min(y, window.innerHeight - rect.height - 8)) + "px";
+        Math.max(
+          8,
+          Math.min(
+            above ? y - rect.height - 8 : y,
+            window.innerHeight - rect.height - 8,
+          ),
+        ) + "px";
     });
     return menu;
   }
@@ -780,12 +857,19 @@ export class Voice {
     input.max = "200";
     input.step = "1";
     input.value = String(Math.round(value * 100));
+    input.style.setProperty("--voice-volume-fill", String(value * 50) + "%");
     input.setAttribute("aria-label", nt(key));
     input.addEventListener("input", () => {
       amount.textContent = input.value + " %";
+      input.style.setProperty(
+        "--voice-volume-fill",
+        String(Number(input.value) / 2) + "%",
+      );
       change(Number(input.value) / 100);
     });
-    row.append(title, amount, input);
+    const rail = el("div", "voice-volume-rail");
+    rail.append(input);
+    row.append(title, amount, rail);
     menu.append(row);
   }
   async personMenu(
@@ -851,7 +935,11 @@ export class Voice {
     const room = this.room;
     if (!room) return;
     const bounds = anchor.getBoundingClientRect(),
-      menu = this.popover(bounds.left, bounds.top),
+      menu = this.popover(
+        bounds.left + bounds.width / 2 - 159,
+        bounds.top,
+        true,
+      ),
       lifecycle = this.lifecycle;
     menu.setAttribute("aria-label", nt("voice_menu.open"));
     const devices = await navigator.mediaDevices.enumerateDevices();
@@ -1039,6 +1127,7 @@ export class Voice {
     clearTimeout(this.peerLeaveTimer);
     this.peerLeaveTimer = undefined;
     this.syncControls = () => {};
+    this.microphoneWork = Promise.resolve();
     this.cancelled = true;
     this.loop?.pause();
     this.loop = undefined;
@@ -1048,6 +1137,8 @@ export class Voice {
     this.page.remove();
     const active = this.current || this.room;
     const room = this.room;
+    const audioContext = this.audioContext;
+    this.audioContext = undefined;
     const api = new Api();
     api.token = this.app.api.token;
     const previous = this.leaving;
@@ -1068,6 +1159,7 @@ export class Voice {
         await room.disconnect(true);
         sound("leave");
       }
+      await audioContext?.close().catch(() => {});
       await voiceRequests.catch(() => {});
       if (active && notify)
         try {

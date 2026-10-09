@@ -25,7 +25,16 @@ import type {
   MessagePermissions,
   FileDescriptor,
 } from "./protocol";
-import { el, button, field, tile, dialog, toast, stopMedia } from "./dom";
+import {
+  el,
+  button,
+  field,
+  tile,
+  dialog,
+  toast,
+  stopMedia,
+  initials,
+} from "./dom";
 import { icon, iconButton } from "./icons";
 import { audioControls } from "./audio";
 import { messageRow, type RowActions } from "./render";
@@ -1173,9 +1182,9 @@ export class App implements RowActions {
             const avatar = tile(
               participant.user.id,
               "header",
-              (participant.user.display_name || participant.user.username)
-                .slice(0, 1)
-                .toUpperCase(),
+              initials(
+                participant.user.display_name || participant.user.username,
+              ),
             );
             this.avatar(participant.user, avatar);
             const frame = el("div", "voice-avatar small");

@@ -71,6 +71,7 @@ jobs:
           export RV_SMTP_CONFIG_FILE="$PWD/.cache/smtp.json"
           export RV_LIVEKIT_CONFIG_FILE="$PWD/.cache/livekit.json"
           target/debug/rv-server create-user webalice --admin
+          target/debug/rv-server create-user webvoicefailure
           target/debug/rv-server create-user webbob
           target/debug/rv-server create-user websecurity
           target/debug/rv-server create-user webcomposer --admin

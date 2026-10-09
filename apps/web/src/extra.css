@@ -1041,3 +1041,115 @@ progress {
   grid-row: 2;
   align-self: center;
 }
+.voice-menu {
+  width: 318px;
+  padding: 14px;
+  gap: 6px;
+  background: #171529;
+}
+.voice-menu select {
+  background: #302c46;
+  border-radius: 8px;
+  min-height: 34px;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+.voice-menu > button {
+  align-self: flex-start;
+  background: transparent;
+}
+.voice-menu-check input {
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border: 2px solid #3e3a54;
+  border-radius: 5px;
+  position: relative;
+  margin: 0;
+  flex: none;
+}
+.voice-menu-check input:checked {
+  background: #ff5fa2;
+  border-color: #ff5fa2;
+}
+.voice-menu-check input:checked::after {
+  content: "";
+  position: absolute;
+  width: 10px;
+  height: 6px;
+  border-left: 2px solid #0b0913;
+  border-bottom: 2px solid #0b0913;
+  transform: rotate(-45deg);
+  top: 3px;
+  left: 3px;
+}
+.voice-menu-check input:focus-visible {
+  outline: 2px solid #34e1d0;
+  outline-offset: 3px;
+}
+.voice-volume-rail {
+  grid-column: 1;
+  grid-row: 2;
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+}
+.voice-volume-rail::after {
+  content: "";
+  position: absolute;
+  width: 1px;
+  height: 4px;
+  bottom: 8px;
+  left: 50%;
+  background: #8f89ab;
+  pointer-events: none;
+}
+.voice-volume input {
+  appearance: none;
+  height: 4px;
+  border: none;
+  border-radius: 999px;
+  margin: 0;
+  background: linear-gradient(
+    to right,
+    #ff5fa2 0 var(--voice-volume-fill),
+    #3e3a54 var(--voice-volume-fill) 100%
+  );
+}
+.voice-volume input::-webkit-slider-thumb {
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  background: #cfcfd0;
+  border: 0;
+  border-radius: 999px;
+}
+.voice-volume input::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  background: #cfcfd0;
+  border: 0;
+  border-radius: 999px;
+}
+.voice-volume output {
+  min-width: 46px;
+  margin-left: 4px;
+}
+.voice-menu select {
+  width: 100%;
+  max-width: none;
+}
+.voice-volume-rail {
+  padding: 0 12px;
+}
+.voice-volume-rail::after {
+  width: 6px;
+  height: 6px;
+  bottom: 5px;
+  transform: translateX(-50%) rotate(45deg);
+  background: #cfcfd0;
+}
+.voice-meter > span {
+  background: transparent;
+}

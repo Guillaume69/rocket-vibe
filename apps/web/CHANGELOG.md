@@ -6,6 +6,8 @@ All notable changes are documented here in English.
 
 ### Fixed
 
+- Apply microphone processing before publication, and stop capture on processor failure or a failed retry before displaying the listening state.
+
 - Match GTK settings categories, icons, profile subpages and administration navigation; remove text zoom and clock controls without GTK equivalents.
 - Use thin rounded scrollbars, bounded administrator-list avatars and a styled profile-photo picker.
 - Enter voice channels automatically, show their participants under the room and display the call in the main pane.

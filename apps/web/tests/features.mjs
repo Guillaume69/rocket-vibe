@@ -182,6 +182,12 @@ try {
   await a
     .getByRole("button", { name: "Stop recording", exact: true })
     .waitFor();
+  const duringRecording = await api(
+    "/api/v1/rooms/" + room.id + "/messages",
+    bob.token,
+    { text: "Live during recording " + tag, operation_id: crypto.randomUUID() },
+  );
+  await a.locator('[data-id="' + duringRecording.id + '"]').waitFor();
   await a.waitForTimeout(1200);
   await a.getByRole("button", { name: "Stop recording", exact: true }).click();
   await a.locator(".staged-chip").waitFor();
@@ -327,14 +333,20 @@ try {
   console.log("PASS service worker caches only the public application shell");
   assert.deepEqual(errors, []);
 } catch (error) {
+  console.error("Feature failure:", error.message);
   for (let index = 0; index < pages.length; index++) {
     console.log(
       "Feature UI:",
-      await pages[index].locator(".toast").allTextContents(),
+      await pages[index]
+        .locator(".toast")
+        .allTextContents()
+        .catch(() => []),
     );
-    await pages[index].screenshot({
-      path: "../../.cache/web-shots/features-failure-" + index + ".png",
-    });
+    await pages[index]
+      .screenshot({
+        path: "../../.cache/web-shots/features-failure-" + index + ".png",
+      })
+      .catch(() => {});
   }
   throw error;
 } finally {

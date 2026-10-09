@@ -6,6 +6,35 @@ const rejected = () =>
     { code: "session_rejected", request_id: "native-envelope" },
     { status: 401 },
   );
+test("a chunked protected file reports actual bytes without Content-Length", async (context) => {
+  const api = new Api();
+  api.token = "fixture";
+  const seen: number[] = [];
+  context.mock.method(
+    globalThis,
+    "fetch",
+    async () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new Uint8Array([1, 2]));
+            controller.enqueue(new Uint8Array([3, 4, 5]));
+            controller.close();
+          },
+        }),
+        { headers: { "Content-Type": "video/webm" } },
+      ),
+  );
+  const blob = await api.blob("/api/v1/files/fixture", (bytes) =>
+    seen.push(bytes),
+  );
+  assert.deepEqual(seen, [2, 5]);
+  assert.equal(blob.type, "video/webm");
+  assert.deepEqual(
+    [...new Uint8Array(await blob.arrayBuffer())],
+    [1, 2, 3, 4, 5],
+  );
+});
 test("only a native authenticated rejection expires the active bearer", async (context) => {
   const api = new Api();
   api.token = "old";

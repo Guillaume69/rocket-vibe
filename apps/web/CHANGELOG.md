@@ -6,6 +6,13 @@ All notable changes are documented here in English.
 
 ### Fixed
 
+- Keep audio, video and embedded-site players connected during message updates, including fullscreen video during live reactions.
+- Match GTK's video attachment frame, first image, inline controls, elapsed/remaining counters and file caption; put audio controls below the file header.
+- Recognize canonical YouTube, Dailymotion and Vimeo links, including short and live URLs, deduplicate them and show at most three native-style cards per message.
+- Identify video embeds with the service origin while withholding room paths and bearer tokens, and restore the thumbnail when playback is stopped.
+- Show protected download progress using the attachment's known size, including chunked responses without a content length.
+- Preserve the voice-recording stop control through live upload refreshes, and stop delayed microphone capture after room or session changes.
+
 - Apply microphone processing before publication, and stop capture on processor failure or a failed retry before displaying the listening state.
 - Detect quiet speech from decoded audio with GTK's thresholds, meter decay and speaking hangover, and send the native deafen attribute.
 - Return the sidebar call panel to the active call's room.

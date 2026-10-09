@@ -4,10 +4,64 @@ export function stopMedia(node: ParentNode): void {
       !player.classList.contains("voice-audio") &&
       !player.classList.contains("voice-camera")
     ) {
+      player.dispatchEvent(new Event("rv-media-release"));
       player.pause();
       player.removeAttribute("src");
       player.load();
     }
+}
+// Keep players connected while replacing the rest of a live message. Moving an
+// iframe into a fresh row destroys its browsing context even if the node survives.
+export function retainMessageMedia(
+  old: HTMLElement,
+  next: HTMLElement,
+): boolean {
+  const column = old.querySelector<HTMLElement>(".message-column");
+  const fresh = next.querySelector<HTMLElement>(".message-column");
+  if (!column || !fresh) return false;
+  const key = (node: HTMLElement) =>
+    node.dataset.fileId
+      ? "file:" + node.dataset.fileId + ":" + node.dataset.fileHash
+      : node.dataset.videoKey
+        ? "video:" + node.dataset.videoKey
+        : undefined;
+  const retained = new Map<HTMLElement, HTMLElement>();
+  for (const candidate of fresh.children) {
+    const identity = key(candidate as HTMLElement);
+    if (!identity) continue;
+    const previous = [...column.children].find(
+      (child) => key(child as HTMLElement) === identity,
+    ) as HTMLElement | undefined;
+    if (!previous) continue;
+    retained.set(candidate as HTMLElement, previous);
+    if (previous.dataset.videoKey) {
+      const heading = candidate.querySelector(".video-heading");
+      if (heading)
+        previous.querySelector(".video-heading")?.replaceWith(heading);
+    }
+  }
+  if (!retained.size) return false;
+  for (const child of [...column.children])
+    if (![...retained.values()].includes(child as HTMLElement)) {
+      stopMedia(child);
+      child.remove();
+    }
+  const children = [...fresh.children].map(
+    (child) => retained.get(child as HTMLElement) || child,
+  );
+  children.forEach((child, index) => {
+    const before = column.children[index] || null;
+    if (before === child) return;
+    if (child.isConnected && "moveBefore" in column)
+      column.moveBefore(child, before);
+    else column.insertBefore(child, before);
+  });
+  for (const selector of [".message-gutter", ".row-more"])
+    old.querySelector(selector)?.replaceWith(next.querySelector(selector)!);
+  old.className = next.className;
+  old.dataset.stamp = next.dataset.stamp;
+  stopMedia(next);
+  return true;
 }
 export function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,

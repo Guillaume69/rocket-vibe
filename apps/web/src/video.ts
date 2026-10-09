@@ -1,55 +1,73 @@
 import { el, button } from "./dom";
-import { language } from "./i18n";
+import { iconButton } from "./icons";
+import { nt } from "./native-i18n";
+import { videoLink } from "./video-links";
+import type { LinkPreview } from "./protocol";
 export function videoOrigin(href: string): string | undefined {
-  const url = new URL(href);
-  let id: string | undefined;
-  if (
-    ["youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"].includes(
-      url.hostname,
-    )
-  ) {
-    id =
-      url.hostname === "youtu.be"
-        ? url.pathname.slice(1)
-        : url.pathname.startsWith("/shorts/")
-          ? url.pathname.slice(8)
-          : url.searchParams.get("v") || undefined;
-    if (id && /^[a-zA-Z0-9_-]{11}$/.test(id))
-      return "https://www.youtube-nocookie.com/embed/" + id;
-  }
-  if (["vimeo.com", "www.vimeo.com"].includes(url.hostname)) {
-    id = url.pathname.slice(1);
-    if (/^[0-9]{1,16}$/.test(id)) return "https://player.vimeo.com/video/" + id;
-  }
-  if (
-    ["dailymotion.com", "www.dailymotion.com", "dai.ly"].includes(url.hostname)
-  ) {
-    id =
-      url.hostname === "dai.ly"
-        ? url.pathname.slice(1)
-        : url.pathname.split("/video/")[1]?.split("_")[0];
-    if (id && /^[a-zA-Z0-9]{1,20}$/.test(id))
-      return "https://www.dailymotion.com/embed/video/" + id;
-  }
+  return videoLink(href)?.embed;
 }
-export function videoCard(href: string): HTMLElement | undefined {
-  const origin = videoOrigin(href);
-  if (!origin) return;
-  const card = el("div", "link-card video-card");
-  card.append(
-    button(language === "fr" ? "Lire la vidéo" : "Play video", () => {
+export function videoCard(
+  href: string,
+  metadata?: LinkPreview,
+): HTMLElement | undefined {
+  const video = videoLink(href);
+  if (!video) return;
+  const card = el("div", "link-card embedded-video"),
+    top = el("div", "video-site-top"),
+    heading = el("a", "video-heading");
+  card.dataset.videoUrl = video.url;
+  card.dataset.videoKey = video.provider + ":" + video.id;
+  heading.href = video.url;
+  heading.target = "_blank";
+  heading.rel = "noopener noreferrer";
+  heading.title = video.url;
+  heading.append(el("div", "link-site", video.provider));
+  if (metadata?.title) heading.append(el("div", "link-title", metadata.title));
+  if (metadata?.site)
+    heading.append(el("div", "link-description", metadata.site));
+  const frame = button(
+    "",
+    () => {
+      if (card.querySelector("iframe")) return;
       const iframe = el("iframe", "video-player");
-      iframe.src = origin;
-      iframe.title = language === "fr" ? "Vidéo" : "Video";
-      iframe.referrerPolicy = "no-referrer";
+      const source = new URL(video.embed);
+      source.searchParams.set("autoplay", "1");
+      iframe.src = source.href;
+      iframe.title = metadata?.title || video.provider;
+      // Provider identification receives the origin, never a private room path.
+      iframe.referrerPolicy = "strict-origin-when-cross-origin";
       iframe.allow = "autoplay; fullscreen; picture-in-picture";
       iframe.allowFullscreen = true;
       iframe.setAttribute(
         "sandbox",
-        "allow-scripts allow-same-origin allow-presentation",
+        "allow-scripts allow-same-origin allow-presentation allow-popups allow-popups-to-escape-sandbox",
       );
-      card.replaceChildren(iframe);
-    }),
+      card.append(iframe);
+      setVideoPlaying(card, true);
+    },
+    "video-thumb preview-image",
   );
+  frame.setAttribute("aria-label", nt("file.play") + " " + video.provider);
+  const badge = el("span", "media-play-badge");
+  badge.innerHTML =
+    '<svg viewBox="0 0 60 60" aria-hidden="true"><circle cx="30" cy="30" r="30" fill="#000" fill-opacity=".55"/><path d="M21.6 18 43.2 30 21.6 42Z" fill="#fff"/></svg>';
+  frame.append(badge);
+  const stop = iconButton(
+    "close",
+    nt("player.stop"),
+    () => {
+      card.querySelector("iframe")?.remove();
+      setVideoPlaying(card, false);
+    },
+    "flat video-site-stop",
+  );
+  stop.hidden = true;
+  top.append(heading, stop);
+  card.append(top, frame);
   return card;
+}
+export function setVideoPlaying(card: HTMLElement, playing: boolean): void {
+  card.classList.toggle("playing", playing);
+  card.querySelector<HTMLElement>(".video-thumb")!.hidden = playing;
+  card.querySelector<HTMLElement>(".video-site-stop")!.hidden = !playing;
 }

@@ -23,6 +23,10 @@ A voice message is an audio file recorded from the microphone and sent through t
 
 `VoiceRecorder` in `Composer.swift` records with `AVAudioRecorder` to AAC `.m4a` (44.1 kHz, mono, 64 kbps), after asking microphone access. The field row shows the elapsed time and a cancel button; the stop button (`stopVoice`, `voice.stop`) renames the file `voice-message-<timestamp>.m4a` and stages it with the other files. Its chip plays it (`StagedAudio`, an `AVAudioPlayer` stopped when the chip goes); the draft becomes its caption and ➤ sends it like any staged file (`RoomModel.attach`, room or thread), as `audio/mp4` (`mimeType`) and temporary, since it lives in the outgoing cache (`isOwnCopy`); removing the chip deletes it. A recording shorter than 0.5 s is discarded as empty.
 
+## Web
+
+`apps/web/src/app.ts::record` uses the browser's MediaRecorder format, with its actual MIME type and a matching WebM, Ogg or MP4 filename. Stopping stages the audio rather than sending it. The recording's stop control survives upload/live refreshes; a delayed microphone permission result is discarded after the originating room, account or membership changes. The advanced browser suite injects a real incoming message during recording, then records, stages, uploads and plays the resulting protected audio inline. Browser codec support differs from the native recording pipelines.
+
 ## Why the formats differ
 
 GTK uses Ogg/Opus, which "Rocket.Chat's web and mobile clients both play" (`recorder.rs`). SwiftUI uses AAC `.m4a`, "as the Android app sends them", since AVFoundation records AAC natively.
@@ -32,6 +36,10 @@ GTK uses Ogg/Opus, which "Rocket.Chat's web and mobile clients both play" (`reco
 Recording, replay and caption before sending, and sending exist in all three: the recording is staged like a file and leaves with ➤, in the room or a thread, encrypted RocketVibe rooms included. SwiftUI checked by the macOS CI build only.
 
 ## Sources
+
+- apps/web/src/app.ts
+- apps/web/src/audio.ts
+- apps/web/tests/features.mjs
 
 - apps/mobile/ui/composer.tsx
 - apps/mobile/ui/attachmentPreview.tsx

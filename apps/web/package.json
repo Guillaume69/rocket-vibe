@@ -14,6 +14,7 @@
     "test:voice": "node tests/voice.mjs",
     "test:security": "node tests/security.mjs",
     "test:features": "node tests/features.mjs",
+    "test:media": "node tests/media.mjs",
     "test:sessions": "node tests/sessions.mjs",
     "test:locked": "node tests/locked.mjs",
     "test:composer": "node tests/composer.mjs",

@@ -555,6 +555,33 @@
   width: 100%;
   flex: 1;
   accent-color: #eee8ff;
+  appearance: none;
+  padding: 0;
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    #ff5fa2 var(--played, 0%),
+    #ffffff33 var(--played, 0%)
+  );
+}
+.audio-controls input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #d2d2d2;
+}
+.audio-controls input[type="range"]::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 50%;
+  background: #d2d2d2;
+}
+.audio-volume-box {
+  position: relative;
+  flex: none;
 }
 .audio-controls .audio-time {
   color: #bdb7d6;
@@ -565,9 +592,185 @@
 .audio-engine {
   display: none;
 }
+.video-attachment {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: min(360px, 100%);
+  margin-top: 4px;
+}
+.video-attachment .video-frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  cursor: pointer;
+}
+.video-attachment .attachment-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-height: none !important;
+  object-fit: contain;
+}
+.video-play-trigger {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border-radius: 0;
+}
+.video-play-trigger[hidden],
+.video-bar[hidden] {
+  display: none !important;
+}
+.media-play-badge {
+  width: 60px;
+  height: 60px;
+  display: block;
+}
+.media-play-badge svg {
+  width: 100%;
+  height: 100%;
+}
+.video-attachment .video-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: default;
+}
+.video-bar .audio-controls {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+  margin: 0;
+  gap: 4px;
+}
+.video-bar .audio-time {
+  color: #fff;
+  font-size: 13px;
+}
+.video-bar button {
+  flex: none;
+}
+.video-frame:fullscreen {
+  width: 100vw;
+  height: 100dvh;
+  aspect-ratio: auto;
+  border-radius: 0;
+}
+.video-caption {
+  gap: 6px;
+}
+.video-caption .file-title {
+  font-weight: 400;
+  font-size: 13px;
+}
+.embedded-video {
+  width: min(326px, 100%);
+}
+.embedded-video .video-site-top {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+}
+.video-heading {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  text-decoration: none;
+  color: inherit;
+}
+.embedded-video .video-thumb {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 16/9;
+  margin-top: 4px;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 10px;
+}
+.video-thumb .media-play-badge {
+  width: 56px;
+  height: 56px;
+  z-index: 1;
+}
+.video-thumb .link-preview-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.embedded-video .video-thumb[hidden],
+.video-site-stop[hidden] {
+  display: none !important;
+}
+.embedded-video.playing {
+  width: min(506px, 100%);
+}
+.media-transfer {
+  height: 4px;
+  border-radius: 999px;
+  background: #2c2946;
+  overflow: hidden;
+}
+.media-transfer[hidden] {
+  display: none !important;
+}
+.media-transfer-fill {
+  height: 100%;
+  background: #ff5fa2;
+  border-radius: 999px;
+}
+.video-frame .media-transfer {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+}
+.embedded-video .video-player {
+  display: block;
+}
+.video-caption .file-download {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  color: #edeafb;
+  padding: 5px;
+}
 .audio-controls .audio-volume {
-  width: 70px !important;
+  position: absolute;
+  bottom: 38px;
+  left: 2px;
+  width: 24px !important;
+  height: 112px !important;
+  writing-mode: vertical-lr;
+  direction: rtl;
+  background: #302c46;
+  border: 10px solid #302c46;
+  box-sizing: content-box;
+  border-radius: 10px;
+  z-index: 4;
   flex: none !important;
+}
+.audio-controls .audio-volume[hidden] {
+  display: none !important;
 }
 .preferences-sidebar-close {
   display: none;

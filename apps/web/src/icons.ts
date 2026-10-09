@@ -42,9 +42,11 @@ import cameraWebIcon from "./icons-native/camera-web-symbolic.svg";
 import volumeLowIcon from "./icons-native/audio-volume-low-symbolic.svg";
 import fullscreenIcon from "./icons-native/view-fullscreen-symbolic.svg";
 import restoreIcon from "./icons-native/view-restore-symbolic.svg";
+import openFileIcon from "./icons-native/document-open-symbolic.svg";
 const native: Record<string, string> = {
   fullscreen: fullscreenIcon,
   restore: restoreIcon,
+  "open-file": openFileIcon,
   camera: cameraWebIcon,
   "volume-low": volumeLowIcon,
   "audio-menu": panUpIcon,

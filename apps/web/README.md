@@ -32,6 +32,7 @@ The Node tests cover model ordering/access withdrawal and authenticated error ha
 npx playwright install chromium
 RV_WEB_TEST_URL=http://127.0.0.1:3417 npm run test:browser
 RV_WEB_TEST_URL=http://127.0.0.1:3417 npm run test:features
+RV_WEB_TEST_URL=http://127.0.0.1:3417 npm run test:media
 RV_WEB_TEST_URL=http://127.0.0.1:3417 npm run test:voice
 RV_WEB_TEST_URL=http://127.0.0.1:3417 npm run test:sessions
 RV_WEB_TEST_URL=http://127.0.0.1:3417 npm run test:locked
@@ -50,6 +51,8 @@ One origin/account intentionally replaces the GTK server rail. Browser storage r
 Calls use GTK's tile geometry, listening gains, PCM speaking thresholds and peer-reconnection grace. The quality picker configures screen capture and encoding; the browser supplies its source consent picker. Fullscreen and the stage follow share takeover. Screen sound requires a confirmed `restrictOwnAudio` capture setting, otherwise video remains without program sound. GTK's opt-in include-call preference mixes remote microphones separately and respects listening volume, local mute and deafen. Browser-native noise suppression differs from GTK RNNoise. Physical-device and platform program-sound qualification remain incomplete.
 
 The voice suite transmits real microphone, camera, screen and shared-sound RTP through the isolated SFU. The program-sound source is a controlled fixture whose exclusion setting is marked explicitly; it proves pre-publication processing and cleanup, not operating-system loopback exclusion. Native GTK/browser interop is also exercised locally in the mandatory Fedora environment.
+
+The media suite uses separate `webmedia` and `webmediapeer` disposable accounts. It records and uploads a real video, checks the GTK frame and playback controls, keeps media and fullscreen during live reactions, and stops private playback on access withdrawal. External provider embeds use intercepted fixture responses to verify origin-only identification and context retention; this does not qualify vendor streaming. Browser downloads map GTK's external application action.
 
 Encrypted rooms, browser crypto enrolment/recovery and Rocket.Chat provider support are outside the accepted scope. Complete GTK visual parity remains under qualification; the DOM editor follows GTK's draft styling, selection and marker visibility.
 

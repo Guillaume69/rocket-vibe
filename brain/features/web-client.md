@@ -24,6 +24,8 @@ Speaking now uses the native PCM thresholds, decay and hangover instead of SFU h
 
 Known qualification debt: full GTK visual-state comparisons, closed-tab Web Push, offline signout replay, and exhaustive call/device/platform qualification. The detailed inventory and current evidence live in `docs/WEB_CLIENT_EXECUTION.md`. Implemented code is not a claim of complete GTK parity.
 
+Media uses GTK-style inline controls, protected video posters and native human-readable file sizes. Canonical video-site cards are capped at three, and remain connected through live reactions. The provider iframe receives the serving origin as its referrer, with no room path or authenticated API header. Protected video playback, seeking, volume, fullscreen and access withdrawal are qualified with a recorded/uploaded clip that also plays in the actual GTK reference. Provider streaming itself remains unqualified because the browser suite intercepts external embeds. Browser downloads map opening a local copy in another application; see [media playback](media-playback.md).
+
 ## Sources
 
 - apps/web/README.md
@@ -37,5 +39,12 @@ Known qualification debt: full GTK visual-state comparisons, closed-tab Web Push
 - apps/web/src/voice-share-audio.ts
 - apps/web/src/security.ts
 - apps/web/src/email.ts
+- apps/web/src/audio.ts
+- apps/web/src/video-attachment.ts
+- apps/web/src/video-links.ts
+- apps/web/src/video.ts
+- apps/web/src/media-format.ts
+- apps/web/src/dom.ts
+- apps/web/tests/media.mjs
 - docs/WEB_CLIENT_EXECUTION.md
 - docs/rfcs/0005-web-client.md

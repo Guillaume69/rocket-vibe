@@ -33,10 +33,13 @@ import {
   dialog,
   toast,
   stopMedia,
+  retainMessageMedia,
   initials,
 } from "./dom";
 import { icon, iconButton } from "./icons";
 import { audioControls } from "./audio";
+import { attachVideo } from "./video-attachment";
+import { humanSize } from "./media-format";
 import { messageRow, type RowActions } from "./render";
 import { t, language, setLanguage } from "./i18n";
 import { enqueueUpload, flushUploads, type UploadJob } from "./uploads";
@@ -117,6 +120,7 @@ export class App implements RowActions {
   connection = "offline";
   quote?: Message;
   recorder?: MediaRecorder;
+  fileWork = new WeakMap<HTMLElement, Promise<void>>();
   main = el("main", "shell");
   sidebar = el("aside", "sidebar");
   rooms = el("div", "rooms");
@@ -1449,7 +1453,7 @@ export class App implements RowActions {
         new Date(previous.created_at).toDateString() ===
           new Date(message.created_at).toDateString();
       const old = existing.get(message.id);
-      const next =
+      let next =
         old &&
         (old.dataset.editing === "true" ||
           (old.dataset.stamp === JSON.stringify(message) &&
@@ -1457,19 +1461,8 @@ export class App implements RowActions {
           ? old
           : messageRow(message, this.account!.session.user.id, this, grouped);
       if (old && old !== next) {
-        for (const card of old.querySelectorAll<HTMLElement>(
-          "[data-file-id]",
-        )) {
-          const matching = [
-            ...next.querySelectorAll<HTMLElement>("[data-file-id]"),
-          ].find(
-            (item) =>
-              item.dataset.fileId === card.dataset.fileId &&
-              item.dataset.fileHash === card.dataset.fileHash,
-          );
-          if (matching) matching.replaceWith(card);
-        }
-        stopMedia(old);
+        if (retainMessageMedia(old, next)) next = old;
+        else stopMedia(old);
       }
       nodes.push(next);
       previous = message.system ? undefined : message;
@@ -1477,9 +1470,17 @@ export class App implements RowActions {
     for (const old of existing.values())
       if (!nodes.includes(old)) stopMedia(old);
     // Move retained widgets so selection, media playback and focus survive a sync.
+    for (const child of [...container.children])
+      if (!nodes.includes(child as HTMLElement)) child.remove();
     for (let index = 0; index < nodes.length; index++) {
       if (container.children[index] !== nodes[index])
-        container.insertBefore(nodes[index], container.children[index] || null);
+        if (nodes[index].isConnected && "moveBefore" in container)
+          container.moveBefore(nodes[index], container.children[index] || null);
+        else
+          container.insertBefore(
+            nodes[index],
+            container.children[index] || null,
+          );
     }
     while (container.children.length > nodes.length)
       container.lastElementChild!.remove();
@@ -2378,6 +2379,19 @@ export class App implements RowActions {
     node.prepend(element);
   }
   async file(file: FileDescriptor, node: HTMLElement): Promise<void> {
+    const pending = this.fileWork.get(node);
+    if (pending) return pending;
+    const work = this.loadFile(file, node);
+    this.fileWork.set(node, work);
+    try {
+      await work;
+    } finally {
+      const progress = node.querySelector<HTMLElement>(".media-transfer");
+      if (progress) progress.hidden = true;
+      this.fileWork.delete(node);
+    }
+  }
+  async loadFile(file: FileDescriptor, node: HTMLElement): Promise<void> {
     if (file.encrypted) throw new Error(t("encryptedHint"));
     if (!this.account || !this.model.rooms.has(file.room_id))
       throw new Error("Conversation no longer available");
@@ -2394,8 +2408,29 @@ export class App implements RowActions {
         membership;
     const account = this.account.key,
       path = "/api/v1/files/" + segment(file.id);
-    const blob = (await cached(account, path)) || (await this.api.blob(path));
+    const status =
+      node.querySelector<HTMLElement>(".video-caption .file-detail") ||
+      node.querySelector<HTMLElement>(".file-top .file-detail");
+    const total = Number(file.bytes);
+    let progress = node.querySelector<HTMLElement>(".media-transfer");
+    const show = (received: number) => {
+      if (!valid()) return;
+      if (status)
+        status.textContent =
+          humanSize(received) + " / " + humanSize(file.bytes);
+      if (!progress) {
+        progress = el("div", "media-transfer");
+        progress.append(el("div", "media-transfer-fill"));
+        (node.querySelector(".video-frame") || node).append(progress);
+      }
+      progress.hidden = false;
+      (progress.firstElementChild as HTMLElement).style.width =
+        Math.min(100, total > 0 ? (received / total) * 100 : 100) + "%";
+    };
+    const blob =
+      (await cached(account, path)) || (await this.api.blob(path, show));
     if (generation !== this.generation) return;
+    if (!valid()) return;
     const hash = Array.from(
       new Uint8Array(
         await crypto.subtle.digest("SHA-256", await blob.arrayBuffer()),
@@ -2417,6 +2452,8 @@ export class App implements RowActions {
     urls.add(url);
     this.roomURLs.set(file.room_id, urls);
     node.dataset.loaded = "true";
+    if (status)
+      status.textContent = humanSize(file.bytes) + " · " + file.media_type;
     if (file.media_type.startsWith("image/")) {
       const image = el("img", "image-attachment");
       image.src = url;
@@ -2434,25 +2471,38 @@ export class App implements RowActions {
       file.media_type.startsWith("audio/") ||
       file.media_type.startsWith("video/")
     ) {
-      const player = file.media_type.startsWith("audio/")
-        ? el("audio")
-        : el("video");
-      player.controls = player instanceof HTMLVideoElement;
+      const audio = file.media_type.startsWith("audio/");
+      const player = audio ? el("audio") : el("video");
+      player.controls = false;
       player.src = url;
-      if (player instanceof HTMLAudioElement) {
+      if (audio) {
         player.classList.add("audio-engine");
-        node.prepend(audioControls(player));
+        node.append(player, audioControls(player));
+      } else {
+        player.dataset.bytes = file.bytes;
+        player.dataset.mediaType = file.media_type;
+        attachVideo(node, player as HTMLVideoElement);
       }
-      node.prepend(player);
     }
     const link = el("a", "file-download");
     link.setAttribute("aria-label", t("download"));
     link.title = t("download");
-    link.append(icon("download"));
+    link.append(
+      icon(file.media_type.startsWith("video/") ? "open-file" : "download"),
+    );
     node.querySelector(".file-download-trigger")?.remove();
     link.href = url;
     link.download = file.filename || file.id;
-    node.querySelector(".file-top")?.append(link);
+    if (file.media_type.startsWith("video/")) {
+      link.title = nt("video.open_elsewhere");
+      link.setAttribute("aria-label", link.title);
+    }
+    const top = node.querySelector(".file-top"),
+      action = top?.querySelector(".file-play-trigger,.file-action");
+    if (top) {
+      if (action) top.insertBefore(link, action);
+      else top.append(link);
+    }
     if (
       file.media_type.startsWith("audio/") ||
       file.media_type.startsWith("video/")
@@ -2633,7 +2683,10 @@ export class App implements RowActions {
     this.renderUploads();
   }
   renderUploads(): void {
+    const recording = this.strip.querySelector(".record-bar");
     this.strip.replaceChildren();
+    if (recording && this.recorder?.state === "recording")
+      this.strip.append(recording);
     for (const file of this.staged) {
       const chip = el("div", "staged-chip");
       chip.append(
@@ -2813,18 +2866,29 @@ export class App implements RowActions {
       this.recorder.stop();
       return;
     }
+    const generation = this.generation,
+      account = this.account?.key,
+      room = this.room,
+      membership = this.model.rooms.get(room)?.read_state?.membership_version;
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    if (
+      generation !== this.generation ||
+      account !== this.account?.key ||
+      room !== this.room ||
+      !this.model.rooms.has(room) ||
+      this.model.rooms.get(room)?.read_state?.membership_version !== membership
+    ) {
+      stream.getTracks().forEach((track) => track.stop());
+      return;
+    }
     const chunks: Blob[] = [];
     const recorder = new MediaRecorder(stream);
     this.recorder = recorder;
-    const generation = this.generation;
     const stop = button(t("stop"), () => recorder.stop(), "record-bar");
     this.strip.append(stop);
     recorder.ondataavailable = (event) => {
       if (event.data.size) chunks.push(event.data);
     };
-    const account = this.account?.key,
-      room = this.room;
     recorder.onstop = () => {
       stream.getTracks().forEach((track) => track.stop());
       stop.remove();

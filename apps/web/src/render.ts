@@ -10,9 +10,13 @@ import { t, language } from "./i18n";
 import { systemText } from "./presentation";
 import { emojiGlyph } from "./emoji";
 import { videoCard } from "./video";
+import { videoLink, videoLinks } from "./video-links";
 import { iconButton } from "./icons";
 import { botBadge } from "./bots";
 import { formCard } from "./workflow-forms";
+import { videoAttachment } from "./video-attachment";
+import { humanSize } from "./media-format";
+import { nt } from "./native-i18n";
 export function safeLink(href: string): string | undefined {
   try {
     const url = new URL(href, location.origin);
@@ -202,6 +206,12 @@ export function messageRow(
       el("span", "message-note", language === "fr" ? "modifié" : "edited"),
     );
   for (const file of message.files || []) {
+    if (file.media_type.startsWith("video/") && !file.encrypted) {
+      column.append(
+        videoAttachment(file, (file, node) => actions.file(file, node)),
+      );
+      continue;
+    }
     const card = el("div", "file-card");
     card.dataset.fileId = file.id;
     card.dataset.fileHash = file.sha256;
@@ -209,19 +219,13 @@ export function messageRow(
       names = el("div", "file-names");
     names.append(
       el("div", "file-title", file.filename || file.media_type),
-      el(
-        "div",
-        "file-detail",
-        Number(file.bytes).toLocaleString(language) +
-          " bytes · " +
-          file.media_type,
-      ),
+      el("div", "file-detail", humanSize(file.bytes) + " · " + file.media_type),
     );
     top.append(
       el(
         "span",
         "file-icon",
-        file.media_type.startsWith("audio/") ? "🎵" : "📎",
+        file.media_type.startsWith("audio/") ? "🎵" : "📄",
       ),
       names,
     );
@@ -236,7 +240,7 @@ export function messageRow(
             await actions.file(file, card);
             await card.querySelector<HTMLMediaElement>("audio,video")?.play();
           },
-          "file-play-trigger",
+          "file-play-trigger file-action",
         ),
       );
     top.append(
@@ -250,6 +254,21 @@ export function messageRow(
         "file-download-trigger",
       ),
     );
+    if (playable) {
+      const play = top.querySelector(".file-play-trigger");
+      if (play) top.append(play);
+    }
+    if (!playable)
+      top.append(
+        button(
+          nt("file.open"),
+          async () => {
+            await actions.file(file, card);
+            card.querySelector<HTMLAnchorElement>(".file-download")?.click();
+          },
+          "file-action",
+        ),
+      );
     card.append(top);
     column.append(card);
     if (
@@ -260,14 +279,33 @@ export function messageRow(
       void actions.file(file, card).catch(() => {});
   }
   const videos = new Set<string>();
-  for (const link of body.querySelectorAll<HTMLAnchorElement>("a[href]")) {
-    const card = videoCard(link.href);
-    if (card && !videos.has(link.href)) {
-      videos.add(link.href);
+  const videoCandidates = [
+    ...body.querySelectorAll<HTMLAnchorElement>("a[href]"),
+  ]
+    .map((link) => link.href)
+    .concat(videoLinks(message.text).map((video) => video.url));
+  for (const href of videoCandidates) {
+    const video = videoLink(href);
+    if (!video || videos.has(video.url) || videos.size >= 3) continue;
+    const preview = message.previews?.find(
+      (preview) => videoLink(preview.url)?.url === video.url,
+    );
+    const card = videoCard(href, preview);
+    if (card) {
+      videos.add(video.url);
       column.append(card);
+      if (preview?.image && BigInt(preview.image.bytes) < 10n * 1024n * 1024n)
+        void actions
+          .previewImage(
+            message,
+            preview.image,
+            card.querySelector<HTMLElement>(".video-thumb")!,
+          )
+          .catch(() => {});
     }
   }
   for (const preview of message.previews || []) {
+    if (videoLink(preview.url)) continue;
     const href = safeLink(preview.url);
     if (!href) continue;
     const card = el("a", "link-card");

@@ -125,15 +125,41 @@ export class Api {
       request.send(file);
     });
   }
-  async blob(path: string): Promise<Blob> {
+  async blob(
+    path: string,
+    progress?: (received: number) => void,
+  ): Promise<Blob> {
     if (!path.startsWith("/api/")) throw new Error("Invalid resource path");
     const response = await fetch(path, {
       headers: { Authorization: "Bearer " + this.token },
       credentials: "omit",
       cache: "no-store",
-      signal: AbortSignal.timeout(60000),
+      signal: AbortSignal.timeout(progress ? 300000 : 60000),
     });
     if (!response.ok) throw new ApiError(response.status, "download_failed");
+    if (progress && response.body) {
+      const reader = response.body.getReader(),
+        parts: BlobPart[] = [];
+      let received = 0;
+      try {
+        for (;;) {
+          const next = await reader.read();
+          if (next.done) break;
+          parts.push(next.value);
+          received += next.value.byteLength;
+          progress(received);
+        }
+      } catch (error) {
+        await reader.cancel().catch(() => {});
+        throw error;
+      } finally {
+        reader.releaseLock();
+      }
+      return new Blob(parts, {
+        type:
+          response.headers.get("content-type") || "application/octet-stream",
+      });
+    }
     return response.blob();
   }
   async snapshot(info: Discovery): Promise<Snapshot> {

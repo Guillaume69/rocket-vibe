@@ -146,6 +146,7 @@
     "Quitter le plein écran",
     "Exit full screen"
   ],
+  "player.stop": ["Arrêter la vidéo", "Stop the video"],
   "settings.photo_change": ["Changer…", "Change…"],
   "settings.photo_remove": ["Retirer", "Remove"],
   "settings.cat.account": ["Mon compte", "My account"],
@@ -176,6 +177,31 @@
     "The server refuses voice messages"
   ],
   "voice.file_name": ["message-vocal", "voice-message"],
+  "file.open": ["Ouvrir", "Open"],
+  "file.play": ["Lire", "Play"],
+  "file.loading": ["Téléchargement…", "Downloading…"],
+  "file.failed": ["Échec du téléchargement", "Download failed"],
+  "file.downloading": [
+    "Téléchargement… {percent} %",
+    "Downloading… {percent}%"
+  ],
+  "file.no_app": [
+    "Aucune application pour ouvrir ce fichier",
+    "No application to open this file"
+  ],
+  "video.fullscreen": ["Plein écran", "Fullscreen"],
+  "video.unsupported": [
+    "Format non lisible ici : ouvre-la dans une autre application",
+    "Can't play this format here: open it in another application"
+  ],
+  "video.open_elsewhere": [
+    "Ouvrir dans une autre application",
+    "Open in another application"
+  ],
+  "file.saved": [
+    "Enregistré dans Téléchargements : {name}",
+    "Saved to Downloads: {name}"
+  ],
   "command.title": ["COMMANDES", "COMMANDS"],
   "command.keys": ["Tab ou Entrée pour compléter", "Tab or Enter to complete"],
   "command.only_you": ["Visible par toi uniquement", "Only you can see this"],

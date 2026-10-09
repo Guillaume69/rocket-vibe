@@ -1,8 +1,9 @@
 import { button, el } from "./dom";
 import { icon } from "./icons";
 import { language } from "./i18n";
+import { nt } from "./native-i18n";
 const phrase = (en: string, fr: string) => (language === "fr" ? fr : en);
-export function audioControls(audio: HTMLAudioElement): HTMLElement {
+export function audioControls(audio: HTMLMediaElement): HTMLElement {
   const controls = el("div", "audio-controls");
   const play = button("", async () => {
     if (audio.paused) await audio.play();
@@ -19,7 +20,8 @@ export function audioControls(audio: HTMLAudioElement): HTMLElement {
     "aria-label",
     phrase("Playback position", "Position de lecture"),
   );
-  const time = el("span", "audio-time", "0:00 / 0:00");
+  const elapsed = el("span", "audio-time audio-elapsed", "0:00");
+  const remaining = el("span", "audio-time audio-remaining", "-0:00");
   const volume = el("input", "audio-volume");
   volume.type = "range";
   volume.min = "0";
@@ -28,12 +30,28 @@ export function audioControls(audio: HTMLAudioElement): HTMLElement {
   volume.value = "1";
   volume.setAttribute("aria-label", phrase("Volume", "Volume"));
   volume.hidden = true;
-  volume.addEventListener("input", () => (audio.volume = Number(volume.value)));
+  volume.addEventListener("input", () => {
+    audio.volume = Number(volume.value);
+    volume.style.setProperty("--played", Number(volume.value) * 100 + "%");
+  });
   const sound = button("", () => {
     volume.hidden = !volume.hidden;
   });
   sound.append(icon("volume"));
   sound.setAttribute("aria-label", phrase("Volume", "Volume"));
+  const volumeBox = el("div", "audio-volume-box");
+  volumeBox.append(sound, volume);
+  volumeBox.addEventListener("focusout", (event) => {
+    if (!volumeBox.contains(event.relatedTarget as Node | null))
+      volume.hidden = true;
+  });
+  volumeBox.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      volume.hidden = true;
+      sound.focus();
+      event.stopPropagation();
+    }
+  });
   const clock = (value: number) => {
     const seconds = Math.max(0, Math.floor(value || 0));
     return (
@@ -49,7 +67,13 @@ export function audioControls(audio: HTMLAudioElement): HTMLElement {
     progress.max = String(Math.max(1, duration));
     progress.value = String(audio.currentTime);
     progress.disabled = !duration;
-    time.textContent = clock(audio.currentTime) + " / " + clock(duration);
+    elapsed.textContent = clock(audio.currentTime);
+    remaining.textContent =
+      "-" + clock(Math.max(0, duration - audio.currentTime));
+    progress.style.setProperty(
+      "--played",
+      (duration ? Math.min(1, audio.currentTime / duration) * 100 : 0) + "%",
+    );
     play.setAttribute(
       "aria-label",
       audio.paused ? phrase("Play", "Lire") : phrase("Pause", "Pause"),
@@ -69,16 +93,13 @@ export function audioControls(audio: HTMLAudioElement): HTMLElement {
     "ended",
   ])
     audio.addEventListener(event, sync);
-  audio.addEventListener("error", () =>
-    controls.append(
-      el(
-        "span",
-        "file-detail",
-        phrase("Audio cannot be played", "Lecture audio impossible"),
-      ),
-    ),
-  );
-  controls.append(play, progress, time, sound, volume);
+  const error = el("span", "file-detail media-error", nt("video.unsupported"));
+  error.hidden = true;
+  audio.addEventListener("error", () => {
+    error.hidden = false;
+  });
+  controls.append(play, elapsed, progress, remaining, volumeBox);
+  controls.append(error);
   sync();
   return controls;
 }

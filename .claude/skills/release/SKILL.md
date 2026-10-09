@@ -10,8 +10,8 @@ release task: the tag push does the publishing (`.github/workflows/mobile.yml`,
 `desktop.yml`), so the value of this skill is getting the files right before the
 tag, and watching CI after it.
 
-Each app has its own version, changelog and tag. A run can cut one app or both;
-when both, they share one release branch.
+Each app (mobile, desktop, web, server) has its own version, changelog and tag. A run
+can cut one app or several; they share one release branch.
 
 ## 1. Pre-flight
 
@@ -75,6 +75,14 @@ Per app, one commit `[release/<x.y.z>] chore(<app>): release <x.y.z>` holding:
   is behind; check that `git diff` of both locks touches only those versions, and
   `cargo metadata --locked` in `apps/desktop/voice` (in the build container).
 
+- **web**: from `apps/web/`, `npm version <x.y.z> --no-git-tag-version`, then
+  `npm run build` and commit the rebuilt `dist/` (the version is in the bundle).
+- **server**: `[package] version` in `apps/server/Cargo.toml` and the `rv-server`
+  entry of the root `Cargo.lock`. Its tag runs `server-release.yml` (gate, Docker
+  build, binary archive, release; no image is pushed); the `release/**` branch push
+  runs the same without publishing, so wait for it to be green before tagging.
+  Release web before (or with) the server: the server embeds `apps/web/dist`.
+
 Then both scripts must agree, or CI will refuse the tag:
 
 ```bash
@@ -101,6 +109,12 @@ git merge --no-ff release/<x.y.z> -m "[master] merge release/<x.y.z>: desktop <x
 git tag <app>-v<x.y.z>                     # lightweight, on the merge commit; one per app released
 git push origin master <app>-v<x.y.z> [<other-app>-v<a.b.c>]
 ```
+
+**At most 3 tags per push**: GitHub creates no tag event at all when a single push
+carries more than three tags (the 0.13.0 run pushed four and no release workflow
+started). With four apps, push the tags in two pushes, or start the workflows on the
+tags with `gh workflow run <app>.yml --ref <app>-v<x.y.z>` (every release job accepts a
+dispatch on a tag).
 
 Every commit message ends with the session's `Co-Authored-By` trailer. If master
 moved since the pull and the push is rejected, pull again (merge, not rebase:

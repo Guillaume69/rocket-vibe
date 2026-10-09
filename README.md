@@ -49,6 +49,7 @@ desktop): packages are only built on a release tag, or by hand through
 - **`mobile`**: typecheck, lint, tests, then a release Android APK (`expo prebuild` +
   Gradle on the runner, never EAS). It reads `google-services.json` from the
   `GOOGLE_SERVICES_JSON` secret.
+- **`server-release`**: on a `server-vX.Y.Z` tag, the server gate, then one Docker build: its binary as a Linux x86_64 archive with SHA-256 checksums (the image is not published; `apps/server/Dockerfile` builds it locally). A `release/**` branch runs it without publishing.
 - **`web-client`**: committed-bundle verification, server fmt/clippy/tests and actual browser scenarios. A `web-vX.Y.Z` tag publishes the verified frontend as `.tar.gz`, `.zip` and SHA-256 checksums. Deployment rebuilds the matching native server to embed this bundle.
 - **`desktop`**: Linux (the same Fedora as the local build: fmt, clippy, all tests, an
   archive; plus an AppImage built on Arch, launched in CI on a distribution without GTK),
@@ -66,11 +67,11 @@ desktop): packages are only built on a release tag, or by hand through
   takes the DMG from it; it runs on its own on branches other than `master` that touch the
   app.
 
-`node scripts/version.mjs mobile|desktop|web` prints an app's version and checks its
+`node scripts/version.mjs mobile|desktop|web|server` prints an app's version and checks its
 consistency. Each app keeps its changelog in the Keep a Changelog format
-([mobile](apps/mobile/CHANGELOG.md), [desktop](apps/desktop/CHANGELOG.md), [web](apps/web/CHANGELOG.md)). To publish:
+([mobile](apps/mobile/CHANGELOG.md), [desktop](apps/desktop/CHANGELOG.md), [web](apps/web/CHANGELOG.md), [server](apps/server/CHANGELOG.md)). To publish:
 move the "Unreleased" section under the new version number, bump the version, then push a
-`mobile-vX.Y.Z`, `desktop-vX.Y.Z` or `web-vX.Y.Z` tag. The workflow checks that the tag matches the
+`mobile-vX.Y.Z`, `desktop-vX.Y.Z`, `web-vX.Y.Z` or `server-vX.Y.Z` tag. The workflow checks that the tag matches the
 version and that the changelog has its section, then creates the GitHub release with its
 binaries and that section as notes.
 

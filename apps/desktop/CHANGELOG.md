@@ -7,6 +7,18 @@ section here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Prepare a desktop device for invitation into an existing MLS group before admission, and review its Welcome instead of an earlier commit. Verified with a real GTK/browser encrypted message round trip.
+
+## [0.13.0] - 2026-10-09
+
+### Added
+
+- The server bar shows each server's own icon when it has one (GTK and macOS), and administrators set or remove it from the Dashboard (Rocket.Chat and RocketVibe).
+- Server administration: a Custom emoji category (GTK and macOS) where administrators add emoji (name, aliases, image) and delete them, on Rocket.Chat and RocketVibe servers.
+- Settings > Accounts can hide the server bar (GTK and macOS), giving its width to the conversation list; switching and adding an account stay on that page.
+
 ### Changed
 
 - The account block at the foot of the conversation list shows a gear and opens a menu (Settings, Server administration for administrators, Sign out); sign out left the header. The header's "+" is a menu (New message, Create a channel where the server allows it), and the Channels and Direct messages headings carry their own "+".
@@ -14,14 +26,6 @@ section here.
 ### Fixed
 
 - Rocket.Chat: people are named the way the server says (`UI_Use_Real_Name`): message authors, direct messages and notifications use real names when the server shows them. Search shows a channel's display name like the list; a direct message's details on macOS keep its name.
-
-- Prepare a desktop device for invitation into an existing MLS group before admission, and review its Welcome instead of an earlier commit. Verified with a real GTK/browser encrypted message round trip.
-
-### Added
-
-- The server bar shows each server's own icon when it has one (GTK and macOS), and administrators set or remove it from the Dashboard (Rocket.Chat and RocketVibe).
-- Server administration: a Custom emoji category (GTK and macOS) where administrators add emoji (name, aliases, image) and delete them, on Rocket.Chat and RocketVibe servers.
-- Settings > Accounts can hide the server bar (GTK and macOS), giving its width to the conversation list; switching and adding an account stay on that page.
 
 ## [0.12.2] - 2026-10-09
 
@@ -1076,7 +1080,8 @@ the mobile app (see `docs/PARITY.md`).
   `rocketvibe://` links) and zip; a macOS app in a DMG, signed with a Developer ID and
   notarized by Apple.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.12.2...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.13.0...HEAD
+[0.13.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.12.2...desktop-v0.13.0
 [0.12.2]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.12.1...desktop-v0.12.2
 [0.12.1]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.12.0...desktop-v0.12.1
 [0.12.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.11.0...desktop-v0.12.0

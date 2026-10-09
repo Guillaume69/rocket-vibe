@@ -97,26 +97,27 @@ Each workflow runs only when its app's files, `scripts/version.mjs` or the workf
 | `mobile.yml` | push to `master`, tags `mobile-v*`, PRs, dispatch | `check`: version check, `npm ci`, `tsc --noEmit`, `npm run lint`, `npm test` | `android`: SDK pieces, `google-services.json` and keystore from secrets, `expo prebuild`, `./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a` with ccache, `apksigner verify`, artifact `rocket-vibe-mobile-<v>.apk`; `release` on a tag |
 | `desktop.yml` | push to `master`, tags `desktop-v*`, PRs, dispatch | `version`; `linux` in `fedora:44`: fmt, clippy `-D warnings`, `cargo test --workspace` | release build and `.tar.gz`; `appimage` and `appimage-smoke` (the AppImage on `ubuntu:22.04` with no GTK: gallery, 3 media must play); `windows` (rv-core tests, release build, zip, Inno Setup installer, then an install, launch, background start, autostart, gallery, call window, player and soak round trip, and uninstall); `macos` (rv-core tests, release build, signing, notarization, Gatekeeper check, then the bundle started with Homebrew moved aside); `macos-swiftui` (calls `desktop-swiftui.yml`); `release` on a tag |
 | `desktop-swiftui.yml` | pushes to branches other than `master` touching `macos/`, `rv-ffi` or itself; `workflow_call`; dispatch | On `macos-15`: generate bindings, `swift build`, `swift test`, `swift run rv-rooms`, sign, package, notarize, start the app (login, gallery, 45 s soak, scroll benchmark reported as a trend) | |
+| `server-release.yml` | tags `server-v*`, pushes to `release/**`, dispatch | The server gate (`apps/server/scripts/check.sh` with PostgreSQL), version, tag and changelog agreement | One Docker build (`apps/server/Dockerfile`): its binary as `rocketvibe-server-X.Y.Z-linux-x86_64.tar.gz` with `SHA256SUMS`; on a tag only, the release with the changelog section. The image is only the build's vehicle, never pushed (0.2.0 alone also went to a private `ghcr.io/guillaume69/rocketvibe-server`) |
 | `web-client.yml` | pushes to all branches matching source paths, tags `web-v*`, PRs, dispatch | Web version, format/Node/build and committed assets; native server fmt/clippy/tests; isolated PostgreSQL/SMTP/LiveKit and browser gate | Verified frontend `.tar.gz`, `.zip`, `SHA256SUMS`; release on a tag with that changelog section |
 
 Path filters do not apply to tag pushes, so a release tag always builds. Maestro and the desktop e2e scripts need a live server and do not run in CI.
 
 ## Versions and changelogs
 
-- `node scripts/version.mjs mobile|desktop|web [--tag <tag>]` prints the version. For mobile it fails unless `package.json` equals `app.json` and `android.versionCode == major*10000 + minor*100 + patch` (so each release installs over the last); for desktop it reads `[workspace.package] version`; web checks both `package-lock.json` version fields against `package.json`. With `--tag` the tag must be exactly `<app>-v<version>`.
-- `node scripts/changelog.mjs mobile|desktop|web <version>` prints that version's section of `apps/<app>/CHANGELOG.md` (Keep a Changelog) and fails if it is missing or empty.
+- `node scripts/version.mjs mobile|desktop|web|server [--tag <tag>]` prints the version. For mobile it fails unless `package.json` equals `app.json` and `android.versionCode == major*10000 + minor*100 + patch` (so each release installs over the last); for desktop it reads `[workspace.package] version`; web checks both `package-lock.json` version fields against `package.json`; server reads `apps/server/Cargo.toml` and requires the root `Cargo.lock`'s `rv-server` entry to match. With `--tag` the tag must be exactly `<app>-v<version>`.
+- `node scripts/changelog.mjs mobile|desktop|web|server <version>` prints that version's section of `apps/<app>/CHANGELOG.md` (Keep a Changelog) and fails if it is missing or empty.
 - Every user-visible change goes under `## [Unreleased]` in that app's changelog, in English.
 
 ## Release flow
 
 1. Move the unreleased section under `## [X.Y.Z] - <date>` and update the compare links.
-2. Bump the version: mobile in `app.json` (`version` and `android.versionCode`) and `package.json`; desktop in `Cargo.toml`, and refresh `Cargo.lock` (CI builds with `--locked`); web in `package.json` and `package-lock.json`, then rebuild and commit the embedded bundle.
+2. Bump the version: mobile in `app.json` (`version` and `android.versionCode`) and `package.json`; desktop in `Cargo.toml`, and refresh `Cargo.lock` (CI builds with `--locked`); web in `package.json` and `package-lock.json`, then rebuild and commit the embedded bundle; server in `apps/server/Cargo.toml` and the root `Cargo.lock`.
 
    Desktop includes all five crates inheriting the workspace version, including `rv-voice-protocol`. Its path dependency in `apps/desktop/voice/Cargo.lock` must match too: the separate sidecar workflow builds with `--locked` and is required by every desktop release package.
-3. Commit, merge to `master`, push a tag `mobile-vX.Y.Z`, `desktop-vX.Y.Z` or `web-vX.Y.Z`.
+3. Commit, merge to `master`, push a tag `mobile-vX.Y.Z`, `desktop-vX.Y.Z`, `web-vX.Y.Z` or `server-vX.Y.Z`.
 4. The workflow checks tag against version and the changelog section first, builds every package, then `softprops/action-gh-release` creates "Mobile X.Y.Z" (the APK) or "Desktop X.Y.Z" (`.tar.gz`, `.AppImage`, `.zip`, `-setup.exe`, the GTK and SwiftUI `.dmg`) with the changelog section as notes.
 
-The desktop app updates itself from these GitHub releases, see [features/desktop-updates.md](features/desktop-updates.md).
+The desktop app updates itself from these GitHub releases, see [features/desktop-updates.md](features/desktop-updates.md). The server's releases (`server-v*`, first 0.2.0 on 2026-10-09; it had none before) are what every app's administration Dashboard compares the server's version with ([features/administration.md](features/administration.md)). A server release carries the web client embedded at its commit: release web first when both change.
 
 Web packaging uses `scripts/package-web.mjs` after the server/browser gate; only its release job has `contents: write`. The static archives carry version/commit metadata and deployment instructions. Deploy the matching source tag and rebuild `rv-server` or its Docker image: existing binaries keep their embedded web version. The browser uses the serving API origin over HTTPS.
 

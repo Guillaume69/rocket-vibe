@@ -19,7 +19,8 @@ def visit(package):
 
 visit(metadata['resolve']['root'])
 entries = []
-for package in sorted(seen, key=lambda value: packages[value]['name']):
+for package in sorted(seen, key=lambda value: (packages[value]['name'],
+                                               packages[value]['version'], value)):
     value = packages[package]
     if value['source'] is None:
         continue

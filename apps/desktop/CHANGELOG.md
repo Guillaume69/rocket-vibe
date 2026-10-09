@@ -7,6 +7,10 @@ section here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Use the provider-neutral chat bridge in macOS sidebar settings so the Mattermost and kChat settings view compiles.
+
 ## [0.12.0] - 2026-10-09
 
 ### Added

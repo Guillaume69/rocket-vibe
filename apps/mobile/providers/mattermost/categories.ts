@@ -6,6 +6,7 @@
  */
 
 import type { MmClient } from './client.ts';
+import { MmSidebar } from './sidebar.ts';
 
 type Doc = Record<string, unknown>;
 
@@ -17,9 +18,12 @@ const TEAM_STRIDE = 1000;
 export class MmCategories {
   private readonly client: MmClient;
   private placements = new Map<string, Placement>();
+  /** Which direct and group conversations are listed at all. */
+  readonly sidebar: MmSidebar;
 
-  constructor(client: MmClient) {
+  constructor(client: MmClient, myId = '') {
     this.client = client;
+    this.sidebar = new MmSidebar(client, myId);
   }
 
   placement(rid: string): Placement | undefined {

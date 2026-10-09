@@ -252,7 +252,10 @@ export class MmLive {
     return compact(out);
   }
 
-  /** My name format set elsewhere (kChat web, another client): the DM and group DM rows name people again. */
+  /**
+   * Preferences set elsewhere (kChat web, another client): a conversation
+   * closed or reopened, the number listed, or the name format.
+   */
   private preferences(raw: unknown): DdpEvent[] {
     let list: unknown = raw;
     if (typeof raw === 'string') {
@@ -262,10 +265,16 @@ export class MmLive {
         return [];
       }
     }
+    const conversations = [...this.channels.entries()].filter(([, c]) => c.type === 'D' || c.type === 'G');
+    const out: (DdpEvent | null)[] = [];
+    if (this.categories?.sidebar.apply(list)) {
+      this.categories.sidebar.rank(this.channels.values());
+      out.push(...conversations.map(([rid]) => this.membershipEvent(rid)));
+    }
     const pref = Array.isArray(list) ? list.find((p: Doc) => p?.category === 'display_settings' && p?.name === 'name_format') : undefined;
     const format = nameFormatOf((pref as Doc | undefined)?.value);
-    if (format === null || !this.directory.setNameFormat(format)) return [];
-    return compact([...this.channels.entries()].filter(([, c]) => c.type === 'D' || c.type === 'G').map(([rid]) => this.roomEvent(rid)));
+    if (format !== null && this.directory.setNameFormat(format)) out.push(...conversations.map(([rid]) => this.roomEvent(rid)));
+    return compact(out);
   }
 
   /** Categories come without their content: read them again, then every membership row. */

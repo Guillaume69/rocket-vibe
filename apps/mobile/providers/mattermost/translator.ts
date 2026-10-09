@@ -183,7 +183,7 @@ export class MmTranslator implements Translator {
       mentions,
       groupMentions: 0,
       alert: unread > 0,
-      open: true,
+      open: this.categories?.sidebar.isListed(channel, unread) ?? true,
       favorite: placement?.favorite ?? false,
       lastSeen: positive(member.last_viewed_at),
       e2eKey: null,

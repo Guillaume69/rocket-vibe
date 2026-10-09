@@ -110,6 +110,10 @@ export class MmActions implements ProviderActions {
     const channel = await this.client.post<Doc>('/channels/direct', { body: [this.myId, otherId] });
     const rid = typeof channel.id === 'string' ? channel.id : null;
     if (rid === null) throw new Error('Direct channel answer without an id.');
+    const shown = [{ user_id: this.myId, category: 'direct_channel_show', name: otherId, value: 'true' }];
+    await this.client.put('/users/me/preferences', { body: shown }).catch(() => {});
+    this.categories?.sidebar.apply(shown);
+    this.categories?.sidebar.reveal(rid);
     await this.directory.ensure([otherId]);
     await this.live.load(rid).catch(() => this.live.remember(channel));
     return { rid, rawRoom: { channel: this.live.channels.get(rid) ?? channel } };

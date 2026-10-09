@@ -62,11 +62,13 @@ export class MmCatchUp {
       this.client.pages<Doc>('/users/me/channel_members'),
       this.nameFormat(),
       this.categories?.load().catch(() => {}),
+      this.categories?.sidebar.load().catch(() => {}),
     ]);
     if (format !== null) this.directory.setNameFormat(format);
     if (isDiscarded()) return;
     const memberOf = new Map(members.map((m) => [String(m.channel_id), m]));
     const live = channels.filter((c) => !(typeof c.delete_at === 'number' && c.delete_at > 0) && memberOf.has(String(c.id)));
+    this.categories?.sidebar.rank(live);
     await this.directory.ensure(live.flatMap((c) => (c.type === 'D' ? String(c.name ?? '').split('__') : [])));
     await this.directory.ensureUsernames(live.flatMap((c) => (c.type === 'G' ? String(c.display_name ?? '').split(',').map((n) => n.trim()) : [])));
     // A room an event changed during the requests has fresher counts than this snapshot.

@@ -68,7 +68,7 @@ export function createMattermostProvider(
   });
   const directory = new MmDirectory(client);
   directory.remember({ id: session.userId, username: session.username, displayName: null, lastPictureUpdate: null });
-  const categories = new MmCategories(client);
+  const categories = new MmCategories(client, session.userId);
   const live = new MmLive(client, directory, session.userId, categories);
   const translator = new MmTranslator(directory, session.userId, categories);
   const history = new MmHistory(client, live);

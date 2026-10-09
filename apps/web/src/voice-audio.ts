@@ -10,6 +10,7 @@ export class MicrophoneGain implements TrackProcessor<
   analyser?: AnalyserNode;
   source?: MediaStreamAudioSourceNode;
   destination?: MediaStreamAudioDestinationNode;
+  samples = new Float32Array(512);
   volume: number;
   constructor(volume = 1) {
     this.volume = volume;
@@ -22,7 +23,7 @@ export class MicrophoneGain implements TrackProcessor<
     this.gain = context.createGain();
     this.gain.gain.value = this.volume;
     this.analyser = context.createAnalyser();
-    this.analyser.fftSize = 256;
+    this.analyser.fftSize = 512;
     this.destination = context.createMediaStreamDestination();
     this.source
       .connect(this.gain)
@@ -34,9 +35,9 @@ export class MicrophoneGain implements TrackProcessor<
     this.volume = Math.max(0, Math.min(2, value));
     if (this.gain) this.gain.gain.value = this.volume;
   }
-  level(): number {
+  rms(): number {
     if (!this.analyser) return 0;
-    const buffer = new Float32Array(this.analyser.fftSize);
+    const buffer = this.samples;
     this.analyser.getFloatTimeDomainData(buffer);
     return Math.min(
       1,

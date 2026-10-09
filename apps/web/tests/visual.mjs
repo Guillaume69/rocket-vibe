@@ -73,6 +73,31 @@ try {
   await page.screenshot({
     path: "../../.cache/web-shots/web-settings-reference.png",
   });
+  await settings.getByRole("button", { name: "Voice", exact: true }).click();
+  const noise = settings.getByRole("switch", {
+    name: "Noise suppression",
+    exact: true,
+  });
+  await noise.waitFor();
+  assert.equal(await settings.getByRole("switch").count(), 2);
+  assert.equal(
+    await settings
+      .getByLabel("Include the call in a shared screen's sound", {
+        exact: true,
+      })
+      .isChecked(),
+    false,
+  );
+  assert.equal(
+    await noise.evaluate((node) => getComputedStyle(node).appearance),
+    "none",
+  );
+  await page.screenshot({
+    path: "../../.cache/web-shots/web-voice-settings-reference.png",
+  });
+  console.log(
+    "PASS voice preferences use GTK device rows, noise and include-call switches without browser stock controls",
+  );
   await settings.getByRole("button", { name: "Language", exact: true }).click();
   assert.deepEqual(
     await settings

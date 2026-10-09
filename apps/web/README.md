@@ -47,6 +47,10 @@ Voice requires the server's isolated LiveKit configuration. Security requires th
 
 One origin/account intentionally replaces the GTK server rail. Browser storage replaces the native keyring/SQLite; clearing site data removes drafts and pending work. Private blobs stay out of worker caches and are removed on logout/access withdrawal. Notifications work while a tab lives; closed-tab Web Push is absent. Audio/video/share permissions and capture choices belong to the browser.
 
+Calls use GTK's tile geometry, listening gains, PCM speaking thresholds and peer-reconnection grace. The quality picker configures screen capture and encoding; the browser supplies its source consent picker. Fullscreen and the stage follow share takeover. Screen sound requires a confirmed `restrictOwnAudio` capture setting, otherwise video remains without program sound. GTK's opt-in include-call preference mixes remote microphones separately and respects listening volume, local mute and deafen. Browser-native noise suppression differs from GTK RNNoise. Physical-device and platform program-sound qualification remain incomplete.
+
+The voice suite transmits real microphone, camera, screen and shared-sound RTP through the isolated SFU. The program-sound source is a controlled fixture whose exclusion setting is marked explicitly; it proves pre-publication processing and cleanup, not operating-system loopback exclusion. Native GTK/browser interop is also exercised locally in the mandatory Fedora environment.
+
 Encrypted rooms, browser crypto enrolment/recovery and Rocket.Chat provider support are outside the accepted scope. Complete GTK visual parity remains under qualification; the DOM editor follows GTK's draft styling, selection and marker visibility.
 
 ## Licences

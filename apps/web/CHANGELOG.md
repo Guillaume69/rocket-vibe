@@ -7,6 +7,8 @@ All notable changes are documented here in English.
 ### Fixed
 
 - Apply microphone processing before publication, and stop capture on processor failure or a failed retry before displaying the listening state.
+- Detect quiet speech from decoded audio with GTK's thresholds, meter decay and speaking hangover, and send the native deafen attribute.
+- Return the sidebar call panel to the active call's room.
 
 - Match GTK settings categories, icons, profile subpages and administration navigation; remove text zoom and clock controls without GTK equivalents.
 - Use thin rounded scrollbars, bounded administrator-list avatars and a styled profile-photo picker.
@@ -23,6 +25,8 @@ All notable changes are documented here in English.
 ### Added
 
 - GTK voice tile arrangement, connection header, native call controls and speaking halos in the call and room roster.
+- GTK screen-share quality choices, main stage and camera/person strip, with the browser source picker and fullscreen following share takeover.
+- Guarded screen sound and the native opt-in call mix; capture without confirmed call-audio exclusion keeps video only.
 - Audio-device menu with real microphone gain and meter, output gain, deafen, browser noise suppression and retained per-person volume or local mute.
 - Serialize screen claims with call teardown so a delayed share response cannot begin capture after leaving.
 

@@ -40,7 +40,11 @@ import micMutedIcon from "./icons-native/microphone-disabled-symbolic.svg";
 import volumeMutedIcon from "./icons-native/audio-volume-muted-symbolic.svg";
 import cameraWebIcon from "./icons-native/camera-web-symbolic.svg";
 import volumeLowIcon from "./icons-native/audio-volume-low-symbolic.svg";
+import fullscreenIcon from "./icons-native/view-fullscreen-symbolic.svg";
+import restoreIcon from "./icons-native/view-restore-symbolic.svg";
 const native: Record<string, string> = {
+  fullscreen: fullscreenIcon,
+  restore: restoreIcon,
   camera: cameraWebIcon,
   "volume-low": volumeLowIcon,
   "audio-menu": panUpIcon,

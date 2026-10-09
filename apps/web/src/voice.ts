@@ -6,6 +6,13 @@ import { icon, iconButton } from "./icons";
 import { nt } from "./native-i18n";
 import { tileLayout } from "./voice-grid";
 import { MicrophoneGain, volumeValue } from "./voice-audio";
+import { chooseShareQuality } from "./voice-share";
+import { ShareAudioMixer, excludesOwnAudio } from "./voice-share-audio";
+import {
+  VoiceActivity,
+  LOCAL_SPEECH_DB,
+  REMOTE_SPEECH_DB,
+} from "./voice-activity";
 import { read, write } from "./store";
 import { preferencesGroup, actionRow } from "./sidebar";
 import { sound } from "./sounds";
@@ -23,12 +30,46 @@ export class Voice {
   ringDialogs = new Map<string, HTMLDialogElement>();
   bar = el("div", "voice-bar");
   stage = el("div", "voice-stage");
+  screenStage = el("div", "voice-screen-stage");
+  minis = el("div", "voice-mini-strip");
+  screenLabel = el("span", "voice-stage-label");
+  screens = new Map<string, { identity: string; video: HTMLVideoElement }>();
+  shareAbort?: AbortController;
+  fullscreenEndTimer?: ReturnType<typeof setTimeout>;
+  fullscreen = iconButton(
+    "fullscreen",
+    nt("voice_session.fullscreen"),
+    () => this.toggleFullscreen(),
+    "flat voice-stage-full",
+  );
   muted = false;
   camera = false;
   sharing = false;
+  sharingBusy = false;
+  includeCall = localStorage.getItem("rv-share-call") === "true";
+  sharedSound?: {
+    room: import("livekit-client").Room;
+    track: import("livekit-client").LocalAudioTrack;
+    mixer: ShareAudioMixer;
+    captured: boolean;
+  };
+  shareAudioWork: Promise<void> = Promise.resolve();
   deafened = false;
   cards = new Map<string, HTMLElement>();
   speaking = new Set<string>();
+  inputActivity = new VoiceActivity();
+  activityTimer?: ReturnType<typeof setInterval>;
+  meters = new Map<
+    string,
+    {
+      identity: string;
+      track: import("livekit-client").RemoteAudioTrack;
+      source: MediaStreamAudioSourceNode;
+      analyser: AnalyserNode;
+      samples: Float32Array<ArrayBuffer>;
+      activity: VoiceActivity;
+    }
+  >();
   peerLeaveTimer?: ReturnType<typeof setTimeout>;
   listeningAccount = "";
   loop?: HTMLAudioElement;
@@ -47,7 +88,11 @@ export class Voice {
   listening = new Map<string, { volume: number; muted: boolean }>();
   audioTracks = new Map<
     string,
-    { identity: string; track: import("livekit-client").RemoteAudioTrack }
+    {
+      identity: string;
+      track: import("livekit-client").RemoteAudioTrack;
+      source: string;
+    }
   >();
   syncControls: () => void = () => {};
   closeMenu: () => void = () => {};
@@ -64,9 +109,19 @@ export class Voice {
     );
     this.page.append(this.header, this.status, this.stage, this.controls);
     new ResizeObserver(() => this.layout()).observe(this.stage);
+    this.screenStage.append(this.screenLabel, this.fullscreen);
     this.stage.addEventListener("dblclick", (event) => {
-      const video = (event.target as HTMLElement).closest("video");
-      if (video) void video.requestFullscreen().catch(toast);
+      if ((event.target as HTMLElement).closest(".voice-screen-stage video"))
+        void this.toggleFullscreen().catch(toast);
+    });
+    document.addEventListener("fullscreenchange", () => {
+      const active = document.fullscreenElement === this.screenStage;
+      this.fullscreen.replaceChildren(icon(active ? "restore" : "fullscreen"));
+      this.fullscreen.title = nt(
+        active ? "voice_session.exit_fullscreen" : "voice_session.fullscreen",
+      );
+      this.fullscreen.setAttribute("aria-label", this.fullscreen.title);
+      this.layout();
     });
   }
   async join(id = this.app.room): Promise<void> {
@@ -244,8 +299,11 @@ export class Voice {
       this.cards.delete(participant.identity);
       this.layout();
       for (const [sid, audio] of this.audioTracks)
-        if (audio.identity === participant.identity)
+        if (audio.identity === participant.identity) {
           this.audioTracks.delete(sid);
+          this.removeMeter(sid);
+        }
+      this.mix();
       if (
         this.app.model.rooms.get(this.current || "")?.kind === "direct" &&
         room.remoteParticipants.size === 0
@@ -254,32 +312,6 @@ export class Voice {
           if (alive() && room.remoteParticipants.size === 0)
             void this.leave().catch(toast);
         }, 2000);
-    });
-    room.on(RoomEvent.ActiveSpeakersChanged, (participants) => {
-      if (!alive()) return;
-      const active = new Set(
-        participants.map((participant) => participant.identity),
-      );
-      this.speaking = active;
-      for (const roster of this.app.rooms.querySelectorAll<HTMLElement>(
-        "[data-voice-room]",
-      ))
-        if (roster.dataset.voiceRoom === this.current)
-          for (const person of roster.querySelectorAll<HTMLElement>(
-            "[data-voice-user]",
-          ))
-            person
-              .querySelector(".voice-avatar")
-              ?.classList.toggle(
-                "speaking",
-                active.has(person.dataset.voiceUser || ""),
-              );
-      for (const [identity, card] of this.cards) {
-        card.classList.toggle("speaking", active.has(identity));
-        card
-          .querySelector(".voice-avatar")
-          ?.classList.toggle("speaking", active.has(identity));
-      }
     });
     room.on(RoomEvent.Reconnecting, () => {
       if (alive()) {
@@ -294,34 +326,72 @@ export class Voice {
       }
     });
     room.on(RoomEvent.TrackMuted, () => {
-      if (alive()) this.syncCards();
+      if (alive()) {
+        this.syncCards();
+        this.mix();
+      }
     });
     room.on(RoomEvent.TrackUnmuted, () => {
-      if (alive()) this.syncCards();
+      if (alive()) {
+        this.syncCards();
+        this.mix();
+      }
     });
     room.on(RoomEvent.ParticipantAttributesChanged, () => {
       if (alive()) this.syncCards();
     });
-    room.on(RoomEvent.TrackSubscribed, (track, _publication, participant) => {
+    room.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
       if (!alive()) return;
       const media = track.attach();
       media.setAttribute("autoplay", "");
+      media.dataset.voiceSource = publication.source;
       if (track.kind === Track.Kind.Audio) {
         this.audioTracks.set(track.sid!, {
           identity: participant.identity,
           track: track as import("livekit-client").RemoteAudioTrack,
+          source: publication.source,
         });
         this.mix();
         media.classList.add("voice-audio");
+        if (
+          publication.source === Track.Source.Microphone &&
+          track.sid &&
+          this.audioContext
+        ) {
+          const source = this.audioContext.createMediaStreamSource(
+            new MediaStream([track.mediaStreamTrack]),
+          );
+          const analyser = this.audioContext.createAnalyser();
+          analyser.fftSize = 512;
+          source.connect(analyser);
+          this.meters.set(track.sid, {
+            identity: participant.identity,
+            track: track as import("livekit-client").RemoteAudioTrack,
+            source,
+            analyser,
+            samples: new Float32Array(512),
+            activity: new VoiceActivity(),
+          });
+        }
       }
       if (media instanceof HTMLVideoElement) {
         media.playsInline = true;
         media.classList.add("voice-camera");
       }
-      this.card(
-        participant.identity,
-        participant.name || participant.identity,
-      ).append(media);
+      if (
+        media instanceof HTMLVideoElement &&
+        publication.source === Track.Source.ScreenShare
+      )
+        this.addScreen(
+          track.sid || publication.trackSid,
+          participant.identity,
+          media,
+        );
+      else
+        this.card(
+          participant.identity,
+          participant.name || participant.identity,
+        ).append(media);
       if (track.sid) this.tracks.set(track.sid, media);
       this.syncCards();
     });
@@ -332,8 +402,12 @@ export class Voice {
         this.tracks.get(track.sid)?.remove();
         this.tracks.delete(track.sid);
         this.audioTracks.delete(track.sid);
+        this.removeMeter(track.sid);
+        this.screens.delete(track.sid);
       }
+      this.layout();
       this.syncCards();
+      this.mix();
     });
     room.on(RoomEvent.LocalTrackPublished, (publication) => {
       if (!alive()) return;
@@ -347,20 +421,39 @@ export class Voice {
       media.muted = true;
       media.classList.add("voice-camera");
       if (media instanceof HTMLVideoElement) media.playsInline = true;
-      this.card(
-        room.localParticipant.identity,
-        this.app.account?.session.user.display_name || "",
-      ).append(media);
+      if (
+        media instanceof HTMLVideoElement &&
+        publication.source === Track.Source.ScreenShare
+      )
+        this.addScreen(
+          publication.trackSid,
+          room.localParticipant.identity,
+          media,
+        );
+      else
+        this.card(
+          room.localParticipant.identity,
+          this.app.account?.session.user.display_name || "",
+        ).append(media);
       if (track.sid) this.tracks.set(track.sid, media);
     });
     room.on(RoomEvent.LocalTrackUnpublished, (publication) => {
       if (!alive()) return;
+      if (publication.track === this.sharedSound?.track)
+        this.sharedSound = undefined;
       if (publication.trackSid) {
         this.tracks.get(publication.trackSid)?.remove();
         this.tracks.delete(publication.trackSid);
+        this.screens.delete(publication.trackSid);
+        this.layout();
       }
-      if (publication.source === Track.Source.ScreenShare && this.sharing) {
+      if (publication.source === Track.Source.ScreenShare) {
         this.sharing = false;
+        const audio = room.localParticipant.getTrackPublication(
+          Track.Source.ScreenShareAudio,
+        )?.track;
+        if (audio)
+          void room.localParticipant.unpublishTrack(audio).catch(toast);
         this.syncControls();
         this.syncCards();
         void this.screenRequest("DELETE").catch(() => {});
@@ -411,6 +504,28 @@ export class Voice {
       return;
     }
     sound("join");
+    this.activityTimer = setInterval(() => {
+      if (!alive() || this.audioContext?.state !== "running") return;
+      const now = performance.now(),
+        active = new Set<string>();
+      if (this.muted) this.inputActivity.quiet();
+      else this.inputActivity.update(this.gain.rms(), LOCAL_SPEECH_DB, now);
+      if (this.inputActivity.speaking(now))
+        active.add(room.localParticipant.identity);
+      for (const meter of this.meters.values()) {
+        if (meter.track.isMuted) meter.activity.quiet();
+        else {
+          meter.analyser.getFloatTimeDomainData(meter.samples);
+          const rms = Math.sqrt(
+            meter.samples.reduce((sum, value) => sum + value * value, 0) /
+              meter.samples.length,
+          );
+          meter.activity.update(rms, REMOTE_SPEECH_DB, now);
+        }
+        if (meter.activity.speaking(now)) active.add(meter.identity);
+      }
+      this.light(active);
+    }, 50);
     this.status.textContent = nt("voice_session.connected");
     this.status.classList.add("connected");
     const controls = (sidebar = false) => {
@@ -444,7 +559,7 @@ export class Voice {
           this.syncControls();
           this.syncCards();
           await room.localParticipant.setAttributes({
-            "rv.deafened": String(this.deafened),
+            "rv.deafened": this.deafened ? "1" : "0",
           });
         },
         sidebar ? "flat" : "voice-control",
@@ -476,26 +591,40 @@ export class Voice {
         "screen",
         nt("voice_session.share_screen"),
         async () => {
-          if (!alive()) return;
-          if (!this.sharing) {
-            await this.screenRequest("POST");
-            if (!alive()) return;
-            try {
-              await room.localParticipant.setScreenShareEnabled(true);
-              if (!alive()) return;
-              this.sharing = true;
-            } catch (error) {
-              if (alive()) await this.screenRequest("DELETE");
-              throw error;
-            }
-          } else {
-            await room.localParticipant.setScreenShareEnabled(false);
-            if (alive()) await this.screenRequest("DELETE");
-            if (!alive()) return;
-            this.sharing = false;
-          }
+          if (!alive() || this.sharingBusy) return;
+          this.sharingBusy = true;
           this.syncControls();
-          this.syncCards();
+          try {
+            if (!this.sharing) {
+              this.shareAbort?.abort();
+              const abort = new AbortController();
+              this.shareAbort = abort;
+              const quality = await chooseShareQuality(abort.signal);
+              if (!quality || !alive()) return;
+              await this.screenRequest("POST");
+              if (!alive()) return;
+              try {
+                await this.startSharing(room, quality, abort.signal);
+                if (!alive()) return;
+                this.sharing = room.localParticipant.isScreenShareEnabled;
+              } catch (error) {
+                if (alive()) await this.screenRequest("DELETE");
+                throw error;
+              }
+            } else {
+              await room.localParticipant.setScreenShareEnabled(false);
+              if (alive()) await this.screenRequest("DELETE");
+              if (!alive()) return;
+              this.sharing = false;
+            }
+            this.syncControls();
+            this.syncCards();
+          } finally {
+            if (alive()) {
+              this.sharingBusy = false;
+              this.syncControls();
+            }
+          }
         },
         "voice-control",
       );
@@ -533,6 +662,7 @@ export class Voice {
             : "voice_session.share_screen",
         );
         screen.setAttribute("aria-pressed", String(this.sharing));
+        screen.disabled = !grant.can_publish || this.sharingBusy;
       };
       return { nodes, sync };
     };
@@ -568,20 +698,132 @@ export class Voice {
     this.syncCards();
     this.show();
   }
+  removeMeter(sid: string): void {
+    const meter = this.meters.get(sid);
+    meter?.source.disconnect();
+    meter?.analyser.disconnect();
+    this.meters.delete(sid);
+  }
+  light(active: Set<string>): void {
+    this.speaking = active;
+    for (const roster of this.app.rooms.querySelectorAll<HTMLElement>(
+      "[data-voice-room]",
+    ))
+      if (roster.dataset.voiceRoom === this.current)
+        for (const person of roster.querySelectorAll<HTMLElement>(
+          "[data-voice-user]",
+        ))
+          person
+            .querySelector(".voice-avatar")
+            ?.classList.toggle(
+              "speaking",
+              active.has(person.dataset.voiceUser || ""),
+            );
+    for (const [identity, card] of this.cards) {
+      card.classList.toggle("speaking", active.has(identity));
+      card
+        .querySelector(".voice-avatar")
+        ?.classList.toggle("speaking", active.has(identity));
+    }
+  }
+  async toggleFullscreen(): Promise<void> {
+    if (document.fullscreenElement === this.screenStage)
+      await document.exitFullscreen();
+    else if (this.screens.size) await this.screenStage.requestFullscreen();
+  }
+  addScreen(sid: string, identity: string, video: HTMLVideoElement): void {
+    video.classList.add("voice-screen-video");
+    this.screens.set(sid, { identity, video });
+    this.screenStage.prepend(video);
+    this.layout();
+  }
   layout(): void {
+    if (!this.stage.contains(this.screenStage))
+      this.stage.append(this.screenStage, this.minis);
     const cards = [...this.cards.values()],
-      bounds = this.stage.getBoundingClientRect();
-    const rectangles = tileLayout(cards.length, bounds.width, bounds.height);
-    cards.forEach((card, index) => {
-      const rectangle = rectangles[index];
-      if (!rectangle) return;
-      Object.assign(card.style, {
-        left: rectangle.left + "px",
-        top: rectangle.top + "px",
-        width: rectangle.width + "px",
-        height: rectangle.height + "px",
+      bounds = this.stage.getBoundingClientRect(),
+      screen = [...this.screens.values()].at(-1);
+    const fullscreen = document.fullscreenElement === this.screenStage;
+    // The SFU removes the previous track before the replacement subscribes.
+    // Keep the same fullscreen surface across that gap; an actual stop closes
+    // it after one server roster interval instead of stranding a hidden exit.
+    this.screenStage.hidden = !screen && !fullscreen;
+    if (!screen && fullscreen) {
+      if (!this.fullscreenEndTimer) {
+        const lifecycle = this.lifecycle;
+        this.fullscreenEndTimer = setTimeout(() => {
+          this.fullscreenEndTimer = undefined;
+          if (
+            lifecycle === this.lifecycle &&
+            !this.screens.size &&
+            document.fullscreenElement === this.screenStage
+          )
+            void document.exitFullscreen().catch(() => {});
+        }, 2000);
+      }
+    } else {
+      clearTimeout(this.fullscreenEndTimer);
+      this.fullscreenEndTimer = undefined;
+    }
+    this.minis.hidden = !screen;
+    for (const value of this.screens.values())
+      value.video.hidden = value !== screen;
+    if (screen) {
+      const person = this.app.live?.rooms
+        .find((item) => item.room_id === this.current)
+        ?.voice?.find((item) => item.user.id === screen.identity)?.user;
+      const name =
+        person?.display_name ||
+        person?.username ||
+        this.room?.remoteParticipants.get(screen.identity)?.name ||
+        this.app.account?.session.user.display_name ||
+        screen.identity;
+      this.screenLabel.textContent = nt("voice_session.screen_of", { name });
+      const width = Math.min(
+        cards.some((card) => card.querySelector("video")) ? 180 : 130,
+        Math.max(100, bounds.width * 0.22),
+      );
+      Object.assign(this.screenStage.style, {
+        left: "0px",
+        top: "0px",
+        width: Math.max(0, bounds.width - width - 14) + "px",
+        height: bounds.height + "px",
       });
-    });
+      this.minis.style.width = width + "px";
+      let top = 0;
+      cards.forEach((card) => {
+        const camera = Boolean(card.querySelector("video")),
+          height = camera ? Math.floor(((width - 20) * 9) / 16) + 40 : 92;
+        this.minis.append(card);
+        card.classList.add("mini");
+        card.classList.toggle("has-camera", camera);
+        card.querySelector(".voice-card-name")!.textContent =
+          card.dataset.personName || "";
+        Object.assign(card.style, {
+          left: "0px",
+          top: top + "px",
+          width: width + "px",
+          height: height + "px",
+        });
+        top += height + 10;
+      });
+    } else {
+      const rectangles = tileLayout(cards.length, bounds.width, bounds.height);
+      cards.forEach((card, index) => {
+        this.stage.append(card);
+        card.classList.remove("mini");
+        card.querySelector(".voice-card-name")!.textContent =
+          card.dataset.tileName || "";
+        const rectangle = rectangles[index];
+        if (!rectangle) return;
+        Object.assign(card.style, {
+          left: rectangle.left + "px",
+          top: rectangle.top + "px",
+          width: rectangle.width + "px",
+          height: rectangle.height + "px",
+        });
+      });
+    }
   }
   card(identity: string, name: string): HTMLElement {
     let card = this.cards.get(identity);
@@ -611,6 +853,8 @@ export class Voice {
       ),
       media = el("span", "voice-media");
     tag.append(label, media);
+    card.dataset.personName = person?.display_name || name;
+    card.dataset.tileName = label.textContent || name;
     card.append(avatar, tag);
     this.cards.set(identity, card);
     this.stage.append(card);
@@ -634,8 +878,14 @@ export class Voice {
           );
           portrait.className = updated.className;
           portrait.textContent = updated.textContent;
-          label.textContent =
+          card.dataset.personName =
             profile.user.display_name || profile.user.username;
+          card.dataset.tileName = local
+            ? nt("voice_session.you", { name: card.dataset.personName })
+            : card.dataset.personName;
+          label.textContent = card.classList.contains("mini")
+            ? card.dataset.personName
+            : card.dataset.tileName;
           this.app.avatar(profile.user, portrait);
         })
         .catch(() => {});
@@ -669,7 +919,7 @@ export class Voice {
         media.append(mic);
       }
       if (
-        local ? this.deafened : participant.attributes["rv.deafened"] === "true"
+        local ? this.deafened : participant.attributes["rv.deafened"] === "1"
       ) {
         const deaf = icon("volume-muted");
         deaf.classList.add("voice-deafened", "voice-state");
@@ -684,6 +934,7 @@ export class Voice {
         media.append(muted);
       }
     }
+    this.layout();
   }
   setMicrophone(
     room: import("livekit-client").Room,
@@ -775,22 +1026,164 @@ export class Voice {
     this.voiceRequests = request;
     return request;
   }
+  async startSharing(
+    room: import("livekit-client").Room,
+    quality: import("./voice-share").ShareQuality,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const { Track } = await import("livekit-client");
+    const alive = () => this.room === room && !signal.aborted;
+    const audio: import("livekit-client").AudioCaptureOptions & {
+      restrictOwnAudio: boolean;
+    } = {
+      restrictOwnAudio: true,
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: false,
+    };
+    const tracks = await room.localParticipant.createScreenTracks({
+      resolution: {
+        width: Math.round((quality.height * 16) / 9),
+        height: quality.height,
+        frameRate: quality.fps,
+      },
+      contentHint: "detail",
+      audio,
+      selfBrowserSurface: "exclude",
+      systemAudio: "include",
+    });
+    try {
+      if (!alive()) return;
+      const video = tracks.find(
+        (track) => track.source === Track.Source.ScreenShare,
+      )!;
+      const captured = tracks.find(
+        (track) => track.source === Track.Source.ScreenShareAudio,
+      ) as import("livekit-client").LocalAudioTrack | undefined;
+      // Requesting exclusion does not prove the browser applied it. Never send
+      // unrestricted loopback, which includes the call by default on some UAs.
+      const safe =
+        captured && excludesOwnAudio(captured.mediaStreamTrack)
+          ? captured
+          : undefined;
+      if (captured && !safe) captured.stop();
+      await room.localParticipant.publishTrack(video, {
+        source: Track.Source.ScreenShare,
+        screenShareEncoding: {
+          maxFramerate: quality.fps,
+          maxBitrate: Math.round(
+            2_000_000 * (quality.height / 720) ** 2 * (quality.fps / 30),
+          ),
+        },
+      });
+      if (!alive()) return;
+      await this.publishSharedSound(room, safe);
+    } catch (error) {
+      for (const track of tracks) {
+        await room.localParticipant.unpublishTrack(track).catch(() => {});
+        track.stop();
+      }
+      throw error;
+    } finally {
+      if (!alive()) for (const track of tracks) track.stop();
+    }
+  }
+  async publishSharedSound(
+    room: import("livekit-client").Room,
+    captured?: import("livekit-client").LocalAudioTrack,
+  ): Promise<void> {
+    const context = this.audioContext;
+    const { LocalAudioTrack, Track } = await import("livekit-client");
+    const screenSid = room.localParticipant.getTrackPublication(
+      Track.Source.ScreenShare,
+    )?.trackSid;
+    const alive = () =>
+      this.room === room &&
+      Boolean(screenSid) &&
+      room.localParticipant.getTrackPublication(Track.Source.ScreenShare)
+        ?.trackSid === screenSid;
+    if (!alive() || !context || (!captured && !this.includeCall)) {
+      captured?.stop();
+      return;
+    }
+    const track =
+      captured ||
+      new LocalAudioTrack(
+        context.createMediaStreamDestination().stream.getAudioTracks()[0],
+        undefined,
+        false,
+        context,
+      );
+    track.source = Track.Source.ScreenShareAudio;
+    track.setAudioContext(context);
+    const mixer = new ShareAudioMixer();
+    try {
+      mixer.sync(this.sharedVoices());
+      await track.setProcessor(mixer);
+      if (!alive()) {
+        track.stop();
+        return;
+      }
+      await room.localParticipant.publishTrack(track, {
+        source: Track.Source.ScreenShareAudio,
+      });
+      if (!alive()) {
+        track.stop();
+        await room.localParticipant.unpublishTrack(track).catch(() => {});
+        return;
+      }
+      this.sharedSound = { room, track, mixer, captured: Boolean(captured) };
+      this.mix();
+    } catch (error) {
+      track.stop();
+      await mixer.destroy();
+      throw error;
+    }
+  }
+  sharedVoices(): import("./voice-share-audio").SharedVoice[] {
+    if (!this.includeCall) return [];
+    return [...this.audioTracks]
+      .filter(([, audio]) => audio.source === "microphone")
+      .map(([sid, { identity, track }]) => ({
+        sid,
+        track: track.mediaStreamTrack,
+        volume: track.isMuted ? 0 : this.listenVolume(identity),
+      }));
+  }
+  listenVolume(identity: string): number {
+    const person = this.listening.get(identity);
+    return this.deafened || person?.muted
+      ? 0
+      : this.outputVolume * (person?.volume ?? 1);
+  }
+  updateSharedSound(): Promise<void> {
+    const room = this.room;
+    const work = this.shareAudioWork
+      .catch(() => {})
+      .then(async () => {
+        if (!room || this.room !== room || !this.sharing) return;
+        const sound = this.sharedSound;
+        if (sound) {
+          if (!sound.captured && !this.includeCall)
+            await room.localParticipant.unpublishTrack(sound.track);
+          else sound.mixer.sync(this.sharedVoices());
+        } else if (this.includeCall) await this.publishSharedSound(room);
+      });
+    this.shareAudioWork = work;
+    return work;
+  }
   mix(): void {
     for (const { identity, track } of this.audioTracks.values()) {
-      const person = this.listening.get(identity);
-      track.setVolume(
-        this.deafened || person?.muted
-          ? 0
-          : this.outputVolume * (person?.volume ?? 1),
-      );
+      track.setVolume(this.listenVolume(identity));
     }
+    this.sharedSound?.mixer.sync(this.sharedVoices());
   }
   popover(x: number, y: number, above = false): HTMLElement {
     this.closeMenu();
     const menu = el("div", "voice-menu" + (above ? " above" : "")),
       abort = new AbortController();
     menu.setAttribute("role", "dialog");
-    document.body.append(menu);
+    (document.fullscreenElement || document.body).append(menu);
     menu.style.left = Math.max(8, Math.min(x, window.innerWidth - 334)) + "px";
     menu.style.top = Math.max(8, y) + "px";
     const resize = new ResizeObserver(() => {
@@ -993,7 +1386,7 @@ export class Voice {
     menu.append(meter);
     const tick = () => {
       if (!menu.isConnected) return;
-      const level = this.muted ? 0 : this.gain.level();
+      const level = this.muted ? 0 : this.inputActivity.level;
       meter.setAttribute("aria-valuenow", String(Math.round(level * 100)));
       [...meter.children].forEach((block, index) =>
         block.classList.toggle("filled", index < Math.round(level * 24)),
@@ -1050,7 +1443,7 @@ export class Voice {
       this.syncControls();
       this.syncCards();
       await room.localParticipant.setAttributes({
-        "rv.deafened": String(value),
+        "rv.deafened": value ? "1" : "0",
       });
     });
     menu.append(
@@ -1089,9 +1482,14 @@ export class Voice {
       row.append(select);
       rows.append(row);
     }
-    const noiseRow = actionRow(nt("voice_settings.noise"));
+    const noiseRow = actionRow(
+      nt("voice_settings.noise"),
+      nt("voice_settings.noise_hint").replace(" (RNNoise)", ""),
+    );
     const noise = el("input");
     noise.type = "checkbox";
+    noise.classList.add("row-switch");
+    noise.setAttribute("role", "switch");
     noise.setAttribute("aria-label", nt("voice_settings.noise"));
     noise.checked = localStorage.getItem("rv-voice-noise") !== "false";
     noise.addEventListener("change", () => {
@@ -1105,10 +1503,43 @@ export class Voice {
     });
     noiseRow.append(noise);
     rows.append(noiseRow);
+    const shareRow = actionRow(
+      nt("voice_settings.share_call"),
+      nt("voice_settings.share_call_hint"),
+    );
+    const include = el("input");
+    include.type = "checkbox";
+    include.classList.add("row-switch");
+    include.setAttribute("role", "switch");
+    include.setAttribute("aria-label", nt("voice_settings.share_call"));
+    include.checked = this.includeCall;
+    include.addEventListener("change", () => {
+      this.includeCall = include.checked;
+      localStorage.setItem("rv-share-call", String(include.checked));
+      void this.updateSharedSound().catch(toast);
+    });
+    shareRow.append(include);
+    rows.append(shareRow);
     page.append(group);
   }
   show(): void {
     if (!this.current) return;
+    if (this.app.room !== this.current) {
+      const id = this.current,
+        lifecycle = this.lifecycle;
+      void this.app
+        .openRoom(id)
+        .then(() => {
+          if (
+            this.current === id &&
+            this.lifecycle === lifecycle &&
+            this.app.room === id
+          )
+            this.show();
+        })
+        .catch(toast);
+      return;
+    }
     this.heading.textContent =
       this.app.model.rooms.get(this.current)?.name || t("voice");
     this.app.roomPane.append(this.page);
@@ -1120,7 +1551,17 @@ export class Voice {
   }
   async leave(notify = true): Promise<void> {
     this.lifecycle++;
+    clearTimeout(this.fullscreenEndTimer);
+    this.fullscreenEndTimer = undefined;
+    this.shareAbort?.abort();
+    this.shareAbort = undefined;
+    if (document.fullscreenElement === this.screenStage)
+      void document.exitFullscreen().catch(() => {});
     this.closeMenu();
+    clearInterval(this.activityTimer);
+    this.activityTimer = undefined;
+    this.inputActivity.quiet();
+    for (const sid of this.meters.keys()) this.removeMeter(sid);
     this.audioTracks.clear();
     this.listening.clear();
     this.listeningAccount = "";
@@ -1138,6 +1579,8 @@ export class Voice {
     const active = this.current || this.room;
     const room = this.room;
     const audioContext = this.audioContext;
+    this.sharedSound = undefined;
+    this.shareAudioWork = Promise.resolve();
     this.audioContext = undefined;
     const api = new Api();
     api.token = this.app.api.token;
@@ -1146,12 +1589,16 @@ export class Voice {
     this.room = undefined;
     this.current = undefined;
     this.bar.remove();
+    for (const screen of this.screens.values()) screen.video.remove();
+    this.screens.clear();
+    this.minis.replaceChildren();
     this.stage.replaceChildren();
     this.controls.replaceChildren();
     this.tracks.clear();
     this.muted = false;
     this.camera = false;
     this.sharing = false;
+    this.sharingBusy = false;
     this.deafened = false;
     const leaving = (async () => {
       await previous.catch(() => {});
@@ -1170,6 +1617,7 @@ export class Voice {
     await leaving;
   }
   observe(state: LiveState): void {
+    if (this.current) this.layout();
     for (const [id, node] of this.ringDialogs)
       if (
         !state.rings?.some((ring) => ring.id === id && ring.state === "ringing")

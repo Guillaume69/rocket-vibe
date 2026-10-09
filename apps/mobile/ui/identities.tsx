@@ -27,13 +27,16 @@ import { useCoalescedLiveQuery } from './liveQuery.ts';
 import { useEffect } from 'react';
 
 import { users } from '../db/schema.ts';
+import { displayNames, setDisplayNames } from '../lib/displayNames.ts';
 import { setEtags, setIdentities } from './identityStore.ts';
+import { useRealNames } from './realNames.ts';
 import { useSession } from './session.tsx';
 import { useSync } from './sync.tsx';
 
 export {
   forgetIdentities,
   useAvatarEtags,
+  roomTitle,
   useDisplayNames,
   useStatusEmojis,
   useIdentities,
@@ -58,6 +61,9 @@ function Feed() {
   // than a re-ingested message: overlay it on the table (authoritative for me).
   const myUid = state.phase === 'connected' ? state.session.userId : null;
   const myUsername = state.phase === 'connected' ? state.session.username : null;
+  // Rocket.Chat only: Mattermost's names come from its own source (`lib/displayNames.ts`).
+  const rocketChat = state.phase === 'connected' && state.client.kind === 'rocketchat';
+  const realNames = useRealNames() && rocketChat;
 
   const { data } = useCoalescedLiveQuery(
     base!
@@ -65,6 +71,7 @@ function Feed() {
         uid: users.uid,
         username: users.username,
         avatarEtag: users.avatarEtag,
+        name: users.name,
       })
       .from(users),
   );
@@ -82,7 +89,15 @@ function Feed() {
     if (myUid !== null && myUsername !== null) m.set(myUid, myUsername);
     setIdentities(m);
     setEtags({ byUid, byUsername });
-  }, [data, myUid, myUsername]);
+    if (!rocketChat) return;
+    // The server's `UI_Use_Real_Name`: real names where known, else nothing
+    // (rows fall back to the username). Set only on a real change: the live
+    // query replays on every write to `users`.
+    const names = new Map<string, string>();
+    if (realNames) for (const u of data ?? []) if (u.name !== null && u.name !== '') names.set(u.uid, u.name);
+    const shown = displayNames();
+    if (names.size !== shown.size || [...names].some(([uid, name]) => shown.get(uid) !== name)) setDisplayNames(names);
+  }, [data, myUid, myUsername, rocketChat, realNames]);
 
   return null;
 }

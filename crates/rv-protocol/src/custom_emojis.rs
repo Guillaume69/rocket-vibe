@@ -20,6 +20,36 @@ pub struct EmojiCatalog {
     pub items: Vec<CustomEmoji>,
 }
 
+/// Query of `PUT /api/v1/admin/emoji/{name}`, whose body is the raw PNG, JPEG
+/// or GIF (at most 1 MiB). `aliases` is comma-separated, empty for none. A
+/// name already taken answers 409 `revision_conflict`, a code another emoji
+/// holds `emoji_code_conflict`, a standard emoji's code `emoji_name_reserved`.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CreateEmoji {
+    pub operation_id: String,
+    #[serde(default)]
+    pub aliases: String,
+}
+
+/// Query of `DELETE /api/v1/admin/emoji/{name}`: the catalogue entry's revision.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RemoveEmoji {
+    pub operation_id: String,
+    pub expected_revision: String,
+}
+
+/// `CreateEmoji::aliases` as a list: trimmed, empty pieces dropped.
+pub fn aliases(value: &str) -> Vec<String> {
+    value
+        .split(',')
+        .map(str::trim)
+        .filter(|a| !a.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
 pub fn shortcode(value: &str) -> Option<&str> {
     let value = value
         .strip_prefix(':')

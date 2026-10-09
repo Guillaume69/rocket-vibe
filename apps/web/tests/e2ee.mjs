@@ -8,6 +8,7 @@ import {
   groupDialog,
   pin,
   closeDialog,
+  openSettings,
 } from "./crypto-browser.mjs";
 const browser = await chromium.launch({
     headless: true,
@@ -96,7 +97,7 @@ try {
     .fill("web-client-disposable-password");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await page.locator(".status-dot.online").waitFor();
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await openSettings(page);
   await page.locator('[data-category="encryption"]').click();
   await page
     .getByRole("button", {
@@ -438,7 +439,7 @@ try {
   console.log(
     "PASS encrypted reactions/deletion and local private search without clear network payloads",
   );
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await openSettings(page);
   await page.locator('[data-category="encryption"]').click();
   const rootFingerprint = await page
     .locator(".crypto-fingerprint")
@@ -634,9 +635,7 @@ try {
     .fill("web-client-disposable-password");
   await recovered.getByRole("button", { name: "Sign in", exact: true }).click();
   await recovered.locator(".status-dot.online").waitFor();
-  await recovered
-    .getByRole("button", { name: "Settings", exact: true })
-    .click();
+  await openSettings(recovered);
   await recovered.locator('[data-category="encryption"]').click();
   await recovered
     .getByLabel("Recovery code", { exact: true })

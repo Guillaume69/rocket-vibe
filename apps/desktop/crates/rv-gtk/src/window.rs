@@ -327,7 +327,7 @@ impl AppWindow {
                 this.cancel_add();
             }
         });
-        let (w1, w2) = (Rc::downgrade(&this), Rc::downgrade(&this));
+        let (w1, w2, w3) = (Rc::downgrade(&this), Rc::downgrade(&this), Rc::downgrade(&this));
         this.chat.set_account_actions(crate::settings::AccountActions {
             switch: Box::new(move |info| {
                 if let Some(this) = w1.upgrade() {
@@ -337,6 +337,11 @@ impl AppWindow {
             add: Box::new(move || {
                 if let Some(this) = w2.upgrade() {
                     this.add_account();
+                }
+            }),
+            hide_rail: Box::new(move |hide| {
+                if let Some(this) = w3.upgrade() {
+                    this.rail.set_hidden(hide);
                 }
             }),
         });

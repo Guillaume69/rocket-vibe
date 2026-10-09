@@ -551,7 +551,10 @@ impl Session {
 
     /// A message nobody showed us yet, from someone else, that the preference wants.
     fn incoming(&self, args: &[Value]) -> Option<crate::notify::Incoming> {
-        let m = crate::normalize::to_message(args.first()?)?;
+        let raw = args.first()?;
+        let m = crate::normalize::to_message(raw)?;
+        // Before the label is read: a first message from someone names them.
+        self.store.write(|w| w.note_author(raw));
         if m.author_id == self.info.user_id
             || m.edited_at.is_some()
             || (m.system_type.is_some() && m.system_type.as_deref() != Some("e2e"))
@@ -569,7 +572,7 @@ impl Session {
         let incoming = crate::notify::Incoming {
             rid: m.rid.clone(),
             id: m.id.clone(),
-            author: m.author_name.clone().unwrap_or_default(),
+            author: self.person_label(&m.author_id).or_else(|| m.author_name.clone()).unwrap_or_default(),
             room_name,
             direct: kind == "d",
             body: (!encrypted).then(|| crate::notify::body_of(m)),
@@ -579,9 +582,17 @@ impl Session {
         crate::notify::wanted(&preference, &incoming).then_some(incoming)
     }
 
-    /// Who is typing in the room right now, me left out.
+    /// Who is typing in the room right now, me left out: under my username,
+    /// or my real name where the server makes clients announce that.
     pub fn typing(&self, rid: &str) -> Vec<String> {
-        self.typing.lock().unwrap().who(rid, &self.info.username, Instant::now())
+        let mine = self.store.person_name(&self.info.user_id);
+        let mut who = self.typing.lock().unwrap().who(rid, &self.info.username, Instant::now());
+        // Only where the server names people by their real name: elsewhere it
+        // could be someone else's username.
+        if self.store.real_names() {
+            who.retain(|name| Some(name) != mine.as_ref());
+        }
+        who
     }
 
     pub fn presence(&self, uid: &str) -> Option<live::Presence> {
@@ -765,11 +776,15 @@ impl Session {
         crate::e2e::encrypt_message(payload, &key, &kid).ok()
     }
 
-    /// How a Mattermost person shows: their name under the account's name
-    /// format, then their custom status emoji. None on other servers, or for
-    /// someone shown by username with no status.
+    /// How a person shows when not by username: on Mattermost their name
+    /// under the account's name format, then their custom status emoji; on
+    /// Rocket.Chat their real name when the server shows real names
+    /// (`UI_Use_Real_Name`). None for someone shown by username.
     pub fn person_label(&self, uid: &str) -> Option<String> {
-        let directory = &self.sync.mattermost()?.directory;
+        let Some(mattermost) = self.sync.mattermost() else {
+            return self.store.real_names().then(|| self.store.person_name(uid)).flatten();
+        };
+        let directory = &mattermost.directory;
         let name = directory.display_name(uid);
         let emoji = directory.status_emoji(uid);
         if name.is_none() && emoji.is_none() {
@@ -1033,16 +1048,36 @@ impl Session {
             let _ = self.sync.reconcile_rooms().await;
             return;
         }
-        if let Ok(list) = self.rest.get("emoji-custom.list", CallOptions::default()).await {
-            let index = crate::emoji::custom_index(&list);
-            *self.custom_emoji_names.lock().unwrap() = crate::emoji::custom_names(&index);
-            self.custom_emoji.lock().unwrap().extend(index);
-            let _ = self.events.send(SessionEvent::Avatar);
+        let _ = self.refresh_custom_emojis().await;
+        // People by real name or username, as the server's own clients show them.
+        if let Ok(settings) = self.rest.get("settings.public", CallOptions::params([("_id", "UI_Use_Real_Name")])).await
+        {
+            let on = settings
+                .get("settings")
+                .and_then(Value::as_array)
+                .and_then(|list| list.iter().find(|s| s.get("_id").and_then(Value::as_str) == Some("UI_Use_Real_Name")))
+                .map(|s| s.get("value").and_then(Value::as_bool) == Some(true));
+            if let Some(on) = on {
+                self.store.write(|w| w.set_real_names(on));
+            }
         }
         if let Ok(me) = self.me().await {
+            let now = chrono::Utc::now().timestamp_millis();
+            self.store.write(|w| w.note_person(&self.info.user_id, Some(&me.name), now));
             *self.notification_preference.lock().unwrap() = me.desktop_notifications;
         }
         let _ = self.sync.reconcile_rooms().await;
+    }
+
+    /// Reads the Rocket.Chat server's custom emoji again and REPLACES the
+    /// index, so a deleted one goes too; answers the list as received.
+    pub async fn refresh_custom_emojis(&self) -> Result<Value, RestError> {
+        let list = self.rest.get("emoji-custom.list", CallOptions::default()).await?;
+        let index = crate::emoji::custom_index(&list);
+        *self.custom_emoji_names.lock().unwrap() = crate::emoji::custom_names(&index);
+        *self.custom_emoji.lock().unwrap() = index.into_iter().collect();
+        let _ = self.events.send(SessionEvent::Avatar);
+        Ok(list)
     }
 
     pub fn reconnect_now(&self) {

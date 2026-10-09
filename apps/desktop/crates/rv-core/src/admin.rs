@@ -279,7 +279,7 @@ pub struct AdminError {
 }
 
 impl AdminError {
-    fn new(code: &str) -> Self {
+    pub fn new(code: &str) -> Self {
         AdminError { code: code.to_owned(), last_owner: None, count: None }
     }
 }
@@ -325,6 +325,16 @@ pub fn error_key(code: &str) -> &'static str {
         "permission_denied" | "unsupported_feature" => "admin.error_denied",
         "bot_privilege" => "admin.error_bot_privilege",
         "bot_encrypted_room" => "admin.error_bot_encrypted_room",
+        "invalid_emoji_name" => "admin.emoji_error_name",
+        "emoji_name_reserved" => "admin.emoji_error_reserved",
+        "emoji_name_taken" | "emoji_code_conflict" => "admin.emoji_error_taken",
+        "Custom_Emoji_Error_Name_Or_Alias_Already_In_Use" => "admin.emoji_error_taken",
+        "emoji-is-not-image" | "invalid_emoji_image" => "admin.emoji_error_image",
+        "emoji_image_too_large" => "admin.emoji_error_size",
+        "emoji_catalog_limit" => "admin.emoji_error_limit",
+        "invalid_icon" | "error-invalid-file-type" => "admin.icon_error_image",
+        "icon_too_large" | "error-invalid-file-width" | "error-invalid-file-height" => "admin.icon_error_size",
+        "not_authorized" => "admin.error_denied",
         code if code.starts_with("error-") => "admin.error_denied",
         _ => "admin.failed",
     }
@@ -377,6 +387,48 @@ pub fn latest_server_tag(releases: &Value) -> Option<String> {
     highest_release(releases, "server-")
 }
 
+/// The largest emoji image both servers take (RocketVibe's limit).
+pub const EMOJI_BYTES: usize = 1024 * 1024;
+
+/// A custom emoji as the administration lists it. `image` is what
+/// `Session::custom_emoji` gives for its name: a Rocket.Chat path or a
+/// RocketVibe `rv-emoji:` handle, loaded by the session's media cache.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AdminEmoji {
+    pub id: String,
+    pub name: String,
+    pub aliases: Vec<String>,
+    /// RocketVibe's revision, which a removal names; empty on Rocket.Chat.
+    pub revision: String,
+    pub image: String,
+}
+
+/// A custom emoji code both servers take as typed: 1 to 80 lowercase ASCII
+/// letters, digits, `_` or `-` (Rocket.Chat would silently rewrite others).
+pub fn valid_emoji_code(code: &str) -> bool {
+    !code.is_empty()
+        && code.len() <= 80
+        && code.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
+}
+
+/// The name and the comma-separated aliases, trimmed, colons dropped, then
+/// checked: at most 8 aliases, no repeat, no standard emoji's code (its glyph
+/// would win at render).
+pub fn emoji_codes(name: &str, aliases: &str) -> Result<(String, Vec<String>), AdminError> {
+    let clean = |s: &str| s.trim().trim_matches(':').to_owned();
+    let name = clean(name);
+    let aliases: Vec<String> = aliases.split(',').map(clean).filter(|a| !a.is_empty()).collect();
+    let mut seen = std::collections::HashSet::new();
+    let codes = || std::iter::once(&name).chain(aliases.iter());
+    if aliases.len() > 8 || !codes().all(|c| valid_emoji_code(c) && seen.insert(c.clone())) {
+        return Err(AdminError::new("invalid_emoji_name"));
+    }
+    if codes().any(|c| crate::emoji::unicode(c).is_some()) {
+        return Err(AdminError::new("emoji_name_reserved"));
+    }
+    Ok((name, aliases))
+}
+
 /// The administration of the account a UI has open.
 #[derive(Clone)]
 pub enum Admin {
@@ -389,6 +441,14 @@ impl Admin {
         match self {
             Self::RocketChat(_) => Product::RocketChat,
             Self::Native(_) => Product::RocketVibe,
+        }
+    }
+
+    /// The open account, whose server this administers.
+    pub fn info(&self) -> &crate::session::SessionInfo {
+        match self {
+            Self::RocketChat(s) => &s.info,
+            Self::Native(s) => &s.info,
         }
     }
 
@@ -623,6 +683,110 @@ impl Admin {
         match self {
             Self::RocketChat(_) => Err(AdminError::new("unsupported_feature")),
             Self::Native(s) => Ok(s.update_instance_settings(on).await?.user_bots),
+        }
+    }
+
+    /// The server's icon can be changed from the app: Rocket.Chat always (its
+    /// `favicon_192` asset, `manage-assets` being an administrator's),
+    /// RocketVibe when it announces `instance_icon`.
+    pub fn icon_supported(&self) -> bool {
+        match self {
+            Self::RocketChat(_) => true,
+            Self::Native(s) => s.icon_admin_supported(),
+        }
+    }
+
+    /// Sets the server's icon from a square PNG of
+    /// `server_icon::RC_SIDE` pixels (Rocket.Chat refuses any other size;
+    /// RocketVibe crops and scales by itself), or removes it with `None`.
+    pub async fn set_icon(&self, png: Option<Vec<u8>>) -> Result<(), AdminError> {
+        match self {
+            Self::RocketChat(s) => match png {
+                Some(png) => {
+                    let texts = vec![("assetName".to_owned(), crate::server_icon::RC_ASSET.to_owned())];
+                    s.rest.upload("assets.setAsset", "asset", png, "icon.png", "image/png", texts, |_, _| {}).await?;
+                    Ok(())
+                }
+                None => {
+                    let body = json!({"assetName": crate::server_icon::RC_ASSET});
+                    s.rest.post("assets.unsetAsset", CallOptions::body(body)).await?;
+                    Ok(())
+                }
+            },
+            Self::Native(s) => Ok(s.admin_set_icon(png).await?),
+        }
+    }
+
+    /// The server lets this administrator manage custom emoji: Rocket.Chat
+    /// always (an administrator holds `manage-emoji`), RocketVibe when it
+    /// announces `custom_emoji_admin`.
+    pub fn emoji_supported(&self) -> bool {
+        match self {
+            Self::RocketChat(_) => true,
+            Self::Native(s) => s.emoji_admin_supported(),
+        }
+    }
+
+    /// The server's custom emoji, by name. Reading them also refreshes the
+    /// session's index, so the pickers follow what this page shows.
+    pub async fn emojis(&self) -> Result<Vec<AdminEmoji>, AdminError> {
+        let mut list = match self {
+            Self::RocketChat(s) => rc::emojis(&s.refresh_custom_emojis().await?),
+            Self::Native(s) => s
+                .admin_emojis()
+                .await?
+                .into_iter()
+                .map(|e| AdminEmoji {
+                    id: e.id,
+                    name: e.name,
+                    aliases: e.aliases,
+                    revision: e.revision,
+                    image: format!("rv-emoji:{}", e.file_id),
+                })
+                .collect(),
+        };
+        list.sort_by(|a, b| a.name.cmp(&b.name));
+        Ok(list)
+    }
+
+    /// Adds a custom emoji from an image file (PNG, JPEG or GIF). The name and
+    /// the aliases (comma-separated) are checked first: `invalid_emoji_name`,
+    /// `emoji_name_reserved` for a standard emoji's code.
+    pub async fn create_emoji(
+        &self,
+        name: &str,
+        aliases: &str,
+        file_name: &str,
+        mime: &str,
+        image: Vec<u8>,
+    ) -> Result<(), AdminError> {
+        let (name, aliases) = emoji_codes(name, aliases)?;
+        if image.is_empty() || image.len() > EMOJI_BYTES {
+            return Err(AdminError::new("emoji_image_too_large"));
+        }
+        match self {
+            Self::RocketChat(s) => {
+                let texts = vec![("name".to_owned(), name), ("aliases".to_owned(), aliases.join(","))];
+                s.rest.upload("emoji-custom.create", "emoji", image, file_name, mime, texts, |_, _| {}).await?;
+                let _ = s.refresh_custom_emojis().await;
+                Ok(())
+            }
+            // A creation that meets a taken name is a revision conflict there.
+            Self::Native(s) => s.admin_create_emoji(&name, &aliases.join(","), image).await.map_err(|e| {
+                let e = AdminError::from(e);
+                if e.code == "revision_conflict" { AdminError::new("emoji_name_taken") } else { e }
+            }),
+        }
+    }
+
+    pub async fn delete_emoji(&self, emoji: &AdminEmoji) -> Result<(), AdminError> {
+        match self {
+            Self::RocketChat(s) => {
+                rc::delete_emoji(&s.rest, &emoji.id).await?;
+                let _ = s.refresh_custom_emojis().await;
+                Ok(())
+            }
+            Self::Native(s) => Ok(s.admin_remove_emoji(&emoji.name, &emoji.revision).await?),
         }
     }
 
@@ -1177,6 +1341,34 @@ pub mod rc {
         let body = json!({"userId": user_id, "description": reason});
         rest.post("moderation.reportUser", CallOptions::body(body)).await.map(|_| ())
     }
+
+    /// `emoji-custom.list` as the administration shows it: each emoji once,
+    /// its image at the path `emoji::custom_index` gives its name.
+    pub fn emojis(list: &Value) -> Vec<AdminEmoji> {
+        let index: std::collections::HashMap<_, _> = crate::emoji::custom_index(list).into_iter().collect();
+        let entries = list.pointer("/emojis/update").and_then(Value::as_array).cloned().unwrap_or_default();
+        entries
+            .iter()
+            .filter_map(|e| {
+                let name = e.get("name")?.as_str()?.to_owned();
+                Some(AdminEmoji {
+                    id: e.get("_id")?.as_str()?.to_owned(),
+                    image: index.get(&name)?.clone(),
+                    aliases: e
+                        .get("aliases")
+                        .and_then(Value::as_array)
+                        .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+                        .unwrap_or_default(),
+                    revision: String::new(),
+                    name,
+                })
+            })
+            .collect()
+    }
+
+    pub async fn delete_emoji(rest: &RestClient, id: &str) -> Result<(), RestError> {
+        rest.post("emoji-custom.delete", CallOptions::body(json!({"emojiId": id}))).await.map(|_| ())
+    }
 }
 
 #[cfg(test)]
@@ -1185,6 +1377,34 @@ mod tests {
 
     fn fixture() -> Value {
         serde_json::from_str(include_str!("../../../../../docs/protocol/v1.fixture.json")).unwrap()
+    }
+
+    #[test]
+    fn emoji_codes_are_trimmed_checked_and_never_standard() {
+        let (name, aliases) = emoji_codes(" :party_parrot: ", "rv_parrot, ,vibe-parrot").unwrap();
+        assert_eq!(name, "party_parrot");
+        assert_eq!(aliases, ["rv_parrot", "vibe-parrot"]);
+        for (name, aliases) in [("", ""), ("Bad Name", ""), ("ok", "ok"), ("ok", "a,b,c,d,e,f,g,h,i"), ("é", "")] {
+            assert_eq!(emoji_codes(name, aliases).unwrap_err().code, "invalid_emoji_name", "{name} {aliases}");
+        }
+        assert_eq!(emoji_codes("smile", "").unwrap_err().code, "emoji_name_reserved");
+        assert_eq!(emoji_codes("mine", "thumbsup").unwrap_err().code, "emoji_name_reserved");
+        assert_eq!(error_key("Custom_Emoji_Error_Name_Or_Alias_Already_In_Use"), "admin.emoji_error_taken");
+    }
+
+    #[test]
+    fn rocket_chat_emojis_carry_their_id_aliases_and_image_path() {
+        let list = serde_json::json!({"emojis": {"update": [
+            {"_id": "e1", "name": "party_parrot", "aliases": ["parrot"], "extension": "gif"},
+            {"_id": "e2", "name": "shipit", "aliases": [], "extension": "png"},
+            {"name": "no_id", "extension": "png"}
+        ], "remove": []}});
+        let emojis = rc::emojis(&list);
+        assert_eq!(emojis.len(), 2);
+        assert_eq!(emojis[0].id, "e1");
+        assert_eq!(emojis[0].aliases, ["parrot"]);
+        assert_eq!(emojis[0].image, "/emoji-custom/party_parrot.gif");
+        assert_eq!(emojis[1].image, "/emoji-custom/shipit.png");
     }
 
     #[test]

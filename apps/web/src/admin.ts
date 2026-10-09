@@ -6,6 +6,8 @@ import type {
   AdminRoomPage,
   AdminReportedMessagePage,
   AdminReportedUserPage,
+  EmojiCatalog,
+  InstanceIcon,
 } from "./protocol";
 import { operation, segment } from "./api";
 import { button, dialog, el, field, tile, toast } from "./dom";
@@ -148,6 +150,191 @@ async function confirm(title: string, run: () => Promise<void>): Promise<void> {
       "destructive",
     ),
   );
+}
+/**
+ * The Dashboard's Server icon card: the icon the apps' server rails and this
+ * tab show, Change (a PNG or JPEG the server crops to a square) and Remove.
+ */
+function iconCard(app: App, valid: () => boolean): HTMLElement {
+  const [group, rows] = preferencesGroup(nt("admin.icon_title"));
+  group.dataset.adminCard = "icon";
+  const preview = el("img", "admin-icon-preview");
+  preview.alt = "";
+  const status = el("span", "action-row-title");
+  const row = el("div", "action-row admin-icon-row");
+  const text = el("div", "action-row-text");
+  text.append(status, el("span", "action-row-subtitle", nt("admin.icon_hint")));
+  const picker = el("input");
+  picker.type = "file";
+  picker.accept = "image/png,image/jpeg";
+  picker.hidden = true;
+  const change = button(nt("admin.icon_change"), () => picker.click());
+  const show = (revision: string | null) => {
+    preview.hidden = revision === null;
+    if (revision !== null)
+      preview.src = "/api/v1/instance/icon?v=" + encodeURIComponent(revision);
+    status.textContent = nt(
+      revision === null ? "admin.icon_none" : "admin.icon_current",
+    );
+    remove.hidden = revision === null;
+    app.serverIcon(revision);
+    if (app.info) app.info.icon_revision = revision;
+  };
+  const apply = async (file: File | null) => {
+    const icon = await app.api.request<InstanceIcon>(
+      "/api/v1/admin/icon?operation_id=" + operation(),
+      file ? "PUT" : "DELETE",
+      file ?? undefined,
+    );
+    if (!valid()) return;
+    show(icon.revision ?? null);
+    toast(nt(file ? "admin.icon_saved" : "admin.icon_removed"));
+  };
+  const remove = button(
+    nt("admin.icon_remove"),
+    () => {
+      const [node, body] = dialog(nt("admin.icon_remove_title"));
+      node.classList.add("alert-dialog");
+      body.append(
+        el("p", "", nt("admin.icon_remove_body")),
+        button(t("cancel"), () => node.close()),
+        button(
+          nt("admin.icon_remove"),
+          async () => {
+            await apply(null);
+            node.close();
+          },
+          "destructive",
+        ),
+      );
+    },
+    "destructive",
+  );
+  picker.addEventListener("change", () => {
+    const file = picker.files?.[0];
+    picker.value = "";
+    if (file) void apply(file).catch(toast);
+  });
+  row.append(preview, text, change, remove, picker);
+  rows.append(row);
+  show(app.info?.icon_revision ?? null);
+  return group;
+}
+/** A code the server takes as typed (rv-core's `valid_emoji_code`). */
+const emojiCode = /^[a-z0-9_-]{1,80}$/;
+/**
+ * Custom emoji: the form adding one (name, aliases, image), then the
+ * catalogue, each entry deleted after a confirmation. Every change rereads
+ * the app's catalogue so pickers and messages follow at once.
+ */
+async function emojiPage(
+  app: App,
+  page: HTMLElement,
+  valid: () => boolean,
+): Promise<void> {
+  const [form, formRows] = preferencesGroup(nt("admin.emoji_add"));
+  const [nameField, name] = field(nt("admin.emoji_name"));
+  const [aliasField, aliases] = field(nt("admin.emoji_aliases"));
+  const imageField = el("label", "field");
+  const image = el("input");
+  image.type = "file";
+  image.accept = "image/png,image/jpeg,image/gif";
+  imageField.append(
+    el("span", "pill-caption", nt("admin.emoji_image")),
+    image,
+    el("span", "dim", nt("admin.emoji_image_hint")),
+  );
+  const [list, listRows] = preferencesGroup(nt("admin.cat.emoji"));
+  const render = async (catalog?: EmojiCatalog) => {
+    catalog ??= await app.api.request<EmojiCatalog>("/api/v1/emoji");
+    if (!valid()) return;
+    await app.loadEmojis().catch(() => {});
+    listRows.replaceChildren();
+    if (!catalog.items.length)
+      listRows.append(el("p", "dim", nt("admin.emoji_empty")));
+    for (const item of catalog.items) {
+      const row = actionRow(
+        ":" + item.name + ":",
+        item.aliases.map((alias) => ":" + alias + ":").join(" "),
+      );
+      row.classList.add("admin-emoji-row");
+      const picture = el("span", "admin-emoji-image");
+      app.emoji(item.name, picture);
+      row.prepend(picture);
+      row.append(
+        iconButton("trash", nt("admin.emoji_delete"), () => {
+          const [node, body] = dialog(nt("admin.emoji_delete_title"));
+          node.classList.add("alert-dialog");
+          body.append(
+            el(
+              "p",
+              "",
+              nt("admin.emoji_delete_body").replace("{name}", item.name),
+            ),
+            button(t("cancel"), () => node.close()),
+            button(
+              nt("admin.emoji_delete"),
+              async () => {
+                const next = await app.api.request<EmojiCatalog>(
+                  "/api/v1/admin/emoji/" +
+                    segment(item.name) +
+                    "?operation_id=" +
+                    operation() +
+                    "&expected_revision=" +
+                    segment(item.revision),
+                  "DELETE",
+                );
+                node.close();
+                await render(next);
+              },
+              "destructive",
+            ),
+          );
+        }),
+      );
+      listRows.append(row);
+    }
+  };
+  const add = button(
+    nt("admin.emoji_add"),
+    async () => {
+      const code = name.value.trim().replace(/^:+|:+$/g, "");
+      const extra = aliases.value
+        .split(",")
+        .map((alias) => alias.trim().replace(/^:+|:+$/g, ""))
+        .filter(Boolean);
+      const file = image.files?.[0];
+      const codes = [code, ...extra];
+      // Like the other apps' check; a standard emoji's code is the server's
+      // refusal (`emoji_name_reserved`), worded from the catalog.
+      if (
+        !codes.every((c) => emojiCode.test(c)) ||
+        new Set(codes).size !== codes.length ||
+        extra.length > 8
+      )
+        throw new Error(nt("admin.emoji_error_name"));
+      if (!file) throw new Error(nt("admin.emoji_error_missing"));
+      if (file.size > 1024 * 1024)
+        throw new Error(nt("admin.emoji_error_size"));
+      const next = await app.api.request<EmojiCatalog>(
+        "/api/v1/admin/emoji/" +
+          segment(code) +
+          "?operation_id=" +
+          operation() +
+          "&aliases=" +
+          encodeURIComponent(extra.join(",")),
+        "PUT",
+        file,
+      );
+      name.value = aliases.value = image.value = "";
+      toast(nt("admin.emoji_added"));
+      await render(next);
+    },
+    "cta",
+  );
+  formRows.append(nameField, aliasField, imageField, add);
+  page.append(el("p", "dim", nt("admin.emoji_hint")), form, list);
+  await render();
 }
 export async function administration(app: App): Promise<void> {
   const host = sidebarDialog(nt("admin.title"), "admin-dialog");
@@ -348,6 +535,10 @@ export async function administration(app: App): Promise<void> {
       toggle.prepend(text);
       rows.append(toggle);
       group.dataset.adminCard = "bots";
+      columns[nextCard++ % columns.length].append(group);
+    }
+    if (app.info?.capabilities.instance_icon) {
+      const group = iconCard(app, valid);
       columns[nextCard++ % columns.length].append(group);
     }
     page.append(cards);
@@ -712,5 +903,9 @@ export async function administration(app: App): Promise<void> {
   });
   host.add("rooms", nt("admin.cat.rooms"), "rooms", (page) => rooms(page));
   host.add("users", nt("admin.cat.users"), "users", (page) => users(page));
+  if (app.info?.capabilities.custom_emoji_admin)
+    host.add("emoji", nt("admin.cat.emoji"), "smile", (page) =>
+      emojiPage(app, page, valid),
+    );
   host.select("dashboard");
 }

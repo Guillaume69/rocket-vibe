@@ -57,6 +57,33 @@ final class FakeAdmin: ServerAdminProtocol, @unchecked Sendable {
     }
     func latestVersion() async -> String? { "1.0.0" }
     func userBots() async throws -> Bool? { userBots_ }
+    var icon_: Data?
+    func iconSupported() -> Bool { true }
+    func icon() async -> Data? { icon_ }
+    func setIcon(png: Data?) async throws {
+        calls.append("setIcon:\(png?.count ?? 0)")
+        try refuse()
+        icon_ = png
+    }
+    var emojiSupported_ = true
+    var emojiList: [AdminEmoji] = []
+    func emojiSupported() -> Bool { emojiSupported_ }
+    func emojis() async throws -> [AdminEmoji] {
+        calls.append("emojis")
+        try refuse()
+        return emojiList
+    }
+    func createEmoji(name: String, aliases: String, file: String) async throws {
+        calls.append("createEmoji:\(name):\(aliases)")
+        try refuse()
+        emojiList.append(AdminEmoji(id: name, name: name, aliases: aliases.split(separator: ",").map(String.init),
+                                    revision: "1", image: "/emoji-custom/\(name).png"))
+    }
+    func deleteEmoji(item: AdminEmoji) async throws {
+        calls.append("deleteEmoji:\(item.name)")
+        try refuse()
+        emojiList.removeAll { $0.id == item.id }
+    }
     func setUserBots(on: Bool) async throws -> Bool {
         calls.append("userBots:\(on)")
         try refuse()
@@ -163,7 +190,7 @@ final class AdminTests: XCTestCase {
         XCTAssertEqual(AdminText.update(current: "8.5.1", latest: "8.8.1"), "Update available: 8.8.1")
         XCTAssertEqual(AdminText.update(current: "8.8.1", latest: "8.8.1"), L("admin.up_to_date"))
         XCTAssertNil(AdminText.update(current: "8.8.1", latest: nil))
-        XCTAssertEqual(AdminCategory.allCases.map(\.title), ["Dashboard", "Moderation", "Rooms", "Users"])
+        XCTAssertEqual(AdminCategory.allCases.map(\.title), ["Dashboard", "Moderation", "Rooms", "Users", "Custom emoji"])
     }
 
     @MainActor
@@ -310,6 +337,50 @@ final class AdminTests: XCTestCase {
         XCTAssertEqual(mine.title, L("report.user"))
         let failed = await mine.send(with: fake)
         XCTAssertEqual(failed, L("report.failed"))
+    }
+
+    @MainActor
+    func testTheServerIconIsSetAndRemoved() async throws {
+        let fake = FakeAdmin()
+        let model = AdminModel(source: fake)
+        XCTAssertTrue(model.iconSupported)
+        await model.loadIcon()
+        XCTAssertNil(model.icon)
+        let saved = await model.setIcon(png: Data([1, 2, 3]))
+        XCTAssertTrue(saved)
+        XCTAssertEqual(model.icon, Data([1, 2, 3]))
+        XCTAssertEqual(model.notice, L("admin.icon_saved"))
+        fake.refusal = "error-invalid-file-width"
+        let refused = await model.setIcon(png: Data([4]))
+        XCTAssertFalse(refused)
+        XCTAssertEqual(model.notice, L("admin.icon_error_size"))
+        fake.refusal = nil
+        _ = await model.setIcon(png: nil)
+        XCTAssertNil(model.icon)
+        XCTAssertEqual(fake.calls.filter { $0.hasPrefix("setIcon") }, ["setIcon:3", "setIcon:1", "setIcon:0"])
+    }
+
+    @MainActor
+    func testCustomEmojiAreListedAddedAndDeleted() async throws {
+        let fake = FakeAdmin()
+        let model = AdminModel(source: fake)
+        XCTAssertEqual(model.categories.last, .emoji)
+        model.show(.emoji)
+        try await until { model.emojis != nil }
+        XCTAssertEqual(model.emojis, [])
+        let added = await model.createEmoji(name: "shipit", aliases: "ship_it", file: URL(fileURLWithPath: "/tmp/shipit.png"))
+        XCTAssertTrue(added)
+        XCTAssertEqual(model.emojis?.map(\.name), ["shipit"])
+        XCTAssertEqual(model.notice, L("admin.emoji_added"))
+        fake.refusal = "emoji_name_taken"
+        let again = await model.createEmoji(name: "shipit", aliases: "", file: URL(fileURLWithPath: "/tmp/shipit.png"))
+        XCTAssertFalse(again)
+        XCTAssertEqual(model.notice, L("admin.emoji_error_taken"))
+        fake.refusal = nil
+        await model.deleteEmoji(model.emojis![0])
+        XCTAssertEqual(model.emojis, [])
+        fake.emojiSupported_ = false
+        XCTAssertFalse(AdminModel(source: fake).categories.contains(.emoji))
     }
 
     @MainActor

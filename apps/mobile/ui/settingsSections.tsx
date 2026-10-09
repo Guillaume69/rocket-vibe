@@ -18,7 +18,7 @@
 import Constants from 'expo-constants';
 import { Link, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Switch, Text, View } from 'react-native';
 
 import { readMyProfile } from '../lib/myProfile.ts';
 import { getFcmToken } from '../lib/push.ts';
@@ -42,6 +42,7 @@ import {
   type TranslateFn,
 } from './messages.ts';
 import { NativeSecuritySection } from './nativeSecurity.tsx';
+import { setServerRailHidden, useServerRailHidden } from './serverRailSetting.ts';
 import { useNativePreferences } from './nativePreferences.ts';
 import type { SettingsCategory } from './settingsCategories.ts';
 import { useSync } from './sync.tsx';
@@ -423,14 +424,30 @@ function LanguageCategory({ c, client }: { c: Colors; client: RestClient }) {
   );
 }
 
-/** Accounts: who is signed in, on which server, and the way to another server. */
+/**
+ * Accounts: who is signed in, on which server, the way to another server, and
+ * the switch hiding the server rail (that link stays the way to switch).
+ */
 function AccountsCategory({ c, account }: { c: Colors; account: SettingsAccount }) {
   const t = useT();
+  const railHidden = useServerRailHidden();
   return (
     <>
       <View style={[styles.card, { backgroundColor: c.deepCard, borderColor: c.border }]}>
         <Pair c={c} label={t('settings.signedIn')} value={`@${account.username}`} />
         <Pair c={c} label={t('settings.server')} value={account.baseUrl} />
+      </View>
+      <View style={[styles.card, { backgroundColor: c.deepCard, borderColor: c.border }]}>
+        <View style={styles.switchRow}>
+          <Text style={[styles.settingTitle, styles.grow, { color: c.text }]}>{t('settings.hideServerRail')}</Text>
+          <Switch
+            value={railHidden}
+            onValueChange={setServerRailHidden}
+            trackColor={{ true: c.accent }}
+            accessibilityLabel={t('settings.hideServerRail')}
+          />
+        </View>
+        <Text style={[styles.settingHelp, { color: c.dimmed }]}>{t('settings.hideServerRailHelp')}</Text>
       </View>
       <Link href="/login?change=1" style={[styles.link, { color: c.cyan }]}>
         {t('settings.switchServer')}
@@ -702,6 +719,8 @@ export const styles = StyleSheet.create({
   card: { borderRadius: 16, borderWidth: 1, padding: 16, gap: 10 },
   settingTitle: { fontFamily: FONTS.title, fontSize: 16 },
   settingHelp: { fontFamily: FONTS.body, fontSize: 13, lineHeight: 18 },
+  switchRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  grow: { flex: 1 },
   options: { marginTop: 2 },
   // The radius lives on the WRAPPER: only a parent's clip (`overflow`) cuts
   // the ripple; borderRadius on the Pressable is ignored by the ripple mask

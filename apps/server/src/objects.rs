@@ -229,7 +229,7 @@ impl LocalObjects {
         for (name, temporary) in candidates {
             if !temporary {
                 let used: bool = sqlx::query_scalar(
-                    "SELECT EXISTS(SELECT 1 FROM users WHERE avatar_file_id=$1) OR EXISTS(SELECT 1 FROM custom_emojis WHERE object_id=$1) OR EXISTS(SELECT 1 FROM messages m CROSS JOIN LATERAL jsonb_array_elements(m.previews) p WHERE NOT m.deleted AND p #>> '{image,file_id}'=$1) OR EXISTS(SELECT 1 FROM uploads WHERE object_id=$1 AND (state='completed' OR state='ready' AND expires_at>clock_timestamp()))",
+                    "SELECT EXISTS(SELECT 1 FROM users WHERE avatar_file_id=$1) OR EXISTS(SELECT 1 FROM custom_emojis WHERE object_id=$1) OR EXISTS(SELECT 1 FROM instance WHERE icon_object_id=$1) OR EXISTS(SELECT 1 FROM messages m CROSS JOIN LATERAL jsonb_array_elements(m.previews) p WHERE NOT m.deleted AND p #>> '{image,file_id}'=$1) OR EXISTS(SELECT 1 FROM uploads WHERE object_id=$1 AND (state='completed' OR state='ready' AND expires_at>clock_timestamp()))",
                 )
                 .bind(&name)
                 .fetch_one(pool)

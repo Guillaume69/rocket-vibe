@@ -76,6 +76,7 @@ import { SyncEngine } from '../../lib/sync.ts';
 import { MessageRow, type MessageRowData } from '../../ui/messageRow.tsx';
 import { usePresence } from '../../ui/presence.ts';
 import { useT,translateCurrent,useTimeFormatter } from '../../ui/i18n.ts';
+import { useDisplayNames } from '../../ui/identityStore.ts';
 import { useSession } from '../../ui/session.tsx';
 import { useSync } from '../../ui/sync.tsx';
 import { messageOrder } from '../../ui/messageOrder.ts';
@@ -688,7 +689,8 @@ function Room({
   // Typing indicator: the existing indicator consumes provider events; the
   // Rocket.Chat emission stays as recorded in lib/typing.ts.
   const onInput=useCallback((active:boolean)=>{void provider.native?.chat.setTyping(rid,active,undefined,membership??undefined);},[provider,rid,membership]);
-  const typingEngine = useMemo(() => new TypingEngine({ rid, me }), [rid, me]);
+  const myName = useDisplayNames().get(client.auth?.userId ?? '') ?? null;
+  const typingEngine = useMemo(() => new TypingEngine({ rid, me, myName }), [rid, me, myName]);
   useEffect(() => {
     const detach = ddp.onEvent((event) => typingEngine.apply(event));
     return () => {

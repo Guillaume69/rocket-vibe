@@ -74,6 +74,21 @@
     "permission_denied": "admin.error_denied",
     "unsupported_feature": "admin.error_denied",
     "bot_privilege": "admin.error_bot_privilege",
-    "bot_encrypted_room": "admin.error_bot_encrypted_room"
+    "bot_encrypted_room": "admin.error_bot_encrypted_room",
+    "invalid_emoji_name": "admin.emoji_error_name",
+    "emoji_name_reserved": "admin.emoji_error_reserved",
+    "emoji_name_taken": "admin.emoji_error_taken",
+    "emoji_code_conflict": "admin.emoji_error_taken",
+    "Custom_Emoji_Error_Name_Or_Alias_Already_In_Use": "admin.emoji_error_taken",
+    "emoji-is-not-image": "admin.emoji_error_image",
+    "invalid_emoji_image": "admin.emoji_error_image",
+    "emoji_image_too_large": "admin.emoji_error_size",
+    "emoji_catalog_limit": "admin.emoji_error_limit",
+    "invalid_icon": "admin.icon_error_image",
+    "error-invalid-file-type": "admin.icon_error_image",
+    "icon_too_large": "admin.icon_error_size",
+    "error-invalid-file-width": "admin.icon_error_size",
+    "error-invalid-file-height": "admin.icon_error_size",
+    "not_authorized": "admin.error_denied"
   }
 }

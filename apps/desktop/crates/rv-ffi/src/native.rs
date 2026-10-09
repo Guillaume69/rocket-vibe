@@ -175,8 +175,40 @@ impl Drop for NativeChat {
     }
 }
 
+/// What a read of a server's icon found (`rv_core::server_icon::Icon`).
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
+pub enum ServerIcon {
+    /// PNG or JPEG bytes.
+    Image { bytes: Vec<u8> },
+    /// No icon of its own: the initial.
+    Absent,
+    /// Nothing to conclude (offline, refused): keep what is shown.
+    Unknown,
+}
+
+impl From<rv_core::server_icon::Icon> for ServerIcon {
+    fn from(icon: rv_core::server_icon::Icon) -> Self {
+        match icon {
+            rv_core::server_icon::Icon::Image(bytes) => Self::Image { bytes },
+            rv_core::server_icon::Icon::Absent => Self::Absent,
+            rv_core::server_icon::Icon::Unknown => Self::Unknown,
+        }
+    }
+}
+
 #[uniffi::export]
 impl Client {
+    /// The server icon of the signed-in account `key`, for its rail tile.
+    pub async fn server_icon(&self, key: String) -> ServerIcon {
+        let dirs = self.dirs.clone();
+        let info = blocking(move || {
+            crate::accounts::load_all(&dirs).into_iter().find(|info| crate::accounts::key(info) == key)
+        })
+        .await;
+        let Some(info) = info else { return ServerIcon::Unknown };
+        on_tokio(async move { rv_core::server_icon::fetch(&info).await }).await.into()
+    }
+
     /// Whether the signed-in account `key` (not the open one) has unread
     /// messages, for the dot in the server rail: one read, never its store.
     /// `None` when it cannot tell (offline, refused, unknown key).

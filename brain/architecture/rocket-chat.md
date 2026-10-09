@@ -39,7 +39,7 @@ All paths are under `/api/v1/` except `/api/info`, which both clients reach thro
 
 | Purpose | Endpoints | Mobile | Desktop |
 |---|---|---|---|
-| Server discovery | `GET /api/info` (anonymous: minor version only, `8.5`), `settings.public` | `lib/server.ts` | `server.rs` |
+| Server discovery and public settings | `GET /api/info` (anonymous: minor version only, `8.5`), `settings.public`; once per session `settings.public?_id=UI_Use_Real_Name` (real names), and anonymously for the rail `settings.public?_id=Assets_favicon_192` then the asset's `value.url` (`_id` filters to one setting, or to a comma-separated list) | `lib/server.ts`, `ui/realNames.ts`, `lib/serverIcon.ts` | `server.rs`, `session.rs`, `server_icon.rs` |
 | Auth | `login` (password, resume, 2FA headers `x-2fa-code` / `x-2fa-method`), `users.2fa.sendEmailCode`, `logout` | `lib/auth.ts` | `session.rs` |
 | Room list catch-up | `rooms.get?updatedSince=`, `subscriptions.get?updatedSince=`, full `subscriptions.get` for reconciliation | `lib/catchUp.ts` | `sync.rs` |
 | History | `channels.history` / `groups.history` / `im.history` by room type `c` / `p` / other, with `inclusive=true`, `showThreadMessages=false`, `count=50` | `providers/rocketchat/history.ts` | `sync.rs` |
@@ -55,11 +55,11 @@ All paths are under `/api/v1/` except `/api/info`, which both clients reach thro
 | Presence | `users.presence` (full snapshot, non-offline users only) | `lib/presence.ts` | `session.rs`, `live.rs` |
 | Permissions | `permissions.listAll` | `lib/permissions.ts` | `session.rs` |
 | Slash commands | `commands.list`, `commands.run` | `lib/commands.ts` | `session.rs` |
-| Custom emoji | `emoji-custom.list` | `lib/customEmojis.ts` | `session.rs` |
+| Custom emoji | `emoji-custom.list`; an administrator adds with `emoji-custom.create` (multipart) and deletes with `emoji-custom.delete` | `lib/customEmojis.ts`, `providers/rocketchat/admin.ts` | `session.rs`, `admin.rs` |
 | E2EE | `e2e.fetchMyKeys` | `lib/e2e/engine.ts` | `session.rs` |
 | Calls | `video-conference.capabilities`, `.start`, `.join`; desktop also `.info` | `lib/call.ts` | `actions.rs`, `session.rs` |
 | Push (mobile only) | `POST` / `DELETE push.token`; `push.get` from native code | `lib/pushToken.ts`, `plugins/with-fcm-deeplink.js` | - |
-| Administration (admin only) | `statistics` (and `?refresh=true` on demand), `roles.getUsersInRole`, `users.listByStatus`, `roles.addUserToRole` / `roles.removeUserFromRole`, `users.setActiveStatus`, `users.delete`, `rooms.adminRooms`, `moderation.reportsByUsers`, `moderation.user.reportedMessages`, `moderation.reports`, `moderation.dismissReports`, `moderation.userReports`, `moderation.user.reportsByUserId`, `moderation.dismissUserReports`, `moderation.user.deleteReportedMessages`, `chat.delete` | `providers/rocketchat/admin.ts` | `admin.rs` |
+| Administration (admin only) | `statistics` (and `?refresh=true` on demand), `roles.getUsersInRole`, `users.listByStatus`, `roles.addUserToRole` / `roles.removeUserFromRole`, `users.setActiveStatus`, `users.delete`, `rooms.adminRooms`, `moderation.reportsByUsers`, `moderation.user.reportedMessages`, `moderation.reports`, `moderation.dismissReports`, `moderation.userReports`, `moderation.user.reportsByUserId`, `moderation.dismissUserReports`, `moderation.user.deleteReportedMessages`, `chat.delete`, `emoji-custom.create` / `emoji-custom.delete`, `assets.setAsset` / `assets.unsetAsset` (`favicon_192`, the server icon) | `providers/rocketchat/admin.ts` | `admin.rs` |
 | Reports (any member) | `chat.reportMessage`, `moderation.reportUser` | `providers/rocketchat/admin.ts` | `admin.rs` |
 
 Mobile code reaches Rocket.Chat only through the `Provider` facade (`apps/mobile/lib/provider.ts`), whose Rocket.Chat driver is `apps/mobile/providers/rocketchat/`. Screens never name an endpoint for history, threads or subscriptions.
@@ -97,6 +97,8 @@ REST is limited to 10 calls a minute by default (measured); the 11th answers 429
 - `FileUpload_ProtectFiles` and `Accounts_AvatarBlockUnauthenticatedAccess` are on for the target: files and avatars need `rc_uid` / `rc_token`.
 - Avatars carry no HTTP `ETag`; the version (`avatarETag`) is added to the URL query to bust the image cache, and `updateAvatar` without `etag` means the photo was reset. See [../features/avatars.md](../features/avatars.md).
 - A change of display `name` is not broadcast at all; only avatar and username changes propagate live.
+- `UI_Use_Real_Name` (public, off by default) decides real names or usernames; the server applies it itself to push senders and notification titles (read in the 8.5.1 bundle, not probed), and the apps follow it for authors and two-person DMs (a DM subscription's `fname` is the other person's real name). See [../features/room-list.md](../features/room-list.md).
+- The server icon is the `favicon_192` asset: `assets.setAsset` demands exactly 192 by 192 pixels, PNG or JPEG, so the apps crop and scale first; once set, `settings.public` gives its `value.url`, served anonymously at a fixed URL with no ETag, so the clients bust their image caches themselves. It is also the workspace's PWA and Android icon for the official clients. Custom emoji names are rewritten silently by `emoji-custom.create` (beyond `[a-z0-9_-]`: `ab+c` becomes `ab_c`), so the apps check them first. See [../features/administration.md](../features/administration.md).
 - Administration: `statistics` is the last stored snapshot and `refresh=true` aggregates the whole workspace, so only a refresh button asks it; `users.list` refuses `filter` and ignores `query`, so users are listed and searched with `users.listByStatus` (`searchTerm`), without creation dates; deactivating or deleting a last owner of rooms answers `user-last-owner` with the rooms, until `confirmRelinquish`; `moderation.reportsByUsers` is grouped by author, not by message, hence a per-author fan-out (admins bypass the rate limit), and `moderation.user.reportedMessages` dedups messages; `chat.delete` needs room access, the only alternative deleting all the author's reported messages; `rooms.adminRooms` needs `types[]` to list discussions and teams and has no last-message date; `chat.react` accepts only the server's own emoji codes or a custom emoji. Who is admin: `me.roles` contains `admin`. See [../features/administration.md](../features/administration.md) and [../features/emoji.md](../features/emoji.md).
 - Push only notifies offline users, and by default only on DMs and mentions. With hidden content on, a push carries only a `messageId`, fetched with `push.get`. See [../features/notifications.md](../features/notifications.md).
 - E2EE rooms reject plain messages (`error-not-allowed`). See [e2ee.md](e2ee.md).
@@ -137,3 +139,7 @@ REST is limited to 10 calls a minute by default (measured); the 11th answers 429
 - apps/desktop/crates/rv-core/src/account.rs
 - apps/desktop/crates/rv-core/src/admin.rs
 - apps/mobile/providers/rocketchat/admin.ts
+- apps/mobile/ui/realNames.ts
+- apps/mobile/lib/serverIcon.ts
+- apps/mobile/lib/customEmojis.ts
+- apps/desktop/crates/rv-core/src/server_icon.rs

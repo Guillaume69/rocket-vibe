@@ -49,6 +49,8 @@ export interface Store {
    * cursors. Does NOTHING on an empty list (guard against a total purge).
    */
   purgeMissingRooms(aliveRids: string[], knownRids: string[]): Promise<void>;
+  /** Two-person DMs' real names (`fname`) on their other party (`UPDATE_DM_PEER_NAME`). */
+  saveDmNames?(names: { rid: string; name: string }[]): Promise<void>;
   /**
    * Retention: keep only the `nbMax` most recent messages of EACH
    * room, sparing optimistic ones and referenced thread roots.
@@ -90,6 +92,8 @@ export interface Store {
     uid: string;
     username: string;
     avatarEtag: string | null;
+    /** The real name, when the source carries one (`me`, `users.info`). */
+    name?: string | null;
   }): Promise<void>;
   /** Re-masks the plaintext of every encrypted message (on lock). */
   hideEncryptedMessages(): Promise<void>;

@@ -157,7 +157,7 @@ describe('catchUpGlobal', () => {
 
     await catchUpGlobal(client, engine);
 
-    assert.deepEqual(d.identities, [{ uid: 'u1', username: 'alice', avatarEtag: 'etag-fresh' }]);
+    assert.deepEqual(d.identities, [{ uid: 'u1', username: 'alice', avatarEtag: 'etag-fresh', name: null }]);
   });
 
   test('a failing `me` does not fail the catch-up', async () => {

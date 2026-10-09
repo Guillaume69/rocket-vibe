@@ -259,6 +259,31 @@
 .emoji {
   font-family: "Noto Color Emoji", sans-serif;
 }
+.admin-icon-row {
+  align-items: center;
+  gap: 12px;
+}
+.admin-icon-preview {
+  width: 44px;
+  height: 44px;
+  border-radius: 15px;
+  object-fit: cover;
+  flex: none;
+}
+.admin-emoji-row {
+  align-items: center;
+  gap: 12px;
+}
+.admin-emoji-image {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  flex: none;
+}
+.admin-emoji-image .custom-emoji {
+  width: 32px;
+  height: 32px;
+}
 .tile {
   position: relative;
 }
@@ -1946,4 +1971,35 @@ progress {
   border-radius: 999px;
   padding: 6px 16px;
   font-weight: 700;
+}
+.section-line {
+  display: flex;
+  align-items: center;
+}
+.section-line .section-header {
+  flex: 1;
+}
+.section-add {
+  min-width: 26px;
+  min-height: 26px;
+  padding: 0;
+  margin: 10px 4px 0 0;
+  border-radius: 8px;
+  opacity: 0.55;
+}
+.section-add:hover,
+.section-add:focus-visible {
+  opacity: 1;
+}
+.account > svg,
+.account > .symbolic-icon {
+  margin-left: auto;
+  opacity: 0.6;
+}
+.account:hover > svg,
+.account:hover > .symbolic-icon {
+  opacity: 1;
+}
+.anchored-menu {
+  min-width: 220px;
 }

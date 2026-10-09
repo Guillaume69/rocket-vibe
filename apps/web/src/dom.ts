@@ -105,6 +105,65 @@ export function field(
   wrap.append(input);
   return [wrap, input];
 }
+/**
+ * A menu of actions in a light-dismiss popover beside `anchor`: a click
+ * outside or Escape closes it with no action; each row closes it, then runs.
+ */
+/** Each opener's menu while it is shown: a second click closes it, never stacks one. */
+const openMenus = new WeakMap<HTMLElement, HTMLElement>();
+/** A row of an action menu: it closes the menu, then runs. */
+export function menuRow(
+  menu: HTMLElement,
+  label: string,
+  run: () => void | Promise<void>,
+): HTMLButtonElement {
+  const row = button(
+    label,
+    () => {
+      menu.hidePopover();
+      return run();
+    },
+    "flat menu-action",
+  );
+  row.setAttribute("role", "menuitem");
+  return row;
+}
+export function actionMenu(
+  anchor: HTMLElement,
+  items: [string, () => void | Promise<void>][],
+  above = false,
+): HTMLElement | undefined {
+  const shown = openMenus.get(anchor);
+  if (shown?.isConnected) {
+    shown.hidePopover();
+    return undefined;
+  }
+  const menu = el("div", "actions-menu anchored-menu");
+  menu.popover = "auto";
+  menu.setAttribute("role", "menu");
+  for (const [label, run] of items) menu.append(menuRow(menu, label, run));
+  openMenus.set(anchor, menu);
+  anchor.setAttribute("aria-expanded", "true");
+  menu.addEventListener("toggle", (event) => {
+    if ((event as ToggleEvent).newState !== "closed") return;
+    anchor.setAttribute("aria-expanded", "false");
+    // After this click's own handler: a click on the opener closes, not reopens.
+    setTimeout(() => {
+      menu.remove();
+      if (openMenus.get(anchor) === menu) openMenus.delete(anchor);
+    });
+  });
+  document.body.append(menu);
+  const rect = anchor.getBoundingClientRect();
+  menu.style.position = "fixed";
+  menu.style.margin = "0";
+  menu.style.left = Math.max(8, rect.left) + "px";
+  if (above) menu.style.bottom = window.innerHeight - rect.top + 6 + "px";
+  else menu.style.top = rect.bottom + 6 + "px";
+  menu.showPopover();
+  menu.querySelector<HTMLButtonElement>("button")?.focus();
+  return menu;
+}
 export function toast(error: unknown): void {
   const text = error instanceof Error ? error.message : String(error);
   const node = el("div", "toast", text);

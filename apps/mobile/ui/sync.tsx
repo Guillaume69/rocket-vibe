@@ -25,7 +25,8 @@ import {mountProviderProfiles} from '../lib/providerProfiles.ts';
 import {VoiceNative} from '../modules/voice/index.ts';
 import {mountProviderCalls} from '../lib/providerCalls.ts';
 import {mountProviderEmojis} from '../lib/providerEmojis.ts';
-import {mountDisplayNames} from '../lib/displayNames.ts';
+import { clearRealNames, refreshRealNames, restoreRealNames } from './realNames.ts';
+import {mountDisplayNames,setDisplayNames} from '../lib/displayNames.ts';
 import {mountNativePreviews} from '../lib/nativePreviews.ts';
 import { createContext, useContext, useEffect, useState } from 'react';
 import { afterSystemPicker } from './roomCover.ts';
@@ -148,6 +149,8 @@ export type SyncState =
       unlockE2E: (password: string) => Promise<void>;
       /** Relocks: forgets the key and re-masks the local plaintext. */
       lockE2E: () => Promise<void>;
+      /** Reads the server's custom emoji again now (after the administration changed them). */
+      refreshCustomEmojis: () => Promise<void>;
       /**
        * Incremented on each successful connection setup. A screen whose initial
        * load failed (opened offline) puts it in its effect's deps: the network
@@ -167,6 +170,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
     if (state.phase !== 'connected') {
       // The emoji index of the server left behind must not serve the next one.
       clearCustomEmojis();
+      clearRealNames();
       // eslint-disable-next-line react-hooks/set-state-in-effect -- The external account closed: clear its projection before another account can render it.
       setSync({ phase: 'idle' });
       return;
@@ -174,6 +178,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
     const { session, client } = state;
     if (session.kind === 'rocketvibe') {
       clearCustomEmojis();
+      clearRealNames();
       forgetIdentities();
       forgetLoadedThreads();
       releaseHotRooms();
@@ -260,6 +265,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
           ddp:provider.listener,provider,actions:provider.actions,capabilities:provider.capabilities,
           declareOpenRoom:openRooms.declare,presence,activity,e2e,
           unlockE2E:async () => { throw new Error('Unsupported native feature'); },lockE2E:async () => {},generation:0,
+          refreshCustomEmojis:()=>chat.refreshEmojis(),
         });
         if (AppState.currentState === 'active') chat.start(); else chat.suspend();
       })().catch(() => { if (alive) setSync({phase:'error',message:translateCurrent('native.error')}); });
@@ -382,6 +388,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       const openRooms = createOpenRoomsStack();
       let registeredPushToken = false;
       let syncedEmojis = false;
+      let syncedRealNames = false;
       let reconciledRooms = false;
       let retentionApplied = false;
       const presence = new PresenceEngine();
@@ -392,6 +399,9 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       // hold up the screen: customs would degrade to `:name:`.
       await restoreCustomEmojis(session.baseUrl, emojiStore, isDiscarded).catch(() => {});
       if (discarded) return;
+      // Real names or usernames: the server's last answer, before the first render.
+      if (client.kind === 'rocketchat') restoreRealNames(session.baseUrl);
+      else clearRealNames();
 
       // Silent E2EE resume: if the private key is already in the Keystore
       // (unlocked in a past session), reimport without a password. A failure
@@ -443,6 +453,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         e2e,
         unlockE2E,
         lockE2E,
+        refreshCustomEmojis: () => syncCustomEmojis(client, emojiStore, isDiscarded, provider.listCustomEmojis),
         generation: 0,
       });
 
@@ -533,6 +544,13 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         // first render; new emojis appear on the next render.
         // `isDiscarded` keeps a late fetch from re-arming the index of a
         // server we left. Failure → not armed, retried on the next flap.
+        // `UI_Use_Real_Name`, once per session like the emoji list.
+        if (!syncedRealNames && client.kind === 'rocketchat') {
+          syncedRealNames = true;
+          refreshRealNames(client, isDiscarded).catch(() => {
+            syncedRealNames = false;
+          });
+        }
         if (!syncedEmojis && provider.capabilities.customEmojis) {
           syncedEmojis = true;
           syncCustomEmojis(client, emojiStore, isDiscarded, provider.listCustomEmojis).catch(() => {
@@ -708,6 +726,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       // and the raw profile records.
       forgetReplies();
       forgetIdentities();
+      clearRealNames();
       forgetCallAvailability();
       forgetNotificationState();
       forgetProfileCards();
@@ -715,6 +734,8 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       unprofile();
       uncalls();
       unnames();
+      // Rocket.Chat's real names are fed by `ui/identities.tsx`, not by a provider source.
+      if (client.kind === 'rocketchat') setDisplayNames(new Map());
       ddp.close();
       ddp.reset();
     };

@@ -1,3 +1,4 @@
+import AppKit
 import RocketVibeCore
 import RocketVibeKit
 import SwiftUI
@@ -13,8 +14,16 @@ struct ChatView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            ServerRail()
+            if !app.railHidden { ServerRail() }
             split
+        }
+        // Settings > Accounts lists these accounts: they stay fresh with the rail hidden.
+        .task(id: app.account?.key) {
+            await app.refreshAccounts()
+            while !Task.isCancelled {
+                await app.pollAccounts()
+                try? await Task.sleep(nanoseconds: 60_000_000_000)
+            }
         }
     }
 
@@ -69,7 +78,8 @@ struct ChatView: View {
 
 /// The server rail: a button per signed-in account down the window's left
 /// edge, the open one outlined, a dot on another one with unread messages, and
-/// "+" to add an account. The others are checked every minute.
+/// "+" to add an account. The others are checked every minute (by `ChatView`,
+/// which keeps polling when Settings > Accounts hides the rail).
 struct ServerRail: View {
     @Environment(AppModel.self) var app
 
@@ -106,23 +116,24 @@ struct ServerRail: View {
         .padding(.horizontal, 10)
         .frame(maxHeight: .infinity)
         .background(Vibe.ink)
-        .task(id: app.account?.key) {
-            await app.refreshAccounts()
-            while !Task.isCancelled {
-                await app.pollAccounts()
-                try? await Task.sleep(nanoseconds: 60_000_000_000)
-            }
-        }
     }
 
     func tile(_ account: Account, open: Bool, host: String) -> some View {
         Button { Task { await app.switchAccount(account) } } label: {
-            Text(host.prefix(1).uppercased())
-                .font(.vibeTitle(17, .bold))
-                .foregroundStyle(Vibe.ink)
+            Group {
+                // The server's own icon when it has one, else its initial.
+                if let data = app.serverIcons[account.key], let image = NSImage(data: data) {
+                    Image(nsImage: image).resizable().scaledToFill()
+                } else {
+                    Text(host.prefix(1).uppercased())
+                        .font(.vibeTitle(17, .bold))
+                        .foregroundStyle(Vibe.ink)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(LinearGradient(colors: Vibe.tile(for: account.key), startPoint: .topLeading, endPoint: .bottomTrailing))
+                }
+            }
                 .frame(width: 44, height: 44)
-                .background(LinearGradient(colors: Vibe.tile(for: account.key), startPoint: .topLeading, endPoint: .bottomTrailing),
-                            in: RoundedRectangle(cornerRadius: 15))
+                .clipShape(RoundedRectangle(cornerRadius: 15))
                 .overlay(RoundedRectangle(cornerRadius: 15).strokeBorder(open ? Vibe.pink : .clear, lineWidth: 2))
                 .overlay(alignment: .topTrailing) {
                     if !open && app.unreadAccounts.contains(account.key) {
@@ -168,6 +179,8 @@ struct RoomListView: View {
     @State var found: [Found] = []
     @State var searching = false
     @State var creating = false
+    /// "New message" puts the cursor in the search, which finds people and channels.
+    @FocusState var searchFocused: Bool
 
     var body: some View {
         let selection = Binding<String?>(get: { app.room?.rid }, set: { if let rid = $0 { app.select(rid) } })
@@ -187,13 +200,16 @@ struct RoomListView: View {
                     }
                 }
             } else {
-                RoomSections(groups: app.groups, collapsed: app.collapsed, toggle: app.toggle)
+                RoomSections(groups: app.groups, collapsed: app.collapsed, toggle: app.toggle, canCreate: app.native != nil, add: { section in
+                    if section == .channels { creating = true } else { searchFocused = true }
+                })
             }
         }
         .listStyle(.sidebar)
         .scrollContentBackground(.hidden)
         .background(Vibe.deep.opacity(0.78))
         .searchable(text: $query, placement: .sidebar, prompt: L("spotlight.placeholder"))
+        .searchFocused($searchFocused)
         .task(id: query) { await search() }
         .task(id: app.account?.key) { query = ""; found = []; creating = false }
         .modalOverlay(isPresented: $creating) { NewRoomSheet() }
@@ -202,11 +218,18 @@ struct RoomListView: View {
                 HStack {
                     Wordmark(size: 21)
                     Spacer()
-                    if app.native != nil {
-                        Button { creating = true } label: { Image(systemName: "plus.bubble") }
-                            .buttonStyle(.borderless)
-                            .help(L("native.create"))
+                    Menu {
+                        Button { searchFocused = true } label: { Label(L("rooms.new_message"), systemImage: "square.and.pencil") }
+                        if app.native != nil {
+                            Button { creating = true } label: { Label(L("rooms.new_channel"), systemImage: "number") }
+                        }
+                    } label: {
+                        Image(systemName: "plus")
                     }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .help(L("rooms.new"))
                 }
                 Comet(active: app.connection != .online)
             }
@@ -251,6 +274,10 @@ struct RoomSections: View {
     let groups: [RoomGroup]
     let collapsed: Set<String>
     let toggle: (String) -> Void
+    /// Channels get a "+" only where a channel can be created (RocketVibe).
+    var canCreate = false
+    /// The "+" of the Channels and Direct messages headers; none when absent.
+    var add: ((RoomSection) -> Void)? = nil
 
     var body: some View {
         let titled = groups.count > 1
@@ -259,10 +286,18 @@ struct RoomSections: View {
                 Section(isExpanded: Binding(get: { !collapsed.contains(group.key) }, set: { _ in toggle(group.key) })) {
                     rows(group.rooms)
                 } header: {
-                    Text("\(title(group)) · \(group.rooms.count)")
-                        .font(.vibe(11.5, .heavy))
-                        .textCase(.uppercase)
-                        .foregroundStyle(Vibe.muted)
+                    HStack {
+                        Text("\(title(group)) · \(group.rooms.count)")
+                            .font(.vibe(11.5, .heavy))
+                            .textCase(.uppercase)
+                            .foregroundStyle(Vibe.muted)
+                        Spacer()
+                        if let add, group.section == .direct || (group.section == .channels && canCreate) {
+                            Button { add(group.section) } label: { Image(systemName: "plus") }
+                                .buttonStyle(.borderless)
+                                .help(L(group.section == .channels ? "rooms.new_channel" : "rooms.new_message"))
+                        }
+                    }
                 }
             } else {
                 rows(group.rooms)
@@ -442,29 +477,47 @@ struct PresenceDot: View {
     }
 }
 
-/// Me, the connection, the way to settings.
+/// Me and the connection; the block opens the account menu: settings, the
+/// server administration for an administrator, sign out.
 struct AccountBar: View {
     @Environment(AppModel.self) var app
 
     var body: some View {
         HStack(spacing: 8) {
-            if let account = app.account {
-                Avatar(path: app.media?.avatar(user: account.username), name: account.username, size: 26)
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(account.username).font(.vibe(13.5, .heavy))
-                    Text(URL(string: account.baseUrl)?.host() ?? account.baseUrl)
-                        .font(.vibe(11.5)).foregroundStyle(Vibe.muted)
+            Menu {
+                Button { app.openSettings() } label: { Label(L("settings.title"), systemImage: "gearshape") }
+                if app.administrator {
+                    Button { app.openAdmin() } label: { Label(L("admin.title"), systemImage: "server.rack") }
                 }
+                Divider()
+                Button(role: .destructive) { Task { await app.signOut() } } label: {
+                    Label(L("rooms.sign_out"), systemImage: "rectangle.portrait.and.arrow.right")
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    if let account = app.account {
+                        Avatar(path: app.media?.avatar(user: account.username), name: account.username, size: 26)
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(account.username).font(.vibe(13.5, .heavy))
+                            Text(URL(string: account.baseUrl)?.host() ?? account.baseUrl)
+                                .font(.vibe(11.5)).foregroundStyle(Vibe.muted)
+                        }
+                    }
+                    Spacer()
+                    Image(systemName: "gearshape").foregroundStyle(Vibe.muted)
+                }
+                .contentShape(Rectangle())
             }
-            Spacer()
+            // A button-style menu keeps its custom label (avatar, two lines).
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .help(L("rooms.account_menu"))
             Button { app.reconnect() } label: {
                 Circle().fill(connectionColor).frame(width: 9, height: 9)
             }
             .buttonStyle(.plain)
             .help(connectionHelp)
-            Button { app.openSettings() } label: { Image(systemName: "gearshape") }
-                .buttonStyle(.borderless)
-                .help(L("settings.title"))
         }
         .padding(10)
         .background(Vibe.deep.opacity(0.9))

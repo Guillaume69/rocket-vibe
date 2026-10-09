@@ -41,7 +41,7 @@ Same feature set on both sides ([parity](../parity.md) §11): unlock, decrypt me
 
 ## Web
 
-The serving-origin web client supports RocketVibe MLS through the same `rv-crypto` Rust engine compiled to WASM, not the Rocket.Chat password-based provider described above. Identity creation, device approval, peer verification and group ceremonies use the GTK labels and explicit fingerprint reviews. Private messages, drafts, edits, reactions, threads, local search and files bypass ordinary storage. `apps/web/src/crypto/chat.ts` owns live plaintext and destroys its worker/media URLs on scope loss. The profile-local encrypted vault has distinct guarantees from the native OS keyring; see `docs/WEB_E2EE.md` and the qualified/debt cells in `brain/parity.md`.
+The serving-origin web client supports RocketVibe MLS through the same `rv-crypto` Rust engine compiled to WASM, not the Rocket.Chat password-based provider described above. Identity creation, device approval, peer verification and group ceremonies use the GTK labels and explicit fingerprint reviews. Private messages, drafts, edits, reactions, threads, local search and files bypass ordinary storage. `apps/web/src/crypto/chat.ts` owns live plaintext and destroys its worker/media URLs on scope loss. A real GTK/browser test verifies admission into a browser-created MLS group and encrypted messages in both directions through the existing GTK composer/timeline. The profile-local encrypted vault has distinct guarantees from the native OS keyring; see `docs/WEB_E2EE.md` and the qualified/debt cells in `brain/parity.md`.
 
 ## Sources
 

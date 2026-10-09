@@ -51,14 +51,26 @@ export const nativeSchema = {
     AdminContract: {
       description: "Export root of the administration fixture.",
       properties: {
+        create_emoji: {
+          $ref: "#/$defs/CreateEmoji",
+        },
         delete_user: {
           $ref: "#/$defs/DeleteAdminUser",
+        },
+        icon_command: {
+          $ref: "#/$defs/IconCommand",
+        },
+        instance_icon: {
+          $ref: "#/$defs/InstanceIcon",
         },
         operation: {
           $ref: "#/$defs/AdminOperation",
         },
         overview: {
           $ref: "#/$defs/AdminOverview",
+        },
+        remove_emoji: {
+          $ref: "#/$defs/RemoveEmoji",
         },
         report: {
           $ref: "#/$defs/ReportInput",
@@ -89,6 +101,10 @@ export const nativeSchema = {
         "reported_users",
         "operation",
         "report",
+        "create_emoji",
+        "remove_emoji",
+        "instance_icon",
+        "icon_command",
       ],
       type: "object",
     },
@@ -1277,6 +1293,12 @@ export const nativeSchema = {
         calls: {
           type: "boolean",
         },
+        custom_emoji_admin: {
+          default: false,
+          description:
+            "An administrator adds and removes custom emoji over\n`/api/v1/admin/emoji/{name}`.",
+          type: "boolean",
+        },
         custom_emojis: {
           default: false,
           type: "boolean",
@@ -1332,6 +1354,12 @@ export const nativeSchema = {
         },
         idempotent_room_creation: {
           default: false,
+          type: "boolean",
+        },
+        instance_icon: {
+          default: false,
+          description:
+            "The server has an icon of its own (`Discovery.icon_revision`), which\nan administrator sets over `/api/v1/admin/icon`.",
           type: "boolean",
         },
         link_previews: {
@@ -1684,6 +1712,22 @@ export const nativeSchema = {
       required: ["operation_id", "label"],
       type: "object",
     },
+    CreateEmoji: {
+      additionalProperties: false,
+      description:
+        "Query of `PUT /api/v1/admin/emoji/{name}`, whose body is the raw PNG, JPEG\nor GIF (at most 1 MiB). `aliases` is comma-separated, empty for none. A\nname already taken answers 409 `revision_conflict`, a code another emoji\nholds `emoji_code_conflict`, a standard emoji's code `emoji_name_reserved`.",
+      properties: {
+        aliases: {
+          default: "",
+          type: "string",
+        },
+        operation_id: {
+          type: "string",
+        },
+      },
+      required: ["operation_id"],
+      type: "object",
+    },
     CreateRoom: {
       additionalProperties: false,
       properties: {
@@ -2022,6 +2066,11 @@ export const nativeSchema = {
         },
         data_epoch: {
           type: "string",
+        },
+        icon_revision: {
+          description:
+            "The icon's revision when the server has one (`GET /api/v1/instance/icon?v=<it>`).",
+          type: ["string", "null"],
         },
         instance_id: {
           type: "string",
@@ -3183,6 +3232,18 @@ export const nativeSchema = {
       enum: ["GET", "POST", "PUT", "PATCH", "DELETE"],
       type: "string",
     },
+    IconCommand: {
+      additionalProperties: false,
+      description:
+        "Query of `PUT /api/v1/admin/icon` (raw PNG or JPEG body, 2 MiB at most)\nand `DELETE /api/v1/admin/icon`.",
+      properties: {
+        operation_id: {
+          type: "string",
+        },
+      },
+      required: ["operation_id"],
+      type: "object",
+    },
     Identity: {
       additionalProperties: false,
       properties: {
@@ -3200,6 +3261,16 @@ export const nativeSchema = {
         },
       },
       required: ["user_id", "root", "fingerprint", "revision"],
+      type: "object",
+    },
+    InstanceIcon: {
+      description:
+        "The server's icon, as `PUT`/`DELETE /api/v1/admin/icon` answer it:\n`revision` is `None` without one. The image itself is public at\n`GET /api/v1/instance/icon` (PNG, square, 256 pixels at most).",
+      properties: {
+        revision: {
+          type: ["string", "null"],
+        },
+      },
       type: "object",
     },
     InstanceSettings: {
@@ -5557,6 +5628,21 @@ export const nativeSchema = {
         },
       },
       required: ["token"],
+      type: "object",
+    },
+    RemoveEmoji: {
+      additionalProperties: false,
+      description:
+        "Query of `DELETE /api/v1/admin/emoji/{name}`: the catalogue entry's revision.",
+      properties: {
+        expected_revision: {
+          type: "string",
+        },
+        operation_id: {
+          type: "string",
+        },
+      },
+      required: ["operation_id", "expected_revision"],
       type: "object",
     },
     RemoveVerifiedEmail: {

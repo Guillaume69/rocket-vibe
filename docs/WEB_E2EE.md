@@ -88,10 +88,15 @@ key cannot decrypt the renewed vault, enables/uploads history backup, joins
 an encrypted voice channel in both browsers and checks actual decrypted audio
 energy and both occupants. A fresh browser profile recovers the same identity,
 registers a fresh leaf and restores nonempty history with its separate code.
-The GTK identity/group controls were also launched under Xvfb; the shared
-native engine and mobile bridge tests cover the same wire formats.
+The GTK identity/group controls were also launched under Xvfb. The separate
+`desktop-crypto.mjs` scenario creates a real GTK installation in Secret Service,
+admits it into a browser-created MLS group, and exchanges messages through the
+actual GTK timeline/composer and browser UI. It also checks fingerprint equality
+and pre-admission isolation. The shared native engine and mobile bridge tests
+cover the same wire formats.
 
-Remaining qualification debt: cross-app installed GTK/mobile/browser sessions,
+Remaining qualification debt: installed mobile/browser sessions and cross-app
+desktop files, recovery/history and encrypted voice,
 full visual comparisons of every crypto dialog state, multiple-tab reload and
 withdrawal races in real accounts, history path A sharing/delegation/cancellation,
 device renewal/removal and history-backup rotation/cancellation, camera/screen
@@ -102,6 +107,15 @@ limits are recorded as partial parity, not as complete native equivalence.
 
 See `brain/parity.md` and `docs/WEB_CLIENT_EXECUTION.md`. Browser key guarantees
 must not be described as equivalent to the native system-keystore anchor.
+
+The local GTK interoperability check is `RV_WEB_TEST_URL=http://127.0.0.1:3417
+npm run test:desktop-crypto` from `apps/web`. It requires the built Fedora GTK
+binary and the disposable `rv-web-e2ee-api` container labelled
+`rocketvibe.task=web-e2ee`. It creates fresh synthetic accounts, launches a real
+GTK process under Xvfb and Secret Service in its own disposable container, and
+exchanges messages through the existing GTK composer/timeline and production
+browser UI. Keys stay in the container's temporary Linux profile; fixture
+markers, public fingerprints and test logs are in ignored `.cache/bench`.
 
 ## Sources
 
@@ -117,6 +131,8 @@ must not be described as equivalent to the native system-keystore anchor.
 - apps/web/src/crypto/voice.ts
 - apps/web/tests/crypto-storage.mjs
 - apps/web/tests/e2ee.mjs
+- apps/web/tests/desktop-crypto.mjs
+- apps/desktop/crates/rv-gtk/src/smoke/native_crypto.rs
 - docs/protocol/VOICE.md
 - [OpenMLS WASM support](https://book.openmls.tech/)
 - [WebCrypto key extractability](https://developer.mozilla.org/en-US/docs/Web/API/CryptoKey/extractable)

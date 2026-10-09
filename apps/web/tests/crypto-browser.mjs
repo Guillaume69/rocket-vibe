@@ -44,6 +44,19 @@ export async function closeDialog(target) {
     count,
   );
 }
+export async function openSettings(target) {
+  await target
+    .getByRole("button", {
+      name: "My account, settings and sign out",
+      exact: true,
+    })
+    .click();
+  await target.getByRole("menuitem", { name: "Settings", exact: true }).click();
+  await target
+    .locator(".settings-dialog .sidebar-footer-button")
+    .filter({ hasText: "Sign out" })
+    .waitFor();
+}
 export async function identity(target, user) {
   await target.goto(base);
   await target.getByLabel("Username or email").fill(user);
@@ -52,7 +65,7 @@ export async function identity(target, user) {
     .fill("web-client-disposable-password");
   await target.getByRole("button", { name: "Sign in", exact: true }).click();
   await target.locator(".status-dot.online").waitFor();
-  await target.getByRole("button", { name: "Settings", exact: true }).click();
+  await openSettings(target);
   await target.locator('[data-category="encryption"]').click();
   for (const name of [
     "Create identity or accept the displayed fingerprint",

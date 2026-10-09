@@ -10,6 +10,7 @@
     "crypto:build": "node scripts/build-crypto.mjs",
     "test:e2ee": "node tests/e2ee.mjs",
     "test:crypto-storage": "node tests/crypto-storage.mjs",
+    "test:desktop-crypto": "node tests/desktop-crypto.mjs",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
     "test:browser": "node tests/browser.mjs",
     "test:visual": "node tests/visual.mjs",

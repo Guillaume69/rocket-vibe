@@ -275,7 +275,14 @@ try {
     ),
   );
   pass("room favourites and independent read state");
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  // The account block opens a menu: settings, administration, sign out.
+  await page
+    .getByRole("button", {
+      name: "My account, settings and sign out",
+      exact: true,
+    })
+    .click();
+  await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
   await visible(page.locator(".sidebar-dialog"));
   await page.getByRole("button", { name: "Language", exact: true }).click();
   await visible(page.locator(".preferences-page select"));
@@ -287,7 +294,14 @@ try {
   await page.screenshot({ path: "../../.cache/web-shots/narrow.png" });
   await page.setViewportSize({ width: 1280, height: 800 });
   pass("narrow screen navigation");
-  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  // The account block opens a menu: settings, administration, sign out.
+  await page
+    .getByRole("button", {
+      name: "My account, settings and sign out",
+      exact: true,
+    })
+    .click();
+  await page.getByRole("menuitem", { name: "Sign out", exact: true }).click();
   await visible(page.getByLabel("Username or email"));
   assert.equal(await page.getByLabel("Server", { exact: true }).count(), 0);
   assert.equal(

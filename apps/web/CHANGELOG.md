@@ -4,7 +4,14 @@ All notable changes are documented here in English.
 
 ## [Unreleased]
 
+### Changed
+
+- The account block shows a gear and opens a menu (Settings, Server administration for administrators, Sign out); sign out left the header. The header's "+" is a menu (New message, Browse channels, Create a channel), and the Channels and Direct messages headings carry their own "+".
+
 ### Added
+
+- Server administration: a Server icon card on the Dashboard to set or remove the server's icon; the tab shows it as its icon.
+- Server administration: a Custom emoji page where administrators add emoji (name, aliases, image) and delete them.
 
 - Native RocketVibe MLS encryption through the shared Rust engine in a WebAssembly worker, with identity/device approval, verified peers and explicit group creation/admission reviews.
 - Protected private conversations, drafts, threads, local search, message actions and encrypted attachments, plus identity recovery, history sharing/backups and storage-key controls.
@@ -12,6 +19,7 @@ All notable changes are documented here in English.
 
 ### Fixed
 
+- Keep the selected settings category when the administration permission lookup finishes after the user has already changed pages.
 - Reopen private views after a fresh membership snapshot without exposing ordinary cached content.
 - Keep encrypted voice access independent of message sending, and finish identity recovery before loading controls that require a registered device.
 

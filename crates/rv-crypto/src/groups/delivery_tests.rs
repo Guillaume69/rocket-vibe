@@ -228,6 +228,7 @@ fn server(alice: &Account, bob: &Account, drop_once: bool) -> (Server, Arc<Mutex
                 protocol_versions: vec![1],
                 api_path: "/api/v1".into(),
                 capabilities: rv_protocol::Capabilities::default(),
+                icon_revision: None,
             });
         }
         if request.path == "/api/v1/me" {
@@ -1436,6 +1437,7 @@ async fn stop_is_shared_and_scope_changes_prevent_any_vault_or_crypto_request() 
                     protocol_versions: vec![1],
                     api_path: "/api/v1".into(),
                     capabilities: rv_protocol::Capabilities::default(),
+                    icon_revision: None,
                 }),
                 "/api/v1/me" => json(&rv_protocol::User {
                     id: if field == 1 {

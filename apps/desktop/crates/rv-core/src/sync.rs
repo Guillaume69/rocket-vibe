@@ -71,7 +71,10 @@ impl SyncEngine {
         match collection {
             STREAM_ROOM_MESSAGES => {
                 if let Some(m) = to_message(first) {
-                    self.store.write(|w| w.upsert_message(&m));
+                    self.store.write(|w| {
+                        w.upsert_message(&m);
+                        w.note_author(first);
+                    });
                 }
             }
             STREAM_NOTIFY_USER => {
@@ -88,7 +91,10 @@ impl SyncEngine {
                     "subscriptions-changed" if removed => self.store.write(|w| w.delete_by_subscription_id(id)),
                     "subscriptions-changed" => {
                         if let Some(s) = to_subscription(doc) {
-                            self.store.write(|w| w.upsert_subscription(&s));
+                            self.store.write(|w| {
+                                w.upsert_subscription(&s);
+                                w.note_dm_name(doc);
+                            });
                         }
                     }
                     "rooms-changed" if removed => self.store.write(|w| w.delete_room(id)),
@@ -158,6 +164,7 @@ impl SyncEngine {
                 if let Some(s) = to_subscription(&raw) {
                     newest_sub = newest_sub.max(Some(s.updated_at));
                     w.upsert_subscription(&s);
+                    w.note_dm_name(&raw);
                 }
             }
             // The server projects `{_id, _deletedAt}`: the SUBSCRIPTION id is the only key.
@@ -188,6 +195,11 @@ impl SyncEngine {
             .unwrap_or_default();
         if !live.is_empty() {
             self.store.write(|w| w.purge_rooms_except(&live));
+        }
+        // The full list names every DM's other party: real names known even
+        // for conversations no catch-up has touched since the upgrade.
+        if let Some(list) = response.get("update").and_then(Value::as_array) {
+            self.store.write(|w| list.iter().for_each(|s| w.note_dm_name(s)));
         }
         Ok(())
     }
@@ -324,9 +336,11 @@ impl SyncEngine {
 
 fn ingest_into(w: &mut Writer, raw: &[Value]) -> Option<i64> {
     let mut newest = None;
-    for m in raw.iter().filter_map(to_message) {
+    for doc in raw {
+        let Some(m) = to_message(doc) else { continue };
         newest = newest.max(Some(m.updated_at));
         w.upsert_message(&m);
+        w.note_author(doc);
     }
     newest
 }

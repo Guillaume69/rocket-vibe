@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-537 production files scanned; 632 occurrences.
+538 production files scanned; 634 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -284,6 +284,8 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/sync.rs:323](../../apps/desktop/crates/rv-core/src/sync.rs#L323) | call:GET | history_endpoint(kind), o).await?; |
 | [apps/desktop/crates/rv-core/src/sync.rs:332](../../apps/desktop/crates/rv-core/src/sync.rs#L332) | call:GET | "chat.getMessage" |
 | [apps/desktop/crates/rv-core/src/sync.rs:332](../../apps/desktop/crates/rv-core/src/sync.rs#L332) | endpoint | chat.getMessage |
+| [apps/desktop/crates/rv-core/src/teams.rs:124](../../apps/desktop/crates/rv-core/src/teams.rs#L124) | url | /api/v2/teams/users/me |
+| [apps/desktop/crates/rv-core/src/teams.rs:408](../../apps/desktop/crates/rv-core/src/teams.rs#L408) | url | /api/authsvc/v1.0/authz |
 | [apps/desktop/crates/rv-core/src/uploads.rs:89](../../apps/desktop/crates/rv-core/src/uploads.rs#L89) | resource | /file-upload/{…}/{…} |
 | [apps/desktop/crates/rv-core/src/uploads.rs:323](../../apps/desktop/crates/rv-core/src/uploads.rs#L323) | call:POST | &format!("rooms.mediaConfirm/{…}/{…}", row.rid) |
 | [apps/desktop/crates/rv-core/src/uploads.rs:323](../../apps/desktop/crates/rv-core/src/uploads.rs#L323) | endpoint | rooms.mediaConfirm/{…}/{…} |

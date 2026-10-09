@@ -117,6 +117,7 @@
     "apps/desktop/crates/rv-core/src/slack.rs",
     "apps/desktop/crates/rv-core/src/store.rs",
     "apps/desktop/crates/rv-core/src/sync.rs",
+    "apps/desktop/crates/rv-core/src/teams.rs",
     "apps/desktop/crates/rv-core/src/timeline.rs",
     "apps/desktop/crates/rv-core/src/tls.rs",
     "apps/desktop/crates/rv-core/src/update.rs",
@@ -2198,6 +2199,18 @@
       "line": 332,
       "kind": "endpoint",
       "surface": "chat.getMessage"
+    },
+    {
+      "file": "apps/desktop/crates/rv-core/src/teams.rs",
+      "line": 124,
+      "kind": "url",
+      "surface": "/api/v2/teams/users/me"
+    },
+    {
+      "file": "apps/desktop/crates/rv-core/src/teams.rs",
+      "line": 408,
+      "kind": "url",
+      "surface": "/api/authsvc/v1.0/authz"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/uploads.rs",

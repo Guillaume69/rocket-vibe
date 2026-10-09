@@ -7,7 +7,7 @@ section here.
 
 ## [Unreleased]
 
-## [0.12.0] - 2026-10-09
+## [0.12.1] - 2026-10-09
 
 ### Added
 
@@ -56,6 +56,8 @@ section here.
 
 ### Fixed
 
+- SwiftUI: the conversation list settings no longer break the macOS build, which kept
+  0.12.0 from being published.
 - GTK: buttons in the settings and administration lists (Save, Create key, Confirm my identity,
   Open moderation...) were flattened to a thin line and their icons oversized; expandable rows,
   entry rows and combo rows lost their look the same way. Monospace texts (bot keys, API routes)
@@ -69,6 +71,10 @@ section here.
   flashing the older page and snapping back.
 - SwiftUI: decrypted quote cards in a RocketVibe room no longer blink out on every
   reaction or every ten seconds.
+
+## [0.12.0] - 2026-10-09
+
+Tagged but never published: the SwiftUI app did not build. Its changes ship in 0.12.1.
 
 ## [0.11.0] - 2026-10-08
 
@@ -1048,7 +1054,8 @@ the mobile app (see `docs/PARITY.md`).
   `rocketvibe://` links) and zip; a macOS app in a DMG, signed with a Developer ID and
   notarized by Apple.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.12.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.12.1...HEAD
+[0.12.1]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.12.0...desktop-v0.12.1
 [0.12.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.11.0...desktop-v0.12.0
 [0.11.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.10.0...desktop-v0.11.0
 [0.10.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.9.0...desktop-v0.10.0

@@ -335,7 +335,8 @@ fn room_widget(
     native: Option<&Arc<rv_core::native::NativeSession>>,
 ) -> gtk::Widget {
     let unread = r.unread > 0 || r.alert;
-    let name = label(&r.name, &["room-name"]);
+    let status = r.dm_other_uid.as_deref().and_then(|uid| session?.status_emoji(uid));
+    let name = label(&status.map_or_else(|| r.name.clone(), |e| format!("{} {e}", r.name)), &["room-name"]);
     name.set_hexpand(true);
     name.set_ellipsize(pango::EllipsizeMode::End);
     let time = label(&short_time(r.last_ts), &["room-time"]);
@@ -593,7 +594,8 @@ fn message_from_provider(
     column.set_hexpand(true);
     if d.show_header {
         let header = gtk::Box::new(gtk::Orientation::Horizontal, 7);
-        let name = label(&author, &["author"]);
+        let shown = session.and_then(|s| s.person_label(&row.author_id)).unwrap_or_else(|| author.clone());
+        let name = label(&shown, &["author"]);
         if row.author_id == my_id {
             name.add_css_class("mine");
         }

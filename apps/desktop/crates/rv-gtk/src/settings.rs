@@ -343,6 +343,9 @@ pub fn open(
     status_group.add(&status);
     status_group.add(&status_text);
     account.add(&status_group);
+    if session.info.mattermost.is_some() {
+        account.add(&sidebar_group(&host, &session));
+    }
     add(&dialog, ACCOUNT, &account);
 
     let notifications = adw::PreferencesPage::new();
@@ -381,7 +384,9 @@ pub fn open(
     e2e_row.add_suffix(&e2e_button);
     e2e_group.add(&e2e_row);
     encryption.add(&e2e_group);
-    add(&dialog, ENCRYPTION, &encryption);
+    if session.info.mattermost.is_none() {
+        add(&dialog, ENCRYPTION, &encryption);
+    }
     let (s, h) = (session.clone(), host.clone());
     e2e_button.connect_clicked(move |_| {
         if s.e2e_unlocked() {
@@ -627,6 +632,62 @@ fn accounts_group(
 
 fn host_of(base_url: &str) -> String {
     url::Url::parse(base_url).ok().and_then(|u| u.host_str().map(str::to_owned)).unwrap_or_default()
+}
+
+const NAME_FORMATS: [(rv_core::mattermost::directory::NameFormat, &str); 3] = [
+    (rv_core::mattermost::directory::NameFormat::FullName, "settings.name_full"),
+    (rv_core::mattermost::directory::NameFormat::NicknameFullName, "settings.name_nickname_full"),
+    (rv_core::mattermost::directory::NameFormat::Username, "settings.name_username"),
+];
+
+/// Mattermost's own values: "all" is 10000, as its web app writes it.
+const DM_LIMITS: [usize; 5] = [10000, 10, 15, 20, 40];
+
+/// The account's conversation list settings (Mattermost and kChat), kept on
+/// the server and shared with kChat's own apps.
+fn sidebar_group(host: &Host, session: &Arc<Session>) -> adw::PreferencesGroup {
+    let group =
+        adw::PreferencesGroup::builder().title(t("settings.sidebar")).description(t("settings.sidebar_help")).build();
+    let names: Vec<&str> = NAME_FORMATS.iter().map(|(_, key)| t(key)).collect();
+    let name_row = combo(t("settings.name_format"), &names, 0);
+    let limits: Vec<String> =
+        DM_LIMITS.iter().map(|n| if *n >= 10000 { t("settings.dm_all").to_owned() } else { n.to_string() }).collect();
+    let limit_row = combo(t("settings.dm_limit"), &limits.iter().map(String::as_str).collect::<Vec<_>>(), 0);
+    group.add(&name_row);
+    group.add(&limit_row);
+    group.set_sensitive(false);
+    let (s, saver, weak, name_row_c, limit_row_c, host_c) =
+        (session.clone(), session.clone(), group.downgrade(), name_row.clone(), limit_row.clone(), host.clone());
+    glib::spawn_future_local(async move {
+        let Ok(settings) = on_tokio(async move { s.sidebar_settings().await }).await else {
+            host_c.toast(t("settings.save_failed"));
+            return;
+        };
+        let Some(group) = weak.upgrade() else { return };
+        name_row_c.set_selected(NAME_FORMATS.iter().position(|(f, _)| *f == settings.name_format).unwrap_or(0) as u32);
+        let limit = DM_LIMITS.iter().position(|l| *l == settings.dm_limit).unwrap_or(3);
+        limit_row_c.set_selected(limit as u32);
+        if settings.name_locked {
+            name_row_c.set_sensitive(false);
+            name_row_c.set_subtitle(t("settings.name_locked"));
+        }
+        group.set_sensitive(true);
+        let save = {
+            let (session, host) = (saver, host_c.clone());
+            move |format: Option<rv_core::mattermost::directory::NameFormat>, limit: Option<usize>| {
+                let (s, host) = (session.clone(), host.clone());
+                glib::spawn_future_local(async move {
+                    if on_tokio(async move { s.set_sidebar_settings(format, limit).await }).await.is_err() {
+                        host.toast(t("settings.save_failed"));
+                    }
+                });
+            }
+        };
+        let again = save.clone();
+        name_row_c.connect_selected_notify(move |row| again(Some(NAME_FORMATS[row.selected() as usize].0), None));
+        limit_row_c.connect_selected_notify(move |row| save(None, Some(DM_LIMITS[row.selected() as usize])));
+    });
+    group
 }
 
 fn wire_status(host: &Host, session: &Arc<Session>, status: &adw::ComboRow, text: &adw::EntryRow) {

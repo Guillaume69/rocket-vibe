@@ -213,6 +213,16 @@ pub struct Room {
     pub voice: bool,
 }
 
+/// How people are named (`username`, `nickname_full_name`, `full_name`) and
+/// how many direct conversations the list keeps; `name_locked` when the
+/// server imposes its format.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct SidebarSettings {
+    pub name_format: String,
+    pub name_locked: bool,
+    pub dm_limit: u32,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct RoomGroup {
     pub section: RoomSection,
@@ -405,6 +415,9 @@ pub struct MessageItem {
     pub author_bot: bool,
     /// A form a workflow asks (RocketVibe, RFC 0004): its card and who may answer.
     pub form: Option<crate::native_workflows::FormItem>,
+    /// The name the header shows: the username, or on Mattermost the name
+    /// under the account's name format with the custom status emoji.
+    pub author_label: String,
 }
 
 pub fn quote(q: content::Quote, me: &str) -> Quote {
@@ -511,6 +524,7 @@ pub fn message(d: Display, me_id: &str, me: &str) -> MessageItem {
         starred: row.starred_by(me_id),
         author_bot: row.author_bot,
         form: form.map(|form| crate::native_workflows::form_item(form, me_id)),
+        author_label: author.clone(),
         id: row.id,
         rid: row.rid,
         ts: row.ts,

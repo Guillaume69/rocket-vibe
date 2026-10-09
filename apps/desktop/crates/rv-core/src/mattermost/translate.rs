@@ -39,9 +39,10 @@ pub fn is_kmeet(url: &str) -> bool {
     crate::call::origin(url).is_some_and(|o| o == KMEET_ORIGIN)
 }
 
-/// kChat's kMeet call post (`custom_call`): `props.url` is the meeting, joined
-/// as is. A running call is a `videoconf` whose call id is that URL; one that
-/// is over is a `videoconf-ended` carrying its length in seconds, when known.
+/// kChat's kMeet call post (`custom_call`). A running call is a `videoconf`
+/// whose call id is its `conference_id`, joined through the server
+/// (`Session::join_call`); one that is over is a `videoconf-ended` carrying its
+/// length in seconds, when known.
 pub fn kmeet_call(props: &Value) -> (&'static str, String, Option<String>) {
     let (start, end) = (positive(props, "start_at"), positive(props, "end_at"));
     let over = matches!(str_of(props, "status"), Some("ended" | "missed" | "declined" | "cancelled"));
@@ -49,7 +50,7 @@ pub fn kmeet_call(props: &Value) -> (&'static str, String, Option<String>) {
         let seconds = start.zip(end).filter(|(s, e)| e >= s).map(|(s, e)| ((e - s + 500) / 1000).to_string());
         return ("videoconf-ended", seconds.unwrap_or_default(), None);
     }
-    ("videoconf", String::new(), str_of(props, "url").filter(|u| is_kmeet(u)).map(str::to_owned))
+    ("videoconf", String::new(), str_of(props, "conference_id").map(str::to_owned))
 }
 
 fn system(kind: &str, props: &Value, author: Option<&str>) -> Option<(&'static str, Option<String>)> {
@@ -127,7 +128,7 @@ impl Translator<'_> {
             thread_last: root.is_none().then(|| positive(post, "last_reply_at")).flatten(),
             thread_shown: false,
             edited_at: positive(post, "edit_at"),
-            attachments: attachments(metadata.get("files")),
+            attachments: join_attachments(attachments(metadata.get("files")), cards(props.get("attachments"))),
             reactions: self.reactions(metadata.get("reactions")),
             encrypted_raw: None,
             updated_at: positive(post, "update_at").unwrap_or(ts),
@@ -178,7 +179,9 @@ impl Translator<'_> {
             encrypted: false,
             read_only: false,
             dm_other_uid: other,
-            last_message: last.as_ref().filter(|m| m.system_type.is_none()).and_then(|m| m.text.clone()),
+            last_message: last.as_ref().filter(|m| m.system_type.is_none()).and_then(|m| {
+                m.text.clone().filter(|t| !t.is_empty()).or_else(|| preview_of(m.attachments.as_deref()))
+            }),
             last_message_type: last.as_ref().and_then(|m| m.system_type.clone()),
             last_message_author: last.as_ref().and_then(|m| m.author_name.clone()),
             last_encrypted: None,
@@ -214,7 +217,16 @@ impl Translator<'_> {
         let me = self.directory.username(self.me);
         let others: Vec<&str> =
             display.split(',').map(str::trim).filter(|n| !n.is_empty() && Some(*n) != me.as_deref()).collect();
-        if others.is_empty() { display.to_owned() } else { others.join(", ") }
+        let last = others.len().saturating_sub(1);
+        let named: Vec<String> = others
+            .iter()
+            .enumerate()
+            .map(|(i, n)| {
+                let cut = || (i == last).then(|| self.directory.name_of_cut(n)).flatten();
+                self.directory.name_of(n).or_else(cut).unwrap_or_else(|| (*n).to_owned())
+            })
+            .collect();
+        if named.is_empty() { display.to_owned() } else { named.join(", ") }
     }
 
     fn reactions(&self, raw: Option<&Value>) -> Option<String> {
@@ -234,6 +246,46 @@ impl Translator<'_> {
 }
 
 /// Files as Rocket.Chat-shaped attachments on the file API, images with their preview.
+/// Integrations' Slack-style cards (`props.attachments`), in the shape
+/// Rocket.Chat's attachments already render.
+fn cards(raw: Option<&Value>) -> Vec<Value> {
+    raw.and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|a| {
+            let a = a.as_object()?;
+            let mut card = Map::new();
+            for key in ["author_name", "title", "title_link", "color", "fields"] {
+                if let Some(v) = a.get(key) {
+                    card.insert(key.to_owned(), v.clone());
+                }
+            }
+            let text = ["text", "pretext", "fallback"]
+                .iter()
+                .find_map(|k| a.get(*k).and_then(Value::as_str).filter(|s| !s.is_empty()));
+            if let Some(text) = text {
+                card.insert("text".into(), json!(text));
+            }
+            (!card.is_empty()).then_some(Value::Object(card))
+        })
+        .collect()
+}
+
+fn join_attachments(files: Option<String>, cards: Vec<Value>) -> Option<String> {
+    if cards.is_empty() {
+        return files;
+    }
+    let mut list: Vec<Value> = files.and_then(|f| serde_json::from_str(&f).ok()).unwrap_or_default();
+    list.extend(cards);
+    Some(Value::Array(list).to_string())
+}
+
+/// A post with no text: its first card's title or text, else its first file's name.
+fn preview_of(attachments: Option<&str>) -> Option<String> {
+    let list: Vec<Value> = serde_json::from_str(attachments?).ok()?;
+    list.iter().find_map(|a| ["title", "text"].iter().find_map(|k| str_of(a, k).map(str::to_owned)))
+}
+
 fn attachments(raw: Option<&Value>) -> Option<String> {
     let mut out = Vec::new();
     for file in raw?.as_array()? {
@@ -301,8 +353,13 @@ mod tests {
 
     fn directory() -> Directory {
         let d = Directory::default();
-        d.remember(User { id: "u-me".into(), username: "me".into(), display: Some("Me".into()) });
-        d.remember(User { id: "u-bob".into(), username: "bob".into(), display: Some("Bob Builder".into()) });
+        d.remember(User { id: "u-me".into(), username: "me".into(), display: Some("Me".into()), ..Default::default() });
+        d.remember(User {
+            id: "u-bob".into(),
+            username: "bob".into(),
+            display: Some("Bob Builder".into()),
+            ..Default::default()
+        });
         d
     }
 
@@ -367,7 +424,7 @@ mod tests {
         );
         let group =
             t.room(&json!({"id": "g1", "type": "G", "name": "x", "display_name": "bob, me, carol"}), None).unwrap();
-        assert_eq!(group.display_name.as_deref(), Some("bob, carol"));
+        assert_eq!(group.display_name.as_deref(), Some("Bob Builder, carol"));
         let sub = t
             .subscription(
                 &json!({"id": "ch1", "total_msg_count": 30, "total_msg_count_root": 10}),
@@ -388,9 +445,10 @@ mod tests {
 
     #[test]
     fn kmeet_call_posts() {
-        let running =
-            kmeet_call(&json!({"url": "https://kmeet.infomaniak.com/r1", "status": "started", "start_at": 1000}));
-        assert_eq!(running, ("videoconf", String::new(), Some("https://kmeet.infomaniak.com/r1".to_owned())));
+        let running = kmeet_call(
+            &json!({"url": "https://kmeet.infomaniak.com/r1", "conference_id": "c1", "status": "calling", "start_at": 1000}),
+        );
+        assert_eq!(running, ("videoconf", String::new(), Some("c1".to_owned())));
         let ended = kmeet_call(
             &json!({"url": "https://kmeet.infomaniak.com/r1", "status": "ended", "start_at": 1000, "end_at": 2_888_000}),
         );

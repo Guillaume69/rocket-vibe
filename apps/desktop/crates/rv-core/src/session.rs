@@ -274,15 +274,6 @@ pub enum UnlockError {
     Key(crate::e2e::E2eError),
 }
 
-/// kChat's call id is the kMeet meeting's own URL (`mattermost::translate::kmeet_call`).
-fn kmeet_url(call_id: &str) -> Result<String, RestError> {
-    if mattermost::translate::is_kmeet(call_id) {
-        Ok(call_id.to_owned())
-    } else {
-        Err(RestError::incomplete("call: not a meeting link"))
-    }
-}
-
 impl Session {
     /// Must run inside a tokio runtime.
     pub fn start(info: SessionInfo, db_path: &Path) -> rusqlite::Result<Arc<Session>> {
@@ -619,7 +610,7 @@ impl Session {
     /// the session; a network failure or a refused token says nothing about it.
     pub async fn call_available(&self) -> bool {
         if self.sync.mattermost().is_some() {
-            return false;
+            return self.info.mattermost == Some(mattermost::Flavor::Kchat);
         }
         if let Some(known) = *self.call_available.lock().unwrap() {
             return known;
@@ -774,6 +765,48 @@ impl Session {
         crate::e2e::encrypt_message(payload, &key, &kid).ok()
     }
 
+    /// How a Mattermost person shows: their name under the account's name
+    /// format, then their custom status emoji. None on other servers, or for
+    /// someone shown by username with no status.
+    pub fn person_label(&self, uid: &str) -> Option<String> {
+        let directory = &self.sync.mattermost()?.directory;
+        let name = directory.display_name(uid);
+        let emoji = directory.status_emoji(uid);
+        if name.is_none() && emoji.is_none() {
+            return None;
+        }
+        let name = name.or_else(|| directory.username(uid))?;
+        Some(match emoji {
+            Some(emoji) => format!("{name} {emoji}"),
+            None => name,
+        })
+    }
+
+    /// The account's conversation list settings, kept on the server (Mattermost and kChat).
+    pub async fn sidebar_settings(&self) -> Result<mattermost::actions::SidebarSettings, RestError> {
+        if self.sync.mattermost().is_none() {
+            return Err(RestError::incomplete("sidebar settings: not on this server"));
+        }
+        mattermost::actions::sidebar_settings(&self.rest).await
+    }
+
+    /// The server's `preferences_changed` that follows moves the list.
+    pub async fn set_sidebar_settings(
+        &self,
+        name_format: Option<mattermost::directory::NameFormat>,
+        dm_limit: Option<usize>,
+    ) -> Result<(), RestError> {
+        if self.sync.mattermost().is_none() {
+            return Err(RestError::incomplete("sidebar settings: not on this server"));
+        }
+        mattermost::actions::set_sidebar_settings(&self.rest, &self.info.user_id, name_format, dm_limit).await
+    }
+
+    /// A Mattermost person's custom status emoji, while it lasts.
+    pub fn status_emoji(&self, uid: &str) -> Option<String> {
+        self.sync.mattermost()?.directory.status_emoji(uid)
+    }
+
     /// The server path of a custom emoji's image.
     pub fn custom_emoji(&self, code: &str) -> Option<String> {
         self.custom_emoji.lock().unwrap().get(code).cloned()
@@ -876,6 +909,7 @@ impl Session {
     pub async fn open_dm(&self, username: &str) -> Result<String, RestError> {
         if let Some(mm) = self.sync.mattermost() {
             let rid = mattermost::actions::open_dm(&self.rest, mm, &self.info.user_id, username).await?;
+            mm.reveal(&rid);
             self.sync.catch_up_global().await?;
             return Ok(rid);
         }
@@ -1325,13 +1359,16 @@ impl Session {
     }
 
     pub async fn start_call(&self, rid: &str) -> Result<String, RestError> {
+        if self.sync.mattermost().is_some() {
+            return mattermost::actions::start_conference(&self.rest, rid).await;
+        }
         let call_id = actions::start_call(&self.rest, rid).await?;
         actions::join_call(&self.rest, &call_id).await
     }
 
     pub async fn join_call(&self, call_id: &str) -> Result<String, RestError> {
         if self.sync.mattermost().is_some() {
-            return kmeet_url(call_id);
+            return mattermost::actions::answer_conference(&self.rest, call_id).await;
         }
         actions::join_call(&self.rest, call_id).await
     }
@@ -1339,7 +1376,9 @@ impl Session {
     /// The meeting's link to share, without anyone's token.
     pub async fn call_link(&self, call_id: &str) -> Result<String, RestError> {
         if self.sync.mattermost().is_some() {
-            return kmeet_url(call_id);
+            return mattermost::actions::answer_conference(&self.rest, call_id)
+                .await
+                .map(|url| crate::call::meeting_link(&url));
         }
         let url = match actions::call_url(&self.rest, call_id).await? {
             Some(url) => url,

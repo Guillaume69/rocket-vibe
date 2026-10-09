@@ -67,6 +67,127 @@ pub fn place(subscription: &mut Subscription, placement: Option<&Placement>) {
     subscription.group_rank = placement.map(|p| p.rank);
 }
 
+/// Mattermost's own default when the preference was never set.
+pub const DEFAULT_DM_LIMIT: usize = 40;
+
+/// Which direct and group conversations my sidebar lists: a closed one is a
+/// preference, `direct_channel_show` by the other person's id or
+/// `group_channel_show` by channel id, valued "false"; and only the
+/// `sidebar_settings/limit_visible_dms_gms` most recent of the Direct
+/// Messages category are listed. One with something unread always shows.
+#[derive(Debug, Clone)]
+pub struct Sidebar {
+    me: String,
+    closed_people: std::collections::HashSet<String>,
+    closed_groups: std::collections::HashSet<String>,
+    pub limit: usize,
+    listed: Option<std::collections::HashSet<String>>,
+    /// Opened in this session: listed whatever their age.
+    revealed: std::collections::HashSet<String>,
+}
+
+impl Sidebar {
+    pub fn new(me: &str) -> Self {
+        Sidebar {
+            me: me.to_owned(),
+            closed_people: Default::default(),
+            closed_groups: Default::default(),
+            limit: DEFAULT_DM_LIMIT,
+            listed: None,
+            revealed: Default::default(),
+        }
+    }
+
+    /// Preferences from the catch-up (`replace`) or a `preferences_changed`; true when the list moves.
+    pub fn apply(&mut self, list: &Value, replace: bool) -> bool {
+        if replace {
+            self.closed_people.clear();
+            self.closed_groups.clear();
+            self.limit = DEFAULT_DM_LIMIT;
+        }
+        let mut moved = replace;
+        for p in list.as_array().into_iter().flatten() {
+            let name = p.get("name").and_then(Value::as_str).unwrap_or_default().to_owned();
+            let closed = p.get("value").and_then(Value::as_str) == Some("false");
+            let set = match p.get("category").and_then(Value::as_str) {
+                Some("direct_channel_show") => &mut self.closed_people,
+                Some("group_channel_show") => &mut self.closed_groups,
+                Some("sidebar_settings") if name == "limit_visible_dms_gms" => {
+                    let limit = p.get("value").and_then(Value::as_str).and_then(|v| v.parse::<usize>().ok());
+                    if let Some(limit) = limit.filter(|l| *l > 0 && *l != self.limit) {
+                        self.limit = limit;
+                        moved = true;
+                    }
+                    continue;
+                }
+                _ => continue,
+            };
+            if name.is_empty() || set.contains(&name) == closed {
+                continue;
+            }
+            if closed {
+                set.insert(name);
+            } else {
+                set.remove(&name);
+            }
+            moved = true;
+        }
+        moved
+    }
+
+    /// The conversations within the limit, most recent first; `elsewhere` names
+    /// the ones in Favourites or a category of my own, outside the limit.
+    pub fn rank<'a>(&mut self, channels: impl IntoIterator<Item = &'a Value>, elsewhere: impl Fn(&str) -> bool) {
+        let mut open: Vec<&Value> = channels
+            .into_iter()
+            .filter(|c| conversation(c) && !self.closed(c))
+            .filter(|c| !elsewhere(c.get("id").and_then(Value::as_str).unwrap_or_default()))
+            .collect();
+        open.sort_by_key(|c| std::cmp::Reverse(c.get("last_post_at").and_then(Value::as_i64).unwrap_or(0)));
+        let recent =
+            open.iter().take(self.limit).filter_map(|c| c.get("id").and_then(Value::as_str).map(str::to_owned));
+        self.listed = Some(recent.chain(self.revealed.iter().cloned()).collect());
+    }
+
+    /// A conversation I just opened: listed whatever its age, as Mattermost does.
+    pub fn reveal(&mut self, rid: &str) {
+        self.revealed.insert(rid.to_owned());
+        if let Some(listed) = &mut self.listed {
+            listed.insert(rid.to_owned());
+        }
+    }
+
+    pub fn is_listed(&self, channel: &Value, unread: i64, elsewhere: bool) -> bool {
+        if !conversation(channel) || unread > 0 || elsewhere {
+            return true;
+        }
+        if self.closed(channel) {
+            return false;
+        }
+        let rid = channel.get("id").and_then(Value::as_str).unwrap_or_default();
+        self.listed.as_ref().is_none_or(|l| l.contains(rid))
+    }
+
+    fn closed(&self, channel: &Value) -> bool {
+        let id = channel.get("id").and_then(Value::as_str).unwrap_or_default();
+        if channel.get("type").and_then(Value::as_str) == Some("G") {
+            return self.closed_groups.contains(id);
+        }
+        let name = channel.get("name").and_then(Value::as_str).unwrap_or_default();
+        let other = name.split("__").find(|p| *p != self.me).unwrap_or(&self.me);
+        self.closed_people.contains(other)
+    }
+}
+
+fn conversation(channel: &Value) -> bool {
+    matches!(channel.get("type").and_then(Value::as_str), Some("D" | "G"))
+}
+
+/// In Favourites or a category of my own: outside the direct messages' limit.
+pub fn placed_elsewhere(placement: Option<&Placement>) -> bool {
+    placement.is_some_and(|p| p.favorite || p.group_id.is_some())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

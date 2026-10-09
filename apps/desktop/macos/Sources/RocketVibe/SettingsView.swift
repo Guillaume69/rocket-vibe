@@ -203,6 +203,9 @@ struct SettingsView: View {
         if let profile, app.provider?.supportsProfiles == true {
             MyProfileSection(model: profile)
         }
+        if let chat = app.chat, chat.isMattermost() {
+            SidebarSettingsSection(chat: chat).id(app.sessionId)
+        }
     }
 
     var notifications: some View {
@@ -444,4 +447,56 @@ func profilePNG(_ url: URL) -> Data? {
     CGImageDestinationAddImage(destination, image, nil)
     guard CGImageDestinationFinalize(destination), bytes.length <= 2 * 1024 * 1024 else { return nil }
     return bytes as Data
+}
+
+/// The account's conversation list settings (Mattermost and kChat), kept on
+/// the server and shared with kChat's own apps: how people are named, and how
+/// many direct messages the list keeps.
+struct SidebarSettingsSection: View {
+    let chat: Client
+    @State private var settings: SidebarSettings?
+    @State private var failed = false
+
+    private static let formats: [(String, String)] = [
+        ("full_name", "settings.name_full"), ("nickname_full_name", "settings.name_nickname_full"), ("username", "settings.name_username"),
+    ]
+    /// Mattermost's own values: "all" is 10000, as its web app writes it.
+    private static let limits: [UInt32] = [10000, 10, 15, 20, 40]
+
+    var body: some View {
+        Section {
+            if let settings {
+                Picker(L("settings.name_format"), selection: Binding(get: { settings.nameFormat }, set: { save(format: $0) })) {
+                    ForEach(Self.formats, id: \.0) { Text(L($0.1)).tag($0.0) }
+                }
+                .disabled(settings.nameLocked)
+                if settings.nameLocked { Text(L("settings.name_locked")).foregroundStyle(.secondary) }
+                Picker(L("settings.dm_limit"), selection: Binding(get: { settings.dmLimit }, set: { save(limit: $0) })) {
+                    ForEach(Self.limits, id: \.self) { n in Text(n >= 10000 ? L("settings.dm_all") : String(n)).tag(n) }
+                }
+            } else if failed {
+                Text(L("settings.save_failed")).foregroundStyle(.secondary)
+            } else {
+                ProgressView()
+            }
+        } header: {
+            Text(L("settings.sidebar"))
+        } footer: {
+            Text(L("settings.sidebar_help"))
+        }
+        .task {
+            do { settings = try await chat.sidebarSettings() } catch { failed = true }
+        }
+    }
+
+    private func save(format: String? = nil, limit: UInt32? = nil) {
+        guard let before = settings else { return }
+        var next = before
+        if let format { next.nameFormat = format }
+        if let limit { next.dmLimit = limit }
+        settings = next
+        Task {
+            do { try await chat.setSidebarSettings(nameFormat: format, dmLimit: limit) } catch { settings = before; failed = true }
+        }
+    }
 }

@@ -79,6 +79,86 @@ pub async fn custom_emojis(rest: &RestClient) -> Result<Vec<(String, String)>, R
         .collect())
 }
 
+/// The conversation list settings kChat's web app shows, kept as the
+/// account's preferences: `display_settings/name_format` (unless the server's
+/// `LockTeammateNameDisplay`) and `sidebar_settings/limit_visible_dms_gms`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SidebarSettings {
+    pub name_format: super::directory::NameFormat,
+    /// The server imposes its format: shown, not offered.
+    pub name_locked: bool,
+    pub dm_limit: usize,
+}
+
+pub async fn sidebar_settings(rest: &RestClient) -> Result<SidebarSettings, RestError> {
+    use super::directory::NameFormat;
+    let (prefs, config) = tokio::join!(
+        rest.get("users/me/preferences", CallOptions::default()),
+        rest.get("config/client", CallOptions::params([("format", "old")])),
+    );
+    let (prefs, config) = (prefs?, config.unwrap_or(Value::Null));
+    let value = |category: &str, name: &str| {
+        prefs.as_array().into_iter().flatten().find_map(|p| {
+            (text(p, "category").as_deref() == Some(category) && text(p, "name").as_deref() == Some(name))
+                .then(|| text(p, "value"))
+                .flatten()
+        })
+    };
+    let locked = text(&config, "LockTeammateNameDisplay").as_deref() == Some("true");
+    let server = NameFormat::parse(text(&config, "TeammateNameDisplay").as_deref()).unwrap_or_default();
+    let mine = NameFormat::parse(value("display_settings", "name_format").as_deref());
+    let limit =
+        value("sidebar_settings", "limit_visible_dms_gms").and_then(|v| v.parse::<usize>().ok()).filter(|l| *l > 0);
+    Ok(SidebarSettings {
+        name_format: if locked { server } else { mine.unwrap_or(server) },
+        name_locked: locked,
+        dm_limit: limit.unwrap_or(super::categories::DEFAULT_DM_LIMIT),
+    })
+}
+
+pub async fn set_sidebar_settings(
+    rest: &RestClient,
+    me: &str,
+    name_format: Option<super::directory::NameFormat>,
+    dm_limit: Option<usize>,
+) -> Result<(), RestError> {
+    let mut body = Vec::new();
+    if let Some(format) = name_format {
+        body.push(
+            json!({"user_id": me, "category": "display_settings", "name": "name_format", "value": format.as_str()}),
+        );
+    }
+    if let Some(limit) = dm_limit {
+        body.push(json!({"user_id": me, "category": "sidebar_settings", "name": "limit_visible_dms_gms", "value": limit.to_string()}));
+    }
+    if body.is_empty() {
+        return Ok(());
+    }
+    rest.put("users/me/preferences", CallOptions::body(Value::Array(body))).await.map(|_| ())
+}
+
+/// kChat's calls: kMeet meetings its server opens, as Infomaniak's own app
+/// does. `POST /conferences {channel_id}` starts one in a room (and posts its
+/// `custom_call`), `POST /conferences/<id>/answer` joins one; both answer the
+/// meeting's `url` and a `jwt` for it.
+pub async fn start_conference(rest: &RestClient, rid: &str) -> Result<String, RestError> {
+    meeting(&rest.post("conferences", CallOptions::body(json!({"channel_id": rid}))).await?)
+}
+
+pub async fn answer_conference(rest: &RestClient, id: &str) -> Result<String, RestError> {
+    meeting(&rest.post(&format!("conferences/{id}/answer"), CallOptions::default()).await?)
+}
+
+/// The call view opens `url?jwt=`, on kMeet's origin only.
+fn meeting(conference: &Value) -> Result<String, RestError> {
+    let url = text(conference, "url").filter(|u| super::translate::is_kmeet(u));
+    let url = url.ok_or_else(|| RestError::incomplete("conference: not a kMeet meeting"))?;
+    Ok(match text(conference, "jwt") {
+        Some(jwt) => format!("{url}?jwt={}", url::form_urlencoded::byte_serialize(jwt.as_bytes()).collect::<String>()),
+        None => url,
+    })
+}
+
 pub async fn flagged(rest: &RestClient, rid: &str) -> Result<Vec<Value>, RestError> {
     let options = CallOptions::params([("channel_id", rid), ("per_page", "100")]);
     Ok(ordered(&rest.get("users/me/posts/flagged", options).await?))
@@ -96,6 +176,8 @@ pub async fn mark_read(rest: &RestClient, rid: &str) -> Result<(), RestError> {
 pub async fn open_dm(rest: &RestClient, mm: &MmSync, me: &str, username: &str) -> Result<String, RestError> {
     let other = mm.directory.by_name(rest, username).await.ok_or_else(|| RestError::incomplete("no such user"))?;
     let channel = rest.post("channels/direct", CallOptions::body(json!([me, other.id]))).await?;
+    let shown = json!([{"user_id": me, "category": "direct_channel_show", "name": other.id, "value": "true"}]);
+    let _ = rest.put("users/me/preferences", CallOptions::body(shown)).await;
     text(&channel, "id").ok_or_else(|| RestError::incomplete("channels/direct: no channel"))
 }
 

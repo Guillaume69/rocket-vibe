@@ -457,7 +457,7 @@ struct MessageRow: View, Equatable {
                 VStack(alignment: .leading, spacing: 4) {
                     if message.showHeader {
                         HStack(alignment: .firstTextBaseline, spacing: 7) {
-                            Text(message.author)
+                            Text(message.authorLabel)
                                 .font(.vibe(13.5, .heavy))
                                 .foregroundStyle(message.mine ? Vibe.pink : Vibe.text)
                             if message.authorBot { AdminBadge(text: L("bots.badge"), color: Vibe.sky) }

@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 use serde_json::{Value, json};
 
 use super::categories::{self, Placement};
-use super::directory::{Directory, User};
+use super::directory::{Directory, NameFormat, User};
 use super::translate::{Translator, deleted, object};
 use crate::normalize::Message;
 use crate::rest::{CallOptions, RestClient, RestError};
@@ -62,6 +62,8 @@ pub struct MmSync {
     flagged: Mutex<HashSet<String>>,
     /// Where my sidebar categories put each room.
     placements: Mutex<HashMap<String, Placement>>,
+    /// Which direct and group conversations are listed at all.
+    sidebar: Mutex<categories::Sidebar>,
 }
 
 fn int(v: &Value, key: &str) -> i64 {
@@ -96,7 +98,12 @@ pub fn ordered(list: &Value) -> Vec<Value> {
 impl MmSync {
     pub fn new(store: Arc<Store>, rest: RestClient, me: &str, me_username: &str, deleted_route: bool) -> Self {
         let directory = Arc::new(Directory::default());
-        directory.remember(User { id: me.to_owned(), username: me_username.to_owned(), display: None });
+        directory.remember(User {
+            id: me.to_owned(),
+            username: me_username.to_owned(),
+            display: None,
+            ..Default::default()
+        });
         MmSync {
             store,
             rest,
@@ -107,6 +114,7 @@ impl MmSync {
             index: Mutex::default(),
             flagged: Mutex::default(),
             placements: Mutex::default(),
+            sidebar: Mutex::new(categories::Sidebar::new(me)),
         }
     }
 
@@ -157,7 +165,74 @@ impl MmSync {
         let mut s = self.translator().subscription(channel, member)?;
         let placement = self.placements.lock().unwrap().get(&s.rid).cloned();
         categories::place(&mut s, placement.as_ref());
+        s.open =
+            self.sidebar.lock().unwrap().is_listed(channel, s.unread, categories::placed_elsewhere(placement.as_ref()));
         Some(s)
+    }
+
+    /// My preferences and the server's name display: how people are named,
+    /// and which conversations are closed or past the list's limit.
+    async fn load_preferences(&self) {
+        let (prefs, config) = tokio::join!(
+            self.rest.get("users/me/preferences", CallOptions::default()),
+            self.rest.get("config/client", CallOptions::params([("format", "old")])),
+        );
+        let config = config.unwrap_or(Value::Null);
+        let server = NameFormat::parse(text(&config, "TeammateNameDisplay"));
+        if let Ok(prefs) = prefs {
+            let mine = prefs.as_array().into_iter().flatten().find_map(|p| {
+                (text(p, "category") == Some("display_settings") && text(p, "name") == Some("name_format"))
+                    .then(|| NameFormat::parse(text(p, "value")))
+                    .flatten()
+            });
+            let locked = text(&config, "LockTeammateNameDisplay") == Some("true");
+            if let Some(format) = if locked { server } else { mine.or(server) } {
+                self.directory.set_name_format(format);
+            }
+            self.sidebar.lock().unwrap().apply(&prefs, true);
+        }
+    }
+
+    /// The conversations within the list's limit, from the channels known now.
+    fn rank(&self, channels: &[Value]) {
+        let placements = self.placements.lock().unwrap();
+        self.sidebar.lock().unwrap().rank(channels, |rid| categories::placed_elsewhere(placements.get(rid)));
+    }
+
+    /// Preferences set elsewhere (kChat web, another client): a conversation
+    /// closed or reopened, the list's limit, or the name format.
+    fn preferences_changed(&self, list: &Value) {
+        let moved = self.sidebar.lock().unwrap().apply(list, false);
+        let format = list.as_array().into_iter().flatten().find_map(|p| {
+            (text(p, "category") == Some("display_settings") && text(p, "name") == Some("name_format"))
+                .then(|| NameFormat::parse(text(p, "value")))
+                .flatten()
+        });
+        let renamed = format.is_some_and(|f| self.directory.set_name_format(f));
+        if !moved && !renamed {
+            return;
+        }
+        let conversations: Vec<Value> = self
+            .live
+            .lock()
+            .unwrap()
+            .channels
+            .values()
+            .filter(|c| matches!(text(c, "type"), Some("D" | "G")))
+            .cloned()
+            .collect();
+        if moved {
+            let all: Vec<Value> = self.live.lock().unwrap().channels.values().cloned().collect();
+            self.rank(&all);
+        }
+        for channel in &conversations {
+            self.write_room(text(channel, "id").unwrap_or_default(), renamed);
+        }
+    }
+
+    /// A conversation I just opened stays listed whatever its age.
+    pub fn reveal(&self, rid: &str) {
+        self.sidebar.lock().unwrap().reveal(rid);
     }
 
     /// kChat's only sign of a read made elsewhere: no room in it, so my
@@ -263,7 +338,7 @@ impl MmSync {
         let mark = self.live.lock().unwrap().clock;
         let (channels, members) = tokio::try_join!(self.channels(), self.pages("users/me/channel_members"))?;
         self.load_flagged().await;
-        self.load_categories().await;
+        tokio::join!(self.load_categories(), self.load_preferences());
         let member_of: HashMap<String, Value> =
             members.into_iter().filter_map(|m| Some((text(&m, "channel_id")?.to_owned(), m))).collect();
         let channels: Vec<Value> =
@@ -272,10 +347,20 @@ impl MmSync {
             .iter()
             .filter(|c| text(c, "type") == Some("D"))
             .flat_map(|c| text(c, "name").unwrap_or_default().split("__").map(str::to_owned).collect::<Vec<_>>());
-        self.directory.ensure(&self.rest, peers.collect::<Vec<_>>()).await;
+        self.directory.ensure(&self.rest, std::iter::once(self.me.clone()).chain(peers).collect::<Vec<_>>()).await;
+        let members_of_groups = channels.iter().filter(|c| text(c, "type") == Some("G")).flat_map(|c| {
+            text(c, "display_name").unwrap_or_default().split(',').map(|n| n.trim().to_owned()).collect::<Vec<_>>()
+        });
+        self.directory.ensure_usernames(&self.rest, members_of_groups.collect::<Vec<_>>()).await;
+        self.rank(&channels);
 
         let since = self.store.cursor(CURSOR_SCOPE, CURSOR_STREAM).unwrap_or(0);
-        let mut changed: Vec<Value> = channels.iter().filter(|c| changed_at(c) > since).cloned().collect();
+        // Conversations are named from people, whose names move without the channel moving.
+        let mut changed: Vec<Value> = channels
+            .iter()
+            .filter(|c| changed_at(c) > since || matches!(text(c, "type"), Some("D" | "G")))
+            .cloned()
+            .collect();
         changed.sort_by_key(|c| std::cmp::Reverse(last_post_at(c)));
         let previews = self.previews(&changed[..changed.len().min(PREVIEWS)]).await;
         {
@@ -586,6 +671,9 @@ impl MmSync {
                 if !ids.is_empty() {
                     self.set_flagged(&ids, name == "preferences_changed").await;
                 }
+                if name == "preferences_changed" {
+                    self.preferences_changed(&list);
+                }
                 None
             }
             "badge_updated" => {
@@ -718,7 +806,12 @@ mod tests {
     fn sync() -> (Arc<Store>, MmSync) {
         let store = Arc::new(Store::in_memory().unwrap());
         let sync = MmSync::new(store.clone(), RestClient::mattermost("http://x".parse().unwrap()), "u-me", "me", false);
-        sync.directory.remember(User { id: "u-bob".into(), username: "bob".into(), display: None });
+        sync.directory.remember(User {
+            id: "u-bob".into(),
+            username: "bob".into(),
+            display: None,
+            ..Default::default()
+        });
         sync.live.lock().unwrap().channels.insert(
             "ch1".into(),
             json!({"id": "ch1", "type": "O", "name": "dev", "display_name": "Dev", "total_msg_count": 10, "total_msg_count_root": 8}),

@@ -1,7 +1,7 @@
 # rocket-vibe desktop
 
-Desktop Rocket.Chat client in Rust: GTK 4 + libadwaita on top of a UI-free
-protocol core. It ports the mobile app's `lib/` (`../mobile`), whose tests are
+Desktop Rocket.Chat client in Rust (Mattermost and kChat too, `../../docs/MATTERMOST.md`):
+GTK 4 + libadwaita on top of a UI-free protocol core. It ports the mobile app's `lib/` (`../mobile`), whose tests are
 the spec. Commands below run from `apps/desktop/`; the Rocket.Chat test server
 is the repository's `docker/`, seeded by its `scripts/seed.mjs`.
 

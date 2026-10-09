@@ -5,6 +5,22 @@ import SwiftUI
 struct LoginView: View {
     @Environment(AppModel.self) var app
     @FocusState var focus: Field?
+    @State private var experimental = false
+    @State private var taps = 0
+    @State private var lastTap: TimeInterval?
+    @State private var unlockError: String?
+
+    private func unlock() {
+        guard !experimental else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        if lastTap == nil || now - (lastTap ?? now) > 2 { taps = 0 }
+        lastTap = now; taps += 1
+        if taps == 9 {
+            taps = 0; lastTap = nil
+            do { try app.client.setExperimentalProviders(enabled: true); experimental = true; unlockError = nil }
+            catch { unlockError = L("slack.unlockFailed") }
+        }
+    }
 
     enum Field {
         case server, user, password, code, invitation
@@ -17,12 +33,23 @@ struct LoginView: View {
                 .resizable()
                 .frame(width: 88, height: 88)
                 .shadow(color: Vibe.pink.opacity(0.45), radius: 24, y: 8)
+                .onTapGesture { unlock() }
+                .accessibilityAddTraits(.isButton)
+                .accessibilityLabel("RocketVibe")
+                .accessibilityAction { unlock() }
             Wordmark(size: 40, twinkles: true)
             Text(L("login.slogan"))
                 .font(.vibe(15, .semibold))
                 .foregroundStyle(Vibe.muted)
 
             Form {
+                if experimental {
+                    SlackPreviewView(client: app.client) {
+                        do { try app.client.setExperimentalProviders(enabled: false); experimental = false }
+                        catch { unlockError = L("slack.unlockFailed") }
+                    }
+                }
+                if let unlockError { Text(unlockError).foregroundStyle(.secondary) }
                 if let method = login.method {
                     if login.nativeMethods.count > 1 {
                         Picker("", selection: Binding(get: { login.method ?? "totp" }, set: { login.selectNativeMethod($0) })) {
@@ -164,6 +191,7 @@ struct LoginView: View {
         .onDisappear { login.leave() }
         .onChange(of: login.method) { _, method in if method != nil { focus = .code } }
         .onChange(of: login.server) { _, _ in login.registering = false; login.recovering = false; login.invitation = "" }
+        .onAppear { experimental = app.client.experimentalProviders() }
         .task(id: "\(login.address)|\(login.kind)") {
             try? await Task.sleep(nanoseconds: 600_000_000)
             if !Task.isCancelled { await login.probe(client: app.client) }

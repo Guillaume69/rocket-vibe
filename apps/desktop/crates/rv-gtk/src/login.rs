@@ -27,6 +27,8 @@ pub struct LoginPage {
     credentials: gtk::Box,
     server: gtk::Entry,
     kind: gtk::DropDown,
+    slack: std::rc::Rc<crate::slack_preview::Preview>,
+    experimental_icon: gtk::Button,
     /// kChat: the account's team servers, shown when it has several.
     kchat_row: gtk::Box,
     kchat_servers: gtk::DropDown,
@@ -56,9 +58,23 @@ pub struct LoginPage {
     cancel: gtk::Button,
 }
 
-fn hero() -> gtk::Box {
+fn hero(preview: &std::rc::Rc<crate::slack_preview::Preview>) -> (gtk::Box, gtk::Button) {
     let hero = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(4).margin_bottom(10).build();
-    hero.append(&gtk::Label::builder().label("🦄").css_classes(["unicorn-hero"]).build());
+    let icon = gtk::Button::builder()
+        .child(&gtk::Label::builder().label("🦄").css_classes(["unicorn-hero"]).build())
+        .css_classes(["flat"])
+        .build();
+    let sequence = std::rc::Rc::new(std::cell::RefCell::new(rv_core::slack::Unlock::default()));
+    let start = std::time::Instant::now();
+    let weak = std::rc::Rc::downgrade(preview);
+    icon.connect_clicked(move |_| {
+        if sequence.borrow_mut().tap(start.elapsed().as_millis() as u64)
+            && let Some(preview) = weak.upgrade()
+        {
+            preview.unlock();
+        }
+    });
+    hero.append(&icon);
     let bars = gtk::Box::builder().spacing(5).halign(gtk::Align::Center).margin_top(8).margin_bottom(8).build();
     for colour in ["rainbow-pink", "rainbow-yellow", "rainbow-cyan", "rainbow-violet"] {
         bars.append(&gtk::Box::builder().css_classes(["rainbow-bar", colour]).build());
@@ -66,7 +82,7 @@ fn hero() -> gtk::Box {
     hero.append(&bars);
     hero.append(&widgets::brand("brand-hero"));
     hero.append(&gtk::Label::builder().label(t("login.slogan")).css_classes(["slogan"]).build());
-    hero
+    (hero, icon)
 }
 
 /// Four-pointed sparkles drawn with Cairo, so they need no font.
@@ -125,13 +141,28 @@ fn server_kind(kind: &gtk::DropDown) -> rv_core::native::ServerKind {
 }
 
 impl LoginPage {
+    pub fn smoke_experimental_unlock(&self) {
+        assert!(!self.slack.root.is_visible(), "experimental preview must start hidden");
+        for _ in 0..8 {
+            self.experimental_icon.emit_clicked();
+        }
+        assert!(!self.slack.root.is_visible(), "eight activations must not unlock");
+        self.experimental_icon.emit_clicked();
+        assert!(self.slack.root.is_visible(), "ninth activation must unlock");
+        assert!(crate::slack_preview::enabled(), "unlock must persist on device");
+        println!("smoke: Slack preview hidden until ninth activation; setting persisted");
+    }
+
     pub fn new() -> Self {
         let (server_group, server) = widgets::pill_field(t("login.server"), "chat.example.com", false);
         let (user_group, user) = widgets::pill_field(t("login.user"), "jane.doe", false);
         let (password_group, password) = widgets::pill_field(t("login.password"), "", true);
         let password_caption = password_group.first_child().and_downcast::<gtk::Label>().expect("password caption");
         let credentials = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(14).build();
-        credentials.append(&hero());
+        let slack = crate::slack_preview::Preview::new();
+        let (brand, experimental_icon) = hero(&slack);
+        credentials.append(&brand);
+        credentials.append(&slack.root);
         credentials.append(&server_group);
         // Found by probing; forced when the probe gets it wrong behind an
         // unusual proxy.
@@ -436,6 +467,8 @@ impl LoginPage {
             server,
             kind,
             kchat_row,
+            slack,
+            experimental_icon,
             kchat_servers,
             kchat_urls: std::rc::Rc::default(),
             user,

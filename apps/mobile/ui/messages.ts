@@ -15,6 +15,22 @@
 import { dayKey } from './daySeparator.ts';
 
 const fr = {
+  "slack.title": "Slack · expérimental",
+  "slack.previewHelp": "Lecture seule. Collez le jeton xoxc et la valeur originale du cookie d de votre session Slack. Ils sont gardés en mémoire jusqu’à la déconnexion. La connexion par navigateur et le chat complet arrivent ensuite.",
+  "slack.token": "Jeton de session xoxc",
+  "slack.cookie": "Valeur du cookie d (xoxd)",
+  "slack.connect": "Ouvrir Slack",
+  "slack.failed": "Connexion Slack indisponible",
+  "slack.empty": "Aucun élément dans cette page.",
+  "slack.more": "Charger la suite",
+  "slack.refresh": "Actualiser",
+  "slack.back": "Conversations",
+  "slack.unsupportedContent": "Contenu sans texte, non affiché dans cet aperçu.",
+  "slack.loading": "Chargement…",
+  "slack.disconnect": "Déconnecter cet aperçu",
+  "slack.hide": "Masquer les intégrations expérimentales",
+  "slack.unlockFailed": "Impossible d’enregistrer le déverrouillage sur cet appareil.",
+
   'conversation.failed': 'Conversation indisponible. Vérifiez votre connexion et l’admission de cet appareil dans les informations du salon, puis actualisez.',
   'conversation.pending': 'Envoi interrompu — reprendre',
   'conversation.cancelled': 'Envoi abandonné — restaurer le brouillon',
@@ -1353,6 +1369,22 @@ export type TranslationKey = keyof typeof fr;
  * breaks compilation. Keeping the SAME order as `fr` eases review.
  */
 const en: Record<TranslationKey, string> = {
+  "slack.title": "Slack · experimental",
+  "slack.previewHelp": "Read-only preview. Paste the xoxc token and original d cookie value from your Slack session. They stay in memory until disconnecting. Browser sign-in and full chat will follow.",
+  "slack.token": "xoxc session token",
+  "slack.cookie": "d cookie value (xoxd)",
+  "slack.connect": "Open Slack",
+  "slack.failed": "Slack connection unavailable",
+  "slack.empty": "No items in this page.",
+  "slack.more": "Load more",
+  "slack.refresh": "Refresh",
+  "slack.back": "Conversations",
+  "slack.unsupportedContent": "Content without text is not displayed in this preview.",
+  "slack.loading": "Loading…",
+  "slack.disconnect": "Disconnect preview",
+  "slack.hide": "Hide experimental integrations",
+  "slack.unlockFailed": "Unable to save the unlock on this device.",
+
   'conversation.failed': 'Conversation unavailable. Check your connection and this device’s admission in room information, then refresh.',
   'conversation.pending': 'Interrupted send — resume',
   'conversation.cancelled': 'Cancelled send — restore draft',

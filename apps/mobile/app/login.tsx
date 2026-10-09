@@ -1,8 +1,11 @@
 import { Redirect, Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { ExperimentalUnlock } from '../lib/experimentalUnlock.ts';
+import { setExperimentalProviders, useExperimentalProviders } from '../ui/experimentalProviders.ts';
+import { SlackPreview } from '../ui/slackPreview.tsx';
 import * as Crypto from 'expo-crypto';
 import * as WebBrowser from 'expo-web-browser';
-import { AppState, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { AppState, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DEFAULT_SERVER } from '../db/migrate.ts';
@@ -62,6 +65,8 @@ export default function LoginScreen() {
   const [phase, setPhase] = useState<Phase>({ name: 'server' });
   const [address, setAddress] = useState(DEFAULT_SERVER);
   const [kind, setKind] = useState<ServerKind>('auto');
+  const experimental = useExperimentalProviders();
+  const unlock = useRef(new ExperimentalUnlock());
   const [user, setUser] = useState('');
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
@@ -71,6 +76,11 @@ export default function LoginScreen() {
   const [invitation, setInvitation] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const unlockProviders = useCallback(() => {
+    if (!experimental && unlock.current.tap(Date.now())) {
+      void setExperimentalProviders(true).catch(() => setMessage(t('slack.unlockFailed')));
+    }
+  }, [experimental, t]);
 
   // Reentrancy guard in a ref, not in `busy`: two events in the same frame
   // (keyboard Enter + tap on the button) would both read the old state value
@@ -441,7 +451,7 @@ export default function LoginScreen() {
         keyboardShouldPersistTaps="handled"
       >
         {onServer ? (
-          <BrandHeader c={c} />
+          <BrandHeader c={c} onPress={unlockProviders} />
         ) : (
           <LoginResult c={c} onBack={backToServer} busy={busy} />
         )}
@@ -456,6 +466,7 @@ export default function LoginScreen() {
 
         {phase.name === 'server' && (
           <>
+            {experimental && <SlackPreview onHide={() => { void setExperimentalProviders(false).catch(() => setMessage(t('slack.unlockFailed'))); }} />}
             {/* kChat: the account's servers come from the directory once signed in. */}
             {kind !== 'kchat' && <PillField
               c={c}
@@ -624,11 +635,11 @@ function hostOf(url: string): string | null {
 }
 
 /** Brand header: unicorn, rainbow bars, logotype, subtitle. */
-function BrandHeader({ c }: { c: Colors }) {
+function BrandHeader({ c, onPress }: { c: Colors; onPress: () => void }) {
   const t = useT();
   return (
     <View style={styles.mark}>
-      <Text style={styles.unicorn}>🦄</Text>
+      <Pressable accessibilityRole="button" accessibilityLabel="RocketVibe" onPress={onPress}><Text style={styles.unicorn}>🦄</Text></Pressable>
       <View style={styles.bars}>
         {[c.accent, c.yellow, c.cyan, c.purple].map((color, i) => (
           <View key={i} style={[styles.bar, { backgroundColor: color }]} />

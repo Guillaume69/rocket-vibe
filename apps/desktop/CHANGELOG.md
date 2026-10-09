@@ -17,6 +17,8 @@ section here.
 
 ### Added
 
+- A hidden, experimental Slack read-only preview: activate the login icon nine times to unlock, validate paired session credentials, and browse conversations and paged plain-text history. Credentials stay in memory; browser sign-in, persistent accounts, live sync and sending are not yet available.
+
 - The server bar shows each server's own icon when it has one (GTK and macOS), and administrators set or remove it from the Dashboard (Rocket.Chat and RocketVibe).
 - Server administration: a Custom emoji category (GTK and macOS) where administrators add emoji (name, aliases, image) and delete them, on Rocket.Chat and RocketVibe servers.
 - Settings > Accounts can hide the server bar (GTK and macOS), giving its width to the conversation list; switching and adding an account stay on that page.

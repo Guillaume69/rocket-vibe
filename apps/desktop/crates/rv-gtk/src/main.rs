@@ -40,6 +40,7 @@ mod secrets;
 mod settings;
 mod sidebar_dialog;
 mod sizer;
+mod slack_preview;
 mod smoke;
 mod sounds;
 mod spell;

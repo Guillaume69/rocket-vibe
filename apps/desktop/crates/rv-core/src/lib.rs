@@ -36,6 +36,7 @@ pub mod runs;
 pub mod server;
 pub mod server_icon;
 pub mod session;
+pub mod slack;
 pub mod store;
 pub mod sync;
 pub mod timeline;

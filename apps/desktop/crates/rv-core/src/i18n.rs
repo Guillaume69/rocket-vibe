@@ -22,6 +22,33 @@ pub fn set(lang: Lang) {
 /// (key, French, English). A `{name}` is filled by `tf`; `a | b` is the
 /// singular and plural of `tn`.
 const CATALOG: &[(&str, &str, &str)] = &[
+    ("slack.title", "Slack · expérimental", "Slack · experimental"),
+    (
+        "slack.previewHelp",
+        "Lecture seule. Collez le jeton xoxc et la valeur originale du cookie d de votre session Slack. Ils sont gardés en mémoire jusqu’à la déconnexion. La connexion par navigateur et le chat complet arrivent ensuite.",
+        "Read-only preview. Paste the xoxc token and original d cookie value from your Slack session. They stay in memory until disconnecting. Browser sign-in and full chat will follow.",
+    ),
+    ("slack.token", "Jeton de session xoxc", "xoxc session token"),
+    ("slack.cookie", "Valeur du cookie d (xoxd)", "d cookie value (xoxd)"),
+    ("slack.connect", "Ouvrir Slack", "Open Slack"),
+    ("slack.failed", "Connexion Slack indisponible", "Slack connection unavailable"),
+    ("slack.empty", "Aucun élément dans cette page.", "No items in this page."),
+    ("slack.more", "Charger la suite", "Load more"),
+    ("slack.refresh", "Actualiser", "Refresh"),
+    ("slack.back", "Conversations", "Conversations"),
+    (
+        "slack.unsupportedContent",
+        "Contenu sans texte, non affiché dans cet aperçu.",
+        "Content without text is not displayed in this preview.",
+    ),
+    ("slack.loading", "Chargement…", "Loading…"),
+    ("slack.disconnect", "Déconnecter cet aperçu", "Disconnect preview"),
+    ("slack.hide", "Masquer les intégrations expérimentales", "Hide experimental integrations"),
+    (
+        "slack.unlockFailed",
+        "Impossible d’enregistrer le déverrouillage sur cet appareil.",
+        "Unable to save the unlock on this device.",
+    ),
     (
         "crypto.observed_time",
         "Heure locale de préparation ou de lecture de ce message chiffré",

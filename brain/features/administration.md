@@ -81,6 +81,14 @@ Clients: mobile `providers/rocketvibe/admin.ts` (`NativeAdmin`, `nativeReports`)
 - **Reports**: "Report" in the message context menu (`RoomView.swift`, `RoomModel.canReport`: someone else's delivered message, not a system line, never a private conversation, and on RocketVibe only when the server takes reports) and "Report this user" on a profile (`Details.swift`, not mine, not a deleted account). Both open `ReportSheet` as a modal overlay of the window (`modalOverlay` in `RocketVibeApp.swift`); from a profile, the profile closes and the report opens in its place. The result shows as the window's toast.
 - **Deleted authors**: native message rows get "Deleted user" from rv-core's native projection, which rv-ffi uses (`read_presentation::group` in `rv-ffi/src/native.rs`), reactions, quotes and notifications too; the admin records carry rv-core's shown name. `ProfileView` of a deleted RocketVibe account shows "Deleted user" with no `@username`, presence, Message, Call or Report.
 
+## Web
+
+The browser opens a separate administrator-only sidebar dialog on the serving RocketVibe origin. Its Dashboard follows GTK's `overview_groups` and native `native_overview` projection: Version, elapsed Uptime, PostgreSQL Database, optional Migration, shortened Instance with full tooltip and Copy; users in GTK order with four presence dots; public/private/direct/encrypted rooms and messages; decimal upload size; open reports with the Moderation shortcut and sidebar count; the native bot-creation policy switch with its subtitle. The refresh icon belongs to the Deployment heading. Two independent card columns use GTK's 30-pixel spacing and collapse when the content pane is at most 680 pixels wide.
+
+Labels and administration error sentences come from the desktop catalog generated at build time. The optional latest-version suffix selects the highest published `server-v` release, ignores drafts and prereleases, and remains hidden when unknown. Its unauthenticated GitHub request omits credentials and the referrer; it is retained for the dialog's lifetime. Refresh and policy responses are fenced to the account and connected page. A pending policy change disables the switch, uses the server's returned value, and restores the previous value on refusal. Upload sizes follow GLib's decimal units and the browser's system locale, independently of UI language. Users, Rooms and Moderation retain server-paged lists and item subpages.
+
+Actual GTK Fedora captures in English and French use the same local native server as the embedded browser bundle. The browser visual suite checks the actual overview fields, four presences, refresh and Moderation navigation, French labels, a controlled release list and a controlled policy refusal. Wide and narrow dashboard captures qualify this state; the browser's OS font rasterizer can differ, and exhaustive list/detail/confirmation state comparisons remain separate qualification.
+
 ## Limits
 
 - Messages ingested before an author's deletion keep the old username until the server sends them again: the server does not republish authors (all apps).
@@ -94,6 +102,12 @@ Clients: mobile `providers/rocketvibe/admin.ts` (`NativeAdmin`, `nativeReports`)
 
 ## Sources
 
+- apps/web/src/admin.ts
+- apps/web/src/api.ts
+- apps/web/src/sidebar.ts
+- apps/web/src/extra.css
+- apps/web/scripts/sync-strings.mjs
+- apps/web/tests/visual.mjs
 - docs/protocol/ADMINISTRATION.md
 - docs/protocol/README.md
 - crates/rv-protocol/src/admin.rs

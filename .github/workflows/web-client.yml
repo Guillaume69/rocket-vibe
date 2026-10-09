@@ -59,6 +59,7 @@ jobs:
           cargo fmt --all --check
           cargo clippy --locked -p rv-server --all-targets -- -D warnings
           cargo test --locked -p rv-server --lib
+          cargo test --locked -p rv-server --test bots a_key_reaches_only_the_routes_of_its_scopes
           cargo build --locked -p rv-server
       - name: Start isolated SMTP, SFU and server
         run: |

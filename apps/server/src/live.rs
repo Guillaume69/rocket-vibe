@@ -164,7 +164,8 @@ pub(crate) async fn state(app: &App, actor: &Account) -> Result<LiveState> {
         return Ok(state);
     }
     let ids: Vec<_> = grants.iter().map(|g| &g.room_id).collect();
-    let profiles:Vec<(String,String,String,String,Option<String>,String)>=sqlx::query_as("SELECT id,username,display_name,profile_version,avatar_file_id,status_text FROM users WHERE NOT disabled AND (id=$2 OR id IN (SELECT DISTINCT user_id FROM members WHERE room_id=ANY($1))) ORDER BY id LIMIT 513")
+    #[allow(clippy::type_complexity)]
+    let profiles:Vec<(String,String,String,String,Option<String>,String,bool)>=sqlx::query_as("SELECT id,username,display_name,profile_version,avatar_file_id,status_text,bot FROM users WHERE NOT disabled AND (id=$2 OR id IN (SELECT DISTINCT user_id FROM members WHERE room_id=ANY($1))) ORDER BY id LIMIT 513")
         .bind(&ids).bind(&actor.id).fetch_all(&mut *tx).await?;
     if profiles.len() > MAX_OBSERVATIONS {
         state.limited = true;
@@ -173,12 +174,13 @@ pub(crate) async fn state(app: &App, actor: &Account) -> Result<LiveState> {
     state.profiles = profiles
         .into_iter()
         .map(
-            |(id, username, display_name, revision, avatar_file_id, status_text)| {
+            |(id, username, display_name, revision, avatar_file_id, status_text, bot)| {
                 rv_protocol::profiles::ProfileStamp {
                     user: User {
                         id,
                         username,
                         display_name,
+                        bot,
                         ..Default::default()
                     },
                     revision,

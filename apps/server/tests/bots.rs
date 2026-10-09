@@ -242,6 +242,21 @@ async fn a_key_reaches_only_the_routes_of_its_scopes(pool: PgPool) {
     );
     let profile = alice.user_profile(&bot_id).await.unwrap();
     assert!(profile.user.bot);
+    let rv_protocol::live::LiveFrame::Live(live) = alice.live_state().await.unwrap();
+    let bot_stamp = live
+        .profiles
+        .iter()
+        .find(|stamp| stamp.user.id == bot_id)
+        .expect("A room member's profile must be observed");
+    assert!(
+        bot_stamp.user.bot,
+        "Live profile updates must retain bot identity"
+    );
+    assert!(
+        live.profiles
+            .iter()
+            .any(|stamp| stamp.user.id == alice_id && !stamp.user.bot)
+    );
     assert_eq!(profile.bot_owner.unwrap().id, alice_id);
     assert!(
         alice

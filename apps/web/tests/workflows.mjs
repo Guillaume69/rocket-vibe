@@ -39,6 +39,13 @@ const context = await browser.newContext({
   viewport: { width: 1280, height: 800 },
 });
 const page = await context.newPage();
+const botProfileFrames = [];
+page.on("websocket", (socket) => {
+  socket.on("framereceived", ({ payload }) => {
+    const frame = JSON.parse(String(payload));
+    if (frame.type === "live") botProfileFrames.push(frame.data.profiles || []);
+  });
+});
 const errors = [];
 page.on("pageerror", (error) => errors.push(error.message));
 let bot, workflow;
@@ -163,7 +170,45 @@ try {
     .locator(".workflow-form-card")
     .filter({ hasText: "Browser question " + tag });
   await card.waitFor({ timeout: 30000 });
-  assert.ok(await page.locator(".message-heading .bot-badge").count());
+  const beforeProfiles = botProfileFrames.length;
+  for (
+    let attempts = 0;
+    botProfileFrames.length < beforeProfiles + 2 && attempts < 60;
+    attempts++
+  )
+    await page.waitForTimeout(100);
+  assert.ok(
+    botProfileFrames.length >= beforeProfiles + 2,
+    "Observe two real profile updates after the bot's message",
+  );
+  for (const profiles of botProfileFrames.slice(beforeProfiles)) {
+    const observed = profiles.find((stamp) => stamp.user.id === bot.user.id);
+    assert.equal(
+      observed?.user.bot,
+      true,
+      "Live profiles must retain the workflow bot identity",
+    );
+  }
+  assert.equal(
+    await card
+      .locator("xpath=ancestor::article")
+      .locator(".message-heading .bot-badge")
+      .count(),
+    1,
+  );
+  await page.reload();
+  await page.locator(".status-dot.online").waitFor();
+  await card.waitFor();
+  assert.equal(
+    await card
+      .locator("xpath=ancestor::article")
+      .locator(".message-heading .bot-badge")
+      .count(),
+    1,
+  );
+  console.log(
+    "PASS workflow BOT badges survive actual live profile refreshes and page reload",
+  );
   await card.getByRole("button", { name: "Answer", exact: true }).click();
   const answer = page.locator(".workflow-form-dialog");
   await answer

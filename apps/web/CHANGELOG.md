@@ -6,6 +6,8 @@ All notable changes are documented here in English.
 
 ### Fixed
 
+- Keep workflow messages marked BOT after live author-profile refreshes and page reloads.
+
 - Report failed initial WebRTC connections instead of silently closing the connecting page, and allow a clean retry after the failure.
 
 - Replace invented per-image 1600/960-pixel options with GTK's parked Original-quality choice; prepare JPEG at 1920 pixels and quality 82 only when sending.

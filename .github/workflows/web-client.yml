@@ -46,8 +46,8 @@ jobs:
       - id: version
         name: Verify web version and release notes
         run: |
-          if [ "${{ github.ref_type }}" = tag ]; then
-            version=$(node scripts/version.mjs web --tag "${{ github.ref_name }}")
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            version=$(node scripts/version.mjs web --tag "$GITHUB_REF_NAME")
             node scripts/changelog.mjs web "$version" > /dev/null
           else
             version=$(node scripts/version.mjs web)
@@ -89,6 +89,8 @@ jobs:
           target/debug/rv-server create-user webvoicefailure
           target/debug/rv-server create-user webconnection
           target/debug/rv-server create-user webconnectionpeer
+          target/debug/rv-server create-user webvoicelifecycle
+          target/debug/rv-server create-user webvoicelifecyclepeer
           target/debug/rv-server create-user webread
           target/debug/rv-server create-user webreadpeer
           target/debug/rv-server create-user webreadowner --admin
@@ -116,6 +118,7 @@ jobs:
           npm run test:images
           npm run test:voice
           npm run test:voice-connection
+          npm run test:voice-lifecycle
           npm run test:sessions
           npm run test:locked
           npm run test:composer

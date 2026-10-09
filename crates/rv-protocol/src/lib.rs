@@ -127,6 +127,10 @@ pub struct Capabilities {
     /// `/api/v1/admin/emoji/{name}`.
     #[serde(default)]
     pub custom_emoji_admin: bool,
+    /// The server has an icon of its own (`Discovery.icon_revision`), which
+    /// an administrator sets over `/api/v1/admin/icon`.
+    #[serde(default)]
+    pub instance_icon: bool,
 }
 
 impl Default for Capabilities {
@@ -184,6 +188,7 @@ impl Default for Capabilities {
             bots: false,
             workflows: false,
             custom_emoji_admin: false,
+            instance_icon: false,
         }
     }
 }
@@ -247,7 +252,8 @@ impl Capabilities {
             reports,
             bots,
             workflows,
-            custom_emoji_admin
+            custom_emoji_admin,
+            instance_icon
         );
         features
     }
@@ -262,6 +268,9 @@ pub struct Discovery {
     pub protocol_versions: Vec<u32>,
     pub api_path: String,
     pub capabilities: Capabilities,
+    /// The icon's revision when the server has one (`GET /api/v1/instance/icon?v=<it>`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_revision: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, PartialEq)]

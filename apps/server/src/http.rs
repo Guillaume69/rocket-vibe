@@ -238,6 +238,13 @@ pub fn router(app: App) -> Router {
         .route("/api/v1/admin/users/{id}/delete", post(admin_delete_user))
         .route("/api/v1/admin/rooms", get(admin_rooms))
         .route(
+            "/api/v1/admin/icon",
+            put(admin_set_icon)
+                .delete(admin_remove_icon)
+                .layer(DefaultBodyLimit::max(crate::instance_icon::ICON_BYTES)),
+        )
+        .route("/api/v1/instance/icon", get(instance_icon))
+        .route(
             "/api/v1/admin/emoji/{name}",
             put(admin_create_emoji)
                 .delete(admin_remove_emoji)
@@ -503,6 +510,7 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
             uploads: app.objects.is_some(),
             custom_emojis: app.objects.is_some(),
             custom_emoji_admin: app.objects.is_some(),
+            instance_icon: app.objects.is_some(),
             link_previews: app.objects.is_some(),
             structured_cards: true,
             push: app.push.is_some(),
@@ -529,6 +537,7 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
             workflows: true,
             ..Default::default()
         },
+        icon_revision: crate::instance_icon::revision(&app).await?,
     }))
 }
 
@@ -1584,6 +1593,40 @@ async fn admin_delete_user(
     let actor = admin_account(&app, &headers).await?;
     crate::admin::delete_user(&app, &actor, &id, body(input)?).await?;
     Ok(StatusCode::NO_CONTENT)
+}
+async fn instance_icon(State(app): State<App>) -> Result<Response> {
+    crate::instance_icon::response(&app).await
+}
+async fn admin_set_icon(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(input): Query<rv_protocol::admin::IconCommand>,
+    bytes: std::result::Result<axum::body::Bytes, axum::extract::rejection::BytesRejection>,
+) -> Result<Response> {
+    let actor = admin_account(&app, &headers).await?;
+    let mime = headers
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .ok_or_else(Error::invalid)?
+        .to_string();
+    let bytes = bytes.map_err(|_| Error::new(StatusCode::PAYLOAD_TOO_LARGE, "icon_too_large"))?;
+    let icon = crate::instance_icon::change(
+        &app,
+        &actor,
+        &input.operation_id,
+        Some((mime, bytes.to_vec())),
+    )
+    .await?;
+    Ok(Json(icon).into_response())
+}
+async fn admin_remove_icon(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(input): Query<rv_protocol::admin::IconCommand>,
+) -> Result<Response> {
+    let actor = admin_account(&app, &headers).await?;
+    let icon = crate::instance_icon::change(&app, &actor, &input.operation_id, None).await?;
+    Ok(Json(icon).into_response())
 }
 async fn admin_create_emoji(
     State(app): State<App>,

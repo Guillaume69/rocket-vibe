@@ -13,6 +13,7 @@ pub mod factor_crypto;
 mod factors;
 mod files;
 mod http;
+mod instance_icon;
 pub mod invitations;
 mod limits;
 pub mod link_previews;

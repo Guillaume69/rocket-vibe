@@ -58,6 +58,12 @@
         "delete_user": {
           "$ref": "#/$defs/DeleteAdminUser"
         },
+        "icon_command": {
+          "$ref": "#/$defs/IconCommand"
+        },
+        "instance_icon": {
+          "$ref": "#/$defs/InstanceIcon"
+        },
         "operation": {
           "$ref": "#/$defs/AdminOperation"
         },
@@ -97,7 +103,9 @@
         "operation",
         "report",
         "create_emoji",
-        "remove_emoji"
+        "remove_emoji",
+        "instance_icon",
+        "icon_command"
       ],
       "type": "object"
     },
@@ -1473,6 +1481,11 @@
           "default": false,
           "type": "boolean"
         },
+        "instance_icon": {
+          "default": false,
+          "description": "The server has an icon of its own (`Discovery.icon_revision`), which\nan administrator sets over `/api/v1/admin/icon`.",
+          "type": "boolean"
+        },
         "link_previews": {
           "default": false,
           "type": "boolean"
@@ -2268,6 +2281,13 @@
         },
         "data_epoch": {
           "type": "string"
+        },
+        "icon_revision": {
+          "description": "The icon's revision when the server has one (`GET /api/v1/instance/icon?v=<it>`).",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "instance_id": {
           "type": "string"
@@ -3616,6 +3636,19 @@
       ],
       "type": "string"
     },
+    "IconCommand": {
+      "additionalProperties": false,
+      "description": "Query of `PUT /api/v1/admin/icon` (raw PNG or JPEG body, 2 MiB at most)\nand `DELETE /api/v1/admin/icon`.",
+      "properties": {
+        "operation_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id"
+      ],
+      "type": "object"
+    },
     "Identity": {
       "additionalProperties": false,
       "properties": {
@@ -3638,6 +3671,18 @@
         "fingerprint",
         "revision"
       ],
+      "type": "object"
+    },
+    "InstanceIcon": {
+      "description": "The server's icon, as `PUT`/`DELETE /api/v1/admin/icon` answer it:\n`revision` is `None` without one. The image itself is public at\n`GET /api/v1/instance/icon` (PNG, square, 256 pixels at most).",
+      "properties": {
+        "revision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
       "type": "object"
     },
     "InstanceSettings": {

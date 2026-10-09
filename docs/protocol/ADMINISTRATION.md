@@ -132,6 +132,16 @@ reported message.
 - `GET`/`PATCH /admin/settings` read and change the instance settings,
   `InstanceSettings {user_bots}` and `UpdateInstanceSettings {operation_id,
   user_bots?}`: whether every account may create bots.
+- `PUT /admin/icon?operation_id=` (raw PNG or JPEG, 2 MiB at most) sets the
+  server's icon and `DELETE /admin/icon?operation_id=` removes it, both
+  answering `InstanceIcon {revision}` (`null` without an icon), with the
+  `instance_icon` capability. The image is center-cropped to a square, scaled
+  down to 256 pixels and re-encoded as PNG (`400 invalid_icon`,
+  `413 icon_too_large`); a replay of the operation applies nothing. The icon is
+  public, like a favicon: `GET /api/v1/instance/icon` (PNG, `no-cache`, ETag the
+  revision; `404` without one), and the discovery document carries
+  `icon_revision`, which clients add as `?v=` so their image caches follow. The
+  operator journal records `instance.icon` with the administrator.
 - `POST /admin/users/{id}/delete` takes `DeleteAdminUser {operation_id,
   revision}` and answers `204`.
 - `GET /admin/rooms?q=&after=&limit=` pages every room by name, direct

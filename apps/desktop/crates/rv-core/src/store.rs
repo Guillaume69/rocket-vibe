@@ -221,7 +221,16 @@ const MIGRATIONS: &[&str] = &[
     "ALTER TABLE uploads ADD COLUMN tmid TEXT",
     "ALTER TABLE subscriptions ADD COLUMN group_id TEXT; ALTER TABLE subscriptions ADD COLUMN group_name TEXT;
      ALTER TABLE subscriptions ADD COLUMN group_rank INTEGER",
+    "CREATE TABLE people (uid TEXT PRIMARY KEY, name TEXT NOT NULL);
+     CREATE TABLE server_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
 ];
+
+/// A room's shown name (rooms aliased `r`): a two-person DM under its peer's
+/// real name when the Rocket.Chat server shows real names
+/// (`UI_Use_Real_Name`, kept as `server_settings.real_names`), else its own.
+const ROOM_TITLE: &str = "COALESCE(CASE WHEN r.type = 'd'
+      AND (SELECT value FROM server_settings WHERE key = 'real_names') = '1'
+    THEN (SELECT name FROM people WHERE uid = r.dm_other_uid) END, r.display_name, r.name, r.rid)";
 
 pub struct Store {
     conn: Mutex<Connection>,
@@ -359,10 +368,30 @@ impl Store {
             .is_some()
     }
 
+    /// Whether the Rocket.Chat server shows people by their real name
+    /// (`UI_Use_Real_Name`), as last read; false until then and elsewhere.
+    pub fn real_names(&self) -> bool {
+        self.read(|c| {
+            c.query_row("SELECT value FROM server_settings WHERE key = 'real_names'", [], |r| r.get::<_, String>(0))
+                .optional()
+        })
+        .ok()
+        .flatten()
+        .as_deref()
+            == Some("1")
+    }
+
+    /// A person's real name as messages, DM subscriptions or a profile gave it.
+    pub fn person_name(&self, uid: &str) -> Option<String> {
+        self.read(|c| c.query_row("SELECT name FROM people WHERE uid = ?1", [uid], |r| r.get(0)).optional())
+            .ok()
+            .flatten()
+    }
+
     /// The room's display name and type.
     pub fn room_name(&self, rid: &str) -> Option<(String, String)> {
         self.read(|c| {
-            c.query_row("SELECT COALESCE(display_name, name, rid), type FROM rooms WHERE rid = ?1", [rid], |r| {
+            c.query_row(&format!("SELECT {ROOM_TITLE}, r.type FROM rooms r WHERE r.rid = ?1"), [rid], |r| {
                 Ok((r.get(0)?, r.get(1)?))
             })
             .optional()
@@ -452,8 +481,8 @@ impl Store {
 
     pub fn rooms(&self) -> Vec<RoomRow> {
         self.read(|c| {
-            let mut q = c.prepare(
-                "SELECT r.rid, r.type, COALESCE(r.display_name, r.name, r.rid), r.last_message,
+            let mut q = c.prepare(&format!(
+                "SELECT r.rid, r.type, {ROOM_TITLE}, r.last_message,
                         COALESCE(r.last_message_ts, 0), s.unread, s.mentions + s.group_mentions, s.alert,
                         s.favorite, r.encrypted, r.read_only, r.dm_other_uid, r.avatar_etag, r.name,
                         r.last_message_type, r.last_message_author, r.last_encrypted,
@@ -461,7 +490,7 @@ impl Store {
                  FROM rooms r JOIN subscriptions s ON s.rid = r.rid
                  WHERE s.open = 1
                  ORDER BY COALESCE(r.last_message_ts, 0) DESC",
-            )?;
+            ))?;
             q.query_map([], |r| {
                 Ok(RoomRow {
                     rid: r.get(0)?,
@@ -568,6 +597,69 @@ impl Store {
 impl Writer<'_> {
     fn touch_rooms(&mut self) {
         self.change.rooms = true;
+    }
+
+    /// The server's `UI_Use_Real_Name`; the list redraws when it changes.
+    pub fn set_real_names(&mut self, on: bool) {
+        let changed = self
+            .conn
+            .execute(
+                "INSERT INTO server_settings (key, value) VALUES ('real_names', ?1)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value WHERE value IS NOT excluded.value",
+                [if on { "1" } else { "0" }],
+            )
+            .expect("real names setting");
+        if changed > 0 {
+            self.touch_rooms();
+        }
+    }
+
+    /// A person's real name (`u.name` of a message, a profile's `name`); an
+    /// absent or empty one never erases a known one. A change redraws the
+    /// list, whose DMs may show it.
+    pub fn note_person(&mut self, uid: &str, name: Option<&str>) {
+        let Some(name) = name.filter(|n| !n.is_empty()) else { return };
+        let changed = self
+            .conn
+            .execute(
+                "INSERT INTO people (uid, name) VALUES (?1, ?2)
+                 ON CONFLICT(uid) DO UPDATE SET name = excluded.name WHERE name IS NOT excluded.name",
+                params![uid, name],
+            )
+            .expect("note person");
+        if changed > 0 {
+            self.touch_rooms();
+        }
+    }
+
+    /// A message's author's real name, from the raw document.
+    pub fn note_author(&mut self, raw: &serde_json::Value) {
+        if let Some(uid) = raw.pointer("/u/_id").and_then(serde_json::Value::as_str) {
+            self.note_person(uid, raw.pointer("/u/name").and_then(serde_json::Value::as_str));
+        }
+    }
+
+    /// A two-person DM's subscription: `fname` is the other person's real
+    /// name, written on the room's other party once the room is known.
+    pub fn note_dm_name(&mut self, raw: &serde_json::Value) {
+        if raw.get("t").and_then(serde_json::Value::as_str) != Some("d") {
+            return;
+        }
+        let (Some(rid), Some(name)) = (
+            raw.get("rid").and_then(serde_json::Value::as_str),
+            raw.get("fname").and_then(serde_json::Value::as_str).filter(|n| !n.is_empty()),
+        ) else {
+            return;
+        };
+        let peer: Option<String> = self
+            .conn
+            .query_row("SELECT dm_other_uid FROM rooms WHERE rid = ?1", [rid], |r| r.get(0))
+            .optional()
+            .ok()
+            .flatten();
+        if let Some(peer) = peer {
+            self.note_person(&peer, Some(name));
+        }
     }
 
     fn touch_messages(&mut self, rid: &str) {
@@ -893,6 +985,39 @@ mod tests {
         assert_eq!(text_of(&store, "m").as_deref(), Some("v2"));
         store.write(|w| w.upsert_message(&message("m", Some("v3"), 30, "r")));
         assert_eq!(text_of(&store, "m").as_deref(), Some("v3"));
+    }
+
+    #[test]
+    fn a_dm_shows_its_peer_by_real_name_only_when_the_server_does() {
+        let store = Store::in_memory().unwrap();
+        let dm = Room {
+            rid: "d".into(),
+            kind: "d".into(),
+            display_name: Some("bob".into()),
+            dm_other_uid: Some("u2".into()),
+            updated_at: 1,
+            ..Room::default()
+        };
+        store.write(|w| {
+            w.upsert_room(&dm);
+            w.upsert_subscription(&Subscription {
+                rid: "d".into(),
+                open: true,
+                updated_at: 1,
+                ..Subscription::default()
+            });
+            w.note_dm_name(&serde_json::json!({"rid": "d", "t": "d", "name": "bob", "fname": "Bob Durand"}));
+            w.note_author(&serde_json::json!({"u": {"_id": "u3", "username": "carol", "name": "Carol"}}));
+            w.note_author(&serde_json::json!({"u": {"_id": "u3", "username": "carol"}}));
+        });
+        assert_eq!(store.person_name("u2").as_deref(), Some("Bob Durand"));
+        assert_eq!(store.person_name("u3").as_deref(), Some("Carol"), "an absent name erases nothing");
+        assert!(!store.real_names());
+        assert_eq!(store.room_name("d").map(|(name, _)| name).as_deref(), Some("bob"));
+        store.write(|w| w.set_real_names(true));
+        assert!(store.real_names());
+        assert_eq!(store.room_name("d").map(|(name, _)| name).as_deref(), Some("Bob Durand"));
+        assert_eq!(store.rooms()[0].name, "Bob Durand");
     }
 
     #[test]

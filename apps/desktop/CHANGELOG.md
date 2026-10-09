@@ -7,6 +7,10 @@ section here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Rocket.Chat: people are named the way the server says (`UI_Use_Real_Name`): message authors, direct messages and notifications use real names when the server shows them. Search shows a channel's display name like the list; a direct message's details on macOS keep its name.
+
 ### Added
 
 - Server administration: a Custom emoji category (GTK and macOS) where administrators add emoji (name, aliases, image) and delete them, on Rocket.Chat and RocketVibe servers.

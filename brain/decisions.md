@@ -71,6 +71,8 @@ The non-obvious choices behind rocket-vibe and why they were made, grouped by ar
 - **A private message's id is derived from its proof, not chosen by the server.** Amendments, replies and files name their target by id; a server-chosen id bound to nothing signed let the server relabel which message they meant. The id is SHA-256(domain, proof fingerprint) truncated to 16 bytes, and every client refuses another. Found by the internal crypto review, whose findings and open items live in `docs/protocol/E2EE_REVIEW.md` (internal, not the independent review RFC 0002 requires). See [e2ee-private-actions](features/e2ee-private-actions.md).
 - **Avatar versions go in the URL query.** `/avatar/<user>` has a 1 h cache and no ETag, so Android's image cache freezes it; `avatarETag` is appended and a no-photo marker is set on reset. See [avatars](features/avatars.md).
 
+- **People are named as the Rocket.Chat server says** (user decision, 2026-10-09). The apps follow `UI_Use_Real_Name` like the official clients rather than choosing for the user: off, usernames everywhere; on, real names. Before, the in-app rows showed usernames while pushes showed real names (`sender.name`), which read as a mix-up. An administrator changes it for every client on the server.
+
 ## Other servers
 
 - **Mattermost and kChat go through the generic sync path, not a branch of their own.** Their model (channels, memberships, posts, a socket pushing the account's events) maps onto Rocket.Chat's, so one translator writing the neutral rows reuses `SyncEngine`, the stores and the screens. RocketVibe kept its own branch because its journal is applied atomically. See [mattermost-and-kchat](features/mattermost-and-kchat.md).

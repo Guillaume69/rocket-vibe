@@ -96,9 +96,21 @@ fn me_record(m: rv_core::account::Me) -> Me {
 
 #[uniffi::export]
 impl Chat {
+    /// A DM's `rooms.info` has no name: it keeps the one the list shows.
     pub async fn room_details(&self, rid: String) -> Result<RoomDetails, RvError> {
         let s = self.session.clone();
-        Ok(on_tokio(async move { s.room_info(&rid).await }).await?.into())
+        let mut details: RoomDetails = on_tokio({
+            let rid = rid.clone();
+            async move { s.room_info(&rid).await }
+        })
+        .await?
+        .into();
+        if details.name.is_empty()
+            && let Some((name, _)) = self.session.store.room_name(&rid)
+        {
+            details.name = name;
+        }
+        Ok(details)
     }
 
     /// A channel by its name (a `#channel` link): its details, id included.

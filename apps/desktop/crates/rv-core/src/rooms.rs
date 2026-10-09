@@ -115,7 +115,8 @@ pub fn spotlight_results(response: &Value) -> Vec<Found> {
     let rooms = list("rooms").into_iter().filter_map(|r| {
         Some(Found::Room {
             id: text(&r, "_id")?,
-            name: text(&r, "name")?,
+            // `fname`, the name the room list shows, when the server sends one.
+            name: text(&r, "fname").or_else(|| text(&r, "name"))?,
             kind: text(&r, "t").unwrap_or_else(|| "c".to_owned()),
         })
     });

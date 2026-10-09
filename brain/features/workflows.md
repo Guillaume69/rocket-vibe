@@ -34,6 +34,12 @@ A workflow is a small automation a person builds in the apps: a trigger starts o
 - GTK: `settings/native_workflows.rs`, the Workflows category after Bots (list, editor with the six triggers and four step kinds, a Variables menu inserting into the last focused template field, Save with a reload on `revision_conflict`, Test (not while the draft differs from the saved definition, not for a command), Disable taking the new revision, Delete confirmed, runs, the webhook URL in a one-time dialog, replacing one confirmed); `workflow_forms.rs`, the form card in the message row and the answer `adw::Dialog` (closed by a backdrop click): a single choice in a dropdown, a single person in radios, several answers as `gtk::CheckButton`s, author labels never read as markup. Its editor and form-card test (`src/tests/workflows.rs`) runs under Xvfb in `native-server.yml`.
 - SwiftUI: `WorkflowsModel.swift` and `WorkflowsSection.swift` (category `.workflows`), the form card and answer overlay in `RoomView` (checkbox toggles for several answers), variables inserted at the cursor in the text editors (`TextEditor(text:selection:)`, appended to a GET or DELETE step's URL), the editor's checks and limits from rv-core (`workflow_draft_problem`, `workflow_limits`), the webhook URL in `AppModel.workflowWebhook`, shown once; through rv-ffi `native_workflows.rs` and `MessageItem.form`. The app target is compiled by the macOS CI only.
 
+## Web
+
+`apps/web/src/workflows.ts` follows the GTK sidebar list and form editor: six triggers, four step kinds, step movement/removal, variable insertion at the last focused field, owned bot selection, saving at the expected revision, saved-definition testing, disable, deletion, last 50 runs and a one-time webhook URL after recent proof. Disable updates the revision and enabled state without discarding unsaved fields. The settings category lists owned definitions, matching GTK; the server-only administrator oversight API does not introduce additional browser categories. Room-scoped completion dispatches names containing digits, underscores and hyphens; malformed slash input cannot become plaintext. `workflow-forms.ts` renders open, answered and expired form cards and validates the five answer kinds, single/multiple choices, resolved people or plaintext room members. Access withdrawal, account changes and answered forms close pending answer dialogs. Full GTK visual-state and trigger/step qualification remains debt.
+
+Workflow message authors keep their bot identity through live profile refreshes. The browser regression verifies the BOT header after actual socket observations and page reload; the server profile projection includes `users.bot`, rather than relying only on the message payload.
+
 ## Limits
 
 - No visual editor and no branching: steps run in order, a failed step ends the run (an HTTP step can be told to carry on). A network failure is not retried.
@@ -44,6 +50,11 @@ A workflow is a small automation a person builds in the apps: a trigger starts o
 - Workflows are RocketVibe only; Rocket.Chat has its own integrations.
 
 ## Sources
+
+- apps/web/src/bots.ts
+- apps/web/src/workflows.ts
+- apps/web/src/workflow-forms.ts
+- apps/web/tests/workflows.mjs
 
 - docs/rfcs/0004-workflows.md
 - docs/protocol/WORKFLOWS.md

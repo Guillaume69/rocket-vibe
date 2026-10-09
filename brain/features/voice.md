@@ -310,9 +310,33 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
   `AVAudioPlayer`; the bundle carries `rv-voice` in `Contents/MacOS`, signed with the app's
   entitlements. Checked by the macOS CI build only.
 
+## Web
+
+The server-delivered client uses the same ordinary-room voice grants, LiveKit SFU, live roster and room screen claim. Selecting a voice channel joins it automatically. Encrypted rooms and frames are outside the accepted browser scope. The page ports GTK's TileGrid, six controls, audio/person popovers and two-second direct-call peer reconnection grace. Returning from the sidebar call panel restores the actual call room.
+
+An initial WebRTC failure emits `Disconnected` before the SDK rejects `connect`. The client lets the join's error handler report GTK's "Couldn't join voice" refusal and release the pending call/context; established-call disconnections still tear down immediately. Advancing the lifecycle during the initial event would swallow that error. `voice-connection.mjs` qualifies Firefox and Chromium with real bidirectional audio and a live two-person roster, then forces an ICE timeout and reconnects. Firefox keeps its normal ICE loopback policy. SFU candidates must be reachable from each browser; the Windows test bench uses an explicitly approved local UDP listener and the official Windows SFU binary, while its HTTP APIs remain on loopback.
+
+One owned Web Audio context mixes playback and applies microphone processing before publication. Gains range from zero to 200 percent. Per-person volume and local mute are account-scoped and removed on signout. Deafen mutes local playback and publishes the server/GTK attribute `rv.deafened = "1"`. The input meter and speaking halos read PCM instead of SFU active-speaker hints: local -50 dB RMS, remote -52 dB RMS, a 350 ms hangover and the native normalized meter/decay. Browser noise suppression differs from GTK's RNNoise voice-probability path and remains parity debt.
+
+Screen/window selection uses the browser consent picker, as GTK's Wayland picker delegates to its portal. The GTK quality footer saves 720p/1080p/1440p and 15/30/60 fps, applied to capture constraints and publication encoding. While sharing, the stage fills the page beside a narrow participant strip, with camera thumbnails. Fullscreen has the native exit affordance, follows a takeover, and closes when sharing ends. One server roster interval of grace covers the gap between old-track removal and replacement subscription. Unpublished/ended video stops associated sound. Claims and asynchronous audio publication are guarded across call teardown and share replacement.
+
+Screen sound requests `restrictOwnAudio` and is published only when the actual capture track confirms that setting. An unsupported or unconfirmed exclusion stops the capture sound before publication and keeps the video. The native Voice preference to include the call, off by default, adds remote microphone PCM to the shared-sound track with the listener's output/per-person gains and mute/deafen. A synthetic silent base permits this explicit opt-in even when no safe program sound is available. Remote screen sound is excluded from that mixer to avoid recursive sharing. Platform program-sound capture remains partial: the local Chromium bench returns an unconfirmed exclusion. A controlled verified-exclusion program-sound fixture qualifies processing, real RTP and cleanup, not a browser's OS-loopback exclusion.
+
+Real two-browser calls qualify microphone/camera/screen RTP, quiet-speech halos, gains, ringing, teardown, share takeover and capture-ended cleanup. A Fedora GTK session receives the browser's actual screen track and sends a microphone track back. Captures compare its native share stage and audio menu with the browser. This does not qualify physical devices or every browser/OS.
+
 ## Sources
 
 - docs/protocol/VOICE.md
+- apps/web/src/voice.ts
+- apps/web/src/voice-audio.ts
+- apps/web/src/voice-activity.ts
+- apps/web/src/voice-grid.ts
+- apps/web/src/voice-share.ts
+- apps/web/src/voice-share-audio.ts
+- apps/web/tests/voice.mjs
+- apps/web/tests/voice-connection.mjs
+- apps/web/tests/voice-activity.test.ts
+- https://www.w3.org/TR/screen-capture/
 - docs/protocol/E2EE_REVIEW.md
 - apps/server/src/voice.rs
 - crates/rv-crypto/src/groups.rs

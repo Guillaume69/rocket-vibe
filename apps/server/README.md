@@ -64,6 +64,10 @@ now verifies certified devices and KeyPackage publication; it does not yet
 make encrypted conversations available. The limits are explicit in
 the [pilot contract](../../docs/protocol/README.md).
 
+## Browser client
+
+The server binary now embeds [apps/web](../web/README.md). Open its origin at `/` or a `/room/<id>` link. Built assets are checked in and embedded at Cargo build time; production and Docker need no Node runtime. Rebuild the web bundle with Node 24 before rebuilding the server when frontend code changes. The browser uses one account on this origin and leaves encrypted rooms locked. Use HTTPS outside the local bench.
+
 ## Local start
 
 On a dedicated server, behind a domain in HTTPS and with voice: see

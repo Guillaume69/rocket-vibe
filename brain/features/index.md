@@ -5,6 +5,12 @@ What the apps do. Each doc describes the feature, then its `## Mobile` and
 two-way parity tracker is [../parity.md](../parity.md). Back to
 [../BRAIN.md](../BRAIN.md).
 
+## Web
+
+| Doc | What's here |
+|---|---|
+| [web-client.md](web-client.md) | Browser scope, GTK design, native capabilities, accepted exclusions and qualification debt. |
+
 ## Session and data
 
 | Doc | What's here |

@@ -1,3 +1,11 @@
 # The native verification script runs in Linux containers even from Windows checkouts.
 apps/server/scripts/*.sh text eol=lf
 apps/desktop/macos/scripts/*.sh text eol=lf
+apps/web/** text eol=lf
+apps/web/**/*.ttf -text
+apps/web/**/*.png -text
+apps/web/**/*.ogg -text
+# Preserve upstream licence whitespace and generated bundle notices.
+apps/web/src/fonts-native/* -whitespace
+apps/web/src/icons-native/COPYING* -whitespace
+apps/web/dist/** -whitespace

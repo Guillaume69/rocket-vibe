@@ -565,6 +565,13 @@ pub fn install(window: &Rc<AppWindow>) {
         let texts = w.chat.message_texts();
         if native {
             check("native session", w.chat.native_session().is_some(), texts.len());
+            if let Some(session) = w.chat.native_session() {
+                let status = session.status();
+                println!(
+                    "smoke: native connection {:?}, error {:?}, request {:?}",
+                    status.connection, status.error, status.request_id
+                );
+            }
             if std::env::var("RV_SMOKE_RENDERING").as_deref() == Ok("1") {
                 check(
                     "native source reaches existing message widgets",

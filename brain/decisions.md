@@ -191,6 +191,13 @@ The non-obvious choices behind rocket-vibe and why they were made, grouped by ar
 - **No secrets in the repo**; `.example` files document them. `apps/mobile/docs/AUDIT.md` is frozen; `apps/mobile/WORKSTREAMS.md` is the source of truth for what to fix next.
 - **The code is English; stored names were migrated rather than kept.** Code, comments, docs and both apps now share one vocabulary, so a name in the brain, the mobile code and the desktop code means the same thing and needs no French glossary. Names the mobile app persisted were renamed too, not frozen: migration `apps/mobile/db/migrations/0016_english_names.sql` renames tables and columns in place and rewrites stored values, and `readMovedKey` / `readMovedKeySync` (`apps/mobile/lib/storageKeys.ts`) move each SecureStore key on first read (new key written before the old is deleted), so an upgrade keeps sessions, the local data, the language and pending sends and sign-outs. Names the previous build may still hold outside the app's control keep a one-release alias: old `rocketvibe://salon/` links (posted notifications) are rewritten or accepted, and the native `ReponseNotifReceiver` / `RattrapagePushWorker` classes, the `rv_reponse` reply key and the `rattrapage-push-` work prefix survive for notifications and WorkManager jobs already posted. The legacy names are listed in [glossary](glossary.md#legacy-french-names).
 
+
+## Web scope, 2026-10-08
+
+The user chose a true server-delivered browser client, on its own branch/worktree, using GTK as the visual reference. The browser signs into only the serving service and one account: no account/server rail. Encrypted rooms are explicitly unsupported for now; retain locked metadata and reject content/media/call actions. No server-side substitute for a browser vault. Installed clients retain their existing capabilities.
+
+Sources: apps/web/src/app.ts; apps/web/src/api.ts; docs/rfcs/0005-web-client.md.
+
 ## Sources
 
 - `docs/protocol/E2EE_AMENDMENTS.md`

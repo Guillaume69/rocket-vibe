@@ -1,0 +1,37 @@
+{
+  "name": "rocket-vibe-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "check": "tsc --noEmit",
+    "build": "node scripts/sync-design.mjs && node scripts/sync-strings.mjs && node scripts/licenses.mjs && npm run check && vite build && node scripts/build-shell.mjs",
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "test:browser": "node tests/browser.mjs",
+    "test:visual": "node tests/visual.mjs",
+    "test:workflows": "node tests/workflows.mjs",
+    "test:reads": "node tests/reads.mjs",
+    "test:voice": "node tests/voice.mjs",
+    "test:voice-connection": "node tests/voice-connection.mjs",
+    "test:voice-lifecycle": "node tests/voice-lifecycle.mjs",
+    "test:security": "node tests/security.mjs",
+    "test:features": "node tests/features.mjs",
+    "test:media": "node tests/media.mjs",
+    "test:images": "node tests/images.mjs",
+    "test:sessions": "node tests/sessions.mjs",
+    "test:locked": "node tests/locked.mjs",
+    "test:composer": "node tests/composer.mjs",
+    "format": "prettier --write src scripts tests *.js *.json index.html",
+    "format:check": "prettier --check src scripts tests *.js *.json index.html"
+  },
+  "devDependencies": {
+    "playwright": "^1.64.0",
+    "prettier": "3.9.9",
+    "typescript": "^6.0.0",
+    "vite": "^8.0.0"
+  },
+  "dependencies": {
+    "livekit-client": "^2.22.3"
+  }
+}

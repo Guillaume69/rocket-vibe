@@ -26,6 +26,7 @@ use crate::{
 
 pub fn router(app: App) -> Router {
     Router::new()
+        .merge(crate::web::router())
         .route("/api/v1/rooms/{room}/voice/join", post(join_voice))
         .route("/api/v1/voice/leave", post(leave_voice))
         .route(

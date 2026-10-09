@@ -7,6 +7,10 @@ section here.
 
 ## [Unreleased]
 
+### Fixed
+
+- RocketVibe workflow messages retain their BOT identity through live author-profile updates when connected to the updated native server.
+
 ## [0.12.1] - 2026-10-09
 
 ### Added

@@ -64,6 +64,8 @@ The 2026-10-09 shipping review adds 24 deterministic regressions, bringing the n
 
 Eight new voice-lifecycle scenarios pass against the native server and isolated SFU: two account takeovers with actual RTP and no stale leave, native takeover toast, camera-off avatar restoration, delayed camera capture stopped within two seconds, actual accepted-call ICE failure and clean audio retry, two membership-lifetime fences and final resource shutdown. Screen input is controlled canvas video, and the two delayed DM membership cases inject sync frames because ordinary membership administration is unavailable for DMs. This qualifies browser handling without claiming OS screen-capture or DM server-policy coverage. The continuous gate contains 107 browser scenarios and packages only its verified bundle on a web version tag.
 
+Six profile scenarios pass against the real native server: clicking avatars and names, current facts/actions, live name/bio/presence changes, expired observations and signed-out peers, own/report cards, DM navigation/narrow layout and ringing/decline from Call. Actual Fedora GTK and browser captures compare the 420 by 520 card, 96-pixel portrait, centered identity/status and bio/actions. The GTK capture uses a build without a voice sidecar; Call behavior is compared in source and tested through the actual server ring lifecycle. E2EE identity controls remain excluded. Bio markdown remains browser debt. The continuous gate now contains 113 browser scenarios. Browser Online presence renews every 20 seconds, with serialized/fenced shutdown and a captured credential; profile actions fetch the DM's personal read/access state before navigation.
+
 ## GTK inventory
 
 GTK baseline is inherited, not a new verification claim. Web status refers to the native provider; mappings and exclusions follow the accepted origin/account/encryption scope.
@@ -162,7 +164,7 @@ GTK baseline is inherited, not a new verification claim. Web status refers to th
 | Search across rooms | missing | missing | No browser implementation yet. |
 | Room info (`rooms.info`) | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Favourite a room | done | done | Native provider: see [web implementation](../apps/web/README.md). |
-| User profile (`users.info`), Message and Call buttons | done | done | Native provider: see [web implementation](../apps/web/README.md). |
+| User profile (`users.info`), Message and Call buttons | done | partial | Avatar/name/menu access, native facts/live presence, GTK card geometry, Message/Call/Report and own-card rules are qualified in tests/profiles.mjs. Bio markdown remains debt. |
 | My profile: avatar, status, name, bio, email and username (with password and 2FA) | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Remove my photo (`users.resetAvatar`) | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Live avatar changes (`updateAvatar`) | done | done | Native provider: see [web implementation](../apps/web/README.md). |

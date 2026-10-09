@@ -13,7 +13,7 @@ writeFileSync(
     JSON.stringify(
       Object.fromEntries(
         entries.filter(([key]) =>
-          /^(attach\.|file\.|video\.|image\.|viewer\.|message\.image$|player\.|bots\.|workflows\.|voice[^.]*\.|command\.|settings\.cat\.|settings\.photo_|admin\.|report\.|presence\.|actions\.copy$|security\.refresh$|native\.offline$)/.test(
+          /^(attach\.|file\.|video\.|image\.|viewer\.|message\.image$|player\.|bots\.|workflows\.|voice[^.]*\.|command\.|settings\.cat\.|settings\.photo_|admin\.|report\.|presence\.|info\.|actions\.copy$|security\.refresh$|native\.offline$)/.test(
             key,
           ),
         ),

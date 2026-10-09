@@ -27,12 +27,23 @@ Three read-on-demand views and one editor: a room's information sheet, a person'
 - **My profile** (`rv-gtk/src/settings.rs`): the My account category shows a profile card, a status group (presence combo and a status text entry, saved on change through `Session` with both fields) and an "Edit profile" subpage: photo change (file dialog, `users.setAvatar`) or removal (`users.resetAvatar`), name, username, email, bio, with the current password and 2FA code rows revealed only when needed (`rv-core/src/account.rs`: `basic_info_changes`, `needs_password`; `two_factor_code`).
 - **SwiftUI**: `RoomInfoView` and `ProfileView` in `macos/Sources/RocketVibe/Details.swift`; `MyProfileSection` in `SettingsView.swift` (My account category) edits photo, presence and the basic fields. `ProfileView` offers **Report this user** (not mine, when reports are supported): the profile closes and `ReportSheet` opens in its place, a modal overlay of the window (`modalOverlay`, `Modals.swift`) like the profile itself, which a click outside or Escape closes. A deleted RocketVibe account's profile reads "Deleted user" with no `@username`, presence or buttons.
 
+## Web
+
+Conversation avatars and author names open the same profile as the message menu (`src/render.ts`, `App.profile`). `panels.ts::profile` fetches the native user profile on every open, uses the GTK 420 by 520 dialog with a 96-pixel portrait, centered identity and live presence/status text, then bio and Message/Call/Report actions. BOT ownership is shown; own profiles hide the other-person actions. GTK's encryption identity control is excluded by the browser's agreed E2EE scope. Native profiles supply neither role chips nor a timezone. Bio is currently plain text; GTK's markdown formatting remains browser debt.
+
+Live profile revisions reload the open card. A valid, complete live observation without a lease means Offline; expired or limited observations supply no presence. The browser renews its Online lease every 20 seconds while its authenticated socket remains open, respecting the server's chosen Away/Busy/Offline status. Shutdown serializes Offline after any in-flight publication. Profile responses/actions are fenced to the captured account, connection and room membership. Message/Call fetch the DM's personal read/access state before opening it, since creation returns a room without that personal state. Call uses the ordinary direct-call ringing path; Report replaces the card with the reason dialog. `tests/profiles.mjs` exercises these paths with two real fixture accounts, including expiry, signout, narrow layout and ringing/decline.
+
 ## Parity
 
 Room info, profile with Message and Call, my profile with password and 2FA, live avatar changes: both apps ([parity](../parity.md) §8). Differences: mobile toggles the favourite from room info, desktop from the room list; desktop can remove the photo; mobile prefetches the profile so the sheet never jumps. Report this user is in all three apps. Neither app lists room members, edits room settings or manages roles.
 
 ## Sources
 
+- apps/web/src/render.ts
+- apps/web/src/app.ts
+- apps/web/src/panels.ts
+- apps/web/src/extra.css
+- apps/web/tests/profiles.mjs
 - apps/mobile/app/room-info.tsx
 - apps/mobile/app/profile.tsx
 - apps/mobile/app/my-profile.tsx

@@ -93,6 +93,8 @@ jobs:
           target/debug/rv-server create-user webvoicelifecyclepeer
           target/debug/rv-server create-user webread
           target/debug/rv-server create-user webreadpeer
+          target/debug/rv-server create-user webprofile
+          target/debug/rv-server create-user webprofilepeer
           target/debug/rv-server create-user webreadowner --admin
           target/debug/rv-server create-user webbob
           target/debug/rv-server create-user websecurity
@@ -126,6 +128,7 @@ jobs:
           npm run test:visual
           npm run test:workflows
           npm run test:reads
+          npm run test:profiles
       - name: Package the verified frontend
         if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
         run: node scripts/package-web.mjs .cache/web-package

@@ -151,7 +151,7 @@ beta does.
 |---|---|---|---|---|---|
 | Room info (`rooms.info`) | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | Favourite a room | done | done | done | done | Mobile from room info, desktop from the room list. Web: Native provider: see [web-client](features/web-client.md). |
-| User profile (`users.info`), Message and Call buttons | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
+| User profile (`users.info`), Message and Call buttons | done | done | done | partial | Web: Avatar/name/menu access, native facts/live presence, GTK card geometry, Message/Call/Report and own-card rules are qualified in tests/profiles.mjs. Bio markdown remains debt. |
 | My profile: avatar, status, name, bio, email and username (with password and 2FA) | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | Remove my photo (`users.resetAvatar`) | missing | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | Live avatar changes (`updateAvatar`) | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |

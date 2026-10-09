@@ -118,6 +118,7 @@ export function markdown(
   return fragment;
 }
 export interface RowActions {
+  profile(message: Message): Promise<void>;
   menu(message: Message, anchor: HTMLElement): Promise<void>;
   answerForm(message: Message): Promise<void>;
   thread(message: Message): Promise<void>;
@@ -150,7 +151,15 @@ export function messageRow(
   if (!grouped) {
     const portrait = tile(message.author.username);
     actions.avatar(message.author, portrait);
-    gutter.append(portrait);
+    const open = button("", () => actions.profile(message), "profile-link");
+    open.setAttribute(
+      "aria-label",
+      t("profile") +
+        " · " +
+        (message.author.display_name || message.author.username),
+    );
+    open.append(portrait);
+    gutter.append(open);
   } else
     gutter.append(
       el(
@@ -167,10 +176,10 @@ export function messageRow(
   if (!grouped) {
     const header = el("div", "message-heading");
     header.append(
-      el(
-        "span",
-        "author" + (message.author.id === mine ? " mine" : ""),
+      button(
         message.author.display_name || message.author.username,
+        () => actions.profile(message),
+        "author profile-link" + (message.author.id === mine ? " mine" : ""),
       ),
       el(
         "time",

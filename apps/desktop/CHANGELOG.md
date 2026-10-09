@@ -7,6 +7,11 @@ section here.
 
 ## [Unreleased]
 
+### Added
+
+- Windows notifications come dressed up: the author's round photo, a header per conversation that groups its notifications, the picture of an image message, and buttons to react (👍 ❤️ 😂) or mark the room read without opening the app (Rocket.Chat and Mattermost accounts). Linux notifications show the author's photo too.
+- On Windows, notifications play rocket-vibe's own little sparkle, quiet whenever Windows holds notifications back (Do not disturb, a presentation, a full-screen game); a switch in Settings > Notifications gives the system's sound back.
+
 ### Changed
 
 - The Windows installer wears the app's night sky: a dark wizard with a starry background, the rocket on the welcome and finish pages, and livelier words (English and French), also during an update.

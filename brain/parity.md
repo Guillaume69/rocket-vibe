@@ -183,6 +183,10 @@ beta does.
 | DMs and mentions notified, click opens the room | done | done | done | mapped | Mobile by push, even with the app killed; desktop while the app runs. Web: Native browser storage/HTTP/socket, HTTPS links, downloads and live-tab alerts; see web-client.md. |
 | Reply from the notification | done | done | done | missing | Where the desktop platform supports it. Web: No browser implementation yet. |
 | Nothing of encrypted rooms' content | done | done | done | done | Web: Locked metadata; no encrypted content or sending. src/app.ts. |
+| The author's photo in the notification | missing | partial | missing | missing | GTK: Windows toasts (round) and Linux D-Bus (`image-path`), for Rocket.Chat and Mattermost accounts; not RocketVibe accounts, not macOS. Mobile: the MessagingStyle `Person` has no icon. SwiftUI and Web: title and text only. |
+| The message's picture in the notification | missing | partial | missing | missing | GTK: Windows toasts only, Rocket.Chat and Mattermost accounts. Others show the "🖼️ title" line. |
+| React (👍 ❤️ 😂) and mark as read from the notification | missing | partial | missing | missing | GTK: Windows toasts only, Rocket.Chat and Mattermost accounts. Mobile and SwiftUI: reply only; Web: click only. |
+| The app's own notification sound | missing | partial | missing | missing | GTK: Windows (silent toast, `cue-message.ogg`, quiet when Windows holds notifications back, a switch gives the system's sound back). Elsewhere the system's sound. |
 | Running with the window closed, starting at login | mapped | done | missing | partial | Mobile: push arrives with the app closed. GTK: Windows tray, macOS Dock; Linux quits on close. Web: Installable public shell; closed-tab Web Push and OS autostart absent. |
 
 ## 11. End-to-end encryption - [e2ee](features/e2ee.md)
@@ -303,15 +307,20 @@ gaps, listed last.
 
 - **Mobile**: kChat "Sign in with Infomaniak" run on a real account; Mattermost stars changed elsewhere, live; several accounts per server; time and `@n` badge in the room list;
   `mailto:` links; mentions of me highlighted; formatting toolbar; list
-  continuation; removing my photo; logs folder; meeting information.
+  continuation; removing my photo; logs folder; meeting information; in
+  notifications the author's photo, the message's picture, quick reactions and
+  mark as read, the app's own sound.
 - **GTK**: kChat "Sign in with Infomaniak"; email 2FA resend; replay of an offline sign-out; padlock tile once
   unlocked; DM avatar versions in the list; video reduction; reconciliation snapshot; catch-up of
-  deletions in rooms already caught up; message retention.
+  deletions in rooms already caught up; message retention; outside Windows
+  toasts, the notification's picture, quick reactions, mark as read and own sound
+  (Linux has the photo), and none of them for RocketVibe accounts.
 - **SwiftUI**: everything GTK owes, plus `-wal` / `-shm` cleanup on sign-out;
   workflow variables inserted at the cursor in a one-line URL;
   formatting toolbar; list continuation; notification backend description; logs
   folder; new versions; running with the window closed and starting at login;
-  meeting information.
+  meeting information; the notification's photo, picture, quick reactions, mark
+  as read and own sound.
 - **All three**: thread list, following and "also send to the room"; search across
   rooms; room members, settings and roles; creating an encrypted room; creating a
   channel or private group on Rocket.Chat; "Deleted

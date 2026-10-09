@@ -40,9 +40,13 @@ The active worktree and bench are on `D:/RocketVibe/.cache/worktrees/web-client`
 
 ## Voice connection regression
 
-The 2026-10-09 voice-connection regression adds three scenarios to the 85-case gate. Local verification against the exact embedded server bundle passes all 20 existing voice scenarios, plus Firefox/Chromium automatic joining, bidirectional audio RTP and both live occupants; an actual ICE timeout with the native error and released context; and successful retry receiving the peer's audio. The 25 Node tests, formatting, TypeScript and embedded server build pass. Behavior/test commit: `a645c0f3`. The expanded continuous gate is pending at this point.
+The 2026-10-09 voice-connection regression adds three scenarios to the 85-case gate. Local verification against the exact embedded server bundle passes all 20 existing voice scenarios, plus Firefox/Chromium automatic joining, bidirectional audio RTP and both live occupants; an actual ICE timeout with the native error and released context; and successful retry receiving the peer's audio. The 25 Node tests, formatting, TypeScript and embedded server build pass. Behavior/test commit: `a645c0f3`. The expanded 88-case continuous gate passes: [CI evidence](https://github.com/Guillaume69/rocket-vibe/actions/runs/37900515407).
 
 The Windows SFU now uses the official checksummed LiveKit 1.13.8 Windows binary on D:. Its API remains 127.0.0.1:17880; only the explicitly approved audio UDP 17882 listener binds 192.168.1.47. RTC TCP is disabled and the interface filter excludes other addresses. Its configuration and PID are `.cache/livekit-native.yaml` and `.cache/livekit-native.pid`; the prior loopback Docker SFU is stopped. The browser retains its ordinary preferences. The previous Firefox attempt reached the WebSocket but failed ICE through the loopback media configuration; Chromium-only checks had missed it. These are disposable bench settings, not production settings.
+
+## Bot identity regression
+
+The workflow BOT regression on `36f32703` preserves `User.bot` in the server's live profile projection. Both the native bot integration assertion and the real workflow browser scenario failed before the correction and pass afterward. The browser waits for two actual socket profile refreshes and retains the message badge after reload. All six workflow scenarios pass against the updated embedded server. The continuous gate now includes 89 browser cases and the native bot projection integration test.
 
 ## GTK inventory
 

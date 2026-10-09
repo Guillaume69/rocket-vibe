@@ -20,7 +20,7 @@ A bot is an account owned by a person, acting with API keys inside the scopes it
 - Triggers: a bot is never `admin`, never owns a bot, never gets a session that is not one of its keys; an owner deactivated deactivates its bots. Sign-in and operator recovery skip bot accounts.
 - Management (`list`, `create`, `update` with the display name, `avatar` (PUT/DELETE `/api/v1/bots/{id}/avatar`, decoded like a person's photo by `profiles::decode_avatar`), `delete`, `keys`, `create_key`, `revoke_key`) reuses the in-app administration receipts (`admin::admit`, `settle`); deletion reuses `admin::tombstone` and then removes the bot's devices (a bot disabled with its owner keeps them through a tombstone that changes no policy). `managed(.., oversight)`: an administrator may list keys, revoke and delete any bot, never create a key, change scopes or the profile, which would let them act as the bot in rooms they are kept out of. The photo spends the owner's `profiles::admission` budget. Audit actions `bot.*`.
 - `budget`: 60 new sends (after the replay check) and 10 new direct conversations (after the existing-pair lookup) a minute per bot (`bot_windows`). `refuse_encrypted` guards invitations, joins and the operator; `refuse_group` guards MLS transitions (`e2ee/groups.rs`); `refuse_policy` (from `operator::set_user`) refuses the admin right (`bot_privilege`) and re-enabling a bot that is a member of an encrypted room.
-- `User.bot` is filled for message authors, members, the directory, profiles (`bot_owner` too), `/me` and the admin user list. `instance.user_bots` through `GET`/`PATCH /api/v1/admin/settings` and the CLI `set-instance --user-bots`.
+- `User.bot` is filled for message authors, members, the directory, profiles (`bot_owner` too), live profile observations, `/me` and the admin user list. The live observation selects `users.bot` explicitly: omitting it would replace a bot author with an ordinary user in clients refreshing author profiles. `instance.user_bots` through `GET`/`PATCH /api/v1/admin/settings` and the CLI `set-instance --user-bots`.
 
 ## Mobile
 
@@ -40,6 +40,8 @@ A bot is an account owned by a person, acting with API keys inside the scopes it
 
 The server-delivered single-account browser shows the BOT badge on authors, members, profiles and administrator rows, with the owner on the profile. `src/bots.ts` provides owned bot creation, profile/photo/scope editing, reference routes, key creation after recent proof, one-time copyable key dialogs, listing, revocation and confirmed deletion. Administrator user details retain activation and confirmed deletion for bots and hide the administrator-role grant, as GTK does. The dashboard exposes the instance creation policy. `preferences-controls.ts` fences asynchronous results to the account; one-time values never enter browser persistence. Labels and refusals are generated from rv-core. Comprehensive GTK state comparison remains owed.
 
+`app.ts::observeProfiles` replaces cached authors with their current server profile and rebuilds message headers. The profile observation must carry the same bot identity as the message. `tests/workflows.mjs` posts through a real command workflow and retains the badge through two real socket profile frames and a page reload; the server bot integration test also checks live bot and ordinary-user observations.
+
 ## Limits
 
 - No bot in an encrypted room; a bot with its own crypto device is a later layer.
@@ -54,6 +56,8 @@ The server-delivered single-account browser shows the BOT badge on authors, memb
 - apps/web/src/workflows.ts
 - apps/web/src/workflow-forms.ts
 - apps/web/tests/workflows.mjs
+- apps/web/src/app.ts
+- apps/web/src/render.ts
 
 - docs/rfcs/0003-bots.md
 - docs/protocol/BOTS.md
@@ -63,6 +67,7 @@ The server-delivered single-account browser shows the BOT badge on authors, memb
 - apps/server/migrations/0052_bots.sql
 - apps/server/src/auth.rs
 - apps/server/src/store.rs
+- apps/server/src/live.rs
 - apps/server/src/e2ee/groups.rs
 - apps/server/tests/bots.rs
 - apps/mobile/ui/bots.tsx

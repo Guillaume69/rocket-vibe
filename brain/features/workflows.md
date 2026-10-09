@@ -38,6 +38,8 @@ A workflow is a small automation a person builds in the apps: a trigger starts o
 
 `apps/web/src/workflows.ts` follows the GTK sidebar list and form editor: six triggers, four step kinds, step movement/removal, variable insertion at the last focused field, owned bot selection, saving at the expected revision, saved-definition testing, disable, deletion, last 50 runs and a one-time webhook URL after recent proof. Disable updates the revision and enabled state without discarding unsaved fields. The settings category lists owned definitions, matching GTK; the server-only administrator oversight API does not introduce additional browser categories. Room-scoped completion dispatches names containing digits, underscores and hyphens; malformed slash input cannot become plaintext. `workflow-forms.ts` renders open, answered and expired form cards and validates the five answer kinds, single/multiple choices, resolved people or plaintext room members. Access withdrawal, account changes and answered forms close pending answer dialogs. Full GTK visual-state and trigger/step qualification remains debt.
 
+Workflow message authors keep their bot identity through live profile refreshes. The browser regression verifies the BOT header after actual socket observations and page reload; the server profile projection includes `users.bot`, rather than relying only on the message payload.
+
 ## Limits
 
 - No visual editor and no branching: steps run in order, a failed step ends the run (an HTTP step can be told to carry on). A network failure is not retried.

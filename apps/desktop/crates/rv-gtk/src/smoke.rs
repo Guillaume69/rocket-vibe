@@ -1577,6 +1577,24 @@ pub fn gallery(app: &adw::Application) -> bool {
         body: "A native notification 🎉",
         activation_link: None,
         reply: Some(rv_native::ReplyLabels { placeholder: "Reply", send: "Send" }),
+        ..Default::default()
+    });
+    // Everything a message toast can carry: Windows refuses malformed XML
+    // ("Toast not shown" in the log) and counts it otherwise.
+    let avatar = smoke_picture("avatar", 128);
+    let picture = smoke_picture("picture", 400);
+    rv_native::show(&rv_native::Toast {
+        room: "gallery-rich",
+        message: "2",
+        title: "bob",
+        body: "A rich notification ✨",
+        reply: Some(rv_native::ReplyLabels { placeholder: "Reply", send: "Send" }),
+        header: Some("#gallery"),
+        avatar: avatar.as_deref(),
+        image: picture.as_deref(),
+        quick: Some(rv_native::QuickActions { reactions: &rv_native::QUICK_REACTIONS, mark_read: "Mark as read" }),
+        silent: true,
+        ..Default::default()
     });
     println!("smoke: native notifications available {}", rv_native::available());
     if let Ok(url) = std::env::var("RV_SMOKE_CALL") {
@@ -1603,6 +1621,16 @@ pub fn gallery(app: &adw::Application) -> bool {
 }
 
 /// `RV_SMOKE_IME`: what a keyboard layout change does to a focused field.
+/// A plain square PNG for the rich toast, as a `file:` URI.
+fn smoke_picture(name: &str, size: i32) -> Option<String> {
+    let pixbuf = gtk::gdk_pixbuf::Pixbuf::new(gtk::gdk_pixbuf::Colorspace::Rgb, true, 8, size, size)?;
+    pixbuf.fill(0x48d4ccff);
+    let file = glib::user_cache_dir().join("rocket-vibe-rs").join("notifications").join(format!("smoke-{name}.png"));
+    std::fs::create_dir_all(file.parent()?).ok()?;
+    pixbuf.savev(&file, "png", &[]).ok()?;
+    glib::filename_to_uri(&file, None).ok().map(String::from)
+}
+
 fn layout_changes(composer: std::rc::Rc<crate::composer::Composer>) {
     glib::timeout_add_local_once(Duration::from_millis(2000), move || {
         composer.grab_focus();
@@ -1676,6 +1704,7 @@ fn soak(column: gtk::Box, samples: Vec<crate::rows::Display>, seconds: u32) {
                 body: &body,
                 activation_link: None,
                 reply: Some(rv_native::ReplyLabels { placeholder: "Reply", send: "Send" }),
+                ..Default::default()
             });
         }
         if round.is_multiple_of(7) {

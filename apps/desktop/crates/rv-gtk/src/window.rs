@@ -264,7 +264,7 @@ impl AppWindow {
                 this.login.ask_code(None);
             }
         });
-        let (w1, w2) = (Rc::downgrade(&this), Rc::downgrade(&this));
+        let (w1, w2, w3) = (Rc::downgrade(&this), Rc::downgrade(&this), Rc::downgrade(&this));
         let notifier = crate::notifier::Notifier::new(
             app,
             move |rid, message| {
@@ -292,6 +292,29 @@ impl AppWindow {
                 }
                 if let Some(session) = this.session.borrow().clone() {
                     runtime().spawn(async move { session.send(&rid, &text).await });
+                }
+            },
+            move |rid, message, quick| {
+                let Some(this) = w3.upgrade() else { return };
+                if rid.starts_with("rv-native:") || this.chat.native_session().is_some() {
+                    return;
+                }
+                let Some(session) = this.session.borrow().clone() else { return };
+                match quick {
+                    crate::notifier::Quick::React(shortcode) => {
+                        crate::reactions::record(&session.info.base_url, &session.info.user_id, &shortcode);
+                        runtime().spawn(async move {
+                            if let Err(e) = session.react(&message, &shortcode, true).await {
+                                eprintln!("Reaction from a notification not sent: {e}");
+                            }
+                        });
+                    }
+                    crate::notifier::Quick::MarkRead => {
+                        if let Some(notifier) = this.notifier.borrow().as_ref() {
+                            notifier.withdraw(&rid);
+                        }
+                        runtime().spawn(async move { session.mark_read(&rid).await });
+                    }
                 }
             },
         );
@@ -947,12 +970,22 @@ impl AppWindow {
         let watching = self.window.is_active()
             && self.chat.shows_room()
             && self.chat.current_rid().as_deref() == Some(incoming.rid.as_str());
-        if !watching && let Some(notifier) = self.notifier.borrow().as_ref() {
-            let scoped = self
-                .chat
-                .native_session()
+        if !watching && let Some(notifier) = self.notifier.borrow().clone() {
+            let native = self.chat.native_session();
+            let scoped = native
+                .as_ref()
                 .map(|s| rv_core::notify::Incoming { rid: s.notification_key(&incoming.rid), ..incoming.clone() });
-            notifier.show(scoped.as_ref().unwrap_or(incoming));
+            let incoming = scoped.unwrap_or_else(|| incoming.clone());
+            // The author's photo and the message's picture, fetched with the
+            // Rocket.Chat or Mattermost session (at most two seconds' wait).
+            let session = self.session.borrow().clone().filter(|_| native.is_none());
+            glib::spawn_future_local(async move {
+                let pictures = match session {
+                    Some(session) => crate::notifier::pictures::fetch(session, &incoming).await,
+                    None => crate::notifier::Pictures::default(),
+                };
+                notifier.show(&incoming, &pictures);
+            });
         }
     }
 

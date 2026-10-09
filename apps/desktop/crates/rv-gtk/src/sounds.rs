@@ -1,4 +1,4 @@
-//! The voice sounds (`assets/sounds`), embedded and played through GStreamer's
+//! The app's sounds (`assets/sounds`), embedded and played through GStreamer's
 //! playbin: one-shot cues, and the ringtone or the ringback in a loop.
 
 use std::cell::Cell;
@@ -19,6 +19,8 @@ pub enum Sound {
     Mute,
     Unmute,
     Missed,
+    /// A notification for a new message, where the app plays its own (Windows).
+    Message,
 }
 
 impl Sound {
@@ -31,6 +33,7 @@ impl Sound {
             Self::Mute => ("cue-mute.ogg", include_bytes!("../../../../../assets/sounds/cue-mute.ogg")),
             Self::Unmute => ("cue-unmute.ogg", include_bytes!("../../../../../assets/sounds/cue-unmute.ogg")),
             Self::Missed => ("cue-missed.ogg", include_bytes!("../../../../../assets/sounds/cue-missed.ogg")),
+            Self::Message => ("cue-message.ogg", include_bytes!("../../../../../assets/sounds/cue-message.ogg")),
         }
     }
 }

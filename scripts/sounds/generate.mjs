@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Synthesizes the voice sounds (ringtone, ringback, cues) from code, so they are
+// Synthesizes the app sounds (ringtone, ringback, cues) from code, so they are
 // original, reproducible and free of rights. Pure Node, no dependency: every
 // voice is rendered sample by sample and written as 16-bit WAV.
 //
@@ -483,6 +483,12 @@ const cues = {
     epiano(m, fx, 0, 0.05, 'A4', 0.45, 0, { bright: 0.9 });
     epiano(m, fx, 0.06, 0.08, 'E5', 0.6, 0, { bright: 1.1 });
   }),
+  // A new message (desktop notifications): a kalimba sparkle rising a fifth.
+  message: () => cue(1.1, (m, fx) => {
+    kalimba(m, fx, 0, 'E5', 0.55, -0.15);
+    kalimba(m, fx, 0.075, 'B5', 0.6, 0.15);
+    kalimba(m, fx, 0.15, 'E6', 0.3, 0);
+  }, { lp: 8000 }),
   missed: () => cue(1.6, (m, fx) => {
     epiano(m, fx, 0, 0.25, 'E5', 0.6, 0.15);
     epiano(m, fx, 0.22, 0.9, 'C#5', 0.65, -0.15);

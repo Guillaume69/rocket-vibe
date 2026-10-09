@@ -577,6 +577,11 @@ impl Session {
             direct: kind == "d",
             body: (!encrypted).then(|| crate::notify::body_of(m)),
             mentions_me: crate::notify::mentions_me(m, &self.info.username),
+            avatar: m.author_name.as_deref().filter(|u| !u.is_empty()).map(|u| self.user_avatar(u)),
+            image: (!encrypted)
+                .then(|| media::image_attachments(m.attachments.as_deref()).into_iter().next())
+                .flatten()
+                .map(|i| i.source),
         };
         let preference = self.notification_preference.lock().unwrap().clone();
         crate::notify::wanted(&preference, &incoming).then_some(incoming)

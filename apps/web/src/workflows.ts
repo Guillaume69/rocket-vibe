@@ -732,7 +732,7 @@ async function editor(
           break;
         }
       }
-      if ("save_as" in step)
+      if (step.kind !== "wait")
         rows.append(
           entryRow(
             nt("workflows.save_as"),

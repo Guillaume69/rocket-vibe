@@ -53,7 +53,7 @@ import {
 } from "./uploads";
 import { Voice } from "./voice";
 import { report } from "./admin";
-import { renew } from "./session";
+import { logoutSession, renew } from "./session";
 import { sky } from "./sky";
 import { listBreak } from "./composition";
 import { composer } from "./composer";
@@ -94,6 +94,7 @@ export class App implements RowActions {
   );
   threadOlder = false;
   threadLoading = false;
+  threadOpening = 0;
   threadRead = new Map<string, string>();
   jump = button(
     "↓",
@@ -110,6 +111,8 @@ export class App implements RowActions {
   readTimer?: ReturnType<typeof setTimeout>;
   readWork?: Promise<boolean>;
   flushing = false;
+  flushRequested = false;
+  pendingCreated = 0;
   pending: Pending[] = [];
   staged: File[] = [];
   stagedOriginal = false;
@@ -475,6 +478,7 @@ export class App implements RowActions {
   async stop(login = false): Promise<void> {
     this.generation++;
     this.roomOpening++;
+    this.threadOpening++;
     clearTimeout(this.readTimer);
     this.readTimer = undefined;
     this.readWork = undefined;
@@ -515,6 +519,7 @@ export class App implements RowActions {
     this.roomPermissions.clear();
     this.uploadProgress.clear();
     this.hasOlder.clear();
+    this.threadRead.clear();
     stopMedia(this.main);
     for (const dialog of document.querySelectorAll("dialog")) dialog.close();
     if (login) {
@@ -546,17 +551,7 @@ export class App implements RowActions {
     toast("Session expired");
   }
   async logout(): Promise<void> {
-    const key = this.account?.key;
-    if (!key) return;
-    try {
-      await this.api.request("/api/v1/auth/logout", "POST");
-    } catch (error) {
-      if (!(error instanceof ApiError && error.status === 401))
-        toast(t("offline"));
-    }
-    await this.stop(true);
-    await purge(key);
-    this.channel.postMessage({ purged: key });
+    if (!(await logoutSession(this))) toast(t("offline"));
   }
   setConnection(value: string): void {
     this.connection = value;
@@ -572,7 +567,10 @@ export class App implements RowActions {
   async reconnect(): Promise<void> {
     if (!this.account) return;
     clearTimeout(this.timer);
-    const generation = ++this.generation;
+    const generation = ++this.generation,
+      account = this.account.key,
+      active = () =>
+        generation === this.generation && account === this.account?.key;
     this.socket?.close();
     this.setConnection("connecting");
     try {
@@ -595,13 +593,18 @@ export class App implements RowActions {
       await renew(this);
       if (generation !== this.generation) return;
       void this.loadEmojis().catch(() => {});
-      this.preferences = (
+      const preferences = (
         await this.api.request<import("./protocol").OwnProfile>(
           "/api/v1/me/profile",
         )
       ).preferences;
-      if (!this.model.cursor) this.model.replace(await this.api.snapshot(info));
-      else {
+      if (!active()) return;
+      this.preferences = preferences;
+      if (!this.model.cursor) {
+        const snapshot = await this.api.snapshot(info);
+        if (!active()) return;
+        this.model.replace(snapshot);
+      } else {
         try {
           let more = true;
           while (more) {
@@ -613,9 +616,11 @@ export class App implements RowActions {
             more = batch.has_more;
           }
         } catch (error) {
-          if (error instanceof ApiError && error.status === 409)
-            this.model.replace(await this.api.snapshot(info));
-          else throw error;
+          if (error instanceof ApiError && error.status === 409) {
+            const snapshot = await this.api.snapshot(info);
+            if (!active()) return;
+            this.model.replace(snapshot);
+          } else throw error;
         }
       }
       if (generation !== this.generation) return;
@@ -626,9 +631,16 @@ export class App implements RowActions {
             membership
         )
           await this.forgetRoom(id);
+      if (!active()) return;
       await this.loadPending();
+      if (!active()) return;
       await this.loadUploads();
-      await write("cache", this.account.key, this.model.snapshot());
+      if (!active()) return;
+      await writeBatch(
+        [{ store: "cache", key: account, value: this.model.snapshot() }],
+        active,
+      );
+      if (!active()) return;
       this.refresh();
       if (this.room) await this.refreshPermissions(this.room);
       else if (location.pathname.startsWith("/room/")) {
@@ -713,6 +725,7 @@ export class App implements RowActions {
               if (change.type === "room_removed") {
                 this.notifications.get(change.data.room_id)?.close();
                 await this.forgetRoom(change.data.room_id);
+                if (!active()) return;
                 if (this.room === change.data.room_id) {
                   this.composer.value = "";
                   this.staged = [];
@@ -725,14 +738,20 @@ export class App implements RowActions {
                   membership
               ) {
                 await this.forgetRoom(id);
+                if (!active()) return;
                 if (this.room === id) {
                   this.composer.value = "";
                   this.staged = [];
                 }
               }
             await this.loadPending();
+            if (!active()) return;
             await this.loadUploads();
-            await write("cache", this.account!.key, this.model.snapshot());
+            if (!active()) return;
+            await writeBatch(
+              [{ store: "cache", key: account, value: this.model.snapshot() }],
+              active,
+            );
             if (generation !== this.generation) return;
             this.refresh();
           })
@@ -1351,10 +1370,29 @@ export class App implements RowActions {
     this.roomPermissions.set(id, details.permissions);
     if (this.room === id) this.renderHeader();
   }
+  roomFence(id: string): () => boolean {
+    const account = this.account?.key,
+      generation = this.generation,
+      membership = this.model.rooms.get(id)?.read_state?.membership_version;
+    return () =>
+      !!account &&
+      account === this.account?.key &&
+      generation === this.generation &&
+      this.model.rooms.has(id) &&
+      membership === this.model.rooms.get(id)?.read_state?.membership_version;
+  }
   async openRoom(id: string, navigate = true, mark = true): Promise<void> {
     const account = this.account?.key;
     if (!account) return;
-    const opening = ++this.roomOpening;
+    const opening = ++this.roomOpening,
+      membership = this.model.rooms.get(id)?.read_state?.membership_version,
+      active = () =>
+        account === this.account?.key &&
+        id === this.room &&
+        opening === this.roomOpening &&
+        this.model.rooms.has(id) &&
+        membership === this.model.rooms.get(id)?.read_state?.membership_version;
+    this.threadOpening++;
     clearTimeout(this.readTimer);
     this.readTimer = undefined;
     this.draftReady = false;
@@ -1375,12 +1413,7 @@ export class App implements RowActions {
     const original =
       (await read<boolean>("staged", account + ":" + id + ":original")) ===
       true;
-    if (
-      account !== this.account?.key ||
-      id !== this.room ||
-      opening !== this.roomOpening
-    )
-      return;
+    if (!active()) return;
     this.voice.hide();
     this.composer.value = draft;
     this.staged = staged;
@@ -1402,6 +1435,7 @@ export class App implements RowActions {
       return;
     }
     try {
+      const current = this.roomFence(id);
       const [page, details] = await Promise.all([
         this.api.request<MessagePage>(
           "/api/v1/rooms/" + segment(id) + "/messages",
@@ -1410,10 +1444,10 @@ export class App implements RowActions {
           "/api/v1/rooms/" + segment(id),
         ),
       ]);
-      if (account !== this.account?.key || id !== this.room) return;
-      this.roomPermissions.set(id, details.permissions);
+      if (!active() || !current()) return;
+      if (details.room.revision === this.model.rooms.get(id)?.revision)
+        this.roomPermissions.set(id, details.permissions);
       this.renderHeader();
-      if (account !== this.account?.key || id !== this.room) return;
       for (const message of page.messages) this.model.put(message);
       this.hasOlder.set(id, page.has_more);
       const readPosition = BigInt(
@@ -1518,10 +1552,26 @@ export class App implements RowActions {
     else container.scrollTop = top;
   }
   async jumpTo(message: Message): Promise<void> {
+    const account = this.account?.key,
+      generation = this.generation;
     await this.openRoom(message.room_id, true, false);
-    const account = this.account?.key;
+    if (
+      account !== this.account?.key ||
+      generation !== this.generation ||
+      this.room !== message.room_id
+    )
+      return;
+    const opening = this.roomOpening,
+      current = this.roomFence(message.room_id);
     if (message.reply_to) {
       await this.thread(message);
+      if (
+        !current() ||
+        opening !== this.roomOpening ||
+        this.room !== message.room_id ||
+        this.root !== message.reply_to
+      )
+        return;
       this.model.put(message);
       this.renderThread();
     } else {
@@ -1531,7 +1581,11 @@ export class App implements RowActions {
           "/messages?before=" +
           String(BigInt(message.position) + 1n),
       );
-      if (account !== this.account?.key || this.room !== message.room_id)
+      if (
+        !current() ||
+        opening !== this.roomOpening ||
+        this.room !== message.room_id
+      )
         return;
       page.messages.forEach((item) => this.model.put(item));
       this.model.put(message);
@@ -1548,7 +1602,8 @@ export class App implements RowActions {
     if (!this.room || this.loading || this.hasOlder.get(this.room) !== true)
       return;
     const id = this.room,
-      account = this.account?.key,
+      opening = this.roomOpening,
+      current = this.roomFence(this.room),
       before = this.model.timeline(id)[0]?.position;
     if (!before) return;
     this.loading = true;
@@ -1556,7 +1611,8 @@ export class App implements RowActions {
       const page = await this.api.request<MessagePage>(
         "/api/v1/rooms/" + segment(id) + "/messages?before=" + before,
       );
-      if (id !== this.room || account !== this.account?.key) return;
+      if (!current() || id !== this.room || opening !== this.roomOpening)
+        return;
       for (const message of page.messages) this.model.put(message);
       this.hasOlder.set(id, page.has_more);
       const readPosition = BigInt(
@@ -1586,31 +1642,36 @@ export class App implements RowActions {
     if (
       !this.account ||
       !this.room ||
+      !this.draftReady ||
       (!text.trim() && !this.staged.length) ||
       this.model.rooms.get(this.room)?.encrypted ||
       this.roomPermissions.get(this.room)?.send === false
     )
       return;
+    const account = this.account,
+      room = this.room,
+      opening = this.roomOpening,
+      sourceText = text,
+      quote = this.quote,
+      editor = root ? this.threadComposer : this.composer,
+      current = this.roomFence(room),
+      draftKey = account.key + ":" + room + (root ? ":thread:" + root : ""),
+      sameComposer = () =>
+        current() &&
+        room === this.room &&
+        opening === this.roomOpening &&
+        editor === (root ? this.threadComposer : this.composer) &&
+        (!root || root === this.root);
     if (this.staged.length) {
-      const account = this.account,
-        room = this.room,
-        generation = this.generation;
       const batch = [...this.staged];
       const membership =
         this.model.rooms.get(room)?.read_state?.membership_version;
       const files = this.stagedOriginal
         ? batch
         : await Promise.all(batch.map(reducedImage));
-      if (
-        generation !== this.generation ||
-        account.key !== this.account?.key ||
-        room !== this.room
-      )
-        return;
+      if (!sameComposer()) return;
       const active = () =>
-        generation === this.generation &&
-        account.key === this.account?.key &&
-        this.model.rooms.has(room) &&
+        current() &&
         membership ===
           this.model.rooms.get(room)?.read_state?.membership_version;
       const remaining = this.staged.filter((file) => !batch.includes(file));
@@ -1628,13 +1689,15 @@ export class App implements RowActions {
       )
         return;
       if (!active()) return;
-      if (room === this.room) {
+      if (sameComposer()) {
         this.staged = remaining;
-        if (root && this.threadComposer.value === text)
-          this.threadComposer.value = "";
-        else if (!root && this.composer.value === text)
-          this.composer.value = "";
-        await this.saveDraft();
+        if (editor.value === sourceText) {
+          editor.value = "";
+          await writeBatch(
+            [{ store: "drafts", key: draftKey, value: "" }],
+            () => sameComposer() && editor.value === "",
+          );
+        }
       }
       await this.loadUploads();
       await flushUploads(this);
@@ -1647,12 +1710,17 @@ export class App implements RowActions {
         if (!match) throw new Error("Invalid slash command");
         if (match) {
           await this.api.request("/api/v1/commands/run", "POST", {
-            room_id: this.room,
+            room_id: room,
             command: match[1],
             params: (match[2] || "").trim(),
           });
-          this.composer.value = "";
-          await this.saveDraft();
+          if (sameComposer() && editor.value === sourceText) {
+            editor.value = "";
+            await writeBatch(
+              [{ store: "drafts", key: draftKey, value: "" }],
+              () => sameComposer() && editor.value === "",
+            );
+          }
           return;
         }
       } else {
@@ -1663,36 +1731,44 @@ export class App implements RowActions {
     const id = operation(),
       payload: import("./protocol").SendMessage = { operation_id: id, text };
     if (root) payload.reply_to = root;
-    if (this.quote)
+    if (quote)
       payload.quotes = [
         {
-          room_id: this.quote.room_id,
-          message_id: this.quote.id,
-          revision: this.quote.revision,
+          room_id: quote.room_id,
+          message_id: quote.id,
+          revision: quote.revision,
         },
       ];
     const pending: Pending = {
       id,
-      account: this.account.key,
-      room: this.room,
+      account: account.key,
+      room,
       payload,
-      membership: this.model.rooms.get(this.room)?.read_state
-        ?.membership_version,
-      created: new Date().toISOString(),
+      membership: this.model.rooms.get(room)?.read_state?.membership_version,
+      created: new Date(
+        (this.pendingCreated = Math.max(Date.now(), this.pendingCreated + 1)),
+      ).toISOString(),
     };
-    await write("outbox", this.account.key + ":" + id, pending);
-    if (root) {
-      this.threadComposer.value = "";
-      await write(
-        "drafts",
-        this.account.key + ":" + this.room + ":thread:" + root,
-      );
-    } else {
-      this.composer.value = "";
-      await this.saveDraft();
+    const changes: { store: string; key: string; value?: unknown }[] = [
+      { store: "outbox", key: account.key + ":" + id, value: pending },
+    ];
+    if (
+      !(await writeBatch(changes, () => {
+        if (!current()) return false;
+        if (sameComposer() && editor.value === sourceText)
+          changes.push({ store: "drafts", key: draftKey, value: "" });
+        return true;
+      }))
+    )
+      return;
+    if (sameComposer()) {
+      if (editor.value === sourceText) editor.value = "";
+      if (this.quote === quote) {
+        this.quote = undefined;
+        this.replyBar.hidden = true;
+      }
     }
-    this.quote = undefined;
-    this.replyBar.hidden = true;
+    if (!current()) return;
     await this.loadPending();
     this.channel.postMessage({ outbox: true });
     await this.flush();
@@ -1726,25 +1802,33 @@ export class App implements RowActions {
     }
   }
   async flush(): Promise<void> {
-    if (!this.account || this.flushing || !navigator.onLine) return;
+    if (this.flushing) {
+      this.flushRequested = true;
+      return;
+    }
+    if (!this.account || !navigator.onLine) return;
     this.flushing = true;
+    this.flushRequested = false;
     const account = this.account.key,
-      generation = this.generation;
+      generation = this.generation,
+      active = () =>
+        generation === this.generation && account === this.account?.key;
     const work = async () => {
-      for (const pending of (await all<Pending>("outbox")).filter(
-        (item) => item.account === account,
-      )) {
-        if (generation !== this.generation || account !== this.account?.key)
-          return;
+      for (const pending of (await all<Pending>("outbox"))
+        .filter((item) => item.account === account)
+        .sort(
+          (a, b) =>
+            a.created.localeCompare(b.created) || a.id.localeCompare(b.id),
+        )) {
+        if (!active()) return;
+        const current = this.roomFence(pending.room);
         if (
           !this.model.rooms.has(pending.room) ||
           this.model.rooms.get(pending.room)?.encrypted ||
           pending.membership !==
             this.model.rooms.get(pending.room)?.read_state?.membership_version
         ) {
-          pending.error =
-            "Conversation access changed. Copy this message to send it again.";
-          await write("outbox", account + ":" + pending.id, pending);
+          await write("outbox", account + ":" + pending.id);
           continue;
         }
         try {
@@ -1753,15 +1837,27 @@ export class App implements RowActions {
             "POST",
             pending.payload,
           );
-          if (generation !== this.generation) return;
+          if (!active()) return;
+          if (!current()) continue;
           this.model.put(receipt);
           await write("outbox", account + ":" + pending.id);
+          if (!active()) return;
           this.refresh();
         } catch (error) {
-          if (generation !== this.generation) return;
+          if (!active()) return;
+          if (!current()) continue;
           pending.error =
             error instanceof Error ? error.message : String(error);
-          await write("outbox", account + ":" + pending.id, pending);
+          await writeBatch(
+            [
+              {
+                store: "outbox",
+                key: account + ":" + pending.id,
+                value: pending,
+              },
+            ],
+            current,
+          );
           if (
             error instanceof ApiError &&
             error.status >= 400 &&
@@ -1777,10 +1873,15 @@ export class App implements RowActions {
       if (navigator.locks)
         await navigator.locks.request("rv-outbox:" + account, work);
       else await work();
-      await this.loadPending();
-      this.channel.postMessage({ changed: true });
+      if (active()) {
+        await this.loadPending();
+        this.channel.postMessage({ changed: true });
+      }
     } finally {
       this.flushing = false;
+      const requested = this.flushRequested;
+      this.flushRequested = false;
+      if (requested && this.account) void this.flush().catch(toast);
     }
   }
   viewingRoom(): boolean {
@@ -1950,12 +2051,29 @@ export class App implements RowActions {
       : "";
   }
   async thread(message: Message): Promise<void> {
-    const generation = this.generation;
-    const root = message.reply_to || message.id;
+    const room = this.room,
+      account = this.account?.key;
+    if (!account || room !== message.room_id || !this.model.rooms.has(room))
+      return;
+    const root = message.reply_to || message.id,
+      opening = this.roomOpening,
+      threadOpening = ++this.threadOpening,
+      current = this.roomFence(room),
+      active = () =>
+        current() &&
+        room === this.room &&
+        opening === this.roomOpening &&
+        threadOpening === this.threadOpening;
     const page = await this.api.request<ThreadPage>(
       "/api/v1/messages/" + segment(root) + "/thread",
     );
-    if (generation !== this.generation) return;
+    if (!active()) return;
+    const draft =
+      (await read<string>(
+        "drafts",
+        account + ":" + room + ":thread:" + root,
+      )) || "";
+    if (!active()) return;
     this.root = root;
     this.model.put(page.root);
     for (const reply of page.messages) this.model.put(reply);
@@ -2001,17 +2119,14 @@ export class App implements RowActions {
           this.threadComposer.value,
         );
     });
-    this.threadComposer.value =
-      (await read<string>(
-        "drafts",
-        this.account!.key + ":" + this.room + ":thread:" + root,
-      )) || "";
+    this.threadComposer.value = draft;
     this.threadPane.append(head, this.threadTimeline, footer);
     this.renderThread();
     this.threadTimeline.scrollTop = this.threadTimeline.scrollHeight;
     this.threadComposer.focus();
   }
   closeThread(): void {
+    this.threadOpening++;
     this.root = undefined;
     this.threadPane.hidden = true;
     stopMedia(this.threadTimeline);
@@ -2041,7 +2156,10 @@ export class App implements RowActions {
     if (!this.root || !this.room || !this.threadOlder || this.threadLoading)
       return;
     const root = this.root,
-      account = this.account?.key;
+      room = this.room,
+      opening = this.roomOpening,
+      threadOpening = this.threadOpening,
+      current = this.roomFence(room);
     const before = this.model.timeline(this.room, root)[0]?.position;
     if (!before) return;
     this.threadLoading = true;
@@ -2049,7 +2167,14 @@ export class App implements RowActions {
       const page = await this.api.request<ThreadPage>(
         "/api/v1/messages/" + segment(root) + "/thread?before=" + before,
       );
-      if (root !== this.root || account !== this.account?.key) return;
+      if (
+        !current() ||
+        room !== this.room ||
+        opening !== this.roomOpening ||
+        threadOpening !== this.threadOpening ||
+        root !== this.root
+      )
+        return;
       page.messages.forEach((reply) => this.model.put(reply));
       this.threadOlder = page.has_more;
       this.renderThread();
@@ -2063,6 +2188,10 @@ export class App implements RowActions {
     if (
       !this.root ||
       !this.room ||
+      this.threadPane.hidden ||
+      !this.threadTimeline.isConnected ||
+      this.threadTimeline.clientHeight <= 0 ||
+      !!document.querySelector("dialog[open]") ||
       document.hidden ||
       !document.hasFocus() ||
       this.threadTimeline.scrollHeight -
@@ -2090,12 +2219,12 @@ export class App implements RowActions {
     }
   }
   async menu(message: Message, _anchor: HTMLElement): Promise<void> {
-    const generation = this.generation;
+    const current = this.roomFence(message.room_id);
+    if (!current()) return;
     const permissions = await this.api.request<MessagePermissions>(
       "/api/v1/messages/" + segment(message.id) + "/permissions",
     );
-    if (generation !== this.generation || !this.model.messages.has(message.id))
-      return;
+    if (!current() || !this.model.messages.has(message.id)) return;
     const anchor = _anchor.isConnected
       ? _anchor
       : this.main.querySelector<HTMLElement>(
@@ -2124,6 +2253,10 @@ export class App implements RowActions {
         "operations",
         this.account!.key + ":emoji-frequency",
       )) || {};
+    if (!current() || !anchor.isConnected) {
+      node.remove();
+      return;
+    }
     const quickCodes = [
       ...new Set([
         ...Object.keys(counts),
@@ -2162,6 +2295,10 @@ export class App implements RowActions {
         button(
           label,
           async () => {
+            if (!current()) {
+              close();
+              return;
+            }
             await run();
             close();
           },
@@ -2198,28 +2335,28 @@ export class App implements RowActions {
       action(
         message.personal_star?.present ? t("unstar") : t("star"),
         async () => {
-          this.model.put(
-            await this.api.request<Message>(
-              "/api/v1/messages/" + segment(message.id) + "/star",
-              "PUT",
-              {
-                operation_id: operation(),
-                present: !message.personal_star?.present,
-              },
-            ),
+          const receipt = await this.api.request<Message>(
+            "/api/v1/messages/" + segment(message.id) + "/star",
+            "PUT",
+            {
+              operation_id: operation(),
+              present: !message.personal_star?.present,
+            },
           );
+          if (!current()) return;
+          this.model.put(receipt);
           this.refresh();
         },
       );
     if (permissions.pin)
       action(message.pinned ? t("unpin") : t("pin"), async () => {
-        this.model.put(
-          await this.api.request<Message>(
-            "/api/v1/messages/" + segment(message.id) + "/pin",
-            "PUT",
-            { operation_id: operation(), present: !message.pinned },
-          ),
+        const receipt = await this.api.request<Message>(
+          "/api/v1/messages/" + segment(message.id) + "/pin",
+          "PUT",
+          { operation_id: operation(), present: !message.pinned },
         );
+        if (!current()) return;
+        this.model.put(receipt);
         this.refresh();
       });
     if (permissions.edit)
@@ -2232,16 +2369,17 @@ export class App implements RowActions {
           button(
             t("delete"),
             async () => {
-              this.model.put(
-                await this.api.request<Message>(
-                  "/api/v1/messages/" + segment(message.id),
-                  "DELETE",
-                  {
-                    operation_id: operation(),
-                    expected_revision: permissions.revision,
-                  },
-                ),
+              if (!current()) return;
+              const receipt = await this.api.request<Message>(
+                "/api/v1/messages/" + segment(message.id),
+                "DELETE",
+                {
+                  operation_id: operation(),
+                  expected_revision: permissions.revision,
+                },
               );
+              if (!current()) return;
+              this.model.put(receipt);
               this.refresh();
               confirm.close();
             },
@@ -2252,6 +2390,8 @@ export class App implements RowActions {
     node.showPopover();
   }
   editMessage(message: Message, revision: string): void {
+    const current = this.roomFence(message.room_id);
+    if (!current()) return;
     const row = this.main.querySelector<HTMLElement>(
       '[data-id="' + message.id + '"]',
     );
@@ -2276,6 +2416,7 @@ export class App implements RowActions {
       button(
         t("save"),
         async () => {
+          if (!current() || !row.isConnected) return;
           const receipt = await this.api.request<Message>(
             "/api/v1/messages/" + segment(message.id),
             "PATCH",
@@ -2291,6 +2432,7 @@ export class App implements RowActions {
               },
             },
           );
+          if (!current()) return;
           this.model.put(receipt);
           delete row.dataset.editing;
           row.dataset.stamp = "";
@@ -2449,7 +2591,8 @@ export class App implements RowActions {
     if (!this.account) return;
     emoji = this.emojis.get(emoji)?.name || canonical(emoji);
     const account = this.account.key,
-      generation = this.generation;
+      current = this.roomFence(message.room_id);
+    if (!current()) return;
     const present = !message.reactions
       ?.find((item) => item.emoji === emoji)
       ?.users.some((user) => user.id === this.account?.session.user.id);
@@ -2458,7 +2601,7 @@ export class App implements RowActions {
       "PUT",
       { operation_id: operation(), emoji, present },
     );
-    if (generation !== this.generation) return;
+    if (!current()) return;
     this.model.put(receipt);
     if (present) {
       const counts =
@@ -2467,9 +2610,18 @@ export class App implements RowActions {
           account + ":emoji-frequency",
         )) || {};
       counts[emoji] = (counts[emoji] || 0) + 1;
-      await write("operations", account + ":emoji-frequency", counts);
+      await writeBatch(
+        [
+          {
+            store: "operations",
+            key: account + ":emoji-frequency",
+            value: counts,
+          },
+        ],
+        current,
+      );
     }
-    this.refresh();
+    if (current()) this.refresh();
   }
   mention(name: string, node: HTMLElement): void {
     node.classList.toggle(
@@ -2670,9 +2822,21 @@ export class App implements RowActions {
   async asset(path: string, hash?: string, room?: string): Promise<string> {
     if (!this.account) throw new Error("No active session");
     const account = this.account.key,
-      generation = this.generation;
+      generation = this.generation,
+      membership = room
+        ? this.model.rooms.get(room)?.read_state?.membership_version
+        : undefined,
+      valid = () =>
+        generation === this.generation &&
+        account === this.account?.key &&
+        (!room ||
+          (this.model.rooms.has(room) &&
+            membership ===
+              this.model.rooms.get(room)?.read_state?.membership_version));
+    if (!valid()) throw new Error("Conversation no longer available");
     let promise = this.assetURLs.get(path);
     if (!promise) {
+      if (room) this.assetRooms.set(path, room);
       promise = (async () => {
         const blob =
           (await cached(account, path)) || (await this.api.blob(path));
@@ -2685,9 +2849,12 @@ export class App implements RowActions {
           ).join("");
           if (actual !== hash) throw new Error("Image integrity check failed");
         }
-        if (generation !== this.generation) throw new Error("Session changed");
+        if (!valid()) throw new Error("Conversation no longer available");
         await cacheMedia(account, path, blob, room).catch(() => {});
-        if (generation !== this.generation) throw new Error("Session changed");
+        if (!valid()) {
+          await write("media", account + ":" + path);
+          throw new Error("Conversation no longer available");
+        }
         const url = URL.createObjectURL(blob);
         this.urls.add(url);
         if (room) {
@@ -2699,7 +2866,13 @@ export class App implements RowActions {
         return url;
       })();
       this.assetURLs.set(path, promise);
-      promise.catch(() => this.assetURLs.delete(path));
+      const pending = promise;
+      promise.catch(() => {
+        if (this.assetURLs.get(path) === pending) {
+          this.assetURLs.delete(path);
+          this.assetRooms.delete(path);
+        }
+      });
     }
     return promise;
   }
@@ -2804,6 +2977,7 @@ export class App implements RowActions {
     if (
       !this.room ||
       !this.account ||
+      !this.draftReady ||
       this.model.rooms.get(this.room)?.encrypted ||
       this.roomPermissions.get(this.room)?.upload === false
     )

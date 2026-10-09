@@ -1,6 +1,6 @@
 import type { App } from "./app";
-import { ApiError, operation, segment } from "./api";
-import { all, write, writeBatch, type Account } from "./store";
+import { ApiError, operation, segment } from "./api.ts";
+import { all, write, writeBatch, type Account } from "./store.ts";
 import type { Upload, Message } from "./protocol";
 export interface UploadJob {
   id: string;
@@ -91,16 +91,20 @@ export async function flushUploads(app: App): Promise<void> {
       .filter((job) => job.account === account)
       .sort((a, b) => (a.created || 0) - (b.created || 0))) {
       if (!active()) return;
-      try {
-        if (
-          !app.model.rooms.has(job.room) ||
-          app.model.rooms.get(job.room)?.encrypted ||
-          job.membership !==
-            app.model.rooms.get(job.room)?.read_state?.membership_version
-        )
+      const access = () =>
+        app.model.rooms.has(job.room) &&
+        !app.model.rooms.get(job.room)?.encrypted &&
+        job.membership ===
+          app.model.rooms.get(job.room)?.read_state?.membership_version;
+      const guard = () => {
+        if (!active()) throw new Error("Session changed");
+        if (!access())
           throw new Error(
             "Conversation access changed. Attach this file again.",
           );
+      };
+      try {
+        guard();
         let slot: Upload;
         if (!job.slot) {
           const hash = Array.from(
@@ -112,7 +116,7 @@ export async function flushUploads(app: App): Promise<void> {
             ),
             (byte) => byte.toString(16).padStart(2, "0"),
           ).join("");
-          if (!active()) return;
+          guard();
           slot = await app.api.request<Upload>("/api/v1/uploads", "POST", {
             operation_id: job.id,
             room_id: job.room,
@@ -124,14 +128,15 @@ export async function flushUploads(app: App): Promise<void> {
             filename: job.file.name,
             encrypted: false,
           });
-          if (!active()) return;
+          guard();
           job.slot = slot.id;
           await write("uploads", account + ":" + job.id, job);
+          guard();
         } else
           slot = await app.api.request<Upload>(
             "/api/v1/uploads/" + segment(job.slot),
           );
-        if (!active()) return;
+        guard();
         if (slot.state === "expired" || slot.state === "cancelled")
           throw new Error("Upload expired");
         if (slot.state === "prepared")
@@ -139,13 +144,13 @@ export async function flushUploads(app: App): Promise<void> {
             "/api/v1/uploads/" + segment(slot.id) + "/bytes",
             job.file,
             (fraction) => {
-              if (active()) {
+              if (active() && access()) {
                 app.uploadProgress.set(job.id, fraction);
                 app.renderUploads();
               }
             },
           );
-        if (!active()) return;
+        guard();
         const message = await app.api.request<Message>(
           "/api/v1/uploads/" + segment(slot.id) + "/complete",
           "POST",
@@ -161,14 +166,24 @@ export async function flushUploads(app: App): Promise<void> {
             reply_to: job.root || null,
           },
         );
-        if (!active()) return;
+        guard();
         await write("uploads", account + ":" + job.id);
+        guard();
         app.model.put(message);
         app.refresh();
       } catch (error) {
         if (!active()) return;
+        if (!access()) {
+          await write("uploads", account + ":" + job.id);
+          continue;
+        }
         job.error = error instanceof Error ? error.message : String(error);
         await write("uploads", account + ":" + job.id, job);
+        if (!active()) return;
+        if (!access()) {
+          await write("uploads", account + ":" + job.id);
+          continue;
+        }
         if (
           !(error instanceof ApiError) ||
           error.status === 429 ||

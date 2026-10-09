@@ -36,10 +36,26 @@ export class Model {
   }
   put(message: Message): void {
     const old = this.messages.get(message.id);
+    const previousStar = old?.personal_star,
+      incomingStar = message.personal_star;
+    const star =
+      previousStar &&
+      (!incomingStar || !newer(incomingStar.revision, previousStar.revision))
+        ? previousStar
+        : incomingStar;
     if (!old || newer(message.revision, old.revision)) {
-      this.messages.set(message.id, message);
+      this.messages.set(
+        message.id,
+        message.deleted ? message : { ...message, personal_star: star },
+      );
       if (old && (message.deleted || message.revision !== old.revision))
         this.invalidateQuote(message.id);
+    } else if (
+      !old.deleted &&
+      incomingStar &&
+      (!previousStar || newer(incomingStar.revision, previousStar.revision))
+    ) {
+      this.messages.set(message.id, { ...old, personal_star: incomingStar });
     }
   }
   batch(batch: SyncBatch): void {

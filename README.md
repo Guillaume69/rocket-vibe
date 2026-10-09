@@ -21,7 +21,7 @@ The native server also delivers a real [web client](apps/web/README.md), with th
 
 - [Slack Session mode protocol and implementation handoff](docs/protocol/SLACK_SESSION.md):
   measured session/RTM behaviour, provider parity targets and qualification probes;
-  the Slack driver is not implemented.
+  a hidden read-only preview now validates manual sessions and pages conversations/history; persistent accounts, real-time sync and writes remain pending.
 
 
 - [Native RocketVibe server, experimental](apps/server/README.md): a Rust server

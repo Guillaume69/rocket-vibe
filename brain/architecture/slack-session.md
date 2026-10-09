@@ -1,7 +1,11 @@
 # Slack session provider, researched contract
 
-Slack is not an implemented provider. Android, GTK and SwiftUI currently select
-Rocket.Chat or the native RocketVibe server. The design and protocol handoff are
+Slack has a first transient read-only preview on Android, GTK and SwiftUI, hidden
+behind nine activations of the login icon. It validates manually supplied session
+credentials and pages conversations/history; persistent accounts and the full
+provider remain missing. See [experimental integrations](../features/experimental-integrations.md).
+The ordinary selectors support Rocket.Chat, RocketVibe, Mattermost and kChat.
+The design and protocol handoff are
 in [SLACK_SESSION.md](../../docs/protocol/SLACK_SESSION.md), its repeatable
 qualification cases in [SLACK_SESSION_PROBES.md](../../docs/protocol/SLACK_SESSION_PROBES.md),
 and its measured/source/pending results in
@@ -45,6 +49,10 @@ reporting; corresponding runtime capabilities stay false until separately suppor
 Current platform debt is recorded in [parity](../parity.md#17-slack-provider-research).
 
 ## Sources
+
+- apps/mobile/providers/slack/client.ts
+- apps/desktop/crates/rv-core/src/slack.rs
+- apps/desktop/crates/rv-ffi/src/slack.rs
 
 - `docs/protocol/SLACK_SESSION.md`, `docs/protocol/SLACK_SESSION_PROBES.md`, `docs/protocol/slack-session-evidence.json`
 - `apps/mobile/lib/provider.ts`, `apps/mobile/providers/index.ts`

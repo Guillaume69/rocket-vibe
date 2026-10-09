@@ -296,11 +296,16 @@ beta does.
 | Answering a form: text, long text, number, choice, person (a list or the room's members), one answer or several (checkboxes) | done | done | done | partial | Mobile: a native sheet; GTK: an `adw::Dialog`; SwiftUI: an overlay; all three close on a backdrop click. Web: Implemented in apps/web/src/bots.ts, workflows.ts and workflow-forms.ts; full GTK state qualification remains. |
 | Workflows on Rocket.Chat | n/a | n/a | n/a | n/a | Rocket.Chat has its own integrations. Web: Native-origin client; browser encryption and Rocket.Chat provider explicitly excluded. |
 
-## 17. Slack provider research
+## 17. Experimental integrations
 
 | Feature | Mobile | GTK | SwiftUI | Notes |
 |---|---|---|---|---|
-| Slack Session mode provider | missing | missing | missing | [Researched protocol](../docs/protocol/SLACK_SESSION.md), [probe plan](../docs/protocol/SLACK_SESSION_PROBES.md) and [evidence](../docs/protocol/slack-session-evidence.json). Paired token/cookie API and RTM messages, typing, edits, deletion and reaction-add measured in one workspace; no client driver or three-app feature delivery. The protocol maps P01-P23 and explicitly retains Android killed-app push, E2EE, native calls and administration/reporting gaps. |
+| Device-local nine-activation unlock on the login icon | done | done | done | Hidden until unlocked; hide removes the setting. Installed Android/macOS runtime checks pending. |
+| Teams provider | missing | missing | missing | Handoff integrated; implementation queued after Slack. |
+
+| Feature | Mobile | GTK | SwiftUI | Notes |
+|---|---|---|---|---|
+| Slack Session mode provider | partial | partial | partial | [Researched protocol](../docs/protocol/SLACK_SESSION.md), [probe plan](../docs/protocol/SLACK_SESSION_PROBES.md) and [evidence](../docs/protocol/slack-session-evidence.json). Paired token/cookie API and RTM messages, typing, edits, deletion and reaction-add measured in one workspace; First transient read-only preview: manual credential validation, cursor-paged conversations and plain-text history on all three. Browser acquisition, persistent accounts, RTM, full translation and writes remain missing; installed Android/macOS qualification is outstanding. The protocol maps P01-P23 and explicitly retains Android killed-app push, E2EE, native calls and administration/reporting gaps. |
 
 ## Open debt
 
@@ -318,7 +323,7 @@ gaps, listed last.
   formatting toolbar; list continuation; notification backend description; logs
   folder; new versions; running with the window closed and starting at login;
   meeting information.
-- **All three**: the researched Slack provider is not implemented; see section 17.
+- **All three**: Slack has only a transient read-only preview; complete provider integration remains debt. Teams remains researched and queued. See section 17 and [experimental integrations](features/experimental-integrations.md).
 - **All three**: thread list, following and "also send to the room"; search across
   rooms; room members, settings and roles; creating an encrypted room; creating a
   channel or private group on Rocket.Chat; "Deleted

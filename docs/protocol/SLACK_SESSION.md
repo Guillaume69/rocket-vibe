@@ -653,6 +653,17 @@ and `reports` remain false. Optional combined flags such as `marks` cannot claim
 pins and personal saves if one half is absent; split or gate granular actions.
 Server permissions remain authoritative even after a capability is enabled.
 
+## Current implementation increment (2026-10-09)
+
+The first transient read-only preview is implemented for Android, GTK and SwiftUI.
+The login icon unlocks experimental integrations after nine activations. Manual
+paired credentials validate auth.test and page users.conversations/history;
+message identity keeps exact timestamps. Browser acquisition, persisted accounts,
+RTM, neutral local projection, writes and complete feature parity remain pending.
+See [implementation and limits](../../brain/features/experimental-integrations.md).
+The baseline statements elsewhere describe the researched checkout, not today's
+selectors, which also contain Mattermost/kChat. Teams implementation remains queued.
+
 ## 10. Implementation batches and acceptance
 
 | Batch | Deliverable | Evidence required before advertising it |

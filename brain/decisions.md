@@ -202,6 +202,14 @@ The user chose a true server-delivered browser client, on its own branch/worktre
 
 Sources: apps/web/src/app.ts; apps/web/src/api.ts; docs/rfcs/0005-web-client.md.
 
+## Experimental provider access
+
+Slack and later Teams remain hidden behind nine activations of the login icon,
+as requested on 2026-10-09. The device retains the unlock; the preview provides
+a way to hide it again. Slack is implemented first. Start with transient reads
+so no unqualified mutation or incomplete credential lifecycle enters the normal
+account session. See [experimental integrations](features/experimental-integrations.md).
+
 ## Sources
 
 - `docs/protocol/E2EE_AMENDMENTS.md`

@@ -15,6 +15,7 @@ two-way parity tracker is [../parity.md](../parity.md). Back to
 
 | Doc | What's here |
 |---|---|
+| [experimental-integrations.md](experimental-integrations.md) | Nine-activation unlock and the transient read-only Slack preview; Teams remains queued. |
 | [login-and-servers.md](login-and-servers.md) | Server probe, password login, 2FA (TOTP, email, password), optimistic session resume, revocation on a real 401, deferred sign-out; one account per server on mobile, several per server on desktop. |
 | [mattermost-and-kchat.md](mattermost-and-kchat.md) | Mattermost and kChat (Infomaniak) on the three apps: kinds and detection, login with MFA, Infomaniak OAuth or API token, WebSocket and Pusher real time, derived unread counts, `pending_post_id` outbox, bearer media; on desktop a backend inside `Session`. |
 | [offline-and-sync.md](offline-and-sync.md) | Catch-up layers (global delta, history, per-room `chat.syncMessages`, reconciliation), mobile hot rooms and connection generations, write queue and outbox, retention, desktop's `__my_messages__` stream, known differences. |

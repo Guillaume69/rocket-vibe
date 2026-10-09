@@ -149,7 +149,19 @@ pub fn install(window: &Rc<AppWindow>) {
     let text = std::env::var("RV_SMOKE_SEND").unwrap_or_default();
     let shot = std::env::var("RV_SMOKE_SHOT").unwrap_or_default();
     if std::env::var("RV_SMOKE_SLACK_UNLOCK").as_deref() == Ok("1") {
-        window.login.smoke_experimental_unlock();
+        let weak = Rc::downgrade(window);
+        let tried = Rc::new(Cell::new(false));
+        window.connect_login_shown(move || {
+            if tried.replace(true) {
+                return;
+            }
+            let weak = weak.clone();
+            glib::timeout_add_local_once(Duration::from_millis(300), move || {
+                if let Some(window) = weak.upgrade() {
+                    window.login.smoke_experimental_unlock();
+                }
+            });
+        });
     }
     let parts: Vec<String> = login.split('|').map(str::to_owned).collect();
     let server = parts.first().cloned().unwrap_or_default();

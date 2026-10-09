@@ -238,6 +238,12 @@ pub fn router(app: App) -> Router {
         .route("/api/v1/admin/users/{id}/delete", post(admin_delete_user))
         .route("/api/v1/admin/rooms", get(admin_rooms))
         .route(
+            "/api/v1/admin/emoji/{name}",
+            put(admin_create_emoji)
+                .delete(admin_remove_emoji)
+                .layer(DefaultBodyLimit::max(crate::custom_emojis::MAX_BYTES)),
+        )
+        .route(
             "/api/v1/admin/reports/messages",
             get(admin_reported_messages),
         )
@@ -496,6 +502,7 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
             profile_avatars: app.objects.is_some(),
             uploads: app.objects.is_some(),
             custom_emojis: app.objects.is_some(),
+            custom_emoji_admin: app.objects.is_some(),
             link_previews: app.objects.is_some(),
             structured_cards: true,
             push: app.push.is_some(),
@@ -1577,6 +1584,44 @@ async fn admin_delete_user(
     let actor = admin_account(&app, &headers).await?;
     crate::admin::delete_user(&app, &actor, &id, body(input)?).await?;
     Ok(StatusCode::NO_CONTENT)
+}
+async fn admin_create_emoji(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(name): Path<String>,
+    Query(input): Query<rv_protocol::custom_emojis::CreateEmoji>,
+    bytes: std::result::Result<axum::body::Bytes, axum::extract::rejection::BytesRejection>,
+) -> Result<Response> {
+    let actor = admin_account(&app, &headers).await?;
+    let bytes =
+        bytes.map_err(|_| Error::new(StatusCode::PAYLOAD_TOO_LARGE, "emoji_image_too_large"))?;
+    let catalog = crate::custom_emojis::admin_put(
+        &app,
+        &actor,
+        &input.operation_id,
+        &name,
+        rv_protocol::custom_emojis::aliases(&input.aliases),
+        bytes.to_vec(),
+    )
+    .await?;
+    Ok(Json(catalog).into_response())
+}
+async fn admin_remove_emoji(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(name): Path<String>,
+    Query(input): Query<rv_protocol::custom_emojis::RemoveEmoji>,
+) -> Result<Response> {
+    let actor = admin_account(&app, &headers).await?;
+    let catalog = crate::custom_emojis::admin_remove(
+        &app,
+        &actor,
+        &input.operation_id,
+        &name,
+        &input.expected_revision,
+    )
+    .await?;
+    Ok(Json(catalog).into_response())
 }
 async fn admin_rooms(
     State(app): State<App>,

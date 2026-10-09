@@ -220,4 +220,6 @@ pub struct AdminContract {
     pub reported_users: AdminReportedUserPage,
     pub operation: AdminOperation,
     pub report: ReportInput,
+    pub create_emoji: crate::custom_emojis::CreateEmoji,
+    pub remove_emoji: crate::custom_emojis::RemoveEmoji,
 }

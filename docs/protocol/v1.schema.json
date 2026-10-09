@@ -52,6 +52,9 @@
     "AdminContract": {
       "description": "Export root of the administration fixture.",
       "properties": {
+        "create_emoji": {
+          "$ref": "#/$defs/CreateEmoji"
+        },
         "delete_user": {
           "$ref": "#/$defs/DeleteAdminUser"
         },
@@ -60,6 +63,9 @@
         },
         "overview": {
           "$ref": "#/$defs/AdminOverview"
+        },
+        "remove_emoji": {
+          "$ref": "#/$defs/RemoveEmoji"
         },
         "report": {
           "$ref": "#/$defs/ReportInput"
@@ -89,7 +95,9 @@
         "reported_messages",
         "reported_users",
         "operation",
-        "report"
+        "report",
+        "create_emoji",
+        "remove_emoji"
       ],
       "type": "object"
     },
@@ -1403,6 +1411,11 @@
         "calls": {
           "type": "boolean"
         },
+        "custom_emoji_admin": {
+          "default": false,
+          "description": "An administrator adds and removes custom emoji over\n`/api/v1/admin/emoji/{name}`.",
+          "type": "boolean"
+        },
         "custom_emojis": {
           "default": false,
           "type": "boolean"
@@ -1854,6 +1867,23 @@
       "required": [
         "operation_id",
         "label"
+      ],
+      "type": "object"
+    },
+    "CreateEmoji": {
+      "additionalProperties": false,
+      "description": "Query of `PUT /api/v1/admin/emoji/{name}`, whose body is the raw PNG, JPEG\nor GIF (at most 1 MiB). `aliases` is comma-separated, empty for none. A\nname already taken answers 409 `revision_conflict`, a code another emoji\nholds `emoji_code_conflict`, a standard emoji's code `emoji_name_reserved`.",
+      "properties": {
+        "aliases": {
+          "default": "",
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id"
       ],
       "type": "object"
     },
@@ -6189,6 +6219,23 @@
       },
       "required": [
         "token"
+      ],
+      "type": "object"
+    },
+    "RemoveEmoji": {
+      "additionalProperties": false,
+      "description": "Query of `DELETE /api/v1/admin/emoji/{name}`: the catalogue entry's revision.",
+      "properties": {
+        "expected_revision": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "expected_revision"
       ],
       "type": "object"
     },

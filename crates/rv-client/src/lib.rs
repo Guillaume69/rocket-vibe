@@ -1923,6 +1923,48 @@ impl NativeClient {
         )
         .await
     }
+    /// Adds a custom emoji (raw PNG, JPEG or GIF); answers the new catalogue.
+    pub async fn admin_create_emoji(
+        &self,
+        name: &str,
+        input: &rv_protocol::custom_emojis::CreateEmoji,
+        image: Vec<u8>,
+    ) -> Result<rv_protocol::custom_emojis::EmojiCatalog, Error> {
+        if image.len() > 1024 * 1024 {
+            return Err(Error::InvalidEmoji);
+        }
+        let sent = self.saved_token().ok_or(Error::SessionMissing)?;
+        let path = format!(
+            "/api/v1/admin/emoji/{}?operation_id={}&aliases={}",
+            encode(name),
+            encode(&input.operation_id),
+            encode(&input.aliases)
+        );
+        let request = self
+            .http
+            .put(format!("{}{path}", self.base))
+            .bearer_auth(&sent)
+            .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
+            .body(image);
+        let response = self
+            .accepted(request.send().await?, None, Some(sent))
+            .await?;
+        Ok(response.json().await?)
+    }
+    pub async fn admin_remove_emoji(
+        &self,
+        name: &str,
+        input: &rv_protocol::custom_emojis::RemoveEmoji,
+    ) -> Result<rv_protocol::custom_emojis::EmojiCatalog, Error> {
+        let path = format!(
+            "/api/v1/admin/emoji/{}?operation_id={}&expected_revision={}",
+            encode(name),
+            encode(&input.operation_id),
+            encode(&input.expected_revision)
+        );
+        self.request(Method::DELETE, &path, None::<&()>, false)
+            .await
+    }
     pub async fn instance_settings(&self) -> Result<rv_protocol::bots::InstanceSettings, Error> {
         self.get("/api/v1/admin/settings").await
     }

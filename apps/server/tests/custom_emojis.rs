@@ -340,3 +340,132 @@ async fn catalog_rejects_ambiguous_names_stale_updates_and_hostile_images_atomic
     assert_eq!(count, 1);
     assert_eq!(first.applied_revision, "1");
 }
+fn refused(
+    result: Result<rv_protocol::custom_emojis::EmojiCatalog, rv_client::Error>,
+) -> (u16, String) {
+    match result {
+        Err(rv_client::Error::Server { status, code, .. }) => (status, code),
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+}
+#[sqlx::test]
+async fn administrators_add_and_remove_emoji_once_and_members_cannot(pool: PgPool) {
+    let bench = Bench::new(pool).await;
+    let member = bench.user().await;
+    auth::create_user(
+        &bench.app,
+        "emoji-admin",
+        "disposable-emoji-password".into(),
+        true,
+    )
+    .await
+    .unwrap();
+    let mut admin = NativeClient::new(&bench.base).unwrap();
+    admin
+        .login("emoji-admin", "disposable-emoji-password")
+        .await
+        .unwrap();
+    assert!(
+        admin
+            .discover()
+            .await
+            .unwrap()
+            .capabilities
+            .custom_emoji_admin
+    );
+    let create = |aliases: &str| rv_protocol::custom_emojis::CreateEmoji {
+        operation_id: auth::random_token(),
+        aliases: aliases.into(),
+    };
+    // A member is refused, and nothing changes.
+    assert_eq!(
+        refused(
+            member
+                .admin_create_emoji("shipit", &create(""), png())
+                .await
+        )
+        .0,
+        403
+    );
+    // Created with its aliases; the same operation replayed applies nothing.
+    let input = create(" ship_it , squirrel_ship ");
+    let catalog = admin
+        .admin_create_emoji("shipit", &input, png())
+        .await
+        .unwrap();
+    assert_eq!(catalog.items.len(), 1);
+    assert_eq!(catalog.items[0].aliases, ["ship_it", "squirrel_ship"]);
+    let replay = admin
+        .admin_create_emoji("shipit", &input, png())
+        .await
+        .unwrap();
+    assert_eq!(replay.revision, catalog.revision);
+    // Taken name, alias held by another, standard code, bad image.
+    assert_eq!(
+        refused(admin.admin_create_emoji("shipit", &create(""), png()).await),
+        (409, "revision_conflict".into())
+    );
+    assert_eq!(
+        refused(
+            admin
+                .admin_create_emoji("other", &create("ship_it"), png())
+                .await
+        ),
+        (409, "emoji_code_conflict".into())
+    );
+    assert_eq!(
+        refused(
+            admin
+                .admin_create_emoji("other", &create("smile"), png())
+                .await
+        ),
+        (400, "emoji_name_reserved".into())
+    );
+    assert_eq!(
+        refused(
+            admin
+                .admin_create_emoji("other", &create(""), b"<svg/>".to_vec())
+                .await
+        )
+        .0,
+        400
+    );
+    // The member sees it at once, image included.
+    let seen = member.emoji_catalog().await.unwrap();
+    assert_eq!(seen.items.len(), 1);
+    assert!(!member.emoji_bytes(&seen.items[0]).await.unwrap().is_empty());
+    // Removal needs the current revision, and is the administrator's alone.
+    let remove = |revision: &str| rv_protocol::custom_emojis::RemoveEmoji {
+        operation_id: auth::random_token(),
+        expected_revision: revision.into(),
+    };
+    let revision = catalog.items[0].revision.clone();
+    assert_eq!(
+        refused(
+            member
+                .admin_remove_emoji("shipit", &remove(&revision))
+                .await
+        )
+        .0,
+        403
+    );
+    assert_eq!(
+        refused(admin.admin_remove_emoji("shipit", &remove("999")).await),
+        (409, "revision_conflict".into())
+    );
+    let after = admin
+        .admin_remove_emoji("shipit", &remove(&revision))
+        .await
+        .unwrap();
+    assert!(after.items.is_empty());
+    assert_ne!(after.revision, catalog.revision);
+    // The audit names the administrator.
+    let actors: Vec<Option<String>> = sqlx::query_scalar(
+        "SELECT actor_id FROM operator_audit WHERE action LIKE 'emoji.%' ORDER BY id",
+    )
+    .fetch_all(&bench.app.pool)
+    .await
+    .unwrap();
+    assert_eq!(actors.len(), 2);
+    assert!(actors.iter().all(Option::is_some));
+}

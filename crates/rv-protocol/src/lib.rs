@@ -123,6 +123,10 @@ pub struct Capabilities {
     /// Workflows acting through bots (RFC 0004).
     #[serde(default)]
     pub workflows: bool,
+    /// An administrator adds and removes custom emoji over
+    /// `/api/v1/admin/emoji/{name}`.
+    #[serde(default)]
+    pub custom_emoji_admin: bool,
 }
 
 impl Default for Capabilities {
@@ -179,6 +183,7 @@ impl Default for Capabilities {
             reports: false,
             bots: false,
             workflows: false,
+            custom_emoji_admin: false,
         }
     }
 }
@@ -241,7 +246,8 @@ impl Capabilities {
             administration,
             reports,
             bots,
-            workflows
+            workflows,
+            custom_emoji_admin
         );
         features
     }

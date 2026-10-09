@@ -85,6 +85,7 @@ presence does not declare the corresponding endpoints available.
 | POST | `/admin/users/{id}/delete` | `DeleteAdminUser`: tombstone, messages kept under a deleted author |
 | GET | `/admin/reports/messages?after=…`, `/admin/reports/users?after=…` | Open reports grouped by target, latest first; the text each reporter saw, `author_revision` |
 | POST | `/admin/reports/messages/{message}/dismiss`, `/admin/reports/messages/{message}/delete`, `/admin/reports/users/{user}/dismiss` | `{ operation_id }`; deletion only of a reported message |
+| PUT, DELETE | `/admin/emoji/{name}` | [Custom emoji](CUSTOM_EMOJIS.md#administration-and-images): raw image with `?operation_id=&aliases=`, or `?operation_id=&expected_revision=` → `EmojiCatalog`; `custom_emoji_admin` |
 | POST | `/messages/{message}/report`, `/users/{user}/report` | `ReportInput { operation_id, reason }` by a member; read access required, never oneself, 200 open at most |
 | GET | `/rooms/{room}/permissions`, `/messages/{message}/permissions` | Fine-grained rights for a current member; otherwise `404` |
 | GET / POST | `/rooms` | Rooms I am a member of; create `{ name, private, operation_id? }` |

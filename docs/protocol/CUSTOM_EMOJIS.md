@@ -16,6 +16,22 @@ rv-server emoji put party_parrot ./replacement.png --alias vibe_parrot --revisio
 rv-server emoji remove party_parrot --revision 2 --operation-id remove-parrot
 ```
 
+An administrator (`users.admin`) does the same from the apps when the server
+announces `custom_emoji_admin`:
+
+| Method | Path | Body and query → answer |
+|---|---|---|
+| PUT | `/api/v1/admin/emoji/{name}` | raw PNG, JPEG or GIF (1 MiB at most), `?operation_id=&aliases=a,b` → `EmojiCatalog` |
+| DELETE | `/api/v1/admin/emoji/{name}` | `?operation_id=&expected_revision=` → `EmojiCatalog` |
+
+PUT only creates: a name already taken answers 409 `revision_conflict`, a name
+or alias another entry holds 409 `emoji_code_conflict`, a standard emoji's code
+400 `emoji_name_reserved`, a refused image 400 `invalid_emoji_image` (413
+`emoji_image_too_large` above 1 MiB), a member 403. Their receipts are kept
+per administrator (`moderation_commands`, as the other administration
+commands): a replay answers the current catalogue and applies nothing. The
+operator journal names the administrator (`actor_id`); the CLI leaves it empty.
+
 The revisions in the examples are to be replaced with those of `emoji list`.
 A creation may omit `--revision`; a replacement or removal requires the
 current revision. The persistent receipts and the operator journal are shared

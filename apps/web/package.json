@@ -14,6 +14,7 @@
     "test:reads": "node tests/reads.mjs",
     "test:voice": "node tests/voice.mjs",
     "test:voice-connection": "node tests/voice-connection.mjs",
+    "test:voice-lifecycle": "node tests/voice-lifecycle.mjs",
     "test:security": "node tests/security.mjs",
     "test:features": "node tests/features.mjs",
     "test:media": "node tests/media.mjs",

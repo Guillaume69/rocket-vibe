@@ -42,6 +42,7 @@ RV_WEB_TEST_URL=http://127.0.0.1:3417 npm run test:media
 RV_WEB_TEST_URL=http://127.0.0.1:3417 npm run test:images
 RV_WEB_TEST_URL=http://127.0.0.1:3417 npm run test:voice
 RV_WEB_TEST_URL=http://127.0.0.1:3417 npm run test:voice-connection
+RV_WEB_TEST_URL=http://127.0.0.1:3417 npm run test:voice-lifecycle
 RV_WEB_TEST_URL=http://127.0.0.1:3417 npm run test:sessions
 RV_WEB_TEST_URL=http://127.0.0.1:3417 npm run test:locked
 RV_WEB_TEST_URL=http://127.0.0.1:3417 npm run test:composer

@@ -453,7 +453,7 @@ func profilePNG(_ url: URL) -> Data? {
 /// the server and shared with kChat's own apps: how people are named, and how
 /// many direct messages the list keeps.
 struct SidebarSettingsSection: View {
-    let chat: Client
+    let chat: Chat
     @State private var settings: SidebarSettings?
     @State private var failed = false
 

@@ -4,6 +4,8 @@ All notable changes are documented here in English.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-09
+
 ### Fixed
 
 - Preserve a newly typed draft and a newly selected quote while an earlier send is being saved, including after switching conversations.
@@ -79,3 +81,6 @@ All notable changes are documented here in English.
 - TOTP, recovery codes, verified email and email factors, device sessions and preferences.
 - LiveKit audio/video calls, capture controls and browser notifications while the tab is alive.
 - Encrypted rooms shown locked, with sending and media/call actions unavailable.
+
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/web-v0.2.0...HEAD
+[0.2.0]: https://github.com/Guillaume69/rocket-vibe/releases/tag/web-v0.2.0

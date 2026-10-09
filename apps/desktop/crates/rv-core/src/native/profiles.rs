@@ -114,6 +114,7 @@ impl NativeSession {
                     slug: None,
                     last_encrypted: None,
                     voice: room.voice,
+                    ..Default::default()
                 })
             })
             .collect()

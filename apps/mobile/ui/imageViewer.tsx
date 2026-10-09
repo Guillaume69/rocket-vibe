@@ -41,6 +41,7 @@ import { useT } from './i18n.ts';
 import { FONTS, useColors } from './theme.ts';
 import { progressLabel, useProgress } from './transfers.ts';
 import {useNativePreview} from './nativePreview.ts';
+import { useAuthorizedUri } from './authorizedImage.ts';
 
 export type ImageTarget = {
   /** Absolute, already authenticated URL (rc_uid/rc_token included). */
@@ -98,7 +99,7 @@ function tighten(value: number, min: number, max: number): number {
 }
 
 function ImageModal({ target, onClose }: { target: ImageTarget | null; onClose: () => void }) {
-  const imageUri=useNativePreview(target?.uri);
+  const imageUri=useAuthorizedUri(useNativePreview(target?.uri));
   const t = useT();
   const c = useColors();
   const insets = useSafeAreaInsets();

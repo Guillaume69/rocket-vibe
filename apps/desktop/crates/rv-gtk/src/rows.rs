@@ -335,7 +335,8 @@ fn room_widget(
     native: Option<&Arc<rv_core::native::NativeSession>>,
 ) -> gtk::Widget {
     let unread = r.unread > 0 || r.alert;
-    let name = label(&r.name, &["room-name"]);
+    let status = r.dm_other_uid.as_deref().and_then(|uid| session?.status_emoji(uid));
+    let name = label(&status.map_or_else(|| r.name.clone(), |e| format!("{} {e}", r.name)), &["room-name"]);
     name.set_hexpand(true);
     name.set_ellipsize(pango::EllipsizeMode::End);
     let time = label(&short_time(r.last_ts), &["room-time"]);
@@ -543,7 +544,10 @@ fn message_from_provider(
         outer.append(&day);
     }
 
-    let is_call = row.system_type.as_deref().is_some_and(|kind| kind == "videoconf" || kind.starts_with("rv-call"));
+    let is_call = row
+        .system_type
+        .as_deref()
+        .is_some_and(|kind| kind == "videoconf" || kind == "videoconf-ended" || kind.starts_with("rv-call"));
     if d.new_marker {
         let marker = gtk::Box::builder().spacing(6).margin_top(8).margin_bottom(4).build();
         marker.append(&widgets::sparkle());
@@ -590,7 +594,8 @@ fn message_from_provider(
     column.set_hexpand(true);
     if d.show_header {
         let header = gtk::Box::new(gtk::Orientation::Horizontal, 7);
-        let name = label(&author, &["author"]);
+        let shown = session.and_then(|s| s.person_label(&row.author_id)).unwrap_or_else(|| author.clone());
+        let name = label(&shown, &["author"]);
         if row.author_id == my_id {
             name.add_css_class("mine");
         }
@@ -691,6 +696,9 @@ fn message_from_provider(
         let kind = row.system_type.as_deref().unwrap_or_default();
         let param = row.text.as_deref().unwrap_or_default();
         column.append(&cards::voice_call(kind, param, native.voice_supported(), on_event.clone()));
+    } else if row.system_type.as_deref() == Some("videoconf-ended") {
+        let param = row.text.as_deref().unwrap_or_default();
+        column.append(&cards::voice_call("videoconf-ended", param, false, on_event.clone()));
     } else if is_call {
         column.append(&cards::call(row.call_id.as_deref(), on_event.clone()));
     }

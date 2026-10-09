@@ -32,6 +32,28 @@ release, and its notes are that version's section here.
   a choice or a person field can take several answers, ticked as checkboxes. Workflow
   commands appear in the composer's command list of the rooms where they are offered.
 
+- Mattermost servers: sign in with your username and password (and your MFA code), then
+  read and write as on Rocket.Chat: rooms, unread counts and mentions, live messages,
+  threads, files, reactions, edits, deletions, pins, saved messages, search in a room,
+  room information and profiles, who is typing and presence. Push is not available on
+  these servers yet.
+- kChat (Infomaniak): choose kChat, no address to type, then sign in with your
+  Infomaniak account in the browser or paste an Infomaniak API token, and pick your
+  kChat server when the account has several.
+- Mattermost and kChat: the server's custom emoji show in messages, reactions, the picker
+  and completion.
+- kChat: a room read in another kChat app is marked read here at once.
+- Mattermost and kChat: people show under your account's name setting (first and last
+  name by default on kChat), with their status emoji; conversations you closed in kChat
+  stay hidden, and only as many direct messages as your account asks are listed. Both
+  settings are in My account, shared with kChat's own apps. Integrations' cards show.
+- kChat: start a kMeet call from a room and join one from its card, as with Rocket.Chat's
+  calls.
+- Mattermost and kChat: the room list follows your sidebar, with your own categories as
+  sections in your order and your favourites; favouriting a room from its information
+  updates the server's sidebar too.
+- The login screen's server type picker offers Mattermost and kChat; in automatic mode
+  a Mattermost server and a kChat address are recognised on their own.
 ### Fixed
 
 - Settings pages keep the field being typed in above the keyboard instead of leaving it

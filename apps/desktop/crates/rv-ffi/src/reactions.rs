@@ -89,6 +89,7 @@ mod tests {
             username: "me".into(),
             auth_token: String::new(),
             native: None,
+            mattermost: None,
         }
     }
 

@@ -286,6 +286,7 @@ mod tests {
             cache: std::env::temp_dir().join("rv-ffi-test-cache"),
         };
         let info = |base: &str| SessionInfo {
+            mattermost: None,
             base_url: base.into(),
             user_id: "U1".into(),
             username: "me".into(),

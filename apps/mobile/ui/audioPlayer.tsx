@@ -52,6 +52,7 @@ import Animated, {
 
 import { useT } from './i18n.ts';
 import { type Colors, FONTS } from './theme.ts';
+import { mediaSource } from '../lib/mediaAuth.ts';
 
 const BAR_COUNT = 28;
 const H_MAX = 30;
@@ -267,7 +268,8 @@ export function AudioPlayer({ c, url, title, onLongPress }: PlayerProps) {
 
 function ActiveAudioPlayer({ c, url, title, onLongPress }: PlayerProps) {
   const t = useT();
-  const player = useAudioPlayer(url);
+  const source = useMemo(() => mediaSource(url), [url]);
+  const player = useAudioPlayer(source);
   const status = useAudioPlayerStatus(player);
   const levels = useSharedValue<number[]>(new Array(BAR_COUNT).fill(0));
   const width = useRef(0);

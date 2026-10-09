@@ -73,3 +73,8 @@ for the Android app too and are fixed there as well.
 - [x] Clicking a notification on a freedesktop server aborted the app (RefCell borrow held across the room opening)
 - [x] The actions menu never loads the user's permissions: both apps read `permissions.listAll` and my global and room roles, and apply the server's own rules
 - [x] Videos in a format the system cannot decode (H.264 on a Linux without its codec) now say so, and the README names the decoder packages
+- [ ] Mattermost room catch-up past 1000 changes in one room misses the rest (`since=` is capped), as on mobile (`apps/mobile/WORKSTREAMS.md`)
+- [ ] A Mattermost send whose answer was lost is replayed without checking delivery first
+- [ ] A post arriving before its channel is known counts twice in the unread badge (`MmSync::posted` adds one to a total `load_channel` already includes)
+- [ ] Another Mattermost user's new photo shows only after a restart (`user_updated` is not handled, no `last_picture_update` in the directory)
+- [ ] Live Mattermost thread reply counts, muted channels and room search: same debts as mobile

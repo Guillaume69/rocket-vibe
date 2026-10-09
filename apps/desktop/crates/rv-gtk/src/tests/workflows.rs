@@ -104,6 +104,7 @@ fn the_editor_and_the_form_card_follow_the_contract() {
             username: "alice".into(),
             auth_token: "fixture-token".into(),
             native: Some(identity),
+            mattermost: None,
         },
         &path,
     )

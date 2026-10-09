@@ -46,8 +46,10 @@ export const SETTINGS_CATEGORIES: readonly CategoryInfo[] = [
 export type SettingsContent = {
   /** A RocketVibe server (native provider) rather than Rocket.Chat. */
   native: boolean;
-  /** Native: the server takes push registrations (Rocket.Chat always has the preference). */
+  /** The server delivers push to this app (Rocket.Chat; a native server that takes registrations). */
   push: boolean;
+  /** The server has end-to-end encryption to unlock (Rocket.Chat; not Mattermost nor kChat). */
+  e2ee: boolean;
   /** Native: the encrypted identity block (`ui/encryptedIdentity.tsx`). */
   encryptedIdentity: boolean;
   /** Native: 2FA, codes, email, reauthentication (`ui/nativeSecurity.tsx`). */
@@ -63,10 +65,10 @@ export type SettingsContent = {
 export function hasContent(category: SettingsCategory, content: SettingsContent): boolean {
   switch (category) {
     case 'notifications':
-      return !content.native || content.push;
-    // Rocket.Chat: the E2EE key lock, always there. Native: the identity block.
+      return content.push;
+    // Rocket.Chat: the E2EE key lock. Native: the identity block.
     case 'encryption':
-      return !content.native || content.encryptedIdentity;
+      return content.native ? content.encryptedIdentity : content.e2ee;
     case 'security':
       return content.native && content.security;
     case 'devices':

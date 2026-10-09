@@ -92,6 +92,8 @@ pub struct Room {
     pub last_message_ts: Option<i64>,
     pub avatar_etag: Option<String>,
     pub updated_at: i64,
+    /// The last message is not known (Mattermost: no preview fetched): the stored one stays.
+    pub keep_preview: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -110,6 +112,11 @@ pub struct Subscription {
     pub e2e_key: Option<String>,
     /// My roles in the room (`owner`, `moderator`, `leader`), comma-separated.
     pub roles: Option<String>,
+    /// A sidebar category of my own (Mattermost): the room is listed under it.
+    pub group_id: Option<String>,
+    pub group_name: Option<String>,
+    /// Where the room's section sits in my sidebar order; `None` keeps the default order.
+    pub group_rank: Option<i64>,
 }
 
 pub fn to_message(raw: &Value) -> Option<Message> {
@@ -222,6 +229,7 @@ pub fn to_room(raw: &Value, me: &str, me_uid: &str) -> Option<Room> {
         last_message_ts: last.and_then(|l| l.get("ts")).and_then(to_epoch).or_else(|| raw.get("lm").and_then(to_epoch)),
         avatar_etag: string(raw.get("avatarETag")),
         updated_at: raw.get("_updatedAt").and_then(to_epoch).unwrap_or(0),
+        keep_preview: false,
     })
 }
 
@@ -243,6 +251,9 @@ pub fn to_subscription(raw: &Value) -> Option<Subscription> {
             .and_then(Value::as_array)
             .map(|roles| roles.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(","))
             .filter(|r| !r.is_empty()),
+        group_id: None,
+        group_name: None,
+        group_rank: None,
     })
 }
 

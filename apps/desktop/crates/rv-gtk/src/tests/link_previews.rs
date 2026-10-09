@@ -82,6 +82,7 @@ fn native_link_previews_paint_existing_cards_and_revoke_the_old_membership() {
     drop(store);
     let session = NativeSession::start(
         SessionInfo {
+            mattermost: None,
             base_url: server.url.to_string(),
             user_id: "alice-id".into(),
             username: "alice".into(),

@@ -148,6 +148,8 @@ impl Media {
 
 pub struct MediaCache {
     rest: RestClient,
+    /// A Mattermost account: photos are served by user id only.
+    directory: Option<Arc<crate::mattermost::directory::Directory>>,
     entries: Mutex<HashMap<String, Arc<Media>>>,
     /// Files of encrypted rooms by path: the server holds only their ciphertext.
     keys: Mutex<HashMap<String, crate::e2e::FileEncryption>>,
@@ -155,7 +157,29 @@ pub struct MediaCache {
 
 impl MediaCache {
     pub fn new(rest: RestClient) -> Self {
-        MediaCache { rest, entries: Mutex::default(), keys: Mutex::default() }
+        MediaCache { rest, directory: None, entries: Mutex::default(), keys: Mutex::default() }
+    }
+
+    pub fn for_mattermost(rest: RestClient, directory: Arc<crate::mattermost::directory::Directory>) -> Self {
+        MediaCache { directory: Some(directory), ..Self::new(rest) }
+    }
+
+    /// The Mattermost route of a Rocket.Chat avatar path, the one the screens
+    /// build. A room has no photo there.
+    fn server_path(&self, path_or_url: &str) -> Result<String, RestError> {
+        let Some(directory) = &self.directory else { return Ok(path_or_url.to_owned()) };
+        let Some(avatar) = path_or_url.strip_prefix("/avatar/") else { return Ok(path_or_url.to_owned()) };
+        let (target, etag) = avatar.split_once("?etag=").map_or((avatar, None), |(t, e)| (t, Some(e)));
+        let uid = match target.strip_prefix("uid/") {
+            Some(uid) => Some(uid.to_owned()),
+            None if target.starts_with("room/") => None,
+            None => directory.id_of(target),
+        };
+        let uid = uid.ok_or_else(|| RestError::incomplete(&format!("{path_or_url}: no photo")))?;
+        Ok(match etag {
+            Some(etag) => format!("/api/v4/users/{uid}/image?_={etag}"),
+            None => format!("/api/v4/users/{uid}/image"),
+        })
     }
 
     /// The keys of a decrypted message's files, each under every path that
@@ -188,7 +212,7 @@ impl MediaCache {
         if let Some(hit) = self.entries.lock().unwrap().get(path_or_url) {
             return Ok(hit.clone());
         }
-        let (bytes, content_type) = self.rest.fetch_protected(path_or_url).await?;
+        let (bytes, content_type) = self.rest.fetch_protected(&self.server_path(path_or_url)?).await?;
         let bytes = self.open(path_or_url, bytes)?;
         let media = Arc::new(Media { bytes, content_type });
         let mut entries = self.entries.lock().unwrap();

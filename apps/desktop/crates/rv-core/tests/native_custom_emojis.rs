@@ -101,6 +101,7 @@ async fn protected_custom_images_resolve_aliases_and_refuse_a_retired_cached_ima
     drop(store);
     let session = NativeSession::start(
         SessionInfo {
+            mattermost: None,
             base_url: server.url.to_string(),
             user_id: "alice-id".into(),
             username: "alice".into(),

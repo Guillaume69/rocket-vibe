@@ -6,7 +6,10 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
-    "scheme": "rocketvibe",
+    "scheme": [
+      "rocketvibe",
+      "com.infomaniak.chat"
+    ],
     "ios": {
       "bundleIdentifier": "com.rocketvibe.app",
       "googleServicesFile": "./GoogleService-Info.plist",
@@ -93,7 +96,8 @@
           ]
         }
       ],
-      "expo-sharing"
+      "expo-sharing",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true

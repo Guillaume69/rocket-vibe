@@ -62,8 +62,8 @@ export async function finishPendingLogouts(
   const entries = await file.list();
   for (const entry of entries) {
     const client = createClient(entry);
-    if (entry.kind === 'rocketvibe') {
-      if (await logoutSession(client, {...entry,username:'',kind:'rocketvibe',siteUrl:null})) await file.remove(entry.baseUrl);
+    if (entry.kind !== undefined && entry.kind !== 'rocketchat') {
+      if (await logoutSession(client, {...entry,username:'',kind:entry.kind,siteUrl:null})) await file.remove(entry.baseUrl);
       continue;
     }
     let networkFailure = false;

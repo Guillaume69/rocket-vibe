@@ -30,7 +30,8 @@ public final class AppModel {
     public private(set) var e2eUnlocked = false
     public private(set) var room: RoomModel?
     public private(set) var thread: RoomModel?
-    public private(set) var collapsed: Set<RoomSection>
+    /// Folded sections, by `RoomGroup.key`.
+    public private(set) var collapsed: Set<String>
     /// Bumped when photos or custom emoji change: views reload their images.
     public private(set) var imagesVersion = 0
     public private(set) var media: MediaStore?
@@ -685,25 +686,14 @@ public final class AppModel {
         }
     }
 
-    public func toggle(_ section: RoomSection) {
-        if collapsed.contains(section) { collapsed.remove(section) } else { collapsed.insert(section) }
-        let lines = collapsed.map(Self.key).sorted().joined(separator: "\n")
+    public func toggle(_ key: String) {
+        if collapsed.contains(key) { collapsed.remove(key) } else { collapsed.insert(key) }
+        let lines = collapsed.sorted().joined(separator: "\n")
         try? lines.write(toFile: client.configDir() + "/collapsed-sections", atomically: true, encoding: .utf8)
     }
 
-    static func key(_ section: RoomSection) -> String {
-        switch section {
-        case .unread: return "unread"
-        case .favorites: return "favorites"
-        case .channels: return "channels"
-        case .direct: return "direct"
-        }
-    }
-
-    static func loadCollapsed(_ configDir: String) -> Set<RoomSection> {
+    static func loadCollapsed(_ configDir: String) -> Set<String> {
         let text = (try? String(contentsOfFile: configDir + "/collapsed-sections", encoding: .utf8)) ?? ""
-        let all: [RoomSection] = [.unread, .favorites, .channels, .direct]
-        let keys = Set(text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) })
-        return Set(all.filter { keys.contains(key($0)) })
+        return Set(text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty })
     }
 }

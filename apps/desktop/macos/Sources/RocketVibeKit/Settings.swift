@@ -70,7 +70,7 @@ extension AppModel {
     public var settingsScope: SettingsCategory.Scope {
         SettingsCategory.Scope(
             signedIn: signedIn,
-            legacy: chat != nil,
+            legacy: chat != nil && chat?.isMattermost() != true,
             crypto: native?.cryptoSettingsSupported() == true,
             security: native?.securitySupported() == true,
             devices: native?.supportedFeatures().contains("device_sessions") == true,

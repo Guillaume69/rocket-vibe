@@ -93,14 +93,14 @@ ON CONFLICT(rid) DO UPDATE SET
   voice = excluded.voice,
   dm_other_uid = COALESCE(excluded.dm_other_uid, rooms.dm_other_uid),
   last_message = CASE
-    WHEN excluded.encrypted = 1 THEN rooms.last_message
+    WHEN excluded.encrypted = 1 OR ?14 = 1 THEN rooms.last_message
     ELSE excluded.last_message
   END,
   -- No CASE here: toRoom already returns null for an encrypted room, and it is
   -- the RIGHT value: an encrypted room's preview does not come from lastMessage.
   -- Keeping the old type would make the local preview be described by the
   -- type of a message the server could not read.
-  last_message_type = excluded.last_message_type,
+  last_message_type = CASE WHEN ?14 = 1 THEN rooms.last_message_type ELSE excluded.last_message_type END,
   -- The timestamp keeps its COALESCE: it drives the list's SORT, and the
   -- server does NOT move it back when emptying a room (the lm field survives
   -- the deletion of the last message, checked). Erasing it would therefore
@@ -118,8 +118,8 @@ WHERE excluded.updated_at >= rooms.updated_at
 export const UPSERT_SUBSCRIPTION = `
 INSERT INTO subscriptions (
   rid, sub_id, unread, mentions, group_mentions, alert, open, favorite,
-  last_seen, e2e_key, e2e_key_id, roles, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  last_seen, e2e_key, e2e_key_id, roles, group_id, group_name, group_rank, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(rid) DO UPDATE SET
   sub_id = COALESCE(excluded.sub_id, subscriptions.sub_id),
   unread = excluded.unread,
@@ -136,6 +136,9 @@ ON CONFLICT(rid) DO UPDATE SET
   -- Same rule: a removed role leaves roles: [] ($pull), never a missing
   -- field, so absence says nothing.
   roles = COALESCE(excluded.roles, subscriptions.roles),
+  group_id = excluded.group_id,
+  group_name = excluded.group_name,
+  group_rank = excluded.group_rank,
   updated_at = excluded.updated_at
 WHERE excluded.updated_at >= subscriptions.updated_at
 `;
@@ -455,20 +458,21 @@ SELECT MAX(updated_at) AS updated_at FROM messages WHERE rid = ?
 export const CLEAR_CUSTOM_EMOJIS = `DELETE FROM custom_emojis`;
 
 export const INSERT_CUSTOM_EMOJI = `
-INSERT INTO custom_emojis (name, extension, aliases, updated_at) VALUES (?, ?, ?, ?)
+INSERT INTO custom_emojis (name, extension, aliases, uri, updated_at) VALUES (?, ?, ?, ?, ?)
 `;
 
 export const LIST_CUSTOM_EMOJIS = `
-SELECT name, extension, aliases FROM custom_emojis
+SELECT name, extension, aliases, uri FROM custom_emojis
 `;
 
 export function customEmojiParams(e: {
   name: string;
   extension: string;
   aliases: string[];
+  uri?: string;
   updatedAt: number;
 }): SqlParam[] {
-  return [e.name, e.extension, JSON.stringify(e.aliases), e.updatedAt];
+  return [e.name, e.extension, JSON.stringify(e.aliases), e.uri ?? null, e.updatedAt];
 }
 
 // ---------------------------------------------------------------------------
@@ -486,7 +490,7 @@ VALUES (?, ?, ?, ?, 'pending', 0, NULL, ?)
 export const ROOM_ENCRYPTED = `SELECT encrypted FROM rooms WHERE rid = ?`;
 
 export const LIST_OUTBOX_TO_SEND = `
-SELECT id, rid, text, thread_id, status, attempts FROM outbox
+SELECT id, rid, text, thread_id, status, attempts, created_at FROM outbox
 WHERE status IN ('pending', 'failed') ORDER BY created_at
 `;
 
@@ -663,6 +667,7 @@ export function roomParams(s: LocalRoom): SqlParam[] {
     s.avatarEtag,
     s.updatedAt,
     b(s.voice ?? false),
+    b(s.keepPreview ?? false),
   ];
 }
 
@@ -680,6 +685,9 @@ export function subscriptionParams(a: LocalSubscription): SqlParam[] {
     a.e2eKey,
     a.e2eKeyId,
     a.roles,
+    a.groupId,
+    a.groupName,
+    a.groupRank,
     a.updatedAt,
   ];
 }

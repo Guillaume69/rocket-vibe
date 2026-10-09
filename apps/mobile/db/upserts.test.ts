@@ -147,6 +147,9 @@ function sub(o: Partial<LocalSubscription> & { rid: string; updatedAt: number })
     e2eKey: null,
     e2eKeyId: null,
     roles: null,
+    groupId: null,
+    groupName: null,
+    groupRank: null,
     ...o,
   });
 }
@@ -246,6 +249,14 @@ describe('upserts idempotents', () => {
     db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', text: 'b', updatedAt: 100 }));
     const m = row(db.prepare('SELECT text FROM messages WHERE id = ?').get('m1'));
     assert.deepEqual(m, { text: 'b' }, '>= and not >: two writes in the same ms');
+  });
+
+  test('a room written without its last message keeps the stored preview', () => {
+    db.prepare(UPSERT_ROOM).run(...room({ rid: 'r1', lastMessage: 'hello', lastMessageType: null, lastMessageTs: 1, updatedAt: 1 }));
+    db.prepare(UPSERT_ROOM).run(...room({ rid: 'r1', lastMessage: null, lastMessageTs: 2, keepPreview: true, updatedAt: 2 }));
+    assert.deepEqual(row(db.prepare('SELECT last_message, last_message_ts FROM rooms WHERE rid = ?').get('r1')), { last_message: 'hello', last_message_ts: 2 });
+    db.prepare(UPSERT_ROOM).run(...room({ rid: 'r1', lastMessage: null, lastMessageTs: 3, updatedAt: 3 }));
+    assert.deepEqual(row(db.prepare('SELECT last_message FROM rooms WHERE rid = ?').get('r1')), { last_message: null });
   });
 
   test('rooms follow the same precedence rule', () => {

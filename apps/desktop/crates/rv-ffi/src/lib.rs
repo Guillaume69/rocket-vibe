@@ -147,6 +147,12 @@ impl Client {
         blocking(move || accounts::load_all(&dirs)).await.iter().map(account).collect()
     }
 
+    /// The kChat team servers an Infomaniak token opens, to pick one at sign-in.
+    pub async fn kchat_servers(&self, token: String) -> Result<Vec<KchatServer>, RvError> {
+        let list = on_tokio(async move { rv_core::mattermost::kchat_servers(&token).await }).await?;
+        Ok(list.into_iter().map(|s| KchatServer { name: s.name, url: s.url }).collect())
+    }
+
     pub async fn probe(&self, server: String, kind: ServerChoice) -> Result<ServerProfile, RvError> {
         let url = session::normalize_server(&server).ok_or_else(|| RvError::local("invalid server address"))?;
         Ok(on_tokio(async move { rv_core::server::probe_as(&url, kind.into()).await }).await?.into())
@@ -234,7 +240,7 @@ impl Client {
 
 fn account(info: &SessionInfo) -> Account {
     Account {
-        genre: if info.native.is_some() { "rocketvibe" } else { "rocketchat" }.into(),
+        genre: info.genre().into(),
         key: accounts::key(info),
         base_url: info.base_url.clone(),
         user_id: info.user_id.clone(),
@@ -424,16 +430,21 @@ impl Chat {
         let rows = self.session.store.rooms();
         rv_core::rooms::sections(&rows)
             .into_iter()
-            .map(|(section, members)| RoomGroup {
-                section: section.into(),
-                rooms: members
+            .map(|(section, members)| {
+                let rooms = members
                     .into_iter()
                     .map(|r| {
                         let clear = r.last_encrypted.as_deref().and_then(|raw| self.session.decrypt(&r.rid, raw));
                         let presence = r.dm_other_uid.as_deref().and_then(|uid| self.session.presence(uid));
-                        model::room(r, clear, presence.map(Presence::from))
+                        let status = r.dm_other_uid.as_deref().and_then(|uid| self.session.status_emoji(uid));
+                        let mut room = model::room(r, clear, presence.map(Presence::from));
+                        if let Some(emoji) = status {
+                            room.name = format!("{} {emoji}", room.name);
+                        }
+                        room
                     })
-                    .collect(),
+                    .collect();
+                RoomGroup::new(&section, rooms)
             })
             .collect()
     }
@@ -489,6 +500,32 @@ impl Chat {
         let s = self.session.clone();
         on_tokio(async move { s.mark_read(&rid).await }).await
     }
+    /// A Mattermost or kChat account: no end-to-end encryption, the conversation list settings.
+    pub fn is_mattermost(&self) -> bool {
+        self.session.info.mattermost.is_some()
+    }
+
+    /// The account's conversation list settings (Mattermost and kChat), kept on the server.
+    pub async fn sidebar_settings(&self) -> Result<SidebarSettings, RvError> {
+        let s = self.session.clone();
+        let settings = on_tokio(async move { s.sidebar_settings().await }).await?;
+        Ok(SidebarSettings {
+            name_format: settings.name_format.as_str().to_owned(),
+            name_locked: settings.name_locked,
+            dm_limit: settings.dm_limit as u32,
+        })
+    }
+
+    pub async fn set_sidebar_settings(
+        &self,
+        name_format: Option<String>,
+        dm_limit: Option<u32>,
+    ) -> Result<(), RvError> {
+        let s = self.session.clone();
+        let format = name_format.as_deref().and_then(|f| rv_core::mattermost::directory::NameFormat::parse(Some(f)));
+        Ok(on_tokio(async move { s.set_sidebar_settings(format, dm_limit.map(|l| l as usize)).await }).await?)
+    }
+
     pub async fn set_favorite(&self, rid: String, present: bool) -> Result<(), RvError> {
         let s = self.session.clone();
         Ok(on_tokio(async move { s.set_favorite(&rid, present).await }).await?)
@@ -788,7 +825,15 @@ fn lay_out(
     if let Some(seen) = unread_after {
         timeline::mark_new(&mut laid, seen, &info.user_id);
     }
-    laid.into_iter().map(|d| model::message(d, &info.user_id, &info.username)).collect()
+    laid.into_iter()
+        .map(|d| {
+            let mut item = model::message(d, &info.user_id, &info.username);
+            if let Some(label) = session.person_label(&item.author_id) {
+                item.author_label = label;
+            }
+            item
+        })
+        .collect()
 }
 
 fn draft_key(rid: &str, thread_id: Option<&str>) -> String {

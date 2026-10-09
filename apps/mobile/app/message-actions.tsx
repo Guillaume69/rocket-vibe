@@ -225,9 +225,9 @@ export default function MessageActionsScreen() {
       }
       // The rules depend on nothing local: the request goes out right
       // away, in parallel with the SQLite reads.
-      const rulesPromise = client.kind === 'rocketvibe' ? Promise.resolve(rulesFromSettings([])) : readRules(client);
+      const rulesPromise = client.kind !== 'rocketchat' ? Promise.resolve(rulesFromSettings([])) : readRules(client);
       // Offline or refused: `null`, the rights of a plain member.
-      const sourcesPromise = client.kind === 'rocketvibe' ? Promise.resolve(null) : sourcesPermissions(client).catch(() => null);
+      const sourcesPromise = client.kind !== 'rocketchat' ? Promise.resolve(null) : sourcesPermissions(client).catch(() => null);
       const rows = await base.select().from(messages).where(eq(messages.id, id)).limit(1);
       const raw = rows[0];
       if (canceled) return;
@@ -300,7 +300,7 @@ export default function MessageActionsScreen() {
           encrypted: roomRows[0]?.encrypted === true,
           inThread: typeof thread === 'string',
           now: Date.now(),
-        }),
+        }).filter(action => action !== 'reply' || client.kind === 'rocketchat' || provider?.capabilities.quotes === true),
       });
     })().catch(() => {
       if(isPrivate==='1' && !canceled){void privateAccess.current?.close();privateAccess.current=null;setPayload(null);}
@@ -867,7 +867,7 @@ export default function MessageActionsScreen() {
                           await trigger.delete(message.rid, message.id, payload.revision);
                           // The local row will go via the `deleteMessage` stream.
                         } catch (e) {
-                          if (client.kind === 'rocketvibe') throw e;
+                          if (client.kind !== 'rocketchat') throw e;
                           // Ghost: already deleted from ANOTHER client while
                           // the app was closed; the server no longer knows it,
                           // only the local row remains. Purging it IS the

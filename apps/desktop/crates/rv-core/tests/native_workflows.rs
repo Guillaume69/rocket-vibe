@@ -115,6 +115,7 @@ async fn workflows_forms_and_room_commands_follow_the_contract() {
         username: "alice".into(),
         auth_token: "fixture-token".into(),
         native: Some(identity),
+        mattermost: None,
     };
     let session = native::NativeSession::start(info, &path).unwrap();
     tokio::time::timeout(Duration::from_secs(5), async {

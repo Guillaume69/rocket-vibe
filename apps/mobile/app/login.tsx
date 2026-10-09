@@ -1,12 +1,17 @@
 import { Redirect, Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
-import { AppState, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import * as Crypto from 'expo-crypto';
+import * as WebBrowser from 'expo-web-browser';
+import { AppState, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DEFAULT_SERVER } from '../db/migrate.ts';
 import { requestEmailCode, prepareTwoFactorCode, logIn } from '../lib/auth.ts';
 import { RestClient, TwoFactorError, RestError, type TwoFactorCode } from '../lib/rest.ts';
-import { discoverServer, NotRocketVibeError, type ServerKind, type ServerProfile as ServerProfile } from '../lib/serverKind.ts';
+import { discoverServer, NotMattermostError, NotRocketVibeError, type ServerKind, type ServerProfile as ServerProfile } from '../lib/serverKind.ts';
+import { KCHAT_DIRECTORY, kchatServers, loginMattermost, loginWithToken, MmMfaRequired, type KchatServer } from '../providers/mattermost/auth.ts';
+import { MmError } from '../providers/mattermost/client.ts';
+import { authorizeUrl, codeFromRedirect, createPkce, exchangeCode, isKchatRedirect, KCHAT_REDIRECT } from '../providers/mattermost/kchatOAuth.ts';
 import { startNativeLogin, startNativeAccountCodeLogin, type LoginChallenge } from '../providers/rocketvibe/authentication.ts';
 import type { SecondFactor } from '../providers/rocketvibe/protocol.generated.ts';
 import { nativeAuthenticationVault, completeNativeAuthentication } from '../lib/nativeAuthenticationStore.ts';
@@ -36,6 +41,8 @@ type Phase =
   | { name: 'server' }
   | { name: 'credentials'; profile: ServerProfile; client: RestClient }
   | { name: 'nativeFactor'; profile: ServerProfile; client: RestClient; challenge: LoginChallenge; method: SecondFactor }
+  | { name: 'mmFactor'; profile: ServerProfile; client: RestClient }
+  | { name: 'kchatServers'; profile: ServerProfile; client: RestClient; token: string; servers: KchatServer[] }
   | {
       name: 'twoFactor';
       profile: ServerProfile;
@@ -58,6 +65,7 @@ export default function LoginScreen() {
   const [user, setUser] = useState('');
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
+  const [token, setToken] = useState('');
   const [registration, setRegistration] = useState(false);
   const [recovery, setRecovery] = useState(false);
   const [invitation, setInvitation] = useState('');
@@ -144,9 +152,9 @@ export default function LoginScreen() {
     setBusy(true);
     setMessage(null);
     try {
-      const profile = await discoverServer(address, controller.signal, fetch, kind);
+      const profile = await discoverServer(kind === 'kchat' ? KCHAT_DIRECTORY : address, controller.signal, fetch, kind);
       if (controller.signal.aborted) return;
-      if (!profile.loginForm) {
+      if (!profile.loginForm && profile.mattermost?.kind !== 'kchat') {
         // `Accounts_ShowFormLogin = false`: the server only offers SSO. The API
         // sometimes accepts a direct login anyway: we warn without blocking.
         setMessage(t('login.noPasswordLogin'));
@@ -154,7 +162,7 @@ export default function LoginScreen() {
       setPhase({ name: 'credentials', profile, client: new RestClient(profile.baseUrl) });
     } catch (e) {
       if (!controller.signal.aborted) {
-        setMessage(e instanceof NotRocketVibeError ? t('login.notRocketVibe') : e instanceof Error ? e.message : t('login.serverUnreachable'));
+        setMessage(e instanceof NotRocketVibeError ? t('login.notRocketVibe') : e instanceof NotMattermostError ? t('login.notMattermost') : e instanceof Error ? e.message : t('login.serverUnreachable'));
       }
     } finally {
       inFlight.current = false;
@@ -164,7 +172,7 @@ export default function LoginScreen() {
 
   const tryLogin = useCallback(
     async (twoFactor?: TwoFactorCode) => {
-      if (inFlight.current || phase.name === 'server' || phase.name === 'nativeFactor') return;
+      if (inFlight.current || phase.name === 'server' || phase.name === 'nativeFactor' || phase.name === 'kchatServers') return;
       const start = generation.current;
       const current = () => mounted.current && start === generation.current;
       inFlight.current = true;
@@ -194,6 +202,8 @@ export default function LoginScreen() {
             toClean = await nativeAuthenticationVault.load(next.baseUrl, next.user.username);
           }
           session = step.session;
+        } else if (phase.profile.mattermost !== undefined) {
+          session = await loginMattermost(phase.profile.baseUrl, user, password, phase.name === 'mmFactor' ? code : undefined);
         } else {
           session = await logIn(phase.client, { user: user.trim(), password }, twoFactor);
         }
@@ -242,6 +252,11 @@ export default function LoginScreen() {
           setMessage(t('login.codeRejected'));
         } else if (e instanceof NativeError && e.code === 'factor_unavailable') {
           setMessage(t('login.factorUnavailable'));
+        } else if (e instanceof MmMfaRequired) {
+          setCode('');
+          setPhase({ name: 'mmFactor', profile: phase.profile, client: phase.client });
+        } else if (e instanceof MmError && e.status === 401) {
+          setMessage(t(phase.name === 'mmFactor' ? 'login.codeRejected' : 'login.credentialsRejected'));
         } else if (e instanceof NativeError && e.status === 401 && e.code === 'session_rejected' || e instanceof RestError && e.status === 401) {
           setMessage(t('login.credentialsRejected'));
         } else {
@@ -252,8 +267,56 @@ export default function LoginScreen() {
         if (mounted.current) setBusy(false);
       }
     },
-    [phase, user, password, connect, router, t, registration, invitation, recovery],
+    [phase, user, password, code, connect, router, t, registration, invitation, recovery],
   );
+
+  // kChat: one Infomaniak bearer token for every team server of the account.
+  // The typed address picks the server when it names one; otherwise a single
+  // server is taken as is, several are offered.
+  const runKchat = useCallback(async (action: () => Promise<void>) => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setBusy(true);
+    setMessage(null);
+    try {
+      await action();
+    } catch (e) {
+      if (mounted.current) setMessage(e instanceof MmError && e.status === 401 ? t('login.kchatTokenRejected') : e instanceof Error ? e.message : t('login.signInFailed'));
+    } finally {
+      inFlight.current = false;
+      if (mounted.current) setBusy(false);
+    }
+  }, [t]);
+
+  const openKchatServer = useCallback(async (server: KchatServer, bearer: string) => {
+    const session = await loginWithToken(server.url, bearer, 'kchat');
+    await connect(session);
+    setToken('');
+    router.replace('/');
+  }, [connect, router]);
+
+  const signInKchat = useCallback(async (bearer: string) => {
+    if (phase.name !== 'credentials') return;
+    const servers = await kchatServers(bearer);
+    const typed = hostOf(phase.profile.baseUrl);
+    const chosen = servers.find(s => hostOf(s.url) === typed) ?? (servers.length === 1 ? servers[0] : undefined);
+    if (chosen !== undefined) return openKchatServer(chosen, bearer);
+    if (servers.length === 0) throw new Error(t('login.kchatNoServer'));
+    setPhase({ name: 'kchatServers', profile: phase.profile, client: phase.client, token: bearer, servers });
+  }, [phase, openKchatServer, t]);
+
+  const kchatOAuth = useCallback(() => runKchat(async () => {
+    const pkce = await createPkce(
+      size => Crypto.getRandomBytes(size),
+      async text => new Uint8Array(await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, new TextEncoder().encode(text))),
+    );
+    // An auth session, not the browser app: Chrome refuses to open an app from a
+    // navigation no tap started (Infomaniak's page redirects by script after 2FA).
+    const result = await WebBrowser.openAuthSessionAsync(authorizeUrl(pkce), KCHAT_REDIRECT);
+    if (result.type !== 'success' || !isKchatRedirect(result.url)) throw new Error(t('login.kchatTimeout'));
+    const bearer = await exchangeCode(codeFromRedirect(result.url, pkce), pkce);
+    await signInKchat(bearer);
+  }), [runKchat, signInKchat, t]);
 
   const validateNativeFactor = useCallback(async () => {
     if (inFlight.current || phase.name !== 'nativeFactor' || !code.trim() && !phase.challenge.pending) return;
@@ -386,14 +449,15 @@ export default function LoginScreen() {
         {phase.name !== 'server' && (
           <View style={[styles.serverChip, { backgroundColor: c.card, borderColor: c.border }]}>
             <Text style={[styles.chipText, { color: c.dimmed }]}>
-              {phase.client.baseUrl} · {phase.profile.native ? 'RocketVibe' : 'Rocket.Chat'} {phase.profile.version}
+              {phase.client.baseUrl === KCHAT_DIRECTORY ? 'kChat' : <>{phase.client.baseUrl} · {phase.profile.native ? 'RocketVibe' : phase.profile.mattermost?.kind === 'kchat' ? 'kChat' : phase.profile.mattermost ? 'Mattermost' : 'Rocket.Chat'} {phase.profile.version}</>}
             </Text>
           </View>
         )}
 
         {phase.name === 'server' && (
           <>
-            <PillField
+            {/* kChat: the account's servers come from the directory once signed in. */}
+            {kind !== 'kchat' && <PillField
               c={c}
               label={t('login.serverAddress')}
               icon="🌐"
@@ -404,10 +468,10 @@ export default function LoginScreen() {
               inputMode="url"
               placeholder="chat.example.org"
               autoComplete="url"
-            />
+            />}
             {/* Found by probing; forced when the probe gets it wrong behind an unusual proxy. */}
             <View style={styles.kindRow} accessibilityRole="radiogroup" accessibilityLabel={t('login.kind')}>
-              {([['auto','login.kindAuto'],['rocketchat','login.kindRocketChat'],['rocketvibe','login.kindRocketVibe']] as const).map(([value,label]) => (
+              {([['auto','login.kindAuto'],['rocketchat','login.kindRocketChat'],['rocketvibe','login.kindRocketVibe'],['mattermost','login.kindMattermost'],['kchat','login.kindKchat']] as const).map(([value,label]) => (
                 <Pressable key={value} onPress={() => setKind(value)} disabled={busy}
                   accessibilityRole="radio" accessibilityState={{checked:kind===value}}
                   style={[styles.kindOption,{borderColor:kind===value?c.accent:c.border,backgroundColor:kind===value?c.card:'transparent'}]}>
@@ -430,7 +494,36 @@ export default function LoginScreen() {
           </>
         )}
 
-        {phase.name === 'credentials' && (
+        {phase.name === 'credentials' && phase.profile.mattermost?.kind === 'kchat' && (
+          <>
+            <PrimaryButton c={c} busy={busy} onPress={() => void kchatOAuth()} title={t('login.kchatSignIn')} />
+            <Text style={[styles.help, { color: c.dimmed }]}>{t('login.kchatTokenHelp')}</Text>
+            <PillField c={c} label={t('login.kchatToken')} value={token} editable={!busy} onChangeText={setToken}
+              onSubmitEditing={() => void runKchat(() => signInKchat(token.trim()))} secureTextEntry />
+            <PrimaryButton c={c} busy={busy} onPress={() => void runKchat(() => signInKchat(token.trim()))} title={t('login.kchatUseToken')} />
+          </>
+        )}
+
+        {phase.name === 'kchatServers' && (
+          <>
+            <Text style={[styles.help, { color: c.dimmed }]}>{t('login.kchatPickServer')}</Text>
+            {phase.servers.map(server => (
+              <PrimaryButton key={server.id} c={c} busy={busy} title={server.displayName}
+                onPress={() => void runKchat(() => openKchatServer(server, phase.token))} />
+            ))}
+          </>
+        )}
+
+        {phase.name === 'mmFactor' && (
+          <>
+            <Text style={[styles.help, { color: c.dimmed }]}>{t('login.mfaIntro')}</Text>
+            <PillField c={c} label={t('login.mfaCode')} value={code} editable={!busy} onChangeText={setCode}
+              onSubmitEditing={() => void tryLogin()} keyboardType="number-pad" autoComplete="one-time-code" autoFocus />
+            <PrimaryButton c={c} busy={busy} onPress={() => void tryLogin()} title={t('login.signIn')} />
+          </>
+        )}
+
+        {phase.name === 'credentials' && phase.profile.mattermost?.kind !== 'kchat' && (
           <>
             {phase.profile.native?.capabilities.account_invitations === true && (
               <Pressable disabled={busy} onPress={() => { setRegistration(!registration); setRecovery(false); setInvitation(''); setPassword(''); setMessage(null); }}>
@@ -520,6 +613,14 @@ export default function LoginScreen() {
       </ScrollView>
     </KeyboardAvoidingContainer>
   );
+}
+
+function hostOf(url: string): string | null {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return null;
+  }
 }
 
 /** Brand header: unicorn, rainbow bars, logotype, subtitle. */
@@ -736,8 +837,8 @@ const styles = StyleSheet.create({
   card: { borderRadius: 16, borderWidth: 1, padding: 16, gap: 9 },
   overline: { fontFamily: FONTS.bodyStrong, fontSize: 11.5, letterSpacing: 0.4, textTransform: 'uppercase' },
   serverLink: { fontFamily: FONTS.bodyBold, fontSize: 14, paddingVertical: 3 },
-  kindRow: { flexDirection: 'row', gap: 8 },
-  kindOption: { flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: 12, borderWidth: 1 },
+  kindRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  kindOption: { flexGrow: 1, minWidth: '30%', alignItems: 'center', paddingVertical: 8, borderRadius: 12, borderWidth: 1 },
   kindText: { fontFamily: FONTS.bodyBold, fontSize: 13 },
   errorMessage: { fontFamily: FONTS.bodyBold, fontSize: 14 },
   help: { fontFamily: FONTS.body, fontSize: 13, lineHeight: 18 },

@@ -5,6 +5,8 @@ use std::sync::Arc;
 use chrono::{SecondsFormat, TimeZone, Utc};
 use serde_json::Value;
 
+use crate::mattermost::Flavor;
+use crate::mattermost::sync::MmSync;
 use crate::normalize::{Message, to_epoch, to_message, to_room, to_subscription};
 use crate::rest::{CallOptions, RestClient, RestError};
 use crate::store::{Store, Writer};
@@ -46,11 +48,22 @@ pub struct SyncEngine {
     rest: RestClient,
     me: String,
     me_uid: String,
+    /// A Mattermost or kChat account: every read goes there instead.
+    mattermost: Option<Arc<MmSync>>,
 }
 
 impl SyncEngine {
     pub fn new(store: Arc<Store>, rest: RestClient, me: &str, me_uid: &str) -> Self {
-        SyncEngine { store, rest, me: me.to_owned(), me_uid: me_uid.to_owned() }
+        SyncEngine { store, rest, me: me.to_owned(), me_uid: me_uid.to_owned(), mattermost: None }
+    }
+
+    pub fn for_mattermost(store: Arc<Store>, rest: RestClient, me: &str, me_uid: &str, flavor: Flavor) -> Self {
+        let mm = MmSync::new(store.clone(), rest.clone(), me_uid, me, flavor == Flavor::Kchat);
+        SyncEngine { mattermost: Some(Arc::new(mm)), ..Self::new(store, rest, me, me_uid) }
+    }
+
+    pub fn mattermost(&self) -> Option<&Arc<MmSync>> {
+        self.mattermost.as_ref()
     }
 
     pub fn apply_event(&self, collection: &str, key: &str, args: &[Value]) {
@@ -98,12 +111,18 @@ impl SyncEngine {
 
     /// Returns the newest `_updatedAt` ingested: the stuff cursors are made of.
     pub fn ingest_messages(&self, raw: &[Value]) -> Option<i64> {
+        if let Some(mm) = &self.mattermost {
+            return mm.ingest(raw);
+        }
         self.store.write(|w| ingest_into(w, raw))
     }
 
     /// `rooms.get` + `subscriptions.get` with `updatedSince`: every room and
     /// counter in two requests. Without a cursor, the full load.
     pub async fn catch_up_global(&self) -> Result<(), RestError> {
+        if let Some(mm) = &self.mattermost {
+            return mm.catch_up_global().await;
+        }
         let options = |stream: &str| {
             let mut o = CallOptions::default();
             if let Some(c) = self.store.cursor("*", stream) {
@@ -158,6 +177,9 @@ impl SyncEngine {
     /// the full subscription list no longer has goes. An empty list is not
     /// trusted to mean "no rooms".
     pub async fn reconcile_rooms(&self) -> Result<(), RestError> {
+        if let Some(mm) = &self.mattermost {
+            return mm.reconcile_rooms().await;
+        }
         let response = self.rest.get("subscriptions.get", CallOptions::default()).await?;
         let live: Vec<String> = response
             .get("update")
@@ -174,6 +196,9 @@ impl SyncEngine {
     /// may have missed. `chat.syncMessages` takes one room and one kind per
     /// call; two pages at most per kind, the cursor keeps the rest for later.
     pub async fn catch_up_room(&self, rid: &str) -> Result<(), RestError> {
+        if let Some(mm) = &self.mattermost {
+            return mm.catch_up_room(rid).await;
+        }
         let Some(since) = self.store.cursor(rid, "messages") else { return Ok(()) };
         self.sync_pages(rid, "UPDATED", "messages", since).await?;
         match self.store.cursor(rid, DELETED_CURSOR) {
@@ -230,6 +255,9 @@ impl SyncEngine {
     }
 
     pub async fn load_history(&self, rid: &str, kind: &str, latest: Option<i64>) -> Result<HistoryPage, RestError> {
+        if let Some(mm) = &self.mattermost {
+            return mm.load_history(rid, latest).await;
+        }
         let messages = self.history(rid, kind, latest, None).await?;
         self.store.write(|w| {
             let newest = ingest_into(w, &messages);
@@ -255,6 +283,9 @@ impl SyncEngine {
         latest: Option<i64>,
         oldest: Option<i64>,
     ) -> Result<Vec<Message>, RestError> {
+        if let Some(mm) = &self.mattermost {
+            return mm.history_range(rid, latest, oldest).await;
+        }
         Ok(self.history(rid, kind, latest, oldest).await?.iter().filter_map(to_message).collect())
     }
 
@@ -283,6 +314,9 @@ impl SyncEngine {
 
     /// The server's copy of one message, not stored.
     pub async fn fetch_message(&self, id: &str) -> Result<Option<Message>, RestError> {
+        if let Some(mm) = &self.mattermost {
+            return mm.fetch_message(id).await;
+        }
         let response = self.rest.get("chat.getMessage", CallOptions::params([("msgId", id)])).await?;
         Ok(response.get("message").and_then(to_message))
     }

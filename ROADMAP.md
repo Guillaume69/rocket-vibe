@@ -160,6 +160,10 @@ This is what we will use for the action sheet on a message, the emoji picker and
 > because the app holds the camera and microphone during the call and Android cannot arbitrate those
 > permissions per origin, so navigation is the only lock. Everywhere else, the ban holds:
 > inline playback of video links, for example, stays a native card (`apps/mobile/ui/embedCard.tsx`).
+> On kChat (2026-10-09) the same screen opens a kMeet meeting taken from a call post rather than
+> from a server answer: since any room member can write that post, the origin is **pinned to
+> `https://kmeet.infomaniak.com`** (`isKmeetUrl`, `translate::is_kmeet`), checked in the post and
+> again at join, so no post can choose where the camera goes.
 >
 > **On desktop, the same exception, with the same bounds** (2026-09-30): the call opens in a
 > window of the app and nowhere else, WebView2 on Windows (`apps/desktop/crates/rv-native/src/windows_call.rs`),

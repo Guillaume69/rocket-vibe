@@ -8,8 +8,11 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+const CLOCK_SKEW_MS: i64 = 120_000;
+
 use serde_json::{Value, json};
 
+use crate::mattermost::sync::MmSync;
 use crate::normalize::Message;
 use crate::rest::{CallOptions, RestClient};
 use crate::store::Store;
@@ -109,6 +112,9 @@ impl Outbox {
 
     /// Returns false when the server is out of reach: no point insisting.
     async fn pass(&self) -> bool {
+        if let Some(mm) = self.sync.mattermost() {
+            return self.pass_mattermost(mm).await;
+        }
         for entry in self.store.pending_outbox() {
             let Some(message) = self.message_of(&entry) else { continue };
             match self.rest.post("chat.sendMessage", CallOptions::body(json!({"message": message}))).await {
@@ -152,6 +158,56 @@ impl Outbox {
         message["e2e"] = json!("pending");
         message["e2eMentions"] = crate::e2e::mentions(&entry.text);
         Some(message)
+    }
+
+    /// Mattermost mints the post id: the row leaves under its client id as
+    /// `pending_post_id`, which the server echoes and deduplicates for a short
+    /// while. Past that, a refusal is checked against my newest posts.
+    async fn pass_mattermost(&self, mm: &MmSync) -> bool {
+        for entry in self.store.pending_outbox() {
+            let body = json!({"channel_id": entry.rid, "message": entry.text,
+                "root_id": entry.thread_id.clone().unwrap_or_default(),
+                "pending_post_id": crate::mattermost::pending_post_id(&self.me_id, &entry.id)});
+            let post = match self.rest.post("posts", CallOptions::body(body)).await {
+                Ok(post) => post,
+                Err(e) if e.status == 0 => return false,
+                Err(e) => match self.mine_on_server(&entry).await {
+                    Delivered::Unknown => return false,
+                    Delivered::Yes(post) => post,
+                    Delivered::No => {
+                        self.store.write(|w| w.mark_outbox_failed(&entry.id, &e.message));
+                        continue;
+                    }
+                },
+            };
+            self.store.write(|w| {
+                w.delete_outbox(&entry.id);
+                w.delete_message(&entry.id);
+            });
+            mm.ingest(&[post]);
+        }
+        true
+    }
+
+    /// A post of mine with the same text, made since this row was queued: an older identical one is not it.
+    async fn mine_on_server(&self, entry: &crate::store::OutboxEntry) -> Delivered {
+        let options = CallOptions::params([("per_page", "30")]);
+        match self.rest.get(&format!("channels/{}/posts", entry.rid), options).await {
+            Ok(list) => crate::mattermost::sync::ordered(&list)
+                .into_iter()
+                .find(|p| {
+                    let field = |key: &str| p.get(key).and_then(Value::as_str).filter(|s| !s.is_empty());
+                    field("user_id") == Some(self.me_id.as_str())
+                        && field("message") == Some(entry.text.as_str())
+                        && field("root_id") == entry.thread_id.as_deref()
+                        && p.get("create_at")
+                            .and_then(Value::as_i64)
+                            .is_some_and(|at| at >= entry.created_at - CLOCK_SKEW_MS)
+                })
+                .map_or(Delivered::No, Delivered::Yes),
+            Err(e) if e.status == 0 || e.status == 429 => Delivered::Unknown,
+            Err(_) => Delivered::No,
+        }
     }
 
     async fn delivered(&self, id: &str) -> Delivered {

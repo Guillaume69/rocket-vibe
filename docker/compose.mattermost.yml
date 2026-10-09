@@ -1,0 +1,16 @@
+# Mattermost test server for the Mattermost (kChat) provider.
+#
+#   docker compose -f docker/compose.mattermost.yml up -d
+#   node scripts/seed-mattermost.mjs
+#
+# The preview image bundles its own database: disposable. Its admin password is
+# in the repo (scripts/seed-mattermost.mjs, MM_PASSWORD to change it), so the
+# port listens on this machine only; MM_BIND=0.0.0.0 opens it to the LAN.
+# The emulator reaches it as 10.0.2.2. The version is pinned: the [probed]
+# facts of docs/MATTERMOST.md were read on it.
+services:
+  mattermost:
+    image: mattermost/mattermost-preview:11.11.1
+    ports:
+      - "${MM_BIND:-127.0.0.1}:8065:8065"
+    restart: unless-stopped

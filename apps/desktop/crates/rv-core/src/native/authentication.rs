@@ -101,6 +101,7 @@ fn record(base: &str, identity: &Identity, session: Session, expected: Option<&s
     }
     Ok(Record {
         info: SessionInfo {
+            mattermost: None,
             base_url: base.into(),
             user_id: session.user.id,
             username: session.user.username,

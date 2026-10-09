@@ -11,6 +11,7 @@ import { systemPreview } from '../lib/systemMessages.ts';
 import type { RestClient } from '../lib/rest.ts';
 import { useActivity } from '../ui/activity.ts';
 import { useT } from '../ui/i18n.ts';
+import { useStatusEmojis } from '../ui/identities.tsx';
 import { RoomAvatar, UnreadBadge, SyncBar, Brand, AvatarTile } from '../ui/kit.tsx';
 import { presenceColors, usePresence } from '../ui/presence.ts';
 import {
@@ -256,7 +257,8 @@ function RoomRow({
   // Unknown status, or broadcast turned off server-side
   // (Presence_broadcast_disabled): nothing; the UI never depends on it.
   const status = usePresence(room.dmOtherUid,room.type==='d'?room.rid:undefined);
-  const name = room.displayName ?? room.name ?? room.rid;
+  const statusEmoji = useStatusEmojis().get(room.dmOtherUid ?? '');
+  const name = (room.displayName ?? room.name ?? room.rid) + (statusEmoji ? ` ${statusEmoji}` : '');
   const unread = subscription?.unread ?? 0;
   const alerting = subscription?.alert === true || unread > 0;
   // Encrypted room: as long as no message is decrypted (`lastMessage` null,

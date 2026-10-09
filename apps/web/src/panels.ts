@@ -7,6 +7,7 @@ import type {
   SearchPage,
   OwnProfile,
   UserProfile,
+  ReadState,
   RoomDetails,
   RoomMemberPage,
   DeviceSession,
@@ -241,78 +242,157 @@ export async function marked(app: App): Promise<void> {
   );
   await load();
 }
-export async function profile(app: App, id: string): Promise<void> {
+export async function profile(
+  app: App,
+  id: string,
+  available = () => true,
+): Promise<void> {
   const generation = app.generation;
-  const value = await app.api.request<UserProfile>(
-    "/api/v1/users/" + segment(id),
-  );
-  if (generation !== app.generation) return;
-  const [node, body] = dialog(t("profile"));
-  const portrait = tile(value.user.username, "profile");
-  body.append(
-    portrait,
-    el("h2", "details-name", value.user.display_name || value.user.username),
-    el("p", "details-sub", "@" + value.user.username),
-    el("p", "", value.bio),
-    el("p", "dim", value.status_text),
-  );
-  if (value.avatar_file_id) {
-    const blob = await app.api.blob(
-      "/api/v1/avatars/" + segment(value.avatar_file_id),
-    );
-    if (node.open && generation === app.generation) {
-      const url = URL.createObjectURL(blob);
-      app.urls.add(url);
-      const img = el("img", "avatar-image");
-      img.src = url;
-      img.alt = value.user.display_name;
-      portrait.replaceChildren(img);
-    }
-  }
-  if (value.user.bot) {
-    body.append(botBadge());
-    if (value.bot_owner)
-      body.append(
-        el("p", "dim", nt("bots.owner", { owner: value.bot_owner.username })),
-      );
-  }
-  if (
-    !value.user.bot &&
-    id !== app.account?.session.user.id &&
-    app.info?.capabilities.voice
-  )
-    body.append(
-      button(language === "fr" ? "Appeler" : "Call", async () => {
-        const room = await app.api.request<Room>(
-          "/api/v1/direct-messages",
-          "POST",
-          { user_id: id },
-        );
-        app.model.rooms.set(room.id, room);
-        node.close();
-        await app.openRoom(room.id);
-        await app.voice.join(room.id);
-      }),
-    );
-  if (id !== app.account?.session.user.id && app.info?.capabilities.reports)
-    body.append(button(t("reports"), () => report(app, "users", id)));
-  if (id !== app.account?.session.user.id)
-    body.append(
-      button(
-        t("direct"),
-        async () => {
-          const room = await app.api.request<Room>(
-            "/api/v1/direct-messages",
-            "POST",
-            { user_id: id },
-          );
-          app.model.rooms.set(room.id, room);
-          node.close();
-          await app.openRoom(room.id);
-        },
-        "cta",
+  const account = app.account?.key;
+  if (!account || !available()) return;
+  const [node, body] = dialog(nt("info.profile"));
+  node.classList.add("user-profile-dialog");
+  body.classList.add("details");
+  node
+    .querySelector(".dialog-header button")
+    ?.setAttribute("aria-label", t("close"));
+  const active = () =>
+    node.open &&
+    account === app.account?.key &&
+    generation === app.generation &&
+    available();
+  let value: UserProfile | undefined,
+    loading = false;
+  const presence = el("div", "profile-presence");
+  const showPresence = () => {
+    const status =
+      app.live?.presence.find((item) => item.user.id === id)?.status ||
+      (app.live && !app.live.limited ? "offline" : undefined);
+    presence.replaceChildren();
+    if (!status || !value) return;
+    presence.append(
+      el("span", "presence " + status),
+      el(
+        "span",
+        "details-sub",
+        nt("presence." + status) +
+          (value.status_text ? " · " + value.status_text : ""),
       ),
     );
+  };
+  const openDirect = async (call = false) => {
+    if (!active()) return;
+    const room = await app.api.request<Room>(
+      "/api/v1/direct-messages",
+      "POST",
+      { user_id: id },
+    );
+    if (!active()) return;
+    const state = await app.api.request<ReadState>(
+      "/api/v1/rooms/" + segment(room.id) + "/read",
+    );
+    if (!active()) return;
+    app.model.rooms.set(room.id, { ...room, read_state: state });
+    node.close();
+    await app.openRoom(room.id);
+    if (
+      call &&
+      account === app.account?.key &&
+      generation === app.generation &&
+      app.room === room.id
+    )
+      await app.voice.join(room.id);
+  };
+  const load = async () => {
+    if (loading || !active()) return;
+    loading = true;
+    try {
+      const found = await app.api.request<UserProfile>(
+        "/api/v1/users/" + segment(id),
+      );
+      if (!active()) return;
+      value = found;
+      const portrait = tile(value.user.username, "profile");
+      app.profiles.set(id, Promise.resolve(value));
+      app.avatar(value.user, portrait);
+      body.replaceChildren(
+        portrait,
+        el(
+          "h2",
+          "details-name",
+          value.user.display_name || value.user.username,
+        ),
+        el("p", "details-sub profile-username", "@" + value.user.username),
+      );
+      if (value.user.bot) {
+        const line = el("div", "profile-bot");
+        line.append(botBadge());
+        if (value.bot_owner)
+          line.append(
+            el(
+              "span",
+              "details-sub",
+              nt("bots.owner", { owner: value.bot_owner.username }),
+            ),
+          );
+        body.append(line);
+      }
+      showPresence();
+      body.append(presence);
+      if (value.bio) body.append(el("div", "profile-bio-section", ""));
+      const bio = body.querySelector(".profile-bio-section");
+      if (bio)
+        bio.append(
+          el("div", "details-section", nt("info.bio")),
+          el("p", "profile-bio", value.bio),
+        );
+      if (id !== app.account?.session.user.id) {
+        const actions = el("div", "profile-actions");
+        actions.append(
+          button(nt("info.message"), () => openDirect(), "file-action"),
+        );
+        if (app.info?.capabilities.voice)
+          actions.append(
+            button(nt("info.call"), () => openDirect(true), "flat"),
+          );
+        body.append(actions);
+        if (app.info?.capabilities.reports)
+          body.append(
+            button(
+              nt("report.user"),
+              () => {
+                if (!active()) return;
+                node.close();
+                return report(app, "users", id);
+              },
+              "flat report-user",
+            ),
+          );
+      }
+    } catch {
+      if (active())
+        body.replaceChildren(el("p", "details-sub", nt("info.failed")));
+    } finally {
+      loading = false;
+    }
+  };
+  const update = () => {
+    if (!active()) {
+      node.close();
+      return;
+    }
+    showPresence();
+    const stamp = app.live?.profiles?.find((item) => item.user.id === id);
+    if (value && stamp && stamp.revision !== value.revision) void load();
+  };
+  window.addEventListener("rv-profile-update", update);
+  node.addEventListener(
+    "close",
+    () => window.removeEventListener("rv-profile-update", update),
+    { once: true },
+  );
+  body.append(el("p", "details-sub", t("loading")));
+  await load();
 }
 export async function roomInfo(app: App): Promise<void> {
   if (!app.room) return;

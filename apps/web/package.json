@@ -1,6 +1,6 @@
 {
   "name": "rocket-vibe-web",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,6 +12,7 @@
     "test:visual": "node tests/visual.mjs",
     "test:workflows": "node tests/workflows.mjs",
     "test:reads": "node tests/reads.mjs",
+    "test:profiles": "node tests/profiles.mjs",
     "test:voice": "node tests/voice.mjs",
     "test:voice-connection": "node tests/voice-connection.mjs",
     "test:voice-lifecycle": "node tests/voice-lifecycle.mjs",

@@ -3,6 +3,87 @@
   font-size: 12px;
   margin-top: 6px;
 }
+.profile-link {
+  padding: 0;
+  min-width: 0;
+  min-height: 0;
+  border-radius: 0;
+  line-height: inherit;
+  text-align: left;
+}
+.profile-link:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 3px;
+}
+.user-profile-dialog {
+  width: min(420px, calc(100vw - 32px));
+  height: min(520px, calc(100dvh - 40px));
+  background: var(--window-bg-color);
+  border-radius: 16px;
+}
+.user-profile-dialog .dialog-header {
+  height: 44px;
+  padding: 8px 14px;
+  background: transparent;
+  border-bottom: 0;
+}
+.user-profile-dialog .dialog-header h2 {
+  font-family: Nunito, sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: center;
+  padding-left: 28px;
+}
+.user-profile-dialog .dialog-header button {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 50%;
+  background: #ffffff1a;
+}
+.user-profile-dialog .details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: calc(100% - 44px);
+  padding: 4px 22px 22px;
+}
+.user-profile-dialog .details-name,
+.user-profile-dialog .details-sub,
+.user-profile-dialog .profile-bio {
+  margin: 0;
+}
+.user-profile-dialog .details-name,
+.user-profile-dialog .details-sub {
+  text-align: center;
+}
+.user-profile-dialog .tile-profile {
+  flex: none;
+}
+.profile-bot,
+.profile-presence,
+.profile-actions {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+}
+.profile-actions {
+  gap: 10px;
+  margin-top: 12px;
+}
+.profile-bio {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.profile-bio-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.user-profile-dialog .report-user {
+  align-self: center;
+}
 .room-header {
   position: relative;
   justify-content: flex-end;

@@ -111,6 +111,8 @@ Path filters do not apply to tag pushes, so a release tag always builds. Maestro
 
 1. Move the unreleased section under `## [X.Y.Z] - <date>` and update the compare links.
 2. Bump the version: mobile in `app.json` (`version` and `android.versionCode`) and `package.json`; desktop in `Cargo.toml`, and refresh `Cargo.lock` (CI builds with `--locked`); web in `package.json` and `package-lock.json`, then rebuild and commit the embedded bundle.
+
+   Desktop includes all five crates inheriting the workspace version, including `rv-voice-protocol`. Its path dependency in `apps/desktop/voice/Cargo.lock` must match too: the separate sidecar workflow builds with `--locked` and is required by every desktop release package.
 3. Commit, merge to `master`, push a tag `mobile-vX.Y.Z`, `desktop-vX.Y.Z` or `web-vX.Y.Z`.
 4. The workflow checks tag against version and the changelog section first, builds every package, then `softprops/action-gh-release` creates "Mobile X.Y.Z" (the APK) or "Desktop X.Y.Z" (`.tar.gz`, `.AppImage`, `.zip`, `-setup.exe`, the GTK and SwiftUI `.dmg`) with the changelog section as notes.
 

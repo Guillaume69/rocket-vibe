@@ -108,6 +108,8 @@ export class App implements RowActions {
   timer?: ReturnType<typeof setTimeout>;
   live?: LiveState;
   liveTimer?: ReturnType<typeof setTimeout>;
+  presenceTimer?: ReturnType<typeof setTimeout>;
+  presenceWork?: Promise<void>;
   readTimer?: ReturnType<typeof setTimeout>;
   readWork?: Promise<boolean>;
   flushing = false;
@@ -476,7 +478,10 @@ export class App implements RowActions {
     void this.reconnect();
   }
   async stop(login = false): Promise<void> {
+    const token = this.api.token,
+      hasPresence = this.info?.capabilities.presence;
     this.generation++;
+    clearTimeout(this.presenceTimer);
     this.roomOpening++;
     this.threadOpening++;
     clearTimeout(this.readTimer);
@@ -484,6 +489,8 @@ export class App implements RowActions {
     this.readWork = undefined;
     this.draftReady = false;
     await this.voice.leave(!login);
+    await this.presenceWork;
+    if (token && hasPresence) await this.publishPresence(token, "offline");
     clearTimeout(this.timer);
     clearTimeout(this.liveTimer);
     if (this.socket) {
@@ -567,6 +574,7 @@ export class App implements RowActions {
   async reconnect(): Promise<void> {
     if (!this.account) return;
     clearTimeout(this.timer);
+    clearTimeout(this.presenceTimer);
     const generation = ++this.generation,
       account = this.account.key,
       active = () =>
@@ -664,6 +672,7 @@ export class App implements RowActions {
       socket.onopen = () => {
         if (generation === this.generation) {
           this.setConnection("online");
+          this.startPresence(generation, socket);
           void this.flush();
           void flushUploads(this);
         }
@@ -681,6 +690,7 @@ export class App implements RowActions {
               this.liveTimer = setTimeout(() => {
                 this.live = undefined;
                 this.renderTyping();
+                window.dispatchEvent(new Event("rv-profile-update"));
               }, frame.data.ttl_ms);
               this.renderTyping();
               this.observeProfiles(frame.data);
@@ -777,6 +787,43 @@ export class App implements RowActions {
         ),
       );
     }
+  }
+  startPresence(generation: number, socket: WebSocket): void {
+    const active = () =>
+      generation === this.generation &&
+      this.socket === socket &&
+      socket.readyState === WebSocket.OPEN &&
+      !!this.info?.capabilities.presence;
+    const tick = async () => {
+      if (!active()) return;
+      await this.publishPresence(this.api.token, "online", active);
+      if (active()) this.presenceTimer = setTimeout(() => void tick(), 20000);
+    };
+    void tick();
+  }
+  publishPresence(
+    token: string,
+    status: "online" | "offline",
+    available = () => true,
+  ): Promise<void> {
+    const previous = this.presenceWork;
+    const work = (async () => {
+      await previous;
+      if (!available()) return;
+      await fetch("/api/v1/me/presence", {
+        method: "PUT",
+        headers: {
+          Authorization: "Bearer " + token,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ status }),
+        credentials: "omit",
+        cache: "no-store",
+        signal: AbortSignal.timeout(3000),
+      }).catch(() => {});
+    })();
+    this.presenceWork = work;
+    return work;
   }
   build(): void {
     if (!this.account) {
@@ -1047,6 +1094,7 @@ export class App implements RowActions {
       void this.openRoom(target, false);
   }
   refresh(): void {
+    window.dispatchEvent(new Event("rv-profile-update"));
     this.renderRooms();
     if (this.room && !this.model.rooms.has(this.room)) {
       this.room = undefined;
@@ -2218,6 +2266,10 @@ export class App implements RowActions {
       this.threadRead.delete(root);
     }
   }
+  async profile(message: Message): Promise<void> {
+    const current = this.roomFence(message.room_id);
+    if (current()) await profile(this, message.author.id, current);
+  }
   async menu(message: Message, _anchor: HTMLElement): Promise<void> {
     const current = this.roomFence(message.room_id);
     if (!current()) return;
@@ -2923,6 +2975,7 @@ export class App implements RowActions {
     }
     this.renderTimeline();
     if (this.root) this.renderThread();
+    window.dispatchEvent(new Event("rv-profile-update"));
   }
   async loadEmojis(): Promise<void> {
     if (!this.info?.capabilities.custom_emojis) return;

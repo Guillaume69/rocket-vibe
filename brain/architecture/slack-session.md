@@ -46,7 +46,7 @@ The handoff maps all P01-P23 provider families and records each method's evidenc
 and remaining probes. There is no demonstrated session path for killed-app Android
 push, client E2EE, native huddles/LiveKit/Jitsi parity, in-app administration or
 reporting; corresponding runtime capabilities stay false until separately supported.
-Current platform debt is recorded in [parity](../parity.md#17-slack-provider-research).
+Current platform debt is recorded in [parity](../parity.md#17-experimental-integrations).
 
 ## Sources
 

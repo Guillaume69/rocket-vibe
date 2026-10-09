@@ -190,7 +190,7 @@ final class AdminTests: XCTestCase {
         XCTAssertEqual(AdminText.update(current: "8.5.1", latest: "8.8.1"), "Update available: 8.8.1")
         XCTAssertEqual(AdminText.update(current: "8.8.1", latest: "8.8.1"), L("admin.up_to_date"))
         XCTAssertNil(AdminText.update(current: "8.8.1", latest: nil))
-        XCTAssertEqual(AdminCategory.allCases.map(\.title), ["Dashboard", "Moderation", "Rooms", "Users"])
+        XCTAssertEqual(AdminCategory.allCases.map(\.title), ["Dashboard", "Moderation", "Rooms", "Users", "Custom emoji"])
     }
 
     @MainActor

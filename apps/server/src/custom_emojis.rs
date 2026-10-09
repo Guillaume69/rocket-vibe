@@ -274,6 +274,18 @@ fn put_fingerprint(name: &str, aliases: &[String], expected: Option<&str>, input
 fn remove_fingerprint(name: &str, expected: &str) -> String {
     auth::hash_token(&serde_json::json!(["emoji.remove", name, expected]).to_string())
 }
+/// The image re-encoded, on the bounded image pool, before any lock is
+/// taken: a busy pool never holds the catalogue or the administration.
+async fn decoded(app: &App, input: Vec<u8>) -> Result<(Vec<u8>, String)> {
+    let _slot = app
+        .image_slots
+        .acquire()
+        .await
+        .map_err(|_| Error::internal())?;
+    tokio::task::spawn_blocking(move || decode(input))
+        .await
+        .map_err(|_| Error::internal())?
+}
 /// Creates (no `expected`) or replaces (`expected` = its revision) an emoji
 /// inside a transaction that holds the catalogue row; returns (id, revision).
 async fn apply_put(
@@ -282,7 +294,7 @@ async fn apply_put(
     name: &str,
     aliases: &[String],
     expected: Option<&str>,
-    input: Vec<u8>,
+    decoded: (Vec<u8>, String),
 ) -> Result<(String, i64)> {
     let existing: Option<(String, i64)> =
         sqlx::query_as("SELECT id,revision FROM custom_emojis WHERE name=$1")
@@ -314,14 +326,7 @@ async fn apply_put(
             return Err(Error::new(StatusCode::CONFLICT, "emoji_code_conflict"));
         }
     }
-    let _slot = app
-        .image_slots
-        .acquire()
-        .await
-        .map_err(|_| Error::internal())?;
-    let (bytes, mime) = tokio::task::spawn_blocking(move || decode(input))
-        .await
-        .map_err(|_| Error::internal())??;
+    let (bytes, mime) = decoded;
     let digest = auth::hash_token_bytes(&bytes);
     let size = bytes.len() as i32;
     let object = app
@@ -393,11 +398,12 @@ pub async fn put(
 ) -> Result<operator::Receipt> {
     check_codes(name, &aliases)?;
     let fingerprint = put_fingerprint(name, &aliases, expected, &input);
+    let image = decoded(app, input).await?;
     let (mut tx, epoch, old) = begin(app, operation, &fingerprint).await?;
     if let Some(old) = old {
         return Ok(old);
     }
-    let (id, revision) = apply_put(app, &mut tx, name, &aliases, expected, input).await?;
+    let (id, revision) = apply_put(app, &mut tx, name, &aliases, expected, image).await?;
     finish(tx, epoch, operation, fingerprint, id, revision).await
 }
 pub async fn remove(
@@ -428,10 +434,11 @@ pub async fn admin_put(
 ) -> Result<EmojiCatalog> {
     check_codes(name, &aliases)?;
     let fingerprint = put_fingerprint(name, &aliases, None, &input);
+    let image = decoded(app, input).await?;
     let (mut tx, replay) = crate::admin::admit(app, actor, true, operation, &fingerprint).await?;
     if !replay {
         lock_catalog(&mut tx).await?;
-        apply_put(app, &mut tx, name, &aliases, None, input).await?;
+        apply_put(app, &mut tx, name, &aliases, None, image).await?;
         crate::admin::settle(tx, actor, operation, &fingerprint).await?;
     }
     catalog(app).await

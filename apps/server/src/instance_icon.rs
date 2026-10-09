@@ -20,30 +20,37 @@ pub const ICON_BYTES: usize = 2 * 1024 * 1024;
 /// The side of the stored square.
 const SIDE: u32 = 256;
 
-/// The current revision, `None` without an icon.
-pub(crate) async fn revision(app: &App) -> Result<Option<String>> {
-    let (object, revision): (Option<String>, i64) =
+async fn current(app: &App) -> Result<(Option<String>, i64)> {
+    Ok(
         sqlx::query_as("SELECT icon_object_id,icon_revision FROM instance WHERE singleton")
             .fetch_one(&app.pool)
-            .await?;
+            .await?,
+    )
+}
+
+/// The current revision, `None` without an icon.
+pub(crate) async fn revision(app: &App) -> Result<Option<String>> {
+    let (object, revision) = current(app).await?;
     Ok(object.map(|_| revision.to_string()))
 }
 
 /// The PNG, public; 404 without an icon. Clients bust their caches with
-/// `?v=<icon_revision>`, so a revalidation is enough here.
-pub(crate) async fn response(app: &App) -> Result<Response> {
-    let (object, revision): (Option<String>, i64) =
-        sqlx::query_as("SELECT icon_object_id,icon_revision FROM instance WHERE singleton")
-            .fetch_one(&app.pool)
-            .await?;
+/// `?v=<icon_revision>`; a revalidation of the current revision answers 304
+/// without reading the file.
+pub(crate) async fn response(app: &App, if_none_match: Option<&str>) -> Result<Response> {
+    let (object, revision) = current(app).await?;
     let object = object.ok_or_else(Error::missing)?;
+    let etag = format!("\"{revision}\"");
+    if if_none_match.is_some_and(|tags| tags.split(',').any(|t| t.trim() == etag)) {
+        return Ok((StatusCode::NOT_MODIFIED, [(header::ETAG, etag)]).into_response());
+    }
     let store = app.objects.as_ref().ok_or_else(Error::missing)?;
     let bytes = store.read(&object, ICON_BYTES as u64).await?;
     Ok((
         [
             (header::CONTENT_TYPE, "image/png".to_owned()),
             (header::CACHE_CONTROL, "no-cache".to_owned()),
-            (header::ETAG, format!("\"{revision}\"")),
+            (header::ETAG, etag),
             (header::X_CONTENT_TYPE_OPTIONS, "nosniff".to_owned()),
         ],
         bytes,
@@ -135,19 +142,23 @@ pub(crate) async fn change(
             )
         }
     };
+    // Written before any lock too: an object left by a refusal or a replay
+    // is old enough for the collector after an hour, never before.
+    let object = match encoded {
+        Some(bytes) => Some(store.put(bytes).await?),
+        None => None,
+    };
     let (mut tx, replay) = crate::admin::admit(app, actor, true, operation, &fingerprint).await?;
     if replay {
         tx.commit().await?;
         return state(app).await;
     }
+    // NO KEY UPDATE: the lock the UPDATE takes anyway, which leaves the
+    // logins' and deliveries' shared locks on the instance row free.
     let previous: Option<String> =
-        sqlx::query_scalar("SELECT icon_object_id FROM instance WHERE singleton FOR UPDATE")
+        sqlx::query_scalar("SELECT icon_object_id FROM instance WHERE singleton FOR NO KEY UPDATE")
             .fetch_one(&mut *tx)
             .await?;
-    let object = match encoded {
-        Some(bytes) => Some(store.put(bytes).await?),
-        None => None,
-    };
     let revision: i64 = sqlx::query_scalar(
         "UPDATE instance SET icon_object_id=$1,icon_revision=icon_revision+1 WHERE singleton RETURNING icon_revision",
     )

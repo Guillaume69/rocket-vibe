@@ -1594,8 +1594,11 @@ async fn admin_delete_user(
     crate::admin::delete_user(&app, &actor, &id, body(input)?).await?;
     Ok(StatusCode::NO_CONTENT)
 }
-async fn instance_icon(State(app): State<App>) -> Result<Response> {
-    crate::instance_icon::response(&app).await
+async fn instance_icon(State(app): State<App>, headers: HeaderMap) -> Result<Response> {
+    let tags = headers
+        .get(axum::http::header::IF_NONE_MATCH)
+        .and_then(|v| v.to_str().ok());
+    crate::instance_icon::response(&app, tags).await
 }
 async fn admin_set_icon(
     State(app): State<App>,

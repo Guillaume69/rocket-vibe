@@ -1,7 +1,12 @@
+use axum::{
+    body::Body,
+    http::{Request, StatusCode},
+};
 use rv_client::NativeClient;
 use rv_server::{App, auth, objects::LocalObjects};
 use sqlx::PgPool;
 use std::{io::Cursor, path::PathBuf};
+use tower::ServiceExt;
 
 struct Bench {
     app: App,
@@ -110,6 +115,36 @@ async fn an_administrator_sets_and_removes_the_public_square_icon(pool: PgPool) 
         ),
         400
     );
+    assert_eq!(
+        status(
+            member
+                .admin_set_icon(&auth::random_token(), None)
+                .await
+                .unwrap_err()
+        ),
+        403
+    );
+    assert_eq!(
+        anonymous.discover().await.unwrap().icon_revision.as_deref(),
+        Some(revision.as_str()),
+        "refusals change nothing"
+    );
+    // A revalidation of the current revision answers 304 without the image.
+    let etag = format!("\"{revision}\"");
+    let again = bench
+        .app
+        .clone()
+        .router()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/instance/icon")
+                .header("If-None-Match", &etag)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(again.status(), StatusCode::NOT_MODIFIED);
     // Removed: discovery says so and the image is gone.
     let removed = admin
         .admin_set_icon(&auth::random_token(), None)

@@ -23,6 +23,7 @@ pub struct OutboxEntry {
     pub rid: String,
     pub text: String,
     pub thread_id: Option<String>,
+    pub created_at: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -44,7 +45,7 @@ pub struct UploadRow {
     pub tmid: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RoomRow {
     pub rid: String,
     pub kind: String,
@@ -67,6 +68,9 @@ pub struct RoomRow {
     pub last_encrypted: Option<String>,
     /// A native voice channel: selecting it joins its voice session. False on Rocket.Chat.
     pub voice: bool,
+    pub group_id: Option<String>,
+    pub group_name: Option<String>,
+    pub group_rank: Option<i64>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -215,6 +219,8 @@ const MIGRATIONS: &[&str] = &[
     "ALTER TABLE messages ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0; ALTER TABLE messages ADD COLUMN starred TEXT",
     "ALTER TABLE subscriptions ADD COLUMN roles TEXT; DELETE FROM cursors WHERE stream = 'subscriptions'",
     "ALTER TABLE uploads ADD COLUMN tmid TEXT",
+    "ALTER TABLE subscriptions ADD COLUMN group_id TEXT; ALTER TABLE subscriptions ADD COLUMN group_name TEXT;
+     ALTER TABLE subscriptions ADD COLUMN group_rank INTEGER",
 ];
 
 pub struct Store {
@@ -326,10 +332,11 @@ impl Store {
     /// Whether a message of the room already carries this uploaded file.
     pub fn file_posted(&self, rid: &str, file_id: &str) -> bool {
         let pattern = format!("%/file-upload/{file_id}/%");
+        let mattermost = format!("%/api/v4/files/{file_id}\"%");
         self.read(|c| {
             c.query_row(
-                "SELECT 1 FROM messages WHERE rid = ?1 AND attachments LIKE ?2 LIMIT 1",
-                params![rid, pattern],
+                "SELECT 1 FROM messages WHERE rid = ?1 AND (attachments LIKE ?2 OR attachments LIKE ?3) LIMIT 1",
+                params![rid, pattern, mattermost],
                 |_| Ok(()),
             )
             .optional()
@@ -427,10 +434,16 @@ impl Store {
     pub fn pending_outbox(&self) -> Vec<OutboxEntry> {
         self.read(|c| {
             let mut q = c.prepare(
-                "SELECT id, rid, text, thread_id FROM outbox WHERE status = 'pending' ORDER BY created_at, id",
+                "SELECT id, rid, text, thread_id, CAST(created_at AS INTEGER) FROM outbox WHERE status = 'pending' ORDER BY created_at, id",
             )?;
             q.query_map([], |r| {
-                Ok(OutboxEntry { id: r.get(0)?, rid: r.get(1)?, text: r.get(2)?, thread_id: r.get(3)? })
+                Ok(OutboxEntry {
+                    id: r.get(0)?,
+                    rid: r.get(1)?,
+                    text: r.get(2)?,
+                    thread_id: r.get(3)?,
+                    created_at: r.get(4)?,
+                })
             })?
             .collect()
         })
@@ -443,7 +456,8 @@ impl Store {
                 "SELECT r.rid, r.type, COALESCE(r.display_name, r.name, r.rid), r.last_message,
                         COALESCE(r.last_message_ts, 0), s.unread, s.mentions + s.group_mentions, s.alert,
                         s.favorite, r.encrypted, r.read_only, r.dm_other_uid, r.avatar_etag, r.name,
-                        r.last_message_type, r.last_message_author, r.last_encrypted
+                        r.last_message_type, r.last_message_author, r.last_encrypted,
+                        s.group_id, s.group_name, s.group_rank
                  FROM rooms r JOIN subscriptions s ON s.rid = r.rid
                  WHERE s.open = 1
                  ORDER BY COALESCE(r.last_message_ts, 0) DESC",
@@ -468,6 +482,9 @@ impl Store {
                     last_author: r.get(15)?,
                     last_encrypted: r.get(16)?,
                     voice: false,
+                    group_id: r.get(17)?,
+                    group_name: r.get(18)?,
+                    group_rank: r.get(19)?,
                 })
             })?
             .collect()
@@ -618,18 +635,18 @@ impl Writer<'_> {
                    encrypted = excluded.encrypted,
                    read_only = excluded.read_only,
                    dm_other_uid = COALESCE(excluded.dm_other_uid, rooms.dm_other_uid),
-                   last_message = CASE WHEN excluded.encrypted = 1 THEN rooms.last_message ELSE excluded.last_message END,
-                   last_message_type = CASE WHEN excluded.encrypted = 1 THEN rooms.last_message_type ELSE excluded.last_message_type END,
+                   last_message = CASE WHEN excluded.encrypted = 1 OR ?15 THEN rooms.last_message ELSE excluded.last_message END,
+                   last_message_type = CASE WHEN excluded.encrypted = 1 OR ?15 THEN rooms.last_message_type ELSE excluded.last_message_type END,
+                   last_message_author = CASE WHEN ?15 THEN rooms.last_message_author ELSE COALESCE(excluded.last_message_author, rooms.last_message_author) END,
                    last_message_ts = COALESCE(excluded.last_message_ts, rooms.last_message_ts),
                    avatar_etag = COALESCE(excluded.avatar_etag, rooms.avatar_etag),
                    updated_at = excluded.updated_at,
-                   last_message_author = COALESCE(excluded.last_message_author, rooms.last_message_author),
                    last_encrypted = CASE WHEN excluded.encrypted = 1 THEN COALESCE(excluded.last_encrypted, rooms.last_encrypted) ELSE NULL END
                  WHERE excluded.updated_at >= rooms.updated_at",
                 params![
                     r.rid, r.kind, r.name, r.display_name, r.encrypted, r.read_only, r.dm_other_uid,
                     r.last_message, r.last_message_type, r.last_message_ts, r.avatar_etag, r.updated_at,
-                    r.last_message_author, r.last_encrypted
+                    r.last_message_author, r.last_encrypted, r.keep_preview
                 ],
             )
             .expect("upsert room");
@@ -639,8 +656,9 @@ impl Writer<'_> {
     pub fn upsert_subscription(&mut self, s: &Subscription) {
         self.conn
             .execute(
-                "INSERT INTO subscriptions (rid, sub_id, unread, mentions, group_mentions, alert, open, favorite, last_seen, updated_at, e2e_key, roles)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+                "INSERT INTO subscriptions (rid, sub_id, unread, mentions, group_mentions, alert, open, favorite, last_seen, updated_at, e2e_key, roles,
+                                            group_id, group_name, group_rank)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
                  ON CONFLICT(rid) DO UPDATE SET
                    sub_id = COALESCE(excluded.sub_id, subscriptions.sub_id),
                    unread = excluded.unread,
@@ -652,11 +670,14 @@ impl Writer<'_> {
                    last_seen = excluded.last_seen,
                    updated_at = excluded.updated_at,
                    e2e_key = COALESCE(excluded.e2e_key, subscriptions.e2e_key),
-                   roles = excluded.roles
+                   roles = excluded.roles,
+                   group_id = excluded.group_id,
+                   group_name = excluded.group_name,
+                   group_rank = excluded.group_rank
                  WHERE excluded.updated_at >= subscriptions.updated_at",
                 params![
                     s.rid, s.sub_id, s.unread, s.mentions, s.group_mentions, s.alert, s.open, s.favorite,
-                    s.last_seen, s.updated_at, s.e2e_key, s.roles
+                    s.last_seen, s.updated_at, s.e2e_key, s.roles, s.group_id, s.group_name, s.group_rank
                 ],
             )
             .expect("upsert subscription");

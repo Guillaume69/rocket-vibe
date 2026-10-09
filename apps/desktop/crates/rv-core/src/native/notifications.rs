@@ -306,6 +306,7 @@ mod tests {
     async fn native_notification_actions_reopen_and_deduplicate_without_crossing_memberships() {
         let f: Value = serde_json::from_str(include_str!("../../../../../../docs/protocol/v1.fixture.json")).unwrap();
         let info = SessionInfo {
+            mattermost: None,
             base_url: "http://127.0.0.1:9/native".into(),
             user_id: "bob".into(),
             username: "bob".into(),
@@ -409,6 +410,7 @@ mod tests {
     async fn native_preferences_thread_replies_and_account_scope_survive_dispatch() {
         let f: Value = serde_json::from_str(include_str!("../../../../../../docs/protocol/v1.fixture.json")).unwrap();
         let info = SessionInfo {
+            mattermost: None,
             base_url: "http://127.0.0.1:9/native".into(),
             user_id: "bob".into(),
             username: "bob".into(),

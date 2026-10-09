@@ -249,17 +249,17 @@ struct RoomListView: View {
 /// sidebar's, and the sample gallery's.
 struct RoomSections: View {
     let groups: [RoomGroup]
-    let collapsed: Set<RoomSection>
-    let toggle: (RoomSection) -> Void
+    let collapsed: Set<String>
+    let toggle: (String) -> Void
 
     var body: some View {
         let titled = groups.count > 1
-        ForEach(groups, id: \.section) { group in
+        ForEach(groups, id: \.key) { group in
             if titled {
-                Section(isExpanded: Binding(get: { !collapsed.contains(group.section) }, set: { _ in toggle(group.section) })) {
+                Section(isExpanded: Binding(get: { !collapsed.contains(group.key) }, set: { _ in toggle(group.key) })) {
                     rows(group.rooms)
                 } header: {
-                    Text("\(title(group.section)) · \(group.rooms.count)")
+                    Text("\(title(group)) · \(group.rooms.count)")
                         .font(.vibe(11.5, .heavy))
                         .textCase(.uppercase)
                         .foregroundStyle(Vibe.muted)
@@ -276,10 +276,12 @@ struct RoomSections: View {
         }
     }
 
-    func title(_ section: RoomSection) -> String {
-        switch section {
+    func title(_ group: RoomGroup) -> String {
+        switch group.section {
         case .unread: return L("rooms.section_unread")
         case .favorites: return L("rooms.section_favorites")
+        case .group: return group.title ?? ""
+
         case .channels: return L("rooms.section_channels")
         case .direct: return L("rooms.section_direct")
         }

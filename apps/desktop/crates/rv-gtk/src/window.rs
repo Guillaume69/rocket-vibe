@@ -610,6 +610,24 @@ impl AppWindow {
                         runtime().spawn(async move { session::request_email_code(&server, &user).await });
                     }
                 }
+                Err(e) if e.error.as_deref() == Some(rv_core::mattermost::KCHAT_SEVERAL_SERVERS) => {
+                    let token = this.login.password();
+                    let servers = on_tokio(async move { rv_core::mattermost::kchat_servers(&token).await }).await;
+                    this.pending.replace(None);
+                    this.login.set_busy(false);
+                    match servers {
+                        Ok(list) => {
+                            let list: Vec<(String, String)> = list.into_iter().map(|s| (s.name, s.url)).collect();
+                            this.login.show_kchat_servers(&list);
+                            this.login.set_error(Some(t("login.kchat_pick_server")));
+                        }
+                        Err(e) => this.login.set_error(Some(&describe(&e, asking, recovering))),
+                    }
+                }
+                Err(e) if e.status == 401 && this.login.server_kind() == rv_core::native::ServerKind::Kchat => {
+                    this.login.set_busy(false);
+                    this.login.set_error(Some(t("login.kchat_token_rejected")));
+                }
                 Err(e) => {
                     this.login.set_busy(false);
                     this.login.set_error(Some(&describe(&e, asking, recovering)));

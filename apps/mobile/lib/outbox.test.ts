@@ -10,7 +10,7 @@ function fakeStore(encrypted: ReadonlySet<string> = new Set()) {
   const messages: LocalMessage[] = [];
   const store: OutboxStore = {
     insertOutbox: async (id, rid, text, threadId) =>
-      void outbox.set(id, { id, rid, text, threadId, status: 'pending', attempts: 0 }),
+      void outbox.set(id, { id, rid, text, threadId, status: 'pending', attempts: 0, createdAt: Date.now() }),
     listToSend: async () => [...outbox.values()],
     markFailed: async (id, error) => {
       const l = outbox.get(id);

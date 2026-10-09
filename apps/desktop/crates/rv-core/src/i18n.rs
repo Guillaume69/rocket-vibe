@@ -957,6 +957,19 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("settings.title", "Paramètres", "Settings"),
     ("settings.edit_profile", "Mon profil", "My profile"),
     ("settings.status", "Statut", "Status"),
+    ("settings.sidebar", "Liste des conversations", "Conversation list"),
+    (
+        "settings.sidebar_help",
+        "Les réglages de votre compte, partagés avec les autres applications.",
+        "Your account's settings, shared with the other apps.",
+    ),
+    ("settings.name_format", "Afficher les noms", "Show names as"),
+    ("settings.name_full", "Prénom et nom", "First and last name"),
+    ("settings.name_nickname_full", "Surnom, sinon prénom et nom", "Nickname, else first and last name"),
+    ("settings.name_username", "Nom d'utilisateur", "Username"),
+    ("settings.name_locked", "Fixé par l'administrateur du serveur.", "Set by the server administrator."),
+    ("settings.dm_limit", "Messages personnels affichés", "Direct messages shown"),
+    ("settings.dm_all", "Tous", "All"),
     ("settings.presence", "Présence", "Presence"),
     ("settings.status_text", "Message de statut", "Status message"),
     ("settings.notifications", "Notifications", "Notifications"),
@@ -1077,6 +1090,21 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("login.kind_auto", "Automatique", "Automatic"),
     ("login.kind_rocketchat", "Rocket.Chat", "Rocket.Chat"),
     ("login.kind_rocketvibe", "RocketVibe", "RocketVibe"),
+    ("login.kind_mattermost", "Mattermost", "Mattermost"),
+    ("login.kind_kchat", "kChat", "kChat"),
+    ("login.kchat_token", "Jeton d'API Infomaniak", "Infomaniak API token"),
+    ("login.kchat_server", "Serveur kChat", "kChat server"),
+    ("login.kchat_token_rejected", "Jeton refusé par kChat", "Token rejected by kChat"),
+    (
+        "login.kchat_pick_server",
+        "Ce compte a plusieurs serveurs kChat : choisissez-en un",
+        "This account has several kChat servers: pick one",
+    ),
+    (
+        "login.kchat_help",
+        "Collez un jeton d'API Infomaniak (manager.infomaniak.com, Jetons d'API)",
+        "Paste an Infomaniak API token (manager.infomaniak.com, API tokens)",
+    ),
     (
         "login.probe_no_password",
         "Ce serveur n'accepte pas la connexion par mot de passe",
@@ -2086,7 +2114,7 @@ pub fn call_summary(kind: &str, param: &str) -> Option<String> {
         "rv-call-missed" => t("voice_call.missed").to_owned(),
         "rv-call-declined" => t("voice_call.declined").to_owned(),
         "rv-call-cancelled" => t("voice_call.cancelled").to_owned(),
-        "rv-call-answered" => match param.parse::<u64>() {
+        "rv-call-answered" | "videoconf-ended" => match param.parse::<u64>() {
             Ok(seconds) => tf("voice_call.answered_for", &[("d", &call_duration(seconds))]),
             Err(_) => t("voice_session.call").to_owned(),
         },
@@ -2156,6 +2184,7 @@ mod tests {
         assert_eq!(call_summary("rv-call-missed", "").as_deref(), Some("📞 Missed call"));
         assert_eq!(call_summary("rv-call-answered", "754").as_deref(), Some("📞 Call · 12 min"));
         assert_eq!(call_summary("rv-call-answered", "").as_deref(), Some("📞 Call"));
+        assert_eq!(call_summary("videoconf-ended", "2887").as_deref(), Some("📞 Call · 48 min"));
         assert_eq!(call_summary("rv-call-ringing", "").as_deref(), Some("📞 Calling…"));
         assert_eq!(call_summary("uj", ""), None);
         assert_eq!(system_message("rv-call-declined", ""), "📞 Declined call");

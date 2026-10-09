@@ -95,6 +95,8 @@ export type LocalRoom = {
    */
   lastMessageType: string | null;
   lastMessageTs: number | null;
+  /** The last message is not known (Mattermost: no preview fetched): the stored one stays. */
+  keepPreview?: boolean;
   /** `avatarETag`: version of the room photo, cache-buster for its URL. */
   avatarEtag: string | null;
   updatedAt: number;
@@ -117,6 +119,9 @@ export type LocalSubscription = {
   e2eKeyId: string | null;
   /** My roles in the room, serialized; `null` if the document carries none. */
   roles: string | null;
+  groupId: string | null;
+  groupName: string | null;
+  groupRank: number | null;
   updatedAt: number;
 };
 
@@ -336,6 +341,9 @@ export function toSubscription(raw: Record<string, unknown>): LocalSubscription 
     roles: Array.isArray(raw.roles)
       ? JSON.stringify(raw.roles.filter((r): r is string => typeof r === 'string'))
       : null,
+    groupId: null,
+    groupName: null,
+    groupRank: null,
     updatedAt: toEpoch(raw._updatedAt) ?? 0,
   };
 }

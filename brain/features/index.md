@@ -16,6 +16,7 @@ two-way parity tracker is [../parity.md](../parity.md). Back to
 | Doc | What's here |
 |---|---|
 | [login-and-servers.md](login-and-servers.md) | Server probe, password login, 2FA (TOTP, email, password), optimistic session resume, revocation on a real 401, deferred sign-out; one account per server on mobile, several per server on desktop. |
+| [mattermost-and-kchat.md](mattermost-and-kchat.md) | Mattermost and kChat (Infomaniak) on the three apps: kinds and detection, login with MFA, Infomaniak OAuth or API token, WebSocket and Pusher real time, derived unread counts, `pending_post_id` outbox, bearer media; on desktop a backend inside `Session`. |
 | [offline-and-sync.md](offline-and-sync.md) | Catch-up layers (global delta, history, per-room `chat.syncMessages`, reconciliation), mobile hot rooms and connection generations, write queue and outbox, retention, desktop's `__my_messages__` stream, known differences. |
 | [settings.md](settings.md) | What is stored where, the same clickable categories in all three apps (mobile pages, GTK sidebar dialog, SwiftUI overlay): account, notifications, language, encryption, security, devices, bots, workflows, accounts, app. |
 | [bots.md](bots.md) | RocketVibe server: bot accounts owned by a person, API keys shown once, scopes and the API each opens (served by the server), the BOT badge, the instance switch, kept out of encrypted rooms. |

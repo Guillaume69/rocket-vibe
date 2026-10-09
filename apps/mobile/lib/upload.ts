@@ -13,6 +13,7 @@
  * module stays pure.
  */
 
+import { knownUserId } from './mediaAuth.ts';
 import { sameOrigin } from './origin.ts';
 import type { RestClient } from './rest.ts';
 import {nativeAvatarUri} from './nativeAvatars.ts';
@@ -189,6 +190,8 @@ export async function setAvatar(options: {
  */
 export function protectedFileUrl(client: RestClient, path: string): string {
   if(client.kind==='rocketvibe')return nativeFileUri(client,path);
+  // Bearer header added at the image or download site: `lib/mediaAuth.ts`.
+  if(client.kind==='mattermost'||client.kind==='kchat')return path.startsWith('http')?path:`${client.baseUrl}${path}`;
   const absolute = path.startsWith('http') ? path : `${client.baseUrl}${path}`;
   if (client.auth === null) return absolute;
   if (!sameOrigin(absolute, client.baseUrl)) return absolute;
@@ -240,6 +243,13 @@ export function avatarUrl(
   },
 ): string | null {
   if (client.kind === 'rocketvibe') return target.rid?null:nativeAvatarUri(client,target.etag);
+  if (client.kind === 'mattermost' || client.kind === 'kchat') {
+    if (target.rid) return null;
+    const id = target.uid || (target.username ? knownUserId(client.baseUrl, target.username) : null);
+    if (!id) return null;
+    const version = typeof target.etag === 'string' && target.etag !== '' ? `?_=${encodeURIComponent(target.etag)}` : '';
+    return `${client.baseUrl}/api/v4/users/${encodeURIComponent(id)}/image${version}`;
+  }
   const { uid, username, rid, etag } = target;
   let path: string;
   if (typeof username === 'string' && username !== '') {

@@ -7,6 +7,8 @@ section here.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-10-09
+
 ### Added
 
 - A pill over the top of a room (GTK and SwiftUI), "N new messages since HH:MM", while the
@@ -30,6 +32,27 @@ section here.
   form a workflow posts shows as a card in the room, with an Answer dialog for its recipient,
   or for any member of the room when it names none, and who answered once done. Workflow
   commands join the room's command list.
+- Mattermost servers (GTK and SwiftUI): sign in with your username and password (and
+  your MFA code), then read and write as on Rocket.Chat: rooms, unread counts and
+  mentions, live messages and notifications, who is typing, presence, threads, files,
+  reactions, edits, deletions, pins, stars, search in a room, room information and
+  profiles. Push is not available on these servers.
+- kChat (Infomaniak): choose kChat and paste an Infomaniak API token; no address to
+  type. An account with several kChat servers is asked which one.
+- Mattermost and kChat: the server's custom emoji show in messages, reactions, the picker
+  and completion.
+- kChat: a room read in another kChat app is marked read here at once.
+- Mattermost and kChat: people show under your account's name setting (first and last
+  name by default on kChat), with their status emoji; conversations you closed in kChat
+  stay hidden, and only as many direct messages as your account asks are listed. Both
+  settings are in My account, shared with kChat's own apps. Integrations' cards show.
+- kChat: start a kMeet call from a room and join one from its card, as with Rocket.Chat's
+  calls.
+- Mattermost and kChat: the room list follows your sidebar, with your own categories as
+  sections in your order and your favourites; a right click on a room favourites it on
+  the server too.
+- The sign-in screen's server type offers Mattermost and kChat; in automatic mode both
+  are recognised on their own.
 
 ### Fixed
 
@@ -1025,7 +1048,8 @@ the mobile app (see `docs/PARITY.md`).
   `rocketvibe://` links) and zip; a macOS app in a DMG, signed with a Developer ID and
   notarized by Apple.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.11.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.12.0...HEAD
+[0.12.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.11.0...desktop-v0.12.0
 [0.11.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.10.0...desktop-v0.11.0
 [0.10.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.9.0...desktop-v0.10.0
 [0.9.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.8.0...desktop-v0.9.0

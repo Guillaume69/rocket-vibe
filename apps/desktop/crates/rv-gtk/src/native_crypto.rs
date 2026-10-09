@@ -580,6 +580,7 @@ mod tests {
         let _enter = crate::runtime().enter();
         let session = NativeSession::start(
             rv_core::session::SessionInfo {
+                mattermost: None,
                 base_url: "http://127.0.0.1:9".into(),
                 user_id: "alice".into(),
                 username: "alice".into(),

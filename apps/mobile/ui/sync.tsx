@@ -25,6 +25,7 @@ import {mountProviderProfiles} from '../lib/providerProfiles.ts';
 import {VoiceNative} from '../modules/voice/index.ts';
 import {mountProviderCalls} from '../lib/providerCalls.ts';
 import {mountProviderEmojis} from '../lib/providerEmojis.ts';
+import {mountDisplayNames} from '../lib/displayNames.ts';
 import {mountNativePreviews} from '../lib/nativePreviews.ts';
 import { createContext, useContext, useEffect, useState } from 'react';
 import { afterSystemPicker } from './roomCover.ts';
@@ -271,6 +272,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
     );
     const unprofile=mountProviderProfiles(client,provider);
     const uncalls=mountProviderCalls(client,provider);
+    const unnames=mountDisplayNames(provider.displayNames);
     const ddp = provider.listener;
     let reconnector: Reconnector | null = null;
     let onAbort: (() => void) | null = null;
@@ -293,7 +295,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
     // `push.token` is idempotent, and the new token is kept in the Keystore like
     // the registered one: it is the one logout will have to unregister.
     const stopTokenListener = onTokenRotation((token) => {
-      if (discarded) return;
+      if (discarded || !provider.capabilities.push) return;
       void rememberPushToken(token).catch(() => {});
       void registerToken(client, token, 'gcm').catch(() => {});
     });
@@ -447,8 +449,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       // After "ready": E2EE resume off the critical path. If a key was in the
       // Keystore, decrypt the messages already loaded; the UI (live query)
       // refreshes by itself.
-      e2e
-        .resume()
+      (provider.capabilities.e2ee ? e2e.resume() : Promise.resolve(false))
         .then(async (ok) => {
           if (!ok) {
             // Locked, and yet the database may hold E2E plaintext: what an
@@ -524,23 +525,24 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         files.process().catch(() => {});
         // Presence: full snapshot on each connection setup, then the stream.
         // Decoration: a failure never counts as a setup failure.
-        void presence.load(client);
+        if (provider.loadPresence) void provider.loadPresence().then((photo) => presence.replace(photo)).catch(() => {});
+        else if (provider.capabilities.presence) void presence.load(client);
         // Custom emoji list: refreshed ONCE per session (like the push
         // token), not on every network flap: it is a full download and a
         // rewrite of the whole table. The SQLite version already served the
         // first render; new emojis appear on the next render.
         // `isDiscarded` keeps a late fetch from re-arming the index of a
         // server we left. Failure → not armed, retried on the next flap.
-        if (!syncedEmojis) {
+        if (!syncedEmojis && provider.capabilities.customEmojis) {
           syncedEmojis = true;
-          syncCustomEmojis(client, emojiStore, isDiscarded).catch(() => {
+          syncCustomEmojis(client, emojiStore, isDiscarded, provider.listCustomEmojis).catch(() => {
             syncedEmojis = false;
           });
         }
         // Push token lifecycle (6.1): registered on the session's first
         // connection setup. Idempotent on the server; a failure is retried
         // on the next setup.
-        if (!registeredPushToken) {
+        if (!registeredPushToken && provider.capabilities.push) {
           registeredPushToken = true;
           getFcmToken()
             .then((r) => {
@@ -712,6 +714,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       unmountUsage();
       unprofile();
       uncalls();
+      unnames();
       ddp.close();
       ddp.reset();
     };

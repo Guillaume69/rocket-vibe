@@ -43,6 +43,10 @@ The desktop applies the same exception with the same bounds (2026-09-30), and th
 - **Linux** (`rv-gtk/src/call_window.rs`): no embedded engine, because distributions build WebKitGTK without WebRTC (`RTCPeerConnection` absent on Fedora 44 and Arch). The call opens as an app window (`--app=<url>`) of the first Chromium-family browser found in `PATH` (Chromium, Chrome, Brave, Edge, Vivaldi), with a dedicated profile under the user data dir and `--class=rocket-vibe-call`. Because the browser ignores `--class` on Wayland and derives an app id from the URL, `name_window` writes hidden `.desktop` entries (`call::app_window_id`, read from Chromium's `set_app_id`) so the window gets the app's icon, and removes stale ones. No such browser: the default browser takes the call and a toast says so.
 - Any failure to open the window falls back to the browser with the `call.in_browser` toast.
 
+## kChat (kMeet)
+
+kChat calls are kMeet meetings its server opens (`docs/MATTERMOST.md` §6.5): `POST /conferences {channel_id}` starts one and posts its `custom_call`, `POST /conferences/<id>/answer` joins one, both answering the meeting's `url` and a `jwt`. Both apps work as on Rocket.Chat: the room header's call button starts, the call card's Join answers the post's `conference_id`, and the call view opens `url?jwt=`. Since any member can post a `custom_call` with any URL, only an answer's URL on `https://kmeet.infomaniak.com` is opened, so the view's origin lock holds kMeet's origin. Mobile: `Provider.calls` (`providers/mattermost/kmeet.ts`), bound by `lib/providerCalls.ts`; desktop: `Session::start_call`, `join_call`, `call_link` (`mattermost::actions::start_conference`, `answer_conference`). An ended call is "📞 Call · duration".
+
 ## Parity
 
 Start, join, call card with Join, profile Call: both apps ([parity](../parity.md) §12). Desktop only: meeting info dialog with the token-free link. The origin lock is the same rule on Android, Windows and macOS; Linux delegates to a browser.

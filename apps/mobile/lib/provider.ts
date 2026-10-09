@@ -42,7 +42,7 @@ export type SyncChange =
  * A session's server type. Persisted with it: it decides which driver to
  * instantiate at startup. Older sessions stay Rocket.Chat.
  */
-export type ProviderKind = 'rocketchat' | 'rocketvibe';
+export type ProviderKind = 'rocketchat' | 'rocketvibe' | 'mattermost' | 'kchat';
 
 export type ProviderIdentity = {
   kind: ProviderKind;
@@ -62,7 +62,7 @@ export type ProviderError = {
   twoFactorChallenge: boolean;
 };
 
-const KINDS: readonly ProviderKind[] = ['rocketchat', 'rocketvibe'];
+const KINDS: readonly ProviderKind[] = ['rocketchat', 'rocketvibe', 'mattermost', 'kchat'];
 
 /**
  * Brings a stored value back to a known `ProviderKind`. Sessions from before
@@ -175,6 +175,14 @@ export interface Translator {
  * Secondary reads (profile, search, room info, spotlight) will be added here
  * when their screens are routed; they carry DTOs we don't define in advance.
  */
+/** How people are named, and how many direct conversations the list keeps. */
+export type SidebarSettings = {
+  nameFormat: 'username' | 'nickname_full_name' | 'full_name';
+  /** The server imposes its format: the choice is shown, not offered. */
+  nameLocked: boolean;
+  dmLimit: number;
+};
+
 export interface ProviderActions {
   /** Decimal positions stay strings; a timer captures this opening membership. */
   roomReadState?(rid:string):Promise<RoomReadState|null>;
@@ -320,7 +328,20 @@ export interface Provider {
   readonly capabilities: Capabilities;
   /** Temporary results, normalised for the existing renderer. */
   searchMessages?(rid:string,text:string):Promise<LocalMessage[]>;
+  /** Everyone's presence at once, when the protocol reads it its own way (`capabilities.presence`). */
+  loadPresence?(): Promise<ReadonlyArray<{ user: { id: string }; status: import('./presence.ts').PresenceStatus }>>;
   /** Presentation data of the existing info sheet, supplied by each protocol. */
+  /** The account's own conversation list settings, kept on the server (Mattermost). */
+  sidebarSettings?: {
+    read(): Promise<SidebarSettings>;
+    write(change: Partial<Pick<SidebarSettings, 'nameFormat' | 'dmLimit'>>): Promise<void>;
+  };
+  /** Conferences of the server's own (kChat's kMeet), in place of Rocket.Chat's `video-conference.*`. */
+  calls?: import('./call.ts').NativeCalls;
+  /** People's names by user id when the server sets them apart from usernames (`lib/displayNames.ts`). */
+  displayNames?: import('./displayNames.ts').DisplayNameSource;
+  /** The server's custom emoji, when it does not speak Rocket.Chat's `emoji-custom.list`. */
+  listCustomEmojis?(): Promise<import('./customEmojis.ts').CustomEmoji[]>;
   readProfile?(target:import('./profilePreload.ts').ProfileParams):Promise<Record<string,unknown>|undefined>;
   /** Server administration (`lib/admin.ts`), when `capabilities.administration`. */
   readonly admin?: import('./admin.ts').ProviderAdmin;

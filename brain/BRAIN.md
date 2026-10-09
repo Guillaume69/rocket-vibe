@@ -63,6 +63,7 @@ Each feature doc covers mobile and desktop, and says where they differ.
 | Doc | What's here |
 |---|---|
 | [login-and-servers.md](features/login-and-servers.md) | Server probe, login, 2FA, session resume and revocation, multi-server and multi-account. |
+| [mattermost-and-kchat.md](features/mattermost-and-kchat.md) | Mattermost and kChat servers on the three apps: login, real time, sync, sending, media. |
 | [offline-and-sync.md](features/offline-and-sync.md) | Local-first sync: catch-up layers, hot rooms, write queue and outbox, retention, reconnection. |
 | [room-list.md](features/room-list.md) | Unread / Favourites / Channels / DMs sections, ordering, previews, badges, presence. |
 | [room-view.md](features/room-view.md) | History paging, live messages, grouping, markdown, system messages, cards, jumps, unread bar. |

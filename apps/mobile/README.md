@@ -2,7 +2,8 @@
 
 Third-party **Rocket.Chat** mobile client, **Android first**, in Expo / React Native.
 Goal: a client **faster and more reliable** than the official app, for personal use
-on a self-hosted Rocket.Chat server.
+on a self-hosted Rocket.Chat server. It also signs in to Mattermost and kChat servers
+(`../../docs/MATTERMOST.md`).
 
 The `feature/rocketvibe-server` branch adds a [pilot mobile path](../../docs/NATIVE_MOBILE_PILOT.md)
 for the RocketVibe Rust server: login picks the account's provider and the same

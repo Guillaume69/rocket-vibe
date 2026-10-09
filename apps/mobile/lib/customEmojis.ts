@@ -160,11 +160,16 @@ export async function syncCustomEmojis(
   client: ReadClient,
   store: EmojiStore,
   isDiscarded: () => boolean = () => false,
+  list?: () => Promise<CustomEmoji[]>,
 ): Promise<void> {
-  const response = await client.get<ListResponse>('emoji-custom.list');
-  const raw = response.emojis?.update;
-  if (!Array.isArray(raw)) return;
-  const entries = raw.map(normalizeEntry).filter((e): e is CustomEmoji => e !== null);
+  let entries: CustomEmoji[];
+  if (list !== undefined) entries = await list();
+  else {
+    const response = await client.get<ListResponse>('emoji-custom.list');
+    const raw = response.emojis?.update;
+    if (!Array.isArray(raw)) return;
+    entries = raw.map(normalizeEntry).filter((e): e is CustomEmoji => e !== null);
+  }
   await store.replace(entries);
   if (isDiscarded()) return;
   setCustomEmojis(client.baseUrl, entries);

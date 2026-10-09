@@ -245,6 +245,7 @@ impl Pilot {
         let root = Issuer::generate(&identity.instance_id, user).unwrap().root().clone();
         let session = native::NativeSession::start(
             SessionInfo {
+                mattermost: None,
                 base_url: server.url.as_str().into(),
                 user_id: user.into(),
                 username: "alice".into(),

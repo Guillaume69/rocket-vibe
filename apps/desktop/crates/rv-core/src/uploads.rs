@@ -20,7 +20,8 @@ use tokio::sync::broadcast;
 use tokio::task::AbortHandle;
 
 use crate::actions::ServerSettings;
-use crate::rest::{CallOptions, RestClient, RestError};
+use crate::mattermost::sync::MmSync;
+use crate::rest::{Api, CallOptions, RestClient, RestError};
 use crate::store::{Store, UploadRow};
 use crate::sync::SyncEngine;
 
@@ -283,6 +284,9 @@ impl Uploads {
     }
 
     async fn post(self: &Arc<Self>, row: &UploadRow) -> Result<Outcome, RestError> {
+        if let Some(mm) = self.sync.mattermost().cloned() {
+            return self.post_mattermost(row, &mm).await;
+        }
         if self.store.room_encrypted(&row.rid) {
             return self.post_encrypted(row).await;
         }
@@ -326,6 +330,47 @@ impl Uploads {
             && !self.abandoned.lock().unwrap().contains(&row.id)
         {
             self.sync.ingest_messages(std::slice::from_ref(message));
+        }
+        Ok(Outcome::Done)
+    }
+
+    /// Mattermost's two steps: `POST /files` stores the bytes, a post with
+    /// `file_ids` shows them. The file id is persisted between the two, as on
+    /// Rocket.Chat, and the store asked before a replay.
+    async fn post_mattermost(self: &Arc<Self>, row: &UploadRow, mm: &MmSync) -> Result<Outcome, RestError> {
+        let file_id = match &row.file_id {
+            Some(file_id) if self.already_posted(&row.rid, file_id).await => {
+                self.settle(row);
+                return Ok(Outcome::Done);
+            }
+            Some(file_id) => file_id.clone(),
+            None => {
+                let bytes = tokio::fs::read(&row.path)
+                    .await
+                    .map_err(|e| RestError::incomplete(&format!("{}: {e}", row.path)))?;
+                let texts = vec![("channel_id".to_owned(), row.rid.clone())];
+                let upload = Upload { bytes, name: row.name.clone(), mime: row.mime.clone(), texts };
+                match self.send_bytes(row, upload).await {
+                    Ok(file_id) => file_id,
+                    Err(e) if e.status == 0 => return Ok(Outcome::Offline),
+                    Err(e) => return Err(e),
+                }
+            }
+        };
+        if self.abandoned.lock().unwrap().contains(&row.id) {
+            return Ok(Outcome::Done);
+        }
+        let body = json!({"channel_id": row.rid, "message": row.caption.clone().unwrap_or_default(),
+            "root_id": row.tmid.clone().unwrap_or_default(), "file_ids": [file_id],
+            "pending_post_id": crate::mattermost::pending_post_id(mm.me(), &row.id)});
+        let post = match self.rest.post("posts", CallOptions::body(body)).await {
+            Ok(v) => v,
+            Err(e) if e.status == 0 => return Ok(Outcome::Offline),
+            Err(e) => return Err(e),
+        };
+        self.settle(row);
+        if !self.abandoned.lock().unwrap().contains(&row.id) {
+            mm.ingest(&[post]);
         }
         Ok(Outcome::Done)
     }
@@ -420,18 +465,18 @@ impl Uploads {
     /// The bytes, in a task of their own so that Discard can cut them off.
     async fn send_bytes(self: &Arc<Self>, row: &UploadRow, upload: Upload) -> Result<String, RestError> {
         let (this, task_row) = (self.clone(), row.clone());
+        let mattermost = self.rest.api() == Api::Mattermost;
         let task = tokio::spawn(async move {
             let (progress_of, progress_row) = (this.clone(), task_row.clone());
+            let (path, field) = if mattermost {
+                ("files".to_owned(), "files")
+            } else {
+                (format!("rooms.media/{}", task_row.rid), "file")
+            };
             this.rest
-                .upload(
-                    &format!("rooms.media/{}", task_row.rid),
-                    "file",
-                    upload.bytes,
-                    &upload.name,
-                    &upload.mime,
-                    upload.texts,
-                    move |sent, total| progress_of.set_progress(&progress_row, sent as f64 / total.max(1) as f64),
-                )
+                .upload(&path, field, upload.bytes, &upload.name, &upload.mime, upload.texts, move |sent, total| {
+                    progress_of.set_progress(&progress_row, sent as f64 / total.max(1) as f64)
+                })
                 .await
         });
         self.tasks.lock().unwrap().insert(row.id.clone(), task.abort_handle());
@@ -441,6 +486,7 @@ impl Uploads {
         };
         let file_id = response
             .pointer("/file/_id")
+            .or_else(|| response.pointer("/file_infos/0/id"))
             .and_then(Value::as_str)
             .map(str::to_owned)
             .ok_or_else(|| RestError::incomplete("rooms.media: no file id"))?;
@@ -452,11 +498,13 @@ impl Uploads {
         if self.store.file_posted(rid, file_id) {
             return true;
         }
-        let Some(kind) = self.store.room_kind(rid) else { return false };
-        if self.sync.load_history(rid, &kind, None).await.is_err() {
-            return false;
-        }
-        self.store.file_posted(rid, file_id)
+        let read = if self.sync.mattermost().is_some() {
+            self.sync.catch_up_room(rid).await
+        } else {
+            let Some(kind) = self.store.room_kind(rid) else { return false };
+            self.sync.load_history(rid, &kind, None).await.map(|_| ())
+        };
+        read.is_ok() && self.store.file_posted(rid, file_id)
     }
 
     fn settle(&self, row: &UploadRow) {

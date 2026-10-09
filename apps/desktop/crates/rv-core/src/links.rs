@@ -157,6 +157,7 @@ mod tests {
     use super::*;
     fn account(user: &str, native: bool) -> SessionInfo {
         SessionInfo {
+            mattermost: None,
             base_url: "https://chat.example.org/native".into(),
             user_id: user.into(),
             username: user.into(),

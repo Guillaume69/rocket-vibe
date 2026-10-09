@@ -162,6 +162,20 @@
       "when": 1791489992776,
       "tag": "0022_message_form",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1791507885069,
+      "tag": "0023_sidebar_groups",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1791507898255,
+      "tag": "0024_custom_emoji_uri",
+      "breakpoints": true
     }
   ]
 }

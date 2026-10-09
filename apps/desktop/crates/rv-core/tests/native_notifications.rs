@@ -144,6 +144,7 @@ async fn actual_live_socket_emits_once_and_scopes_persisted_notification_replies
         .unwrap();
     drop(cache);
     let info = rv_core::session::SessionInfo {
+        mattermost: None,
         base_url: server.url.to_string(),
         user_id: "bob".into(),
         username: "bob".into(),
@@ -214,6 +215,7 @@ fn offline_reply(info: &rv_core::session::SessionInfo, path: &Path) -> String {
 
 fn reply_info(server: &FakeHttp) -> rv_core::session::SessionInfo {
     rv_core::session::SessionInfo {
+        mattermost: None,
         base_url: server.url.to_string(),
         user_id: "bob".into(),
         username: "bob".into(),
@@ -228,6 +230,7 @@ fn notification_navigation_reopens_and_fences_slow_capture_old_ack_and_cancellat
     let queue = NavigationQueue::new(&config);
     let cache = store();
     let info = rv_core::session::SessionInfo {
+        mattermost: None,
         base_url: "http://127.0.0.1:9".into(),
         user_id: "bob".into(),
         username: "bob".into(),
@@ -411,6 +414,7 @@ async fn durable_notification_click_revalidates_after_restart_and_keeps_only_tra
 #[test]
 fn concurrent_cold_notification_replies_keep_one_durable_id() {
     let info = rv_core::session::SessionInfo {
+        mattermost: None,
         base_url: "http://127.0.0.1:9".into(),
         user_id: "bob".into(),
         username: "bob".into(),

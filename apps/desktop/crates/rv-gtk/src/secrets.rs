@@ -234,6 +234,7 @@ pub async fn save_native_login(record: &rv_core::native::credentials::Record) ->
 pub async fn complete_native_login(saved: &rv_core::native::authentication::LoginChallenge) {
     // Read the actually saved account; renewal may have advanced its bearer.
     let info = SessionInfo {
+        mattermost: None,
         base_url: saved.base_url.clone(),
         user_id: saved.user.id.clone(),
         username: saved.user.username.clone(),

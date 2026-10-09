@@ -2,7 +2,7 @@
 
 What a user can do in each app, tracked both ways: the Android app (`apps/mobile`),
 the GTK app (`apps/desktop`, Linux, Windows, macOS) and the SwiftUI app
-(`apps/desktop/macos`, over the same rv-core). The server-delivered web app (`apps/web`) uses GTK as its requested visual reference. A row
+(`apps/desktop/macos`, over the same rv-core). Neither app is the reference. A row
 that is not `done` or `mapped` in an app is debt that app owes, and is listed again
 under [Open debt](#open-debt). The rule that keeps this file true is in `CLAUDE.md`
 ("Parity"); the mechanism behind each row is in the linked feature doc.
@@ -25,7 +25,10 @@ beta does.
 | 2FA by email: send and resend the code | done | partial | partial | done | Desktop requests the code automatically when the server has not sent one, with no resend control. Web: Native provider: see [web-client](features/web-client.md). |
 | Session in the system keychain, resumed at launch; a 401 on an authenticated call signs out | done | done | done | mapped | Web: Native browser storage/HTTP/socket, HTTPS links, downloads and live-tab alerts; see web-client.md. |
 | Server probe before login (`/api/info`, `settings.public`) | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
-| Choose the server type at sign-in (automatic, Rocket.Chat, RocketVibe) | done | done | done | n/a | SwiftUI checked by the Linux build of RocketVibeKit and the macOS CI build only. Web: One account on the serving origin, explicit user decision. |
+| Choose the server type at sign-in (automatic, Rocket.Chat, RocketVibe, Mattermost, kChat) | done | done | done | n/a | SwiftUI checked by the Linux build of RocketVibeKit and the macOS CI build only. Web: One account on the serving origin, explicit user decision. |
+| Mattermost server: login with MFA, rooms, history, threads, live messages, unread, who types, presence, text and files, reactions, edits, deletions, pins, stars, search - [mattermost-and-kchat](features/mattermost-and-kchat.md) | done | done | done | n/a | Push and quotes are not mapped on that server. Mobile: stars changed in another client show only once the room's starred list is read again. SwiftUI: the Swift parts (sign-in and kChat server picker, category sections, ended kMeet row) are checked by the Linux build of RocketVibeKit and the macOS CI build only. Web: Serving native origin only; external providers are outside the accepted web scope. |
+| kChat: a room read in another kChat client clears here at once (`badge_updated`) | done | done | done | n/a | Web: Serving native origin only; external providers are outside the accepted web scope. |
+| kChat server (Infomaniak): Infomaniak sign-in or API token, Pusher real time, team servers of the account | partial | partial | partial | n/a | Run on a real kChat account with an API token (mobile on the emulator, desktop core through `kchat-smoke`, GTK and SwiftUI on that same core). Mobile: "Sign in with Infomaniak" not yet run. GTK, SwiftUI: API token only, no "Sign in with Infomaniak" (its redirect is a custom URL scheme the desktop apps do not register). Web: Serving native origin only; external providers are outside the accepted web scope. |
 | Known servers offered on the login screen | done | done | done | n/a | Web: One account on the serving origin, explicit user decision. |
 | Several servers side by side, switch without signing out | done | done | done | n/a | One database per (server, account) everywhere. Web: One account on the serving origin, explicit user decision. |
 | Server rail: a button per account, "+" to add one, a dot on another account with unread | done | done | done | n/a | Other accounts read once a minute (mobile: in the foreground only). Mobile: a push lights the dot at once only where it reaches JS (iOS); Android waits for the next read. SwiftUI checked by the Linux build only. Web: One account on the serving origin, explicit user decision. |
@@ -43,6 +46,7 @@ beta does.
 | Encrypted rooms: padlock tile, "Encrypted message" preview | done | partial | partial | done | Desktop keeps the padlock tile once unlocked; mobile switches back to the room's tile. Web: Locked metadata; no encrypted content or sending. src/app.ts. |
 | Sync indicator while connecting or loading | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | Sections: Unread, Favourites, Channels, Direct messages | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
+| Mattermost and kChat sidebar categories as sections, in my sidebar order | done | done | done | n/a | SwiftUI: the view is checked by the macOS CI build only. Within a category the order stays latest activity first, not the server's manual or alphabetical sort. Web: Serving native origin only; external providers are outside the accepted web scope. |
 | Presence dot on DMs (`users.presence`, `user-status`) | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | System and video-call messages translated in previews | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | New conversation: `spotlight`, open a DM (`im.create`), join a channel (`channels.join`) | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
@@ -204,6 +208,10 @@ beta does.
 |---|---|---|---|---|---|
 | Start and join a Jitsi call (`video-conference.start`, `.join`), Rocket.Chat servers | done | done | done | n/a | Locked on the call's origin: mobile WebView, WebView2 on Windows, WKWebView on macOS; on Linux a Chromium app window, else the browser. Web: Native RocketVibe origin only; calls use LiveKit. |
 | Meeting information: the link without the token (`video-conference.info`) | missing | done | missing | n/a | Web: Native RocketVibe origin only; calls use LiveKit. |
+| kChat kMeet calls: start from the room, Join from the call card, ended call with its length | done | done | done | n/a | SwiftUI: checked by the macOS CI build only. Web: Serving native origin only; external providers are outside the accepted web scope. |
+| Mattermost and kChat people named under the account's name format, with their custom status emoji | done | done | done | n/a | SwiftUI: author labels and DM names come from rv-ffi; the views are checked by the macOS CI build only. Web: Serving native origin only; external providers are outside the accepted web scope. |
+| Mattermost and kChat lists only the conversations the account lists (closed ones hidden, the Direct Messages limit) | done | done | done | n/a | Web: Serving native origin only; external providers are outside the accepted web scope. |
+| Mattermost and kChat conversation list settings (name format, direct messages shown), synced with the account | done | done | done | n/a | SwiftUI: checked by the macOS CI build only. Web: Serving native origin only; external providers are outside the accepted web scope. |
 
 ## 12b. Voice (RocketVibe server) - [voice](features/voice.md)
 
@@ -287,10 +295,10 @@ beta does.
 What each app owes, from the tables above. Rows missing in all three are product
 gaps, listed last.
 
-- **Mobile**: several accounts per server; time and `@n` badge in the room list;
+- **Mobile**: kChat "Sign in with Infomaniak" run on a real account; Mattermost stars changed elsewhere, live; several accounts per server; time and `@n` badge in the room list;
   `mailto:` links; mentions of me highlighted; formatting toolbar; list
   continuation; removing my photo; logs folder; meeting information.
-- **GTK**: email 2FA resend; replay of an offline sign-out; padlock tile once
+- **GTK**: kChat "Sign in with Infomaniak"; email 2FA resend; replay of an offline sign-out; padlock tile once
   unlocked; DM avatar versions in the list; video reduction; reconciliation snapshot; catch-up of
   deletions in rooms already caught up; message retention.
 - **SwiftUI**: everything GTK owes, plus `-wal` / `-shm` cleanup on sign-out;

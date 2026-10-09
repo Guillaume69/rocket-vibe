@@ -46,7 +46,7 @@ type Callback<T> = RefCell<Vec<Box<dyn Fn(T)>>>;
 
 /// A row of the room list: a section title, or a room.
 enum RoomItem {
-    Header { section: Section, title: &'static str, collapsed: bool, count: usize },
+    Header { section: Section, title: String, collapsed: bool, count: usize },
     Room(Box<RoomRow>),
 }
 
@@ -66,15 +66,6 @@ fn section_header(title: &str, collapsed: bool, count: usize) -> gtk::Box {
 
 fn collapsed_file() -> std::path::PathBuf {
     glib::user_config_dir().join("rocket-vibe-rs").join("collapsed-sections")
-}
-
-fn section_key(section: Section) -> &'static str {
-    match section {
-        Section::Unread => "unread",
-        Section::Favorites => "favorites",
-        Section::Channels => "channels",
-        Section::Direct => "direct",
-    }
 }
 
 /// A right click on a room offers to star it, or to take the star away.
@@ -110,12 +101,9 @@ fn favorite_menu(widget: &gtk::Widget, session: Arc<Session>, rid: &str, favorit
     widget.add_controller(click);
 }
 
-fn load_collapsed() -> Vec<Section> {
+fn load_collapsed() -> Vec<String> {
     let saved = std::fs::read_to_string(collapsed_file()).unwrap_or_default();
-    [Section::Unread, Section::Favorites, Section::Channels, Section::Direct]
-        .into_iter()
-        .filter(|s| saved.lines().any(|l| l == section_key(*s)))
-        .collect()
+    saved.lines().filter(|l| !l.is_empty()).map(str::to_owned).collect()
 }
 
 pub struct ChatPage {
@@ -157,7 +145,7 @@ pub struct ChatPage {
     /// The rid shown at each position of the list; None for a section title.
     slots: RefCell<Vec<Option<String>>>,
     /// Sections folded in the room list, remembered across launches.
-    collapsed: RefCell<Vec<Section>>,
+    collapsed: RefCell<Vec<String>>,
     on_unread: Callback<usize>,
     suppress_selection: Cell<bool>,
     content_page: adw::NavigationPage,
@@ -215,11 +203,11 @@ impl ChatPage {
                     item.set_selectable(false);
                     item.set_activatable(true);
                     let header = section_header(title, *collapsed, *count);
-                    let (toggler, section) = (toggler.clone(), *section);
+                    let (toggler, section) = (toggler.clone(), section.clone());
                     let click = gtk::GestureClick::new();
                     click.connect_released(move |_, _, _, _| {
                         if let Some(toggle) = toggler.borrow().clone() {
-                            toggle(section);
+                            toggle(section.clone());
                         }
                     });
                     header.add_controller(click);
@@ -694,7 +682,7 @@ impl ChatPage {
             }
             let object = this.rooms_store.item(position).and_downcast::<glib::BoxedAnyObject>();
             let section = object.and_then(|o| match &*o.borrow::<RoomItem>() {
-                RoomItem::Header { section, .. } => Some(*section),
+                RoomItem::Header { section, .. } => Some(section.clone()),
                 RoomItem::Room(_) => None,
             });
             if let Some(section) = section {
@@ -1813,13 +1801,14 @@ impl ChatPage {
             let mut objects = Vec::new();
             let mut slots = Vec::new();
             for (section, members) in sections {
-                let collapsed = titled && self.collapsed.borrow().contains(&section);
+                let collapsed = titled && self.collapsed.borrow().contains(&section.key());
                 if titled {
-                    let title = match section {
-                        Section::Unread => t("rooms.section_unread"),
-                        Section::Favorites => t("rooms.section_favorites"),
-                        Section::Channels => t("rooms.section_channels"),
-                        Section::Direct => t("rooms.section_direct"),
+                    let title = match &section {
+                        Section::Unread => t("rooms.section_unread").to_owned(),
+                        Section::Favorites => t("rooms.section_favorites").to_owned(),
+                        Section::Group { name, .. } => name.clone(),
+                        Section::Channels => t("rooms.section_channels").to_owned(),
+                        Section::Direct => t("rooms.section_direct").to_owned(),
                     };
                     let count = members.len();
                     objects.push(glib::BoxedAnyObject::new(RoomItem::Header { section, title, collapsed, count }));
@@ -1869,18 +1858,18 @@ impl ChatPage {
     pub fn toggle_section(&self, section: Section) {
         {
             let mut collapsed = self.collapsed.borrow_mut();
-            match collapsed.iter().position(|s| *s == section) {
+            let key = section.key();
+            match collapsed.iter().position(|s| *s == key) {
                 Some(at) => {
                     collapsed.remove(at);
                 }
-                None => collapsed.push(section),
+                None => collapsed.push(key),
             }
-            let saved: Vec<&str> = collapsed.iter().map(|s| section_key(*s)).collect();
             let file = collapsed_file();
             if let Some(dir) = file.parent() {
                 let _ = std::fs::create_dir_all(dir);
             }
-            let _ = std::fs::write(file, saved.join("\n"));
+            let _ = std::fs::write(file, collapsed.join("\n"));
         }
         self.load_rooms(true);
     }

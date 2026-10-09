@@ -1,5 +1,6 @@
 //! Unattended end-to-end run, driven by environment variables:
 //!   RV_SMOKE_LOGIN  "server|user|password"
+//!   RV_SMOKE_KIND   `kchat`: server type chosen before filling (server and user may stay empty)
 //!   RV_SMOKE_ROOM   room name to open once the room list is loaded
 //!   RV_SMOKE_SEND   text to send in that room
 //!   RV_SMOKE_SHOT   PNG path; the window is rendered after RV_SMOKE_DELAY_MS, then the app quits
@@ -165,6 +166,9 @@ pub fn install(window: &Rc<AppWindow>) {
         window.connect_login_shown(move || {
             let Some(w) = weak.upgrade() else { return };
             if !tried.replace(true) {
+                if std::env::var("RV_SMOKE_KIND").as_deref() == Ok("kchat") {
+                    w.login.set_server_kind(rv_core::native::ServerKind::Kchat);
+                }
                 w.login.fill(&parts[0], &parts[1], &parts[2]);
                 if let Ok(action) = std::env::var("RV_SMOKE_EMAIL_RECOVERY_FORM") {
                     let requested = Rc::new(Cell::new(false));

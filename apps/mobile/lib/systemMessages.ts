@@ -102,6 +102,7 @@ export function systemText(t: TranslateFn, type: string, param: string | null): 
  */
 export function systemPreview(t: TranslateFn, type: string | null, param = ''): string | null {
   if (type?.startsWith('rv-call')) return callSummaryText(t, type, param);
+  if (type === 'videoconf-ended') return callSummaryText(t, 'rv-call-answered', param);
   return type === 'videoconf' ? t('home.callPreview') : null;
 }
 

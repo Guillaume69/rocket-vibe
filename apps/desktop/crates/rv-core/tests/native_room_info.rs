@@ -74,6 +74,7 @@ async fn room_information_uses_existing_model_and_rejects_late_cross_scope_paylo
         drop(store);
         let session = NativeSession::start(
             SessionInfo {
+                mattermost: None,
                 base_url: server.url.to_string(),
                 user_id: "alice-id".into(),
                 username: "alice".into(),

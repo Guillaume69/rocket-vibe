@@ -3,6 +3,8 @@
 Third-party **Rocket.Chat** clients, faster and more reliable than the official ones, for
 self-hosted servers running Rocket.Chat **8** or later. The `feature/rocketvibe-server`
 branch adds a **RocketVibe** server in Rust; both providers use the existing interfaces.
+The apps also sign in to **Mattermost** servers and to Infomaniak's **kChat**, a Mattermost
+fork (`docs/MATTERMOST.md`).
 
 | App | Where | Tech | Version |
 |---|---|---|---|

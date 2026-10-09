@@ -152,6 +152,15 @@ describe('syncCustomEmojis', () => {
     assert.deepEqual(store.content.map((e) => e.name), ['dino'], 'the offline cache survives');
   });
 
+  test("a provider's own list (Mattermost) keeps each image's address", async () => {
+    const store = fakeStore();
+    const client = { baseUrl: 'https://mm.example.org', get: async <T>(): Promise<T> => assert.fail('no emoji-custom.list') };
+    const list = async () => [{ name: 'alb-youpi', extension: 'png', aliases: [], uri: 'https://mm.example.org/api/v4/emoji/e1/image' }];
+    await syncCustomEmojis(client, store, () => false, list);
+    assert.equal(customEmojiUrl('alb-youpi'), 'https://mm.example.org/api/v4/emoji/e1/image');
+    assert.equal(store.content[0]?.uri, 'https://mm.example.org/api/v4/emoji/e1/image');
+  });
+
   test('a fetch resolved AFTER discard does not re-arm the index (cross-server leak)', async () => {
     const store = fakeStore();
     const clientA = {

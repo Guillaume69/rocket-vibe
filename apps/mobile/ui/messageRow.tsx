@@ -51,7 +51,7 @@ import { offerDownloadOrShare } from './attachmentActions.ts';
 import { TransferBar } from './transferBar.tsx';
 import { decryptedFile } from './attachment.ts';
 import {subscribeNativeFile} from '../lib/nativeFiles.ts';
-import { useAvatarEtags, useIdentities } from './identities.tsx';
+import { useAvatarEtags, useDisplayNames, useIdentities, useStatusEmojis } from './identities.tsx';
 import { useTimeFormatter, useT } from './i18n.ts';
 import { AvatarTile } from './kit.tsx';
 import { AudioPlayer } from './audioPlayer.tsx';
@@ -68,6 +68,7 @@ import {
 } from './theme.ts';
 import { useImageViewer } from './imageViewer.tsx';
 import { Tappable } from './tappable.tsx';
+import { useAuthorizedUri } from './authorizedImage.ts';
 
 /** `authorBot` and `form` optional: render-only rows (search, pins, encrypted projections) may not carry them. */
 export type MessageRowData = Omit<typeof messages.$inferSelect, 'authorBot' | 'form'> & { authorBot?: boolean; form?: string | null };
@@ -135,10 +136,12 @@ export const MessageRow = memo(function MessageRow({
   const username = (identities.get(message.authorId) ?? message.authorName) ?? '?';
   // A deleted RocketVibe account keeps its messages (`lib/deletedUser.ts`).
   const deletedAuthor = client.kind === 'rocketvibe' && isDeletedUsername(username);
-  const author = deletedAuthor ? t('common.deletedUser') : username;
+  const shownName = useDisplayNames().get(message.authorId);
+  const statusEmoji = useStatusEmojis().get(message.authorId);
+  const author = deletedAuthor ? t('common.deletedUser') : (shownName ?? username) + (statusEmoji ? ` ${statusEmoji}` : '');
   // The username takes the first tint of its own avatar tile: name and avatar
   // match, and the same person keeps their color from one message to the next.
-  const authorTint = avatarGradient(author, c.avatarGradients)[0];
+  const authorTint = avatarGradient(deletedAuthor ? author : username, c.avatarGradients)[0];
   // Author card on tapping the avatar or username. No card for an author
   // without a username (undecryptable encrypted message: `authorName` null).
   // Opened by UID (`authorId`), not by the displayed username: the username is
@@ -218,7 +221,7 @@ export const MessageRow = memo(function MessageRow({
         >
           <AvatarTile
             c={c}
-            hueKey={author}
+            hueKey={deletedAuthor ? author : username}
             initial={author.charAt(0) || '?'}
             // Avatar addressed by the CURRENT username (`identities`), uid as fallback.
             // By uid alone, the URI `/avatar/uid/<uid>` NEVER changes: RN's image
@@ -366,6 +369,9 @@ function MessageContent({ c, message }: { c: Colors; message: MessageRowData }) 
   }
   if (message.systemType === 'videoconf') {
     return <CallCard c={c} callId={message.callId} rid={message.rid} />;
+  }
+  if (message.systemType === 'videoconf-ended') {
+    return <CallCard c={c} callId={null} rid={message.rid} title={callSummaryText(t, 'rv-call-answered', message.text ?? '')} />;
   }
   if (message.systemType?.startsWith('rv-call')) {
     return <VoiceCallCard c={c} rid={message.rid} type={message.systemType} param={message.text ?? ''} />;
@@ -620,6 +626,8 @@ function AttachedImage({
   // Without announced dimensions (a private file's descriptor carries none),
   // the decoded picture gives them: a square frame cropped it.
   const [measured, setMeasured] = useState<{ width: number; height: number } | null>(null);
+  const linked = typeof attachment.title_link === 'string' ? attachment.title_link : attachment.image_url;
+  const shown = useAuthorizedUri(typeof linked === 'string' ? (local ?? protectedFileUrl(client, linked)) : null);
   if (typeof attachment.image_url !== 'string') return null;
   const source = typeof attachment.title_link === 'string' ? attachment.title_link : attachment.image_url;
   const url = local ?? protectedFileUrl(client, source);
@@ -647,7 +655,7 @@ function AttachedImage({
       accessibilityLabel={attachment.title ?? t('messageRow.imageEnlarge')}
     >
       <Image
-        source={{ uri: url }}
+        source={typeof shown === 'string' ? { uri: shown } : undefined}
         style={[style, { width, height }]}
         resizeMode="cover"
         onLoad={
@@ -716,13 +724,13 @@ function FormCard({ c, id, json }: { c: Colors; id: string; json: string }) {
  * from before the block was persisted, or an unreadable block) no join is
  * offered, just the label: better than a button that would not know where to go.
  */
-function CallCard({ c, callId,rid }: { c: Colors; callId: string | null;rid:string }) {
+function CallCard({ c, callId,rid,title }: { c: Colors; callId: string | null;rid:string;title?:string }) {
   const router = useRouter();
   const t = useT();
   const {state}=useSession();
   return (
     <View style={[styles.callCard, { backgroundColor: c.card, borderColor: c.border }]}>
-      <Text style={[styles.callCardTitle, { color: c.text }]}>{t('messageRow.videoCall')}</Text>
+      <Text style={[styles.callCardTitle, { color: c.text }]}>{title ?? t('messageRow.videoCall')}</Text>
       {callId !== null && (
         <Tappable
           onPress={() => {if(state.phase==='connected')router.push({ pathname: '/call/[callId]', params: { callId,rid,account:callContext(state.client) } });}}

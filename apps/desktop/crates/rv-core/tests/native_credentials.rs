@@ -17,6 +17,7 @@ use std::sync::{
 async fn account_leases_serialize_writers_and_release_cancelled_waiters() {
     use std::time::Duration;
     let info = SessionInfo {
+        mattermost: None,
         base_url: "http://localhost:3400".into(),
         user_id: "fixture-user".into(),
         username: "alice".into(),
@@ -100,6 +101,7 @@ async fn a_lost_renewal_ack_recovers_the_durable_successor_without_a_second_rota
     }).await;
     let original = Record {
         info: SessionInfo {
+            mattermost: None,
             base_url: server.url.as_str().into(),
             user_id: fixture["session"]["user"]["id"].as_str().unwrap().into(),
             username: "alice".into(),

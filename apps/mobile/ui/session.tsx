@@ -278,7 +278,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       // Unregister the push token BEFORE logout: the call still requires
       // authentication. A 404 is a success (`lib/pushToken.ts`).
       const pushRemoved =
-        session.kind === 'rocketvibe' || pushToken === null ? true : await unregisterToken(client, pushToken).then(() => true, () => false);
+        session.kind !== 'rocketchat' || pushToken === null ? true : await unregisterToken(client, pushToken).then(() => true, () => false);
       const closedSession = await logoutSession(client, session);
 
       // What the network did not let through is replayed at the next startup.

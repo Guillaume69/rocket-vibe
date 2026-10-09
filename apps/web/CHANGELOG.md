@@ -12,6 +12,7 @@ All notable changes are documented here in English.
 
 ### Fixed
 
+- Keep ordinary voice joins usable when the server omits its false E2EE flag, while continuing to reject encryption mismatches.
 - Keep the selected settings category when the administration permission lookup finishes after the user has already changed pages.
 - Reopen private views after a fresh membership snapshot without exposing ordinary cached content.
 - Keep encrypted voice access independent of message sending, and finish identity recovery before loading controls that require a registered device.

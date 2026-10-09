@@ -204,7 +204,7 @@ export class Voice {
         return;
       if (!this.hasAccess(id, account, member))
         throw new Error(nt("voice_session.join_failed"));
-      if (grant.e2ee !== !!room?.encrypted)
+      if (!!grant.e2ee !== !!room?.encrypted)
         throw Error(nt("voice_session.key_unavailable"));
       this.current = id;
       this.bar.replaceChildren(
@@ -261,7 +261,7 @@ export class Voice {
     if (!this.hasAccess(grant.room_id, account, membership))
       throw new Error(nt("voice_session.join_failed"));
     if (
-      grant.e2ee !== !!this.app.model.rooms.get(grant.room_id)?.encrypted ||
+      !!grant.e2ee !== !!this.app.model.rooms.get(grant.room_id)?.encrypted ||
       (grant.e2ee && !this.encryption)
     )
       throw Error(nt("voice_session.key_unavailable"));

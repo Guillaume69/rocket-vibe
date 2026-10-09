@@ -3,6 +3,8 @@
 //! "+" to add an account. Only the open account is connected: the others are
 //! checked every minute with one cheap read (`rv_core::account_unread`).
 //! A right click or a long press on a button asks for its menu.
+//! Settings > Accounts can hide it (`hidden`, off by default); that page still
+//! switches and adds accounts.
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -34,6 +36,15 @@ pub struct Rail {
     on_switch: Handler<SessionInfo>,
     on_add: Handler<()>,
     on_menu: Handler<(gtk::Widget, SessionInfo)>,
+}
+
+fn hidden_file() -> std::path::PathBuf {
+    glib::user_config_dir().join("rocket-vibe-rs").join("hide-server-rail")
+}
+
+/// The user's choice to hide the rail, shared with the SwiftUI app.
+pub fn hidden() -> bool {
+    hidden_file().exists()
 }
 
 /// What the rail shows of a server: its host, without `www.`.
@@ -179,9 +190,27 @@ impl Rail {
             self.buttons.append(&button);
             self.dots.borrow_mut().insert(key, dot.upcast());
         }
-        self.root.set_visible(!accounts.is_empty());
         self.accounts.replace(accounts);
+        self.apply_visibility();
         self.poll();
+    }
+
+    /// Keeps the choice for the next launch and shows or hides the rail now.
+    pub fn set_hidden(&self, hide: bool) {
+        let file = hidden_file();
+        if hide {
+            if let Some(dir) = file.parent() {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            let _ = std::fs::write(file, "");
+        } else {
+            let _ = std::fs::remove_file(file);
+        }
+        self.apply_visibility();
+    }
+
+    fn apply_visibility(&self) {
+        self.root.set_visible(!self.accounts.borrow().is_empty() && !hidden());
     }
 
     /// One read per account that is not the open one; a failure leaves the

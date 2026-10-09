@@ -13,8 +13,16 @@ struct ChatView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            ServerRail()
+            if !app.railHidden { ServerRail() }
             split
+        }
+        // Settings > Accounts lists these accounts: they stay fresh with the rail hidden.
+        .task(id: app.account?.key) {
+            await app.refreshAccounts()
+            while !Task.isCancelled {
+                await app.pollAccounts()
+                try? await Task.sleep(nanoseconds: 60_000_000_000)
+            }
         }
     }
 
@@ -69,7 +77,8 @@ struct ChatView: View {
 
 /// The server rail: a button per signed-in account down the window's left
 /// edge, the open one outlined, a dot on another one with unread messages, and
-/// "+" to add an account. The others are checked every minute.
+/// "+" to add an account. The others are checked every minute (by `ChatView`,
+/// which keeps polling when Settings > Accounts hides the rail).
 struct ServerRail: View {
     @Environment(AppModel.self) var app
 
@@ -106,13 +115,6 @@ struct ServerRail: View {
         .padding(.horizontal, 10)
         .frame(maxHeight: .infinity)
         .background(Vibe.ink)
-        .task(id: app.account?.key) {
-            await app.refreshAccounts()
-            while !Task.isCancelled {
-                await app.pollAccounts()
-                try? await Task.sleep(nanoseconds: 60_000_000_000)
-            }
-        }
     }
 
     func tile(_ account: Account, open: Bool, host: String) -> some View {

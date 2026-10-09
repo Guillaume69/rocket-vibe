@@ -1115,6 +1115,12 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("login.cancel_add", "Revenir à mon compte", "Back to my account"),
     ("settings.accounts", "Comptes", "Accounts"),
     ("settings.add_account", "Ajouter un compte", "Add an account"),
+    ("settings.hide_rail", "Masquer la barre des serveurs", "Hide the server bar"),
+    (
+        "settings.hide_rail_hint",
+        "Changer ou ajouter un compte reste possible ici",
+        "Switching or adding an account stays possible here",
+    ),
     ("settings.current", "Compte actuel", "Current account"),
     ("settings.cat.account", "Mon compte", "My account"),
     ("settings.cat.notifications", "Notifications", "Notifications"),

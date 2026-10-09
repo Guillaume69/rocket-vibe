@@ -22,6 +22,7 @@ import {
 } from '../ui/homeSections.ts';
 import { toggleCollapsedSection, useCollapsedSections } from '../ui/collapsedSections.ts';
 import { ServerRail } from '../ui/serverRail.tsx';
+import { useServerRailHidden } from '../ui/serverRailSetting.ts';
 import { useSession } from '../ui/session.tsx';
 import { useSync } from '../ui/sync.tsx';
 import { useE2EUnlocked } from '../ui/e2e.ts';
@@ -38,6 +39,7 @@ import { VoiceBar, VoiceOccupants, useJoinVoice } from '../ui/voice.tsx';
 export default function HomeScreen() {
   const { state } = useSession();
   const c = useColors();
+  const railHidden = useServerRailHidden();
 
   if (state.phase === 'starting') {
     return (
@@ -57,7 +59,7 @@ export default function HomeScreen() {
           render the gradient wordmark. */}
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.withRail}>
-        <ServerRail c={c} />
+        {!railHidden && <ServerRail c={c} />}
         <View style={styles.full}>
           <ListHeader c={c} />
           <RoomList c={c} client={state.client} />

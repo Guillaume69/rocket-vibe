@@ -7,6 +7,10 @@ section here.
 
 ## [Unreleased]
 
+### Added
+
+- Settings > Accounts can hide the server bar (GTK and macOS), giving its width to the conversation list; switching and adding an account stay on that page.
+
 ## [0.12.2] - 2026-10-09
 
 ### Fixed

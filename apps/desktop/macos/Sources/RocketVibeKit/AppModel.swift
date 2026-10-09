@@ -32,6 +32,8 @@ public final class AppModel {
     public private(set) var thread: RoomModel?
     /// Folded sections, by `RoomGroup.key`.
     public private(set) var collapsed: Set<String>
+    /// The user hid the server rail (Settings > Accounts), shared with GTK.
+    public private(set) var railHidden: Bool
     /// Bumped when photos or custom emoji change: views reload their images.
     public private(set) var imagesVersion = 0
     public private(set) var media: MediaStore?
@@ -81,6 +83,7 @@ public final class AppModel {
         client = Client(home: home)
         Strings.setUp(configDir: client.configDir())
         collapsed = Self.loadCollapsed(client.configDir())
+        railHidden = FileManager.default.fileExists(atPath: client.configDir() + "/hide-server-rail")
     }
 
     public var rooms: [Room] { groups.flatMap(\.rooms) }
@@ -690,6 +693,18 @@ public final class AppModel {
         if collapsed.contains(key) { collapsed.remove(key) } else { collapsed.insert(key) }
         let lines = collapsed.sorted().joined(separator: "\n")
         try? lines.write(toFile: client.configDir() + "/collapsed-sections", atomically: true, encoding: .utf8)
+    }
+
+    /// GTK's convention: the file's presence hides the rail.
+    public func setRailHidden(_ hidden: Bool) {
+        railHidden = hidden
+        let path = client.configDir() + "/hide-server-rail"
+        if hidden {
+            try? FileManager.default.createDirectory(atPath: client.configDir(), withIntermediateDirectories: true)
+            FileManager.default.createFile(atPath: path, contents: Data())
+        } else {
+            try? FileManager.default.removeItem(atPath: path)
+        }
     }
 
     static func loadCollapsed(_ configDir: String) -> Set<String> {

@@ -7,6 +7,10 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+### Added
+
+- Settings > Accounts can hide the server bar, giving its width to the conversation list; switching and adding a server stay on that page.
+
 ## [0.9.1] - 2026-10-09
 
 ### Fixed

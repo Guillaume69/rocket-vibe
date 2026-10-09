@@ -13,6 +13,7 @@ The settings gather my profile, the notification preference, the language, the e
 | E2EE key | device | Keystore | system keychain |
 | Keep running, start at login | device | n/a | Windows, macOS |
 | Automatic update checks | device | n/a | file `no-update-check` (absent = on) |
+| Hide the server rail | device | SecureStore `hide-server-rail` (`1` = hidden) | file `hide-server-rail` (present = hidden), GTK and SwiftUI |
 
 ## Layout: the same categories everywhere
 
@@ -29,7 +30,7 @@ The three apps group the settings in one list of categories, in this order, each
 - **Security** (`ui/nativeSecurity.tsx`) and **Devices** (`ui/devices.tsx`): RocketVibe 2FA, codes, email, reauthentication, and device sessions.
 - **Bots** (`ui/bots.tsx`): my bots, their scopes, keys and photo ([bots.md](bots.md)).
 - **Workflows** (`ui/workflows.tsx`): my workflows and their editor ([workflows.md](workflows.md)).
-- **Accounts**: signed in as `@username`, server URL, Change server (`/login?change=1`) ([login-and-servers.md](login-and-servers.md)).
+- **Accounts**: signed in as `@username`, server URL, the "Hide the server bar" switch (`ui/serverRailSetting.ts`), Change server (`/login?change=1`) ([login-and-servers.md](login-and-servers.md)).
 - **App**: the version (`expo-constants` `expoConfig.version`) and, on Rocket.Chat, the diagnostics: "Get the FCM token" (`FcmTokenSection`), which runs `getFcmToken` and prints the token, for push debugging ([notifications.md](notifications.md)).
 
 There is no theme setting: `useColors()` (`ui/theme.ts`) always returns the dark "Nuit Étoilée" palette. A light palette exists as data for a future "day" theme.

@@ -302,6 +302,8 @@ fn combo(title: &str, labels: &[&str], selected: usize) -> adw::ComboRow {
 pub struct AccountActions {
     pub switch: Box<dyn Fn(rv_core::session::SessionInfo)>,
     pub add: Box<dyn Fn()>,
+    /// Hides (true) or shows the server rail, now and at the next launch.
+    pub hide_rail: Box<dyn Fn(bool)>,
 }
 
 /// `sign_out` ends the session the way the header's button does.
@@ -494,7 +496,16 @@ fn accounts_page(
 ) -> adw::PreferencesPage {
     let page = adw::PreferencesPage::new();
     if let Some(actions) = actions {
-        page.add(&accounts_group(host, info, actions));
+        page.add(&accounts_group(host, info, actions.clone()));
+        let rail = adw::PreferencesGroup::new();
+        let hide = adw::SwitchRow::builder()
+            .title(t("settings.hide_rail"))
+            .subtitle(t("settings.hide_rail_hint"))
+            .active(crate::rail::hidden())
+            .build();
+        hide.connect_active_notify(move |row| (actions.hide_rail)(row.is_active()));
+        rail.add(&hide);
+        page.add(&rail);
     }
     let account = adw::PreferencesGroup::builder().title(t("settings.account")).build();
     account.add(&adw::ActionRow::builder().title(t("settings.server")).subtitle(&info.base_url).build());

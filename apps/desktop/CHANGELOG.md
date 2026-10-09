@@ -7,6 +7,8 @@ section here.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-10-09
+
 ### Added
 
 - A pill over the top of a room (GTK and SwiftUI), "N new messages since HH:MM", while the
@@ -1046,7 +1048,8 @@ the mobile app (see `docs/PARITY.md`).
   `rocketvibe://` links) and zip; a macOS app in a DMG, signed with a Developer ID and
   notarized by Apple.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.11.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.12.0...HEAD
+[0.12.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.11.0...desktop-v0.12.0
 [0.11.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.10.0...desktop-v0.11.0
 [0.10.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.9.0...desktop-v0.10.0
 [0.9.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.8.0...desktop-v0.9.0

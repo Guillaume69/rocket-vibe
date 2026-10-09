@@ -43,9 +43,13 @@ const phrases = {
     "Choisissez une conversation pour discuter.",
   ],
   encrypted: ["Encrypted conversation", "Conversation chiffrée"],
+  browserVault: [
+    "Private state is encrypted in this browser profile. Clearing site data removes this device’s keys. A full browser-profile restore can roll back its state; this browser storage does not provide an independent system keyring.",
+    "L’état privé est chiffré dans ce profil du navigateur. Effacer les données du site supprime les clés de cet appareil. Restaurer le profil complet peut restaurer un ancien état ; ce stockage ne fournit pas de trousseau système indépendant.",
+  ],
   encryptedHint: [
-    "Encrypted conversations are not supported in the web client. Open this conversation in the desktop or mobile app.",
-    "Les conversations chiffrées ne sont pas prises en charge sur le web. Ouvrez cette conversation dans l’application desktop ou mobile.",
+    "Unlock and verify this conversation in Encryption settings to access its private content.",
+    "Préparez et vérifiez cette conversation dans les paramètres de chiffrement pour accéder à son contenu privé.",
   ],
   online: ["Connected", "Connecté"],
   connecting: ["Connecting", "Connexion"],

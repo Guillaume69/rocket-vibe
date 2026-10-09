@@ -7,6 +7,11 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Private quotes and source previews now use the latest verified message edit.
+- Keep device-invitation controls available to a room member before MLS admission, while preserving server refusals for an already accepted group.
+
 ## [0.9.1] - 2026-10-09
 
 ### Fixed

@@ -6,6 +6,7 @@ import adwaita from "./icons-native/COPYING?raw";
 import adwaitaCC from "./icons-native/COPYING_CCBYSA3?raw";
 import adwaitaLGPL from "./icons-native/COPYING_LGPL?raw";
 import { thirdParty } from "./third-party.generated";
+import cryptoLicenses from "./crypto/wasm/LICENSES.txt?raw";
 export const licenses = [
   ["Nunito", nunito],
   ["Baloo 2", baloo],
@@ -15,6 +16,7 @@ export const licenses = [
   ["Adwaita CC BY-SA", adwaitaCC],
   ["Adwaita LGPL", adwaitaLGPL],
   ["JavaScript dependencies", thirdParty],
+  ["WebAssembly crypto dependencies", cryptoLicenses],
 ]
   .map(([name, text]) => name + "\n\n" + text)
   .join("\n\n");

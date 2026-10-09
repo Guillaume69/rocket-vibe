@@ -16,7 +16,7 @@ enum Action {
 
 #[cfg(test)]
 mod tests;
-#[uniffi::export]
+#[cfg_attr(feature = "native-bindings", uniffi::export)]
 impl CryptoInstallation {
     pub fn withdrawal_action(&self, directory: String, input: String) -> Result<String> {
         if input.len() > 32768 {

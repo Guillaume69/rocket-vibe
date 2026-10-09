@@ -930,6 +930,27 @@ fn private_mobile_messages_keep_originals_drafts_and_verified_journal_across_reo
             (&Value::Null, &json!(true))
         );
         assert_eq!(row["document"]["text"], "private original edited");
+        let sources = conversation(
+            actor,
+            directory,
+            &roster,
+            &state,
+            None,
+            json!({"action":"sources","source":null}),
+        );
+        assert_eq!(
+            target(&sources)["document"]["text"],
+            "private original edited"
+        );
+        let selected = conversation(
+            actor,
+            directory,
+            &roster,
+            &state,
+            None,
+            json!({"action":"select_quote","message":first,"membership":"member"}),
+        );
+        assert_eq!(selected["text"], "private original edited");
         assert!(
             !view["messages"]
                 .as_array()
@@ -1179,6 +1200,17 @@ fn two_native_actors_create_join_rotate_reopen_original_and_cancel_without_expor
         transition: packet.transition.clone(),
         tree: packet.tree.clone(),
     };
+    // Before admission, an historical event without this device's Welcome
+    // must not become a commit preview. Nothing grants it the group secrets.
+    assert_eq!(
+        call(
+            &bob,
+            &peer,
+            json!({"action":"events","roster":roster,"state":state,
+        "page":{"events":[http::GroupEvent{welcome:None,..event.clone()}],"next":null}})
+        ),
+        Value::Null
+    );
     assert_eq!(
         call(
             &bob,

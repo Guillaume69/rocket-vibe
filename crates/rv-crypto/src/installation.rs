@@ -7,7 +7,7 @@ use crate::{
 use data_encoding::HEXLOWER;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::{fs, path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc};
 use zeroize::Zeroizing;
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -52,7 +52,7 @@ impl Installation {
         account: Account,
         storage: Arc<dyn Storage>,
     ) -> Result<Self, Error> {
-        if !directory.is_absolute()
+        if !protected::private_directory(&directory)
             || !account.scope("selected".into()).valid()
             || account.origin.is_empty()
             || account.origin.len() > 2048
@@ -73,7 +73,7 @@ impl Installation {
         })
     }
     fn location(&self) -> Result<[u8; 32], Error> {
-        let path = fs::canonicalize(&self.directory).map_err(|_| Error::Storage)?;
+        let path = protected::location(&self.directory)?;
         let mut hash = Sha256::new();
         hash.update(b"rocketvibe-crypto-installation-location-v1");
         hash.update(path.as_os_str().as_encoded_bytes());

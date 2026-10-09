@@ -16,6 +16,7 @@ GoogleService-Info.plist
 /target/
 /crates/rv-crypto/target/
 /crates/rv-crypto-mobile/target/
+/crates/rv-crypto-web/target/
 /artifacts/
 /.cache/
 /native-mobile-tests.log

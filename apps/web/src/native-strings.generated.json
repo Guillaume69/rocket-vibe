@@ -1,4 +1,463 @@
 {
+  "crypto.observed_time": [
+    "Heure locale de préparation ou de lecture de ce message chiffré",
+    "Local preparation or observation time for this encrypted message"
+  ],
+  "crypto.retained_replies": [
+    "{n} réponse conservée | {n} réponses conservées",
+    "{n} retained reply | {n} retained replies"
+  ],
+  "crypto.thread_root_missing": [
+    "La racine de ce fil n’est plus conservée sur cet appareil. Un nouvel envoi nécessite la racine.",
+    "This thread’s root is no longer retained on this device. Sending requires the root."
+  ],
+  "crypto.retained_threads": [
+    "Historique et réponses conservés sur cet appareil ; heures locales de réception.",
+    "History and replies retained on this device; local receipt times."
+  ],
+  "crypto.group_title": ["Chiffrement du salon", "Room encryption"],
+  "crypto.group_untrusted": [
+    "Un appareil du groupe n’est pas encore approuvé. Ouvrez le profil de chaque membre, mémorisez son identité et approuvez son appareil, puis actualisez.",
+    "A device in the group is not approved yet. Open each member’s profile, pin their identity and approve their device, then refresh."
+  ],
+  "crypto.group_help": [
+    "Préparez cet appareil pour les invitations et comparez les identités dans les profils. Seuls les appareils de l’aperçu rejoignent le groupe.",
+    "Prepare this device for invitations and compare identities in profiles. Only devices in the review join the group."
+  ],
+  "crypto.group_empty": ["Aucun groupe enregistré", "No group recorded"],
+  "crypto.group_admission": [
+    "Cet appareil attend une admission",
+    "This device needs admission"
+  ],
+  "crypto.group_ack": [
+    "Groupe enregistré sur cet appareil",
+    "Group recorded on this device"
+  ],
+  "crypto.group_credential_update": [
+    "Le certificat de cet appareil a été renouvelé. La mise à jour du groupe et la reprise de son journal sont nécessaires avant un nouvel envoi.",
+    "This device certificate was renewed. The group update and ordered history catchup are required before sending again."
+  ],
+  "crypto.group_pending": [
+    "Transition en attente de son reçu",
+    "Transition awaiting its receipt"
+  ],
+  "crypto.group_prepare": [
+    "Préparer cet appareil pour les invitations",
+    "Prepare this device for invitations"
+  ],
+  "crypto.group_create": [
+    "Examiner la création du groupe",
+    "Review group creation"
+  ],
+  "crypto.group_change": [
+    "Examiner la mise à jour des appareils",
+    "Review device changes"
+  ],
+  "crypto.group_accept": [
+    "Examiner l’admission ou la mise à jour",
+    "Review admission or update"
+  ],
+  "crypto.group_confirm": ["Confirmer cet aperçu", "Confirm this review"],
+  "crypto.group_preview": [
+    "Appareils destinataires de l’aperçu",
+    "Devices included in this review"
+  ],
+  "crypto.group_select": [
+    "Appareils approuvés à inclure",
+    "Approved devices to include"
+  ],
+  "crypto.group_replace": [
+    "Remplacer et réinviter",
+    "Replace and invite again"
+  ],
+  "crypto.group_members": [
+    "Appareils du groupe local",
+    "Devices in the local group"
+  ],
+  "crypto.group_remove": ["Appareils à retirer", "Devices to remove"],
+  "crypto.group_blocked": [
+    "Identité ou certificat à approuver dans le profil",
+    "Identity or certificate needs approval in the profile"
+  ],
+  "crypto.group_need_empty": [
+    "La création exige un salon sans historique. L’appareil doit d’abord être associé dans les réglages de sécurité.",
+    "Creation requires a room without history. First associate this device in security settings."
+  ],
+  "crypto.group_resume": [
+    "Reprendre la transition en attente",
+    "Resume the pending transition"
+  ],
+  "crypto.group_cancel": [
+    "Annuler la transition en attente",
+    "Cancel the pending transition"
+  ],
+  "crypto.group_own": ["Cet appareil", "This device"],
+  "crypto.group_epoch": ["Version des clés", "Key version"],
+  "crypto.group_fingerprint": ["Empreinte du groupe", "Group fingerprint"],
+  "crypto.group_review_fingerprint": [
+    "Empreinte de l’aperçu",
+    "Review fingerprint"
+  ],
+  "crypto.group_included": ["Déjà dans le groupe", "Already in the group"],
+  "crypto.peer_title": [
+    "Vérifier l’identité chiffrée",
+    "Verify encryption identity"
+  ],
+  "crypto.peer_help": [
+    "Comparez l’empreinte avec cette personne par un autre moyen avant de la marquer vérifiée. L’annuaire du serveur ne constitue pas une vérification.",
+    "Compare this fingerprint with the person through another channel before marking it verified. The server directory is not a verification."
+  ],
+  "crypto.peer_unknown": [
+    "Identité encore inconnue sur cet appareil",
+    "Identity not yet known on this device"
+  ],
+  "crypto.peer_unverified": [
+    "Empreinte mémorisée, non vérifiée",
+    "Fingerprint saved, unverified"
+  ],
+  "crypto.peer_verified": ["Empreinte vérifiée", "Fingerprint verified"],
+  "crypto.peer_changed": [
+    "L’identité a changé : appareils bloqués",
+    "Identity changed: devices blocked"
+  ],
+  "crypto.peer_first": [
+    "Mémoriser cette empreinte comme non vérifiée",
+    "Save this fingerprint as unverified"
+  ],
+  "crypto.peer_confirm": [
+    "Empreinte confirmée par cette personne",
+    "Fingerprint confirmed by this person"
+  ],
+  "crypto.peer_previous": ["Empreinte précédente", "Previous fingerprint"],
+  "crypto.peer_verify": [
+    "Marquer l’empreinte comparée comme vérifiée",
+    "Mark the compared fingerprint verified"
+  ],
+  "crypto.peer_replace": [
+    "Remplacer après comparaison des deux empreintes",
+    "Replace after comparing both fingerprints"
+  ],
+  "crypto.peer_review": ["Examiner cet appareil", "Review this device"],
+  "crypto.peer_next_pin": [
+    "Première étape : mémorisez son empreinte, puis approuvez ses appareils.",
+    "First, save their fingerprint, then approve their devices."
+  ],
+  "crypto.peer_next_devices": [
+    "Étape suivante : examinez et approuvez ses appareils, plus bas.",
+    "Next, review and approve their devices, below."
+  ],
+  "crypto.peer_all_approved": [
+    "Ses appareils sont approuvés : ils peuvent rejoindre vos groupes chiffrés.",
+    "Their devices are approved: they can join your encrypted groups."
+  ],
+  "crypto.peer_no_devices": [
+    "Aucun appareil enregistré pour le moment.",
+    "No registered device yet."
+  ],
+  "crypto.peer_device_help": [
+    "L’approbation vise uniquement ce certificat d’appareil. Elle ne lui accorde pas l’accès à un groupe.",
+    "Approval covers only this device certificate. It does not grant access to a group."
+  ],
+  "crypto.peer_approve": [
+    "Approuver ce certificat d’appareil",
+    "Approve this device certificate"
+  ],
+  "crypto.peer_approved": ["Certificat approuvé", "Certificate approved"],
+  "crypto.peer_pending": [
+    "Certificat non approuvé ou expiré",
+    "Certificate unapproved or expired"
+  ],
+  "crypto.peer_prepare": [
+    "Préparez d’abord votre identité dans les réglages de sécurité.",
+    "First prepare your identity in security settings."
+  ],
+  "crypto.title": [
+    "Identité chiffrée et appareils",
+    "Encryption identity and devices"
+  ],
+  "crypto.explanation": [
+    "Préparez votre identité et associez vos appareils. Les salons chiffrés RocketVibe sont encore en validation.",
+    "Prepare your identity and link your devices. RocketVibe encrypted rooms are still being validated."
+  ],
+  "crypto.loading": ["Chargement de l’identité…", "Loading identity…"],
+  "crypto.missing": [
+    "Cet appareil n’a pas encore d’identité chiffrée",
+    "This device has no encryption identity yet"
+  ],
+  "crypto.created": [
+    "Identité créée : approuvez cet appareil",
+    "Identity created: approve this device"
+  ],
+  "crypto.waiting": [
+    "Approbation requise sur l’appareil qui détient la racine",
+    "Approval required on the device holding the root"
+  ],
+  "crypto.registering": [
+    "Enregistrement à reprendre",
+    "Registration needs to resume"
+  ],
+  "crypto.ready": [
+    "Identité et appareil enregistrés",
+    "Identity and device registered"
+  ],
+  "crypto.expired": [
+    "Certificat d’appareil expiré",
+    "Device certificate expired"
+  ],
+  "crypto.renewing": [
+    "Renouvellement à approuver",
+    "Renewal awaiting approval"
+  ],
+  "crypto.renew": ["Renouveler cet appareil", "Renew this device"],
+  "crypto.backup_title": ["Sauvegarde de l’identité", "Identity backup"],
+  "crypto.backup_explanation": [
+    "Conservez le code de récupération dans un endroit sûr. La sauvegarde protège l’identité ; elle ne contient pas l’historique des conversations.",
+    "Keep the recovery code somewhere safe. The backup protects your identity; it does not include conversation history."
+  ],
+  "crypto.backup_version": ["Version de sauvegarde", "Backup version"],
+  "crypto.backup_none": ["Aucune", "None"],
+  "crypto.backup_root_only": [
+    "Créez la sauvegarde depuis l’appareil qui contrôle cette identité.",
+    "Create the backup from the device controlling this identity."
+  ],
+  "crypto.backup_review": ["Examiner la sauvegarde", "Review backup"],
+  "crypto.backup_replace": [
+    "Cette opération prépare une nouvelle sauvegarde et remplacera la version affichée après confirmation de votre code conservé.",
+    "This prepares a new backup and replaces the displayed version after you confirm that you have saved the code."
+  ],
+  "crypto.backup_prepare": ["Préparer cette sauvegarde", "Prepare this backup"],
+  "crypto.backup_pending": [
+    "Sauvegarde à confirmer",
+    "Backup awaiting confirmation"
+  ],
+  "crypto.backup_cancelling": [
+    "Abandon à confirmer par le serveur",
+    "Cancellation awaiting server confirmation"
+  ],
+  "crypto.backup_show_code": [
+    "Afficher le code de récupération",
+    "Show recovery code"
+  ],
+  "crypto.backup_code": ["Code de récupération", "Recovery code"],
+  "crypto.backup_saved": [
+    "J’ai conservé ce code : publier la sauvegarde",
+    "I have saved this code: publish backup"
+  ],
+  "crypto.backup_resume": ["Reprendre la confirmation", "Resume confirmation"],
+  "crypto.backup_cancel": ["Abandonner cette sauvegarde", "Cancel this backup"],
+  "crypto.backup_cancel_body": [
+    "L’abandon doit être confirmé par le serveur. Une sauvegarde déjà acceptée sera conservée : gardez son code. La version précédente n’est pas effacée par un abandon confirmé.",
+    "The server must confirm cancellation. An already accepted backup will be kept: retain its code. Confirmed cancellation does not erase the previous version."
+  ],
+  "crypto.restore_title": ["Récupérer l’identité", "Recover identity"],
+  "crypto.restore_explanation": [
+    "Saisissez votre code conservé et comparez l’empreinte avant de confirmer. Cet appareil créera une nouvelle clé à approuver ; les anciens messages ne sont pas restaurés.",
+    "Enter your saved code and compare the fingerprint before confirming. This device creates a new key requiring approval; old messages are not restored."
+  ],
+  "crypto.restore_review": [
+    "Vérifier le code et la sauvegarde",
+    "Verify code and backup"
+  ],
+  "crypto.restore_compare": [
+    "Confirmez uniquement si cette empreinte correspond à l’identité que vous souhaitez récupérer.",
+    "Confirm only if this fingerprint matches the identity you want to recover."
+  ],
+  "crypto.restore_confirm": [
+    "Récupérer cette identité sur cet appareil",
+    "Recover this identity on this device"
+  ],
+  "crypto.withdrawals": ["Appareils chiffrés", "Encrypted devices"],
+  "crypto.withdrawal_review": ["Examiner le retrait", "Review withdrawal"],
+  "crypto.withdrawal_confirm": ["Retirer cet appareil", "Withdraw this device"],
+  "crypto.withdrawal_pending": [
+    "Retrait à confirmer par le serveur",
+    "Withdrawal awaiting server confirmation"
+  ],
+  "crypto.withdrawal_resume": ["Reprendre le retrait", "Resume withdrawal"],
+  "crypto.withdrawn": ["Appareil retiré", "Withdrawn device"],
+  "crypto.history_title": ["Historique chiffré", "Encrypted history"],
+  "crypto.history_explanation": [
+    "Un nouvel appareil peut récupérer les messages chiffrés que vos autres appareils ont déjà reçus. Comparez l’empreinte de la demande sur les deux appareils avant de partager.",
+    "A new device can recover the encrypted messages your other devices already received. Compare the request fingerprint on both devices before sharing."
+  ],
+  "crypto.history_request": [
+    "Demander l’historique à mes autres appareils",
+    "Ask my other devices for history"
+  ],
+  "crypto.history_requested": [
+    "Demande envoyée, empreinte à comparer",
+    "Request sent, fingerprint to compare"
+  ],
+  "crypto.history_import": [
+    "Importer l’historique reçu",
+    "Import received history"
+  ],
+  "crypto.history_idle": ["Aucune demande en cours", "No request pending"],
+  "crypto.history_waiting": [
+    "En attente d’un autre appareil",
+    "Waiting for another device"
+  ],
+  "crypto.history_done": ["Historique importé", "History imported"],
+  "crypto.history_offers": [
+    "Voir les demandes de mes appareils",
+    "Show requests from my devices"
+  ],
+  "crypto.history_no_offers": [
+    "Aucune demande d’un autre appareil",
+    "No request from another device"
+  ],
+  "crypto.history_offer": ["Demande de {device}", "Request from {device}"],
+  "crypto.history_review": ["Examiner", "Review"],
+  "crypto.history_share": ["Partager l’historique", "Share history"],
+  "crypto.history_share_body": [
+    "Partagez uniquement si cette empreinte est celle affichée sur votre nouvel appareil. Il pourra lire ces conversations :",
+    "Share only if this fingerprint is the one shown on your new device. It will be able to read these conversations:"
+  ],
+  "crypto.history_nothing": [
+    "Cet appareil n’a encore reçu aucun message chiffré à partager.",
+    "This device has not received any encrypted message to share yet."
+  ],
+  "crypto.history_messages": [
+    "{n} message | {n} messages",
+    "{n} message | {n} messages"
+  ],
+  "crypto.history_shared": ["Historique partagé", "History shared"],
+  "crypto.history_resume": ["Reprendre le partage", "Resume sharing"],
+  "crypto.history_share_delegate": [
+    "Partager et confier le contrôle",
+    "Share and hand over control"
+  ],
+  "crypto.history_delegate_body": [
+    "Confier le contrôle donne aussi à cet appareil la clé racine du compte : il pourra approuver et retirer des appareils. Ce don ne peut pas être repris ; seul un remplacement de la racine l’annule.",
+    "Handing control over also gives that device the account's root key: it will approve and withdraw devices. This cannot be taken back; only replacing the root undoes it."
+  ],
+  "crypto.storage_title": ["Clé de stockage", "Storage key"],
+  "crypto.storage_explanation": [
+    "Les données chiffrées de cet appareil sont scellées sous une clé du trousseau, renouvelée tous les 30 jours. Renouveler la détruit : une ancienne copie des données (sauvegarde, journal) ne peut plus être ouverte. Les clés de publication expirées sont détruites au passage.",
+    "This device's encrypted data is sealed under a key in the keyring, renewed every 30 days. Renewing destroys it: an old copy of the data (backup, journal) can no longer be opened. Expired publication keys are destroyed along the way."
+  ],
+  "crypto.storage_never": ["Clé jamais renouvelée", "Key never renewed"],
+  "crypto.storage_renewed": ["Clé renouvelée le", "Key renewed on"],
+  "crypto.storage_due": ["Prochain renouvellement le", "Next renewal on"],
+  "crypto.storage_renew": ["Renouveler maintenant", "Renew now"],
+  "crypto.history_backup_title": [
+    "Sauvegarde de l’historique",
+    "History backup"
+  ],
+  "crypto.history_backup_explanation": [
+    "Un code distinct de celui de l’identité protège la clé de l’historique : avec lui, un nouvel appareil retrouve vos messages chiffrés même sans aucun autre appareil. Vos appareils déposent l’historique chiffré au fil de l’eau.",
+    "A code separate from the identity code protects the history key: with it, a new device recovers your encrypted messages even with no other device left. Your devices upload the encrypted history as it arrives."
+  ],
+  "crypto.history_backup_off": [
+    "Non activée sur cet appareil",
+    "Not enabled on this device"
+  ],
+  "crypto.history_backup_on": [
+    "Activée sur cet appareil",
+    "Enabled on this device"
+  ],
+  "crypto.history_backup_pending": [
+    "Activation à confirmer",
+    "Activation awaiting confirmation"
+  ],
+  "crypto.history_backup_enable": [
+    "Activer la sauvegarde de l’historique",
+    "Enable the history backup"
+  ],
+  "crypto.history_backup_rotate": [
+    "Changer de code (nouvelle génération)",
+    "Change the code (new generation)"
+  ],
+  "crypto.history_backup_replace": [
+    "Une nouvelle clé et un nouveau code remplaceront la génération active ; les anciennes générations restent lisibles avec leur code. Conservez le nouveau code.",
+    "A new key and code will replace the active generation; older generations stay readable with their code. Keep the new code."
+  ],
+  "crypto.history_backup_show_code": [
+    "Afficher le code de l’historique",
+    "Show the history code"
+  ],
+  "crypto.history_backup_code": ["Code de l’historique", "History code"],
+  "crypto.history_backup_saved": [
+    "J’ai conservé ce code : activer",
+    "I have saved this code: enable"
+  ],
+  "crypto.history_backup_resume": [
+    "Reprendre l’activation",
+    "Resume activation"
+  ],
+  "crypto.history_backup_cancel": [
+    "Abandonner cette activation",
+    "Cancel this activation"
+  ],
+  "crypto.history_backup_join": [
+    "Rejoindre avec le code",
+    "Join with the code"
+  ],
+  "crypto.history_backup_sync": ["Sauvegarder maintenant", "Back up now"],
+  "crypto.history_backup_synced": [
+    "{n} page envoyée | {n} pages envoyées",
+    "{n} page uploaded | {n} pages uploaded"
+  ],
+  "crypto.history_backup_restore": [
+    "Restaurer l’historique",
+    "Restore the history"
+  ],
+  "crypto.history_backup_restored": [
+    "{n} message restauré | {n} messages restaurés",
+    "{n} message restored | {n} messages restored"
+  ],
+  "crypto.withdrawal_root_only": [
+    "Confirmez le retrait depuis l’appareil qui contrôle cette identité.",
+    "Confirm withdrawal from the device controlling this identity."
+  ],
+  "crypto.withdrawal_body": [
+    "Cet appareil sera déconnecté et son incarnation ne pourra plus être utilisée. Les conversations devront actualiser leurs destinataires. Le retrait n’efface pas les messages déjà téléchargés.",
+    "This device will be signed out and its incarnation will no longer be usable. Conversations will need to update their recipients. Withdrawal does not erase messages already downloaded."
+  ],
+  "crypto.expires": ["Expiration du certificat", "Certificate expires"],
+  "crypto.root": ["Empreinte de l’identité", "Identity fingerprint"],
+  "crypto.proof": ["Empreinte de la demande", "Request fingerprint"],
+  "crypto.association": ["Association d’appareil", "Device association"],
+  "crypto.compare": [
+    "Comparez les deux empreintes sur vos appareils avant d’approuver la demande affichée.",
+    "Compare both fingerprints on your devices before approving the displayed request."
+  ],
+  "crypto.code": [
+    "Code de demande ou d’approbation",
+    "Request or approval code"
+  ],
+  "crypto.copy": ["Copier le code d’association", "Copy association code"],
+  "crypto.device": ["Appareil demandeur", "Requesting device"],
+  "crypto.refresh": ["Actualiser", "Refresh"],
+  "crypto.begin": [
+    "Créer l’identité ou accepter l’empreinte affichée",
+    "Create identity or accept the displayed fingerprint"
+  ],
+  "crypto.own_preview": [
+    "Examiner la demande de cet appareil",
+    "Review this device’s request"
+  ],
+  "crypto.preview": [
+    "Examiner la demande saisie",
+    "Review the entered request"
+  ],
+  "crypto.approve": [
+    "Approuver les empreintes affichées",
+    "Approve the displayed fingerprints"
+  ],
+  "crypto.grant_ready": [
+    "Approbation prête : transmettez ce code à l’appareil demandeur",
+    "Approval ready: transfer this code to the requesting device"
+  ],
+  "crypto.install": [
+    "Installer l’approbation et enregistrer cet appareil",
+    "Install approval and register this device"
+  ],
+  "crypto.resume": ["Reprendre l’enregistrement", "Resume registration"],
+  "crypto.failed": [
+    "L’opération n’a pas abouti. Actualisez pour reprendre ; le coffre existant est conservé.",
+    "The operation did not finish. Refresh to resume; the existing vault is retained."
+  ],
   "native.offline": [
     "Hors ligne · les envois restent en attente",
     "Offline · sends remain queued"

@@ -217,6 +217,7 @@
     "apps/desktop/crates/rv-gtk/src/smoke/admin.rs",
     "apps/desktop/crates/rv-gtk/src/smoke/email_factor.rs",
     "apps/desktop/crates/rv-gtk/src/smoke/email_settings.rs",
+    "apps/desktop/crates/rv-gtk/src/smoke/native_crypto.rs",
     "apps/desktop/crates/rv-gtk/src/smoke/native_files.rs",
     "apps/desktop/crates/rv-gtk/src/smoke/native_quotes.rs",
     "apps/desktop/crates/rv-gtk/src/smoke/native_reads.rs",

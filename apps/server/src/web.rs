@@ -35,7 +35,7 @@ fn serve(path: &str, immutable: bool) -> Response {
     };
     let mime = match path.rsplit('.').next().unwrap_or("") {
         "html" => "text/html; charset=utf-8",
-        "js" => "text/javascript; charset=utf-8",
+        "js" | "mjs" => "text/javascript; charset=utf-8",
         "css" => "text/css; charset=utf-8",
         "ttf" => "font/ttf",
         "woff2" => "font/woff2",
@@ -43,6 +43,7 @@ fn serve(path: &str, immutable: bool) -> Response {
         "webmanifest" => "application/manifest+json",
         "png" => "image/png",
         "ogg" => "audio/ogg",
+        "wasm" => "application/wasm",
         _ => "application/octet-stream",
     };
     let mut response = Response::new(Body::from(*bytes));
@@ -61,7 +62,7 @@ fn serve(path: &str, immutable: bool) -> Response {
     );
     headers.insert("x-content-type-options", "nosniff".parse().unwrap());
     headers.insert("referrer-policy", "same-origin".parse().unwrap());
-    headers.insert("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self' https: wss: ws://localhost:* ws://127.0.0.1:*; frame-src https://www.youtube-nocookie.com https://player.vimeo.com https://www.dailymotion.com; object-src 'none'; base-uri 'none'; frame-ancestors 'none'".parse().unwrap());
+    headers.insert("content-security-policy", "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self' https: wss: ws://localhost:* ws://127.0.0.1:*; frame-src https://www.youtube-nocookie.com https://player.vimeo.com https://www.dailymotion.com; object-src 'none'; base-uri 'none'; frame-ancestors 'none'".parse().unwrap());
     response
 }
 #[cfg(test)]
@@ -99,8 +100,14 @@ mod tests {
     }
     #[tokio::test]
     async fn packaged_scripts_and_fonts_have_correct_mime_and_immutable_cache() {
+        assert!(ASSETS.iter().any(|(name, _)| name.ends_with(".wasm")));
+        assert!(ASSETS.iter().any(|(name, _)| name.ends_with(".mjs")));
         for (name, _) in ASSETS.iter().filter(|(name, _)| {
-            name.starts_with("/assets/") && (name.ends_with(".js") || name.ends_with(".ttf"))
+            name.starts_with("/assets/")
+                && (name.ends_with(".js")
+                    || name.ends_with(".mjs")
+                    || name.ends_with(".ttf")
+                    || name.ends_with(".wasm"))
         }) {
             let response = router::<()>()
                 .oneshot(Request::builder().uri(*name).body(Body::empty()).unwrap())
@@ -113,12 +120,20 @@ mod tests {
             );
             assert_eq!(
                 response.headers()[header::CONTENT_TYPE],
-                if name.ends_with(".js") {
+                if name.ends_with(".js") || name.ends_with(".mjs") {
                     "text/javascript; charset=utf-8"
+                } else if name.ends_with(".wasm") {
+                    "application/wasm"
                 } else {
                     "font/ttf"
                 }
             );
+            let csp = response.headers()["content-security-policy"]
+                .to_str()
+                .unwrap();
+            assert!(csp.contains("worker-src 'self'"));
+            assert!(csp.contains("'wasm-unsafe-eval'"));
+            assert!(!csp.contains("'unsafe-eval'"));
         }
     }
 }

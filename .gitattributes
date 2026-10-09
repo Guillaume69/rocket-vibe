@@ -5,7 +5,9 @@ apps/web/** text eol=lf
 apps/web/**/*.ttf -text
 apps/web/**/*.png -text
 apps/web/**/*.ogg -text
+apps/web/**/*.wasm -text
 # Preserve upstream licence whitespace and generated bundle notices.
 apps/web/src/fonts-native/* -whitespace
 apps/web/src/icons-native/COPYING* -whitespace
+apps/web/src/crypto/wasm/LICENSES.txt -whitespace
 apps/web/dist/** -whitespace

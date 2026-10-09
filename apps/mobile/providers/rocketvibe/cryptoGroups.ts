@@ -145,9 +145,17 @@ export class CryptoGroupAccess {
     });
     let event:GroupEvent|null=null;
     if(roster.group && !value.pending) {
-      const state=decodeNative('GroupState',await call(()=>this.remote.cryptoGroupState(this.room)));
-      const page=decodeNative('GroupEventPage',await call(()=>this.remote.cryptoGroupEvents(this.room,value.accepted?.revision??'0')));
-      const next=await rpc({action:'events',roster,state,page});event=next===null?null:decodeNative('GroupEvent',next);
+      try {
+        const state=decodeNative('GroupState',await call(()=>this.remote.cryptoGroupState(this.room)));
+        const page=decodeNative('GroupEventPage',await call(()=>this.remote.cryptoGroupEvents(this.room,value.accepted?.revision??'0')));
+        const next=await rpc({action:'events',roster,state,page});event=next===null?null:decodeNative('GroupEvent',next);
+      } catch(error) {
+        // Public room membership precedes MLS admission. The server correctly
+        // withholds group events until this device is in the signed plan. Keep
+        // the invitation/package controls available; never hide access loss of
+        // a group already accepted on this device.
+        if(value.accepted || !(error instanceof NativeError && error.status===403 && error.code==='permission_denied'))throw error;
+      }
     }
     return {...value,roster,eligible,event,own_device:scope.device};
   });}

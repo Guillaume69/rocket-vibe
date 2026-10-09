@@ -1,4 +1,5 @@
 import { nt } from "./native-i18n";
+import { PrivateChat } from "./crypto/chat";
 import { Api, ApiError, operation, secret, segment } from "./api";
 import {
   Model,
@@ -73,6 +74,7 @@ function brand(size = "header"): HTMLElement {
   return el("span", "brand brand-" + size, "rocket-vibe");
 }
 export class App implements RowActions {
+  privateChat?: PrivateChat;
   api = new Api();
   model = new Model();
   account?: Account;
@@ -478,6 +480,9 @@ export class App implements RowActions {
     void this.reconnect();
   }
   async stop(login = false): Promise<void> {
+    const privateChat = this.privateChat;
+    this.privateChat = undefined;
+    void privateChat?.close();
     const token = this.api.token,
       hasPresence = this.info?.capabilities.presence;
     this.generation++;
@@ -764,6 +769,14 @@ export class App implements RowActions {
             );
             if (generation !== this.generation) return;
             this.refresh();
+            if (
+              this.privateChat?.active &&
+              frame.changes.some(
+                (change) =>
+                  change.type === "room_upsert" && change.data.id === this.room,
+              )
+            )
+              void this.privateChat.refresh().catch(toast);
           })
           .catch((error) => {
             toast(error);
@@ -1105,15 +1118,31 @@ export class App implements RowActions {
       this.composer.value = "";
       this.quote = undefined;
     }
-    if (this.room && this.model.rooms.get(this.room)?.encrypted)
-      this.timeline.replaceChildren(
-        el("div", "e2e-banner", t("encryptedHint")),
-      );
+    if (this.privateChat && !this.privateChat.active) {
+      void this.privateChat.close();
+      this.privateChat = undefined;
+    }
     if (
-      this.voice.current &&
-      (!this.model.rooms.has(this.voice.current) ||
-        this.model.rooms.get(this.voice.current)?.encrypted)
-    )
+      this.room &&
+      this.model.rooms.get(this.room)?.encrypted &&
+      !this.privateChat
+    ) {
+      this.timeline.replaceChildren(
+        el("div", "e2e-banner", nt("crypto.loading")),
+      );
+      const room = this.room,
+        generation = this.generation;
+      queueMicrotask(() => {
+        if (
+          this.room === room &&
+          this.generation === generation &&
+          !this.privateChat &&
+          this.model.rooms.get(room)?.encrypted
+        )
+          void this.openRoom(room, false, false).catch(toast);
+      });
+    }
+    if (this.voice.current && !this.model.rooms.has(this.voice.current))
       void this.voice.leave();
     this.renderHeader();
     this.renderTimeline();
@@ -1333,7 +1362,7 @@ export class App implements RowActions {
     this.composer.disabled =
       !this.draftReady ||
       !room ||
-      !!room.encrypted ||
+      (!!room.encrypted && !this.privateChat?.canSend) ||
       this.roomPermissions.get(room.id)?.send === false;
     for (const node of this.roomPane.querySelectorAll<HTMLElement>(
       ".composer,.format-bar,.upload-strip",
@@ -1386,7 +1415,10 @@ export class App implements RowActions {
       iconButton("pin", t("pins"), () => marked(this)),
       iconButton("search", t("search"), () => search(this)),
     );
-    if (this.info?.capabilities.voice && !room.encrypted)
+    if (
+      this.info?.capabilities.voice &&
+      (!room.encrypted || this.privateChat?.active)
+    )
       this.header.append(
         iconButton(
           "video",
@@ -1430,6 +1462,9 @@ export class App implements RowActions {
       membership === this.model.rooms.get(id)?.read_state?.membership_version;
   }
   async openRoom(id: string, navigate = true, mark = true): Promise<void> {
+    const previous = this.privateChat;
+    this.privateChat = undefined;
+    void previous?.close();
     const account = this.account?.key;
     if (!account) return;
     const opening = ++this.roomOpening,
@@ -1455,6 +1490,27 @@ export class App implements RowActions {
     stopMedia(this.timeline);
     this.timeline.replaceChildren();
     if (navigate) history.pushState(null, "", "/room/" + segment(id));
+    if (this.model.rooms.get(id)?.encrypted) {
+      this.staged = [];
+      this.stagedOriginal = false;
+      this.voice.hide();
+      const privateChat = new PrivateChat(this, id);
+      this.privateChat = privateChat;
+      this.refresh();
+      try {
+        await privateChat.open();
+      } catch (error) {
+        if (active()) toast(error);
+      }
+      if (
+        active() &&
+        this.model.rooms.get(id)?.voice &&
+        privateChat.active &&
+        this.info?.capabilities.voice
+      )
+        void this.voice.join(id).catch(toast);
+      return;
+    }
     this.refresh();
     const draft = (await read<string>("drafts", account + ":" + id)) || "";
     const staged = (await read<File[]>("staged", account + ":" + id)) || [];
@@ -1472,12 +1528,6 @@ export class App implements RowActions {
     this.composer.focus();
     if (this.model.rooms.get(id)?.voice && this.info?.capabilities.voice)
       void this.voice.join(id).catch(toast);
-    if (this.model.rooms.get(id)?.encrypted) {
-      this.timeline.replaceChildren(
-        el("div", "e2e-banner", t("encryptedHint")),
-      );
-      return;
-    }
     if (this.connection !== "online") {
       this.renderTimeline();
       return;
@@ -1514,11 +1564,19 @@ export class App implements RowActions {
     }
   }
   renderTimeline(): void {
-    if (!this.room || this.model.rooms.get(this.room)?.encrypted) return;
+    if (this.model.rooms.get(this.room ?? "")?.encrypted) {
+      this.privateChat?.render();
+      return;
+    }
+    if (!this.room) return;
     this.patchRows(this.timeline, this.model.timeline(this.room));
     this.renderPending();
   }
-  patchRows(container: HTMLElement, messages: Message[]): void {
+  patchRows(
+    container: HTMLElement,
+    messages: Message[],
+    actions: RowActions = this,
+  ): void {
     const pinned =
         container.scrollHeight - container.scrollTop - container.clientHeight <
         100,
@@ -1569,7 +1627,12 @@ export class App implements RowActions {
           (old.dataset.stamp === JSON.stringify(message) &&
             old.classList.contains("grouped") === grouped))
           ? old
-          : messageRow(message, this.account!.session.user.id, this, grouped);
+          : messageRow(
+              message,
+              this.account!.session.user.id,
+              actions,
+              grouped,
+            );
       if (old && old !== next) {
         if (retainMessageMedia(old, next)) next = old;
         else stopMedia(old);
@@ -1647,6 +1710,10 @@ export class App implements RowActions {
     setTimeout(() => row?.classList.remove("jump-highlight"), 2200);
   }
   async older(): Promise<void> {
+    if (this.privateChat) {
+      await this.privateChat.older();
+      return;
+    }
     if (!this.room || this.loading || this.hasOlder.get(this.room) !== true)
       return;
     const id = this.room,
@@ -1679,6 +1746,10 @@ export class App implements RowActions {
     }
   }
   async saveDraft(): Promise<void> {
+    if (this.model.rooms.get(this.room ?? "")?.encrypted) {
+      await this.privateChat?.draft();
+      return;
+    }
     if (this.account && this.room)
       await write(
         "drafts",
@@ -1687,6 +1758,10 @@ export class App implements RowActions {
       );
   }
   async send(text = this.composer.value, root?: string): Promise<void> {
+    if (this.model.rooms.get(this.room ?? "")?.encrypted) {
+      await this.privateChat?.send(text, root);
+      return;
+    }
     if (
       !this.account ||
       !this.room ||
@@ -1963,7 +2038,8 @@ export class App implements RowActions {
         (child) => (child as HTMLElement).dataset.id,
       ) as HTMLElement | undefined,
       message = node?.dataset.id
-        ? this.model.messages.get(node.dataset.id)
+        ? (this.privateChat?.message(node.dataset.id) ??
+          this.model.messages.get(node.dataset.id))
         : undefined;
     if (
       !room ||
@@ -1988,7 +2064,10 @@ export class App implements RowActions {
         this.room !== room.id ||
         membership !==
           this.model.rooms.get(room.id)?.read_state?.membership_version ||
-        this.model.messages.get(message.id)?.position !== message.position ||
+        (
+          this.privateChat?.message(message.id) ??
+          this.model.messages.get(message.id)
+        )?.position !== message.position ||
         ![...this.timeline.children].some(
           (child) => (child as HTMLElement).dataset.id === message.id,
         ) ||
@@ -2099,6 +2178,10 @@ export class App implements RowActions {
       : "";
   }
   async thread(message: Message): Promise<void> {
+    if (this.model.rooms.get(message.room_id)?.encrypted) {
+      await this.privateChat?.thread(message);
+      return;
+    }
     const room = this.room,
       account = this.account?.key;
     if (!account || room !== message.room_id || !this.model.rooms.has(room))
@@ -2174,12 +2257,17 @@ export class App implements RowActions {
     this.threadComposer.focus();
   }
   closeThread(): void {
+    void this.privateChat?.closeThread();
     this.threadOpening++;
     this.root = undefined;
     this.threadPane.hidden = true;
     stopMedia(this.threadTimeline);
   }
   renderThread(): void {
+    if (this.model.rooms.get(this.room ?? "")?.encrypted) {
+      this.privateChat?.renderThread();
+      return;
+    }
     if (!this.root || !this.room) return;
     const root = this.model.messages.get(this.root);
     this.patchRows(this.threadTimeline, [
@@ -2201,6 +2289,10 @@ export class App implements RowActions {
     void this.markThread();
   }
   async olderThread(): Promise<void> {
+    if (this.privateChat) {
+      await this.privateChat.older(true);
+      return;
+    }
     if (!this.root || !this.room || !this.threadOlder || this.threadLoading)
       return;
     const root = this.root,
@@ -2249,7 +2341,9 @@ export class App implements RowActions {
     )
       return;
     const root = this.root,
-      position = this.model.timeline(this.room, root).at(-1)?.position;
+      position = this.privateChat?.active
+        ? this.privateChat.threadPosition()
+        : this.model.timeline(this.room, root).at(-1)?.position;
     if (
       !position ||
       BigInt(this.threadRead.get(root) || "0") >= BigInt(position)
@@ -2640,6 +2734,10 @@ export class App implements RowActions {
     }
   }
   async reaction(message: Message, emoji: string): Promise<void> {
+    if (this.model.rooms.get(message.room_id)?.encrypted) {
+      await this.privateChat?.react(message, emoji);
+      return;
+    }
     if (!this.account) return;
     emoji = this.emojis.get(emoji)?.name || canonical(emoji);
     const account = this.account.key,
@@ -2789,10 +2887,24 @@ export class App implements RowActions {
     const urls = this.roomURLs.get(file.room_id) || new Set<string>();
     urls.add(url);
     this.roomURLs.set(file.room_id, urls);
+    this.attachFile(file, node, url, valid);
+  }
+  attachFile(
+    file: FileDescriptor,
+    node: HTMLElement,
+    url: string,
+    valid: () => boolean,
+  ): void {
+    const status =
+      node.querySelector<HTMLElement>(".video-caption .file-detail") ||
+      node.querySelector<HTMLElement>(".file-top .file-detail");
     node.dataset.loaded = "true";
     if (status)
       status.textContent = humanSize(file.bytes) + " · " + file.media_type;
-    if (inlineImage(file) && node.querySelector(".image-frame")) {
+    if (
+      inlineImage({ ...file, encrypted: false }) &&
+      node.querySelector(".image-frame")
+    ) {
       attachImage(file, node, url, valid);
       return;
     } else if (
@@ -3027,6 +3139,10 @@ export class App implements RowActions {
     picker.click();
   }
   async stage(files: File[]): Promise<void> {
+    if (this.model.rooms.get(this.room ?? "")?.encrypted) {
+      this.privateChat?.addFiles(files);
+      return;
+    }
     if (
       !this.room ||
       !this.account ||
@@ -3078,7 +3194,11 @@ export class App implements RowActions {
             this.urls.delete(url);
             this.stagedWidgets.delete(file);
             this.stagedURLs.delete(file);
-            if (this.account && this.room)
+            if (
+              this.account &&
+              this.room &&
+              !this.model.rooms.get(this.room)?.encrypted
+            )
               await write(
                 "staged",
                 this.account.key + ":" + this.room,
@@ -3102,7 +3222,7 @@ export class App implements RowActions {
         room = this.room;
       original.addEventListener("change", () => {
         this.stagedOriginal = original.checked;
-        if (account && room)
+        if (account && room && !this.model.rooms.get(room)?.encrypted)
           void write(
             "staged",
             account + ":" + room + ":original",
@@ -3168,6 +3288,11 @@ export class App implements RowActions {
     }
   }
   async upload(file: File): Promise<void> {
+    if (this.model.rooms.get(this.room ?? "")?.encrypted) {
+      this.privateChat?.addFiles([file]);
+      await this.privateChat?.send("", this.root);
+      return;
+    }
     if (
       !this.account ||
       !this.room ||
@@ -3189,7 +3314,8 @@ export class App implements RowActions {
   async record(): Promise<void> {
     if (
       !this.room ||
-      this.model.rooms.get(this.room)?.encrypted ||
+      (this.model.rooms.get(this.room)?.encrypted &&
+        !this.privateChat?.canSend) ||
       this.roomPermissions.get(this.room)?.upload === false
     )
       return;
@@ -3276,6 +3402,11 @@ export class App implements RowActions {
       const file = new File(chunks, "voice-" + Date.now() + "." + extension, {
         type: mime,
       });
+      if (this.model.rooms.get(room)?.encrypted) {
+        if (account === this.account?.key && room === this.room)
+          this.privateChat?.addFiles([file]);
+        return;
+      }
       if (!account || !room) return;
       void (async () => {
         const files =

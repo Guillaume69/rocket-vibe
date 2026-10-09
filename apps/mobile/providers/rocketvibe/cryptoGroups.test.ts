@@ -7,6 +7,20 @@ import {CryptoStorageAccess} from './cryptoStorage.ts';
 import {NativeError} from './transport.ts';
 import type {Directory,GroupReceipt,GroupRoster,GroupSubmission,OperationReceipt,PublishKeyPackages} from './protocol.generated.ts';
 
+test('a room member awaiting MLS admission can prepare invitations, while accepted-group access loss stays terminal',async()=>{
+  const f=await setup();
+  f.remote.cryptoGroupRoster=async()=>({scope:{instance_id:'instance',data_epoch:'epoch'},room_id:'room',authority_version:'authority',members:[{user_id:'alice',access_version:'access',activation_version:'active'}],group:f.ack});
+  f.remote.cryptoGroupState=async()=>{throw new NativeError(403,'permission_denied');};
+  assert.equal((await f.access.read()).event,null);
+  await f.access.publishPackages();assert.equal(f.packagePosts,1);
+  f.bridge.groupAction=async()=>JSON.stringify({accepted:f.ack,participants:[],pending:null,needs_credential_update:false,grants:[]});
+  await assert.rejects(f.access.read(),/permission_denied/);
+  await f.access.close();
+  const other=await setup();other.remote.cryptoGroupRoster=f.remote.cryptoGroupRoster;
+  other.remote.cryptoGroupState=async()=>{throw new NativeError(500,'internal_error');};
+  await assert.rejects(other.access.read(),/internal_error/);await other.access.close();
+});
+
 const scope:CryptoAccount={origin:'https://example.org',instance:'instance',dataEpoch:'epoch',user:'alice',device:'phone'};
 const fp='ab'.repeat(32),incarnation='cd'.repeat(16),previewId='ef'.repeat(16);
 async function setup() {

@@ -92,6 +92,7 @@ use crate::window::AppWindow;
 mod admin;
 mod email_factor;
 mod email_settings;
+mod native_crypto;
 mod native_files;
 mod native_quotes;
 mod native_reads;
@@ -142,6 +143,7 @@ pub fn install(window: &Rc<AppWindow>) {
     native_reads::install(window);
     native_quotes::install(window);
     native_files::install(window);
+    native_crypto::install(window);
     email_factor::install(window);
     email_settings::install(window);
     let login = std::env::var("RV_SMOKE_LOGIN").unwrap_or_default();

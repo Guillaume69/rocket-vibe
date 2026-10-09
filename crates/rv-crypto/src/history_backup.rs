@@ -70,11 +70,11 @@ impl HistoryCode {
             return Err(Error::Changed);
         }
         let mut key = Zeroizing::new([0; 32]);
-        for (destination, pair) in key.iter_mut().zip(bytes[5..69].chunks_exact(2)) {
+        for (destination, pair) in key.iter_mut().zip(bytes[5..69].as_chunks::<2>().0) {
             *destination = hex_pair(pair)?;
         }
         let mut supplied = [0; 4];
-        for (destination, pair) in supplied.iter_mut().zip(bytes[70..78].chunks_exact(2)) {
+        for (destination, pair) in supplied.iter_mut().zip(bytes[70..78].as_chunks::<2>().0) {
             *destination = hex_pair(pair)?;
         }
         if supplied != checksum(&key) {

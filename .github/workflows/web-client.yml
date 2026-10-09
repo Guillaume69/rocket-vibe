@@ -3,9 +3,9 @@ on:
   push:
     branches: ['**']
     tags: ['web-v*']
-    paths: ['apps/web/**', 'apps/server/**', 'crates/rv-protocol/**', 'apps/desktop/crates/rv-gtk/src/style.rs', 'apps/desktop/crates/rv-core/data/emojis.tsv', 'apps/desktop/crates/rv-core/src/i18n.rs', 'apps/desktop/crates/rv-core/src/native/bots.rs', 'apps/desktop/crates/rv-core/src/native/workflows.rs', 'apps/desktop/crates/rv-gtk/assets/fonts/**', 'apps/desktop/crates/rv-gtk/src/login.rs', 'apps/mobile/providers/rocketvibe/protocol.generated.ts', 'apps/desktop/data/**', 'assets/sounds/**', 'scripts/version.mjs', 'scripts/changelog.mjs', 'scripts/package-web.mjs', '.github/workflows/web-client.yml']
+    paths: ['apps/web/**', 'apps/server/**', 'crates/rv-protocol/**', 'crates/rv-crypto/**', 'crates/rv-crypto-mobile/**', 'crates/rv-crypto-public/**', 'crates/rv-crypto-web/**', 'apps/mobile/providers/rocketvibe/crypto*.ts', 'apps/mobile/modules/rv-crypto/src/**', 'apps/desktop/crates/rv-gtk/src/style.rs', 'apps/desktop/crates/rv-core/data/emojis.tsv', 'apps/desktop/crates/rv-core/src/i18n.rs', 'apps/desktop/crates/rv-core/src/native/bots.rs', 'apps/desktop/crates/rv-core/src/native/workflows.rs', 'apps/desktop/crates/rv-gtk/assets/fonts/**', 'apps/desktop/crates/rv-gtk/src/login.rs', 'apps/mobile/providers/rocketvibe/protocol.generated.ts', 'apps/desktop/data/**', 'assets/sounds/**', 'scripts/version.mjs', 'scripts/changelog.mjs', 'scripts/package-web.mjs', '.github/workflows/web-client.yml']
   pull_request:
-    paths: ['apps/web/**', 'apps/server/**', 'crates/rv-protocol/**', 'apps/desktop/crates/rv-gtk/src/style.rs', 'apps/desktop/crates/rv-core/data/emojis.tsv', 'apps/desktop/crates/rv-core/src/i18n.rs', 'apps/desktop/crates/rv-core/src/native/bots.rs', 'apps/desktop/crates/rv-core/src/native/workflows.rs', 'apps/desktop/crates/rv-gtk/assets/fonts/**', 'apps/desktop/crates/rv-gtk/src/login.rs', 'apps/mobile/providers/rocketvibe/protocol.generated.ts', 'apps/desktop/data/**', 'assets/sounds/**', 'scripts/version.mjs', 'scripts/changelog.mjs', 'scripts/package-web.mjs', '.github/workflows/web-client.yml']
+    paths: ['apps/web/**', 'apps/server/**', 'crates/rv-protocol/**', 'crates/rv-crypto/**', 'crates/rv-crypto-mobile/**', 'crates/rv-crypto-public/**', 'crates/rv-crypto-web/**', 'apps/mobile/providers/rocketvibe/crypto*.ts', 'apps/mobile/modules/rv-crypto/src/**', 'apps/desktop/crates/rv-gtk/src/style.rs', 'apps/desktop/crates/rv-core/data/emojis.tsv', 'apps/desktop/crates/rv-core/src/i18n.rs', 'apps/desktop/crates/rv-core/src/native/bots.rs', 'apps/desktop/crates/rv-core/src/native/workflows.rs', 'apps/desktop/crates/rv-gtk/assets/fonts/**', 'apps/desktop/crates/rv-gtk/src/login.rs', 'apps/mobile/providers/rocketvibe/protocol.generated.ts', 'apps/desktop/data/**', 'assets/sounds/**', 'scripts/version.mjs', 'scripts/changelog.mjs', 'scripts/package-web.mjs', '.github/workflows/web-client.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -15,7 +15,7 @@ concurrency:
 jobs:
   browser:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60
     outputs:
       version: ${{ steps.version.outputs.version }}
     services:
@@ -35,6 +35,8 @@ jobs:
       RV_WEB_SECURITY_USER: websecurity
       RV_WEB_COMPOSER_USER: webcomposer
       RV_USER_PASSWORD: web-client-disposable-password
+      RV_WEB_CRYPTO_ALICE: webcryptoalice
+      RV_WEB_CRYPTO_BOB: webcryptobob
       RUST_TEST_THREADS: 4
     steps:
       - uses: actions/checkout@v5
@@ -63,10 +65,11 @@ jobs:
         working-directory: apps/web
         run: |
           npm ci
+          npm run crypto:build
           npm run format:check
           npm test
           npm run build
-          git diff --exit-code -- dist src/gtk.css src/design.generated.ts src/third-party.generated.ts src/native-strings.generated.json src/native-errors.generated.json
+          git diff --exit-code -- dist src/gtk.css src/design.generated.ts src/third-party.generated.ts src/native-strings.generated.json src/native-errors.generated.json src/crypto
           npx playwright install --with-deps chromium firefox
       - name: Build the actual server distribution
         run: |
@@ -85,6 +88,8 @@ jobs:
           export RV_OBJECTS_DIR="$PWD/.cache/web-objects"
           export RV_SMTP_CONFIG_FILE="$PWD/.cache/smtp.json"
           export RV_LIVEKIT_CONFIG_FILE="$PWD/.cache/livekit.json"
+          target/debug/rv-server create-user webcryptoalice --admin
+          target/debug/rv-server create-user webcryptobob --admin
           target/debug/rv-server create-user webalice --admin
           target/debug/rv-server create-user webvoicefailure
           target/debug/rv-server create-user webconnection
@@ -114,6 +119,7 @@ jobs:
       - name: Exercise real browser conversations and devices
         working-directory: apps/web
         run: |
+          npm run test:e2ee
           npm run test:browser
           npm run test:features
           npm run test:media
@@ -129,6 +135,15 @@ jobs:
           npm run test:workflows
           npm run test:reads
           npm run test:profiles
+      - name: Exercise authenticated browser vault and concurrent workers
+        working-directory: apps/web
+        run: |
+          RV_WEB_API_URL="$RV_WEB_TEST_URL" npm run dev -- --port 3418 > ../../.cache/web-crypto-vite.log 2>&1 &
+          for i in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:3418 > /dev/null; then break; fi
+            sleep 1
+          done
+          npm run test:crypto-storage
       - name: Package the verified frontend
         if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
         run: node scripts/package-web.mjs .cache/web-package

@@ -70,7 +70,7 @@ fn changed() -> account::Error {
 fn after(value: Option<u64>) -> Value {
     json!({"after": value.map(|v| v.to_string())})
 }
-#[uniffi::export]
+#[cfg_attr(feature = "native-bindings", uniffi::export)]
 impl CryptoInstallation {
     pub fn history_backup_action(&self, directory: String, input: String) -> Result<String> {
         let input = Zeroizing::new(input);

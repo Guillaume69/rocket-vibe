@@ -7,6 +7,10 @@ section here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Prepare a desktop device for invitation into an existing MLS group before admission, and review its Welcome instead of an earlier commit. Verified with a real GTK/browser encrypted message round trip.
+
 ## [0.12.2] - 2026-10-09
 
 ### Fixed

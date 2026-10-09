@@ -24,6 +24,11 @@ import { icon, iconButton } from "./icons";
 import { botsPage, botBadge } from "./bots";
 import { workflowsPage } from "./workflows";
 import { nt } from "./native-i18n";
+import {
+  encryptionSettings,
+  encryptedRoom,
+  encryptedPeer,
+} from "./crypto/panels";
 
 export async function newConversation(app: App): Promise<void> {
   const [node, body] = dialog(t("new"));
@@ -156,6 +161,10 @@ export async function newConversation(app: App): Promise<void> {
   input.focus();
 }
 export async function search(app: App): Promise<void> {
+  if (app.privateChat) {
+    await app.privateChat.search();
+    return;
+  }
   if (!app.room) return;
   const room = app.room;
   const [node, body] = dialog(t("search"));
@@ -356,6 +365,17 @@ export async function profile(
             button(nt("info.call"), () => openDirect(true), "flat"),
           );
         body.append(actions);
+        if (
+          app.info?.capabilities.e2ee &&
+          app.info.capabilities.device_sessions
+        )
+          body.append(
+            button(
+              nt("crypto.peer_title"),
+              () => encryptedPeer(app, id),
+              "flat",
+            ),
+          );
         if (app.info?.capabilities.reports)
           body.append(
             button(
@@ -410,6 +430,10 @@ export async function roomInfo(app: App): Promise<void> {
     el("h2", "details-name", details.room.name),
   );
   const form = el("div", "details-form");
+  if (app.info?.capabilities.e2ee && app.info.capabilities.device_sessions)
+    body.append(
+      button(nt("crypto.group_title"), () => encryptedRoom(app, id), "flat"),
+    );
   body.append(form);
   const fields = new Map<string, HTMLInputElement>();
   for (const [key, label, value] of [
@@ -862,6 +886,10 @@ export async function settings(
   if (app.info?.capabilities.voice)
     host.add("voice", phrase("Voice", "Voix"), "mic", (page) =>
       app.voice.settings(page),
+    );
+  if (app.info?.capabilities.e2ee && app.info.capabilities.device_sessions)
+    host.add("encryption", nt("settings.cat.encryption"), "security", (page) =>
+      encryptionSettings(app, page),
     );
   host.add("security", t("security"), "security", (page) =>
     securitySettings(app, page),

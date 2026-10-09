@@ -177,7 +177,7 @@ fn settlement(value: &engine::GroupSettlement) -> Result<Value> {
             "fingerprint":HEXLOWER.encode(&v.fingerprint)}})),
     }
 }
-#[uniffi::export]
+#[cfg_attr(feature = "native-bindings", uniffi::export)]
 impl CryptoInstallation {
     /// One bounded public RPC avoids exporting any serializable private consent.
     pub fn group_action(&self, directory: String, input: String) -> Result<String> {
@@ -496,7 +496,15 @@ impl CryptoInstallation {
                 // when the room is read: it is not a transition to review.
                 // A Welcome (a readmission) still is, wherever it sits in the page.
                 let journal = c.journal_started(&wire.room_id)?;
-                public(&page.events.iter().find(|e| e.welcome.is_some() || !journal))?
+                // A new device cannot consume a historical commit before its
+                // own Welcome. Existing members without a started journal may
+                // still review their next commit explicitly.
+                public(
+                    &page
+                        .events
+                        .iter()
+                        .find(|e| e.welcome.is_some() || local.is_some() && !journal),
+                )?
             }
             Action::PackagesPrepare => {
                 packages::Coordinator::new(manager, root)?.prepare(&revision, 4, time)?;

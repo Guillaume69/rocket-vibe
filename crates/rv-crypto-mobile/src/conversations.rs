@@ -190,15 +190,7 @@ fn source_rows(room: &str, sources: engine::JournalSources) -> Result<Value> {
     let admission = HEXLOWER.encode(&sources.admission);
     let mut rows = Vec::new();
     for entry in sources.messages {
-        let receipt = &entry.message.receipt;
-        rows.push(row(
-            &receipt.header,
-            entry.message.message()?,
-            receipt.message.clone(),
-            Some(receipt.position.to_string()),
-            entry.observed_at,
-            "journaled",
-        ));
+        rows.push(journaled(entry)?);
     }
     Ok(
         json!({"room_id":room,"admission":admission,"after":sources.after.to_string(),"messages":rows}),
@@ -416,7 +408,10 @@ impl CryptoInstallation {
                     .find(|m| m.message.receipt.message == message)
                     .ok_or(CryptoBridgeError::Integrity)?;
                 let receipt = &source.message.receipt;
-                let doc = source.message.message()?;
+                let mut doc = source.message.message()?;
+                if let Some(edit) = &source.edit {
+                    doc.text = edit.text.to_string();
+                }
                 json!({"selection":{"reference":{"room_id":current.roster.scope.room,"message_id":message,
                     "revision":receipt.position.to_string()},"instance_id":current.roster.scope.instance,
                     "data_epoch":current.roster.scope.data_epoch,"membership_version":membership,"crypto_admission":admission},
@@ -672,7 +667,7 @@ impl CryptoInstallation {
         Ok(output)
     }
 }
-#[uniffi::export]
+#[cfg_attr(feature = "native-bindings", uniffi::export)]
 impl CryptoInstallation {
     pub fn conversation_action(&self, directory: String, input: String) -> Result<String> {
         if input.len() > 8 * 1024 * 1024 {

@@ -1,9 +1,11 @@
 // Each app's version, from the file that owns it.
-//   node scripts/version.mjs mobile|desktop|web [--tag <git tag>]
+//   node scripts/version.mjs mobile|desktop|web|server [--tag <git tag>]
 // mobile: apps/mobile/app.json (expo.version), which package.json must match,
 //   and android.versionCode = major * 10000 + minor * 100 + patch, so that
 //   every release installs over the previous one.
 // desktop: apps/desktop/Cargo.toml ([workspace.package] version).
+// server: apps/server/Cargo.toml ([package] version), which the root
+//   Cargo.lock's rv-server entry must match (CI builds with --locked).
 // With --tag, the tag must be `<app>-v<version>`.
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -45,8 +47,19 @@ function web() {
   return pkg.version;
 }
 
-const versions = { mobile, desktop, web };
-if (!(app in versions)) fail('usage: node scripts/version.mjs mobile|desktop|web [--tag <tag>]');
+function server() {
+  const cargo = readFileSync(join(ROOT, 'apps/server/Cargo.toml'), 'utf8');
+  const section = cargo.split(/^\[/m).find((s) => s.startsWith('package]'));
+  const version = section?.match(/^version\s*=\s*"([^"]+)"/m)?.[1];
+  if (!version) fail('no [package] version in apps/server/Cargo.toml');
+  const lock = readFileSync(join(ROOT, 'Cargo.lock'), 'utf8');
+  const locked = lock.match(/name = "rv-server"\nversion = "([^"]+)"/)?.[1];
+  if (locked !== version) fail(`Cargo.lock rv-server ${locked} ≠ apps/server/Cargo.toml ${version}`);
+  return version;
+}
+
+const versions = { mobile, desktop, web, server };
+if (!(app in versions)) fail('usage: node scripts/version.mjs mobile|desktop|web|server [--tag <tag>]');
 const version = versions[app]();
 if (!/^\d+\.\d+\.\d+$/.test(version)) fail(`${version} is not major.minor.patch`);
 if (flag === '--tag' && tag !== `${app}-v${version}`) fail(`tag ${tag} ≠ ${app}-v${version}`);

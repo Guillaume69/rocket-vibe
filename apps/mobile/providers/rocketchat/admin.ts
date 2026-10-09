@@ -59,6 +59,7 @@ import {
   type ReportedUser,
 } from '../../lib/admin.ts';
 import { RestError, type RestClient } from '../../lib/rest.ts';
+import { RC_ICON_ASSET } from '../../lib/serverIcon.ts';
 import { AVATAR_NO_PHOTO, type FileToSend } from '../../lib/upload.ts';
 
 type Doc = Record<string, unknown>;
@@ -425,6 +426,42 @@ export class AdminRC implements ProviderAdmin {
 
   async deleteEmoji(emoji: AdminEmoji): Promise<void> {
     await this.client.post('emoji-custom.delete', { body: { emojiId: emoji.id } });
+  }
+
+  /** `manage-assets` belongs to an administrator by default. */
+  canSetIcon(): boolean {
+    return true;
+  }
+
+  /** `assets.setAsset` (multipart `asset`, `assetName`) or `assets.unsetAsset`, on `favicon_192`. */
+  async setIcon(image: FileToSend | null, io: EmojiUploadIO): Promise<void> {
+    if (image === null) {
+      await this.client.post('assets.unsetAsset', { body: { assetName: RC_ICON_ASSET } });
+      return;
+    }
+    const headers: Record<string, string> = {};
+    if (this.client.auth !== null) {
+      headers['X-Auth-Token'] = this.client.auth.authToken;
+      headers['X-User-Id'] = this.client.auth.userId;
+    }
+    const { status, body } = await io.transport(
+      `${this.client.baseUrl}/api/v1/assets.setAsset`,
+      headers,
+      image,
+      undefined,
+      undefined,
+      { assetName: RC_ICON_ASSET },
+    );
+    let json: { success?: boolean; errorType?: unknown; error?: unknown } = {};
+    try {
+      json = JSON.parse(body) as typeof json;
+    } catch {
+      // Not Rocket.Chat's envelope: an ordinary failure below.
+    }
+    if (status < 400 && json.success !== false) return;
+    const key = typeof json.errorType === 'string' ? emojiErrorKey(json.errorType) : null;
+    if (key !== null) throw new EmojiRefused(key);
+    throw new Error(typeof json.error === 'string' ? json.error : `assets.setAsset failed (${status}).`);
   }
 }
 

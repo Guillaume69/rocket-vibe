@@ -3,6 +3,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 
 import { humanBytes, updateStatus, uptimeParts, type AdminOverview, type ProviderAdmin } from '../../lib/admin.ts';
+import type { RestClient } from '../../lib/rest.ts';
+import { IconSetting } from '../../ui/adminIcon.tsx';
 import { AdminCard, AdminGate, ItemAction, StatLine, adminStyles, useAdminError, useAdminFormat } from '../../ui/adminKit.tsx';
 import { useT } from '../../ui/i18n.ts';
 import type { TranslationKey } from '../../ui/messages.ts';
@@ -31,12 +33,12 @@ export default function AdminScreen() {
   return (
     <View style={[adminStyles.screen, { backgroundColor: c.background }]}>
       <Stack.Screen options={{ title: t('admin.title') }} />
-      <AdminGate c={c}>{(admin) => <Dashboard c={c} admin={admin} />}</AdminGate>
+      <AdminGate c={c}>{(admin) => <Dashboard c={c} admin={admin} client={state.client} />}</AdminGate>
     </View>
   );
 }
 
-function Dashboard({ c, admin }: { c: Colors; admin: ProviderAdmin }) {
+function Dashboard({ c, admin, client }: { c: Colors; admin: ProviderAdmin; client: RestClient }) {
   const t = useT();
   const router = useRouter();
   const describe = useAdminError();
@@ -100,6 +102,7 @@ function Dashboard({ c, admin }: { c: Colors; admin: ProviderAdmin }) {
       {overview === null && error === null && <ActivityIndicator color={c.accent} style={styles.loading} />}
       {overview !== null && <Cards c={c} o={overview} latest={latest} units={units} refreshing={refreshing} onRefresh={refresh} onReports={() => router.push('/admin/moderation')} />}
       {admin.userBots !== undefined && <BotSetting c={c} admin={admin} />}
+      {admin.canSetIcon?.() === true && <IconSetting c={c} admin={admin} client={client} />}
 
       <View style={[styles.list, { backgroundColor: c.deepCard, borderColor: c.border }]}>
         <NavRow c={c} icon="🛡️" label={t('admin.moderation')} hint={t('admin.moderationHint')} count={reports} first onPress={() => router.push('/admin/moderation')} />

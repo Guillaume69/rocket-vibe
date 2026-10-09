@@ -194,6 +194,14 @@ export interface ProviderAdmin {
    */
   createEmoji?(name: string, aliases: string[], image: FileToSend, io: EmojiUploadIO): Promise<void>;
   deleteEmoji?(emoji: AdminEmoji): Promise<void>;
+  /** Whether this server's icon can be changed here (the next member). */
+  canSetIcon?(): boolean;
+  /**
+   * Sets the server's icon from a square PNG of `RC_ICON_SIDE` pixels
+   * (`lib/serverIcon.ts`; Rocket.Chat refuses any other size), or removes it
+   * with `null`. `io` as for `createEmoji`, the transport's field being `asset`.
+   */
+  setIcon?(image: FileToSend | null, io: EmojiUploadIO): Promise<void>;
 }
 
 /** A custom emoji as the administration lists it. */
@@ -213,7 +221,9 @@ export type EmojiErrorKey =
   | 'admin.emojiErrorTaken'
   | 'admin.emojiErrorImage'
   | 'admin.emojiErrorSize'
-  | 'admin.emojiErrorLimit';
+  | 'admin.emojiErrorLimit'
+  | 'admin.iconErrorImage'
+  | 'admin.iconErrorSize';
 
 /** A server's refusal of an emoji, by its code on either server; `null` = not an emoji refusal. */
 export function emojiErrorKey(code: string): EmojiErrorKey | null {
@@ -234,6 +244,13 @@ export function emojiErrorKey(code: string): EmojiErrorKey | null {
       return 'admin.emojiErrorSize';
     case 'emoji_catalog_limit':
       return 'admin.emojiErrorLimit';
+    case 'invalid_icon':
+    case 'error-invalid-file-type':
+      return 'admin.iconErrorImage';
+    case 'icon_too_large':
+    case 'error-invalid-file-width':
+    case 'error-invalid-file-height':
+      return 'admin.iconErrorSize';
     default:
       return null;
   }

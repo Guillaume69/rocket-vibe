@@ -419,6 +419,11 @@ export class NativeTransport {
     const path=`/api/v1/admin/emoji/${encodeURIComponent(name)}?operation_id=${encodeURIComponent(input.operation_id)}&expected_revision=${encodeURIComponent(input.expected_revision)}`;
     return emojiCatalog(await this.value(path,undefined,false,undefined,'DELETE'));
   }
+  async adminSetIcon(operation:string,image:{mime:string;bytes:Uint8Array}|null):Promise<NativeTypes['InstanceIcon']> {
+    if(image && image.bytes.length>2*1024*1024)throw new NativeError(413,'icon_too_large');
+    const path=`/api/v1/admin/icon?operation_id=${encodeURIComponent(operation)}`;
+    return decodeNative('InstanceIcon',await this.value(path,undefined,false,undefined,image?'PUT':'DELETE',image?{mime:image.mime,body:Uint8Array.from(image.bytes).buffer}:undefined));
+  }
   instanceSettings():Promise<NativeTypes['InstanceSettings']> { return this.request('InstanceSettings','/api/v1/admin/settings'); }
   updateInstanceSettings(input:NativeTypes['UpdateInstanceSettings']):Promise<NativeTypes['InstanceSettings']> { return this.request('InstanceSettings','/api/v1/admin/settings',input,false,undefined,'PATCH'); }
   accountPermissions(): Promise<NativeTypes['AccountPermissions']> { return this.request('AccountPermissions','/api/v1/me/permissions'); }

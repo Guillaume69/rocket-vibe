@@ -14,6 +14,7 @@ import { Alert, AppState, ScrollView, StyleSheet, Text, View } from 'react-nativ
 import { dismissible } from './alerts.ts';
 
 import type { Session } from '../lib/auth.ts';
+import { serverIconUri } from '../lib/serverIcon.ts';
 import { nativeRoomsUnread, serverHost, subscriptionsUnread } from '../lib/accountUnread.ts';
 import { listKnownServers, prepareNativeSession, readSession } from '../lib/sessionStore.ts';
 import { clientForSession } from '../lib/sessionTransport.ts';
@@ -48,6 +49,8 @@ export function ServerRail({ c }: { c: Colors }) {
   const [accounts, setAccounts] = useState<Session[]>([]);
   const [unread, setUnread] = useState<ReadonlySet<string>>(new Set());
   const [switching, setSwitching] = useState<string | null>(null);
+  /** Each server's own icon (`lib/serverIcon.ts`), by host; absent keeps the initial. */
+  const [icons, setIcons] = useState<ReadonlyMap<string, string>>(new Map());
   // The poll reads these without being rebuilt at every change.
   const accountsRef = useRef<Session[]>([]);
   const activeRef = useRef(active);
@@ -73,6 +76,12 @@ export function ServerRail({ c }: { c: Colors }) {
     accountsRef.current = found;
     setAccounts(found);
     poll();
+    // Read again on each visit: an administrator may have changed one.
+    const nonce = String(Date.now());
+    const pairs = await Promise.all(
+      found.map(async (s) => [serverHost(s.baseUrl), await serverIconUri(s.baseUrl, s.kind, nonce)] as const),
+    );
+    setIcons(new Map(pairs.filter((p): p is readonly [string, string] => p[1] !== null)));
   }, [poll]);
 
   // Read again on each visit and each switch (an account added or signed out
@@ -132,7 +141,7 @@ export function ServerRail({ c }: { c: Colors }) {
                 { borderColor: isOpen ? c.accent : 'transparent', opacity: pressed || switching === host ? 0.6 : 1 },
               ]}
             >
-              <AvatarTile c={c} hueKey={host} initial={name.charAt(0)} size={TILE} radius={15} />
+              <AvatarTile c={c} hueKey={host} initial={name.charAt(0)} uri={icons.get(host)} size={TILE} radius={15} />
               {!isOpen && unread.has(host) && (
                 <View style={[styles.dot, { backgroundColor: c.yellow, borderColor: c.deepCard }]} />
               )}

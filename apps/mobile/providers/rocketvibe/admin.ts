@@ -274,6 +274,20 @@ export class NativeAdmin implements ProviderAdmin {
     );
   }
 
+  canSetIcon(): boolean {
+    return this.chat.capabilities?.instance_icon === true;
+  }
+
+  /** `PUT`/`DELETE /admin/icon`; the server crops and scales by itself. */
+  async setIcon(image: FileToSend | null, io: EmojiUploadIO): Promise<void> {
+    const bytes = image === null ? null : await io.bytes();
+    await refusedAsEmoji(
+      this.chat.administration('administration', (t, operation) =>
+        t.adminSetIcon(operation(), bytes === null || image === null ? null : { mime: image.type, bytes }),
+      ),
+    );
+  }
+
   async deleteEmoji(emoji: AdminEmoji): Promise<void> {
     await this.chat.administration('administration', (t, operation) =>
       t.adminRemoveEmoji(emoji.name, { operation_id: operation(), expected_revision: emoji.revision }),

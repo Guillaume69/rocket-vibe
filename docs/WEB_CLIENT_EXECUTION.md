@@ -36,7 +36,7 @@ The media fixture is a real browser-recorded protected clip, uploaded through th
 
 The four image/staging cases qualify GTK inline limits/crop and attachment title, full-size and small-image viewer geometry, closing from empty margins, PNG export/download, live reaction retention and withdrawal closing/clearing the viewer. Actual GTK inline, viewer and root-window context-menu captures use the same original files. The staged thumbnail/Original-quality row and recording controls are also captured in real GTK through its official smoke fixtures. Browser tests verify parked quality, original PNG preservation, real JPEG reduction to 1920x960, file order and a first-file-only caption. Cancel and controlled recorder-constructor/start failures release actual capture tracks. The generated full-size clipboard PNG is intercepted, preserving the user's OS clipboard; actual OS clipboard permission integration remains unqualified. Opening another application maps to downloading the PNG.
 
-The active worktree and bench are on `D:/RocketVibe/.cache/worktrees/web-client`, branch `codex/web-client`. Browser binaries/profiles/temporary files, object storage and PostgreSQL fixtures are on D:. The old managed checkout on C: was archived and its remaining directory removed. These are local bench paths, not deployment settings.
+Implementation and qualification use dedicated worktrees under `D:/RocketVibe/.cache/worktrees`. Browser binaries/profiles/temporary files, object storage and PostgreSQL fixtures remain on D:. The feature worktree is removed after shipping, with its bench data preserved separately. The old managed checkout on C: was archived and its remaining directory removed. These are local bench paths, not deployment settings.
 
 ## Voice connection regression
 
@@ -57,6 +57,12 @@ The session suite now has four cases and checks the server's actual device list 
 ## Administration dashboard alignment
 
 The 2026-10-09 Dashboard alignment uses GTK's `overview_groups` and `native_overview` rather than the simplified browser cards. Actual GTK runs in the mandatory Fedora container produce English and French captures against the same native server. The browser restores the shared labels, full deployment projection, four presence rows with dots, kind counts including encrypted messages, upload formatting, open-report shortcut and badge, and native bot-policy switch. Typography, row heights, independent column spacing, content-pane collapse and the header refresh icon follow the reference. The visual suite grows from seven to ten scenarios, adding actual overview/refresh/navigation checks, French/release filtering and a controlled switch refusal. The complete browser gate now contains 99 scenarios. Release metadata and policy refusal use controlled browser responses; no server setting is changed by those cases. Full list/detail/confirmation-state and OS font-rendering equivalence remain separate qualification.
+
+## Shipping review
+
+The 2026-10-09 shipping review adds 24 deterministic regressions, bringing the normal isolated Node gate to 49 passing cases. It fixes delayed account/membership responses, preview and upload withdrawal, composer/draft context, FIFO outbox continuation, independent personal-star revisions, renewal/signout serialization and new workflow result fields. The complete GTK Fedora gate and mobile typecheck/lint/1,616 tests pass. Native clients include the shared server BOT projection correction in their patch notes.
+
+Eight new voice-lifecycle scenarios pass against the native server and isolated SFU: two account takeovers with actual RTP and no stale leave, native takeover toast, camera-off avatar restoration, delayed camera capture stopped within two seconds, actual accepted-call ICE failure and clean audio retry, two membership-lifetime fences and final resource shutdown. Screen input is controlled canvas video, and the two delayed DM membership cases inject sync frames because ordinary membership administration is unavailable for DMs. This qualifies browser handling without claiming OS screen-capture or DM server-policy coverage. The continuous gate contains 107 browser scenarios and packages only its verified bundle on a web version tag.
 
 ## GTK inventory
 

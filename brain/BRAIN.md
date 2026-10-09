@@ -6,10 +6,11 @@ the answer. Every leaf doc cites the real source files if you need to go deeper.
 
 > Product: **rocket-vibe** - third-party Rocket.Chat clients, faster and more
 > reliable than the official ones, for self-hosted servers on Rocket.Chat 8 or
-> later. Two apps in one monorepo: `apps/mobile` (Expo / React Native, Android
+> later. Installed clients in `apps/mobile` (Expo / React Native, Android
 > first) and `apps/desktop` (Rust core, GTK 4 + libadwaita UI, plus a SwiftUI app
-> for macOS). Each has its own version: `apps/mobile/app.json` and
-> `apps/desktop/Cargo.toml`. Stack snapshot in [stack.md](stack.md).
+> for macOS), plus `apps/web`, a browser client delivered by the native RocketVibe server.
+> Each has its own version: `apps/mobile/app.json`, `apps/desktop/Cargo.toml` and
+> `apps/web/package.json`. Stack snapshot in [stack.md](stack.md).
 
 ## How to use this
 
@@ -35,7 +36,7 @@ use the indexes.
 | [operations.md](operations.md) | Environment, the test server and its seed, build and run per app, CI, versions, the tag release flow, secrets. |
 | [glossary.md](glossary.md) | Rocket.Chat terms, the project's own terms, the legacy French names still read for upgrades, desktop crate names. |
 | [decisions.md](decisions.md) | The non-obvious decisions and their rationale. |
-| [parity.md](parity.md) | What each app (Android, GTK, SwiftUI) can do, row by row, and the debt each owes the others. |
+| [parity.md](parity.md) | What each app (Android, GTK, SwiftUI, Web) can do, row by row, and the debt each owes the others. |
 
 ## Architecture (the how) - [architecture/index.md](architecture/index.md)
 

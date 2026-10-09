@@ -12,7 +12,7 @@ everything before it is under that section.
 
 ### Added
 
-- First published release of the native RocketVibe chat server (Rust, PostgreSQL), as the apps and the web client use it: accounts with second factors, recovery and device sessions, public, private and direct rooms, threads, reactions, pins, stars, quotes, search, uploads and link previews, live sync over a WebSocket, push, private end-to-end encrypted rooms, voice over LiveKit, bots, workflows, slash commands, reports and in-app administration. Published as a Linux x86_64 binary and the `ghcr.io/guillaume69/rocketvibe-server` image.
+- First published release of the native RocketVibe chat server (Rust, PostgreSQL), as the apps and the web client use it: accounts with second factors, recovery and device sessions, public, private and direct rooms, threads, reactions, pins, stars, quotes, search, uploads and link previews, live sync over a WebSocket, push, private end-to-end encrypted rooms, voice over LiveKit, bots, workflows, slash commands, reports and in-app administration. Published as a Linux x86_64 binary.
 - The server has an icon of its own, set and removed by an administrator from the apps (`PUT`/`DELETE /api/v1/admin/icon`, capability `instance_icon`), public at `GET /api/v1/instance/icon` and announced by `icon_revision` in the discovery document.
 - Administrators add and remove custom emoji from the apps (`PUT`/`DELETE /api/v1/admin/emoji/{name}`, capability `custom_emoji_admin`), with per-administrator receipts and the administrator named in the operator journal.
 - Embed the native web client in the server binary and Docker image, serving explicit application routes and immutable hashed assets without a Node runtime.

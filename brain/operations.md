@@ -97,23 +97,26 @@ Each workflow runs only when its app's files, `scripts/version.mjs` or the workf
 | `mobile.yml` | push to `master`, tags `mobile-v*`, PRs, dispatch | `check`: version check, `npm ci`, `tsc --noEmit`, `npm run lint`, `npm test` | `android`: SDK pieces, `google-services.json` and keystore from secrets, `expo prebuild`, `./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a` with ccache, `apksigner verify`, artifact `rocket-vibe-mobile-<v>.apk`; `release` on a tag |
 | `desktop.yml` | push to `master`, tags `desktop-v*`, PRs, dispatch | `version`; `linux` in `fedora:44`: fmt, clippy `-D warnings`, `cargo test --workspace` | release build and `.tar.gz`; `appimage` and `appimage-smoke` (the AppImage on `ubuntu:22.04` with no GTK: gallery, 3 media must play); `windows` (rv-core tests, release build, zip, Inno Setup installer, then an install, launch, background start, autostart, gallery, call window, player and soak round trip, and uninstall); `macos` (rv-core tests, release build, signing, notarization, Gatekeeper check, then the bundle started with Homebrew moved aside); `macos-swiftui` (calls `desktop-swiftui.yml`); `release` on a tag |
 | `desktop-swiftui.yml` | pushes to branches other than `master` touching `macos/`, `rv-ffi` or itself; `workflow_call`; dispatch | On `macos-15`: generate bindings, `swift build`, `swift test`, `swift run rv-rooms`, sign, package, notarize, start the app (login, gallery, 45 s soak, scroll benchmark reported as a trend) | |
+| `web-client.yml` | pushes to all branches matching source paths, tags `web-v*`, PRs, dispatch | Web version, format/Node/build and committed assets; native server fmt/clippy/tests; isolated PostgreSQL/SMTP/LiveKit and browser gate | Verified frontend `.tar.gz`, `.zip`, `SHA256SUMS`; release on a tag with that changelog section |
 
 Path filters do not apply to tag pushes, so a release tag always builds. Maestro and the desktop e2e scripts need a live server and do not run in CI.
 
 ## Versions and changelogs
 
-- `node scripts/version.mjs mobile|desktop [--tag <tag>]` prints the version. For mobile it fails unless `package.json` equals `app.json` and `android.versionCode == major*10000 + minor*100 + patch` (so each release installs over the last); for desktop it reads `[workspace.package] version`. With `--tag` the tag must be exactly `<app>-v<version>`.
-- `node scripts/changelog.mjs mobile|desktop <version>` prints that version's section of `apps/<app>/CHANGELOG.md` (Keep a Changelog) and fails if it is missing or empty.
+- `node scripts/version.mjs mobile|desktop|web [--tag <tag>]` prints the version. For mobile it fails unless `package.json` equals `app.json` and `android.versionCode == major*10000 + minor*100 + patch` (so each release installs over the last); for desktop it reads `[workspace.package] version`; web checks both `package-lock.json` version fields against `package.json`. With `--tag` the tag must be exactly `<app>-v<version>`.
+- `node scripts/changelog.mjs mobile|desktop|web <version>` prints that version's section of `apps/<app>/CHANGELOG.md` (Keep a Changelog) and fails if it is missing or empty.
 - Every user-visible change goes under `## [Unreleased]` in that app's changelog, in English.
 
 ## Release flow
 
 1. Move the unreleased section under `## [X.Y.Z] - <date>` and update the compare links.
-2. Bump the version: mobile in `app.json` (`version` and `android.versionCode`) and `package.json`; desktop in `Cargo.toml`, and refresh `Cargo.lock` (CI builds with `--locked`).
-3. Commit, merge to `master`, push a tag `mobile-vX.Y.Z` or `desktop-vX.Y.Z`.
+2. Bump the version: mobile in `app.json` (`version` and `android.versionCode`) and `package.json`; desktop in `Cargo.toml`, and refresh `Cargo.lock` (CI builds with `--locked`); web in `package.json` and `package-lock.json`, then rebuild and commit the embedded bundle.
+3. Commit, merge to `master`, push a tag `mobile-vX.Y.Z`, `desktop-vX.Y.Z` or `web-vX.Y.Z`.
 4. The workflow checks tag against version and the changelog section first, builds every package, then `softprops/action-gh-release` creates "Mobile X.Y.Z" (the APK) or "Desktop X.Y.Z" (`.tar.gz`, `.AppImage`, `.zip`, `-setup.exe`, the GTK and SwiftUI `.dmg`) with the changelog section as notes.
 
 The desktop app updates itself from these GitHub releases, see [features/desktop-updates.md](features/desktop-updates.md).
+
+Web packaging uses `scripts/package-web.mjs` after the server/browser gate; only its release job has `contents: write`. The static archives carry version/commit metadata and deployment instructions. Deploy the matching source tag and rebuild `rv-server` or its Docker image: existing binaries keep their embedded web version. The browser uses the serving API origin over HTTPS.
 
 ## Secrets
 
@@ -142,6 +145,12 @@ The mobile Android job fails loudly without its two secrets. Without the Apple s
 - `scripts/spike-ddp.mjs`
 - `scripts/version.mjs`
 - `scripts/changelog.mjs`
+- `scripts/package-web.mjs`
+- `apps/web/README.md`
+- `apps/web/package.json`
+- `apps/web/package-lock.json`
+- `apps/web/CHANGELOG.md`
+- `.github/workflows/web-client.yml`
 - `apps/mobile/package.json`
 - `apps/mobile/app.json`
 - `apps/mobile/.gitignore`

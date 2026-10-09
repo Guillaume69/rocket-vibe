@@ -24,6 +24,12 @@ cargo build --locked -p rv-server
 
 For development, `RV_WEB_API_URL=http://127.0.0.1:3400 npm run dev` proxies the native API and WebSocket. Production requires HTTPS for browser media, Web Crypto, Web Locks and the worker; loopback is an allowed development exception. The existing server deployment serves the application automatically.
 
+## Releases
+
+`node scripts/version.mjs web` from the repository root checks `package.json` and both lockfile version fields. A `web-vX.Y.Z` tag must match that version and the corresponding section of this changelog. The web workflow runs the complete server/browser gate before publishing `rocket-vibe-web-X.Y.Z.tar.gz`, `.zip` and `SHA256SUMS`. A manual workflow dispatch produces downloadable artifacts without publishing a release.
+
+`node scripts/package-web.mjs` packages the committed build with version/commit metadata, deployment instructions, this README and the changelog. The archives contain the frontend assets. Deployment uses the matching source tag and rebuilds the native server or its Docker image, because its existing binary retains the embedded bundle. Keep the browser and API on the same HTTPS origin.
+
 ## Verification
 
 The Node tests cover model ordering/access withdrawal and authenticated error handling. Playwright tests use real disposable accounts `webalice` (administrator) and `webbob`, password `web-client-disposable-password`, on loopback only. Never point fixtures at a real deployment.

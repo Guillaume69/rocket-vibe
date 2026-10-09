@@ -41,7 +41,7 @@ The native server also delivers a real [web client](apps/web/README.md), with th
 
 ## CI, versions and releases
 
-Three GitHub Actions workflows, each running only when its app (or the workflow itself)
+Dedicated GitHub Actions workflows run when their app (or the workflow itself)
 changes. A push only checks (typecheck, lint, tests; fmt, clippy and Linux tests for the
 desktop): packages are only built on a release tag, or by hand through
 `workflow_dispatch`.
@@ -49,6 +49,7 @@ desktop): packages are only built on a release tag, or by hand through
 - **`mobile`**: typecheck, lint, tests, then a release Android APK (`expo prebuild` +
   Gradle on the runner, never EAS). It reads `google-services.json` from the
   `GOOGLE_SERVICES_JSON` secret.
+- **`web-client`**: committed-bundle verification, server fmt/clippy/tests and actual browser scenarios. A `web-vX.Y.Z` tag publishes the verified frontend as `.tar.gz`, `.zip` and SHA-256 checksums. Deployment rebuilds the matching native server to embed this bundle.
 - **`desktop`**: Linux (the same Fedora as the local build: fmt, clippy, all tests, an
   archive; plus an AppImage built on Arch, launched in CI on a distribution without GTK),
   Windows (MSYS2: a per-user installer, without administrator rights, which adds a
@@ -65,11 +66,11 @@ desktop): packages are only built on a release tag, or by hand through
   takes the DMG from it; it runs on its own on branches other than `master` that touch the
   app.
 
-`node scripts/version.mjs mobile|desktop` prints an app's version and checks its
+`node scripts/version.mjs mobile|desktop|web` prints an app's version and checks its
 consistency. Each app keeps its changelog in the Keep a Changelog format
-([mobile](apps/mobile/CHANGELOG.md), [desktop](apps/desktop/CHANGELOG.md)). To publish:
+([mobile](apps/mobile/CHANGELOG.md), [desktop](apps/desktop/CHANGELOG.md), [web](apps/web/CHANGELOG.md)). To publish:
 move the "Unreleased" section under the new version number, bump the version, then push a
-`mobile-vX.Y.Z` or `desktop-vX.Y.Z` tag. The workflow checks that the tag matches the
+`mobile-vX.Y.Z`, `desktop-vX.Y.Z` or `web-vX.Y.Z` tag. The workflow checks that the tag matches the
 version and that the changelog has its section, then creates the GitHub release with its
 binaries and that section as notes.
 

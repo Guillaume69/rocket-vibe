@@ -482,8 +482,6 @@ export class App implements RowActions {
       hasPresence = this.info?.capabilities.presence;
     this.generation++;
     clearTimeout(this.presenceTimer);
-    await this.presenceWork;
-    if (token && hasPresence) await this.publishPresence(token, "offline");
     this.roomOpening++;
     this.threadOpening++;
     clearTimeout(this.readTimer);
@@ -491,6 +489,8 @@ export class App implements RowActions {
     this.readWork = undefined;
     this.draftReady = false;
     await this.voice.leave(!login);
+    await this.presenceWork;
+    if (token && hasPresence) await this.publishPresence(token, "offline");
     clearTimeout(this.timer);
     clearTimeout(this.liveTimer);
     if (this.socket) {

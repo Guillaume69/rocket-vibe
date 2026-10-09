@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { EmojiRefused, LastOwnerError, type AdminPage, type ProviderAdmin } from '../lib/admin.ts';
+import { AdminRefused, LastOwnerError, type AdminPage, type ProviderAdmin } from '../lib/admin.ts';
 import { dismissible } from './alerts.ts';
 import { useAdminVerdict } from './adminAccess.ts';
 import type { ProviderError } from '../lib/provider.ts';
@@ -39,6 +39,9 @@ export function adminErrorKey(e: ProviderError): TranslationKey {
       return 'admin.errBotPrivilege';
     case 'bot_encrypted_room':
       return 'admin.errBotEncryptedRoom';
+    // Rocket.Chat refuses a missing permission with 400 `not_authorized` on some routes.
+    case 'not_authorized':
+      return 'admin.errDenied';
   }
   if (e.status === 0 || e.status >= 500 || e.code === 'offline') return 'admin.errOffline';
   if (e.status === 403 || e.code === 'permission_denied' || e.code === 'error-action-not-allowed') return 'admin.errDenied';
@@ -52,7 +55,7 @@ export function useAdminError(): (error: unknown) => TranslationKey {
   const provider = sync.phase === 'ready' ? sync.provider : null;
   return useCallback(
     (error: unknown) =>
-      error instanceof EmojiRefused
+      error instanceof AdminRefused
         ? error.key
         : provider === null
           ? 'admin.failed'

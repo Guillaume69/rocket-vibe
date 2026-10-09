@@ -11,8 +11,8 @@ import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
-import { EmojiRefused, type ProviderAdmin } from '../lib/admin.ts';
-import { RC_ICON_SIDE, serverIconUri } from '../lib/serverIcon.ts';
+import { AdminRefused, type ProviderAdmin } from '../lib/admin.ts';
+import { RC_ICON_SIDE, forgetServerIcon, serverIconUri } from '../lib/serverIcon.ts';
 import type { RestClient } from '../lib/rest.ts';
 import { AdminCard, ItemAction, confirmAction, useAdminError } from './adminKit.tsx';
 import { useT } from './i18n.ts';
@@ -33,10 +33,13 @@ export function IconSetting({ c, admin, client }: { c: Colors; admin: ProviderAd
   const alive = useRef(true);
   useEffect(() => {
     alive.current = true;
-    void serverIconUri(client.baseUrl, client.kind, `${Date.now()}-${version}`).then((found) => {
-      if (alive.current) setUri(found);
+    // This read's own flag: an older one that answers late changes nothing.
+    let current = true;
+    void serverIconUri(client.baseUrl, client.kind).then((found) => {
+      if (current && found !== undefined) setUri(found);
     });
     return () => {
+      current = false;
       alive.current = false;
     };
   }, [client, version]);
@@ -55,17 +58,18 @@ export function IconSetting({ c, admin, client }: { c: Colors; admin: ProviderAd
         .then(
           () => {
             notify(t(picked === null ? 'admin.iconRemoved' : 'admin.iconSaved'));
+            forgetServerIcon(client.baseUrl);
             if (alive.current) setVersion((v) => v + 1);
           },
           (e: unknown) => {
-            if (alive.current) setError(e instanceof EmojiRefused ? e.key : describe(e));
+            if (alive.current) setError(e instanceof AdminRefused ? e.key : describe(e));
           },
         )
         .finally(() => {
           if (alive.current) setBusy(false);
         });
     },
-    [admin, busy, describe, t],
+    [admin, busy, client, describe, t],
   );
 
   const change = async () => {

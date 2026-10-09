@@ -4,7 +4,7 @@ import { Redirect, Stack } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
 
-import { EMOJI_BYTES, EmojiRefused, emojiCodes, type AdminEmoji, type ProviderAdmin } from '../../lib/admin.ts';
+import { EMOJI_BYTES, AdminRefused, emojiCodes, type AdminEmoji, type ProviderAdmin } from '../../lib/admin.ts';
 import { customEmojiUrl } from '../../lib/customEmojis.ts';
 import type { FileToSend } from '../../lib/upload.ts';
 import { AdminGate, ItemAction, adminStyles, confirmAction, useAdminError, useAdminRun } from '../../ui/adminKit.tsx';
@@ -91,10 +91,10 @@ function Emojis({ c, admin }: { c: Colors; admin: ProviderAdmin }) {
   const add = () =>
     run(async () => {
       const codes = emojiCodes(name, aliases);
-      if (typeof codes === 'string') throw new EmojiRefused(codes);
+      if (typeof codes === 'string') throw new AdminRefused(codes);
       if (image === null || admin.createEmoji === undefined) return;
       const file = new File(image.uri);
-      if (file.size > EMOJI_BYTES) throw new EmojiRefused('admin.emojiErrorSize');
+      if (file.size > EMOJI_BYTES) throw new AdminRefused('admin.emojiErrorSize');
       await admin.createEmoji(codes.name, codes.aliases, image, {
         transport: transportEmojiExpo,
         bytes: async () => new Uint8Array(await file.arrayBuffer()),

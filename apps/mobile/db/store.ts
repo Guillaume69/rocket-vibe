@@ -183,6 +183,10 @@ export function createStore(raw: SQLiteDatabase, serially: WriteQueue): Store {
     deleteRoom: (rid) => serially(() => direct.deleteRoom(rid)),
     deleteSubscription: (rid) => serially(() => direct.deleteSubscription(rid)),
     deleteBySubId: (subId) => serially(() => direct.deleteBySubId(subId)),
+    saveDmNames: (names) =>
+      serially(async () => {
+        for (const { rid, name } of names) await raw.runAsync(UPDATE_DM_PEER_NAME, [name, rid, name]);
+      }),
     async listKnownRids() {
       const rows = await raw.getAllAsync<{ rid: string }>(LIST_KNOWN_RIDS);
       return rows.map((l) => l.rid);

@@ -25,9 +25,12 @@ function set(value: boolean): void {
   for (const listener of [...listeners]) listener();
 }
 
-/** SecureStore keys take `[A-Za-z0-9._-]` only. */
+/**
+ * SecureStore keys take `[A-Za-z0-9._-]` only: every other character becomes
+ * `_` and its code, so two servers never share a key (`http`/`https`, ports).
+ */
 function key(baseUrl: string): string {
-  return `real-names-${baseUrl.replace(/^https?:\/\//, '').replace(/[^A-Za-z0-9._-]/g, '_')}`;
+  return `real-names-${baseUrl.replace(/[^A-Za-z0-9.-]/g, (c) => `_${c.charCodeAt(0).toString(16)}`)}`;
 }
 
 /** At session start, before the first render: the last answer this server gave. */

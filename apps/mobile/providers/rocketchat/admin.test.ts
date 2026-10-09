@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { BulkDeleteRequired, LastOwnerError, type ReportedMessage } from '../../lib/admin.ts';
+import { AdminRefused, BulkDeleteRequired, LastOwnerError, type ReportedMessage } from '../../lib/admin.ts';
 import { RestError, type RestClient } from '../../lib/rest.ts';
 import { AdminRC, rcEmojis, rcOverview, rcReportedMessages, rcReports, rcRoom, rcUser } from './admin.ts';
 
@@ -262,5 +262,37 @@ describe('custom emoji', () => {
       { id: 'e2', name: 'shipit', aliases: [], revision: '' },
     ]);
     assert.deepEqual(rcEmojis(undefined), []);
+  });
+});
+
+describe('multipart administration calls', () => {
+  const client = { baseUrl: 'https://chat.example', auth: { authToken: 't', userId: 'u' } } as unknown as RestClient;
+  const image = { uri: 'file:///i.png', name: 'i.png', type: 'image/png' };
+  const io = (status: number, body: string, seen: unknown[] = []) => ({
+    transport: async (url: string, headers: Record<string, string>, _file: unknown, _p?: unknown, _c?: unknown, fields?: unknown) => {
+      seen.push({ url, headers, fields });
+      return { status, body };
+    },
+    bytes: async () => new Uint8Array(),
+  });
+  test('only the envelope success counts, and the fields are the ones Rocket.Chat reads', async () => {
+    const seen: unknown[] = [];
+    await new AdminRC(client).createEmoji('shipit', ['ship_it'], image, io(200, '{"success":true}', seen));
+    assert.deepEqual(seen, [
+      { url: 'https://chat.example/api/v1/emoji-custom.create', headers: { 'X-Auth-Token': 't', 'X-User-Id': 'u' }, fields: { name: 'shipit', aliases: 'ship_it' } },
+    ]);
+    // A proxy's page or an empty 200 is not a success.
+    await assert.rejects(new AdminRC(client).createEmoji('shipit', [], image, io(200, '<html>')), RestError);
+    await assert.rejects(new AdminRC(client).setIcon(image, io(200, '{}')), RestError);
+  });
+  test('a refusal comes with the words of what was refused', async () => {
+    await assert.rejects(
+      new AdminRC(client).createEmoji('shipit', [], image, io(400, '{"success":false,"errorType":"Custom_Emoji_Error_Name_Or_Alias_Already_In_Use"}')),
+      (e: unknown) => e instanceof AdminRefused && e.key === 'admin.emojiErrorTaken',
+    );
+    await assert.rejects(
+      new AdminRC(client).setIcon(image, io(400, '{"success":false,"errorType":"error-invalid-file-width"}')),
+      (e: unknown) => e instanceof AdminRefused && e.key === 'admin.iconErrorSize',
+    );
   });
 });

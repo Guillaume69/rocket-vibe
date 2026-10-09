@@ -49,6 +49,8 @@ export interface Store {
    * cursors. Does NOTHING on an empty list (guard against a total purge).
    */
   purgeMissingRooms(aliveRids: string[], knownRids: string[]): Promise<void>;
+  /** Two-person DMs' real names (`fname`) on their other party (`UPDATE_DM_PEER_NAME`). */
+  saveDmNames?(names: { rid: string; name: string }[]): Promise<void>;
   /**
    * Retention: keep only the `nbMax` most recent messages of EACH
    * room, sparing optimistic ones and referenced thread roots.

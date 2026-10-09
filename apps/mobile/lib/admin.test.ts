@@ -4,7 +4,7 @@ import { describe, test } from 'node:test';
 import {
   compareVersions,
   emojiCodes,
-  emojiErrorKey,
+  adminRefusalKey,
   epoch,
   fetchLatestVersion,
   humanBytes,
@@ -181,10 +181,13 @@ describe('custom emoji codes', () => {
     assert.equal(emojiCodes('mine', 'thumbsup'), 'admin.emojiErrorReserved');
   });
   test('both servers refusals have their words', () => {
-    assert.equal(emojiErrorKey('Custom_Emoji_Error_Name_Or_Alias_Already_In_Use'), 'admin.emojiErrorTaken');
-    assert.equal(emojiErrorKey('revision_conflict'), 'admin.emojiErrorTaken');
-    assert.equal(emojiErrorKey('emoji-is-not-image'), 'admin.emojiErrorImage');
-    assert.equal(emojiErrorKey('emoji_name_reserved'), 'admin.emojiErrorReserved');
-    assert.equal(emojiErrorKey('session_rejected'), null);
+    assert.equal(adminRefusalKey('Custom_Emoji_Error_Name_Or_Alias_Already_In_Use'), 'admin.emojiErrorTaken');
+    assert.equal(adminRefusalKey('revision_conflict'), 'admin.emojiErrorTaken');
+    assert.equal(adminRefusalKey('emoji-is-not-image'), 'admin.emojiErrorImage');
+    assert.equal(adminRefusalKey('emoji_name_reserved'), 'admin.emojiErrorReserved');
+    assert.equal(adminRefusalKey('session_rejected'), null);
+    // The same generic refusal reads as the icon's on the icon card.
+    assert.equal(adminRefusalKey('invalid_request'), 'admin.emojiErrorName');
+    assert.equal(adminRefusalKey('invalid_request', 'icon'), 'admin.iconErrorImage');
   });
 });

@@ -192,7 +192,7 @@ export interface ProviderAdmin {
    * (RocketVibe). The screen then reads the app's index again
    * (`useSync().refreshCustomEmojis`).
    */
-  createEmoji?(name: string, aliases: string[], image: FileToSend, io: EmojiUploadIO): Promise<void>;
+  createEmoji?(name: string, aliases: string[], image: FileToSend, io: AdminUploadIO): Promise<void>;
   deleteEmoji?(emoji: AdminEmoji): Promise<void>;
   /** Whether this server's icon can be changed here (the next member). */
   canSetIcon?(): boolean;
@@ -201,7 +201,7 @@ export interface ProviderAdmin {
    * (`lib/serverIcon.ts`; Rocket.Chat refuses any other size), or removes it
    * with `null`. `io` as for `createEmoji`, the transport's field being `asset`.
    */
-  setIcon?(image: FileToSend | null, io: EmojiUploadIO): Promise<void>;
+  setIcon?(image: FileToSend | null, io: AdminUploadIO): Promise<void>;
 }
 
 /** A custom emoji as the administration lists it. */
@@ -213,9 +213,9 @@ export type AdminEmoji = {
   revision: string;
 };
 
-export type EmojiUploadIO = { transport: TransportUpload; bytes: () => Promise<Uint8Array> };
+export type AdminUploadIO = { transport: TransportUpload; bytes: () => Promise<Uint8Array> };
 
-export type EmojiErrorKey =
+export type AdminRefusalKey =
   | 'admin.emojiErrorName'
   | 'admin.emojiErrorReserved'
   | 'admin.emojiErrorTaken'
@@ -225,10 +225,14 @@ export type EmojiErrorKey =
   | 'admin.iconErrorImage'
   | 'admin.iconErrorSize';
 
-/** A server's refusal of an emoji, by its code on either server; `null` = not an emoji refusal. */
-export function emojiErrorKey(code: string): EmojiErrorKey | null {
+/**
+ * A server's refusal of an emoji or of the server's icon (`subject`), by its
+ * code on either server; `null` = not one the screens word.
+ */
+export function adminRefusalKey(code: string, subject: 'emoji' | 'icon' = 'emoji'): AdminRefusalKey | null {
   switch (code) {
     case 'invalid_request':
+      return subject === 'emoji' ? 'admin.emojiErrorName' : 'admin.iconErrorImage';
     case 'invalid_emoji_name':
       return 'admin.emojiErrorName';
     case 'emoji_name_reserved':
@@ -256,10 +260,10 @@ export function emojiErrorKey(code: string): EmojiErrorKey | null {
   }
 }
 
-/** An emoji refused for a reason the screen words (`key`). */
-export class EmojiRefused extends Error {
-  readonly key: EmojiErrorKey;
-  constructor(key: EmojiErrorKey) {
+/** An emoji or an icon refused for a reason the screen words (`key`). */
+export class AdminRefused extends Error {
+  readonly key: AdminRefusalKey;
+  constructor(key: AdminRefusalKey) {
     super(key);
     this.key = key;
   }

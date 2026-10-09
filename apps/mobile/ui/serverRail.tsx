@@ -51,6 +51,7 @@ export function ServerRail({ c }: { c: Colors }) {
   const [switching, setSwitching] = useState<string | null>(null);
   /** Each server's own icon (`lib/serverIcon.ts`), by host; absent keeps the initial. */
   const [icons, setIcons] = useState<ReadonlyMap<string, string>>(new Map());
+  const visits = useRef(0);
   // The poll reads these without being rebuilt at every change.
   const accountsRef = useRef<Session[]>([]);
   const activeRef = useRef(active);
@@ -76,12 +77,23 @@ export function ServerRail({ c }: { c: Colors }) {
     accountsRef.current = found;
     setAccounts(found);
     poll();
-    // Read again on each visit: an administrator may have changed one.
-    const nonce = String(Date.now());
-    const pairs = await Promise.all(
-      found.map(async (s) => [serverHost(s.baseUrl), await serverIconUri(s.baseUrl, s.kind, nonce)] as const),
-    );
-    setIcons(new Map(pairs.filter((p): p is readonly [string, string] => p[1] !== null)));
+    // Each icon as soon as it is known (`lib/serverIcon.ts` reads a server
+    // once per session); a read that concludes nothing keeps what is shown,
+    // and a later visit's answers win over this one's.
+    const visit = ++visits.current;
+    for (const s of found) {
+      const host = serverHost(s.baseUrl);
+      void serverIconUri(s.baseUrl, s.kind).then((uri) => {
+        if (uri === undefined || visit !== visits.current) return;
+        setIcons((old) => {
+          if ((old.get(host) ?? null) === uri) return old;
+          const next = new Map(old);
+          if (uri === null) next.delete(host);
+          else next.set(host, uri);
+          return next;
+        });
+      });
+    }
   }, [poll]);
 
   // Read again on each visit and each switch (an account added or signed out

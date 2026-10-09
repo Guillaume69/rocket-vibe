@@ -35,10 +35,10 @@
 import {
   ADMIN_PAGE,
   BulkDeleteRequired,
-  EmojiRefused,
-  emojiErrorKey,
+  AdminRefused,
+  adminRefusalKey,
   type AdminEmoji,
-  type EmojiUploadIO,
+  type AdminUploadIO,
   LastOwnerError,
   count,
   mapLimited,
@@ -59,6 +59,7 @@ import {
   type ReportedUser,
 } from '../../lib/admin.ts';
 import { RestError, type RestClient } from '../../lib/rest.ts';
+import { filterAliases } from '../../lib/customEmojis.ts';
 import { RC_ICON_ASSET } from '../../lib/serverIcon.ts';
 import { AVATAR_NO_PHOTO, type FileToSend } from '../../lib/upload.ts';
 
@@ -398,30 +399,8 @@ export class AdminRC implements ProviderAdmin {
    * comma-separated. A refusal arrives as `errorType` (400 `not_authorized`
    * for a member, never 403).
    */
-  async createEmoji(name: string, aliases: string[], image: FileToSend, io: EmojiUploadIO): Promise<void> {
-    const headers: Record<string, string> = {};
-    if (this.client.auth !== null) {
-      headers['X-Auth-Token'] = this.client.auth.authToken;
-      headers['X-User-Id'] = this.client.auth.userId;
-    }
-    const { status, body } = await io.transport(
-      `${this.client.baseUrl}/api/v1/emoji-custom.create`,
-      headers,
-      image,
-      undefined,
-      undefined,
-      { name, aliases: aliases.join(',') },
-    );
-    let json: { success?: boolean; errorType?: unknown; error?: unknown } = {};
-    try {
-      json = JSON.parse(body) as typeof json;
-    } catch {
-      // Not Rocket.Chat's envelope: an ordinary failure below.
-    }
-    if (status < 400 && json.success !== false) return;
-    const key = typeof json.errorType === 'string' ? emojiErrorKey(json.errorType) : null;
-    if (key !== null) throw new EmojiRefused(key);
-    throw new Error(typeof json.error === 'string' ? json.error : `emoji-custom.create failed (${status}).`);
+  async createEmoji(name: string, aliases: string[], image: FileToSend, io: AdminUploadIO): Promise<void> {
+    await postMultipart(this.client, io, 'emoji-custom.create', image, { name, aliases: aliases.join(',') }, 'emoji');
   }
 
   async deleteEmoji(emoji: AdminEmoji): Promise<void> {
@@ -434,35 +413,45 @@ export class AdminRC implements ProviderAdmin {
   }
 
   /** `assets.setAsset` (multipart `asset`, `assetName`) or `assets.unsetAsset`, on `favicon_192`. */
-  async setIcon(image: FileToSend | null, io: EmojiUploadIO): Promise<void> {
+  async setIcon(image: FileToSend | null, io: AdminUploadIO): Promise<void> {
     if (image === null) {
       await this.client.post('assets.unsetAsset', { body: { assetName: RC_ICON_ASSET } });
       return;
     }
-    const headers: Record<string, string> = {};
-    if (this.client.auth !== null) {
-      headers['X-Auth-Token'] = this.client.auth.authToken;
-      headers['X-User-Id'] = this.client.auth.userId;
-    }
-    const { status, body } = await io.transport(
-      `${this.client.baseUrl}/api/v1/assets.setAsset`,
-      headers,
-      image,
-      undefined,
-      undefined,
-      { assetName: RC_ICON_ASSET },
-    );
-    let json: { success?: boolean; errorType?: unknown; error?: unknown } = {};
-    try {
-      json = JSON.parse(body) as typeof json;
-    } catch {
-      // Not Rocket.Chat's envelope: an ordinary failure below.
-    }
-    if (status < 400 && json.success !== false) return;
-    const key = typeof json.errorType === 'string' ? emojiErrorKey(json.errorType) : null;
-    if (key !== null) throw new EmojiRefused(key);
-    throw new Error(typeof json.error === 'string' ? json.error : `assets.setAsset failed (${status}).`);
+    await postMultipart(this.client, io, 'assets.setAsset', image, { assetName: RC_ICON_ASSET }, 'icon');
   }
+}
+
+/**
+ * A multipart POST to Rocket.Chat (`emoji-custom.create`, `assets.setAsset`)
+ * through the screen's transport. Only the envelope's `success: true` is
+ * success: a proxy's 200 or an HTML page is not; a refusal comes as
+ * `errorType` (`emoji-custom.create` answers a member 400 `not_authorized`).
+ */
+async function postMultipart(
+  client: RestClient,
+  io: AdminUploadIO,
+  endpoint: string,
+  file: FileToSend,
+  fields: Record<string, string>,
+  subject: 'emoji' | 'icon',
+): Promise<void> {
+  const headers: Record<string, string> = {};
+  if (client.auth !== null) {
+    headers['X-Auth-Token'] = client.auth.authToken;
+    headers['X-User-Id'] = client.auth.userId;
+  }
+  const { status, body } = await io.transport(`${client.baseUrl}/api/v1/${endpoint}`, headers, file, undefined, undefined, fields);
+  let json: { success?: unknown; errorType?: unknown; error?: unknown } = {};
+  try {
+    json = JSON.parse(body) as typeof json;
+  } catch {
+    // Not Rocket.Chat's envelope: a failure below.
+  }
+  if (status < 400 && json.success === true) return;
+  const key = typeof json.errorType === 'string' ? adminRefusalKey(json.errorType, subject) : null;
+  if (key !== null) throw new AdminRefused(key);
+  throw new RestError(typeof json.error === 'string' ? json.error : `${endpoint} failed (${status}).`, status);
 }
 
 /** `emoji-custom.list`'s `update`, as the administration lists it. */
@@ -471,7 +460,7 @@ export function rcEmojis(update: unknown): AdminEmoji[] {
   const found: AdminEmoji[] = [];
   for (const raw of update as Doc[]) {
     if (typeof raw?._id !== 'string' || typeof raw.name !== 'string') continue;
-    const aliases = Array.isArray(raw.aliases) ? raw.aliases.filter((a): a is string => typeof a === 'string') : [];
+    const aliases = filterAliases(raw.aliases);
     found.push({ id: raw._id, name: raw.name, aliases, revision: '' });
   }
   return found.sort((a, b) => a.name.localeCompare(b.name));

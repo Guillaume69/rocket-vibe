@@ -159,17 +159,20 @@ WHERE excluded.updated_since > cursors.updated_since
  *    `u.name`, when the message carries one) REALLY changes. Without it, each
  *    message with the same username would touch the row and rerun the table's
  *    live query, hence re-render every visible row. This way, the table only
- *    moves on a REAL rename. An absent name never erases a known one.
+ *    moves on a REAL rename. An absent name never erases a known one; an
+ *    OLDER message may still give a name where none is known (rows written
+ *    before `users.name` existed), and then sets nothing but that name.
  */
 export const UPSERT_USER = `
 INSERT INTO users (uid, username, name, updated_at) VALUES (?, ?, ?, ?)
 ON CONFLICT(uid) DO UPDATE SET
-  username = excluded.username,
-  name = COALESCE(excluded.name, users.name),
-  updated_at = excluded.updated_at
-WHERE excluded.updated_at >= users.updated_at
-  AND (excluded.username IS NOT users.username
-    OR (excluded.name IS NOT NULL AND excluded.name IS NOT users.name))
+  username = CASE WHEN excluded.updated_at >= users.updated_at THEN excluded.username ELSE users.username END,
+  name = CASE WHEN excluded.updated_at >= users.updated_at OR users.name IS NULL THEN COALESCE(excluded.name, users.name) ELSE users.name END,
+  updated_at = MAX(excluded.updated_at, users.updated_at)
+WHERE (excluded.updated_at >= users.updated_at
+    AND (excluded.username IS NOT users.username
+      OR (excluded.name IS NOT NULL AND excluded.name IS NOT users.name)))
+   OR (users.name IS NULL AND excluded.name IS NOT NULL)
 `;
 
 /**

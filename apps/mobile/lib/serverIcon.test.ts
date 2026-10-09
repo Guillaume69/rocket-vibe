@@ -17,3 +17,30 @@ describe('server icon', () => {
     }
   });
 });
+
+describe('server icon reads', () => {
+  test('one read per server and session, a failure concludes nothing, a change asks again', async () => {
+    const { serverIconUri, forgetServerIcon } = await import('./serverIcon.ts');
+    const real = globalThis.fetch;
+    let calls = 0;
+    let answer: () => Response = () => new Response(JSON.stringify({ icon_revision: '3' }));
+    globalThis.fetch = (async () => {
+      calls++;
+      return answer();
+    }) as typeof fetch;
+    try {
+      const base = 'https://rv.example';
+      assert.equal(await serverIconUri(base, 'rocketvibe'), 'https://rv.example/api/v1/instance/icon?v=3');
+      assert.equal(await serverIconUri(base + '/', 'rocketvibe'), 'https://rv.example/api/v1/instance/icon?v=3');
+      assert.equal(calls, 1);
+      assert.equal(await serverIconUri('https://mm.example', 'mattermost'), null);
+      answer = () => new Response('busy', { status: 503 });
+      assert.equal(await serverIconUri('https://other.example', 'rocketchat'), undefined);
+      forgetServerIcon(base);
+      answer = () => new Response(JSON.stringify({}));
+      assert.equal(await serverIconUri(base, 'rocketvibe'), null);
+    } finally {
+      globalThis.fetch = real;
+    }
+  });
+});

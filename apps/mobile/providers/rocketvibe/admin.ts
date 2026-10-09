@@ -9,11 +9,11 @@
 
 import {
   ADMIN_PAGE,
-  EmojiRefused,
-  emojiErrorKey,
+  AdminRefused,
+  adminRefusalKey,
   epoch,
   type AdminEmoji,
-  type EmojiUploadIO,
+  type AdminUploadIO,
   fetchLatestVersion,
   type AdminOverview,
   type AdminPage,
@@ -265,9 +265,10 @@ export class NativeAdmin implements ProviderAdmin {
   }
 
   /** `PUT /admin/emoji/{name}` with the raw image; a taken name is `revision_conflict`. */
-  async createEmoji(name: string, aliases: string[], image: FileToSend, io: EmojiUploadIO): Promise<void> {
+  async createEmoji(name: string, aliases: string[], image: FileToSend, io: AdminUploadIO): Promise<void> {
     const bytes = await io.bytes();
-    await refusedAsEmoji(
+    await refusedAsAdmin(
+      'emoji',
       this.chat.administration('administration', (t, operation) =>
         t.adminCreateEmoji(name, { operation_id: operation(), aliases: aliases.join(',') }, { mime: image.type, bytes }),
       ),
@@ -279,9 +280,10 @@ export class NativeAdmin implements ProviderAdmin {
   }
 
   /** `PUT`/`DELETE /admin/icon`; the server crops and scales by itself. */
-  async setIcon(image: FileToSend | null, io: EmojiUploadIO): Promise<void> {
+  async setIcon(image: FileToSend | null, io: AdminUploadIO): Promise<void> {
     const bytes = image === null ? null : await io.bytes();
-    await refusedAsEmoji(
+    await refusedAsAdmin(
+      'icon',
       this.chat.administration('administration', (t, operation) =>
         t.adminSetIcon(operation(), bytes === null || image === null ? null : { mime: image.type, bytes }),
       ),
@@ -289,19 +291,22 @@ export class NativeAdmin implements ProviderAdmin {
   }
 
   async deleteEmoji(emoji: AdminEmoji): Promise<void> {
-    await this.chat.administration('administration', (t, operation) =>
-      t.adminRemoveEmoji(emoji.name, { operation_id: operation(), expected_revision: emoji.revision }),
+    await refusedAsAdmin(
+      'emoji',
+      this.chat.administration('administration', (t, operation) =>
+        t.adminRemoveEmoji(emoji.name, { operation_id: operation(), expected_revision: emoji.revision }),
+      ),
     );
   }
 }
 
-/** A native refusal of an emoji as the words the screen shows. */
-async function refusedAsEmoji<T>(work: Promise<T>): Promise<T> {
+/** A native refusal of an emoji or of the icon as the words the screen shows. */
+async function refusedAsAdmin<T>(subject: 'emoji' | 'icon', work: Promise<T>): Promise<T> {
   try {
     return await work;
   } catch (error) {
-    const key = error instanceof NativeError ? emojiErrorKey(error.code) : null;
-    throw key === null ? error : new EmojiRefused(key);
+    const key = error instanceof NativeError ? adminRefusalKey(error.code, subject) : null;
+    throw key === null ? error : new AdminRefused(key);
   }
 }
 

@@ -987,6 +987,11 @@ describe('versions d’avatar', () => {
     db.prepare(UPSERT_USER).run(...userParams({ uid: 'u1', username: 'alice', name: 'Alice M.', updatedAt: 3 }));
     db.prepare(UPSERT_USER).run(...userParams({ uid: 'u1', username: 'alice', name: 'Old', updatedAt: 1 }));
     assert.deepEqual(row(db.prepare(readName).get('u1')), { name: 'Alice M.' });
+    // A row from before `users.name` (no name, newer message seen) takes the
+    // name of an older message, and only the name.
+    db.prepare(UPSERT_USER).run(...userParams({ uid: 'u9', username: 'zoe', updatedAt: 50 }));
+    db.prepare(UPSERT_USER).run(...userParams({ uid: 'u9', username: 'zoe-old', name: 'Zoé', updatedAt: 10 }));
+    assert.deepEqual(row(db.prepare('SELECT username, name FROM users WHERE uid = ?').get('u9')), { username: 'zoe', name: 'Zoé' });
     // `users.info` sets it; without one it keeps it.
     db.prepare(UPSERT_IDENTITY).run(...identityParams({ uid: 'u2', username: 'bob', avatarEtag: null, name: 'Bob Durand' }));
     db.prepare(UPSERT_IDENTITY).run(...identityParams({ uid: 'u2', username: 'bob', avatarEtag: null }));

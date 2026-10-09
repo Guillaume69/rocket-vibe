@@ -6,6 +6,15 @@ All notable changes are documented here in English.
 
 ### Fixed
 
+- Preserve a newly typed draft and a newly selected quote while an earlier send is being saved, including after switching conversations.
+- Send queued text in creation order and continue with messages added while the queue is already sending.
+- Ignore superseded reconnect, history, thread and message-action responses after account or conversation access changes.
+- Remove delayed private previews and uploads after access withdrawal, and keep personal stars independent of public message revisions.
+- Serialize signout with session renewal so an online signout revokes the current device session.
+- Keep the new caller connected when another tab or device takes over the same account's voice session.
+- Clean up a failed incoming-call acceptance, reject stale membership grants, stop delayed camera capture after leaving, and restore the avatar when a camera is muted.
+- Show the result-variable field when adding HTTP or message steps to a workflow.
+
 - Match GTK's administration dashboard typography, card rows, column spacing, responsive collapse and refresh icon inside the deployment header.
 - Use the shared GTK administration labels and full native deployment, presence, room/message, upload and report fields; restore instance copying, moderation badges/navigation and the bot-policy switch's refusal behavior.
 

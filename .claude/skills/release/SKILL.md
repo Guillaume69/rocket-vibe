@@ -110,6 +110,12 @@ git tag <app>-v<x.y.z>                     # lightweight, on the merge commit; o
 git push origin master <app>-v<x.y.z> [<other-app>-v<a.b.c>]
 ```
 
+**At most 3 tags per push**: GitHub creates no tag event at all when a single push
+carries more than three tags (the 0.13.0 run pushed four and no release workflow
+started). With four apps, push the tags in two pushes, or start the workflows on the
+tags with `gh workflow run <app>.yml --ref <app>-v<x.y.z>` (every release job accepts a
+dispatch on a tag).
+
 Every commit message ends with the session's `Co-Authored-By` trailer. If master
 moved since the pull and the push is rejected, pull again (merge, not rebase:
 the merge commit is already there) and re-push; never force.

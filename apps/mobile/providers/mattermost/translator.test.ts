@@ -133,9 +133,9 @@ describe('MmTranslator.translateEvent', () => {
 describe('kMeet call posts (kChat)', () => {
   const call = (props: Record<string, unknown>) => translator().toMessage(post('c1', { type: 'custom_call', message: 'bob started a call', props }));
 
-  test('a running call is joined at its kMeet address', () => {
-    const m = call({ url: 'https://kmeet.infomaniak.com/room-1', status: 'started', start_at: 1000 });
-    assert.deepEqual([m?.systemType, m?.callId, m?.text], ['videoconf', 'https://kmeet.infomaniak.com/room-1', '']);
+  test('a running call is joined through its conference', () => {
+    const m = call({ url: 'https://kmeet.infomaniak.com/room-1', conference_id: 'conf-1', status: 'calling', start_at: 1000 });
+    assert.deepEqual([m?.systemType, m?.callId, m?.text], ['videoconf', 'conf-1', '']);
   });
 
   test('an ended call carries its length and nothing to join', () => {
@@ -144,18 +144,6 @@ describe('kMeet call posts (kChat)', () => {
     assert.equal(call({ status: 'missed' })?.text, '');
   });
 
-  test('only an https meeting is offered', () => {
-    assert.equal(call({ url: 'javascript:alert(1)' })?.callId, null);
-  });
-});
-
-describe('kMeet origin', () => {
-  test('a call post pointing anywhere but kMeet offers nothing to join', () => {
-    for (const url of ['https://evil.example/r', 'https://kmeet.infomaniak.com@evil.example/r', 'http://kmeet.infomaniak.com/r']) {
-      const m = translator().toMessage(post('c2', { type: 'custom_call', props: { url } }));
-      assert.equal(m?.callId, null, url);
-    }
-  });
 });
 
 describe('Room previews', () => {

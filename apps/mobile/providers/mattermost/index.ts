@@ -17,6 +17,7 @@ import type { UploadStore } from '../../lib/uploadQueue.ts';
 import type { TransportUpload } from '../../lib/upload.ts';
 import { MmActions } from './actions.ts';
 import { MmCategories } from './categories.ts';
+import { kmeetCalls } from './kmeet.ts';
 import { MmCatchUp } from './catchUp.ts';
 import { MmClient, MmError } from './client.ts';
 import { MmDirectory, toMmUser } from './directory.ts';
@@ -85,7 +86,8 @@ export function createMattermostProvider(
   return {
     identity: { kind: session.kind, origin: session.baseUrl, accountId: session.userId, instanceId: null, generation: null },
     describeError: describeMmError,
-    capabilities: MATTERMOST_CAPABILITIES,
+    capabilities: kchat ? { ...MATTERMOST_CAPABILITIES, videoCall: true } : MATTERMOST_CAPABILITIES,
+    calls: kchat ? kmeetCalls(client) : undefined,
     listener,
     translator,
     actions,

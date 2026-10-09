@@ -128,7 +128,7 @@ export class MmTranslator implements Translator {
       attachments: joinAttachments(this.attachments(metadata.files), cards(props.attachments)),
       reactions: this.reactions(metadata.reactions),
       urls: previews(metadata.embeds),
-      callId: call?.joinUrl ?? null,
+      callId: call?.conferenceId ?? null,
       encryptedRaw: null,
       pinned: raw.is_pinned === true,
       starred: null,
@@ -345,19 +345,19 @@ export function isKmeetUrl(url: string): boolean {
 }
 
 /**
- * kChat's kMeet call post (`custom_call`): `props.url` is the meeting, joined
- * as is. A running call is a `videoconf` whose `callId` is that URL; one that
- * is over is a `videoconf-ended` carrying its length in seconds, when known.
+ * kChat's kMeet call post (`custom_call`). A running call is a `videoconf`
+ * whose `callId` is its `conference_id`, joined through the server
+ * (`kmeet.ts`); one that is over is a `videoconf-ended` carrying its length in
+ * seconds, when known.
  */
-export function kmeetCall(props: Record<string, unknown>): { type: string; param: string; joinUrl: string | null } {
+export function kmeetCall(props: Record<string, unknown>): { type: string; param: string; conferenceId: string | null } {
   const start = positive(props.start_at);
   const end = positive(props.end_at);
   if (end !== null || CALL_OVER.has(str(props.status) ?? '')) {
     const seconds = start !== null && end !== null && end >= start ? Math.round((end - start) / 1000) : null;
-    return { type: 'videoconf-ended', param: seconds === null ? '' : String(seconds), joinUrl: null };
+    return { type: 'videoconf-ended', param: seconds === null ? '' : String(seconds), conferenceId: null };
   }
-  const url = str(props.url);
-  return { type: 'videoconf', param: '', joinUrl: url !== null && isKmeetUrl(url) ? url : null };
+  return { type: 'videoconf', param: '', conferenceId: str(props.conference_id) };
 }
 
 /** Integrations' Slack-style cards (`props.attachments`), in the shape Rocket.Chat's attachments already render. */

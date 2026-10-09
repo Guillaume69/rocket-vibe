@@ -1,22 +1,14 @@
 import type {RestClient} from './rest.ts';
 import type {Provider} from './provider.ts';
-import {setProviderCalls,type NativeCalls} from './call.ts';
-import {isKmeetUrl} from '../providers/mattermost/translator.ts';
+import {setProviderCalls} from './call.ts';
 
 /**
  * Shared lifetime in the application and in the real HTTP/SQLite bench. A
  * RocketVibe server has no video conference: its rooms call through voice
- * sessions (`lib/voice.ts`), so the native mount binds no call provider.
+ * sessions (`lib/voice.ts`), so the native mount binds no call provider. A
+ * provider with its own conferences (kChat's kMeet) brings them.
  */
 export function mountProviderCalls(client:RestClient,provider:Provider):()=>void {
   client.kind=provider.identity.kind;
-  return setProviderCalls(client,provider.identity.kind==='kchat'?KMEET:null);
+  return setProviderCalls(client,provider.calls??null);
 }
-
-/** kChat calls are kMeet meetings: a call post's `callId` is the meeting URL, joined as is. Starting one is not mapped. */
-const KMEET:NativeCalls={
-  available:async()=>false,
-  memo:()=>false,
-  start:async()=>{throw new Error('call_start_unavailable');},
-  join:async(id)=>{if(!isKmeetUrl(id))throw new Error('call_url_invalid');return id;},
-};

@@ -31,6 +31,10 @@ On the RocketVibe native server (MLS end-to-end encryption, not Rocket.Chat E2EE
 - `enrollment/rooms/messages.rs`: `Access::send_file`, `files_available`, file attachments on rows and registration in `refresh` and `search`; `close` forgets the view's files.
 - GTK: `chat.rs` `send_files` takes `send_private_files` (`chat_crypto.rs`) in an encrypted room; `composer.rs` `bind_private` enables the attach button. SwiftUI: `RoomModel.attach` and `supportsFiles` go through `NativeCryptoMessages.sendFile` / `filesAvailable` (`crates/rv-ffi/src/native_crypto/messages.rs`).
 
+## Web
+
+`rv-crypto-web` seals and opens the same `rv-file-v1` format in a dedicated worker. `PrivateChat.send` uploads only the opaque object and sends its descriptor inside the MLS message. `PrivateChat.file` authenticates and opens it into a volatile Blob URL, reusing ordinary image/audio/video controls without writing clear media to their IndexedDB cache. View closure and descriptor loss revoke URLs; scope checks reject late results. File picking and voice recording stage originals in memory only.
+
 ## Sources
 
 - docs/protocol/E2EE_FILES.md
@@ -54,3 +58,7 @@ On the RocketVibe native server (MLS end-to-end encryption, not Rocket.Chat E2EE
 - apps/desktop/crates/rv-gtk/src/chat_crypto.rs
 - apps/desktop/crates/rv-ffi/src/native_crypto/messages.rs
 - apps/desktop/macos/Sources/RocketVibeKit/RoomModel.swift
+- apps/web/src/crypto/chat.ts
+- apps/web/src/crypto/settings-controls.ts
+- apps/web/src/crypto/voice.ts
+- docs/WEB_E2EE.md

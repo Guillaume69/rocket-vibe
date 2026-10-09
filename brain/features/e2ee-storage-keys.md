@@ -26,6 +26,17 @@ On the RocketVibe native server (MLS end-to-end encryption, not Rocket.Chat E2EE
 - `rv-core` `enrollment/storage.rs`: `storage_status`, `renew_storage`, `renew_storage_soon` (called from `enrollment/rooms/messages.rs` refreshes). A renewal re-seals the whole vault and writes the keystore, seconds on a slow Windows machine, longer than the vault lease's 2 s wait: it holds the session's `vault_gate` exclusively (`crypto::Context::exclusive`), and every private-conversation operation takes it shared (`Access::call`), so a draft or a send that comes during a renewal waits for its end instead of failing `Busy`.
 - GTK: `native_crypto/storage.rs`, a group in the crypto preferences loaded with each account view; SwiftUI: `CryptoStorageControls.swift` in `CryptoSection` over `CryptoModel.renewStorage` and the FFI `storage_action` (`crates/rv-ffi/src/native_crypto/storage.rs`). Strings `crypto.storage_*`.
 
+## Web
+
+`CryptoStorageKeyAccess` runs the shared native renewal and expired-package
+cleanup through the WASM worker, on request and after private refreshes. The
+worker also replaces its outer non-extractable AES-GCM key when renewal occurs.
+A per-scope Web Lock and durable compare-and-swap transaction cover the complete
+snapshot. The real browser test confirms that the old live key cannot decrypt
+the renewed snapshot. Browser/profile backups can retain old keys and data;
+there is no independent OS keyring, hardware rollback anchor or native erasure
+guarantee. See `docs/WEB_E2EE.md`.
+
 ## Sources
 
 - docs/protocol/E2EE_STORAGE.md
@@ -41,3 +52,7 @@ On the RocketVibe native server (MLS end-to-end encryption, not Rocket.Chat E2EE
 - apps/desktop/crates/rv-gtk/src/native_crypto/storage.rs
 - apps/desktop/crates/rv-ffi/src/native_crypto/storage.rs
 - apps/desktop/macos/Sources/RocketVibe/CryptoStorageControls.swift
+- apps/web/src/crypto/worker.ts
+- apps/web/src/crypto/vault.ts
+- apps/web/src/crypto/chat.ts
+- docs/WEB_E2EE.md

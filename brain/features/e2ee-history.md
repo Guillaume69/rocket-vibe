@@ -38,6 +38,10 @@ When no old device is left, a separate history code recovers the history ([E2EE_
 
 Engine side, `journal_projection` (`crates/rv-crypto/src/groups/journal.rs`) completes a page from `recovered_page` / `recovered_root` (`crates/rv-crypto/src/groups/archive/recovered.rs`) once the own history is exhausted; positions at or after the oldest own document never come from the recovered catalog.
 
+## Web
+
+Encryption settings expose history request/import, reviewed offers and share/resume through `CryptoHistoryAccess`; history backup has a separate code and explicit saved-code publication through `CryptoHistoryBackupAccess`. Private refreshes renew due storage keys and upload available history in the background. Recovered records use the shared Rust journal projection. The UI clears displayed codes and entered secrets on blur or closure. Recovery/share/backup state coverage is tracked in `docs/WEB_E2EE.md`, separately from implementation.
+
 ## Sources
 
 - docs/protocol/E2EE_HISTORY.md
@@ -59,3 +63,7 @@ Engine side, `journal_projection` (`crates/rv-crypto/src/groups/journal.rs`) com
 - apps/desktop/crates/rv-ffi/src/native_crypto/history.rs
 - apps/desktop/macos/Sources/RocketVibe/CryptoHistoryControls.swift
 - apps/desktop/macos/Sources/RocketVibeKit/CryptoModel.swift
+- apps/web/src/crypto/chat.ts
+- apps/web/src/crypto/settings-controls.ts
+- apps/web/src/crypto/voice.ts
+- docs/WEB_E2EE.md

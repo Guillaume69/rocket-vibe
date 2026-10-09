@@ -39,6 +39,10 @@ GTK (`rv-gtk`) and the SwiftUI app share `rv-core`'s engine.
 
 Same feature set on both sides ([parity](../parity.md) §11): unlock, decrypt messages and previews, lock, AES-128 and AES-256 room keys, encrypted send/edit/thread replies, encrypted files in both directions, key kept across launches. Difference in mechanism: mobile writes the decrypted text into SQLite and wipes it on lock, desktop decrypts on every read. Neither app creates encrypted rooms.
 
+## Web
+
+The serving-origin web client supports RocketVibe MLS through the same `rv-crypto` Rust engine compiled to WASM, not the Rocket.Chat password-based provider described above. Identity creation, device approval, peer verification and group ceremonies use the GTK labels and explicit fingerprint reviews. Private messages, drafts, edits, reactions, threads, local search and files bypass ordinary storage. `apps/web/src/crypto/chat.ts` owns live plaintext and destroys its worker/media URLs on scope loss. The profile-local encrypted vault has distinct guarantees from the native OS keyring; see `docs/WEB_E2EE.md` and the qualified/debt cells in `brain/parity.md`.
+
 ## Sources
 
 - apps/mobile/app/unlock-e2e.tsx
@@ -65,3 +69,7 @@ Same feature set on both sides ([parity](../parity.md) §11): unlock, decrypt me
 - apps/desktop/macos/Sources/RocketVibe/SettingsView.swift
 - apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift
 - ROADMAP.md
+- apps/web/src/crypto/chat.ts
+- apps/web/src/crypto/settings-controls.ts
+- apps/web/src/crypto/voice.ts
+- docs/WEB_E2EE.md

@@ -194,7 +194,7 @@ The non-obvious choices behind rocket-vibe and why they were made, grouped by ar
 
 ## Web scope, 2026-10-08
 
-The user chose a true server-delivered browser client, on its own branch/worktree, using GTK as the visual reference. The browser signs into only the serving service and one account: no account/server rail. Encrypted rooms are explicitly unsupported for now; retain locked metadata and reject content/media/call actions. No server-side substitute for a browser vault. Installed clients retain their existing capabilities.
+The user chose a true server-delivered browser client, on its own branch/worktree, using GTK as the visual reference. The browser signs into only the serving service and one account: no account/server rail. The temporary encryption exclusion was superseded on 2026-10-09 by a request for usable browser E2EE. It reuses the shared Rust MLS engine in a dedicated WASM worker; the server is never given private plaintext or keys. Browser profile storage has no independent native-keyring anti-rollback anchor. Its delivered-code trust boundary and remaining qualification are recorded in `docs/WEB_E2EE.md`. Installed clients retain their existing capabilities.
 
 Sources: apps/web/src/app.ts; apps/web/src/api.ts; docs/rfcs/0005-web-client.md.
 

@@ -11,7 +11,7 @@ import { systemPreview } from '../lib/systemMessages.ts';
 import type { RestClient } from '../lib/rest.ts';
 import { useActivity } from '../ui/activity.ts';
 import { useT } from '../ui/i18n.ts';
-import { useStatusEmojis } from '../ui/identities.tsx';
+import { roomTitle, useDisplayNames, useStatusEmojis } from '../ui/identities.tsx';
 import { RoomAvatar, UnreadBadge, SyncBar, Brand, AvatarTile } from '../ui/kit.tsx';
 import { presenceColors, usePresence } from '../ui/presence.ts';
 import {
@@ -105,9 +105,10 @@ function VoiceFooter({ c }: { c: Colors }) {
 }
 function VoiceFooterRooms({ c, base }: { c: Colors; base: LocalDatabase }) {
   const { data } = useCoalescedLiveQuery(base.select().from(rooms));
+  const names = useDisplayNames();
   const title = (rid: string) => {
     const room = data.find(r => r.rid === rid);
-    return room?.displayName ?? room?.name ?? '';
+    return room === undefined ? '' : roomTitle(room, names);
   };
   return <VoiceBar c={c} title={title} />;
 }
@@ -260,7 +261,8 @@ function RoomRow({
   // (Presence_broadcast_disabled): nothing; the UI never depends on it.
   const status = usePresence(room.dmOtherUid,room.type==='d'?room.rid:undefined);
   const statusEmoji = useStatusEmojis().get(room.dmOtherUid ?? '');
-  const name = (room.displayName ?? room.name ?? room.rid) + (statusEmoji ? ` ${statusEmoji}` : '');
+  const displayNames = useDisplayNames();
+  const name = roomTitle(room, displayNames) + (statusEmoji ? ` ${statusEmoji}` : '');
   const unread = subscription?.unread ?? 0;
   const alerting = subscription?.alert === true || unread > 0;
   // Encrypted room: as long as no message is decrypted (`lastMessage` null,

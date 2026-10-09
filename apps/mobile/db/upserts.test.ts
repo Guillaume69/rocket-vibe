@@ -9,6 +9,7 @@ import { toRoom } from '../lib/normalize.ts';
 import type { LocalSubscription, LocalMessage, LocalRoom } from '../lib/normalize.ts';
 import {
   APPLY_RETENTION,
+  UPDATE_DM_PEER_NAME,
   INSERT_CUSTOM_EMOJI,
   INSERT_OUTBOX,
   INSERT_UPLOAD,
@@ -975,6 +976,25 @@ describe('versions d’avatar', () => {
     db.prepare(UPSERT_IDENTITY).run(...identityParams({ uid: 'u1', username: 'alice', avatarEtag: 'e1' }));
     db.prepare(UPSERT_IDENTITY).run(...identityParams({ uid: 'u1', username: 'alice', avatarEtag: null }));
     assert.deepEqual(row(db.prepare(readUser).get('u1')), { username: 'alice', avatar_etag: 'e1' });
+  });
+
+  test('real names: a message carries it, an absent one never erases it, a DM subscription names its peer', () => {
+    const readName = 'SELECT name FROM users WHERE uid = ?';
+    db.prepare(UPSERT_USER).run(...userParams({ uid: 'u1', username: 'alice', name: 'Alice Martin', updatedAt: 1 }));
+    db.prepare(UPSERT_USER).run(...userParams({ uid: 'u1', username: 'alice', updatedAt: 2 }));
+    assert.deepEqual(row(db.prepare(readName).get('u1')), { name: 'Alice Martin' });
+    // A newer message with a new name renames; an older one does not.
+    db.prepare(UPSERT_USER).run(...userParams({ uid: 'u1', username: 'alice', name: 'Alice M.', updatedAt: 3 }));
+    db.prepare(UPSERT_USER).run(...userParams({ uid: 'u1', username: 'alice', name: 'Old', updatedAt: 1 }));
+    assert.deepEqual(row(db.prepare(readName).get('u1')), { name: 'Alice M.' });
+    // `users.info` sets it; without one it keeps it.
+    db.prepare(UPSERT_IDENTITY).run(...identityParams({ uid: 'u2', username: 'bob', avatarEtag: null, name: 'Bob Durand' }));
+    db.prepare(UPSERT_IDENTITY).run(...identityParams({ uid: 'u2', username: 'bob', avatarEtag: null }));
+    assert.deepEqual(row(db.prepare(readName).get('u2')), { name: 'Bob Durand' });
+    // A DM's `fname` reaches its other party, through the room.
+    db.prepare(UPSERT_ROOM).run(...room({ rid: 'd1', type: 'd', updatedAt: 1, dmOtherUid: 'u2', dmOtherUsername: 'bob' }));
+    db.prepare(UPDATE_DM_PEER_NAME).run('Bob D.', 'd1', 'Bob D.');
+    assert.deepEqual(row(db.prepare(readName).get('u2')), { name: 'Bob D.' });
   });
 
   test('a room keeps its version when the Rooms document does not carry it', () => {

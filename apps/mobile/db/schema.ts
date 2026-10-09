@@ -309,6 +309,13 @@ export const users = sqliteTable('users', {
    * when a profile opens.
    */
   avatarEtag: text('avatar_etag'),
+  /**
+   * The person's real name (Rocket.Chat `name`), shown instead of the
+   * username when the server's `UI_Use_Real_Name` is on (`ui/realNames.ts`).
+   * Fed by messages (`u.name`), `users.info` and a DM's subscription (`fname`);
+   * an absent name never erases a known one.
+   */
+  name: text('name'),
   /** `_updatedAt` of the message that set this username: "most recent wins" referee. */
   updatedAt: integer('updated_at').notNull().default(0),
 });

@@ -107,6 +107,19 @@ export function useDisplayNames(): ReadonlyMap<string, string> {
   return useSyncExternalStore(onDisplayNamesChange, displayNames, displayNames);
 }
 
+/**
+ * A room's shown name: a two-person DM under its peer's display name where
+ * the server names people apart from usernames (Rocket.Chat's
+ * `UI_Use_Real_Name`, Mattermost's name format), else the room's own.
+ */
+export function roomTitle(
+  room: { rid: string; type: string | null; dmOtherUid: string | null; displayName: string | null; name: string | null },
+  names: ReadonlyMap<string, string>,
+): string {
+  const peer = room.type === 'd' && room.dmOtherUid !== null ? names.get(room.dmOtherUid) : undefined;
+  return peer ?? room.displayName ?? room.name ?? room.rid;
+}
+
 /** `uid → custom status emoji` (Mattermost); empty elsewhere. */
 export function useStatusEmojis(): ReadonlyMap<string, string> {
   return useSyncExternalStore(onDisplayNamesChange, statusEmojis, statusEmojis);

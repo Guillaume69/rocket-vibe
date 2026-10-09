@@ -119,12 +119,16 @@ private func apply(
   }
   let sender = payload["sender"] as? [String: Any]
   let username = sender?["username"] as? String ?? ""
-  let name = (sender?["name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? (username.isEmpty ? title : username)
+  // `senderName` is the server's own choice (`getPushData`): the real name
+  // when `UI_Use_Real_Name` is on, else the username, like the app's rows.
+  let chosen = (payload["senderName"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+  let name = chosen ?? (username.isEmpty ? title : username)
 
   if payload["type"] as? String == "d" {
     content.title = name
-    if !username.isEmpty, text.hasPrefix(username + ": ") {
-      text = String(text.dropFirst(username.count + 2))
+    for prefix in [chosen, username].compactMap({ $0 }) where !prefix.isEmpty && text.hasPrefix(prefix + ": ") {
+      text = String(text.dropFirst(prefix.count + 2))
+      break
     }
   } else {
     content.title = title

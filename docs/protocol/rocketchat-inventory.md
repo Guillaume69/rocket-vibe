@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-526 production files scanned; 605 occurrences.
+527 production files scanned; 607 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -429,10 +429,10 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/app/login.tsx:469](../../apps/mobile/app/login.tsx#L469) | endpoint | chat.example.org |
 | [apps/mobile/app/message-actions.tsx:97](../../apps/mobile/app/message-actions.tsx#L97) | call:GET | 'settings.public' |
 | [apps/mobile/app/message-actions.tsx:98](../../apps/mobile/app/message-actions.tsx#L98) | endpoint | settings.public |
-| [apps/mobile/app/search.tsx:83](../../apps/mobile/app/search.tsx#L83) | call:GET | 'spotlight' |
-| [apps/mobile/app/search.tsx:83](../../apps/mobile/app/search.tsx#L83) | endpoint | spotlight |
-| [apps/mobile/app/search.tsx:138](../../apps/mobile/app/search.tsx#L138) | call:POST | 'channels.join' |
-| [apps/mobile/app/search.tsx:138](../../apps/mobile/app/search.tsx#L138) | endpoint | channels.join |
+| [apps/mobile/app/search.tsx:84](../../apps/mobile/app/search.tsx#L84) | call:GET | 'spotlight' |
+| [apps/mobile/app/search.tsx:84](../../apps/mobile/app/search.tsx#L84) | endpoint | spotlight |
+| [apps/mobile/app/search.tsx:139](../../apps/mobile/app/search.tsx#L139) | call:POST | 'channels.join' |
+| [apps/mobile/app/search.tsx:139](../../apps/mobile/app/search.tsx#L139) | endpoint | channels.join |
 | [apps/mobile/app/unlock-e2e.tsx:52](../../apps/mobile/app/unlock-e2e.tsx#L52) | endpoint | e2e.genericError |
 | [apps/mobile/app/unlock-e2e.tsx:52](../../apps/mobile/app/unlock-e2e.tsx#L52) | endpoint | e2e.wrongPassword |
 | [apps/mobile/app/unlock-e2e.tsx:61](../../apps/mobile/app/unlock-e2e.tsx#L61) | endpoint | e2e.title |
@@ -471,11 +471,11 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/lib/messageActions.ts:158](../../apps/mobile/lib/messageActions.ts#L158) | call:GET | 'chat.getMessage' |
 | [apps/mobile/lib/messageActions.ts:158](../../apps/mobile/lib/messageActions.ts#L158) | endpoint | chat.getMessage |
 | [apps/mobile/lib/myProfile.ts:87](../../apps/mobile/lib/myProfile.ts#L87) | call:GET | 'me' |
-| [apps/mobile/lib/myProfile.ts:107](../../apps/mobile/lib/myProfile.ts#L107) | call:GET | 'me' |
-| [apps/mobile/lib/myProfile.ts:119](../../apps/mobile/lib/myProfile.ts#L119) | call:POST | 'users.setStatus' |
-| [apps/mobile/lib/myProfile.ts:120](../../apps/mobile/lib/myProfile.ts#L120) | endpoint | users.setStatus |
-| [apps/mobile/lib/myProfile.ts:141](../../apps/mobile/lib/myProfile.ts#L141) | call:POST | 'users.updateOwnBasicInfo' |
-| [apps/mobile/lib/myProfile.ts:142](../../apps/mobile/lib/myProfile.ts#L142) | endpoint | users.updateOwnBasicInfo |
+| [apps/mobile/lib/myProfile.ts:108](../../apps/mobile/lib/myProfile.ts#L108) | call:GET | 'me' |
+| [apps/mobile/lib/myProfile.ts:120](../../apps/mobile/lib/myProfile.ts#L120) | call:POST | 'users.setStatus' |
+| [apps/mobile/lib/myProfile.ts:121](../../apps/mobile/lib/myProfile.ts#L121) | endpoint | users.setStatus |
+| [apps/mobile/lib/myProfile.ts:142](../../apps/mobile/lib/myProfile.ts#L142) | call:POST | 'users.updateOwnBasicInfo' |
+| [apps/mobile/lib/myProfile.ts:143](../../apps/mobile/lib/myProfile.ts#L143) | endpoint | users.updateOwnBasicInfo |
 | [apps/mobile/lib/outbox.ts:169](../../apps/mobile/lib/outbox.ts#L169) | call:POST | 'chat.sendMessage' |
 | [apps/mobile/lib/outbox.ts:169](../../apps/mobile/lib/outbox.ts#L169) | endpoint | chat.sendMessage |
 | [apps/mobile/lib/outbox.ts:240](../../apps/mobile/lib/outbox.ts#L240) | call:GET | 'chat.getMessage' |
@@ -496,9 +496,9 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/lib/server.ts:98](../../apps/mobile/lib/server.ts#L98) | endpoint | api/info |
 | [apps/mobile/lib/server.ts:127](../../apps/mobile/lib/server.ts#L127) | call:GET | 'settings.public' |
 | [apps/mobile/lib/server.ts:127](../../apps/mobile/lib/server.ts#L127) | endpoint | settings.public |
-| [apps/mobile/lib/sync.ts:124](../../apps/mobile/lib/sync.ts#L124) | stream | stream-room-messages |
-| [apps/mobile/lib/sync.ts:125](../../apps/mobile/lib/sync.ts#L125) | stream | stream-notify-user |
-| [apps/mobile/lib/sync.ts:126](../../apps/mobile/lib/sync.ts#L126) | stream | stream-notify-room |
+| [apps/mobile/lib/sync.ts:126](../../apps/mobile/lib/sync.ts#L126) | stream | stream-room-messages |
+| [apps/mobile/lib/sync.ts:127](../../apps/mobile/lib/sync.ts#L127) | stream | stream-notify-user |
+| [apps/mobile/lib/sync.ts:128](../../apps/mobile/lib/sync.ts#L128) | stream | stream-notify-room |
 | [apps/mobile/lib/typing.ts:21](../../apps/mobile/lib/typing.ts#L21) | stream | stream-notify-room |
 | [apps/mobile/lib/upload.ts:90](../../apps/mobile/lib/upload.ts#L90) | url | /api/v1/rooms.media/{…} |
 | [apps/mobile/lib/upload.ts:131](../../apps/mobile/lib/upload.ts#L131) | call:POST | \`rooms.mediaConfirm/{…}/{…}\` |
@@ -511,17 +511,17 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/lib/uploadQueue.ts:125](../../apps/mobile/lib/uploadQueue.ts#L125) | call:GET | 'settings.public' |
 | [apps/mobile/lib/uploadQueue.ts:125](../../apps/mobile/lib/uploadQueue.ts#L125) | endpoint | settings.public |
 | [apps/mobile/lib/uploadQueue.ts:496](../../apps/mobile/lib/uploadQueue.ts#L496) | resource | /file-upload/{…}/{…} |
-| [apps/mobile/plugins/ios-notification-service/NotificationService.swift:163](../../apps/mobile/plugins/ios-notification-service/NotificationService.swift#L163) | url | /api/v1/push.get |
+| [apps/mobile/plugins/ios-notification-service/NotificationService.swift:167](../../apps/mobile/plugins/ios-notification-service/NotificationService.swift#L167) | url | /api/v1/push.get |
 | [apps/mobile/plugins/native-push-source.js:36](../../apps/mobile/plugins/native-push-source.js#L36) | url | /api/v1/me/push |
 | [apps/mobile/plugins/native-push-source.js:117](../../apps/mobile/plugins/native-push-source.js#L117) | url | /api/v1 |
 | [apps/mobile/plugins/native-push-source.js:145](../../apps/mobile/plugins/native-push-source.js#L145) | url | /api/v1/voice/rings |
 | [apps/mobile/plugins/native-push-source.js:178](../../apps/mobile/plugins/native-push-source.js#L178) | url | /api/v1/voice/rings |
 | [apps/mobile/plugins/native-push-source.js:221](../../apps/mobile/plugins/native-push-source.js#L221) | url | /api/v1/push/notifications |
 | [apps/mobile/plugins/native-push-source.js:280](../../apps/mobile/plugins/native-push-source.js#L280) | url | /api/v1/rooms |
-| [apps/mobile/plugins/with-fcm-deeplink.js:1069](../../apps/mobile/plugins/with-fcm-deeplink.js#L1069) | url | /api/v1/chat.sendMessage |
-| [apps/mobile/plugins/with-fcm-deeplink.js:1082](../../apps/mobile/plugins/with-fcm-deeplink.js#L1082) | url | /api/v1/chat.sendMessage |
-| [apps/mobile/plugins/with-fcm-deeplink.js:1176](../../apps/mobile/plugins/with-fcm-deeplink.js#L1176) | url | /api/v1/push.get |
-| [apps/mobile/plugins/with-fcm-deeplink.js:1194](../../apps/mobile/plugins/with-fcm-deeplink.js#L1194) | url | /api/v1/push.get |
+| [apps/mobile/plugins/with-fcm-deeplink.js:1075](../../apps/mobile/plugins/with-fcm-deeplink.js#L1075) | url | /api/v1/chat.sendMessage |
+| [apps/mobile/plugins/with-fcm-deeplink.js:1088](../../apps/mobile/plugins/with-fcm-deeplink.js#L1088) | url | /api/v1/chat.sendMessage |
+| [apps/mobile/plugins/with-fcm-deeplink.js:1182](../../apps/mobile/plugins/with-fcm-deeplink.js#L1182) | url | /api/v1/push.get |
+| [apps/mobile/plugins/with-fcm-deeplink.js:1200](../../apps/mobile/plugins/with-fcm-deeplink.js#L1200) | url | /api/v1/push.get |
 | [apps/mobile/providers/rocketchat/actions.ts:23](../../apps/mobile/providers/rocketchat/actions.ts#L23) | call:POST | 'rooms.favorite' |
 | [apps/mobile/providers/rocketchat/actions.ts:23](../../apps/mobile/providers/rocketchat/actions.ts#L23) | endpoint | rooms.favorite |
 | [apps/mobile/providers/rocketchat/actions.ts:27](../../apps/mobile/providers/rocketchat/actions.ts#L27) | call:GET | 'rooms.info' |
@@ -610,6 +610,8 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/ui/messages.ts:2257](../../apps/mobile/ui/messages.ts#L2257) | endpoint | e2e.unlock |
 | [apps/mobile/ui/messages.ts:2258](../../apps/mobile/ui/messages.ts#L2258) | endpoint | e2e.wrongPassword |
 | [apps/mobile/ui/messages.ts:2259](../../apps/mobile/ui/messages.ts#L2259) | endpoint | e2e.genericError |
+| [apps/mobile/ui/realNames.ts:44](../../apps/mobile/ui/realNames.ts#L44) | call:GET | 'settings.public' |
+| [apps/mobile/ui/realNames.ts:44](../../apps/mobile/ui/realNames.ts#L44) | endpoint | settings.public |
 | [apps/mobile/ui/serverRail.tsx:40](../../apps/mobile/ui/serverRail.tsx#L40) | endpoint | subscriptions.get |
 | [apps/mobile/ui/settingsSections.tsx:337](../../apps/mobile/ui/settingsSections.tsx#L337) | call:GET | 'me' |
 | [apps/mobile/ui/settingsSections.tsx:366](../../apps/mobile/ui/settingsSections.tsx#L366) | call:POST | 'users.setPreferences' |

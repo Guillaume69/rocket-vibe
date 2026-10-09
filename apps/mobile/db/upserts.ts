@@ -155,18 +155,21 @@ WHERE excluded.updated_since > cursors.updated_since
  * ingested message. Two safeguards in the `WHERE`:
  *  - `updated_at >=`: an OLDER message does not downgrade a more recently
  *    observed username ("most recent wins").
- *  - `username IS NOT`: we write ONLY if the username REALLY changes. Without
- *    it, each message with the same username would touch the row and rerun
- *    the table's live query, hence re-render every visible row. This way,
- *    the table only moves on a REAL rename.
+ *  - `username IS NOT`: we write ONLY if the username (or the real name,
+ *    `u.name`, when the message carries one) REALLY changes. Without it, each
+ *    message with the same username would touch the row and rerun the table's
+ *    live query, hence re-render every visible row. This way, the table only
+ *    moves on a REAL rename. An absent name never erases a known one.
  */
 export const UPSERT_USER = `
-INSERT INTO users (uid, username, updated_at) VALUES (?, ?, ?)
+INSERT INTO users (uid, username, name, updated_at) VALUES (?, ?, ?, ?)
 ON CONFLICT(uid) DO UPDATE SET
   username = excluded.username,
+  name = COALESCE(excluded.name, users.name),
   updated_at = excluded.updated_at
 WHERE excluded.updated_at >= users.updated_at
-  AND excluded.username IS NOT users.username
+  AND (excluded.username IS NOT users.username
+    OR (excluded.name IS NOT NULL AND excluded.name IS NOT users.name))
 `;
 
 /**
@@ -186,12 +189,25 @@ WHERE excluded.updated_at >= users.updated_at
  *    `users`.
  */
 export const UPSERT_IDENTITY = `
-INSERT INTO users (uid, username, avatar_etag, updated_at) VALUES (?, ?, ?, 0)
+INSERT INTO users (uid, username, avatar_etag, name, updated_at) VALUES (?, ?, ?, ?, 0)
 ON CONFLICT(uid) DO UPDATE SET
   username = excluded.username,
-  avatar_etag = COALESCE(excluded.avatar_etag, users.avatar_etag)
+  avatar_etag = COALESCE(excluded.avatar_etag, users.avatar_etag),
+  name = COALESCE(excluded.name, users.name)
 WHERE excluded.username IS NOT users.username
    OR COALESCE(excluded.avatar_etag, users.avatar_etag) IS NOT users.avatar_etag
+   OR COALESCE(excluded.name, users.name) IS NOT users.name
+`;
+
+/**
+ * A two-person DM's subscription names the other person: `fname` is their
+ * real name. Written on the DM's other party (`rooms.dm_other_uid`), only on
+ * a real change; nothing when the room is not known yet.
+ */
+export const UPDATE_DM_PEER_NAME = `
+UPDATE users SET name = ?
+WHERE uid = (SELECT dm_other_uid FROM rooms WHERE rid = ?)
+  AND name IS NOT ?
 `;
 
 /**
@@ -613,17 +629,19 @@ export type SqlParam = string | number | null;
 export function userParams(u: {
   uid: string;
   username: string;
+  name?: string | null;
   updatedAt: number;
 }): SqlParam[] {
-  return [u.uid, u.username, u.updatedAt];
+  return [u.uid, u.username, u.name ?? null, u.updatedAt];
 }
 
 export function identityParams(i: {
   uid: string;
   username: string;
   avatarEtag: string | null;
+  name?: string | null;
 }): SqlParam[] {
-  return [i.uid, i.username, i.avatarEtag];
+  return [i.uid, i.username, i.avatarEtag, i.name ?? null];
 }
 
 export function messageParams(m: LocalMessage): SqlParam[] {

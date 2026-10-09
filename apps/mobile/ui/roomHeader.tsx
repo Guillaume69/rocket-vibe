@@ -20,6 +20,7 @@ import type { RestClient } from '../lib/rest.ts';
 import { useActivity } from './activity.ts';
 import { useE2EUnlocked } from './e2e.ts';
 import { useT } from './i18n.ts';
+import { roomTitle, useDisplayNames } from './identityStore.ts';
 import { RoomAvatar, SyncBar } from './kit.tsx';
 import { PRESENCE_KEYS, presenceColors } from './presence.ts';
 import { useSync } from './sync.tsx';
@@ -60,7 +61,8 @@ export function RoomHeader({
   /** An encrypted room is searched on the device, whatever the server offers. */
   privateSearch?: boolean;
 }) {
-  const name = room ? (room.displayName ?? room.name ?? room.rid) : '…';
+  const shownNames = useDisplayNames();
+  const name = room ? roomTitle(room, shownNames) : '…';
   const isDM = room?.type === 'd';
   // History loading (opening) and room catch-up (reconnection) light up the
   // bar: same `rid` scope as the fetch wrapped by the screen.

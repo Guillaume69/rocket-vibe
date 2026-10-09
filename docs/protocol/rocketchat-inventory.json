@@ -501,6 +501,7 @@
     "apps/mobile/ui/presence.ts",
     "apps/mobile/ui/privateNotes.tsx",
     "apps/mobile/ui/privateQuotes.ts",
+    "apps/mobile/ui/realNames.ts",
     "apps/mobile/ui/reply.ts",
     "apps/mobile/ui/replyBanner.tsx",
     "apps/mobile/ui/reportForm.tsx",
@@ -3060,25 +3061,25 @@
     },
     {
       "file": "apps/mobile/app/search.tsx",
-      "line": 83,
+      "line": 84,
       "kind": "call:GET",
       "surface": "'spotlight'"
     },
     {
       "file": "apps/mobile/app/search.tsx",
-      "line": 83,
+      "line": 84,
       "kind": "endpoint",
       "surface": "spotlight"
     },
     {
       "file": "apps/mobile/app/search.tsx",
-      "line": 138,
+      "line": 139,
       "kind": "call:POST",
       "surface": "'channels.join'"
     },
     {
       "file": "apps/mobile/app/search.tsx",
-      "line": 138,
+      "line": 139,
       "kind": "endpoint",
       "surface": "channels.join"
     },
@@ -3312,31 +3313,31 @@
     },
     {
       "file": "apps/mobile/lib/myProfile.ts",
-      "line": 107,
+      "line": 108,
       "kind": "call:GET",
       "surface": "'me'"
     },
     {
       "file": "apps/mobile/lib/myProfile.ts",
-      "line": 119,
+      "line": 120,
       "kind": "call:POST",
       "surface": "'users.setStatus'"
     },
     {
       "file": "apps/mobile/lib/myProfile.ts",
-      "line": 120,
+      "line": 121,
       "kind": "endpoint",
       "surface": "users.setStatus"
     },
     {
       "file": "apps/mobile/lib/myProfile.ts",
-      "line": 141,
+      "line": 142,
       "kind": "call:POST",
       "surface": "'users.updateOwnBasicInfo'"
     },
     {
       "file": "apps/mobile/lib/myProfile.ts",
-      "line": 142,
+      "line": 143,
       "kind": "endpoint",
       "surface": "users.updateOwnBasicInfo"
     },
@@ -3462,19 +3463,19 @@
     },
     {
       "file": "apps/mobile/lib/sync.ts",
-      "line": 124,
+      "line": 126,
       "kind": "stream",
       "surface": "stream-room-messages"
     },
     {
       "file": "apps/mobile/lib/sync.ts",
-      "line": 125,
+      "line": 127,
       "kind": "stream",
       "surface": "stream-notify-user"
     },
     {
       "file": "apps/mobile/lib/sync.ts",
-      "line": 126,
+      "line": 128,
       "kind": "stream",
       "surface": "stream-notify-room"
     },
@@ -3552,7 +3553,7 @@
     },
     {
       "file": "apps/mobile/plugins/ios-notification-service/NotificationService.swift",
-      "line": 163,
+      "line": 167,
       "kind": "url",
       "surface": "/api/v1/push.get"
     },
@@ -3594,25 +3595,25 @@
     },
     {
       "file": "apps/mobile/plugins/with-fcm-deeplink.js",
-      "line": 1069,
+      "line": 1075,
       "kind": "url",
       "surface": "/api/v1/chat.sendMessage"
     },
     {
       "file": "apps/mobile/plugins/with-fcm-deeplink.js",
-      "line": 1082,
+      "line": 1088,
       "kind": "url",
       "surface": "/api/v1/chat.sendMessage"
     },
     {
       "file": "apps/mobile/plugins/with-fcm-deeplink.js",
-      "line": 1176,
+      "line": 1182,
       "kind": "url",
       "surface": "/api/v1/push.get"
     },
     {
       "file": "apps/mobile/plugins/with-fcm-deeplink.js",
-      "line": 1194,
+      "line": 1200,
       "kind": "url",
       "surface": "/api/v1/push.get"
     },
@@ -4143,6 +4144,18 @@
       "line": 2259,
       "kind": "endpoint",
       "surface": "e2e.genericError"
+    },
+    {
+      "file": "apps/mobile/ui/realNames.ts",
+      "line": 44,
+      "kind": "call:GET",
+      "surface": "'settings.public'"
+    },
+    {
+      "file": "apps/mobile/ui/realNames.ts",
+      "line": 44,
+      "kind": "endpoint",
+      "surface": "settings.public"
     },
     {
       "file": "apps/mobile/ui/serverRail.tsx",

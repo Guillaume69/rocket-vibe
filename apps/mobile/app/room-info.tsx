@@ -23,6 +23,7 @@ import type { RestClient } from '../lib/rest.ts';
 import type { ProviderActions, RoomInformation } from '../lib/provider.ts';
 import { useE2EUnlocked } from '../ui/e2e.ts';
 import { translateCurrent, useT } from '../ui/i18n.ts';
+import { roomTitle, useDisplayNames } from '../ui/identityStore.ts';
 import { Tappable } from '../ui/tappable.tsx';
 import { RoomAvatar } from '../ui/kit.tsx';
 import type { TranslationKey } from '../ui/messages.ts';
@@ -134,7 +135,8 @@ function RoomInfoContent({
     };
   }, [actions, rid, native, roomPresent, version,refreshing]);
 
-  const name = extras?.name || room?.displayName || room?.name || '?';
+  const shownNames = useDisplayNames();
+  const name = extras?.name || (room ? roomTitle(room, shownNames) : '') || '?';
   const typeKey = TYPE_SENTENCE[extras?.type ?? room?.type ?? ''];
   const subtitle = [
     typeKey !== undefined ? t(typeKey) : null,

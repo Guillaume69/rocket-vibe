@@ -90,6 +90,8 @@ export interface Store {
     uid: string;
     username: string;
     avatarEtag: string | null;
+    /** The real name, when the source carries one (`me`, `users.info`). */
+    name?: string | null;
   }): Promise<void>;
   /** Re-masks the plaintext of every encrypted message (on lock). */
   hideEncryptedMessages(): Promise<void>;

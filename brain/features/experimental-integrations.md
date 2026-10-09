@@ -1,7 +1,8 @@
 # Experimental integrations
 
-Slack is the first implementation increment from the provider handoffs. Teams is
-queued, with its document integrated and no Teams code started. The first Slack
+Slack is the first implementation increment from the provider handoffs. After
+that preview was pushed, Teams implementation began with its isolated private
+read foundation; sign-in and a user-facing Teams screen are still pending. The first Slack
 increment is a transient read-only preview on the login screen. It is independent
 of the normal persistent account, store, outbox and sync lifecycle. It does not
 advertise a complete provider or enable any of the existing chat action menus.
@@ -64,8 +65,10 @@ response without a cursor fails as pagination_unsupported instead of silently
 claiming a complete page sequence. No automated quota retry or background polling.
 
 Next: own browser acquisition and vault lifecycle (S-A), then neutral projection
-(S-B), cookie RTM plus reconnect repair (S-C), then durable writes (S-D). Finish
-and qualify the Slack increments before beginning Teams implementation.
+(S-B), cookie RTM plus reconnect repair (S-C), then durable writes (S-D). Teams
+now proceeds as the next implementation increment, following the first Slack
+preview, under the same intended unlock. See [Teams architecture](../architecture/teams.md)
+for the code and authentication boundary.
 
 ## Validation
 
@@ -84,7 +87,28 @@ The smoke sequence waits until login is visible, since GTK is_visible also
 checks ancestors. Real Slack credentials and installed Android/macOS remain
 unqualified.
 
+The pushed Slack increment also passes both [web CI](https://github.com/Guillaume69/rocket-vibe/actions/runs/37960337293)
+and [macOS CI](https://github.com/Guillaume69/rocket-vibe/actions/runs/37960337204).
+The latter compiles, packages and launches the actual SwiftUI app. Manual
+nine-activation interaction and real Slack sessions on macOS remain unqualified.
+
+## Teams foundation
+
+Mobile providers/teams/protocol.ts and reader.ts implement candidate private
+discovery, account snapshots and history, with a matching rv-core/src/teams.rs.
+They are not wired into ProviderKind, GTK, UniFFI or SwiftUI. All three native
+apps still owe Teams sign-in, the hidden entry, projection and feature delivery.
+No real Teams account was used, no OAuth application identity was selected,
+and no credentials from the supplied archive were used. Registration details
+are not a prerequisite for building or testing this foundation.
+
 ## Sources
+
+- apps/mobile/providers/teams/protocol.ts
+- apps/mobile/providers/teams/reader.ts
+- apps/mobile/providers/teams/protocol.test.ts
+- apps/desktop/crates/rv-core/src/teams.rs
+- docs/protocol/fixtures/teams-read.json
 
 - apps/mobile/lib/experimentalUnlock.ts
 - apps/mobile/ui/experimentalProviders.ts

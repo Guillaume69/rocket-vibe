@@ -14,10 +14,11 @@ shared docs or to the app you are working on. Back to [../BRAIN.md](../BRAIN.md)
 | [i18n.md](i18n.md) | French and English: mobile `ui/messages.ts` and `ui/i18n.ts` plus the native push strings, desktop `rv-core` `i18n.rs` shared by GTK and SwiftUI. |
 | [web-client.md](web-client.md) | Embedded browser distribution, GTK design synchronization, one origin/account, indexed storage and browser media. |
 
-## Planned provider contracts
+## Developing provider contracts
 
 | Doc | What is here |
 |---|---|
+| [teams.md](teams.md) | Candidate private Teams read foundation, identity/broker boundary, conservative dynamic routing and unqualified native integration. |
 | [slack-session.md](slack-session.md) | Slack Session mode research: measured token/cookie RTM behaviour, protocol handoff, provider parity limits and pending qualification. First hidden read-only preview; persistent accounts and the full driver remain pending. |
 
 ## Mobile (`apps/mobile`)

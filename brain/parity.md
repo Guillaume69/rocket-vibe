@@ -301,7 +301,7 @@ beta does.
 | Feature | Mobile | GTK | SwiftUI | Notes |
 |---|---|---|---|---|
 | Device-local nine-activation unlock on the login icon | done | done | done | Hidden until unlocked; hide removes the setting. Installed Android/macOS runtime checks pending. |
-| Teams provider | missing | missing | missing | Handoff integrated; implementation queued after Slack. |
+| Teams provider | missing | missing | missing | Handoff and candidate read foundation implemented in mobile and shared Rust core after the Slack preview. No sign-in, native Teams screen, persistent provider or live account qualification; all three still owe those. |
 
 | Feature | Mobile | GTK | SwiftUI | Notes |
 |---|---|---|---|---|
@@ -323,7 +323,7 @@ gaps, listed last.
   formatting toolbar; list continuation; notification backend description; logs
   folder; new versions; running with the window closed and starting at login;
   meeting information.
-- **All three**: Slack has only a transient read-only preview; complete provider integration remains debt. Teams remains researched and queued. See section 17 and [experimental integrations](features/experimental-integrations.md).
+- **All three**: Slack has only a transient read-only preview; complete provider integration remains debt. Teams has candidate read code but still owes sign-in and native integration. See section 17 and [experimental integrations](features/experimental-integrations.md).
 - **All three**: thread list, following and "also send to the room"; search across
   rooms; room members, settings and roles; creating an encrypted room; creating a
   channel or private group on Rocket.Chat; "Deleted

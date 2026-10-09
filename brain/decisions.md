@@ -210,7 +210,21 @@ a way to hide it again. Slack is implemented first. Start with transient reads
 so no unqualified mutation or incomplete credential lifecycle enters the normal
 account session. See [experimental integrations](features/experimental-integrations.md).
 
+## Teams begins at the authentication boundary (2026-10-09)
+
+Following the pushed Slack preview, Teams starts with isolated candidate private
+read transport and runtime-validated DTOs. The user has no Entra registration to
+supply. Building this foundation does not depend on enrolling one, and no
+Microsoft-owned OAuth client ID is embedded. Browser-session acquisition and
+accepted application identity remain T0/T1 work. Keeping this seam out of native
+account UI prevents an unqualified sign-in route from appearing usable. See
+[Teams architecture](architecture/teams.md).
+
 ## Sources
+
+- apps/mobile/providers/teams/protocol.ts
+- apps/mobile/providers/teams/reader.ts
+- apps/desktop/crates/rv-core/src/teams.rs
 
 - `docs/protocol/E2EE_AMENDMENTS.md`
 - `docs/protocol/E2EE_FILES.md`

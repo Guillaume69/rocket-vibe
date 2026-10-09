@@ -18,7 +18,7 @@ shared docs or to the app you are working on. Back to [../BRAIN.md](../BRAIN.md)
 
 | Doc | What is here |
 |---|---|
-| [slack-session.md](slack-session.md) | Slack Session mode research: measured token/cookie RTM behaviour, protocol handoff, provider parity limits and pending qualification. No implemented Slack driver. |
+| [slack-session.md](slack-session.md) | Slack Session mode research: measured token/cookie RTM behaviour, protocol handoff, provider parity limits and pending qualification. First hidden read-only preview; persistent accounts and the full driver remain pending. |
 
 ## Mobile (`apps/mobile`)
 

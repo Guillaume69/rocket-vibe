@@ -291,6 +291,14 @@ A personal WhatsApp account joins RocketVibe the way WhatsApp Desktop does: the 
 
 whatsmeow is built from the user's fork (`boubou666/whatsmeow`, branch `rocketvibe`, a `replace` in `go.mod`), the user's choice (2026-10-12): a fix or a feature whatsmeow lacks, calls first (it implements none of WhatsApp's VoIP), is ours to make there rather than waiting for upstream. The engine itself stays in this repository. Its SQLite is a shared in-memory cache, not a one-connection `:memory:` database: whatsmeow reads on another connection inside its decryption transaction, which hung a one-connection database on the first message received offline.
 
+## Experimental provider access
+
+Slack and later Teams remain hidden behind nine activations of the login icon,
+as requested on 2026-10-09. The device retains the unlock; the preview provides
+a way to hide it again. Slack is implemented first. Start with transient reads
+so no unqualified mutation or incomplete credential lifecycle enters the normal
+account session. See [experimental integrations](features/experimental-integrations.md).
+
 ## Sources
 
 - `apps/desktop/crates/rv-gtk/src/notifier/custom.rs`

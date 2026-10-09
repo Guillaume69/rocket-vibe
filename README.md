@@ -42,7 +42,7 @@ inside the Android app ([`docs/WHATSAPP_ANDROID.md`](docs/WHATSAPP_ANDROID.md)).
   the source. Start there.
 - [Slack Session mode protocol and implementation handoff](docs/protocol/SLACK_SESSION.md):
   measured session/RTM behaviour, provider parity targets and qualification probes;
-  the Slack driver is not implemented.
+  a hidden read-only preview now validates manual sessions and pages conversations/history; persistent accounts, real-time sync and writes remain pending.
 - [`ROADMAP.md`](ROADMAP.md): the product decisions and their justification.
 - [`docs/`](docs): the development environment and the survey of the target server
   ([`DEV.md`](docs/DEV.md)), push ([`PUSH.md`](docs/PUSH.md)), WhatsApp

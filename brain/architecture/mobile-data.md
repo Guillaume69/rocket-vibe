@@ -35,7 +35,7 @@ Dates are stored as integer milliseconds. Most tables carry `updated_at` (the se
 | `drafts` | Composer drafts (`key`, `text`, `updated_at`) keyed by `rid` or `rid:tmid`. In SQLite rather than MMKV to avoid one more native dependency and rebuild. |
 | `emoji_usage` | The emoji I react with, counted on the device for the quick reactions: `code` (the canonical shortcode of the emoji, without colons, so aliases share one row; primary key), `count`, `last_used` (ms). Device data, not server data: no catch-up can rebuild it, so neither the purges nor `NativeStore.prepare()` touch it. At most `KEPT_CODES` (64) rows. Migration 0020. See [../features/emoji.md](../features/emoji.md#quick-reactions-and-reacting-with-any-emoji). |
 | `custom_emojis` | Server custom emoji (`emoji-custom.list`): name, extension, aliases JSON. Reference data, replaced wholesale, loaded into memory for synchronous rendering. |
-| `users` | `uid -> current username` and `avatar_etag`. Usernames are mutable, so this table, fed by every ingested message, gives the name to display even on old messages. |
+| `users` | `uid -> current username`, `avatar_etag` and `name`, the real name (migration 0025, null when unknown; shown only under Rocket.Chat's `UI_Use_Real_Name`, [room-list](../features/room-list.md)). Usernames are mutable, so this table, fed by every ingested message, gives the name to display even on old messages. |
 | `cursors` | Catch-up cursors keyed by `(scope, stream)` with `updated_since`: `scope` is a `rid` or `*` for global cursors; `stream` is `rooms`, `subscriptions` or `messages-deleted`. |
 | `native_*` | The RocketVibe provider's own state (migration 0017): sync state and positions, read and thread states, pending intents and commands (room, profile, upload, favourite, read; the meeting intents table is gone with the voice channels), room access, quote references and sources, the emoji catalog. Emptied, with the shared tables, by `NativeStore.prepare()` when the stored generation is not the current one (`providers/rocketvibe/store.ts`). |
 
@@ -49,6 +49,7 @@ Optimistic messages are `messages` rows with `updated_at = 0`: only a local copy
 - Migration is done by whoever opens the database (`SyncProvider` for the session's), never globally at app start.
 - **Migration 0021 (`db/migrations/0021_author_bot.sql`)** adds `messages.author_bot` (default false), written only by the RocketVibe store after the shared upsert, for the bot badge ([../features/bots.md](../features/bots.md)).
 - **Migration 0022 (`db/migrations/0022_message_form.sql`)** adds `messages.form`, the JSON of a workflow's form (`Message.form`), written only by the RocketVibe store, read by the form card and the answer sheet ([../features/workflows.md](../features/workflows.md)).
+- **Migration 0025 (`db/migrations/0025_user_names.sql`)** adds `users.name`, the person's real name (a message's `u.name`, `me`, `users.info`, a two-person DM subscription's `fname`). Rows written before it have none until a source names them; the reconciliation's full subscription list backfills the DM peers.
 - **Migration 0020 (`db/migrations/0020_emoji_usage.sql`)** adds `emoji_usage` with `CREATE TABLE IF NOT EXISTS`: development builds of this feature had created it as 0019 before the rebase put it after `0019_voice_channels`, and there it must be a no-op.
 - **Migration 0016 (`db/migrations/0016_english_names.sql`) moved the schema to English names in place.** Until 0015 the tables and columns had French names; 0016 renames the tables (`rooms`, `subscriptions`, `drafts`, `custom_emojis`, `users`, `cursors`) and their columns with `ALTER TABLE ... RENAME`, recreates the indexes under English names, and rebuilds `outbox` and `uploads` by copy (their `status` default and values change: `pending`, `sending`, `failed`). It also rewrites the stored values: cursor `stream` names (`rooms`, `subscriptions`, `messages-deleted`) and the removed-photo marker in `avatar_etag` (`none`). Data survives the upgrade; the old SQL names now appear only in migrations 0000 to 0015. The move is one-way: a build from before 0016 cannot open a database migrated by it (on a test device, going back means reinstalling).
 - `db/schema.test.ts` applies every `.sql` file, split on `--> statement-breakpoint`, to an in-memory `node:sqlite` and checks the result, because generated is not the same as valid.
@@ -67,7 +68,7 @@ Notable column rules:
 - `messages.text` for an `e2e` message keeps the already-decrypted text when a resync arrives without the key (`COALESCE`).
 - `rooms`: `name`, `display_name`, `dm_other_uid`, `last_message_ts` and `avatar_etag` are `COALESCE`d, so a partial document never blanks them. The timestamp drives list order and the server does not move it back when the last message is deleted. A null etag would drop the avatar URL back to its query-less form, which the image cache still holds with the old photo.
 - `subscriptions.e2e_key` is `COALESCE`d (partial subscription events lack it).
-- `UPSERT_USER` writes only if the username really changed and the source is not older, so ingesting messages does not re-fire every live query on `users`. `UPSERT_IDENTITY` (authoritative sources: `me`, `users.info`, DM rooms) and `UPDATE_USER_AVATAR` / `UPDATE_ROOM_AVATAR` have the same "only on real change" guards.
+- `UPSERT_USER` writes only if the username or the real name really changed and the source is not older, so ingesting messages does not re-fire every live query on `users`. `name` is `COALESCE`d (an absent name never erases a known one), and an OLDER message may still fill a missing name (rows from before 0025), setting nothing else. `UPSERT_IDENTITY` (authoritative sources: `me`, `users.info`, DM rooms; it writes `name` with `COALESCE` too) and `UPDATE_USER_AVATAR` / `UPDATE_ROOM_AVATAR` have the same "only on real change" guards. `UPDATE_DM_PEER_NAME` writes a two-person DM subscription's `fname` on the room's `dm_other_uid`, only on a real change and only once the room is known.
 - `UPSERT_CURSOR` only moves a cursor forward.
 - Drafts have no freshness guard: the user's last keystroke wins.
 - `RECORD_EMOJI_USE` adds one use and never moves `last_used` back (a clock set back must not demote an emoji); `PRUNE_EMOJI_USAGE` (`[code, code, KEPT_CODES - 1]`) keeps the code just used plus the best others by the same ranking as `topEmojis`, so the lowest-ranked OTHER code makes room and a new emoji can grow past established ones; `LIST_EMOJI_USAGE` reads them all.
@@ -80,6 +81,7 @@ Side effects baked into writes:
 
 - `upsertMessage` also records the author in `users` and deletes any `outbox` row with the same id: a server-origin copy proves delivery.
 - `upsertRoom` adds the other DM participant to `users`, so its avatar shows and `updateAvatar` events (which name users by username only) find a row.
+- `upsertSubscription` runs `UPDATE_DM_PEER_NAME` when the subscription carries a DM name (`dmName`); `saveDmNames` runs it for a whole list in one queued job, fed by `reconcileRooms` (`lib/catchUp.ts`) from the full subscription list.
 - `deleteMessage` recomputes the preview of encrypted rooms (`UPDATE_ENCRYPTED_PREVIEW`), which have no server-side preview.
 - `deleteRoom` and `deleteBySubId` also erase the room's satellites: outbox, uploads, drafts and cursors. Otherwise an unreachable `outbox` row would be replayed at every reconnect forever.
 
@@ -106,6 +108,8 @@ Side effects baked into writes:
 - apps/mobile/db/migrations/0020_emoji_usage.sql
 - apps/mobile/db/migrations/0021_author_bot.sql
 - apps/mobile/db/migrations/0022_message_form.sql
+- apps/mobile/db/migrations/0025_user_names.sql
+- apps/mobile/lib/catchUp.ts
 - apps/mobile/providers/rocketvibe/store.ts
 - apps/mobile/lib/emojiUsage.ts
 - apps/mobile/db/migrations/migrations.js

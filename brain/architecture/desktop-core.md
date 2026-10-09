@@ -40,6 +40,7 @@ Context: [desktop-app.md](desktop-app.md) for the crate layout, [rocket-chat.md]
 | `voice` | The `rv-voice` sidecar's controller (`VoiceController`): one process per voice connection, its snapshot and change notifications; see [voice](#voice) |
 | `native/voice.rs` | `NativeSession`'s voice: join, leave, rings, each room's participants and the rings from the live cache; see [voice](#voice) |
 | `emoji_usage` | The emoji I react with most, per account, in a small file on the device (`EmojiUsage::for_account`, one shared instance per file; `record`, which reads the file again before each write and writes through a temporary file of its own name so GTK and SwiftUI merge; `top`, `top_filtered`; `canonical`, `same`); see [../features/emoji.md](../features/emoji.md#quick-reactions-and-reacting-with-any-emoji) |
+| `server_icon` | The server's own icon for the rail, read without signing in: Rocket.Chat's `favicon_192` asset (`settings.public?_id=Assets_favicon_192`), RocketVibe's instance icon at `Discovery.icon_revision`, none for Mattermost and kChat. `fetch` answers `enum Icon { Image, Absent, Unknown }`: at most 2 MiB read, only PNG or JPEG magic bytes accepted, and `Unknown` (unreachable, refused, not an image) keeps the shown icon; see [../features/login-and-servers.md](../features/login-and-servers.md) |
 | `admin` | Server administration and reports for both providers: the shared model, the Rocket.Chat calls (`rc`), `enum Admin { RocketChat, Native }` with the methods both UIs call, `AdminError` (the server's code, plus the rooms of a Rocket.Chat last owner or the count of a bulk delete), `error_key` (one sentence per code for both UIs), the latest-version check; see [../features/administration.md](../features/administration.md) |
 | `native` | The RocketVibe provider (`NativeSession` over `rv-client`, its own store `native/store.rs`); `native/admin.rs` adds the administration and report methods (`administrator`, `admin_*`, `report_*`) and the bots switch, `native/bots.rs` the bot calls and their shared wording (`error_key`, `scope_key`, `routes`, `example`, see [../features/bots.md](../features/bots.md)), and `native.rs` the deleted-account helpers (`deleted_username`, `shown_username`, `deleted_user`) |
 | `notify`, `links`, `call`, `player`, `info`, `account`, `server`, `update`, `i18n`, `animation` | Notification rules, `rocketvibe://` links, call-origin rule, video embed page, on-demand details, my account, server probe, self-update, the shared catalog (see [i18n.md](i18n.md)), GIF frames |
@@ -91,7 +92,7 @@ States `Closed`, `Connecting`, `Connected` (handshake done), `Authenticated`. Th
 
 ## store
 
-One database per (server, account). `Store::open` sets WAL, runs `SCHEMA` (`rooms`, `subscriptions`, `messages`, `outbox`, `cursors`, `CREATE ... IF NOT EXISTS`), then the append-only `MIGRATIONS` list, counted by `PRAGMA user_version` (adding `md`, `drafts`, `urls`/`call_id`, `last_message_author`, `uploads`, E2E columns, `pinned`/`starred`, `roles`). Never edit a shipped migration step; append one.
+One database per (server, account). `Store::open` sets WAL, runs `SCHEMA` (`rooms`, `subscriptions`, `messages`, `outbox`, `cursors`, `CREATE ... IF NOT EXISTS`), then the append-only `MIGRATIONS` list, counted by `PRAGMA user_version` (adding `md`, `drafts`, `urls`/`call_id`, `last_message_author`, `uploads`, E2E columns, `pinned`/`starred`, `roles`, the uploads' `tmid`, the sidebar `group_*` columns, then `people (uid, name, seen)` and `server_settings (key, value)` for Rocket.Chat real names). Never edit a shipped migration step; append one.
 
 Every write goes through `Store::write(|w| ...)`: one transaction, and one `Change` broadcast after the commit listing whether the room list changed and which rids' messages did. A write that touched nothing broadcasts nothing.
 
@@ -100,12 +101,13 @@ Invariants enforced in SQL:
 - `upsert_message` only overwrites when `excluded.updated_at >= messages.updated_at`: the server's `_updatedAt` arbitrates between a socket event and a slower REST read. An optimistic outbox row carries `updated_at = 0`, so any server version replaces it and it never replaces a real one. For encrypted messages, text and `encrypted_raw` are COALESCEd so a ciphertext-only update does not erase what is known.
 - `upsert_room` COALESCEs fields the server omits from partial documents, except `last_message`, whose absence means the last message was deleted (but not in an encrypted room, where the server only has ciphertext).
 - `write_cursor` only moves forward.
+- Real names (Rocket.Chat `UI_Use_Real_Name`, [room-list](../features/room-list.md)): `set_real_names` keeps the setting as `server_settings.real_names` and `real_names` reads it; `note_person(uid, name, seen)` writes `people` only when `seen` (a message's `_updatedAt`, or now for `me` and a DM subscription) is not older than the stored one and the name really changes, and never with an absent or empty name; `note_author` feeds it from a message's `u.name`, `note_dm_name` from a two-person DM subscription's `fname` on the room's `dm_other_uid`; `person_name` reads it back. `ROOM_TITLE`, the SQL expression `Store::rooms` and `room_name` share, names a DM by its peer's real name when the setting is on, else by `display_name`, `name`, then `rid`. A change redraws the list.
 - Subscription removals carry only the subscription `_id`: `delete_by_subscription_id` finds the room from it rather than upserting a ghost.
 
 ## sync
 
 - `catch_up_global`: `rooms.get` and `subscriptions.get` in parallel with `updatedSince` from the `*` cursors, so every room and counter comes back in two requests; without a cursor it is the full load.
-- `reconcile_rooms` (once per session): purges rooms missing from the full subscription list, but never on an empty list.
+- `reconcile_rooms` (once per session): purges rooms missing from the full subscription list, but never on an empty list, and passes every subscription of that list to `note_dm_name`, so DMs no catch-up touched still get their peer's real name.
 - `catch_up_room`: `chat.syncMessages` for `UPDATED`, then `DELETED` (two requests: the server refuses to combine them), 50 per page, at most 2 pages per kind; the cursor keeps the rest for later. The first time, the `messages-deleted` cursor is seeded from the messages cursor instead of being queried.
 - `load_history`: `channels.history` / `groups.history` / `im.history` by kind, 50 per page, `inclusive=true` (two messages can share a millisecond; without it the boundary's twin would be a permanent hole), `showThreadMessages=false`. Seeds the room's messages cursor on first load.
 - `apply_event` handles both shapes of `stream-notify-user` (`[action, doc]` on 8.5, the bare document elsewhere).
@@ -187,6 +189,7 @@ Unit tests sit next to the code; integration tests in `crates/rv-core/tests/` (`
 - apps/desktop/crates/rv-core/data/emojis.tsv
 - apps/desktop/scripts/generate-emojis.mjs
 - apps/desktop/crates/rv-core/src/admin.rs
+- apps/desktop/crates/rv-core/src/server_icon.rs
 - apps/desktop/crates/rv-core/src/native.rs
 - apps/desktop/crates/rv-core/src/native/admin.rs
 - apps/desktop/crates/rv-core/tests/

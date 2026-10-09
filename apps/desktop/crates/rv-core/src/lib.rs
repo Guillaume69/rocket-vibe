@@ -49,6 +49,7 @@ pub mod social;
 pub mod store;
 pub mod supervisor;
 pub mod sync;
+pub mod teams;
 pub mod timeline;
 pub mod tls;
 pub mod update;

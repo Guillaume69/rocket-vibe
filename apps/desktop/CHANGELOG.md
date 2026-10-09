@@ -9,6 +9,8 @@ section here.
 
 ### Added
 
+- Teams integration groundwork: account-scoped private read models, dynamic service routing, bounded read transport and synthetic protocol tests. Teams sign-in and its native screen are still pending.
+
 - A hidden, experimental Slack read-only preview: activate the login icon nine times to unlock, validate paired session credentials, and browse conversations and paged plain-text history. Credentials stay in memory; browser sign-in, persistent accounts, live sync and sending are not yet available.
 
 ## [0.21.1] - 2026-10-14

@@ -59,7 +59,7 @@ export class SlackReader {
     const timer = setTimeout(() => controller.abort(), 15000);
     try {
       const response = await this.fetcher('https://slack.com/api/' + method, {
-        method:'POST', redirect:'error', signal:controller.signal,
+        method:'POST', redirect:'error', credentials:'omit', signal:controller.signal,
         headers:{Authorization:'Bearer ' + this.#token, Cookie:'d=' + this.#cookie, 'Content-Type':'application/x-www-form-urlencoded; charset=utf-8'},
         body:new URLSearchParams(args).toString(),
       });

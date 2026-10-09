@@ -7,7 +7,7 @@ const json=(body:unknown,status=200,headers:Record<string,string>={}) => new Res
 test('token and original cookie accompany form reads at the fixed origin',async () => {
   const calls:{url:string;body:string}[]=[];
   const reader=new SlackReader(token,cookie,async (url,init) => {
-    assert.equal(init?.redirect,'error'); const h=new Headers(init?.headers);
+    assert.equal(init?.redirect,'error'); assert.equal(init?.credentials,'omit'); const h=new Headers(init?.headers);
     assert.equal(h.get('Cookie'),'d='+cookie); assert.equal(h.get('Authorization'),'Bearer '+token);
     calls.push({url:String(url),body:String(init?.body)});
     return json(calls.length===1?auth:{ok:true,channels:[],response_metadata:{next_cursor:'opaque+/='}});

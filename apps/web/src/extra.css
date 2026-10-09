@@ -543,6 +543,114 @@
   min-height: 36px;
   margin-top: 6px;
 }
+.image-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+  max-width: 100%;
+  width: fit-content;
+}
+.image-card .attachment-title {
+  color: #ff5fa2;
+  text-decoration: underline;
+}
+.image-frame {
+  width: 360px;
+  height: 300px;
+  max-width: 100%;
+  position: relative;
+  display: block;
+  overflow: hidden;
+  padding: 0;
+  background: #0b0913;
+  border-radius: 12px;
+}
+.image-frame .image-attachment {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  object-fit: cover;
+  margin: 0;
+  cursor: pointer;
+}
+.gtk-image-dialog {
+  background: #0b0913;
+  border-radius: 16px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100dvh - 32px);
+}
+.gtk-image-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+.gtk-image-dialog .dialog-header {
+  position: relative;
+  justify-content: flex-end;
+  background: #0b0913;
+  border: 0;
+  height: 48px;
+  flex: none;
+  padding: 8px 12px;
+}
+.gtk-image-dialog .dialog-header h2 {
+  position: absolute;
+  left: 48px;
+  right: 48px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: center;
+  font-family: Nunito;
+  font-weight: 700;
+  font-size: 13px;
+}
+.gtk-image-dialog .dialog-header button {
+  width: 24px;
+  height: 24px;
+  min-height: 0;
+  min-width: 0;
+  border-radius: 50%;
+  background: #edeafb1a;
+  padding: 4px;
+}
+.gtk-image-dialog .dialog-header .symbolic-icon {
+  width: 16px;
+  height: 16px;
+}
+.gtk-image-dialog .dialog-body {
+  padding: 0;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  max-height: none;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+.gtk-image-dialog .image-viewer {
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  margin: 0;
+}
+.image-actions:popover-open {
+  inset: auto;
+}
+.image-actions {
+  width: max-content;
+  min-width: 180px;
+  padding: 4px 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.image-actions .menu-action {
+  padding: 6px 18px;
+  min-height: 32px;
+  font-size: 13px;
+  border-radius: 0;
+}
 .audio-controls button {
   flex: none;
   padding: 5px;

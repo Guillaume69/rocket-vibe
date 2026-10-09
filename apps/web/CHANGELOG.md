@@ -6,6 +6,9 @@ All notable changes are documented here in English.
 
 ### Fixed
 
+- Show image attachments in GTK's standalone cropped frame, with its inline size limits and full-size viewer geometry.
+- Add the native image context menu for copying, saving as PNG and downloading for another application; close and clear private viewers when room access is withdrawn.
+
 - Keep audio, video and embedded-site players connected during message updates, including fullscreen video during live reactions.
 - Match GTK's video attachment frame, first image, inline controls, elapsed/remaining counters and file caption; put audio controls below the file header.
 - Recognize canonical YouTube, Dailymotion and Vimeo links, including short and live URLs, deduplicate them and show at most three native-style cards per message.

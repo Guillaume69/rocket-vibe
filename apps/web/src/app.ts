@@ -39,6 +39,7 @@ import {
 import { icon, iconButton } from "./icons";
 import { audioControls } from "./audio";
 import { attachVideo } from "./video-attachment";
+import { attachImage, inlineImage } from "./image-attachment";
 import { humanSize } from "./media-format";
 import { messageRow, type RowActions } from "./render";
 import { t, language, setLanguage } from "./i18n";
@@ -2454,19 +2455,9 @@ export class App implements RowActions {
     node.dataset.loaded = "true";
     if (status)
       status.textContent = humanSize(file.bytes) + " · " + file.media_type;
-    if (file.media_type.startsWith("image/")) {
-      const image = el("img", "image-attachment");
-      image.src = url;
-      image.alt = file.filename || "";
-      image.addEventListener("click", () => {
-        const [viewer, body] = dialog(file.filename || "");
-        const copy = el("img", "image-viewer");
-        copy.src = url;
-        copy.alt = image.alt;
-        body.append(copy);
-        viewer.classList.add("image-dialog");
-      });
-      node.prepend(image);
+    if (inlineImage(file) && node.querySelector(".image-frame")) {
+      attachImage(file, node, url, valid);
+      return;
     } else if (
       file.media_type.startsWith("audio/") ||
       file.media_type.startsWith("video/")
@@ -2511,6 +2502,10 @@ export class App implements RowActions {
   }
   async forgetRoom(room: string): Promise<void> {
     if (!this.account) return;
+    for (const viewer of document.querySelectorAll<HTMLDialogElement>(
+      "dialog[data-media-room]",
+    ))
+      if (viewer.dataset.mediaRoom === room) viewer.close();
     for (const url of this.roomURLs.get(room) || []) {
       URL.revokeObjectURL(url);
       this.urls.delete(url);

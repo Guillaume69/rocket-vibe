@@ -33,6 +33,7 @@ npx playwright install chromium
 RV_WEB_TEST_URL=http://127.0.0.1:3417 npm run test:browser
 RV_WEB_TEST_URL=http://127.0.0.1:3417 npm run test:features
 RV_WEB_TEST_URL=http://127.0.0.1:3417 npm run test:media
+RV_WEB_TEST_URL=http://127.0.0.1:3417 npm run test:images
 RV_WEB_TEST_URL=http://127.0.0.1:3417 npm run test:voice
 RV_WEB_TEST_URL=http://127.0.0.1:3417 npm run test:sessions
 RV_WEB_TEST_URL=http://127.0.0.1:3417 npm run test:locked
@@ -53,6 +54,8 @@ Calls use GTK's tile geometry, listening gains, PCM speaking thresholds and peer
 The voice suite transmits real microphone, camera, screen and shared-sound RTP through the isolated SFU. The program-sound source is a controlled fixture whose exclusion setting is marked explicitly; it proves pre-publication processing and cleanup, not operating-system loopback exclusion. Native GTK/browser interop is also exercised locally in the mandatory Fedora environment.
 
 The media suite uses separate `webmedia` and `webmediapeer` disposable accounts. It records and uploads a real video, checks the GTK frame and playback controls, keeps media and fullscreen during live reactions, and stops private playback on access withdrawal. External provider embeds use intercepted fixture responses to verify origin-only identification and context retention; this does not qualify vendor streaming. Browser downloads map GTK's external application action.
+
+The image suite uses `webimage` and `webimagepeer`. It uploads original landscape, portrait and small PNGs, checks GTK inline size/crop and viewer dimensions, downloads the full-size PNG, retains the viewer through reactions and closes it on membership withdrawal. Copy verifies the real generated PNG payload through an intercepted clipboard write, leaving the OS clipboard unchanged; OS clipboard permission integration is not qualified by this case.
 
 Encrypted rooms, browser crypto enrolment/recovery and Rocket.Chat provider support are outside the accepted scope. Complete GTK visual parity remains under qualification; the DOM editor follows GTK's draft styling, selection and marker visibility.
 

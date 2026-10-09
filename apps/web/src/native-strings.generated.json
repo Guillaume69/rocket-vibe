@@ -146,6 +146,7 @@
     "Quitter le plein écran",
     "Exit full screen"
   ],
+  "message.image": ["Image", "Image"],
   "player.stop": ["Arrêter la vidéo", "Stop the video"],
   "settings.photo_change": ["Changer…", "Change…"],
   "settings.photo_remove": ["Retirer", "Remove"],
@@ -178,6 +179,12 @@
   ],
   "voice.file_name": ["message-vocal", "voice-message"],
   "file.open": ["Ouvrir", "Open"],
+  "viewer.copy": ["Copier l'image", "Copy image"],
+  "viewer.save": ["Enregistrer sous…", "Save as…"],
+  "viewer.open": [
+    "Ouvrir avec l'application par défaut",
+    "Open in the default app"
+  ],
   "file.play": ["Lire", "Play"],
   "file.loading": ["Téléchargement…", "Downloading…"],
   "file.failed": ["Échec du téléchargement", "Download failed"],

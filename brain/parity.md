@@ -65,7 +65,7 @@ beta does.
 | `mailto:` links open | missing | done | done | done | Mobile opens http(s) only. Web: Native provider: see [web-client](features/web-client.md). |
 | Mentions of me highlighted apart from other mentions | missing | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | `:shortcode:` emoji (6222 codes, same table) and custom emoji images | done | done | done | done | Mobile keeps custom emoji offline in SQLite; desktop refetches them each session. Web: Native provider: see [web-client](features/web-client.md). |
-| Images inline (original), viewer, protected-file token only to our origin | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
+| Images inline (original), viewer, protected-file token only to our origin | done | done | done | done | Web: GTK inline size/crop/title and viewer/menu captures compared on the same uploads; PNG export, live retention and withdrawal qualified. OS clipboard permission remains unqualified; external-app action maps to PNG download. tests/images.mjs. |
 | Photo avatars over gradient tiles, updated live | done | partial | partial | done | Desktop: a DM's tile uses `/avatar/uid/<uid>` with no version, so the partner's new photo reaches the room list only at the next session. Web: Native provider: see [web-client](features/web-client.md). |
 | Read-only rooms: no composer | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | Header: room info, DM presence, search in room, start a call | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |

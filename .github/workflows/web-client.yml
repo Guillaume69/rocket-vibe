@@ -79,6 +79,8 @@ jobs:
           target/debug/rv-server create-user webworkflows --admin
           target/debug/rv-server create-user webmedia --admin
           target/debug/rv-server create-user webmediapeer --admin
+          target/debug/rv-server create-user webimage --admin
+          target/debug/rv-server create-user webimagepeer --admin
           target/debug/rv-server serve --bind 127.0.0.1:3417 > .cache/web-server.log 2>&1 &
           for i in {1..60}; do
             if curl --fail --silent "$RV_WEB_TEST_URL/.well-known/rocketvibe" > /dev/null; then break; fi
@@ -91,6 +93,7 @@ jobs:
           npm run test:browser
           npm run test:features
           npm run test:media
+          npm run test:images
           npm run test:voice
           npm run test:sessions
           npm run test:locked

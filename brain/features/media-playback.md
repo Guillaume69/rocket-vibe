@@ -33,11 +33,12 @@ How images, video and audio attachments, and YouTube, Dailymotion and Vimeo link
 The server-delivered browser client supports ordinary media on its own origin. Encrypted-room content is explicitly excluded. `app.ts` fetches protected files with the authenticated API, checks their size and SHA-256, caches them per account/room and revokes local object URLs on signout or access withdrawal. Download progress uses the descriptor size rather than a response content length.
 
 - **Video attachments.** `video-attachment.ts` ports the GTK 360-pixel 16:9 frame, first image and play badge. Posters download automatically up to 25 MB. A click during the download plays when it finishes. Inline controls show play/pause, elapsed time, position, remaining time, volume and fullscreen. The actual recorded/uploaded fixture plays in both Chromium and the mandatory Fedora GTK reference.
+- **Images.** `image-attachment.ts` ports the standalone frame: natural width clamped to 120..360 pixels, proportional height capped at 300 and `cover` crop. The viewer contains the original, with GTK's clamped natural dimensions and 48-pixel header. Its right-click menu prepares PNG for Copy/Save/Open; browser download maps opening in another application. Export is fenced to the current room membership and session. Room withdrawal closes the viewer and clears its image source. `tests/images.mjs` qualifies three image sizes, downloaded PNG dimensions and reaction/withdrawal behavior; it intercepts clipboard writes to verify the full-size payload without altering the user's OS clipboard.
 - **Audio and files.** `audio.ts` supplies inline controls below the GTK-style file header. `media-format.ts` follows the native human-readable size thresholds. Downloading a local copy maps GTK's default-application action; a browser cannot launch an arbitrary installed application directly.
 - **Video sites.** `video-links.ts` recognizes canonical YouTube, Dailymotion and Vimeo identifiers, deduplicates them and caps cards at three. Native server-preview images supply thumbnails. `video.ts` ports the provider/title/author heading, thumbnail play badge and stop action. The provider iframe uses `strict-origin-when-cross-origin`, exposing only the serving origin and no room path or bearer header. The browser test intercepts provider responses and qualifies iframe identity and retention, not real vendor streaming.
 - **Lifecycle.** `dom.ts::retainMessageMedia` keeps media widgets connected while updating the rest of a message. An iframe moved through a detached replacement row would lose its browsing context. Live reactions retain both the iframe's document and attachment fullscreen. Access withdrawal stops the private player and exits its fullscreen surface.
 
-Image-viewer comparison and external-provider streaming remain separate qualification debt. Browser codecs may differ from GTK's GStreamer backend.
+OS clipboard permission integration and external-provider streaming remain separate qualification debt. Browser codecs may differ from GTK's GStreamer backend.
 
 ## Parity
 
@@ -81,10 +82,12 @@ Image-viewer comparison and external-provider streaming remain separate qualific
 - apps/web/src/api.ts
 - apps/web/src/audio.ts
 - apps/web/src/video-attachment.ts
+- apps/web/src/image-attachment.ts
 - apps/web/src/video-links.ts
 - apps/web/src/video.ts
 - apps/web/src/media-format.ts
 - apps/web/src/dom.ts
 - apps/web/tests/media.mjs
+- apps/web/tests/images.mjs
 - https://developers.google.com/youtube/iframe_api_reference
 - https://developers.google.com/youtube/terms/required-minimum-functionality

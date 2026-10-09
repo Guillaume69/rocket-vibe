@@ -44,6 +44,8 @@ Media uses GTK-style inline controls, protected video posters and native human-r
 - apps/web/src/video-links.ts
 - apps/web/src/video.ts
 - apps/web/src/media-format.ts
+- apps/web/src/image-attachment.ts
+- apps/web/tests/images.mjs
 - apps/web/src/dom.ts
 - apps/web/tests/media.mjs
 - docs/WEB_CLIENT_EXECUTION.md

@@ -15,6 +15,7 @@ import { iconButton } from "./icons";
 import { botBadge } from "./bots";
 import { formCard } from "./workflow-forms";
 import { videoAttachment } from "./video-attachment";
+import { inlineImage, imageAttachment } from "./image-attachment";
 import { humanSize } from "./media-format";
 import { nt } from "./native-i18n";
 export function safeLink(href: string): string | undefined {
@@ -206,6 +207,12 @@ export function messageRow(
       el("span", "message-note", language === "fr" ? "modifié" : "edited"),
     );
   for (const file of message.files || []) {
+    if (inlineImage(file)) {
+      column.append(
+        imageAttachment(file, (file, node) => actions.file(file, node)),
+      );
+      continue;
+    }
     if (file.media_type.startsWith("video/") && !file.encrypted) {
       column.append(
         videoAttachment(file, (file, node) => actions.file(file, node)),
@@ -271,12 +278,6 @@ export function messageRow(
       );
     card.append(top);
     column.append(card);
-    if (
-      !file.encrypted &&
-      file.media_type.startsWith("image/") &&
-      Number(file.bytes) < 10 * 1024 * 1024
-    )
-      void actions.file(file, card).catch(() => {});
   }
   const videos = new Set<string>();
   const videoCandidates = [

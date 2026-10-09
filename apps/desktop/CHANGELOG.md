@@ -7,6 +7,10 @@ section here.
 
 ## [Unreleased]
 
+### Changed
+
+- The Windows installer wears the app's night sky: a dark wizard with a starry background, the rocket on the welcome and finish pages, and livelier words (English and French), also during an update.
+
 ## [0.13.0] - 2026-10-09
 
 ### Added

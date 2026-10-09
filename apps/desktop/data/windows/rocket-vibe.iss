@@ -1,4 +1,4 @@
-; Windows installer for the desktop app, built by Inno Setup 6 in CI:
+﻿; Windows installer for the desktop app, built by Inno Setup 6 in CI:
 ;   ISCC /DAppVersion=<x.y.z> /DSourceDir=<package folder> /O<output dir> rocket-vibe.iss
 ; The package folder is what scripts/package-windows.sh lays out (bin, lib, share).
 
@@ -26,12 +26,36 @@ SetupIconFile=rocket-vibe.ico
 UninstallDisplayIcon={app}\rocket-vibe.ico
 Compression=lzma2/max
 SolidCompression=yes
-WizardStyle=modern
+; The app icon's night sky (installer-art.py draws the images; Inno Setup 6.7
+; or later for the background). Dark whatever the Windows theme: the art is.
+WizardStyle=modern dark hidebevels includetitlebar
+WizardBackColor=#1b1530
+WizardBackImageFile=installer\back.png
+WizardImageFile=installer\wizard-202x386.png,installer\wizard-336x643.png,installer\wizard-430x824.png
+WizardSmallImageFile=installer\small-58.png,installer\small-97.png,installer\small-124.png
+; The welcome page carries the rocket; Inno Setup hides it by default.
+DisableWelcomePage=no
 CloseApplications=yes
 
 [Languages]
 Name: "en"; MessagesFile: "compiler:Default.isl"
 Name: "fr"; MessagesFile: "compiler:Languages\French.isl"
+
+[Messages]
+en.WelcomeLabel1=Ready for liftoff
+en.WelcomeLabel2=[name/ver] is about to land on your computer: your Rocket.Chat, with good vibes.%n%nClick Next when you are ready.
+en.InstallingLabel=Fueling up [name], hang tight...
+en.FinishedHeadingLabel=Liftoff!
+en.FinishedLabelNoIcons=[name] is installed and ready to fly.
+en.FinishedLabel=[name] is installed and ready to fly. Find it any time from its shortcut.
+en.UninstalledAll=%1 has left orbit. See you soon!
+fr.WelcomeLabel1=Prêt au décollage
+fr.WelcomeLabel2=[name/ver] s'apprête à se poser sur votre ordinateur : votre Rocket.Chat, en bonnes vibrations.%n%nCliquez sur Suivant quand vous êtes prêt.
+fr.InstallingLabel=On fait le plein de [name], encore un instant...
+fr.FinishedHeadingLabel=Décollage !
+fr.FinishedLabelNoIcons=[name] est installé et prêt à voler.
+fr.FinishedLabel=[name] est installé et prêt à voler. Retrouvez-le à tout moment depuis son raccourci.
+fr.UninstalledAll=%1 a quitté l'orbite. À bientôt !
 
 [Files]
 ; The whole package folder, bin\rv-voice.exe (the voice sidecar) included: it

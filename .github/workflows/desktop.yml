@@ -231,7 +231,8 @@ jobs:
       - name: Installer
         shell: pwsh
         run: |
-          choco install innosetup --yes --no-progress | Out-Null
+          # 6.7 or later: the wizard's background color and image (data/windows/rocket-vibe.iss).
+          choco install innosetup --version 6.7.1 --yes --no-progress | Out-Null
           $version = "${{ needs.version.outputs.version }}"
           $package = Resolve-Path "dist/rocket-vibe-desktop-$version-windows-x86_64"
           $out = Resolve-Path dist

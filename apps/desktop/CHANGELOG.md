@@ -7,6 +7,10 @@ section here.
 
 ## [Unreleased]
 
+### Added
+
+- A hidden, experimental Slack read-only preview: activate the login icon nine times to unlock, validate paired session credentials, and browse conversations and paged plain-text history. Credentials stay in memory; browser sign-in, persistent accounts, live sync and sending are not yet available.
+
 ## [0.21.1] - 2026-10-14
 
 ### Fixed

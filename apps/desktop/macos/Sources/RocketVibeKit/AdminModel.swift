@@ -185,6 +185,11 @@ public final class AdminModel {
     public private(set) var settingUserBots = false
     /// The server lets this administrator add and remove custom emoji.
     public let emojiSupported: Bool
+    /// The server's icon can be changed here (the Dashboard's Server icon card).
+    public let iconSupported: Bool
+    /// The server's icon as the rails show it, once read; nil without one.
+    public private(set) var icon: Data?
+    public private(set) var settingIcon = false
     /// The categories this server offers, in sidebar order.
     public var categories: [AdminCategory] { AdminCategory.allCases.filter { $0 != .emoji || emojiSupported } }
     /// The server's custom emoji, once read; `emojisError` when they could not be.
@@ -215,6 +220,7 @@ public final class AdminModel {
         product = source.product()
         myId = source.myId()
         emojiSupported = source.emojiSupported()
+        iconSupported = source.iconSupported()
         users = AdminList { after, query in
             let page = try await source.users(after: after, query: query)
             return (page.items, page.next)
@@ -243,6 +249,31 @@ public final class AdminModel {
         case .rooms: rooms.start()
         case .users: users.start()
         case .emoji: if emojis == nil { Task { await loadEmojis() } }
+        }
+    }
+
+    /// Reads the server's icon (the Dashboard asks once).
+    public func loadIcon() async {
+        guard alive, iconSupported else { return }
+        let found = await source.icon()
+        if alive { icon = found.map { Data($0) } }
+    }
+
+    /// Sets the icon from a square PNG of `iconSide()` pixels, or removes it
+    /// (`nil`); true once the server has it.
+    public func setIcon(png: Data?) async -> Bool {
+        guard alive, iconSupported, !settingIcon else { return false }
+        settingIcon = true
+        defer { settingIcon = false }
+        do {
+            try await source.setIcon(png: png.map { [UInt8]($0) })
+            guard alive else { return false }
+            notice = L(png == nil ? "admin.icon_removed" : "admin.icon_saved")
+            await loadIcon()
+            return true
+        } catch {
+            if alive { notice = AdminText.error(error) }
+            return false
         }
     }
 

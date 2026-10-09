@@ -57,6 +57,14 @@ final class FakeAdmin: ServerAdminProtocol, @unchecked Sendable {
     }
     func latestVersion() async -> String? { "1.0.0" }
     func userBots() async throws -> Bool? { userBots_ }
+    var icon_: [UInt8]?
+    func iconSupported() -> Bool { true }
+    func icon() async -> [UInt8]? { icon_ }
+    func setIcon(png: [UInt8]?) async throws {
+        calls.append("setIcon:\(png?.count ?? 0)")
+        try refuse()
+        icon_ = png
+    }
     var emojiSupported_ = true
     var emojiList: [AdminEmoji] = []
     func emojiSupported() -> Bool { emojiSupported_ }
@@ -332,6 +340,26 @@ final class AdminTests: XCTestCase {
     }
 
     @MainActor
+    func testTheServerIconIsSetAndRemoved() async throws {
+        let fake = FakeAdmin()
+        let model = AdminModel(source: fake)
+        XCTAssertTrue(model.iconSupported)
+        await model.loadIcon()
+        XCTAssertNil(model.icon)
+        let saved = await model.setIcon(png: Data([1, 2, 3]))
+        XCTAssertTrue(saved)
+        XCTAssertEqual(model.icon, Data([1, 2, 3]))
+        XCTAssertEqual(model.notice, L("admin.icon_saved"))
+        fake.refusal = "error-invalid-file-width"
+        let refused = await model.setIcon(png: Data([4]))
+        XCTAssertFalse(refused)
+        XCTAssertEqual(model.notice, L("admin.icon_error_size"))
+        fake.refusal = nil
+        _ = await model.setIcon(png: nil)
+        XCTAssertNil(model.icon)
+        XCTAssertEqual(fake.calls.filter { $0.hasPrefix("setIcon") }, ["setIcon:3", "setIcon:1", "setIcon:0"])
+    }
+
     func testCustomEmojiAreListedAddedAndDeleted() async throws {
         let fake = FakeAdmin()
         let model = AdminModel(source: fake)

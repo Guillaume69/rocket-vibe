@@ -119,6 +119,20 @@ impl NativeSession {
         self.client.delete_reported_message(message, &AdminOperation { operation_id: room_operation_id() }).await?;
         self.ready()
     }
+    /// The server has an icon an administrator sets (`/api/v1/admin/icon`).
+    pub fn icon_admin_supported(&self) -> bool {
+        self.capabilities.lock().unwrap().as_ref().is_some_and(|c| c.instance_icon)
+    }
+    /// Sets the server's icon from a PNG (`Some`), or removes it.
+    pub async fn admin_set_icon(&self, png: Option<Vec<u8>>) -> Result<(), Error> {
+        self.admin_access()?;
+        if !self.icon_admin_supported() {
+            return Err(Error::Protocol("unsupported_feature"));
+        }
+        self.refresh_credentials().await?;
+        self.client.admin_set_icon(&room_operation_id(), png.map(|p| ("image/png", p))).await?;
+        self.ready()
+    }
     /// The server lets an administrator add and remove custom emoji.
     pub fn emoji_admin_supported(&self) -> bool {
         self.capabilities.lock().unwrap().as_ref().is_some_and(|c| c.custom_emoji_admin && c.custom_emojis)

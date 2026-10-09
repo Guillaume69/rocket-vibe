@@ -177,6 +177,17 @@ impl Drop for NativeChat {
 
 #[uniffi::export]
 impl Client {
+    /// The server icon of the signed-in account `key`, for its rail tile
+    /// (`rv_core::server_icon`): PNG or JPEG bytes, `None` to keep the initial.
+    pub async fn server_icon(&self, key: String) -> Option<Vec<u8>> {
+        let dirs = self.dirs.clone();
+        let info = blocking(move || {
+            crate::accounts::load_all(&dirs).into_iter().find(|info| crate::accounts::key(info) == key)
+        })
+        .await?;
+        on_tokio(async move { rv_core::server_icon::fetch(&info).await }).await
+    }
+
     /// Whether the signed-in account `key` (not the open one) has unread
     /// messages, for the dot in the server rail: one read, never its store.
     /// `None` when it cannot tell (offline, refused, unknown key).

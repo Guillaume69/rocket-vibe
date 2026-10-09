@@ -332,6 +332,8 @@ pub fn error_key(code: &str) -> &'static str {
         "emoji-is-not-image" | "invalid_emoji_image" => "admin.emoji_error_image",
         "emoji_image_too_large" => "admin.emoji_error_size",
         "emoji_catalog_limit" => "admin.emoji_error_limit",
+        "invalid_icon" | "error-invalid-file-type" => "admin.icon_error_image",
+        "icon_too_large" | "error-invalid-file-width" | "error-invalid-file-height" => "admin.icon_error_size",
         "not_authorized" => "admin.error_denied",
         code if code.starts_with("error-") => "admin.error_denied",
         _ => "admin.failed",
@@ -439,6 +441,14 @@ impl Admin {
         match self {
             Self::RocketChat(_) => Product::RocketChat,
             Self::Native(_) => Product::RocketVibe,
+        }
+    }
+
+    /// The open account, whose server this administers.
+    pub fn info(&self) -> &crate::session::SessionInfo {
+        match self {
+            Self::RocketChat(s) => &s.info,
+            Self::Native(s) => &s.info,
         }
     }
 
@@ -673,6 +683,37 @@ impl Admin {
         match self {
             Self::RocketChat(_) => Err(AdminError::new("unsupported_feature")),
             Self::Native(s) => Ok(s.update_instance_settings(on).await?.user_bots),
+        }
+    }
+
+    /// The server's icon can be changed from the app: Rocket.Chat always (its
+    /// `favicon_192` asset, `manage-assets` being an administrator's),
+    /// RocketVibe when it announces `instance_icon`.
+    pub fn icon_supported(&self) -> bool {
+        match self {
+            Self::RocketChat(_) => true,
+            Self::Native(s) => s.icon_admin_supported(),
+        }
+    }
+
+    /// Sets the server's icon from a square PNG of
+    /// `server_icon::RC_SIDE` pixels (Rocket.Chat refuses any other size;
+    /// RocketVibe crops and scales by itself), or removes it with `None`.
+    pub async fn set_icon(&self, png: Option<Vec<u8>>) -> Result<(), AdminError> {
+        match self {
+            Self::RocketChat(s) => match png {
+                Some(png) => {
+                    let texts = vec![("assetName".to_owned(), crate::server_icon::RC_ASSET.to_owned())];
+                    s.rest.upload("assets.setAsset", "asset", png, "icon.png", "image/png", texts, |_, _| {}).await?;
+                    Ok(())
+                }
+                None => {
+                    let body = json!({"assetName": crate::server_icon::RC_ASSET});
+                    s.rest.post("assets.unsetAsset", CallOptions::body(body)).await?;
+                    Ok(())
+                }
+            },
+            Self::Native(s) => Ok(s.admin_set_icon(png).await?),
         }
     }
 

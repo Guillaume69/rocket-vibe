@@ -1,3 +1,4 @@
+import AppKit
 import RocketVibeCore
 import RocketVibeKit
 import SwiftUI
@@ -119,12 +120,20 @@ struct ServerRail: View {
 
     func tile(_ account: Account, open: Bool, host: String) -> some View {
         Button { Task { await app.switchAccount(account) } } label: {
-            Text(host.prefix(1).uppercased())
-                .font(.vibeTitle(17, .bold))
-                .foregroundStyle(Vibe.ink)
+            Group {
+                // The server's own icon when it has one, else its initial.
+                if let data = app.serverIcons[account.key], let image = NSImage(data: data) {
+                    Image(nsImage: image).resizable().scaledToFill()
+                } else {
+                    Text(host.prefix(1).uppercased())
+                        .font(.vibeTitle(17, .bold))
+                        .foregroundStyle(Vibe.ink)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(LinearGradient(colors: Vibe.tile(for: account.key), startPoint: .topLeading, endPoint: .bottomTrailing))
+                }
+            }
                 .frame(width: 44, height: 44)
-                .background(LinearGradient(colors: Vibe.tile(for: account.key), startPoint: .topLeading, endPoint: .bottomTrailing),
-                            in: RoundedRectangle(cornerRadius: 15))
+                .clipShape(RoundedRectangle(cornerRadius: 15))
                 .overlay(RoundedRectangle(cornerRadius: 15).strokeBorder(open ? Vibe.pink : .clear, lineWidth: 2))
                 .overlay(alignment: .topTrailing) {
                     if !open && app.unreadAccounts.contains(account.key) {

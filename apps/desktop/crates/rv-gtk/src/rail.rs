@@ -22,6 +22,8 @@ use crate::widgets::{self, TileSize};
 const POLL: Duration = Duration::from_secs(60);
 
 type Handler<T> = RefCell<Option<Rc<dyn Fn(T)>>>;
+/// A button's account, key, overlay and initial tile.
+type Slot = (SessionInfo, String, glib::WeakRef<gtk::Overlay>, gtk::Widget);
 
 pub struct Rail {
     pub root: gtk::Box,
@@ -29,6 +31,11 @@ pub struct Rail {
     accounts: RefCell<Vec<SessionInfo>>,
     active: RefCell<Option<String>>,
     dots: RefCell<HashMap<String, gtk::Widget>>,
+    /// Each server's own icon once read (`rv_core::server_icon`), shown at
+    /// once on the next rebuild while it is read again.
+    icons: RefCell<HashMap<String, gtk::gdk::Texture>>,
+    /// Each button's account, key, overlay and initial tile, to read the icons again.
+    slots: RefCell<Vec<Slot>>,
     unread: RefCell<HashMap<String, bool>>,
     /// Bumped by each new account list: a late answer about a list that
     /// changed meanwhile is dropped.
@@ -38,6 +45,18 @@ pub struct Rail {
     on_menu: Handler<(gtk::Widget, SessionInfo)>,
 }
 
+thread_local! {
+    /// The window's rail, for the administration to refresh after an icon change.
+    static CURRENT: RefCell<std::rc::Weak<Rail>> = RefCell::default();
+}
+
+/// Reads the rail's icons again, when there is a rail.
+pub fn reload_icons() {
+    if let Some(rail) = CURRENT.with_borrow(std::rc::Weak::upgrade) {
+        rail.reload_icons();
+    }
+}
+
 fn hidden_file() -> std::path::PathBuf {
     glib::user_config_dir().join("rocket-vibe-rs").join("hide-server-rail")
 }
@@ -45,6 +64,19 @@ fn hidden_file() -> std::path::PathBuf {
 /// The user's choice to hide the rail, shared with the SwiftUI app.
 pub fn hidden() -> bool {
     hidden_file().exists()
+}
+
+/// A server's icon in a tile's place and size.
+fn icon_picture(texture: &gtk::gdk::Texture) -> gtk::Widget {
+    gtk::Picture::builder()
+        .paintable(texture)
+        .content_fit(gtk::ContentFit::Cover)
+        .width_request(44)
+        .height_request(44)
+        .overflow(gtk::Overflow::Hidden)
+        .css_classes(["rail-icon"])
+        .build()
+        .upcast()
 }
 
 /// What the rail shows of a server: its host, without `www.`.
@@ -86,6 +118,8 @@ impl Rail {
             accounts: RefCell::default(),
             active: RefCell::default(),
             dots: RefCell::default(),
+            icons: RefCell::default(),
+            slots: RefCell::default(),
             unread: RefCell::default(),
             generation: Cell::new(0),
             on_switch: RefCell::default(),
@@ -104,6 +138,7 @@ impl Rail {
             this.poll();
             glib::ControlFlow::Continue
         });
+        CURRENT.with_borrow_mut(|current| *current = Rc::downgrade(&this));
         this
     }
 
@@ -133,6 +168,7 @@ impl Rail {
             self.buttons.remove(&child);
         }
         self.dots.borrow_mut().clear();
+        self.slots.borrow_mut().clear();
         for info in &accounts {
             let key = account_key(info);
             let open = active.as_deref() == Some(key.as_str());
@@ -146,6 +182,11 @@ impl Rail {
                 .build();
             let overlay = gtk::Overlay::builder().child(&tile).build();
             overlay.add_overlay(&dot);
+            if let Some(texture) = self.icons.borrow().get(&key) {
+                overlay.set_child(Some(&icon_picture(texture)));
+            }
+            self.load_icon(info, &key, &overlay, &tile);
+            self.slots.borrow_mut().push((info.clone(), key.clone(), overlay.downgrade(), tile.clone()));
             let button = gtk::Button::builder()
                 .child(&overlay)
                 .tooltip_text(format!("{} · @{}", server, info.username))
@@ -193,6 +234,41 @@ impl Rail {
         self.accounts.replace(accounts);
         self.apply_visibility();
         self.poll();
+    }
+
+    /// Reads the server's icon; it replaces the initial, and a server that
+    /// dropped its icon goes back to the initial. An answer about an older
+    /// account list is dropped.
+    fn load_icon(self: &Rc<Self>, info: &SessionInfo, key: &str, overlay: &gtk::Overlay, tile: &gtk::Widget) {
+        let (weak, generation, key, info) = (Rc::downgrade(self), self.generation.get(), key.to_owned(), info.clone());
+        let (overlay, tile) = (overlay.downgrade(), tile.clone());
+        glib::spawn_future_local(async move {
+            let bytes = crate::on_tokio(async move { rv_core::server_icon::fetch(&info).await }).await;
+            let (Some(this), Some(overlay)) = (weak.upgrade(), overlay.upgrade()) else { return };
+            if this.generation.get() != generation {
+                return;
+            }
+            match bytes.and_then(|b| gtk::gdk::Texture::from_bytes(&glib::Bytes::from_owned(b)).ok()) {
+                Some(texture) => {
+                    overlay.set_child(Some(&icon_picture(&texture)));
+                    this.icons.borrow_mut().insert(key, texture);
+                }
+                None => {
+                    overlay.set_child(Some(&tile));
+                    this.icons.borrow_mut().remove(&key);
+                }
+            }
+        });
+    }
+
+    /// Reads every icon again (an administrator just changed one).
+    pub fn reload_icons(self: &Rc<Self>) {
+        let slots = self.slots.borrow().clone();
+        for (info, key, overlay, tile) in slots {
+            if let Some(overlay) = overlay.upgrade() {
+                self.load_icon(&info, &key, &overlay, &tile);
+            }
+        }
     }
 
     /// Keeps the choice for the next launch and shows or hides the rail now.

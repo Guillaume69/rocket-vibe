@@ -604,6 +604,21 @@ impl ServerAdmin {
         let a = self.admin.clone();
         on_tokio(async move { a.set_user_bots(on).await }).await.map_err(refused)
     }
+    /// The server's icon can be changed from here.
+    pub fn icon_supported(&self) -> bool {
+        self.admin.icon_supported()
+    }
+    /// The server's icon as the rails show it, `None` without one.
+    pub async fn icon(&self) -> Option<Vec<u8>> {
+        let info = self.admin.info().clone();
+        on_tokio(async move { rv_core::server_icon::fetch(&info).await }).await
+    }
+    /// Sets the server's icon from a square PNG of `icon_side()` pixels, or
+    /// removes it with `None`.
+    pub async fn set_icon(&self, png: Option<Vec<u8>>) -> Result<(), AdminFailure> {
+        let a = self.admin.clone();
+        on_tokio(async move { a.set_icon(png).await }).await.map_err(refused)
+    }
     /// The server lets this administrator add and remove custom emoji.
     pub fn emoji_supported(&self) -> bool {
         self.admin.emoji_supported()
@@ -647,6 +662,13 @@ impl ServerAdmin {
         let a = self.admin.clone();
         on_tokio(async move { a.report_user(&user_id, &reason).await }).await.map_err(refused)
     }
+}
+
+/// The side of the square PNG `ServerAdmin::set_icon` takes (Rocket.Chat
+/// refuses any other).
+#[uniffi::export]
+pub fn icon_side() -> u32 {
+    rv_core::server_icon::RC_SIDE
 }
 
 /// A report's reason as the servers take it (trimmed, 1 to 1,000

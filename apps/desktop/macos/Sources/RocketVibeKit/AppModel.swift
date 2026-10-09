@@ -24,6 +24,9 @@ public final class AppModel {
     /// server rail. Only the open account is connected; `pollAccounts` checks
     /// the others with one read each.
     public private(set) var unreadAccounts: Set<String> = []
+    /// Each account's server icon (PNG or JPEG), when its server has one:
+    /// the rail shows it instead of the host's initial.
+    public private(set) var serverIcons: [String: Data] = [:]
     public private(set) var groups: [RoomGroup] = []
     public private(set) var connection = ConnectionState.offline
     /// Encrypted rooms readable and writable (my E2E key unlocked).
@@ -161,9 +164,21 @@ public final class AppModel {
         }
     }
 
-    /// The signed-in accounts again, for the server rail.
+    /// The signed-in accounts again, for the server rail, and their icons.
     public func refreshAccounts() async {
         accounts = await client.accounts()
+        await refreshServerIcons()
+    }
+
+    /// Reads every account's server icon again (also after an administrator changed one).
+    public func refreshServerIcons() async {
+        for one in accounts {
+            if let bytes = await client.serverIcon(key: one.key) {
+                serverIcons[one.key] = Data(bytes)
+            } else {
+                serverIcons.removeValue(forKey: one.key)
+            }
+        }
     }
 
     /// One read per account that is not the open one; an account it cannot

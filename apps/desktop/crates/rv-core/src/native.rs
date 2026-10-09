@@ -670,6 +670,7 @@ impl NativeSession {
                     bots: true,
                     workflows: true,
                     custom_emoji_admin: true,
+                    instance_icon: true,
                     ..Default::default()
                 })
             })

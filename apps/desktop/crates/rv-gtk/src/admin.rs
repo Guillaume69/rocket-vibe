@@ -386,6 +386,7 @@ fn load_dashboard(screen: &Screen, cards: &Cards, refresh: bool) {
                     c.add(&group);
                 }
                 bots_card(&s, &c);
+                icon_card(&s, &c);
             }
             Err(error) => {
                 let group = adw::PreferencesGroup::new();
@@ -506,6 +507,118 @@ fn overview_groups(screen: &Screen, cards: &Cards, o: &Overview) -> Vec<adw::Pre
 
 /// RocketVibe with bots: whether every account may create one. The card
 /// shows only once the server said (None: no bots there).
+/// The server's icon, which the rails of every app show: the current one,
+/// Change (a picked image, center-cropped to a square of
+/// `server_icon::RC_SIDE` pixels, the size Rocket.Chat demands) and Remove.
+fn icon_card(screen: &Screen, cards: &Cards) {
+    if !screen.admin.icon_supported() {
+        return;
+    }
+    let group = adw::PreferencesGroup::builder()
+        .title(t("admin.icon_title"))
+        .description(t("admin.icon_hint"))
+        .css_classes(["admin-icon"])
+        .build();
+    let row = adw::ActionRow::builder().title(t("admin.icon_none")).build();
+    let preview = gtk::Picture::builder()
+        .content_fit(gtk::ContentFit::Cover)
+        .width_request(44)
+        .height_request(44)
+        .overflow(gtk::Overflow::Hidden)
+        .css_classes(["rail-icon"])
+        .visible(false)
+        .build();
+    row.add_prefix(&preview);
+    let change = gtk::Button::builder().label(t("admin.icon_change")).valign(gtk::Align::Center).build();
+    let remove = gtk::Button::builder()
+        .label(t("admin.icon_remove"))
+        .valign(gtk::Align::Center)
+        .css_classes(["destructive-action"])
+        .visible(false)
+        .build();
+    row.add_suffix(&change);
+    row.add_suffix(&remove);
+    group.add(&row);
+    cards.add(&group);
+    let show: Rc<dyn Fn()> = {
+        let (screen, row, preview, remove) = (screen.clone(), row.clone(), preview.clone(), remove.clone());
+        Rc::new(move || {
+            let info = screen.admin.info().clone();
+            let (row, preview, remove) = (row.clone(), preview.clone(), remove.clone());
+            spawn(&screen.host, async move { rv_core::server_icon::fetch(&info).await }, move |bytes| {
+                let texture = bytes.and_then(|b| gtk::gdk::Texture::from_bytes(&glib::Bytes::from_owned(b)).ok());
+                preview.set_paintable(texture.as_ref());
+                preview.set_visible(texture.is_some());
+                remove.set_visible(texture.is_some());
+                row.set_title(t(if texture.is_some() { "admin.icon_current" } else { "admin.icon_none" }));
+            });
+        })
+    };
+    show();
+    let (s, again) = (screen.clone(), show.clone());
+    change.connect_clicked(move |button| {
+        let filter = gtk::FileFilter::new();
+        for mime in ["image/png", "image/jpeg"] {
+            filter.add_mime_type(mime);
+        }
+        let filters = gtk::gio::ListStore::new::<gtk::FileFilter>();
+        filters.append(&filter);
+        let chooser = gtk::FileDialog::builder().title(t("admin.icon_change")).filters(&filters).modal(true).build();
+        let window = button.root().and_downcast::<gtk::Window>();
+        let (s, again) = (s.clone(), again.clone());
+        chooser.open(window.as_ref(), None::<&gtk::gio::Cancellable>, move |file| {
+            let Some(path) = file.ok().and_then(|f| f.path()) else { return };
+            let Some(png) = square_png(&path, rv_core::server_icon::RC_SIDE) else {
+                s.host.toast(t("admin.icon_error_image"));
+                return;
+            };
+            let (admin, host, again) = (s.admin.clone(), s.host.clone(), again.clone());
+            spawn(&s.host, async move { admin.set_icon(Some(png)).await }, move |result| {
+                match result {
+                    Ok(()) => host.toast(t("admin.icon_saved")),
+                    Err(error) => host.toast(error_text(&error)),
+                }
+                again();
+                crate::rail::reload_icons();
+            });
+        });
+    });
+    let (s, again) = (screen.clone(), show);
+    remove.connect_clicked(move |_| {
+        let (admin, host, again) = (s.admin.clone(), s.host.clone(), again.clone());
+        confirm(
+            &s.host,
+            t("admin.icon_remove_title"),
+            t("admin.icon_remove_body"),
+            t("admin.icon_remove"),
+            move || {
+                let (admin, host, again) = (admin.clone(), host.clone(), again.clone());
+                let h = host.clone();
+                spawn(&host, async move { admin.set_icon(None).await }, move |result| {
+                    match result {
+                        Ok(()) => h.toast(t("admin.icon_removed")),
+                        Err(error) => h.toast(error_text(&error)),
+                    }
+                    again();
+                    crate::rail::reload_icons();
+                });
+            },
+        );
+    });
+}
+
+/// An image file as a PNG square of `side` pixels, its center kept.
+fn square_png(path: &std::path::Path, side: u32) -> Option<Vec<u8>> {
+    let pixbuf = gtk::gdk_pixbuf::Pixbuf::from_file(path).ok()?;
+    let edge = pixbuf.width().min(pixbuf.height());
+    if edge <= 0 {
+        return None;
+    }
+    let square = pixbuf.new_subpixbuf((pixbuf.width() - edge) / 2, (pixbuf.height() - edge) / 2, edge, edge);
+    let scaled = square.scale_simple(side as i32, side as i32, gtk::gdk_pixbuf::InterpType::Bilinear)?;
+    scaled.save_to_bufferv("png", &[]).ok()
+}
+
 fn bots_card(screen: &Screen, cards: &Cards) {
     let admin = screen.admin.clone();
     let (s, c) = (screen.clone(), cards.clone());

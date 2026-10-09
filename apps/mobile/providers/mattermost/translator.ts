@@ -125,7 +125,7 @@ export class MmTranslator implements Translator {
       threadShown: false,
       editedAt: positive(raw.edit_at),
       md: null,
-      attachments: this.attachments(metadata.files),
+      attachments: joinAttachments(this.attachments(metadata.files), cards(props.attachments)),
       reactions: this.reactions(metadata.reactions),
       urls: previews(metadata.embeds),
       callId: call?.joinUrl ?? null,
@@ -158,7 +158,7 @@ export class MmTranslator implements Translator {
       readOnly: false,
       dmOtherUid: other,
       dmOtherUsername: otherUser?.username ?? null,
-      lastMessage: lastMessage?.systemType === null ? lastMessage.text : null,
+      lastMessage: lastMessage?.systemType === null ? (lastMessage.text || previewOf(lastMessage.attachments)) : null,
       lastMessageType: lastMessage?.systemType ?? null,
       lastMessageTs: lastMessage?.ts ?? lastPostAt,
       keepPreview: doc.lastPost === undefined,
@@ -183,7 +183,7 @@ export class MmTranslator implements Translator {
       mentions,
       groupMentions: 0,
       alert: unread > 0,
-      open: this.categories?.sidebar.isListed(channel, unread) ?? true,
+      open: this.categories?.sidebar.isListed(channel, unread, this.categories.placedElsewhere(rid)) ?? true,
       favorite: placement?.favorite ?? false,
       lastSeen: positive(member.last_viewed_at),
       e2eKey: null,
@@ -210,7 +210,7 @@ export class MmTranslator implements Translator {
     if (mmType !== 'G' || display === null) return display ?? str(channel.name);
     const me = this.directory.username(this.myId);
     const others = display.split(',').map((n) => n.trim()).filter((n) => n !== '' && n !== me);
-    const named = others.map((n) => this.directory.nameOf(n) ?? n);
+    const named = others.map((n, i) => this.directory.nameOf(n) ?? (i === others.length - 1 ? this.directory.nameOfCut(n) : null) ?? n);
     return named.length > 0 ? named.join(', ') : display;
   }
 
@@ -358,4 +358,35 @@ export function kmeetCall(props: Record<string, unknown>): { type: string; param
   }
   const url = str(props.url);
   return { type: 'videoconf', param: '', joinUrl: url !== null && isKmeetUrl(url) ? url : null };
+}
+
+/** Integrations' Slack-style cards (`props.attachments`), in the shape Rocket.Chat's attachments already render. */
+function cards(raw: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((item) => {
+    const a = record(item);
+    if (a === null) return [];
+    const card: Record<string, unknown> = {};
+    for (const key of ['author_name', 'title', 'title_link', 'color', 'fields']) if (a[key] !== undefined) card[key] = a[key];
+    const text = str(a.text) ?? str(a.pretext) ?? str(a.fallback);
+    if (text !== null) card.text = text;
+    return Object.keys(card).length > 0 ? [card] : [];
+  });
+}
+
+function joinAttachments(files: string | null, extra: Record<string, unknown>[]): string | null {
+  if (extra.length === 0) return files;
+  const list = files === null ? [] : (JSON.parse(files) as unknown[]);
+  return JSON.stringify([...list, ...extra]);
+}
+
+/** A post with no text: its first card's title or text, else its first file's name. */
+function previewOf(attachments: string | null): string | null {
+  if (attachments === null) return null;
+  const list = JSON.parse(attachments) as Record<string, unknown>[];
+  for (const a of list) {
+    const label = str(a.title) ?? str(a.text);
+    if (label !== null) return label;
+  }
+  return null;
 }

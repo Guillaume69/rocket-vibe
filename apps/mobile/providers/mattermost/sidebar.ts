@@ -56,9 +56,13 @@ export class MmSidebar {
     return moved;
   }
 
-  /** The conversations within the limit, most recent first, closed ones left out. */
-  rank(channels: Iterable<Doc>): void {
-    const open = [...channels].filter((c) => (c.type === 'D' || c.type === 'G') && !this.closed(c));
+  /**
+   * The conversations within the limit, most recent first, closed ones left
+   * out. The limit counts the Direct Messages category only: `elsewhere`
+   * names the ones in Favourites or a category of my own.
+   */
+  rank(channels: Iterable<Doc>, elsewhere: (rid: string) => boolean = () => false): void {
+    const open = [...channels].filter((c) => (c.type === 'D' || c.type === 'G') && !this.closed(c) && !elsewhere(String(c.id)));
     open.sort((a, b) => lastPostAt(b) - lastPostAt(a));
     this.listed = new Set(open.slice(0, this.limit).map((c) => String(c.id)));
   }
@@ -68,9 +72,9 @@ export class MmSidebar {
     this.listed?.add(rid);
   }
 
-  isListed(channel: Doc, unread: number): boolean {
+  isListed(channel: Doc, unread: number, elsewhere = false): boolean {
     if (channel.type !== 'D' && channel.type !== 'G') return true;
-    if (unread > 0) return true;
+    if (unread > 0 || elsewhere) return true;
     if (this.closed(channel)) return false;
     return this.listed === null || this.listed.has(String(channel.id));
   }

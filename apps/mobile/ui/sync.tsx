@@ -25,6 +25,7 @@ import {mountProviderProfiles} from '../lib/providerProfiles.ts';
 import {VoiceNative} from '../modules/voice/index.ts';
 import {mountProviderCalls} from '../lib/providerCalls.ts';
 import {mountProviderEmojis} from '../lib/providerEmojis.ts';
+import {mountDisplayNames} from '../lib/displayNames.ts';
 import {mountNativePreviews} from '../lib/nativePreviews.ts';
 import { createContext, useContext, useEffect, useState } from 'react';
 import { afterSystemPicker } from './roomCover.ts';
@@ -271,6 +272,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
     );
     const unprofile=mountProviderProfiles(client,provider);
     const uncalls=mountProviderCalls(client,provider);
+    const unnames=mountDisplayNames(provider.displayNames);
     const ddp = provider.listener;
     let reconnector: Reconnector | null = null;
     let onAbort: (() => void) | null = null;
@@ -712,6 +714,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       unmountUsage();
       unprofile();
       uncalls();
+      unnames();
       ddp.close();
       ddp.reset();
     };

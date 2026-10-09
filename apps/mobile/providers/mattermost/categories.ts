@@ -36,6 +36,16 @@ export class MmCategories {
     if (placement !== undefined) this.placements.set(rid, { ...placement, favorite: on });
   }
 
+  /** In Favourites or a category of my own: outside the direct messages' limit. */
+  placedElsewhere(rid: string): boolean {
+    const placement = this.placements.get(rid);
+    return placement !== undefined && (placement.favorite || placement.groupId !== null);
+  }
+
+  rankConversations(channels: Iterable<Record<string, unknown>>): void {
+    this.sidebar.rank(channels, (rid) => this.placedElsewhere(rid));
+  }
+
   async load(): Promise<void> {
     const teams = await this.client.get<Doc[]>('/users/me/teams');
     const next = new Map<string, Placement>();

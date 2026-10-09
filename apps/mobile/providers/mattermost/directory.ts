@@ -58,6 +58,9 @@ export class MmDirectory {
   private readonly byUsername = new Map<string, MmUser>();
   private inFlight: Promise<void> = Promise.resolve();
   private format: NameFormat = 'full_name';
+  private readonly listeners = new Set<() => void>();
+  private names: ReadonlyMap<string, string> | null = null;
+  private notifying = false;
 
   constructor(client: MmClient) {
     this.client = client;
@@ -80,6 +83,29 @@ export class MmDirectory {
     const named = user.fullName === undefined && user.nickname === undefined ? user : { ...user, displayName: displayNameOf(user, this.format) };
     this.byId.set(named.id, named);
     this.byUsername.set(named.username, named);
+    this.changed();
+  }
+
+  /** `user id → name` for the rows that show people. */
+  displayNames(): ReadonlyMap<string, string> {
+    this.names ??= new Map([...this.byId.values()].flatMap((u) => (u.displayName === null ? [] : [[u.id, u.displayName] as const])));
+    return this.names;
+  }
+
+  onChange(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => void this.listeners.delete(listener);
+  }
+
+  /** Once per burst: a batch of a hundred users is one change. */
+  private changed(): void {
+    this.names = null;
+    if (this.notifying) return;
+    this.notifying = true;
+    queueMicrotask(() => {
+      this.notifying = false;
+      for (const listener of [...this.listeners]) listener();
+    });
   }
 
   user(id: string): MmUser | null {
@@ -91,17 +117,32 @@ export class MmDirectory {
     return this.byUsername.get(username)?.displayName ?? null;
   }
 
+  /** The one known user whose username starts with `cut` (the end of a truncated group DM title). */
+  nameOfCut(cut: string): string | null {
+    const matches = [...this.byUsername.values()].filter((u) => u.username.startsWith(cut));
+    return matches.length === 1 ? (matches[0]!.displayName ?? matches[0]!.username) : null;
+  }
+
+  /** Known with its names: me, registered at sign-in with my username only, is not yet. */
+  private named(id: string): boolean {
+    const user = this.byId.get(id);
+    return user !== undefined && (user.fullName !== undefined || user.nickname !== undefined);
+  }
+
   /** Same as `ensure`, for the usernames a group DM's title lists. */
   ensureUsernames(usernames: Iterable<string>): Promise<void> {
     const missing = [...new Set(usernames)].filter((u) => u !== '' && !this.byUsername.has(u));
     if (missing.length === 0) return this.inFlight;
     this.inFlight = this.inFlight.then(async () => {
       const still = missing.filter((u) => !this.byUsername.has(u));
+      const fetch = (names: string[]) =>
+        this.client.post<Record<string, unknown>[]>('/users/usernames', { body: names }).catch(() => null);
       for (let i = 0; i < still.length; i += BATCH) {
-        const users = await this.client
-          .post<Record<string, unknown>[]>('/users/usernames', { body: still.slice(i, i + BATCH) })
-          .catch(() => []);
-        for (const raw of Array.isArray(users) ? users : []) {
+        const batch = still.slice(i, i + BATCH);
+        // A group DM's title is cut at 64 characters: one cut username refuses the whole batch.
+        let users = await fetch(batch);
+        if (users === null) users = (await Promise.all(batch.map((name) => fetch([name])))).flatMap((u) => u ?? []);
+        for (const raw of users) {
           const user = toMmUser(raw);
           if (user !== null) this.remember(user);
         }
@@ -128,10 +169,10 @@ export class MmDirectory {
    * the id-less fallback rather than blocking the stream.
    */
   ensure(ids: Iterable<string>): Promise<void> {
-    const missing = [...new Set(ids)].filter((id) => id !== '' && !this.byId.has(id));
+    const missing = [...new Set(ids)].filter((id) => id !== '' && !this.named(id));
     if (missing.length === 0) return this.inFlight;
     this.inFlight = this.inFlight.then(async () => {
-      const still = missing.filter((id) => !this.byId.has(id));
+      const still = missing.filter((id) => !this.named(id));
       for (let i = 0; i < still.length; i += BATCH) {
         const users = await this.client
           .post<Record<string, unknown>[]>('/users/ids', { body: still.slice(i, i + BATCH) })

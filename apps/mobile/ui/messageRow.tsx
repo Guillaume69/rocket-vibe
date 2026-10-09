@@ -51,7 +51,7 @@ import { offerDownloadOrShare } from './attachmentActions.ts';
 import { TransferBar } from './transferBar.tsx';
 import { decryptedFile } from './attachment.ts';
 import {subscribeNativeFile} from '../lib/nativeFiles.ts';
-import { useAvatarEtags, useIdentities } from './identities.tsx';
+import { useAvatarEtags, useDisplayNames, useIdentities } from './identities.tsx';
 import { useTimeFormatter, useT } from './i18n.ts';
 import { AvatarTile } from './kit.tsx';
 import { AudioPlayer } from './audioPlayer.tsx';
@@ -136,10 +136,11 @@ export const MessageRow = memo(function MessageRow({
   const username = (identities.get(message.authorId) ?? message.authorName) ?? '?';
   // A deleted RocketVibe account keeps its messages (`lib/deletedUser.ts`).
   const deletedAuthor = client.kind === 'rocketvibe' && isDeletedUsername(username);
-  const author = deletedAuthor ? t('common.deletedUser') : username;
+  const shownName = useDisplayNames().get(message.authorId);
+  const author = deletedAuthor ? t('common.deletedUser') : (shownName ?? username);
   // The username takes the first tint of its own avatar tile: name and avatar
   // match, and the same person keeps their color from one message to the next.
-  const authorTint = avatarGradient(author, c.avatarGradients)[0];
+  const authorTint = avatarGradient(deletedAuthor ? author : username, c.avatarGradients)[0];
   // Author card on tapping the avatar or username. No card for an author
   // without a username (undecryptable encrypted message: `authorName` null).
   // Opened by UID (`authorId`), not by the displayed username: the username is
@@ -219,7 +220,7 @@ export const MessageRow = memo(function MessageRow({
         >
           <AvatarTile
             c={c}
-            hueKey={author}
+            hueKey={deletedAuthor ? author : username}
             initial={author.charAt(0) || '?'}
             // Avatar addressed by the CURRENT username (`identities`), uid as fallback.
             // By uid alone, the URI `/avatar/uid/<uid>` NEVER changes: RN's image

@@ -268,7 +268,7 @@ export class MmLive {
     const conversations = [...this.channels.entries()].filter(([, c]) => c.type === 'D' || c.type === 'G');
     const out: (DdpEvent | null)[] = [];
     if (this.categories?.sidebar.apply(list)) {
-      this.categories.sidebar.rank(this.channels.values());
+      this.categories.rankConversations(this.channels.values());
       out.push(...conversations.map(([rid]) => this.membershipEvent(rid)));
     }
     const pref = Array.isArray(list) ? list.find((p: Doc) => p?.category === 'display_settings' && p?.name === 'name_format') : undefined;

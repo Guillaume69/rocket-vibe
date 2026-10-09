@@ -111,6 +111,7 @@ export function createMattermostProvider(
           : [];
       });
     },
+    displayNames: { names: () => directory.displayNames(), subscribe: (listener) => directory.onChange(listener) },
     async listCustomEmojis() {
       const out: CustomEmoji[] = [];
       for (const raw of await client.pages<unknown>('/emoji')) {

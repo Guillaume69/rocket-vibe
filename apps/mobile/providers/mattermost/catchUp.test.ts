@@ -51,12 +51,12 @@ describe('MmCatchUp', () => {
     assert.equal(cursors.get('*|mm-last-post'), 100);
   });
 
-  test('global again with nothing new: no room is rewritten', async () => {
+  test('global again with nothing new: only conversations are written again, their preview kept', async () => {
     const { catchUp, engine, rooms } = setup();
     await catchUp.global(engine, () => false);
     rooms.clear();
     await catchUp.global(engine, () => false);
-    assert.equal(rooms.size, 0);
+    assert.deepEqual([...rooms.keys()], ['d1']);
   });
 
   test('room: never loaded, nothing is asked', async () => {

@@ -349,6 +349,7 @@
     "apps/mobile/lib/ddp.ts",
     "apps/mobile/lib/deferredLogout.ts",
     "apps/mobile/lib/deletedUser.ts",
+    "apps/mobile/lib/displayNames.ts",
     "apps/mobile/lib/e2e/crypto.ts",
     "apps/mobile/lib/e2e/engine.ts",
     "apps/mobile/lib/e2e/mentions.ts",

@@ -68,8 +68,8 @@ export class MmCatchUp {
     if (isDiscarded()) return;
     const memberOf = new Map(members.map((m) => [String(m.channel_id), m]));
     const live = channels.filter((c) => !(typeof c.delete_at === 'number' && c.delete_at > 0) && memberOf.has(String(c.id)));
-    this.categories?.sidebar.rank(live);
-    await this.directory.ensure(live.flatMap((c) => (c.type === 'D' ? String(c.name ?? '').split('__') : [])));
+    this.categories?.rankConversations(live);
+    await this.directory.ensure([this.myId, ...live.flatMap((c) => (c.type === 'D' ? String(c.name ?? '').split('__') : []))]);
     await this.directory.ensureUsernames(live.flatMap((c) => (c.type === 'G' ? String(c.display_name ?? '').split(',').map((n) => n.trim()) : [])));
     // A room an event changed during the requests has fresher counts than this snapshot.
     const fresh = live.filter((c) => !this.live.changedSince(String(c.id), mark));
@@ -83,7 +83,8 @@ export class MmCatchUp {
     const since = newest > current || current === 0 ? 0 : ((await store.readCursor(CURSOR_SCOPE, CURSOR_STREAM)) ?? 0);
     // An unchanged room is not re-ingested: its row would lose the preview,
     // the list's last message being written as is, null included.
-    const changed = live.filter((c) => changedAt(c) > since).sort((a, b) => lastPostAt(b) - lastPostAt(a));
+    // Conversations are named from people, whose names move without the channel moving.
+    const changed = live.filter((c) => changedAt(c) > since || c.type === 'D' || c.type === 'G').sort((a, b) => lastPostAt(b) - lastPostAt(a));
     const previews = await this.previews(changed.slice(0, PREVIEWS));
     if (isDiscarded()) return;
     for (const [rid, post] of previews) this.live.lastPosts.set(rid, post);

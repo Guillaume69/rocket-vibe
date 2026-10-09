@@ -73,7 +73,7 @@ pub(crate) fn spawn<T: Send + 'static>(
     });
 }
 
-fn error_text(error: &AdminError) -> &'static str {
+pub(crate) fn error_text(error: &AdminError) -> &'static str {
     t(rv_core::admin::error_key(&error.code))
 }
 
@@ -505,8 +505,6 @@ fn overview_groups(screen: &Screen, cards: &Cards, o: &Overview) -> Vec<adw::Pre
     ]
 }
 
-/// RocketVibe with bots: whether every account may create one. The card
-/// shows only once the server said (None: no bots there).
 /// The server's icon, which the rails of every app show: the current one,
 /// Change (a picked image, center-cropped to a square of
 /// `server_icon::RC_SIDE` pixels, the size Rocket.Chat demands) and Remove.
@@ -519,7 +517,7 @@ fn icon_card(screen: &Screen, cards: &Cards) {
         .description(t("admin.icon_hint"))
         .css_classes(["admin-icon"])
         .build();
-    let row = adw::ActionRow::builder().title(t("admin.icon_none")).build();
+    let row = adw::ActionRow::builder().title(t("admin.icon_none")).use_markup(false).build();
     let preview = gtk::Picture::builder()
         .content_fit(gtk::ContentFit::Cover)
         .width_request(44)
@@ -545,8 +543,11 @@ fn icon_card(screen: &Screen, cards: &Cards) {
         Rc::new(move || {
             let info = screen.admin.info().clone();
             let (row, preview, remove) = (row.clone(), preview.clone(), remove.clone());
-            spawn(&screen.host, async move { rv_core::server_icon::fetch(&info).await }, move |bytes| {
-                let texture = bytes.and_then(|b| gtk::gdk::Texture::from_bytes(&glib::Bytes::from_owned(b)).ok());
+            spawn(&screen.host, async move { rv_core::server_icon::fetch(&info).await }, move |icon| {
+                let texture = match icon {
+                    rv_core::server_icon::Icon::Image(bytes) => crate::rail::icon_texture(&bytes),
+                    _ => None,
+                };
                 preview.set_paintable(texture.as_ref());
                 preview.set_visible(texture.is_some());
                 remove.set_visible(texture.is_some());
@@ -610,6 +611,8 @@ fn icon_card(screen: &Screen, cards: &Cards) {
 /// An image file as a PNG square of `side` pixels, its center kept.
 fn square_png(path: &std::path::Path, side: u32) -> Option<Vec<u8>> {
     let pixbuf = gtk::gdk_pixbuf::Pixbuf::from_file(path).ok()?;
+    // A camera photo stands upright, as the profile photo does.
+    let pixbuf = pixbuf.apply_embedded_orientation().unwrap_or(pixbuf);
     let edge = pixbuf.width().min(pixbuf.height());
     if edge <= 0 {
         return None;
@@ -619,6 +622,8 @@ fn square_png(path: &std::path::Path, side: u32) -> Option<Vec<u8>> {
     scaled.save_to_bufferv("png", &[]).ok()
 }
 
+/// RocketVibe with bots: whether every account may create one. The card
+/// shows only once the server said (None: no bots there).
 fn bots_card(screen: &Screen, cards: &Cards) {
     let admin = screen.admin.clone();
     let (s, c) = (screen.clone(), cards.clone());

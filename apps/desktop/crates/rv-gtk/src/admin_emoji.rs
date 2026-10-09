@@ -11,7 +11,7 @@ use adw::prelude::*;
 use gtk::gio;
 use rv_core::admin::{Admin, AdminEmoji};
 
-use crate::admin::{confirm_class, spawn};
+use crate::admin::{confirm_class, error_text, spawn};
 use crate::i18n::{t, tf};
 use crate::sidebar_dialog::Host;
 
@@ -52,9 +52,7 @@ pub(crate) fn page(admin: &Admin, host: &Host) -> adw::PreferencesPage {
                         vec![adw::ActionRow::builder().title(t("admin.emoji_empty")).build().upcast()]
                     }
                     Ok(list) => list.into_iter().map(|emoji| row(&admin, &host2, emoji, &again).upcast()).collect(),
-                    Err(error) => vec![
-                        adw::ActionRow::builder().title(t(rv_core::admin::error_key(&error.code))).build().upcast(),
-                    ],
+                    Err(error) => vec![adw::ActionRow::builder().title(error_text(&error)).build().upcast()],
                 };
                 for widget in &shown {
                     group.add(widget);
@@ -112,7 +110,7 @@ fn row(admin: &Admin, host: &Host, emoji: AdminEmoji, reload: &Weak<dyn Fn()>) -
                 spawn(&host, async move { admin.delete_emoji(&emoji).await }, move |result| {
                     match result {
                         Ok(()) => h.toast(t("admin.emoji_deleted")),
-                        Err(error) => h.toast(t(rv_core::admin::error_key(&error.code))),
+                        Err(error) => h.toast(error_text(&error)),
                     }
                     if let Some(load) = reload.upgrade() {
                         load();
@@ -130,7 +128,11 @@ fn form(admin: &Admin, host: &Host, reload: Reload) {
     let group = adw::PreferencesGroup::new();
     let name = adw::EntryRow::builder().title(t("admin.emoji_name")).build();
     let aliases = adw::EntryRow::builder().title(t("admin.emoji_aliases")).build();
-    let image = adw::ActionRow::builder().title(t("admin.emoji_image")).subtitle(t("admin.emoji_image_hint")).build();
+    let image = adw::ActionRow::builder()
+        .title(t("admin.emoji_image"))
+        .subtitle(t("admin.emoji_image_hint"))
+        .use_markup(false)
+        .build();
     let preview = gtk::Image::builder().pixel_size(32).visible(false).build();
     image.add_prefix(&preview);
     let choose = gtk::Button::builder().label(t("admin.emoji_choose")).valign(gtk::Align::Center).build();
@@ -199,7 +201,7 @@ fn form(admin: &Admin, host: &Host, reload: Reload) {
                 }
                 Err(error) => {
                     button.set_sensitive(true);
-                    h.toast(t(rv_core::admin::error_key(&error.code)));
+                    h.toast(error_text(&error));
                 }
             },
         );

@@ -587,7 +587,11 @@ impl Session {
     pub fn typing(&self, rid: &str) -> Vec<String> {
         let mine = self.store.person_name(&self.info.user_id);
         let mut who = self.typing.lock().unwrap().who(rid, &self.info.username, Instant::now());
-        who.retain(|name| Some(name) != mine.as_ref());
+        // Only where the server names people by their real name: elsewhere it
+        // could be someone else's username.
+        if self.store.real_names() {
+            who.retain(|name| Some(name) != mine.as_ref());
+        }
         who
     }
 
@@ -1058,7 +1062,8 @@ impl Session {
             }
         }
         if let Ok(me) = self.me().await {
-            self.store.write(|w| w.note_person(&self.info.user_id, Some(&me.name)));
+            let now = chrono::Utc::now().timestamp_millis();
+            self.store.write(|w| w.note_person(&self.info.user_id, Some(&me.name), now));
             *self.notification_preference.lock().unwrap() = me.desktop_notifications;
         }
         let _ = self.sync.reconcile_rooms().await;

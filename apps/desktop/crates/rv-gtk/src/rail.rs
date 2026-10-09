@@ -13,6 +13,7 @@ use std::time::Duration;
 
 use gtk::glib;
 use gtk::prelude::*;
+use rv_core::server_icon::Icon;
 use rv_core::session::SessionInfo;
 
 use crate::i18n::t;
@@ -64,6 +65,23 @@ fn hidden_file() -> std::path::PathBuf {
 /// The user's choice to hide the rail, shared with the SwiftUI app.
 pub fn hidden() -> bool {
     hidden_file().exists()
+}
+
+/// A server's icon decoded at most 88 pixels wide (twice the tile), whatever
+/// size its file declares: a server's file never decodes at full size here.
+pub(crate) fn icon_texture(bytes: &[u8]) -> Option<gtk::gdk::Texture> {
+    use gtk::gdk_pixbuf::PixbufLoader;
+    const SIDE: i32 = 88;
+    let loader = PixbufLoader::new();
+    loader.connect_size_prepared(|loader, width, height| {
+        let scale = (f64::from(SIDE) / f64::from(width.max(height).max(1))).min(1.0);
+        loader.set_size(((f64::from(width) * scale) as i32).max(1), ((f64::from(height) * scale) as i32).max(1));
+    });
+    loader.write(bytes).ok()?;
+    loader.close().ok()?;
+    let pixbuf = loader.pixbuf()?;
+    #[allow(deprecated)]
+    Some(gtk::gdk::Texture::for_pixbuf(&pixbuf))
 }
 
 /// A server's icon in a tile's place and size.
@@ -236,27 +254,31 @@ impl Rail {
         self.poll();
     }
 
-    /// Reads the server's icon; it replaces the initial, and a server that
-    /// dropped its icon goes back to the initial. An answer about an older
-    /// account list is dropped.
+    /// Reads the server's icon; it replaces the initial, a server that
+    /// dropped its icon goes back to the initial, and a read that concludes
+    /// nothing (offline, refused) keeps what is shown. An answer about an
+    /// older account list is dropped.
     fn load_icon(self: &Rc<Self>, info: &SessionInfo, key: &str, overlay: &gtk::Overlay, tile: &gtk::Widget) {
         let (weak, generation, key, info) = (Rc::downgrade(self), self.generation.get(), key.to_owned(), info.clone());
         let (overlay, tile) = (overlay.downgrade(), tile.clone());
         glib::spawn_future_local(async move {
-            let bytes = crate::on_tokio(async move { rv_core::server_icon::fetch(&info).await }).await;
+            let icon = crate::on_tokio(async move { rv_core::server_icon::fetch(&info).await }).await;
             let (Some(this), Some(overlay)) = (weak.upgrade(), overlay.upgrade()) else { return };
             if this.generation.get() != generation {
                 return;
             }
-            match bytes.and_then(|b| gtk::gdk::Texture::from_bytes(&glib::Bytes::from_owned(b)).ok()) {
-                Some(texture) => {
-                    overlay.set_child(Some(&icon_picture(&texture)));
-                    this.icons.borrow_mut().insert(key, texture);
+            match icon {
+                Icon::Image(bytes) => {
+                    if let Some(texture) = icon_texture(&bytes) {
+                        overlay.set_child(Some(&icon_picture(&texture)));
+                        this.icons.borrow_mut().insert(key, texture);
+                    }
                 }
-                None => {
+                Icon::Absent => {
                     overlay.set_child(Some(&tile));
                     this.icons.borrow_mut().remove(&key);
                 }
+                Icon::Unknown => {}
             }
         });
     }

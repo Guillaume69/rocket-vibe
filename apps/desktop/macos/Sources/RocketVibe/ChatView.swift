@@ -200,9 +200,8 @@ struct RoomListView: View {
                     }
                 }
             } else {
-                RoomSections(groups: app.groups, collapsed: app.collapsed, toggle: app.toggle, add: { section in
-                    // Channels: create one where the server allows it, else find one.
-                    if section == .channels && app.native != nil { creating = true } else { searchFocused = true }
+                RoomSections(groups: app.groups, collapsed: app.collapsed, toggle: app.toggle, canCreate: app.native != nil, add: { section in
+                    if section == .channels { creating = true } else { searchFocused = true }
                 })
             }
         }
@@ -275,6 +274,8 @@ struct RoomSections: View {
     let groups: [RoomGroup]
     let collapsed: Set<String>
     let toggle: (String) -> Void
+    /// Channels get a "+" only where a channel can be created (RocketVibe).
+    var canCreate = false
     /// The "+" of the Channels and Direct messages headers; none when absent.
     var add: ((RoomSection) -> Void)? = nil
 
@@ -291,7 +292,7 @@ struct RoomSections: View {
                             .textCase(.uppercase)
                             .foregroundStyle(Vibe.muted)
                         Spacer()
-                        if let add, group.section == .channels || group.section == .direct {
+                        if let add, group.section == .direct || (group.section == .channels && canCreate) {
                             Button { add(group.section) } label: { Image(systemName: "plus") }
                                 .buttonStyle(.borderless)
                                 .help(L(group.section == .channels ? "rooms.new_channel" : "rooms.new_message"))
@@ -507,7 +508,9 @@ struct AccountBar: View {
                 }
                 .contentShape(Rectangle())
             }
-            .menuStyle(.borderlessButton)
+            // A button-style menu keeps its custom label (avatar, two lines).
+            .menuStyle(.button)
+            .buttonStyle(.plain)
             .menuIndicator(.hidden)
             .help(L("rooms.account_menu"))
             Button { app.reconnect() } label: {

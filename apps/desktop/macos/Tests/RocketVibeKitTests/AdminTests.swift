@@ -57,10 +57,10 @@ final class FakeAdmin: ServerAdminProtocol, @unchecked Sendable {
     }
     func latestVersion() async -> String? { "1.0.0" }
     func userBots() async throws -> Bool? { userBots_ }
-    var icon_: [UInt8]?
+    var icon_: Data?
     func iconSupported() -> Bool { true }
-    func icon() async -> [UInt8]? { icon_ }
-    func setIcon(png: [UInt8]?) async throws {
+    func icon() async -> Data? { icon_ }
+    func setIcon(png: Data?) async throws {
         calls.append("setIcon:\(png?.count ?? 0)")
         try refuse()
         icon_ = png
@@ -360,6 +360,7 @@ final class AdminTests: XCTestCase {
         XCTAssertEqual(fake.calls.filter { $0.hasPrefix("setIcon") }, ["setIcon:3", "setIcon:1", "setIcon:0"])
     }
 
+    @MainActor
     func testCustomEmojiAreListedAddedAndDeleted() async throws {
         let fake = FakeAdmin()
         let model = AdminModel(source: fake)
@@ -382,6 +383,7 @@ final class AdminTests: XCTestCase {
         XCTAssertFalse(AdminModel(source: fake).categories.contains(.emoji))
     }
 
+    @MainActor
     func testTheAdministrationNeedsAnAdministrator() {
         let home = FileManager.default.temporaryDirectory.appendingPathComponent("rv-admin-\(UUID())")
         defer { try? FileManager.default.removeItem(at: home) }

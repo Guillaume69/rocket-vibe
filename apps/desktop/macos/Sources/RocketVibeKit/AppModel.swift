@@ -167,16 +167,18 @@ public final class AppModel {
     /// The signed-in accounts again, for the server rail, and their icons.
     public func refreshAccounts() async {
         accounts = await client.accounts()
-        await refreshServerIcons()
+        // Not awaited: the unread poll that follows does not wait for icons.
+        Task { await refreshServerIcons() }
     }
 
-    /// Reads every account's server icon again (also after an administrator changed one).
+    /// Reads every account's server icon again (also after an administrator
+    /// changed one); a read that concludes nothing keeps the icon shown.
     public func refreshServerIcons() async {
         for one in accounts {
-            if let bytes = await client.serverIcon(key: one.key) {
-                serverIcons[one.key] = Data(bytes)
-            } else {
-                serverIcons.removeValue(forKey: one.key)
+            switch await client.serverIcon(key: one.key) {
+            case let .image(bytes): serverIcons[one.key] = bytes
+            case .absent: serverIcons.removeValue(forKey: one.key)
+            case .unknown: break
             }
         }
     }

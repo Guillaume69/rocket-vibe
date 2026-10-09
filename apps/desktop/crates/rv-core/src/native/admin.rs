@@ -155,7 +155,9 @@ impl NativeSession {
             rv_protocol::custom_emojis::CreateEmoji { operation_id: room_operation_id(), aliases: aliases.to_owned() };
         self.client.admin_create_emoji(name, &input, image).await?;
         self.ready()?;
-        self.refresh_emojis().await
+        // The server has it: a failed reread changes nothing to that.
+        let _ = self.refresh_emojis().await;
+        Ok(())
     }
     pub async fn admin_remove_emoji(&self, name: &str, revision: &str) -> Result<(), Error> {
         self.admin_access()?;
@@ -169,7 +171,9 @@ impl NativeSession {
         };
         self.client.admin_remove_emoji(name, &input).await?;
         self.ready()?;
-        self.refresh_emojis().await
+        // The server has it: a failed reread changes nothing to that.
+        let _ = self.refresh_emojis().await;
+        Ok(())
     }
     /// The instance settings (whether every account may create bots); None
     /// on a server without bots.

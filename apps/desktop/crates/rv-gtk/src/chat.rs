@@ -60,21 +60,25 @@ type SectionAdd = (&'static str, Rc<dyn Fn()>);
 pub(crate) fn action_popover(items: Vec<MenuItem>) -> gtk::Popover {
     let list = gtk::Box::builder().orientation(gtk::Orientation::Vertical).css_classes(["action-menu"]).build();
     let popover = gtk::Popover::builder().child(&list).has_arrow(false).build();
-    for (icon, text, run) in items {
-        let content = gtk::Box::new(gtk::Orientation::Horizontal, 10);
-        content.append(&gtk::Image::from_icon_name(icon));
-        content.append(&gtk::Label::builder().label(&text).xalign(0.0).build());
-        let button = gtk::Button::builder().child(&content).css_classes(["flat", "action-menu-row"]).build();
-        let weak = popover.downgrade();
-        button.connect_clicked(move |_| {
-            if let Some(popover) = weak.upgrade() {
-                popover.popdown();
-            }
-            run();
-        });
-        list.append(&button);
+    for item in items {
+        list.append(&menu_row(&popover, item));
     }
     popover
+}
+
+fn menu_row(popover: &gtk::Popover, (icon, text, run): MenuItem) -> gtk::Button {
+    let content = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+    content.append(&gtk::Image::from_icon_name(icon));
+    content.append(&gtk::Label::builder().label(&text).xalign(0.0).build());
+    let button = gtk::Button::builder().child(&content).css_classes(["flat", "action-menu-row"]).build();
+    let weak = popover.downgrade();
+    button.connect_clicked(move |_| {
+        if let Some(popover) = weak.upgrade() {
+            popover.popdown();
+        }
+        run();
+    });
+    button
 }
 
 /// A section title that folds its rooms away; folded, it tells how many there are.
@@ -206,6 +210,10 @@ pub struct ChatPage {
     /// Old history around a message reached from elsewhere, shown instead of the local one.
     context: RefCell<Option<Window>>,
     on_logout: Callback<()>,
+    /// Whether the open account administers its server, once asked (the account menu).
+    administrator: Cell<Option<bool>>,
+    /// The account menu is shown: a click on the block does not stack another.
+    menu_open: Rc<Cell<bool>>,
     on_room_changed: Callback<Option<String>>,
     on_room_opened: Callback<String>,
     on_user_navigation: RefCell<Vec<Box<dyn Fn()>>>,
@@ -246,7 +254,7 @@ impl ChatPage {
                     item.set_selectable(false);
                     item.set_activatable(true);
                     let add = match section {
-                        Section::Channels => Some(t("rooms.new_channel")),
+                        Section::Channels if native_shared.borrow().is_some() => Some(t("rooms.new_channel")),
                         Section::Direct => Some(t("rooms.new_message")),
                         _ => None,
                     }
@@ -298,11 +306,6 @@ impl ChatPage {
             .build();
         let status_button =
             gtk::Button::builder().child(&status_dot).css_classes(["flat"]).tooltip_text(t("rooms.offline")).build();
-        let logout = gtk::Button::builder()
-            .icon_name("system-log-out-symbolic")
-            .css_classes(["flat"])
-            .tooltip_text(t("rooms.sign_out"))
-            .build();
         let brand = gtk::Box::builder().spacing(8).build();
         brand.append(&gtk::Label::builder().label("🦄").css_classes(["unicorn-header"]).build());
         brand.append(&widgets::brand("brand-header"));
@@ -518,6 +521,8 @@ impl ChatPage {
             has_older: Cell::new(true),
             context: RefCell::default(),
             on_logout: RefCell::default(),
+            administrator: Cell::new(None),
+            menu_open: Rc::default(),
             on_room_changed: RefCell::default(),
             on_room_opened: RefCell::default(),
             on_user_navigation: RefCell::default(),
@@ -535,7 +540,7 @@ impl ChatPage {
                 this.toggle_section(section);
             }
         })));
-        this.wire(&status_button, &logout);
+        this.wire(&status_button);
         this.wire_voice();
         let weak = Rc::downgrade(&this);
         unlock_button.connect_clicked(move |_| {
@@ -555,7 +560,7 @@ impl ChatPage {
         let weak = Rc::downgrade(&this);
         add_in_section.replace(Some(Rc::new(move |section| {
             let Some(this) = weak.upgrade() else { return };
-            if section == Section::Channels && this.native_session().is_some() {
+            if section == Section::Channels {
                 this.native_conversation(false);
             } else {
                 this.new_conversation();
@@ -772,7 +777,7 @@ impl ChatPage {
         this
     }
 
-    fn wire(self: &Rc<Self>, status_button: &gtk::Button, logout: &gtk::Button) {
+    fn wire(self: &Rc<Self>, status_button: &gtk::Button) {
         let weak = Rc::downgrade(self);
         let w = weak.clone();
         self.forward_button.connect_clicked(move |_| {
@@ -952,14 +957,6 @@ impl ChatPage {
             }
             if let Some(s) = w.upgrade().and_then(|t| t.session.borrow().clone()) {
                 s.reconnect_now();
-            }
-        });
-        let w = weak.clone();
-        logout.connect_clicked(move |_| {
-            if let Some(this) = w.upgrade() {
-                for f in this.on_logout.borrow().iter() {
-                    f(());
-                }
             }
         });
         // Collapsed, the list shows alone: a room left selected there could not
@@ -1292,6 +1289,7 @@ impl ChatPage {
     }
 
     pub fn set_session(&self, session: Option<Arc<Session>>) {
+        self.administrator.set(None);
         self.close_native_crypto();
         self.voice.reset();
         self.read_generation.set(self.read_generation.get().wrapping_add(1));
@@ -1576,64 +1574,83 @@ impl ChatPage {
         self.refresh_room_header();
     }
 
-    /// The account block's menu: settings, the server administration for an
-    /// administrator (asked when the menu opens), sign out.
+    /// The account block's menu, shown at once: settings, the server
+    /// administration for an administrator, sign out. Whether I administer
+    /// is asked once per account (never on Mattermost, which has no
+    /// administration here); the row joins an open menu when the answer comes.
     fn account_menu(self: &Rc<Self>, anchor: &gtk::Box) {
-        let (w1, w2) = (Rc::downgrade(self), Rc::downgrade(self));
+        if self.menu_open.get() {
+            return;
+        }
+        let w = Rc::downgrade(self);
         let mut items: Vec<MenuItem> = vec![(
             "emblem-system-symbolic",
             t("settings.title").to_owned(),
             Rc::new(move || {
-                if let Some(this) = w1.upgrade() {
+                if let Some(this) = w.upgrade() {
                     this.open_settings();
                 }
             }),
         )];
-        let sign_out: MenuItem = (
+        if self.administrator.get() == Some(true) {
+            items.push(self.admin_item());
+        }
+        let w = Rc::downgrade(self);
+        items.push((
             "system-log-out-symbolic",
             t("rooms.sign_out").to_owned(),
             Rc::new(move || {
-                if let Some(this) = w2.upgrade() {
-                    for f in this.on_logout.borrow().iter() {
-                        f(());
-                    }
+                if let Some(this) = w.upgrade() {
+                    this.sign_out();
                 }
             }),
-        );
-        let Some(admin) = self.admin() else {
-            items.push(sign_out);
-            return self.show_menu(anchor, items);
-        };
-        let (this, anchor) = (Rc::downgrade(self), anchor.downgrade());
-        glib::spawn_future_local(async move {
-            let administrator = crate::on_tokio(async move { admin.is_admin().await }).await;
-            let (Some(this), Some(anchor)) = (this.upgrade(), anchor.upgrade()) else { return };
-            if administrator {
-                let w = Rc::downgrade(&this);
-                items.push((
-                    "network-server-symbolic",
-                    t("admin.title").to_owned(),
-                    Rc::new(move || {
-                        if let Some(this) = w.upgrade() {
-                            this.open_admin();
-                        }
-                    }),
-                ));
-            }
-            items.push(sign_out);
-            this.show_menu(&anchor, items);
-        });
-    }
-
-    fn show_menu(&self, anchor: &gtk::Box, items: Vec<MenuItem>) {
+        ));
         let popover = action_popover(items);
         popover.set_parent(anchor);
         popover.set_position(gtk::PositionType::Top);
-        popover.connect_closed(|popover| {
+        let open = self.menu_open.clone();
+        popover.connect_closed(move |popover| {
+            open.set(false);
             let popover = popover.clone();
             glib::idle_add_local_once(move || popover.unparent());
         });
+        self.menu_open.set(true);
         popover.popup();
+        if self.administrator.get().is_some() || self.session().is_some_and(|s| s.info.mattermost.is_some()) {
+            return;
+        }
+        let Some(admin) = self.admin() else { return };
+        let (this, menu) = (Rc::downgrade(self), popover.downgrade());
+        glib::spawn_future_local(async move {
+            let administrator = crate::on_tokio(async move { admin.is_admin().await }).await;
+            let Some(this) = this.upgrade() else { return };
+            this.administrator.set(Some(administrator));
+            if let Some(menu) = menu.upgrade().filter(|m| administrator && m.is_visible())
+                && let Some(list) = menu.child().and_downcast::<gtk::Box>()
+                && let Some(first) = list.first_child()
+            {
+                list.insert_child_after(&menu_row(&menu, this.admin_item()), Some(&first));
+            }
+        });
+    }
+
+    fn admin_item(self: &Rc<Self>) -> MenuItem {
+        let w = Rc::downgrade(self);
+        (
+            "network-server-symbolic",
+            t("admin.title").to_owned(),
+            Rc::new(move || {
+                if let Some(this) = w.upgrade() {
+                    this.open_admin();
+                }
+            }),
+        )
+    }
+
+    fn sign_out(&self) {
+        for f in self.on_logout.borrow().iter() {
+            f(());
+        }
     }
 
     /// The settings of the open account.
@@ -1647,9 +1664,7 @@ impl ChatPage {
         let accounts = self.account_actions.borrow().clone();
         crate::settings::open(&self.split, session, accounts, move || {
             if let Some(this) = signer.upgrade() {
-                for f in this.on_logout.borrow().iter() {
-                    f(());
-                }
+                this.sign_out();
             }
         });
     }

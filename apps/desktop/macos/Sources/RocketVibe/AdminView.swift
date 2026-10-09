@@ -1,4 +1,5 @@
 import AppKit
+import ImageIO
 import RocketVibeCore
 import RocketVibeKit
 import SwiftUI
@@ -734,8 +735,13 @@ struct AdminIconCard: View {
 
     /// The image's center square, drawn at `side` pixels, as PNG.
     static func squarePNG(_ url: URL, side: Int) -> Data? {
-        guard let image = NSImage(contentsOf: url),
-              let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+        // Through ImageIO with its transform, so a camera photo stands upright.
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                  kCGImageSourceCreateThumbnailFromImageAlways: true,
+                  kCGImageSourceCreateThumbnailWithTransform: true,
+                  kCGImageSourceThumbnailMaxPixelSize: 4096,
+              ] as CFDictionary) else { return nil }
         let edge = min(cg.width, cg.height)
         guard edge > 0, let square = cg.cropping(to: CGRect(x: (cg.width - edge) / 2, y: (cg.height - edge) / 2, width: edge, height: edge)),
               let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: side, pixelsHigh: side, bitsPerSample: 8,

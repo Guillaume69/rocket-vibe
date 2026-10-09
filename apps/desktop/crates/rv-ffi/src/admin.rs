@@ -611,7 +611,10 @@ impl ServerAdmin {
     /// The server's icon as the rails show it, `None` without one.
     pub async fn icon(&self) -> Option<Vec<u8>> {
         let info = self.admin.info().clone();
-        on_tokio(async move { rv_core::server_icon::fetch(&info).await }).await
+        match on_tokio(async move { rv_core::server_icon::fetch(&info).await }).await {
+            rv_core::server_icon::Icon::Image(bytes) => Some(bytes),
+            _ => None,
+        }
     }
     /// Sets the server's icon from a square PNG of `icon_side()` pixels, or
     /// removes it with `None`.

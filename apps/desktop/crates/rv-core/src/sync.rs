@@ -196,6 +196,11 @@ impl SyncEngine {
         if !live.is_empty() {
             self.store.write(|w| w.purge_rooms_except(&live));
         }
+        // The full list names every DM's other party: real names known even
+        // for conversations no catch-up has touched since the upgrade.
+        if let Some(list) = response.get("update").and_then(Value::as_array) {
+            self.store.write(|w| list.iter().for_each(|s| w.note_dm_name(s)));
+        }
         Ok(())
     }
 

@@ -221,7 +221,7 @@ const MIGRATIONS: &[&str] = &[
     "ALTER TABLE uploads ADD COLUMN tmid TEXT",
     "ALTER TABLE subscriptions ADD COLUMN group_id TEXT; ALTER TABLE subscriptions ADD COLUMN group_name TEXT;
      ALTER TABLE subscriptions ADD COLUMN group_rank INTEGER",
-    "CREATE TABLE people (uid TEXT PRIMARY KEY, name TEXT NOT NULL);
+    "CREATE TABLE people (uid TEXT PRIMARY KEY, name TEXT NOT NULL, seen INTEGER NOT NULL DEFAULT 0);
      CREATE TABLE server_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
 ];
 
@@ -614,17 +614,20 @@ impl Writer<'_> {
         }
     }
 
-    /// A person's real name (`u.name` of a message, a profile's `name`); an
-    /// absent or empty one never erases a known one. A change redraws the
-    /// list, whose DMs may show it.
-    pub fn note_person(&mut self, uid: &str, name: Option<&str>) {
+    /// A person's real name as of `seen` (a message's `_updatedAt`, or now
+    /// for `me` and a DM's subscription): an older one never replaces a newer
+    /// one (a history page of old messages after a rename), an absent or
+    /// empty one never erases one. A change redraws the list, whose DMs may
+    /// show it.
+    pub fn note_person(&mut self, uid: &str, name: Option<&str>, seen: i64) {
         let Some(name) = name.filter(|n| !n.is_empty()) else { return };
         let changed = self
             .conn
             .execute(
-                "INSERT INTO people (uid, name) VALUES (?1, ?2)
-                 ON CONFLICT(uid) DO UPDATE SET name = excluded.name WHERE name IS NOT excluded.name",
-                params![uid, name],
+                "INSERT INTO people (uid, name, seen) VALUES (?1, ?2, ?3)
+                 ON CONFLICT(uid) DO UPDATE SET name = excluded.name, seen = excluded.seen
+                 WHERE excluded.seen >= people.seen AND people.name IS NOT excluded.name",
+                params![uid, name, seen],
             )
             .expect("note person");
         if changed > 0 {
@@ -635,7 +638,8 @@ impl Writer<'_> {
     /// A message's author's real name, from the raw document.
     pub fn note_author(&mut self, raw: &serde_json::Value) {
         if let Some(uid) = raw.pointer("/u/_id").and_then(serde_json::Value::as_str) {
-            self.note_person(uid, raw.pointer("/u/name").and_then(serde_json::Value::as_str));
+            let seen = raw.get("_updatedAt").and_then(crate::normalize::to_epoch).unwrap_or(0);
+            self.note_person(uid, raw.pointer("/u/name").and_then(serde_json::Value::as_str), seen);
         }
     }
 
@@ -658,7 +662,7 @@ impl Writer<'_> {
             .ok()
             .flatten();
         if let Some(peer) = peer {
-            self.note_person(&peer, Some(name));
+            self.note_person(&peer, Some(name), chrono::Utc::now().timestamp_millis());
         }
     }
 
@@ -1018,6 +1022,34 @@ mod tests {
         assert!(store.real_names());
         assert_eq!(store.room_name("d").map(|(name, _)| name).as_deref(), Some("Bob Durand"));
         assert_eq!(store.rooms()[0].name, "Bob Durand");
+        store.write(|w| w.set_real_names(false));
+        assert_eq!(store.rooms()[0].name, "bob", "off again: the username");
+    }
+
+    #[test]
+    fn an_older_message_never_renames_a_person_back() {
+        let store = Store::in_memory().unwrap();
+        let said =
+            |name: &str, at: i64| serde_json::json!({"u": {"_id": "u1", "name": name}, "_updatedAt": {"$date": at}});
+        store.write(|w| w.note_author(&said("Alice Martin", 200)));
+        store.write(|w| w.note_author(&said("Alice Old", 100)));
+        assert_eq!(store.person_name("u1").as_deref(), Some("Alice Martin"));
+        store.write(|w| w.note_author(&said("Alice Durand", 300)));
+        assert_eq!(store.person_name("u1").as_deref(), Some("Alice Durand"));
+        // A DM's subscription names the person as of now.
+        let dm = Room {
+            rid: "d".into(),
+            kind: "d".into(),
+            dm_other_uid: Some("u1".into()),
+            updated_at: 1,
+            ..Room::default()
+        };
+        store.write(|w| {
+            w.upsert_room(&dm);
+            w.note_dm_name(&serde_json::json!({"rid": "d", "t": "d", "fname": "Alice D."}));
+            w.note_author(&said("Alice Durand", 400));
+        });
+        assert_eq!(store.person_name("u1").as_deref(), Some("Alice D."), "a message older than now is older");
     }
 
     #[test]

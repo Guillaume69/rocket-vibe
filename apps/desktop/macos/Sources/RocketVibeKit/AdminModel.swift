@@ -256,7 +256,7 @@ public final class AdminModel {
     public func loadIcon() async {
         guard alive, iconSupported else { return }
         let found = await source.icon()
-        if alive { icon = found.map { Data($0) } }
+        if alive { icon = found }
     }
 
     /// Sets the icon from a square PNG of `iconSide()` pixels, or removes it
@@ -266,7 +266,7 @@ public final class AdminModel {
         settingIcon = true
         defer { settingIcon = false }
         do {
-            try await source.setIcon(png: png.map { [UInt8]($0) })
+            try await source.setIcon(png: png)
             guard alive else { return false }
             notice = L(png == nil ? "admin.icon_removed" : "admin.icon_saved")
             await loadIcon()

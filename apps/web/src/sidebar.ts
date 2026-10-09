@@ -12,6 +12,7 @@ export interface SidebarHost {
     destructive?: boolean,
   ): HTMLButtonElement;
   select(id: string): void;
+  setBadge(id: string, text?: string): void;
   push(title: string, build: Build): void;
   pop(): void;
   close(): void;
@@ -99,6 +100,12 @@ export function sidebarDialog(title: string, className = ""): SidebarHost {
       }
       frames = [make(entry.title, entry.build)];
       show(frames[0]);
+    },
+    setBadge(id, text) {
+      const row = entries.get(id)?.row;
+      if (!row) return;
+      row.querySelector(".sidebar-badge")?.remove();
+      if (text) row.append(el("span", "sidebar-badge", text));
     },
     push(title, build) {
       if (frames.length) frames[frames.length - 1].scroll = scroll.scrollTop;

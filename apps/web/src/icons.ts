@@ -20,6 +20,7 @@ import usersIcon from "./icons-native/system-users-symbolic.svg";
 import arrowIcon from "./icons-native/go-next-symbolic.svg";
 import imageIcon from "./icons-native/image-x-generic-symbolic.svg";
 import editIcon from "./icons-native/document-edit-symbolic.svg";
+import copyIcon from "./icons-native/edit-copy-symbolic.svg";
 import refreshIcon from "./icons-native/view-refresh-symbolic.svg";
 import playIcon from "./icons-native/media-playback-start-symbolic.svg";
 import pauseIcon from "./icons-native/media-playback-pause-symbolic.svg";
@@ -79,6 +80,7 @@ const native: Record<string, string> = {
   arrow: arrowIcon,
   image: imageIcon,
   edit: editIcon,
+  copy: copyIcon,
   refresh: refreshIcon,
   search: searchIcon,
   plus: addIcon,

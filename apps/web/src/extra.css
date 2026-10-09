@@ -482,21 +482,95 @@
   min-height: 48px;
 }
 .gtk-sidebar-dialog .admin-dashboard-page {
-  max-width: none;
+  max-width: 1048px;
+  padding-top: 30px;
+  padding-bottom: 36px;
 }
 .admin-cards {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 30px;
 }
-.admin-cards > .preferences-group {
-  break-inside: avoid;
+.admin-card-column {
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
 }
-.admin-dashboard-page .action-row {
-  min-height: 46px;
+.admin-card-column > .preferences-group {
+  margin-bottom: 0;
 }
-.admin-refresh {
-  margin-bottom: 20px;
+.admin-dialog .preferences-header h2,
+.admin-dialog .category,
+.admin-dialog .preferences-group-title,
+.admin-dialog .action-row {
+  font-size: 13.333px;
+}
+.admin-dialog .preferences-group-title {
+  position: relative;
+}
+.admin-dialog .admin-value {
+  color: #f3f0ff;
+  opacity: 0.8;
+  font-size: inherit;
+  max-width: 65%;
+  user-select: text;
+}
+.admin-dialog .admin-refresh {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 34px;
+  height: 34px;
+  padding: 9px;
+  margin: 0;
+}
+.admin-dialog .admin-copy {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  padding: 7px;
+  margin-left: -7px;
+}
+.admin-dialog .presence {
+  width: 9px;
+  height: 9px;
+  flex: none;
+}
+.admin-dialog .action-row.toggle {
+  margin: 0;
+}
+.admin-dialog .action-row .row-switch {
+  width: 44px;
+  height: 26px;
+}
+.admin-dialog .action-row .row-switch::before {
+  width: 20px;
+  height: 20px;
+}
+.admin-dialog .admin-open-moderation {
+  justify-content: center;
+  font-weight: 700;
+  gap: 8px;
+}
+.admin-dialog .admin-open-moderation .action-row-text {
+  flex: none;
+}
+.admin-dialog .category:focus-visible {
+  outline: 2px solid #ff5fa280;
+  outline-offset: -2px;
+}
+.admin-dialog .sidebar-badge {
+  margin-left: auto;
+  line-height: 18px;
+}
+.admin-dialog .preferences-content {
+  container-type: inline-size;
+}
+@container (max-width: 680px) {
+  .admin-cards {
+    grid-template-columns: 1fr;
+  }
 }
 .admin-badge {
   font-size: 11px;

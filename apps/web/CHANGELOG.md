@@ -6,6 +6,9 @@ All notable changes are documented here in English.
 
 ### Fixed
 
+- Match GTK's administration dashboard typography, card rows, column spacing, responsive collapse and refresh icon inside the deployment header.
+- Use the shared GTK administration labels and full native deployment, presence, room/message, upload and report fields; restore instance copying, moderation badges/navigation and the bot-policy switch's refusal behavior.
+
 - Mark incoming messages read while their channel is visible, focused and at the latest message, even when the timeline never scrolls; preserve GTK's captured-message delay and cancel pending reads on navigation.
 - Keep inactive tabs, earlier history and hidden call views unread, and dismiss room notifications after their unread messages have been read.
 

@@ -10,6 +10,15 @@ const context = await browser.newContext({
   locale: "en-US",
 });
 const page = await context.newPage();
+let releaseFixture = [];
+await page.route(
+  "https://api.github.com/repos/Guillaume69/rocket-vibe/releases?per_page=50",
+  (route) => {
+    assert.equal(route.request().headers().authorization, undefined);
+    assert.equal(route.request().headers().referer, undefined);
+    return route.fulfill({ json: releaseFixture });
+  },
+);
 const errors = [];
 const network = [];
 page.on("response", (response) => {
@@ -150,10 +159,103 @@ try {
     path: "../../.cache/web-shots/web-devices-reference.png",
   });
   console.log("PASS native device details and real server-backed rename");
+  const overviewResult = page.waitForResponse(
+    (response) => new URL(response.url()).pathname === "/api/v1/admin/overview",
+  );
   await settings
     .getByRole("button", { name: "Server administration", exact: true })
     .click();
   const admin = page.locator(".admin-dialog");
+  const overview = await (await overviewResult).json();
+  await admin.locator('[data-admin-card="deployment"]').waitFor();
+  assert.equal(
+    await admin.locator(".preferences-sidebar h2").textContent(),
+    "Server administration",
+  );
+  const card = (id) => admin.locator('[data-admin-card="' + id + '"]');
+  const row = (id, name) =>
+    card(id)
+      .locator(".action-row")
+      .filter({ has: page.getByText(name, { exact: true }) });
+  const value = (id, name) =>
+    row(id, name).locator(".admin-value").textContent();
+  assert.equal(await value("deployment", "Version"), overview.server_version);
+  assert.equal(
+    await value("deployment", "Database"),
+    "PostgreSQL " + overview.postgres_version,
+  );
+  if (overview.migration_version)
+    assert.equal(
+      await value("deployment", "Migration"),
+      overview.migration_version,
+    );
+  assert.equal(
+    await row("deployment", "Instance")
+      .locator(".admin-value")
+      .getAttribute("title"),
+    overview.instance_id,
+  );
+  assert.equal(
+    await card("deployment")
+      .getByRole("button", { name: "Copy", exact: true })
+      .count(),
+    1,
+  );
+  assert.deepEqual(
+    await card("users").locator(".action-row-title").allTextContents(),
+    [
+      "Total",
+      "Active",
+      "Deactivated",
+      "Administrators",
+      "Online",
+      "Away",
+      "Busy",
+      "Offline",
+    ],
+  );
+  for (const [name, key] of [
+    ["Online", "online"],
+    ["Away", "away"],
+    ["Busy", "busy"],
+    ["Offline", "offline"],
+  ]) {
+    assert.equal(await value("users", name), String(overview.users[key]));
+    assert.equal(await row("users", name).locator(".presence").count(), 1);
+  }
+  for (const id of ["rooms", "messages"]) {
+    assert.deepEqual(
+      await card(id).locator(".action-row-title").allTextContents(),
+      ["Total", "Public", "Private", "Direct messages", "Encrypted"],
+    );
+    assert.equal(await value(id, "Encrypted"), String(overview[id].encrypted));
+  }
+  const refresh = page.waitForResponse(
+    (response) => new URL(response.url()).pathname === "/api/v1/admin/overview",
+  );
+  await card("deployment")
+    .getByRole("button", { name: "Compute the figures again", exact: true })
+    .click();
+  assert.ok((await refresh).ok());
+  await card("deployment").waitFor();
+  await page.screenshot({
+    path: "../../.cache/web-shots/web-admin-dashboard-native-reference.png",
+  });
+  await page.setViewportSize({ width: 900, height: 800 });
+  await page.screenshot({
+    path: "../../.cache/web-shots/web-admin-dashboard-narrow-reference.png",
+  });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await card("reports")
+    .getByRole("button", { name: "Open moderation", exact: true })
+    .click();
+  assert.equal(
+    await admin.locator(".preferences-content h2").textContent(),
+    "Moderation",
+  );
+  console.log(
+    "PASS the GTK dashboard's actual deployment, four presences, kind counts, refresh and moderation navigation",
+  );
   await admin.getByRole("button", { name: "Users", exact: true }).click();
   await admin.locator("[data-admin-user]").first().waitFor();
   assert.ok(
@@ -184,6 +286,82 @@ try {
   await page.locator(".settings-dialog").waitFor({ state: "detached" });
   assert.equal(await page.locator(".settings-dialog").count(), 0);
   console.log("PASS narrow settings can close from the category pane");
+  releaseFixture = [
+    { tag_name: "desktop-v99.0.0" },
+    { tag_name: "server-v0.1.5" },
+    { tag_name: "server-v0.2.0" },
+    { tag_name: "server-v0.1.9" },
+    { tag_name: "server-v9.0.0", draft: true },
+    { tag_name: "server-v8.0.0", prerelease: true },
+    { tag_name: "server-v7.0.0-rc.1" },
+  ];
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.evaluate(() => localStorage.setItem("rv-language", "fr"));
+  await page.reload();
+  await page.locator(".status-dot.online").waitFor();
+  await page.getByRole("button", { name: "Paramètres", exact: true }).click();
+  await page
+    .locator(".settings-dialog")
+    .getByRole("button", { name: "Administration du serveur", exact: true })
+    .click();
+  await admin.locator(".admin-update.available").waitFor();
+  assert.match(
+    await admin.locator(".admin-update.available").textContent(),
+    /0\.2\.0$/,
+  );
+  assert.equal(
+    await admin.locator(".preferences-sidebar h2").textContent(),
+    "Administration du serveur",
+  );
+  assert.equal(await card("users").locator("h3").textContent(), "Utilisateurs");
+  assert.equal(
+    await card("deployment").getByText("Lancé depuis", { exact: true }).count(),
+    1,
+  );
+  console.log(
+    "PASS GTK French admin labels and the highest published server release without authenticated headers",
+  );
+  const policy = card("bots").getByRole("switch");
+  const originalPolicy = await policy.isChecked();
+  await page.route("**/api/v1/admin/settings", (route) =>
+    route.request().method() === "PATCH"
+      ? route.fulfill({ status: 403, json: { code: "permission_denied" } })
+      : route.continue(),
+  );
+  await policy.click();
+  await page.waitForFunction((checked) => {
+    const input = document.querySelector('[data-admin-card="bots"] input');
+    return input && !input.disabled && input.checked === checked;
+  }, originalPolicy);
+  await page.unroute("**/api/v1/admin/settings");
+  console.log(
+    "PASS a refused bot policy change restores the authoritative switch without changing the server",
+  );
+  const catalog = JSON.parse(
+    await readFile("src/native-strings.generated.json", "utf8"),
+  );
+  const refusal = page
+    .locator("#toasts")
+    .getByText(catalog["admin.error_denied"][0], { exact: true });
+  await refusal.waitFor();
+  await refusal.waitFor({ state: "detached" });
+  releaseFixture = [];
+  await admin.locator(".preferences-close").click();
+  await page.getByRole("button", { name: "Paramètres", exact: true }).click();
+  await page
+    .locator(".settings-dialog")
+    .getByRole("button", { name: "Administration du serveur", exact: true })
+    .click();
+  await card("deployment").waitFor();
+  await page.screenshot({
+    path: "../../.cache/web-shots/web-admin-dashboard-fr-reference.png",
+  });
+  await admin
+    .locator(".preferences-scroll")
+    .evaluate((node) => (node.scrollTop = node.scrollHeight));
+  await page.screenshot({
+    path: "../../.cache/web-shots/web-admin-dashboard-fr-lower-reference.png",
+  });
   assert.deepEqual(errors, []);
 } catch (error) {
   console.log("Visual network:", network.slice(-25));

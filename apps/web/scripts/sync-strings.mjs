@@ -13,7 +13,7 @@ writeFileSync(
     JSON.stringify(
       Object.fromEntries(
         entries.filter(([key]) =>
-          /^(attach\.|file\.|video\.|image\.|viewer\.|message\.image$|player\.|bots\.|workflows\.|voice[^.]*\.|command\.|settings\.cat\.|settings\.photo_|admin\.(bots|workflows|user_bots)|security\.refresh$|native\.offline$)/.test(
+          /^(attach\.|file\.|video\.|image\.|viewer\.|message\.image$|player\.|bots\.|workflows\.|voice[^.]*\.|command\.|settings\.cat\.|settings\.photo_|admin\.|report\.|presence\.|actions\.copy$|security\.refresh$|native\.offline$)/.test(
             key,
           ),
         ),
@@ -26,15 +26,19 @@ writeFileSync(
 );
 
 const errorCatalog = {};
-for (const area of ["bots", "workflows"]) {
+for (const area of ["bots", "workflows", "admin"]) {
   const code = readFileSync(
-    "../desktop/crates/rv-core/src/native/" + area + ".rs",
+    "../desktop/crates/rv-core/src/" +
+      (area === "admin" ? "admin.rs" : "native/" + area + ".rs"),
     "utf8",
   )
+    .replaceAll("\r\n", "\n")
     .split("pub fn error_key(")[1]
-    .split("pub fn failure_key")[0];
+    .split("\n}\n")[0];
   errorCatalog[area] = Object.fromEntries(
-    [...code.matchAll(/"([^"]+)"\s*=>\s*"([^"]+)"/g)].map((m) => [m[1], m[2]]),
+    [...code.matchAll(/((?:"[^"]+"\s*(?:\|\s*)?)+)\s*=>\s*"([^"]+)"/g)].flatMap(
+      (m) => [...m[1].matchAll(/"([^"]+)"/g)].map((key) => [key[1], m[2]]),
+    ),
   );
 }
 writeFileSync(

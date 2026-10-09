@@ -16,6 +16,8 @@
     "avatar_too_large": "bots.error_avatar_too_large",
     "avatar_busy": "bots.error_avatar_busy",
     "storage_unavailable": "bots.error_storage_unavailable",
+    "offline": "native.offline",
+    "connection_failed": "native.offline",
     "session_closed": "native.offline"
   },
   "workflows": {
@@ -51,6 +53,27 @@
     "not_found": "workflows.error_not_found",
     "invalid_request": "workflows.error_invalid",
     "unsupported_feature": "workflows.error_unsupported",
+    "offline": "native.offline",
+    "connection_failed": "native.offline",
     "session_closed": "native.offline"
+  },
+  "admin": {
+    "self_administration": "admin.error_self",
+    "self_report": "report.error_self",
+    "last_administrator": "admin.error_last_admin",
+    "error-admin-required": "admin.error_last_admin",
+    "revision_conflict": "admin.error_conflict",
+    "operation_conflict": "admin.error_conflict",
+    "not_found": "admin.error_not_found",
+    "error-invalid-user": "admin.error_not_found",
+    "error-invalid-room": "admin.error_not_found",
+    "offline": "native.offline",
+    "connection_failed": "native.offline",
+    "session_closed": "native.offline",
+    "invalid_reason": "report.failed",
+    "permission_denied": "admin.error_denied",
+    "unsupported_feature": "admin.error_denied",
+    "bot_privilege": "admin.error_bot_privilege",
+    "bot_encrypted_room": "admin.error_bot_encrypted_room"
   }
 }

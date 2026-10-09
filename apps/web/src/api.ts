@@ -71,16 +71,22 @@ export class Api {
         ? "bots"
         : /^\/api\/v1\/(workflows|forms)/.test(path)
           ? "workflows"
-          : undefined;
+          : path.startsWith("/api/v1/admin/")
+            ? "admin"
+            : undefined;
       if (area) {
         const key = (nativeErrors[area] as Record<string, string>)[code];
         error.message = nt(
           key ??
-            (response.status === 429
-              ? "bots.error_rate_limited"
-              : area === "bots"
-                ? "bots.failed"
-                : "workflows.failed"),
+            (area === "admin"
+              ? code.startsWith("error-")
+                ? "admin.error_denied"
+                : "admin.failed"
+              : response.status === 429
+                ? "bots.error_rate_limited"
+                : area === "bots"
+                  ? "bots.failed"
+                  : "workflows.failed"),
         );
       }
       throw error;

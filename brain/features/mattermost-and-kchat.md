@@ -98,6 +98,12 @@ Rocket.Chat call fails cleanly instead of hitting the wrong server.
   the `message-starred` sync change, which rewrites only a cached row
   (`Store.updateMessageStarred`). A post unflagged while the app was not running
   stays starred until it is read again.
+- Live replies: `thread_updated` is quiet, so `MmLive.posted` reads a reply's root
+  again (`GET /posts/<id>`, one read in flight per root) and emits `mm:thread`,
+  translated to the `thread-counters` sync change: only the cached root's
+  `thread_count` / `thread_last` move (`Store.updateThreadCounters`). A whole
+  post would insert an old root the cache lacks, and the room pages back from
+  its oldest row.
 - kChat reads made elsewhere: `badge_updated` makes `MmLive.recount` read my
   memberships again and emit the rooms whose counts moved.
 - People: `MmDirectory` names users under the account's name format (my

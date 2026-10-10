@@ -810,7 +810,10 @@ impl AppWindow {
                 if let ChatEvent::Reload = event {
                     if !reload_pending.replace(true) {
                         let (weak, pending) = (Rc::downgrade(&this), reload_pending.clone());
-                        glib::idle_add_local_once(move || {
+                        // At the default priority, not an idle one: GTK redraws
+                        // (a spinner's animation) outrank idle sources, and a
+                        // reload put off behind them never ran.
+                        glib::spawn_future_local(async move {
                             pending.set(false);
                             if let Some(this) = weak.upgrade() {
                                 this.reload_account();

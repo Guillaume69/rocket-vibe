@@ -29,8 +29,8 @@ What the Android app does and where this one stands: `brain/parity.md`.
 
 An experimental [native-server pilot](../../docs/NATIVE_DESKTOP_PILOT.md) is also
 available: discovery selects Rocket.Chat or RocketVibe per account in the same
-GTK chat interface, with an isolated native cache, durable outbox and drafts. The Rust engine is exposed
-through an explicit UniFFI API; its SwiftUI screens are not connected yet.
+GTK and SwiftUI chat interfaces, with isolated native caches, durable outboxes and drafts.
+The Rust engine is exposed to SwiftUI through an explicit UniFFI API.
 
 ## Desktop integration
 

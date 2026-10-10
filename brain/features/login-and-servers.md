@@ -51,7 +51,7 @@ How a user signs in to a Rocket.Chat server (password, then a second factor when
 
 ## Parity
 
-[parity](../parity.md) §1 is done on desktop except email 2FA, which is partial: GTK and SwiftUI request the code automatically and have no resend control. Other differences worth knowing: mobile holds one account per server, desktop several; mobile keeps the database on sign-out, desktop deletes it (the `.sqlite`, `-wal` and `-shm` files, `Store::remove_files`, after `Store::close` has released the file that tasks still running hold, which Windows would otherwise refuse to delete); mobile replays failed sign-outs at next launch, desktop does not (it has no push token to remove).
+[parity](../parity.md) §1 is done on desktop except email 2FA, which is partial: GTK and SwiftUI request the code automatically and have no resend control. Other differences worth knowing: mobile holds one account per server, desktop several; mobile keeps the database on sign-out, desktop deletes it (the `.sqlite`, `-wal` and `-shm` files, `Store::remove_files`, after `Store::close` has released the file that tasks still running hold, which Windows would otherwise refuse to delete); mobile and desktop replay failed Rocket.Chat, Mattermost and kChat sign-outs at next launch; desktop persists the revocation marker in the keychain. A failed native RocketVibe sign-out keeps the account signed in.
 
 ## Quick server-bar control
 

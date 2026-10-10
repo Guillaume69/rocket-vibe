@@ -34,6 +34,8 @@ section here.
 
 ### Fixed
 
+- A notification waiting for its pictures no longer appears after its conversation has been opened.
+
 - Signing out of a Rocket.Chat or Mattermost account while offline no longer leaves the session open on the server: the sign-out is kept and sent again at the next start.
 - On Mattermost and kChat, a message whose send answer was lost is looked for before it goes out again, instead of posting it twice once the server has forgotten it; one sent again while the server still saves the first attempt stays "sending" instead of "not sent".
 - On Mattermost and kChat, a room that changed more than a thousand times while the app was away reloads its newest messages instead of keeping a history with holes.

@@ -52,6 +52,8 @@ GTK and SwiftUI split the footer into an avatar activity menu and the name/gear 
 
 Web provides the same avatar shortcut, presence badge and footer connection control. It refreshes my chosen status when my live profile revision changes. There is no web server-bar button because the browser uses a single serving origin. Mobile uses the bottom avatar and a keyboard-free native form sheet, keeps the status message, and fences completions to the originating account. A successful choice confirms my activity into PresenceEngine immediately, even when the server does not broadcast; a snapshot begun before the save cannot undo it.
 
+The quick activity picker preserves profile text. Mattermost and kChat use the status-only endpoint, retaining their entire custom status including emoji and expiry. Legacy desktop activity confirmations keep a newer streamed status and cannot be undone by an older presence snapshot. Native clients display the current own-profile response, including when a durable operation replays an earlier receipt. Mobile publishes successful own-profile revisions to subscribed avatar controls even without live profile observations. SwiftUI scopes refreshes and saves to the account and retries failed profile reads with backoff.
+
 ## Sources
 
 - apps/mobile/app/index.tsx
@@ -92,3 +94,8 @@ Web provides the same avatar shortcut, presence badge and footer connection cont
 - apps/web/src/app.ts
 - apps/web/src/dom.ts
 - apps/web/src/panels.ts
+
+- `apps/mobile/providers/mattermost/activity.ts`
+- `apps/mobile/providers/rocketvibe/chat.ts`
+- `apps/desktop/crates/rv-core/src/live.rs`
+- `apps/desktop/macos/Sources/RocketVibeKit/MyProfileModel.swift`

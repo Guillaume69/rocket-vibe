@@ -252,9 +252,13 @@ pub fn room(r: RoomRow, clear_last: Option<String>, presence: Option<Presence>) 
             kind: kind.to_owned(),
             param: r.last_message.clone().unwrap_or_default(),
         },
-        (Some(m), _) => {
-            RoomPreview::Text { text: rv_core::emoji::replace_shortcodes(rv_core::actions::strip_quote_prefix(m)) }
-        }
+        // A quote previews by its own words; a forward (no words) says it is one.
+        (Some(m), _) => RoomPreview::Text {
+            text: match rv_core::actions::preview_words(m) {
+                Some(words) => rv_core::emoji::replace_shortcodes(words),
+                None => rv_core::i18n::t("rooms.quoted_message").to_owned(),
+            },
+        },
         (None, true) => RoomPreview::Encrypted,
         (None, false) => RoomPreview::Empty,
     };
@@ -418,6 +422,18 @@ pub struct MessageItem {
     /// The name the header shows: the username, or on Mattermost the name
     /// under the account's name format with the custom status emoji.
     pub author_label: String,
+    /// A `discussion-created` message's discussion, drawn as a card
+    /// (Rocket.Chat); its name is `param`.
+    pub discussion: Option<DiscussionCard>,
+}
+
+/// A discussion born in the room: its rid, how many messages it holds, when
+/// the last one came.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct DiscussionCard {
+    pub rid: String,
+    pub count: i64,
+    pub last: Option<i64>,
 }
 
 pub fn quote(q: content::Quote, me: &str) -> Quote {
@@ -525,6 +541,11 @@ pub fn message(d: Display, me_id: &str, me: &str) -> MessageItem {
         author_bot: row.author_bot,
         form: form.map(|form| crate::native_workflows::form_item(form, me_id)),
         author_label: author.clone(),
+        discussion: row
+            .discussion_id
+            .clone()
+            .filter(|_| row.system_type.as_deref() == Some("discussion-created"))
+            .map(|rid| DiscussionCard { rid, count: row.discussion_count, last: row.discussion_last }),
         id: row.id,
         rid: row.rid,
         ts: row.ts,
@@ -563,6 +584,23 @@ mod tests {
 
     fn display(row: MessageRow) -> Display {
         Display { row, show_header: true, show_day: false, gutter_time: false, new_marker: false }
+    }
+
+    #[test]
+    fn a_discussion_created_message_carries_its_card() {
+        let row = MessageRow {
+            system_type: Some("discussion-created".into()),
+            text: Some("Plans".into()),
+            discussion_id: Some("d1".into()),
+            discussion_count: 2,
+            discussion_last: Some(9),
+            ..Default::default()
+        };
+        let m = message(display(row.clone()), "U1", "me");
+        assert_eq!(m.discussion, Some(DiscussionCard { rid: "d1".into(), count: 2, last: Some(9) }));
+        assert_eq!((m.system.as_deref(), m.param.as_str()), (Some("discussion-created"), "Plans"));
+        let plain = message(display(MessageRow { system_type: None, ..row }), "U1", "me");
+        assert_eq!(plain.discussion, None);
     }
 
     #[test]
@@ -666,6 +704,9 @@ mod tests {
         };
         let quoted = RoomRow { last_message: Some("[ ](https://x/?msg=1) hi :smile:".into()), ..base.clone() };
         assert_eq!(room(quoted, None, None).preview, RoomPreview::Text { text: "hi 😄".into() });
+        let forwarded = RoomRow { last_message: Some("[ ](https://x/?msg=1)".into()), ..base.clone() };
+        let quoted_label = rv_core::i18n::t("rooms.quoted_message").to_owned();
+        assert_eq!(room(forwarded, None, None).preview, RoomPreview::Text { text: quoted_label });
         let joined = RoomRow {
             last_type: Some("uj".into()),
             last_author: Some("bob".into()),

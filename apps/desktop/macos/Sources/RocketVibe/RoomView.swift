@@ -434,6 +434,8 @@ struct MessageRow: View, Equatable {
     @State var viewing: ImageItem?
     @State private var choosingQuote = false
     @State private var forwarding = false
+    /// "Start a discussion" from this message (Rocket.Chat).
+    @State private var discussing = false
     /// The emoji picker, to react with any emoji.
     @State private var reacting = false
 
@@ -497,6 +499,9 @@ struct MessageRow: View, Equatable {
         .modalOverlay(isPresented: $forwarding) {
             ForwardDestinations(model: model, messageId: message.id)
         }
+        .modalOverlay(isPresented: $discussing) {
+            NewDiscussionSheet(model: model, source: message)
+        }
     }
 
     @ViewBuilder var gutter: some View {
@@ -517,6 +522,8 @@ struct MessageRow: View, Equatable {
                 VoiceCallCard(rid: model.rid, kind: system, param: message.param)
             } else if let callId = message.callId {
                 CallCard(callId: callId, model: model)
+            } else if system == "discussion-created", let card = message.discussion, model?.supportsDiscussions == true {
+                DiscussionCardView(name: message.param, author: message.authorLabel, card: card)
             } else {
                 Text("\(message.author) \(systemMessage(kind: system, param: message.param))")
                     .italic()
@@ -657,6 +664,9 @@ struct MessageRow: View, Equatable {
         }
         if actions.contains(.reply), model?.forwardable(message) == true {
             Button(L("actions.forward")) { forwarding = true }
+        }
+        if actions.contains(.reply), model?.canStartDiscussion(message) == true {
+            Button(L("discussion.start")) { discussing = true }
         }
         if message.delivery == .sent, model?.membershipIsCurrent == true,
            let link = app.native?.permalink(room: message.rid, message: message.id, root: message.threadId) {

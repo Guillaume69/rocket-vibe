@@ -124,8 +124,12 @@ public enum ChatProvider {
         switch self { case let .rocketChat(chat): return try await chat.loadOlder(rid: room.rid, kind: room.kind, oldestTs: oldestTs)
         case let .rocketVibe(chat): return OlderPage(more: try await chat.history(room: room.rid, older: true), limit: nil) }
     }
-    public func send(rid: String, text: String, thread: String? = nil) async throws {
-        switch self { case let .rocketChat(chat): await chat.send(rid: rid, text: text, threadId: thread)
+    /// `alsoInRoom`: a thread reply also shown in the room (Rocket.Chat only).
+    public func send(rid: String, text: String, thread: String? = nil, alsoInRoom: Bool = false) async throws {
+        switch self {
+        case let .rocketChat(chat):
+            if alsoInRoom, thread != nil { await chat.sendReply(rid: rid, text: text, threadId: thread, alsoInRoom: true) }
+            else { await chat.send(rid: rid, text: text, threadId: thread) }
         case let .rocketVibe(chat):
             if let thread { _ = try chat.sendReplyFromMembership(room:rid,root:thread,text:text,membership:chat.membershipVersion(room:rid),quotes:[]) }
             else { _ = try chat.send(room: rid, text: text) } }

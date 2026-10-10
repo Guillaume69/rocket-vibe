@@ -157,6 +157,25 @@ public final class RoomModel {
     }
     /// The room's thread list and following a thread: Rocket.Chat only.
     public var supportsThreads: Bool { active && chat?.threadsAvailable() == true }
+    /// "Also send to the room" (Rocket.Chat): a thread's next reply only, unchecked once it goes.
+    public var alsoInRoom = false
+    public var supportsAlsoInRoom: Bool { active && threadId != nil && !privateMode && chat?.alsoInRoomAvailable() == true }
+    /// Invite links and discussions (Rocket.Chat), never in an encrypted RocketVibe room.
+    public var supportsDiscussions: Bool { active && !privateMode && chat?.discussionsAvailable() == true }
+    /// "Start a discussion" from a message: where it could be forwarded (quoted, on the server).
+    public func canStartDiscussion(_ message: MessageItem) -> Bool { supportsDiscussions && forwardable(message) }
+    /// "New discussion" in the room's information: not in an encrypted or read-only room.
+    public var canCreateDiscussion: Bool { supportsDiscussions && threadId == nil && !room.encrypted && !room.readOnly }
+    /// Whether I may share the room's invite link (my roles grant `create-invite-links`).
+    public func canInvite() async -> Bool {
+        guard supportsDiscussions, let chat else { return false }
+        return await chat.canInvite(rid: room.rid)
+    }
+    /// The room's direct invite link, the same one each time.
+    public func inviteLink() async throws -> String {
+        guard active, let chat else { throw CancellationError() }
+        return try await chat.inviteLink(rid: room.rid)
+    }
     /// A room's own notifications (Rocket.Chat): `default`, `all`, `mentions` or `nothing`.
     public var supportsRoomNotifications: Bool { active && threadId == nil && chat?.roomNotificationsAvailable() == true }
     public func roomNotifications() -> String { chat?.roomNotifications(rid: room.rid) ?? "default" }
@@ -744,7 +763,11 @@ public final class RoomModel {
                 else { _ = try native.sendQuotesFromMembership(room:room.rid,text:text,membership:nativeMembership,quotes:nativeQuote.map { [$0] } ?? []) }
                 cancelQuote()
             }
-            else { try await provider.send(rid: room.rid, text: text, thread: threadId) }
+            else {
+                let shown = alsoInRoom && supportsAlsoInRoom
+                alsoInRoom = false
+                try await provider.send(rid: room.rid, text: text, thread: threadId, alsoInRoom: shown)
+            }
             reload()
         } catch {
             if active {

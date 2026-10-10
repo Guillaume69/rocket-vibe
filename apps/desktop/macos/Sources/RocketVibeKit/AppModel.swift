@@ -718,6 +718,70 @@ public final class AppModel {
         }
     }
 
+    /// Waits for `rid` in the room list (the stream lists it), as long as the
+    /// account and the selection stay; false when they changed.
+    private func waitListed(_ rid: String, account: UUID, selected: UUID) async -> Bool {
+        for _ in 0..<40 where !rooms.contains(where: { $0.rid == rid }) {
+            guard account == sessionId, selected == selectionId else { return false }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        return account == sessionId && selected == selectionId
+    }
+
+    /// Search across rooms, on the device (Rocket.Chat, Mattermost): newest first.
+    public var supportsLocalSearch: Bool { chat != nil }
+    public func searchLocal(_ text: String) async -> [LocalHit] {
+        guard let chat else { return [] }
+        return await chat.searchLocal(text: text)
+    }
+
+    /// A message found across rooms: its room at the message, or its thread.
+    public func open(hit: LocalHit) async {
+        let message = hit.message
+        if let root = message.threadId {
+            open(message.rid)
+            if room?.rid == message.rid { openThread(root, message: message.id) }
+        } else {
+            await open(message.rid, message: message.id)
+        }
+    }
+
+    /// Creates a discussion of `prid` (from the message `messageId` when given,
+    /// with a first message `reply`), then opens it. Nil once done, else what to tell.
+    public func createDiscussion(prid: String, name: String, messageId: String?, reply: String?) async -> String? {
+        guard let chat, chat.discussionsAvailable() else { return L("discussion.failed") }
+        let (account, selected) = (sessionId, UUID())
+        selectionId = selected
+        let words = reply?.trimmingCharacters(in: .whitespacesAndNewlines)
+        do {
+            let rid = try await chat.createDiscussion(prid: prid, name: name, messageId: messageId,
+                                                      reply: words?.isEmpty == false ? words : nil)
+            if await waitListed(rid, account: account, selected: selected) { open(rid) }
+            return nil
+        } catch {
+            return L("discussion.failed")
+        }
+    }
+
+    /// A discussion card's Open: its room, joined first when it belongs to a
+    /// public channel; one of a private group is for its members.
+    public func openDiscussion(_ drid: String) async {
+        if rooms.contains(where: { $0.rid == drid }) { open(drid); return }
+        guard let chat else { return }
+        let (account, selected) = (sessionId, UUID())
+        selectionId = selected
+        do {
+            switch try await chat.openDiscussion(drid: drid) {
+            case .open:
+                if await waitListed(drid, account: account, selected: selected) { open(drid) }
+            case .membersOnly:
+                if account == sessionId { notice = L("discussion.unavailable") }
+            }
+        } catch {
+            if account == sessionId { notice = L("discussion.open_failed") }
+        }
+    }
+
     /// Creates a room on a RocketVibe server (a voice channel with `voice`, which only a
     /// server offering voice takes), then opens it once listed. Nil once done, else what
     /// to tell.

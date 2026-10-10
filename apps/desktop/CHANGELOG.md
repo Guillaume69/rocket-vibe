@@ -14,8 +14,14 @@ section here.
 - A room's own notifications (GTK and macOS, Rocket.Chat servers): Default, All messages, Mentions or Nothing, in its information dialog (GTK: a direct conversation's profile opened from its header). The desktop notifications follow it over the account's preference, a room silenced by another client stays quiet, and the choice applies to push notifications on the phone too.
 - Forward a message to another room (GTK and macOS, Rocket.Chat servers): Forward, in the message menu beside Reply, lists the rooms by name (encrypted and read-only ones left out); the one picked opens and shows the message as a quote.
 - macOS: Shift-Return on a list item continues the list (the next bullet or number), or ends it on an empty item, as on GTK.
+- Search messages across rooms, on the device (GTK and macOS, Rocket.Chat and Mattermost servers): a search button in the room list's header (Ctrl+Shift+F, Cmd+Shift+F) finds the words of every message already stored here, encrypted ones once unlocked, newest first under their room's name; a result opens its room at the message, or its thread.
+- "Also send to the room" under a thread's composer (GTK and macOS, Rocket.Chat servers): the next reply also shows in the room, at once and after a resend.
+- Invite links (GTK and macOS, Rocket.Chat servers): where my roles allow it, a channel's or group's information dialog creates its invite link (7 days, any number of uses) and copies it; the link is the server's own, not the go.rocket.chat redirect.
+- Discussions (GTK and macOS, Rocket.Chat servers): a discussion born in a room shows as a card (its name, message count, last activity, Open), which opens it, joining it first when it belongs to a public channel. "Start a discussion" in a message's menu and "New discussion" in a room's information dialog create one, named after the message's first line, with an optional first message.
 
 ### Fixed
+
+- The room list previews a message that quotes another by its own words, and a forwarded message (a quote with no words) as "↪ Quoted message" instead of an empty line (GTK and macOS).
 
 - A local database error (full disk, I/O error) rolls back the one write instead of crashing the app, and the GTK and SwiftUI apps sharing a database on macOS wait for each other instead of failing on a busy database.
 - Messages and files sent while the server restarts behind its proxy (a 5xx answer) stay queued instead of showing "not sent".

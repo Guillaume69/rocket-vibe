@@ -361,7 +361,7 @@ impl Chat {
 
 impl Chat {
     /// A message of a list beside the room (pinned, starred, threads), opened when encrypted.
-    fn listed(&self, row: rv_core::store::MessageRow) -> MessageItem {
+    pub(crate) fn listed(&self, row: rv_core::store::MessageRow) -> MessageItem {
         let info = &self.session.info;
         let d = rv_core::timeline::Display {
             row: self.session.open_row(row),

@@ -16,7 +16,7 @@ On a RocketVibe server, a text message can be written now and sent later: the se
 
 ## Web
 
-Not offered yet.
+`apps/web/src/scheduled.ts` holds the offered times (`inOneHour`, `tomorrowMorning`), the bounds (`acceptable`), the room filter (`forRoom`) and the 24-hour `when` label. `App` in `apps/web/src/app.ts`: `canSchedule` (capability, room not encrypted, posting allowed, nothing staged), `sendLater` (the `actionMenu` above the button), `pickTime` (a dialog with a `datetime-local` field), `schedule` (keeps its operation id in `scheduling` until the answer, so a retry of the same text and time replays it; clears the composer and its saved draft only if the text is unchanged), `refreshScheduled` (on room open and every minute from `open`, after each schedule or cancel), `cancelScheduled`, `showScheduled` (the list dialog, Cancel or Remove). The "Send later" button (icon `up`) sits left of send in the room composer (`apps/web/src/ui/application.tsx`) and the thread composer (`apps/web/src/ui/thread.tsx`, with the thread root as `reply_to`); the chip `.scheduled-chip` sits above the room composer. Tests: `apps/web/tests/scheduled.test.ts`, browser `apps/web/tests/scheduled.mjs` (schedule from the menu, the chip, the server row an hour ahead, nothing sent, then Cancel).
 
 ## Mobile
 
@@ -33,3 +33,8 @@ Not offered yet (GTK, SwiftUI).
 - apps/server/src/main.rs
 - apps/server/migrations/0057_scheduled_messages.sql
 - docs/protocol/SCHEDULED.md
+- apps/web/src/scheduled.ts
+- apps/web/src/app.ts
+- apps/web/src/ui/application.tsx
+- apps/web/src/ui/thread.tsx
+- apps/web/tests/scheduled.mjs

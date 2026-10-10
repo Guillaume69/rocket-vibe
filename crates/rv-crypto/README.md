@@ -2,11 +2,14 @@
 
 Rust foundation of [RFC 0002](../../docs/rfcs/0002-e2ee-native.md). It has its own
 workspace and lock (kept in step with the others by `scripts/cargo-locks.mjs`); the
-server does not depend on the vault. The [core of the existing desktop provider](../../apps/desktop/docs/NATIVE_CRYPTO.md)
-now consumes it with HTTP and a session-generation guard, with no
-activation or implicit opening from the interfaces. The public formats / verifiers are
+server does not depend on the vault. Three clients consume it: the
+[desktop core](../../apps/desktop/docs/NATIVE_CRYPTO.md) directly, over HTTP and with a
+session-generation guard; Android through [`rv-crypto-mobile`](../rv-crypto-mobile/README.md);
+the browser through `rv-crypto-web` (wasm). The public formats / verifiers are
 shared through [`rv-crypto-public`](../rv-crypto-public/README.md), consumed by the
-server and re-exported here without any format change. No E2EE capability is enabled.
+server and re-exported here without any format change. Native E2EE is on by default
+since 6 October 2026: the server announces the `e2ee` capability unless an instance sets
+`RV_E2EE=false` ([RFC 0002, Activation](../../docs/rfcs/0002-e2ee-native.md#activation-6-october-2026)).
 
 ## Format and transaction
 
@@ -106,10 +109,11 @@ of its commit through the `next` key of the protected record. Expired KeyPackage
 are destroyed after a grace period. See [E2EE_STORAGE.md](../../docs/protocol/E2EE_STORAGE.md).
 [OpenMLS storage requirements](https://book.openmls.tech/user_manual/persistence.html).
 
-MLS is not the recoverable archive required by the RFC. This crate still provides
-neither archive / files nor an Android bridge. The optional HTTP worker remains
-experimental; its access is bound to the desktop core, while the ceremonies,
-keychains and projection of the interfaces remain to be wired up. The
+MLS is not the recoverable archive required by the RFC, so this crate adds its own:
+the archive (`archive`), history shares and backups (`history`, `history_backup`)
+and encrypted files (`files`). The HTTP worker (feature `native-http`, `delivery`)
+is what the desktop core drives; the Android and browser bridges are
+`rv-crypto-mobile` and `rv-crypto-web`. The
 [`identity`](IDENTITY.md) module provides Ed25519 roots, certificates, explicit
 pins / confirmations and revocations; the new-device ceremony, recovery
 and the room admission policy remain to be integrated. The internal

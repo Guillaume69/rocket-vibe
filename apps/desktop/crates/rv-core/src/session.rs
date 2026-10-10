@@ -17,6 +17,7 @@ use crate::actions::{self, ServerSettings};
 use crate::ddp::{self, DdpEvent, DdpHandle, State, Timeouts};
 use crate::live;
 use crate::mattermost::socket::{self as live_socket, LiveEvent, LiveHandle};
+use crate::mattermost::sync::MmSync;
 use crate::mattermost::{self, Flavor};
 use crate::{info, media};
 
@@ -224,6 +225,15 @@ fn reconnect_delay(attempt: u32) -> u64 {
     (base + fastrand::u64(0..1000)).min(MAX_RECONNECT_DELAY_MS)
 }
 
+/// The server family a session speaks to. Every per-server choice matches on
+/// it, exhaustively: a forgotten case is a compile error, not a silent fall
+/// through to Rocket.Chat's REST on a Mattermost server.
+pub(crate) enum Backend<'a> {
+    RocketChat,
+    /// Mattermost or kChat, with the engine that maps its channels and posts.
+    Mattermost(&'a Arc<MmSync>),
+}
+
 /// Rocket.Chat's DDP, or the socket of a Mattermost or kChat account.
 #[derive(Clone)]
 enum Transport {
@@ -379,6 +389,14 @@ impl Session {
         Ok(session)
     }
 
+    /// Which server family this session speaks to; match on it, exhaustively.
+    pub(crate) fn backend(&self) -> Backend<'_> {
+        match self.sync.mattermost() {
+            Some(mm) => Backend::Mattermost(mm),
+            None => Backend::RocketChat,
+        }
+    }
+
     pub fn events(&self) -> broadcast::Receiver<SessionEvent> {
         self.events.subscribe()
     }
@@ -473,7 +491,8 @@ impl Session {
     /// One Mattermost event, in arrival order: typing and presence here, the
     /// rest into the store.
     async fn apply_mattermost(self: &Arc<Self>, name: &str, data: &Value, broadcast: &Value) {
-        let Some(mm) = self.sync.mattermost().cloned() else { return };
+        let Backend::Mattermost(mm) = self.backend() else { return };
+        let mm = mm.clone();
         let field =
             |v: &Value, key: &str| v.get(key).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
         match name {
@@ -621,13 +640,16 @@ impl Session {
 
     /// Everyone's presence at once; the stream then keeps it current.
     async fn load_presence(&self) {
-        if self.sync.mattermost().is_some() {
-            let ids: Vec<String> = self.store.rooms().into_iter().filter_map(|r| r.dm_other_uid).collect();
-            if let Ok(list) = mattermost::actions::statuses(&self.rest, &ids).await {
-                self.presence.lock().unwrap().get_or_insert_default().extend(list);
-                let _ = self.events.send(SessionEvent::Presence);
+        match self.backend() {
+            Backend::Mattermost(_) => {
+                let ids: Vec<String> = self.store.rooms().into_iter().filter_map(|r| r.dm_other_uid).collect();
+                if let Ok(list) = mattermost::actions::statuses(&self.rest, &ids).await {
+                    self.presence.lock().unwrap().get_or_insert_default().extend(list);
+                    let _ = self.events.send(SessionEvent::Presence);
+                }
+                return;
             }
-            return;
+            Backend::RocketChat => {}
         }
         if let Ok(response) = self.rest.get("users.presence", CallOptions::default()).await {
             let list = live::presence_list(&response);
@@ -639,8 +661,11 @@ impl Session {
     /// Whether the server has a video-conference provider. A "no" is kept for
     /// the session; a network failure or a refused token says nothing about it.
     pub async fn call_available(&self) -> bool {
-        if self.sync.mattermost().is_some() {
-            return self.info.mattermost == Some(mattermost::Flavor::Kchat);
+        match self.backend() {
+            Backend::Mattermost(_) => {
+                return self.info.mattermost == Some(mattermost::Flavor::Kchat);
+            }
+            Backend::RocketChat => {}
         }
         if let Some(known) = *self.call_available.lock().unwrap() {
             return known;
@@ -666,16 +691,22 @@ impl Session {
     }
 
     pub async fn room_info(&self, rid: &str) -> Result<info::RoomInfo, RestError> {
-        if self.sync.mattermost().is_some() {
-            return mattermost::actions::room_info(&self.rest, rid).await;
+        match self.backend() {
+            Backend::Mattermost(_) => {
+                return mattermost::actions::room_info(&self.rest, rid).await;
+            }
+            Backend::RocketChat => {}
         }
         let response = self.rest.get("rooms.info", CallOptions::params([("roomId", rid)])).await?;
         response.get("room").and_then(info::room_info).ok_or_else(|| RestError::incomplete("rooms.info: no room"))
     }
 
     pub async fn room_by_name(&self, name: &str) -> Result<info::RoomInfo, RestError> {
-        if self.sync.mattermost().is_some() {
-            return mattermost::actions::room_by_name(&self.rest, name).await;
+        match self.backend() {
+            Backend::Mattermost(_) => {
+                return mattermost::actions::room_by_name(&self.rest, name).await;
+            }
+            Backend::RocketChat => {}
         }
         let response = self.rest.get("rooms.info", CallOptions::params([("roomName", name)])).await?;
         response.get("room").and_then(info::room_info).ok_or_else(|| RestError::incomplete("rooms.info: no room"))
@@ -683,8 +714,11 @@ impl Session {
 
     /// By username, or by id when `by_id`.
     pub async fn profile(&self, key: &str, by_id: bool) -> Result<info::Profile, RestError> {
-        if let Some(mm) = self.sync.mattermost() {
-            return mattermost::actions::profile(&self.rest, mm, key, by_id).await;
+        match self.backend() {
+            Backend::Mattermost(mm) => {
+                return mattermost::actions::profile(&self.rest, mm, key, by_id).await;
+            }
+            Backend::RocketChat => {}
         }
         let param = if by_id { "userId" } else { "username" };
         let response = self.rest.get("users.info", CallOptions::params([(param, key)])).await?;
@@ -697,8 +731,11 @@ impl Session {
     }
 
     pub async fn search(&self, rid: &str, text: &str) -> Result<Vec<crate::normalize::Message>, RestError> {
-        if let Some(mm) = self.sync.mattermost() {
-            return mattermost::actions::search(&self.rest, mm, rid, text).await;
+        match self.backend() {
+            Backend::Mattermost(mm) => {
+                return mattermost::actions::search(&self.rest, mm, rid, text).await;
+            }
+            Backend::RocketChat => {}
         }
         let options = CallOptions::params([("roomId", rid), ("searchText", text), ("count", "50")]);
         Ok(info::search_results(&self.rest.get("chat.search", options).await?))
@@ -707,6 +744,10 @@ impl Session {
     /// Opens my private key with the E2E password. The password is not kept;
     /// the key is, by the app, through `e2e_export`.
     pub async fn e2e_unlock(&self, password: &str) -> Result<(), UnlockError> {
+        // Rocket.Chat's E2EE only: Mattermost has no encrypted rooms.
+        if let Backend::Mattermost(_) = self.backend() {
+            return Err(UnlockError::Server(RestError::incomplete("e2e: not on this server")));
+        }
         let keys = self.rest.get("e2e.fetchMyKeys", CallOptions::default()).await.map_err(UnlockError::Server)?;
         let private = keys.get("private_key").and_then(Value::as_str).unwrap_or_default();
         let (key, jwk) =
@@ -800,8 +841,9 @@ impl Session {
     /// Rocket.Chat their real name when the server shows real names
     /// (`UI_Use_Real_Name`). None for someone shown by username.
     pub fn person_label(&self, uid: &str) -> Option<String> {
-        let Some(mattermost) = self.sync.mattermost() else {
-            return self.store.real_names().then(|| self.store.person_name(uid)).flatten();
+        let mattermost = match self.backend() {
+            Backend::Mattermost(mm) => mm,
+            Backend::RocketChat => return self.store.real_names().then(|| self.store.person_name(uid)).flatten(),
         };
         let directory = &mattermost.directory;
         let name = directory.display_name(uid);
@@ -818,8 +860,11 @@ impl Session {
 
     /// The account's conversation list settings, kept on the server (Mattermost and kChat).
     pub async fn sidebar_settings(&self) -> Result<mattermost::actions::SidebarSettings, RestError> {
-        if self.sync.mattermost().is_none() {
-            return Err(RestError::incomplete("sidebar settings: not on this server"));
+        match self.backend() {
+            Backend::RocketChat => {
+                return Err(RestError::incomplete("sidebar settings: not on this server"));
+            }
+            Backend::Mattermost(_) => {}
         }
         mattermost::actions::sidebar_settings(&self.rest).await
     }
@@ -830,15 +875,21 @@ impl Session {
         name_format: Option<mattermost::directory::NameFormat>,
         dm_limit: Option<usize>,
     ) -> Result<(), RestError> {
-        if self.sync.mattermost().is_none() {
-            return Err(RestError::incomplete("sidebar settings: not on this server"));
+        match self.backend() {
+            Backend::RocketChat => {
+                return Err(RestError::incomplete("sidebar settings: not on this server"));
+            }
+            Backend::Mattermost(_) => {}
         }
         mattermost::actions::set_sidebar_settings(&self.rest, &self.info.user_id, name_format, dm_limit).await
     }
 
     /// A Mattermost person's custom status emoji, while it lasts.
     pub fn status_emoji(&self, uid: &str) -> Option<String> {
-        self.sync.mattermost()?.directory.status_emoji(uid)
+        match self.backend() {
+            Backend::Mattermost(mm) => mm.directory.status_emoji(uid),
+            Backend::RocketChat => None,
+        }
     }
 
     /// The server path of a custom emoji's image.
@@ -860,16 +911,22 @@ impl Session {
     }
 
     pub async fn me(&self) -> Result<crate::account::Me, RestError> {
-        if self.sync.mattermost().is_some() {
-            return mattermost::actions::me(&self.rest).await;
+        match self.backend() {
+            Backend::Mattermost(_) => {
+                return mattermost::actions::me(&self.rest).await;
+            }
+            Backend::RocketChat => {}
         }
         Ok(crate::account::me(&self.rest.get("me", CallOptions::default()).await?))
     }
 
     /// Both at once: `users.setStatus` clears whichever one is left out.
     pub async fn set_status(&self, status: &str, message: &str) -> Result<(), RestError> {
-        if self.sync.mattermost().is_some() {
-            return mattermost::actions::set_status(&self.rest, &self.info.user_id, status, message).await;
+        match self.backend() {
+            Backend::Mattermost(_) => {
+                return mattermost::actions::set_status(&self.rest, &self.info.user_id, status, message).await;
+            }
+            Backend::RocketChat => {}
         }
         let body = json!({"status": status, "message": message});
         self.rest.post("users.setStatus", CallOptions::body(body)).await.map(|_| ())
@@ -883,8 +940,11 @@ impl Session {
         password: Option<&str>,
         two_factor: Option<TwoFactorCode>,
     ) -> Result<(), RestError> {
-        if self.sync.mattermost().is_some() {
-            return mattermost::actions::update_basic_info(&self.rest, &data, password).await;
+        match self.backend() {
+            Backend::Mattermost(_) => {
+                return mattermost::actions::update_basic_info(&self.rest, &data, password).await;
+            }
+            Backend::RocketChat => {}
         }
         if let Some(password) = password {
             data.insert("currentPassword".into(), json!(two_factor_code("password", password).code));
@@ -896,28 +956,31 @@ impl Session {
     pub async fn set_avatar(&self, file: &Path, mime: &str) -> Result<(), RestError> {
         let bytes = tokio::fs::read(file).await.map_err(|e| RestError::incomplete(&e.to_string()))?;
         let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "avatar".into());
-        let path = match self.sync.mattermost() {
-            Some(_) => format!("users/{}/image", self.info.user_id),
-            None => "users.setAvatar".to_owned(),
+        let path = match self.backend() {
+            Backend::Mattermost(_) => format!("users/{}/image", self.info.user_id),
+            Backend::RocketChat => "users.setAvatar".to_owned(),
         };
         self.rest.upload(&path, "image", bytes, &name, mime, Vec::new(), |_, _| {}).await.map(|_| ())
     }
 
     pub async fn reset_avatar(&self) -> Result<(), RestError> {
-        if self.sync.mattermost().is_some() {
-            let path = format!("users/{}/image", self.info.user_id);
-            return self.rest.delete(&path, CallOptions::default()).await.map(|_| ());
+        match self.backend() {
+            Backend::Mattermost(_) => {
+                let path = format!("users/{}/image", self.info.user_id);
+                return self.rest.delete(&path, CallOptions::default()).await.map(|_| ());
+            }
+            Backend::RocketChat => {}
         }
         self.rest.post("users.resetAvatar", CallOptions::body(json!({}))).await.map(|_| ())
     }
 
     pub async fn set_preference(&self, key: &str, value: Value) -> Result<(), RestError> {
-        match (self.sync.mattermost(), value.as_str()) {
-            (Some(_), Some(v)) if key == "desktopNotifications" => {
+        match (self.backend(), value.as_str()) {
+            (Backend::Mattermost(_), Some(v)) if key == "desktopNotifications" => {
                 mattermost::actions::set_desktop_notifications(&self.rest, v).await?
             }
-            (Some(_), _) => return Err(RestError::incomplete(&format!("{key}: not on this server"))),
-            (None, _) => {
+            (Backend::Mattermost(_), _) => return Err(RestError::incomplete(&format!("{key}: not on this server"))),
+            (Backend::RocketChat, _) => {
                 let body = json!({"data": {key: value}});
                 self.rest.post("users.setPreferences", CallOptions::body(body)).await?;
             }
@@ -931,8 +994,11 @@ impl Session {
     }
 
     pub async fn spotlight(&self, query: &str) -> Result<Vec<crate::rooms::Found>, RestError> {
-        if let Some(mm) = self.sync.mattermost() {
-            return mattermost::actions::spotlight(&self.rest, mm, query).await;
+        match self.backend() {
+            Backend::Mattermost(mm) => {
+                return mattermost::actions::spotlight(&self.rest, mm, query).await;
+            }
+            Backend::RocketChat => {}
         }
         let response = self.rest.get("spotlight", CallOptions::params([("query", query)])).await?;
         Ok(crate::rooms::spotlight_results(&response))
@@ -941,11 +1007,14 @@ impl Session {
     /// The DM with this user, created if needed; returns its rid once the
     /// store has it, so it can be opened at once.
     pub async fn open_dm(&self, username: &str) -> Result<String, RestError> {
-        if let Some(mm) = self.sync.mattermost() {
-            let rid = mattermost::actions::open_dm(&self.rest, mm, &self.info.user_id, username).await?;
-            mm.reveal(&rid);
-            self.sync.catch_up_global().await?;
-            return Ok(rid);
+        match self.backend() {
+            Backend::Mattermost(mm) => {
+                let rid = mattermost::actions::open_dm(&self.rest, mm, &self.info.user_id, username).await?;
+                mm.reveal(&rid);
+                self.sync.catch_up_global().await?;
+                return Ok(rid);
+            }
+            Backend::RocketChat => {}
         }
         let response = self.rest.post("im.create", CallOptions::body(json!({"username": username}))).await?;
         let rid = response
@@ -959,9 +1028,9 @@ impl Session {
     }
 
     pub async fn join_channel(&self, rid: &str) -> Result<(), RestError> {
-        match self.sync.mattermost() {
-            Some(_) => mattermost::actions::join(&self.rest, &self.info.user_id, rid).await?,
-            None => {
+        match self.backend() {
+            Backend::Mattermost(_) => mattermost::actions::join(&self.rest, &self.info.user_id, rid).await?,
+            Backend::RocketChat => {
                 self.rest.post("channels.join", CallOptions::body(json!({"roomId": rid}))).await?;
             }
         }
@@ -969,9 +1038,12 @@ impl Session {
     }
 
     pub async fn mark_read(&self, rid: &str) {
-        if self.sync.mattermost().is_some() {
-            let _ = mattermost::actions::mark_read(&self.rest, rid).await;
-            return;
+        match self.backend() {
+            Backend::Mattermost(_) => {
+                let _ = mattermost::actions::mark_read(&self.rest, rid).await;
+                return;
+            }
+            Backend::RocketChat => {}
         }
         let _ = self.rest.post("subscriptions.read", CallOptions::body(json!({"rid": rid}))).await;
     }
@@ -1055,17 +1127,20 @@ impl Session {
     /// What does not change from one reconnection to the next: read once,
     /// the REST budget being ten calls a minute.
     async fn once_per_session(&self) {
-        if self.sync.mattermost().is_some() {
-            if let Ok(index) = mattermost::actions::custom_emojis(&self.rest).await {
-                *self.custom_emoji_names.lock().unwrap() = crate::emoji::custom_names(&index);
-                self.custom_emoji.lock().unwrap().extend(index);
-                let _ = self.events.send(SessionEvent::Avatar);
+        match self.backend() {
+            Backend::Mattermost(_) => {
+                if let Ok(index) = mattermost::actions::custom_emojis(&self.rest).await {
+                    *self.custom_emoji_names.lock().unwrap() = crate::emoji::custom_names(&index);
+                    self.custom_emoji.lock().unwrap().extend(index);
+                    let _ = self.events.send(SessionEvent::Avatar);
+                }
+                if let Ok(me) = self.me().await {
+                    *self.notification_preference.lock().unwrap() = me.desktop_notifications;
+                }
+                let _ = self.sync.reconcile_rooms().await;
+                return;
             }
-            if let Ok(me) = self.me().await {
-                *self.notification_preference.lock().unwrap() = me.desktop_notifications;
-            }
-            let _ = self.sync.reconcile_rooms().await;
-            return;
+            Backend::RocketChat => {}
         }
         let _ = self.refresh_custom_emojis().await;
         // People by real name or username, as the server's own clients show them.
@@ -1091,6 +1166,11 @@ impl Session {
     /// Reads the Rocket.Chat server's custom emoji again and REPLACES the
     /// index, so a deleted one goes too; answers the list as received.
     pub async fn refresh_custom_emojis(&self) -> Result<Value, RestError> {
+        // Mattermost's custom emoji are read once per session by `MmSync`; its
+        // server has no `emoji-custom.list`, which used to answer a 404 here.
+        if let Backend::Mattermost(_) = self.backend() {
+            return Err(RestError::incomplete("custom emoji: not on this server"));
+        }
         let list = self.rest.get("emoji-custom.list", CallOptions::default()).await?;
         let index = crate::emoji::custom_index(&list);
         *self.custom_emoji_names.lock().unwrap() = crate::emoji::custom_names(&index);
@@ -1130,7 +1210,10 @@ impl Session {
         self.transport.subscribe(STREAM_NOTIFY_ROOM, &format!("{rid}/{}", live::USER_ACTIVITY));
         let rest = self.rest.clone();
         let read = CallOptions::body(json!({"rid": rid}));
-        let mattermost = self.sync.mattermost().is_some();
+        let mattermost = match self.backend() {
+            Backend::Mattermost(_) => true,
+            Backend::RocketChat => false,
+        };
         let room = rid.to_owned();
         tokio::spawn(async move {
             if mattermost {
@@ -1181,11 +1264,11 @@ impl Session {
     pub async fn settings(&self) -> &ServerSettings {
         self.settings
             .get_or_init(|| async {
-                match self.sync.mattermost() {
-                    Some(_) => {
+                match self.backend() {
+                    Backend::Mattermost(_) => {
                         ServerSettings { site_url: Some(self.info.base_url.clone()), ..ServerSettings::from_list(&[]) }
                     }
-                    None => ServerSettings::fetch(&self.rest).await,
+                    Backend::RocketChat => ServerSettings::fetch(&self.rest).await,
                 }
             })
             .await
@@ -1207,8 +1290,11 @@ impl Session {
     }
 
     async fn access(&self) -> Option<&(Vec<actions::PermissionRoles>, Vec<String>)> {
-        if self.sync.mattermost().is_some() {
-            return None;
+        match self.backend() {
+            Backend::Mattermost(_) => {
+                return None;
+            }
+            Backend::RocketChat => {}
         }
         self.access
             .get_or_try_init(|| async {
@@ -1232,8 +1318,11 @@ impl Session {
         let commands = self
             .commands
             .get_or_try_init(|| async {
-                if self.sync.mattermost().is_some() {
-                    return Ok(Vec::new());
+                match self.backend() {
+                    Backend::Mattermost(_) => {
+                        return Ok(Vec::new());
+                    }
+                    Backend::RocketChat => {}
                 }
                 let list = self.rest.get("commands.list", CallOptions::params([("count", "0")])).await?;
                 Ok::<_, RestError>(crate::commands::parse_list(&list, crate::i18n::current()))
@@ -1274,8 +1363,11 @@ impl Session {
 
     /// The permalink the server recognises: built on `Site_Url`, else on our base URL.
     pub async fn permalink(&self, kind: &str, slug: Option<&str>, rid: &str, msg_id: &str) -> String {
-        if self.sync.mattermost().is_some() {
-            return mattermost::actions::permalink(&self.info.base_url, msg_id);
+        match self.backend() {
+            Backend::Mattermost(_) => {
+                return mattermost::actions::permalink(&self.info.base_url, msg_id);
+            }
+            Backend::RocketChat => {}
         }
         let base = self.settings().await.site_url.clone().unwrap_or_else(|| self.info.base_url.clone());
         actions::permalink(&base, kind, slug, rid, msg_id)
@@ -1307,18 +1399,24 @@ impl Session {
     }
 
     pub async fn react(&self, msg_id: &str, shortcode: &str, add: bool) -> Result<(), RestError> {
-        if self.sync.mattermost().is_some() {
-            return mattermost::actions::react(&self.rest, &self.info.user_id, msg_id, shortcode, add).await;
+        match self.backend() {
+            Backend::Mattermost(_) => {
+                return mattermost::actions::react(&self.rest, &self.info.user_id, msg_id, shortcode, add).await;
+            }
+            Backend::RocketChat => {}
         }
         actions::react(&self.rest, msg_id, shortcode, add).await
     }
 
     pub async fn edit(&self, rid: &str, msg_id: &str, text: &str) -> Result<(), RestError> {
         let text = &crate::compose::fenced(text);
-        if let Some(mm) = self.sync.mattermost() {
-            let post = mattermost::actions::edit(&self.rest, msg_id, text).await?;
-            mm.ingest(&[post]);
-            return Ok(());
+        match self.backend() {
+            Backend::Mattermost(mm) => {
+                let post = mattermost::actions::edit(&self.rest, msg_id, text).await?;
+                mm.ingest(&[post]);
+                return Ok(());
+            }
+            Backend::RocketChat => {}
         }
         let doc = if self.store.message_type(msg_id).as_deref() == Some(crate::normalize::ENCRYPTED_TYPE) {
             let content = self
@@ -1335,9 +1433,9 @@ impl Session {
     }
 
     pub async fn delete(&self, rid: &str, msg_id: &str) -> Result<(), RestError> {
-        match self.sync.mattermost() {
-            Some(_) => mattermost::actions::delete(&self.rest, msg_id).await?,
-            None => actions::delete(&self.rest, rid, msg_id).await?,
+        match self.backend() {
+            Backend::Mattermost(_) => mattermost::actions::delete(&self.rest, msg_id).await?,
+            Backend::RocketChat => actions::delete(&self.rest, rid, msg_id).await?,
         }
         self.store.write(|w| w.delete_message(msg_id));
         Ok(())
@@ -1345,20 +1443,26 @@ impl Session {
 
     /// Stars a room, or takes the star away: it moves to the Favorites section.
     pub async fn set_favorite(&self, rid: &str, on: bool) -> Result<(), RestError> {
-        if let Some(mm) = self.sync.mattermost() {
-            mattermost::actions::favorite(&self.rest, mm.me(), rid, on).await?;
-            mm.note_favorite(rid, on);
-        } else {
-            actions::favorite(&self.rest, rid, on).await?;
+        match self.backend() {
+            Backend::Mattermost(mm) => {
+                mattermost::actions::favorite(&self.rest, mm.me(), rid, on).await?;
+                mm.note_favorite(rid, on);
+            }
+            Backend::RocketChat => {
+                actions::favorite(&self.rest, rid, on).await?;
+            }
         }
         self.store.write(|w| w.set_favorite(rid, on));
         Ok(())
     }
 
     pub async fn pin(&self, msg_id: &str) -> Result<(), RestError> {
-        if let Some(mm) = self.sync.mattermost() {
-            mm.ingest(&[mattermost::actions::pin(&self.rest, msg_id, true).await?]);
-            return Ok(());
+        match self.backend() {
+            Backend::Mattermost(mm) => {
+                mm.ingest(&[mattermost::actions::pin(&self.rest, msg_id, true).await?]);
+                return Ok(());
+            }
+            Backend::RocketChat => {}
         }
         actions::pin(&self.rest, msg_id).await?;
         self.refresh_message(msg_id).await;
@@ -1366,9 +1470,12 @@ impl Session {
     }
 
     pub async fn unpin(&self, msg_id: &str) -> Result<(), RestError> {
-        if let Some(mm) = self.sync.mattermost() {
-            mm.ingest(&[mattermost::actions::pin(&self.rest, msg_id, false).await?]);
-            return Ok(());
+        match self.backend() {
+            Backend::Mattermost(mm) => {
+                mm.ingest(&[mattermost::actions::pin(&self.rest, msg_id, false).await?]);
+                return Ok(());
+            }
+            Backend::RocketChat => {}
         }
         actions::unpin(&self.rest, msg_id).await?;
         self.refresh_message(msg_id).await;
@@ -1376,10 +1483,13 @@ impl Session {
     }
 
     pub async fn star(&self, msg_id: &str, on: bool) -> Result<(), RestError> {
-        if let Some(mm) = self.sync.mattermost() {
-            mattermost::actions::flag(&self.rest, &self.info.user_id, msg_id, on).await?;
-            mm.set_flagged(&[msg_id.to_owned()], on).await;
-            return Ok(());
+        match self.backend() {
+            Backend::Mattermost(mm) => {
+                mattermost::actions::flag(&self.rest, &self.info.user_id, msg_id, on).await?;
+                mm.set_flagged(&[msg_id.to_owned()], on).await;
+                return Ok(());
+            }
+            Backend::RocketChat => {}
         }
         actions::star(&self.rest, msg_id, on).await?;
         self.refresh_message(msg_id).await;
@@ -1398,20 +1508,23 @@ impl Session {
 
     /// A room's pinned messages, or the ones I starred there, newest first; stored as they come.
     pub async fn marked(&self, rid: &str, starred: bool) -> Result<Vec<crate::store::MessageRow>, RestError> {
-        if let Some(mm) = self.sync.mattermost() {
-            let posts = if starred {
-                mattermost::actions::flagged(&self.rest, rid).await?
-            } else {
-                mattermost::actions::pinned(&self.rest, rid).await?
-            };
-            if starred {
-                mm.note_flagged(&posts);
+        match self.backend() {
+            Backend::Mattermost(mm) => {
+                let posts = if starred {
+                    mattermost::actions::flagged(&self.rest, rid).await?
+                } else {
+                    mattermost::actions::pinned(&self.rest, rid).await?
+                };
+                if starred {
+                    mm.note_flagged(&posts);
+                }
+                mm.ensure_authors(&posts).await;
+                mm.ingest(&posts);
+                let ids: Vec<String> =
+                    posts.iter().filter_map(|p| p.get("id").and_then(Value::as_str)).map(str::to_owned).collect();
+                return Ok(self.store.messages_by_id(&ids));
             }
-            mm.ensure_authors(&posts).await;
-            mm.ingest(&posts);
-            let ids: Vec<String> =
-                posts.iter().filter_map(|p| p.get("id").and_then(Value::as_str)).map(str::to_owned).collect();
-            return Ok(self.store.messages_by_id(&ids));
+            Backend::RocketChat => {}
         }
         let docs = actions::marked(&self.rest, rid, starred).await?;
         self.sync.ingest_messages(&docs);
@@ -1423,7 +1536,10 @@ impl Session {
     /// Whether the server lists a room's threads and lets me follow one:
     /// Rocket.Chat only, Mattermost and kChat have no such list.
     pub fn threads_available(&self) -> bool {
-        self.sync.mattermost().is_none()
+        match self.backend() {
+            Backend::RocketChat => true,
+            Backend::Mattermost(_) => false,
+        }
     }
 
     /// One page of the room's threads (every one, or the ones I follow), the
@@ -1460,7 +1576,10 @@ impl Session {
     /// Whether the room list can mark a room unread or read: Rocket.Chat only
     /// (`subscriptions.unread`), not offered on Mattermost and kChat.
     pub fn unread_marks_available(&self) -> bool {
-        self.sync.mattermost().is_none()
+        match self.backend() {
+            Backend::RocketChat => true,
+            Backend::Mattermost(_) => false,
+        }
     }
 
     /// Makes the room unread from its last message, as the official clients'
@@ -1537,26 +1656,35 @@ impl Session {
     }
 
     pub async fn start_call(&self, rid: &str) -> Result<String, RestError> {
-        if self.sync.mattermost().is_some() {
-            return mattermost::actions::start_conference(&self.rest, rid).await;
+        match self.backend() {
+            Backend::Mattermost(_) => {
+                return mattermost::actions::start_conference(&self.rest, rid).await;
+            }
+            Backend::RocketChat => {}
         }
         let call_id = actions::start_call(&self.rest, rid).await?;
         actions::join_call(&self.rest, &call_id).await
     }
 
     pub async fn join_call(&self, call_id: &str) -> Result<String, RestError> {
-        if self.sync.mattermost().is_some() {
-            return mattermost::actions::answer_conference(&self.rest, call_id).await;
+        match self.backend() {
+            Backend::Mattermost(_) => {
+                return mattermost::actions::answer_conference(&self.rest, call_id).await;
+            }
+            Backend::RocketChat => {}
         }
         actions::join_call(&self.rest, call_id).await
     }
 
     /// The meeting's link to share, without anyone's token.
     pub async fn call_link(&self, call_id: &str) -> Result<String, RestError> {
-        if self.sync.mattermost().is_some() {
-            return mattermost::actions::answer_conference(&self.rest, call_id)
-                .await
-                .map(|url| crate::call::meeting_link(&url));
+        match self.backend() {
+            Backend::Mattermost(_) => {
+                return mattermost::actions::answer_conference(&self.rest, call_id)
+                    .await
+                    .map(|url| crate::call::meeting_link(&url));
+            }
+            Backend::RocketChat => {}
         }
         let url = match actions::call_url(&self.rest, call_id).await? {
             Some(url) => url,
@@ -1568,8 +1696,11 @@ impl Session {
     /// The root (`chat.getThreadMessages` never returns it) then every reply,
     /// by full pages: `count: 0` depends on `API_Allow_Infinite_Count`.
     pub async fn load_thread(&self, root_id: &str) -> Result<(), RestError> {
-        if let Some(mm) = self.sync.mattermost() {
-            return mm.load_thread(root_id).await;
+        match self.backend() {
+            Backend::Mattermost(mm) => {
+                return mm.load_thread(root_id).await;
+            }
+            Backend::RocketChat => {}
         }
         const PAGE: usize = 100;
         const MAX_PAGES: usize = 20;

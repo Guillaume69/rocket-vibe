@@ -1,23 +1,40 @@
 # Architecture overview
 
-rocket-vibe is a monorepo of two independent third-party Rocket.Chat clients, a mobile app and a desktop app, that share a test server, a few scripts and one design: the network writes into a local SQLite database and the UI only observes that database. Read this first, then follow the links to the per-subsystem docs.
+rocket-vibe is a monorepo of chat clients and one chat server. Three client apps (Android in `apps/mobile`, GTK and SwiftUI in `apps/desktop`, a browser app in `apps/web`) speak to three kinds of server: Rocket.Chat 8, Mattermost or kChat, and the project's own RocketVibe server in `apps/server`. The native apps share one design: the network writes into a local SQLite database and the UI only observes that database. Read this first, then follow the links to the per-subsystem docs.
 
 ## The repository
 
 ```
 apps/mobile/     Expo / React Native app, Android first (TypeScript)
-apps/desktop/    Rust workspace (rv-core, rv-gtk, rv-native, rv-ffi) + SwiftUI app in macos/
-docker/          Rocket.Chat 8.5.1 + MongoDB 8.0 test server, push-patched bundle
-scripts/         seed.mjs (test data), version.mjs, changelog.mjs, spike-ddp.mjs
-docs/            DEV.md (environment, target server survey), PUSH.md
-.github/         mobile.yml, desktop.yml, desktop-swiftui.yml
+apps/desktop/    Rust workspace (rv-core, rv-gtk, rv-native, rv-ffi, rv-voice-protocol),
+                 the voice sidecar workspace in voice/, the SwiftUI app in macos/
+apps/web/        React browser client for the RocketVibe server, embedded in its binary
+apps/server/     The RocketVibe server: Rust, Axum, PostgreSQL
+crates/          Shared Rust: rv-protocol, rv-client, rv-crypto, rv-crypto-public,
+                 rv-crypto-mobile, rv-crypto-web, rv-voice-mobile
+Cargo.toml       Root workspace: the server, rv-protocol, rv-client, rv-crypto-public
+docker/          Rocket.Chat 8.5.1 bench (compose.yml), RocketVibe server and PostgreSQL
+                 (compose.rocketvibe.yml), LiveKit (compose.voice.yml), Mattermost,
+                 native pilot benches
+scripts/         seed.mjs, version.mjs, changelog.mjs, cargo-locks.mjs, protocol and
+                 emoji generators, the Rocket.Chat inventory
+docs/            DEV.md, PUSH.md, MATTERMOST.md, DEPLOY-SERVER.md, protocol/ (the native
+                 contract), rfcs/ (the RocketVibe server and its E2EE), execution logs
+.github/         one workflow per app, plus the server, crypto and lock checks
 ```
 
-The two apps share no code. Each has its own version, changelog, CI workflow and release tag (`mobile-vX.Y.Z`, `desktop-vX.Y.Z`). What they share is the server contract ([rocket-chat.md](rocket-chat.md)), the test bench (`docker/` seeded by `scripts/seed.mjs`), and the behaviour: the desktop core is a port of the mobile `lib/`, whose tests are its spec (`crates/rv-core/src/lib.rs` says so), and [parity.md](../parity.md) tracks, both ways, what each app owes the other. Technologies and versions are in [../stack.md](../stack.md); how to build and release is in [../operations.md](../operations.md).
+Each app has its own version, changelog, CI workflow and release tag (`mobile-vX.Y.Z`, `desktop-vX.Y.Z`, `web-vX.Y.Z`, `server-vX.Y.Z`). They share:
+
+- **Server contracts.** Rocket.Chat's ([rocket-chat.md](rocket-chat.md)), Mattermost's ([../features/mattermost-and-kchat.md](../features/mattermost-and-kchat.md)) and the RocketVibe server's, written once in `crates/rv-protocol` ([server.md](server.md)).
+- **Rust code.** The desktop builds on `rv-client`, `rv-protocol` and `rv-crypto`; the mobile app links `rv-crypto-mobile` and `rv-voice-mobile`; the web app runs `rv-crypto-web` as wasm; the server uses `rv-protocol` and `rv-crypto-public` ([shared-crates.md](shared-crates.md)).
+- **Behaviour.** The desktop core is a port of the mobile `lib/`, whose tests are its spec (`apps/desktop/crates/rv-core/src/lib.rs` says so); the web client follows the GTK design and the desktop's strings; [parity.md](../parity.md) tracks what each app owes the others.
+- **Test benches** in `docker/`.
+
+Technologies and versions are in [../stack.md](../stack.md); how to build and release is in [../operations.md](../operations.md).
 
 ## The shared principle: local-first, REST to act, DDP to listen
 
-Both clients follow the same layering, chosen against the official app's documented failures (stacked subscriptions, duplicate messages, stuck sends; see [../decisions.md](../decisions.md)):
+The mobile and desktop apps follow the same layering, chosen against the official Rocket.Chat app's documented failures (stacked subscriptions, duplicate messages, stuck sends; see [../decisions.md](../decisions.md)). The diagram is the Rocket.Chat provider's; Mattermost listens on its own WebSocket (kChat on Pusher), and the RocketVibe provider follows the server's ordered journal through a ticketed WebSocket, arbitrated by positions and revisions rather than `_updatedAt` ([server.md](server.md)):
 
 ```
 UI                    observes the database, never holds the live feed in memory
@@ -40,7 +57,7 @@ An Expo SDK 57 app on React Native 0.86 (New Architecture), Android first, iOS p
 |---|---|
 | `app/` | expo-router routes: `index.tsx` (room list), `login.tsx`, `room/[rid].tsx`, `thread/[id].tsx`, `call/[callId].tsx` (Jitsi call, the one WebView), search, settings, profiles, share target. |
 | `ui/` | Components, theme, i18n catalog (`messages.ts`), and the React glue that owns the session and the sync engine (`session.tsx`, `sync.tsx`). |
-| `providers/` | "Providers": `createProvider` picks the chat backend by `session.kind`; `providers/rocketchat/` is the only one and translates Rocket.Chat's wire format into neutral sync changes (`SyncChange`). The contract is `lib/provider.ts`. |
+| `providers/` | "Providers": `createProvider` picks the chat backend by `session.kind`: `rocketchat/`, `mattermost/` (Mattermost and kChat) and `rocketvibe/` (the RocketVibe server, with its generated protocol types and the crypto bridge). Each translates its server's wire format into neutral sync changes (`SyncChange`). The contract is `lib/provider.ts`. |
 | `lib/` | Platform-free core: DDP client (`ddp.ts`), REST client (`rest.ts`), auth, sync engine (`sync.ts`, `SyncEngine`), catch-up (`catchUp.ts`), reconnection, send queue (`outbox.ts`), uploads, markdown, E2EE (`lib/e2e/`). Loadable by plain Node, which is how it is tested. |
 | `db/` | SQLite schema (Drizzle), the SQL of every upsert (`upserts.ts`), the `Store` implementation (`store.ts`) and its serialised write queue (`writeQueue.ts`), migrations. |
 | `plugins/`, `modules/` | Config plugins that shape the generated `android/`/`ios/` projects, and local Expo native modules. |
@@ -51,7 +68,7 @@ Push notifications arrive through FCM directly (our Firebase project, no Expo Pu
 
 ## Desktop (`apps/desktop`)
 
-A Rust workspace with a UI-free core and two user interfaces over it.
+A Rust workspace with a UI-free core and two user interfaces over it. The core speaks Rocket.Chat, Mattermost and kChat, and the RocketVibe server (`rv-core/src/mattermost/`, `rv-core/src/native/`).
 
 | Part | Role |
 |---|---|
@@ -59,15 +76,27 @@ A Rust workspace with a UI-free core and two user interfaces over it.
 | `crates/rv-gtk` | The GTK 4 + libadwaita app (binary `rocket-vibe-gtk`) for Linux, Windows and macOS. tokio runs the core; GTK owns the main thread, and UI code hops over with `on_tokio(..).await` from `glib::spawn_future_local` futures. |
 | `crates/rv-native` | Windows and macOS shims with no GTK: system notifications and badges, tray and single instance, start at login, the WebView2 / WKWebView call window and inline player. No-ops on Linux. |
 | `crates/rv-ffi` | A UniFFI facade over `Session` for Swift, with its own tokio runtime and one listener callback for store changes and session events. |
+| `crates/rv-voice-protocol` | The JSON-lines contract with the voice sidecar. |
+| `voice/` | The voice sidecar `rv-voice`, its own workspace: it links libwebrtc ([../features/voice.md](../features/voice.md)). |
 | `macos/` | SwiftPM package: the SwiftUI app `RocketVibe` over rv-ffi, view models in `RocketVibeKit` (build on Linux too), and the `rv-rooms` CLI. |
 
 Dependency graph: `rv-gtk -> rv-core, rv-native`; `rv-ffi -> rv-core`; Swift `RocketVibeKit -> RocketVibeCore (generated) -> rv_ffi static library`. Everything Rust builds inside the Fedora 44 container (`scripts/build.sh`), never on the host directly. Details: [desktop-app.md](desktop-app.md), [desktop-core.md](desktop-core.md), [desktop-gtk.md](desktop-gtk.md), [desktop-macos.md](desktop-macos.md).
 
 The desktop app has no push: it stays connected (optionally in the background or tray) and raises native notifications itself, and it updates itself from the repository's GitHub releases ([../features/desktop-updates.md](../features/desktop-updates.md)).
 
+## Web (`apps/web`)
+
+A React 19 single-page app built with Vite, for the RocketVibe server only, which compiles the built `dist/` into its binary and serves it from its own origin (one origin, one account). It keeps its data in IndexedDB, runs the MLS engine as wasm (`rv-crypto-web`) in a worker, reuses the GTK app's design and the desktop's strings through generated files, and joins voice with `livekit-client`. Details: [web-client.md](web-client.md), [../features/web-client.md](../features/web-client.md).
+
+## Server (`apps/server`)
+
+The RocketVibe server: one Rust binary (Axum, tokio, PostgreSQL through SQLx) that is also its operator CLI. An ordered journal of changes feeds clients through cursors and a ticketed WebSocket; files go to a local objects directory; push, email, link previews, workflows and voice reconciliation run as background loops over leased database queues; native E2EE is relayed and verified, never decrypted. Details: [server.md](server.md); the shared Rust it builds on: [shared-crates.md](shared-crates.md).
+
 ## The shared test server
 
-`docker/compose.yml` runs Rocket.Chat 8.5.1, the production target's version, on a one-node MongoDB 8.0 replica set. Its bundle is replaced by a push-patched copy generated by `docker/patch-push.mjs`. `scripts/seed.mjs` creates `alice` and `bob`, `test-public`, `test-prive`, a DM, custom emoji and seeded messages; both apps' end-to-end tests log in as those users ([testing.md](testing.md)).
+`docker/compose.yml` runs Rocket.Chat 8.5.1, the production target's version, on a one-node MongoDB 8.0 replica set. Its bundle is replaced by a push-patched copy generated by `docker/patch-push.mjs`. `scripts/seed.mjs` creates `alice` and `bob`, `test-public`, `test-prive`, a DM, custom emoji and seeded messages; the native apps' end-to-end tests log in as those users ([testing.md](testing.md)).
+
+`docker/compose.rocketvibe.yml` runs the RocketVibe server on PostgreSQL 18 (accounts come from `rv-server create-user`), `docker/compose.voice.yml` adds LiveKit, `docker/compose.mattermost.yml` a Mattermost bench, and the `compose.native-*-pilot.yml` files the CI pilots that drive the mobile, GTK and Swift providers against a real server ([server.md](server.md)).
 
 ## Footguns worth knowing before touching anything
 
@@ -75,7 +104,10 @@ The desktop app has no push: it stays connected (optionally in the background or
 - **Calling a queued `Store` method inside a mobile transaction deadlocks** the write queue; transactions receive a direct writer. `lib/testStore.ts` makes the test fakes enforce this.
 - **`android/` and `ios/` are regenerated** by every `expo prebuild`; hand edits vanish. Native changes go through `plugins/`, and a native module change needs a rebuild, not a Metro reload.
 - **The desktop binary built in the container runs only on a host with matching GTK/libadwaita** (Fedora 44); elsewhere use the AppImage.
-- **One version per app, checked by CI**: a mobile bump touches `app.json` (including `versionCode`) and `package.json`; a desktop bump touches `Cargo.toml` and `Cargo.lock`.
+- **One version per app, checked by CI**: a mobile bump touches `app.json` (including `versionCode`) and `package.json`; a desktop bump touches `Cargo.toml` and `Cargo.lock`; a web bump `package.json` and `package-lock.json`; a server bump `apps/server/Cargo.toml` and the root `Cargo.lock` (`scripts/version.mjs`).
+- **The server embeds the web client**: it does not compile without `apps/web/dist`, and serves the web build it was compiled with. A crypto change reaches the web only after `npm run crypto:build` (Docker) regenerates the committed wasm.
+- **A protocol change touches the Rust type, `docs/protocol/v1.schema.json` and the generated TypeScript**; `apps/server/scripts/check.sh` fails until they agree ([shared-crates.md](shared-crates.md)).
+- **Seven Rust workspaces, seven `Cargo.lock`**: after a `cargo update` anywhere, `node scripts/cargo-locks.mjs --sync`.
 - **Rocket.Chat quirks** (upload in two steps with non-idempotent confirm, rate limit of 10 REST calls per minute, slow `chat.syncMessages` on big rooms, `__my_messages__` without deletions) shape most of the sync code; read [rocket-chat.md](rocket-chat.md) before changing it.
 
 ## Sources
@@ -102,4 +134,10 @@ The desktop app has no push: it stays connected (optionally in the background or
 - `apps/desktop/macos/Package.swift`
 - `apps/desktop/docs/MACOS-SWIFTUI.md`
 - `docker/compose.yml`
+- `docker/compose.rocketvibe.yml`
+- `Cargo.toml`
+- `apps/mobile/providers/index.ts`
+- `apps/web/package.json`
+- `apps/server/build.rs`
+- `scripts/version.mjs`
 - `scripts/seed.mjs`

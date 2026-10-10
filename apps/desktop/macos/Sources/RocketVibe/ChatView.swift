@@ -432,6 +432,15 @@ struct RoomRow: View {
                         catch {if accountKey == app.account?.key {app.notice=L("rooms.failed")}}
                     }
                 }
+                if chat.unreadMarksAvailable() {
+                    Button(L(unread ? "rooms.mark_read" : "rooms.mark_unread")) {
+                        let markUnread = !unread
+                        Task {
+                            guard accountKey == app.account?.key else {return}
+                            await app.markRoom(room.rid, unread: markUnread)
+                        }
+                    }
+                }
             }
         }
     }

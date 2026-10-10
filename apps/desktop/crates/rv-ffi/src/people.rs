@@ -273,6 +273,32 @@ impl Chat {
         Ok(on_tokio(async move { s.follow_thread(&root, on).await }).await?)
     }
 
+    /// Whether the room list can mark a room unread or read (Rocket.Chat).
+    pub fn unread_marks_available(&self) -> bool {
+        self.session.unread_marks_available()
+    }
+
+    /// The room list's "Mark as unread" (`unread`) or "Mark as read" (threads
+    /// included). A room with no message to mark unread fails with
+    /// `Local("nothing-unread")`. Leave the room first when it is the open one.
+    pub async fn mark_room(&self, rid: String, unread: bool) -> Result<(), RvError> {
+        let s = self.session.clone();
+        let done =
+            on_tokio(async move { if unread { s.mark_unread(&rid).await } else { s.mark_room_read(&rid).await } })
+                .await;
+        match done {
+            Err(e) if e.error_type.as_deref() == Some(rv_core::actions::NOTHING_TO_UNREAD) => {
+                Err(RvError::local("nothing-unread"))
+            }
+            other => Ok(other?),
+        }
+    }
+
+    /// No room open any more: its deletions and typing are no longer heard.
+    pub fn close_room(&self) {
+        self.session.close_room();
+    }
+
     /// Whether I follow the thread, by the stored copy of its root (false while unknown).
     pub fn thread_following(&self, root: String) -> bool {
         self.session

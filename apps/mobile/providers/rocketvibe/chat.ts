@@ -875,15 +875,19 @@ export class NativeChat {
   }
   async ownProfile():Promise<import('./protocol.generated.ts').OwnProfile> {
     this.ready();if(!this.capabilities?.profiles)throw new NativeError(501,'unsupported_feature');
-    const generation=this.generation,projection=this.store.projectionToken(),version=this.profileVersionFor(this.session.userId);
+    const generation=this.generation,projection=this.store.projectionToken();
+    const observed=this.profileHeads.get(this.session.userId),confirmed=this.ownProfileHead;
     checkIdentity(this.session,await this.transport.discover());this.roomOperationGeneration(generation);
     const own=await this.transport.ownProfile();
     checkIdentity(this.session,await this.transport.discover());this.roomOperationGeneration(generation);
     if(own.profile.user.id!==this.session.userId)throw new NativeError(401,'session_rejected');
-    if(projection!==this.store.projectionToken()||version!==this.profileVersionFor(this.session.userId))throw new NativeError(409,'delivery_revalidate');
-    await this.store.profileIdentities([own.profile],()=>generation===this.generation&&!this.stopped&&version===this.profileVersionFor(this.session.userId));
+    const current=()=>projection===this.store.projectionToken()
+      && (observed===this.profileHeads.get(this.session.userId)||own.profile.revision===this.profileHeads.get(this.session.userId))
+      && (confirmed===this.ownProfileHead||own.profile.revision===this.ownProfileHead);
+    if(!current())throw new NativeError(409,'delivery_revalidate');
+    await this.store.profileIdentities([own.profile],()=>generation===this.generation&&!this.stopped&&current());
     this.roomOperationGeneration(generation);
-    if(version!==this.profileVersionFor(this.session.userId))throw new NativeError(409,'delivery_revalidate');
+    if(!current())throw new NativeError(409,'delivery_revalidate');
     return own;
   }
   async changeProfile(command:ProfileOperation):Promise<import('./protocol.generated.ts').OwnProfile> {

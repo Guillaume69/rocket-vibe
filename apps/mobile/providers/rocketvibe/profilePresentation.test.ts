@@ -113,3 +113,29 @@ test('simultaneous own profile reads do not invalidate identical responses',asyn
     assert.equal(profiles[0].profile.revision,profiles[1].profile.revision);
   }finally{await b.close();}
 });
+
+
+for(const fresh of [true,false])test('own profile read '+(fresh?'accepts the matching live revision':'rejects an older live revision'),async()=>{
+  const b=await bench(),pending=deferred<UserProfile>();
+  try{
+    await b.live(b.profile());const old=b.profile();b.setRead(pending.promise);
+    const reading=b.chat.ownProfile();await new Promise<void>(r=>setImmediate(r));
+    const current={...old,revision:'streamed-activity',status:'busy' as const};
+    await b.live(current);pending.resolve(fresh?current:old);
+    if(fresh)assert.equal((await reading).profile.status,'busy');
+    else await assert.rejects(reading,/delivery_revalidate/);
+  }finally{await b.close();}
+});
+
+
+test('a confirmed edit fences an older own read even without live observations',async()=>{
+  const b=await bench(),pending=deferred<UserProfile>();
+  try{
+    const before=await b.chat.ownProfile();b.setRead(pending.promise);
+    const old=b.chat.ownProfile();await new Promise<void>(r=>setImmediate(r));b.setRead(null);
+    const current=await b.chat.editOwnProfile({...nativeMyProfile(before),status:'away'});
+    assert.equal(current.profile.status,'away');pending.resolve(before.profile);
+    await assert.rejects(old,/delivery_revalidate/);
+    assert.equal((await b.chat.ownProfile()).profile.status,'away');
+  }finally{await b.close();}
+});

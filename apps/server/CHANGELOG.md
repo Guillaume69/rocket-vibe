@@ -15,7 +15,7 @@ everything before it is under that section.
 
 ### Changed
 
-- The embedded web client supports native MLS encrypted conversations through WebAssembly and uses React rendering, with room switching, quick activity choices and do-not-disturb controls.
+- The embedded web client supports native MLS encrypted conversations through WebAssembly and uses React rendering, with room switching, read receipts, quick activity choices and do-not-disturb controls.
 
 ### Fixed
 

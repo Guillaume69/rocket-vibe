@@ -9,6 +9,7 @@ section here.
 
 ### Added
 
+- Read receipts (GTK and macOS, RocketVibe servers): under my latest message in a room (not an encrypted one), a small line says "Seen" in a direct conversation, or "Seen by" and up to three names in a group, then "and N others", updated live as people read. Settings > My account, Privacy: "Share read receipts" turns them off both ways (others no longer see how far I read, and I no longer see theirs).
 - Do not disturb (GTK and macOS, RocketVibe servers): Settings > Notifications mutes notifications for an hour or until 08:00, or sets quiet hours every day (22:00 to 08:00 by default, in this computer's time zone). Messages still arrive and count as unread; the app shows no notification meanwhile, and the server holds back push and call rings on every device.
 - Ctrl+K (Cmd+K on macOS) opens a room switcher: type part of a room's name, the arrows pick, Enter opens it. The composer's link shortcut moves to Ctrl+Shift+K.
 - A room's threads (GTK and macOS, Rocket.Chat servers): a header button lists them, all or the ones I follow, with their reply count and last reply time, and a bell on each thread, in the list and in the open thread, follows or unfollows it.

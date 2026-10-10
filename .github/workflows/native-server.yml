@@ -265,7 +265,7 @@ jobs:
           mkdir -p .cache/native-desktop-cargo artifacts
           docker run --rm -v "$PWD:/workspace" -v "$PWD/.cache/native-desktop-cargo:/cargo" \
             -w /workspace/apps/desktop rocket-vibe-rs-build bash -ec '
-              # fmt, clippy and the workspace tests are desktop.yml's, on every branch.
+              # fmt, clippy and the workspace tests run in desktop.yml, on every branch.
               xvfb-run -a cargo test --locked -p rocket-vibe-gtk native_link_previews_paint -- --ignored --test-threads=1
               xvfb-run -a cargo test --locked -p rocket-vibe-gtk native_activity_uses_existing_join_and_info_buttons -- --ignored --test-threads=1
               xvfb-run -a cargo test --locked -p rocket-vibe-gtk native_group_review_uses_existing_controls_and_requires_confirmation -- --ignored --test-threads=1

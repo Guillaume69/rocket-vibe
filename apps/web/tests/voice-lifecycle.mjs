@@ -126,6 +126,23 @@ async function login(index) {
     window.AudioContext = new Proxy(NativeAudio, {
       construct(Target, args) {
         const audio = new Target(...args);
+        const sink = audio.setSinkId?.bind(audio);
+        if (sink)
+          audio.setSinkId = async (id) => {
+            if (window.__holdVoiceSink) {
+              window.__holdVoiceSink = false;
+              await new Promise(
+                (resolve) => (window.__releaseVoiceSink = resolve),
+              );
+            }
+            try {
+              return await sink(id);
+            } catch (error) {
+              if (audio.state === "closed")
+                window.__retiredSinkFailure = error.name;
+              throw error;
+            }
+          };
         window.__voiceContexts.push(audio);
         return audio;
       },
@@ -237,7 +254,11 @@ async function serverConnected(id, user) {
 try {
   const a = await login(0),
     b = await login(1);
+  await a.evaluate(() => (window.__holdVoiceSink = true));
   await select(a, room.id);
+  await a.waitForFunction(
+    () => typeof window.__releaseVoiceSink === "function",
+  );
   await select(b, room.id);
   await rtp(a);
   await rtp(b);
@@ -252,6 +273,18 @@ try {
   const c = await login(0);
   await select(c, room.id);
   await a.locator(".voice-bar").waitFor({ state: "detached" });
+  await a.waitForFunction(() =>
+    window.__voiceContexts.every((audio) => audio.state === "closed"),
+  );
+  await a.evaluate(() => window.__releaseVoiceSink());
+  await a.waitForFunction(
+    () => window.__retiredSinkFailure === "InvalidStateError",
+  );
+  assert.ok(
+    !(await a.evaluate(() => window.__voiceNotices)).some((notice) =>
+      notice.includes("setSinkId"),
+    ),
+  );
   await a
     .locator(".toast")
     .filter({ hasText: "Voice continues on another device." })

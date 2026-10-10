@@ -8,6 +8,7 @@ import { icon, iconButton } from "./icons";
 import { nt } from "./native-i18n";
 import { tileLayout } from "./voice-grid";
 import { MicrophoneGain, volumeValue } from "./voice-audio";
+import { observeAudioOutput } from "./voice-output";
 import { chooseShareQuality } from "./voice-share";
 import { ShareAudioMixer, excludesOwnAudio } from "./voice-share-audio";
 import {
@@ -310,6 +311,15 @@ export class Voice {
     this.listeningAccount = account || "";
     const audioContext = new AudioContext();
     this.audioContext = audioContext;
+    observeAudioOutput(
+      audioContext,
+      () =>
+        this.audioContext === audioContext &&
+        lifecycle === this.lifecycle &&
+        account === this.app.account?.key &&
+        !this.cancelled,
+      toast,
+    );
     this.gain = new MicrophoneGain(
       volumeValue(Number(localStorage.getItem("rv-voice-input-volume") ?? 1)),
     );
@@ -593,6 +603,7 @@ export class Voice {
         toast(error);
       }
     }
+    if (!alive()) return;
     await room
       .switchActiveDevice(
         "audiooutput",

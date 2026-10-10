@@ -17,6 +17,7 @@ All notable changes are documented here in English.
 
 ### Fixed
 
+- Observe LiveKit's asynchronous audio-output changes on the call-owned context, preventing late device-switch rejections after voice teardown.
 - Refetch a read when the server requests delivery-lease revalidation, with bounded retries and no automatic mutation replay.
 - Keep ordinary voice joins usable when the server omits its false E2EE flag, while continuing to reject encryption mismatches.
 - Keep the selected settings category when the administration permission lookup finishes after the user has already changed pages.

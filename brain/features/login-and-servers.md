@@ -53,6 +53,12 @@ How a user signs in to a Rocket.Chat server (password, then a second factor when
 
 [parity](../parity.md) §1 is done on desktop except email 2FA, which is partial: GTK and SwiftUI request the code automatically and have no resend control. Other differences worth knowing: mobile holds one account per server, desktop several; mobile keeps the database on sign-out, desktop deletes it (the `.sqlite`, `-wal` and `-shm` files, `Store::remove_files`, after `Store::close` has released the file that tasks still running hold, which Windows would otherwise refuse to delete); mobile replays failed sign-outs at next launch, desktop does not (it has no push token to remove).
 
+## Quick server-bar control
+
+GTK and SwiftUI keep a server-bar button at the start of the room-list header, reachable when the bar is hidden. It changes the same device preference as Settings > Accounts, immediately and for the next launch. GTK updates its tooltip and tint when either entry changes the preference. The Linux title-bar layout keeps the desktop's minimize, maximize and close controls but omits its extra app-icon slot.
+
+Mobile keeps a labelled, 44-point server button in the home header. Settings moves to the bottom account bar so the header fits while the rail is visible on a narrow phone. The hidden bar stays recoverable from that header button and Settings > Accounts. Web has one account on its serving origin and no server bar.
+
 ## Sources
 
 - apps/mobile/app/login.tsx

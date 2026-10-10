@@ -246,6 +246,24 @@ public final class LoginModel {
         }
     }
 
+    /// kChat: trades the redirect an Infomaniak sign-in window caught for the
+    /// bearer, then signs in with it like a pasted API token.
+    public func finishInfomaniak(_ signIn: KchatSignIn, redirect: String) async -> Bool {
+        guard !busy else { return false }
+        error = nil
+        busy = true
+        defer { busy = false }
+        do {
+            password = try await signIn.finish(redirect: redirect)
+            return true
+        } catch let RvError.Local(message) {
+            error = message
+        } catch {
+            self.error = error.localizedDescription
+        }
+        return false
+    }
+
     /// Signs in, or asks for the code the server wants.
     func submit(client: Client) async -> ChatProvider? {
         guard !busy else { return nil }

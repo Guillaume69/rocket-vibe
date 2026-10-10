@@ -1,6 +1,7 @@
 //! An expiring in-memory photo, separate from the durable SQLite projection.
 use crate::live::Presence;
-use rv_protocol::live::{LiveState, PresenceStatus};
+use rv_protocol::User;
+use rv_protocol::live::{LiveState, PresenceStatus, ReadMark};
 use rv_protocol::voice::{VoiceParticipant, VoiceRing};
 use std::time::{Duration, Instant};
 
@@ -51,6 +52,22 @@ impl LiveCache {
         }
         self.state.iter().flat_map(|s| &s.rooms).filter(|r| r.room_id == room).flat_map(|r| r.voice.clone()).collect()
     }
+    /// The room's read marks, the membership they belong to and the frame's
+    /// profiles (their names), while the frame is fresh.
+    pub fn reads(&self, room: &str, now: Instant) -> Option<(Vec<ReadMark>, String, Vec<User>)> {
+        if !self.until.is_some_and(|t| t > now) {
+            return None;
+        }
+        let state = self.state.as_ref()?;
+        let live = state.rooms.iter().find(|r| r.room_id == room)?;
+        let profiles = state
+            .profiles
+            .iter()
+            .filter(|p| live.reads.iter().any(|m| m.user_id == p.user.id))
+            .map(|p| p.user.clone())
+            .collect();
+        Some((live.reads.clone(), live.membership_version.clone(), profiles))
+    }
     /// Direct calls ringing or just resolved, where this account is caller or callee.
     pub fn rings(&self, now: Instant) -> Vec<VoiceRing> {
         if !self.until.is_some_and(|t| t > now) {
@@ -98,7 +115,7 @@ mod tests {
                 room_id: "room".into(),
                 membership_version: "grant".into(),
                 direct_peer: None,
-                reads: vec![],
+                reads: vec![ReadMark { user_id: "other".into(), root_position: "7".into() }],
                 typing: vec![
                     Typist { user: user.clone(), root_id: None },
                     Typist { user: user.clone(), root_id: Some("root".into()) },
@@ -130,6 +147,10 @@ mod tests {
         assert_eq!(cache.typing("room", Some("root"), "me", now), ["bob"]);
         assert!(cache.typing("room", None, "other", now).is_empty());
         assert_eq!(cache.presence("other", now), Some(Presence::Busy));
+        let (reads, membership, _) = cache.reads("room", now).unwrap();
+        assert_eq!((reads[0].root_position.as_str(), membership.as_str()), ("7", "grant"));
+        assert!(cache.reads("other-room", now).is_none());
+        assert!(cache.reads("room", now + Duration::from_secs(8)).is_none());
         assert_eq!(cache.presence("other", now + Duration::from_secs(8)), None);
         assert!(cache.expire(now + Duration::from_secs(8)));
         assert!(cache.typing("room", None, "me", now + Duration::from_secs(8)).is_empty());

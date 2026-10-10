@@ -7,7 +7,7 @@ use crate::store::MessageRow;
 
 const GROUPING_GAP_MS: i64 = 5 * 60 * 1000;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Display {
     pub row: MessageRow,
     pub show_header: bool,
@@ -17,6 +17,9 @@ pub struct Display {
     pub gutter_time: bool,
     /// The first message I have not read: "✦ New messages" above it.
     pub new_marker: bool,
+    /// The read receipt under my latest message ("Seen by Bob"), RocketVibe
+    /// main timeline only (`native::receipts`).
+    pub seen: Option<String>,
 }
 
 pub fn local(ts: i64) -> DateTime<Local> {
@@ -45,7 +48,14 @@ pub fn group(rows: Vec<MessageRow>) -> Vec<Display> {
                 (header, new_day)
             }
         };
-        out.push(Display { gutter_time: gutter_time && !show_header, row, show_header, show_day, new_marker: false });
+        out.push(Display {
+            gutter_time: gutter_time && !show_header,
+            row,
+            show_header,
+            show_day,
+            new_marker: false,
+            seen: None,
+        });
     }
     out
 }

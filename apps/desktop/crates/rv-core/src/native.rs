@@ -20,6 +20,7 @@ pub mod profiles;
 pub mod quiet;
 mod read_intents;
 pub mod read_presentation;
+pub mod receipts;
 mod room_operations;
 mod search;
 mod voice;

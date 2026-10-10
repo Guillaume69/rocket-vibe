@@ -203,6 +203,7 @@ struct SettingsView: View {
         if let profile, app.provider?.supportsProfiles == true {
             MyProfileSection(model: profile)
         }
+        if let profile, profile.native, profile.saved != nil { PrivacySection(model: profile) }
         if let chat = app.chat, chat.isMattermost() {
             SidebarSettingsSection(chat: chat).id(app.sessionId)
         }
@@ -422,6 +423,28 @@ struct DoNotDisturbSection: View {
     }
 
     private func save() { Task { await model.setQuietHours(enabled: true, from: from, to: to) } }
+}
+
+/// Read receipts on a RocketVibe account (`share_read_receipts`), both ways:
+/// off, nobody sees how far I read and I see nobody's.
+struct PrivacySection: View {
+    let model: MyProfileModel
+
+    var body: some View {
+        Section {
+            Toggle(isOn: Binding(get: { model.shareReadReceipts }, set: { on in
+                Task { await model.setShareReadReceipts(on) }
+            })) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(L("settings.read_receipts"))
+                    Text(L("settings.read_receipts_hint")).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        } header: {
+            Text(L("settings.privacy"))
+        }
+        .disabled(!model.preferencesEditable)
+    }
 }
 
 /// My photo, presence and status, name, username, email and bio.

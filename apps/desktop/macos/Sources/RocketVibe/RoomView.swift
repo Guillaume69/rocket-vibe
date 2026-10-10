@@ -616,6 +616,10 @@ struct MessageRow: View, Equatable {
                 }
             }
         }
+        // Read receipt: under my latest message of the room's timeline only.
+        if let seen = message.seen {
+            Text(seen).font(.vibe(11)).foregroundStyle(Vibe.faint)
+        }
     }
 
     var editor: some View {

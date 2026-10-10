@@ -32,6 +32,9 @@ pub struct NativePreferences {
     pub quiet_hours: Option<NativeQuietHours>,
     /// The mute's end (Unix seconds), as the server returned it: ahead then.
     pub muted_until: Option<i64>,
+    /// Read receipts, both ways; read only here, `set_share_read_receipts`
+    /// changes it.
+    pub share_read_receipts: bool,
 }
 #[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
 pub struct NativeOwnProfile {
@@ -120,6 +123,7 @@ fn own(value: OwnProfile) -> NativeOwnProfile {
             desktop_notifications: notification(value.preferences.desktop_notifications),
             quiet_hours: value.preferences.quiet_hours.as_ref().map(quiet_hours),
             muted_until: muted_until(value.preferences.muted_until.as_deref()),
+            share_read_receipts: value.preferences.share_read_receipts,
         },
     }
 }
@@ -249,6 +253,19 @@ impl NativeChat {
             .await
             .map_err(error)
     }
+    /// Shares read receipts, both ways, or stops; only that changes.
+    pub async fn set_share_read_receipts(
+        &self,
+        preferences: NativePreferences,
+        share: bool,
+    ) -> Result<NativeOwnProfile, RvError> {
+        let mut input = preferences_input(preferences)?;
+        input.share_read_receipts = Some(share);
+        let s = self.session.clone();
+        on_tokio(async move { s.change_profile(ProfileOperation::Preferences { input }).await.map(own) })
+            .await
+            .map_err(error)
+    }
     /// Whether the account is in do not disturb now: no notification shows.
     pub fn quiet_now(&self) -> bool {
         self.session.quiet_now()
@@ -302,6 +319,8 @@ impl NativeChat {
                         // Only the changed field is known: None when kept or removed.
                         quiet_hours: input.quiet_hours.clone().flatten().as_ref().map(quiet_hours),
                         muted_until: muted_until(input.muted_until.clone().flatten().as_deref()),
+                        // Only a change of it is known here: the default (on) when kept.
+                        share_read_receipts: input.share_read_receipts.unwrap_or(true),
                     }),
                     _ => None,
                 };

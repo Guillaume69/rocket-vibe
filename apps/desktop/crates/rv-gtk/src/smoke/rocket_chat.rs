@@ -262,6 +262,7 @@ fn card_in(session: &Arc<Session>, row: &MessageRow) -> Option<gtk::Widget> {
         show_day: false,
         gutter_time: false,
         new_marker: false,
+        seen: None,
     };
     let widget = crate::rows::message_widget(&display, &session.info.user_id, Some(session), None, Rc::new(|_| {}));
     find_by_class(&widget, "discussion-card")

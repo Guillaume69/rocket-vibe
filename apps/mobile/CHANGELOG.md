@@ -7,6 +7,10 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+### Added
+
+- On Rocket.Chat servers, a 💬 button in the room header lists the room's threads, all of them or only the ones you follow, latest reply first; a bell on each thread and in the thread's header follows or unfollows it.
+
 ### Fixed
 
 - A message the server refused no longer goes out again on every send: it waits for "Retry", so a few refused messages can no longer use up Rocket.Chat's 10 requests a minute and hold back the next message.

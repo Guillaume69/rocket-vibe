@@ -87,7 +87,8 @@ const browser = await chromium.launch({
 });
 const contexts = [],
   pages = [],
-  errors = [];
+  errors = [],
+  initialResponses = [];
 try {
   for (let index = 0; index < 2; index++) {
     const context = await browser.newContext({
@@ -115,6 +116,22 @@ try {
       });
     });
     page.on("pageerror", (e) => errors.push(e.message));
+    page.on("response", (response) => {
+      const path = new URL(response.url()).pathname;
+      if (
+        [
+          "/api/v1/auth/start",
+          "/api/v1/me/profile",
+          "/api/v1/sync/snapshots",
+        ].includes(path)
+      )
+        initialResponses.push({
+          index,
+          path,
+          status: response.status(),
+          retryAfter: response.headers()["retry-after"],
+        });
+    });
     await page.goto(base);
     await page.getByLabel("Username").fill(names[index]);
     await page
@@ -134,6 +151,7 @@ try {
           JSON.stringify({
             index,
             errors,
+            initialResponses,
             screen: await page.locator("body").innerText(),
           }),
         );
@@ -272,23 +290,7 @@ try {
       })
     ).id,
   );
-  await page
-    .locator('.room-row[data-room="' + room.id + '"]')
-    .click()
-    .catch(async (error) => {
-      await mkdir("../../.cache/web-shots", { recursive: true });
-      await page.screenshot({
-        path: "../../.cache/web-shots/profile-login-failure-" + index + ".png",
-      });
-      console.log(
-        JSON.stringify({
-          index,
-          errors,
-          screen: await page.locator("body").innerText(),
-        }),
-      );
-      throw error;
-    });
+  await page.locator('.room-row[data-room="' + room.id + '"]').click();
   await row.locator(".message-gutter button").click();
   await popup.locator(".details-name").waitFor();
   await page.setViewportSize({ width: 390, height: 600 });

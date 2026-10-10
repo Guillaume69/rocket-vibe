@@ -170,6 +170,8 @@ function withIosPush(config) {
     const group = keychainGroup(bundleIdOf(config));
     const existing = config.modResults['keychain-access-groups'] ?? [];
     config.modResults['keychain-access-groups'] = [group, ...existing.filter((g) => g !== group)];
+    // A call push breaks through a Focus (NotificationService.swift).
+    config.modResults['com.apple.developer.usernotifications.time-sensitive'] = true;
     return config;
   });
 

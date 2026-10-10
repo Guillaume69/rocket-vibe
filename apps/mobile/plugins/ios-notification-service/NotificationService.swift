@@ -135,6 +135,14 @@ private func apply(
   }
   content.body = text
   content.threadIdentifier = rid
+  // A call started in a direct room (lib/callRing.ts) asks for attention like
+  // a call. No CallKit/PushKit: no ringing screen, Accept or Decline, just a
+  // time-sensitive alert whose tap opens the room and its call card.
+  if payload["messageType"] as? String == "videoconf", payload["type"] as? String == "d" {
+    content.body = LocalizedStrings.incomingCall(language)
+    content.sound = .default
+    if #available(iOS 15.0, *) { content.interruptionLevel = .timeSensitive }
+  }
   // The server would reject a plaintext reply in an encrypted room.
   if payload["messageType"] as? String != "e2e" {
     content.categoryIdentifier = messageCategory
@@ -155,6 +163,7 @@ private func apply(
 private enum LocalizedStrings {
   static func newMessage(_ language: String) -> String { language == "fr" ? "Nouveau message" : "New message" }
   static func encryptedMessage(_ language: String) -> String { language == "fr" ? "Message chiffré" : "Encrypted message" }
+  static func incomingCall(_ language: String) -> String { language == "fr" ? "Appel entrant" : "Incoming call" }
 }
 
 // MARK: - push.get

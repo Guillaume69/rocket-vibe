@@ -589,7 +589,7 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/lib/uploadQueue.ts:125](../../apps/mobile/lib/uploadQueue.ts#L125) | call:GET | 'settings.public' |
 | [apps/mobile/lib/uploadQueue.ts:125](../../apps/mobile/lib/uploadQueue.ts#L125) | endpoint | settings.public |
 | [apps/mobile/lib/uploadQueue.ts:496](../../apps/mobile/lib/uploadQueue.ts#L496) | resource | /file-upload/{…}/{…} |
-| [apps/mobile/plugins/ios-notification-service/NotificationService.swift:167](../../apps/mobile/plugins/ios-notification-service/NotificationService.swift#L167) | url | /api/v1/push.get |
+| [apps/mobile/plugins/ios-notification-service/NotificationService.swift:176](../../apps/mobile/plugins/ios-notification-service/NotificationService.swift#L176) | url | /api/v1/push.get |
 | [apps/mobile/plugins/native-push-source.js:36](../../apps/mobile/plugins/native-push-source.js#L36) | url | /api/v1/me/push |
 | [apps/mobile/plugins/native-push-source.js:117](../../apps/mobile/plugins/native-push-source.js#L117) | url | /api/v1 |
 | [apps/mobile/plugins/native-push-source.js:145](../../apps/mobile/plugins/native-push-source.js#L145) | url | /api/v1/voice/rings |

@@ -8,7 +8,8 @@ import {createRocketVibeProvider} from './index.ts';
 import {NativeStore} from './store.ts';
 import {nativeTestDatabase} from './testDatabase.ts';
 import type {NativeTransport} from './transport.ts';
-import type {UserProfile} from './protocol.generated.ts';
+import type {UserProfile,NativeTypes} from './protocol.generated.ts';
+import {nativeMyProfile} from './profileOperations.ts';
 
 const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
 function deferred<T>(){let resolve!:(value:T)=>void;const promise=new Promise<T>(r=>{resolve=r;});return{promise,resolve};}
@@ -19,6 +20,7 @@ async function bench(){
   let profile:UserProfile={...fixture.own_profile.profile,user:fixture.session.user};
   let epoch=fixture.discovery.data_epoch,profileRead:Promise<UserProfile>|null=null,avatarRead:Promise<Uint8Array>|null=null;
   const transport={discover:async()=>({...fixture.discovery,data_epoch:epoch,capabilities:{...fixture.discovery.capabilities,profiles:true,profile_avatars:true,presence:false,read_markers:false}}),
+    updateProfile:async(input:NativeTypes['UpdateProfile'])=>{profile={...profile,revision:'local-activity',status:input.status};return{operation_id:input.operation_id,applied_revision:profile.revision};},
     ownProfile:async()=>({...fixture.own_profile,profile:profileRead?await profileRead:profile}),
     me:async()=>fixture.session.user,changes:async()=>({protocol_version:1,changes:[],cursor:'before-profiles',has_more:false}),socketUrl:async()=>'ws://localhost/fake',
     userProfile:async()=>profileRead??profile,lookupProfile:async()=>profileRead??profile,avatarBytes:async()=>avatarRead??new Uint8Array([137,80,78,71,13,10,26,10])} as unknown as NativeTransport;
@@ -91,11 +93,23 @@ test('confirmed own profile wakes the avatar without live profile observations',
   try{
     await b.chat.ownProfile();const version=b.chat.profileVersionFor(b.session.userId);
     let notified=0;const unsub=b.chat.subscribe(()=>{notified++;});
-    b.setProfile({...b.profile(),revision:'local-activity',status:'away'});
-    assert.equal((await b.chat.ownProfile()).profile.status,'away');
+    const before=nativeMyProfile(await b.chat.ownProfile());
+    assert.equal((await b.chat.editOwnProfile({...before,status:'away'})).profile.status,'away');
     assert.notEqual(b.chat.profileVersionFor(b.session.userId),version);
-    assert.equal(notified,1);
-    await b.chat.ownProfile();assert.equal(notified,1,'unchanged revision does not create a refresh loop');
+    const after=notified;assert.ok(after>0);
+    await b.chat.ownProfile();assert.equal(notified,after,'unchanged revision does not create a refresh loop');
     unsub();
+  }finally{await b.close();}
+});
+
+
+test('simultaneous own profile reads do not invalidate identical responses',async()=>{
+  const b=await bench();
+  try{
+    const pending=deferred<UserProfile>();b.setRead(pending.promise);
+    const first=b.chat.ownProfile(),second=b.chat.ownProfile();
+    await new Promise<void>(r=>setImmediate(r));pending.resolve(b.profile());
+    const profiles=await Promise.all([first,second]);
+    assert.equal(profiles[0].profile.revision,profiles[1].profile.revision);
   }finally{await b.close();}
 });

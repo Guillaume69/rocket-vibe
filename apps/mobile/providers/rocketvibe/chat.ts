@@ -884,7 +884,6 @@ export class NativeChat {
     await this.store.profileIdentities([own.profile],()=>generation===this.generation&&!this.stopped&&version===this.profileVersionFor(this.session.userId));
     this.roomOperationGeneration(generation);
     if(version!==this.profileVersionFor(this.session.userId))throw new NativeError(409,'delivery_revalidate');
-    if(this.ownProfileHead!==own.profile.revision){this.ownProfileHead=own.profile.revision;this.notify();}
     return own;
   }
   async changeProfile(command:ProfileOperation):Promise<import('./protocol.generated.ts').OwnProfile> {
@@ -927,6 +926,8 @@ export class NativeChat {
       this.roomOperationGeneration(generation);
       const own=await this.ownProfile();this.roomOperationGeneration(generation);
       await this.store.profileOperations.confirm(saved,receipt,()=>generation===this.generation&&!this.stopped);
+      this.roomOperationGeneration(generation);
+      this.ownProfileHead=own.profile.revision;
       this.retryAttempt=0;this.retryAt=0;this.notify();return own;
     });
     this.commands=operation.then(()=>{},()=>{});return operation;

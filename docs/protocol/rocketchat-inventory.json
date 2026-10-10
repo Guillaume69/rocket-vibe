@@ -3753,13 +3753,13 @@
     },
     {
       "file": "apps/mobile/lib/profilePreload.ts",
-      "line": 74,
+      "line": 75,
       "kind": "call:GET",
       "surface": "'users.info'"
     },
     {
       "file": "apps/mobile/lib/profilePreload.ts",
-      "line": 74,
+      "line": 75,
       "kind": "endpoint",
       "surface": "users.info"
     },

@@ -132,7 +132,7 @@ export function RoomHeader({
           disabled={capabilities?.roomInfo === false}
           onPress={() =>
             isDM && capabilities?.profile !== false && room?.dmOtherUid != null
-              ? void openProfileCard({ uid: room.dmOtherUid,...(room.encrypted && CryptoNative && sync.phase==='ready' && sync.provider.native?.chat.capabilities?.e2ee ? {cryptoRoom:rid} : {}) })
+              ? void openProfileCard({ uid: room.dmOtherUid, dm: rid, ...(room.encrypted && CryptoNative && sync.phase==='ready' && sync.provider.native?.chat.capabilities?.e2ee ? {cryptoRoom:rid} : {}) })
               : router.push({ pathname: '/room-info', params: { rid } })
           }
           android_ripple={{ color: c.ripple, borderless: false }}

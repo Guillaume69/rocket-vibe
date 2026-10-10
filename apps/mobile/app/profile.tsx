@@ -18,6 +18,7 @@ import type {ReactNode} from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import {EncryptedTrustSection} from '../ui/encryptedTrust.tsx';
 import {EncryptedGroupSection} from '../ui/encryptedGroup.tsx';
+import { RoomNotificationChoiceFor } from '../ui/roomNotifications.tsx';
 import {RoomMembershipBound} from '../ui/roomMembership.tsx';
 import {CryptoNative} from '../modules/crypto-native/index.ts';
 
@@ -107,7 +108,7 @@ export default function ProfileScreen() {
   const bottomMargin = useSheetBottomMargin();
   // `username` (mentions, message rows) OR `uid` (DM header, where only
   // `dmOtherUid` is known locally): `users.info` accepts both.
-  const { username, uid, cryptoRoom } = useLocalSearchParams<{ username?: string; uid?: string; cryptoRoom?:string }>();
+  const { username, uid, cryptoRoom, dm } = useLocalSearchParams<{ username?: string; uid?: string; cryptoRoom?:string; dm?: string }>();
   const { state } = useSession();
   const sync = useSync();
   const c = useColors();
@@ -373,6 +374,9 @@ export default function ProfileScreen() {
         <Text style={[styles.error, { color: c.errorText }]}>{error}</Text>
       )}
       {client?.kind==='rocketvibe' && profile && !profile.bot && <EncryptedTrustSection c={c} user={profile.uid}/>}
+      {client?.kind === 'rocketchat' && typeof dm === 'string' && sync.phase === 'ready' && (
+        <RoomNotificationChoiceFor c={c} rid={dm} base={sync.base} actions={sync.actions} />
+      )}
       {client?.kind==='rocketvibe' && typeof cryptoRoom==='string' && sync.phase==='ready' && chat?.capabilities?.e2ee &&
         <RoomMembershipBound base={sync.base} rid={cryptoRoom}>{membership=>membership?<EncryptedGroupSection c={c} room={cryptoRoom} membership={membership}/>:null}</RoomMembershipBound>}
 

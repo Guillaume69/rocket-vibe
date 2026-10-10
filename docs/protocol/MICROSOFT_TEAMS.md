@@ -1,6 +1,6 @@
 # Microsoft Teams provider: protocol and implementation handoff
 
-**Status:** client provider under development. A candidate private read foundation now exists; authentication and native account integration are not delivered.
+**Status:** client provider under development. Candidate private reads and transient native browser-import previews exist. Live authentication/DTO acceptance, packaged sign-in and persistent account integration are not delivered.
 
 **Reviewed:** 2026-10-08. **Baseline:** master, commit 55115b26.
 
@@ -17,17 +17,27 @@ accepts the observed global Teams proxy aliases only, with discovered regions.
 No archived credential was used. No production request or private DTO success
 has been qualified. See [Teams architecture](../../brain/architecture/teams.md).
 
-T0/T1 are still open: no project Entra registration was supplied, no OAuth client
-ID is embedded, and browser-session acquisition is not implemented. The read seam
-expects identity from a supported future broker/profile and never decodes API JWTs.
-T2 is candidate code, not a delivered persistent provider. GTK, SwiftUI and Android
-still owe native Teams sign-in and the entry under the existing nine-activation
-unlock. All mutation/realtime/media capabilities stay disabled. The original
-archive's evidence boundaries and qualification tasks below continue to apply.
+## Implementation increment: 2026-10-10
 
-docs/protocol/fixtures/teams-read.json contains only synthetic fixtures shared by
-the TypeScript and Rust tests. Neither fixture success nor DTO source proves
-accepted application identity, complete membership or historic reconciliation.
+Android, GTK and SwiftUI now expose a transient native Teams preview under the shared
+nine-activation unlock. The [developer browser helper](../TEAMS_PREVIEW.md) launches
+an owned fresh official-browser profile and observes that browser's normal v2 grants.
+It embeds no borrowed client ID and issues no grant or refresh request. Signed ID token
+verification binds tenant/object identity to the observed client and rejects mixed
+accounts. API access tokens stay opaque; refresh tokens never enter the handoff.
+
+Public X25519 pairing, HKDF and AES-GCM create a one-use five-minute encrypted transfer
+for the three audience tokens. Native previews support candidate discovery, roster,
+paged plain-text history and expiry/cancellation. Credentials remain transient; account
+factories, vault refresh, database projection, realtime and all mutations remain absent.
+A developer computer and Node helper are required; packaged one-click/phone-only sign-in
+are still missing. No work/school test account was available. T0/T1 acceptance and live
+T2 private DTO qualification remain open, despite local synthetic/build success.
+
+teams-read.json and teams-handoff.json contain synthetic shared vectors only. Fixture
+success cannot prove accepted browser grants, complete membership or historical
+reconciliation. The archive's evidence and acceptance tasks below continue to apply.
+See [Teams architecture](../../brain/architecture/teams.md) for current source/validation.
 
 ## 1. Implementation brief
 

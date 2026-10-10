@@ -2,8 +2,10 @@
 
 ## External provider handoffs
 
-[Microsoft Teams](MICROSOFT_TEAMS.md) now has a candidate read foundation in mobile
-and the shared Rust core; native sign-in and account integration remain pending.
+[Microsoft Teams](MICROSOFT_TEAMS.md) has a candidate read foundation and transient
+native browser-import previews. The [developer helper guide](../TEAMS_PREVIEW.md)
+explains pairing; live sign-in qualification, packaged acquisition and persistent
+account integration remain pending.
 It records the supplied investigation archive,
 private client request shapes, documented alternatives, integration work and a
 feature-parity delivery ledger for Android, GTK and SwiftUI. It is a developing

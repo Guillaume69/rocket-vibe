@@ -69,6 +69,7 @@ export function withTransactionTrap(bare: Omit<Store, 'transaction'>): Store {
     applyRetention: trap('applyRetention', (n) => bare.applyRetention(n)),
     updateMessageText: trap('updateMessageText', (id, t, p) => bare.updateMessageText(id, t, p)),
     updateMessageMarks: trap('updateMessageMarks', (id, p, e) => bare.updateMessageMarks(id, p, e)),
+    updateThreadFollowers: trap('updateThreadFollowers', (id, f) => bare.updateThreadFollowers(id, f)),
     hideEncryptedMessages: trap('hideEncryptedMessages', () => bare.hideEncryptedMessages()),
     updateEncryptedPreview: trap('updateEncryptedPreview', () => bare.updateEncryptedPreview()),
     updateUserAvatar: trap('updateUserAvatar', (u, e) => bare.updateUserAvatar(u, e)),

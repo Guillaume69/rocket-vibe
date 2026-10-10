@@ -518,9 +518,9 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/lib/server.ts:127](../../apps/mobile/lib/server.ts#L127) | endpoint | settings.public |
 | [apps/mobile/lib/serverIcon.ts:79](../../apps/mobile/lib/serverIcon.ts#L79) | url | /api/v1/instance/icon |
 | [apps/mobile/lib/serverIcon.ts:81](../../apps/mobile/lib/serverIcon.ts#L81) | url | /api/v1/settings.public |
-| [apps/mobile/lib/sync.ts:128](../../apps/mobile/lib/sync.ts#L128) | stream | stream-room-messages |
-| [apps/mobile/lib/sync.ts:129](../../apps/mobile/lib/sync.ts#L129) | stream | stream-notify-user |
-| [apps/mobile/lib/sync.ts:130](../../apps/mobile/lib/sync.ts#L130) | stream | stream-notify-room |
+| [apps/mobile/lib/sync.ts:130](../../apps/mobile/lib/sync.ts#L130) | stream | stream-room-messages |
+| [apps/mobile/lib/sync.ts:131](../../apps/mobile/lib/sync.ts#L131) | stream | stream-notify-user |
+| [apps/mobile/lib/sync.ts:132](../../apps/mobile/lib/sync.ts#L132) | stream | stream-notify-room |
 | [apps/mobile/lib/typing.ts:21](../../apps/mobile/lib/typing.ts#L21) | stream | stream-notify-room |
 | [apps/mobile/lib/upload.ts:90](../../apps/mobile/lib/upload.ts#L90) | url | /api/v1/rooms.media/{…} |
 | [apps/mobile/lib/upload.ts:131](../../apps/mobile/lib/upload.ts#L131) | call:POST | \`rooms.mediaConfirm/{…}/{…}\` |

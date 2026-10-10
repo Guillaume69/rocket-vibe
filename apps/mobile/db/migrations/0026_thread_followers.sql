@@ -1,0 +1,1 @@
+ALTER TABLE `messages` ADD `thread_followers` text;

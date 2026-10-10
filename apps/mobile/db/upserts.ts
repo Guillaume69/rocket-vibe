@@ -20,8 +20,8 @@ export const UPSERT_MESSAGE = `
 INSERT INTO messages (
   id, rid, text, ts, author_id, author_name, system_type,
   thread_id, thread_count, thread_last, thread_shown, edited_at, md,
-  attachments, reactions, urls, call_id, encrypted_raw, pinned, starred, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  attachments, reactions, urls, call_id, encrypted_raw, pinned, starred, thread_followers, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
   -- Encrypted message: keep the already decrypted plaintext if the resync
   -- arrives without a key (excluded.text null). Ordinary message: unchanged.
@@ -53,6 +53,7 @@ ON CONFLICT(id) DO UPDATE SET
   encrypted_raw = COALESCE(excluded.encrypted_raw, messages.encrypted_raw),
   pinned = excluded.pinned,
   starred = excluded.starred,
+  thread_followers = excluded.thread_followers,
   updated_at = excluded.updated_at
 WHERE excluded.updated_at >= messages.updated_at
 `;
@@ -241,6 +242,7 @@ export const UPDATE_MESSAGE_TEXT = `UPDATE messages SET text = ?, attachments = 
  * `updated_at` does not advance: the server's next version wins.
  */
 export const UPDATE_MESSAGE_MARKS = `UPDATE messages SET pinned = ?, starred = ? WHERE id = ?`;
+export const UPDATE_THREAD_FOLLOWERS = `UPDATE messages SET thread_followers = ? WHERE id = ?`;
 /** Re-masks every encrypted message on lock: the local plaintext disappears,
  *  attachments included (they carry each file's key), the ciphertext
  *  (`encrypted_raw`) stays to decrypt again at the next unlock.
@@ -676,6 +678,7 @@ export function messageParams(m: LocalMessage): SqlParam[] {
     m.encryptedRaw,
     b(m.pinned),
     m.starred,
+    m.threadFollowers ?? null,
     m.updatedAt,
   ];
 }

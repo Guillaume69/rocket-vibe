@@ -143,6 +143,8 @@ export const messages = sqliteTable(
     pinned: integer('pinned', { mode: 'boolean' }).notNull().default(false),
     /** `starred` reduced to uids, serialised; `null` if nobody. See `lib/marks.ts`. */
     starred: text('starred'),
+    /** A thread root's followers (`replies`), serialised uids; `null` if none. See `lib/marks.ts`. */
+    threadFollowers: text('thread_followers'),
     updatedAt: integer('updated_at').notNull().default(0),
     /**
      * The author is a bot account (RocketVibe, RFC 0003): the row shows a

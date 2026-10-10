@@ -183,6 +183,13 @@
       "when": 1791548034033,
       "tag": "0025_user_names",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1791642503348,
+      "tag": "0026_thread_followers",
+      "breakpoints": true
     }
   ]
 }

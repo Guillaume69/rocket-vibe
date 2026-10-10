@@ -273,6 +273,10 @@ function makeStore() {
       const m = messages.find((x) => x.id === id);
       if (m !== undefined) Object.assign(m, { pinned, starred });
     },
+    updateThreadFollowers: async (id, threadFollowers) => {
+      const m = messages.find((x) => x.id === id);
+      if (m !== undefined) Object.assign(m, { threadFollowers });
+    },
     hideEncryptedMessages: async () => {
       for (const m of messages) if (m.encryptedRaw !== null) Object.assign(m, { text: null, attachments: null });
     },

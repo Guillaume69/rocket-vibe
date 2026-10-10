@@ -50,6 +50,7 @@ import {
   HIDE_ENCRYPTED_MESSAGES,
   UPDATE_ROOM_AVATAR,
   UPDATE_MESSAGE_MARKS,
+  UPDATE_THREAD_FOLLOWERS,
   UPDATE_USER_AVATAR,
   DELETE_MESSAGE,
   DELETE_OPTIMISTIC_MESSAGE,
@@ -244,6 +245,16 @@ describe('upserts idempotents', () => {
       ...msg({ id: 'm1', pinned: true, starred: '["u2"]', updatedAt: 101 }),
     );
     assert.deepEqual(read(), { pinned: 1, starred: '["u2"]', updated_at: 101 });
+  });
+
+  test('thread followers: round trip, local set, then the next server version wins', () => {
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'r1', threadFollowers: '["u1"]', updatedAt: 100 }));
+    const read = () => row(db.prepare('SELECT thread_followers FROM messages WHERE id = ?').get('r1'));
+    assert.deepEqual(read(), { thread_followers: '["u1"]' });
+    db.prepare(UPDATE_THREAD_FOLLOWERS).run('["u1","me"]', 'r1');
+    assert.deepEqual(read(), { thread_followers: '["u1","me"]' });
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'r1', threadFollowers: '["me"]', updatedAt: 101 }));
+    assert.deepEqual(read(), { thread_followers: '["me"]' });
   });
 
   test('an event with the same timestamp is applied (idempotent replay)', () => {

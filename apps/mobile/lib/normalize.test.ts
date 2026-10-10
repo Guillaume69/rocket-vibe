@@ -49,6 +49,12 @@ describe('toMessage: pins and stars', () => {
     assert.equal(m?.pinned, false);
     assert.equal(m?.starred, null);
   });
+
+  test("a root's `replies` are its followers' uids", () => {
+    const m = toMessage({ ...base, msg: 'x', tcount: 2, replies: ['u1', 'u2'] });
+    assert.equal(m?.threadFollowers, '["u1","u2"]');
+    assert.equal(toMessage({ ...base, msg: 'x' })?.threadFollowers, null);
+  });
 });
 
 describe('toEpoch: the three shapes the server sends', () => {

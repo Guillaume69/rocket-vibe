@@ -29,6 +29,7 @@ export function memoryStore() {
     messagesToDecrypt: async () => [],
     updateMessageText: async () => {},
     updateMessageMarks: async () => {},
+    updateThreadFollowers: async () => {},
     updateUserAvatar: async () => {},
     updateRoomAvatar: async () => {},
     saveIdentity: async () => {},

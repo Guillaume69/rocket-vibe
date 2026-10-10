@@ -5,7 +5,7 @@
  * here so they do not spread anywhere else.
  */
 
-import { starredIds } from './marks.ts';
+import { followerIds, starredIds } from './marks.ts';
 
 /** The server sends either `{"$date": epochMs}` (EJSON) or an ISO string. */
 export function toEpoch(value: unknown): number | null {
@@ -61,6 +61,11 @@ export type LocalMessage = {
   pinned: boolean;
   /** Uids that starred the message, serialized (`lib/marks.ts`). */
   starred: string | null;
+  /**
+   * A thread root's followers (`replies`), serialized uids (`lib/marks.ts`).
+   * Rocket.Chat only; absent means none, like on the other servers.
+   */
+  threadFollowers?: string | null;
   updatedAt: number;
   /**
    * The author is a bot account (RocketVibe only, RFC 0003). Not written by
@@ -200,6 +205,7 @@ export function toMessage(raw: Record<string, unknown>): LocalMessage | null {
     encryptedRaw: encrypted ? jsonOrNull(raw.content) : null,
     pinned: boolean(raw.pinned),
     starred: starredIds(raw.starred),
+    threadFollowers: followerIds(raw.replies),
     // `_updatedAt` is the server clock: it settles conflicts between the
     // WebSocket and a slower REST catch-up.
     updatedAt: toEpoch(raw._updatedAt) ?? ts,

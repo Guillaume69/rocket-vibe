@@ -56,6 +56,7 @@ import {
   MESSAGES_TO_DECRYPT,
   UPDATE_MESSAGE_TEXT,
   UPDATE_MESSAGE_MARKS,
+  UPDATE_THREAD_FOLLOWERS,
   HIDE_ENCRYPTED_MESSAGES,
   UPDATE_ENCRYPTED_PREVIEW,
   HIDE_ENCRYPTED_PREVIEW,
@@ -259,6 +260,10 @@ export function createStore(raw: SQLiteDatabase, serially: WriteQueue): Store {
     updateMessageMarks: (id, pinned, starred) =>
       serially(async () => {
         await raw.runAsync(UPDATE_MESSAGE_MARKS, [pinned ? 1 : 0, starred, id]);
+      }),
+    updateThreadFollowers: (id, followers) =>
+      serially(async () => {
+        await raw.runAsync(UPDATE_THREAD_FOLLOWERS, [followers, id]);
       }),
     hideEncryptedMessages: () =>
       serially(async () => {

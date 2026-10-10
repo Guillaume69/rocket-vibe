@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { starredBy, starredAfter, starredIds } from './marks.ts';
+import { followedBy, followerIds, followersAfter, starredBy, starredAfter, starredIds } from './marks.ts';
 
 describe('starredIds', () => {
   it('reduces `starred` to uids, without duplicates', () => {
@@ -35,5 +35,21 @@ describe('starredAfter', () => {
     assert.equal(starredAfter('["u1","u2"]', 'u1', false), '["u2"]');
     assert.equal(starredAfter('["u1"]', 'u1', false), null);
     assert.equal(starredAfter(null, 'u1', false), null);
+  });
+});
+
+describe('followerIds', () => {
+  it('keeps the uids of `replies`, without duplicates', () => {
+    assert.equal(followerIds(['u1', 'u2', 'u1', '', 3]), '["u1","u2"]');
+  });
+  it('is null without followers', () => {
+    assert.equal(followerIds(undefined), null);
+    assert.equal(followerIds([]), null);
+  });
+  it('reads and updates like the stars', () => {
+    const f = followerIds(['u1']);
+    assert.equal(followedBy(f, 'u1'), true);
+    assert.equal(followedBy(followersAfter(f, 'u1', false), 'u1'), false);
+    assert.equal(followersAfter(f, 'u2', true), '["u1","u2"]');
   });
 });

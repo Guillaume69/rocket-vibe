@@ -74,6 +74,8 @@ export interface Store {
   updateMessageText(id: string, text: string, attachments: string | null): Promise<void>;
   /** Pinning and stars set locally after a successful gesture (`lib/marks.ts`). */
   updateMessageMarks(id: string, pinned: boolean, starred: string | null): Promise<void>;
+  /** A thread root's followers set locally after a successful (un)follow (`lib/marks.ts`). */
+  updateThreadFollowers(id: string, followers: string | null): Promise<void>;
   /**
    * Sets the avatar version (`avatarETag`) of a user, designated by their
    * USERNAME: it is the only key the stream carries. No effect on a username

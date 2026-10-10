@@ -70,8 +70,8 @@ import { useImageViewer } from './imageViewer.tsx';
 import { Tappable } from './tappable.tsx';
 import { useAuthorizedUri } from './authorizedImage.ts';
 
-/** `authorBot` and `form` optional: render-only rows (search, pins, encrypted projections) may not carry them. */
-export type MessageRowData = Omit<typeof messages.$inferSelect, 'authorBot' | 'form'> & { authorBot?: boolean; form?: string | null };
+/** `authorBot`, `form` and `threadFollowers` optional: render-only rows (search, pins, encrypted projections) may not carry them. */
+export type MessageRowData = Omit<typeof messages.$inferSelect, 'authorBot' | 'form' | 'threadFollowers'> & { authorBot?: boolean; form?: string | null; threadFollowers?: string | null };
 
 export const MessageRow = memo(function MessageRow({
   c,

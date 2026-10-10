@@ -95,7 +95,7 @@ function ListHeader({ c }: { c: Colors }) {
         accessibilityLabel={t('searchMessages.title')}
         style={({ pressed }) => [styles.headerWheel, { opacity: pressed ? 0.55 : 1 }]}
       >
-        <Text style={styles.headerWheelGlyph}>🔍</Text>
+        <Icon name="system-search" size={21} color={c.secondaryText} />
       </Tappable>
       <Tappable
         onPress={() => router.push('/settings')}

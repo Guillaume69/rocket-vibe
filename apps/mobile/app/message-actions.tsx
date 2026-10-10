@@ -741,7 +741,7 @@ export default function MessageActionsScreen() {
             />
           )}
           {forwardable && (
-            <ActionRow c={c} disabled={busy} icon="➡️" label={t('messageActions.forward')} onPress={forward} />
+            <ActionRow c={c} disabled={busy} icon="document-send" label={t('messageActions.forward')} onPress={forward} />
           )}
           {forwardable && (
             <ActionRow c={c} disabled={busy} icon="💬" label={t('messageActions.startDiscussion')} onPress={startDiscussion} />

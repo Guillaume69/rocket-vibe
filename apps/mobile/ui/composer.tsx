@@ -54,7 +54,7 @@ import { openLocalFile } from './attachment.ts';
 import { deleteIfTemporary } from './temporaryFiles.ts';
 import { useT } from './i18n.ts';
 import { AvatarTile } from './kit.tsx';
-import { Icon } from './icon.tsx';
+import { Icon, iconGlyph, iconText } from './icon.tsx';
 import { isViewTreeRejection, launchPickerWithRetry } from './launchPicker.ts';
 import { VideoModal } from './videoPlayer.tsx';
 import { isImage } from './mime.ts';
@@ -759,7 +759,7 @@ export function Composer({
           style={styles.alsoInRoom}
         >
           <Text style={[styles.alsoInRoomText, { color: alsoInRoom ? c.text : c.dimmed }]}>
-            {alsoInRoom ? '☑' : '☐'} {t('thread.alsoInRoom')}
+            <Text style={iconText}>{iconGlyph(alsoInRoom ? 'checkbox-checked' : 'checkbox')}</Text> {t('thread.alsoInRoom')}
           </Text>
         </Tappable>
       )}

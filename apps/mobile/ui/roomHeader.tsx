@@ -206,7 +206,7 @@ export function RoomHeader({
           accessibilityRole="button"
           accessibilityLabel={t('room.threads')}
         >
-          <Text style={styles.headerIcon}>💬</Text>
+          <Icon name="chat-message-new" color={c.secondaryText} style={styles.headerIcon} />
         </Tappable>
       )}
       <Tappable

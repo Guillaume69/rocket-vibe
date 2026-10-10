@@ -17,6 +17,7 @@ import { useT } from '../../ui/i18n.ts';
 import type { TranslateFn } from '../../ui/messages.ts';
 import { useSession } from '../../ui/session.tsx';
 import { type Colors, useColors } from '../../ui/theme.ts';
+import { Icon, type IconName } from '../../ui/icon.tsx';
 
 /**
  * Server administration, Rooms (`/admin/rooms`): every room of the server,
@@ -26,7 +27,8 @@ import { type Colors, useColors } from '../../ui/theme.ts';
  * here.
  */
 
-const ICONS: Record<AdminRoomKind, string> = { public: '#️⃣', private: '🔒', direct: '💬', discussion: '🧵' };
+// A public room is marked `#`, as in its name, like the desktop's list.
+const ICONS: Record<AdminRoomKind, IconName | null> = { public: null, private: 'channel-secure', direct: 'avatar-default', discussion: 'chat-message-new' };
 
 /** A native direct conversation by its pair, a deleted member as "Deleted user". */
 function roomName(room: AdminRoom, t: TranslateFn): string {
@@ -69,7 +71,11 @@ function Rooms({ c, admin }: { c: Colors; admin: ProviderAdmin }) {
       renderItem={({ item: room }) => (
         <View style={[adminStyles.row, { backgroundColor: c.deepCard, borderColor: c.border }]} accessible>
           <View style={adminStyles.rowHead}>
-            <Text style={adminStyles.icon}>{ICONS[room.kind]}</Text>
+            {ICONS[room.kind] === null ? (
+              <Text style={[adminStyles.icon, adminStyles.hash, { color: c.dimmed }]}>#</Text>
+            ) : (
+              <Icon name={ICONS[room.kind]!} size={20} color={c.dimmed} style={adminStyles.icon} />
+            )}
             <View style={adminStyles.rowTexts}>
               <Text style={[adminStyles.title, { color: c.text }]} numberOfLines={1}>{roomName(room, t)}</Text>
               {room.topic !== null && <Text style={[adminStyles.sub, { color: c.dimmed }]} numberOfLines={1}>{room.topic}</Text>}

@@ -81,6 +81,7 @@ import { useSession } from '../../ui/session.tsx';
 import { useSync } from '../../ui/sync.tsx';
 import { messageOrder } from '../../ui/messageOrder.ts';
 import { type Colors, FONTS, useColors } from '../../ui/theme.ts';
+import { Icon } from '../../ui/icon.tsx';
 
 /**
  * Room screen.
@@ -1238,7 +1239,7 @@ function Room({
                 },
               ]}
             >
-              <Text style={[styles.backToLatestArrow, { color: c.accent }]}>↓</Text>
+              <Icon name="go-bottom" size={18} color={c.accent} />
             </Tappable>
           )}
         </View>

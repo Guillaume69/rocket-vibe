@@ -50,6 +50,7 @@ import { useSync } from '../ui/sync.tsx';
 import { type Colors, LIST_PRESS_DELAY, FONTS, useColors } from '../ui/theme.ts';
 import { transportAvatarExpo } from '../ui/transportUpload.ts';
 import { Tappable } from '../ui/tappable.tsx';
+import { Icon } from '../ui/icon.tsx';
 
 /** The four selectable statuses; colours and labels: ui/presence.ts. */
 const PRESENCES: readonly DefaultStatus[] = ['online', 'away', 'busy', 'offline'];
@@ -398,7 +399,7 @@ function MyProfileForm({
               uri={avatarUri}
             />
             <View style={[styles.pencil, { backgroundColor: c.accent, borderColor: c.background }]}>
-              <Text style={styles.pencilGlyph}>✎</Text>
+              <Icon name="document-edit" size={13} color={c.onAccent} />
             </View>
           </Pressable>
           <Pressable disabled={busy||waiting||(native&&!chat?.capabilities?.profile_avatars)} onPress={() => void pickPhoto()} hitSlop={8}>
@@ -512,7 +513,7 @@ function MyProfileForm({
           label={t('myProfile.labelUsername')}
           value={form.username}
           editable={!busy&&!waiting}
-          icon="@"
+          prefix="@"
           onChangeText={(v) => updateField('username', v)}
           placeholder={t('myProfile.placeholderUsername')}
         />
@@ -521,7 +522,7 @@ function MyProfileForm({
             c={c}
             label={t('myProfile.labelPassword')}
             value={password}
-            icon="🔒"
+            icon="channel-secure"
             onChangeText={setPassword}
             placeholder="••••••••"
             autoComplete="current-password"

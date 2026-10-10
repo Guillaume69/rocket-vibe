@@ -54,6 +54,7 @@ import { openLocalFile } from './attachment.ts';
 import { deleteIfTemporary } from './temporaryFiles.ts';
 import { useT } from './i18n.ts';
 import { AvatarTile } from './kit.tsx';
+import { Icon } from './icon.tsx';
 import { isViewTreeRejection, launchPickerWithRetry } from './launchPicker.ts';
 import { VideoModal } from './videoPlayer.tsx';
 import { isImage } from './mime.ts';
@@ -149,6 +150,8 @@ export function Composer({
   const [fileSend, setFileSend] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
+  // The pill's border lights up while the field has the focus.
+  const [focused, setFocused] = useState(false);
   // Attachments waiting to be sent (images, voice, any file): they sit as chips
   // above the field, the typed text becomes the first one's caption, and
   // everything goes on ➤. Nothing is sent on pick.
@@ -687,10 +690,11 @@ export function Composer({
   }
 
   const emptyDraft = draft.trim() === '';
-  // The send button replaces the mic as soon as there is text OR a pending
-  // attachment, but NEVER while recording, where the button must stay "stop"
-  // (⏹), even if text was typed in the meantime.
-  const showSend = (!emptyDraft || pending.length > 0 || response?.native !== undefined) && !recording;
+  // Laid out like the desktop's: a pill holding attach, the field, emoji and
+  // mic, then the round send button, always there and dimmed while there is
+  // nothing to send. While recording it is the stop button, even if text was
+  // typed in the meantime.
+  const canSend = !emptyDraft || pending.length > 0 || response?.native !== undefined;
 
   return (
     <View>
@@ -776,90 +780,117 @@ export function Composer({
         </ScrollView>
       )}
       <View style={[styles.composer, { borderTopColor: c.softBorder }]}>
-        {files !== null && (
+        <View
+          style={[
+            styles.pill,
+            { backgroundColor: c.card, borderColor: focused ? c.cyan : c.border },
+            // The desktop's soft focus halo, as `PillField` draws it.
+            focused && { boxShadow: `0px 0px 0px 3px ${c.cyan}24` },
+          ]}
+        >
+          {files !== null && (
+            <Tappable
+              onPress={() => void attach()}
+              disabled={fileSend || recording}
+              android_ripple={{ color: c.ripple, borderless: true }}
+              style={styles.pillButton}
+              accessibilityLabel={t('room.attachFile')}
+            >
+              {fileSend ? (
+                <ActivityIndicator size="small" color={c.accent} />
+              ) : (
+                <Icon name="mail-attachment" color={c.dimmed} style={recording && styles.inactive} />
+              )}
+            </Tappable>
+          )}
+          <TextInput
+            ref={fieldRef}
+            value={draft}
+            selection={selection}
+            onChangeText={changeDraft}
+            onSelectionChange={onSelection}
+            // Touching the field closes the panel: the keyboard takes its place back.
+            onFocus={() => {
+              setFocused(true);
+              emoji.onFocus();
+            }}
+            onBlur={() => {
+              setFocused(false);
+              onInput?.(false);
+            }}
+            placeholder={pending.length > 0 ? t('room.addCaption') : placeholder}
+            placeholderTextColor={c.tertiaryText}
+            multiline
+            style={[styles.composerField, { color: c.text }]}
+          />
           <Tappable
-            onPress={() => void attach()}
-            disabled={fileSend || recording}
+            onPress={emoji.toggle}
             android_ripple={{ color: c.ripple, borderless: true }}
-            style={styles.attachButton}
-            accessibilityLabel={t('room.attachFile')}
+            style={styles.pillButton}
+            accessibilityLabel={emoji.open ? t('room.backToKeyboard') : t('room.pickEmoji')}
           >
-            {fileSend ? (
-              <ActivityIndicator size="small" color={c.accent} />
-            ) : (
-              <Text
-                style={[styles.attach, recording && styles.attachInactive]}
-              >
-                📎
-              </Text>
-            )}
+            <Icon name={emoji.open ? 'input-keyboard' : 'face-smile'} color={c.dimmed} />
           </Tappable>
-        )}
-        <Tappable
-          onPress={emoji.toggle}
-          android_ripple={{ color: c.ripple, borderless: true }}
-          style={styles.emojiButton}
-          accessibilityLabel={emoji.open ? t('room.backToKeyboard') : t('room.pickEmoji')}
-        >
-          <Text style={styles.attach}>{emoji.open ? '⌨️' : '😀'}</Text>
-        </Tappable>
-        <Tappable
-          onPress={() => setFormatting((v) => !v)}
-          android_ripple={{ color: c.ripple, borderless: true }}
-          style={styles.emojiButton}
-          accessibilityRole="button"
-          accessibilityState={{ expanded: formatting }}
-          accessibilityLabel={t('format.toolbar')}
-        >
-          <Text style={[styles.formatToggle, { color: formatting ? c.accent : c.dimmed }]}>Aa</Text>
-        </Tappable>
-        <TextInput
-          ref={fieldRef}
-          value={draft}
-          selection={selection}
-          onChangeText={changeDraft}
-          onSelectionChange={onSelection}
-          // Touching the field closes the panel: the keyboard takes its place back.
-          onFocus={emoji.onFocus}
-          onBlur={()=>onInput?.(false)}
-          placeholder={pending.length > 0 ? t('room.addCaption') : placeholder}
-          placeholderTextColor={c.tertiaryText}
-          multiline
-          style={[styles.composerField, { color: c.text, backgroundColor: c.card }]}
-        />
-        {showSend ? (
+          <Tappable
+            onPress={() => setFormatting((v) => !v)}
+            android_ripple={{ color: c.ripple, borderless: true }}
+            style={styles.pillButton}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: formatting }}
+            accessibilityLabel={t('format.toolbar')}
+          >
+            <Text style={[styles.formatToggle, { color: formatting ? c.accent : c.dimmed }]}>Aa</Text>
+          </Tappable>
+          {files !== null && (
+            <Tappable
+              onPress={() => void toggleVoice()}
+              disabled={fileSend || recording}
+              android_ripple={{ color: c.ripple, borderless: true }}
+              style={styles.pillButton}
+              accessibilityLabel={t('room.voiceMessage')}
+            >
+              <Icon
+                name="audio-input-microphone"
+                color={recording ? c.danger : c.dimmed}
+              />
+            </Tappable>
+          )}
+        </View>
+        {recording ? (
+          <Pressable
+            onPress={() => void toggleVoice()}
+            disabled={fileSend}
+            style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
+            accessibilityLabel={t('room.stopRecording')}
+          >
+            <AvatarTile
+              c={c}
+              deg={[c.danger, c.danger] as const}
+              size={44}
+              radius={22}
+              child={<Icon name="media-playback-stop" color={c.onAccent} />}
+            />
+          </Pressable>
+        ) : (
           <Pressable
             onPress={send}
-            disabled={fileSend || nativeSend}
+            disabled={!canSend || fileSend || nativeSend}
             // An encrypted send takes a few seconds: the dimmed button says it
             // is under way, instead of a tap that seems lost.
-            style={({ pressed }) => ({ opacity: pressed || fileSend || nativeSend ? 0.5 : 1 })}
+            style={({ pressed }) => ({
+              opacity: pressed || !canSend || fileSend || nativeSend ? 0.5 : 1,
+            })}
             accessibilityLabel={t('common.send')}
           >
             <AvatarTile
               c={c}
               deg={[c.accent, c.purple] as const}
-              size={40}
-              radius={20}
-              child={<Text style={[styles.roundGlyph, { color: c.onAccent }]}>➤</Text>}
+              size={44}
+              radius={22}
+              child={<Icon name="send" size={20} color={c.onAccent} />}
             />
           </Pressable>
-        ) : files !== null ? (
-          <Pressable
-            onPress={() => void toggleVoice()}
-            disabled={fileSend}
-            style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
-            accessibilityLabel={recording ? t('room.stopRecording') : t('room.voiceMessage')}
-          >
-            <AvatarTile
-              c={c}
-              deg={recording ? ([c.danger, c.danger] as const) : ([c.accent, c.purple] as const)}
-              size={40}
-              radius={20}
-              child={<Text style={styles.roundGlyph}>{recording ? '⏹' : '🎤'}</Text>}
-            />
-          </Pressable>
-        ) : null}
+        )}
       </View>
       {emoji.mounted && (
         <EmojiPicker
@@ -927,20 +958,28 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderTopWidth: 1,
   },
+  // The desktop's `.composer-pill`: card fill, a 1.5 px border that turns
+  // cyan with a soft halo while the field has the focus.
+  pill: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 4,
+    borderRadius: 22,
+    borderWidth: 1.5,
+    paddingHorizontal: 10,
+    minHeight: 44,
+  },
   composerField: {
     flex: 1,
-    borderRadius: 22,
-    paddingHorizontal: 16,
+    paddingHorizontal: 4,
     paddingVertical: 10,
     fontFamily: FONTS.body,
     fontSize: 15,
     maxHeight: 120,
   },
-  attach: { fontSize: 20 },
-  attachInactive: { opacity: 0.35 },
-  roundGlyph: { fontSize: 18 },
-  attachButton: { paddingVertical: 8, paddingHorizontal: 2 },
-  emojiButton: { paddingVertical: 8, paddingHorizontal: 2 },
+  inactive: { opacity: 0.35 },
+  pillButton: { paddingVertical: 11, paddingHorizontal: 4 },
   composerError: { fontSize: 12, textAlign: 'center', paddingTop: 6, paddingHorizontal: 12 },
   noteComposer: {
     flex: 1,

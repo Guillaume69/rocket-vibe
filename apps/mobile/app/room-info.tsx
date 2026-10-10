@@ -30,6 +30,7 @@ import type { TranslationKey } from '../ui/messages.ts';
 import { useSession } from '../ui/session.tsx';
 import { useSync } from '../ui/sync.tsx';
 import { FONTS, useColors } from '../ui/theme.ts';
+import { iconGlyph, iconText } from '../ui/icon.tsx';
 import { useSheetBottomMargin } from '../ui/sheetMargin.ts';
 import {RoomCommands} from '../ui/roomManagement.tsx';
 import {RoomMembershipBound} from '../ui/roomMembership.tsx';
@@ -179,7 +180,7 @@ function RoomInfoContent({
         />
         <View style={styles.identity}>
           <Text style={[styles.name, { color: c.text }]} numberOfLines={2}>
-            {room?.encrypted === true && <Text style={styles.encryptedBadge}>🔒 </Text>}
+            {room?.encrypted === true && <><Text style={[styles.encryptedBadge, iconText]}>{iconGlyph('channel-secure')}</Text>{' '}</>}
             {room?.type === 'c' ? '#' : ''}
             {name}
           </Text>

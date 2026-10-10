@@ -35,6 +35,7 @@ import { PRESENCE_KEYS, presenceColors } from '../ui/presence.ts';
 import { useSession } from '../ui/session.tsx';
 import { useSync } from '../ui/sync.tsx';
 import { LIST_PRESS_DELAY, FONTS, useColors } from '../ui/theme.ts';
+import { iconGlyph, iconText } from '../ui/icon.tsx';
 import { Tappable } from '../ui/tappable.tsx';
 import { useSheetBottomMargin } from '../ui/sheetMargin.ts';
 import { ReportForm } from '../ui/reportForm.tsx';
@@ -442,7 +443,7 @@ export default function ProfileScreen() {
           accessibilityRole="button"
           style={styles.report}
         >
-          <Text style={[styles.reportText, { color: c.errorText }]}>🚩 {t('report.userTitle')}</Text>
+          <Text style={[styles.reportText, { color: c.errorText }]}><Text style={iconText}>{iconGlyph('dialog-warning')}</Text> {t('report.userTitle')}</Text>
         </Tappable>
       ))}
     </ProfileBody>

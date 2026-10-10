@@ -24,6 +24,7 @@ import { AvatarTile } from './kit.tsx';
 import { useSession } from './session.tsx';
 import { useSync } from './sync.tsx';
 import { type Colors, FONTS, useColors } from './theme.ts';
+import { Icon, iconGlyph, iconText, type IconName } from './icon.tsx';
 import { notify } from './toast.tsx';
 
 const controllers = new WeakMap<NativeChat, VoiceController>();
@@ -217,11 +218,15 @@ export function VoiceOccupants({ c, rid, client }: { c: Colors; rid: string; cli
             <Text style={[styles.occupantName, { color: c.secondaryText }]} numberOfLines={1}>
               {o.user.display_name || o.user.username}
             </Text>
-            {(local?.muted ?? o.muted) && <Text style={styles.occupantIcon}>🎙️̸</Text>}
-            {(local?.deafened ?? o.deafened) && <Text style={styles.occupantIcon}>🔇</Text>}
-            {(local?.camera ?? o.camera) === true && <Text style={styles.occupantIcon}>📷</Text>}
-            {(local?.screen ?? o.screen) === true && <Text style={styles.occupantIcon}>🖥️</Text>}
-            {listening.people[o.user.id]?.muted === true && <Text style={styles.occupantIcon} accessibilityLabel={t('voice.mutedHere')}>🔕</Text>}
+            {(local?.muted ?? o.muted) && <Icon name="microphone-disabled" size={12} color={c.dimmed} />}
+            {(local?.deafened ?? o.deafened) && <Icon name="audio-volume-muted" size={12} color={c.dimmed} />}
+            {(local?.camera ?? o.camera) === true && <Icon name="camera-web" size={12} color={c.dimmed} />}
+            {(local?.screen ?? o.screen) === true && <Icon name="video-display" size={12} color={c.dimmed} />}
+            {listening.people[o.user.id]?.muted === true && (
+              <View accessible accessibilityLabel={t('voice.mutedHere')}>
+                <Icon name="notifications-disabled" size={12} color={c.dimmed} />
+              </View>
+            )}
           </Pressable>
         );
       })}
@@ -235,7 +240,7 @@ export function usePersonSheet(): (uid: string, name: string) => void {
   return useCallback((uid, name) => router.push({ pathname: '/voice/person', params: { uid, name } }), [router]);
 }
 
-function ControlButton({ c, label, glyph, active, danger, onPress }: { c: Colors; label: string; glyph: string; active?: boolean; danger?: boolean; onPress: () => void }) {
+function ControlButton({ c, label, icon, active, danger, onPress }: { c: Colors; label: string; icon: IconName; active?: boolean; danger?: boolean; onPress: () => void }) {
   return (
     <Pressable
       onPress={onPress}
@@ -246,7 +251,7 @@ function ControlButton({ c, label, glyph, active, danger, onPress }: { c: Colors
       android_ripple={{ color: c.ripple, borderless: true }}
       style={[styles.control, { backgroundColor: danger ? c.danger : active ? c.border : c.card }]}
     >
-      <Text style={styles.controlGlyph}>{glyph}</Text>
+      <Icon name={icon} size={18} color={danger ? c.onAccent : c.text} />
     </Pressable>
   );
 }
@@ -261,27 +266,27 @@ export function VoiceControls({ c, size = 'small' }: { c: Colors; size?: 'small'
   const muted = !voice.microphone || voice.deafened;
   return (
     <View style={[styles.controls, size === 'large' && styles.controlsLarge]}>
-      <ControlButton c={c} label={muted ? t('voice.unmute') : t('voice.mute')} glyph={muted ? '🎙️̸' : '🎙️'} active={muted}
+      <ControlButton c={c} label={muted ? t('voice.unmute') : t('voice.mute')} icon={muted ? 'microphone-disabled' : 'audio-input-microphone'} active={muted}
         onPress={() => void controller.setMicrophone(muted)} />
       <Pressable onPress={() => router.push('/voice/menu')} hitSlop={6} accessibilityRole="button" accessibilityLabel={t('voice.menu')}
         android_ripple={{ color: c.ripple, borderless: true }} style={[styles.menuButton, { backgroundColor: c.card }]}>
-        <Text style={[styles.menuGlyph, { color: c.secondaryText }]}>⌃</Text>
+        <Icon name="pan-up" size={14} color={c.secondaryText} />
       </Pressable>
-      <ControlButton c={c} label={voice.deafened ? t('voice.undeafen') : t('voice.deafen')} glyph={voice.deafened ? '🔇' : '🎧'} active={voice.deafened}
+      <ControlButton c={c} label={voice.deafened ? t('voice.undeafen') : t('voice.deafen')} icon={voice.deafened ? 'audio-volume-muted' : 'audio-headphones'} active={voice.deafened}
         onPress={() => void controller.setDeafened(!voice.deafened)} />
       {size === 'large' && (
-        <ControlButton c={c} label={voice.camera ? t('voice.cameraOff') : t('voice.camera')} glyph="📷" active={voice.camera}
+        <ControlButton c={c} label={voice.camera ? t('voice.cameraOff') : t('voice.camera')} icon="camera-web" active={voice.camera}
           onPress={() => void toggleCamera(controller, voice.camera, t)} />
       )}
       {size === 'large' && (
-        <ControlButton c={c} label={voice.sharing ? t('voice.stopScreen') : t('voice.shareScreen')} glyph="🖥️" active={voice.sharing}
+        <ControlButton c={c} label={voice.sharing ? t('voice.stopScreen') : t('voice.shareScreen')} icon="video-display" active={voice.sharing}
           onPress={() => void toggleScreen(controller, voice.sharing, t)} />
       )}
       {size === 'large' && voice.routes.includes('speaker') && (
-        <ControlButton c={c} label={t('voice.speaker')} glyph="🔊" active={voice.route === 'speaker'}
+        <ControlButton c={c} label={t('voice.speaker')} icon="audio-volume-high" active={voice.route === 'speaker'}
           onPress={() => void controller.setRoute(voice.route === 'speaker' ? (voice.routes.find(r => r !== 'speaker') ?? 'earpiece') : 'speaker')} />
       )}
-      <ControlButton c={c} label={t('voice.leave')} glyph="📞" danger onPress={() => void controller.leave()} />
+      <ControlButton c={c} label={t('voice.leave')} icon="call-stop" danger onPress={() => void controller.leave()} />
     </View>
   );
 }
@@ -320,7 +325,7 @@ export function VoiceBar({ c, title }: { c: Colors; title: (rid: string) => stri
         onPress={() => router.push({ pathname: '/voice/[rid]', params: { rid, title: title(rid), ...(voice.direct ? { direct: '1' } : {}) } })}
       >
         <Text style={[styles.barStatus, { color: voice.phase === 'connected' ? c.online : c.dimmed }]} numberOfLines={1}>
-          📶 {status}
+          <Text style={iconText}>{iconGlyph('network-wireless-signal-good')}</Text> {status}
         </Text>
         <Text style={[styles.barRoom, { color: c.dimmed }]} numberOfLines={1}>{title(rid)}</Text>
       </Pressable>
@@ -387,11 +392,11 @@ export function VoiceRingHost() {
           <View style={styles.incomingActions}>
             <Pressable accessibilityRole="button" accessibilityLabel={t('voice.decline')} onPress={() => void controller.decline(incoming.id).catch(() => {})}
               style={[styles.answer, { backgroundColor: c.danger }]}>
-              <Text style={styles.answerGlyph}>📞</Text>
+              <Icon name="call-stop" size={28} color={c.onAccent} />
             </Pressable>
             <Pressable accessibilityRole="button" accessibilityLabel={t('voice.accept')} onPress={() => void answer()}
               style={[styles.answer, { backgroundColor: c.online }]}>
-              <Text style={styles.answerGlyph}>📞</Text>
+              <Icon name="call-start" size={28} color={c.onAccent} />
             </Pressable>
           </View>
         </View>
@@ -405,13 +410,10 @@ const styles = StyleSheet.create({
   occupants: { paddingLeft: 72, paddingRight: 16, paddingBottom: 6, gap: 2 },
   occupant: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   occupantName: { fontFamily: FONTS.bodyBold, fontSize: 13, flexShrink: 1 },
-  occupantIcon: { fontSize: 11 },
   controls: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   controlsLarge: { gap: 16, justifyContent: 'center' },
   control: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
-  controlGlyph: { fontSize: 18 },
   menuButton: { width: 26, height: 42, borderRadius: 13, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', marginLeft: -4 },
-  menuGlyph: { fontSize: 16, fontFamily: FONTS.bodyStrong },
   bar: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderTopWidth: 1 },
   barText: { flex: 1, gap: 1 },
   barStatus: { fontFamily: FONTS.bodyStrong, fontSize: 13 },
@@ -422,5 +424,4 @@ const styles = StyleSheet.create({
   incomingLabel: { fontFamily: FONTS.body, fontSize: 14 },
   incomingActions: { flexDirection: 'row', gap: 48, marginTop: 18 },
   answer: { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center' },
-  answerGlyph: { fontSize: 26 },
 });

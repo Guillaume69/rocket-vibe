@@ -26,6 +26,7 @@ import { PRESENCE_KEYS, presenceColors } from './presence.ts';
 import { useSync } from './sync.tsx';
 import { type Colors, FONTS } from './theme.ts';
 import { Tappable } from './tappable.tsx';
+import { Icon, iconGlyph, iconText } from './icon.tsx';
 import {CryptoNative} from '../modules/crypto-native/index.ts';
 import { useJoinVoice, useVoice } from './voice.tsx';
 
@@ -155,7 +156,7 @@ export function RoomHeader({
         />
         <View style={styles.headerBlock}>
           <Text style={[styles.headerName, { color: c.text }]} numberOfLines={1}>
-            {room?.encrypted === true && <Text style={styles.encryptedHeaderBadge}>🔒 </Text>}
+            {room?.encrypted === true && <><Text style={[styles.encryptedHeaderBadge, iconText]}>{iconGlyph('channel-secure')}</Text>{' '}</>}
             {name}
           </Text>
           {isDM && dmStatus !== null && (
@@ -177,7 +178,11 @@ export function RoomHeader({
           accessibilityRole="button"
           accessibilityLabel={inVoice ? t('voice.inCall') : t('voice.startCall')}
         >
-          <Text style={[styles.headerIcon, inVoice && { color: c.online }]}>{inVoice ? '🔊' : '📞'}</Text>
+          <Icon
+            name={inVoice ? 'audio-volume-high' : 'call-start'}
+            color={inVoice ? c.online : c.secondaryText}
+            style={styles.headerIcon}
+          />
         </Tappable>
       )}
       {callAvailable && (
@@ -190,7 +195,7 @@ export function RoomHeader({
           accessibilityLabel={t('room.startCall')}
           style={({ pressed }) => ({ opacity: pressed || starting ? 0.5 : 1 })}
         >
-          <Text style={styles.headerIcon}>📞</Text>
+          <Icon name="camera-video" color={c.secondaryText} style={styles.headerIcon} />
         </Tappable>
       )}
       {sync.phase === 'ready' && sync.actions.listThreads !== undefined && availableMessageActions && (
@@ -212,7 +217,7 @@ export function RoomHeader({
         accessibilityRole="button"
         accessibilityLabel={t('room.marked')}
       >
-        <Text style={styles.headerIcon}>📌</Text>
+        <Icon name="view-pin" color={c.secondaryText} style={styles.headerIcon} />
       </Tappable>
       <Tappable
         onPress={onSearch}
@@ -220,7 +225,7 @@ export function RoomHeader({
         hitSlop={8}
         android_ripple={{ color: c.ripple, borderless: true }}
       >
-        <Text style={styles.headerIcon}>🔍</Text>
+        <Icon name="system-search" color={c.secondaryText} style={styles.headerIcon} />
       </Tappable>
       <SyncBar c={c} active={syncing} />
     </View>
@@ -248,5 +253,5 @@ const styles = StyleSheet.create({
   headerName: { fontFamily: FONTS.title, fontSize: 16 },
   encryptedHeaderBadge: { fontSize: 12 },
   headerSub: { fontFamily: FONTS.bodyBold, fontSize: 11 },
-  headerIcon: { fontSize: 18, paddingHorizontal: 6 },
+  headerIcon: { paddingHorizontal: 6 },
 });

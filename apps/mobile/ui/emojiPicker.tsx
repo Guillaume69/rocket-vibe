@@ -62,6 +62,7 @@ import type { TranslationKey } from './messages.ts';
 import { useHardwareBack } from './hardwareBack.ts';
 import { type Colors, LIST_PRESS_DELAY, FONTS } from './theme.ts';
 import { Tappable } from './tappable.tsx';
+import { Icon } from './icon.tsx';
 
 /** A search in the picker casts a wider net than the inline strip. */
 const SEARCH_LIMIT = 300;
@@ -304,7 +305,7 @@ export function EmojiGrid({
   return (
       <View style={{ height }}>
       <View style={[styles.search, { backgroundColor: c.deepCard }]}>
-        <Text style={styles.magnifier}>🔍</Text>
+        <Icon name="system-search" size={14} color={c.tertiaryText} />
         <TextInput
           value={search}
           onChangeText={setSearch}
@@ -316,7 +317,7 @@ export function EmojiGrid({
         />
         {search !== '' && (
           <Pressable onPress={() => setSearch('')} hitSlop={8} accessibilityLabel={t('emojiPicker.clearSearch')}>
-            <Text style={[styles.clear, { color: c.tertiaryText }]}>✕</Text>
+            <Icon name="edit-clear" size={15} color={c.tertiaryText} style={styles.clear} />
           </Pressable>
         )}
       </View>
@@ -397,9 +398,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: 12,
   },
-  magnifier: { fontSize: 14 },
   searchField: { flex: 1, fontFamily: FONTS.body, fontSize: 15, paddingVertical: 9 },
-  clear: { fontSize: 15, paddingHorizontal: 2 },
+  clear: { paddingHorizontal: 2 },
   tabs: {
     flexDirection: 'row',
     borderBottomWidth: StyleSheet.hairlineWidth,

@@ -14,6 +14,7 @@ import { ProfileCard, type SettingsAccount, styles as sections, useMyName } from
 import { useSession } from '../../ui/session.tsx';
 import { useSync } from '../../ui/sync.tsx';
 import { Tappable } from '../../ui/tappable.tsx';
+import { Icon } from '../../ui/icon.tsx';
 import { type Colors, LIST_PRESS_DELAY, FONTS, useColors } from '../../ui/theme.ts';
 
 /**
@@ -92,7 +93,7 @@ function Settings({ c, account }: { c: Colors; account: SettingsAccount }) {
         <View style={[styles.list, { backgroundColor: c.deepCard, borderColor: c.border }]}>
           <CategoryRow
             c={c}
-            category={{ icon: '🛠️', label: 'settings.admin', hint: 'settings.adminHint' }}
+            category={{ icon: 'network-server', label: 'settings.admin', hint: 'settings.adminHint' }}
             first
             onPress={() => router.push('/admin')}
           />
@@ -144,7 +145,7 @@ function CategoryRow({
         { opacity: pressed ? 0.7 : 1 },
       ]}
     >
-      <Text style={styles.icon}>{category.icon}</Text>
+      <Icon name={category.icon} size={20} color={c.dimmed} style={styles.icon} />
       <View style={styles.texts}>
         <Text style={[styles.label, { color: c.text }]} numberOfLines={1}>
           {label}
@@ -169,7 +170,7 @@ const styles = StyleSheet.create({
     paddingVertical: 13,
     paddingHorizontal: 16,
   },
-  icon: { fontSize: 22, width: 28, textAlign: 'center' },
+  icon: { width: 28, textAlign: 'center' },
   texts: { flex: 1, gap: 1 },
   label: { fontFamily: FONTS.bodyStrong, fontSize: 15.5 },
   hint: { fontFamily: FONTS.body, fontSize: 12.5 },

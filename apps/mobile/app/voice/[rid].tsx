@@ -16,6 +16,7 @@ import { TILE_GAP, arrangeTiles } from '../../lib/voiceGrid.ts';
 import { useT } from '../../ui/i18n.ts';
 import { useSession } from '../../ui/session.tsx';
 import { type Colors, FONTS, useColors } from '../../ui/theme.ts';
+import { Icon, iconGlyph, iconText } from '../../ui/icon.tsx';
 import { SpeakingAvatar, VoiceControls, useJoinVoice, useListening, usePeople, usePersonSheet, useRoomVoice, useVoice } from '../../ui/voice.tsx';
 import { VoiceVideoView } from '../../modules/voice/index.ts';
 
@@ -83,10 +84,10 @@ export default function VoiceScreen() {
           <Text style={[styles.back, { color: c.purple }]}>‹</Text>
         </Pressable>
         <View style={styles.headerText}>
-          <Text style={[styles.title, { color: c.text }]} numberOfLines={1}>🔊 {title ?? ''}</Text>
+          <Text style={[styles.title, { color: c.text }]} numberOfLines={1}><Text style={iconText}>{iconGlyph('audio-volume-high')}</Text> {title ?? ''}</Text>
           {status !== null && (
             <Text style={[styles.status, { color: voice.phase === 'connected' ? c.online : c.dimmed }]} numberOfLines={1}>
-              {voice.encrypted ? `🔒 ${status} · ${t('voice.secure')}` : status}
+              {voice.encrypted ? <><Text style={iconText}>{iconGlyph('channel-secure')}</Text> {`${status} · ${t('voice.secure')}`}</> : status}
             </Text>
           )}
         </View>
@@ -97,7 +98,7 @@ export default function VoiceScreen() {
           accessibilityLabel={t('voice.openChat')}
           android_ripple={{ color: c.ripple, borderless: true }}
         >
-          <Text style={styles.headerIcon}>💬</Text>
+          <Icon name="chat-message-new" size={22} color={c.secondaryText} />
         </Pressable>
       </View>
       {sharer !== undefined && VoiceVideoView !== null ? (
@@ -106,7 +107,7 @@ export default function VoiceScreen() {
             accessibilityRole="button" accessibilityLabel={t('voice.fullscreen')}>
             <VoiceVideoView identity={sharer.uid} source="screen" fit="contain" style={StyleSheet.absoluteFill} />
             <Text style={[styles.stageLabel, { color: c.text, backgroundColor: c.background }]} numberOfLines={1}>
-              🖥️ {t('voice.screenOf', { name: sharer.name })}
+              <Text style={iconText}>{iconGlyph('video-display')}</Text> {t('voice.screenOf', { name: sharer.name })}
             </Text>
             <Text style={[styles.stageFull, { color: c.text, backgroundColor: c.background }]}>⛶</Text>
           </Pressable>
@@ -162,11 +163,12 @@ function useGlow(speaking: boolean) {
 
 /** Muted, deafened, muted for this side. */
 function Icons({ card }: { card: Card }) {
+  const c = useColors();
   return (
     <>
-      {card.muted && <Text style={styles.cardIcon}>🎙️̸</Text>}
-      {card.deafened && <Text style={styles.cardIcon}>🔇</Text>}
-      {card.mutedHere && <Text style={styles.cardIcon}>🔕</Text>}
+      {card.muted && <Icon name="microphone-disabled" size={12} color={c.dimmed} />}
+      {card.deafened && <Icon name="audio-volume-muted" size={12} color={c.dimmed} />}
+      {card.mutedHere && <Icon name="notifications-disabled" size={12} color={c.dimmed} />}
     </>
   );
 }
@@ -221,7 +223,6 @@ const styles = StyleSheet.create({
   headerText: { flex: 1 },
   title: { fontFamily: FONTS.titleStrong, fontSize: 17 },
   status: { fontFamily: FONTS.bodyBold, fontSize: 12 },
-  headerIcon: { fontSize: 22 },
   grid: { flex: 1, margin: 12, gap: TILE_GAP, justifyContent: 'center' },
   gridRow: { flexDirection: 'row', justifyContent: 'center', gap: TILE_GAP },
   tile: { borderRadius: 20, borderWidth: 1, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
@@ -239,7 +240,6 @@ const styles = StyleSheet.create({
   stageLabel: { position: 'absolute', left: 10, bottom: 10, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, fontFamily: FONTS.bodyBold, fontSize: 12, opacity: 0.85 },
   stageFull: { position: 'absolute', right: 10, top: 10, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8, fontSize: 16, opacity: 0.85 },
   fullscreen: { flex: 1, backgroundColor: '#000000' },
-  cardIcon: { fontSize: 12 },
   empty: { flex: 1, textAlign: 'center', padding: 32, fontFamily: FONTS.body, fontSize: 14 },
   footer: { paddingVertical: 14, paddingHorizontal: 16, borderTopWidth: 1 },
   join: { alignSelf: 'center', borderRadius: 24, paddingHorizontal: 28, paddingVertical: 12 },

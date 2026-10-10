@@ -25,6 +25,7 @@ import { NativeError } from '../providers/rocketvibe/transport.ts';
 import { useSync } from './sync.tsx';
 import { useT } from './i18n.ts';
 import { Tappable } from './tappable.tsx';
+import { Icon, iconGlyph, iconText } from './icon.tsx';
 import { AvatarTile, PillField } from './kit.tsx';
 import { FONTS, type Colors } from './theme.ts';
 import { ConfirmNativeIdentity } from './nativeSecurity.tsx';
@@ -446,7 +447,7 @@ function ScopeList({ c, scopes, reference, disabled, onToggle }: { c: Colors; sc
               onPress={() => onToggle(scope)}
               style={styles.scopeHead}
             >
-              <Text style={[styles.check, { color: on ? c.accent : c.dimmed }]}>{on ? '☑' : '☐'}</Text>
+              <Icon name={on ? 'checkbox-checked' : 'checkbox'} size={18} color={on ? c.accent : c.dimmed} style={styles.check} />
               <View style={styles.botTexts}>
                 <Text style={[styles.code, { color: c.text }]}>{scope}</Text>
                 <Text style={[styles.text, { color: c.secondaryText }]}>{t(SCOPE_TEXT[scope])}</Text>
@@ -458,7 +459,7 @@ function ScopeList({ c, scopes, reference, disabled, onToggle }: { c: Colors; sc
       })}
       <View style={styles.scope}>
         <View style={styles.scopeHead}>
-          <Text style={[styles.check, { color: c.dimmed }]}>✓</Text>
+          <Icon name="object-select" size={18} color={c.dimmed} style={styles.check} />
           <Text style={[styles.text, styles.botTexts, { color: c.secondaryText }]}>{t(SCOPE_TEXT.always)}</Text>
         </View>
         <Routes c={c} reference={reference} scope="always" />
@@ -483,7 +484,7 @@ function Routes({ c, reference, scope }: { c: Colors; reference: BotReference | 
     <View style={styles.routes}>
       <Tappable accessibilityRole="button" accessibilityState={{ expanded: open }} onPress={() => setOpen((v) => !v)}>
         <Text style={[styles.disclosure, { color: c.cyan }]}>
-          {open ? '▾' : '▸'} {t('bots.api')}
+          <Text style={iconText}>{iconGlyph(open ? 'pan-down' : 'pan-end')}</Text> {t('bots.api')}
         </Text>
       </Tappable>
       {open &&
@@ -673,7 +674,7 @@ const styles = StyleSheet.create({
   scopes: { gap: 8 },
   scope: { gap: 2 },
   scopeHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, paddingVertical: 4 },
-  check: { fontSize: 18, width: 22, textAlign: 'center' },
+  check: { width: 22, textAlign: 'center' },
   code: { fontFamily: MONO, fontSize: 12.5, lineHeight: 18 },
   routes: { marginLeft: 32, gap: 2 },
   disclosure: { fontFamily: FONTS.bodyBold, fontSize: 12, paddingVertical: 4 },

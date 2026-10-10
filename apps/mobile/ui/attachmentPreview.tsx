@@ -20,7 +20,8 @@ import Animated, { FadeInDown, FadeOutDown } from 'react-native-reanimated';
 import { useT } from './i18n.ts';
 import { AudioPlayer } from './audioPlayer.tsx';
 import type { TranslateFn } from './messages.ts';
-import { fileEmoji, isImage } from './mime.ts';
+import { fileIcon, isImage } from './mime.ts';
+import { Icon } from './icon.tsx';
 import type { SendQuality } from './attachmentQuality.ts';
 import { type Colors, FONTS } from './theme.ts';
 
@@ -109,7 +110,7 @@ export function AttachmentPreview({
               end={{ x: 1, y: 1 }}
               style={styles.thumbnail}
             >
-              <Text style={styles.emoji}>{fileEmoji(file.type)}</Text>
+              <Icon name={fileIcon(file.type)} size={26} color={c.secondaryText} />
             </LinearGradient>
           )}
           <View style={styles.info}>
@@ -243,7 +244,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#00000010',
   },
-  emoji: { fontSize: 26 },
   info: { flex: 1, minWidth: 0, gap: 2 },
   name: { fontFamily: FONTS.bodyBold, fontSize: 13.5 },
   meta: { fontFamily: FONTS.body, fontSize: 11 },

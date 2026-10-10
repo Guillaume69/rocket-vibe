@@ -480,6 +480,7 @@
     "apps/mobile/ui/homeSections.ts",
     "apps/mobile/ui/hotRooms.ts",
     "apps/mobile/ui/i18n.ts",
+    "apps/mobile/ui/icon.tsx",
     "apps/mobile/ui/identities.tsx",
     "apps/mobile/ui/identityStore.ts",
     "apps/mobile/ui/imageViewer.tsx",
@@ -3351,31 +3352,31 @@
     },
     {
       "file": "apps/mobile/app/login.tsx",
-      "line": 469,
+      "line": 470,
       "kind": "endpoint",
       "surface": "chat.example.org"
     },
     {
       "file": "apps/mobile/app/message-actions.tsx",
-      "line": 97,
+      "line": 98,
       "kind": "call:GET",
       "surface": "'settings.public'"
     },
     {
       "file": "apps/mobile/app/message-actions.tsx",
-      "line": 98,
+      "line": 99,
       "kind": "endpoint",
       "surface": "settings.public"
     },
     {
       "file": "apps/mobile/app/my-profile.tsx",
-      "line": 188,
+      "line": 189,
       "kind": "call:POST",
       "surface": "'users.resetAvatar'"
     },
     {
       "file": "apps/mobile/app/my-profile.tsx",
-      "line": 188,
+      "line": 189,
       "kind": "endpoint",
       "surface": "users.resetAvatar"
     },

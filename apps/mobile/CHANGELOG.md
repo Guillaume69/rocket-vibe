@@ -25,6 +25,11 @@ release, and its notes are that version's section here.
 - A formatting row ("Aa" beside the emoji button): bold, italic, strike, link, code, code block, quote and lists, around the selection, as on the desktop.
 - My profile can remove my photo (Rocket.Chat and RocketVibe), after a confirmation.
 
+### Changed
+
+- The interface draws its icons with the desktop's monochrome GNOME Adwaita icons, tinted by the theme, instead of colour emoji that looked different on every phone: buttons, headers, menus, settings, administration, voice controls, attachments and file types.
+- The composer is laid out like the desktop's: a single outlined field holding attach, emoji and microphone, lit cyan while typing, and a round send button that stays in place, dimmed while there is nothing to send, and turns into stop while recording.
+
 ### Fixed
 
 - Quote cards show emoji as glyphs instead of their `:shortcodes:`.

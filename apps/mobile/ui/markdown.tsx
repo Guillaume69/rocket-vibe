@@ -25,6 +25,7 @@ import { textOf, emojiUnicode, type Root } from '../lib/markdown.ts';
 import { openProfileCard } from '../lib/profilePreload.ts';
 import { openExternalLink } from './externalLink.ts';
 import { TappableText } from './tappableText.tsx';
+import { iconGlyph, iconText } from './icon.tsx';
 import { type Colors, FONTS } from './theme.ts';
 
 const MONO_FONT = Platform.select({ android: 'monospace', default: 'Menlo' });
@@ -167,7 +168,13 @@ function Block({ block, c }: { block: Paragraph | Blocks | BigEmoji; c: Colors }
       return <List c={c} items={block.value} bullet={(item, i) => `${item.number ?? i + 1}.`} />;
 
     case 'TASKS':
-      return <List c={c} items={block.value} bullet={(t) => (t.status === true ? '☑' : '☐')} />;
+      return (
+        <List
+          c={c}
+          items={block.value}
+          bullet={(t) => <Text style={iconText}>{iconGlyph(t.status === true ? 'checkbox-checked' : 'checkbox')}</Text>}
+        />
+      );
 
     case 'BIG_EMOJI': {
       // The parser VALIDATES no shortcode: `:not_an_emoji:` alone on its line
@@ -208,7 +215,7 @@ function List<T extends { value: Inlines[] }>({
 }: {
   c: Colors;
   items: T[];
-  bullet: (item: T, index: number) => string;
+  bullet: (item: T, index: number) => React.ReactNode;
 }) {
   return (
     <View style={styles.list}>

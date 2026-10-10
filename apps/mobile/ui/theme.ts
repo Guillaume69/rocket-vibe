@@ -250,6 +250,8 @@ export const FONTS = {
   bodySemi: fonts('Nunito_600SemiBold', 'Nunito-SemiBold'),
   bodyBold: fonts('Nunito_700Bold', 'Nunito-Bold'),
   bodyStrong: fonts('Nunito_800ExtraBold', 'Nunito-ExtraBold'),
+  /** The interface icons (`ui/icon.tsx`). */
+  icons: fonts('RocketVibeIcons', 'RocketVibeIcons'),
 } as const;
 
 /**

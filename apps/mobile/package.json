@@ -58,6 +58,8 @@
     "eslint": "^9.0.0",
     "eslint-config-expo": "~57.0.0",
     "patch-package": "^8.0.1",
+    "svg2ttf": "6.1.0",
+    "svgpath": "2.6.0",
     "typescript": "~6.0.3"
   },
   "overrides": {
@@ -72,6 +74,7 @@
     "lint": "expo lint",
     "seed": "node ../../scripts/seed.mjs",
     "emojis:generate": "node scripts/generate-emojis.mjs",
+    "icons:generate": "node scripts/generate-icons.mjs",
     "test": "node --test \"lib/**/*.test.ts\" \"db/**/*.test.ts\" \"ui/**/*.test.ts\" \"providers/**/*.test.ts\" \"plugins/**/*.test.mjs\"",
     "db:generate": "drizzle-kit generate"
   }

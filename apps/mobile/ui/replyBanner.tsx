@@ -13,6 +13,7 @@ import { useT } from './i18n.ts';
 import { useIdentities } from './identities.tsx';
 import type { ReplyTarget } from './reply.ts';
 import { FONTS, type Colors } from './theme.ts';
+import { Icon } from './icon.tsx';
 import { useAuthorizedUri } from './authorizedImage.ts';
 
 export function ReplyBanner({
@@ -58,7 +59,7 @@ export function ReplyBanner({
         accessibilityLabel={t('room.cancelReply')}
         style={({ pressed }) => [styles.close, { opacity: pressed ? 0.5 : 1 }]}
       >
-        <Text style={[styles.cross, { color: c.dimmed }]}>✕</Text>
+        <Icon name="window-close" size={15} color={c.dimmed} />
       </Pressable>
     </View>
   );
@@ -80,5 +81,4 @@ const styles = StyleSheet.create({
   title: { fontFamily: FONTS.bodyBold, fontSize: 12.5 },
   excerpt: { fontFamily: FONTS.body, fontSize: 13, fontStyle: 'italic' },
   close: { padding: 4 },
-  cross: { fontSize: 15 },
 });

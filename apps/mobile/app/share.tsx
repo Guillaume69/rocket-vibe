@@ -40,7 +40,8 @@ import { deleteIfTemporary } from '../ui/temporaryFiles.ts';
 import { useT } from '../ui/i18n.ts';
 import { roomTitle, useDisplayNames } from '../ui/identities.tsx';
 import { RoomAvatar } from '../ui/kit.tsx';
-import { fileEmoji, isImage } from '../ui/mime.ts';
+import { fileIcon, isImage } from '../ui/mime.ts';
+import { Icon } from '../ui/icon.tsx';
 import { compressImageIfUseful } from '../ui/prepareAttachment.ts';
 import { useSession } from '../ui/session.tsx';
 import { useSync } from '../ui/sync.tsx';
@@ -495,7 +496,7 @@ function AttachmentThumbnail({
           end={{ x: 1, y: 1 }}
           style={styles.thumbnailImg}
         >
-          <Text style={styles.thumbnailEmoji}>{fileEmoji(file.type)}</Text>
+          <Icon name={fileIcon(file.type)} size={30} color={c.secondaryText} />
         </LinearGradient>
       )}
       <Pressable
@@ -533,7 +534,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#00000010',
   },
-  thumbnailEmoji: { fontSize: 30 },
   thumbnailRemove: {
     position: 'absolute',
     top: 4,

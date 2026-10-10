@@ -34,6 +34,7 @@ import type { TranslationKey } from './messages.ts';
 import { ConfirmNativeIdentity } from './nativeSecurity.tsx';
 import { useSync } from './sync.tsx';
 import { Tappable } from './tappable.tsx';
+import { Icon, iconGlyph, iconText } from './icon.tsx';
 import { FONTS, type Colors } from './theme.ts';
 import {
   EVERY,
@@ -585,7 +586,7 @@ function RoomPicker({ c, rooms, value, allowTrigger, disabled, roomName, onChang
       <Text style={[styles.strong, { color: value === '' || (value === TRIGGER_ROOM && !allowTrigger) ? c.errorText : c.text }]}>{roomName(value)}</Text>
       <Tappable disabled={disabled} accessibilityRole="button" accessibilityState={{ expanded: open }} onPress={() => setOpen((v) => !v)}>
         <Text style={[styles.disclosure, { color: c.cyan }]}>
-          {open ? '▾' : '▸'} {t('workflows.chooseRoom')}
+          <Text style={iconText}>{iconGlyph(open ? 'pan-down' : 'pan-end')}</Text> {t('workflows.chooseRoom')}
         </Text>
       </Tappable>
       {open && choices.length === 0 && <Text style={[styles.text, { color: c.dimmed }]}>{t('workflows.noRooms')}</Text>}
@@ -602,7 +603,7 @@ function RoomPicker({ c, rooms, value, allowTrigger, disabled, roomName, onChang
             }}
             style={styles.choice}
           >
-            <Text style={[styles.check, { color: room.id === value ? c.accent : c.dimmed }]}>{room.id === value ? '◉' : '○'}</Text>
+            <Icon name={room.id === value ? 'radio-checked' : 'radio'} size={18} color={room.id === value ? c.accent : c.dimmed} style={styles.check} />
             <Text style={[styles.text, styles.grow, { color: c.text }]} numberOfLines={1}>
               {room.label}
             </Text>
@@ -764,7 +765,7 @@ function Editor({ c, workflow, bots, rooms, people, runs, busy, webhookUrl, room
         const on = bot.user.id === botId;
         return (
           <Tappable key={bot.user.id} disabled={busy} accessibilityRole="radio" accessibilityState={{ selected: on }} onPress={() => edit((d) => ({ ...d, botId: bot.user.id }))} style={styles.choice}>
-            <Text style={[styles.check, { color: on ? c.accent : c.dimmed }]}>{on ? '◉' : '○'}</Text>
+            <Icon name={on ? 'radio-checked' : 'radio'} size={18} color={on ? c.accent : c.dimmed} style={styles.check} />
             <View style={styles.grow}>
               <Text style={[styles.strong, { color: c.text }]} numberOfLines={1}>
                 {bot.user.display_name || bot.user.username}

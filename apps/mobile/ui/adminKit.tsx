@@ -16,6 +16,7 @@ import { notify } from './toast.tsx';
 import type { TranslationKey } from './messages.ts';
 import { useSync } from './sync.tsx';
 import { Tappable } from './tappable.tsx';
+import { Icon } from './icon.tsx';
 import { type Colors, FONTS, LIST_PRESS_DELAY } from './theme.ts';
 
 /** The sentence for a failed administration call, from both servers' errors. */
@@ -246,7 +247,7 @@ export function SearchField({ c, value, onChange, placeholder }: { c: Colors; va
   const t = useT();
   return (
     <View style={[styles.search, { backgroundColor: c.deepCard, borderColor: c.border }]}>
-      <Text style={styles.magnifier}>🔍</Text>
+      <Icon name="system-search" size={14} color={c.tertiaryText} />
       <TextInput
         value={value}
         onChangeText={onChange}
@@ -258,7 +259,7 @@ export function SearchField({ c, value, onChange, placeholder }: { c: Colors; va
       />
       {value !== '' && (
         <Pressable onPress={() => onChange('')} hitSlop={8} accessibilityLabel={t('emojiPicker.clearSearch')}>
-          <Text style={{ color: c.tertiaryText }}>✕</Text>
+          <Icon name="edit-clear" size={15} color={c.tertiaryText} />
         </Pressable>
       )}
     </View>
@@ -347,12 +348,12 @@ export const adminStyles = StyleSheet.create({
   badges: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 },
   empty: { fontFamily: FONTS.body, fontSize: 14, textAlign: 'center', paddingVertical: 24 },
-  icon: { fontSize: 20, width: 28, textAlign: 'center' },
+  icon: { width: 28, textAlign: 'center' },
+  hash: { fontFamily: FONTS.bodyBold, fontSize: 18 },
 });
 
 const styles = StyleSheet.create({
   search: { flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 14, borderWidth: 1, paddingHorizontal: 12 },
-  magnifier: { fontSize: 14 },
   searchField: { flex: 1, fontFamily: FONTS.body, fontSize: 15, paddingVertical: 10 },
   card: { borderRadius: 16, borderWidth: 1, padding: 16, gap: 8 },
   cardTitle: { fontFamily: FONTS.bodyStrong, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6 },

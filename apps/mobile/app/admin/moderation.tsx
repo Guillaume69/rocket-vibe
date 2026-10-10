@@ -15,12 +15,13 @@ import {
   useAdminPages,
   useAdminRun,
   useLastOwnerConfirm,
+  ROOM_KIND_ICONS,
 } from '../../ui/adminKit.tsx';
 import { useT } from '../../ui/i18n.ts';
 import type { TranslationKey } from '../../ui/messages.ts';
 import { useSession } from '../../ui/session.tsx';
 import { Tappable } from '../../ui/tappable.tsx';
-import { iconGlyph, iconText } from '../../ui/icon.tsx';
+import { InlineIcon } from '../../ui/icon.tsx';
 import { notify } from '../../ui/toast.tsx';
 import { type Colors, FONTS, LIST_PRESS_DELAY, useColors } from '../../ui/theme.ts';
 
@@ -119,6 +120,7 @@ function Messages({ c, admin, me }: { c: Colors; admin: ProviderAdmin; me: strin
       ListEmptyComponent={list.loading || list.error !== null ? null : <Text style={[adminStyles.empty, { color: c.dimmed }]}>{t('admin.noReports')}</Text>}
       renderItem={({ item }) => {
         const opened = open === item.messageId;
+        const kind = ROOM_KIND_ICONS[item.room.kind];
         return (
           <Tappable
             onPress={() => {
@@ -137,9 +139,8 @@ function Messages({ c, admin, me }: { c: Colors; admin: ProviderAdmin; me: strin
                   {personName(item.author, t('common.deletedUser'))}
                 </Text>
                 <Text style={[adminStyles.sub, { color: c.dimmed }]} numberOfLines={1}>
-                  {item.room.kind === 'direct' || item.room.kind === 'private' ? (
-                    <Text style={iconText}>{iconGlyph(item.room.kind === 'direct' ? 'avatar-default' : 'channel-secure')}</Text>
-                  ) : '#'} {item.room.name} · {fmt.date(item.createdAt)}
+                  {kind === null ? '#' : <InlineIcon name={kind} />}{' '}
+                  {item.room.name} · {fmt.date(item.createdAt)}
                 </Text>
               </View>
               <Badge c={c} label={t('admin.reportCount', { n: item.count })} tone="danger" />
@@ -148,7 +149,7 @@ function Messages({ c, admin, me }: { c: Colors; admin: ProviderAdmin; me: strin
               <Badge c={c} label={t('admin.messageGone')} />
             ) : (
               item.encrypted ? (
-                <Text style={[adminStyles.body, { color: c.dimmed }]}><Text style={iconText}>{iconGlyph('channel-secure')}</Text> {t('admin.encryptedMessage')}</Text>
+                <Text style={[adminStyles.body, { color: c.dimmed }]}><InlineIcon name="channel-secure" /> {t('admin.encryptedMessage')}</Text>
               ) : (
                 <Text style={[adminStyles.body, { color: c.messageText }]} numberOfLines={opened ? undefined : 3} selectable={opened}>{item.text}</Text>
               )

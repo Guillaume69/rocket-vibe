@@ -90,7 +90,7 @@ const SWIPE_DURATION = 250;
 type PanelState = 'closed' | 'open' | 'yielded';
 
 /**
- * Drives a composer's emoji panel: the 😀/⌨️ toggle, back that closes it
+ * Drives a composer's emoji panel: the emoji / keyboard toggle, back that closes it
  * instead of leaving the screen, and the height matched to the real keyboard.
  * Shared by room and thread: same gestures, one mechanism.
  */
@@ -115,7 +115,7 @@ export function useEmojiPanel(fieldRef: RefObject<TextInput | null>) {
       : defaultHeight(screenHeight);
 
   // The panel mounts once the screen has settled, at zero height, and never
-  // unmounts. Mounting the grid costs several frames: on the 😀 tap that cost
+  // unmounts. Mounting the grid costs several frames: on the emoji button tap that cost
   // would land right on the critical path and look like a freeze. Paid while the
   // screen is idle, it does not show; the tap then only changes a height.
   // `runAfterInteractions` waits for the room opening (and its scroll) to finish,
@@ -160,7 +160,7 @@ export function useEmojiPanel(fieldRef: RefObject<TextInput | null>) {
   useHardwareBack(state === 'open', close);
 
   return {
-    /** True when the panel holds the place (button shows ⌨️, banners hidden). */
+    /** True when the panel holds the place (the button shows the keyboard, banners hidden). */
     open: state === 'open',
     /** Mounted (possibly at zero height). */
     mounted,

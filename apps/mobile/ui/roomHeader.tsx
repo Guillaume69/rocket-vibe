@@ -26,7 +26,7 @@ import { PRESENCE_KEYS, presenceColors } from './presence.ts';
 import { useSync } from './sync.tsx';
 import { type Colors, FONTS } from './theme.ts';
 import { Tappable } from './tappable.tsx';
-import { Icon, iconGlyph, iconText } from './icon.tsx';
+import { Icon, InlineIcon } from './icon.tsx';
 import {CryptoNative} from '../modules/crypto-native/index.ts';
 import { useJoinVoice, useVoice } from './voice.tsx';
 
@@ -155,8 +155,12 @@ export function RoomHeader({
           radius={12}
         />
         <View style={styles.headerBlock}>
-          <Text style={[styles.headerName, { color: c.text }]} numberOfLines={1}>
-            {room?.encrypted === true && <><Text style={[styles.encryptedHeaderBadge, iconText]}>{iconGlyph('channel-secure')}</Text>{' '}</>}
+          <Text
+            style={[styles.headerName, { color: c.text }]}
+            numberOfLines={1}
+            accessibilityLabel={room?.encrypted === true ? `${t('home.encryptedRoom')}, ${name}` : undefined}
+          >
+            {room?.encrypted === true && <InlineIcon name="channel-secure" style={styles.encryptedHeaderBadge} spaced />}
             {name}
           </Text>
           {isDM && dmStatus !== null && (
@@ -224,6 +228,8 @@ export function RoomHeader({
         disabled={!privateSearch && (!availableMessageActions || capabilities?.search === false)}
         hitSlop={8}
         android_ripple={{ color: c.ripple, borderless: true }}
+        accessibilityRole="button"
+        accessibilityLabel={t('common.search')}
       >
         <Icon name="system-search" color={c.secondaryText} style={styles.headerIcon} />
       </Tappable>

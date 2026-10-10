@@ -471,6 +471,20 @@ export function DaySeparator({ c, ts }: { c: Colors; ts: number }) {
   );
 }
 
+/**
+ * A pill's fill and outline: cyan with a soft halo while its field has the
+ * focus, the desktop's `.pill-entry` and `.composer-pill`. Shared by
+ * `PillField` and the composer.
+ */
+export function pillSurface(c: Colors, focus: boolean): ViewStyle {
+  return {
+    backgroundColor: c.card,
+    borderColor: focus ? c.cyan : c.border,
+    // DERIVED from the token (`24` hex ≈ 14% opacity).
+    ...(focus && { boxShadow: `0px 0px 0px 3px ${c.cyan}24` }),
+  };
+}
+
 export type PillFieldProps = {
   c: Colors;
   label: string;
@@ -501,9 +515,7 @@ export function PillField({ c, label, value, icon, prefix, large, multiline, ...
         style={[
           styles.pill,
           multiline === true && styles.pillMultiline,
-          { backgroundColor: c.card, borderColor: focus ? c.cyan : c.border },
-          // Soft focus ring, DERIVED from the token (`24` hex ≈ 14% opacity).
-          focus && { boxShadow: `0px 0px 0px 3px ${c.cyan}24` },
+          pillSurface(c, focus),
         ]}
       >
         {icon !== undefined && <Icon name={icon} size={15} color={c.dimmed} />}

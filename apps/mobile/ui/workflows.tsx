@@ -34,7 +34,7 @@ import type { TranslationKey } from './messages.ts';
 import { ConfirmNativeIdentity } from './nativeSecurity.tsx';
 import { useSync } from './sync.tsx';
 import { Tappable } from './tappable.tsx';
-import { Icon, iconGlyph, iconText } from './icon.tsx';
+import { Icon, InlineIcon } from './icon.tsx';
 import { FONTS, type Colors } from './theme.ts';
 import {
   EVERY,
@@ -479,7 +479,7 @@ function Workflows({ c, chat, base, baseUrl }: { c: Colors; chat: NativeChat; ba
 
 function Action({ c, label, onPress, disabled = false, danger = false, accessibilityLabel }: {
   c: Colors;
-  label: string;
+  label: React.ReactNode;
   onPress: () => void;
   disabled?: boolean;
   danger?: boolean;
@@ -586,7 +586,7 @@ function RoomPicker({ c, rooms, value, allowTrigger, disabled, roomName, onChang
       <Text style={[styles.strong, { color: value === '' || (value === TRIGGER_ROOM && !allowTrigger) ? c.errorText : c.text }]}>{roomName(value)}</Text>
       <Tappable disabled={disabled} accessibilityRole="button" accessibilityState={{ expanded: open }} onPress={() => setOpen((v) => !v)}>
         <Text style={[styles.disclosure, { color: c.cyan }]}>
-          <Text style={iconText}>{iconGlyph(open ? 'pan-down' : 'pan-end')}</Text> {t('workflows.chooseRoom')}
+          <InlineIcon name={open ? 'pan-down' : 'pan-end'} /> {t('workflows.chooseRoom')}
         </Text>
       </Tappable>
       {open && choices.length === 0 && <Text style={[styles.text, { color: c.dimmed }]}>{t('workflows.noRooms')}</Text>}
@@ -864,7 +864,7 @@ function Editor({ c, workflow, bots, rooms, people, runs, busy, webhookUrl, room
             <Text style={[styles.strong, styles.grow, { color: c.text }]}>{t('workflows.stepTitle', { n: index + 1, kind: t(STEP_TEXT[step.kind]) })}</Text>
             <Action
               c={c}
-              label="↑"
+              label={<InlineIcon name="go-up" />}
               accessibilityLabel={t('workflows.moveUp', { n: index + 1 })}
               disabled={busy || index === 0}
               onPress={() => {
@@ -874,7 +874,7 @@ function Editor({ c, workflow, bots, rooms, people, runs, busy, webhookUrl, room
             />
             <Action
               c={c}
-              label="↓"
+              label={<InlineIcon name="go-down" />}
               accessibilityLabel={t('workflows.moveDown', { n: index + 1 })}
               disabled={busy || index === draft.steps.length - 1}
               onPress={() => {

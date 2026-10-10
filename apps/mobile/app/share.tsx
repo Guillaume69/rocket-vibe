@@ -41,7 +41,7 @@ import { useT } from '../ui/i18n.ts';
 import { roomTitle, useDisplayNames } from '../ui/identities.tsx';
 import { RoomAvatar } from '../ui/kit.tsx';
 import { fileIcon, isImage } from '../ui/mime.ts';
-import { Icon } from '../ui/icon.tsx';
+import { Icon, InlineIcon } from '../ui/icon.tsx';
 import { compressImageIfUseful } from '../ui/prepareAttachment.ts';
 import { useSession } from '../ui/session.tsx';
 import { useSync } from '../ui/sync.tsx';
@@ -426,6 +426,7 @@ function TargetRow({
         </Text>
         {reason !== null && (
           <Text style={[styles.reason, { color: c.dimmed }]} numberOfLines={1}>
+            {room.encrypted && <InlineIcon name="channel-secure" spaced />}
             {reason}
           </Text>
         )}

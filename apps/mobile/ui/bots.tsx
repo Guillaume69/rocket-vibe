@@ -25,7 +25,7 @@ import { NativeError } from '../providers/rocketvibe/transport.ts';
 import { useSync } from './sync.tsx';
 import { useT } from './i18n.ts';
 import { Tappable } from './tappable.tsx';
-import { Icon, iconGlyph, iconText } from './icon.tsx';
+import { Icon, InlineIcon } from './icon.tsx';
 import { AvatarTile, PillField } from './kit.tsx';
 import { FONTS, type Colors } from './theme.ts';
 import { ConfirmNativeIdentity } from './nativeSecurity.tsx';
@@ -484,7 +484,7 @@ function Routes({ c, reference, scope }: { c: Colors; reference: BotReference | 
     <View style={styles.routes}>
       <Tappable accessibilityRole="button" accessibilityState={{ expanded: open }} onPress={() => setOpen((v) => !v)}>
         <Text style={[styles.disclosure, { color: c.cyan }]}>
-          <Text style={iconText}>{iconGlyph(open ? 'pan-down' : 'pan-end')}</Text> {t('bots.api')}
+          <InlineIcon name={open ? 'pan-down' : 'pan-end'} /> {t('bots.api')}
         </Text>
       </Tappable>
       {open &&

@@ -623,7 +623,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  pencilGlyph: { fontSize: 14, color: '#FFFFFF' },
   changePhoto: { fontFamily: FONTS.bodyBold, fontSize: 14 },
   sectionTitle: {
     fontFamily: FONTS.bodyStrong,

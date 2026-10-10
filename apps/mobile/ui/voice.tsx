@@ -24,7 +24,7 @@ import { AvatarTile } from './kit.tsx';
 import { useSession } from './session.tsx';
 import { useSync } from './sync.tsx';
 import { type Colors, FONTS, useColors } from './theme.ts';
-import { Icon, iconGlyph, iconText, type IconName } from './icon.tsx';
+import { Icon, type IconName, InlineIcon } from './icon.tsx';
 import { notify } from './toast.tsx';
 
 const controllers = new WeakMap<NativeChat, VoiceController>();
@@ -218,14 +218,12 @@ export function VoiceOccupants({ c, rid, client }: { c: Colors; rid: string; cli
             <Text style={[styles.occupantName, { color: c.secondaryText }]} numberOfLines={1}>
               {o.user.display_name || o.user.username}
             </Text>
-            {(local?.muted ?? o.muted) && <Icon name="microphone-disabled" size={12} color={c.dimmed} />}
-            {(local?.deafened ?? o.deafened) && <Icon name="audio-volume-muted" size={12} color={c.dimmed} />}
-            {(local?.camera ?? o.camera) === true && <Icon name="camera-web" size={12} color={c.dimmed} />}
-            {(local?.screen ?? o.screen) === true && <Icon name="video-display" size={12} color={c.dimmed} />}
+            {(local?.muted ?? o.muted) && <Icon name="microphone-disabled" size={12} color={c.dimmed} label={t('voice.stateMuted')} />}
+            {(local?.deafened ?? o.deafened) && <Icon name="audio-volume-muted" size={12} color={c.dimmed} label={t('voice.stateDeafened')} />}
+            {(local?.camera ?? o.camera) === true && <Icon name="camera-web" size={12} color={c.dimmed} label={t('voice.stateCamera')} />}
+            {(local?.screen ?? o.screen) === true && <Icon name="video-display" size={12} color={c.dimmed} label={t('voice.stateScreen')} />}
             {listening.people[o.user.id]?.muted === true && (
-              <View accessible accessibilityLabel={t('voice.mutedHere')}>
-                <Icon name="notifications-disabled" size={12} color={c.dimmed} />
-              </View>
+              <Icon name="notifications-disabled" size={12} color={c.dimmed} label={t('voice.mutedHere')} />
             )}
           </Pressable>
         );
@@ -325,7 +323,7 @@ export function VoiceBar({ c, title }: { c: Colors; title: (rid: string) => stri
         onPress={() => router.push({ pathname: '/voice/[rid]', params: { rid, title: title(rid), ...(voice.direct ? { direct: '1' } : {}) } })}
       >
         <Text style={[styles.barStatus, { color: voice.phase === 'connected' ? c.online : c.dimmed }]} numberOfLines={1}>
-          <Text style={iconText}>{iconGlyph('network-wireless-signal-good')}</Text> {status}
+          <InlineIcon name="network-wireless-signal-good" /> {status}
         </Text>
         <Text style={[styles.barRoom, { color: c.dimmed }]} numberOfLines={1}>{title(rid)}</Text>
       </Pressable>

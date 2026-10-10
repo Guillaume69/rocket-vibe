@@ -1,6 +1,6 @@
 /**
  * "Reply to …" banner above the composer: accent bar, quoted author,
- * one-line excerpt (thumbnail if the quoted message carries an image), ✕ to
+ * one-line excerpt (thumbnail if the quoted message carries an image), a close button to
  * cancel. Shared by the room composer and the thread composer; the target
  * comes from the `ui/reply.ts` store.
  */

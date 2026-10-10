@@ -81,7 +81,7 @@ import { useSession } from '../../ui/session.tsx';
 import { useSync } from '../../ui/sync.tsx';
 import { messageOrder } from '../../ui/messageOrder.ts';
 import { type Colors, FONTS, useColors } from '../../ui/theme.ts';
-import { Icon } from '../../ui/icon.tsx';
+import { Icon, InlineIcon } from '../../ui/icon.tsx';
 
 /**
  * Room screen.
@@ -1257,7 +1257,7 @@ function Room({
               onPress={() => router.push({ pathname: '/thread/[id]', params: { id: s.threadId ?? '' } })}
             >
               <Text style={[styles.time, { color: c.errorText }]} numberOfLines={1}>
-                {t('room.threadReplyNotSent')}
+                <InlineIcon name="dialog-warning" /> {t('room.threadReplyNotSent')}
               </Text>
             </Pressable>
             <Pressable onPress={() => retry()}>
@@ -1337,7 +1337,6 @@ const styles = StyleSheet.create({
     borderRadius: 16,
   },
   newPillText: { fontFamily: FONTS.bodyBold, fontSize: 13 },
-  backToLatestArrow: { fontFamily: FONTS.titleStrong, fontSize: 22, lineHeight: 26 },
   empty: { textAlign: 'center', padding: 24, fontSize: 14, fontFamily: FONTS.body },
   error: { fontFamily: FONTS.bodyBold, fontSize: 14, textAlign: 'center' },
   otherServerHost: {

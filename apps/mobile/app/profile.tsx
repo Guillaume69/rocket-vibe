@@ -35,7 +35,7 @@ import { PRESENCE_KEYS, presenceColors } from '../ui/presence.ts';
 import { useSession } from '../ui/session.tsx';
 import { useSync } from '../ui/sync.tsx';
 import { LIST_PRESS_DELAY, FONTS, useColors } from '../ui/theme.ts';
-import { iconGlyph, iconText } from '../ui/icon.tsx';
+import { InlineIcon } from '../ui/icon.tsx';
 import { Tappable } from '../ui/tappable.tsx';
 import { useSheetBottomMargin } from '../ui/sheetMargin.ts';
 import { ReportForm } from '../ui/reportForm.tsx';
@@ -402,7 +402,9 @@ export default function ProfileScreen() {
             {busy ? (
               <ActivityIndicator size="small" color="#FFFFFF" />
             ) : (
-              <Text style={styles.buttonText}>{t('profile.messageButton')}</Text>
+              <Text style={styles.buttonText}>
+                <InlineIcon name="chat-message-new" /> {t('profile.messageButton')}
+              </Text>
             )}
           </Tappable>
           {callAvailable && (
@@ -419,7 +421,9 @@ export default function ProfileScreen() {
               accessibilityRole="button"
               accessibilityLabel={t('profile.callLabel', { name: shownUsername ?? '' })}
             >
-              <Text style={[styles.buttonText, { color: c.text }]}>{t('profile.callButton')}</Text>
+              <Text style={[styles.buttonText, { color: c.text }]}>
+                <InlineIcon name="call-start" /> {t('profile.callButton')}
+              </Text>
             </Tappable>
           )}
         </View>
@@ -443,7 +447,7 @@ export default function ProfileScreen() {
           accessibilityRole="button"
           style={styles.report}
         >
-          <Text style={[styles.reportText, { color: c.errorText }]}><Text style={iconText}>{iconGlyph('dialog-warning')}</Text> {t('report.userTitle')}</Text>
+          <Text style={[styles.reportText, { color: c.errorText }]}><InlineIcon name="dialog-warning" /> {t('report.userTitle')}</Text>
         </Tappable>
       ))}
     </ProfileBody>

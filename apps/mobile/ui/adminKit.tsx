@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { AdminRefused, LastOwnerError, type AdminPage, type ProviderAdmin } from '../lib/admin.ts';
+import { AdminRefused, LastOwnerError, type AdminPage, type AdminRoomKind, type ProviderAdmin } from '../lib/admin.ts';
 import { dismissible } from './alerts.ts';
 import { useAdminVerdict } from './adminAccess.ts';
 import type { ProviderError } from '../lib/provider.ts';
@@ -16,7 +16,7 @@ import { notify } from './toast.tsx';
 import type { TranslationKey } from './messages.ts';
 import { useSync } from './sync.tsx';
 import { Tappable } from './tappable.tsx';
-import { Icon } from './icon.tsx';
+import { Icon, type IconName } from './icon.tsx';
 import { type Colors, FONTS, LIST_PRESS_DELAY } from './theme.ts';
 
 /** The sentence for a failed administration call, from both servers' errors. */
@@ -335,6 +335,14 @@ export function AdminGate({ c, children }: { c: Colors; children: (admin: Provid
   return <>{children(verdict)}</>;
 }
 
+
+/** A room kind's mark, the desktop's: `#` (null) for a public room, as in its name. */
+export const ROOM_KIND_ICONS: Record<AdminRoomKind, IconName | null> = {
+  public: null,
+  private: 'channel-secure',
+  direct: 'avatar-default',
+  discussion: 'chat-message-new',
+};
 
 export const adminStyles = StyleSheet.create({
   screen: { flex: 1 },

@@ -44,3 +44,32 @@ test('flips into font units and drops a bare trailing move', () => {
   // (0,0) at the top left of the 16 px grid is the ascent, (16,16) 1/8 em below the baseline.
   assert.equal(glyphPath(['M0 0H16V16Z m 0 0']), 'M0 896H1024V-128Z');
 });
+
+test('drops a drawing outside the 16 px box, refuses one crossing it', () => {
+  // Adwaita's package-x-generic keeps a second drawing 40 px down, which GTK clips.
+  assert.equal(glyphPath(['M0 0H16V16Z M2 40H6V44Z']), 'M0 896H1024V-128Z');
+  assert.throws(() => glyphPath(['M0 0H20V16Z'], 'wide'), /wide\.svg: a shape crosses the 16 px box/);
+});
+
+test('the app loads the font under the name the icons ask for', () => {
+  const ttf = readFileSync(join(ROOT, 'assets', 'fonts', 'RocketVibeIcons.ttf'));
+  // The name table's Windows records (UTF-16BE): the family (1) and the PostScript name (6).
+  const record = [...Array(ttf.readUInt16BE(4)).keys()]
+    .map((i) => 12 + 16 * i)
+    .find((r) => ttf.toString('ascii', r, r + 4) === 'name');
+  assert.ok(record !== undefined);
+  const table = ttf.readUInt32BE(record + 8);
+  const strings = table + ttf.readUInt16BE(table + 4);
+  const names = new Map<number, string>();
+  for (let i = 0; i < ttf.readUInt16BE(table + 2); i++) {
+    const r = table + 6 + 12 * i;
+    if (ttf.readUInt16BE(r) !== 3) continue;
+    const start = strings + ttf.readUInt16BE(r + 10);
+    names.set(ttf.readUInt16BE(r + 6), Buffer.from(ttf.subarray(start, start + ttf.readUInt16BE(r + 8))).swap16().toString('utf16le'));
+  }
+  assert.equal(names.get(1), 'RocketVibeIcons');
+  assert.equal(names.get(6), 'RocketVibeIcons');
+  // Android names an embedded font after its file, iOS after its PostScript name.
+  assert.match(readFileSync(join(ROOT, 'ui', 'theme.ts'), 'utf8'), /icons: fonts\('RocketVibeIcons', 'RocketVibeIcons'\)/);
+  assert.ok(readFileSync(join(ROOT, 'app.json'), 'utf8').includes('"assets/fonts/RocketVibeIcons.ttf"'));
+});

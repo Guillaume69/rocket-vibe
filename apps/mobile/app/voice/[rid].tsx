@@ -16,7 +16,7 @@ import { TILE_GAP, arrangeTiles } from '../../lib/voiceGrid.ts';
 import { useT } from '../../ui/i18n.ts';
 import { useSession } from '../../ui/session.tsx';
 import { type Colors, FONTS, useColors } from '../../ui/theme.ts';
-import { Icon, iconGlyph, iconText } from '../../ui/icon.tsx';
+import { Icon, InlineIcon } from '../../ui/icon.tsx';
 import { SpeakingAvatar, VoiceControls, useJoinVoice, useListening, usePeople, usePersonSheet, useRoomVoice, useVoice } from '../../ui/voice.tsx';
 import { VoiceVideoView } from '../../modules/voice/index.ts';
 
@@ -84,10 +84,10 @@ export default function VoiceScreen() {
           <Text style={[styles.back, { color: c.purple }]}>‹</Text>
         </Pressable>
         <View style={styles.headerText}>
-          <Text style={[styles.title, { color: c.text }]} numberOfLines={1}><Text style={iconText}>{iconGlyph('audio-volume-high')}</Text> {title ?? ''}</Text>
+          <Text style={[styles.title, { color: c.text }]} numberOfLines={1}><InlineIcon name="audio-volume-high" /> {title ?? ''}</Text>
           {status !== null && (
             <Text style={[styles.status, { color: voice.phase === 'connected' ? c.online : c.dimmed }]} numberOfLines={1}>
-              {voice.encrypted ? <><Text style={iconText}>{iconGlyph('channel-secure')}</Text> {`${status} · ${t('voice.secure')}`}</> : status}
+              {voice.encrypted ? <><InlineIcon name="channel-secure" /> {status} · {t('voice.secure')}</> : status}
             </Text>
           )}
         </View>
@@ -107,7 +107,7 @@ export default function VoiceScreen() {
             accessibilityRole="button" accessibilityLabel={t('voice.fullscreen')}>
             <VoiceVideoView identity={sharer.uid} source="screen" fit="contain" style={StyleSheet.absoluteFill} />
             <Text style={[styles.stageLabel, { color: c.text, backgroundColor: c.background }]} numberOfLines={1}>
-              <Text style={iconText}>{iconGlyph('video-display')}</Text> {t('voice.screenOf', { name: sharer.name })}
+              <InlineIcon name="video-display" /> {t('voice.screenOf', { name: sharer.name })}
             </Text>
             <Text style={[styles.stageFull, { color: c.text, backgroundColor: c.background }]}>⛶</Text>
           </Pressable>
@@ -164,11 +164,12 @@ function useGlow(speaking: boolean) {
 /** Muted, deafened, muted for this side. */
 function Icons({ card }: { card: Card }) {
   const c = useColors();
+  const t = useT();
   return (
     <>
-      {card.muted && <Icon name="microphone-disabled" size={12} color={c.dimmed} />}
-      {card.deafened && <Icon name="audio-volume-muted" size={12} color={c.dimmed} />}
-      {card.mutedHere && <Icon name="notifications-disabled" size={12} color={c.dimmed} />}
+      {card.muted && <Icon name="microphone-disabled" size={12} color={c.dimmed} label={t('voice.stateMuted')} />}
+      {card.deafened && <Icon name="audio-volume-muted" size={12} color={c.dimmed} label={t('voice.stateDeafened')} />}
+      {card.mutedHere && <Icon name="notifications-disabled" size={12} color={c.dimmed} label={t('voice.mutedHere')} />}
     </>
   );
 }

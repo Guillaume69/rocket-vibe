@@ -32,7 +32,7 @@ import { useE2EUnlocked } from '../ui/e2e.ts';
 import type { E2EEngine } from '../lib/e2e/engine.ts';
 import { type Colors, LIST_PRESS_DELAY, FONTS, useColors } from '../ui/theme.ts';
 import { Tappable } from '../ui/tappable.tsx';
-import { Icon, iconGlyph, iconText } from '../ui/icon.tsx';
+import { Icon, InlineIcon } from '../ui/icon.tsx';
 import { VoiceBar, VoiceOccupants, useJoinVoice } from '../ui/voice.tsx';
 
 /**
@@ -386,9 +386,13 @@ function RoomRow({
             alerting && styles.alertingName,
           ]}
           numberOfLines={1}
+          // The lock and speaker are glyphs a screen reader cannot voice.
+          accessibilityLabel={[room.encrypted && t('home.encryptedRoom'), room.voice && t('voice.channel'), name]
+            .filter(Boolean)
+            .join(', ')}
         >
-          {room.encrypted && <><Text style={[styles.encryptedBadge, iconText]}>{iconGlyph('channel-secure')}</Text>{' '}</>}
-          {room.voice && <><Text style={[styles.encryptedBadge, iconText]}>{iconGlyph('audio-volume-high')}</Text>{' '}</>}
+          {room.encrypted && <InlineIcon name="channel-secure" style={styles.encryptedBadge} spaced />}
+          {room.voice && <InlineIcon name="audio-volume-high" style={styles.encryptedBadge} spaced />}
           {name}
         </Text>
         <Text

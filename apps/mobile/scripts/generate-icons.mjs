@@ -63,24 +63,63 @@ export function paths(name, svg) {
   return ds;
 }
 
-/** SVG (y down, 16 px) to font units (y up, baseline at 0). */
-export function glyphPath(ds) {
-  return ds
-    .map((d) => {
-      const path = svgpath(d).abs().unarc().unshort().scale(SCALE, -SCALE).translate(0, ASCENT).round(1);
+/** The end points' bounding box of one subpath of absolute segments. */
+function extent(segments) {
+  let [x, y] = [0, 0];
+  const xs = [];
+  const ys = [];
+  for (const s of segments) {
+    if (s[0] === 'H') x = s[1];
+    else if (s[0] === 'V') y = s[1];
+    else if (s[0] !== 'Z') [x, y] = s.slice(-2);
+    xs.push(x);
+    ys.push(y);
+  }
+  return { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) };
+}
+
+/**
+ * The subpaths an SVG renderer shows. GTK clips an icon to its 16 px box:
+ * Adwaita's `package-x-generic` keeps a second drawing 40 px down, which a
+ * glyph would keep, and its bounding box would then stretch the font's
+ * metrics and every line holding an icon. A subpath wholly outside is
+ * dropped; one only partly outside is refused, not clipped.
+ */
+export function visible(name, segments) {
+  const subpaths = [];
+  for (const s of segments) {
+    if (s[0] === 'M' || subpaths.length === 0) subpaths.push([]);
+    subpaths.at(-1).push(s);
+  }
+  return subpaths
+    .filter((sub) => {
       // Inkscape ends many paths with a bare `m 0 0`: a one-point contour
       // that the font would keep as a stray mark.
-      path.segments = path.segments.filter(
-        (s, i, all) => s[0] !== 'M' || (i + 1 < all.length && all[i + 1][0] !== 'M'),
-      );
-      return path.toString();
+      if (sub.length === 1) return false;
+      const e = extent(sub);
+      if (e.maxX < 0 || e.minX > GRID || e.maxY < 0 || e.minY > GRID) return false;
+      if (e.minX < -0.5 || e.maxX > GRID + 0.5 || e.minY < -0.5 || e.maxY > GRID + 0.5) {
+        throw new Error(`${name}.svg: a shape crosses the 16 px box`);
+      }
+      return true;
+    })
+    .flat();
+}
+
+/** SVG (y down, 16 px) to font units (y up, baseline at 0). */
+export function glyphPath(ds, name = 'icon') {
+  return ds
+    .map((d) => {
+      const path = svgpath(d).abs().unarc().unshort();
+      path.segments = visible(name, path.segments);
+      return path.scale(SCALE, -SCALE).translate(0, ASCENT).round(1).toString();
     })
     .join('');
 }
 
 export function build(icons) {
   const names = Object.keys(icons).sort();
-  const glyphs = names.map((name, i) => ({ name, code: FIRST + i, d: glyphPath(paths(name, icons[name])) }));
+  const glyphs = names.map((name, i) => ({ name, code: FIRST + i, d: glyphPath(paths(name, icons[name]), name) }));
   const font =
     `<svg xmlns="http://www.w3.org/2000/svg"><defs><font id="${FAMILY}" horiz-adv-x="${EM}">` +
     `<font-face font-family="${FAMILY}" units-per-em="${EM}" ascent="${ASCENT}" descent="-${DESCENT}"/>` +
@@ -90,10 +129,13 @@ export function build(icons) {
       .join('') +
     `</font></defs></svg>`;
   const ttf = svg2ttf(font, {
+    // The licence travels with the font, the only copy inside the APK.
     copyright:
-      'Icons: GNOME Project, adwaita-icon-theme 50.0 (CC BY-SA 3.0 or LGPL-3.0); send arrow: RocketVibe',
+      'Icons: GNOME Project (https://www.gnome.org), adwaita-icon-theme 50.0, under CC BY-SA 3.0 United States ' +
+      '(http://creativecommons.org/licenses/by-sa/3.0/us/) or LGPL-3.0; this font is a derivative under the same ' +
+      'terms. Send arrow: RocketVibe.',
     description: 'RocketVibe interface icons',
-    url: 'https://www.gnome.org',
+    url: 'http://creativecommons.org/licenses/by-sa/3.0/us/',
     version: '1.0',
     ts: 0,
   });

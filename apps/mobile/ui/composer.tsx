@@ -10,7 +10,7 @@
  *
  *  - `threadId`: the reply goes to this thread (`outbox.send`), and the quote
  *    target is addressed `rid:threadId` instead of `rid`;
- *  - `files`: `null` = neither 📎 nor 🎤 (the thread has no attachments;
+ *  - `files`: `null` = neither attach nor mic (the thread has no attachments;
  *    `FileOutbox.send` cannot target a thread anyway);
  *  - `afterSend`: receives the client `_id` set by the outbox (the thread
  *    watches for its appearance to scroll);
@@ -53,8 +53,8 @@ import { useE2EUnlocked } from './e2e.ts';
 import { openLocalFile } from './attachment.ts';
 import { deleteIfTemporary } from './temporaryFiles.ts';
 import { useT } from './i18n.ts';
-import { AvatarTile } from './kit.tsx';
-import { Icon, iconGlyph, iconText } from './icon.tsx';
+import { AvatarTile, pillSurface } from './kit.tsx';
+import { Icon, InlineIcon } from './icon.tsx';
 import { isViewTreeRejection, launchPickerWithRetry } from './launchPicker.ts';
 import { VideoModal } from './videoPlayer.tsx';
 import { isImage } from './mime.ts';
@@ -139,7 +139,7 @@ export function Composer({
   const unlocked = useE2EUnlocked(sync.phase === 'ready' ? sync.e2e : null);
   const [draft, setDraft] = useState(initialDraft);
   // The CURRENT text, readable from an async continuation. An upload takes
-  // seconds and the field stays editable the whole time (only 📎/➤/🎤 are
+  // seconds and the field stays editable the whole time (only attach, send and mic are
   // greyed out): at the end of the send, we must tell "the field still holds
   // the sent caption" from "the user kept typing". The `send` closure only sees
   // the text at press time, it cannot answer that question.
@@ -150,11 +150,10 @@ export function Composer({
   const [fileSend, setFileSend] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
-  // The pill's border lights up while the field has the focus.
   const [focused, setFocused] = useState(false);
   // Attachments waiting to be sent (images, voice, any file): they sit as chips
   // above the field, the typed text becomes the first one's caption, and
-  // everything goes on ➤. Nothing is sent on pick.
+  // everything goes on send. Nothing is sent on pick.
   const parkingKey = `${rid}:${threadId ?? ''}`;
   // A thread reply also posted to the room (Rocket.Chat `tshow`).
   const [alsoInRoom, setAlsoInRoom] = useState(false);
@@ -219,7 +218,7 @@ export function Composer({
   const { commands, granted } = useCommands(client, rid);
   const privateNote = usePrivateNote(rid);
 
-  // Emoji browser: a panel that takes the keyboard's place. The 😀 button
+  // Emoji browser: a panel that takes the keyboard's place. The emoji button
   // toggles between them; touching the field reopens the keyboard (onFocus).
   const fieldRef = useRef<TextInput>(null);
   const emoji = useEmojiPanel(fieldRef);
@@ -352,7 +351,7 @@ export function Composer({
     }
     // Pending attachments go one by one, in order; the caption (quote included)
     // goes with the FIRST: repeated under each attachment, it would show as many
-    // times. (`files` cannot be null here: without it, neither 📎 nor 🎤, nothing
+    // times. (`files` cannot be null here: without it, neither attach nor mic, nothing
     // can stage an attachment. The guard satisfies the type checker.)
     if (pending.length > 0 && files !== null) {
       setFileError(null);
@@ -371,7 +370,7 @@ export function Composer({
             if (unmounted.current) break;
             handedOff.current.add(original.key);
             // The compression promised by the chips is paid HERE (photo → 1920 px JPEG,
-            // video → 720p H.264 MP4 through the native Media3 module): the 📎 spinner
+            // video → 720p H.264 MP4 through the native Media3 module): the attach button's spinner
             // covers the transcode, then the upload.
             const ready =
               quality === 'reduced' && compressionOffered(original)
@@ -481,7 +480,7 @@ export function Composer({
     sync,
   ]);
 
-  // Stages the picked media/files as chips, waiting for a caption and ➤. Each
+  // Stages the picked media/files as chips, waiting for a caption and send. Each
   // attachment stays the ORIGINAL: any compression (7.3) is paid at send time.
   // Validation (size/type), however, happens AS SOON AS staged: an attachment
   // the server will refuse does not even show. A compressible media's size is
@@ -638,7 +637,7 @@ export function Composer({
     );
   }, [setAttachments, closeAttachSheet]);
 
-  // 📎 → source menu (native sheet), like the official app, instead of opening
+  // Attach → source menu (native sheet), like the official app, instead of opening
   // the file picker directly. The sheet returns the chosen source through
   // `requestSource` WITHOUT closing: we thus launch the picker while it is open
   // and still, the only moment the Android view tree is safe (see
@@ -759,7 +758,7 @@ export function Composer({
           style={styles.alsoInRoom}
         >
           <Text style={[styles.alsoInRoomText, { color: alsoInRoom ? c.text : c.dimmed }]}>
-            <Text style={iconText}>{iconGlyph(alsoInRoom ? 'checkbox-checked' : 'checkbox')}</Text> {t('thread.alsoInRoom')}
+            <InlineIcon name={alsoInRoom ? 'checkbox-checked' : 'checkbox'} /> {t('thread.alsoInRoom')}
           </Text>
         </Tappable>
       )}
@@ -780,13 +779,11 @@ export function Composer({
         </ScrollView>
       )}
       <View style={[styles.composer, { borderTopColor: c.softBorder }]}>
-        <View
-          style={[
-            styles.pill,
-            { backgroundColor: c.card, borderColor: focused ? c.cyan : c.border },
-            // The desktop's soft focus halo, as `PillField` draws it.
-            focused && { boxShadow: `0px 0px 0px 3px ${c.cyan}24` },
-          ]}
+        {/* Like `PillField`: a tap anywhere in the pill, padding included, focuses the field. */}
+        <Pressable
+          onPress={() => fieldRef.current?.focus()}
+          accessible={false}
+          style={[styles.pill, pillSurface(c, focused)]}
         >
           {files !== null && (
             <Tappable
@@ -855,7 +852,7 @@ export function Composer({
               />
             </Tappable>
           )}
-        </View>
+        </Pressable>
         {recording ? (
           <Pressable
             onPress={() => void toggleVoice()}
@@ -920,7 +917,9 @@ function LockedComposer({ c }: { c: Colors }) {
       accessibilityRole="button"
       accessibilityLabel={t('room.encryptedLocked')}
     >
-      <Text style={[styles.noteComposer, { color: c.accent }]}>{t('room.encryptedLocked')}</Text>
+      <Text style={[styles.noteComposer, { color: c.accent }]}>
+        <InlineIcon name="channel-secure" /> {t('room.encryptedLocked')}
+      </Text>
     </Tappable>
   );
 }
@@ -958,8 +957,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderTopWidth: 1,
   },
-  // The desktop's `.composer-pill`: card fill, a 1.5 px border that turns
-  // cyan with a soft halo while the field has the focus.
+  // The desktop's `.composer-pill`; its colours are `pillSurface`'s.
   pill: {
     flex: 1,
     flexDirection: 'row',

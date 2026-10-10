@@ -2,7 +2,7 @@ import { Redirect, Stack } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { FlatList, RefreshControl, Text, View } from 'react-native';
 
-import type { AdminRoom, AdminRoomKind, ProviderAdmin } from '../../lib/admin.ts';
+import type { AdminRoom, ProviderAdmin } from '../../lib/admin.ts';
 import {
   AdminGate,
   Badge,
@@ -12,12 +12,13 @@ import {
   useAdminFormat,
   useAdminPages,
   useDebounced,
+  ROOM_KIND_ICONS,
 } from '../../ui/adminKit.tsx';
 import { useT } from '../../ui/i18n.ts';
 import type { TranslateFn } from '../../ui/messages.ts';
 import { useSession } from '../../ui/session.tsx';
 import { type Colors, useColors } from '../../ui/theme.ts';
-import { Icon, type IconName } from '../../ui/icon.tsx';
+import { Icon } from '../../ui/icon.tsx';
 
 /**
  * Server administration, Rooms (`/admin/rooms`): every room of the server,
@@ -26,9 +27,6 @@ import { Icon, type IconName } from '../../ui/icon.tsx';
  * read-only and encrypted marks. An administrator reads no conversation from
  * here.
  */
-
-// A public room is marked `#`, as in its name, like the desktop's list.
-const ICONS: Record<AdminRoomKind, IconName | null> = { public: null, private: 'channel-secure', direct: 'avatar-default', discussion: 'chat-message-new' };
 
 /** A native direct conversation by its pair, a deleted member as "Deleted user". */
 function roomName(room: AdminRoom, t: TranslateFn): string {
@@ -68,13 +66,15 @@ function Rooms({ c, admin }: { c: Colors; admin: ProviderAdmin }) {
       ListHeaderComponent={<SearchField c={c} value={query} onChange={setQuery} placeholder={t('admin.searchRooms')} />}
       ListFooterComponent={<ListFooter c={c} loading={list.loading} error={list.error} />}
       ListEmptyComponent={list.loading || list.error !== null ? null : <Text style={[adminStyles.empty, { color: c.dimmed }]}>{t('admin.empty')}</Text>}
-      renderItem={({ item: room }) => (
+      renderItem={({ item: room }) => {
+        const icon = ROOM_KIND_ICONS[room.kind];
+        return (
         <View style={[adminStyles.row, { backgroundColor: c.deepCard, borderColor: c.border }]} accessible>
           <View style={adminStyles.rowHead}>
-            {ICONS[room.kind] === null ? (
+            {icon === null ? (
               <Text style={[adminStyles.icon, adminStyles.hash, { color: c.dimmed }]}>#</Text>
             ) : (
-              <Icon name={ICONS[room.kind]!} size={20} color={c.dimmed} style={adminStyles.icon} />
+              <Icon name={icon} size={20} color={c.dimmed} style={adminStyles.icon} />
             )}
             <View style={adminStyles.rowTexts}>
               <Text style={[adminStyles.title, { color: c.text }]} numberOfLines={1}>{roomName(room, t)}</Text>
@@ -99,7 +99,8 @@ function Rooms({ c, admin }: { c: Colors; admin: ProviderAdmin }) {
             </View>
           )}
         </View>
-      )}
+        );
+      }}
     />
   );
 }

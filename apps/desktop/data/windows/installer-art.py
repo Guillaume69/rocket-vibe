@@ -215,8 +215,82 @@ def track(size):
     return big.resize(size, Image.LANCZOS)
 
 
+# The uninstaller's crash, on a stage of 220x220 (logical pixels, drawn at
+# twice that) whose top left is 60 left of and 20 above the rocket at the
+# lane's end: the rocket (128x30 there) dives nose first into the ground and
+# bursts. installer-ui.iss lays the stage out the same way.
+CRASH_STAGE = (220, 220)
+CRASH_TILT = 70
+CRASH_FRAMES = 32
+CRASH_DIVE = 12
+
+
+def crash_frames():
+    scale = 2
+    w, h = CRASH_STAGE[0] * scale, CRASH_STAGE[1] * scale
+    ship = rocket_sideways(30 * scale)
+    start = (60 * scale + ship.width / 2, 20 * scale + ship.height / 2)
+    impact = (165 * scale, 175 * scale)
+    # The nose meets the ground: where the centre ends, once tilted.
+    half = ship.width / 2
+    end = (impact[0] - half * math.cos(math.radians(CRASH_TILT)), impact[1] - half * math.sin(math.radians(CRASH_TILT)))
+    rng = random.Random(3)
+    sparks = []
+    for _ in range(34):
+        angle = rng.uniform(math.pi * 1.05, math.pi * 1.95)
+        speed = rng.uniform(25, 55) * scale
+        sparks.append((math.cos(angle) * speed, math.sin(angle) * speed, rng.choice(RAINBOW + [CREAM, TEAL, PINK]),
+                       rng.uniform(3, 7) * scale))
+    puffs = [(rng.uniform(-20, 20) * scale, rng.uniform(-10, 5) * scale, rng.uniform(10, 18) * scale) for _ in range(7)]
+    frames = []
+    for i in range(CRASH_FRAMES):
+        big = Image.new("RGBA", (w * 2, h * 2), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(big)
+        if i < CRASH_DIVE:
+            t = i / (CRASH_DIVE - 1)
+            x = start[0] + (end[0] - start[0]) * t
+            y = start[1] + (end[1] - start[1]) * t * t
+            # Puffs left behind as it sputters.
+            for k in range(i):
+                pt = k / (CRASH_DIVE - 1)
+                px = start[0] + (end[0] - start[0]) * pt
+                py = start[1] + (end[1] - start[1]) * pt * pt
+                r = (4 + 2 * (i - k)) * scale
+                a = max(0, 120 - 14 * (i - k))
+                draw.ellipse(((px - r) * 2, (py - r) * 2, (px + r) * 2, (py + r) * 2), fill=(180, 170, 210, a))
+            frame = big.resize((w, h), Image.LANCZOS)
+            tilted = ship.rotate(-CRASH_TILT * t * t, resample=Image.BICUBIC, expand=True)
+            frame.alpha_composite(tilted, (round(x - tilted.width / 2), round(y - tilted.height / 2)))
+            frames.append(frame)
+            continue
+        t = (i - CRASH_DIVE) / (CRASH_FRAMES - CRASH_DIVE - 1)
+        cx, cy = impact[0] * 2, impact[1] * 2
+        # Smoke first, under the fire.
+        for dx, dy, r in puffs:
+            grow = r * (0.6 + 1.6 * t)
+            px, py = cx + dx * 2 * (1 + t), cy + (dy - 40 * scale * t) * 2
+            draw.ellipse((px - grow * 2, py - grow * 2, px + grow * 2, py + grow * 2),
+                         fill=(120, 110, 150, round(150 * (1 - t) ** 1.2)))
+        if t < 0.6:
+            u = t / 0.6
+            for radius, color in [(40, PINK), (30, (255, 159, 69)), (20, (255, 216, 74)), (10, CREAM)]:
+                r = radius * scale * (0.4 + 0.9 * u) * 2
+                draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=color + (round(230 * (1 - u) ** 1.5),))
+        for vx, vy, color, size in sparks:
+            sx = cx + vx * t * 2
+            sy = cy + (vy * t + 60 * scale * t * t) * 2
+            alpha = round(255 * (1 - t) ** 0.8)
+            if alpha > 0:
+                sparkle(draw, (sx, sy), size * 2 * (1 - 0.5 * t), color, alpha)
+        frame = big.resize((w, h), Image.LANCZOS)
+        frames.append(Image.alpha_composite(frame.filter(ImageFilter.GaussianBlur(scale * 2)), frame))
+    return frames
+
+
 def main():
     OUT.mkdir(exist_ok=True)
+    for i, frame in enumerate(crash_frames()):
+        frame.save(OUT / f"crash-{i:02d}.png", optimize=True)
     # The script's own controls: drawn at twice their size, stretched by Setup.
     pill((288, 80)).save(OUT / "pill.png", optimize=True)
     rocket_sideways(72).save(OUT / "rocket.png", optimize=True)

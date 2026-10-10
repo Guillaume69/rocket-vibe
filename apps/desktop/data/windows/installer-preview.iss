@@ -1,8 +1,10 @@
 ; The installer's look without installing the app: the same wizard
-; (installer-ui.iss) over a throwaway payload, copied to a temporary folder
-; and deleted at the end; no shortcut, registry key or uninstaller.
+; (installer-ui.iss) over a throwaway payload, copied to a temporary folder;
+; no shortcut and no registry key. Its uninstaller (unins000.exe in that
+; folder, run by hand) shows the uninstall look and takes the folder away.
 ;   ISCC /DPayload=<folder of any files> /O<output dir> installer-preview.iss
-; A few hundred megabytes of payload leave time to watch the rocket fly.
+; A few hundred megabytes leave time to watch the rocket fly, and a few
+; thousand small files to watch it crash.
 
 #ifndef Payload
   #error Payload is required
@@ -16,7 +18,6 @@ DefaultDirName={%TEMP}\rocket-vibe-installer-preview
 DisableDirPage=yes
 DisableProgramGroupPage=yes
 DisableReadyPage=no
-Uninstallable=no
 CreateUninstallRegKey=no
 PrivilegesRequired=lowest
 OutputBaseFilename=rocket-vibe-installer-preview
@@ -26,4 +27,4 @@ Compression=none
 #include "installer-ui.iss"
 
 [Files]
-Source: "{#Payload}\*"; DestDir: "{app}"; Flags: ignoreversion deleteafterinstall
+Source: "{#Payload}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs

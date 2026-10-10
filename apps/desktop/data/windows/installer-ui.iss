@@ -12,6 +12,9 @@ WizardImageFile=installer\wizard-202x386.png,installer\wizard-336x643.png,instal
 WizardSmallImageFile=installer\small-58.png,installer\small-97.png,installer\small-124.png
 ; The welcome page carries the rocket; Inno Setup hides it by default.
 DisableWelcomePage=no
+; The language picker is a system dialog with a frame: only when Windows'
+; own language is none of ours.
+ShowLanguageDialog=auto
 
 [Languages]
 Name: "en"; MessagesFile: "compiler:Default.isl"
@@ -24,7 +27,7 @@ en.InstallingLabel=Fueling up [name], hang tight...
 en.FinishedHeadingLabel=Liftoff!
 en.FinishedLabelNoIcons=[name] is installed and ready to fly.
 en.FinishedLabel=[name] is installed and ready to fly. Find it any time from its shortcut.
-en.UninstalledAll=%1 has left orbit. See you soon!
+en.UninstalledAll=%1 crash-landed in style. See you soon!
 en.ButtonBack=Back
 en.ButtonNext=Next
 fr.WelcomeLabel1=Prêt au décollage
@@ -33,7 +36,7 @@ fr.InstallingLabel=On fait le plein de [name], encore un instant...
 fr.FinishedHeadingLabel=Décollage !
 fr.FinishedLabelNoIcons=[name] est installé et prêt à voler.
 fr.FinishedLabel=[name] est installé et prêt à voler. Retrouvez-le à tout moment depuis son raccourci.
-fr.UninstalledAll=%1 a quitté l'orbite. À bientôt !
+fr.UninstalledAll=%1 s'est écrasé en beauté. À bientôt !
 fr.ButtonBack=Retour
 fr.ButtonNext=Suivant
 
@@ -42,6 +45,35 @@ Source: "installer\pill.png"; Flags: dontcopy
 Source: "installer\rocket.png"; Flags: dontcopy
 Source: "installer\rainbow.png"; Flags: dontcopy
 Source: "installer\track.png"; Flags: dontcopy
+; The uninstaller's copy: it cannot extract from Setup.
+Source: "installer\rocket.png"; DestDir: "{app}\installer-art"; Flags: ignoreversion
+Source: "installer\pill.png"; DestDir: "{app}\installer-art"; Flags: ignoreversion
+Source: "installer\rainbow.png"; DestDir: "{app}\installer-art"; Flags: ignoreversion
+Source: "installer\track.png"; DestDir: "{app}\installer-art"; Flags: ignoreversion
+Source: "installer\back.png"; DestDir: "{app}\installer-art"; Flags: ignoreversion
+Source: "installer\crash-*.png"; DestDir: "{app}\installer-art"; Flags: ignoreversion
+
+[CustomMessages]
+en.Crashed=Crash!
+en.FarewellYes=Bye!
+en.ConfirmTitle=Ground the rocket?
+en.ConfirmText=This removes %1 and everything it brought along. The rocket will not survive the landing.
+en.ConfirmYes=Uninstall
+en.ConfirmNo=Keep it
+en.AbortTitle=Abort the launch?
+en.AbortText=%1 is not installed yet. Run Setup again any time to finish.
+en.AbortYes=Abort
+en.AbortNo=Keep going
+fr.Crashed=Crash !
+fr.FarewellYes=Salut !
+fr.ConfirmTitle=Clouer la fusée au sol ?
+fr.ConfirmText=Cela retire %1 et tout ce qu'il a apporté. La fusée ne survivra pas à l'atterrissage.
+fr.ConfirmYes=Désinstaller
+fr.ConfirmNo=La garder
+fr.AbortTitle=Annuler le décollage ?
+fr.AbortText=%1 n'est pas encore installé. Relancez l'installation quand vous voulez pour finir.
+fr.AbortYes=Annuler
+fr.AbortNo=Continuer
 
 [Code]
 const
@@ -76,6 +108,8 @@ var
   NextPill: TBitmapImage;
   NextCaption, BackCaption, CancelCaption: TNewStaticText;
   Track, Rainbow, Rocket: TBitmapImage;
+  { The lane, where the gauge was. }
+  LaneLeft, LaneWidth: Integer;
 
 function OwnProc(Wnd: HWND): Longword;
 var
@@ -146,6 +180,16 @@ begin
     Hook(WizardForm.OuterNotebook.Pages[I]);
   for I := 0 to WizardForm.InnerNotebook.PageCount - 1 do
     Hook(WizardForm.InnerNotebook.Pages[I]);
+  { Texts are windows of their own: they let the drag through too. }
+  Hook(WizardForm.WelcomeLabel1);
+  Hook(WizardForm.WelcomeLabel2);
+  Hook(WizardForm.FinishedHeadingLabel);
+  Hook(WizardForm.FinishedLabel);
+  Hook(WizardForm.PageNameLabel);
+  Hook(WizardForm.PageDescriptionLabel);
+  Hook(WizardForm.ReadyLabel);
+  Hook(WizardForm.StatusLabel);
+  Hook(WizardForm.FilenameLabel);
 end;
 
 { Gives every window its own procedure back before the script goes away. }
@@ -188,12 +232,12 @@ end;
 
 function MakeLabel(const Parent: TWinControl; Color: Integer; Click: TNotifyEvent): TNewStaticText;
 begin
-  Result := TNewStaticText.Create(WizardForm);
+  Result := TNewStaticText.Create(Parent);
   Result.Parent := Parent;
   Result.AutoSize := True;
   Result.ShowAccelChar := False;
   Result.Font.Color := Color;
-  Result.Font.Size := WizardForm.NextButton.Font.Size + 1;
+  Result.Font.Size := 10;
   Result.Font.Style := [fsBold];
   Result.Cursor := crHand;
   Result.OnClick := Click;
@@ -253,32 +297,45 @@ begin
     Place(BackCaption, WizardForm.BackButton, NextPill.Left - ScaleX(18));
 end;
 
-{ The progress bar: a faint lane, the rainbow, and the rocket at its head. }
-procedure MakeProgress;
+{ An image of the art: carried in Setup, installed beside the app for the
+  uninstaller, which has no archive to extract from. }
+function Art(const Name: String): String;
+begin
+  if IsUninstaller then
+  begin
+    { A copy that outlives the uninstall, which deletes the originals. }
+    Result := ExpandConstant('{tmp}\') + Name;
+    if not FileExists(Result) then
+      FileCopy(ExpandConstant('{app}\installer-art\') + Name, Result, False);
+  end
+  else
+    Result := Png(Name);
+end;
+
+function Picture(Parent: TWinControl; const Name: String): TBitmapImage;
+begin
+  Result := TBitmapImage.Create(Parent);
+  Result.Parent := Parent;
+  Result.Stretch := True;
+  Result.BackColor := clNone;
+  Result.PngImage.LoadFromFile(Art(Name));
+end;
+
+{ The progress bar: a faint lane, the rainbow, and the rocket at its head,
+  over the gauge they replace. }
+procedure MakeProgress(Page: TWinControl; Gauge: TNewProgressBar);
 var
-  Gauge: TNewProgressBar;
   Middle: Integer;
 begin
-  Gauge := WizardForm.ProgressGauge;
   Middle := Gauge.Top + Gauge.Height div 2;
-  Track := TBitmapImage.Create(WizardForm);
-  Track.Parent := WizardForm.InstallingPage;
-  Track.Stretch := True;
-  Track.BackColor := clNone;
-  Track.PngImage.LoadFromFile(Png('track.png'));
+  LaneLeft := Gauge.Left;
+  LaneWidth := Gauge.Width;
+  Track := Picture(Page, 'track.png');
   Track.SetBounds(Gauge.Left, Middle - ScaleY(6), Gauge.Width, ScaleY(12));
-  Rainbow := TBitmapImage.Create(WizardForm);
-  Rainbow.Parent := WizardForm.InstallingPage;
-  Rainbow.Stretch := True;
-  Rainbow.BackColor := clNone;
-  Rainbow.PngImage.LoadFromFile(Png('rainbow.png'));
+  Rainbow := Picture(Page, 'rainbow.png');
   Rainbow.SetBounds(Gauge.Left, Middle - ScaleY(6), 1, ScaleY(12));
   Rainbow.Visible := False;
-  Rocket := TBitmapImage.Create(WizardForm);
-  Rocket.Parent := WizardForm.InstallingPage;
-  Rocket.Stretch := True;
-  Rocket.BackColor := clNone;
-  Rocket.PngImage.LoadFromFile(Png('rocket.png'));
+  Rocket := Picture(Page, 'rocket.png');
   Rocket.Height := ScaleY(30);
   Rocket.Width := Rocket.Height * 308 div 72;
   Rocket.Top := Middle - Rocket.Height div 2;
@@ -286,30 +343,32 @@ begin
   Gauge.Visible := False;
 end;
 
-procedure ShowProgress(Done, Total: Integer);
+procedure PlaceRocket(Done: Extended);
 var
-  Gauge: TNewProgressBar;
-  Travel, Tail: Integer;
+  Tail: Integer;
 begin
-  Gauge := WizardForm.ProgressGauge;
-  Gauge.Visible := False;
-  Travel := Gauge.Width - Rocket.Width;
-  if Total > 0 then
-    Rocket.Left := Gauge.Left + Round(Travel * (Done / Total))
-  else
-    Rocket.Left := Gauge.Left;
+  Rocket.Left := LaneLeft + Round((LaneWidth - Rocket.Width) * Done);
   { The rainbow comes out of the flame, a little under the rocket. }
-  Tail := Rocket.Left + Rocket.Width div 10 - Gauge.Left;
+  Tail := Rocket.Left + Rocket.Width div 10 - LaneLeft;
   Rainbow.Visible := Tail > 0;
   if Tail > 0 then
     Rainbow.Width := Tail;
+end;
+
+procedure ShowProgress(Gauge: TNewProgressBar);
+begin
+  Gauge.Visible := False;
+  if Gauge.Max > Gauge.Min then
+    PlaceRocket((Gauge.Position - Gauge.Min) / (Gauge.Max - Gauge.Min))
+  else
+    PlaceRocket(0);
 end;
 
 procedure InitializeWizard;
 begin
   WizardForm.BorderStyle := bsNone;
   MakeButtons;
-  MakeProgress;
+  MakeProgress(WizardForm.InstallingPage, WizardForm.ProgressGauge);
   HookDragging;
 end;
 
@@ -317,12 +376,12 @@ procedure CurPageChanged(CurPageID: Integer);
 begin
   SyncButtons;
   if CurPageID = wpInstalling then
-    ShowProgress(0, 1);
+    ShowProgress(WizardForm.ProgressGauge);
 end;
 
 procedure CurInstallProgressChanged(CurProgress, MaxProgress: Integer);
 begin
-  ShowProgress(CurProgress, MaxProgress);
+  ShowProgress(WizardForm.ProgressGauge);
 end;
 
 procedure DeinitializeSetup;
@@ -330,7 +389,191 @@ begin
   UnhookDragging;
 end;
 
-procedure InitializeUninstallProgressForm;
+{ The system's message boxes have a frame and its buttons: Setup's own
+  questions go through this dialog instead. Frameless, the night sky, the
+  main answer in a pill and the other as a plain word; Enter gives the main
+  answer, Escape the other (or closes a single-answer dialog). }
+
+const
+  APP_NAME = '{#SetupSetting("AppName")}';
+
+var
+  DialogYes, DialogNo: TNewButton;
+
+procedure DialogYesClick(Sender: TObject);
 begin
-  UninstallProgressForm.BorderStyle := bsNone;
+  Press(DialogYes);
+end;
+
+procedure DialogNoClick(Sender: TObject);
+begin
+  Press(DialogNo);
+end;
+
+function Dialog(const Title, Text, Yes, No: String): Boolean;
+var
+  Form: TSetupForm;
+  Back, Pill: TBitmapImage;
+  Heading, Body, YesLabel, NoLabel: TNewStaticText;
+begin
+  Form := CreateCustomForm(ScaleX(440), ScaleY(180), False, True);
+  try
+    Form.BorderStyle := bsNone;
+    Form.Caption := Title;
+    Back := Picture(Form, 'back.png');
+    Back.SetBounds(0, 0, Form.ClientWidth, Form.ClientHeight);
+    Heading := TNewStaticText.Create(Form);
+    Heading.Parent := Form;
+    Heading.Caption := Title;
+    Heading.Font.Size := 13;
+    Heading.Font.Style := [fsBold];
+    Heading.SetBounds(ScaleX(28), ScaleY(24), Form.ClientWidth - ScaleX(56), ScaleY(28));
+    Body := TNewStaticText.Create(Form);
+    Body.Parent := Form;
+    Body.AutoSize := False;
+    Body.WordWrap := True;
+    Body.ShowAccelChar := False;
+    Body.Font.Size := 10;
+    Body.SetBounds(ScaleX(28), Heading.Top + Heading.Height + ScaleY(8), Form.ClientWidth - ScaleX(56), ScaleY(60));
+    Body.Caption := Text;
+    { The real buttons, out of sight, answer Enter and Escape. }
+    DialogYes := TNewButton.Create(Form);
+    DialogYes.Parent := Form;
+    DialogYes.ModalResult := mrYes;
+    DialogYes.Default := True;
+    DialogYes.Top := -ScaleY(200);
+    DialogNo := TNewButton.Create(Form);
+    DialogNo.Parent := Form;
+    DialogNo.ModalResult := mrNo;
+    DialogNo.Cancel := True;
+    DialogNo.Top := -ScaleY(200);
+    Pill := Picture(Form, 'pill.png');
+    Pill.Height := ScaleY(36);
+    Pill.Width := Pill.Height * 288 div 80;
+    Pill.Left := Form.ClientWidth - ScaleX(24) - Pill.Width;
+    Pill.Top := Form.ClientHeight - ScaleY(22) - Pill.Height;
+    Pill.Cursor := crHand;
+    Pill.OnClick := @DialogYesClick;
+    YesLabel := MakeLabel(Form, PILL_COLOR, @DialogYesClick);
+    YesLabel.Caption := Yes;
+    YesLabel.Left := Pill.Left + (Pill.Width - YesLabel.Width) div 2;
+    YesLabel.Top := Pill.Top + (Pill.Height - YesLabel.Height) div 2;
+    if No <> '' then
+    begin
+      NoLabel := MakeLabel(Form, GHOST_COLOR, @DialogNoClick);
+      NoLabel.Caption := No;
+      NoLabel.Left := Pill.Left - ScaleX(22) - NoLabel.Width;
+      NoLabel.Top := Pill.Top + (Pill.Height - NoLabel.Height) div 2;
+    end;
+    Result := Form.ShowModal = mrYes;
+  finally
+    Form.Free;
+  end;
+end;
+
+{ Leaving Setup midway asks in the same style. }
+procedure CancelButtonClick(CurPageID: Integer; var Cancel, Confirm: Boolean);
+begin
+  Confirm := False;
+  Cancel := Dialog(CustomMessage('AbortTitle'), FmtMessage(CustomMessage('AbortText'), [APP_NAME]),
+    CustomMessage('AbortYes'), CustomMessage('AbortNo'));
+end;
+
+{ Inno Setup asks before uninstalling with a system message box, and says
+  goodbye with another, unless the uninstaller runs /SILENT, which still
+  shows the progress window (and the crash). So the question is ours, and
+  a yes starts the uninstaller again, silent, marked to say goodbye. }
+function InitializeUninstall: Boolean;
+var
+  Code: Integer;
+begin
+  Result := UninstallSilent;
+  if Result then
+    Exit;
+  if Dialog(CustomMessage('ConfirmTitle'), FmtMessage(CustomMessage('ConfirmText'), [APP_NAME]),
+    CustomMessage('ConfirmYes'), CustomMessage('ConfirmNo')) then
+    Exec(ExpandConstant('{uninstallexe}'), '/SILENT /RVFAREWELL=1', '', SW_SHOW, ewNoWait, Code);
+end;
+
+procedure Farewell;
+begin
+  if ExpandConstant('{param:RVFAREWELL|0}') = '1' then
+    Dialog(CustomMessage('Crashed'), FmtMessage(SetupMessage(msgUninstalledAll), [APP_NAME]),
+      CustomMessage('FarewellYes'), '');
+end;
+
+{ The uninstaller: the same sky and rocket, which crashes. It all plays as
+  the uninstall starts (usUninstall): by usPostUninstall Inno Setup has
+  freed this window, and touching its controls then fails ("Could not call
+  proc"). The rocket crosses its lane, dives and bursts, and the files go
+  under the smoke, a moment more before the window closes. }
+
+const
+  { installer-art.py's CRASH_FRAMES and stage: 220x220, 60 left of and 20
+    above the rocket at the lane's end. }
+  CRASH_FRAMES = 32;
+  FRAME_MS = 40;
+  FLIGHT_STEPS = 30;
+
+var
+  CrashFrames: array of TBitmapImage;
+
+procedure InitializeUninstallProgressForm;
+var
+  Form: TUninstallProgressForm;
+  Gauge: TNewProgressBar;
+  Back: TBitmapImage;
+  I, Left, Top: Integer;
+begin
+  { The farewell's pill, copied before the uninstall deletes it. }
+  Art('pill.png');
+  Form := UninstallProgressForm;
+  Form.BorderStyle := bsNone;
+  Form.CancelButton.Visible := False;
+  Back := Picture(Form, 'back.png');
+  Back.SetBounds(0, 0, Form.ClientWidth, Form.ClientHeight);
+  Back.SendToBack;
+  Gauge := Form.ProgressBar;
+  MakeProgress(Form.InstallingPage, Gauge);
+  Left := Gauge.Left + Gauge.Width - Rocket.Width - ScaleX(60);
+  Top := Rocket.Top - ScaleY(20);
+  SetArrayLength(CrashFrames, CRASH_FRAMES);
+  for I := 0 to CRASH_FRAMES - 1 do
+  begin
+    CrashFrames[I] := Picture(Form.InstallingPage, Format('crash-%.2d.png', [I]));
+    CrashFrames[I].SetBounds(Left, Top, ScaleX(220), ScaleY(220));
+    CrashFrames[I].Visible := False;
+  end;
+end;
+
+procedure Crash;
+var
+  Page: TNewNotebookPage;
+  I: Integer;
+begin
+  Page := UninstallProgressForm.InstallingPage;
+  for I := 1 to FLIGHT_STEPS do
+  begin
+    PlaceRocket(I / FLIGHT_STEPS);
+    Page.Update;
+    Sleep(FRAME_MS);
+  end;
+  Rocket.Visible := False;
+  UninstallProgressForm.StatusLabel.Caption := CustomMessage('Crashed');
+  for I := 0 to CRASH_FRAMES - 1 do
+  begin
+    if I > 0 then
+      CrashFrames[I - 1].Visible := False;
+    CrashFrames[I].Visible := True;
+    Page.Update;
+    Sleep(FRAME_MS);
+  end;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if (CurUninstallStep = usUninstall) and (GetArrayLength(CrashFrames) > 0) then
+    Crash;
+  if CurUninstallStep = usPostUninstall then
+    Farewell;
 end;

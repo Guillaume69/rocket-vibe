@@ -15,6 +15,7 @@ section here.
 ### Changed
 
 - The Windows installer wears the app's night sky: a borderless dark wizard with a starry background, pill buttons, a rocket trailing a rainbow as its progress bar, the rocket on the welcome and finish pages, and livelier words (English and French), also during an update.
+- The Windows uninstaller matches: the same frameless night sky, and its rocket crosses the lane, nose-dives and bursts into sparks while the app goes. Setup's questions (leave midway, uninstall, goodbye) are frameless dialogs in the same style instead of system message boxes, and the window drags from anywhere.
 
 ## [0.13.0] - 2026-10-09
 

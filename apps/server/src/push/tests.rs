@@ -584,3 +584,181 @@ async fn push_thread_reads_and_direct_mentions_preferences_use_original_message_
             .is_err()
     );
 }
+
+#[sqlx::test]
+async fn push_skips_quiet_hours_and_a_mute_while_a_delivered_push_stays_readable(pool: PgPool) {
+    let (app, owner, recipient, _, room) = setup(pool).await;
+    let delivered = store::send(&app, &owner, &room, input("before quiet hours"))
+        .await
+        .unwrap();
+    let job = claim(&app).await.unwrap().pop().unwrap();
+    assert_eq!(job.message_id, delivered.id);
+    // FCM took it, as the worker records; a push still pending is retired
+    // instead once quiet hours begin.
+    sqlx::query("UPDATE push_notifications SET state='delivered' WHERE id=$1")
+        .bind(&job.id)
+        .execute(&app.pool)
+        .await
+        .unwrap();
+    // A window around the server's own UTC clock, wherever it is in the day.
+    let minute: i32 = sqlx::query_scalar(
+        "SELECT (EXTRACT(HOUR FROM now() AT TIME ZONE 'UTC')*60+EXTRACT(MINUTE FROM now() AT TIME ZONE 'UTC'))::int",
+    )
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
+    let quiet = |start: i32, end: i32| {
+        sqlx::query("UPDATE users SET quiet_start=$2,quiet_end=$3,quiet_zone='UTC' WHERE id=$1")
+            .bind(&recipient.id)
+            .bind(start.rem_euclid(1440) as i16)
+            .bind(end.rem_euclid(1440) as i16)
+    };
+    quiet(minute - 30, minute + 30)
+        .execute(&app.pool)
+        .await
+        .unwrap();
+    store::send(&app, &owner, &room, input("inside quiet hours"))
+        .await
+        .unwrap();
+    assert!(claim(&app).await.unwrap().is_empty());
+    // A reply from a notification already shown reads the same content.
+    assert!(
+        content(&app, &recipient, &recipient.session_hash, &job.id)
+            .await
+            .is_ok()
+    );
+    quiet(minute + 60, minute + 120)
+        .execute(&app.pool)
+        .await
+        .unwrap();
+    let outside = store::send(&app, &owner, &room, input("outside quiet hours"))
+        .await
+        .unwrap();
+    assert_eq!(
+        claim(&app).await.unwrap().pop().unwrap().message_id,
+        outside.id
+    );
+    sqlx::query("UPDATE users SET quiet_start=NULL,quiet_end=NULL,quiet_zone=NULL,muted_until=now()+interval '1 hour' WHERE id=$1")
+        .bind(&recipient.id)
+        .execute(&app.pool)
+        .await
+        .unwrap();
+    store::send(&app, &owner, &room, input("while muted"))
+        .await
+        .unwrap();
+    assert!(claim(&app).await.unwrap().is_empty());
+    sqlx::query("UPDATE users SET muted_until=now()-interval '1 minute' WHERE id=$1")
+        .bind(&recipient.id)
+        .execute(&app.pool)
+        .await
+        .unwrap();
+    let after = store::send(&app, &owner, &room, input("after the mute"))
+        .await
+        .unwrap();
+    assert_eq!(
+        claim(&app).await.unwrap().pop().unwrap().message_id,
+        after.id
+    );
+}
+
+#[sqlx::test]
+async fn quiet_hours_are_validated_kept_when_absent_and_read_back(pool: PgPool) {
+    use rv_protocol::profiles::{QuietHours, UpdatePreferences};
+    let (app, _, recipient, _, _) = setup(pool).await;
+    let command = |revision: String,
+                   quiet_hours: Option<Option<QuietHours>>,
+                   muted_until: Option<Option<String>>| UpdatePreferences {
+        operation_id: auth::random_token(),
+        expected_revision: revision,
+        language: "auto".into(),
+        clock_24h: true,
+        push_enabled: true,
+        push_mentions_only: false,
+        desktop_notifications: Default::default(),
+        quiet_hours,
+        muted_until,
+    };
+    let window = |zone: &str, start: u16, end: u16| QuietHours {
+        start_minute: start,
+        end_minute: end,
+        time_zone: zone.into(),
+    };
+    let revision = || async {
+        crate::profiles::own(&app, &recipient)
+            .await
+            .unwrap()
+            .preferences
+    };
+    for refused in [
+        command(
+            revision().await.revision,
+            Some(Some(window("Mars/Olympus", 1320, 480))),
+            None,
+        ),
+        command(
+            revision().await.revision,
+            Some(Some(window("Europe/Paris", 600, 600))),
+            None,
+        ),
+        command(
+            revision().await.revision,
+            Some(Some(window("Europe/Paris", 1440, 0))),
+            None,
+        ),
+        command(
+            revision().await.revision,
+            None,
+            Some(Some("not a time".into())),
+        ),
+        command(
+            revision().await.revision,
+            None,
+            Some(Some(
+                (chrono::Utc::now() + chrono::Duration::days(8)).to_rfc3339(),
+            )),
+        ),
+    ] {
+        assert!(
+            crate::profiles::preferences(&app, &recipient, refused)
+                .await
+                .is_err()
+        );
+    }
+    let until = (chrono::Utc::now() + chrono::Duration::hours(1)).to_rfc3339();
+    crate::profiles::preferences(
+        &app,
+        &recipient,
+        command(
+            revision().await.revision,
+            Some(Some(window("Europe/Paris", 1320, 480))),
+            Some(Some(until)),
+        ),
+    )
+    .await
+    .unwrap();
+    let saved = revision().await;
+    assert_eq!(saved.quiet_hours, Some(window("Europe/Paris", 1320, 480)));
+    assert!(saved.muted_until.is_some());
+    // A client that does not know the fields leaves them alone.
+    crate::profiles::preferences(
+        &app,
+        &recipient,
+        command(saved.revision.clone(), None, None),
+    )
+    .await
+    .unwrap();
+    let kept = revision().await;
+    assert_eq!(kept.quiet_hours, saved.quiet_hours);
+    assert_eq!(kept.muted_until, saved.muted_until);
+    // `null` removes; a past instant is no mute.
+    let past = (chrono::Utc::now() - chrono::Duration::minutes(5)).to_rfc3339();
+    crate::profiles::preferences(
+        &app,
+        &recipient,
+        command(kept.revision, Some(None), Some(Some(past))),
+    )
+    .await
+    .unwrap();
+    let cleared = revision().await;
+    assert_eq!((cleared.quiet_hours, cleared.muted_until), (None, None));
+}

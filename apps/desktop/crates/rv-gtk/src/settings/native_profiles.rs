@@ -314,6 +314,9 @@ pub(super) fn settings(host: &Host, pages: Pages, row: &adw::ActionRow, session:
                     push_enabled: preferences.push_enabled,
                     push_mentions_only: preferences.push_mentions_only,
                     desktop_notifications: preferences.desktop_notifications,
+                    // Not touched here: absent keeps them.
+                    quiet_hours: None,
+                    muted_until: None,
                 };
                 submit(&parent, s.clone(), Action::Change(ProfileOperation::Preferences { input }), move |success| {
                     if success && is_language {

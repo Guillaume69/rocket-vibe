@@ -435,6 +435,8 @@ export interface Provider {
    * or `null` if it is not that.
    */
   privateNote(event: DdpEvent): { rid: string; text: string } | null;
+  /** A call starting or ending in a live event, for ringing (`lib/callRing.ts`). */
+  callSignal?(event: DdpEvent): import('./callRing.ts').CallSignal | null;
   /**
    * A page of the room's history (newest first), ingested into the engine.
    * `type`: the room type as stored (`rooms.type`); `latest`: ISO keyset

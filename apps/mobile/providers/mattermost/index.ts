@@ -7,6 +7,7 @@
 
 import type { Session } from '../../lib/auth.ts';
 import { setMediaBearer } from '../../lib/mediaAuth.ts';
+import { liveCallSignal } from '../../lib/callRing.ts';
 import type { CustomEmoji } from '../../lib/customEmojis.ts';
 import type { DdpEvent } from '../../lib/ddp.ts';
 import type { LocalMessage } from '../../lib/normalize.ts';
@@ -156,6 +157,7 @@ export function createMattermostProvider(
       if (post === null || typeof post.channel_id !== 'string' || typeof post.message !== 'string') return null;
       return { rid: post.channel_id, text: post.message };
     },
+    callSignal: (event: DdpEvent) => liveCallSignal(translator, event),
     loadHistory: (engine, rid, _type, latest) => history.loadHistory(engine, rid, latest),
     historyRange: (rid, _type, latest, oldest) => history.range(rid, latest, oldest),
     fetchMessage: (id) => history.fetch(id),

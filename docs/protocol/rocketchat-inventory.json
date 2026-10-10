@@ -394,6 +394,7 @@
     "apps/mobile/lib/attachment.ts",
     "apps/mobile/lib/auth.ts",
     "apps/mobile/lib/call.ts",
+    "apps/mobile/lib/callRing.ts",
     "apps/mobile/lib/catchUp.ts",
     "apps/mobile/lib/commands.ts",
     "apps/mobile/lib/connectionSetup.ts",
@@ -503,6 +504,7 @@
     "apps/mobile/ui/botBadge.tsx",
     "apps/mobile/ui/bots.tsx",
     "apps/mobile/ui/botsModel.ts",
+    "apps/mobile/ui/callRing.tsx",
     "apps/mobile/ui/collapsedSections.ts",
     "apps/mobile/ui/commandCompletion.tsx",
     "apps/mobile/ui/composer.tsx",
@@ -3642,51 +3644,75 @@
     },
     {
       "file": "apps/mobile/lib/call.ts",
-      "line": 76,
+      "line": 78,
       "kind": "call:POST",
       "surface": "'video-conference.start'"
     },
     {
       "file": "apps/mobile/lib/call.ts",
-      "line": 76,
+      "line": 78,
       "kind": "endpoint",
       "surface": "video-conference.start"
     },
     {
       "file": "apps/mobile/lib/call.ts",
-      "line": 99,
+      "line": 101,
       "kind": "call:POST",
       "surface": "'video-conference.join'"
     },
     {
       "file": "apps/mobile/lib/call.ts",
-      "line": 99,
+      "line": 101,
       "kind": "endpoint",
       "surface": "video-conference.join"
     },
     {
       "file": "apps/mobile/lib/call.ts",
-      "line": 115,
+      "line": 117,
       "kind": "call:GET",
       "surface": "'video-conference.info'"
     },
     {
       "file": "apps/mobile/lib/call.ts",
-      "line": 115,
+      "line": 117,
       "kind": "endpoint",
       "surface": "video-conference.info"
     },
     {
       "file": "apps/mobile/lib/call.ts",
-      "line": 146,
+      "line": 148,
       "kind": "call:GET",
       "surface": "'video-conference.capabilities'"
     },
     {
       "file": "apps/mobile/lib/call.ts",
-      "line": 146,
+      "line": 148,
       "kind": "endpoint",
       "surface": "video-conference.capabilities"
+    },
+    {
+      "file": "apps/mobile/lib/call.ts",
+      "line": 197,
+      "kind": "call:GET",
+      "surface": "'video-conference.info'"
+    },
+    {
+      "file": "apps/mobile/lib/call.ts",
+      "line": 197,
+      "kind": "endpoint",
+      "surface": "video-conference.info"
+    },
+    {
+      "file": "apps/mobile/lib/call.ts",
+      "line": 221,
+      "kind": "call:POST",
+      "surface": "'video-conference.cancel'"
+    },
+    {
+      "file": "apps/mobile/lib/call.ts",
+      "line": 221,
+      "kind": "endpoint",
+      "surface": "video-conference.cancel"
     },
     {
       "file": "apps/mobile/lib/catchUp.ts",
@@ -4680,25 +4706,25 @@
     },
     {
       "file": "apps/mobile/providers/rocketchat/index.ts",
-      "line": 55,
+      "line": 56,
       "kind": "call:GET",
       "surface": "'users.info'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/index.ts",
-      "line": 55,
+      "line": 56,
       "kind": "endpoint",
       "surface": "users.info"
     },
     {
       "file": "apps/mobile/providers/rocketchat/index.ts",
-      "line": 57,
+      "line": 58,
       "kind": "call:GET",
       "surface": "'chat.search'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/index.ts",
-      "line": 57,
+      "line": 58,
       "kind": "endpoint",
       "surface": "chat.search"
     },

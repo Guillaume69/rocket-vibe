@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-604 production files scanned; 704 occurrences.
+606 production files scanned; 708 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -513,14 +513,18 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/lib/auth.ts:103](../../apps/mobile/lib/auth.ts#L103) | call:POST | 'login' |
 | [apps/mobile/lib/auth.ts:149](../../apps/mobile/lib/auth.ts#L149) | call:POST | 'users.2fa.sendEmailCode' |
 | [apps/mobile/lib/auth.ts:171](../../apps/mobile/lib/auth.ts#L171) | call:POST | 'logout' |
-| [apps/mobile/lib/call.ts:76](../../apps/mobile/lib/call.ts#L76) | call:POST | 'video-conference.start' |
-| [apps/mobile/lib/call.ts:76](../../apps/mobile/lib/call.ts#L76) | endpoint | video-conference.start |
-| [apps/mobile/lib/call.ts:99](../../apps/mobile/lib/call.ts#L99) | call:POST | 'video-conference.join' |
-| [apps/mobile/lib/call.ts:99](../../apps/mobile/lib/call.ts#L99) | endpoint | video-conference.join |
-| [apps/mobile/lib/call.ts:115](../../apps/mobile/lib/call.ts#L115) | call:GET | 'video-conference.info' |
-| [apps/mobile/lib/call.ts:115](../../apps/mobile/lib/call.ts#L115) | endpoint | video-conference.info |
-| [apps/mobile/lib/call.ts:146](../../apps/mobile/lib/call.ts#L146) | call:GET | 'video-conference.capabilities' |
-| [apps/mobile/lib/call.ts:146](../../apps/mobile/lib/call.ts#L146) | endpoint | video-conference.capabilities |
+| [apps/mobile/lib/call.ts:78](../../apps/mobile/lib/call.ts#L78) | call:POST | 'video-conference.start' |
+| [apps/mobile/lib/call.ts:78](../../apps/mobile/lib/call.ts#L78) | endpoint | video-conference.start |
+| [apps/mobile/lib/call.ts:101](../../apps/mobile/lib/call.ts#L101) | call:POST | 'video-conference.join' |
+| [apps/mobile/lib/call.ts:101](../../apps/mobile/lib/call.ts#L101) | endpoint | video-conference.join |
+| [apps/mobile/lib/call.ts:117](../../apps/mobile/lib/call.ts#L117) | call:GET | 'video-conference.info' |
+| [apps/mobile/lib/call.ts:117](../../apps/mobile/lib/call.ts#L117) | endpoint | video-conference.info |
+| [apps/mobile/lib/call.ts:148](../../apps/mobile/lib/call.ts#L148) | call:GET | 'video-conference.capabilities' |
+| [apps/mobile/lib/call.ts:148](../../apps/mobile/lib/call.ts#L148) | endpoint | video-conference.capabilities |
+| [apps/mobile/lib/call.ts:197](../../apps/mobile/lib/call.ts#L197) | call:GET | 'video-conference.info' |
+| [apps/mobile/lib/call.ts:197](../../apps/mobile/lib/call.ts#L197) | endpoint | video-conference.info |
+| [apps/mobile/lib/call.ts:221](../../apps/mobile/lib/call.ts#L221) | call:POST | 'video-conference.cancel' |
+| [apps/mobile/lib/call.ts:221](../../apps/mobile/lib/call.ts#L221) | endpoint | video-conference.cancel |
 | [apps/mobile/lib/catchUp.ts:42](../../apps/mobile/lib/catchUp.ts#L42) | call:GET | 'rooms.get' |
 | [apps/mobile/lib/catchUp.ts:42](../../apps/mobile/lib/catchUp.ts#L42) | endpoint | rooms.get |
 | [apps/mobile/lib/catchUp.ts:45](../../apps/mobile/lib/catchUp.ts#L45) | call:GET | 'subscriptions.get' |
@@ -686,10 +690,10 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/providers/rocketchat/history.ts:126](../../apps/mobile/providers/rocketchat/history.ts#L126) | endpoint | chat.getMessage |
 | [apps/mobile/providers/rocketchat/history.ts:132](../../apps/mobile/providers/rocketchat/history.ts#L132) | call:GET | 'chat.getThreadMessages' |
 | [apps/mobile/providers/rocketchat/history.ts:133](../../apps/mobile/providers/rocketchat/history.ts#L133) | endpoint | chat.getThreadMessages |
-| [apps/mobile/providers/rocketchat/index.ts:55](../../apps/mobile/providers/rocketchat/index.ts#L55) | call:GET | 'users.info' |
-| [apps/mobile/providers/rocketchat/index.ts:55](../../apps/mobile/providers/rocketchat/index.ts#L55) | endpoint | users.info |
-| [apps/mobile/providers/rocketchat/index.ts:57](../../apps/mobile/providers/rocketchat/index.ts#L57) | call:GET | 'chat.search' |
-| [apps/mobile/providers/rocketchat/index.ts:57](../../apps/mobile/providers/rocketchat/index.ts#L57) | endpoint | chat.search |
+| [apps/mobile/providers/rocketchat/index.ts:56](../../apps/mobile/providers/rocketchat/index.ts#L56) | call:GET | 'users.info' |
+| [apps/mobile/providers/rocketchat/index.ts:56](../../apps/mobile/providers/rocketchat/index.ts#L56) | endpoint | users.info |
+| [apps/mobile/providers/rocketchat/index.ts:58](../../apps/mobile/providers/rocketchat/index.ts#L58) | call:GET | 'chat.search' |
+| [apps/mobile/providers/rocketchat/index.ts:58](../../apps/mobile/providers/rocketchat/index.ts#L58) | endpoint | chat.search |
 | [apps/mobile/ui/botsModel.ts:162](../../apps/mobile/ui/botsModel.ts#L162) | url | /api/v1/rooms |
 | [apps/mobile/ui/discussion.tsx:34](../../apps/mobile/ui/discussion.tsx#L34) | call:GET | 'rooms.info' |
 | [apps/mobile/ui/discussion.tsx:34](../../apps/mobile/ui/discussion.tsx#L34) | endpoint | rooms.info |

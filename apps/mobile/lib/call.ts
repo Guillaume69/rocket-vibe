@@ -23,6 +23,7 @@
  * Module without `react-native`: it depends only on the REST client, like `rest.ts`.
  */
 
+import type { CallCheck } from './callRing.ts';
 import { RestError, isTokenRejected } from './rest.ts';
 import type { RestClient } from './rest.ts';
 
@@ -32,6 +33,7 @@ export type NativeCalls={
   memo:()=>boolean;
   start:(room:string,membership:string|null|undefined,alive:()=>boolean)=>Promise<string>;
   join:(id:string,scope:CallScope,alive:()=>boolean,state?:{cam?:boolean;mic?:boolean})=>Promise<string>;
+  decline?:(id:string)=>Promise<void>;
 };
 type Binding={key:string;calls:NativeCalls|null};
 const bindings=new WeakMap<RestClient,Binding>(),identities=new WeakMap<RestClient,string>();
@@ -172,4 +174,49 @@ export function memoizedCallAvailable(client: RestClient): boolean {
   const calls=bindings.get(client)?.calls;
   if(calls || client.kind==='rocketvibe')return calls?.memo()??false;
   return availabilityByClient.get(client) ?? false;
+}
+
+type InfoResponse = {
+  rid?: unknown;
+  status?: unknown;
+  endedAt?: unknown;
+  createdBy?: { _id?: unknown; name?: unknown; username?: unknown };
+  users?: { _id?: unknown }[];
+};
+/** Rocket.Chat's `VideoConferenceStatus.EXPIRED`: this and above (ended, declined) no longer ring. */
+const STATUS_EXPIRED = 2;
+
+/**
+ * The server's record of a ringing call (`lib/callRing.ts`): Rocket.Chat's
+ * `video-conference.info`. `null` for a provider whose call post is the record
+ * (kChat). Throws when the server knows no such call.
+ */
+export async function conferenceCheck(client: RestClient, callId: string): Promise<CallCheck | null> {
+  if (bindings.get(client)?.calls) return null;
+  if (client.kind === 'rocketvibe') throw new Error('call_provider_unavailable');
+  const r = await client.get<InfoResponse>('video-conference.info', { params: { callId } });
+  const rid = asString(r.rid);
+  const callerId = asString(r.createdBy?._id);
+  if (rid === null || callerId === null) throw new RestError('The server returned no call.', 0);
+  const status = typeof r.status === 'number' ? r.status : 0;
+  return {
+    rid,
+    callerId,
+    callerName: asString(r.createdBy?.name) ?? asString(r.createdBy?.username),
+    over: r.endedAt != null || status >= STATUS_EXPIRED,
+    joined: (r.users ?? []).map(u => asString(u._id)).filter((id): id is string => id !== null),
+  };
+}
+
+/**
+ * Declines a ringing call. kChat: its `decline`. Rocket.Chat: `cancel`, which
+ * only its licensed direct calls accept; a refusal is the caller's to ignore.
+ */
+export async function declineConference(client: RestClient, callId: string): Promise<void> {
+  const calls = bindings.get(client)?.calls;
+  if (calls) {
+    await calls.decline?.(callId);
+    return;
+  }
+  await client.post('video-conference.cancel', { body: { callId } });
 }

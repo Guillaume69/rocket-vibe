@@ -3,7 +3,7 @@
  * app does. `POST /conferences {channel_id}` starts one in a room (and posts
  * its `custom_call`), `POST /conferences/<id>/answer` joins one; both answer
  * the meeting's `url` and a `jwt` for it. The call view opens `url?jwt=`, on
- * kMeet's origin only.
+ * kMeet's origin only. `POST /conferences/<id>/decline` declines a ringing one.
  */
 
 import type { NativeCalls } from '../../lib/call.ts';
@@ -26,5 +26,6 @@ export function kmeetCalls(client: MmClient): NativeCalls {
       return c.id;
     },
     join: async (id) => meeting(await client.post<Conference>(`/conferences/${encodeURIComponent(id)}/answer`)),
+    decline: async (id) => { await client.post(`/conferences/${encodeURIComponent(id)}/decline`); },
   };
 }

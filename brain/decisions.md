@@ -204,7 +204,7 @@ Sources: apps/web/src/app.ts; apps/web/src/api.ts; docs/rfcs/0005-web-client.md.
 
 ## Experimental provider access
 
-Slack and later Teams remain hidden behind nine activations of the login icon,
+Slack and Teams remain hidden behind nine activations of the login icon,
 as requested on 2026-10-09. The device retains the unlock; the preview provides
 a way to hide it again. Slack is implemented first. Start with transient reads
 so no unqualified mutation or incomplete credential lifecycle enters the normal
@@ -215,12 +215,32 @@ account session. See [experimental integrations](features/experimental-integrati
 Following the pushed Slack preview, Teams starts with isolated candidate private
 read transport and runtime-validated DTOs. The user has no Entra registration to
 supply. Building this foundation does not depend on enrolling one, and no
-Microsoft-owned OAuth client ID is embedded. Browser-session acquisition and
-accepted application identity remain T0/T1 work. Keeping this seam out of native
-account UI prevents an unqualified sign-in route from appearing usable. See
+Microsoft-owned OAuth client ID is embedded. Accepted application identity remains
+T0/T1 acceptance work. The next increment adds a clearly experimental transient
+browser-import panel, independent of persistent account UI. See
 [Teams architecture](architecture/teams.md).
 
+## Teams uses an owned browser and public-key handoff (2026-10-10)
+
+Without a project registration, a developer helper lets the official Teams browser
+perform its own grants in a fresh temporary profile. It observes only known Teams
+v2 service token responses and validates signed identity/client/tenant binding;
+it makes no grant or refresh call and never decodes API tokens. No work/school test
+account was available, so real sign-in and private DTO acceptance remain unqualified.
+Packaged native sign-in and phone-only acquisition remain debt.
+
+Only a public pairing key is copied from the app. Ephemeral X25519, HKDF and authenticated
+encryption protect the response, preventing clipboard history of both public values
+from revealing credentials. The native private key is consumed on import/disposal.
+This remains a transient read preview with no stored account or enabled writes;
+[usage](../docs/TEAMS_PREVIEW.md) records its required developer helper and limitations.
+
 ## Sources
+
+- scripts/teams-browser-signin.mjs
+- scripts/teams/session.mjs
+- apps/mobile/providers/teams/handoff.ts
+- apps/desktop/crates/rv-core/src/teams_handoff.rs
 
 - apps/mobile/providers/teams/protocol.ts
 - apps/mobile/providers/teams/reader.ts

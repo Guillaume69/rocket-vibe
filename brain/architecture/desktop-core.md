@@ -20,6 +20,8 @@ Context: [desktop-app.md](desktop-app.md) for the crate layout, [rocket-chat.md]
 
 | Module | Responsibility |
 |---|---|
+| `slack` | Transient session-pair read preview, separate from persistent Session/store; see [experimental integrations](../features/experimental-integrations.md) |
+| `teams`, `teams_handoff` | Transient private-service reads, expiry and one-use encrypted browser import; see [Teams architecture](teams.md) |
 | `session` | Login, wiring of every piece, live-event routing, reconnection, every action a UI calls |
 | `mattermost` | A Mattermost or kChat account behind the same `Session`: sign-in, sync, socket (WebSocket or Pusher), actions; see [mattermost-and-kchat](../features/mattermost-and-kchat.md#desktop) |
 | `rest` | REST client: auth headers, 401 discrimination, 2FA challenges, 429 back-off, timeouts, uploads/downloads |
@@ -155,6 +157,10 @@ Native voice ([../features/voice.md](../features/voice.md), `docs/protocol/VOICE
 Unit tests sit next to the code; integration tests in `crates/rv-core/tests/` (`rest`, `ddp`, `sync`, `outbox`, `uploads`, `actions`, `admin`, `native_admin`, among others) run against fake HTTP and WebSocket servers (`tests/common/mod.rs`). See [testing.md](testing.md).
 
 ## Sources
+
+- apps/desktop/crates/rv-core/src/slack.rs
+- apps/desktop/crates/rv-core/src/teams.rs
+- apps/desktop/crates/rv-core/src/teams_handoff.rs
 
 - apps/desktop/crates/rv-core/Cargo.toml
 - apps/desktop/crates/rv-core/src/lib.rs

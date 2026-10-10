@@ -228,6 +228,9 @@ All code, comments and docs are in English. French survives in two places only: 
 | Audience token | An opaque access token for one service. The candidate reader uses separate Spaces, aggregator and chat tokens; it does not decode API JWTs. |
 | regionGtms | The Teams authz discovery map. The initial reader accepts chatSvcAggAfd and chatServiceAfd as a validated, replaceable route snapshot. |
 | backwardLink | An opaque older-history link, authorized only after verifying the discovered service and exact conversation path. It is not a general-purpose URL or a reconciliation cursor. |
+| Teams browser bridge | Development Node helper with an owned fresh official-browser profile. It observes normal browser grants and creates encrypted access-token handoffs, without its own OAuth client identity or refresh grants. |
+| Public pairing code | One-use native X25519 public key. Only this key is copied; the private seed stays native and is cleared on import/reset/disposal. |
+| rvteams2 | Versioned encrypted Teams response: ephemeral sender public key, nonce and AES-GCM ciphertext/tag, with a five-minute transfer lifetime. |
 
 See [Teams architecture](architecture/teams.md) for the implementation boundary.
 
@@ -242,6 +245,11 @@ The code had French names until the English rename. These are the only French wo
 - **Native push, kept one release.** `ReponseNotifReceiver` and `RattrapagePushWorker` (empty subclasses of the new classes), the RemoteInput key `rv_reponse`, the worker input key `ombre`, the work-name prefix `rattrapage-push-` (cancelled alongside `push-catch-up-`), the shown-messages preferences `rvpush-affiches` (read after `rvpush-shown`), the iOS reply action `rv-repondre` (accepted with `rv-reply`), and the native language key `key_v1-langue-preferee` (read after `key_v1-preferred-language`; iOS `langue-preferee`). The debug files `rvpush-journal.log` and `rvpush-sonde` were renamed without a fallback (`rvpush.log`, `rvpush-probe`).
 
 ## Sources
+
+- scripts/teams-browser-signin.mjs
+- scripts/teams/session.mjs
+- apps/mobile/providers/teams/handoff.ts
+- apps/desktop/crates/rv-core/src/teams_handoff.rs
 
 - apps/mobile/providers/teams/protocol.ts
 - apps/mobile/providers/teams/reader.ts

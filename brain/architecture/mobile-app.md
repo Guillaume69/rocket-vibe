@@ -33,7 +33,7 @@ expo-router file routes, `experiments.typedRoutes: true` in `app.json`. The root
 | Route | Role |
 |---|---|
 | `index.tsx` | Gatekeeper and room list. `starting` shows a splash, `disconnected` redirects to `/login`, otherwise renders the list from live queries. |
-| `login.tsx` | Login in three steps: server, credentials, second factor (`totp`, `email`, or `password` sent as SHA-256). |
+| `login.tsx` | Login in three steps: server, credentials, second factor (`totp`, `email`, or `password` sent as SHA-256). Nine icon activations also reveal transient Slack/Teams previews; see [experimental integrations](../features/experimental-integrations.md). |
 | `room/[rid].tsx` | A room: inverted FlashList over SQLite, composer, uploads. |
 | `thread/[id].tsx` | A thread, `id` = root message `_id`; loaded whole by `chat.getThreadMessages`, no pagination. |
 | `call/[callId].tsx` | Jitsi call in a WebView, the single allowed WebView. |
@@ -89,6 +89,10 @@ Screens read SQLite through `ui/liveQuery.ts#useCoalescedLiveQuery`, a drop-in f
 From `ROADMAP.md` §4.2 and `CLAUDE.md`: RN primitives first; level-1 native bindings (react-native-screens, safe-area-context, gesture-handler, expo-haptics) are allowed; named exceptions are `@shopify/flash-list`, `react-native-keyboard-controller`, `@rocket.chat/message-parser` and `react-native-webview` (only in `app/call/[callId].tsx`). Forbidden: any UI kit (NativeBase, Tamagui, gluestack, RN Paper), any other WebView, `react-native-markdown-display`, `@gorhom/bottom-sheet`. Bottom sheets are react-native-screens `formSheet`; markdown is rendered in nested `<Text>` by `ui/markdown.tsx` from the server's `md` AST, with a local `@rocket.chat/message-parser` parse as fallback when `md` is missing (`lib/markdown.ts`). Any new UI dependency must be justified against §4.2 in its commit. Native dialogs follow the click-outside rule: every `Alert.alert` takes `dismissible()` (`ui/alerts.ts`: `cancelable`, the dismissal running what Cancel runs), and sheets close on a tap outside; an action that finishes after its sheet closed must not navigate back again. Rationale: [../decisions.md](../decisions.md).
 
 ## Sources
+
+- apps/mobile/ui/experimentalPreview.tsx
+- apps/mobile/ui/teamsPreview.tsx
+- apps/mobile/providers/teams/handoff.ts
 
 - apps/mobile/app/_layout.tsx
 - apps/mobile/app/index.tsx

@@ -84,6 +84,11 @@ All commands run from `apps/desktop/`.
 | `scripts/install.sh` | End-user Linux install, no root: downloads the newest `desktop-v*` release's AppImage to `~/.local/bin/rocket-vibe.AppImage`, adds a launcher entry, icons and the link handler; `--uninstall` removes them but keeps accounts and messages in `~/.config/rocket-vibe-rs` and `~/.local/share/rocket-vibe-rs`. |
 | `node scripts/generate-emojis.mjs [emoji-toolkit dir]` | Regenerates `crates/rv-core/data/emojis.tsv`. |
 
+For constrained Windows Docker worktree builds, build.sh passes through the optional
+CARGO_BUILD_JOBS and CARGO_INCREMENTAL variables. CARGO_BUILD_JOBS=1 CARGO_INCREMENTAL=0
+limits peak concurrency and avoids large incremental graphs on bind-mounted storage;
+unset variables retain Cargo defaults.
+
 The SwiftUI app (`apps/desktop/macos/`): `scripts/generate.sh` builds rv-ffi and writes the Swift bindings and C header (gitignored) and prints the library dir; then `swift build`, `swift test`, `swift run rv-rooms`. `scripts/check-linux.sh` builds and tests every non-AppKit target in the `swift:6.1-noble` container. `scripts/package.sh <version>` makes the signed `rocket-vibe SwiftUI.app` and its DMG.
 
 Runtime files: config in `~/.config/rocket-vibe-rs`, data in `~/.local/share/rocket-vibe-rs`, cache (including `crash.log`) in `~/.cache/rocket-vibe-rs`; on Windows the log is `%LOCALAPPDATA%\rocket-vibe-rs\rocket-vibe.log`.

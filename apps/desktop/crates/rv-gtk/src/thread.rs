@@ -16,6 +16,8 @@ pub struct ThreadPage {
     pub page: adw::NavigationPage,
     pub list: Rc<MessageList>,
     pub composer: Rc<Composer>,
+    /// Follows the thread or stops (Rocket.Chat): its bell shows whether I do.
+    pub follow: gtk::Button,
     pub root_id: String,
     pub rid: String,
     session: Shared<Arc<Session>>,
@@ -43,7 +45,10 @@ impl ThreadPage {
         content.append(&list.root);
         content.append(&composer.root);
         let view = adw::ToolbarView::new();
-        view.add_top_bar(&adw::HeaderBar::new());
+        let header = adw::HeaderBar::new();
+        let follow = gtk::Button::builder().css_classes(["flat"]).visible(false).build();
+        header.pack_end(&follow);
+        view.add_top_bar(&header);
         view.set_content(Some(&content));
         let page = adw::NavigationPage::builder().child(&view).title(t("thread.title")).tag("thread").build();
         Rc::new(ThreadPage {
@@ -51,6 +56,7 @@ impl ThreadPage {
             quote_cards: crate::native_quote_cards::QuoteCards::new(&list),
             list,
             composer,
+            follow,
             root_id: root_id.to_owned(),
             rid: rid.to_owned(),
             session,
@@ -184,7 +190,13 @@ impl ThreadPage {
             return;
         }
         if let Some(session) = self.session.borrow().as_ref() {
-            self.list.set_rows(session.store.thread_messages(&self.root_id));
+            let rows = session.store.thread_messages(&self.root_id);
+            let root = rows.iter().find(|r| r.id == self.root_id && r.thread_id.is_none());
+            self.follow.set_visible(root.is_some() && session.threads_available());
+            if let Some(root) = root {
+                crate::threads::bell(&self.follow, root.followed_by(&session.info.user_id));
+            }
+            self.list.set_rows(rows);
         }
     }
     fn reload_private(self: &Rc<Self>) {

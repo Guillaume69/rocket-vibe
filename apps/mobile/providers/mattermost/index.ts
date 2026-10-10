@@ -96,8 +96,14 @@ export function createMattermostProvider(
     async searchMessages(rid: string, text: string): Promise<LocalMessage[]> {
       const teamId = await teamOf(client, live, rid);
       if (teamId === null) return [];
+      // A channel narrows on the server (`in:<name>`, Mattermost's search syntax):
+      // asking the whole team for 60 hits and keeping the room's could leave
+      // nothing in a busy team. A DM's `in:` form is not probed: it keeps the
+      // team-wide ask. The room filter below stays either way.
+      const channel = live.channels.get(rid);
+      const name = typeof channel?.name === 'string' && (channel.type === 'O' || channel.type === 'P') ? channel.name : null;
       const list = await client.post<Record<string, unknown>>(`/teams/${teamId}/posts/search`, {
-        body: { terms: text, is_or_search: false, page: 0, per_page: 60 },
+        body: { terms: name === null ? text : `${text} in:${name}`, is_or_search: false, page: 0, per_page: 60 },
       });
       const posts = ordered(list as Parameters<typeof ordered>[0]).filter((p) => p.channel_id === rid);
       await live.ensureAuthors(posts);

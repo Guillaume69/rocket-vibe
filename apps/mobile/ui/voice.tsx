@@ -10,6 +10,7 @@ import { Alert, Modal, PermissionsAndroid, Platform, Pressable, StyleSheet, Text
 import { dismissible } from './alerts.ts';
 import Animated, { useAnimatedStyle, useSharedValue, withRepeat, withSequence, withTiming } from 'react-native-reanimated';
 
+import { quietNow } from '../lib/quiet.ts';
 import { nativeRoomPermalink } from '../lib/roomLinks.ts';
 import { avatarUrl } from '../lib/upload.ts';
 import type { RestClient } from '../lib/rest.ts';
@@ -342,6 +343,8 @@ export function VoiceRingHost() {
   const controller = useVoiceController();
   const voice = useVoice();
   const live = useLive();
+  const sync = useSync();
+  const chat = sync.phase === 'ready' ? sync.provider.native?.chat : undefined;
   const t = useT();
   const { state } = useSession();
   const rings = live?.rings ?? NO_RINGS;
@@ -361,9 +364,15 @@ export function VoiceRingHost() {
     if (!incoming || !VoiceNative) return;
     // The app shows the call: the system ring of the same call stops.
     void VoiceNative.dismissRing(incoming.id);
-    void VoiceNative.ringtone(true);
-    return () => { void VoiceNative?.ringtone(false); };
-  }, [incoming]);
+    // Do not disturb: the prompt shows, silently, as the server rings no device.
+    let ringing = false, gone = false;
+    void (chat ? chat.ownProfile().then((own) => quietNow(own.preferences, new Date()), () => false) : Promise.resolve(false)).then((quiet) => {
+      if (gone || quiet || !VoiceNative) return;
+      ringing = true;
+      void VoiceNative.ringtone(true);
+    });
+    return () => { gone = true; if (ringing) void VoiceNative?.ringtone(false); };
+  }, [incoming, chat]);
   const router = useRouter();
   if (!controller || !incoming) return null;
   const caller = incoming.caller.display_name || incoming.caller.username;

@@ -1236,8 +1236,9 @@ impl ChatPage {
             None => self.voice.close_ring(),
             Some(_) => {}
         }
+        // Do not disturb: the prompt shows, silently, as the server rings no device.
         self.voice.set_tone(if incoming.is_some() {
-            Some(Sound::Ringtone)
+            (!session.quiet_now()).then_some(Sound::Ringtone)
         } else if outgoing {
             Some(Sound::Ringback)
         } else {

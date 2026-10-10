@@ -132,7 +132,8 @@ public final class VoiceModel {
         seen = seen.filter { id, _ in calls.contains { $0.id == id } }
         ignored = ignored.filter { id in calls.contains { $0.id == id && $0.state == "ringing" } }
         let outgoing = calls.contains { $0.callerId == me && $0.state == "ringing" && $0.room == state.room }
-        let wanted: VoiceTone? = incoming != nil ? .ringtone : outgoing ? .ringback : nil
+        // Do not disturb: an incoming call shows, silently, as the server rings no device.
+        let wanted: VoiceTone? = incoming != nil ? (native.quietNow() ? nil : .ringtone) : outgoing ? .ringback : nil
         if wanted != tone { tone = wanted; onTone?(wanted) }
     }
 

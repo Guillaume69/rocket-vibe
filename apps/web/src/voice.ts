@@ -19,6 +19,7 @@ import {
 import { read, write } from "./store";
 import { preferencesGroup, actionRow } from "./sidebar";
 import { sound } from "./sounds";
+import { quietNow } from "./quiet";
 import { t, language } from "./i18n";
 import { encryptedVoice, type EncryptedVoice } from "./crypto/voice";
 export class Voice {
@@ -1751,8 +1752,11 @@ export class Voice {
       const [node, body] = dialog(
         language === "fr" ? "Appel entrant" : "Incoming call",
       );
-      const ringtone = sound("ringtone", true);
-      node.addEventListener("close", () => ringtone.pause());
+      // Do not disturb: the call shows, silently, as the server rings no device.
+      const ringtone = quietNow(this.app.preferences, new Date())
+        ? undefined
+        : sound("ringtone", true);
+      node.addEventListener("close", () => ringtone?.pause());
       this.ringDialogs.set(ring.id, node);
       body.append(
         tile(ring.caller.username, "profile"),

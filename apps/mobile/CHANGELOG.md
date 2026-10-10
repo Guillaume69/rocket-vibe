@@ -27,6 +27,7 @@ release, and its notes are that version's section here.
 
 ### Fixed
 
+- Quote cards show emoji as glyphs instead of their `:shortcodes:`.
 - The room list previews a reply by its own words and a forwarded message as "↪ Quoted message", no longer by the raw quote link.
 
 - A message the server refused no longer goes out again on every send: it waits for "Retry", so a few refused messages can no longer use up Rocket.Chat's 10 requests a minute and hold back the next message.

@@ -40,7 +40,7 @@ import { recordReaction } from './emojiUsage.ts';
 import { isDeletedUsername } from '../lib/deletedUser.ts';
 import { BotBadge } from './botBadge.tsx';
 import { formState, parseForm } from './workflowsModel.ts';
-import { messageTree } from '../lib/markdown.ts';
+import { messageTree, textPreview } from '../lib/markdown.ts';
 import { useJoinVoice, useVoice } from './voice.tsx';
 import { callSummaryText, systemText } from '../lib/systemMessages.ts';
 import { reactionList, type DisplayedReaction } from '../lib/reactions.ts';
@@ -508,8 +508,10 @@ function Quote({
 }) {
   const t = useT();
   // The quoted message may itself be a reply: show only its words, not its
-  // quote permalink; its quote shows as a nested block.
-  const text = quoteText(attachment).trim();
+  // quote permalink; its quote shows as a nested block. Flattened like the room
+  // list's preview: emoji shortcodes as glyphs, markdown markers dropped.
+  const raw = quoteText(attachment).trim();
+  const text = raw === '' ? '' : textPreview(raw);
   // A private source names its author by uid: shown as the rows show it.
   const identities = useIdentities();
   const named = typeof attachment.author_name === 'string' ? attachment.author_name : null;

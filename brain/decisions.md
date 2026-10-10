@@ -93,6 +93,7 @@ The non-obvious choices behind rocket-vibe and why they were made, grouped by ar
 
 ## Push
 
+- **Read receipts are shared both ways, in small rooms, through the live frame** (RocketVibe server, 2026-10-11). Turning them off hides my reads and the others' from me, as in the messaging apps people know, so no one reads without being read. Above 50 members a "seen by" list is noise and the frame would grow; the live snapshot already reaches every client every 2 seconds, so receipts need no route or durable event of their own ([read-receipts](features/read-receipts.md)).
 - **Do not disturb silences, it does not defer** (RocketVibe server, 2026-10-10). A message sent during quiet hours or a mute never pushes later: a morning burst of stale notifications would be worse than the unread count the apps already show. The window is stored with its own time zone so the server can judge it without the device, and the new preference fields are kept when absent so older clients cannot wipe them ([do-not-disturb](features/do-not-disturb.md)).
 - **Direct FCM HTTP v1 to our own Firebase project.** The public gateway only serves official app ids. A foreground service with a permanent socket is capped by Android 15 and drains battery; local notifications from the socket die with the process. See [notifications](features/notifications.md).
 - **The server bundle is patched so official apps keep their push.** The gateway/native choice is global in Rocket.Chat; `docker/patch-push.mjs` routes only `appName: rocket-vibe` tokens natively (and adds an `apns` block for iOS).

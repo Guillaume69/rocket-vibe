@@ -78,6 +78,7 @@ beta does.
 | Header: room info, DM presence, search in room, start a call | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | New-messages bar at the first unread | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | Pill over the list jumping to the first unread while it is above the view | done | done | done | done | "N new messages since HH:MM", gone once the marker has been on screen or the pill tapped. Mobile `ui/newMessagesPill.ts`, GTK `MessageList::update_new_pill`, SwiftUI `RoomView.newMessagesPill`. Web: Native provider: see [web-client](features/web-client.md). |
+| Read receipts: "Seen" / "Seen by" under my last message, shared both ways (RocketVibe server) - [read-receipts](features/read-receipts.md) | missing | missing | missing | missing | The server sends them in the live frame (`LiveRoom.reads`) and keeps the preference (`share_read_receipts`); every app owes the line and the switch. |
 | Typing indicator (`user-activity`) | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | Mentions open the profile | done | done | done | partial | Web: Implemented native browser equivalent requires row-specific GTK qualification; see docs/WEB_CLIENT_EXECUTION.md. |
 | Link previews from `message.urls` | done | done | done | partial | Web: Implemented native browser equivalent requires row-specific GTK qualification; see docs/WEB_CLIENT_EXECUTION.md. |

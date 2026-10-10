@@ -96,6 +96,8 @@ function Members({
       alive = false;
     };
   }, [client, myRoles]);
+  const [query, setQuery] = useState('');
+  const [list, setList] = useState<ListState>({ phase: 'loading' });
   const [open, setOpen] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   // The roles changed here, shown at once: the list is not live.
@@ -151,8 +153,6 @@ function Members({
     remove: granted.includes('remove-user') && actions.removeMember !== undefined,
   };
   const anything = can.moderator || can.owner || can.remove;
-  const [query, setQuery] = useState('');
-  const [list, setList] = useState<ListState>({ phase: 'loading' });
   // The query the shown page answers, so a late answer to an older one is dropped.
   const asked = useRef('');
   const load = useCallback(

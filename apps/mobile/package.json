@@ -72,7 +72,7 @@
     "lint": "expo lint",
     "seed": "node ../../scripts/seed.mjs",
     "emojis:generate": "node scripts/generate-emojis.mjs",
-    "test": "node --test \"lib/**/*.test.ts\" \"db/**/*.test.ts\" \"ui/**/*.test.ts\" \"providers/**/*.test.ts\" \"plugins/**/*.test.mjs\"",
+    "test": "node --test \"lib/**/*.test.ts\" \"db/**/*.test.ts\" \"ui/**/*.test.ts\" \"providers/**/*.test.ts\" \"plugins/**/*.test.mjs\" \"../../scripts/teams/*.test.mjs\"",
     "db:generate": "drizzle-kit generate"
   }
 }

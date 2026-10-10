@@ -40,6 +40,7 @@ pub mod slack;
 pub mod store;
 pub mod sync;
 pub mod teams;
+pub mod teams_handoff;
 pub mod timeline;
 pub mod tls;
 pub mod update;

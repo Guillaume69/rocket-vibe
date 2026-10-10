@@ -15,6 +15,18 @@
 import { dayKey } from './daySeparator.ts';
 
 const fr = {
+  "experimental.slack": "Slack",
+  "experimental.teams": "Teams",
+  "teams.title": "Teams · expérimental",
+  "teams.previewHelp": "Lecture seule. Copiez le code de jumelage dans le pont navigateur sur ordinateur, connectez-vous à Teams et collez sa réponse chiffrée ici. La session reste en mémoire.",
+  "teams.key": "Code de jumelage",
+  "teams.copyKey": "Copier le code de jumelage",
+  "teams.copied": "Code copié. Continuez dans le pont navigateur.",
+  "teams.response": "Réponse chiffrée du navigateur",
+  "teams.connect": "Importer la session Teams",
+  "teams.connected": "Session Teams en lecture seule",
+  "teams.failed": "Aperçu Teams indisponible",
+  "teams.unsupported": "Ce type de conversation ou de contenu n’est pas encore pris en charge.",
   "slack.title": "Slack · expérimental",
   "slack.previewHelp": "Lecture seule. Collez le jeton xoxc et la valeur originale du cookie d de votre session Slack. Ils sont gardés en mémoire jusqu’à la déconnexion. La connexion par navigateur et le chat complet arrivent ensuite.",
   "slack.token": "Jeton de session xoxc",
@@ -1369,6 +1381,18 @@ export type TranslationKey = keyof typeof fr;
  * breaks compilation. Keeping the SAME order as `fr` eases review.
  */
 const en: Record<TranslationKey, string> = {
+  "experimental.slack": "Slack",
+  "experimental.teams": "Teams",
+  "teams.title": "Teams · experimental",
+  "teams.previewHelp": "Read-only preview. Copy the pairing code into the desktop browser bridge, sign in to Teams, and paste its encrypted response here. The session stays in memory.",
+  "teams.key": "Pairing code",
+  "teams.copyKey": "Copy pairing code",
+  "teams.copied": "Code copied. Continue in the browser bridge.",
+  "teams.response": "Encrypted browser response",
+  "teams.connect": "Import Teams session",
+  "teams.connected": "Read-only Teams session",
+  "teams.failed": "Teams preview unavailable",
+  "teams.unsupported": "This conversation or content type is not supported yet.",
   "slack.title": "Slack · experimental",
   "slack.previewHelp": "Read-only preview. Paste the xoxc token and original d cookie value from your Slack session. They stay in memory until disconnecting. Browser sign-in and full chat will follow.",
   "slack.token": "xoxc session token",

@@ -1,29 +1,13 @@
-//! Hidden read-only Slack connection. Each request belongs to this panel's generation.
+//! Hidden read-only Teams session import. Each request belongs to this panel's generation.
 use crate::{i18n::t, widgets};
 use adw::prelude::*;
 use gtk::glib;
-use rv_core::slack::{Conversation, Reader};
+use rv_core::teams::{Conversation, Reader};
+use rv_core::teams_handoff::Pairing;
 use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
 use std::rc::Rc;
 use std::sync::Arc;
-fn file() -> std::path::PathBuf {
-    glib::user_config_dir().join("rocket-vibe-rs").join("experimental-providers")
-}
-pub fn enabled() -> bool {
-    file().exists()
-}
-pub(super) fn set_enabled(value: bool) -> std::io::Result<()> {
-    let file = file();
-    if value {
-        std::fs::create_dir_all(file.parent().expect("config dir"))?;
-        std::fs::write(file, "")
-    } else if file.exists() {
-        std::fs::remove_file(file)
-    } else {
-        Ok(())
-    }
-}
 pub struct Preview {
     pub root: gtk::Box,
     form: gtk::Box,
@@ -36,6 +20,7 @@ pub struct Preview {
     back: gtk::Button,
     connect: gtk::Button,
     reader: RefCell<Option<Arc<Reader>>>,
+    pairing: RefCell<Option<Arc<Pairing>>>,
     room: RefCell<Option<Conversation>>,
     cursor: RefCell<Option<String>>,
     seen: RefCell<HashSet<String>>,
@@ -48,16 +33,24 @@ impl Preview {
         let root = gtk::Box::builder()
             .orientation(gtk::Orientation::Vertical)
             .spacing(10)
-            .visible(enabled())
+            .visible(true)
             .css_classes(["card"])
             .build();
-        root.append(&gtk::Label::builder().label(t("slack.title")).xalign(0.0).css_classes(["heading"]).build());
-        root.append(&gtk::Label::builder().label(t("slack.previewHelp")).wrap(true).xalign(0.0).build());
+        root.append(&gtk::Label::builder().label(t("teams.title")).xalign(0.0).css_classes(["heading"]).build());
+        root.append(&gtk::Label::builder().label(t("teams.previewHelp")).wrap(true).xalign(0.0).build());
         let form = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(8).build();
-        let (token_row, token) = widgets::pill_field(t("slack.token"), "xoxc-…", true);
-        let (cookie_row, cookie) = widgets::pill_field(t("slack.cookie"), "xoxd-…", true);
-        let connect = gtk::Button::with_label(t("slack.connect"));
+        let (token_row, token) = widgets::pill_field(t("teams.key"), "", true);
+        let (cookie_row, cookie) = widgets::pill_field(t("teams.response"), "", true);
+        let connect = gtk::Button::with_label(t("teams.connect"));
+        token.set_editable(false);
+        cookie.set_max_length(300000);
+        let copy = gtk::Button::with_label(t("teams.copyKey"));
+        let pairing = Pairing::new().ok();
+        if let Some(p) = &pairing {
+            token.set_text(&p.code().unwrap_or_default());
+        }
         form.append(&token_row);
+        form.append(&copy);
         form.append(&cookie_row);
         form.append(&connect);
         root.append(&form);
@@ -87,12 +80,19 @@ impl Preview {
             back,
             connect,
             reader: RefCell::new(None),
+            pairing: RefCell::new(pairing),
             room: RefCell::new(None),
             cursor: RefCell::new(None),
             seen: RefCell::new(HashSet::new()),
             item_ids: RefCell::new(HashSet::new()),
             busy: Cell::new(false),
             generation: Cell::new(0),
+        });
+        let entry = this.token.clone();
+        copy.connect_clicked(move |_| {
+            if let Some(display) = gtk::gdk::Display::default() {
+                display.clipboard().set_text(&entry.text());
+            }
         });
         let weak = Rc::downgrade(&this);
         this.connect.connect_clicked(move |_| {
@@ -110,7 +110,7 @@ impl Preview {
         hide.connect_clicked(move |_| {
             if let Some(this) = weak.upgrade() {
                 this.reset();
-                match set_enabled(false) {
+                match crate::slack_preview::set_enabled(false) {
                     Ok(()) => this.root.set_visible(false),
                     Err(_) => this.status.set_label(t("slack.unlockFailed")),
                 }
@@ -145,15 +145,6 @@ impl Preview {
         });
         this
     }
-    pub fn unlock(&self) {
-        match set_enabled(true) {
-            Ok(()) => self.root.set_visible(true),
-            Err(_) => {
-                self.root.set_visible(true);
-                self.status.set_label(t("slack.unlockFailed"));
-            }
-        }
-    }
     fn clear_content(&self) {
         while let Some(child) = self.content.first_child() {
             self.content.remove(&child);
@@ -174,7 +165,12 @@ impl Preview {
         if let Some(reader) = self.reader.take() {
             reader.close();
         }
-        self.token.set_text("");
+        if let Some(p) = self.pairing.take() {
+            p.close();
+        }
+        let pairing = Pairing::new().ok();
+        self.token.set_text(&pairing.as_ref().and_then(|p| p.code().ok()).unwrap_or_default());
+        self.pairing.replace(pairing);
         self.cookie.set_text("");
         self.room.replace(None);
         self.cursor.replace(None);
@@ -191,7 +187,14 @@ impl Preview {
         if self.busy.get() {
             return;
         }
-        let reader = match Reader::new(self.token.text().to_string(), self.cookie.text().to_string()) {
+        let reader = match self
+            .pairing
+            .borrow()
+            .as_ref()
+            .ok_or(rv_core::teams::Error { code: "pairing_closed", status: 0, retry_after: None })
+            .and_then(|p| p.open(self.cookie.text().trim()))
+            .and_then(Reader::from_browser)
+        {
             Ok(r) => r,
             Err(e) => {
                 self.status.set_label(&e.to_string());
@@ -206,7 +209,7 @@ impl Preview {
         let generation = self.generation.get();
         let weak = Rc::downgrade(self);
         glib::spawn_future_local(async move {
-            let found = crate::on_tokio(async move { reader.authenticate().await }).await;
+            let found = crate::on_tokio(async move { reader.discover().await }).await;
             let Some(this) = weak.upgrade() else {
                 return;
             };
@@ -215,11 +218,11 @@ impl Preview {
             }
             this.set_busy(false);
             match found {
-                Ok(who) => {
+                Ok(()) => {
                     this.token.set_text("");
                     this.cookie.set_text("");
                     this.form.set_visible(false);
-                    this.status.set_label(&format!("{} · @{}", who.team, who.user));
+                    this.status.set_label(t("teams.connected"));
                     this.load(false);
                 }
                 Err(e) => {
@@ -244,7 +247,7 @@ impl Preview {
             None
         };
         if requested.as_ref().is_some_and(|c| self.seen.borrow().contains(c)) {
-            self.status.set_label("Slack: pagination_loop");
+            self.status.set_label("Teams: pagination_loop");
             return;
         }
         let room = self.room.borrow().clone();
@@ -255,15 +258,15 @@ impl Preview {
         let weak = Rc::downgrade(self);
         glib::spawn_future_local(async move {
             enum Page {
-                Rooms(rv_core::slack::Page<Conversation>),
-                Messages(rv_core::slack::Page<rv_core::slack::Message>),
+                Rooms(Vec<Conversation>),
+                Messages(rv_core::teams::History),
             }
             let cursor = requested.clone();
             let selected = room.clone();
             let result = crate::on_tokio(async move {
                 match selected {
                     Some(room) => reader.history(&room.id, cursor.as_deref()).await.map(Page::Messages),
-                    None => reader.conversations(cursor.as_deref()).await.map(Page::Rooms),
+                    None => reader.conversations().await.map(Page::Rooms),
                 }
             })
             .await;
@@ -282,7 +285,7 @@ impl Preview {
                     }
                     let next = match page {
                         Page::Rooms(page) => {
-                            for room in page.items {
+                            for room in page {
                                 if !this.item_ids.borrow_mut().insert(room.id.clone()) {
                                     continue;
                                 }
@@ -297,6 +300,7 @@ impl Preview {
                                     },
                                     room.name
                                 ));
+                                button.set_sensitive(room.kind != "unsupported");
                                 let weak = Rc::downgrade(&this);
                                 button.connect_clicked(move |_| {
                                     if let Some(this) = weak.upgrade()
@@ -308,36 +312,30 @@ impl Preview {
                                 });
                                 this.content.append(&button);
                             }
-                            page.next_cursor
+                            None
                         }
                         Page::Messages(page) => {
                             for message in page.items {
-                                if !this.item_ids.borrow_mut().insert(message.ts.clone()) {
+                                if !this.item_ids.borrow_mut().insert(message.key.clone()) {
                                     continue;
                                 }
                                 let row =
                                     gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(4).build();
-                                let date = message
-                                    .ts
-                                    .split('.')
-                                    .next()
-                                    .and_then(|s| s.parse::<i64>().ok())
-                                    .and_then(|s| chrono::DateTime::from_timestamp(s, 0))
-                                    .map(|d| d.format("%Y-%m-%d %H:%M UTC").to_string())
-                                    .unwrap_or_default();
+                                let date = message.arrived_at.clone();
+                                let text = rv_core::teams::plain_text(&message);
                                 row.append(
                                     &gtk::Label::builder()
-                                        .label(format!("{} · {}", message.user, date))
+                                        .label(format!("{} · {}", message.author, date))
                                         .xalign(0.0)
                                         .css_classes(["file-detail"])
                                         .build(),
                                 );
                                 row.append(
                                     &gtk::Label::builder()
-                                        .label(if message.text.is_empty() {
-                                            t("slack.unsupportedContent")
+                                        .label(if message.format == "unsupported" || text.is_empty() {
+                                            t("teams.unsupported")
                                         } else {
-                                            &message.text
+                                            &text
                                         })
                                         .wrap(true)
                                         .selectable(true)
@@ -346,7 +344,7 @@ impl Preview {
                                 );
                                 this.content.append(&row);
                             }
-                            page.next_cursor
+                            page.backward_link
                         }
                     };
                     this.more.set_visible(next.is_some());

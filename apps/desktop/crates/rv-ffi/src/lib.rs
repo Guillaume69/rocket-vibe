@@ -22,6 +22,7 @@ mod native_workflows;
 pub mod people;
 mod reactions;
 mod slack;
+mod teams;
 pub mod writing;
 
 use std::path::PathBuf;

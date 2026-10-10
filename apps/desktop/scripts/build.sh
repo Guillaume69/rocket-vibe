@@ -11,7 +11,7 @@ docker run --rm -v rv-cargo:/cargo "$image" chown "$(id -u):$(id -g)" /cargo
 
 profile=${PROFILE:-dev}
 repo=$(cd ../.. && pwd)
-docker run --rm -u "$(id -u):$(id -g)" -v "$repo:/workspace" -v rv-cargo:/cargo -w /workspace/apps/desktop -e PROFILE="$profile" "$image" bash -c '
+docker run --rm -u "$(id -u):$(id -g)" -v "$repo:/workspace" -v rv-cargo:/cargo -w /workspace/apps/desktop -e PROFILE="$profile" -e CARGO_BUILD_JOBS -e CARGO_INCREMENTAL "$image" bash -c '
   set -euo pipefail
   cargo fmt --all -- --check
   cargo clippy --workspace --all-targets --profile "$PROFILE" -- -D warnings

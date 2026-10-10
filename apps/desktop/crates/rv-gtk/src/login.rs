@@ -27,7 +27,7 @@ pub struct LoginPage {
     credentials: gtk::Box,
     server: gtk::Entry,
     kind: gtk::DropDown,
-    slack: std::rc::Rc<crate::slack_preview::Preview>,
+    experimental: std::rc::Rc<crate::experimental_preview::Preview>,
     experimental_icon: gtk::Button,
     /// kChat: the account's team servers, shown when it has several.
     kchat_row: gtk::Box,
@@ -58,7 +58,7 @@ pub struct LoginPage {
     cancel: gtk::Button,
 }
 
-fn hero(preview: &std::rc::Rc<crate::slack_preview::Preview>) -> (gtk::Box, gtk::Button) {
+fn hero(preview: &std::rc::Rc<crate::experimental_preview::Preview>) -> (gtk::Box, gtk::Button) {
     let hero = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(4).margin_bottom(10).build();
     let icon = gtk::Button::builder()
         .child(&gtk::Label::builder().label("🦄").css_classes(["unicorn-hero"]).build())
@@ -142,15 +142,17 @@ fn server_kind(kind: &gtk::DropDown) -> rv_core::native::ServerKind {
 
 impl LoginPage {
     pub fn smoke_experimental_unlock(&self) {
-        assert!(!self.slack.root.is_visible(), "experimental preview must start hidden");
+        assert!(!self.experimental.root.is_visible(), "experimental preview must start hidden");
         for _ in 0..8 {
             self.experimental_icon.emit_clicked();
         }
-        assert!(!self.slack.root.is_visible(), "eight activations must not unlock");
+        assert!(!self.experimental.root.is_visible(), "eight activations must not unlock");
         self.experimental_icon.emit_clicked();
-        assert!(self.slack.root.is_visible(), "ninth activation must unlock");
+        assert!(self.experimental.root.is_visible(), "ninth activation must unlock");
         assert!(crate::slack_preview::enabled(), "unlock must persist on device");
-        println!("smoke: Slack preview hidden until ninth activation; setting persisted");
+        self.experimental.stack.set_visible_child_name("teams");
+        assert_eq!(self.experimental.stack.visible_child_name().as_deref(), Some("teams"));
+        println!("smoke: Slack and Teams hidden until ninth activation; Teams selected; setting persisted");
     }
 
     pub fn new() -> Self {
@@ -159,10 +161,10 @@ impl LoginPage {
         let (password_group, password) = widgets::pill_field(t("login.password"), "", true);
         let password_caption = password_group.first_child().and_downcast::<gtk::Label>().expect("password caption");
         let credentials = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(14).build();
-        let slack = crate::slack_preview::Preview::new();
-        let (brand, experimental_icon) = hero(&slack);
+        let experimental = crate::experimental_preview::Preview::new();
+        let (brand, experimental_icon) = hero(&experimental);
         credentials.append(&brand);
-        credentials.append(&slack.root);
+        credentials.append(&experimental.root);
         credentials.append(&server_group);
         // Found by probing; forced when the probe gets it wrong behind an
         // unusual proxy.
@@ -467,7 +469,7 @@ impl LoginPage {
             server,
             kind,
             kchat_row,
-            slack,
+            experimental,
             experimental_icon,
             kchat_servers,
             kchat_urls: std::rc::Rc::default(),

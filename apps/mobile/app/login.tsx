@@ -2,7 +2,7 @@ import { Redirect, Stack, useFocusEffect, useLocalSearchParams, useRouter } from
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { ExperimentalUnlock } from '../lib/experimentalUnlock.ts';
 import { setExperimentalProviders, useExperimentalProviders } from '../ui/experimentalProviders.ts';
-import { SlackPreview } from '../ui/slackPreview.tsx';
+import { ExperimentalPreview } from '../ui/experimentalPreview.tsx';
 import * as Crypto from 'expo-crypto';
 import * as WebBrowser from 'expo-web-browser';
 import { AppState, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -466,7 +466,7 @@ export default function LoginScreen() {
 
         {phase.name === 'server' && (
           <>
-            {experimental && <SlackPreview onHide={() => { void setExperimentalProviders(false).catch(() => setMessage(t('slack.unlockFailed'))); }} />}
+            {experimental && <ExperimentalPreview onHide={() => { void setExperimentalProviders(false).catch(() => setMessage(t('slack.unlockFailed'))); }} />}
             {/* kChat: the account's servers come from the directory once signed in. */}
             {kind !== 'kchat' && <PillField
               c={c}

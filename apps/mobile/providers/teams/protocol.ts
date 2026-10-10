@@ -100,3 +100,10 @@ export function parseHistory(body: unknown, account: TeamsAccount, routes: Teams
   const metadata = b._metadata == null ? {} : record(b._metadata), next = metadata.backwardLink;
   return {items,backwardLink:next == null || next === '' ? null : validateBackwardLink(next,routes,context)};
 }
+
+/** No DOM, markup execution, remote images or link fetching. Limited plain-text preview. */
+export function messageText(message: TeamsMessage): string {
+  if (message.format !== 'html') return message.content;
+  return message.content.replace(/<!--[\s\S]*?(?:-->|$)/g,'').replace(/<(script|style)\b[^>]*>[\s\S]*?(?:<\/\1\s*>|$)/gi,'').replace(/<br\b[^>]*>|<\/(?:p|div|li)\s*>/gi,'\n').replace(/<[^>]*(?:>|$)/g,'')
+    .replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#(?:039|39|x27);/gi,"'").replace(/&nbsp;/g,' ').replace(/&amp;/g,'&').trim();
+}

@@ -22,6 +22,26 @@ pub fn set(lang: Lang) {
 /// (key, French, English). A `{name}` is filled by `tf`; `a | b` is the
 /// singular and plural of `tn`.
 const CATALOG: &[(&str, &str, &str)] = &[
+    ("experimental.slack", "Slack", "Slack"),
+    ("experimental.teams", "Teams", "Teams"),
+    ("teams.title", "Teams · expérimental", "Teams · experimental"),
+    (
+        "teams.previewHelp",
+        "Lecture seule. Copiez le code de jumelage dans le pont navigateur sur ordinateur, connectez-vous à Teams et collez sa réponse chiffrée ici. La session reste en mémoire.",
+        "Read-only preview. Copy the pairing code into the desktop browser bridge, sign in to Teams, and paste its encrypted response here. The session stays in memory.",
+    ),
+    ("teams.key", "Code de jumelage", "Pairing code"),
+    ("teams.copyKey", "Copier le code de jumelage", "Copy pairing code"),
+    ("teams.copied", "Code copié. Continuez dans le pont navigateur.", "Code copied. Continue in the browser bridge."),
+    ("teams.response", "Réponse chiffrée du navigateur", "Encrypted browser response"),
+    ("teams.connect", "Importer la session Teams", "Import Teams session"),
+    ("teams.connected", "Session Teams en lecture seule", "Read-only Teams session"),
+    ("teams.failed", "Aperçu Teams indisponible", "Teams preview unavailable"),
+    (
+        "teams.unsupported",
+        "Ce type de conversation ou de contenu n’est pas encore pris en charge.",
+        "This conversation or content type is not supported yet.",
+    ),
     ("slack.title", "Slack · expérimental", "Slack · experimental"),
     (
         "slack.previewHelp",

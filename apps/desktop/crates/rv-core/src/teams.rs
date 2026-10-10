@@ -300,6 +300,8 @@ pub fn parse_history(body: &Value, account: &Account, routes: &Routes, conversat
     })
 }
 /// In-memory audience credentials provided by a future qualified broker. No Debug/serialization.
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Tokens {
     pub spaces: String,
     pub aggregator: String,
@@ -314,6 +316,7 @@ impl Drop for Tokens {
 }
 pub struct Reader {
     account: Account,
+    expires_at: Option<u64>,
     client: reqwest::Client,
     tokens: Mutex<Option<Tokens>>,
     routes: Mutex<Option<Routes>>,
@@ -323,6 +326,12 @@ pub struct Reader {
 }
 impl Reader {
     pub fn new(account: Account, tokens: Tokens) -> Result<Arc<Self>, Error> {
+        Self::with_expiry(account, tokens, None)
+    }
+    pub fn from_browser(session: crate::teams_handoff::BrowserSession) -> Result<Arc<Self>, Error> {
+        Self::with_expiry(session.account, session.tokens, Some(session.expires_at))
+    }
+    fn with_expiry(account: Account, tokens: Tokens, expires_at: Option<u64>) -> Result<Arc<Self>, Error> {
         account.key()?;
         for t in [&tokens.spaces, &tokens.aggregator, &tokens.chat] {
             if t.is_empty()
@@ -340,6 +349,7 @@ impl Reader {
         let (cancellation, _) = tokio::sync::watch::channel(false);
         Ok(Arc::new(Self {
             account,
+            expires_at,
             client,
             tokens: Mutex::new(Some(tokens)),
             routes: Mutex::new(None),
@@ -358,6 +368,9 @@ impl Reader {
         let mut cancellation = self.cancellation.subscribe();
         if self.closed.load(Ordering::Acquire) {
             return Err(failure("cancelled"));
+        }
+        if self.expires_at.is_some_and(|expiry| expiry <= chrono::Utc::now().timestamp_millis().max(0) as u64 + 30000) {
+            return Err(failure("session_expired"));
         }
         let request = {
             let tokens = self.tokens.lock().expect("tokens");
@@ -439,6 +452,49 @@ impl Drop for Reader {
         self.close();
     }
 }
+/// Deliberately limited plain-text projection for the read preview.
+pub fn plain_text(message: &Message) -> String {
+    if message.format != "html" {
+        return message.content.clone();
+    }
+    let mut rest = message.content.as_str();
+    let mut out = String::new();
+    while let Some(start) = rest.find('<') {
+        out.push_str(&rest[..start]);
+        rest = &rest[start..];
+        if rest.starts_with("<!--") {
+            if let Some(end) = rest.find("-->") {
+                rest = &rest[end + 3..];
+                continue;
+            }
+            rest = "";
+            break;
+        }
+        let Some(end) = rest.find('>') else {
+            rest = "";
+            break;
+        };
+        let tag = rest[1..end].trim().to_ascii_lowercase();
+        rest = &rest[end + 1..];
+        let name = tag.trim_start_matches('/').split(|c: char| !c.is_ascii_alphanumeric()).next().unwrap_or("");
+        if matches!(name, "script" | "style") && !tag.starts_with('/') {
+            let lower = rest.to_ascii_lowercase();
+            if let Some(close) = lower.find(&format!("</{name}")) {
+                rest = &rest[close..];
+            } else {
+                rest = "";
+                break;
+            }
+            continue;
+        }
+        if name == "br" || (tag.starts_with('/') && matches!(name, "p" | "div" | "li")) {
+            out.push('\n');
+        }
+    }
+    out.push_str(rest);
+    crate::content::decode_entities(&out).trim().to_owned()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -606,5 +662,25 @@ mod tests {
             "cancelled"
         );
         drop(socket);
+    }
+
+    #[test]
+    fn limited_html_projection_never_exposes_script_bodies() {
+        let f = fixture();
+        let routes = Routes::discover(&f["authz"]).unwrap();
+        let mut m = parse_history(&f["history"], &account(), &routes, f["conversation"].as_str().unwrap())
+            .unwrap()
+            .items
+            .remove(0);
+        m.content = "<p>Hello &amp; &lt;world&gt;</p><script>secret()</script><p>Next<br>line</p>".into();
+        assert_eq!(plain_text(&m), "Hello & <world>\nNext\nline");
+        m.content = "Safe<script>hidden".into();
+        assert_eq!(plain_text(&m), "Safe");
+    }
+    #[tokio::test]
+    async fn imported_expired_tokens_fail_before_discovery() {
+        let session = crate::teams_handoff::BrowserSession { account: account(), tokens: tokens(), expires_at: 1 };
+        let reader = Reader::from_browser(session).unwrap();
+        assert_eq!(reader.discover().await.unwrap_err().code, "session_expired");
     }
 }

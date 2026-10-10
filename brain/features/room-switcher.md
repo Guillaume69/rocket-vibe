@@ -1,6 +1,6 @@
 # Room switcher
 
-On the desktop, a keyboard shortcut opens a dialog over the window that lists the account's rooms, searched by name as typed; Return opens the selected room, the arrows move the selection, a click on a row opens it, and a click outside or Escape closes it with nothing opened. It covers every room of the list, on any server kind (Rocket.Chat, Mattermost and kChat, RocketVibe), voice channels included (opening one joins its session, as a click in the list does).
+On the desktop and the web, a keyboard shortcut opens a dialog over the window that lists the account's rooms, searched by name as typed; Return opens the selected room, the arrows move the selection, a click on a row opens it, and a click outside or Escape closes it with nothing opened. It covers every room of the list, on any server kind (Rocket.Chat, Mattermost and kChat, RocketVibe), voice channels included (opening one joins its session, as a click in the list does).
 
 ## The rule
 
@@ -18,7 +18,7 @@ No keyboard to call it from: the same need is a filter field at the top of the r
 
 ## Web
 
-Ctrl+K opens "New conversation" (`panels.ts#newConversation`: people, public rooms, creation), not a switcher of the joined rooms.
+Ctrl+K (Cmd+K) anywhere opens `roomSwitcher` (`apps/web/src/panels.ts`, loaded lazily through `panel-actions.ts`; the document's keydown in `app.ts`): a `dialog()` (closes on its backdrop and on Escape) with a search field, the joined rooms of `app.model.rooms` ranked by `matchRooms` (`src/room-match.ts`, the same rule and cases, activity = the last timeline message), each row a `spotlight-row` with its unread badge, the selected one marked `aria-selected`; the arrows move it, Enter opens it (`app.openRoom`). A second Ctrl+K while one is open does nothing. In the composer, Ctrl+Shift+K is the link (`formatLink`), as on GTK. "New conversation" (people, public rooms, creation) stays on the sidebar's "+" menu. Browser test: `tests/composer.mjs`.
 
 ## Sources
 
@@ -35,6 +35,8 @@ Ctrl+K opens "New conversation" (`panels.ts#newConversation`: people, public roo
 - apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift
 - apps/web/src/app.ts
 - apps/web/src/panels.ts
+- apps/web/src/room-match.ts
+- apps/web/tests/composer.mjs
 - apps/mobile/app/search.tsx
 - apps/mobile/app/index.tsx
 - apps/mobile/lib/roomFilter.ts

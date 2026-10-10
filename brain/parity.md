@@ -56,7 +56,7 @@ beta does.
 | New conversation: `spotlight`, open a DM (`im.create`), join a channel (`channels.join`) | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | Mark a room as unread, or as read with its threads, from the room list (Rocket.Chat) | done | done | done | n/a | Mobile: long press; GTK: right-click menu; SwiftUI: context menu, checked by the macOS CI build only. Opening the room marks it unread as left: a desktop marking the OPEN room unread leaves it first. Mattermost, kChat and RocketVibe not mapped. Web: Native-origin client; Rocket.Chat is outside its scope. |
 | Rocket.Chat: create a channel or a private group (`channels.create`, `groups.create`) | missing | missing | missing | partial | On a RocketVibe server the apps create rooms; on Rocket.Chat none does. Set aside by the user on 2026-10-07. Web: Implemented native browser equivalent requires row-specific GTK qualification; see docs/WEB_CLIENT_EXECUTION.md. |
-| Room switcher: the account's rooms searched by name from the keyboard - [room-switcher](features/room-switcher.md) | mapped | done | done | missing | GTK Ctrl+K (the composer's link moved to Ctrl+Shift+K), SwiftUI Cmd+K, both over `rooms::switcher_matches`; SwiftUI checked by the macOS CI build only. Mobile: a filter field atop the room list, the same ranking (`lib/roomFilter.ts`). Web: Ctrl+K opens New conversation, not the joined rooms. |
+| Room switcher: the account's rooms searched by name from the keyboard - [room-switcher](features/room-switcher.md) | mapped | done | done | done | GTK Ctrl+K (the composer's link moved to Ctrl+Shift+K), SwiftUI Cmd+K, both over `rooms::switcher_matches`; SwiftUI checked by the macOS CI build only. Mobile: a filter field atop the room list, the same ranking (`lib/roomFilter.ts`). Web: Ctrl+K, the composer's link on Ctrl+Shift+K, `matchRooms` (`src/room-match.ts`). |
 | Unread total on the app | done | done | done | done | Mobile: launcher badge; GTK: window title, Windows tray, macOS Dock; SwiftUI: Dock. Web: Native provider: see [web-client](features/web-client.md). |
 
 ## 3. Room view - [room-view](features/room-view.md), [media-playback](features/media-playback.md), [avatars](features/avatars.md), [emoji](features/emoji.md)
@@ -334,7 +334,7 @@ are product gaps, listed last.
   formatting toolbar; notification backend description; logs
   folder; new versions; running with the window closed and starting at login;
   the notification's photo, picture, quick reactions, mark as read and own sound.
-- **Web**: missing: a room switcher over the joined rooms (Ctrl+K opens New conversation), replay of an offline sign-out, video reduction, the thread
+- **Web**: missing: replay of an offline sign-out, video reduction, the thread
   list, following and "also send to the room", search across rooms, the logs
   folder, reply from a notification, message retention, the notification's
   photo, picture, quick reactions, mark as read and own sound. Partial, mostly pending row-by-row

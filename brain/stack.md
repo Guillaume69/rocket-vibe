@@ -6,10 +6,10 @@ The exact technologies and pinned versions of both apps, the shared test server 
 
 | App | Version | Where it lives |
 |---|---|---|
-| Mobile | 0.10.0, `android.versionCode` 1000 | `apps/mobile/app.json` (`expo.version`), mirrored in `apps/mobile/package.json` |
-| Desktop (GTK and SwiftUI) | 0.13.0 | `apps/desktop/Cargo.toml`, `[workspace.package] version` |
-| Web | 0.3.0 | `apps/web/package.json`, mirrored in `package-lock.json` |
-| Server | 0.2.0 | `apps/server/Cargo.toml`, mirrored in the root `Cargo.lock` |
+| Mobile | 0.11.0, `android.versionCode` 1100 | `apps/mobile/app.json` (`expo.version`), mirrored in `apps/mobile/package.json` |
+| Desktop (GTK and SwiftUI) | 0.14.0 | `apps/desktop/Cargo.toml`, `[workspace.package] version` |
+| Web | 0.4.0 | `apps/web/package.json`, mirrored in `package-lock.json` |
+| Server | 0.3.0 | `apps/server/Cargo.toml`, mirrored in the root `Cargo.lock` |
 
 One version per app (the figures above are a snapshot; the files are the truth); the SwiftUI macOS app takes the desktop version. See [operations.md](operations.md) for how `scripts/version.mjs` checks them.
 

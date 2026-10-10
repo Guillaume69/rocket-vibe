@@ -7,6 +7,8 @@ section here.
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-10-11
+
 ### Added
 
 - On a RocketVibe account in do not disturb, an incoming call shows without ringing (GTK and macOS).
@@ -1117,7 +1119,8 @@ the mobile app (see `docs/PARITY.md`).
   `rocketvibe://` links) and zip; a macOS app in a DMG, signed with a Developer ID and
   notarized by Apple.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.13.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.14.0...HEAD
+[0.14.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.13.0...desktop-v0.14.0
 [0.13.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.12.2...desktop-v0.13.0
 [0.12.2]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.12.1...desktop-v0.12.2
 [0.12.1]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.12.0...desktop-v0.12.1

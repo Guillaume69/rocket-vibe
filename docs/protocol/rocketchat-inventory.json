@@ -2403,7 +2403,7 @@
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat_native.rs",
-      "line": 1002,
+      "line": 1010,
       "kind": "endpoint",
       "surface": "rooms.new"
     },

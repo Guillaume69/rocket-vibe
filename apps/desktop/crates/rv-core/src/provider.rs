@@ -16,6 +16,7 @@ use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
+use crate::native::store::StoreChange;
 use crate::native::{self, NativeSession};
 use crate::rest::RestError;
 use crate::rooms::Found;
@@ -27,10 +28,14 @@ use crate::store::{Change, MessageRow};
 pub enum ChatEvent {
     /// These rooms or messages changed: Rocket.Chat, Mattermost and kChat say which.
     Changed(Change),
-    /// Something changed without saying what (the RocketVibe server always
-    /// says it so), or changes were missed: read everything again. Arrives in
+    /// Something changed without saying what (the RocketVibe server outside
+    /// its live traffic), or changes were missed: read everything again. Arrives in
     /// bursts; a UI may fold a burst into one reload.
     Reload,
+    /// RocketVibe live traffic that touched only these rooms' rows and
+    /// messages: a UI showing none of them refreshes its room list alone.
+    /// Arrives in bursts like `Reload`, and folds with it.
+    Rooms(Vec<String>),
     /// A message to notify, already checked against the account's state.
     Incoming(crate::notify::Incoming),
     /// The rest of a Rocket.Chat, Mattermost or kChat session's events
@@ -180,8 +185,9 @@ impl Chat {
                                 Err(RecvError::Closed) => return,
                             },
                             c = changes.recv() => match c {
+                                Ok(StoreChange::Rooms(rooms)) => ChatEvent::Rooms(rooms),
+                                Ok(StoreChange::All) | Err(RecvError::Lagged(_)) => ChatEvent::Reload,
                                 Err(RecvError::Closed) => return,
-                                _ => ChatEvent::Reload,
                             },
                             e = events.recv() => match e {
                                 Err(RecvError::Closed) => return,

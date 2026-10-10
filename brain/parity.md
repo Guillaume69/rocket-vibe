@@ -37,7 +37,7 @@ beta does.
 | Hide the server rail (Settings > Accounts, off by default), switching and adding staying in that page | done | done | done | n/a | Device-wide: SecureStore on mobile, one config file GTK and SwiftUI share. SwiftUI checked by the macOS CI build only. Web: One account on the serving origin, explicit user decision. |
 | Several accounts on the same server | missing | done | done | n/a | Mobile holds one account per server. Web: One account on the serving origin, explicit user decision. |
 | Sign out: `logout` sent, keychain item and local data removed | done | done | done | done | Mobile keeps the account's SQLite file on purpose; GTK and SwiftUI close the store, then delete `.sqlite`, `-wal` and `-shm` (`Store::close`, `Store::remove_files`). Web: Native provider: see [web-client](features/web-client.md). |
-| Replay of a sign-out that failed offline | done | missing | missing | missing | Mobile retries it at the next start. Desktop has no push token to remove, but the server session stays open. Web: No browser implementation yet. |
+| Replay of a sign-out that failed offline | done | done | done | missing | Mobile retries it at the next start. Desktop (Rocket.Chat and Mattermost accounts; it has no push token to remove) keeps the session marked in the keychain and replays `logout` at the next start (`Session::replay_logout`); a native RocketVibe sign-out that fails keeps the account signed in instead. Web: No browser implementation yet. |
 
 ## 2. Room list - [room-list](features/room-list.md)
 
@@ -324,7 +324,7 @@ are product gaps, listed last.
 - **Mobile**: kChat "Sign in with Infomaniak" run on a real account; several accounts per server;
   live styling of the draft; logs folder; in notifications the author's photo,
   the message's picture, quick reactions and mark as read, the app's own sound.
-- **GTK**: kChat "Sign in with Infomaniak"; email 2FA resend; replay of an offline sign-out; padlock tile once
+- **GTK**: kChat "Sign in with Infomaniak"; email 2FA resend; padlock tile once
   unlocked; DM avatar versions in the list; video reduction; reconciliation snapshot; catch-up of
   deletions in rooms already caught up; outside Windows
   toasts, the notification's picture, quick reactions, mark as read and own sound

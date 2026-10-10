@@ -16,6 +16,7 @@ use crate::mattermost::sync::MmSync;
 use crate::normalize::Message;
 use crate::rest::{CallOptions, RestClient, RestError};
 use crate::store::Store;
+use crate::sync::Backend;
 use crate::sync::SyncEngine;
 
 /// 24 hex characters: the shape of Rocket.Chat `_id`s.
@@ -112,8 +113,11 @@ impl Outbox {
 
     /// Returns false when the server is out of reach: no point insisting.
     async fn pass(&self) -> bool {
-        if let Some(mm) = self.sync.mattermost() {
-            return self.pass_mattermost(mm).await;
+        match self.sync.backend() {
+            Backend::Mattermost(mm) => {
+                return self.pass_mattermost(mm).await;
+            }
+            Backend::RocketChat => {}
         }
         for entry in self.store.pending_outbox() {
             let Some(message) = self.message_of(&entry) else { continue };

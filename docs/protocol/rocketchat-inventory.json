@@ -1790,37 +1790,37 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/outbox.rs",
-      "line": 120,
+      "line": 124,
       "kind": "call:POST",
       "surface": "\"chat.sendMessage\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/outbox.rs",
-      "line": 120,
+      "line": 124,
       "kind": "endpoint",
       "surface": "chat.sendMessage"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/outbox.rs",
-      "line": 171,
+      "line": 175,
       "kind": "call:POST",
       "surface": "\"posts\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/outbox.rs",
-      "line": 195,
+      "line": 199,
       "kind": "call:GET",
       "surface": "&format!(\"channels/{…}/posts\", entry.rid), options).await {"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/outbox.rs",
-      "line": 214,
+      "line": 218,
       "kind": "call:GET",
       "surface": "\"chat.getMessage\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/outbox.rs",
-      "line": 214,
+      "line": 218,
       "kind": "endpoint",
       "surface": "chat.getMessage"
     },
@@ -2048,139 +2048,139 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 732,
+      "line": 720,
       "kind": "call:GET",
       "surface": "\"e2e.fetchMyKeys\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 732,
+      "line": 720,
       "kind": "endpoint",
       "surface": "e2e.fetchMyKeys"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 933,
+      "line": 921,
       "kind": "endpoint",
       "surface": "users.setAvatar"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 935,
+      "line": 923,
       "kind": "call:UPLOAD",
       "surface": "&path, \"image\", bytes, &name, mime, Vec::new(), |_, _| {…}).await.map(|_| ())"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 942,
+      "line": 930,
       "kind": "call:DELETE",
       "surface": "&path"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 1097,
+      "line": 1085,
       "kind": "call:GET",
       "surface": "\"settings.public\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 1097,
+      "line": 1085,
       "kind": "endpoint",
       "surface": "settings.public"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 1125,
+      "line": 1113,
       "kind": "call:GET",
       "surface": "\"emoji-custom.list\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 1125,
+      "line": 1113,
       "kind": "endpoint",
       "surface": "emoji-custom.list"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 1173,
+      "line": 1161,
       "kind": "call:POST",
       "surface": "\"subscriptions.read\", read).await;"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 1173,
+      "line": 1161,
       "kind": "endpoint",
       "surface": "subscriptions.read"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 1209,
+      "line": 1197,
       "kind": "call:POST",
       "surface": "\"logout\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 1253,
+      "line": 1241,
       "kind": "call:GET",
       "surface": "\"permissions.listAll\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 1253,
+      "line": 1241,
       "kind": "endpoint",
       "surface": "permissions.listAll"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 1254,
+      "line": 1242,
       "kind": "call:GET",
       "surface": "\"me\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 1278,
+      "line": 1266,
       "kind": "call:GET",
       "surface": "\"commands.list\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 1312,
+      "line": 1300,
       "kind": "call:POST",
       "surface": "\"commands.run\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 1453,
+      "line": 1441,
       "kind": "call:GET",
       "surface": "\"chat.getMessage\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 1453,
+      "line": 1441,
       "kind": "endpoint",
       "surface": "chat.getMessage"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 1658,
+      "line": 1646,
       "kind": "call:GET",
       "surface": "\"chat.getMessage\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 1658,
+      "line": 1646,
       "kind": "endpoint",
       "surface": "chat.getMessage"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 1669,
+      "line": 1657,
       "kind": "call:GET",
       "surface": "\"chat.getThreadMessages\", options).await?;"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 1669,
+      "line": 1657,
       "kind": "endpoint",
       "surface": "chat.getThreadMessages"
     },
@@ -2234,115 +2234,115 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/sync.rs",
-      "line": 140,
+      "line": 159,
       "kind": "call:GET",
       "surface": "\"rooms.get\", options(\"rooms\")),"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/sync.rs",
-      "line": 140,
+      "line": 159,
       "kind": "endpoint",
       "surface": "rooms.get"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/sync.rs",
-      "line": 141,
+      "line": 160,
       "kind": "call:GET",
       "surface": "\"subscriptions.get\", options(\"subscriptions\")),"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/sync.rs",
-      "line": 141,
+      "line": 160,
       "kind": "endpoint",
       "surface": "subscriptions.get"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/sync.rs",
-      "line": 190,
+      "line": 212,
       "kind": "call:GET",
       "surface": "\"subscriptions.get\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/sync.rs",
-      "line": 190,
+      "line": 212,
       "kind": "endpoint",
       "surface": "subscriptions.get"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/sync.rs",
-      "line": 236,
+      "line": 261,
       "kind": "call:GET",
       "surface": "\"chat.syncMessages\", options).await?;"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/sync.rs",
-      "line": 236,
+      "line": 261,
       "kind": "endpoint",
       "surface": "chat.syncMessages"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/sync.rs",
-      "line": 323,
+      "line": 354,
       "kind": "call:GET",
       "surface": "history_endpoint(kind), o).await?;"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/sync.rs",
-      "line": 332,
+      "line": 366,
       "kind": "call:GET",
       "surface": "\"chat.getMessage\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/sync.rs",
-      "line": 332,
+      "line": 366,
       "kind": "endpoint",
       "surface": "chat.getMessage"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/uploads.rs",
-      "line": 89,
+      "line": 90,
       "kind": "resource",
       "surface": "/file-upload/{…}/{…}"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/uploads.rs",
-      "line": 326,
+      "line": 332,
       "kind": "call:POST",
       "surface": "&format!(\"rooms.mediaConfirm/{…}/{…}\", row.rid)"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/uploads.rs",
-      "line": 326,
+      "line": 332,
       "kind": "endpoint",
       "surface": "rooms.mediaConfirm/{…}/{…}"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/uploads.rs",
-      "line": 369,
+      "line": 375,
       "kind": "call:POST",
       "surface": "\"posts\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/uploads.rs",
-      "line": 453,
+      "line": 459,
       "kind": "call:POST",
       "surface": "&format!(\"rooms.mediaConfirm/{…}/{…}\", row.rid)"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/uploads.rs",
-      "line": 453,
+      "line": 459,
       "kind": "endpoint",
       "surface": "rooms.mediaConfirm/{…}/{…}"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/uploads.rs",
-      "line": 477,
+      "line": 486,
       "kind": "endpoint",
       "surface": "rooms.media/{…}"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/uploads.rs",
-      "line": 479,
+      "line": 488,
       "kind": "call:UPLOAD",
       "surface": "&path, field, upload.bytes, &upload.name, &upload.mime, upload.texts, move |sent, total| {"
     },

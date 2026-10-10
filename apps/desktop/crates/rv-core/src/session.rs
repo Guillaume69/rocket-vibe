@@ -17,7 +17,6 @@ use crate::actions::{self, ServerSettings};
 use crate::ddp::{self, DdpEvent, DdpHandle, State, Timeouts};
 use crate::live;
 use crate::mattermost::socket::{self as live_socket, LiveEvent, LiveHandle};
-use crate::mattermost::sync::MmSync;
 use crate::mattermost::{self, Flavor};
 use crate::rocketchat;
 use crate::{info, media};
@@ -27,6 +26,7 @@ use crate::media::MediaCache;
 use crate::outbox::Outbox;
 use crate::rest::{CallOptions, Credentials, RestClient, RestError, TwoFactorCode};
 use crate::store::Store;
+use crate::sync::Backend;
 use crate::sync::{HistoryPage, MY_MESSAGES, STREAM_NOTIFY_ROOM, STREAM_NOTIFY_USER, STREAM_ROOM_MESSAGES, SyncEngine};
 use crate::uploads::{self, Uploads};
 
@@ -226,15 +226,6 @@ fn reconnect_delay(attempt: u32) -> u64 {
     (base + fastrand::u64(0..1000)).min(MAX_RECONNECT_DELAY_MS)
 }
 
-/// The server family a session speaks to. Every per-server choice matches on
-/// it, exhaustively: a forgotten case is a compile error, not a silent fall
-/// through to Rocket.Chat's REST on a Mattermost server.
-pub(crate) enum Backend<'a> {
-    RocketChat,
-    /// Mattermost or kChat, with the engine that maps its channels and posts.
-    Mattermost(&'a Arc<MmSync>),
-}
-
 /// Rocket.Chat's DDP, or the socket of a Mattermost or kChat account.
 #[derive(Clone)]
 enum Transport {
@@ -340,9 +331,9 @@ impl Session {
         };
         let (events, _) = broadcast::channel(32);
 
-        let media = Arc::new(match sync.mattermost() {
-            Some(mm) => MediaCache::for_mattermost(rest.clone(), mm.directory.clone()),
-            None => MediaCache::new(rest.clone()),
+        let media = Arc::new(match sync.backend() {
+            Backend::Mattermost(mm) => MediaCache::for_mattermost(rest.clone(), mm.directory.clone()),
+            Backend::RocketChat => MediaCache::new(rest.clone()),
         });
         let uploads = Arc::new(Uploads::new(store.clone(), rest.clone(), sync.clone()));
         let session = Arc::new(Session {
@@ -392,10 +383,7 @@ impl Session {
 
     /// Which server family this session speaks to; match on it, exhaustively.
     pub(crate) fn backend(&self) -> Backend<'_> {
-        match self.sync.mattermost() {
-            Some(mm) => Backend::Mattermost(mm),
-            None => Backend::RocketChat,
-        }
+        self.sync.backend()
     }
 
     pub fn events(&self) -> broadcast::Receiver<SessionEvent> {

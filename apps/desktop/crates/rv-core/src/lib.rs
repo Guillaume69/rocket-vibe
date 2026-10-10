@@ -30,6 +30,7 @@ pub mod notify;
 pub mod outbox;
 pub mod parse;
 pub mod player;
+pub mod provider;
 pub mod rest;
 pub mod rocketchat;
 pub mod rooms;

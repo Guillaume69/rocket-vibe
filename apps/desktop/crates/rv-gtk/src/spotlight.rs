@@ -8,6 +8,7 @@ use std::sync::Arc;
 use adw::prelude::*;
 use gtk::glib;
 use rv_core::media::{AvatarTarget, avatar_path};
+use rv_core::provider::Chat;
 use rv_core::rooms::Found;
 use rv_core::session::Session;
 
@@ -18,24 +19,7 @@ use crate::widgets::{self, TileSize};
 
 const DEBOUNCE_MS: u64 = 300;
 
-#[derive(Clone)]
-enum Source {
-    RocketChat(Arc<Session>),
-    Native(Arc<rv_core::native::NativeSession>),
-}
-impl Source {
-    async fn spotlight(&self, query: &str) -> Result<Vec<Found>, String> {
-        match self {
-            Self::RocketChat(session) => session.spotlight(query).await.map_err(|e| e.to_string()),
-            Self::Native(session) => session.spotlight(query).await.map_err(|e| e.to_string()),
-        }
-    }
-    fn legacy(&self) -> Option<&Arc<Session>> {
-        if let Self::RocketChat(session) = self { Some(session) } else { None }
-    }
-}
-
-fn result_row(session: &Source, found: &Found, joined: bool) -> gtk::Widget {
+fn result_row(session: &Chat, found: &Found, joined: bool) -> gtk::Widget {
     let row = gtk::Box::builder().spacing(12).css_classes(["spotlight-row"]).build();
     let (tile, title, detail) = match found {
         Found::User { username, name, .. } => (
@@ -70,7 +54,7 @@ pub fn open(
     joined: impl Fn(&str) -> bool + 'static,
     pick: impl Fn(Found) + 'static,
 ) {
-    open_source(parent, Source::RocketChat(session), joined, pick, None);
+    open_source(parent, Chat::Legacy(session), joined, pick, None);
 }
 
 pub fn open_native(
@@ -80,12 +64,12 @@ pub fn open_native(
     pick: impl Fn(Found) + 'static,
     create: impl Fn() + 'static,
 ) {
-    open_source(parent, Source::Native(session), joined, pick, Some(Rc::new(create)));
+    open_source(parent, Chat::Native(session), joined, pick, Some(Rc::new(create)));
 }
 
 fn open_source(
     parent: &impl IsA<gtk::Widget>,
-    session: Source,
+    session: Chat,
     joined: impl Fn(&str) -> bool + 'static,
     pick: impl Fn(Found) + 'static,
     create: Option<Rc<dyn Fn()>>,

@@ -108,6 +108,7 @@
     "apps/desktop/crates/rv-core/src/outbox.rs",
     "apps/desktop/crates/rv-core/src/parse.rs",
     "apps/desktop/crates/rv-core/src/player.rs",
+    "apps/desktop/crates/rv-core/src/provider.rs",
     "apps/desktop/crates/rv-core/src/rest.rs",
     "apps/desktop/crates/rv-core/src/rocketchat/actions.rs",
     "apps/desktop/crates/rv-core/src/rocketchat/mod.rs",
@@ -2846,13 +2847,13 @@
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/spotlight.rs",
-      "line": 97,
+      "line": 81,
       "kind": "endpoint",
       "surface": "spotlight"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/spotlight.rs",
-      "line": 112,
+      "line": 96,
       "kind": "endpoint",
       "surface": "rooms.new"
     },

@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-552 production files scanned; 687 occurrences.
+553 production files scanned; 687 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -389,8 +389,8 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-gtk/src/smoke.rs:1080](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L1080) | call:GET | "subscriptions.getOne", options).await.ok()?; |
 | [apps/desktop/crates/rv-gtk/src/smoke.rs:1080](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L1080) | endpoint | subscriptions.getOne |
 | [apps/desktop/crates/rv-gtk/src/smoke/room_management.rs:130](../../apps/desktop/crates/rv-gtk/src/smoke/room_management.rs#L130) | endpoint | rooms.favorite_remove |
-| [apps/desktop/crates/rv-gtk/src/spotlight.rs:97](../../apps/desktop/crates/rv-gtk/src/spotlight.rs#L97) | endpoint | spotlight |
-| [apps/desktop/crates/rv-gtk/src/spotlight.rs:112](../../apps/desktop/crates/rv-gtk/src/spotlight.rs#L112) | endpoint | rooms.new |
+| [apps/desktop/crates/rv-gtk/src/spotlight.rs:81](../../apps/desktop/crates/rv-gtk/src/spotlight.rs#L81) | endpoint | spotlight |
+| [apps/desktop/crates/rv-gtk/src/spotlight.rs:96](../../apps/desktop/crates/rv-gtk/src/spotlight.rs#L96) | endpoint | rooms.new |
 | [apps/desktop/crates/rv-gtk/src/unlock.rs:20](../../apps/desktop/crates/rv-gtk/src/unlock.rs#L20) | endpoint | e2e.body |
 | [apps/desktop/crates/rv-gtk/src/unlock.rs:27](../../apps/desktop/crates/rv-gtk/src/unlock.rs#L27) | endpoint | e2e.password |
 | [apps/desktop/crates/rv-gtk/src/unlock.rs:33](../../apps/desktop/crates/rv-gtk/src/unlock.rs#L33) | endpoint | e2e.unlock |

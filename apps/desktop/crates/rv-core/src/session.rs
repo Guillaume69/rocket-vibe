@@ -1315,7 +1315,10 @@ impl Session {
     /// Whether a message can be forwarded to another room: Rocket.Chat only
     /// (its server builds the quote of a permalink), not Mattermost and kChat.
     pub fn forwarding_available(&self) -> bool {
-        self.sync.mattermost().is_none()
+        match self.backend() {
+            Backend::RocketChat => true,
+            Backend::Mattermost(_) => false,
+        }
     }
 
     /// Forwards a message of the room `(kind, slug, rid)` to `target`: its
@@ -1547,7 +1550,10 @@ impl Session {
     /// Whether a room can have notifications of its own (`rooms.saveNotification`):
     /// Rocket.Chat only, not offered on Mattermost and kChat.
     pub fn room_notifications_available(&self) -> bool {
-        self.sync.mattermost().is_none()
+        match self.backend() {
+            Backend::RocketChat => true,
+            Backend::Mattermost(_) => false,
+        }
     }
 
     /// The room's own notification choice: `default` (the account's), `all`,

@@ -386,7 +386,7 @@ fn fill_profile(content: &gtk::Box, dialog: &adw::Dialog, session: &Chat, p: &Pr
     if let Some(bio) = &p.bio {
         section(content, t("info.bio"), bio, &session.info().username);
     }
-    if let (ProfileSource::Legacy(s), Some(rid)) = (session, &actions.room)
+    if let (Chat::Legacy(s), Some(rid)) = (session, &actions.room)
         && let Some(choice) = crate::room_notifications::group(s, rid)
     {
         content.append(&choice);

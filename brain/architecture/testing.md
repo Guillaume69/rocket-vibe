@@ -1,6 +1,6 @@
 # Testing
 
-How each app is tested: fast unit and integration suites that run everywhere (including CI), end-to-end runs that drive the real app against the seeded Docker server (local only), and CI smoke runs of the packaged desktop app on each OS. The recurring rule in both apps: an end-to-end assertion that the UI shows something is not enough, the server's state is checked too.
+How each app and the server are tested: fast unit and integration suites that run everywhere (including CI), end-to-end runs that drive the real app against the seeded Rocket.Chat bench (local only), CI pilots and browser suites against a real RocketVibe server, and CI smoke runs of the packaged desktop app on each OS. The recurring rule in both apps: an end-to-end assertion that the UI shows something is not enough, the server's state is checked too.
 
 ## Mobile
 
@@ -72,6 +72,17 @@ On a release tag or a manual dispatch, `desktop.yml` runs the built packages, no
 
 Fixtures for media playback live in `apps/desktop/tests/media/` (`voice.ogg`, `voice.m4a`, `video.mp4`).
 
+## Server and shared crates
+
+- **`apps/server/scripts/check.sh`** is the server's gate, run by `native-server.yml` (`verify`, with PostgreSQL) and `server-release.yml`: fmt, clippy `-D warnings` and `cargo test` of the root workspace (the server, `rv-protocol`, `rv-client`, `rv-crypto-public`), the crypto test vectors re-verified independently with Node, `rv-crypto`'s tests, the protocol schema diff, the generated protocol, emoji and Rocket.Chat inventory checks, and the mobile RocketVibe provider tests ([server.md](server.md)).
+- **Database tests**: about 300 `#[sqlx::test]`, in `apps/server/src/` and `apps/server/tests/`, each on a fresh database from `DATABASE_URL`; without PostgreSQL they fail. `tests/` drives real HTTP and WebSockets through `rv-client` and the mobile TypeScript transport.
+- **Native pilots** (`native-server.yml`): the mobile provider's SQLite runner, the GTK app and the Swift view models against a disposable server and PostgreSQL in Docker (`docker/compose.native-*-pilot.yml`): sign-in and second factors, sessions after restart, files, quotes and threads, email codes and profile receipts.
+- **Crypto** (`native-server.yml`, `native-crypto-android.yml`): `rv-crypto` on Linux, Windows and macOS with a real Secret Service restart test on Linux, its delivery worker against the server, and the Android bridge on an emulator ([shared-crates.md](shared-crates.md)).
+
+## Web
+
+`npm test` runs the unit tests (`apps/web/tests/*.test.ts`) with Node's runner. The `test:*` scripts are Playwright suites (sessions, reads, composer, media, voice, security, E2EE, workflows, visual...) that `web-client.yml` runs on Chromium and Firefox against a real server with PostgreSQL, SMTP and LiveKit; the voice suites exchange real audio and read RTP statistics. CI also rebuilds the wasm crypto engine and fails if it differs from the committed one ([web-client.md](web-client.md)).
+
 ## What CI gates on every change
 
 | App | On a push to any branch and PRs |
@@ -79,9 +90,21 @@ Fixtures for media playback live in `apps/desktop/tests/media/` (`voice.ogg`, `v
 | Mobile | version consistency, `tsc --noEmit`, ESLint, `npm test` |
 | Desktop | version, `cargo fmt --check`, `clippy -D warnings`, `cargo test --workspace` (Fedora 44) |
 | SwiftUI | build, `swift test`, `rv-rooms`, packaging and launch, on non-`master` pushes touching `macos/` or `rv-ffi` |
+| Web | version, format, build and committed assets, `npm test`, the server's clippy and unit tests, the browser suites |
+| Server | `check.sh`, the native pilots, `rv-core` and `rv-native` on Windows, the Swift models against the server |
+| Crypto | `rv-crypto` on three OSes, the delivery worker, the Android bridge |
+| Rust locks | `scripts/cargo-locks.mjs`: one version per crate line across the seven `Cargo.lock` |
 
 ## Sources
 
+- `apps/server/scripts/check.sh`
+- `apps/server/tests/`
+- `apps/web/package.json`
+- `apps/web/tests/`
+- `.github/workflows/native-server.yml`
+- `.github/workflows/native-crypto-android.yml`
+- `.github/workflows/web-client.yml`
+- `.github/workflows/cargo-locks.yml`
 - `apps/mobile/package.json`
 - `apps/mobile/tsconfig.json`
 - `apps/mobile/eslint.config.js`

@@ -4,19 +4,23 @@ The native RocketVibe server embeds the browser application in its binary. Node 
 
 ## Delivery and design
 
-`apps/web` uses React 19, strict TypeScript, native browser controls and Vite. `apps/server/build.rs` embeds committed `apps/web/dist`; `src/web.rs` serves explicit root/room navigation and hashed assets. Unknown API and asset routes retain 404. HTML, worker and manifest have no-store; hashed assets are immutable. The public-shell worker never stores API responses.
+`apps/web` uses React 19, strict TypeScript, native browser controls and Vite. `apps/server/build.rs` embeds committed `apps/web/dist` and fails without `dist/index.html`; `src/web.rs` serves exactly `/`, `/room/{room}`, `/sw.js`, `/manifest.webmanifest` and `/assets/*`. Unknown API and asset routes retain 404. HTML, worker and manifest have no-store; hashed assets are immutable for a year. Every response carries a strict CSP (`wasm-unsafe-eval` for the crypto worker, frames limited to YouTube, Vimeo and Dailymotion embeds, `frame-ancestors 'none'`), `nosniff` and a same-origin referrer policy. The public-shell worker never stores API responses.
 
-`scripts/sync-strings.mjs` extracts the bot/workflow labels and API refusal mappings from rv-core at build time. `preferences-controls.ts` fences pages and one-time secret dialogs to their account. `bots.ts`, `workflows.ts` and `workflow-forms.ts` use the native server contract; workflow drafts are held in memory, never mixed with the message outbox.
+`scripts/sync-strings.mjs` extracts the desktop's catalog from `rv-core/src/i18n.rs` at build time (crypto, attachments, viewer and player, bots, workflows, voice, commands, settings categories, administration, reports, presence...) and the API refusal mappings of bots, workflows and administration; it refuses a catalog of fewer than 500 entries. `preferences-controls.ts` fences pages and one-time secret dialogs to their account. `bots.ts`, `workflows.ts` and `workflow-forms.ts` use the native server contract; workflow drafts are held in memory, never mixed with the message outbox.
 
 `scripts/sync-design.mjs` translates GTK's theme and extracts its decorative stars. Nunito, Baloo 2, Adwaita SVG icons, Noto emoji and original sounds retain their licences. Browser and GTK rasterizers differ; the GTK Fedora build and captures establish a visual reference, not proof of every screen's pixel parity.
 
 `composer.ts` implements a browser DOM text editor using the GTK draft spans: bold/italic/strike, inline/fenced code, headings, quotes and muted markers hidden away from the cursor line. Text and UTF-16 selections survive restyling. It handles native line breaks, plain-text paste, composition, undo/redo and programmatic toolbar edits. Room selection keeps the editor disabled until its draft and staged files are restored; a selection generation excludes late reads from another opening or session.
 
+## Build, run and release
+
+`npm run build` chains `crypto-assets.mjs` (refuses a committed wasm whose source digests no longer match), `sync-design.mjs`, `sync-strings.mjs`, `sync-crypto.mjs` (generates `src/crypto/shared/`, `schema.generated.ts` and `bridge-types.ts` from the mobile RocketVibe provider and `modules/crypto-native/index.ts`), `licenses.mjs`, the type check, `vite build` and `build-shell.mjs` (writes `sw.js`, cache `rv-shell-<hash>`, which skips `/api/` and `/.well-known/`, and `manifest.webmanifest` with the GTK icon). `npm run crypto:build` rebuilds `rv-crypto-web` to wasm in Docker ([shared-crates.md](shared-crates.md)). In development Vite proxies `/api` (with WebSockets) and `/.well-known/rocketvibe` to `RV_WEB_API_URL`, `http://127.0.0.1:3400` by default. The version lives in `package.json`; a `web-vX.Y.Z` tag releases the built frontend through `scripts/package-web.mjs`. CI (`web-client.yml`) runs the unit tests (`npm test`), the browser suites against a real server with PostgreSQL, SMTP and LiveKit on Chromium and Firefox, and rebuilds the wasm to check it matches.
+
 ## State and transport
 
 `api.ts` restricts REST paths to the serving origin, validates snapshot pagination and scopes session rejection to the token that made the request. `store.ts` applies revision/position order and membership lifetimes. IndexedDB stores the account, model snapshot, drafts, staged files, text/upload outboxes, operation intents and private media. Web Locks serialize session renewal and queue replay; BroadcastChannel informs other tabs. Rotation saves its successor intent before sending and its receipt before removing the intent.
 
-`ui/application.tsx` and `ui/state.ts` subscribe to the controller through `useSyncExternalStore`. Keyed conversation components preserve connected media and edit state. Shared portal/dialog/sidebar components own secondary views; account-scoped legacy page builders and bounded editor/SDK hosts are explicit adapters, documented in [React architecture](../../docs/WEB_REACT.md). `app.ts` drives transport and model state, serializes socket frames and catches up before replay. Withdrawn rooms and changed membership lifetimes purge pending work and private media. Protected blobs are verified by SHA-256 and kept in IndexedDB, with a 250 MiB media budget. Object URLs are released on access loss and logout.
+`ui/state.ts` is the controller's `ViewState` store (`subscribe`, `getSnapshot`); `ui/application.tsx` and `ui/profile.tsx` read it through `useSyncExternalStore`, and `ui/portals.tsx` its secondary views. Keyed conversation components preserve connected media and edit state. Shared portal/dialog/sidebar components own secondary views; account-scoped legacy page builders and bounded editor/SDK hosts are explicit adapters, documented in [React architecture](../../docs/WEB_REACT.md). `app.ts` drives transport and model state, serializes socket frames and catches up before replay. Withdrawn rooms and changed membership lifetimes purge pending work and private media. Protected blobs are verified by SHA-256 and kept in IndexedDB, with a 250 MiB media budget. Object URLs are released on access loss and logout.
 
 `scheduleRead` captures a rendered root-message position and membership once, waits 1.5 seconds and rechecks the account, room opening, membership, visibility and latest scroll position before sending. Arrivals do not postpone the timer or advance its captured target. One read request runs at a time; acknowledgments preserve newer revisions. Browser focus on the body after disabling an action button still counts as the active chat when no modal owns it. Notifications use the same visibility guard and close only after current unread counts reach zero.
 
@@ -42,7 +46,6 @@ The SFU's WebSocket origin being reachable does not prove its ICE candidates are
 - apps/web/src/crypto/vault.ts
 - apps/web/src/crypto/chat.ts
 - apps/web/src/crypto/settings-controls.ts
-
 - apps/web/src/composer.ts
 - apps/web/tests/composer.mjs
 - apps/web/tests/sessions.mjs
@@ -64,3 +67,18 @@ The SFU's WebSocket origin being reachable does not prove its ICE candidates are
 - apps/web/scripts/sync-design.mjs
 - apps/server/build.rs
 - apps/server/src/web.rs
+- apps/web/package.json
+- apps/web/vite.config.js
+- apps/web/src/ui/state.ts
+- apps/web/src/ui/profile.tsx
+- apps/web/src/preferences-controls.ts
+- apps/web/src/bots.ts
+- apps/web/src/workflows.ts
+- apps/web/src/workflow-forms.ts
+- apps/web/scripts/sync-strings.mjs
+- apps/web/scripts/sync-crypto.mjs
+- apps/web/scripts/build-shell.mjs
+- apps/web/scripts/crypto-assets.mjs
+- apps/web/scripts/build-crypto.mjs
+- scripts/package-web.mjs
+- .github/workflows/web-client.yml

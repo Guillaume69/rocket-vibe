@@ -6,10 +6,12 @@ The exact technologies and pinned versions of both apps, the shared test server 
 
 | App | Version | Where it lives |
 |---|---|---|
-| Mobile | 0.5.0, `android.versionCode` 500 | `apps/mobile/app.json` (`expo.version`), mirrored in `apps/mobile/package.json` |
-| Desktop (GTK and SwiftUI) | 0.7.0 | `apps/desktop/Cargo.toml`, `[workspace.package] version` |
+| Mobile | 0.10.0, `android.versionCode` 1000 | `apps/mobile/app.json` (`expo.version`), mirrored in `apps/mobile/package.json` |
+| Desktop (GTK and SwiftUI) | 0.13.0 | `apps/desktop/Cargo.toml`, `[workspace.package] version` |
+| Web | 0.3.0 | `apps/web/package.json`, mirrored in `package-lock.json` |
+| Server | 0.2.0 | `apps/server/Cargo.toml`, mirrored in the root `Cargo.lock` |
 
-Both apps share one version per app; the SwiftUI macOS app takes the desktop version. See [operations.md](operations.md) for how `scripts/version.mjs` checks them.
+One version per app (the figures above are a snapshot; the files are the truth); the SwiftUI macOS app takes the desktop version. See [operations.md](operations.md) for how `scripts/version.mjs` checks them.
 
 ## Mobile (`apps/mobile`)
 
@@ -52,7 +54,7 @@ Native modules (each requires a dev-client rebuild, see [architecture/mobile-nat
 | Media | `expo-audio`, `expo-video`, `expo-image-picker`, `expo-image-manipulator`, `expo-document-picker`, `expo-media-library`, `expo-file-system`, `expo-sharing` (all `~57.0.x`) | Voice messages, players, pickers, saving. |
 | Fonts | `@expo-google-fonts/baloo-2`, `@expo-google-fonts/nunito` (`^0.4.2`) | Embedded at build time by the `expo-font` plugin. |
 
-Local Expo modules under `apps/mobile/modules/`: `video-compressor` (video downscaling, Android Media3 and iOS AVFoundation), `downloads` (public Downloads folder, Android only), `fcm-token` and `notification-reply` (iOS only). Config plugins under `apps/mobile/plugins/` customise the generated native projects; `android/` and `ios/` are gitignored (CNG).
+Local Expo modules under `apps/mobile/modules/`: `video-compressor` (video downscaling, Android Media3 and iOS AVFoundation), `downloads` (public Downloads folder, Android only), `fcm-token` and `notification-reply` (iOS only), `file-transfer`, `crypto-native` (the `rv-crypto-mobile` library and its Kotlin bindings, built by Cargo during the Gradle build) and `voice` (LiveKit audio and the `rv-voice-mobile` noise remover). Config plugins under `apps/mobile/plugins/` customise the generated native projects; `android/` and `ios/` are gitignored (CNG).
 
 Dev tooling: ESLint 9 with `eslint-config-expo ~57.0.0`, `patch-package ^8.0.1`, `emoji-toolkit 10.0.0` (source of the generated emoji table), Node's built-in test runner.
 
@@ -60,7 +62,7 @@ Android build chain (local and CI): Node 24, Temurin JDK 17 (env.sh accepts 17 t
 
 ## Desktop (`apps/desktop`)
 
-A Cargo workspace (`resolver = "3"`, edition 2024, licence MIT) of four crates, plus a SwiftPM package. Workspace lints: `unsafe_code = "deny"` (lifted file by file only in the platform shims: `rv-native`'s Windows and macOS modules, `rv-gtk`'s `focus.rs`, `macos.rs` and `windows.rs`), `clippy::all` at warn, and CI and `build.sh` turn warnings into errors. Formatting: `rustfmt.toml` with `max_width = 120`.
+A Cargo workspace (`resolver = "3"`, edition 2024, licence MIT) of five crates (`rv-core`, `rv-gtk`, `rv-native`, `rv-ffi`, `rv-voice-protocol`), the voice sidecar's own workspace in `voice/`, plus a SwiftPM package. Workspace lints: `unsafe_code = "deny"` (lifted file by file only in the platform shims: `rv-native`'s Windows and macOS modules, `rv-gtk`'s `focus.rs`, `macos.rs` and `windows.rs`), `clippy::all` at warn, and CI and `build.sh` turn warnings into errors. Formatting: `rustfmt.toml` with `max_width = 120`.
 
 ### rv-core (UI-free core)
 
@@ -114,6 +116,14 @@ Windows: `windows 0.62` (WinRT toasts, taskbar badge, registry, tray, single ins
 
 Bundled assets fetched at pinned commits for Windows, macOS and the AppImage: Hunspell `en_US` and `fr_FR` from LibreOffice's dictionaries, Noto Color Emoji.
 
+## Web (`apps/web`)
+
+React 19.3.0, TypeScript 6, Vite 8, `livekit-client` 2.22, Prettier 3.9.9, Playwright 1.64 for the browser suites. Node 24 builds it; nothing Node runs in production. The crypto engine is `rv-crypto-web` compiled to wasm in Docker (Rust 1.97.1, wasm-bindgen 0.2.129). See [architecture/web-client.md](architecture/web-client.md).
+
+## Server (`apps/server`) and shared crates
+
+`rv-server`: Rust edition 2024, Axum 0.8.9 (with WebSockets), tokio, SQLx 0.8.6 on PostgreSQL 18, OpenMLS 0.9.0 (verification only), Argon2, lettre for SMTP, `gcp_auth` for FCM. Built and shipped from `rust:1.97-bookworm` into `debian:bookworm-slim` (`apps/server/Dockerfile`). The root `Cargo.toml` is a resolver-3 workspace of the server, `rv-protocol`, `rv-client` and `rv-crypto-public`; the other shared crates keep workspaces of their own. See [architecture/server.md](architecture/server.md) and [architecture/shared-crates.md](architecture/shared-crates.md).
+
 ## Test server (`docker/compose.yml`)
 
 | Service | Image | Note |
@@ -121,9 +131,11 @@ Bundled assets fetched at pinned commits for Windows, macOS and the AppImage: Hu
 | `rocketchat` | `registry.rocket.chat/rocketchat/rocket.chat:${RC_VERSION:-8.5.1}` | Pinned on the production target's version (8.5 LTS), not the latest. Runs a push-patched bundle (see [operations.md](operations.md)). |
 | `mongodb` | `mongodb/mongodb-community-server:${MONGODB_VERSION:-8.0-ubi8}` | Rocket.Chat 8.5 requires MongoDB 8.0; single-node replica set `rs0` for change streams. On Linux kernels 6.19 and later, set `8.0.4-ubi8`: 8.0.5+ refuses to start (SERVER-121912). |
 
+The RocketVibe bench (`docker/compose.rocketvibe.yml`) runs `postgres:18-alpine` and the server built from the repository; `docker/compose.voice.yml` adds `livekit/livekit-server:v1.13.8`.
+
 ## CI runners
 
-GitHub Actions: `ubuntu-24.04` (with `fedora:44`, the Arch image and `ubuntu:22.04` containers), `windows-2025`, `macos-15`. Actions used: `actions/checkout@v5`, `setup-node@v5`, `setup-java@v5`, `cache@v4`, `upload-artifact@v4`, `download-artifact@v4`, `dtolnay/rust-toolchain@stable`, `msys2/setup-msys2@v2`, `softprops/action-gh-release@v2`.
+GitHub Actions: `ubuntu-24.04` (with `fedora:44`, the Arch image and `ubuntu:22.04` containers), `windows-2025`, `macos-15`. Actions used: `actions/checkout@v5`, `setup-node@v4` and `@v5`, `setup-java@v5`, `cache@v4`, `upload-artifact@v4`, `download-artifact@v4`, `dtolnay/rust-toolchain@1.97.1` (pinned) and `@stable`, `Swatinem/rust-cache@v2`, `docker/setup-buildx-action@v4`, `docker/build-push-action@v7`, `msys2/setup-msys2@v2`, `reactivecircus/android-emulator-runner@v2`, `softprops/action-gh-release@v2`. Service containers: `postgres:18-alpine`, LiveKit.
 
 ## Sources
 
@@ -151,3 +163,11 @@ GitHub Actions: `ubuntu-24.04` (with `fedora:44`, the Arch image and `ubuntu:22.
 - `.github/workflows/mobile.yml`
 - `.github/workflows/desktop.yml`
 - `.github/workflows/desktop-swiftui.yml`
+- `.github/workflows/web-client.yml`
+- `.github/workflows/native-server.yml`
+- `apps/web/package.json`
+- `apps/server/Cargo.toml`
+- `apps/server/Dockerfile`
+- `Cargo.toml`
+- `docker/compose.rocketvibe.yml`
+- `docker/compose.voice.yml`

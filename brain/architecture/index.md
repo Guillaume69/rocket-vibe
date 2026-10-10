@@ -1,6 +1,6 @@
 # Architecture index
 
-How the two apps are built. Start with [overview.md](overview.md), then go to the
+How the apps and the server are built. Start with [overview.md](overview.md), then go to the
 shared docs or to the app you are working on. Back to [../BRAIN.md](../BRAIN.md).
 
 ## Shared
@@ -12,7 +12,7 @@ shared docs or to the app you are working on. Back to [../BRAIN.md](../BRAIN.md)
 | [testing.md](testing.md) | Mobile `node --test` (type stripping, real-SQLite tests, fake-store traps), the Maestro suite, desktop unit and integration tests over fake HTTP/DDP servers, live tests gated by `RV_TEST_SERVER`, smoke and e2e scripts, coverage, CI package smoke runs. |
 | [e2ee.md](e2ee.md) | The E2EE key chain in both apps: private-key envelopes, room keys unwrapped with RSA-OAEP, message and file formats, quick-crypto aliasing, key rotation, per-account key storage. |
 | [i18n.md](i18n.md) | French and English: mobile `ui/messages.ts` and `ui/i18n.ts` plus the native push strings, desktop `rv-core` `i18n.rs` shared by GTK and SwiftUI. |
-| [web-client.md](web-client.md) | Embedded browser distribution, GTK design synchronization, one origin/account, indexed storage and browser media. |
+| [shared-crates.md](shared-crates.md) | `crates/`: `rv-protocol` and its generated schema and TypeScript, `rv-client`, `rv-crypto-public`, the `rv-crypto` engine and vault, the mobile, wasm and voice bridges, who consumes what, the seven workspaces and `cargo-locks.mjs`. |
 
 ## Mobile (`apps/mobile`)
 
@@ -21,7 +21,7 @@ shared docs or to the app you are working on. Back to [../BRAIN.md](../BRAIN.md)
 | [mobile-app.md](mobile-app.md) | Layering (`app/` routes, `ui/`, Node-pure `lib/`, `db/`, the `providers/` facade), root providers, session and sync state, module stores and their purge rule, live queries, theme and kit, the native-components rule. |
 | [mobile-data.md](mobile-data.md) | One SQLite file per (server, account), every table, the per-connection write queue, drizzle-kit migrations, upsert rules, stores, reconciliation, 500-messages-per-room retention. |
 | [mobile-transport.md](mobile-transport.md) | The listen-only DDP client (ref-counted replayable subscriptions, silence watchdog, ping probe), the REST client (timeouts, 429, token-rejected hook), backoff, connection setup, background handling, deferred logout. |
-| [mobile-native.md](mobile-native.md) | CNG (`android/` and `ios/` gitignored), every config plugin, the four local Expo modules, the patches, Metro's `crypto`/`buffer` aliasing, when a dev-client rebuild is needed, iOS status. |
+| [mobile-native.md](mobile-native.md) | CNG (`android/` and `ios/` gitignored), every config plugin, the local Expo modules, the patches, Metro's `crypto`/`buffer` aliasing, when a dev-client rebuild is needed, iOS status. |
 
 ## Desktop (`apps/desktop`)
 
@@ -31,3 +31,15 @@ shared docs or to the app you are working on. Back to [../BRAIN.md](../BRAIN.md)
 | [desktop-core.md](desktop-core.md) | rv-core module by module: tokio actors and broadcast channels, session wiring and catch-up order, REST, the DDP actor, the store's `_updatedAt` arbitration, sync cursors, outbox, uploads. |
 | [desktop-gtk.md](desktop-gtk.md) | rv-gtk structure (AppWindow, ChatPage, MessageList), how core events reach the main thread, rv-native on Windows and macOS, video through GTK media or GStreamer, packaging. |
 | [desktop-macos.md](desktop-macos.md) | The SwiftUI macOS app over rv-ffi: one tokio runtime, one Listener, RocketVibeKit view models, accounts shared with GTK, build and CI, status. |
+
+## Web (`apps/web`)
+
+| Doc | What's here |
+|---|---|
+| [web-client.md](web-client.md) | The browser app the server embeds: React and Vite, the build chain (design, strings, crypto copies, wasm), routes and headers, one origin/account, IndexedDB state, the ticketed socket, browser media and voice, the crypto worker. |
+
+## Server (`apps/server`)
+
+| Doc | What's here |
+|---|---|
+| [server.md](server.md) | The RocketVibe server: the CLI and its settings, startup and background loops, the router's layers, errors and discovery, accounts, sessions, factors and rate limits, the journal, cursors, snapshots and WebSocket, files and objects, what it serves, tests, release, footguns. |

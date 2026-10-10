@@ -43,6 +43,27 @@ All code, comments and docs are in English. French survives in two places only: 
 | Person field | A form field answered with someone: from a list, or any non-bot member of the room; the run sees the username. | [workflows](features/workflows.md) |
 | Internal bot session | A `bot_keys` row flagged `internal`: the session the engine posts with as the bot, never listed nor counted. | [workflows](features/workflows.md) |
 
+## RocketVibe server and shared crates (`apps/server/`, `crates/`)
+
+| Term | Meaning | More |
+|---|---|---|
+| RocketVibe server, native server | The project's own chat server, `apps/server` (crate `rv-server`); "native" names everything that speaks its protocol rather than Rocket.Chat's or Mattermost's. | [server](architecture/server.md) |
+| Native provider | A client's backend for the RocketVibe server: mobile `providers/rocketvibe/`, desktop `rv-core::native` (`NativeSession`), and the web app as a whole. | [overview](architecture/overview.md) |
+| `rv-protocol` | The native v1 wire types, the source of `docs/protocol/v1.schema.json` and of the generated TypeScript. | [shared-crates](architecture/shared-crates.md) |
+| `rv-client` | The Rust HTTP client of the native protocol (`NativeClient`), used by the desktop. | [shared-crates](architecture/shared-crates.md) |
+| `rv-crypto`, `rv-crypto-public` | The MLS engine with its vault (clients only), and the public proof formats the server verifies. | [shared-crates](architecture/shared-crates.md) |
+| `rv-crypto-mobile`, `rv-crypto-web` | The engine's bridges: UniFFI for Android, wasm for the browser. | [shared-crates](architecture/shared-crates.md) |
+| `rv-voice-mobile` | RNNoise over JNI for the Android voice module. | [shared-crates](architecture/shared-crates.md) |
+| Capabilities | The flags `/.well-known/rocketvibe` announces (uploads, push, voice, e2ee...); a client shows a feature only when its flag is on. | [server](architecture/server.md) |
+| Journal | The server's ordered log of room and message changes (`journal`, `instance.position`); clients follow it rather than reading state "as of now". | [server](architecture/server.md) |
+| Cursor | An opaque token for a place in the journal, 7 days; an expired one answers `sync_reset_required` and the client restarts from a snapshot. | [server](architecture/server.md) |
+| Socket ticket | `SocketTicket`, from `POST /api/v1/sync/ticket`: a 30-second single-use pass, given in the URL that opens the sync WebSocket. | [server](architecture/server.md) |
+| Data epoch | `instance.data_epoch`: the dataset's generation, in discovery, cursors, leases and the web app's account key; a change means "start over". | [server](architecture/server.md) |
+| Operation id | The client-chosen id of a write (a message's id is its operation id); replaying it returns the first result, different content under it is 409. | [server](architecture/server.md) |
+| MLS | Messaging Layer Security, the group key protocol of native E2EE (OpenMLS). Rocket.Chat's E2EE is a different scheme. | [shared-crates](architecture/shared-crates.md) |
+| Vault | `rv-crypto`'s encrypted store of a device's keys and private history, checkpointed in the OS keychain against rollback. | [shared-crates](architecture/shared-crates.md) |
+| SFU | The LiveKit server that relays voice and video between participants. | [voice](features/voice.md) |
+
 ## Rocket.Chat protocol
 
 | Term | Meaning | More |
@@ -197,6 +218,7 @@ All code, comments and docs are in English. French survives in two places only: 
 | `rv-ffi` | UniFFI façade over `rv-core` for the SwiftUI app. | [desktop-macos](architecture/desktop-macos.md) |
 | `rv-gtk` | The GTK 4 + libadwaita app (Linux, Windows, macOS). | [desktop-gtk](architecture/desktop-gtk.md) |
 | `rv-native` | Windows and macOS shims: system notifications, badges, call web views, tray, start at login. | [desktop-gtk](architecture/desktop-gtk.md) |
+| `rv-voice-protocol`, `rv-voice` | The JSON-lines contract with the voice sidecar, and the sidecar itself (its own workspace, linking libwebrtc). | [voice](features/voice.md) |
 | `RocketVibeKit`, `RocketVibe` | The SwiftUI app's view models and views (`apps/desktop/macos/Sources/`). | [desktop-macos](architecture/desktop-macos.md) |
 | Context window | The history around a message older than what a room has loaded, held in memory and never stored; the list showing it is detached from the present until the window reaches the local history (rv-core `context`, rv-ffi `ContextView`, mobile `lib/contextWindow.ts`). | [room-view](features/room-view.md) |
 | `Admin` | rv-core's administration of the open account, `RocketChat(Arc<Session>)` or `Native(Arc<NativeSession>)`, with the methods both desktop UIs call. | [administration](features/administration.md) |

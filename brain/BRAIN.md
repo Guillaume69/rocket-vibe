@@ -1,16 +1,17 @@
 # BRAIN - rocket-vibe knowledge base
 
-The map of the codebase, written so a developer or AI can understand both apps
+The map of the codebase, written so a developer or AI can understand every app
 **without reading the source**. Start here, follow the links, stop when you have
 the answer. Every leaf doc cites the real source files if you need to go deeper.
 
-> Product: **rocket-vibe** - third-party Rocket.Chat clients, faster and more
-> reliable than the official ones, for self-hosted servers on Rocket.Chat 8 or
-> later. Installed clients in `apps/mobile` (Expo / React Native, Android
-> first) and `apps/desktop` (Rust core, GTK 4 + libadwaita UI, plus a SwiftUI app
-> for macOS), plus `apps/web`, a browser client delivered by the native RocketVibe server.
-> Each has its own version: `apps/mobile/app.json`, `apps/desktop/Cargo.toml` and
-> `apps/web/package.json`. Stack snapshot in [stack.md](stack.md).
+> Product: **rocket-vibe** - chat clients faster and more reliable than the
+> official ones, for self-hosted Rocket.Chat 8 or later, Mattermost and kChat, and
+> the project's own RocketVibe server. Installed clients in `apps/mobile` (Expo /
+> React Native, Android first) and `apps/desktop` (Rust core, GTK 4 + libadwaita UI,
+> plus a SwiftUI app for macOS); `apps/web`, a browser client the RocketVibe server
+> delivers; `apps/server`, that server (Rust, PostgreSQL); shared Rust in `crates/`.
+> Each app has its own version: `apps/mobile/app.json`, `apps/desktop/Cargo.toml`,
+> `apps/web/package.json` and `apps/server/Cargo.toml`. Stack snapshot in [stack.md](stack.md).
 
 ## How to use this
 
@@ -32,7 +33,7 @@ use the indexes.
 
 | Doc | What's here |
 |---|---|
-| [stack.md](stack.md) | Exact technologies and versions for both apps, the toolchains per OS, the Docker images, the CI runners. |
+| [stack.md](stack.md) | Exact technologies and versions for every app and the server, the toolchains per OS, the Docker images, the CI runners. |
 | [operations.md](operations.md) | Environment, the test server and its seed, build and run per app, CI, versions, the tag release flow, secrets. |
 | [glossary.md](glossary.md) | Rocket.Chat terms, the project's own terms, the legacy French names still read for upgrades, desktop crate names. |
 | [decisions.md](decisions.md) | The non-obvious decisions and their rationale. |
@@ -51,11 +52,13 @@ use the indexes.
 | [mobile-data.md](architecture/mobile-data.md) | One SQLite file per (server, account), its tables, the write queue, migrations, retention. |
 | [mobile-transport.md](architecture/mobile-transport.md) | The listen-only DDP client, the REST client, liveness, backoff, session revocation. |
 | [mobile-native.md](architecture/mobile-native.md) | CNG, the config plugins, the local Expo modules, quick-crypto, when to rebuild the dev-client, iOS. |
-| [desktop-app.md](architecture/desktop-app.md) | The desktop workspace: four crates, the SwiftUI package, the build container, runtime state. |
+| [desktop-app.md](architecture/desktop-app.md) | The desktop workspace: five crates, the voice sidecar, the SwiftUI package, the build container, runtime state. |
 | [desktop-core.md](architecture/desktop-core.md) | rv-core module by module: async model, session, REST, DDP, store, sync, outbox, uploads. |
 | [desktop-gtk.md](architecture/desktop-gtk.md) | rv-gtk structure, core events to the main thread, rv-native per platform, video, packaging. |
 | [desktop-macos.md](architecture/desktop-macos.md) | The SwiftUI macOS app over rv-ffi (UniFFI), its view models, status. |
-| [web-client.md](architecture/web-client.md) | Server-embedded browser application, origin/session rules, IndexedDB and browser transports. |
+| [web-client.md](architecture/web-client.md) | Server-embedded browser application, its build chain, origin/session rules, IndexedDB and browser transports. |
+| [server.md](architecture/server.md) | The RocketVibe server: CLI and configuration, HTTP layers, sessions and limits, the journal, cursors and WebSocket, files, background loops, tests and release. |
+| [shared-crates.md](architecture/shared-crates.md) | `crates/`: the native protocol and its generated copies, the HTTP client, the MLS engine and its vault, the Android and wasm bridges, the seven workspaces and their locks. |
 
 ## Features (the what) - [features/index.md](features/index.md)
 
@@ -119,6 +122,9 @@ Each feature doc covers mobile and desktop, and says where they differ.
 | How does the SwiftUI app talk to the Rust core? | [architecture/desktop-macos.md](architecture/desktop-macos.md) |
 | Does desktop do X yet, and how does it differ from mobile? | [parity.md](parity.md), then the feature doc's Mobile and Desktop sections |
 | How do I start the test server and seed it? | [operations.md](operations.md) |
+| How does the RocketVibe server deliver changes, and what limits does it enforce? | [architecture/server.md](architecture/server.md) |
+| Where is the native protocol defined, and how do its TypeScript types stay in sync? | [architecture/shared-crates.md](architecture/shared-crates.md) |
+| Why are there seven `Cargo.lock`, and how do I update a Rust dependency? | [architecture/shared-crates.md](architecture/shared-crates.md), [operations.md](operations.md) |
 | What does CI check, and what only runs on a tag? | [operations.md](operations.md), [architecture/testing.md](architecture/testing.md) |
 | How do I cut a release? | [operations.md](operations.md) (and the `release` skill) |
 | What does `hotRooms` / connection setup / `writeQueue` mean? | [glossary.md](glossary.md) |

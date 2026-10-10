@@ -1,8 +1,9 @@
 # Parity
 
 What a user can do in each app, tracked both ways: the Android app (`apps/mobile`),
-the GTK app (`apps/desktop`, Linux, Windows, macOS) and the SwiftUI app
-(`apps/desktop/macos`, over the same rv-core). Neither app is the reference. A row
+the GTK app (`apps/desktop`, Linux, Windows, macOS), the SwiftUI app
+(`apps/desktop/macos`, over the same rv-core) and the web app (`apps/web`, which
+speaks to the RocketVibe server only). None of them is the reference. A row
 that is not `done` or `mapped` in an app is debt that app owes, and is listed again
 under [Open debt](#open-debt). The rule that keeps this file true is in `CLAUDE.md`
 ("Parity"); the mechanism behind each row is in the linked feature doc.
@@ -35,7 +36,7 @@ beta does.
 | Server rail tiles show the server's own icon (Rocket.Chat `favicon_192` asset when set, RocketVibe instance icon), else the initial | done | done | done | mapped | Mattermost and kChat keep the initial. SwiftUI checked by the macOS CI build only. Web: no rail (one account per origin); the tab's favicon shows the RocketVibe server's icon. |
 | Hide the server rail (Settings > Accounts, off by default), switching and adding staying in that page | done | done | done | n/a | Device-wide: SecureStore on mobile, one config file GTK and SwiftUI share. SwiftUI checked by the macOS CI build only. Web: One account on the serving origin, explicit user decision. |
 | Several accounts on the same server | missing | done | done | n/a | Mobile holds one account per server. Web: One account on the serving origin, explicit user decision. |
-| Sign out: `logout` sent, keychain item and local data removed | done | done | partial | done | Mobile keeps the account's SQLite file on purpose; GTK deletes `.sqlite`, `-wal` and `-shm`; SwiftUI deletes the `.sqlite` only, leaving `-wal` and `-shm`. Web: Native provider: see [web-client](features/web-client.md). |
+| Sign out: `logout` sent, keychain item and local data removed | done | done | done | done | Mobile keeps the account's SQLite file on purpose; GTK and SwiftUI close the store, then delete `.sqlite`, `-wal` and `-shm` (`Store::close`, `Store::remove_files`). Web: Native provider: see [web-client](features/web-client.md). |
 | Replay of a sign-out that failed offline | done | missing | missing | missing | Mobile retries it at the next start. Desktop has no push token to remove, but the server session stays open. Web: No browser implementation yet. |
 
 ## 2. Room list - [room-list](features/room-list.md)
@@ -311,19 +312,28 @@ beta does.
 
 ## Open debt
 
-What each app owes, from the tables above. Rows missing in all three are product
-gaps, listed last.
+What each app owes, from the tables above. Rows missing in all three native apps
+are product gaps, listed last.
 
 - **Mobile**: kChat "Sign in with Infomaniak" run on a real account; Mattermost stars changed elsewhere, live; several accounts per server;
   live styling of the draft; logs folder.
 - **GTK**: a room's own notifications, forwarding a message, "also send to the room" in a thread, invite links and discussions (Rocket.Chat); search across rooms; kChat "Sign in with Infomaniak"; email 2FA resend; replay of an offline sign-out; padlock tile once
   unlocked; DM avatar versions in the list; video reduction; reconciliation snapshot; catch-up of
   deletions in rooms already caught up; message retention.
-- **SwiftUI**: everything GTK owes, plus `-wal` / `-shm` cleanup on sign-out;
+- **SwiftUI**: everything GTK owes, plus
   workflow variables inserted at the cursor in a one-line URL;
   formatting toolbar; list continuation; notification backend description; logs
   folder; new versions; running with the window closed and starting at login;
   meeting information.
+- **Web**: missing: replay of an offline sign-out, video reduction, the thread
+  list, following and "also send to the room", search across rooms, the logs
+  folder, reply from a notification, message retention. Partial, mostly pending row-by-row
+  qualification against GTK (`docs/WEB_CLIENT_EXECUTION.md`): link previews,
+  embeds, quote cards, system messages, reactions, the thread chip, profiles,
+  the notification check, running with the tab closed; most native E2EE rows
+  (encrypted rooms, history share and backup, private edits, reactions, search
+  and files, storage keys, delegation, recovered history); most voice rows; the
+  outbox, reconnection and purge rows; "Deleted user"; bots and workflows.
 - **All three**: the thread list and following on Mattermost, kChat and RocketVibe servers; room members, settings and roles; creating an encrypted room; creating a
   channel or private group on Rocket.Chat; "Deleted
   user" on messages ingested before the deletion, on server-computed names and in

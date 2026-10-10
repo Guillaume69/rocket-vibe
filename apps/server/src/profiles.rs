@@ -16,14 +16,16 @@ use rv_protocol::{
     live::PresenceStatus,
     parity::{UserPreferences, UserProfile},
     profiles::{
-        AvatarCommand, DesktopNotifications, OwnProfile, ProfileReceipt, UpdatePreferences,
-        UpdateProfile,
+        AvatarCommand, DesktopNotifications, OwnProfile, ProfileReceipt, QuietHours,
+        UpdatePreferences, UpdateProfile,
     },
 };
 use sqlx::{Postgres, Transaction};
 use std::io::Cursor;
 
 pub const AVATAR_BYTES: usize = rv_protocol::bots::AVATAR_BYTES;
+/// How far ahead a mute may run.
+const MUTE_DAYS: i64 = 7;
 #[derive(sqlx::FromRow)]
 struct Row {
     id: String,
@@ -40,6 +42,10 @@ struct Row {
     push_enabled: bool,
     push_mentions_only: bool,
     desktop_notifications: String,
+    quiet_start: Option<i16>,
+    quiet_end: Option<i16>,
+    quiet_zone: Option<String>,
+    muted_until: Option<chrono::DateTime<chrono::Utc>>,
     email: Option<String>,
     bot: bool,
     owner_id: Option<String>,
@@ -86,6 +92,19 @@ impl Row {
                     "nothing" => DesktopNotifications::Nothing,
                     _ => DesktopNotifications::Default,
                 },
+                quiet_hours: match (self.quiet_start, self.quiet_end, self.quiet_zone) {
+                    (Some(start), Some(end), Some(time_zone)) => Some(QuietHours {
+                        start_minute: start as u16,
+                        end_minute: end as u16,
+                        time_zone,
+                    }),
+                    _ => None,
+                },
+                // A past instant is no longer a mute.
+                muted_until: self
+                    .muted_until
+                    .filter(|until| *until > chrono::Utc::now())
+                    .map(|until| until.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
             },
             email: self.email,
         }
@@ -282,6 +301,31 @@ pub(crate) async fn preferences(
     if !["auto", "fr", "en"].contains(&input.language.as_str()) {
         return Err(Error::invalid());
     }
+    // An absent field keeps the stored value; `null` removes it.
+    let quiet = match &input.quiet_hours {
+        None => None,
+        Some(None) => Some(None),
+        Some(Some(window)) => {
+            if !window.valid() || window.time_zone.parse::<chrono_tz::Tz>().is_err() {
+                return Err(Error::invalid());
+            }
+            Some(Some(window.clone()))
+        }
+    };
+    let now = chrono::Utc::now();
+    let muted = match &input.muted_until {
+        None => None,
+        Some(None) => Some(None),
+        Some(Some(text)) => {
+            let until = chrono::DateTime::parse_from_rfc3339(text)
+                .map_err(|_| Error::invalid())?
+                .with_timezone(&chrono::Utc);
+            if until > now + chrono::Duration::days(MUTE_DAYS) {
+                return Err(Error::invalid());
+            }
+            Some((until > now).then_some(until))
+        }
+    };
     let hash = fingerprint("preferences", &input)?;
     let mut tx = app.pool.begin().await?;
     auth::lock_active(&mut tx, actor).await?;
@@ -297,8 +341,12 @@ pub(crate) async fn preferences(
         return Err(revision_conflict());
     }
     admission(&mut tx, actor).await?;
-    let revision:String=sqlx::query_scalar("UPDATE users SET preferred_language=$2,clock_24h=$3,push_enabled=$4,push_mentions_only=$5,desktop_notifications=$6 WHERE id=$1 RETURNING preferences_version")
-        .bind(&actor.id).bind(input.language).bind(input.clock_24h).bind(input.push_enabled).bind(input.push_mentions_only).bind(notification_name(input.desktop_notifications)).fetch_one(&mut *tx).await?;
+    let window = quiet.clone().flatten();
+    let revision:String=sqlx::query_scalar("UPDATE users SET preferred_language=$2,clock_24h=$3,push_enabled=$4,push_mentions_only=$5,desktop_notifications=$6,quiet_start=CASE WHEN $7 THEN $8 ELSE quiet_start END,quiet_end=CASE WHEN $7 THEN $9 ELSE quiet_end END,quiet_zone=CASE WHEN $7 THEN $10 ELSE quiet_zone END,muted_until=CASE WHEN $11 THEN $12 ELSE muted_until END WHERE id=$1 RETURNING preferences_version")
+        .bind(&actor.id).bind(input.language).bind(input.clock_24h).bind(input.push_enabled).bind(input.push_mentions_only).bind(notification_name(input.desktop_notifications))
+        .bind(quiet.is_some()).bind(window.as_ref().map(|w| w.start_minute as i16)).bind(window.as_ref().map(|w| w.end_minute as i16)).bind(window.map(|w| w.time_zone))
+        .bind(muted.is_some()).bind(muted.flatten())
+        .fetch_one(&mut *tx).await?;
     let saved = receipt(&mut tx, actor, &input.operation_id, &hash, revision).await?;
     tx.commit().await?;
     Ok(saved)

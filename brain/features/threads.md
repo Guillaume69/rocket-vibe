@@ -39,7 +39,11 @@ Replies are ordinary message rows with a thread column (mobile `messages.thread_
 - **Thread list**: a room-header button, shown when `Session::threads_available` (not Mattermost or kChat) and hidden on native rooms, opens `src/threads.rs`, an `adw::Dialog` presented with `widgets::present` (closes on its backdrop). Tabs All and Following, pages of 50 by "Load more" or at the bottom of the scroll while `offset < total`, empty and error states with Retry. A row shows author, date, a plain-text preview of the root, "N replies · last <time>" and a bell; a click closes the dialog and opens the thread. `Session::threads` (`actions::threads`) stores the roots as they come, like `Session::marked`, and returns the stored rows.
 - **Following**: `Session::follow_thread` calls `actions::follow_thread`, then `Writer::set_thread_follower` changes the row at once without touching `updated_at`, so the root the server rebroadcasts (with a newer `_updatedAt`) always replaces the guess. `ThreadPage` carries a header bell read from the root's followers in `reload()` (`ChatPage::wire_thread_follow`), hidden for native and Mattermost threads; a follow changed in one tab of the list reloads the other. Smoke step `RV_SMOKE_DETAILS=threads`.
 
+- **Also send to the room** (Rocket.Chat, `Session::also_in_room_available`): a check button above the thread composer for one reply, unchecked after each send; `Session::send_reply` queues it with `shown`, the outbox row keeps it (`outbox.shown`, a migration) so a resend still carries `tshow: true` with `tmid`, and the optimistic row shows in the room at once.
+
 ## Desktop (SwiftUI)
+
+- "Also send to the room": a `ThreadView` toggle over `RoomModel.alsoInRoom`, the same path.
 
 `ThreadView` shows a `RoomModel` built with `threadId` beside the room (`AppModel.openThread`, `closeThread`), with its own `Composer`. Text and commands carry the thread id. Its file and voice buttons send into the thread: `RoomModel.attach` passes `threadId` to `Chat.attach` / `NativeFiles.attach` (`thread`), an encrypted thread's private handle writes into its thread, and `UploadsView` shows the thread's own queued files (`Upload.thread`).
 

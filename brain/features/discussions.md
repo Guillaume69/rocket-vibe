@@ -19,9 +19,18 @@ Probed on 8.5.1 (2026-10-10); also in `CLAUDE.md`, "Discussions".
 
 ## Desktop
 
-Not implemented in GTK or SwiftUI: a `discussion-created` message reads as an unknown system message there. See [parity](../parity.md) §6.
+- The store keeps `drid`, `dcount`, `dlm` (`rv-core/src/store.rs`, a migration), and a `discussion-created` message renders as a card (GTK `cards::discussion` in `rv-gtk/src/cards.rs`, SwiftUI `DiscussionCardView` in `Discussions.swift`): name, "N messages · last", Open. The figures lag by one (the creation's first message is not counted, CLAUDE.md "Discussions").
+- Open (`Session::open_discussion`): the room opens if it is listed; otherwise `rooms.info` says what it is, and a public one is joined (`channels.join`, through `rocketchat::actions`), a private one says it is for members only.
+- Create: "Start a discussion" beside Forward in the message menu, "New discussion" in the room information dialog, not in an encrypted or read-only room (`Session::discussions_available`). The dialog (GTK `rv-gtk/src/discussions.rs`, closing on its backdrop; SwiftUI `NewDiscussionSheet`) requires a name, suggests one from the message's first line (60 characters at most) and takes an optional first message; `Session::create_discussion` (`rocketchat::actions::create_discussion`) ingests the new room, catches it up and opens it.
+- Rocket.Chat only; Mattermost and kChat refuse these calls without a request (`tests/session_backends.rs`).
 
 ## Sources
+
+- apps/desktop/crates/rv-core/src/session.rs
+- apps/desktop/crates/rv-core/src/rocketchat/actions.rs
+- apps/desktop/crates/rv-gtk/src/discussions.rs
+- apps/desktop/crates/rv-gtk/src/cards.rs
+- apps/desktop/macos/Sources/RocketVibe/Discussions.swift
 
 - apps/mobile/ui/discussion.tsx
 - apps/mobile/app/new-discussion.tsx

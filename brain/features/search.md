@@ -31,11 +31,22 @@ This is the only place the apps call `spotlight`; `@` mention completion deliber
 
 A search button in the room list's header opens `app/search-messages.tsx`. `ui/localSearch.ts` holds the session's search, mounted by `ui/sync.tsx` with the database like the emoji usage store; `createLocalSearch` (`db/store.ts`) runs `SEARCH_MESSAGES` (`db/upserts.ts`): `text LIKE ? ESCAPE` with `searchPattern` escaping `%`, `_` and the backslash, ordinary messages and decrypted `e2e` ones (a locked one has no text), newest first, 60 at most, ids only; the screen then reads the rows and their rooms through drizzle. `LIKE` ignores ASCII case only (accents count). It covers what the device holds, whatever the server kind: the last 500 messages per room on mobile, plus history already opened; the screen says so. A tap opens the room at the message (`requestJump` before the push), or the thread of a reply not shown in the room. Private RocketVibe conversations keep their own on-device search, per room (`CryptoConversationAccess.search`).
 
+## Messages across rooms (desktop, on the device)
+
+`Store::search_messages` (`rv-core/src/store.rs`) reads the stored messages with `LIKE ? ESCAPE '\'` (`%`, `_` and `\` escaped), newest first, 60 at most. The desktop never stores decrypted text (only my own messages still in the outbox), so `Session::search_local` also reads `Store::sealed_messages` and decrypts them while the room keys are unlocked. Rocket.Chat, Mattermost and kChat; not on a native RocketVibe session.
+
+- GTK: a search button in the sidebar header, or Ctrl+Shift+F (`chat.rs`), opens `rv-gtk/src/local_search.rs`: the hits under their room's name; a click opens the room at the message, or the thread for a reply.
+- SwiftUI: `LocalSearchSheet` (`macos/Sources/RocketVibe/LocalSearch.swift`), from a sidebar button, Cmd+Shift+F.
+
 ## Parity
 
-Both apps: spotlight for new conversations, `chat.search` in a room, jumping from a result to the message whatever its age. Search across rooms: mobile only, on the device. Neither: a filter over the local room list.
+All apps: spotlight for new conversations, `chat.search` in a room, jumping from a result to the message whatever its age, search across rooms on the device. The joined rooms are filtered by name in the [room switcher](room-switcher.md) (mobile: the room list's filter).
 
 ## Sources
+
+- apps/desktop/crates/rv-core/src/store.rs
+- apps/desktop/crates/rv-gtk/src/local_search.rs
+- apps/desktop/macos/Sources/RocketVibe/LocalSearch.swift
 
 - apps/mobile/ui/debouncedSearch.ts
 - apps/mobile/app/search.tsx

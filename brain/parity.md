@@ -145,14 +145,14 @@ beta does.
 | Files and voice messages in a thread | done | done | done | done | Encrypted RocketVibe threads included. SwiftUI checked by the macOS CI build only. Web: Native provider: see [web-client](features/web-client.md). |
 | List of a room's threads, All and Following, latest reply first, paged | done | done | done | missing | Rocket.Chat servers only (`chat.getThreadsList`): Mattermost and kChat not mapped, the RocketVibe server has no list route yet. No Unread filter anywhere (see [decisions](decisions.md)). SwiftUI checked by the macOS CI build only. Web: Native provider only, which has no route yet. |
 | Follow or unfollow a thread, from the list and from the open thread, shown live | done | done | done | missing | Rocket.Chat servers only (`chat.followMessage`), same limits as the list. SwiftUI checked by the macOS CI build only. Web: Native provider only, which has no route yet. |
-| "Also send to the room" (`tshow`) from the thread composer | done | missing | missing | missing | Rocket.Chat (`Capabilities.alsoInRoom`): a one-shot checkbox above the thread composer, kept in the outbox row (`outbox.shown`) for the replay. GTK and SwiftUI owe it. Web: No browser implementation yet. |
+| "Also send to the room" (`tshow`) from the thread composer | done | done | done | missing | Rocket.Chat (`Capabilities.alsoInRoom`, desktop `Session::also_in_room_available`): a one-shot checkbox above the thread composer, kept in the outbox row (`outbox.shown`) for the replay. SwiftUI's view checked by the macOS CI build only. Web: No browser implementation yet. |
 
 ### Discussions - [discussions](features/discussions.md)
 
 | Feature | Mobile | GTK | SwiftUI | Web | Notes |
 |---|---|---|---|---|---|
-| A discussion's card in its parent (name, message count, last activity), opening it, joining a public one | done | missing | missing | n/a | Rocket.Chat. GTK and SwiftUI show `discussion-created` as an unknown system message. Web: Native-origin client; Rocket.Chat is outside its scope. |
-| Start a discussion from a message or a room (`rooms.createDiscussion`) | done | missing | missing | n/a | Rocket.Chat, name required, optional first message. Web: as above. |
+| A discussion's card in its parent (name, message count, last activity), opening it, joining a public one | done | done | done | n/a | Rocket.Chat. SwiftUI's views checked by the macOS CI build only. Web: Native-origin client; Rocket.Chat is outside its scope. |
+| Start a discussion from a message or a room (`rooms.createDiscussion`) | done | done | done | n/a | Rocket.Chat, name required, optional first message. Web: as above. |
 
 ## 7. Search - [search](features/search.md)
 
@@ -160,7 +160,7 @@ beta does.
 |---|---|---|---|---|---|
 | Search messages in the room (`chat.search`) | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | Open a result at its message | done | done | done | done | SwiftUI does not open a thread reply in its thread. Web: Native provider: see [web-client](features/web-client.md). |
-| Search across rooms (on the device: the messages already synced, any server kind) | done | missing | missing | missing | Mobile: local SQLite (`SEARCH_MESSAGES`), 500 newest per room plus opened history; private RocketVibe conversations stay searched per room. GTK and SwiftUI owe it (their store keeps every message: no retention). Web: No browser implementation yet. |
+| Search across rooms (on the device: the messages already synced, any server kind) | done | done | done | missing | Mobile: local SQLite (`SEARCH_MESSAGES`), 500 newest per room plus opened history; private RocketVibe conversations stay searched per room. Desktop: `Store::search_messages` plus the sealed rows decrypted while unlocked (Ctrl+Shift+F, Cmd+Shift+F), Rocket.Chat and Mattermost, not native RocketVibe sessions; SwiftUI's view checked by the macOS CI build only. Web: No browser implementation yet. |
 
 ## 8. Room info and profiles - [room-info-and-profiles](features/room-info-and-profiles.md)
 
@@ -173,7 +173,7 @@ beta does.
 | Remove my photo (`users.resetAvatar`) | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | Live avatar changes (`updateAvatar`) | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | Report a user from the profile (`moderation.reportUser`, RocketVibe `reports`) | done | done | done | done | Not on my own profile ([administration](features/administration.md)). SwiftUI checked by the Linux build of RocketVibeKit and the macOS CI build only. Web: Native provider: see [web-client](features/web-client.md). |
-| Share an invite link to a channel or private group (Rocket.Chat `findOrCreateInvite`, the direct `<Site_Url>/invite/<id>` form) | done | missing | missing | n/a | Mobile: the room information sheet, for `create-invite-links` holders, 7 days, unlimited uses, through the system share sheet. GTK and SwiftUI owe it. Web: Native-origin client; Rocket.Chat is outside its scope. |
+| Share an invite link to a channel or private group (Rocket.Chat `findOrCreateInvite`, the direct `<Site_Url>/invite/<id>` form) | done | done | done | n/a | Mobile: the room information sheet, for `create-invite-links` holders, 7 days, unlimited uses, through the system share sheet. Desktop: the room information dialog copies it (GTK) or offers it (SwiftUI `InviteSection`, checked by the macOS CI build only). Web: Native-origin client; Rocket.Chat is outside its scope. |
 | Room members, room settings, roles | partial | missing | missing | done | Mobile (Rocket.Chat): the member list, read only (`app/room-members.tsx`: `rooms.membersOrderedByRole`, owners and moderators first, server-side search, roles, presence, a row opens the profile; a long press offers moderator, owner and removal as my `set-moderator`, `set-owner`, `remove-user` allow; topic, description and announcement edited from the room information sheet with `edit-room`, `rooms.saveRoomSettings`); no renaming nor read-only switch. Web: Native provider: see [web-client](features/web-client.md). |
 
 ## 9. Settings - [settings](features/settings.md)
@@ -324,7 +324,7 @@ are product gaps, listed last.
 - **Mobile**: kChat "Sign in with Infomaniak" run on a real account; several accounts per server;
   live styling of the draft; logs folder; in notifications the author's photo,
   the message's picture, quick reactions and mark as read, the app's own sound.
-- **GTK**: "also send to the room" in a thread, invite links and discussions (Rocket.Chat); search across rooms; a forwarded message (a quote with no words) previews empty in the room list; kChat "Sign in with Infomaniak"; email 2FA resend; replay of an offline sign-out; padlock tile once
+- **GTK**: kChat "Sign in with Infomaniak"; email 2FA resend; replay of an offline sign-out; padlock tile once
   unlocked; DM avatar versions in the list; video reduction; reconciliation snapshot; catch-up of
   deletions in rooms already caught up; message retention; outside Windows
   toasts, the notification's picture, quick reactions, mark as read and own sound

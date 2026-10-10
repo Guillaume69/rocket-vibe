@@ -52,7 +52,8 @@ import { MentionCompletionBanner } from './mentionCompletion.tsx';
 import { useE2EUnlocked } from './e2e.ts';
 import { openLocalFile } from './attachment.ts';
 import { deleteIfTemporary } from './temporaryFiles.ts';
-import { useT } from './i18n.ts';
+import { useScheduleFormatter, useT } from './i18n.ts';
+import { refreshScheduled, requestSendTime, scheduleError, scheduledAvailable, useScheduledList, useScheduledRefresh } from './scheduled.ts';
 import { AvatarTile, pillSurface } from './kit.tsx';
 import { Icon, InlineIcon, type IconName } from './icon.tsx';
 import { isViewTreeRejection, launchPickerWithRetry } from './launchPicker.ts';
@@ -480,6 +481,71 @@ export function Composer({
     sync,
   ]);
 
+  // Scheduled messages (RocketVibe, brain/features/scheduled-messages.md): the
+  // room's list behind the "N scheduled" chip, read on open and every minute.
+  const provider = sync.phase === 'ready' ? sync.provider : null;
+  useScheduledRefresh(provider, rid);
+  const scheduledItems = useScheduledList(provider, rid);
+  const [scheduling, setScheduling] = useState(false);
+  const formatWhen = useScheduleFormatter();
+  // Text only, never in an end-to-end encrypted room: nothing staged, no
+  // quote, no server slash command (those would be lost or run now).
+  const draftCommand = splitCommand(draft.trim());
+  const canSendLater =
+    scheduledAvailable(provider) &&
+    !encrypted &&
+    draft.trim() !== '' &&
+    pending.length === 0 &&
+    response === null &&
+    !recording &&
+    !fileSend &&
+    !nativeSend &&
+    !scheduling &&
+    !(draftCommand !== null && commands.some((command) => command.name === draftCommand.name));
+  const sendLater = useCallback(async () => {
+    if (!canSendLater || !scheduledAvailable(provider)) return;
+    const text = draft.trim();
+    closeEmoji();
+    Keyboard.dismiss();
+    const choice = requestSendTime();
+    router.push('/send-later');
+    const at = await choice;
+    if (at === null || unmounted.current) return;
+    setScheduling(true);
+    setFileError(null);
+    try {
+      const item = await provider.scheduled.schedule(rid, text, at, threadId);
+      if (unmounted.current) return;
+      // Cleared only if the field still holds the scheduled text.
+      if (draftRef.current === draft) {
+        setDraft('');
+        reset();
+        clearDraft();
+        onInput?.(false);
+      }
+      notify(t('scheduled.done', { when: formatWhen(item.sendAt) }));
+    } catch (e) {
+      if (!unmounted.current) setFileError(scheduleError(e, t));
+    } finally {
+      if (!unmounted.current) setScheduling(false);
+      void refreshScheduled(provider, rid);
+    }
+  }, [canSendLater, provider, draft, closeEmoji, router, rid, threadId, reset, clearDraft, onInput, t, formatWhen]);
+  const scheduledChip =
+    scheduledAvailable(provider) && scheduledItems.length > 0 ? (
+      <Tappable
+        onPress={() => router.push({ pathname: '/scheduled-messages', params: { rid } })}
+        accessibilityRole="button"
+        accessibilityLabel={t('scheduled.count', { n: scheduledItems.length })}
+        hitSlop={6}
+        style={[styles.scheduledChip, { borderColor: scheduledItems.some((item) => item.failed) ? c.danger : c.border }]}
+      >
+        <Text style={[styles.scheduledChipText, { color: scheduledItems.some((item) => item.failed) ? c.errorText : c.dimmed }]}>
+          {t('scheduled.count', { n: scheduledItems.length })}
+        </Text>
+      </Tappable>
+    ) : null;
+
   // Stages the picked media/files as chips, waiting for a caption and send. Each
   // attachment stays the ORIGINAL: any compression (7.3) is paid at send time.
   // Validation (size/type), however, happens AS SOON AS staged: an attachment
@@ -677,13 +743,23 @@ export function Composer({
 
   // Locked encrypted room: without a key nothing can be sent, so offer to
   // unlock. Unlocked, it is the ordinary composer, and the outbox encrypts.
+  // The chip stays reachable in every variant: a failed one (the room became
+  // encrypted or read-only) still needs its Remove.
   if (encrypted && !nativeEncryptedReady && !unlocked) {
-    return <LockedComposer c={c} />;
+    return (
+      <View>
+        {scheduledChip}
+        <LockedComposer c={c} />
+      </View>
+    );
   }
   if (readOnly) {
     return (
-      <View style={[styles.composer, { borderTopColor: c.softBorder }]}>
-        <Text style={[styles.noteComposer, { color: c.dimmed }]}>{t(catchingUp ? 'room.catchingUp' : 'room.readOnly')}</Text>
+      <View>
+        {scheduledChip}
+        <View style={[styles.composer, { borderTopColor: c.softBorder }]}>
+          <Text style={[styles.noteComposer, { color: c.dimmed }]}>{t(catchingUp ? 'room.catchingUp' : 'room.readOnly')}</Text>
+        </View>
       </View>
     );
   }
@@ -725,6 +801,7 @@ export function Composer({
         <ReplyBanner c={c} target={response} client={client} onCancel={cancelQuote} />
       )}
       {privateNote !== null && <PrivateNote c={c} rid={rid} text={privateNote} />}
+      {scheduledChip}
       {!emoji.open && (
         <CommandCompletionBanner
           text={draft}
@@ -873,9 +950,25 @@ export function Composer({
             />
           </Pressable>
         ) : (
+          <>
+          {/* "Send later" beside the send button, only when it applies; a
+              long press on send opens the same sheet. */}
+          {canSendLater && (
+            <Tappable
+              onPress={() => void sendLater()}
+              android_ripple={{ color: c.ripple, borderless: true }}
+              hitSlop={6}
+              style={styles.sendLater}
+              accessibilityRole="button"
+              accessibilityLabel={t('scheduled.sendLater')}
+            >
+              <Icon name="pan-up" size={16} color={c.dimmed} />
+            </Tappable>
+          )}
           <Pressable
             onPress={send}
-            disabled={!canSend || fileSend || nativeSend}
+            onLongPress={canSendLater ? () => void sendLater() : undefined}
+            disabled={!canSend || fileSend || nativeSend || scheduling}
             // An encrypted send takes a few seconds: the dimmed button says it
             // is under way, instead of a tap that seems lost.
             style={({ pressed }) => ({
@@ -888,9 +981,10 @@ export function Composer({
               deg={[c.accent, c.purple] as const}
               size={44}
               radius={22}
-              child={<Icon name="send" size={20} color={c.onAccent} />}
+              child={scheduling ? <ActivityIndicator size="small" color={c.onAccent} /> : <Icon name="send" size={20} color={c.onAccent} />}
             />
           </Pressable>
+          </>
         )}
       </View>
       {emoji.mounted && (
@@ -982,6 +1076,9 @@ const styles = StyleSheet.create({
     maxHeight: 120,
   },
   inactive: { opacity: 0.35 },
+  scheduledChip: { alignSelf: 'flex-start', marginHorizontal: 12, marginTop: 6, borderWidth: 1, borderRadius: 14, paddingHorizontal: 10, paddingVertical: 4 },
+  scheduledChipText: { fontFamily: FONTS.bodySemi, fontSize: 12.5 },
+  sendLater: { width: 32, height: 44, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
   pillButton: { paddingVertical: 11, paddingHorizontal: 4 },
   composerError: { fontSize: 12, textAlign: 'center', paddingTop: 6, paddingHorizontal: 12 },
   noteComposer: {

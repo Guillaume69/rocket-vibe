@@ -24,6 +24,7 @@ import {
   type LanguagePreference,
   type TranslateFn,
   timeFormatter,
+  scheduleFormatter,
   dayFormatter,
   listTimeFormatter,
   deviceLanguage,
@@ -117,6 +118,12 @@ export function useT(): TranslateFn {
 export function useTimeFormatter(): (ms: number) => string {
   const language = useLanguage();
   return useMemo(() => timeFormatter(language), [language]);
+}
+
+/** When a scheduled message leaves (`scheduleFormatter`). */
+export function useScheduleFormatter(): (ms: number) => string {
+  const language = useLanguage();
+  return useMemo(() => scheduleFormatter(language), [language]);
 }
 
 /** The time beside a room in the list (`listTimeFormatter`). */

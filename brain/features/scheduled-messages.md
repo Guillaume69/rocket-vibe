@@ -20,7 +20,13 @@ On a RocketVibe server, a text message can be written now and sent later: the se
 
 ## Mobile
 
-Not offered yet.
+RocketVibe accounts only: `Provider.scheduled` (`lib/scheduled.ts`) exists on the RocketVibe driver alone and shows only while `capabilities.scheduledMessages` (the server's `scheduled_messages` and the app's own flag, `effectiveCapabilities` in `providers/rocketvibe/index.ts`) holds; Rocket.Chat and Mattermost accounts show nothing of it.
+
+- Provider: `providers/rocketvibe/scheduled.ts` over three transport routes (`scheduleMessage`, `scheduledMessages`, `cancelScheduled` in `transport.ts`), each through `NativeChat.scheduled` (a verified session, the capability, the same session generation). The operation id is kept in memory per room, thread and text until the server answers: a lost answer, a 5xx, a 408 or 429, or a session renewed meanwhile keeps it, so the retry replays the same operation; a success or another 4xx forgets it. The list is the account's `GET /api/v1/scheduled` filtered to the room, soonest first.
+- Composer (`ui/composer.tsx`, room and thread): a small chevron (`pan-up`) appears beside the send button, and a long press on send does the same, when the room is not encrypted (`encrypted` prop), the field holds text, nothing is staged, no quote is armed and the text is not a server slash command. It opens the `send-later` formSheet (`app/send-later.tsx`), which answers through `requestSendTime` / `answerSendTime` (`ui/scheduled.ts`, the pattern of `ui/attachmentSource.ts`): In 1 hour (to the minute), Tomorrow at 08:00 (the device's clock), Pick a time (a row of the next 31 days and an HH:MM field, typed like the quiet hours of `ui/doNotDisturb.tsx`, checked by `schedulable`: no picker dependency). A thread's composer sends `reply_to`. On success the field clears (if it still holds the text) and a toast says "Scheduled for <weekday, date, time>" (`scheduleFormatter`, `ui/messages.ts`); a refusal shows its reason on the composer's error line (`scheduleError`).
+- The chip "N scheduled" sits above the field (also above the locked or read-only variants, so a failed one stays removable) and opens `app/scheduled-messages.tsx`: each one's time (or "Could not be sent" and a short reason from its code), "Thread reply" when it is one, two lines of text, Cancel or Remove; a `scheduled_sending` refusal says it is already being sent, a 404 just refreshes, and the sheet closes when its last one goes. The list lives in a module store keyed by account and room (`ui/scheduled.ts`), read when the composer mounts, after each schedule or cancel, when the app returns to the front, and every minute while the room shows.
+- Both sheets are formSheets declared in `app/_layout.tsx`: a tap outside closes them with nothing scheduled or cancelled.
+- Tests: `providers/rocketvibe/scheduled.test.ts` (routes, operation replay, list filter), `lib/scheduled.test.ts` (the offered times and bounds). Not yet run against a real server with migration 0057.
 
 ## Desktop
 
@@ -38,3 +44,9 @@ Not offered yet (GTK, SwiftUI).
 - apps/web/src/ui/application.tsx
 - apps/web/src/ui/thread.tsx
 - apps/web/tests/scheduled.mjs
+- apps/mobile/lib/scheduled.ts
+- apps/mobile/providers/rocketvibe/scheduled.ts
+- apps/mobile/ui/scheduled.ts
+- apps/mobile/ui/composer.tsx
+- apps/mobile/app/send-later.tsx
+- apps/mobile/app/scheduled-messages.tsx

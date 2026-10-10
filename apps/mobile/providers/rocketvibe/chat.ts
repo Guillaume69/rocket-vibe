@@ -791,6 +791,17 @@ export class NativeChat {
   bots<T>(call:(transport:NativeTransport,operation:()=>string)=>Promise<T>):Promise<T> {
     return this.administration('bots',call);
   }
+  /** Scheduled messages (`scheduled_messages` capability, `providers/rocketvibe/scheduled.ts`):
+   * a verified session, the capability announced, the answer given only to the
+   * session generation that asked. `operation` gives a fresh `operation_id`. */
+  async scheduled<T>(call:(transport:NativeTransport,operation:()=>string)=>Promise<T>):Promise<T> {
+    this.ready();
+    if(!this.capabilities?.scheduled_messages)throw new NativeError(501,'unsupported_feature');
+    const generation=this.generation;
+    const result=await call(this.transport,()=>this.id());
+    this.roomOperationGeneration(generation);
+    return result;
+  }
   /** Workflows (`workflows` capability, `ui/workflows.tsx`, RFC 0004), with the
    * guarantees of `administration`: verified session, same server, same generation. */
   workflows<T>(call:(transport:NativeTransport,operation:()=>string)=>Promise<T>):Promise<T> {

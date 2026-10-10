@@ -1114,6 +1114,9 @@ const fr = {
   // its content lives in its `blocks`.
   'home.callPreview': 'Appel vidéo',
   'home.newConversation': 'Nouvelle conversation',
+  'home.filter': 'Filtrer les salons',
+  'home.filterClear': 'Effacer le filtre',
+  'home.filterNone': 'Aucun salon ne correspond.',
 
   // ── Recherche (nouvelle conversation)
   'search.title': 'Nouvelle conversation',
@@ -2516,6 +2519,9 @@ const en: Record<TranslationKey, string> = {
   'home.encryptedRoom': 'Encrypted room',
   'home.callPreview': 'Video call',
   'home.newConversation': 'New conversation',
+  'home.filter': 'Filter rooms',
+  'home.filterClear': 'Clear the filter',
+  'home.filterNone': 'No room matches.',
 
   'search.title': 'New conversation',
   'search.placeholder': 'User or channel…',

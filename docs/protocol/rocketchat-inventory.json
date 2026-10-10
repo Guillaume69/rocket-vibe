@@ -413,6 +413,7 @@
     "apps/mobile/lib/reconnect.ts",
     "apps/mobile/lib/rest.ts",
     "apps/mobile/lib/rocketchatReactions.ts",
+    "apps/mobile/lib/roomFilter.ts",
     "apps/mobile/lib/roomLink.ts",
     "apps/mobile/lib/roomLinks.ts",
     "apps/mobile/lib/server.ts",
@@ -4626,37 +4627,37 @@
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2414,
+      "line": 2417,
       "kind": "endpoint",
       "surface": "e2e.title"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2415,
+      "line": 2418,
       "kind": "endpoint",
       "surface": "e2e.explanation"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2417,
+      "line": 2420,
       "kind": "endpoint",
       "surface": "e2e.field"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2418,
+      "line": 2421,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2419,
+      "line": 2422,
       "kind": "endpoint",
       "surface": "e2e.wrongPassword"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2420,
+      "line": 2423,
       "kind": "endpoint",
       "surface": "e2e.genericError"
     },

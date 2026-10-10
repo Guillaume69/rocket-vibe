@@ -2,14 +2,15 @@ import { desc } from 'drizzle-orm';
 import { useCoalescedLiveQuery } from '../ui/liveQuery.ts';
 import { Redirect, Stack, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { useCallback } from 'react';
-import { ActivityIndicator, Alert, SectionList, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useState } from 'react';
+import { ActivityIndicator, Alert, SectionList, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { LocalDatabase } from '../db/client.ts';
 import { subscriptions, rooms } from '../db/schema.ts';
 import { textPreview } from '../lib/markdown.ts';
 import { stripQuotePrefix } from '../lib/quote.ts';
+import { filterRooms } from '../lib/roomFilter.ts';
 import { systemPreview } from '../lib/systemMessages.ts';
 import type { RestClient } from '../lib/rest.ts';
 import { useActivity } from '../ui/activity.ts';
@@ -176,15 +177,24 @@ function Rooms({
   // Merging, hiding, unread lifting, splitting, empty sections removed: the
   // projection lives in `ui/homeSections.ts`, tested under Node.
   const collapsed = useCollapsedSections();
-  const sections: RoomsSection[] = collapseSections(
-    buildSections(roomRows, subscriptionRows, {
-      unread: t('home.sectionUnread'),
-      favorites: t('home.sectionFavorites'),
-      rooms: t('home.sectionRooms'),
-      directMessages: t('home.sectionDirectMessages'),
-    }),
-    collapsed,
-  );
+  const built = buildSections(roomRows, subscriptionRows, {
+    unread: t('home.sectionUnread'),
+    favorites: t('home.sectionFavorites'),
+    rooms: t('home.sectionRooms'),
+    directMessages: t('home.sectionDirectMessages'),
+  });
+  // The filter flattens the sections into one ranked list, by the shown name
+  // (a DM's peer) or the slug, as the desktop's room switcher ranks them.
+  const [filter, setFilter] = useState('');
+  const displayNames = useDisplayNames();
+  const filtering = filter.trim() !== '';
+  const sections: RoomsSection[] = filtering
+    ? (() => {
+        const entries = [...new Map(built.flatMap((s) => s.data).map((e) => [e.room.rid, e])).values()];
+        const data = filterRooms(entries, filter, (e) => [roomTitle(e.room, displayNames), e.room.name], (e) => e.room.lastMessageTs ?? 0);
+        return [{ key: 'rooms', title: '', data, collapsed: false, total: data.length }];
+      })()
+    : collapseSections(built, collapsed);
 
   return (
     <SectionList<RoomEntry, RoomsSection>
@@ -204,12 +214,44 @@ function Rooms({
         sections.length > 1 ? <SectionHeader c={c} section={section} /> : null
       }
       stickySectionHeadersEnabled={false}
-      ListHeaderComponent={<NewConversationRow c={c} />}
+      ListHeaderComponent={
+        <View>
+          <RoomFilter c={c} value={filter} onChange={setFilter} />
+          {!filtering && <NewConversationRow c={c} />}
+        </View>
+      }
+      keyboardShouldPersistTaps="handled"
       ListEmptyComponent={
-        <Text style={[styles.empty, { color: c.dimmed }]}>{t('home.emptyList')}</Text>
+        <Text style={[styles.empty, { color: c.dimmed }]}>{t(filtering ? 'home.filterNone' : 'home.emptyList')}</Text>
       }
       contentContainerStyle={styles.content}
     />
+  );
+}
+
+/** The room list's filter field, cleared by its cross. */
+function RoomFilter({ c, value, onChange }: { c: Colors; value: string; onChange: (text: string) => void }) {
+  const t = useT();
+  return (
+    <View style={[styles.filter, { backgroundColor: c.deepCard }]}>
+      <Icon name="system-search" size={14} color={c.tertiaryText} />
+      <TextInput
+        value={value}
+        onChangeText={onChange}
+        placeholder={t('home.filter')}
+        placeholderTextColor={c.tertiaryText}
+        autoCapitalize="none"
+        autoCorrect={false}
+        returnKeyType="search"
+        accessibilityLabel={t('home.filter')}
+        style={[styles.filterField, { color: c.text }]}
+      />
+      {value !== '' && (
+        <Tappable onPress={() => onChange('')} hitSlop={8} accessibilityRole="button" accessibilityLabel={t('home.filterClear')}>
+          <Icon name="edit-clear" size={15} color={c.tertiaryText} />
+        </Tappable>
+      )}
+    </View>
   );
 }
 
@@ -458,6 +500,17 @@ function NewConversationRow({ c }: { c: Colors }) {
 }
 
 const styles = StyleSheet.create({
+  filter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginHorizontal: 12,
+    marginTop: 8,
+    marginBottom: 6,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+  },
+  filterField: { flex: 1, fontFamily: FONTS.body, fontSize: 15, paddingVertical: 8 },
   full: { flex: 1 },
   withRail: { flex: 1, flexDirection: 'row' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },

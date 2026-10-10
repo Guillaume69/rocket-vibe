@@ -14,6 +14,7 @@
     "apps/desktop/crates/rv-core/examples/kchat-smoke.rs",
     "apps/desktop/crates/rv-core/examples/mattermost-smoke.rs",
     "apps/desktop/crates/rv-core/examples/native-files-smoke.rs",
+    "apps/desktop/crates/rv-core/examples/native-reload-peer.rs",
     "apps/desktop/crates/rv-core/examples/native-smoke.rs",
     "apps/desktop/crates/rv-core/src/account.rs",
     "apps/desktop/crates/rv-core/src/account_unread.rs",
@@ -232,6 +233,7 @@
     "apps/desktop/crates/rv-gtk/src/smoke/native_files.rs",
     "apps/desktop/crates/rv-gtk/src/smoke/native_quotes.rs",
     "apps/desktop/crates/rv-gtk/src/smoke/native_reads.rs",
+    "apps/desktop/crates/rv-gtk/src/smoke/native_reload.rs",
     "apps/desktop/crates/rv-gtk/src/smoke/rocket_chat.rs",
     "apps/desktop/crates/rv-gtk/src/smoke/room_management.rs",
     "apps/desktop/crates/rv-gtk/src/smoke/security.rs",
@@ -2863,31 +2865,31 @@
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/smoke.rs",
-      "line": 951,
+      "line": 953,
       "kind": "call:GET",
       "surface": "\"subscriptions.getOne\", options).await.ok()?;"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/smoke.rs",
-      "line": 951,
+      "line": 953,
       "kind": "endpoint",
       "surface": "subscriptions.getOne"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/smoke.rs",
-      "line": 1045,
+      "line": 1047,
       "kind": "endpoint",
       "surface": "chat.postMessage"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/smoke.rs",
-      "line": 1084,
+      "line": 1086,
       "kind": "call:GET",
       "surface": "\"subscriptions.getOne\", options).await.ok()?;"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/smoke.rs",
-      "line": 1084,
+      "line": 1086,
       "kind": "endpoint",
       "surface": "subscriptions.getOne"
     },

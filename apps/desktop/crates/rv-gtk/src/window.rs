@@ -846,9 +846,12 @@ impl AppWindow {
                 let started = std::time::Instant::now();
                 self.chat.on_native_change();
                 let (encrypted, rooms) = self.chat.reload_context();
+                // Numbered: the log collapses identical lines back to back.
+                static SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+                let n = SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
                 glib::g_info!(
                     "rocket-vibe-reload",
-                    "native reload: {:.1} ms for {folded} change(s), open room {}, {rooms} rooms",
+                    "native reload #{n}: {:.1} ms for {folded} change(s), open room {}, {rooms} rooms",
                     started.elapsed().as_secs_f64() * 1000.0,
                     if encrypted { "encrypted" } else { "plain or none" }
                 );

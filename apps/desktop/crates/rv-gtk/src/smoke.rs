@@ -1,6 +1,9 @@
 //! Unattended end-to-end run, driven by environment variables:
 //!   RV_SMOKE_LOGIN  "server|user|password"
 //!   RV_SMOKE_KIND   `kchat`: server type chosen before filling (server and user may stay empty)
+//!   RV_SMOKE_INFOMANIAK=1  instead of signing in: kChat chosen, Infomaniak's sign-in page opened,
+//!                          then a redirect for another request forged: it must be caught, refused
+//!                          and the window closed
 //!   RV_SMOKE_ROOM   room name to open once the room list is loaded
 //!   RV_SMOKE_SEND   text to send in that room
 //!   RV_SMOKE_SHOT   PNG path; the window is rendered after RV_SMOKE_DELAY_MS, then the app quits
@@ -190,7 +193,11 @@ pub fn install(window: &Rc<AppWindow>) {
         window.window.set_default_size(w, h);
     }
 
-    if parts.len() == 3 {
+    let infomaniak = std::env::var("RV_SMOKE_INFOMANIAK").is_ok_and(|v| !v.is_empty());
+    if infomaniak {
+        infomaniak_sign_in(window);
+    }
+    if parts.len() == 3 && !infomaniak {
         let weak = Rc::downgrade(window);
         let tried = Rc::new(Cell::new(false));
         window.connect_login_shown(move || {
@@ -1322,6 +1329,29 @@ fn schedule_checks(chat: std::rc::Rc<crate::chat::ChatPage>, rid: String, tag: S
             glib::timeout_add_local_once(Duration::from_millis(2000), move || {
                 println!("smoke: schedule: chip after cancel: {:?}", composer.schedule_state().1);
             });
+fn infomaniak_sign_in(window: &Rc<AppWindow>) {
+    let weak = Rc::downgrade(window);
+    window.connect_login_shown(move || {
+        let Some(w) = weak.upgrade() else { return };
+        w.login.set_server_kind(rv_core::native::ServerKind::Kchat);
+        let (mut polls, mut stage) = (0, 0);
+        glib::timeout_add_local(Duration::from_millis(250), move || {
+            polls += 1;
+            match stage {
+                0 if w.login.open_infomaniak() => stage = 1,
+                1 if crate::sign_in_window::forge_redirect() => stage = 2,
+                2 if w.login.has_error() => {
+                    check("forged sign-in redirect refused", true, polls);
+                    check("sign-in window closed", !crate::sign_in_window::is_open(), polls);
+                    return glib::ControlFlow::Break;
+                }
+                _ if polls >= 160 => {
+                    check("Infomaniak sign-in reached its redirect", false, stage);
+                    return glib::ControlFlow::Break;
+                }
+                _ => {}
+            }
+            glib::ControlFlow::Continue
         });
     });
 }

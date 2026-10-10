@@ -171,3 +171,120 @@ impl Rings {
         *self = Self::default();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    const NOW: i64 = 1_800_000_000_000;
+
+    fn call(message_id: &str, author: &str, ts: i64) -> CallSignal {
+        CallSignal::Call {
+            rid: "dm".into(),
+            message_id: message_id.into(),
+            call_id: "c1".into(),
+            author_id: author.into(),
+            ts,
+        }
+    }
+
+    fn check(caller: &str, over: bool, joined: &[&str]) -> CallCheck {
+        CallCheck {
+            rid: "dm".into(),
+            caller_id: caller.into(),
+            caller_name: Some("Bob Durand".into()),
+            over,
+            joined: joined.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn a_fresh_call_from_the_other_member_rings_once() {
+        let mut rings = Rings::default();
+        assert!(rings.admit("m1", "bob", NOW - 1000, "me", NOW));
+        let rang = rings.decide(&call("m1", "bob", NOW - 1000), Some(("bob", Some("Bob"))), None, "me", NOW).unwrap();
+        assert_eq!(rang.until, NOW - 1000 + RING_MS);
+        assert_eq!(rang.caller_name.as_deref(), Some("Bob"));
+        assert!(!rings.admit("m1", "bob", NOW - 1000, "me", NOW));
+        assert!(rings.stop_if(|c| c.message_id == "m1"));
+        assert_eq!(rings.current(), None);
+    }
+
+    #[test]
+    fn no_ring_for_my_call_an_old_one_a_group_room_or_a_busy_line() {
+        let mut rings = Rings::default();
+        assert!(!rings.admit("m1", "me", NOW, "me", NOW));
+        assert!(!rings.admit("m2", "bob", NOW - RING_MS - 1, "me", NOW));
+        assert!(rings.admit("m3", "bob", NOW, "me", NOW));
+        assert_eq!(rings.decide(&call("m3", "bob", NOW), None, None, "me", NOW), None);
+        assert!(rings.decide(&call("m3", "bob", NOW), Some(("bob", None)), None, "me", NOW).is_some());
+        assert_eq!(rings.decide(&call("m4", "bob", NOW), Some(("bob", None)), None, "me", NOW), None);
+    }
+
+    #[test]
+    fn the_record_names_the_caller() {
+        let signal = call("m1", "jitsi.bot", NOW);
+        let rang =
+            Rings::default().decide(&signal, Some(("bob", None)), Some(&check("bob", false, &[])), "me", NOW).unwrap();
+        assert_eq!(rang.caller_name.as_deref(), Some("Bob Durand"));
+        for record in [check("me", false, &[]), check("bob", true, &[]), check("bob", false, &["me"])] {
+            assert_eq!(Rings::default().decide(&signal, Some(("bob", None)), Some(&record), "me", NOW), None);
+        }
+        let mut elsewhere = check("bob", false, &[]);
+        elsewhere.rid = "other".into();
+        assert_eq!(Rings::default().decide(&signal, Some(("bob", None)), Some(&elsewhere), "me", NOW), None);
+    }
+
+    #[test]
+    fn an_ended_post_stops_the_ring_and_never_rings_late() {
+        let mut rings = Rings::default();
+        rings.admit("m1", "bob", NOW, "me", NOW);
+        rings.decide(&call("m1", "bob", NOW), Some(("bob", None)), None, "me", NOW);
+        assert!(rings.over("m1"));
+        let mut late = Rings::default();
+        assert!(late.admit("m2", "bob", NOW, "me", NOW));
+        late.over("m2");
+        assert_eq!(late.decide(&call("m2", "bob", NOW), Some(("bob", None)), None, "me", NOW), None);
+    }
+
+    #[test]
+    fn rocketchat_info_reads_as_a_check() {
+        let info = json!({"rid": "dm", "status": 1, "createdBy": {"_id": "bob", "username": "bob"}, "users": [{"_id": "bob"}]});
+        assert_eq!(
+            rocketchat_check(&info),
+            Some(CallCheck {
+                rid: "dm".into(),
+                caller_id: "bob".into(),
+                caller_name: Some("bob".into()),
+                over: false,
+                joined: vec!["bob".into()]
+            })
+        );
+        assert!(rocketchat_check(&json!({"rid": "dm", "status": 3, "createdBy": {"_id": "bob"}})).unwrap().over);
+        assert!(
+            rocketchat_check(&json!({"rid": "dm", "endedAt": "2026-10-10T00:00:00Z", "createdBy": {"_id": "bob"}}))
+                .unwrap()
+                .over
+        );
+        assert_eq!(rocketchat_check(&json!({"rid": "dm"})), None);
+    }
+
+    #[test]
+    fn signals_from_messages() {
+        let message = Message {
+            id: "m1".into(),
+            rid: "dm".into(),
+            ts: NOW,
+            author_id: "bob".into(),
+            system_type: Some("videoconf".into()),
+            call_id: Some("c1".into()),
+            ..Message::default()
+        };
+        assert_eq!(signal_of(&message), Some(call("m1", "bob", NOW)));
+        let ended = Message { system_type: Some("videoconf-ended".into()), call_id: None, ..message.clone() };
+        assert_eq!(signal_of(&ended), Some(CallSignal::Over { message_id: "m1".into() }));
+        assert_eq!(signal_of(&Message { system_type: None, ..message }), None);
+    }
+}

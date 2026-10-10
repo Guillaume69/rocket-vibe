@@ -107,6 +107,25 @@ pub fn with_photo(tile: gtk::Widget, session: Option<&Arc<Session>>, path: Optio
     }
     tile
 }
+/// A person's photo on whichever server the account speaks to: by username
+/// and photo version on Rocket.Chat and Mattermost, by file id on RocketVibe
+/// (`version` is the one or the other).
+pub fn person_photo(
+    tile: gtk::Widget,
+    chat: &rv_core::provider::Chat,
+    username: &str,
+    version: Option<String>,
+) -> gtk::Widget {
+    use rv_core::media::{AvatarTarget, avatar_path};
+    use rv_core::provider::Chat;
+    match chat {
+        Chat::Legacy(s) => {
+            with_photo(tile, Some(s), Some(avatar_path(AvatarTarget::User(username), version.as_deref())))
+        }
+        Chat::Native(s) => with_native_photo(tile, s, version),
+    }
+}
+
 pub fn with_native_photo(
     tile: gtk::Widget,
     session: &Arc<rv_core::native::NativeSession>,

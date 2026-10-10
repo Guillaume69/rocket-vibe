@@ -9,7 +9,6 @@ use adw::prelude::*;
 use gtk::glib;
 use rv_core::info::{Profile, RoomInfo, local_time};
 use rv_core::markdown;
-use rv_core::media::{AvatarTarget, avatar_path};
 use rv_core::provider::Chat;
 use rv_core::session::Session;
 
@@ -355,12 +354,7 @@ fn profile_with_source(parent: &impl IsA<gtk::Widget>, source: Chat, key: &str, 
 
 fn fill_profile(content: &gtk::Box, dialog: &adw::Dialog, session: &Chat, p: &Profile, actions: Rc<ProfileActions>) {
     let tile = widgets::tile(&p.username, &widgets::initial(&p.username), TileSize::Profile, false);
-    let tile = match session {
-        Chat::Legacy(s) => {
-            with_photo(tile, Some(s), Some(avatar_path(AvatarTarget::User(&p.username), p.avatar_etag.as_deref())))
-        }
-        Chat::Native(s) => crate::rows::with_native_photo(tile, s, p.avatar_etag.clone()),
-    };
+    let tile = crate::rows::person_photo(tile, session, &p.username, p.avatar_etag.clone());
     tile.set_halign(gtk::Align::Center);
     content.append(&tile);
     content.append(&centered(p.name.as_deref().unwrap_or(&p.username), &["details-name"]));

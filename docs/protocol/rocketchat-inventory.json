@@ -2763,49 +2763,49 @@
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/rows.rs",
-      "line": 361,
+      "line": 380,
       "kind": "endpoint",
       "surface": "rooms.encrypted"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/settings.rs",
-      "line": 75,
+      "line": 74,
       "kind": "endpoint",
       "surface": "rooms.sign_out"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/settings.rs",
-      "line": 378,
+      "line": 387,
       "kind": "endpoint",
       "surface": "e2e.status"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/settings.rs",
-      "line": 379,
+      "line": 388,
       "kind": "endpoint",
       "surface": "e2e.locked"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/settings.rs",
-      "line": 379,
+      "line": 388,
       "kind": "endpoint",
       "surface": "e2e.unlocked"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/settings.rs",
-      "line": 382,
+      "line": 391,
       "kind": "endpoint",
       "surface": "e2e.lock"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/settings.rs",
-      "line": 382,
+      "line": 391,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/settings.rs",
-      "line": 396,
+      "line": 405,
       "kind": "endpoint",
       "surface": "e2e.locked"
     },

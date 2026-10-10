@@ -375,14 +375,14 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-gtk/src/notifier/portal.rs:44](../../apps/desktop/crates/rv-gtk/src/notifier/portal.rs#L44) | endpoint | im.reply-with-text |
 | [apps/desktop/crates/rv-gtk/src/notifier/portal.rs:53](../../apps/desktop/crates/rv-gtk/src/notifier/portal.rs#L53) | endpoint | im.reply-with-text |
 | [apps/desktop/crates/rv-gtk/src/notifier/portal.rs:58](../../apps/desktop/crates/rv-gtk/src/notifier/portal.rs#L58) | endpoint | im.received |
-| [apps/desktop/crates/rv-gtk/src/rows.rs:361](../../apps/desktop/crates/rv-gtk/src/rows.rs#L361) | endpoint | rooms.encrypted |
-| [apps/desktop/crates/rv-gtk/src/settings.rs:75](../../apps/desktop/crates/rv-gtk/src/settings.rs#L75) | endpoint | rooms.sign_out |
-| [apps/desktop/crates/rv-gtk/src/settings.rs:378](../../apps/desktop/crates/rv-gtk/src/settings.rs#L378) | endpoint | e2e.status |
-| [apps/desktop/crates/rv-gtk/src/settings.rs:379](../../apps/desktop/crates/rv-gtk/src/settings.rs#L379) | endpoint | e2e.locked |
-| [apps/desktop/crates/rv-gtk/src/settings.rs:379](../../apps/desktop/crates/rv-gtk/src/settings.rs#L379) | endpoint | e2e.unlocked |
-| [apps/desktop/crates/rv-gtk/src/settings.rs:382](../../apps/desktop/crates/rv-gtk/src/settings.rs#L382) | endpoint | e2e.lock |
-| [apps/desktop/crates/rv-gtk/src/settings.rs:382](../../apps/desktop/crates/rv-gtk/src/settings.rs#L382) | endpoint | e2e.unlock |
-| [apps/desktop/crates/rv-gtk/src/settings.rs:396](../../apps/desktop/crates/rv-gtk/src/settings.rs#L396) | endpoint | e2e.locked |
+| [apps/desktop/crates/rv-gtk/src/rows.rs:380](../../apps/desktop/crates/rv-gtk/src/rows.rs#L380) | endpoint | rooms.encrypted |
+| [apps/desktop/crates/rv-gtk/src/settings.rs:74](../../apps/desktop/crates/rv-gtk/src/settings.rs#L74) | endpoint | rooms.sign_out |
+| [apps/desktop/crates/rv-gtk/src/settings.rs:387](../../apps/desktop/crates/rv-gtk/src/settings.rs#L387) | endpoint | e2e.status |
+| [apps/desktop/crates/rv-gtk/src/settings.rs:388](../../apps/desktop/crates/rv-gtk/src/settings.rs#L388) | endpoint | e2e.locked |
+| [apps/desktop/crates/rv-gtk/src/settings.rs:388](../../apps/desktop/crates/rv-gtk/src/settings.rs#L388) | endpoint | e2e.unlocked |
+| [apps/desktop/crates/rv-gtk/src/settings.rs:391](../../apps/desktop/crates/rv-gtk/src/settings.rs#L391) | endpoint | e2e.lock |
+| [apps/desktop/crates/rv-gtk/src/settings.rs:391](../../apps/desktop/crates/rv-gtk/src/settings.rs#L391) | endpoint | e2e.unlock |
+| [apps/desktop/crates/rv-gtk/src/settings.rs:405](../../apps/desktop/crates/rv-gtk/src/settings.rs#L405) | endpoint | e2e.locked |
 | [apps/desktop/crates/rv-gtk/src/smoke.rs:947](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L947) | call:GET | "subscriptions.getOne", options).await.ok()?; |
 | [apps/desktop/crates/rv-gtk/src/smoke.rs:947](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L947) | endpoint | subscriptions.getOne |
 | [apps/desktop/crates/rv-gtk/src/smoke.rs:1041](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L1041) | endpoint | chat.postMessage |

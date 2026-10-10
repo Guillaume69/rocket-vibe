@@ -125,6 +125,22 @@ The dedicated installed Edge --smoke passes with profile cleanup, without authen
 The Android export bundles successfully. GTK and Swift build/render qualification
 is tracked separately from account acceptance.
 
+The final Fedora build.sh gate passes formatting, warnings-denied clippy, all 584
+desktop tests and the workspace binary build. Refreshing the core/async artifacts
+clears the observed native-room test crash without application-code changes. An optional
+RV_CARGO_TARGET_DIR lets the standard gates use an external host artifact cache.
+
+GTK launches under Xvfb with isolated temporary configuration and no network. The
+smoke checks hidden state through eight icon activations, visibility/persistence on
+the ninth, and selection of the Teams panel. A rendered screenshot shows its masked
+public pairing code, encrypted-response entry and native provider selector.
+
+Fresh Teams UniFFI bindings and RocketVibeCore/RocketVibeKit compile in the Swift
+container; changed SwiftUI screens pass the frontend syntax check. The actual
+[macOS CI](https://github.com/Guillaume69/rocket-vibe/actions/runs/38071096653)
+passes build, Swift tests, packaging, signing/notarization and launch checks; [web CI](https://github.com/Guillaume69/rocket-vibe/actions/runs/38071096651)
+also passes. These runs compile the Teams UI but do not qualify manual Teams interaction
+on macOS, installed Android behavior, real account sign-in or private service DTOs.
 ## Sources
 
 - apps/mobile/providers/teams/protocol.ts

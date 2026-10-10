@@ -87,7 +87,10 @@ All commands run from `apps/desktop/`.
 For constrained Windows Docker worktree builds, build.sh passes through the optional
 CARGO_BUILD_JOBS and CARGO_INCREMENTAL variables. CARGO_BUILD_JOBS=1 CARGO_INCREMENTAL=0
 limits peak concurrency and avoids large incremental graphs on bind-mounted storage;
-unset variables retain Cargo defaults.
+unset variables retain Cargo defaults. RV_CARGO_TARGET_DIR optionally binds an
+absolute host cache directory at the container's usual target path, preserving
+all four gates. This keeps large artifacts off a nearly full worktree drive;
+with it set, the host executable lives under that cache rather than target/.
 
 The SwiftUI app (`apps/desktop/macos/`): `scripts/generate.sh` builds rv-ffi and writes the Swift bindings and C header (gitignored) and prints the library dir; then `swift build`, `swift test`, `swift run rv-rooms`. `scripts/check-linux.sh` builds and tests every non-AppKit target in the `swift:6.1-noble` container. `scripts/package.sh <version>` makes the signed `rocket-vibe SwiftUI.app` and its DMG.
 

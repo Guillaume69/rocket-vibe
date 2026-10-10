@@ -342,7 +342,7 @@ impl ChatPage {
             .visible(false)
             .build();
         sidebar_header.pack_start(&forward_button);
-        let rail_button = gtk::Button::builder().icon_name("view-sidebar-symbolic").css_classes(["flat"]).build();
+        let rail_button = gtk::Button::builder().icon_name("sidebar-show-symbolic").css_classes(["flat"]).build();
         rail_button.add_css_class("rail-toggle");
         status_button.add_css_class("connection-button");
         sidebar_header.pack_start(&rail_button);

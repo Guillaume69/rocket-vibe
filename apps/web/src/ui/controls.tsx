@@ -156,7 +156,12 @@ export function Avatar({
   }, [app, user?.id, work, generation, app.connection]);
   return (
     <div
-      className={"tile tile-" + size + " tile-g" + gradient(name)}
+      className={
+        "tile tile-" +
+        size +
+        // A locked room's tile is neutral, as on the desktop.
+        (icon ? " tile-neutral" : " tile-g" + gradient(name))
+      }
       data-avatar-user={user?.id}
       data-react-avatar="true"
       title={user?.display_name || user?.username}

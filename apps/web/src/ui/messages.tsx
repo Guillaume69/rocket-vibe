@@ -23,7 +23,7 @@ import { inlineImage } from "../image-attachment";
 import { videoLink, videoLinks } from "../video-links";
 import { stopMedia } from "../dom";
 import { operation, segment } from "../api";
-import { ActionButton, Avatar, IconButton } from "./controls";
+import { ActionButton, Avatar, IconButton, Symbol } from "./controls";
 import { useApp } from "./context";
 import { elementView, renderView } from "./portals";
 
@@ -319,7 +319,11 @@ function FileAttachment({
     >
       <div className="file-top">
         <span className="file-icon">
-          {file.media_type.startsWith("audio/") ? "🎵" : "📄"}
+          <Symbol
+            name={
+              file.media_type.startsWith("audio/") ? "audio-file" : "text-file"
+            }
+          />
         </span>
         <div className="file-names">
           <div className="file-title">{file.filename || file.media_type}</div>

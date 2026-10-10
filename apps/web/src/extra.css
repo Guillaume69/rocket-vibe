@@ -300,6 +300,10 @@
   width: 22px;
   height: 22px;
 }
+.file-icon > .symbolic-icon {
+  width: 26px;
+  height: 26px;
+}
 /* The GTK scrollers use an unobtrusive rounded overlay thumb everywhere. */
 :root {
   color-scheme: dark;

@@ -61,7 +61,7 @@ It then opens the socket and immediately spawns a first catch-up, not sequenced 
 
 `open_room(rid, kind)` swaps the per-room subscriptions (`<rid>/deleteMessage`, `<rid>/user-activity`; deletions are not on `__my_messages__`), marks the room read in the background, loads the newest page, and runs `catch_up_room` once per session per room (tracked in `synced`).
 
-Reconnection: on `DdpEvent::Lost` the listener waits `min(1000 << attempt, 30 s) + jitter(0..1 s)` and reopens; `Authenticated` resets the attempt counter. `reconnect_now()` skips the wait.
+Reconnection: on `DdpEvent::Lost` (or `LiveEvent::Lost` for Mattermost) the listener waits `min(1000 << attempt, 30 s) + jitter(0..1 s)` and reopens (`reconnect_after`); `Authenticated` resets the attempt counter. `reconnect_now()` skips the wait. The timer is kept in the session's tasks, so `shutdown` aborts it, and it reopens nothing once `closed` is set: a shutdown during the wait used to reopen the socket with the old token.
 
 Session death: `RestClient` broadcasts the token it SENT whenever a call fails with `is_token_rejected` (401 with a Rocket.Chat envelope and no 2FA challenge). `watch_token` only emits `SessionEvent::Expired` if that token is the session's own, so a late 401 from a replaced session never logs out the new one.
 

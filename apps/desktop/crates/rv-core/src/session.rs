@@ -19,6 +19,7 @@ use crate::live;
 use crate::mattermost::socket::{self as live_socket, LiveEvent, LiveHandle};
 use crate::mattermost::sync::MmSync;
 use crate::mattermost::{self, Flavor};
+use crate::rocketchat;
 use crate::{info, media};
 
 const UPDATE_AVATAR: &str = "updateAvatar";
@@ -641,36 +642,31 @@ impl Session {
     /// Everyone's presence at once; the stream then keeps it current.
     async fn load_presence(&self) {
         match self.backend() {
+            // Mattermost answers for the DM peers asked; the others stay as known.
             Backend::Mattermost(_) => {
                 let ids: Vec<String> = self.store.rooms().into_iter().filter_map(|r| r.dm_other_uid).collect();
-                if let Ok(list) = mattermost::actions::statuses(&self.rest, &ids).await {
-                    self.presence.lock().unwrap().get_or_insert_default().extend(list);
-                    let _ = self.events.send(SessionEvent::Presence);
-                }
-                return;
+                let Ok(list) = mattermost::actions::statuses(&self.rest, &ids).await else { return };
+                self.presence.lock().unwrap().get_or_insert_default().extend(list);
             }
-            Backend::RocketChat => {}
+            Backend::RocketChat => {
+                let Ok(list) = rocketchat::actions::presence(&self.rest).await else { return };
+                self.presence.lock().unwrap().replace(list.into_iter().collect());
+            }
         }
-        if let Ok(response) = self.rest.get("users.presence", CallOptions::default()).await {
-            let list = live::presence_list(&response);
-            self.presence.lock().unwrap().replace(list.into_iter().collect());
-            let _ = self.events.send(SessionEvent::Presence);
-        }
+        let _ = self.events.send(SessionEvent::Presence);
     }
 
     /// Whether the server has a video-conference provider. A "no" is kept for
     /// the session; a network failure or a refused token says nothing about it.
     pub async fn call_available(&self) -> bool {
         match self.backend() {
-            Backend::Mattermost(_) => {
-                return self.info.mattermost == Some(mattermost::Flavor::Kchat);
-            }
+            Backend::Mattermost(_) => return self.info.mattermost == Some(mattermost::Flavor::Kchat),
             Backend::RocketChat => {}
         }
         if let Some(known) = *self.call_available.lock().unwrap() {
             return known;
         }
-        match self.rest.get("video-conference.capabilities", CallOptions::default()).await {
+        match rocketchat::actions::video_conference(&self.rest).await {
             Ok(_) => {
                 self.call_available.lock().unwrap().replace(true);
                 true
@@ -692,38 +688,24 @@ impl Session {
 
     pub async fn room_info(&self, rid: &str) -> Result<info::RoomInfo, RestError> {
         match self.backend() {
-            Backend::Mattermost(_) => {
-                return mattermost::actions::room_info(&self.rest, rid).await;
-            }
-            Backend::RocketChat => {}
+            Backend::Mattermost(_) => mattermost::actions::room_info(&self.rest, rid).await,
+            Backend::RocketChat => rocketchat::actions::room_info(&self.rest, rid).await,
         }
-        let response = self.rest.get("rooms.info", CallOptions::params([("roomId", rid)])).await?;
-        response.get("room").and_then(info::room_info).ok_or_else(|| RestError::incomplete("rooms.info: no room"))
     }
 
     pub async fn room_by_name(&self, name: &str) -> Result<info::RoomInfo, RestError> {
         match self.backend() {
-            Backend::Mattermost(_) => {
-                return mattermost::actions::room_by_name(&self.rest, name).await;
-            }
-            Backend::RocketChat => {}
+            Backend::Mattermost(_) => mattermost::actions::room_by_name(&self.rest, name).await,
+            Backend::RocketChat => rocketchat::actions::room_by_name(&self.rest, name).await,
         }
-        let response = self.rest.get("rooms.info", CallOptions::params([("roomName", name)])).await?;
-        response.get("room").and_then(info::room_info).ok_or_else(|| RestError::incomplete("rooms.info: no room"))
     }
 
     /// By username, or by id when `by_id`.
     pub async fn profile(&self, key: &str, by_id: bool) -> Result<info::Profile, RestError> {
-        match self.backend() {
-            Backend::Mattermost(mm) => {
-                return mattermost::actions::profile(&self.rest, mm, key, by_id).await;
-            }
-            Backend::RocketChat => {}
-        }
-        let param = if by_id { "userId" } else { "username" };
-        let response = self.rest.get("users.info", CallOptions::params([(param, key)])).await?;
-        let profile =
-            response.get("user").and_then(info::profile).ok_or_else(|| RestError::incomplete("users.info: no user"))?;
+        let profile = match self.backend() {
+            Backend::Mattermost(mm) => return mattermost::actions::profile(&self.rest, mm, key, by_id).await,
+            Backend::RocketChat => rocketchat::actions::profile(&self.rest, key, by_id).await?,
+        };
         if let Some(etag) = &profile.avatar_etag {
             self.avatars.lock().unwrap().insert(profile.username.clone(), etag.clone());
         }
@@ -732,21 +714,20 @@ impl Session {
 
     pub async fn search(&self, rid: &str, text: &str) -> Result<Vec<crate::normalize::Message>, RestError> {
         match self.backend() {
-            Backend::Mattermost(mm) => {
-                return mattermost::actions::search(&self.rest, mm, rid, text).await;
-            }
-            Backend::RocketChat => {}
+            Backend::Mattermost(mm) => mattermost::actions::search(&self.rest, mm, rid, text).await,
+            Backend::RocketChat => rocketchat::actions::search(&self.rest, rid, text).await,
         }
-        let options = CallOptions::params([("roomId", rid), ("searchText", text), ("count", "50")]);
-        Ok(info::search_results(&self.rest.get("chat.search", options).await?))
     }
 
     /// Opens my private key with the E2E password. The password is not kept;
     /// the key is, by the app, through `e2e_export`.
     pub async fn e2e_unlock(&self, password: &str) -> Result<(), UnlockError> {
         // Rocket.Chat's E2EE only: Mattermost has no encrypted rooms.
-        if let Backend::Mattermost(_) = self.backend() {
-            return Err(UnlockError::Server(RestError::incomplete("e2e: not on this server")));
+        match self.backend() {
+            Backend::Mattermost(_) => {
+                return Err(UnlockError::Server(RestError::incomplete("e2e: not on this server")));
+            }
+            Backend::RocketChat => {}
         }
         let keys = self.rest.get("e2e.fetchMyKeys", CallOptions::default()).await.map_err(UnlockError::Server)?;
         let private = keys.get("private_key").and_then(Value::as_str).unwrap_or_default();
@@ -912,45 +893,36 @@ impl Session {
 
     pub async fn me(&self) -> Result<crate::account::Me, RestError> {
         match self.backend() {
-            Backend::Mattermost(_) => {
-                return mattermost::actions::me(&self.rest).await;
-            }
-            Backend::RocketChat => {}
+            Backend::Mattermost(_) => mattermost::actions::me(&self.rest).await,
+            Backend::RocketChat => rocketchat::actions::me(&self.rest).await,
         }
-        Ok(crate::account::me(&self.rest.get("me", CallOptions::default()).await?))
     }
 
     /// Both at once: `users.setStatus` clears whichever one is left out.
     pub async fn set_status(&self, status: &str, message: &str) -> Result<(), RestError> {
         match self.backend() {
             Backend::Mattermost(_) => {
-                return mattermost::actions::set_status(&self.rest, &self.info.user_id, status, message).await;
+                mattermost::actions::set_status(&self.rest, &self.info.user_id, status, message).await
             }
-            Backend::RocketChat => {}
+            Backend::RocketChat => rocketchat::actions::set_status(&self.rest, status, message).await,
         }
-        let body = json!({"status": status, "message": message});
-        self.rest.post("users.setStatus", CallOptions::body(body)).await.map(|_| ())
     }
 
     /// `password` is the plain current password (hashed here) when username
     /// or email change; a 2FA challenge comes back as the error's `two_factor`.
     pub async fn update_basic_info(
         &self,
-        mut data: serde_json::Map<String, Value>,
+        data: serde_json::Map<String, Value>,
         password: Option<&str>,
         two_factor: Option<TwoFactorCode>,
     ) -> Result<(), RestError> {
         match self.backend() {
-            Backend::Mattermost(_) => {
-                return mattermost::actions::update_basic_info(&self.rest, &data, password).await;
+            Backend::Mattermost(_) => mattermost::actions::update_basic_info(&self.rest, &data, password).await,
+            Backend::RocketChat => {
+                let hashed = password.map(|p| two_factor_code("password", p).code);
+                rocketchat::actions::update_basic_info(&self.rest, data, hashed, two_factor).await
             }
-            Backend::RocketChat => {}
         }
-        if let Some(password) = password {
-            data.insert("currentPassword".into(), json!(two_factor_code("password", password).code));
-        }
-        let options = CallOptions { body: Some(json!({"data": data})), two_factor, ..Default::default() };
-        self.rest.post("users.updateOwnBasicInfo", options).await.map(|_| ())
     }
 
     pub async fn set_avatar(&self, file: &Path, mime: &str) -> Result<(), RestError> {
@@ -967,11 +939,10 @@ impl Session {
         match self.backend() {
             Backend::Mattermost(_) => {
                 let path = format!("users/{}/image", self.info.user_id);
-                return self.rest.delete(&path, CallOptions::default()).await.map(|_| ());
+                self.rest.delete(&path, CallOptions::default()).await.map(|_| ())
             }
-            Backend::RocketChat => {}
+            Backend::RocketChat => rocketchat::actions::reset_avatar(&self.rest).await,
         }
-        self.rest.post("users.resetAvatar", CallOptions::body(json!({}))).await.map(|_| ())
     }
 
     pub async fn set_preference(&self, key: &str, value: Value) -> Result<(), RestError> {
@@ -980,10 +951,7 @@ impl Session {
                 mattermost::actions::set_desktop_notifications(&self.rest, v).await?
             }
             (Backend::Mattermost(_), _) => return Err(RestError::incomplete(&format!("{key}: not on this server"))),
-            (Backend::RocketChat, _) => {
-                let body = json!({"data": {key: value}});
-                self.rest.post("users.setPreferences", CallOptions::body(body)).await?;
-            }
+            (Backend::RocketChat, _) => rocketchat::actions::set_preference(&self.rest, key, &value).await?,
         }
         if key == "desktopNotifications"
             && let Some(v) = value.as_str()
@@ -995,34 +963,22 @@ impl Session {
 
     pub async fn spotlight(&self, query: &str) -> Result<Vec<crate::rooms::Found>, RestError> {
         match self.backend() {
-            Backend::Mattermost(mm) => {
-                return mattermost::actions::spotlight(&self.rest, mm, query).await;
-            }
-            Backend::RocketChat => {}
+            Backend::Mattermost(mm) => mattermost::actions::spotlight(&self.rest, mm, query).await,
+            Backend::RocketChat => rocketchat::actions::spotlight(&self.rest, query).await,
         }
-        let response = self.rest.get("spotlight", CallOptions::params([("query", query)])).await?;
-        Ok(crate::rooms::spotlight_results(&response))
     }
 
     /// The DM with this user, created if needed; returns its rid once the
     /// store has it, so it can be opened at once.
     pub async fn open_dm(&self, username: &str) -> Result<String, RestError> {
-        match self.backend() {
+        let rid = match self.backend() {
             Backend::Mattermost(mm) => {
                 let rid = mattermost::actions::open_dm(&self.rest, mm, &self.info.user_id, username).await?;
                 mm.reveal(&rid);
-                self.sync.catch_up_global().await?;
-                return Ok(rid);
+                rid
             }
-            Backend::RocketChat => {}
-        }
-        let response = self.rest.post("im.create", CallOptions::body(json!({"username": username}))).await?;
-        let rid = response
-            .pointer("/room/_id")
-            .or_else(|| response.pointer("/room/rid"))
-            .and_then(Value::as_str)
-            .map(str::to_owned)
-            .ok_or_else(|| RestError::incomplete("im.create: no room"))?;
+            Backend::RocketChat => rocketchat::actions::open_dm(&self.rest, username).await?,
+        };
         self.sync.catch_up_global().await?;
         Ok(rid)
     }
@@ -1030,22 +986,16 @@ impl Session {
     pub async fn join_channel(&self, rid: &str) -> Result<(), RestError> {
         match self.backend() {
             Backend::Mattermost(_) => mattermost::actions::join(&self.rest, &self.info.user_id, rid).await?,
-            Backend::RocketChat => {
-                self.rest.post("channels.join", CallOptions::body(json!({"roomId": rid}))).await?;
-            }
+            Backend::RocketChat => rocketchat::actions::join(&self.rest, rid).await?,
         }
         self.sync.catch_up_global().await
     }
 
     pub async fn mark_read(&self, rid: &str) {
-        match self.backend() {
-            Backend::Mattermost(_) => {
-                let _ = mattermost::actions::mark_read(&self.rest, rid).await;
-                return;
-            }
-            Backend::RocketChat => {}
-        }
-        let _ = self.rest.post("subscriptions.read", CallOptions::body(json!({"rid": rid}))).await;
+        let _ = match self.backend() {
+            Backend::Mattermost(_) => mattermost::actions::mark_read(&self.rest, rid).await,
+            Backend::RocketChat => rocketchat::actions::mark_read(&self.rest, rid).await,
+        };
     }
 
     async fn forward_uploads(session: std::sync::Weak<Session>, mut changes: broadcast::Receiver<String>) {
@@ -1168,8 +1118,9 @@ impl Session {
     pub async fn refresh_custom_emojis(&self) -> Result<Value, RestError> {
         // Mattermost's custom emoji are read once per session by `MmSync`; its
         // server has no `emoji-custom.list`, which used to answer a 404 here.
-        if let Backend::Mattermost(_) = self.backend() {
-            return Err(RestError::incomplete("custom emoji: not on this server"));
+        match self.backend() {
+            Backend::Mattermost(_) => return Err(RestError::incomplete("custom emoji: not on this server")),
+            Backend::RocketChat => {}
         }
         let list = self.rest.get("emoji-custom.list", CallOptions::default()).await?;
         let index = crate::emoji::custom_index(&list);

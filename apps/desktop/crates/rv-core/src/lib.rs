@@ -31,6 +31,7 @@ pub mod outbox;
 pub mod parse;
 pub mod player;
 pub mod rest;
+pub mod rocketchat;
 pub mod rooms;
 pub mod runs;
 pub mod server;

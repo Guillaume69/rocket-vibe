@@ -224,6 +224,7 @@ All code, comments and docs are in English. French survives in two places only: 
 | Context window | The history around a message older than what a room has loaded, held in memory and never stored; the list showing it is detached from the present until the window reaches the local history (rv-core `context`, rv-ffi `ContextView`, mobile `lib/contextWindow.ts`). | [room-view](features/room-view.md) |
 | `Admin` | rv-core's administration of the open account, `RocketChat(Arc<Session>)` or `Native(Arc<NativeSession>)`, with the methods both desktop UIs call. | [administration](features/administration.md) |
 | Sidebar dialog (`SidebarDialog`) | rv-gtk's large modal with clickable categories on the left and the chosen page on the right (85 % of the window, at most 1100 x 800; Escape, close button or backdrop click close it), used by the settings and the administration. Its `Host` lets a page toast, push and pop subpages, select, close and badge a category. SwiftUI's counterpart is the settings overlay. | [settings](features/settings.md) |
+| `Backend` | rv-core `session::Backend`: which server family a `Session` speaks to, `RocketChat` or `Mattermost` (with its `MmSync`); every per-server choice matches on it exhaustively. The RocketVibe server is a separate type, `NativeSession`. | [desktop-core](architecture/desktop-core.md) |
 | `timeline` | rv-core's message-list grouping (headers, day separators, new-messages marker), shared by both UIs. | [room-view](features/room-view.md) |
 
 ## Project vocabulary

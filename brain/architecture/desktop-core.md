@@ -20,7 +20,8 @@ Context: [desktop-app.md](desktop-app.md) for the crate layout, [rocket-chat.md]
 
 | Module | Responsibility |
 |---|---|
-| `session` | Login, wiring of every piece, live-event routing, reconnection, every action a UI calls |
+| `session` | Login, wiring of every piece, live-event routing, reconnection, every action a UI calls. Each per-server choice is an exhaustive `match self.backend()` over `Backend::{RocketChat, Mattermost}`, whose arms call `rocketchat::actions` or `mattermost::actions`: a server forgotten in a new method is a compile error, not a silent call to Rocket.Chat's REST (`tests/session_backends.rs` checks each action's route per backend) |
+| `rocketchat` | Rocket.Chat's REST calls behind `Session`'s actions (`rocketchat::actions`), the counterpart of `mattermost::actions`; the message actions the display rules share (react, edit, pin...) stay in `actions` |
 | `mattermost` | A Mattermost or kChat account behind the same `Session`: sign-in, sync, socket (WebSocket or Pusher), actions; see [mattermost-and-kchat](../features/mattermost-and-kchat.md#desktop) |
 | `rest` | REST client: auth headers, 401 discrimination, 2FA challenges, 429 back-off, timeouts, uploads/downloads |
 | `ddp` | Listen-only DDP actor: connect, `login` resume, ref-counted subscriptions, liveness probe |

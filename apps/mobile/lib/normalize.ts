@@ -134,8 +134,26 @@ export type LocalSubscription = {
   groupRank: number | null;
   /** Rocket.Chat two-person DM: the other person's real name (`fname`), for `users.name`. */
   dmName?: string | null;
+  /**
+   * The room's own push choice (`mobilePushNotifications` set for this room),
+   * `null` when it follows the account. Rocket.Chat only.
+   */
+  pushPreference?: RoomNotificationLevel | null;
   updatedAt: number;
 };
+
+/** A room's own notification choice; `default` follows the account's. */
+export type RoomNotificationLevel = 'all' | 'mentions' | 'nothing';
+
+/**
+ * `mobilePushNotifications` counts as the room's own choice only when
+ * `mobilePrefOrigin` says `subscription`: "default" either removes both or
+ * copies the account's preference with the origin `user` (8.5.1 bundle).
+ */
+function roomLevel(value: unknown, origin: unknown): RoomNotificationLevel | null {
+  if (origin !== 'subscription') return null;
+  return value === 'all' || value === 'mentions' || value === 'nothing' ? value : null;
+}
 
 const asString = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v : null);
 const asInt = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
@@ -360,6 +378,7 @@ export function toSubscription(raw: Record<string, unknown>): LocalSubscription 
     groupRank: null,
     // A two-person DM's `fname` is the other person's real name.
     dmName: raw.t === 'd' ? asString(raw.fname) : null,
+    pushPreference: roomLevel(raw.mobilePushNotifications, raw.mobilePrefOrigin),
     updatedAt: toEpoch(raw._updatedAt) ?? 0,
   };
 }

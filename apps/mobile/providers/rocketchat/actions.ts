@@ -8,7 +8,7 @@
 import { mentionsE2E } from '../../lib/e2e/mentions.ts';
 import type { OutboxEncryptor } from '../../lib/outbox.ts';
 import type { ProviderActions, RoomInformation, ThreadPage } from '../../lib/provider.ts';
-import { toMessage, type LocalMessage } from '../../lib/normalize.ts';
+import { toMessage, type LocalMessage, type RoomNotificationLevel } from '../../lib/normalize.ts';
 import type { RestClient } from '../../lib/rest.ts';
 
 /** Roots per page of the thread list. */
@@ -121,6 +121,13 @@ export class ActionsRC implements ProviderActions {
 
   async markRead(rid: string): Promise<void> {
     await this.client.post('subscriptions.read', { body: { rid } });
+  }
+
+  /** Desktop and push together; the rebroadcast subscription carries the choice. */
+  async roomNotifications(rid: string, level: RoomNotificationLevel | 'default'): Promise<void> {
+    await this.client.post('rooms.saveNotification', {
+      body: { roomId: rid, notifications: { desktopNotifications: level, mobilePushNotifications: level } },
+    });
   }
 
   /** `unread: 1`, `ls` just before the last message, then `subscriptions-changed`. */

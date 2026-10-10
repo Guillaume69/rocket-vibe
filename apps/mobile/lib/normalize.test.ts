@@ -218,6 +218,15 @@ describe('toSubscription', () => {
     assert.equal(toSubscription({ rid: 'c1', t: 'c', name: 'general', fname: 'General' })?.dmName, null);
   });
 
+  test("the room's push choice counts only when the room set it", () => {
+    const level = (raw: Record<string, unknown>) => toSubscription({ rid: 'r1', ...raw })?.pushPreference;
+    assert.equal(level({ mobilePushNotifications: 'nothing', mobilePrefOrigin: 'subscription' }), 'nothing');
+    // "default" copied the account's preference: not the room's choice.
+    assert.equal(level({ mobilePushNotifications: 'all', mobilePrefOrigin: 'user' }), null);
+    assert.equal(level({}), null);
+    assert.equal(level({ mobilePushNotifications: 'bogus', mobilePrefOrigin: 'subscription' }), null);
+  });
+
   test('absent counters are 0, flags false', () => {
     const a = toSubscription({ rid: 'r1' });
     assert.deepEqual(a, {
@@ -237,6 +246,7 @@ describe('toSubscription', () => {
       groupName: null,
       groupRank: null,
       dmName: null,
+      pushPreference: null,
       updatedAt: 0,
     });
   });
@@ -274,6 +284,7 @@ describe('toSubscription', () => {
       groupName: null,
       groupRank: null,
       dmName: null,
+      pushPreference: null,
       updatedAt: 1000,
     });
   });

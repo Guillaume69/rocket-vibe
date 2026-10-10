@@ -90,6 +90,8 @@ export const subscriptions = sqliteTable('subscriptions', {
   groupName: text('group_name'),
   /** Where the room's section sits in my sidebar order; `null` keeps the default order. */
   groupRank: integer('group_rank'),
+  /** The room's own push choice (`all`, `mentions`, `nothing`); `null` follows the account. */
+  pushPreference: text('push_preference'),
   updatedAt: integer('updated_at').notNull().default(0),
 });
 

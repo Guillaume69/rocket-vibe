@@ -13,7 +13,7 @@
 import type { DdpEvent, DdpState } from './ddp.ts';
 import type { OutboxEncryptor, OutboxStore } from './outbox.ts';
 import type { UploadEncryption, UploadStore } from './uploadQueue.ts';
-import type { LocalSubscription, LocalMessage, LocalRoom } from './normalize.ts';
+import type { LocalSubscription, LocalMessage, LocalRoom, RoomNotificationLevel } from './normalize.ts';
 import type { SyncEngine } from './sync.ts';
 import type { FileToSend, TransportUpload } from './upload.ts';
 
@@ -214,6 +214,11 @@ export interface ProviderActions {
    * server rebroadcasts carries the badge. Absent where the server cannot.
    */
   markUnread?(rid: string): Promise<void>;
+  /**
+   * The room's own notification choice, `default` to follow the account again.
+   * Rocket.Chat writes it for desktop and push alike: one choice per room.
+   */
+  roomNotifications?(rid: string, level: RoomNotificationLevel | 'default'): Promise<void>;
   /**
    * Opens (or creates, idempotent server-side) the DM with `username`. Returns
    * the `rid` and the raw room document, to ingest so we can navigate without

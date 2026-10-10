@@ -152,6 +152,17 @@ describe('ActionsRC', () => {
     ]);
   });
 
+  test('roomNotifications writes desktop and push together', async () => {
+    const { client, calls } = fakeClient({ success: true });
+    await new ActionsRC(client).roomNotifications('r1', 'mentions');
+    assert.deepEqual(calls, [
+      {
+        path: 'rooms.saveNotification',
+        body: { roomId: 'r1', notifications: { desktopNotifications: 'mentions', mobilePushNotifications: 'mentions' } },
+      },
+    ]);
+  });
+
   test('markUnread asks for the whole room, from its last message', async () => {
     const { client, calls } = fakeClient({ success: true });
     await new ActionsRC(client).markUnread('r1');

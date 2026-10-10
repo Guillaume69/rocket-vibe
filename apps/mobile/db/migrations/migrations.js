@@ -28,6 +28,7 @@ import m0023 from './0023_sidebar_groups.sql';
 import m0024 from './0024_custom_emoji_uri.sql';
 import m0025 from './0025_user_names.sql';
 import m0026 from './0026_thread_followers.sql';
+import m0027 from './0027_room_push_preference.sql';
 
   export default {
     journal,
@@ -58,7 +59,8 @@ m0022,
 m0023,
 m0024,
 m0025,
-m0026
+m0026,
+m0027
     }
   }
   

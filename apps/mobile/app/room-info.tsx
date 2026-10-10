@@ -35,6 +35,7 @@ import {RoomCommands} from '../ui/roomManagement.tsx';
 import {RoomMembershipBound} from '../ui/roomMembership.tsx';
 import {NativeRoomFavorite} from '../ui/nativeRoomFavorite.tsx';
 import {EncryptedGroupSection} from '../ui/encryptedGroup.tsx';
+import { RoomNotificationChoice } from '../ui/roomNotifications.tsx';
 
 const TYPE_SENTENCE: Record<string, TranslationKey> = {
   c: 'roomInfo.typePublicChannel',
@@ -94,7 +95,8 @@ function RoomInfoContent({
     base.select().from(subscriptions).where(eq(subscriptions.rid, rid)),
     [rid],
   );
-  const favorite = (subscriptionRows ?? [])[0]?.favorite === true;
+  const subscription = (subscriptionRows ?? [])[0];
+  const favorite = subscription?.favorite === true;
   const [favoriteToggle, setFavoriteToggle] = useState(false);
   const [favoriteError, setFavoriteError] = useState(false);
   // Server first: the local row only changes once the star is set; the
@@ -197,6 +199,10 @@ function RoomInfoContent({
       </Tappable>}
       {favoriteError && (
         <Text style={[styles.empty, { color: c.errorText }]}>{t('roomInfo.favoriteFailed')}</Text>
+      )}
+
+      {!native && subscription !== undefined && (
+        <RoomNotificationChoice c={c} rid={rid} base={base} actions={actions} current={subscription.pushPreference} />
       )}
 
       {extras?.management && actions.roomManagement && <RoomCommands rid={rid} base={base} details={extras.management} actions={actions.roomManagement} c={c} refresh={()=>setRefreshing(value=>value+1)} />}

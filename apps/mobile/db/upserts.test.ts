@@ -367,6 +367,14 @@ describe('upserts idempotents', () => {
     assert.deepEqual(read(), { roles: '[]' });
   });
 
+  test("a room's push choice: set, then removed by the next document without it", () => {
+    const read = () => row(db.prepare('SELECT push_preference FROM subscriptions WHERE rid = ?').get('r1'));
+    db.prepare(UPSERT_SUBSCRIPTION).run(...sub({ rid: 'r1', pushPreference: 'mentions', updatedAt: 100 }));
+    assert.deepEqual(read(), { push_preference: 'mentions' });
+    db.prepare(UPSERT_SUBSCRIPTION).run(...sub({ rid: 'r1', updatedAt: 200 }));
+    assert.deepEqual(read(), { push_preference: null });
+  });
+
   test('a catch-up cursor never goes back', () => {
     db.prepare(UPSERT_CURSOR).run('r1', 'messages', 500);
     db.prepare(UPSERT_CURSOR).run('r1', 'messages', 300);

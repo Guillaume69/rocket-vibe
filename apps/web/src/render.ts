@@ -3,6 +3,11 @@ export { safeLink } from "./ui/links";
 export { markdown, messageRow } from "./ui/messages";
 export interface RowActions {
   privateFiles?: boolean;
+  pendingActions?(
+    message: Message,
+  ):
+    | { cancelled: boolean; retry(): Promise<void>; cancel(): Promise<void> }
+    | undefined;
   updateMessage?(
     message: Message,
     revision: string,

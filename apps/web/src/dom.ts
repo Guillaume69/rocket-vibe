@@ -1,3 +1,4 @@
+import { dialogContents } from "./ui/dialog";
 export function stopMedia(node: ParentNode): void {
   for (const player of node.querySelectorAll<HTMLMediaElement>("audio,video"))
     if (
@@ -170,15 +171,8 @@ export function toast(error: unknown): void {
   document.querySelector("#toasts")?.append(node);
   setTimeout(() => node.remove(), 6000);
 }
-export function dialog(title: string): [HTMLDialogElement, HTMLDivElement] {
+export function createDialog(): HTMLDialogElement {
   const node = el("dialog");
-  const header = el("header", "dialog-header");
-  header.append(
-    el("h2", "", title),
-    button("×", () => node.close()),
-  );
-  const body = el("div", "dialog-body");
-  node.append(header, body);
   node.addEventListener("click", (event) => {
     if (event.target === node) {
       const rect = node.getBoundingClientRect();
@@ -197,7 +191,11 @@ export function dialog(title: string): [HTMLDialogElement, HTMLDivElement] {
   });
   document.body.append(node);
   node.showModal();
-  return [node, body];
+  return node;
+}
+export function dialog(title: string): [HTMLDialogElement, HTMLDivElement] {
+  const node = createDialog();
+  return [node, dialogContents(node, title)];
 }
 export const initials = (name: string): string =>
   (Array.from(name)[0] || "?").toUpperCase();

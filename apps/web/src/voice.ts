@@ -1,3 +1,5 @@
+import { paintVoiceControls, ringingBar, type VoiceBindings } from "./ui/voice";
+import { clearView } from "./ui/portals";
 import type { App } from "./app";
 import type { VoiceGrant, VoiceRing, LiveState } from "./protocol";
 import { Api, segment } from "./api";
@@ -19,6 +21,8 @@ import { sound } from "./sounds";
 import { t, language } from "./i18n";
 import { encryptedVoice, type EncryptedVoice } from "./crypto/voice";
 export class Voice {
+  private readonly lifetime = new AbortController();
+  private readonly resize = new ResizeObserver(() => this.layout());
   visible = false;
   current?: string;
   membership?: string | null;
@@ -115,21 +119,31 @@ export class Voice {
       button(nt("voice_session.open_chat"), () => this.hide()),
     );
     this.page.append(this.header, this.status, this.stage, this.controls);
-    new ResizeObserver(() => this.layout()).observe(this.stage);
+    this.resize.observe(this.stage);
     this.screenStage.append(this.screenLabel, this.fullscreen);
     this.stage.addEventListener("dblclick", (event) => {
       if ((event.target as HTMLElement).closest(".voice-screen-stage video"))
         void this.toggleFullscreen().catch(toast);
     });
-    document.addEventListener("fullscreenchange", () => {
-      const active = document.fullscreenElement === this.screenStage;
-      this.fullscreen.replaceChildren(icon(active ? "restore" : "fullscreen"));
-      this.fullscreen.title = nt(
-        active ? "voice_session.exit_fullscreen" : "voice_session.fullscreen",
-      );
-      this.fullscreen.setAttribute("aria-label", this.fullscreen.title);
-      this.layout();
-    });
+    document.addEventListener(
+      "fullscreenchange",
+      () => {
+        const active = document.fullscreenElement === this.screenStage;
+        this.fullscreen.replaceChildren(
+          icon(active ? "restore" : "fullscreen"),
+        );
+        this.fullscreen.title = nt(
+          active ? "voice_session.exit_fullscreen" : "voice_session.fullscreen",
+        );
+        this.fullscreen.setAttribute("aria-label", this.fullscreen.title);
+        this.layout();
+      },
+      { signal: this.lifetime.signal },
+    );
+  }
+  dispose(): void {
+    this.lifetime.abort();
+    this.resize.disconnect();
   }
   hasAccess(
     id: string,
@@ -180,7 +194,7 @@ export class Voice {
       this.membership = member;
       this.status.textContent = nt("voice_session.connecting");
       this.status.classList.remove("connected");
-      this.controls.replaceChildren();
+      clearView(this.controls);
       this.show();
       if (room?.encrypted)
         this.encryption = await encryptedVoice(
@@ -208,11 +222,7 @@ export class Voice {
       if (!!grant.e2ee !== !!room?.encrypted)
         throw Error(nt("voice_session.key_unavailable"));
       this.current = id;
-      this.bar.replaceChildren(
-        el("span", "", room?.name || ""),
-        el("span", "dim", language === "fr" ? "Appel…" : "Calling…"),
-        iconButton("close", t("close"), () => this.leave()),
-      );
+      ringingBar(this, room?.name || "");
       this.app.sidebar.insertBefore(
         this.bar,
         this.app.sidebar.lastElementChild,
@@ -624,172 +634,81 @@ export class Voice {
     }, 50);
     this.status.textContent = nt("voice_session.connected");
     this.status.classList.add("connected");
-    const controls = (sidebar = false) => {
-      const mic = iconButton(
-        "mic",
-        "Microphone",
-        async () => {
-          if (!alive()) return;
-          await this.setMicrophone(room, this.muted, alive);
-          if (!alive()) return;
-          sound(this.muted ? "mute" : "unmute");
-          this.syncControls();
-          this.syncCards();
-        },
-        sidebar ? "flat" : "voice-control",
-      );
-      mic.disabled = !grant.can_publish;
-      const menu = iconButton(
-        "audio-menu",
-        nt("voice_menu.open"),
-        () => (alive() ? this.audioMenu(menu) : undefined),
-        "flat voice-menu-button",
-      );
-      const deaf = iconButton(
-        "headphones",
-        language === "fr" ? "Écoute" : "Listen",
-        async () => {
-          if (!alive()) return;
-          this.deafened = !this.deafened;
-          this.mix();
-          this.syncControls();
-          this.syncCards();
-          await room.localParticipant.setAttributes({
-            "rv.deafened": this.deafened ? "1" : "0",
-          });
-        },
-        sidebar ? "flat" : "voice-control",
-      );
-      const leave = iconButton(
-        "leave-call",
-        sidebar ? t("close") : nt("voice_session.leave"),
-        () => this.leave(),
-        sidebar ? "flat voice-leave" : "voice-control voice-leave",
-      );
-      leave.title = nt("voice_session.leave");
-      const nodes = [mic, menu, deaf];
-      const camera = iconButton(
-        "camera",
-        language === "fr" ? "Caméra" : "Camera",
-        async () => {
-          if (!alive()) return;
-          const next = !this.camera;
-          await this.setCamera(room, next, alive);
-          if (!alive()) return;
-          this.camera = next;
-          this.syncControls();
-          this.syncCards();
-        },
-        "voice-control",
-      );
-      camera.disabled = !grant.can_publish;
-      const screen = iconButton(
-        "screen",
-        nt("voice_session.share_screen"),
-        async () => {
-          if (!alive() || this.sharingBusy) return;
-          this.sharingBusy = true;
-          this.syncControls();
-          try {
-            if (!this.sharing) {
-              this.shareAbort?.abort();
-              const abort = new AbortController();
-              this.shareAbort = abort;
-              const quality = await chooseShareQuality(abort.signal);
-              if (!quality || !alive()) return;
-              await this.screenRequest("POST");
+    const bindings: VoiceBindings = {
+      canPublish: grant.can_publish,
+      mic: async () => {
+        if (!alive()) return;
+        await this.setMicrophone(room, this.muted, alive);
+        if (!alive()) return;
+        sound(this.muted ? "mute" : "unmute");
+        this.syncControls();
+        this.syncCards();
+      },
+      deafen: async () => {
+        if (!alive()) return;
+        this.deafened = !this.deafened;
+        this.mix();
+        this.syncControls();
+        this.syncCards();
+        await room.localParticipant.setAttributes({
+          "rv.deafened": this.deafened ? "1" : "0",
+        });
+      },
+      camera: async () => {
+        if (!alive()) return;
+        const next = !this.camera;
+        await this.setCamera(room, next, alive);
+        if (!alive()) return;
+        this.camera = next;
+        this.syncControls();
+        this.syncCards();
+      },
+      screen: async () => {
+        if (!alive() || this.sharingBusy) return;
+        this.sharingBusy = true;
+        this.syncControls();
+        try {
+          if (!this.sharing) {
+            this.shareAbort?.abort();
+            const abort = new AbortController();
+            this.shareAbort = abort;
+            const quality = await chooseShareQuality(abort.signal);
+            if (!quality || !alive()) return;
+            await this.screenRequest("POST");
+            if (!alive()) return;
+            try {
+              await this.startSharing(room, quality, abort.signal, alive);
               if (!alive()) return;
-              try {
-                await this.startSharing(room, quality, abort.signal, alive);
-                if (!alive()) return;
-                this.sharing = room.localParticipant.isScreenShareEnabled;
-              } catch (error) {
-                if (alive()) await this.screenRequest("DELETE");
-                throw error;
-              }
-            } else {
-              await room.localParticipant.setScreenShareEnabled(false);
+              this.sharing = room.localParticipant.isScreenShareEnabled;
+            } catch (error) {
               if (alive()) await this.screenRequest("DELETE");
-              if (!alive()) return;
-              this.sharing = false;
+              throw error;
             }
-            this.syncControls();
-            this.syncCards();
-          } finally {
-            if (alive()) {
-              this.sharingBusy = false;
-              this.syncControls();
-            }
+          } else {
+            await room.localParticipant.setScreenShareEnabled(false);
+            if (alive()) await this.screenRequest("DELETE");
+            if (!alive()) return;
+            this.sharing = false;
           }
-        },
-        "voice-control",
-      );
-      screen.disabled = !grant.can_publish;
-      if (!sidebar) nodes.push(camera, screen);
-      nodes.push(leave);
-      const sync = () => {
-        mic.replaceChildren(icon(this.muted ? "mic-muted" : "mic"));
-        mic.classList.toggle("voice-off", this.muted);
-        mic.title = nt(
-          !grant.can_publish
-            ? "voice_session.listening"
-            : this.muted
-              ? "voice_session.unmute"
-              : "voice_session.mute",
-        );
-        mic.setAttribute("aria-pressed", String(this.muted));
-        deaf.replaceChildren(
-          icon(this.deafened ? "volume-muted" : "headphones"),
-        );
-        deaf.classList.toggle("voice-off", this.deafened);
-        deaf.title = nt(
-          this.deafened ? "voice_session.undeafen" : "voice_session.deafen",
-        );
-        deaf.setAttribute("aria-pressed", String(this.deafened));
-        camera.classList.toggle("voice-on", this.camera);
-        camera.title = nt(
-          this.camera ? "voice_session.camera_off" : "voice_session.camera_on",
-        );
-        camera.setAttribute("aria-pressed", String(this.camera));
-        screen.classList.toggle("voice-on", this.sharing);
-        screen.title = nt(
-          this.sharing
-            ? "voice_session.stop_screen"
-            : "voice_session.share_screen",
-        );
-        screen.setAttribute("aria-pressed", String(this.sharing));
-        screen.disabled = !grant.can_publish || this.sharingBusy;
-      };
-      return { nodes, sync };
+          this.syncControls();
+          this.syncCards();
+        } finally {
+          if (alive()) {
+            this.sharingBusy = false;
+            this.syncControls();
+          }
+        }
+      },
+      menu: (anchor) => (alive() ? this.audioMenu(anchor) : undefined),
+      enableAudio: async () => {
+        if (alive()) await room.startAudio();
+      },
     };
-    const main = controls(),
-      sidebar = controls(true);
     this.syncControls = () => {
-      main.sync();
-      sidebar.sync();
+      if (alive()) paintVoiceControls(this, bindings);
     };
+    room.on(RoomEvent.AudioPlaybackStatusChanged, this.syncControls);
     this.syncControls();
-    this.controls.replaceChildren(...main.nodes);
-    const resume = button(
-      language === "fr" ? "Activer le son" : "Enable audio",
-      () => room.startAudio(),
-    );
-    const syncPlayback = () => {
-      if (alive()) resume.hidden = room.canPlaybackAudio;
-    };
-    room.on(RoomEvent.AudioPlaybackStatusChanged, syncPlayback);
-    syncPlayback();
-    this.controls.append(resume);
-    const connection = button("", () => this.show(), "flat voice-bar-info");
-    connection.append(
-      el("span", "voice-bar-status connected", nt("voice_session.connected")),
-      el(
-        "span",
-        "voice-bar-room",
-        this.app.model.rooms.get(grant.room_id)?.name || t("voice"),
-      ),
-    );
-    this.bar.replaceChildren(connection, ...sidebar.nodes);
     this.app.sidebar.insertBefore(this.bar, this.app.sidebar.lastElementChild);
     this.syncCards();
     this.show();
@@ -1768,12 +1687,13 @@ export class Voice {
     this.room = undefined;
     this.current = undefined;
     this.membership = undefined;
+    clearView(this.bar);
     this.bar.remove();
     for (const screen of this.screens.values()) screen.video.remove();
     this.screens.clear();
     this.minis.replaceChildren();
     this.stage.replaceChildren();
-    this.controls.replaceChildren();
+    clearView(this.controls);
     this.tracks.clear();
     this.muted = false;
     this.camera = false;

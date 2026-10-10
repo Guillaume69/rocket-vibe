@@ -12,7 +12,15 @@ import {
   closeDialog,
 } from "./crypto-browser.mjs";
 
-assert.equal(base, "http://127.0.0.1:3417", "Dedicated disposable server only");
+const origin = new URL(base);
+assert.equal(origin.protocol, "http:");
+assert.ok(
+  ["127.0.0.1", "localhost"].includes(origin.hostname),
+  "Dedicated disposable server only",
+);
+const apiContainer = process.env.RV_WEB_TEST_CONTAINER || "rv-web-e2ee-api";
+const taskLabel = process.env.RV_WEB_TEST_TASK || "web-e2ee";
+assert.ok(["web-e2ee", "web-react"].includes(taskLabel));
 const root = resolve("../.."),
   tag = Date.now().toString(36);
 const folder = resolve(root, ".cache/bench/gtk-" + tag);
@@ -25,11 +33,11 @@ assert.equal(
       "inspect",
       "-f",
       '{{ index .Config.Labels "rocketvibe.task" }}',
-      "rv-web-e2ee-api",
+      apiContainer,
     ],
     { encoding: "utf8" },
   ).trim(),
-  "web-e2ee",
+  taskLabel,
 );
 await mkdir(folder, { recursive: true });
 for (const name of names)
@@ -39,7 +47,7 @@ for (const name of names)
       "exec",
       "-e",
       "RV_USER_PASSWORD=web-client-disposable-password",
-      "rv-web-e2ee-api",
+      apiContainer,
       ".cache/server-target/debug/rv-server",
       "create-user",
       name,
@@ -124,7 +132,7 @@ try {
       "--name",
       container,
       "--label",
-      "rocketvibe.task=web-e2ee",
+      "rocketvibe.task=" + taskLabel,
       "-v",
       root + ":/workspace",
       "-v",
@@ -136,7 +144,9 @@ try {
       "-e",
       "RV_SMOKE_NATIVE=1",
       "-e",
-      "RV_SMOKE_LOGIN=http://host.docker.internal:3417|" +
+      "RV_SMOKE_LOGIN=http://host.docker.internal:" +
+        (origin.port || "80") +
+        "|" +
         names[1] +
         "|web-client-disposable-password",
       "-e",
@@ -215,7 +225,7 @@ try {
         ],
         { encoding: "utf8" },
       ).trim(),
-      "web-e2ee",
+      taskLabel,
     );
     execFileSync("docker", ["stop", "--time", "2", container], {
       stdio: "pipe",

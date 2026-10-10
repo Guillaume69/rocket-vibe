@@ -3,7 +3,7 @@ import type { App } from "../app";
 import type { Room } from "../protocol";
 import { t, language } from "../i18n";
 import { previewText } from "../presentation";
-import { newConversation } from "../panels";
+import { newConversation } from "../panel-actions";
 import { initials, toast } from "../dom";
 import { ActionButton, Avatar, IconButton, Symbol } from "./controls";
 

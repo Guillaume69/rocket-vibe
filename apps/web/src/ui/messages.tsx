@@ -467,12 +467,13 @@ function PreviewCard({
   ) : null;
 }
 
-function documentLinks(nodes: MarkdownNode[]): string[] {
+function documentLinks(nodes: MarkdownNode[], depth = 0): string[] {
+  if (depth > 32) return [];
   return nodes.flatMap((node) =>
     node.kind === "link"
-      ? [node.href, ...documentLinks(node.children)]
+      ? [node.href, ...documentLinks(node.children, depth + 1)]
       : "children" in node
-        ? documentLinks(node.children)
+        ? documentLinks(node.children, depth + 1)
         : [],
   );
 }
@@ -798,6 +799,7 @@ export function MessageView({
       >
         •••
       </ActionButton>
+      <PrivatePending message={message} actions={actions} />
     </>
   );
   return host ? (
@@ -813,6 +815,29 @@ export function MessageView({
       {content}
     </article>
   );
+}
+
+function PrivatePending({
+  message,
+  actions,
+}: {
+  message: Message;
+  actions: RowActions;
+}) {
+  const pending = actions.pendingActions?.(message);
+  return pending ? (
+    <div className="private-pending">
+      {!pending.cancelled && (
+        <span className="message-note">{t("pending")}</span>
+      )}
+      <ActionButton action={() => pending.retry()}>{t("retry")}</ActionButton>
+      {!pending.cancelled && (
+        <ActionButton action={() => pending.cancel()}>
+          {t("cancel")}
+        </ActionButton>
+      )}
+    </div>
+  ) : null;
 }
 
 export function Timeline({

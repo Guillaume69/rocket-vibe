@@ -87,7 +87,7 @@ export function IconButton({
       {...props}
       className={className}
       aria-label={label}
-      title={label}
+      title={props.title ?? label}
     >
       <Symbol name={name} />
     </ActionButton>

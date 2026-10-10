@@ -1,3 +1,4 @@
+import { entryControl, selectControl, switchControl } from "./ui/preferences";
 import type { App } from "./app";
 import { el, button, dialog } from "./dom";
 import { actionRow } from "./sidebar";
@@ -22,12 +23,7 @@ export function entryRow(
     "label",
     "action-row entry-row" + (area ? " multiline-row" : ""),
   );
-  row.append(el("span", "action-row-title", title));
-  const input = area ? el("textarea", "pill-entry") : el("input", "pill-entry");
-  input.value = value;
-  input.setAttribute("aria-label", title);
-  input.addEventListener("input", () => change(input.value));
-  row.append(input);
+  entryControl(row, title, value, change, area);
   return row;
 }
 export function selectRow(
@@ -37,17 +33,7 @@ export function selectRow(
   change: (value: string) => void,
 ): HTMLElement {
   const row = el("label", "action-row combo-row");
-  row.append(el("span", "action-row-title", title));
-  const input = el("select", "pill-entry");
-  input.setAttribute("aria-label", title);
-  for (const [id, name] of options) {
-    const option = el("option", "", name);
-    option.value = id;
-    input.append(option);
-  }
-  input.value = value;
-  input.addEventListener("change", () => change(input.value));
-  row.append(input);
+  selectControl(row, title, value, options, change);
   return row;
 }
 export function switchRow(
@@ -56,13 +42,7 @@ export function switchRow(
   change: (value: boolean) => void,
 ): HTMLElement {
   const row = el("label", "action-row toggle");
-  row.append(el("span", "action-row-title", title));
-  const input = el("input");
-  input.type = "checkbox";
-  input.checked = value;
-  input.setAttribute("aria-label", title);
-  input.addEventListener("change", () => change(input.checked));
-  row.append(input);
+  switchControl(row, title, value, change);
   return row;
 }
 export function confirmAction(

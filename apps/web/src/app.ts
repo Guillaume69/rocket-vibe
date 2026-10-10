@@ -1,3 +1,5 @@
+import { messageMenu, type MenuAction } from "./ui/menu";
+import { showThread } from "./ui/thread";
 import { emptyTimeline, timelineBanner } from "./ui/banners";
 import { paintTimeline } from "./ui/messages";
 import { clearView } from "./ui/portals";
@@ -56,14 +58,14 @@ import {
   type UploadJob,
 } from "./uploads";
 import { Voice } from "./voice";
-import { administration, report } from "./admin";
+import { administration, report } from "./admin-actions";
 import { logoutSession, renew } from "./session";
 import { listBreak } from "./composition";
 import { composer } from "./composer";
 import { cached, cacheMedia } from "./media";
 import { previewText, decorate } from "./presentation";
 import { canonical, categories, glyphs, emojiGlyph } from "./emoji";
-import { settings, newConversation, profile } from "./panels";
+import { settings, newConversation, profile } from "./panel-actions";
 
 export class App implements RowActions {
   readonly view = new ViewState();
@@ -240,6 +242,7 @@ export class App implements RowActions {
     clearInterval(this.sessionTimer);
     this.channel.close();
     await this.stop();
+    this.voice.dispose();
   }
   async init(): Promise<void> {
     setLanguage(language);
@@ -1143,9 +1146,7 @@ export class App implements RowActions {
       100;
     const top = container.scrollTop,
       height = container.scrollHeight;
-    for (const extra of container.querySelectorAll(
-      ":scope > .pending-rows,:scope > .e2e-banner",
-    ))
+    for (const extra of container.querySelectorAll(":scope > .pending-rows"))
       extra.remove();
     paintTimeline(
       container,
@@ -1678,50 +1679,18 @@ export class App implements RowActions {
     this.root = root;
     this.model.put(page.root);
     for (const reply of page.messages) this.model.put(reply);
-    this.threadPane.hidden = false;
-    this.threadPane.replaceChildren();
-    const head = el("header", "headerbar");
-    head.append(
-      el("span", "room-title", t("thread")),
-      iconButton("close", t("close"), () => this.closeThread()),
-    );
-    this.threadTimeline = el("div", "timeline");
-    this.threadComposer = composer();
-    this.threadComposer.placeholder = t("message");
-    this.threadComposer.setAttribute("aria-label", t("thread"));
-    this.threadComposer.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
-        event.preventDefault();
-        void this.send(this.threadComposer.value, this.root).catch(toast);
-      }
-    });
-    const footer = el("div", "composer");
-    footer.append(
-      iconButton("attach", t("attach"), () => this.pickFile()),
-      this.threadComposer,
-      iconButton("mic", t("voice"), () => this.record()),
-      iconButton(
-        "send",
-        t("send"),
-        () => this.send(this.threadComposer.value, this.root),
-        "send",
-      ),
-    );
     this.threadOlder = page.has_more;
-    this.threadTimeline.addEventListener("scroll", () => {
-      if (this.threadTimeline.scrollTop < 100) void this.olderThread();
-      void this.markThread();
+    showThread(this, {
+      draft,
+      send: (text) => this.send(text, root),
+      save: (text) => {
+        if (active())
+          void write("drafts", account + ":" + room + ":thread:" + root, text);
+      },
+      older: () => {
+        void this.olderThread();
+      },
     });
-    this.threadComposer.addEventListener("input", () => {
-      if (this.account && this.root)
-        void write(
-          "drafts",
-          this.account.key + ":" + this.room + ":thread:" + this.root,
-          this.threadComposer.value,
-        );
-    });
-    this.threadComposer.value = draft;
-    this.threadPane.append(head, this.threadTimeline, footer);
     this.renderThread();
     this.threadTimeline.scrollTop = this.threadTimeline.scrollHeight;
     this.threadComposer.focus();
@@ -1732,6 +1701,7 @@ export class App implements RowActions {
     this.root = undefined;
     this.threadPane.hidden = true;
     stopMedia(this.threadTimeline);
+    clearView(this.threadPane);
   }
   renderThread(): void {
     if (this.model.rooms.get(this.room ?? "")?.encrypted) {
@@ -1847,30 +1817,12 @@ export class App implements RowActions {
           '[data-id="' + message.id + '"] .row-more',
         );
     if (!anchor) return;
-    const node = el("div", "actions-menu");
-    node.popover = "auto";
-    const body = el("div");
-    node.append(body);
-    document.body.append(node);
-    const rect = anchor.getBoundingClientRect();
-    node.style.left =
-      Math.max(10, Math.min(innerWidth - 268, rect.right - 250)) + "px";
-    node.style.top =
-      Math.max(10, Math.min(innerHeight - 420, rect.bottom + 4)) + "px";
-    node.addEventListener("toggle", () => {
-      if (!node.matches(":popover-open")) node.remove();
-    });
-    const close = () => {
-      node.hidePopover();
-      node.remove();
-    };
     const counts =
       (await read<Record<string, number>>(
         "operations",
         this.account!.key + ":emoji-frequency",
       )) || {};
     if (!current() || !anchor.isConnected) {
-      node.remove();
       return;
     }
     const quickCodes = [
@@ -1881,46 +1833,16 @@ export class App implements RowActions {
     ]
       .sort((a, b) => (counts[b] || 0) - (counts[a] || 0))
       .slice(0, 5);
-    const quick = el("div", "quick-reactions");
-    if (permissions.react)
-      for (const emoji of quickCodes.map(emojiGlyph))
-        quick.append(
-          button(
-            emoji,
-            async () => {
-              await this.reaction(message, emoji);
-              close();
-            },
-            "quick-reaction",
-          ),
-        );
-    body.append(quick);
-    if (permissions.react)
-      body.append(
-        button(
-          t("react"),
-          () => {
-            close();
-            this.emojiPicker(message);
-          },
-          "menu-action",
-        ),
-      );
-    const action = (label: string, run: () => Promise<void> | void) =>
-      body.append(
-        button(
-          label,
-          async () => {
-            if (!current()) {
-              close();
-              return;
-            }
-            await run();
-            close();
-          },
-          "menu-action",
-        ),
-      );
+    const quick: MenuAction[] = permissions.react
+      ? quickCodes
+          .map(emojiGlyph)
+          .map((emoji) => [emoji, () => this.reaction(message, emoji)] as const)
+      : [];
+    const actions: MenuAction[] = [];
+    const action = (label: string, run: () => Promise<void> | void) => {
+      actions.push([label, run]);
+    };
+    if (permissions.react) action(t("react"), () => this.emojiPicker(message));
     action(t("reply"), () => this.thread(message));
     action(t("quote"), () => {
       this.quote = message;
@@ -2003,7 +1925,12 @@ export class App implements RowActions {
           ),
         );
       });
-    node.showPopover();
+    messageMenu(
+      anchor,
+      quick,
+      actions,
+      () => current() && this.model.messages.has(message.id),
+    );
   }
   editMessage(message: Message, revision: string): void {
     if (!this.roomFence(message.room_id)()) return;

@@ -9,7 +9,7 @@ import { t, language } from "../i18n";
 import { actionMenu, stopMedia, toast } from "../dom";
 import { composer } from "../composer";
 import { write } from "../store";
-import { roomInfo, marked, search, newConversation } from "../panels";
+import { roomInfo, marked, search, newConversation } from "../panel-actions";
 import { ActionButton, Avatar, Brand, IconButton, Symbol } from "./controls";
 import { LoginScreen } from "./login";
 import { RoomList } from "./rooms";

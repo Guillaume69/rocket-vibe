@@ -66,6 +66,14 @@ Eight new voice-lifecycle scenarios pass against the native server and isolated 
 
 Six profile scenarios pass against the real native server: clicking avatars and names, current facts/actions, live name/bio/presence changes, expired observations and signed-out peers, own/report cards, DM navigation/narrow layout and ringing/decline from Call. Actual Fedora GTK and browser captures compare the 420 by 520 card, 96-pixel portrait, centered identity/status and bio/actions. The GTK capture uses a build without a voice sidecar; Call behavior is compared in source and tested through the actual server ring lifecycle. E2EE identity controls remain excluded. Bio markdown remains browser debt. The continuous gate now contains 113 browser scenarios. Browser Online presence renews every 20 seconds, with serialized/fenced shutdown and a captured credential; profile actions fetch the DM's personal read/access state before navigation.
 
+## React migration qualification, 2026-10-10
+
+The React bundle passes all 125 real-server scenarios in the 16 browser suites, the 50 Node lifecycle/network tests, strict TypeScript, formatting and production build. Chromium and Firefox also pass the separate shared-Rust vault reload, concurrent-worker, non-extractable-key and authenticated-corruption checks. These results qualify the existing behavior after migration, including native MLS, encrypted voice, recovery, ordinary calls, protected media and iframe retention, factors, offline sessions/queues, workflows, reads, profiles and GTK-derived visual geometry.
+
+The continuous web gate passes on `42ec65e7`: [CI evidence](https://github.com/Guillaume69/rocket-vibe/actions/runs/38010739710). A fresh Fedora desktop gate passes 566 tests with eight intentionally ignored. The rebuilt GTK client passes both browser interoperability scenarios: decrypting browser MLS messages and encrypting replies through the actual GTK composer, plus admission, fingerprint and Secret Service isolation. The connected GTK administration window is captured against the same native server as the browser dashboard. Browser inspection confirms the shared Nunito font files are loaded with 400-weight rows and 700-weight headings; platform font rasterization remains part of the visual qualification boundary. These scenarios do not qualify encrypted file transfer through the GTK UI.
+
+The React ownership and remaining native page/editor/media adapters are explicit in [WEB_REACT.md](WEB_REACT.md). Existing per-row parity debts remain below; a React rewrite does not establish complete GTK pixel parity or closed-tab behavior.
+
 ## GTK inventory
 
 GTK baseline is inherited, not a new verification claim. Web status refers to the native provider; mappings and exclusions follow the accepted origin/account/encryption scope.

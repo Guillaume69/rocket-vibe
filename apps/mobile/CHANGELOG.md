@@ -9,6 +9,7 @@ release, and its notes are that version's section here.
 
 ### Added
 
+- On RocketVibe servers, read receipts: under your latest message, "Seen" in a direct conversation, "Seen by" and up to three names (then how many others) in a group, updated live. Settings > My account has a "Share read receipts" switch under Privacy; turned off, others no longer see how far you read and you no longer see how far they did.
 - On RocketVibe servers, Settings > Notifications offers "Do not disturb": mute notifications for 1 hour or until 08:00, or set daily quiet hours (22:00 to 08:00 by default, in the phone's time zone). Messages still arrive; push notifications and call rings stop meanwhile.
 - A filter field at the top of the room list narrows it to the rooms whose name matches, accents and case aside, best matches first, as the desktop's Ctrl+K switcher ranks them.
 - On Rocket.Chat servers, a button in the room header lists the room's threads, all of them or only the ones you follow, latest reply first; a bell on each thread and in the thread's header follows or unfollows it.

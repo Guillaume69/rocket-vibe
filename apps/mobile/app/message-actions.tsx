@@ -435,7 +435,7 @@ export default function MessageActionsScreen() {
   const forward = () => {
     const link = messagePermalink({ baseUrl: client.baseUrl, siteUrl, type: room.type, name: room.name, rid: message.rid, msgId: message.id });
     router.back();
-    router.push({ pathname: '/forward', params: { link, mid: message.id } });
+    router.push({ pathname: '/forward', params: { link, mid: message.id, from: message.rid } });
   };
 
   // Adding counts one use of the emoji at the tap, before the server

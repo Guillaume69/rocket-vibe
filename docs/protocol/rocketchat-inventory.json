@@ -4575,37 +4575,37 @@
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2374,
+      "line": 2373,
       "kind": "endpoint",
       "surface": "e2e.title"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2375,
+      "line": 2374,
       "kind": "endpoint",
       "surface": "e2e.explanation"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2377,
+      "line": 2376,
       "kind": "endpoint",
       "surface": "e2e.field"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2378,
+      "line": 2377,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2379,
+      "line": 2378,
       "kind": "endpoint",
       "surface": "e2e.wrongPassword"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2380,
+      "line": 2379,
       "kind": "endpoint",
       "surface": "e2e.genericError"
     },

@@ -15,7 +15,7 @@ struct DiscussionCardView: View {
     var body: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("💬 " + L("discussion.kind") + (author.isEmpty ? "" : " · \(author)"))
+                Label(L("discussion.kind") + (author.isEmpty ? "" : " · \(author)"), systemImage: "bubble.left.and.bubble.right")
                     .font(.vibe(11.5, .semibold))
                     .foregroundStyle(Vibe.faint)
                 let title = name.trimmingCharacters(in: .whitespacesAndNewlines)

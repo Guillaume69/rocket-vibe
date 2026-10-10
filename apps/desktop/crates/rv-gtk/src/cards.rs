@@ -584,10 +584,11 @@ pub fn discussion(row: &rv_core::store::MessageRow, drid: &str, on_event: OnRowE
     card.set_widget_name(&format!("discussion-{drid}"));
     let text = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(2).build();
     let kind = match row.author.as_deref().filter(|a| !a.is_empty()) {
-        Some(author) => format!("💬 {} · {author}", t("discussion.kind")),
-        None => format!("💬 {}", t("discussion.kind")),
+        Some(author) => format!("{} · {author}", t("discussion.kind")),
+        None => t("discussion.kind").to_owned(),
     };
-    text.append(&gtk::Label::builder().label(kind).xalign(0.0).css_classes(["message-note"]).build());
+    let kind = gtk::Label::builder().label(kind).xalign(0.0).css_classes(["message-note"]).build();
+    text.append(&widgets::with_icon("chat-message-new-symbolic", &kind, &[]));
     if let Some(name) = row.text.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
         let name = gtk::Label::builder()
             .label(name)

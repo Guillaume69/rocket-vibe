@@ -26,7 +26,6 @@ section here.
 ### Fixed
 
 - The room list previews a message that quotes another by its own words, and a forwarded message (a quote with no words) as "↪ Quoted message" instead of an empty line (GTK and macOS).
-
 - A local database error (full disk, I/O error) rolls back the one write instead of crashing the app, and the GTK and SwiftUI apps sharing a database on macOS wait for each other instead of failing on a busy database.
 - Messages and files sent while the server restarts behind its proxy (a 5xx answer) stay queued instead of showing "not sent".
 - Closing a Rocket.Chat account while its connection waited to retry no longer reconnects it in the background with the old token.

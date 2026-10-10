@@ -61,7 +61,7 @@ use the indexes.
 | [shared-crates.md](architecture/shared-crates.md) | `crates/`: the native protocol and its generated copies, the HTTP client, the MLS engine and its vault, the Android and wasm bridges, the seven workspaces and their locks. |
 
 The developing [Slack session provider](architecture/slack-session.md) has a
-protocol handoff, measured session/RTM evidence and a first hidden read-only preview. Persistent accounts and full chat remain pending.
+protocol handoff, measured session/RTM evidence and a hidden read-only browser-import preview. Persistent accounts and full chat remain pending.
 
 The developing [Teams provider](architecture/teams.md) has candidate private
 read transport, public-key browser handoff and native previews; live sign-in,
@@ -73,7 +73,7 @@ Each feature doc covers mobile and desktop, and says where they differ.
 
 | Doc | What's here |
 |---|---|
-| [experimental-integrations.md](features/experimental-integrations.md) | Nine-activation unlock, transient Slack preview and Teams browser-import read preview; live Teams sign-in remains unqualified. |
+| [experimental-integrations.md](features/experimental-integrations.md) | Nine-activation unlock, Slack and Teams transient browser-import read previews; live Teams sign-in remains unqualified. |
 | [login-and-servers.md](features/login-and-servers.md) | Server probe, login, 2FA, session resume and revocation, multi-server and multi-account. |
 | [whatsapp.md](features/whatsapp.md) | A personal WhatsApp account linked by QR through a local helper, as an account of the GTK app. |
 | [mattermost-and-kchat.md](features/mattermost-and-kchat.md) | Mattermost and kChat servers on the three apps: login, real time, sync, sending, media. |

@@ -1379,6 +1379,43 @@ impl Session {
         Ok(self.store.messages_by_id(&ids))
     }
 
+    /// Whether the server lists a room's threads and lets me follow one:
+    /// Rocket.Chat only, Mattermost and kChat have no such list.
+    pub fn threads_available(&self) -> bool {
+        self.sync.mattermost().is_none()
+    }
+
+    /// One page of the room's threads (every one, or the ones I follow), the
+    /// most recently answered first, with how many there are in all; the
+    /// roots are stored as they come.
+    pub async fn threads(
+        &self,
+        rid: &str,
+        following: bool,
+        offset: u32,
+        count: u32,
+    ) -> Result<(Vec<crate::store::MessageRow>, u32), RestError> {
+        if !self.threads_available() {
+            return Err(RestError::incomplete("threads: not on this server"));
+        }
+        let (docs, total) = actions::threads(&self.rest, rid, following, offset, count).await?;
+        self.sync.ingest_messages(&docs);
+        let ids: Vec<String> =
+            docs.iter().filter_map(|d| d.get("_id").and_then(Value::as_str)).map(str::to_owned).collect();
+        Ok((self.store.messages_by_id(&ids), total))
+    }
+
+    /// Follows a thread or stops following it. The root's followers change
+    /// locally at once; the server's copy of the root follows on the stream.
+    pub async fn follow_thread(&self, root: &str, on: bool) -> Result<(), RestError> {
+        if !self.threads_available() {
+            return Err(RestError::incomplete("follow: not on this server"));
+        }
+        actions::follow_thread(&self.rest, root, on).await?;
+        self.store.write(|w| w.set_thread_follower(root, &self.info.user_id, on));
+        Ok(())
+    }
+
     /// Writes a server file to `dest`, through a temporary name so a failed
     /// transfer never leaves a truncated file where a complete one is expected.
     pub async fn download_to(&self, path_or_url: &str, dest: &std::path::Path) -> Result<(), RestError> {

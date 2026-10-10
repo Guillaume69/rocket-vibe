@@ -55,3 +55,30 @@ async fn settings_are_read_whole_and_anonymously() {
     assert_eq!(request.target, "/api/v1/settings.public?count=0");
     assert!(!request.headers.contains_key("x-auth-token"));
 }
+
+#[tokio::test]
+async fn threads_are_listed_by_page_and_followed() {
+    let server = FakeHttp::start(|r| {
+        if r.path().ends_with("chat.getThreadsList") {
+            respond(
+                200,
+                r#"{"success":true,"threads":[{"_id":"T1","replies":["me"]}],"count":1,"offset":50,"total":51}"#,
+            )
+        } else {
+            respond(200, r#"{"success":true}"#)
+        }
+    })
+    .await;
+    let c = client(&server);
+    let (threads, total) = actions::threads(&c, "R1", true, 50, 50).await.unwrap();
+    assert_eq!((threads.len(), threads[0]["_id"].as_str(), total), (1, Some("T1"), 51));
+    actions::threads(&c, "R1", false, 0, 50).await.unwrap();
+    actions::follow_thread(&c, "T1", true).await.unwrap();
+    actions::follow_thread(&c, "T1", false).await.unwrap();
+
+    let requests = server.requests();
+    assert_eq!(requests[0].target, "/api/v1/chat.getThreadsList?rid=R1&offset=50&count=50&type=following");
+    assert_eq!(requests[1].target, "/api/v1/chat.getThreadsList?rid=R1&offset=0&count=50");
+    assert_eq!(body(&server, 2), ("/api/v1/chat.followMessage".into(), json!({"mid": "T1"})));
+    assert_eq!(body(&server, 3), ("/api/v1/chat.unfollowMessage".into(), json!({"mid": "T1"})));
+}

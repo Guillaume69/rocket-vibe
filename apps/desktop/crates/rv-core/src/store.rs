@@ -96,6 +96,10 @@ pub struct MessageRow {
     pub pinned: bool,
     /// The users who starred it, by id, comma-separated.
     pub starred: Option<String>,
+    /// A thread root's last reply time (`tlm`).
+    pub thread_last: Option<i64>,
+    /// A thread root's followers, by id, comma-separated. Always None outside Rocket.Chat.
+    pub thread_followers: Option<String>,
     /// Written by a bot account (RocketVibe, RFC 0003): a "BOT" badge beside
     /// the name. Always false on Rocket.Chat.
     pub author_bot: bool,
@@ -126,6 +130,8 @@ impl From<&Message> for MessageRow {
             call_id: m.call_id.clone(),
             pinned: m.pinned,
             starred: m.starred.clone(),
+            thread_last: m.thread_last,
+            thread_followers: m.thread_followers.clone(),
             author_bot: false,
             form: None,
         }
@@ -135,6 +141,11 @@ impl From<&Message> for MessageRow {
 impl MessageRow {
     pub fn starred_by(&self, uid: &str) -> bool {
         self.starred.as_deref().is_some_and(|ids| ids.split(',').any(|id| id == uid))
+    }
+
+    /// I follow this thread: its replies notify me.
+    pub fn followed_by(&self, uid: &str) -> bool {
+        self.thread_followers.as_deref().is_some_and(|ids| ids.split(',').any(|id| id == uid))
     }
 }
 
@@ -224,6 +235,7 @@ const MIGRATIONS: &[&str] = &[
      ALTER TABLE subscriptions ADD COLUMN group_rank INTEGER",
     "CREATE TABLE people (uid TEXT PRIMARY KEY, name TEXT NOT NULL, seen INTEGER NOT NULL DEFAULT 0);
      CREATE TABLE server_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+    "ALTER TABLE messages ADD COLUMN thread_followers TEXT",
 ];
 
 /// A room's shown name (rooms aliased `r`): a two-person DM under its peer's
@@ -636,7 +648,7 @@ impl Store {
         let sql = format!(
             "SELECT m.id, m.ts, m.text, m.author_name, m.author_id, m.system_type, m.edited_at IS NOT NULL,
                     m.attachments, m.thread_count, o.status, m.md, m.reactions, m.thread_id, m.urls, m.call_id, m.encrypted_raw, m.rid,
-                    m.pinned, m.starred
+                    m.pinned, m.starred, m.thread_last, m.thread_followers
              FROM messages m LEFT JOIN outbox o ON o.id = m.id
              WHERE {filter}
              ORDER BY m.ts DESC, m.id DESC LIMIT ?2"
@@ -665,6 +677,8 @@ impl Store {
                         rid: r.get(16)?,
                         pinned: r.get(17)?,
                         starred: r.get(18)?,
+                        thread_last: r.get(19)?,
+                        thread_followers: r.get(20)?,
                         author_bot: false,
                         form: None,
                     })
@@ -765,8 +779,8 @@ impl Writer<'_> {
             .execute(
                 "INSERT INTO messages (id, rid, text, ts, author_id, author_name, system_type, thread_id,
                    thread_count, thread_last, thread_shown, edited_at, attachments, reactions, encrypted_raw, updated_at, md, urls, call_id,
-                   pinned, starred)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)
+                   pinned, starred, thread_followers)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)
                  ON CONFLICT(id) DO UPDATE SET
                    text = CASE WHEN excluded.system_type = 'e2e' THEN COALESCE(excluded.text, messages.text) ELSE excluded.text END,
                    ts = excluded.ts,
@@ -785,12 +799,14 @@ impl Writer<'_> {
                    urls = excluded.urls,
                    call_id = excluded.call_id,
                    pinned = excluded.pinned,
-                   starred = excluded.starred
+                   starred = excluded.starred,
+                   thread_followers = excluded.thread_followers
                  WHERE excluded.updated_at >= messages.updated_at",
                 params![
                     m.id, m.rid, m.text, m.ts, m.author_id, m.author_name, m.system_type, m.thread_id,
                     m.thread_count, m.thread_last, m.thread_shown, m.edited_at, m.attachments, m.reactions,
-                    m.encrypted_raw, m.updated_at, m.md, m.urls, m.call_id, m.pinned, m.starred
+                    m.encrypted_raw, m.updated_at, m.md, m.urls, m.call_id, m.pinned, m.starred,
+                    m.thread_followers
                 ],
             )
             .or_note(&mut self.failed, "upsert message");
@@ -959,6 +975,36 @@ impl Writer<'_> {
             .or_note(&mut self.failed, "rearm");
     }
 
+    /// I follow a thread (`on`) or stop: its root's followers gain or lose
+    /// me until the server's copy of the root arrives. Its `updated_at` stays,
+    /// so that copy, newer, always replaces this guess.
+    pub fn set_thread_follower(&mut self, root: &str, uid: &str, on: bool) {
+        let Some(rid) = self.rid_of("SELECT rid FROM messages WHERE id = ?1", root) else { return };
+        let current: Option<String> = self
+            .conn
+            .query_row("SELECT thread_followers FROM messages WHERE id = ?1", [root], |r| r.get(0))
+            .optional()
+            .ok()
+            .flatten()
+            .flatten();
+        let mut ids: Vec<&str> =
+            current.as_deref().unwrap_or_default().split(',').filter(|id| !id.is_empty()).collect();
+        let present = ids.contains(&uid);
+        if present == on {
+            return;
+        }
+        if on {
+            ids.push(uid);
+        } else {
+            ids.retain(|id| *id != uid);
+        }
+        let joined = (!ids.is_empty()).then(|| ids.join(","));
+        self.conn
+            .execute("UPDATE messages SET thread_followers = ?2 WHERE id = ?1", params![root, joined])
+            .or_note(&mut self.failed, "thread follower");
+        self.touch_messages(&rid);
+    }
+
     pub fn set_favorite(&mut self, rid: &str, on: bool) {
         self.conn
             .execute("UPDATE subscriptions SET favorite = ?2 WHERE rid = ?1", params![rid, on])
@@ -1075,6 +1121,37 @@ mod tests {
         drop(store);
         assert!(Store::open(&path).is_ok(), "reopening must not rerun the steps");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn thread_followers_round_trip_and_follow_locally() {
+        let store = Store::in_memory().unwrap();
+        let root = Message {
+            thread_count: 2,
+            thread_last: Some(50),
+            thread_followers: Some("a,b".into()),
+            ..message("root", Some("x"), 10, "r")
+        };
+        store.write(|w| w.upsert_message(&root));
+        let row = store.messages_by_id(&["root".into()]).pop().unwrap();
+        assert_eq!((row.thread_last, row.thread_followers.as_deref()), (Some(50), Some("a,b")));
+        assert!(row.followed_by("b") && !row.followed_by("me"));
+
+        let mut changes = store.changes();
+        store.write(|w| w.set_thread_follower("root", "me", true));
+        assert!(changes.try_recv().unwrap().rids.contains("r"));
+        store.write(|w| w.set_thread_follower("root", "me", true));
+        assert_eq!(store.messages_by_id(&["root".into()])[0].thread_followers.as_deref(), Some("a,b,me"));
+        store.write(|w| {
+            w.set_thread_follower("root", "a", false);
+            w.set_thread_follower("root", "b", false);
+            w.set_thread_follower("root", "me", false);
+        });
+        assert_eq!(store.messages_by_id(&["root".into()])[0].thread_followers, None);
+        // The server's copy, newer than the guess, replaces it.
+        store.write(|w| w.upsert_message(&Message { thread_followers: Some("a".into()), ..root.clone() }));
+        assert_eq!(store.messages_by_id(&["root".into()])[0].thread_followers.as_deref(), Some("a"));
+        store.write(|w| w.set_thread_follower("unknown", "me", true));
     }
 
     #[test]

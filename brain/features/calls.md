@@ -49,7 +49,7 @@ kChat calls are kMeet meetings its server opens (`docs/MATTERMOST.md` §6.5): `P
 
 ## Parity
 
-Start, join, call card with Join, profile Call: both apps ([parity](../parity.md) §12). Meeting info with the token-free link: GTK (dialog) and mobile (the call card's "Meeting information", an alert with Copy and Open in the browser), not SwiftUI. The origin lock is the same rule on Android, Windows and macOS; Linux delegates to a browser.
+Start, join, call card with Join, profile Call: both apps ([parity](../parity.md) §12). Meeting info with the token-free link: GTK (dialog), mobile (the call card's "Meeting information", an alert with Copy and Open in the browser) and SwiftUI (the call card's info button). The origin lock is the same rule on Android, Windows and macOS; Linux delegates to a browser.
 
 ## Sources
 

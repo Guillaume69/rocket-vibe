@@ -102,7 +102,7 @@ beta does.
 | Formatting toolbar and live styling | partial | done | missing | done | Mobile: the toolbar (an "Aa" row: bold, italic, strike, link, code, code block, quote, bullets, numbers, the desktop's rules ported in `lib/formatting.ts`), no live styling of the draft. Web: DOM editor, GTK span styles and cursor-line markers; apps/web/tests/composer.mjs. |
 | Spell check | mapped | done | done | mapped | Mobile: the system keyboard's. Web: Native browser storage/HTTP/socket, HTTPS links, downloads and live-tab alerts; see web-client.md. |
 | Up arrow in an empty field edits my last message | n/a | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
-| List continuation on Enter | done | done | missing | done | Web: Native provider: see [web-client](features/web-client.md). |
+| List continuation on Enter | done | done | done | done | SwiftUI on Shift+Return over rv-ffi's `list_break`, checked by the macOS CI build only. Web: Native provider: see [web-client](features/web-client.md). |
 | Reply with quote (permalink prefix) | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | Attach files | done | done | done | done | Desktop: file chooser, drag-and-drop and paste, in place of the Android share sheet. Web: Native provider: see [web-client](features/web-client.md). |
 | Pre-send preview with captions and quality | done | done | done | done | Web: GTK 40-pixel thumbnail/type/size, full-size preview and parked Original choice; actual JPEG 1920/82 reduction, atomic ordered batch and first-file caption qualified in tests/images.mjs. |
@@ -124,7 +124,7 @@ beta does.
 | React with any emoji (picker from the menu, the server's custom emoji included) | done | done | done | done | Mobile: "+" swaps the sheet's actions for the picker grid; GTK: "+" opens the picker in a popover; SwiftUI: "React with another emoji…" opens it in a popover on the row. Private RocketVibe conversations: standard emoji only. On Rocket.Chat, which accepts only its own emoji codes in `chat.react`, all three send an accepted alias and hide the glyphs it has no code for, from the picker and the quick row ([emoji](features/emoji.md#quick-reactions-and-reacting-with-any-emoji)). Web: Native provider: see [web-client](features/web-client.md). |
 | Report a message to the administrators (`chat.reportMessage`, RocketVibe `reports`) | done | done | done | done | Someone else's non-system message, never a private conversation; a required reason of at most 1,000 characters ([administration](features/administration.md)). SwiftUI checked by the Linux build of RocketVibeKit and the macOS CI build only. Web: Native provider: see [web-client](features/web-client.md). |
 | Reply (quote), reply in thread | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
-| Forward a message to another room (its permalink as a quote, Rocket.Chat) | done | missing | missing | n/a | GTK and SwiftUI owe it. RocketVibe has its own "Reply in…" another room (native quotes). Web: Native-origin client; Rocket.Chat is outside its scope. |
+| Forward a message to another room (its permalink as a quote, Rocket.Chat) | done | done | done | n/a | GTK: Forward beside Reply, a searchable picker (`rv-gtk/src/forward.rs`); SwiftUI: the context menu and an overlay picker, checked by the macOS CI build only. RocketVibe has its own "Reply in…" another room (native quotes). Web: Native-origin client; Rocket.Chat is outside its scope. |
 | Copy text | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | Share an attachment | done | mapped | mapped | mapped | Desktop: download or open. Web: Native browser storage/HTTP/socket, HTTPS links, downloads and live-tab alerts; see web-client.md. |
 | Edit within the server's time limit and permissions (`chat.update`) | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
@@ -194,7 +194,7 @@ beta does.
 |---|---|---|---|---|---|
 | DMs and mentions notified, click opens the room | done | done | done | mapped | Mobile by push, even with the app killed; desktop while the app runs. Web: Native browser storage/HTTP/socket, HTTPS links, downloads and live-tab alerts; see web-client.md. |
 | Reply from the notification | done | done | done | missing | Where the desktop platform supports it. Web: No browser implementation yet. |
-| A room's own notifications: default, all messages, mentions or nothing (Rocket.Chat `rooms.saveNotification`, desktop and push together) | done | missing | missing | n/a | Mobile: the room information sheet (push follows it server-side). GTK and SwiftUI owe the choice AND honouring it: their notifications are decided locally from the account preference (`notify.rs`). Web: Native-origin client; Rocket.Chat is outside its scope. |
+| A room's own notifications: default, all messages, mentions or nothing (Rocket.Chat `rooms.saveNotification`, desktop and push together) | done | done | done | n/a | Mobile: the room information sheet (push follows it server-side). GTK: a combo row in the room information dialog, in the profile for a DM; SwiftUI: a picker in the room information overlay, checked by the macOS CI build only. The desktop decides locally: the room's choice overrides the account's and a room silenced by another client (`disableNotifications`) stays quiet (`notify::room_preference`). Mattermost and kChat not mapped. Web: Native-origin client; Rocket.Chat is outside its scope. |
 | Nothing of encrypted rooms' content | done | done | done | done | Web: Encrypted room notifications never include decrypted content. src/app.ts. |
 | Running with the window closed, starting at login | mapped | done | missing | partial | Mobile: push arrives with the app closed. GTK: Windows tray, macOS Dock; Linux quits on close. Web: Installable public shell; closed-tab Web Push and OS autostart absent. |
 
@@ -224,7 +224,7 @@ beta does.
 | Feature | Mobile | GTK | SwiftUI | Web | Notes |
 |---|---|---|---|---|---|
 | Start and join a Jitsi call (`video-conference.start`, `.join`), Rocket.Chat servers | done | done | done | n/a | Locked on the call's origin: mobile WebView, WebView2 on Windows, WKWebView on macOS; on Linux a Chromium app window, else the browser. Web: Native RocketVibe origin only; calls use LiveKit. |
-| Meeting information: the link without the token (`video-conference.info`) | done | done | missing | n/a | Web: Native RocketVibe origin only; calls use LiveKit. |
+| Meeting information: the link without the token (`video-conference.info`) | done | done | done | n/a | SwiftUI: the call card's info button (`RoomView.swift`, `CallCard`). | Web: Native RocketVibe origin only; calls use LiveKit. |
 | kChat kMeet calls: start from the room, Join from the call card, ended call with its length | done | done | done | n/a | SwiftUI: checked by the macOS CI build only. Web: Serving native origin only; external providers are outside the accepted web scope. |
 | Mattermost and kChat people named under the account's name format, with their custom status emoji | done | done | done | n/a | SwiftUI: author labels and DM names come from rv-ffi; the views are checked by the macOS CI build only. Web: Serving native origin only; external providers are outside the accepted web scope. |
 | Mattermost and kChat lists only the conversations the account lists (closed ones hidden, the Direct Messages limit) | done | done | done | n/a | Web: Serving native origin only; external providers are outside the accepted web scope. |
@@ -316,14 +316,13 @@ gaps, listed last.
 
 - **Mobile**: kChat "Sign in with Infomaniak" run on a real account; Mattermost stars changed elsewhere, live; several accounts per server;
   live styling of the draft; logs folder.
-- **GTK**: a room's own notifications, forwarding a message, "also send to the room" in a thread, invite links and discussions (Rocket.Chat); search across rooms; kChat "Sign in with Infomaniak"; email 2FA resend; replay of an offline sign-out; padlock tile once
+- **GTK**: "also send to the room" in a thread, invite links and discussions (Rocket.Chat); search across rooms; a forwarded message (a quote with no words) previews empty in the room list; kChat "Sign in with Infomaniak"; email 2FA resend; replay of an offline sign-out; padlock tile once
   unlocked; DM avatar versions in the list; video reduction; reconciliation snapshot; catch-up of
   deletions in rooms already caught up; message retention.
 - **SwiftUI**: everything GTK owes, plus `-wal` / `-shm` cleanup on sign-out;
   workflow variables inserted at the cursor in a one-line URL;
-  formatting toolbar; list continuation; notification backend description; logs
-  folder; new versions; running with the window closed and starting at login;
-  meeting information.
+  formatting toolbar; notification backend description; logs
+  folder; new versions; running with the window closed and starting at login.
 - **All three**: the thread list and following on Mattermost, kChat and RocketVibe servers; room members, settings and roles; creating an encrypted room; creating a
   channel or private group on Rocket.Chat; "Deleted
   user" on messages ingested before the deletion, on server-computed names and in

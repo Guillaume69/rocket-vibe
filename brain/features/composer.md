@@ -62,7 +62,7 @@ Desktop: the file chooser, drag-and-drop on the page and paste (files, or a pict
 
 ## Parity
 
-Both apps: outbox send with retry, drafts per room and thread, `@`/`:` completion, picker, quote reply, attachments with captions and quality, voice, slash commands. Formatting toolbar: GTK and mobile; live styling: GTK only. Desktop only: spell check, Up-to-edit. List continuation: GTK and mobile, not SwiftUI. Mobile only: video reduction. All clients can replay a staged voice message before sending.
+Both apps: outbox send with retry, drafts per room and thread, `@`/`:` completion, picker, quote reply, attachments with captions and quality, voice, slash commands. Formatting toolbar: GTK and mobile; live styling: GTK only. Desktop only: spell check, Up-to-edit. List continuation: all three (SwiftUI on Shift+Return through rv-ffi's `list_break`). Mobile only: video reduction. All clients can replay a staged voice message before sending.
 
 ## Web
 

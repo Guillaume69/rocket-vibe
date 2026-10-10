@@ -758,6 +758,38 @@ dialog::backdrop {
   flex: 1;
   text-align: left;
 }
+.scheduled-chip {
+  align-self: flex-start;
+  margin: 0 16px 6px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: #2c2946;
+}
+.send-later {
+  flex: none;
+}
+.scheduled-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid #2c2946;
+}
+.scheduled-time {
+  flex: none;
+  font-size: 12px;
+  color: #8f89ab;
+}
+.scheduled-time.failed {
+  color: #ff7a9a;
+}
+.scheduled-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .seen-receipt {
   margin: 2px 16px 6px auto;
   padding-right: 8px;

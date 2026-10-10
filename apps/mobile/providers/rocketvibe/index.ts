@@ -10,6 +10,7 @@ import { describeProviderError } from '../../lib/providerError.ts';
 import type { Capabilities as NativeCapabilities } from './protocol.generated.ts';
 import {NativeFileOutbox} from './uploads.ts';
 import {NativeAdmin,nativeReports} from './admin.ts';
+import {nativeScheduled} from './scheduled.ts';
 
 export const ROCKETVIBE_CAPABILITIES: Capabilities = {
   editing:true, deletion:true,
@@ -19,7 +20,7 @@ export const ROCKETVIBE_CAPABILITIES: Capabilities = {
   roomSettings:true,roomRoleList:true,leaveRoom:true,roomReads:true,
   // Jitsi is retired from the native server: rooms call through voice sessions.
   videoCall:false,voice:false,
-  administration:true,reports:true,
+  administration:true,reports:true,scheduledMessages:true,
 };
 const unsupported = async (): Promise<never> => { throw new NativeError(501,'unsupported_feature'); };
 const noSubscription = () => () => {};
@@ -41,6 +42,7 @@ export function effectiveCapabilities(announcement: NativeCapabilities | null, c
     roomReads:both(announcement?.read_markers,client.roomReads),
     voice:both(announcement?.voice,client.voice),
     administration:both(announcement?.administration,client.administration),reports:both(announcement?.reports,client.reports),
+    scheduledMessages:both(announcement?.scheduled_messages,client.scheduledMessages),
   };
 }
 
@@ -72,7 +74,7 @@ export function createRocketVibeProvider(session: Session, client: RestClient, g
         ...(p.user.bot===true?{bot:true,botOwner:p.bot_owner?.username??null}:{})};
     },
     searchMessages:async(rid,text)=>(await chat.searchMessages(rid,text)).map(m=>localMessage(m,session.userId)),
-    admin:new NativeAdmin(chat), reports:nativeReports(chat),
+    admin:new NativeAdmin(chat), reports:nativeReports(chat), scheduled:nativeScheduled(call=>chat.scheduled(call)),
     native:{chat,store}, messageOrder:'sequence', get capabilities() { return effectiveCapabilities(chat.capabilities,{...ROCKETVIBE_CAPABILITIES,files:filesConnected,push:options.pushAndroid===true,voice:options.voice===true}); }, listener,
     translator:{
       translateEvent:() => ({kind:'silence'}),

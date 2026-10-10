@@ -16,6 +16,7 @@ pub mod markdown;
 pub mod parity;
 pub mod profiles;
 pub mod push;
+pub mod scheduled;
 pub mod search;
 pub mod system;
 pub mod voice;
@@ -131,6 +132,9 @@ pub struct Capabilities {
     /// an administrator sets over `/api/v1/admin/icon`.
     #[serde(default)]
     pub instance_icon: bool,
+    /// Messages sent later by the server (`scheduled`).
+    #[serde(default)]
+    pub scheduled_messages: bool,
 }
 
 impl Default for Capabilities {
@@ -189,6 +193,7 @@ impl Default for Capabilities {
             workflows: false,
             custom_emoji_admin: false,
             instance_icon: false,
+            scheduled_messages: false,
         }
     }
 }
@@ -253,7 +258,8 @@ impl Capabilities {
             bots,
             workflows,
             custom_emoji_admin,
-            instance_icon
+            instance_icon,
+            scheduled_messages
         );
         features
     }
@@ -585,6 +591,8 @@ pub struct Contract {
     pub own_profile: profiles::OwnProfile,
     pub update_profile: profiles::UpdateProfile,
     pub update_preferences: profiles::UpdatePreferences,
+    pub schedule_message: scheduled::ScheduleMessage,
+    pub scheduled_messages: scheduled::ScheduledMessages,
     pub avatar_command: profiles::AvatarCommand,
     pub profile_receipt: profiles::ProfileReceipt,
     pub search_messages: search::SearchMessages,

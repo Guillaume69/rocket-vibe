@@ -12,6 +12,7 @@ import { composer } from "../composer";
 import { write } from "../store";
 import { roomInfo, marked, search, newConversation } from "../panel-actions";
 import { ActionButton, Avatar, Brand, IconButton, Symbol } from "./controls";
+import { forRoom } from "../scheduled";
 import { LoginScreen } from "./login";
 import { RoomList } from "./rooms";
 import { AppContext } from "./context";
@@ -255,6 +256,17 @@ function Shell({ app }: { app: App }) {
             if (node) app.completion = node;
           }}
         />
+        {forRoom(app.scheduled, app.room).length > 0 && (
+          <ActionButton
+            className="scheduled-chip"
+            action={() => app.showScheduled()}
+          >
+            {t("scheduledCount").replace(
+              "{n}",
+              String(forRoom(app.scheduled, app.room).length),
+            )}
+          </ActionButton>
+        )}
         <div className="composer" hidden={disabled}>
           <div className="composer-pill">
             <IconButton
@@ -277,6 +289,14 @@ function Shell({ app }: { app: App }) {
               action={() => app.record()}
             />
           </div>
+          {app.canSchedule() && (
+            <IconButton
+              name="up"
+              label={t("sendLater")}
+              className="send-later"
+              action={(node) => app.sendLater(node)}
+            />
+          )}
           <IconButton
             name="send"
             label={t("send")}

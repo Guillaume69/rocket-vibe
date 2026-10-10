@@ -68,6 +68,14 @@ import { canonical, categories, glyphs, emojiGlyph } from "./emoji";
 import { settings, roomSwitcher, profile } from "./panel-actions";
 import { quietNow } from "./quiet";
 import { seen, seenText } from "./receipts";
+import {
+  acceptable,
+  forRoom,
+  inOneHour,
+  localInput,
+  tomorrowMorning,
+  when,
+} from "./scheduled";
 
 export class App implements RowActions {
   readonly view = new ViewState();
@@ -134,6 +142,11 @@ export class App implements RowActions {
   emojis = new Map<string, import("./protocol").CustomEmoji>();
   emojiRevision = "";
   preferences?: import("./protocol").UserPreferences;
+  /** The account's scheduled messages, every room (`GET /api/v1/scheduled`). */
+  scheduled: import("./protocol").ScheduledMessage[] = [];
+  private scheduledTimer?: ReturnType<typeof setInterval>;
+  /** The operation of a schedule still unanswered, replayed by a retry. */
+  private scheduling?: { key: string; operation: string };
   roomPermissions = new Map<string, import("./protocol").RoomPermissions>();
   uploadProgress = new Map<string, number>();
   typingAt = 0;
@@ -1120,6 +1133,13 @@ export class App implements RowActions {
     stopMedia(this.timeline);
     clearView(this.timeline);
     if (navigate) history.pushState(null, "", "/room/" + segment(id));
+    // A sent one leaves the list silently: read it again while the room shows.
+    clearInterval(this.scheduledTimer);
+    void this.refreshScheduled().catch(() => {});
+    this.scheduledTimer = setInterval(
+      () => void this.refreshScheduled().catch(() => {}),
+      60_000,
+    );
     if (this.model.rooms.get(id)?.encrypted) {
       this.staged = [];
       this.stagedOriginal = false;
@@ -1247,6 +1267,139 @@ export class App implements RowActions {
         others: (n) => t("seenOthers").replace("{n}", String(n)),
       }),
     };
+  }
+  /** "Send later" applies: the server offers it, the room is not encrypted, nothing is staged. */
+  canSchedule(): boolean {
+    const room = this.room ? this.model.rooms.get(this.room) : undefined;
+    return (
+      !!this.info?.capabilities.scheduled_messages &&
+      !!room &&
+      !room.encrypted &&
+      this.roomPermissions.get(room.id)?.send !== false &&
+      !this.staged.length
+    );
+  }
+  async refreshScheduled(): Promise<void> {
+    if (!this.info?.capabilities.scheduled_messages || !this.account) return;
+    const account = this.account.key;
+    const list =
+      await this.api.request<import("./protocol").ScheduledMessages>(
+        "/api/v1/scheduled",
+      );
+    if (account !== this.account?.key) return;
+    this.scheduled = list.messages;
+    this.view.changed();
+  }
+  /** Schedules the composer's text (a thread's, with `root`) for `at`. */
+  async schedule(at: Date, root?: string): Promise<void> {
+    const editor = root ? this.threadComposer : this.composer,
+      room = this.room,
+      text = editor.value;
+    if (!room || !text.trim() || !this.account) return;
+    if (!acceptable(at, new Date())) {
+      toast(t("scheduleTime"));
+      return;
+    }
+    const key = [room, root ?? "", text, at.toISOString()].join("\u0000");
+    const operationId =
+      this.scheduling?.key === key ? this.scheduling.operation : operation();
+    this.scheduling = { key, operation: operationId };
+    await this.api.request(
+      "/api/v1/rooms/" + segment(room) + "/scheduled",
+      "POST",
+      {
+        operation_id: operationId,
+        text,
+        send_at: at.toISOString(),
+        ...(root ? { reply_to: root } : {}),
+      },
+    );
+    this.scheduling = undefined;
+    if (editor.value === text) {
+      editor.value = "";
+      await write(
+        "drafts",
+        this.account.key + ":" + room + (root ? ":thread:" + root : ""),
+        "",
+      );
+    }
+    toast(t("scheduledFor").replace("{at}", when(at, language)));
+    await this.refreshScheduled();
+  }
+  /** The "Send later" menu by the send button. */
+  sendLater(anchor: HTMLElement, root?: string): void {
+    actionMenu(
+      anchor,
+      [
+        [t("inOneHour"), () => this.schedule(inOneHour(new Date()), root)],
+        [
+          t("tomorrowMorning"),
+          () => this.schedule(tomorrowMorning(new Date()), root),
+        ],
+        [t("pickTime"), () => this.pickTime(root)],
+      ],
+      true,
+    );
+  }
+  pickTime(root?: string): void {
+    const [node, body] = dialog(t("sendLater"));
+    const [wrap, input] = field(
+      t("pickTime"),
+      localInput(inOneHour(new Date())),
+      "datetime-local",
+    );
+    body.append(
+      wrap,
+      button(
+        t("sendLater"),
+        async () => {
+          await this.schedule(new Date(input.value), root);
+          node.close();
+        },
+        "suggested",
+      ),
+    );
+  }
+  async cancelScheduled(id: string): Promise<void> {
+    await this.api.request("/api/v1/scheduled/" + segment(id), "DELETE");
+    await this.refreshScheduled();
+  }
+  /** This room's scheduled messages, each with its time and Cancel or Remove. */
+  showScheduled(): void {
+    const [node, body] = dialog(t("scheduledTitle"));
+    const render = () => {
+      const list = forRoom(this.scheduled, this.room);
+      if (!list.length) {
+        node.close();
+        return;
+      }
+      body.replaceChildren(
+        ...list.map((item) => {
+          const row = el("div", "scheduled-row");
+          const failed = item.state === "failed";
+          row.append(
+            el(
+              "span",
+              "scheduled-time" + (failed ? " failed" : ""),
+              failed
+                ? t("scheduledFailed") +
+                    (item.error ? " (" + item.error + ")" : "")
+                : when(new Date(item.send_at), language),
+            ),
+            el("span", "scheduled-text", item.text),
+            button(
+              t(failed ? "scheduledRemove" : "scheduledCancel"),
+              async () => {
+                await this.cancelScheduled(item.id);
+                render();
+              },
+            ),
+          );
+          return row;
+        }),
+      );
+    };
+    render();
   }
   async jumpTo(message: Message): Promise<void> {
     const account = this.account?.key,

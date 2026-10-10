@@ -109,6 +109,8 @@ export type Capabilities = {
   administration?: boolean;
   /** Members can report a message or an account (`Provider.reports`). */
   reports?: boolean;
+  /** Text the server sends later for its author (`Provider.scheduled`, RocketVibe). */
+  scheduledMessages?: boolean;
   typing: boolean;
   presence: boolean;
   push: boolean;
@@ -403,6 +405,8 @@ export interface Provider {
   readonly admin?: import('./admin.ts').ProviderAdmin;
   /** Reporting a message or an account, when `capabilities.reports`. */
   readonly reports?: import('./admin.ts').ProviderReports;
+  /** Messages the server sends later, when `capabilities.scheduledMessages` (`lib/scheduled.ts`). */
+  readonly scheduled?: import('./scheduled.ts').ProviderScheduled;
   /** Real-time transport (RC: DDP; MM: JSON WebSocket). */
   readonly listener: Listener;
   /** Decoder from raw `DdpEvent`s/documents to neutral shapes. */

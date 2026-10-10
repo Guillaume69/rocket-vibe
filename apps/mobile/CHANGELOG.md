@@ -11,6 +11,7 @@ release, and its notes are that version's section here.
 
 ### Added
 
+- On RocketVibe servers, "Send later" (the chevron beside send, or a long press on send) schedules the typed text: in 1 hour, tomorrow at 08:00, or a day and time you pick, up to 30 days ahead; in a thread it schedules a reply. The server sends it even if the app is closed. A "N scheduled" chip above the composer lists the room's scheduled messages, to cancel one, or to remove one that could not be sent and see why. Not offered in end-to-end encrypted rooms.
 - On a RocketVibe account in do not disturb, an incoming call shows in the open app without ringing.
 - On RocketVibe servers, read receipts: under your latest message, "Seen" in a direct conversation, "Seen by" and up to three names (then how many others) in a group, updated live. Settings > My account has a "Share read receipts" switch under Privacy; turned off, others no longer see how far you read and you no longer see how far they did.
 - The home header can hide or show the server bar directly. A bottom account bar offers my activity from the avatar through a compact native sheet, shows its presence badge and keeps Settings within reach.

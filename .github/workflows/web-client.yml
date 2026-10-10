@@ -108,6 +108,7 @@ jobs:
           target/debug/rv-server create-user webquiet
           target/debug/rv-server create-user webreceipts
           target/debug/rv-server create-user webreceiptspeer
+          target/debug/rv-server create-user webscheduled
           target/debug/rv-server create-user webvisual --admin
           target/debug/rv-server create-user webworkflows --admin
           target/debug/rv-server create-user webmedia --admin
@@ -125,7 +126,7 @@ jobs:
         run: |
           # Closed browser contexts leave five-minute snapshot leases. Release them
           # between suites on this disposable server, keeping each suite's limits real.
-          for suite in e2ee browser features media images voice voice-connection voice-lifecycle sessions locked composer quiet receipts security visual workflows reads profiles navigation; do
+          for suite in e2ee browser features media images voice voice-connection voice-lifecycle sessions locked composer quiet receipts scheduled security visual workflows reads profiles navigation; do
             npm run "test:$suite"
             docker exec "${{ job.services.postgres.id }}" psql -U web -d web --set ON_ERROR_STOP=1 --command 'DELETE FROM snapshot_heads'
           done

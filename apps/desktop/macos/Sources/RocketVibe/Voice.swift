@@ -820,6 +820,49 @@ struct IncomingCall: ViewModifier {
     }
 }
 
+/// A call started by the other member of a Rocket.Chat or kChat direct room
+/// (rv-core's `call_ring`), with the same card: Accept opens the call window,
+/// Decline tells the server, a click outside or Escape ignores it.
+struct RingingCallPrompt: ViewModifier {
+    @Environment(AppModel.self) var app
+
+    func body(content: Content) -> some View {
+        let call = app.ringingCall
+        content.modalOverlay(
+            isPresented: Binding(get: { call != nil }, set: { shown in
+                if !shown { app.ignoreCall() }
+            }),
+            key: call?.callId
+        ) {
+            if let call { RingingCallCard(call: call) }
+        }
+    }
+}
+
+struct RingingCallCard: View {
+    @Environment(AppModel.self) var app
+    let call: RingingCall
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(L("voice_session.incoming")).font(.headline)
+            Text(L("voice_session.incoming_from", ["name": app.callerName(call)]))
+            HStack {
+                Spacer()
+                Button(L("voice_session.decline"), role: .destructive) { app.declineCall(call) }
+                    .foregroundStyle(Color.red)
+                Button(L("voice_session.accept")) {
+                    let title = L("call.window_title", ["room": app.callerName(call)])
+                    Task { if let url = await app.answerCall(call) { CallWindow.show(url, title: title) } }
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 380)
+    }
+}
+
 struct IncomingCallCard: View {
     @Environment(AppModel.self) var app
     let call: VoiceCall

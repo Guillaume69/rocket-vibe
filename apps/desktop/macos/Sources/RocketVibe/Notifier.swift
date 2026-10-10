@@ -9,11 +9,17 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     static let shared = Notifier()
     static let category = "message"
     static let replyAction = "reply"
+    static let callCategory = "call"
+    static let acceptAction = "accept"
+    static let declineAction = "decline"
+    static let callIdentifier = "ringing-call"
 
     var onOpen: ((String, String, String?) -> Void)?
     /// A reminder's notification: its link opens the account, the room and the message.
     var onOpenLink: ((String) -> Void)?
     var onReply: ((String, String, String?, String) -> Void)?
+    /// The call notification's Accept (true) or Decline (false).
+    var onCall: ((Bool) -> Void)?
 
     /// Unbundled (a bare `swift run`), there is no notification center to ask.
     var center: UNUserNotificationCenter? {
@@ -26,8 +32,11 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         let reply = UNTextInputNotificationAction(
             identifier: Self.replyAction, title: L("notify.reply"), options: [],
             textInputButtonTitle: L("notify.reply"), textInputPlaceholder: L("notify.reply_placeholder"))
+        let accept = UNNotificationAction(identifier: Self.acceptAction, title: L("voice_session.accept"), options: [.foreground])
+        let decline = UNNotificationAction(identifier: Self.declineAction, title: L("voice_session.decline"), options: [.destructive])
         center.setNotificationCategories([
-            UNNotificationCategory(identifier: Self.category, actions: [reply], intentIdentifiers: [])
+            UNNotificationCategory(identifier: Self.category, actions: [reply], intentIdentifiers: []),
+            UNNotificationCategory(identifier: Self.callCategory, actions: [accept, decline], intentIdentifiers: []),
         ])
         center.requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
     }
@@ -57,6 +66,22 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         content.threadIdentifier = "reminders"
         if let link = reminder.link { content.userInfo = ["reminderLink": link] }
         center.add(UNNotificationRequest(identifier: reminder.key, content: content, trigger: nil))
+    }
+
+    /// A call ringing in a direct room while the app is behind: Accept or Decline.
+    func showCall(rid: String, callId: String, caller: String) {
+        guard let center else { return }
+        let content = UNMutableNotificationContent()
+        content.title = caller
+        content.body = L("voice_session.incoming")
+        content.sound = .default
+        content.categoryIdentifier = Self.callCategory
+        content.userInfo = ["call": callId, "rid": rid]
+        center.add(UNNotificationRequest(identifier: Self.callIdentifier, content: content, trigger: nil))
+    }
+
+    func withdrawCall() {
+        center?.removeDeliveredNotifications(withIdentifiers: [Self.callIdentifier])
     }
 
     func test() {
@@ -90,6 +115,15 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         let info = response.notification.request.content.userInfo
         if let link = info["reminderLink"] as? String {
             await MainActor.run { onOpenLink?(link) }
+            return
+        }
+        if info["call"] is String {
+            let action = response.actionIdentifier
+            await MainActor.run {
+                if action == Self.acceptAction { onCall?(true) }
+                else if action == Self.declineAction { onCall?(false) }
+                else { NSApp.activate() }
+            }
             return
         }
         guard let rid = info["rid"] as? String, let id = info["id"] as? String else { return }

@@ -65,6 +65,26 @@ struct RocketVibeApp: App {
             // A call ringing while the app is behind: the dock bounces.
             if tone == .ringtone && !NSApp.isActive { NSApp.requestUserAttention(.criticalRequest) }
         }
+        app.onCallRing = { [app] call in
+            // The voice model owns the tone while a RocketVibe account is shown.
+            if app.voice == nil { VoiceSounds.shared.tone(call == nil ? nil : .ringtone) }
+            guard let call, !NSApp.isActive else {
+                notifier.withdrawCall()
+                return
+            }
+            NSApp.requestUserAttention(.criticalRequest)
+            notifier.showCall(rid: call.rid, callId: call.callId, caller: app.callerName(call))
+        }
+        notifier.onCall = { [app] accept in
+            guard let call = app.ringingCall else { return }
+            NSApp.activate()
+            if accept {
+                let title = L("call.window_title", ["room": app.callerName(call)])
+                Task { if let url = await app.answerCall(call) { CallWindow.show(url, title: title) } }
+            } else {
+                app.declineCall(call)
+            }
+        }
         notifier.start()
         // Missed reminders fire now, the others at their time.
         if !SmokeGallery.requested { app.startReminders() }

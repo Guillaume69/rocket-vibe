@@ -137,6 +137,7 @@ impl Translator<'_> {
             call_id: (mm_kind == "custom_call").then(|| kmeet_call(&props).2).flatten(),
             pinned: post.get("is_pinned").and_then(Value::as_bool).unwrap_or(false),
             starred: None,
+            thread_followers: None,
         })
     }
 

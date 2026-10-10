@@ -180,6 +180,7 @@ impl ChatPage {
         }));
         self.typing_label.set_visible(false);
         self.call_button.set_visible(false);
+        self.threads_button.set_visible(false);
         self.upload_strip.set_visible(false);
         self.list.set_unread_after(None);
         self.select_current(true);

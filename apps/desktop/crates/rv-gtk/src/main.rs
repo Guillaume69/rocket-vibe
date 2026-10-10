@@ -47,6 +47,7 @@ mod spotlight;
 mod staged;
 mod style;
 mod thread;
+mod threads;
 mod tile_grid;
 mod unlock;
 mod updater;

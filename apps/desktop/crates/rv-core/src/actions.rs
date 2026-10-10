@@ -318,6 +318,34 @@ pub async fn marked(rest: &RestClient, rid: &str, starred: bool) -> Result<Vec<V
     Ok(response.get("messages").and_then(Value::as_array).cloned().unwrap_or_default())
 }
 
+/// Follows a thread (`chat.followMessage`) or stops (`chat.unfollowMessage`):
+/// idempotent; the server then rebroadcasts the root with its `replies`.
+pub async fn follow_thread(rest: &RestClient, root: &str, on: bool) -> Result<(), RestError> {
+    let endpoint = if on { "chat.followMessage" } else { "chat.unfollowMessage" };
+    let options = CallOptions { retry_on_network_error: true, ..CallOptions::body(json!({"mid": root})) };
+    rest.post(endpoint, options).await.map(|_| ())
+}
+
+/// One page of a room's thread roots (`chat.getThreadsList`), the most
+/// recently answered first, with the total: every thread, or the ones I follow.
+pub async fn threads(
+    rest: &RestClient,
+    rid: &str,
+    following: bool,
+    offset: u32,
+    count: u32,
+) -> Result<(Vec<Value>, u32), RestError> {
+    let (offset, count) = (offset.to_string(), count.to_string());
+    let mut params = vec![("rid", rid), ("offset", offset.as_str()), ("count", count.as_str())];
+    if following {
+        params.push(("type", "following"));
+    }
+    let response = rest.get("chat.getThreadsList", CallOptions::params(params)).await?;
+    let threads = response.get("threads").and_then(Value::as_array).cloned().unwrap_or_default();
+    let total = response.get("total").and_then(Value::as_u64).map_or(threads.len() as u32, |t| t as u32);
+    Ok((threads, total))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

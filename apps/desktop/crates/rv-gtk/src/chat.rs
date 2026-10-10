@@ -169,6 +169,8 @@ pub struct ChatPage {
     native_read_last: Rc<RefCell<Option<String>>>,
     search_button: gtk::Button,
     marked_button: gtk::Button,
+    /// The room's threads (Rocket.Chat only).
+    threads_button: gtk::Button,
     root: gtk::Overlay,
     split: adw::NavigationSplitView,
     update_slot: gtk::Box,
@@ -394,6 +396,13 @@ impl ChatPage {
             .tooltip_text(t("marked.title"))
             .build();
         room_header.pack_end(&marked_button);
+        let threads_button = gtk::Button::builder()
+            .icon_name("chat-message-new-symbolic")
+            .css_classes(["flat"])
+            .tooltip_text(t("threads.title"))
+            .visible(false)
+            .build();
+        room_header.pack_end(&threads_button);
         room_title.set_cursor(gdk::Cursor::from_name("pointer", None).as_ref());
         room_title.set_tooltip_text(Some(t("info.room")));
         let title_click = gtk::GestureClick::new();
@@ -483,6 +492,7 @@ impl ChatPage {
             native_read_last: Rc::default(),
             search_button: search_button.clone(),
             marked_button: marked_button.clone(),
+            threads_button: threads_button.clone(),
             root,
             split,
             update_slot,
@@ -585,6 +595,22 @@ impl ChatPage {
             crate::marked::open(&this.split, session, &rid, move |id| {
                 if let Some(this) = target.upgrade() {
                     this.jump_to(&id);
+                }
+            });
+        });
+        let weak = Rc::downgrade(&this);
+        threads_button.connect_clicked(move |_| {
+            let Some(this) = weak.upgrade() else { return };
+            if this.native_session().is_some() {
+                return;
+            }
+            let (Some(session), Some(rid)) = (this.session(), this.current_rid()) else { return };
+            let (target, expected) = (Rc::downgrade(&this), session.clone());
+            crate::threads::open(&this.split, session, &rid, move |id| {
+                if let Some(this) = target.upgrade()
+                    && this.session().is_some_and(|s| Arc::ptr_eq(&s, &expected))
+                {
+                    this.open_thread_of(&id);
                 }
             });
         });
@@ -1259,6 +1285,7 @@ impl ChatPage {
         });
         thread.composer.bind(&session, &open.rid, Some(root_id));
         self.wire_thread_files(&thread);
+        self.wire_thread_follow(&thread);
         self.room_nav.push(&thread.page);
         thread.reload();
         thread.composer.grab_focus();
@@ -1273,6 +1300,35 @@ impl ChatPage {
                 }
                 thread.reload();
             }
+        });
+    }
+
+    /// The thread's bell follows it or stops, by what the store holds of its root now.
+    fn wire_thread_follow(self: &Rc<Self>, thread: &Rc<ThreadPage>) {
+        let (weak, root) = (Rc::downgrade(self), thread.root_id.clone());
+        thread.follow.connect_clicked(move |button| {
+            let Some(this) = weak.upgrade() else { return };
+            let Some(session) = this.session() else { return };
+            let on = !session
+                .store
+                .messages_by_id(std::slice::from_ref(&root))
+                .first()
+                .is_some_and(|r| r.followed_by(&session.info.user_id));
+            button.set_sensitive(false);
+            let (button, weak) = (button.clone(), weak.clone());
+            crate::threads::follow(session, root.clone(), on, move |ok| {
+                button.set_sensitive(true);
+                if let Some(this) = weak.upgrade() {
+                    this.toast(
+                        t(match (ok, on) {
+                            (false, _) => "thread.follow_failed",
+                            (true, true) => "thread.followed",
+                            (true, false) => "thread.unfollowed",
+                        })
+                        .to_owned(),
+                    );
+                }
+            });
         });
     }
 
@@ -2242,6 +2298,7 @@ impl ChatPage {
         self.list.set_unread_after(seen.map(|ls| (ls, session.info.user_id.clone())));
         self.typing_label.set_visible(false);
         self.call_button.set_visible(false);
+        self.threads_button.set_visible(session.threads_available());
         self.call_button.set_icon_name("camera-video-symbolic");
         self.call_button.set_tooltip_text(Some(t("room.call")));
         if !room.read_only {

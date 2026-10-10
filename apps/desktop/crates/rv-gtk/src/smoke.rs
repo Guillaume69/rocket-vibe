@@ -36,8 +36,9 @@
 //!   RV_SMOKE_SPOTLIGHT=<query>  finds a channel, joins it and opens it
 //!   RV_SMOKE_REPORT, RV_SMOKE_ADMIN  members' reports and the administration: see `admin`
 //!   RV_SMOKE_DETAILS=profile:<user> | room | search:<text> | settings | emoji:<code> | marked
-//!                          | jump:<message id> | permissions:<expected, comma-separated>
-//!                          checks the read and opens the dialog; emoji: a custom one completes
+//!                          | threads | jump:<message id> | permissions:<expected, comma-separated>
+//!                          checks the read and opens the dialog; emoji: a custom one completes;
+//!                          threads: follows the newest thread and back, then opens it
 //!   RV_SMOKE_NOTIFY=<reply>  stands in for the desktop's notification server (inline reply
 //!                          included), answers the first notification with <reply>, then clicks
 //!                          it: its room must open on that message (`-`: a server without inline
@@ -1089,6 +1090,38 @@ fn details_checks(
             let pinned = crate::on_tokio(async move { s.marked(&r, false).await }).await;
             check("pinned listed", pinned.as_ref().is_ok_and(|rows| !rows.is_empty()), pinned.map(|rows| rows.len()));
             crate::marked::open(chat.widget(), session, &rid, |_| {});
+        } else if what == "threads" {
+            let (s, r) = (session.clone(), rid.clone());
+            let listed = crate::on_tokio(async move { s.threads(&r, false, 0, 50).await }).await;
+            check(
+                "threads listed",
+                listed.as_ref().is_ok_and(|(rows, total)| !rows.is_empty() && *total as usize >= rows.len()),
+                listed.as_ref().map(|(rows, total)| (rows.len(), *total)),
+            );
+            let Some(root) = listed.ok().and_then(|(rows, _)| rows.into_iter().next()) else { return };
+            let me = session.info.user_id.clone();
+            let was = root.followed_by(&me);
+            let follows = |s: &std::sync::Arc<rv_core::session::Session>| {
+                s.store.messages_by_id(std::slice::from_ref(&root.id)).first().is_some_and(|r| r.followed_by(&me))
+            };
+            for on in [!was, was] {
+                let (s, id) = (session.clone(), root.id.clone());
+                let done = crate::on_tokio(async move { s.follow_thread(&id, on).await }).await;
+                check(
+                    if on { "thread followed" } else { "thread unfollowed" },
+                    done.is_ok() && follows(&session) == on,
+                    &done,
+                );
+                let (s, r) = (session.clone(), rid.clone());
+                let mine = crate::on_tokio(async move { s.threads(&r, true, 0, 50).await }).await;
+                let listed = mine.as_ref().is_ok_and(|(rows, _)| rows.iter().any(|t| t.id == root.id));
+                check("the following tab agrees", listed == on, mine.map(|(rows, _)| rows.len()));
+            }
+            crate::threads::open(chat.widget(), session, &rid, |_| {});
+            chat.open_thread_of(&root.id);
+            glib::timeout_future(Duration::from_millis(3000)).await;
+            let bell = chat.thread().is_some_and(|t| t.follow.is_visible());
+            check("the thread shows its bell", bell, bell);
         } else if let Some(id) = what.strip_prefix("jump:") {
             chat.jump_to(id);
             let (chat, id) = (chat.clone(), id.to_owned());

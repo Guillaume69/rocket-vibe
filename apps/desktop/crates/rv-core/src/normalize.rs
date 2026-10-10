@@ -73,6 +73,9 @@ pub struct Message {
     pub pinned: bool,
     /// The users who starred it, by id, comma-separated.
     pub starred: Option<String>,
+    /// A thread root's followers (`replies`), by id, comma-separated: the
+    /// author and every replier are added by the server, anyone may follow.
+    pub thread_followers: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -157,6 +160,11 @@ pub fn to_message(raw: &Value) -> Option<Message> {
             .get("starred")
             .and_then(Value::as_array)
             .map(|users| users.iter().filter_map(|u| string(u.get("_id"))).collect::<Vec<_>>().join(","))
+            .filter(|ids| !ids.is_empty()),
+        thread_followers: raw
+            .get("replies")
+            .and_then(Value::as_array)
+            .map(|users| users.iter().filter_map(|u| string(Some(u))).collect::<Vec<_>>().join(","))
             .filter(|ids| !ids.is_empty()),
         updated_at: raw.get("_updatedAt").and_then(to_epoch).unwrap_or(ts),
         system_type,
@@ -307,6 +315,18 @@ mod tests {
         let bare =
             to_message(&json!({"_id": "m", "rid": "r", "ts": {"$date": 1}, "u": {"_id": "u"}, "starred": []})).unwrap();
         assert!(!bare.pinned && bare.starred.is_none());
+    }
+
+    #[test]
+    fn thread_followers_come_from_replies() {
+        let raw = json!({"_id": "m", "rid": "r", "ts": {"$date": 1}, "u": {"_id": "u"}, "tcount": 2,
+            "tlm": {"$date": 9}, "replies": ["u", "v", 3]});
+        let m = to_message(&raw).unwrap();
+        assert_eq!(m.thread_followers.as_deref(), Some("u,v"));
+        assert_eq!(m.thread_last, Some(9));
+        let bare =
+            to_message(&json!({"_id": "m", "rid": "r", "ts": {"$date": 1}, "u": {"_id": "u"}, "replies": []})).unwrap();
+        assert!(bare.thread_followers.is_none());
     }
     #[test]
     fn call_id_comes_from_the_block() {

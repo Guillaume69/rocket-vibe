@@ -29,6 +29,7 @@ import type { Provider, SidebarSettings } from '../lib/provider.ts';
 import { BotsSection } from './bots.tsx';
 import { WorkflowsSection } from './workflows.tsx';
 import { DevicesSection } from './devices.tsx';
+import { DoNotDisturbCard } from './doNotDisturb.tsx';
 import { useE2EUnlocked } from './e2e.ts';
 import { EncryptedIdentitySection } from './encryptedIdentity.tsx';
 import { setLanguage, useT, useLanguagePreference } from './i18n.ts';
@@ -394,15 +395,37 @@ function NotificationsCategory({ c, client }: { c: Colors; client: RestClient })
   const t = useT();
   const natives = useNatives();
   const push = usePreferencePush(client,natives);
+  const native = client.kind === 'rocketvibe';
   return (
-    <View style={[styles.card, { backgroundColor: c.deepCard, borderColor: c.border }]}>
-      <Text style={[styles.settingTitle, { color: c.text }]}>{t('settings.push')}</Text>
-      <Text style={[styles.settingHelp, { color: c.dimmed }]}>{t('settings.pushHelp')}</Text>
-      <NotificationChoice c={c} push={push} />
-      {push.error !== null && (
-        <Text style={[styles.error, { color: c.errorText }]}>{t(push.error)}</Text>
-      )}
-    </View>
+    <>
+      <View style={[styles.card, { backgroundColor: c.deepCard, borderColor: c.border }]}>
+        <Text style={[styles.settingTitle, { color: c.text }]}>{t('settings.push')}</Text>
+        <Text style={[styles.settingHelp, { color: c.dimmed }]}>{t('settings.pushHelp')}</Text>
+        <NotificationChoice c={c} push={push} />
+        {/* RocketVibe: one save state for both cards, below them. */}
+        {!native && push.error !== null && (
+          <Text style={[styles.error, { color: c.errorText }]}>{t(push.error)}</Text>
+        )}
+      </View>
+      {native && <DoNotDisturbCard c={c} natives={natives} />}
+      {native && <NativeSaveState c={c} natives={natives} error="settings.saveFailed" />}
+    </>
+  );
+}
+
+/** A native preferences save that failed or waits: the error, and Retry or Cancel. */
+function NativeSaveState({ c, natives, error }: { c: Colors; natives: ReturnType<typeof useNativePreferences>; error: TranslationKey }) {
+  const t = useT();
+  return (
+    <>
+      {natives.error && <Text style={[styles.error, { color: c.errorText }]}>{t(error)}</Text>}
+      {natives.intention && <>
+        <Text style={[styles.settingHelp, { color: c.dimmed }]}>{t(natives.intention.phase === 'failed' ? 'native.profileRefused' : 'native.pending')}</Text>
+        <Tappable disabled={natives.busy} onPress={() => void (natives.intention?.phase === 'failed' ? natives.discard() : natives.resume())}>
+          <Text style={[styles.action, { color: c.cyan }]}>{t(natives.intention.phase === 'failed' ? 'common.cancel' : 'common.retry')}</Text>
+        </Tappable>
+      </>}
+    </>
   );
 }
 
@@ -413,13 +436,7 @@ function LanguageCategory({ c, client }: { c: Colors; client: RestClient }) {
     <View style={[styles.card, { backgroundColor: c.deepCard, borderColor: c.border }]}>
       <Text style={[styles.settingHelp, { color: c.dimmed }]}>{t('settings.languageHelp')}</Text>
       <LanguagePicker c={c} t={t} natives={client.kind==='rocketvibe'?natives:undefined} />
-      {client.kind==='rocketvibe'&&natives.error&&<Text style={[styles.error,{color:c.errorText}]}>{t('native.error')}</Text>}
-      {client.kind==='rocketvibe'&&natives.intention&&<>
-        <Text style={[styles.settingHelp,{color:c.dimmed}]}>{t(natives.intention.phase==='failed'?'native.profileRefused':'native.pending')}</Text>
-        <Tappable disabled={natives.busy} onPress={()=>void(natives.intention?.phase==='failed'?natives.discard():natives.resume())}>
-          <Text style={[styles.action,{color:c.cyan}]}>{t(natives.intention.phase==='failed'?'common.cancel':'common.retry')}</Text>
-        </Tappable>
-      </>}
+      {client.kind==='rocketvibe'&&<NativeSaveState c={c} natives={natives} error="native.error" />}
     </View>
   );
 }

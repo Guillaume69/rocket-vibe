@@ -15,6 +15,18 @@ const phrases = {
   direct: ["Direct messages", "Messages directs"],
   new: ["New conversation", "Nouvelle conversation"],
   goToRoom: ["Go to room", "Aller au salon"],
+  seen: ["Seen", "Vu"],
+  seenBy: ["Seen by", "Vu par"],
+  seenOther: ["and 1 other", "et 1 autre"],
+  seenOthers: ["and {n} others", "et {n} autres"],
+  shareReceipts: [
+    "Share read receipts",
+    "Partager les confirmations de lecture",
+  ],
+  shareReceiptsHint: [
+    "Others see how far you read, and you see how far they did",
+    "Les autres voient jusqu’où vous avez lu, et vous voyez jusqu’où ils ont lu",
+  ],
   searchRooms: [
     "Search a room or a conversation",
     "Chercher un salon ou une conversation",

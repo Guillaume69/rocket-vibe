@@ -3413,6 +3413,14 @@ export const nativeSchema = {
         membership_version: {
           type: "string",
         },
+        reads: {
+          description:
+            "Read receipts: how far the other members read the room's root\nmessages, for those who share their reads, in a room of at most\n`RECEIPT_MEMBERS` members, and only to a reader who shares theirs.",
+          items: {
+            $ref: "#/$defs/ReadMark",
+          },
+          type: "array",
+        },
         room_id: {
           type: "string",
         },
@@ -5405,6 +5413,20 @@ export const nativeSchema = {
       required: ["room_id", "message_id", "revision"],
       type: "object",
     },
+    ReadMark: {
+      description:
+        "A member's read position in a room: every root message at or below\n`root_position` is read (positions are decimal strings, compared as\nnumbers). The name comes from the frame's `profiles`.",
+      properties: {
+        root_position: {
+          type: "string",
+        },
+        user_id: {
+          type: "string",
+        },
+      },
+      required: ["user_id", "root_position"],
+      type: "object",
+    },
     ReadState: {
       properties: {
         favorite: {
@@ -7248,6 +7270,10 @@ export const nativeSchema = {
           description:
             "Absent: unchanged (a client that does not know the field keeps the\nschedule); `null`: removed.",
         },
+        share_read_receipts: {
+          description: "Absent: unchanged.",
+          type: ["boolean", "null"],
+        },
       },
       required: [
         "operation_id",
@@ -7524,6 +7550,12 @@ export const nativeSchema = {
         },
         revision: {
           type: "string",
+        },
+        share_read_receipts: {
+          default: true,
+          description:
+            "Read receipts, both ways: the others see how far I read, and I see\nhow far they did. On by default.",
+          type: "boolean",
         },
       },
       required: [

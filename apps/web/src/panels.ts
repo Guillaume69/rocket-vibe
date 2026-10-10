@@ -816,6 +816,43 @@ export async function settings(
     });
     statusRows.append(wrap);
     page.append(status);
+    // Read receipts, both ways: the server sends none to an account that
+    // shares none (brain/features/read-receipts.md).
+    const [privacy, privacyRows] = preferencesGroup(
+      phrase("Privacy", "Confidentialité"),
+    );
+    const receipts = actionRow(t("shareReceipts"), t("shareReceiptsHint"));
+    const share = el("input");
+    share.type = "checkbox";
+    share.checked = own.preferences.share_read_receipts !== false;
+    share.setAttribute("aria-label", t("shareReceipts"));
+    share.addEventListener("change", () => {
+      share.disabled = true;
+      void app.api
+        .request("/api/v1/me/preferences", "PATCH", {
+          operation_id: operation(),
+          expected_revision: own.preferences.revision,
+          language: own.preferences.language,
+          clock_24h: own.preferences.clock_24h,
+          push_enabled: own.preferences.push_enabled,
+          push_mentions_only: own.preferences.push_mentions_only,
+          desktop_notifications:
+            own.preferences.desktop_notifications || "default",
+          share_read_receipts: share.checked,
+        })
+        .then(async () => {
+          own = await app.api.request<OwnProfile>("/api/v1/me/profile");
+          app.preferences = own.preferences;
+        })
+        .catch((error) => {
+          share.checked = !share.checked;
+          toast(error);
+        })
+        .finally(() => (share.disabled = false));
+    });
+    receipts.append(share);
+    privacyRows.append(receipts);
+    page.append(privacy);
   });
   host.add("notifications", t("notifications"), "notifications", (page) => {
     const [group, rows] = preferencesGroup(t("notifications"));

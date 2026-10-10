@@ -67,6 +67,7 @@ import { previewText, decorate } from "./presentation";
 import { canonical, categories, glyphs, emojiGlyph } from "./emoji";
 import { settings, roomSwitcher, profile } from "./panel-actions";
 import { quietNow } from "./quiet";
+import { seen, seenText } from "./receipts";
 
 export class App implements RowActions {
   readonly view = new ViewState();
@@ -619,7 +620,14 @@ export class App implements RowActions {
             const frame: SyncBatch | { type: "live"; data: LiveState } =
               JSON.parse(String(event.data));
             if ("type" in frame) {
+              // A read receipt that moved repaints the open room's timeline.
+              const reads = (live?: LiveState) =>
+                JSON.stringify(
+                  live?.rooms.find((r) => r.room_id === this.room)?.reads ?? [],
+                );
+              const receiptsMoved = reads(this.live) !== reads(frame.data);
               this.live = frame.data;
+              if (receiptsMoved) this.renderTimeline();
               this.voice.observe(frame.data);
               clearTimeout(this.liveTimer);
               this.liveTimer = setTimeout(() => {
@@ -1172,11 +1180,33 @@ export class App implements RowActions {
       this.account!.session.user.id,
       actions,
       container === this.timeline ? this.firstUnread : undefined,
+      container === this.timeline ? this.seenLine(messages) : undefined,
     );
     if (pinned) container.scrollTop = container.scrollHeight;
     else if (top < 100)
       container.scrollTop = top + container.scrollHeight - height;
     else container.scrollTop = top;
+  }
+  /** The read receipt under my latest message (`src/receipts.ts`). */
+  seenLine(messages: Message[]): { id: string; text: string } | undefined {
+    const room = this.room ? this.model.rooms.get(this.room) : undefined;
+    const reads = this.live?.rooms.find((r) => r.room_id === this.room)?.reads;
+    const mine = this.account?.session.user.id;
+    const found = room && mine ? seen(messages, mine, reads) : undefined;
+    if (!found) return undefined;
+    const name = (id: string) => {
+      const user = this.live?.profiles?.find((p) => p.user.id === id)?.user;
+      return user ? user.display_name || user.username : undefined;
+    };
+    return {
+      id: found.id,
+      text: seenText(found.readers, room!.kind === "direct", name, {
+        seen: t("seen"),
+        seenBy: t("seenBy"),
+        other: t("seenOther"),
+        others: (n) => t("seenOthers").replace("{n}", String(n)),
+      }),
+    };
   }
   async jumpTo(message: Message): Promise<void> {
     const account = this.account?.key,

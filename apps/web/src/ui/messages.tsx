@@ -849,11 +849,14 @@ export function Timeline({
   mine,
   actions,
   unread,
+  seen,
 }: {
   messages: Message[];
   mine: string;
   actions: RowActions;
   unread?: string;
+  /** The read receipt line, under the message it names. */
+  seen?: { id: string; text: string };
 }) {
   let previous: Message | undefined;
   let day = "";
@@ -892,6 +895,9 @@ export function Timeline({
           actions={actions}
           grouped={grouped}
         />
+        {seen?.id === message.id && (
+          <div className="seen-receipt">{seen.text}</div>
+        )}
       </Fragment>
     );
   });
@@ -903,6 +909,7 @@ export function paintTimeline(
   mine: string,
   actions: RowActions,
   unread?: string,
+  seen?: { id: string; text: string },
 ): void {
   renderView(
     host,
@@ -911,6 +918,7 @@ export function paintTimeline(
       mine={mine}
       actions={actions}
       unread={unread}
+      seen={seen}
     />,
   );
 }

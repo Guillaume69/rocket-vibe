@@ -28,6 +28,7 @@
     "test:locked": "node tests/locked.mjs",
     "test:composer": "node tests/composer.mjs",
     "test:quiet": "node tests/quiet.mjs",
+    "test:receipts": "node tests/receipts.mjs",
     "format": "prettier --write src scripts tests *.js *.json index.html",
     "format:check": "prettier --check src scripts tests *.js *.json index.html"
   },

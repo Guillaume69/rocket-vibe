@@ -216,6 +216,10 @@ export interface ProviderActions {
    * server has no such list (a DM has none).
    */
   listMembers?(rid: string, filter: string, offset: number): Promise<MemberPage>;
+  /** Gives or takes a member's room role; `type` is the room's (`c` or `p`). */
+  setMemberRole?(rid: string, type: string, userId: string, role: 'moderator' | 'owner', put: boolean): Promise<void>;
+  /** Removes a member from the room. */
+  removeMember?(rid: string, type: string, userId: string): Promise<void>;
   markRead(rid: string, observation?:ReadObservation): Promise<void>;
   /**
    * Makes the room unread again from its last message; the subscription the

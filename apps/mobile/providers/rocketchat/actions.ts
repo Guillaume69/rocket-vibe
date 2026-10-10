@@ -124,6 +124,23 @@ export class ActionsRC implements ProviderActions {
     return { members, total: typeof response.total === 'number' ? response.total : offset + members.length };
   }
 
+  /**
+   * `channels.*` for a channel, `groups.*` for a private group (there is no
+   * `rooms.*` route). Not idempotent: adding a role already held answers
+   * `error-user-already-moderator` / `-owner`, so the caller asks from the
+   * roles it shows.
+   */
+  async setMemberRole(rid: string, type: string, userId: string, role: 'moderator' | 'owner', put: boolean): Promise<void> {
+    const name = role === 'owner' ? 'Owner' : 'Moderator';
+    await this.client.post(`${type === 'p' ? 'groups' : 'channels'}.${put ? 'add' : 'remove'}${name}`, {
+      body: { roomId: rid, userId },
+    });
+  }
+
+  async removeMember(rid: string, type: string, userId: string): Promise<void> {
+    await this.client.post(`${type === 'p' ? 'groups' : 'channels'}.kick`, { body: { roomId: rid, userId } });
+  }
+
   /** The server rebroadcasts the root, whose `replies` then carries the change. */
   async followThread(_rid: string, root: string, put: boolean): Promise<void> {
     await this.client.post(put ? 'chat.followMessage' : 'chat.unfollowMessage', {

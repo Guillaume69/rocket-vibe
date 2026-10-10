@@ -199,6 +199,16 @@ describe('ActionsRC', () => {
     assert.deepEqual(read, [{ path: 'rooms.membersOrderedByRole', params: { roomId: 'r1', count: 50, offset: 50, filter: 'bo' } }]);
   });
 
+  test('member roles and removal take the room kind route', async () => {
+    const { client, calls } = fakeClient({ success: true });
+    const a = new ActionsRC(client);
+    await a.setMemberRole('r1', 'c', 'u1', 'moderator', true);
+    await a.setMemberRole('r1', 'p', 'u1', 'owner', false);
+    await a.removeMember('r1', 'p', 'u1');
+    assert.deepEqual(calls.map((x) => x.path), ['channels.addModerator', 'groups.removeOwner', 'groups.kick']);
+    assert.deepEqual(calls[0].body, { roomId: 'r1', userId: 'u1' });
+  });
+
   test('followThread maps to chat.followMessage / chat.unfollowMessage', async () => {
     const { client, calls } = fakeClient({ success: true });
     const a = new ActionsRC(client);

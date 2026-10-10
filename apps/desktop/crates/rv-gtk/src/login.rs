@@ -193,7 +193,14 @@ impl LoginPage {
         let code_caption = code_group.first_child().and_downcast::<gtk::Label>().expect("caption");
         let code_step = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(6).visible(false).build();
         code_step.append(&back);
-        code_step.append(&gtk::Label::builder().label("🛡️").css_classes(["shield"]).margin_top(6).build());
+        code_step.append(
+            &gtk::Image::builder()
+                .icon_name("security-high-symbolic")
+                .pixel_size(34)
+                .css_classes(["shield"])
+                .margin_top(6)
+                .build(),
+        );
         code_step.append(&gtk::Label::builder().label(t("login.magic")).css_classes(["step-title"]).build());
         code_step.append(&code_intro);
         let factor_selector = gtk::DropDown::builder().visible(false).build();

@@ -15,6 +15,10 @@ section here.
 - Forward a message to another room (GTK and macOS, Rocket.Chat servers): Forward, in the message menu beside Reply, lists the rooms by name (encrypted and read-only ones left out); the one picked opens and shows the message as a quote.
 - macOS: Shift-Return on a list item continues the list (the next bullet or number), or ends it on an empty item, as on GTK.
 
+### Changed
+
+- The last colour emoji used as interface markers are monochrome icons, like every other icon of the app: a locked room's tile, the encryption banner and unlock card, the two-factor shield, a thread's replies, file kinds in cards and staged files, the call card, and room kinds in the administration (GTK: Adwaita symbolic icons; SwiftUI: SF Symbols, with a "React" submenu instead of a smiley).
+
 ### Fixed
 
 - A local database error (full disk, I/O error) rolls back the one write instead of crashing the app, and the GTK and SwiftUI apps sharing a database on macOS wait for each other instead of failing on a busy database.

@@ -1465,6 +1465,7 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("edit.too_late", "Ce message ne peut plus être modifié.", "This message can no longer be edited."),
     ("actions.cancel", "Annuler", "Cancel"),
     ("actions.refused", "Action refusée.", "Action refused."),
+    ("actions.react", "Réagir", "React"),
     ("actions.react_more", "Réagir avec un autre émoji", "React with another emoji"),
     ("actions.copied", "Copié", "Copied"),
     ("actions.pinned", "Message épinglé", "Message pinned"),

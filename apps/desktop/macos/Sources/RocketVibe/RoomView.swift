@@ -590,7 +590,9 @@ struct MessageRow: View, Equatable {
         if message.edited || message.delivery != .sent || message.threadCount > 0 {
             HStack(spacing: 10) {
                 if message.threadCount > 0 {
-                    Button("💬 " + (model?.repliesTitle(message.threadCount) ?? L("message.replies", count: Int(message.threadCount)))) { app.openThread(message.id) }
+                    Button { app.openThread(message.id) } label: {
+                        Label(model?.repliesTitle(message.threadCount) ?? L("message.replies", count: Int(message.threadCount)), systemImage: "bubble.left")
+                    }
                         .buttonStyle(.link)
                         .foregroundStyle(Vibe.pinkSoft)
                 }
@@ -639,13 +641,15 @@ struct MessageRow: View, Equatable {
         let actions = model?.actions(for: message) ?? []
         if actions.contains(.react) {
             // The emoji I react with most, mine ticked (choosing one withdraws it).
-            Menu("😀") {
+            Menu {
                 ForEach(model?.quickReactions ?? [], id: \.self) { code in
                     Toggle(replaceShortcodes(text: code), isOn: Binding(
                         get: { model?.quickReactionIsMine(message, shortcode: code) ?? false },
                         set: { _ in Task { await model?.quickReact(message, shortcode: code) } }
                     ))
                 }
+            } label: {
+                Label(L("actions.react"), systemImage: "face.smiling")
             }
             Button(L("actions.react_more") + "…") { reacting = true }
         }
@@ -678,7 +682,7 @@ struct MessageRow: View, Equatable {
 
     func title(_ action: MessageAction) -> String {
         switch action {
-        case .react: return "😀"
+        case .react: return L("actions.react")
         case .reply: return L("actions.reply")
         case .replyInThread: return L("actions.reply_thread")
         case .copy: return L("actions.copy")
@@ -871,7 +875,7 @@ struct QuoteCard: View {
                     RemoteImage(path: image.source, width: size.width, height: size.height)
                 }
                 ForEach(Array(quote.files.enumerated()), id: \.offset) { _, file in
-                    Text("\(file.kind == .audio ? "🎵" : file.kind == .video ? "🎬" : "📎") \(file.title)")
+                    Label(file.title, systemImage: file.kind == .audio ? "music.note" : file.kind == .video ? "film" : "paperclip")
                         .font(.vibe(12)).foregroundStyle(Vibe.muted).lineLimit(1)
                 }
                 ForEach(Array(quote.quotes.enumerated()), id: \.offset) { _, inner in

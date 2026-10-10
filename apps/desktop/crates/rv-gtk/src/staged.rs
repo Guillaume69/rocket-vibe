@@ -137,7 +137,11 @@ fn chip(item: &Picked, mime: &str, on_remove: impl Fn() + 'static) -> gtk::Widge
             &gtk::Picture::builder().paintable(texture).content_fit(gtk::ContentFit::Cover).can_shrink(true).build(),
         ),
         None => thumb.add_overlay(
-            &gtk::Label::builder().label(if audio { "🎵" } else { "📄" }).css_classes(["staged-icon"]).build(),
+            &gtk::Image::builder()
+                .icon_name(if audio { "audio-x-generic-symbolic" } else { "text-x-generic-symbolic" })
+                .pixel_size(22)
+                .css_classes(["staged-icon"])
+                .build(),
         ),
     }
     chip.append(&thumb);

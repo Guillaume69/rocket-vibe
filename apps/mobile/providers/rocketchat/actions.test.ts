@@ -119,6 +119,50 @@ describe('ActionsRC', () => {
     ]);
   });
 
+  test('listThreads: the server order, the following filter, offset and total', async () => {
+    const read: { path: string; params: unknown }[] = [];
+    const u = { _id: 'u1', username: 'alice' };
+    const client = {
+      get: async (path: string, options: { params?: unknown } = {}) => {
+        read.push({ path, params: options.params });
+        return {
+          threads: [
+            { _id: 'b', rid: 'r1', ts: '2026-01-01T00:00:00.000Z', msg: 'old root, new reply', u, tcount: 3, replies: ['me'] },
+            { _id: 'unreadable' },
+            { _id: 'a', rid: 'r1', ts: '2026-02-01T00:00:00.000Z', msg: 'new root', u, tcount: 1 },
+          ],
+          total: 7,
+        };
+      },
+    } as unknown as RestClient;
+    const a = new ActionsRC(client);
+    const page = await a.listThreads('r1', false, 0);
+    await a.listThreads('r1', true, 50);
+    assert.deepEqual(
+      page.threads.map((m) => [m.id, m.threadCount, m.threadFollowers]),
+      [
+        ['b', 3, '["me"]'],
+        ['a', 1, null],
+      ],
+    );
+    assert.equal(page.total, 7);
+    assert.deepEqual(read, [
+      { path: 'chat.getThreadsList', params: { rid: 'r1', count: 50, offset: 0 } },
+      { path: 'chat.getThreadsList', params: { rid: 'r1', count: 50, offset: 50, type: 'following' } },
+    ]);
+  });
+
+  test('followThread maps to chat.followMessage / chat.unfollowMessage', async () => {
+    const { client, calls } = fakeClient({ success: true });
+    const a = new ActionsRC(client);
+    await a.followThread('r1', 'root', true);
+    await a.followThread('r1', 'root', false);
+    assert.deepEqual(calls, [
+      { path: 'chat.followMessage', body: { mid: 'root' } },
+      { path: 'chat.unfollowMessage', body: { mid: 'root' } },
+    ]);
+  });
+
   test('openOrCreateDm returns the rid AND the raw document to ingest', async () => {
     const room = { _id: 'dm1', t: 'd' };
     const { client, calls } = fakeClient({ room });

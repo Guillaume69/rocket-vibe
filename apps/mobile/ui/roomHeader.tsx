@@ -43,6 +43,7 @@ export function RoomHeader({
   onBack,
   onSearch,
   onMarked,
+  onThreads,
   availableMessageActions = true,
   privateSearch = false,
 }: {
@@ -57,6 +58,8 @@ export function RoomHeader({
   onSearch: () => void;
   /** Opens the room's pinned and starred messages. */
   onMarked: () => void;
+  /** Opens the room's thread list, where the provider has one. */
+  onThreads: () => void;
   availableMessageActions?: boolean;
   /** An encrypted room is searched on the device, whatever the server offers. */
   privateSearch?: boolean;
@@ -188,6 +191,17 @@ export function RoomHeader({
           style={({ pressed }) => ({ opacity: pressed || starting ? 0.5 : 1 })}
         >
           <Text style={styles.headerIcon}>📞</Text>
+        </Tappable>
+      )}
+      {sync.phase === 'ready' && sync.actions.listThreads !== undefined && availableMessageActions && (
+        <Tappable
+          onPress={onThreads}
+          hitSlop={8}
+          android_ripple={{ color: c.ripple, borderless: true }}
+          accessibilityRole="button"
+          accessibilityLabel={t('room.threads')}
+        >
+          <Text style={styles.headerIcon}>💬</Text>
         </Tappable>
       )}
       <Tappable

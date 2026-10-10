@@ -7,9 +7,12 @@
 
 import { mentionsE2E } from '../../lib/e2e/mentions.ts';
 import type { OutboxEncryptor } from '../../lib/outbox.ts';
-import type { ProviderActions, RoomInformation } from '../../lib/provider.ts';
+import type { ProviderActions, RoomInformation, ThreadPage } from '../../lib/provider.ts';
 import { toMessage, type LocalMessage } from '../../lib/normalize.ts';
 import type { RestClient } from '../../lib/rest.ts';
+
+/** Roots per page of the thread list. */
+const THREAD_PAGE = 50;
 
 export class ActionsRC implements ProviderActions {
   // A plain field, not a "parameter property": the latter is not erasable
@@ -82,6 +85,28 @@ export class ActionsRC implements ProviderActions {
 
   listStarred(rid: string): Promise<LocalMessage[]> {
     return this.list('chat.getStarredMessages', rid);
+  }
+
+  /**
+   * `chat.getThreadsList` sorts by last reply (`tlm`) itself; `type` absent
+   * lists them all. No "unread" filter: no REST route reads one thread.
+   */
+  async listThreads(rid: string, following: boolean, offset: number): Promise<ThreadPage> {
+    const response = await this.client.get<{ threads?: Record<string, unknown>[]; total?: number }>(
+      'chat.getThreadsList',
+      { params: { rid, count: THREAD_PAGE, offset, ...(following ? { type: 'following' } : {}) } },
+    );
+    const threads = (response.threads ?? [])
+      .map((raw) => toMessage(raw))
+      .filter((m): m is LocalMessage => m !== null);
+    return { threads, total: typeof response.total === 'number' ? response.total : offset + threads.length };
+  }
+
+  /** The server rebroadcasts the root, whose `replies` then carries the change. */
+  async followThread(_rid: string, root: string, put: boolean): Promise<void> {
+    await this.client.post(put ? 'chat.followMessage' : 'chat.unfollowMessage', {
+      body: { mid: root },
+    });
   }
 
   private async list(path: string, rid: string): Promise<LocalMessage[]> {

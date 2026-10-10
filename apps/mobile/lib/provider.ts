@@ -200,6 +200,14 @@ export interface ProviderActions {
   listPinned(rid: string): Promise<LocalMessage[]>;
   /** My starred messages in a room, newest first. */
   listStarred(rid: string): Promise<LocalMessage[]>;
+  /**
+   * A page of the room's thread roots, latest reply first, from `offset`;
+   * `following`: only the threads I follow. `total` counts the whole list.
+   * Absent where the server has no such list (screens hide the entry).
+   */
+  listThreads?(rid: string, following: boolean, offset: number): Promise<ThreadPage>;
+  /** Follows or unfollows the thread of `root` (idempotent server-side). */
+  followThread?(rid: string, root: string, put: boolean): Promise<void>;
   markRead(rid: string, observation?:ReadObservation): Promise<void>;
   /**
    * Opens (or creates, idempotent server-side) the DM with `username`. Returns
@@ -209,6 +217,9 @@ export interface ProviderActions {
    */
   openOrCreateDm(username: string,uid?:string): Promise<{ rid: string; rawRoom: Record<string, unknown> }>;
 }
+
+/** One page of `ProviderActions.listThreads`. */
+export type ThreadPage = { threads: LocalMessage[]; total: number };
 
 export type ReadObservation={messageId:string;adhesion:string};
 export type RoomReadState={adhesion:string;rootPosition:string;replyPosition:string;unreadRoots:string;unreadReplies:string;mentions:string;groupMentions:string};

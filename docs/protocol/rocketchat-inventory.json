@@ -334,6 +334,7 @@
     "apps/mobile/app/settings/index.tsx",
     "apps/mobile/app/share.tsx",
     "apps/mobile/app/thread/[id].tsx",
+    "apps/mobile/app/threads.tsx",
     "apps/mobile/app/unlock-e2e.tsx",
     "apps/mobile/app/voice-ring/[id].tsx",
     "apps/mobile/app/voice/[rid].tsx",
@@ -530,6 +531,7 @@
     "apps/mobile/ui/tappableText.tsx",
     "apps/mobile/ui/temporaryFiles.ts",
     "apps/mobile/ui/theme.ts",
+    "apps/mobile/ui/threadFollow.tsx",
     "apps/mobile/ui/toast.tsx",
     "apps/mobile/ui/transferBar.tsx",
     "apps/mobile/ui/transfers.ts",
@@ -3755,157 +3757,187 @@
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 23,
+      "line": 26,
       "kind": "call:POST",
       "surface": "'rooms.favorite'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 23,
+      "line": 26,
       "kind": "endpoint",
       "surface": "rooms.favorite"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 27,
+      "line": 30,
       "kind": "call:GET",
       "surface": "'rooms.info'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 27,
+      "line": 30,
       "kind": "endpoint",
       "surface": "rooms.info"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 40,
+      "line": 43,
       "kind": "call:POST",
       "surface": "'chat.react'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 40,
+      "line": 43,
       "kind": "endpoint",
       "surface": "chat.react"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 51,
+      "line": 54,
       "kind": "call:POST",
       "surface": "'chat.update'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 51,
+      "line": 54,
       "kind": "endpoint",
       "surface": "chat.update"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 56,
+      "line": 59,
       "kind": "call:POST",
       "surface": "'chat.update'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 56,
+      "line": 59,
       "kind": "endpoint",
       "surface": "chat.update"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 62,
+      "line": 65,
       "kind": "call:POST",
       "surface": "'chat.delete'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 62,
+      "line": 65,
       "kind": "endpoint",
       "surface": "chat.delete"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 66,
+      "line": 69,
       "kind": "call:POST",
       "surface": "'chat.pinMessage'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 66,
+      "line": 69,
       "kind": "endpoint",
       "surface": "chat.pinMessage"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 70,
+      "line": 73,
       "kind": "call:POST",
       "surface": "'chat.unPinMessage'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 70,
+      "line": 73,
       "kind": "endpoint",
       "surface": "chat.unPinMessage"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 74,
+      "line": 77,
       "kind": "call:POST",
       "surface": "put ? 'chat.starMessage' : 'chat.unStarMessage'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 74,
+      "line": 77,
       "kind": "endpoint",
       "surface": "chat.starMessage"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 74,
+      "line": 77,
       "kind": "endpoint",
       "surface": "chat.unStarMessage"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 80,
+      "line": 83,
       "kind": "endpoint",
       "surface": "chat.getPinnedMessages"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 84,
+      "line": 87,
       "kind": "endpoint",
       "surface": "chat.getStarredMessages"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 88,
+      "line": 95,
+      "kind": "call:GET",
+      "surface": "'chat.getThreadsList'"
+    },
+    {
+      "file": "apps/mobile/providers/rocketchat/actions.ts",
+      "line": 96,
+      "kind": "endpoint",
+      "surface": "chat.getThreadsList"
+    },
+    {
+      "file": "apps/mobile/providers/rocketchat/actions.ts",
+      "line": 107,
+      "kind": "call:POST",
+      "surface": "put ? 'chat.followMessage' : 'chat.unfollowMessage'"
+    },
+    {
+      "file": "apps/mobile/providers/rocketchat/actions.ts",
+      "line": 107,
+      "kind": "endpoint",
+      "surface": "chat.followMessage"
+    },
+    {
+      "file": "apps/mobile/providers/rocketchat/actions.ts",
+      "line": 107,
+      "kind": "endpoint",
+      "surface": "chat.unfollowMessage"
+    },
+    {
+      "file": "apps/mobile/providers/rocketchat/actions.ts",
+      "line": 113,
       "kind": "call:GET",
       "surface": "path"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 98,
+      "line": 123,
       "kind": "call:POST",
       "surface": "'subscriptions.read'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 98,
+      "line": 123,
       "kind": "endpoint",
       "surface": "subscriptions.read"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 104,
+      "line": 129,
       "kind": "call:POST",
       "surface": "'im.create'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 104,
+      "line": 129,
       "kind": "endpoint",
       "surface": "im.create"
     },
@@ -4223,73 +4255,73 @@
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 954,
+      "line": 955,
       "kind": "endpoint",
       "surface": "e2e.title"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 955,
+      "line": 956,
       "kind": "endpoint",
       "surface": "e2e.explanation"
-    },
-    {
-      "file": "apps/mobile/ui/messages.ts",
-      "line": 957,
-      "kind": "endpoint",
-      "surface": "e2e.field"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
       "line": 958,
       "kind": "endpoint",
-      "surface": "e2e.unlock"
+      "surface": "e2e.field"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
       "line": 959,
       "kind": "endpoint",
-      "surface": "e2e.wrongPassword"
+      "surface": "e2e.unlock"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
       "line": 960,
       "kind": "endpoint",
+      "surface": "e2e.wrongPassword"
+    },
+    {
+      "file": "apps/mobile/ui/messages.ts",
+      "line": 961,
+      "kind": "endpoint",
       "surface": "e2e.genericError"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2277,
+      "line": 2291,
       "kind": "endpoint",
       "surface": "e2e.title"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2278,
+      "line": 2292,
       "kind": "endpoint",
       "surface": "e2e.explanation"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2280,
+      "line": 2294,
       "kind": "endpoint",
       "surface": "e2e.field"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2281,
+      "line": 2295,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2282,
+      "line": 2296,
       "kind": "endpoint",
       "surface": "e2e.wrongPassword"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2283,
+      "line": 2297,
       "kind": "endpoint",
       "surface": "e2e.genericError"
     },

@@ -1138,6 +1138,7 @@ function Room({
         onBack={() => (router.canGoBack() ? router.back() : router.replace('/'))}
         onSearch={() => router.push({ pathname: '/message-search', params: { rid } })}
         onMarked={() => router.push({ pathname: '/marked-messages', params: { rid } })}
+        onThreads={() => router.push({ pathname: '/threads', params: { rid } })}
         availableMessageActions={!protectedRoom}
         privateSearch={protectedRoom}
       />

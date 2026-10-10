@@ -935,6 +935,7 @@ const fr = {
   'room.newSince': '{n} nouveau message depuis {time} | {n} nouveaux messages depuis {time}',
   'room.jumpToLatest': 'Aller aux derniers messages',
   'room.marked': 'Messages épinglés et favoris',
+  'room.threads': 'Fils du salon',
   'room.jumpFailed': 'Message introuvable dans l’historique récent.',
   'daySeparator.today': "Aujourd'hui",
   'daySeparator.yesterday': 'Hier',
@@ -1094,6 +1095,18 @@ const fr = {
   'thread.title': 'Fil',
   'thread.notFound': 'Fil introuvable.',
   'thread.reply': 'Répondre dans le fil',
+
+  // ── Thread list (app/threads.tsx) and following (ui/threadFollow.tsx)
+  'threads.title': 'Fils',
+  'threads.all': 'Tous',
+  'threads.following': 'Suivis',
+  'threads.followingShort': 'Suivi',
+  'threads.follow': 'Suivre',
+  'threads.unfollow': 'Ne plus suivre',
+  'threads.none': 'Aucun fil dans ce salon.',
+  'threads.noneFollowed': 'Vous ne suivez aucun fil de ce salon.',
+  'threads.loadFailed': 'Chargement impossible.',
+  'threads.followFailed': 'Le suivi du fil n’a pas pu changer.',
 
   // ── Message actions
   'messageActions.messageNotFound': 'Message introuvable.',
@@ -2260,6 +2273,7 @@ const en: Record<TranslationKey, string> = {
   'room.newSince': '{n} new message since {time} | {n} new messages since {time}',
   'room.jumpToLatest': 'Jump to latest messages',
   'room.marked': 'Pinned and starred messages',
+  'room.threads': 'Threads of the room',
   'room.jumpFailed': 'Message not found in recent history.',
   'daySeparator.today': 'Today',
   'daySeparator.yesterday': 'Yesterday',
@@ -2401,6 +2415,17 @@ const en: Record<TranslationKey, string> = {
   'thread.title': 'Thread',
   'thread.notFound': 'Thread not found.',
   'thread.reply': 'Reply in thread',
+
+  'threads.title': 'Threads',
+  'threads.all': 'All',
+  'threads.following': 'Following',
+  'threads.followingShort': 'Following',
+  'threads.follow': 'Follow',
+  'threads.unfollow': 'Unfollow',
+  'threads.none': 'No threads in this room.',
+  'threads.noneFollowed': "You don't follow any thread in this room.",
+  'threads.loadFailed': "Couldn't load.",
+  'threads.followFailed': "Couldn't change following this thread.",
 
   'messageActions.messageNotFound': 'Message not found.',
   'messageActions.noActions': 'Nothing to do with this message.',

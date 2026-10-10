@@ -36,6 +36,7 @@ import { useSession } from '../../ui/session.tsx';
 import { useSync } from '../../ui/sync.tsx';
 import { UploadBands } from '../../ui/uploadBands.tsx';
 import { useColors, type Colors, FONTS } from '../../ui/theme.ts';
+import { FollowButton, useThreadFollow } from '../../ui/threadFollow.tsx';
 
 /**
  * Thread screen (8.3). `id` = `_id` of the root message (`tmid` of its
@@ -86,6 +87,7 @@ export default function ThreadScreen() {
       actions={sync.actions}
       client={state.client}
       me={state.session.username}
+      myId={state.session.userId}
       activity={sync.activity}
       generation={sync.generation}
     />
@@ -112,6 +114,7 @@ function Thread({
   actions,
   client,
   me,
+  myId,
   activity,
   generation,
   membership,
@@ -133,6 +136,8 @@ function Thread({
   client: RestClient;
   /** My username: marks my reactions in the rows. */
   me: string;
+  /** My uid: whether I follow the thread. */
+  myId: string;
   activity: ActivityEngine;
   generation: number;
   membership?:string|null;
@@ -168,6 +173,14 @@ function Thread({
   // the rid). Without this fallback, the screen could neither subscribe to the
   // stream nor reply until the root has arrived.
   const rid = provider.native && roomId ? roomId : root?.rid ?? (replyRows ?? [])[0]?.rid;
+  const follow = useThreadFollow({
+    actions,
+    engine,
+    rid: rid ?? null,
+    root: threadId,
+    followers: root?.threadFollowers,
+    myId,
+  });
 
   // The room's flags: same prohibitions as the room composer; promising a
   // reply in an encrypted or read-only room means promising an
@@ -409,7 +422,16 @@ function Thread({
 
   return (
     <KeyboardAvoidingContainer>
-      <Stack.Screen options={{ title: t('thread.title') }} />
+      <Stack.Screen
+        options={{
+          title: t('thread.title'),
+          // Until the root is local, its followers are unknown: no bell yet.
+          headerRight:
+            follow === null || root === undefined
+              ? undefined
+              : () => <FollowButton c={c} following={follow.following} busy={follow.busy} onPress={follow.toggle} />,
+        }}
+      />
       {/* The header is native here (no `RoomHeader`): the bar therefore sits
           right below it. Without it, the thread rewrote itself entirely with
           no signal showing it. */}

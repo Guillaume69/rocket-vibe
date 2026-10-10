@@ -138,7 +138,9 @@ beta does.
 |---|---|---|---|---|---|
 | Thread view: root and replies, live, composer targeting the thread | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | Files and voice messages in a thread | done | done | done | done | Encrypted RocketVibe threads included. SwiftUI checked by the macOS CI build only. Web: Native provider: see [web-client](features/web-client.md). |
-| List of a room's threads, following a thread, "also send to the room" | missing | missing | missing | missing | Web: No browser implementation yet. |
+| List of a room's threads, All and Following, latest reply first, paged | done | done | done | missing | Rocket.Chat servers only (`chat.getThreadsList`): Mattermost and kChat not mapped, the RocketVibe server has no list route yet. No Unread filter anywhere (see [decisions](decisions.md)). SwiftUI checked by the macOS CI build only. Web: Native provider only, which has no route yet. |
+| Follow or unfollow a thread, from the list and from the open thread, shown live | done | done | done | missing | Rocket.Chat servers only (`chat.followMessage`), same limits as the list. SwiftUI checked by the macOS CI build only. Web: Native provider only, which has no route yet. |
+| "Also send to the room" (`tshow`) from the thread composer | missing | missing | missing | missing | Web: No browser implementation yet. |
 
 ## 7. Search - [search](features/search.md)
 
@@ -312,7 +314,7 @@ gaps, listed last.
   formatting toolbar; list continuation; notification backend description; logs
   folder; new versions; running with the window closed and starting at login;
   meeting information.
-- **All three**: thread list, following and "also send to the room"; search across
+- **All three**: "also send to the room" in a thread, and the thread list and following on Mattermost, kChat and RocketVibe servers; search across
   rooms; room members, settings and roles; creating an encrypted room; creating a
   channel or private group on Rocket.Chat; "Deleted
   user" on messages ingested before the deletion, on server-computed names and in

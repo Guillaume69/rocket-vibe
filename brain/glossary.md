@@ -71,6 +71,7 @@ All code, comments and docs are in English. French survives in two places only: 
 | Subscription | The per-user state of a room (unread count, mentions, favourite, open, roles, `ls`, `e2eKey`), distinct from the room shared by all members. | [mobile-data](architecture/mobile-data.md) |
 | `syncMessages` | `chat.syncMessages`: the per-room catch-up. One room per call, `type=UPDATED` and `type=DELETED` are two requests, and it is slow on big rooms. | [offline-and-sync](features/offline-and-sync.md) |
 | `tmid`, `tcount`, `tlm` | Thread parent id on a reply, reply count and last reply time on the root. | [threads](features/threads.md) |
+| `replies` (on a root) | Despite the name, the uids of the thread's FOLLOWERS, not its replies; kept as `thread_followers`. `tunread` on a subscription lists my unread threads of the room. | [threads](features/threads.md) |
 | `urls` | Link metadata (OpenGraph, oEmbed) the server attaches to a message; the clients render cards from it and scrape nothing. | [room-view](features/room-view.md) |
 | `user-activity` | `stream-notify-room/<rid>/user-activity`: the typing indicator (not the deprecated `/typing`). | [composer](features/composer.md) |
 | `video-conference.join` | REST call that returns the Jitsi URL (with its JWT) for a call. | [calls](features/calls.md) |
@@ -170,6 +171,7 @@ All code, comments and docs are in English. French survives in two places only: 
 | `search.tsx` | Start a conversation (spotlight). |
 | `message-search.tsx` | Message search in one room. |
 | `marked-messages.tsx` | Pinned and starred messages. |
+| `threads.tsx` | A room's threads, All and Following, with a follow bell per row (Rocket.Chat). |
 | `+native-intent.tsx` | Swallows the iOS share extension's `rocketvibe://dataUrl=` reopen and rewrites an old `salon/` room link to `room/`. |
 
 ## Mobile native (`apps/mobile/modules/`, `apps/mobile/plugins/`)

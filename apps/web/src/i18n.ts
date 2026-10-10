@@ -14,6 +14,12 @@ const phrases = {
   channels: ["Channels", "Salons"],
   direct: ["Direct messages", "Messages directs"],
   new: ["New conversation", "Nouvelle conversation"],
+  goToRoom: ["Go to room", "Aller au salon"],
+  searchRooms: [
+    "Search a room or a conversation",
+    "Chercher un salon ou une conversation",
+  ],
+  noRoomMatches: ["No room matches.", "Aucun salon ne correspond."],
   newMessage: ["New message", "Nouveau message"],
   newChannel: ["Create a channel", "Créer un canal"],
   browseChannels: ["Browse channels", "Parcourir les canaux"],

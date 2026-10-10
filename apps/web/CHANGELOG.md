@@ -6,6 +6,7 @@ All notable changes are documented here in English.
 
 ### Added
 
+- Ctrl+K (Cmd+K) opens a room switcher, as on the desktop: type part of a room's name, the arrows pick, Enter opens it. The composer's link shortcut moves to Ctrl+Shift+K; New conversation stays in the "+" menu.
 - Native RocketVibe MLS encryption through the shared Rust engine in a WebAssembly worker, with identity/device approval, verified peers and explicit group creation/admission reviews.
 - Protected private conversations, drafts, threads, local search, message actions and encrypted attachments, plus identity recovery, history sharing/backups and storage-key controls.
 - Browser frame encryption using the native MLS voice exporter, with refusal when encryption is unavailable.

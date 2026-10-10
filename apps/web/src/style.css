@@ -716,8 +716,12 @@ dialog::backdrop {
   flex: 1;
   text-align: left;
 }
-.spotlight-row:hover {
+.spotlight-row:hover,
+.spotlight-row.selected {
   background: #2c2946;
+}
+.spotlight-row > .badge {
+  flex: none;
 }
 .details-form {
   margin-top: 18px;

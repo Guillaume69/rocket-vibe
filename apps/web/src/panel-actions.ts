@@ -1,6 +1,9 @@
 export const newConversation = (
   ...args: Parameters<typeof import("./panels").newConversation>
 ) => import("./panels").then((panel) => panel.newConversation(...args));
+export const roomSwitcher = (
+  ...args: Parameters<typeof import("./panels").roomSwitcher>
+) => import("./panels").then((panel) => panel.roomSwitcher(...args));
 export const search = (...args: Parameters<typeof import("./panels").search>) =>
   import("./panels").then((panel) => panel.search(...args));
 export const marked = (...args: Parameters<typeof import("./panels").marked>) =>

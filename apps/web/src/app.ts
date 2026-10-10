@@ -65,7 +65,7 @@ import { composer } from "./composer";
 import { cached, cacheMedia } from "./media";
 import { previewText, decorate } from "./presentation";
 import { canonical, categories, glyphs, emojiGlyph } from "./emoji";
-import { settings, newConversation, profile } from "./panel-actions";
+import { settings, roomSwitcher, profile } from "./panel-actions";
 
 export class App implements RowActions {
   readonly view = new ViewState();
@@ -81,6 +81,8 @@ export class App implements RowActions {
   room?: string;
   draftReady = false;
   roomOpening = 0;
+  /** A room switcher is loading (its panel is imported lazily) or shown. */
+  switching = false;
   root?: string;
   firstUnread?: string;
   newPill = button(
@@ -226,9 +228,23 @@ export class App implements RowActions {
       "keydown",
       (event) => {
         if (event.defaultPrevented || !this.account) return;
-        if ((event.ctrlKey || event.metaKey) && event.key === "k") {
+        // The room switcher; in the composer, Ctrl+Shift+K is the link.
+        if (
+          (event.ctrlKey || event.metaKey) &&
+          !event.shiftKey &&
+          event.key.toLowerCase() === "k"
+        ) {
           event.preventDefault();
-          void newConversation(this);
+          // Decided now, not once the panel is loaded: a second press while
+          // the import is pending would otherwise open a second switcher
+          // after the first one closed.
+          if (this.switching) return;
+          this.switching = true;
+          void roomSwitcher(this, () => {
+            this.switching = false;
+          }).catch(() => {
+            this.switching = false;
+          });
         }
         if (event.key === "Escape" && this.root) {
           this.closeThread();
@@ -858,7 +874,8 @@ export class App implements RowActions {
         }
         if (
           (event.ctrlKey || event.metaKey) &&
-          ["b", "i", "k", "e"].includes(event.key.toLowerCase())
+          (["b", "i", "e"].includes(event.key.toLowerCase()) ||
+            (event.key.toLowerCase() === "k" && event.shiftKey))
         ) {
           event.preventDefault();
           event.stopPropagation();

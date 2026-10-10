@@ -26,6 +26,11 @@ const room = await fixture("/api/v1/rooms", session.token, {
   private: false,
   operation_id: crypto.randomUUID(),
 });
+const other = await fixture("/api/v1/rooms", session.token, {
+  name: "switcher-" + crypto.randomUUID().slice(0, 8),
+  private: false,
+  operation_id: crypto.randomUUID(),
+});
 const browser = await chromium.launch({ headless: true }),
   page = await browser.newPage({
     locale: "en-US",
@@ -72,6 +77,39 @@ try {
   await input.press("Shift+Enter");
   assert.equal(await input.evaluate((node) => node.value), "1. item\n");
   console.log("PASS native multiline editing and list continuation");
+  await input.fill("site");
+  await input.press("Control+a");
+  await input.press("Control+Shift+k");
+  const link = page.locator("dialog").filter({ hasText: "URL" });
+  await link.waitFor();
+  await page.keyboard.press("Escape");
+  await link.waitFor({ state: "detached" });
+  assert.equal(await input.evaluate((node) => node.value), "site");
+  console.log("PASS Ctrl+Shift+K is the composer's link");
+  await input.fill("");
+  await input.press("Control+k");
+  const switcher = page.locator("dialog.switcher-dialog");
+  await switcher.waitFor();
+  await page.keyboard.press("Control+k");
+  assert.equal(await switcher.count(), 1);
+  await switcher
+    .getByLabel("Search a room or a conversation")
+    .fill(other.name.slice(0, 12));
+  await switcher
+    .locator('[data-room="' + other.id + '"][aria-selected="true"]')
+    .waitFor();
+  await page.keyboard.press("Enter");
+  await page.waitForURL("**/room/" + other.id);
+  await switcher.waitFor({ state: "detached" });
+  await page.keyboard.press("Control+k");
+  await switcher.getByLabel("Search a room or a conversation").fill(room.name);
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowUp");
+  await page.keyboard.press("Enter");
+  await page.waitForURL("**/room/" + room.id);
+  console.log(
+    "PASS Ctrl+K opens one room switcher; the arrows and Enter open a room",
+  );
   await input.fill("# Heading\n_italic_\nlast");
   assert.equal(
     await input.evaluate((node) => node.value),

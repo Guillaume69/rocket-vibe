@@ -16,6 +16,7 @@ import type {
 } from "./protocol";
 import { operation, segment } from "./api";
 import { el, button, field, tile, dialog, toast } from "./dom";
+import { matchRooms } from "./room-match";
 import { t, language } from "./i18n";
 import { messageRow } from "./render";
 import { securitySettings, recentProof } from "./security";
@@ -31,6 +32,82 @@ import {
   encryptedRoom,
   encryptedPeer,
 } from "./crypto/panels";
+
+/**
+ * The room switcher (Ctrl+K), as on the desktop: the joined rooms searched by
+ * name (`matchRooms`); the arrows move the selection, Enter opens it, a click
+ * outside or Escape closes it with nothing opened. `closed` runs when it
+ * closes, so the caller lets the next Ctrl+K open one again.
+ */
+export function roomSwitcher(app: App, closed: () => void): void {
+  const [node, body] = dialog(t("goToRoom"));
+  node.addEventListener("close", closed);
+  node.classList.add("switcher-dialog");
+  const [wrap, input] = field(t("searchRooms"));
+  const list = el("div", "spotlight");
+  list.setAttribute("role", "listbox");
+  body.append(wrap, list);
+  const latest = (room: Room) =>
+    Date.parse(app.model.timeline(room.id).at(-1)?.created_at || "") || 0;
+  const unread = (room: Room) =>
+    Number(room.read_state?.unread_roots || 0) +
+    Number(room.read_state?.unread_replies || 0);
+  let shown: Room[] = [],
+    selected = 0;
+  const pick = (index: number) => {
+    const room = shown[index];
+    if (!room) return;
+    node.close();
+    return app.openRoom(room.id);
+  };
+  const render = () => {
+    shown = matchRooms(
+      [...app.model.rooms.values()],
+      input.value,
+      (room) => room.name,
+      latest,
+    );
+    selected = Math.min(selected, Math.max(shown.length - 1, 0));
+    list.replaceChildren(
+      ...shown.map((room, index) => {
+        const row = button(
+          "",
+          () => pick(index),
+          "spotlight-row" + (index === selected ? " selected" : ""),
+        );
+        row.setAttribute("role", "option");
+        row.setAttribute("aria-selected", String(index === selected));
+        row.dataset.room = room.id;
+        row.append(
+          tile(room.name, "message", room.kind === "direct" ? undefined : "#"),
+          el("span", unread(room) ? "unread" : "", room.name),
+        );
+        if (unread(room))
+          row.append(el("span", "badge badge-unread", String(unread(room))));
+        return row;
+      }),
+    );
+    if (!shown.length) list.append(el("p", "dim", t("noRoomMatches")));
+  };
+  input.addEventListener("input", () => {
+    selected = 0;
+    render();
+  });
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const step = event.key === "ArrowDown" ? 1 : -1;
+      selected = Math.min(Math.max(selected + step, 0), shown.length - 1);
+      render();
+      list.children[selected]?.scrollIntoView({ block: "nearest" });
+    } else if (event.key === "Enter" && !event.isComposing) {
+      event.preventDefault();
+      void pick(selected);
+    }
+  });
+  render();
+  input.focus();
+}
 
 /** The new conversation dialog, opened on its people, rooms or create tab. */
 export async function newConversation(

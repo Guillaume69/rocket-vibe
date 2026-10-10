@@ -38,7 +38,9 @@
 //!   RV_SMOKE_DETAILS=profile:<user> | room | search:<text> | settings | emoji:<code> | marked
 //!                          | threads | jump:<message id> | permissions:<expected, comma-separated>
 //!                          checks the read and opens the dialog; emoji: a custom one completes;
-//!                          threads: follows the newest thread and back, then opens it
+//!                          threads: follows the newest thread and back, then opens it;
+//!                          unread: marks the open room read, then unread (it is left and
+//!                          stays unread), then read from the list, then opens it again
 //!   RV_SMOKE_NOTIFY=<reply>  stands in for the desktop's notification server (inline reply
 //!                          included), answers the first notification with <reply>, then clicks
 //!                          it: its room must open on that message (`-`: a server without inline
@@ -931,6 +933,93 @@ fn reaction_checks(chat: Rc<crate::chat::ChatPage>, row: rv_core::store::Message
     });
 }
 
+/// The subscription's unread count and alert as the server holds them.
+async fn server_unread(session: &std::sync::Arc<rv_core::session::Session>, rid: &str) -> Option<(i64, bool)> {
+    let (s, rid) = (session.clone(), rid.to_owned());
+    crate::on_tokio(async move {
+        let options = rv_core::rest::CallOptions::params([("roomId", rid.as_str())]);
+        let answer = s.rest.get("subscriptions.getOne", options).await.ok()?;
+        let sub = answer.get("subscription")?;
+        Some((sub.get("unread")?.as_i64()?, sub.get("alert")?.as_bool()?))
+    })
+    .await
+}
+
+/// Waits up to `seconds` for the list to show the room unread (`unread`) or read.
+async fn listed_as(chat: &crate::chat::ChatPage, rid: &str, unread: bool, seconds: u64) -> Option<(i64, bool)> {
+    for _ in 0..seconds * 5 {
+        let listed = chat.listed_unread(rid);
+        if listed.is_some_and(|(n, alert)| (n > 0 || alert) == unread) {
+            return listed;
+        }
+        glib::timeout_future(Duration::from_millis(200)).await;
+    }
+    chat.listed_unread(rid)
+}
+
+/// The room list's "Mark as unread" and "Mark as read", on the open room first.
+async fn unread_checks(
+    chat: std::rc::Rc<crate::chat::ChatPage>,
+    session: std::sync::Arc<rv_core::session::Session>,
+    rid: String,
+) {
+    let shows = |l: Option<(i64, bool)>, unread: bool| l.is_some_and(|(n, alert)| (n > 0 || alert) == unread);
+    check("marking unread is offered", session.unread_marks_available(), session.unread_marks_available());
+    chat.mark_room(&rid, false);
+    let listed = listed_as(&chat, &rid, false, 5).await;
+    check("marked read: the badge clears", shows(listed, false), listed);
+    check("the open room stays open when marked read", chat.current_rid().as_deref() == Some(&rid), chat.current_rid());
+    // Already read while open: the list says so before the call ends, let it end.
+    glib::timeout_future(Duration::from_millis(2000)).await;
+    let before = session.store.last_seen(&rid);
+
+    chat.mark_room(&rid, true);
+    check(
+        "the open room is left when marked unread",
+        chat.current_rid().is_none() && session.current_room().is_none() && chat.selected_room().is_none(),
+        (chat.current_rid(), session.current_room(), chat.selected_room()),
+    );
+    let listed = listed_as(&chat, &rid, true, 5).await;
+    check("marked unread: the badge shows", listed.is_some_and(|(n, alert)| n >= 1 && alert), listed);
+    // The stream's copy, not only the local mark: `ls` moves back, before the last message.
+    let mut seen = session.store.last_seen(&rid);
+    for _ in 0..25 {
+        if seen != before {
+            break;
+        }
+        glib::timeout_future(Duration::from_millis(200)).await;
+        seen = session.store.last_seen(&rid);
+    }
+    check(
+        "the server's subscription arrived on the stream",
+        seen.zip(before).is_some_and(|(seen, before)| seen < before),
+        (before, seen),
+    );
+    // Past the read debounce, and back to the window: nothing reads it again.
+    chat.window_activated();
+    glib::timeout_future(Duration::from_millis(3000)).await;
+    let listed = chat.listed_unread(&rid);
+    let server = server_unread(&session, &rid).await;
+    check("still unread a while later", shows(listed, true) && shows(server, true), (listed, server));
+
+    chat.mark_room(&rid, false);
+    let listed = listed_as(&chat, &rid, false, 5).await;
+    let server = server_unread(&session, &rid).await;
+    check("marked read from the list", shows(listed, false) && shows(server, false), (listed, server));
+
+    chat.mark_room(&rid, true);
+    let listed = listed_as(&chat, &rid, true, 5).await;
+    check("marked unread again, not open", shows(listed, true), listed);
+    chat.open_room(&rid);
+    let listed = listed_as(&chat, &rid, false, 5).await;
+    let server = server_unread(&session, &rid).await;
+    check(
+        "opened again, it reads itself",
+        chat.current_rid().as_deref() == Some(&rid) && shows(listed, false) && shows(server, false),
+        (listed, server),
+    );
+}
+
 fn check(label: &str, ok: bool, detail: impl std::fmt::Debug) {
     println!("smoke: {label}: {detail:?} {}", if ok { "ok" } else { "FAILED" });
     if !ok {
@@ -1090,6 +1179,8 @@ fn details_checks(
             let pinned = crate::on_tokio(async move { s.marked(&r, false).await }).await;
             check("pinned listed", pinned.as_ref().is_ok_and(|rows| !rows.is_empty()), pinned.map(|rows| rows.len()));
             crate::marked::open(chat.widget(), session, &rid, |_| {});
+        } else if what == "unread" {
+            unread_checks(chat, session, rid).await;
         } else if what == "threads" {
             let (s, r) = (session.clone(), rid.clone());
             let listed = crate::on_tokio(async move { s.threads(&r, false, 0, 50).await }).await;

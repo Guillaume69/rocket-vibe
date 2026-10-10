@@ -112,34 +112,46 @@ fn collapsed_file() -> std::path::PathBuf {
     glib::user_config_dir().join("rocket-vibe-rs").join("collapsed-sections")
 }
 
-/// A right click on a room offers to star it, or to take the star away.
-fn favorite_menu(widget: &gtk::Widget, session: Arc<Session>, rid: &str, favorite: bool) {
+/// A right click on a room offers to star it, or to take the star away, and
+/// on Rocket.Chat to mark it unread, or read when something in it is unread
+/// (`mark` gets the rid and whether to mark it unread).
+fn room_menu(widget: &gtk::Widget, session: Arc<Session>, room: &RoomRow, mark: Rc<Handler<(String, bool)>>) {
     let click = gtk::GestureClick::builder().button(gdk::BUTTON_SECONDARY).build();
-    let (target, rid) = (widget.downgrade(), rid.to_owned());
+    let (target, rid, favorite) = (widget.downgrade(), room.rid.clone(), room.favorite);
+    let unread = room.unread > 0 || room.alert;
     click.connect_pressed(move |gesture, _, x, y| {
         let Some(widget) = target.upgrade() else { return };
         gesture.set_state(gtk::EventSequenceState::Claimed);
-        let label = t(if favorite { "rooms.favorite_remove" } else { "rooms.favorite_add" });
-        let content = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-        content.append(&gtk::Image::from_icon_name(if favorite { "non-starred-symbolic" } else { "starred-symbolic" }));
-        content.append(&gtk::Label::new(Some(label)));
-        let button = gtk::Button::builder().child(&content).css_classes(["flat"]).build();
-        let popover = gtk::Popover::builder().child(&button).has_arrow(false).build();
-        popover.set_parent(&widget);
-        popover.set_pointing_to(Some(&gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
-        popover.connect_closed(|p| p.unparent());
-        let (session, rid, weak) = (session.clone(), rid.clone(), popover.downgrade());
-        button.connect_clicked(move |_| {
-            if let Some(popover) = weak.upgrade() {
-                popover.popdown();
-            }
-            let (session, rid) = (session.clone(), rid.clone());
+        let (s, r) = (session.clone(), rid.clone());
+        let star: Rc<dyn Fn()> = Rc::new(move || {
+            let (session, rid) = (s.clone(), r.clone());
             glib::spawn_future_local(async move {
                 if let Err(e) = on_tokio(async move { session.set_favorite(&rid, !favorite).await }).await {
                     eprintln!("Favorite not changed: {e}");
                 }
             });
         });
+        let mut items: Vec<MenuItem> = vec![(
+            if favorite { "non-starred-symbolic" } else { "starred-symbolic" },
+            t(if favorite { "rooms.favorite_remove" } else { "rooms.favorite_add" }).to_owned(),
+            star,
+        )];
+        if session.unread_marks_available() {
+            let (mark, r) = (mark.clone(), rid.clone());
+            items.push((
+                if unread { "mail-read-symbolic" } else { "mail-unread-symbolic" },
+                t(if unread { "rooms.mark_read" } else { "rooms.mark_unread" }).to_owned(),
+                Rc::new(move || {
+                    if let Some(mark) = mark.borrow().clone() {
+                        mark((r.clone(), !unread));
+                    }
+                }),
+            ));
+        }
+        let popover = action_popover(items);
+        popover.set_parent(&widget);
+        popover.set_pointing_to(Some(&gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+        popover.connect_closed(|p| p.unparent());
         popover.popup();
     });
     widget.add_controller(click);
@@ -245,6 +257,9 @@ impl ChatPage {
         // The "+" of a section header: set once the page exists.
         let add_in_section: Rc<Handler<Section>> = Rc::default();
         let adder = add_in_section.clone();
+        // A room marked unread or read from its menu: set once the page exists.
+        let mark_room: Rc<Handler<(String, bool)>> = Rc::default();
+        let marker = mark_room.clone();
         let voice_ui = voice::VoiceUi::new();
         let binder = voice_ui.clone();
         room_factory.connect_bind(move |_, item| {
@@ -290,7 +305,7 @@ impl ChatPage {
                         None => crate::rows::room_widget_with_presence(room, shared.borrow().as_ref(), None),
                     };
                     if let Some(session) = shared.borrow().clone() {
-                        favorite_menu(&widget, session, &room.rid, room.favorite);
+                        room_menu(&widget, session, room, marker.clone());
                     } else if let Some(session) = native_shared.borrow().clone() {
                         crate::details::native_favorite_menu(&widget, session, &room.rid);
                     }
@@ -567,6 +582,12 @@ impl ChatPage {
                 this.account_menu(&anchor);
             }
         });
+        let weak = Rc::downgrade(&this);
+        mark_room.replace(Some(Rc::new(move |(rid, unread): (String, bool)| {
+            if let Some(this) = weak.upgrade() {
+                this.mark_room(&rid, unread);
+            }
+        })));
         let weak = Rc::downgrade(&this);
         add_in_section.replace(Some(Rc::new(move |section| {
             let Some(this) = weak.upgrade() else { return };
@@ -1451,6 +1472,61 @@ impl ChatPage {
                 crate::runtime().spawn(async move { session.mark_read(&rid).await });
             }
         });
+    }
+
+    /// The room list's "Mark as unread" (`unread`) or "Mark as read". The room
+    /// open when marked unread is left first, as the official web client does:
+    /// still open, it would read itself again with the next message or focus.
+    pub fn mark_room(self: &Rc<Self>, rid: &str, unread: bool) {
+        let Some(session) = self.session() else { return };
+        if unread && self.current_rid().as_deref() == Some(rid) {
+            self.leave_room();
+        }
+        let (weak, expected, rid) = (Rc::downgrade(self), session.clone(), rid.to_owned());
+        glib::spawn_future_local(async move {
+            let result = on_tokio(async move {
+                if unread { session.mark_unread(&rid).await } else { session.mark_room_read(&rid).await }
+            })
+            .await;
+            let Some(this) = weak.upgrade() else { return };
+            if let Err(e) = result
+                && this.session().is_some_and(|s| Arc::ptr_eq(&s, &expected))
+            {
+                eprintln!("Read state not changed: {e}");
+                let empty = e.error_type.as_deref() == Some(rv_core::actions::NOTHING_TO_UNREAD);
+                this.toast(t(if empty { "rooms.nothing_unread" } else { "rooms.mark_failed" }).to_owned());
+            }
+        });
+    }
+
+    /// Shows no room: the open one is left, nothing in the list is selected,
+    /// and nothing reads it (a pending read is dropped) until it is opened again.
+    fn leave_room(&self) {
+        self.read_generation.set(self.read_generation.get().wrapping_add(1));
+        if let Some(session) = self.session() {
+            session.close_room();
+        }
+        // The composer loses the focus before its page hides.
+        if let Some(root) = self.split.root() {
+            root.set_focus(None::<&gtk::Widget>);
+        }
+        self.current.replace(None);
+        self.thread.replace(None);
+        self.context.replace(None);
+        self.room_nav.pop_to_tag("room");
+        self.list.set_detached(false);
+        self.list.clear();
+        self.typing_label.set_visible(false);
+        self.call_button.set_visible(false);
+        self.threads_button.set_visible(false);
+        self.content_stack.set_visible_child_name("empty");
+        self.content_page.set_title("rocket-vibe");
+        self.split.set_show_content(false);
+        self.select_current(false);
+        self.update_forward();
+        for f in self.on_room_changed.borrow().iter() {
+            f(None);
+        }
     }
 
     /// Back to the window: what arrived meanwhile in the open room is now seen.
@@ -2589,6 +2665,16 @@ impl ChatPage {
 
     pub fn scroll_list_to_bottom(&self) {
         self.list.scroll_to_bottom();
+    }
+
+    /// What the list shows of a room's unread state: its count and alert.
+    pub fn listed_unread(&self, rid: &str) -> Option<(i64, bool)> {
+        self.rooms.borrow().iter().find(|r| r.rid == rid).map(|r| (r.unread, r.alert))
+    }
+
+    /// The room selected in the list, if any.
+    pub fn selected_room(&self) -> Option<String> {
+        self.slots.borrow().get(self.rooms_selection.selected() as usize).cloned().flatten()
     }
 
     pub fn room_named(&self, name: &str) -> Option<String> {

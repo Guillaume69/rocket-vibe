@@ -476,7 +476,8 @@ async fn cross_room_quotes(
     for _ in 0..120 {
         source = session.store.messages(rid, 100).unwrap().into_iter().find(|m| m.id == id && m.position.is_some());
         if source.is_some()
-            && window.chat.room_list().row_widget(&id).is_some()
+            && window.chat.current_rid().as_deref() == Some(rid)
+            && window.chat.room_list().row(&id).is_some_and(|row| row.outbox_status.is_none())
             && session.status().connection == rv_core::session::Connection::Online
         {
             break;
@@ -484,9 +485,14 @@ async fn cross_room_quotes(
         glib::timeout_future(Duration::from_millis(50)).await;
     }
     let source = source.unwrap();
+    check(
+        "GTK cross-room source is confirmed in the rendered timeline",
+        window.chat.room_list().row(&id).is_some_and(|row| row.outbox_status.is_none()),
+        (),
+    );
     window.chat.play(
         crate::rows::RowEvent::Menu {
-            row: Box::new(source.presentation(rid, &session.info.user_id)),
+            row: Box::new(window.chat.room_list().row(&id).unwrap()),
             anchor: window.chat.room_list().row_widget(&id).unwrap(),
             x: 10.0,
             y: 10.0,
@@ -503,6 +509,16 @@ async fn cross_room_quotes(
         glib::timeout_future(Duration::from_millis(50)).await;
     }
     check("GTK existing menu exposes destination chooser", button.is_some(), ());
+    if button.is_none() {
+        let context = session.message_action_context(&source.id).await;
+        eprintln!(
+            "smoke: quote menu diagnostics: connection {:?}, selection {}, mapped {}, context {:?}",
+            session.status().connection,
+            crate::markdown_view::selected_text().is_some(),
+            window.chat.room_list().row_widget(&id).is_some_and(|row| row.is_mapped()),
+            context.err().map(|error| error.code().to_owned()),
+        );
+    }
     let Some(button) = button else { std::process::exit(1) };
     button.emit_clicked();
     let mut dialog = None;

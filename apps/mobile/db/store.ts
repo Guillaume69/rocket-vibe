@@ -58,6 +58,7 @@ import {
   UPDATE_MESSAGE_MARKS,
   UPDATE_THREAD_FOLLOWERS,
   UPDATE_MESSAGE_STARRED,
+  UPDATE_THREAD_COUNTERS,
   CLEAR_ROOM_MESSAGES,
   SEARCH_MESSAGES,
   searchPattern,
@@ -272,6 +273,10 @@ export function createStore(raw: SQLiteDatabase, serially: WriteQueue): Store {
     updateMessageStarred: (id, starred) =>
       serially(async () => {
         await raw.runAsync(UPDATE_MESSAGE_STARRED, [starred, id]);
+      }),
+    updateThreadCounters: (id, count, last) =>
+      serially(async () => {
+        await raw.runAsync(UPDATE_THREAD_COUNTERS, [count, last, id]);
       }),
     clearRoomMessages: (rid) =>
       serially(async () => {

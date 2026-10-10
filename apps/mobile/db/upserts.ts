@@ -253,6 +253,8 @@ export const UPDATE_THREAD_FOLLOWERS = `UPDATE messages SET thread_followers = ?
 
 export const UPDATE_MESSAGE_STARRED = `UPDATE messages SET starred = ? WHERE id = ?`;
 
+export const UPDATE_THREAD_COUNTERS = `UPDATE messages SET thread_count = ?, thread_last = ? WHERE id = ?`;
+
 /** A room's cached messages, the optimistic ones (`updated_at` 0, still in the outbox) kept. */
 export const CLEAR_ROOM_MESSAGES = `DELETE FROM messages WHERE rid = ? AND updated_at > 0`;
 

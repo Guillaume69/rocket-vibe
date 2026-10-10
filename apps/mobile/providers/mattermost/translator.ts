@@ -25,6 +25,8 @@ export const MM_AVATAR = 'mm:avatar';
 export const MM_QUIET = 'mm:quiet';
 /** A post flagged or unflagged (`{id, on}`), by me in any client. */
 export const MM_STARRED = 'mm:starred';
+/** A root read again after a live reply: only its counters are written. */
+export const MM_THREAD = 'mm:thread';
 
 /** A channel and, when known, its newest root post: what the room list shows. */
 export type MmRoomDoc = { channel: Record<string, unknown>; lastPost?: Record<string, unknown> | null };
@@ -108,6 +110,10 @@ export class MmTranslator implements Translator {
       case MM_STARRED: {
         const id = str(doc?.id);
         return id === null ? IGNORE : change({ type: 'message-starred', id, starred: this.starredColumn(doc?.on === true) });
+      }
+      case MM_THREAD: {
+        const id = str(doc?.id);
+        return id === null ? IGNORE : change({ type: 'thread-counters', id, count: num(doc?.reply_count), last: positive(doc?.last_reply_at) });
       }
       case MM_QUIET:
         return SILENCE;

@@ -23,6 +23,7 @@ import {
   MM_POST_DELETED,
   MM_QUIET,
   MM_STARRED,
+  MM_THREAD,
   MM_ROOM,
   MM_ROOM_DELETED,
   record,
@@ -236,9 +237,12 @@ export class MmLive {
       }
     }
     // A reply moves its root's "N replies", which no event carries
-    // (`thread_updated` is quiet): the root is read again, its counters fresh.
+    // (`thread_updated` is quiet): the root is read again, and only its counters
+    // are written. A whole post would put an old root the cache does not hold
+    // among the recent ones, and history pages back from the oldest row shown.
     const root = isRoot ? null : await this.freshRoot(String(post.root_id));
-    return compact([postEvent(post), root === null ? null : postEvent(root), isRoot ? this.roomEvent(rid, post) : null, this.membershipEvent(rid)]);
+    const counters: DdpEvent | null = root === null ? null : { collection: MM_THREAD, eventKey: String(root.id), args: [root] };
+    return compact([postEvent(post), counters, isRoot ? this.roomEvent(rid, post) : null, this.membershipEvent(rid)]);
   }
 
   /** Roots being read again: a reply arriving meanwhile asks for one more read, the newest count winning. */

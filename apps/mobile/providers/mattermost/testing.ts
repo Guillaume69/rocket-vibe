@@ -30,6 +30,10 @@ export function memoryStore() {
     updateMessageText: async () => {},
     updateMessageMarks: async () => {},
     updateThreadFollowers: async () => {},
+    updateThreadCounters: async (id, threadCount, threadLast) => {
+      const m = messages.get(id);
+      if (m !== undefined) messages.set(id, { ...m, threadCount, threadLast });
+    },
     updateMessageStarred: async (id, starred) => {
       const m = messages.get(id);
       if (m !== undefined) messages.set(id, { ...m, starred });

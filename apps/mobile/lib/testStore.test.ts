@@ -28,6 +28,7 @@ function makeBareStore() {
     updateThreadFollowers: async () => void written.push('updateFollowers'),
     clearRoomMessages: async () => void written.push('clearRoom'),
     updateMessageStarred: async () => void written.push('updateStarred'),
+    updateThreadCounters: async () => void written.push('updateThreadCounters'),
     hideEncryptedMessages: async () => void written.push('hide'),
     updateEncryptedPreview: async () => void written.push('preview'),
     updateUserAvatar: async () => void written.push('avatarU'),

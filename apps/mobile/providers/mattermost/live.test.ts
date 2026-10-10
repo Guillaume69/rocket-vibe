@@ -8,7 +8,7 @@ import { MmClient } from './client.ts';
 import { MmDirectory } from './directory.ts';
 import { MmLive } from './live.ts';
 import { fakeServer, post } from './testing.ts';
-import { MM_MEMBERSHIP, MM_POST, MM_ROOM, MM_ROOM_DELETED, MM_STARRED, MmTranslator } from './translator.ts';
+import { MM_MEMBERSHIP, MM_POST, MM_ROOM, MM_ROOM_DELETED, MM_STARRED, MM_THREAD, MmTranslator } from './translator.ts';
 
 function setup(route: Parameters<typeof fakeServer>[0] = () => undefined) {
   const server = fakeServer(route);
@@ -79,15 +79,15 @@ describe('MmLive.expand', () => {
     assert.equal(events[0]?.collection, MM_POST);
   });
 
-  test('a live reply brings its root back with fresh reply counters', async () => {
-    const { live, server } = setup((call) =>
+  test("a live reply brings its root's fresh reply counters, never the whole root", async () => {
+    const { live, server, translator } = setup((call) =>
       call.path === '/posts/root1' ? { body: post('root1', { channel_id: 'ch1', reply_count: 4, last_reply_at: 900 }) } : undefined,
     );
     const reply = JSON.stringify(post('r9', { channel_id: 'ch1', root_id: 'root1', user_id: 'u-bob' }));
     const events = await live.expand('posted', { post: reply }, { channel_id: 'ch1' });
-    const posts = events.filter((e) => e.collection === MM_POST).map((e) => (e.args[0] as { id: string; reply_count?: number }));
-    assert.deepEqual(posts.map((p) => p.id), ['r9', 'root1']);
-    assert.equal(posts[1]?.reply_count, 4);
+    assert.deepEqual(events.filter((e) => e.collection === MM_POST).map((e) => (e.args[0] as { id: string }).id), ['r9']);
+    const counters = events.find((e) => e.collection === MM_THREAD)!;
+    assert.deepEqual(translator.translateEvent(counters), { kind: 'change', change: { type: 'thread-counters', id: 'root1', count: 4, last: 900 } });
     assert.equal(server.calls.filter((c) => c.path === '/posts/root1').length, 1);
   });
 

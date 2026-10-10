@@ -82,4 +82,22 @@ impl Chat {
             }
         }
     }
+
+    /// A person, by username or by id when `by_id`, as the profile dialog shows them.
+    pub async fn profile(&self, key: &str, by_id: bool) -> Result<crate::info::Profile, RestError> {
+        match self {
+            Chat::Legacy(session) => session.profile(key, by_id).await,
+            Chat::Native(session) => {
+                session.profile(key, by_id).await.map(|p| session.profile_presentation(&p)).map_err(native::rest_error)
+            }
+        }
+    }
+
+    /// Messages of a room matching `text`, on the server.
+    pub async fn search(&self, rid: &str, text: &str) -> Result<Vec<crate::normalize::Message>, RestError> {
+        match self {
+            Chat::Legacy(session) => session.search(rid, text).await,
+            Chat::Native(session) => session.search(rid, text).await.map_err(native::rest_error),
+        }
+    }
 }

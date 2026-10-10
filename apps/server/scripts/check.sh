@@ -9,9 +9,6 @@ node crates/rv-crypto-public/scripts/verify-archive-vector.mjs
 node crates/rv-crypto-public/scripts/verify-history-vector.mjs
 node crates/rv-crypto-public/scripts/verify-history-backup-vector.mjs
 node crates/rv-crypto-public/scripts/verify-file-vector.mjs
-cargo fmt --manifest-path crates/rv-crypto-spike/Cargo.toml -- --check
-cargo clippy --locked --manifest-path crates/rv-crypto-spike/Cargo.toml --target-dir target --all-targets -- -D warnings
-cargo test --locked --manifest-path crates/rv-crypto-spike/Cargo.toml --target-dir target
 cargo fmt --manifest-path crates/rv-crypto/Cargo.toml -- --check
 cargo clippy --locked --manifest-path crates/rv-crypto/Cargo.toml --target-dir target --all-targets -- -D warnings
 cargo test --locked --manifest-path crates/rv-crypto/Cargo.toml --target-dir target

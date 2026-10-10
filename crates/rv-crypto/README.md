@@ -1,7 +1,7 @@
 # Private storage for the native E2EE engine
 
-Rust foundation of [RFC 0002](../../docs/rfcs/0002-e2ee-native.md), separate from the
-[MLS prototype](../rv-crypto-spike/README.md). It has its own workspace and lock; the
+Rust foundation of [RFC 0002](../../docs/rfcs/0002-e2ee-native.md). It has its own
+workspace and lock (kept in step with the others by `scripts/cargo-locks.mjs`); the
 server does not depend on the vault. The [core of the existing desktop provider](../../apps/desktop/docs/NATIVE_CRYPTO.md)
 now consumes it with HTTP and a session-generation guard, with no
 activation or implicit opening from the interfaces. The public formats / verifiers are

@@ -102,6 +102,7 @@ Each workflow runs only when its app's files, `scripts/version.mjs` or the workf
 | `desktop-voice.yml` | pushes to every branch touching `apps/desktop/voice`, `rv-voice-protocol` or itself; PRs; `workflow_call` (from `desktop.yml` when it packages); dispatch | Builds the `rv-voice` sidecar on Linux, Windows and macOS and uploads it | |
 | `native-server.yml` | pushes to every branch touching the server, `crates/`, the mobile or desktop app, `docs/protocol` or the native Compose files; PRs; dispatch | The `rv-crypto` matrix and its HTTP bench; when a client may be affected (`scope`), the server gate (`apps/server/scripts/check.sh`), the Android bundle export, the GTK widget tests and the mobile, GTK and Swift pilots against a native server, `rv-core` and `rv-native` on Windows. It leaves the mobile typecheck and tests to `mobile.yml` and the desktop fmt, clippy and workspace tests to `desktop.yml` | |
 | `native-crypto-android.yml` | pushes to every branch touching `crates/rv-crypto*`, `rv-protocol` or the mobile crypto module; PRs; dispatch | The native crypto library on Android with the keystore | |
+| `cargo-locks.yml` | pushes to every branch touching a `Cargo.toml`, a `Cargo.lock`, the script or itself; PRs; dispatch | `node scripts/cargo-locks.mjs`: every lock agrees on each crate line | |
 
 Path filters do not apply to tag pushes, so a release tag always builds. Maestro and the desktop e2e scripts need a live server and do not run in CI.
 
@@ -110,6 +111,7 @@ Path filters do not apply to tag pushes, so a release tag always builds. Maestro
 - `node scripts/version.mjs mobile|desktop|web|server [--tag <tag>]` prints the version. For mobile it fails unless `package.json` equals `app.json` and `android.versionCode == major*10000 + minor*100 + patch` (so each release installs over the last); for desktop it reads `[workspace.package] version`; web checks both `package-lock.json` version fields against `package.json`; server reads `apps/server/Cargo.toml` and requires the root `Cargo.lock`'s `rv-server` entry to match. With `--tag` the tag must be exactly `<app>-v<version>`.
 - `node scripts/changelog.mjs mobile|desktop|web|server <version>` prints that version's section of `apps/<app>/CHANGELOG.md` (Keep a Changelog) and fails if it is missing or empty.
 - Every user-visible change goes under `## [Unreleased]` in that app's changelog, in English.
+- **Rust locks.** The Rust code has seven workspaces, each with its `Cargo.lock`: the root (server, `rv-protocol`, `rv-client`, `rv-crypto-public`), `apps/desktop`, `apps/desktop/voice`, `crates/rv-crypto`, `crates/rv-crypto-mobile`, `crates/rv-crypto-web` and `crates/rv-voice-mobile`. Within one semver-compatible line (`1.x`, `0.29.x`) a crate must resolve to the same version in all of them: `node scripts/cargo-locks.mjs` checks it (CI, `cargo-locks.yml`), and after a `cargo update` anywhere `node scripts/cargo-locks.mjs --sync` raises every lagging lock to the newest version already in use, then all the changed locks are committed together.
 
 ## Release flow
 

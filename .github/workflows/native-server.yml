@@ -71,7 +71,7 @@ jobs:
           trap 'rm -f "$changed"' EXIT
           git diff --name-only "$base" HEAD -- > "$changed"
           clients=false
-          if grep -Evq '^(crates/(rv-crypto|rv-crypto-spike)/|docs/.*\.md$|[^/]+\.md$)' "$changed"; then
+          if grep -Evq '^(crates/rv-crypto/|docs/.*\.md$|[^/]+\.md$)' "$changed"; then
             clients=true
           fi
           # Once another crate consumes the shared engine, its changes require

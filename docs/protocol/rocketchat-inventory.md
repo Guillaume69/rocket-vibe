@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-537 production files scanned; 649 occurrences.
+537 production files scanned; 651 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -582,12 +582,14 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/providers/rocketchat/actions.ts:113](../../apps/mobile/providers/rocketchat/actions.ts#L113) | call:GET | path |
 | [apps/mobile/providers/rocketchat/actions.ts:123](../../apps/mobile/providers/rocketchat/actions.ts#L123) | call:POST | 'subscriptions.read' |
 | [apps/mobile/providers/rocketchat/actions.ts:123](../../apps/mobile/providers/rocketchat/actions.ts#L123) | endpoint | subscriptions.read |
-| [apps/mobile/providers/rocketchat/actions.ts:128](../../apps/mobile/providers/rocketchat/actions.ts#L128) | call:POST | 'rooms.saveNotification' |
-| [apps/mobile/providers/rocketchat/actions.ts:128](../../apps/mobile/providers/rocketchat/actions.ts#L128) | endpoint | rooms.saveNotification |
-| [apps/mobile/providers/rocketchat/actions.ts:135](../../apps/mobile/providers/rocketchat/actions.ts#L135) | call:POST | 'subscriptions.unread' |
-| [apps/mobile/providers/rocketchat/actions.ts:135](../../apps/mobile/providers/rocketchat/actions.ts#L135) | endpoint | subscriptions.unread |
-| [apps/mobile/providers/rocketchat/actions.ts:141](../../apps/mobile/providers/rocketchat/actions.ts#L141) | call:POST | 'im.create' |
-| [apps/mobile/providers/rocketchat/actions.ts:141](../../apps/mobile/providers/rocketchat/actions.ts#L141) | endpoint | im.create |
+| [apps/mobile/providers/rocketchat/actions.ts:128](../../apps/mobile/providers/rocketchat/actions.ts#L128) | call:POST | 'subscriptions.read' |
+| [apps/mobile/providers/rocketchat/actions.ts:128](../../apps/mobile/providers/rocketchat/actions.ts#L128) | endpoint | subscriptions.read |
+| [apps/mobile/providers/rocketchat/actions.ts:133](../../apps/mobile/providers/rocketchat/actions.ts#L133) | call:POST | 'rooms.saveNotification' |
+| [apps/mobile/providers/rocketchat/actions.ts:133](../../apps/mobile/providers/rocketchat/actions.ts#L133) | endpoint | rooms.saveNotification |
+| [apps/mobile/providers/rocketchat/actions.ts:140](../../apps/mobile/providers/rocketchat/actions.ts#L140) | call:POST | 'subscriptions.unread' |
+| [apps/mobile/providers/rocketchat/actions.ts:140](../../apps/mobile/providers/rocketchat/actions.ts#L140) | endpoint | subscriptions.unread |
+| [apps/mobile/providers/rocketchat/actions.ts:146](../../apps/mobile/providers/rocketchat/actions.ts#L146) | call:POST | 'im.create' |
+| [apps/mobile/providers/rocketchat/actions.ts:146](../../apps/mobile/providers/rocketchat/actions.ts#L146) | endpoint | im.create |
 | [apps/mobile/providers/rocketchat/admin.ts:233](../../apps/mobile/providers/rocketchat/admin.ts#L233) | call:GET | 'me' |
 | [apps/mobile/providers/rocketchat/admin.ts:239](../../apps/mobile/providers/rocketchat/admin.ts#L239) | call:GET | 'statistics' |
 | [apps/mobile/providers/rocketchat/admin.ts:240](../../apps/mobile/providers/rocketchat/admin.ts#L240) | call:GET | 'roles.getUsersInRole' |

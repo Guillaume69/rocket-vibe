@@ -269,16 +269,16 @@ function RoomRow({
   const mentioned = (subscription?.mentions ?? 0) > 0;
   const alerting = subscription?.alert === true || unread > 0;
   const listTime = useListTimeFormatter();
-  // Unread or read again from the list (Rocket.Chat). Decided on the count, not
-  // `alert`: a read leaves `alert` set while the room has unread threads, and
-  // the menu would then offer "Mark as read" forever.
+  // Unread or read again from the list (Rocket.Chat), like the desktop: "Mark
+  // as read" while the room is in alert, and it reads the threads too, since a
+  // plain read leaves `alert` set while the room has unread threads.
   const sync = useSync();
   const actions = sync.phase === 'ready' ? sync.actions : null;
   const markUnread = actions?.markUnread?.bind(actions);
   const offerReadState = useCallback(() => {
     if (actions === null || markUnread === undefined || subscription === null) return;
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    const toRead = unread > 0;
+    const toRead = alerting && actions.markAllRead !== undefined;
     Alert.alert(
       name,
       undefined,
@@ -286,7 +286,7 @@ function RoomRow({
         {
           text: t(toRead ? 'home.markRead' : 'home.markUnread'),
           onPress: () => {
-            (toRead ? actions.markRead(room.rid) : markUnread(room.rid)).catch(() =>
+            (toRead ? actions.markAllRead!(room.rid) : markUnread(room.rid)).catch(() =>
               Alert.alert(t('home.readStateFailed'), undefined, [{ text: t('common.close') }], {
                 cancelable: true,
               }),
@@ -297,7 +297,7 @@ function RoomRow({
       ],
       { cancelable: true },
     );
-  }, [actions, markUnread, subscription, unread, name, room.rid, t]);
+  }, [actions, markUnread, subscription, alerting, name, room.rid, t]);
   // Encrypted room: as long as no message is decrypted (`lastMessage` null,
   // the ciphertext is never stored), the lock placeholder. Once unlocked,
   // `updateEncryptedPreview` has put the last plaintext message there.

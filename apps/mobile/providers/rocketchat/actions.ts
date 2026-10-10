@@ -123,6 +123,11 @@ export class ActionsRC implements ProviderActions {
     await this.client.post('subscriptions.read', { body: { rid } });
   }
 
+  /** `readThreads: true`: a plain read leaves `alert` set while threads are unread. */
+  async markAllRead(rid: string): Promise<void> {
+    await this.client.post('subscriptions.read', { body: { rid, readThreads: true } });
+  }
+
   /** Desktop and push together; the rebroadcast subscription carries the choice. */
   async roomNotifications(rid: string, level: RoomNotificationLevel | 'default'): Promise<void> {
     await this.client.post('rooms.saveNotification', {

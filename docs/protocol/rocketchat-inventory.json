@@ -3991,35 +3991,47 @@
       "file": "apps/mobile/providers/rocketchat/actions.ts",
       "line": 128,
       "kind": "call:POST",
-      "surface": "'rooms.saveNotification'"
+      "surface": "'subscriptions.read'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
       "line": 128,
       "kind": "endpoint",
+      "surface": "subscriptions.read"
+    },
+    {
+      "file": "apps/mobile/providers/rocketchat/actions.ts",
+      "line": 133,
+      "kind": "call:POST",
+      "surface": "'rooms.saveNotification'"
+    },
+    {
+      "file": "apps/mobile/providers/rocketchat/actions.ts",
+      "line": 133,
+      "kind": "endpoint",
       "surface": "rooms.saveNotification"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 135,
+      "line": 140,
       "kind": "call:POST",
       "surface": "'subscriptions.unread'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 135,
+      "line": 140,
       "kind": "endpoint",
       "surface": "subscriptions.unread"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 141,
+      "line": 146,
       "kind": "call:POST",
       "surface": "'im.create'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 141,
+      "line": 146,
       "kind": "endpoint",
       "surface": "im.create"
     },

@@ -214,6 +214,8 @@ export interface ProviderActions {
    * server rebroadcasts carries the badge. Absent where the server cannot.
    */
   markUnread?(rid: string): Promise<void>;
+  /** "Mark as read" from the list: the room AND its threads, which a plain read leaves in alert. */
+  markAllRead?(rid: string): Promise<void>;
   /**
    * The room's own notification choice, `default` to follow the account again.
    * Rocket.Chat writes it for desktop and push alike: one choice per room.

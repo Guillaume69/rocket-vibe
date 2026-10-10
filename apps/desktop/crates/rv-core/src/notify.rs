@@ -4,7 +4,7 @@ use serde_json::Value;
 
 use crate::normalize::Message;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Incoming {
     pub rid: String,
     pub id: String,
@@ -14,6 +14,10 @@ pub struct Incoming {
     /// Without content for an encrypted message: the notification never shows ciphertext.
     pub body: Option<String>,
     pub mentions_me: bool,
+    /// The author's photo, as a media path (`Session::user_avatar`).
+    pub avatar: Option<String>,
+    /// The message's first picture, as a media path; never an encrypted one.
+    pub image: Option<String>,
 }
 
 fn mentions_in(node: &Value, names: &[&str]) -> bool {
@@ -100,6 +104,7 @@ mod tests {
             direct: false,
             body: None,
             mentions_me: false,
+            ..Default::default()
         };
         assert!(!wanted("default", &base));
         assert!(wanted("all", &base));
@@ -117,6 +122,7 @@ mod tests {
             direct: false,
             body: None,
             mentions_me: false,
+            ..Default::default()
         };
         assert!(wanted(room_preference("default", Some("all"), false), &base));
         assert!(!wanted(room_preference("all", Some("nothing"), false), &base));

@@ -25,7 +25,7 @@ use windows::Win32::UI::WindowsAndMessaging::{CreateIconIndirect, DestroyIcon, H
 use windows::core::w;
 use windows::core::{HSTRING, IInspectable, Interface, PCWSTR};
 
-use crate::{Event, Handler, Toast, decode, tag, toast_xml};
+use crate::{Event, Handler, Toast, activation, tag, toast_xml};
 
 const GROUP: &str = "rooms";
 
@@ -100,10 +100,8 @@ fn reply_text(args: &ToastActivatedEventArgs) -> Option<String> {
 fn activated(args: &IInspectable) {
     let Some(state) = STATE.get() else { return };
     let Ok(args) = args.cast::<ToastActivatedEventArgs>() else { return };
-    let Some((room, message)) = args.Arguments().ok().and_then(|a| decode(&a.to_string())) else { return };
-    let event = match reply_text(&args) {
-        Some(text) => Event::Reply { room, message, text },
-        None => Event::Open { room, message },
+    let Some(event) = args.Arguments().ok().and_then(|a| activation(&a.to_string(), reply_text(&args))) else {
+        return;
     };
     (state.handler)(event);
 }
@@ -138,6 +136,44 @@ pub fn withdraw(room: &str) {
     let Some(state) = STATE.get() else { return };
     if let Ok(history) = ToastNotificationManager::History() {
         let _ = history.RemoveGroupedTagWithId(&HSTRING::from(tag(room)), &HSTRING::from(GROUP), &state.app_id);
+    }
+}
+
+/// Whether Windows holds our toasts back right now: the app's notifications
+/// turned off, Focus Assist (Do not disturb), a presentation or a full-screen
+/// game. A silent toast's own sound must stay quiet then too.
+pub fn quiet() -> bool {
+    use windows::UI::Notifications::NotificationSetting;
+    use windows::Win32::UI::Shell::{QUNS_ACCEPTS_NOTIFICATIONS, SHQueryUserNotificationState};
+    let Some(state) = STATE.get() else { return true };
+    let enabled = ToastNotificationManager::CreateToastNotifierWithId(&state.app_id)
+        .and_then(|notifier| notifier.Setting())
+        .is_ok_and(|setting| setting == NotificationSetting::Enabled);
+    // SAFETY: a plain query without arguments.
+    let accepting = unsafe { SHQueryUserNotificationState() }.is_ok_and(|s| s == QUNS_ACCEPTS_NOTIFICATIONS);
+    !enabled || !accepting || focus_assist()
+}
+
+/// Focus Assist has no public API: the shell's own WNF state tells it
+/// (WNF_SHEL_QUIETHOURS_ACTIVE_PROFILE_CHANGED: 0 off, 1 priority only,
+/// 2 alarms only), read the way other apps do. Unreadable means off.
+fn focus_assist() -> bool {
+    use std::ffi::c_void;
+    use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
+    use windows::core::s;
+    type Query =
+        unsafe extern "system" fn(*const u64, *const c_void, *const c_void, *mut u32, *mut c_void, *mut u32) -> i32;
+    const QUIET_HOURS: u64 = 0x0d83_063e_a3bf_1c75;
+    // SAFETY: ntdll is loaded in every process; NtQueryWnfStateData has had
+    // this signature since Windows 8, and writes at most `size` bytes.
+    unsafe {
+        let Ok(ntdll) = GetModuleHandleW(w!("ntdll.dll")) else { return false };
+        let Some(address) = GetProcAddress(ntdll, s!("NtQueryWnfStateData")) else { return false };
+        let query = std::mem::transmute::<unsafe extern "system" fn() -> isize, Query>(address);
+        let (mut stamp, mut value, mut size) = (0u32, 0u32, 4u32);
+        let status =
+            query(&QUIET_HOURS, std::ptr::null(), std::ptr::null(), &mut stamp, (&raw mut value).cast(), &mut size);
+        status == 0 && value != 0
     }
 }
 

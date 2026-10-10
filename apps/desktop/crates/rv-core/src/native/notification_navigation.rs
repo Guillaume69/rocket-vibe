@@ -174,6 +174,7 @@ impl NativeSession {
                     body: None,
                     direct: false,
                     mentions_me: false,
+                    ..Default::default()
                 },
                 reply_to: destination.root,
                 membership: destination.membership,

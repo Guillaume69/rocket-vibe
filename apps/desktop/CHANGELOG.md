@@ -14,10 +14,14 @@ section here.
 - A room's own notifications (GTK and macOS, Rocket.Chat servers): Default, All messages, Mentions or Nothing, in its information dialog (GTK: a direct conversation's profile opened from its header). The desktop notifications follow it over the account's preference, a room silenced by another client stays quiet, and the choice applies to push notifications on the phone too.
 - Forward a message to another room (GTK and macOS, Rocket.Chat servers): Forward, in the message menu beside Reply, lists the rooms by name (encrypted and read-only ones left out); the one picked opens and shows the message as a quote.
 - macOS: Shift-Return on a list item continues the list (the next bullet or number), or ends it on an empty item, as on GTK.
+- Windows notifications come dressed up: the author's round photo, a header per conversation that groups its notifications, the picture of an image message, and buttons to react (👍 ❤️ 😂) or mark the room read without opening the app (Rocket.Chat and Mattermost accounts). Linux notifications show the author's photo too.
+- On Windows, notifications play rocket-vibe's own little sparkle, quiet whenever Windows holds notifications back (Do not disturb, a presentation, a full-screen game); a switch in Settings > Notifications gives the system's sound back.
 
 ### Changed
 
 - The last colour emoji used as interface markers are monochrome icons, like every other icon of the app: a locked room's tile, the encryption banner and unlock card, the lock of an encrypted voice session, the two-factor shield, a thread's replies, file kinds in cards and staged files, the call card, and room kinds in the administration (GTK: Adwaita symbolic icons; SwiftUI: SF Symbols, with a "React" submenu instead of a smiley).
+- The Windows installer wears the app's night sky: a borderless dark wizard with a starry background, pill buttons, a rocket trailing a rainbow as its progress bar, the rocket on the welcome and finish pages, and livelier words (English and French), also during an update.
+- The Windows uninstaller matches: the same frameless night sky, and its rocket crosses the lane, nose-dives and bursts into sparks while the app goes. Setup's questions (leave midway, uninstall, goodbye) are frameless dialogs in the same style instead of system message boxes, and the window drags from anywhere.
 
 ### Fixed
 

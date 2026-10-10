@@ -33,6 +33,7 @@ fn row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Notification> {
             body: None,
             direct: r.get(5)?,
             mentions_me: r.get(6)?,
+            ..Default::default()
         },
         reply_to: r.get(2)?,
         membership: r.get(3)?,
@@ -84,6 +85,7 @@ pub(super) fn capture(tx: &Transaction, batch: &SyncBatch, me: &str) -> rusqlite
             direct: room.kind == RoomKind::Direct,
             body: Some(body.chars().take(2048).collect()),
             mentions_me: m.personal_mention.unwrap_or(false),
+            ..Default::default()
         };
         out.push(Notification { incoming, reply_to: m.reply_to.clone(), membership, position: m.position.clone() });
     }

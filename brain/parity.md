@@ -198,6 +198,10 @@ beta does.
 | Reply from the notification | done | done | done | missing | Where the desktop platform supports it. Web: No browser implementation yet. |
 | A room's own notifications: default, all messages, mentions or nothing (Rocket.Chat `rooms.saveNotification`, desktop and push together) | done | done | done | n/a | Mobile: the room information sheet, the profile for a DM (push follows it server-side). GTK: a combo row in the room information dialog, in the profile for a DM; SwiftUI: a picker in the room information overlay, checked by the macOS CI build only. The desktop decides locally: the room's choice overrides the account's and a room silenced by another client (`disableNotifications`) stays quiet (`notify::room_preference`). Mattermost and kChat not mapped. Web: Native-origin client; Rocket.Chat is outside its scope. |
 | Nothing of encrypted rooms' content | done | done | done | done | Web: Encrypted room notifications never include decrypted content. src/app.ts. |
+| The author's photo in the notification | missing | partial | missing | missing | GTK: Windows toasts (round) and Linux D-Bus (`image-path`), for Rocket.Chat and Mattermost accounts; not RocketVibe accounts, not macOS. Mobile: the MessagingStyle `Person` has no icon. SwiftUI and Web: title and text only. |
+| The message's picture in the notification | missing | partial | missing | missing | GTK: Windows toasts only, Rocket.Chat and Mattermost accounts. Others show the "🖼️ title" line. |
+| React (👍 ❤️ 😂) and mark as read from the notification | missing | partial | missing | missing | GTK: Windows toasts only, Rocket.Chat and Mattermost accounts. Mobile and SwiftUI: reply only; Web: click only. |
+| The app's own notification sound | missing | partial | missing | missing | GTK: Windows (silent toast, `cue-message.ogg`, quiet when Windows holds notifications back, a switch gives the system's sound back). Elsewhere the system's sound. |
 | Running with the window closed, starting at login | mapped | done | missing | partial | Mobile: push arrives with the app closed. GTK: Windows tray, macOS Dock; Linux quits on close. Web: Installable public shell; closed-tab Web Push and OS autostart absent. |
 
 ## 11. End-to-end encryption - [e2ee](features/e2ee.md)
@@ -317,17 +321,22 @@ What each app owes, from the tables above. Rows missing in all three native apps
 are product gaps, listed last.
 
 - **Mobile**: kChat "Sign in with Infomaniak" run on a real account; several accounts per server;
-  live styling of the draft; logs folder.
+  live styling of the draft; logs folder; in notifications the author's photo,
+  the message's picture, quick reactions and mark as read, the app's own sound.
 - **GTK**: "also send to the room" in a thread, invite links and discussions (Rocket.Chat); search across rooms; a forwarded message (a quote with no words) previews empty in the room list; kChat "Sign in with Infomaniak"; email 2FA resend; replay of an offline sign-out; padlock tile once
   unlocked; DM avatar versions in the list; video reduction; reconciliation snapshot; catch-up of
-  deletions in rooms already caught up; message retention.
+  deletions in rooms already caught up; message retention; outside Windows
+  toasts, the notification's picture, quick reactions, mark as read and own sound
+  (Linux has the photo), and none of them for RocketVibe accounts.
 - **SwiftUI**: everything GTK owes, plus
   workflow variables inserted at the cursor in a one-line URL;
   formatting toolbar; notification backend description; logs
-  folder; new versions; running with the window closed and starting at login.
+  folder; new versions; running with the window closed and starting at login;
+  the notification's photo, picture, quick reactions, mark as read and own sound.
 - **Web**: missing: replay of an offline sign-out, video reduction, the thread
   list, following and "also send to the room", search across rooms, the logs
-  folder, reply from a notification, message retention. Partial, mostly pending row-by-row
+  folder, reply from a notification, message retention, the notification's
+  photo, picture, quick reactions, mark as read and own sound. Partial, mostly pending row-by-row
   qualification against GTK (`docs/WEB_CLIENT_EXECUTION.md`): link previews,
   embeds, quote cards, system messages, reactions, the thread chip, profiles,
   the notification check, running with the tab closed; most native E2EE rows

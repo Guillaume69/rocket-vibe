@@ -1161,6 +1161,13 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ),
     ("notify.reply", "Répondre", "Reply"),
     ("notify.reply_placeholder", "Répondre…", "Reply…"),
+    ("notify.mark_read", "✓ Lu", "✓ Read"),
+    ("notify.sound", "Son de rocket-vibe", "rocket-vibe sound"),
+    (
+        "notify.sound_hint",
+        "Un petit scintillement à la place du son du système",
+        "A little sparkle instead of the system's sound",
+    ),
     ("login.probe_failed", "Pas de Rocket.Chat joignable à cette adresse", "No Rocket.Chat reachable at this address"),
     ("login.not_rocketvibe", "Pas de serveur RocketVibe à cette adresse", "No RocketVibe server at this address"),
     ("login.kind", "Type de serveur", "Server type"),

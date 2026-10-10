@@ -264,7 +264,7 @@ impl AppWindow {
                 this.login.ask_code(None);
             }
         });
-        let (w1, w2) = (Rc::downgrade(&this), Rc::downgrade(&this));
+        let (w1, w2, w3) = (Rc::downgrade(&this), Rc::downgrade(&this), Rc::downgrade(&this));
         let notifier = crate::notifier::Notifier::new(
             app,
             move |rid, message| {
@@ -292,6 +292,29 @@ impl AppWindow {
                 }
                 if let Some(session) = this.session.borrow().clone() {
                     runtime().spawn(async move { session.send(&rid, &text).await });
+                }
+            },
+            move |rid, message, quick| {
+                let Some(this) = w3.upgrade() else { return };
+                if rid.starts_with("rv-native:") || this.chat.native_session().is_some() {
+                    return;
+                }
+                let Some(session) = this.session.borrow().clone() else { return };
+                match quick {
+                    crate::notifier::Quick::React(shortcode) => {
+                        crate::reactions::record(&session.info.base_url, &session.info.user_id, &shortcode);
+                        runtime().spawn(async move {
+                            if let Err(e) = session.react(&message, &shortcode, true).await {
+                                eprintln!("Reaction from a notification not sent: {e}");
+                            }
+                        });
+                    }
+                    crate::notifier::Quick::MarkRead => {
+                        if let Some(notifier) = this.notifier.borrow().as_ref() {
+                            notifier.withdraw(&rid);
+                        }
+                        runtime().spawn(async move { session.mark_read(&rid).await });
+                    }
                 }
             },
         );
@@ -362,11 +385,7 @@ impl AppWindow {
         let weak = Rc::downgrade(&this);
         this.rail.connect_menu(move |(anchor, info)| {
             let Some(this) = weak.upgrade() else { return };
-            let open = this
-                .chat
-                .session()
-                .map(|s| s.info.clone())
-                .or_else(|| this.chat.native_session().map(|s| s.info.clone()));
+            let open = this.open_account();
             if open.is_none_or(|open| crate::secrets::account_key(&open) != crate::secrets::account_key(&info)) {
                 return;
             }
@@ -453,7 +472,7 @@ impl AppWindow {
             let accounts = on_tokio(secrets::load_all()).await;
             // A callback or permalink received while loading the keyring owns
             // startup. The default account must not overwrite its selection.
-            if this.session.borrow().is_some() || this.chat.native_session().is_some() {
+            if this.chat.chat().is_some() {
                 return;
             }
             if this.pending_notification.borrow().is_some()
@@ -778,68 +797,101 @@ impl AppWindow {
         self.start_session(info);
     }
 
+    /// The open account's info, whichever server it speaks to.
+    fn open_account(&self) -> Option<SessionInfo> {
+        self.chat.chat().map(|c| c.info().clone())
+    }
+
+    /// Relays a session's events to the main thread for as long as that
+    /// session is still the one on screen; `handle` answers false to stop.
+    fn pump<E: 'static>(
+        self: &Rc<Self>,
+        visible: rv_core::provider::Chat,
+        rx: async_channel::Receiver<E>,
+        handle: impl Fn(&Rc<Self>, E) -> bool + 'static,
+    ) {
+        let weak = Rc::downgrade(self);
+        glib::spawn_future_local(async move {
+            while let Ok(event) = rx.recv().await {
+                let Some(this) = weak.upgrade() else { return };
+                if this.chat.chat().is_none_or(|c| !c.same(&visible)) {
+                    return;
+                }
+                if !handle(&this, event) {
+                    return;
+                }
+            }
+        });
+    }
+
     fn start_session(self: &Rc<Self>, info: SessionInfo) {
         self.invalidate_login();
         self.stop_session(false);
         let path = database_path(&info);
         if info.native.is_some() {
-            let started = {
-                let _guard = runtime().enter();
-                rv_core::native::NativeSession::start_with_credentials(
-                    info,
-                    &path,
-                    Some(crate::secrets::native_credentials()),
-                )
-            };
-            match started {
-                Ok(session) => {
-                    self.db_path.replace(Some(path));
-                    let (tx, rx) = async_channel::bounded(64);
-                    let (mut incoming, mut changes, mut events) =
-                        (session.incoming(), session.store.changes(), session.events());
-                    self.forward.replace(Some(runtime().spawn(async move {
-                        loop {
-                            let event=tokio::select! {
-                                n=incoming.recv()=>match n {Ok(n)=>NativeUiEvent::Incoming(n),Err(RecvError::Closed)=>return,Err(RecvError::Lagged(_))=>continue},
-                                c=changes.recv()=>if matches!(c,Err(RecvError::Closed)){return}else{NativeUiEvent::Changed},
-                                e=events.recv()=>if matches!(e,Err(RecvError::Closed)){return}else{NativeUiEvent::Changed},
-                            };
-                            if tx.send(event).await.is_err(){return}
-                        }
-                    })));
-                    let (weak, visible) = (Rc::downgrade(self), session.clone());
-                    glib::spawn_future_local(async move {
-                        while let Ok(event) = rx.recv().await {
-                            let Some(this) = weak.upgrade() else { return };
-                            if this.chat.native_session().is_none_or(|s| !Arc::ptr_eq(&s, &visible)) {
-                                return;
-                            }
-                            match event {
-                                NativeUiEvent::Incoming(n) => {
-                                    if visible.notification_current(&n) {
-                                        this.notify(&n)
-                                    }
-                                }
-                                NativeUiEvent::Changed => {
-                                    this.follow_link(false);
-                                    this.follow_notification(false);
-                                    if let Some(notifier) = this.notifier.borrow().as_ref() {
-                                        for key in visible.withdrawn_notifications() {
-                                            notifier.withdraw(&key);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    });
-                    self.chat.set_native_session(session);
-                    self.stack.set_visible_child_name("chat");
-                    self.refresh_rail();
-                }
-                Err(error) => self.show_login(Some(&error.to_string())),
-            }
-            return;
+            self.start_native(info, path);
+        } else {
+            self.start_legacy(info, path);
         }
+    }
+
+    /// The RocketVibe server: its store changes and events only say "look
+    /// again"; notifications come apart.
+    fn start_native(self: &Rc<Self>, info: SessionInfo, path: std::path::PathBuf) {
+        let started = {
+            let _guard = runtime().enter();
+            rv_core::native::NativeSession::start_with_credentials(
+                info,
+                &path,
+                Some(crate::secrets::native_credentials()),
+            )
+        };
+        match started {
+            Ok(session) => {
+                self.db_path.replace(Some(path));
+                let (tx, rx) = async_channel::bounded(64);
+                let (mut incoming, mut changes, mut events) =
+                    (session.incoming(), session.store.changes(), session.events());
+                self.forward.replace(Some(runtime().spawn(async move {
+                    loop {
+                        let event=tokio::select! {
+                            n=incoming.recv()=>match n {Ok(n)=>NativeUiEvent::Incoming(n),Err(RecvError::Closed)=>return,Err(RecvError::Lagged(_))=>continue},
+                            c=changes.recv()=>if matches!(c,Err(RecvError::Closed)){return}else{NativeUiEvent::Changed},
+                            e=events.recv()=>if matches!(e,Err(RecvError::Closed)){return}else{NativeUiEvent::Changed},
+                        };
+                        if tx.send(event).await.is_err(){return}
+                    }
+                })));
+                let visible = session.clone();
+                self.pump(session.clone().into(), rx, move |this, event| {
+                    match event {
+                        NativeUiEvent::Incoming(n) => {
+                            if visible.notification_current(&n) {
+                                this.notify(&n)
+                            }
+                        }
+                        NativeUiEvent::Changed => {
+                            this.follow_link(false);
+                            this.follow_notification(false);
+                            if let Some(notifier) = this.notifier.borrow().as_ref() {
+                                for key in visible.withdrawn_notifications() {
+                                    notifier.withdraw(&key);
+                                }
+                            }
+                        }
+                    }
+                    true
+                });
+                self.chat.set_native_session(session);
+                self.stack.set_visible_child_name("chat");
+                self.refresh_rail();
+            }
+            Err(error) => self.show_login(Some(&error.to_string())),
+        }
+    }
+
+    /// Rocket.Chat, Mattermost or kChat: store changes and session events one by one.
+    fn start_legacy(self: &Rc<Self>, info: SessionInfo, path: std::path::PathBuf) {
         let started = {
             let _guard = runtime().enter();
             Session::start(info, &path)
@@ -883,46 +935,39 @@ impl AppWindow {
         });
         self.forward.replace(Some(forward));
 
-        let weak = Rc::downgrade(self);
-        let visible_session = session.clone();
-        glib::spawn_future_local(async move {
-            while let Ok(event) = rx.recv().await {
-                let Some(this) = weak.upgrade() else { return };
-                if this.session.borrow().as_ref().is_none_or(|s| !Arc::ptr_eq(s, &visible_session)) {
-                    return;
+        self.pump(session.clone().into(), rx, |this, event| {
+            match event {
+                UiEvent::Store(change) => this.chat.on_change(&change),
+                UiEvent::Resync => this.chat.reload_all(),
+                UiEvent::Session(SessionEvent::Connection(c)) => this.chat.set_connection(c),
+                UiEvent::Session(SessionEvent::Typing(rid)) => this.chat.on_typing(&rid),
+                UiEvent::Session(SessionEvent::Presence) => this.chat.on_presence(),
+                UiEvent::Session(SessionEvent::Upload(rid)) => this.chat.on_upload(&rid),
+                UiEvent::Session(SessionEvent::Avatar) => this.chat.on_avatar(),
+                UiEvent::Session(SessionEvent::Incoming(incoming)) => this.notify(&incoming),
+                UiEvent::Session(SessionEvent::Private { rid, text }) => this.chat.on_private(&rid, &text),
+                UiEvent::Session(SessionEvent::E2e) => {
+                    this.chat.on_e2e();
+                    if let Some(s) = this.session.borrow().clone() {
+                        let (info, jwk) = (s.info.clone(), s.e2e_export());
+                        runtime().spawn(async move { secrets::save_e2e(&info, jwk.as_deref()).await });
+                    }
                 }
-                match event {
-                    UiEvent::Store(change) => this.chat.on_change(&change),
-                    UiEvent::Resync => this.chat.reload_all(),
-                    UiEvent::Session(SessionEvent::Connection(c)) => this.chat.set_connection(c),
-                    UiEvent::Session(SessionEvent::Typing(rid)) => this.chat.on_typing(&rid),
-                    UiEvent::Session(SessionEvent::Presence) => this.chat.on_presence(),
-                    UiEvent::Session(SessionEvent::Upload(rid)) => this.chat.on_upload(&rid),
-                    UiEvent::Session(SessionEvent::Avatar) => this.chat.on_avatar(),
-                    UiEvent::Session(SessionEvent::Incoming(incoming)) => this.notify(&incoming),
-                    UiEvent::Session(SessionEvent::Private { rid, text }) => this.chat.on_private(&rid, &text),
-                    UiEvent::Session(SessionEvent::E2e) => {
-                        this.chat.on_e2e();
-                        if let Some(s) = this.session.borrow().clone() {
-                            let (info, jwk) = (s.info.clone(), s.e2e_export());
-                            runtime().spawn(async move { secrets::save_e2e(&info, jwk.as_deref()).await });
+                UiEvent::Session(SessionEvent::Expired) => {
+                    let expired = this.session.borrow().as_ref().map(|s| s.info.clone());
+                    this.stop_session(true);
+                    let this = this.clone();
+                    glib::spawn_future_local(async move {
+                        if let Some(info) = expired {
+                            on_tokio(async move { secrets::remove(&info).await }).await;
                         }
-                    }
-                    UiEvent::Session(SessionEvent::Expired) => {
-                        let expired = this.session.borrow().as_ref().map(|s| s.info.clone());
-                        this.stop_session(true);
-                        let this = this.clone();
-                        glib::spawn_future_local(async move {
-                            if let Some(info) = expired {
-                                on_tokio(async move { secrets::remove(&info).await }).await;
-                            }
-                            this.previous.replace(on_tokio(secrets::load_all()).await.into_iter().next());
-                            this.show_login(Some(t("login.expired")));
-                        });
-                        return;
-                    }
+                        this.previous.replace(on_tokio(secrets::load_all()).await.into_iter().next());
+                        this.show_login(Some(t("login.expired")));
+                    });
+                    return false;
                 }
             }
+            true
         });
 
         self.chat.set_session(Some(session.clone()));
@@ -933,8 +978,7 @@ impl AppWindow {
 
     /// The rail's accounts and which one is open, read again from the keyring.
     fn refresh_rail(self: &Rc<Self>) {
-        let current = self.session.borrow().as_ref().map(|s| s.info.clone());
-        let current = current.or_else(|| self.chat.native_session().map(|s| s.info.clone()));
+        let current = self.open_account();
         let this = self.clone();
         glib::spawn_future_local(async move {
             let accounts = on_tokio(secrets::load_all()).await;
@@ -944,15 +988,31 @@ impl AppWindow {
 
     /// Unless I am looking at that very room.
     fn notify(&self, incoming: &rv_core::notify::Incoming) {
-        let watching = self.window.is_active()
-            && self.chat.shows_room()
-            && self.chat.current_rid().as_deref() == Some(incoming.rid.as_str());
-        if !watching && let Some(notifier) = self.notifier.borrow().as_ref() {
-            let scoped = self
-                .chat
-                .native_session()
+        let watching = |window: &adw::ApplicationWindow, chat: &ChatPage, rid: &str| {
+            window.is_active() && chat.shows_room() && chat.current_rid().as_deref() == Some(rid)
+        };
+        if !watching(&self.window, &self.chat, &incoming.rid)
+            && let Some(notifier) = self.notifier.borrow().clone()
+        {
+            let (window, chat, rid) = (self.window.clone(), self.chat.clone(), incoming.rid.clone());
+            let native = self.chat.native_session();
+            let scoped = native
+                .as_ref()
                 .map(|s| rv_core::notify::Incoming { rid: s.notification_key(&incoming.rid), ..incoming.clone() });
-            notifier.show(scoped.as_ref().unwrap_or(incoming));
+            let incoming = scoped.unwrap_or_else(|| incoming.clone());
+            // The author's photo and the message's picture, fetched with the
+            // Rocket.Chat or Mattermost session (at most two seconds' wait).
+            let session = self.session.borrow().clone().filter(|_| native.is_none());
+            glib::spawn_future_local(async move {
+                let pictures = match session {
+                    Some(session) => crate::notifier::pictures::fetch(session, &incoming).await,
+                    None => crate::notifier::Pictures::default(),
+                };
+                // The room may have been opened while they came.
+                if !watching(&window, &chat, &rid) {
+                    notifier.show(&incoming, &pictures);
+                }
+            });
         }
     }
 
@@ -1041,12 +1101,7 @@ impl AppWindow {
             self.chat.toast(t("links.unavailable").to_owned());
             return;
         };
-        let current = self
-            .session
-            .borrow()
-            .as_ref()
-            .map(|s| s.info.clone())
-            .or_else(|| self.chat.native_session().map(|s| s.info.clone()));
+        let current = self.open_account();
         if current.as_ref().is_some_and(|info| rv_core::links::fits(&link, info)) {
             self.pending_link.replace(Some(link));
             self.follow_link(false);
@@ -1101,7 +1156,7 @@ impl AppWindow {
         if let Some(id) = self.notification_request.take() {
             let _ = navigation_queue().clear(&id);
         }
-        if self.session.borrow().is_none() && self.chat.native_session().is_none() {
+        if self.chat.chat().is_none() {
             self.show_login(None);
         }
     }
@@ -1265,13 +1320,7 @@ impl AppWindow {
 
     /// Opens the waiting link's room once the rooms of its server are there.
     fn follow_link(self: &Rc<Self>, rooms_loaded: bool) {
-        let Some(info) = self
-            .session
-            .borrow()
-            .as_ref()
-            .map(|s| s.info.clone())
-            .or_else(|| self.chat.native_session().map(|s| s.info.clone()))
-        else {
+        let Some(info) = self.open_account() else {
             return;
         };
         let link = self.pending_link.borrow().clone();
@@ -1345,8 +1394,7 @@ impl AppWindow {
     pub fn add_account(self: &Rc<Self>) {
         self.cancel_navigation();
         self.pending_link.take();
-        let current = self.session.borrow().as_ref().map(|s| s.info.clone());
-        let current = current.or_else(|| self.chat.native_session().map(|s| s.info.clone()));
+        let current = self.open_account();
         self.previous.replace(current);
         self.stop_session(false);
         self.login.fill("", "", "");

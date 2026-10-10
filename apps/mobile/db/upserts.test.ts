@@ -29,6 +29,7 @@ import {
   LIST_OUTBOX_TO_SEND,
   LIST_UPLOADS_TO_SEND,
   MARK_OUTBOX_FAILED,
+  REARM_OUTBOX,
   MARK_UPLOAD_FAILED,
   MARK_UPLOAD_IN_FLIGHT,
   MESSAGE_WITH_FILE,
@@ -425,18 +426,21 @@ describe('upserts idempotents', () => {
 });
 
 describe('outbox', () => {
-  test('the cycle pending -> failed -> resend -> deleted', () => {
+  test('the cycle pending -> failed -> rearmed -> deleted', () => {
     db.prepare(INSERT_OUTBOX).run('a'.repeat(24), 'r1', 'hello', null, 1000);
 
     let wait = db.prepare(LIST_OUTBOX_TO_SEND).all().map(row);
     assert.equal(wait.length, 1);
     assert.equal(wait[0].status, 'pending');
 
-    db.prepare(MARK_OUTBOX_FAILED).run('500 oops', 'a'.repeat(24));
+    db.prepare(MARK_OUTBOX_FAILED).run('error-not-allowed', 'a'.repeat(24));
+    assert.equal(db.prepare(LIST_OUTBOX_TO_SEND).all().length, 0, 'a failure waits for the user');
+
+    db.prepare(REARM_OUTBOX).run('a'.repeat(24));
     wait = db.prepare(LIST_OUTBOX_TO_SEND).all().map(row);
-    assert.equal(wait.length, 1, 'a failure stays a replay candidate');
-    assert.equal(wait[0].status, 'failed');
-    assert.equal(wait[0].attempts, 1);
+    assert.equal(wait.length, 1, 'the explicit retry puts it back in the queue');
+    assert.equal(wait[0].status, 'pending');
+    assert.equal(wait[0].attempts, 1, 'its attempts are kept');
 
     db.prepare(DELETE_OUTBOX).run('a'.repeat(24));
     assert.equal(db.prepare(LIST_OUTBOX_TO_SEND).all().length, 0);

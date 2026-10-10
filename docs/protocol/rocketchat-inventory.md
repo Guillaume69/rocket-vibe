@@ -496,10 +496,10 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/lib/myProfile.ts:121](../../apps/mobile/lib/myProfile.ts#L121) | endpoint | users.setStatus |
 | [apps/mobile/lib/myProfile.ts:142](../../apps/mobile/lib/myProfile.ts#L142) | call:POST | 'users.updateOwnBasicInfo' |
 | [apps/mobile/lib/myProfile.ts:143](../../apps/mobile/lib/myProfile.ts#L143) | endpoint | users.updateOwnBasicInfo |
-| [apps/mobile/lib/outbox.ts:169](../../apps/mobile/lib/outbox.ts#L169) | call:POST | 'chat.sendMessage' |
-| [apps/mobile/lib/outbox.ts:169](../../apps/mobile/lib/outbox.ts#L169) | endpoint | chat.sendMessage |
-| [apps/mobile/lib/outbox.ts:240](../../apps/mobile/lib/outbox.ts#L240) | call:GET | 'chat.getMessage' |
-| [apps/mobile/lib/outbox.ts:241](../../apps/mobile/lib/outbox.ts#L241) | endpoint | chat.getMessage |
+| [apps/mobile/lib/outbox.ts:173](../../apps/mobile/lib/outbox.ts#L173) | call:POST | 'chat.sendMessage' |
+| [apps/mobile/lib/outbox.ts:173](../../apps/mobile/lib/outbox.ts#L173) | endpoint | chat.sendMessage |
+| [apps/mobile/lib/outbox.ts:250](../../apps/mobile/lib/outbox.ts#L250) | call:GET | 'chat.getMessage' |
+| [apps/mobile/lib/outbox.ts:251](../../apps/mobile/lib/outbox.ts#L251) | endpoint | chat.getMessage |
 | [apps/mobile/lib/permissions.ts:27](../../apps/mobile/lib/permissions.ts#L27) | call:GET | 'permissions.listAll' |
 | [apps/mobile/lib/permissions.ts:27](../../apps/mobile/lib/permissions.ts#L27) | endpoint | permissions.listAll |
 | [apps/mobile/lib/permissions.ts:28](../../apps/mobile/lib/permissions.ts#L28) | call:GET | 'me' |

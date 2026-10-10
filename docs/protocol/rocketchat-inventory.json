@@ -3467,25 +3467,25 @@
     },
     {
       "file": "apps/mobile/lib/outbox.ts",
-      "line": 169,
+      "line": 173,
       "kind": "call:POST",
       "surface": "'chat.sendMessage'"
     },
     {
       "file": "apps/mobile/lib/outbox.ts",
-      "line": 169,
+      "line": 173,
       "kind": "endpoint",
       "surface": "chat.sendMessage"
     },
     {
       "file": "apps/mobile/lib/outbox.ts",
-      "line": 240,
+      "line": 250,
       "kind": "call:GET",
       "surface": "'chat.getMessage'"
     },
     {
       "file": "apps/mobile/lib/outbox.ts",
-      "line": 241,
+      "line": 251,
       "kind": "endpoint",
       "surface": "chat.getMessage"
     },

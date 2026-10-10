@@ -62,6 +62,7 @@ import {
   LIST_OUTBOX_TO_SEND,
   ROOM_ENCRYPTED,
   MARK_OUTBOX_FAILED,
+  REARM_OUTBOX,
   PURGE_MISSING_SUBSCRIPTIONS,
   PURGE_MISSING_MESSAGES,
   PURGE_MISSING_ROOMS,
@@ -371,6 +372,9 @@ export function createOutboxStore(raw: SQLiteDatabase, serially: WriteQueue): Ou
     },
     markFailed(id, error) {
       return serially(() => raw.runAsync(MARK_OUTBOX_FAILED, [error, id]).then(() => {}));
+    },
+    rearm(id) {
+      return serially(() => raw.runAsync(REARM_OUTBOX, [id]).then(() => {}));
     },
     deleteOutbox(id) {
       return serially(() => raw.runAsync(DELETE_OUTBOX, [id]).then(() => {}));

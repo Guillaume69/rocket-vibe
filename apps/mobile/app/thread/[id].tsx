@@ -295,7 +295,8 @@ function Thread({
     [router, threadId,protectedRoom,rid],
   );
   const retry = useCallback((idMessage:string) => {
-    (protectedRoom?conversation.outbox.retry!(idMessage):outboxQueue.process()).catch(() => {});
+    // The automatic replay leaves a failed row alone: only `retry` rearms it.
+    (protectedRoom?conversation.outbox.retry!(idMessage):outboxQueue.retry?outboxQueue.retry(idMessage):outboxQueue.process()).catch(() => {});
   }, [outboxQueue,protectedRoom,conversation.outbox]);
   const discard = useCallback(
     (idMessage: string) => {

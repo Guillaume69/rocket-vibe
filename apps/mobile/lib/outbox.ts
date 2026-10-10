@@ -8,9 +8,11 @@
  * a duplicate: the server refuses it with a 400 on an already accepted `_id`,
  * and `chat.getMessage` decides between "already delivered" and "refused".
  *
- * Network unreachable (status 0): the message STAYS `pending`, the replay at
- * the next start or network return will carry it. Server refusal (4xx/5xx):
- * `failed`, actionable from the UI.
+ * Network unreachable (status 0), or a delivery check that got no verdict
+ * (429, 5xx): the message STAYS `pending`, the replay at the next start or
+ * network return will carry it. Server refusal: `failed`, and only the user's
+ * "Retry" (`retry`) puts it back in the queue; the automatic replay leaves it.
+ 
  *
  * Encrypted room: the text is encrypted when it leaves, never before; the
  * queue keeps the plaintext, as the database keeps decrypted messages. Without
@@ -39,6 +41,8 @@ export interface OutboxStore {
   insertOutbox(id: string, rid: string, text: string, threadId: string | null): Promise<void>;
   listToSend(): Promise<OutboxRow[]>;
   markFailed(id: string, error: string): Promise<void>;
+  /** A failed row back to `pending`: the explicit "Retry". */
+  rearm(id: string): Promise<void>;
   deleteOutbox(id: string): Promise<void>;
   upsertMessage(m: LocalMessage): Promise<void>;
   /** Deletes the message only if it is still optimistic (never delivered). */
@@ -224,6 +228,12 @@ export class OutboxEngine {
     await this.store.deleteOptimisticMessage(id);
   }
 
+  /** The explicit "Retry", the only gesture that takes a row out of failure. */
+  async retry(id: string): Promise<void> {
+    await this.store.rearm(id);
+    await this.process();
+  }
+
   /**
    * THREE verdicts, not two: the document if the server has it, `null` if it
    * says no, `UNKNOWN` if we COULD NOT ask.
@@ -247,8 +257,9 @@ export class OutboxEngine {
       // Status 0: nobody answered. 429: `chat.getMessage` is under the same
       // 10/min limit as `chat.sendMessage` (CLAUDE.md), and a burst of sends
       // exhausts it: after `RestClient`'s three retries, every check of the
-      // pass falls back to 429. Neither is a denial from the server.
-      if (e instanceof RestError && (e.status === 0 || e.status === 429)) return UNKNOWN;
+      // pass falls back to 429. 5xx: the server or its proxy is down (a 502
+      // during a restart). None is a denial from the server.
+      if (e instanceof RestError && (e.status === 0 || e.status === 429 || e.status >= 500)) return UNKNOWN;
       // The server spoke (404, permission denied, message missing): decide.
       return null;
     }

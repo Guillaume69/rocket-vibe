@@ -11,7 +11,7 @@ function fakeStore(encrypted: ReadonlySet<string> = new Set()) {
   const store: OutboxStore = {
     insertOutbox: async (id, rid, text, threadId) =>
       void outbox.set(id, { id, rid, text, threadId, status: 'pending', attempts: 0, createdAt: Date.now() }),
-    listToSend: async () => [...outbox.values()],
+    listToSend: async () => [...outbox.values()].filter((l) => l.status === 'pending'),
     markFailed: async (id, error) => {
       const l = outbox.get(id);
       if (l) {
@@ -19,6 +19,10 @@ function fakeStore(encrypted: ReadonlySet<string> = new Set()) {
         l.attempts++;
         void error;
       }
+    },
+    rearm: async (id) => {
+      const l = outbox.get(id);
+      if (l?.status === 'failed') l.status = 'pending';
     },
     deleteOutbox: async (id) => void outbox.delete(id),
     upsertMessage: async (m) => void messages.push(m),
@@ -269,21 +273,50 @@ describe('OutboxEngine', () => {
     assert.equal(outbox.size, 0);
   });
 
-  test('the replay retries failures as well as pending rows', async () => {
+  test('the replay leaves failures alone; only retry(id) resends one', async () => {
     let refuse = true;
-    const { engine, outbox } = testEngine({
+    const { engine, outbox, queries } = testEngine({
       reply: async (body) => {
         if (refuse) return ok({ success: false, error: 'temporary' });
         const m = (body.message ?? {}) as Record<string, unknown>;
         return ok({ success: true, message: m });
       },
     });
-    await engine.send('r1', 'a');
+    const id = await engine.send('r1', 'a');
     assert.equal([...outbox.values()][0]?.status, 'failed');
 
     refuse = false;
     await engine.process();
-    assert.equal(outbox.size, 0, 'the replay emptied the queue');
+    assert.equal(queries.length, 1, 'a failed row costs nothing on the next passes');
+    assert.equal([...outbox.values()][0]?.status, 'failed');
+
+    await engine.retry(id);
+    assert.equal(outbox.size, 0, 'the explicit retry delivered it');
+  });
+
+  test('a refused message does not hold back the next one', async () => {
+    const { engine, outbox, queries } = testEngine({
+      reply: async (body) => {
+        const m = (body.message ?? {}) as Record<string, unknown>;
+        if (m.rid === 'read-only') return ok({ success: false, error: 'error-not-allowed' });
+        return ok({ success: true, message: m });
+      },
+    });
+    for (let i = 0; i < 5; i++) await engine.send('read-only', `refused ${i}`);
+    const before = queries.length;
+    await engine.send('r1', 'fresh');
+    assert.equal(queries.length - before, 1, 'one call for the new message, none for the failures');
+    assert.equal([...outbox.values()].filter((l) => l.status === 'failed').length, 5);
+    assert.equal([...outbox.values()].some((l) => l.rid === 'r1'), false);
+  });
+
+  test('a server error during the check (502) keeps the row pending', async () => {
+    const { engine, outbox } = testEngine({
+      reply: async () => new Response('<html>Bad Gateway</html>', { status: 502 }),
+      replyGet: async () => new Response('<html>Bad Gateway</html>', { status: 502 }),
+    });
+    await engine.send('r1', 'during a restart');
+    assert.equal([...outbox.values()][0]?.status, 'pending', 'a proxy error is no refusal');
   });
 
   test('two concurrent process() calls do not double the requests', async () => {

@@ -504,14 +504,21 @@ INSERT INTO outbox (id, rid, text, thread_id, status, attempts, last_error, crea
 VALUES (?, ?, ?, ?, 'pending', 0, NULL, ?)
 `;
 
-/** Failures too: the replay when the network returns retries everything left. */
 /** Is the room encrypted? Decides a message's send path. */
 export const ROOM_ENCRYPTED = `SELECT encrypted FROM rooms WHERE rid = ?`;
 
+/**
+ * Pending rows only. A failed row waits for the user's "Retry" (`REARM_OUTBOX`):
+ * replayed on every pass, each refusal cost a send and a `chat.getMessage`, and
+ * a few of them ate the 10/min quota before the new message's turn came.
+ */
 export const LIST_OUTBOX_TO_SEND = `
 SELECT id, rid, text, thread_id, status, attempts, created_at FROM outbox
-WHERE status IN ('pending', 'failed') ORDER BY created_at
+WHERE status = 'pending' ORDER BY created_at
 `;
+
+/** The explicit "Retry": a failed row goes back in the queue. */
+export const REARM_OUTBOX = `UPDATE outbox SET status = 'pending' WHERE id = ? AND status = 'failed'`;
 
 export const MARK_OUTBOX_FAILED = `
 UPDATE outbox SET status = 'failed', attempts = attempts + 1, last_error = ?

@@ -109,6 +109,12 @@ export class MmOutbox implements Outbox {
     await this.store.deleteOptimisticMessage(id);
   }
 
+  /** The explicit "Retry": the automatic replay leaves failed rows alone. */
+  async retry(id: string): Promise<void> {
+    await this.store.rearm(id);
+    await this.process();
+  }
+
   private async runPass(): Promise<boolean> {
     for (const row of await this.store.listToSend()) {
       try {

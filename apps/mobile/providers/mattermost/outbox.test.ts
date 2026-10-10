@@ -17,6 +17,10 @@ function outboxStore() {
       const row = rows.get(id);
       if (row) row.status = 'failed';
     },
+    rearm: async (id) => {
+      const row = rows.get(id);
+      if (row?.status === 'failed') row.status = 'pending';
+    },
     deleteOutbox: async (id) => void rows.delete(id),
     upsertMessage: async (m) => void messages.set(m.id, m),
     deleteOptimisticMessage: async (id) => {

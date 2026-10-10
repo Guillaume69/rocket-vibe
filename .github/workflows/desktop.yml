@@ -337,6 +337,8 @@ jobs:
           Remove-Item Env:RV_SMOKE_MEDIA
           $played = @(Select-String -Path "$env:RUNNER_TEMP\gallery-out.txt" -Pattern "smoke: media .* ok").Count
           if ($played -ne 3) { throw "audio or video did not play ($played of 3)" }
+          # The gallery's plain and rich toasts: Windows drops a toast whose XML it refuses.
+          if (-not (Select-String -Path "$env:RUNNER_TEMP\gallery-out.txt" -Pattern "smoke: native toasts delivered Some\([2-9]")) { throw "a gallery toast was refused" }
           # Keyboard layout changes with the composer focused: once as GTK leaves it, to show the
           # test reproduces the IME crash, then with the input method pinned, which must stay clean.
           foreach ($mode in @("unpinned", "1")) {

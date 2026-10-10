@@ -23,6 +23,7 @@ release, and its notes are that version's section here.
 - On Rocket.Chat servers, the room information sheet shares an invite link to a channel or group (for owners, moderators and admins), valid 7 days, in the server's own address.
 - On Rocket.Chat servers, discussions: their card in the parent room opens them (joining a public one), and "Start a discussion" on a message or "New discussion" in the room information creates one.
 - A formatting row ("Aa" beside the emoji button): bold, italic, strike, link, code, code block, quote and lists, around the selection, as on the desktop.
+- On Rocket.Chat servers, the room information sheet lists the room's members (owners and moderators first, searchable), each opening its profile.
 - My profile can remove my photo (Rocket.Chat and RocketVibe), after a confirmation.
 
 ### Fixed

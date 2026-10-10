@@ -7,12 +7,14 @@
 
 import { mentionsE2E } from '../../lib/e2e/mentions.ts';
 import type { OutboxEncryptor } from '../../lib/outbox.ts';
-import type { ProviderActions, RoomInformation, ThreadPage } from '../../lib/provider.ts';
+import type { MemberPage, ProviderActions, RoomInformation, RoomMember, ThreadPage } from '../../lib/provider.ts';
 import { toMessage, type LocalMessage, type RoomNotificationLevel } from '../../lib/normalize.ts';
 import type { RestClient } from '../../lib/rest.ts';
 
 /** Roots per page of the thread list. */
 const THREAD_PAGE = 50;
+/** Members per page of the member list. */
+const MEMBER_PAGE = 50;
 
 export class ActionsRC implements ProviderActions {
   // A plain field, not a "parameter property": the latter is not erasable
@@ -100,6 +102,26 @@ export class ActionsRC implements ProviderActions {
       .map((raw) => toMessage(raw))
       .filter((m): m is LocalMessage => m !== null);
     return { threads, total: typeof response.total === 'number' ? response.total : offset + threads.length };
+  }
+
+  /**
+   * `rooms.membersOrderedByRole` (owners, then moderators, then the rest),
+   * `filter` matched by the server; a DM answers `error-room-type-not-supported`.
+   */
+  async listMembers(rid: string, filter: string, offset: number): Promise<MemberPage> {
+    const response = await this.client.get<{ members?: Record<string, unknown>[]; total?: number }>(
+      'rooms.membersOrderedByRole',
+      { params: { roomId: rid, count: MEMBER_PAGE, offset, ...(filter.trim() === '' ? {} : { filter: filter.trim() }) } },
+    );
+    const text = (v: unknown) => (typeof v === 'string' && v !== '' ? v : null);
+    const members = (response.members ?? []).flatMap((raw): RoomMember[] => {
+      const id = text(raw._id);
+      const username = text(raw.username);
+      if (id === null || username === null) return [];
+      const roles = Array.isArray(raw.roles) ? raw.roles.filter((r): r is string => typeof r === 'string') : [];
+      return [{ id, username, name: text(raw.name), status: text(raw.status), avatarEtag: text(raw.avatarETag), roles }];
+    });
+    return { members, total: typeof response.total === 'number' ? response.total : offset + members.length };
   }
 
   /** The server rebroadcasts the root, whose `replies` then carries the change. */

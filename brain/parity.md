@@ -172,7 +172,7 @@ beta does.
 | Live avatar changes (`updateAvatar`) | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | Report a user from the profile (`moderation.reportUser`, RocketVibe `reports`) | done | done | done | done | Not on my own profile ([administration](features/administration.md)). SwiftUI checked by the Linux build of RocketVibeKit and the macOS CI build only. Web: Native provider: see [web-client](features/web-client.md). |
 | Share an invite link to a channel or private group (Rocket.Chat `findOrCreateInvite`, the direct `<Site_Url>/invite/<id>` form) | done | missing | missing | n/a | Mobile: the room information sheet, for `create-invite-links` holders, 7 days, unlimited uses, through the system share sheet. GTK and SwiftUI owe it. Web: Native-origin client; Rocket.Chat is outside its scope. |
-| Room members, room settings, roles | missing | missing | missing | done | Web: Native provider: see [web-client](features/web-client.md). |
+| Room members, room settings, roles | partial | missing | missing | done | Mobile (Rocket.Chat): the member list, read only (`app/room-members.tsx`: `rooms.membersOrderedByRole`, owners and moderators first, server-side search, roles, presence, a row opens the profile); no room settings nor role changes. Web: Native provider: see [web-client](features/web-client.md). |
 
 ## 9. Settings - [settings](features/settings.md)
 
@@ -333,7 +333,7 @@ are product gaps, listed last.
   (encrypted rooms, history share and backup, private edits, reactions, search
   and files, storage keys, delegation, recovered history); most voice rows; the
   outbox, reconnection and purge rows; "Deleted user"; bots and workflows.
-- **All three**: the thread list and following on Mattermost, kChat and RocketVibe servers; room members, settings and roles; creating an encrypted room; creating a
+- **All three**: the thread list and following on Mattermost, kChat and RocketVibe servers; room settings and roles (mobile lists the members, the desktop not even that); creating an encrypted room; creating a
   channel or private group on Rocket.Chat; "Deleted
   user" on messages ingested before the deletion, on server-computed names and in
   private conversations; Rocket.Chat real names (`UI_Use_Real_Name`): group DMs

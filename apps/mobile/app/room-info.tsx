@@ -208,6 +208,21 @@ function RoomInfoContent({
       {!native && subscription !== undefined && (
         <RoomNotificationChoice c={c} rid={rid} base={base} actions={actions} current={subscription.pushPreference} />
       )}
+      {actions.listMembers !== undefined && room !== undefined && room.type !== 'd' && (
+        <Tappable
+          onPress={() => {
+            router.back();
+            router.push({ pathname: '/room-members', params: { rid } });
+          }}
+          accessibilityRole="button"
+          android_ripple={{ color: c.ripple }}
+          style={[styles.favorite, { backgroundColor: c.card }]}
+        >
+          <Text style={[styles.favoriteText, { color: c.text }]}>
+            👥 {extras?.members != null ? t('members.count', { n: extras.members }) : t('members.title')}
+          </Text>
+        </Tappable>
+      )}
       {!native && client.kind === 'rocketchat' && subscription !== undefined && room?.encrypted !== true && (
         <Tappable
           onPress={() => {

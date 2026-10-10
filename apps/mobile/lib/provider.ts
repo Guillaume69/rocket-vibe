@@ -210,6 +210,12 @@ export interface ProviderActions {
   listThreads?(rid: string, following: boolean, offset: number): Promise<ThreadPage>;
   /** Follows or unfollows the thread of `root` (idempotent server-side). */
   followThread?(rid: string, root: string, put: boolean): Promise<void>;
+  /**
+   * A page of a channel's or group's members from `offset`, owners and
+   * moderators first, `filter` searched by the server. Absent where the
+   * server has no such list (a DM has none).
+   */
+  listMembers?(rid: string, filter: string, offset: number): Promise<MemberPage>;
   markRead(rid: string, observation?:ReadObservation): Promise<void>;
   /**
    * Makes the room unread again from its last message; the subscription the
@@ -231,6 +237,11 @@ export interface ProviderActions {
    */
   openOrCreateDm(username: string,uid?:string): Promise<{ rid: string; rawRoom: Record<string, unknown> }>;
 }
+
+/** A room member as `ProviderActions.listMembers` reads it; `roles` in the room (`owner`, `moderator`, `leader`). */
+export type RoomMember = { id: string; username: string; name: string | null; status: string | null; avatarEtag: string | null; roles: string[] };
+/** One page of `ProviderActions.listMembers`, owners and moderators first. */
+export type MemberPage = { members: RoomMember[]; total: number };
 
 /** One page of `ProviderActions.listThreads`. */
 export type ThreadPage = { threads: LocalMessage[]; total: number };

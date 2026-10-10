@@ -333,6 +333,7 @@
     "apps/mobile/app/new-room.tsx",
     "apps/mobile/app/profile.tsx",
     "apps/mobile/app/room-info.tsx",
+    "apps/mobile/app/room-members.tsx",
     "apps/mobile/app/room/[rid].tsx",
     "apps/mobile/app/search-messages.tsx",
     "apps/mobile/app/search.tsx",
@@ -3981,223 +3982,235 @@
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 26,
+      "line": 28,
       "kind": "call:POST",
       "surface": "'rooms.favorite'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 26,
+      "line": 28,
       "kind": "endpoint",
       "surface": "rooms.favorite"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 30,
+      "line": 32,
       "kind": "call:GET",
       "surface": "'rooms.info'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 30,
+      "line": 32,
       "kind": "endpoint",
       "surface": "rooms.info"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 43,
+      "line": 45,
       "kind": "call:POST",
       "surface": "'chat.react'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 43,
+      "line": 45,
       "kind": "endpoint",
       "surface": "chat.react"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 54,
+      "line": 56,
       "kind": "call:POST",
       "surface": "'chat.update'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 54,
+      "line": 56,
       "kind": "endpoint",
       "surface": "chat.update"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 59,
+      "line": 61,
       "kind": "call:POST",
       "surface": "'chat.update'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 59,
+      "line": 61,
       "kind": "endpoint",
       "surface": "chat.update"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 65,
+      "line": 67,
       "kind": "call:POST",
       "surface": "'chat.delete'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 65,
+      "line": 67,
       "kind": "endpoint",
       "surface": "chat.delete"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 69,
+      "line": 71,
       "kind": "call:POST",
       "surface": "'chat.pinMessage'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 69,
+      "line": 71,
       "kind": "endpoint",
       "surface": "chat.pinMessage"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 73,
+      "line": 75,
       "kind": "call:POST",
       "surface": "'chat.unPinMessage'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 73,
+      "line": 75,
       "kind": "endpoint",
       "surface": "chat.unPinMessage"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 77,
+      "line": 79,
       "kind": "call:POST",
       "surface": "put ? 'chat.starMessage' : 'chat.unStarMessage'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 77,
+      "line": 79,
       "kind": "endpoint",
       "surface": "chat.starMessage"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 77,
+      "line": 79,
       "kind": "endpoint",
       "surface": "chat.unStarMessage"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 83,
+      "line": 85,
       "kind": "endpoint",
       "surface": "chat.getPinnedMessages"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 87,
+      "line": 89,
       "kind": "endpoint",
       "surface": "chat.getStarredMessages"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 95,
+      "line": 97,
       "kind": "call:GET",
       "surface": "'chat.getThreadsList'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 96,
+      "line": 98,
       "kind": "endpoint",
       "surface": "chat.getThreadsList"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 107,
+      "line": 112,
+      "kind": "call:GET",
+      "surface": "'rooms.membersOrderedByRole'"
+    },
+    {
+      "file": "apps/mobile/providers/rocketchat/actions.ts",
+      "line": 113,
+      "kind": "endpoint",
+      "surface": "rooms.membersOrderedByRole"
+    },
+    {
+      "file": "apps/mobile/providers/rocketchat/actions.ts",
+      "line": 129,
       "kind": "call:POST",
       "surface": "put ? 'chat.followMessage' : 'chat.unfollowMessage'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 107,
+      "line": 129,
       "kind": "endpoint",
       "surface": "chat.followMessage"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 107,
+      "line": 129,
       "kind": "endpoint",
       "surface": "chat.unfollowMessage"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 113,
+      "line": 135,
       "kind": "call:GET",
       "surface": "path"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 123,
+      "line": 145,
       "kind": "call:POST",
       "surface": "'subscriptions.read'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 123,
+      "line": 145,
       "kind": "endpoint",
       "surface": "subscriptions.read"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 128,
+      "line": 150,
       "kind": "call:POST",
       "surface": "'subscriptions.read'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 128,
+      "line": 150,
       "kind": "endpoint",
       "surface": "subscriptions.read"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 133,
+      "line": 155,
       "kind": "call:POST",
       "surface": "'rooms.saveNotification'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 133,
+      "line": 155,
       "kind": "endpoint",
       "surface": "rooms.saveNotification"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 140,
+      "line": 162,
       "kind": "call:POST",
       "surface": "'subscriptions.unread'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 140,
+      "line": 162,
       "kind": "endpoint",
       "surface": "subscriptions.unread"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 146,
+      "line": 168,
       "kind": "call:POST",
       "surface": "'im.create'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 146,
+      "line": 168,
       "kind": "endpoint",
       "surface": "im.create"
     },
@@ -4539,73 +4552,73 @@
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 983,
+      "line": 991,
       "kind": "endpoint",
       "surface": "e2e.title"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 984,
+      "line": 992,
       "kind": "endpoint",
       "surface": "e2e.explanation"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 986,
+      "line": 994,
       "kind": "endpoint",
       "surface": "e2e.field"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 987,
+      "line": 995,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 988,
+      "line": 996,
       "kind": "endpoint",
       "surface": "e2e.wrongPassword"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 989,
+      "line": 997,
       "kind": "endpoint",
       "surface": "e2e.genericError"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2373,
+      "line": 2389,
       "kind": "endpoint",
       "surface": "e2e.title"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2374,
+      "line": 2390,
       "kind": "endpoint",
       "surface": "e2e.explanation"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2376,
+      "line": 2392,
       "kind": "endpoint",
       "surface": "e2e.field"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2377,
+      "line": 2393,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2378,
+      "line": 2394,
       "kind": "endpoint",
       "surface": "e2e.wrongPassword"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2379,
+      "line": 2395,
       "kind": "endpoint",
       "surface": "e2e.genericError"
     },

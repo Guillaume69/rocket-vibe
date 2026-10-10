@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-547 production files scanned; 681 occurrences.
+548 production files scanned; 683 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -579,43 +579,45 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/plugins/with-fcm-deeplink.js:1088](../../apps/mobile/plugins/with-fcm-deeplink.js#L1088) | url | /api/v1/chat.sendMessage |
 | [apps/mobile/plugins/with-fcm-deeplink.js:1182](../../apps/mobile/plugins/with-fcm-deeplink.js#L1182) | url | /api/v1/push.get |
 | [apps/mobile/plugins/with-fcm-deeplink.js:1200](../../apps/mobile/plugins/with-fcm-deeplink.js#L1200) | url | /api/v1/push.get |
-| [apps/mobile/providers/rocketchat/actions.ts:26](../../apps/mobile/providers/rocketchat/actions.ts#L26) | call:POST | 'rooms.favorite' |
-| [apps/mobile/providers/rocketchat/actions.ts:26](../../apps/mobile/providers/rocketchat/actions.ts#L26) | endpoint | rooms.favorite |
-| [apps/mobile/providers/rocketchat/actions.ts:30](../../apps/mobile/providers/rocketchat/actions.ts#L30) | call:GET | 'rooms.info' |
-| [apps/mobile/providers/rocketchat/actions.ts:30](../../apps/mobile/providers/rocketchat/actions.ts#L30) | endpoint | rooms.info |
-| [apps/mobile/providers/rocketchat/actions.ts:43](../../apps/mobile/providers/rocketchat/actions.ts#L43) | call:POST | 'chat.react' |
-| [apps/mobile/providers/rocketchat/actions.ts:43](../../apps/mobile/providers/rocketchat/actions.ts#L43) | endpoint | chat.react |
-| [apps/mobile/providers/rocketchat/actions.ts:54](../../apps/mobile/providers/rocketchat/actions.ts#L54) | call:POST | 'chat.update' |
-| [apps/mobile/providers/rocketchat/actions.ts:54](../../apps/mobile/providers/rocketchat/actions.ts#L54) | endpoint | chat.update |
-| [apps/mobile/providers/rocketchat/actions.ts:59](../../apps/mobile/providers/rocketchat/actions.ts#L59) | call:POST | 'chat.update' |
-| [apps/mobile/providers/rocketchat/actions.ts:59](../../apps/mobile/providers/rocketchat/actions.ts#L59) | endpoint | chat.update |
-| [apps/mobile/providers/rocketchat/actions.ts:65](../../apps/mobile/providers/rocketchat/actions.ts#L65) | call:POST | 'chat.delete' |
-| [apps/mobile/providers/rocketchat/actions.ts:65](../../apps/mobile/providers/rocketchat/actions.ts#L65) | endpoint | chat.delete |
-| [apps/mobile/providers/rocketchat/actions.ts:69](../../apps/mobile/providers/rocketchat/actions.ts#L69) | call:POST | 'chat.pinMessage' |
-| [apps/mobile/providers/rocketchat/actions.ts:69](../../apps/mobile/providers/rocketchat/actions.ts#L69) | endpoint | chat.pinMessage |
-| [apps/mobile/providers/rocketchat/actions.ts:73](../../apps/mobile/providers/rocketchat/actions.ts#L73) | call:POST | 'chat.unPinMessage' |
-| [apps/mobile/providers/rocketchat/actions.ts:73](../../apps/mobile/providers/rocketchat/actions.ts#L73) | endpoint | chat.unPinMessage |
-| [apps/mobile/providers/rocketchat/actions.ts:77](../../apps/mobile/providers/rocketchat/actions.ts#L77) | call:POST | put ? 'chat.starMessage' : 'chat.unStarMessage' |
-| [apps/mobile/providers/rocketchat/actions.ts:77](../../apps/mobile/providers/rocketchat/actions.ts#L77) | endpoint | chat.starMessage |
-| [apps/mobile/providers/rocketchat/actions.ts:77](../../apps/mobile/providers/rocketchat/actions.ts#L77) | endpoint | chat.unStarMessage |
-| [apps/mobile/providers/rocketchat/actions.ts:83](../../apps/mobile/providers/rocketchat/actions.ts#L83) | endpoint | chat.getPinnedMessages |
-| [apps/mobile/providers/rocketchat/actions.ts:87](../../apps/mobile/providers/rocketchat/actions.ts#L87) | endpoint | chat.getStarredMessages |
-| [apps/mobile/providers/rocketchat/actions.ts:95](../../apps/mobile/providers/rocketchat/actions.ts#L95) | call:GET | 'chat.getThreadsList' |
-| [apps/mobile/providers/rocketchat/actions.ts:96](../../apps/mobile/providers/rocketchat/actions.ts#L96) | endpoint | chat.getThreadsList |
-| [apps/mobile/providers/rocketchat/actions.ts:107](../../apps/mobile/providers/rocketchat/actions.ts#L107) | call:POST | put ? 'chat.followMessage' : 'chat.unfollowMessage' |
-| [apps/mobile/providers/rocketchat/actions.ts:107](../../apps/mobile/providers/rocketchat/actions.ts#L107) | endpoint | chat.followMessage |
-| [apps/mobile/providers/rocketchat/actions.ts:107](../../apps/mobile/providers/rocketchat/actions.ts#L107) | endpoint | chat.unfollowMessage |
-| [apps/mobile/providers/rocketchat/actions.ts:113](../../apps/mobile/providers/rocketchat/actions.ts#L113) | call:GET | path |
-| [apps/mobile/providers/rocketchat/actions.ts:123](../../apps/mobile/providers/rocketchat/actions.ts#L123) | call:POST | 'subscriptions.read' |
-| [apps/mobile/providers/rocketchat/actions.ts:123](../../apps/mobile/providers/rocketchat/actions.ts#L123) | endpoint | subscriptions.read |
-| [apps/mobile/providers/rocketchat/actions.ts:128](../../apps/mobile/providers/rocketchat/actions.ts#L128) | call:POST | 'subscriptions.read' |
-| [apps/mobile/providers/rocketchat/actions.ts:128](../../apps/mobile/providers/rocketchat/actions.ts#L128) | endpoint | subscriptions.read |
-| [apps/mobile/providers/rocketchat/actions.ts:133](../../apps/mobile/providers/rocketchat/actions.ts#L133) | call:POST | 'rooms.saveNotification' |
-| [apps/mobile/providers/rocketchat/actions.ts:133](../../apps/mobile/providers/rocketchat/actions.ts#L133) | endpoint | rooms.saveNotification |
-| [apps/mobile/providers/rocketchat/actions.ts:140](../../apps/mobile/providers/rocketchat/actions.ts#L140) | call:POST | 'subscriptions.unread' |
-| [apps/mobile/providers/rocketchat/actions.ts:140](../../apps/mobile/providers/rocketchat/actions.ts#L140) | endpoint | subscriptions.unread |
-| [apps/mobile/providers/rocketchat/actions.ts:146](../../apps/mobile/providers/rocketchat/actions.ts#L146) | call:POST | 'im.create' |
-| [apps/mobile/providers/rocketchat/actions.ts:146](../../apps/mobile/providers/rocketchat/actions.ts#L146) | endpoint | im.create |
+| [apps/mobile/providers/rocketchat/actions.ts:28](../../apps/mobile/providers/rocketchat/actions.ts#L28) | call:POST | 'rooms.favorite' |
+| [apps/mobile/providers/rocketchat/actions.ts:28](../../apps/mobile/providers/rocketchat/actions.ts#L28) | endpoint | rooms.favorite |
+| [apps/mobile/providers/rocketchat/actions.ts:32](../../apps/mobile/providers/rocketchat/actions.ts#L32) | call:GET | 'rooms.info' |
+| [apps/mobile/providers/rocketchat/actions.ts:32](../../apps/mobile/providers/rocketchat/actions.ts#L32) | endpoint | rooms.info |
+| [apps/mobile/providers/rocketchat/actions.ts:45](../../apps/mobile/providers/rocketchat/actions.ts#L45) | call:POST | 'chat.react' |
+| [apps/mobile/providers/rocketchat/actions.ts:45](../../apps/mobile/providers/rocketchat/actions.ts#L45) | endpoint | chat.react |
+| [apps/mobile/providers/rocketchat/actions.ts:56](../../apps/mobile/providers/rocketchat/actions.ts#L56) | call:POST | 'chat.update' |
+| [apps/mobile/providers/rocketchat/actions.ts:56](../../apps/mobile/providers/rocketchat/actions.ts#L56) | endpoint | chat.update |
+| [apps/mobile/providers/rocketchat/actions.ts:61](../../apps/mobile/providers/rocketchat/actions.ts#L61) | call:POST | 'chat.update' |
+| [apps/mobile/providers/rocketchat/actions.ts:61](../../apps/mobile/providers/rocketchat/actions.ts#L61) | endpoint | chat.update |
+| [apps/mobile/providers/rocketchat/actions.ts:67](../../apps/mobile/providers/rocketchat/actions.ts#L67) | call:POST | 'chat.delete' |
+| [apps/mobile/providers/rocketchat/actions.ts:67](../../apps/mobile/providers/rocketchat/actions.ts#L67) | endpoint | chat.delete |
+| [apps/mobile/providers/rocketchat/actions.ts:71](../../apps/mobile/providers/rocketchat/actions.ts#L71) | call:POST | 'chat.pinMessage' |
+| [apps/mobile/providers/rocketchat/actions.ts:71](../../apps/mobile/providers/rocketchat/actions.ts#L71) | endpoint | chat.pinMessage |
+| [apps/mobile/providers/rocketchat/actions.ts:75](../../apps/mobile/providers/rocketchat/actions.ts#L75) | call:POST | 'chat.unPinMessage' |
+| [apps/mobile/providers/rocketchat/actions.ts:75](../../apps/mobile/providers/rocketchat/actions.ts#L75) | endpoint | chat.unPinMessage |
+| [apps/mobile/providers/rocketchat/actions.ts:79](../../apps/mobile/providers/rocketchat/actions.ts#L79) | call:POST | put ? 'chat.starMessage' : 'chat.unStarMessage' |
+| [apps/mobile/providers/rocketchat/actions.ts:79](../../apps/mobile/providers/rocketchat/actions.ts#L79) | endpoint | chat.starMessage |
+| [apps/mobile/providers/rocketchat/actions.ts:79](../../apps/mobile/providers/rocketchat/actions.ts#L79) | endpoint | chat.unStarMessage |
+| [apps/mobile/providers/rocketchat/actions.ts:85](../../apps/mobile/providers/rocketchat/actions.ts#L85) | endpoint | chat.getPinnedMessages |
+| [apps/mobile/providers/rocketchat/actions.ts:89](../../apps/mobile/providers/rocketchat/actions.ts#L89) | endpoint | chat.getStarredMessages |
+| [apps/mobile/providers/rocketchat/actions.ts:97](../../apps/mobile/providers/rocketchat/actions.ts#L97) | call:GET | 'chat.getThreadsList' |
+| [apps/mobile/providers/rocketchat/actions.ts:98](../../apps/mobile/providers/rocketchat/actions.ts#L98) | endpoint | chat.getThreadsList |
+| [apps/mobile/providers/rocketchat/actions.ts:112](../../apps/mobile/providers/rocketchat/actions.ts#L112) | call:GET | 'rooms.membersOrderedByRole' |
+| [apps/mobile/providers/rocketchat/actions.ts:113](../../apps/mobile/providers/rocketchat/actions.ts#L113) | endpoint | rooms.membersOrderedByRole |
+| [apps/mobile/providers/rocketchat/actions.ts:129](../../apps/mobile/providers/rocketchat/actions.ts#L129) | call:POST | put ? 'chat.followMessage' : 'chat.unfollowMessage' |
+| [apps/mobile/providers/rocketchat/actions.ts:129](../../apps/mobile/providers/rocketchat/actions.ts#L129) | endpoint | chat.followMessage |
+| [apps/mobile/providers/rocketchat/actions.ts:129](../../apps/mobile/providers/rocketchat/actions.ts#L129) | endpoint | chat.unfollowMessage |
+| [apps/mobile/providers/rocketchat/actions.ts:135](../../apps/mobile/providers/rocketchat/actions.ts#L135) | call:GET | path |
+| [apps/mobile/providers/rocketchat/actions.ts:145](../../apps/mobile/providers/rocketchat/actions.ts#L145) | call:POST | 'subscriptions.read' |
+| [apps/mobile/providers/rocketchat/actions.ts:145](../../apps/mobile/providers/rocketchat/actions.ts#L145) | endpoint | subscriptions.read |
+| [apps/mobile/providers/rocketchat/actions.ts:150](../../apps/mobile/providers/rocketchat/actions.ts#L150) | call:POST | 'subscriptions.read' |
+| [apps/mobile/providers/rocketchat/actions.ts:150](../../apps/mobile/providers/rocketchat/actions.ts#L150) | endpoint | subscriptions.read |
+| [apps/mobile/providers/rocketchat/actions.ts:155](../../apps/mobile/providers/rocketchat/actions.ts#L155) | call:POST | 'rooms.saveNotification' |
+| [apps/mobile/providers/rocketchat/actions.ts:155](../../apps/mobile/providers/rocketchat/actions.ts#L155) | endpoint | rooms.saveNotification |
+| [apps/mobile/providers/rocketchat/actions.ts:162](../../apps/mobile/providers/rocketchat/actions.ts#L162) | call:POST | 'subscriptions.unread' |
+| [apps/mobile/providers/rocketchat/actions.ts:162](../../apps/mobile/providers/rocketchat/actions.ts#L162) | endpoint | subscriptions.unread |
+| [apps/mobile/providers/rocketchat/actions.ts:168](../../apps/mobile/providers/rocketchat/actions.ts#L168) | call:POST | 'im.create' |
+| [apps/mobile/providers/rocketchat/actions.ts:168](../../apps/mobile/providers/rocketchat/actions.ts#L168) | endpoint | im.create |
 | [apps/mobile/providers/rocketchat/admin.ts:233](../../apps/mobile/providers/rocketchat/admin.ts#L233) | call:GET | 'me' |
 | [apps/mobile/providers/rocketchat/admin.ts:239](../../apps/mobile/providers/rocketchat/admin.ts#L239) | call:GET | 'statistics' |
 | [apps/mobile/providers/rocketchat/admin.ts:240](../../apps/mobile/providers/rocketchat/admin.ts#L240) | call:GET | 'roles.getUsersInRole' |
@@ -672,18 +674,18 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/ui/discussion.tsx:33](../../apps/mobile/ui/discussion.tsx#L33) | endpoint | rooms.info |
 | [apps/mobile/ui/discussion.tsx:35](../../apps/mobile/ui/discussion.tsx#L35) | call:POST | 'channels.join' |
 | [apps/mobile/ui/discussion.tsx:35](../../apps/mobile/ui/discussion.tsx#L35) | endpoint | channels.join |
-| [apps/mobile/ui/messages.ts:983](../../apps/mobile/ui/messages.ts#L983) | endpoint | e2e.title |
-| [apps/mobile/ui/messages.ts:984](../../apps/mobile/ui/messages.ts#L984) | endpoint | e2e.explanation |
-| [apps/mobile/ui/messages.ts:986](../../apps/mobile/ui/messages.ts#L986) | endpoint | e2e.field |
-| [apps/mobile/ui/messages.ts:987](../../apps/mobile/ui/messages.ts#L987) | endpoint | e2e.unlock |
-| [apps/mobile/ui/messages.ts:988](../../apps/mobile/ui/messages.ts#L988) | endpoint | e2e.wrongPassword |
-| [apps/mobile/ui/messages.ts:989](../../apps/mobile/ui/messages.ts#L989) | endpoint | e2e.genericError |
-| [apps/mobile/ui/messages.ts:2373](../../apps/mobile/ui/messages.ts#L2373) | endpoint | e2e.title |
-| [apps/mobile/ui/messages.ts:2374](../../apps/mobile/ui/messages.ts#L2374) | endpoint | e2e.explanation |
-| [apps/mobile/ui/messages.ts:2376](../../apps/mobile/ui/messages.ts#L2376) | endpoint | e2e.field |
-| [apps/mobile/ui/messages.ts:2377](../../apps/mobile/ui/messages.ts#L2377) | endpoint | e2e.unlock |
-| [apps/mobile/ui/messages.ts:2378](../../apps/mobile/ui/messages.ts#L2378) | endpoint | e2e.wrongPassword |
-| [apps/mobile/ui/messages.ts:2379](../../apps/mobile/ui/messages.ts#L2379) | endpoint | e2e.genericError |
+| [apps/mobile/ui/messages.ts:991](../../apps/mobile/ui/messages.ts#L991) | endpoint | e2e.title |
+| [apps/mobile/ui/messages.ts:992](../../apps/mobile/ui/messages.ts#L992) | endpoint | e2e.explanation |
+| [apps/mobile/ui/messages.ts:994](../../apps/mobile/ui/messages.ts#L994) | endpoint | e2e.field |
+| [apps/mobile/ui/messages.ts:995](../../apps/mobile/ui/messages.ts#L995) | endpoint | e2e.unlock |
+| [apps/mobile/ui/messages.ts:996](../../apps/mobile/ui/messages.ts#L996) | endpoint | e2e.wrongPassword |
+| [apps/mobile/ui/messages.ts:997](../../apps/mobile/ui/messages.ts#L997) | endpoint | e2e.genericError |
+| [apps/mobile/ui/messages.ts:2389](../../apps/mobile/ui/messages.ts#L2389) | endpoint | e2e.title |
+| [apps/mobile/ui/messages.ts:2390](../../apps/mobile/ui/messages.ts#L2390) | endpoint | e2e.explanation |
+| [apps/mobile/ui/messages.ts:2392](../../apps/mobile/ui/messages.ts#L2392) | endpoint | e2e.field |
+| [apps/mobile/ui/messages.ts:2393](../../apps/mobile/ui/messages.ts#L2393) | endpoint | e2e.unlock |
+| [apps/mobile/ui/messages.ts:2394](../../apps/mobile/ui/messages.ts#L2394) | endpoint | e2e.wrongPassword |
+| [apps/mobile/ui/messages.ts:2395](../../apps/mobile/ui/messages.ts#L2395) | endpoint | e2e.genericError |
 | [apps/mobile/ui/realNames.ts:47](../../apps/mobile/ui/realNames.ts#L47) | call:GET | 'settings.public' |
 | [apps/mobile/ui/realNames.ts:47](../../apps/mobile/ui/realNames.ts#L47) | endpoint | settings.public |
 | [apps/mobile/ui/serverRail.tsx:41](../../apps/mobile/ui/serverRail.tsx#L41) | endpoint | subscriptions.get |

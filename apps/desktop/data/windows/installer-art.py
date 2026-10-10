@@ -148,7 +148,8 @@ def back_image(size):
     return sky(
         size,
         seed=42,
-        sparkles=7,
+        # Sparkles would land behind the pages' text: dust and nebulae only.
+        sparkles=0,
         dots=round(w * h / 2500),
         glows=[((1.0, 0.0), 0.3, PINK, 45), ((0.0, 1.0), 0.35, TEAL, 40), ((0.75, 0.85), 0.25, VIOLET, 30)],
         spark=(0.006, 0.013),

@@ -43,14 +43,14 @@ Name: "fr"; MessagesFile: "compiler:Languages\French.isl"
 
 [Messages]
 en.WelcomeLabel1=Ready for liftoff
-en.WelcomeLabel2=[name/ver] is about to land on your computer: your Rocket.Chat, with good vibes.%n%nClick Next when you are ready.
+en.WelcomeLabel2=[name/ver] is about to land on your computer: your Rocket.Chat, with good vibes.
 en.InstallingLabel=Fueling up [name], hang tight...
 en.FinishedHeadingLabel=Liftoff!
 en.FinishedLabelNoIcons=[name] is installed and ready to fly.
 en.FinishedLabel=[name] is installed and ready to fly. Find it any time from its shortcut.
 en.UninstalledAll=%1 has left orbit. See you soon!
 fr.WelcomeLabel1=Prêt au décollage
-fr.WelcomeLabel2=[name/ver] s'apprête à se poser sur votre ordinateur : votre Rocket.Chat, en bonnes vibrations.%n%nCliquez sur Suivant quand vous êtes prêt.
+fr.WelcomeLabel2=[name/ver] s'apprête à se poser sur votre ordinateur : votre Rocket.Chat, en bonnes vibrations.
 fr.InstallingLabel=On fait le plein de [name], encore un instant...
 fr.FinishedHeadingLabel=Décollage !
 fr.FinishedLabelNoIcons=[name] est installé et prêt à voler.

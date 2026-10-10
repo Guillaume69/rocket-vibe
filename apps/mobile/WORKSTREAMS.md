@@ -458,7 +458,7 @@ Found by the Mattermost/kChat branch review (2026-10-09), kept for later:
 - [ ] 🟢 **A replay made while the first `POST /posts` is still being saved may answer `api.post.deduplicate_create_post.pending`** (not verified on the bench): the outbox would mark the row failed, then the post appears.
 - [ ] 🟢 **Mattermost stars changed in another client do not show live** (`preferences_changed` is quiet on mobile, `users/me/preferences/flagged_post` never loaded); the desktop does both. Parity debt in `brain/parity.md`.
 - [ ] 🟢 **A live Mattermost reply does not move its root's "N replies"** until the next room catch-up (`thread_updated` is quiet), both apps.
-- [ ] 🟢 **Muted Mattermost channels (`notify_props.mark_unread: "mention"`) count as unread** and rise into Unread, both apps.
+- [ ] 🟢 (mobile fixed 2026-10-10: `membershipCounts` counts a muted membership's mentions as its unread; the desktop still counts every message) **Muted Mattermost channels (`notify_props.mark_unread: "mention"`) count as unread** and rise into Unread, both apps.
 - [ ] 🟢 **Search in a Mattermost room asks the whole team for 60 hits, then keeps the room's**: a busy team can leave nothing for the room, both apps.
 - [ ] 🟢 **kChat logout does not revoke the OAuth token the app obtained** (it never expires; no revocation route probed), and `lib/mediaAuth.ts` bearers and `authorized-media/` copies outlive the session.
 

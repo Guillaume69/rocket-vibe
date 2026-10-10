@@ -265,6 +265,9 @@ export class MmTranslator implements Translator {
 /**
  * Unread ROOT posts (replies live in threads, as on the screen) and mentions of
  * one membership. Servers without the root counters fall back on the totals.
+ * A muted channel (`notify_props.mark_unread: "mention"`) counts its mentions
+ * as its unread, as the web client does: plain messages neither bolden it nor
+ * lift it into Unread, a mention still shows its `@n` badge.
  */
 export function membershipCounts(channel: Record<string, unknown>, member: Record<string, unknown>): { unread: number; mentions: number } {
   const rootTotal = channel.total_msg_count_root;
@@ -272,8 +275,9 @@ export function membershipCounts(channel: Record<string, unknown>, member: Recor
   const unread = useRoot
     ? num(rootTotal) - num(member.msg_count_root)
     : num(channel.total_msg_count) - num(member.msg_count);
+  const muted = (member.notify_props as { mark_unread?: unknown } | undefined)?.mark_unread === 'mention';
   // Mattermost counts every message of a DM as a mention; the list shows a DM's unread count instead.
-  return { unread: Math.max(0, unread), mentions: channel.type === 'D' ? 0 : num(member.mention_count) };
+  return { unread: muted ? num(member.mention_count) : Math.max(0, unread), mentions: channel.type === 'D' ? 0 : num(member.mention_count) };
 }
 
 /** Mattermost OpenGraph embeds to the `urls` shape `lib/linkPreview.ts` reads. */

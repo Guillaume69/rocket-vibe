@@ -59,7 +59,16 @@ pub struct Composer {
     note_bar: gtk::Box,
     note_body: gtk::Box,
     note: RefCell<String>,
+    /// "Send later", by the send button (RocketVibe `scheduled_messages`).
+    later: gtk::MenuButton,
+    /// "N scheduled", above the field: opens the list.
+    scheduled_chip: gtk::Button,
+    scheduler: RefCell<Option<Rc<crate::scheduled::Scheduler>>>,
+    /// The RocketVibe room (and thread root) bound, for `rearm_schedule`.
+    schedule_target: RefCell<Option<ScheduleTarget>>,
 }
+
+type ScheduleTarget = (Arc<rv_core::native::NativeSession>, String, Option<String>);
 
 /// The server's slash commands, and what I may run in the bound room.
 #[derive(Default)]
@@ -243,9 +252,26 @@ impl Composer {
             .valign(gtk::Align::End)
             .build();
         pill.append(&mic);
+        // A chevron by the send button: "Send later" (pan-up-symbolic, one of GTK's own icons).
+        let later = gtk::MenuButton::builder()
+            .icon_name("pan-up-symbolic")
+            .tooltip_text(t("scheduled.send_later"))
+            .direction(gtk::ArrowType::Up)
+            .has_frame(false)
+            .css_classes(["circular", "send-later"])
+            .valign(gtk::Align::End)
+            .visible(false)
+            .build();
         let field = gtk::Box::builder().spacing(10).build();
         field.append(&pill);
+        field.append(&later);
         field.append(&send);
+        let scheduled_chip = gtk::Button::builder()
+            .halign(gtk::Align::Start)
+            .css_classes(["pill", "small", "scheduled-chip"])
+            .tooltip_text(t("scheduled.title"))
+            .visible(false)
+            .build();
 
         let record_time =
             gtk::Label::builder().label("0:00").css_classes(["record-time"]).hexpand(true).xalign(0.0).build();
@@ -310,6 +336,7 @@ impl Composer {
             .margin_start(14)
             .margin_end(14)
             .build();
+        root.append(&scheduled_chip);
         root.append(&note_bar);
         root.append(&reply_bar);
         root.append(&staged.root);
@@ -361,6 +388,29 @@ impl Composer {
             note_bar,
             note_body,
             note: RefCell::default(),
+            later: later.clone(),
+            scheduled_chip: scheduled_chip.clone(),
+            scheduler: RefCell::default(),
+            schedule_target: RefCell::default(),
+        });
+        let weak = Rc::downgrade(&this);
+        crate::scheduled::menu(&later, move |choice| {
+            if let Some(this) = weak.upgrade() {
+                this.choose_later(choice);
+            }
+        });
+        let weak = Rc::downgrade(&this);
+        scheduled_chip.connect_clicked(move |_| {
+            let scheduler = weak.upgrade().and_then(|this| this.scheduler.borrow().clone());
+            if let Some(scheduler) = scheduler {
+                scheduler.open_list();
+            }
+        });
+        let weak = Rc::downgrade(&this);
+        this.staged.root.connect_visible_notify(move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.update_later();
+            }
         });
         let weak = Rc::downgrade(&this);
         mic.connect_clicked(move |_| {
@@ -428,6 +478,7 @@ impl Composer {
                 changed(text);
             }
             this.update_completion();
+            this.update_later();
         });
         let weak = Rc::downgrade(&this);
         this.choices.connect_row_activated(move |_, row| {
@@ -644,7 +695,7 @@ impl Composer {
         self.custom_names.replace(Some(Rc::new(move || s.custom_emoji_names())));
     }
 
-    pub fn bind_native(&self, session: &Arc<rv_core::native::NativeSession>, rid: &str) {
+    pub fn bind_native(self: &Rc<Self>, session: &Arc<rv_core::native::NativeSession>, rid: &str) {
         self.unbind_native();
         let files = session.supported_features().iter().any(|f| f == "uploads");
         self.quote_author.files.set(files);
@@ -660,6 +711,8 @@ impl Composer {
         self.custom_emoji.replace(Some(Rc::new(move |prefix: &str| s.custom_emoji_codes(prefix))));
         let s = session.clone();
         self.custom_names.replace(Some(Rc::new(move || s.custom_emoji_names())));
+        self.schedule_target.replace(Some((session.clone(), rid.to_owned(), None)));
+        self.rearm_schedule();
         let (store, rid, session) = (session.store.clone(), rid.to_owned(), session.clone());
         self.connect_changed(move |text| {
             let _ = store.set_draft_from_membership(&rid, &text, membership.as_deref());
@@ -672,6 +725,9 @@ impl Composer {
         });
     }
     pub fn unbind_native(&self) {
+        self.schedule_target.replace(None);
+        self.scheduler.replace(None);
+        self.update_later();
         self.close_ordinary_quote();
         self.quote_author.binding.set(self.quote_author.binding.get().wrapping_add(1));
         self.quote_author.sending.set(false);
@@ -707,13 +763,15 @@ impl Composer {
         });
     }
     pub fn bind_native_thread(
-        &self,
+        self: &Rc<Self>,
         session: &Arc<rv_core::native::NativeSession>,
         rid: &str,
         root: &str,
         membership: Option<String>,
     ) {
         self.bind_native(session, rid);
+        self.schedule_target.replace(Some((session.clone(), rid.to_owned(), Some(root.to_owned()))));
+        self.rearm_schedule();
         self.on_changed.replace(None);
         self.set_text(
             &session.store.thread_draft_from_membership(rid, root, membership.as_deref()).unwrap_or_default(),
@@ -932,6 +990,7 @@ impl Composer {
         self.reply_link.replace(Some(permalink));
         self.reply_bar.set_visible(true);
         self.grab_focus();
+        self.update_later();
     }
 
     pub fn clear_reply(&self) {
@@ -945,12 +1004,14 @@ impl Composer {
         self.reply_title.set_label("");
         self.reply_preview.set_label("");
         self.reply_bar.set_visible(false);
+        self.update_later();
     }
 
     pub fn set_native_reply(&self, name: &str, preview: &str, selection: rv_core::native::store::QuoteSelection) {
         self.set_reply(name, preview, String::new());
         self.reply_link.replace(None);
         self.native_reply.replace(Some(selection));
+        self.update_later();
     }
 
     pub fn native_reply(&self) -> Option<rv_core::native::store::QuoteSelection> {
@@ -991,6 +1052,126 @@ impl Composer {
             self.reply_title.set_label(t("quote.unavailable"));
             self.reply_preview.set_label("");
         }
+    }
+
+    /// Arms "Send later" and the scheduled list for the bound RocketVibe room
+    /// when its server offers them and the room is not encrypted; disarms them
+    /// otherwise. Called on binding and whenever the session changes.
+    pub fn rearm_schedule(self: &Rc<Self>) {
+        let target = self.schedule_target.borrow().clone();
+        let wanted = target.filter(|(session, rid, _)| session.can_schedule(rid));
+        let current = self.scheduler.borrow().clone();
+        match (wanted, current) {
+            (None, Some(_)) => {
+                self.scheduler.replace(None);
+            }
+            (Some((session, rid, root)), current)
+                if current
+                    .as_ref()
+                    .is_none_or(|c| !Arc::ptr_eq(&c.session, &session) || c.room != rid || c.root != root) =>
+            {
+                let weak = Rc::downgrade(self);
+                let report: Rc<dyn Fn(String)> = Rc::new(move |text| {
+                    if let Some(this) = weak.upgrade() {
+                        this.report(text);
+                    }
+                });
+                // The previous one goes first: it hides the chip they share.
+                self.scheduler.replace(None);
+                let scheduler = crate::scheduled::Scheduler::new(
+                    session,
+                    &rid,
+                    root.as_deref(),
+                    &self.scheduled_chip,
+                    self.root.upcast_ref(),
+                    report,
+                );
+                self.scheduler.replace(Some(scheduler));
+            }
+            _ => {}
+        }
+        self.update_later();
+    }
+
+    /// "Send later" shows with text in the field and nothing staged, quoted
+    /// or recording: the server keeps text only.
+    fn update_later(&self) {
+        let shown = self.scheduler.borrow().is_some()
+            && !self.text().trim().is_empty()
+            && self.staged.is_empty()
+            && self.native_reply.borrow().is_none()
+            && self.private_reply.borrow().is_none()
+            && self.reply_link.borrow().is_none()
+            && self.recorder.borrow().is_none();
+        if self.later.is_visible() != shown {
+            self.later.set_visible(shown);
+        }
+    }
+
+    fn choose_later(self: &Rc<Self>, choice: crate::scheduled::Choice) {
+        match crate::scheduled::instant(choice) {
+            Some(at) => self.schedule_at(at),
+            None => {
+                let weak = Rc::downgrade(self);
+                crate::scheduled::pick(self.root.upcast_ref(), move |at| {
+                    if let Some(this) = weak.upgrade() {
+                        this.schedule_at(at);
+                    }
+                });
+            }
+        }
+    }
+
+    /// Schedules the field's text; on success the field clears (unless
+    /// something else was typed meanwhile) and the notice says when it leaves.
+    fn schedule_at(self: &Rc<Self>, at: chrono::DateTime<chrono::Utc>) {
+        let Some(scheduler) = self.scheduler.borrow().clone() else { return };
+        let text = self.text();
+        if text.trim().is_empty() || !self.staged.is_empty() || self.native_reply.borrow().is_some() {
+            return;
+        }
+        self.completion.popdown();
+        let weak = Rc::downgrade(self);
+        let sent = text.clone();
+        scheduler.schedule(text, at, move || {
+            if let Some(this) = weak.upgrade()
+                && this.text() == sent
+            {
+                this.set_text("");
+            }
+        });
+    }
+
+    /// Chooses "In 1 hour" (`true`) or "Tomorrow at 08:00", as a click would.
+    pub fn schedule_preset(self: &Rc<Self>, in_one_hour: bool) {
+        self.choose_later(if in_one_hour {
+            crate::scheduled::Choice::InOneHour
+        } else {
+            crate::scheduled::Choice::TomorrowMorning
+        });
+    }
+
+    /// Opens the scheduled list, as a click on the chip does.
+    pub fn open_scheduled_list(&self) {
+        let scheduler = self.scheduler.borrow().clone();
+        if let Some(scheduler) = scheduler {
+            scheduler.open_list();
+        }
+    }
+
+    /// Reads the scheduled list again now.
+    pub fn refresh_scheduled(&self) {
+        let scheduler = self.scheduler.borrow().clone();
+        if let Some(scheduler) = scheduler {
+            scheduler.refresh();
+        }
+    }
+
+    /// Whether "Send later" is offered, and the chip's label while it shows.
+    pub fn schedule_state(&self) -> (bool, Option<String>) {
+        let chip =
+            self.scheduled_chip.is_visible().then(|| self.scheduled_chip.label().unwrap_or_default().to_string());
+        (self.later.is_visible(), chip)
     }
 
     /// Sends as the Enter key would.

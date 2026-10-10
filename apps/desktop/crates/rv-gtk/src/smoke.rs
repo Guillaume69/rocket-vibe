@@ -58,6 +58,10 @@
 //!                          then switches back to the first
 //!   RV_SMOKE_E2E=<password>  unlocks encrypted rooms (a wrong one first must be refused)
 //!   RV_SMOKE_VOICE=1       records two seconds (RV_AUDIO_SOURCE picks the source) and sends them
+//!   RV_SMOKE_SCHEDULE=<tag>  RocketVibe: types "scheduled <tag>", "Send later" must show; schedules
+//!                          it "In 1 hour": the field clears and the chip shows; cancels it from
+//!                          the list's data, then the list read again no longer has it
+//!                          (RV_SMOKE_SCHEDULE_HOLD=1: left scheduled, the list open, for a screenshot)
 //!   RV_SMOKE_REENTER=1     after opening the room: back to the list, tap the same room, expect it open
 //!   RV_SMOKE_EDIT=<tag>    sends "<tag> before", presses Up, types "<tag> after" in the row
 //!                          and saves after RV_SMOKE_EDIT_SAVE_MS (default 3000)
@@ -348,6 +352,12 @@ pub fn install(window: &Rc<AppWindow>) {
                         }
                     });
                 });
+            }
+            if let Ok(tag) = std::env::var("RV_SMOKE_SCHEDULE")
+                && !tag.is_empty()
+            {
+                let (chat, rid) = (w.chat.clone(), rid.clone());
+                glib::timeout_add_local_once(Duration::from_millis(2500), move || schedule_checks(chat, rid, tag));
             }
             if std::env::var("RV_SMOKE_FILES").as_deref() == Ok("1") {
                 let chat = w.chat.clone();
@@ -1255,6 +1265,50 @@ async fn switcher_checks(
     search.emit_activate();
     glib::timeout_future(Duration::from_millis(500)).await;
     check("Enter opens it", chat.current_rid().as_deref() == Some(to.rid.as_str()), chat.current_rid());
+}
+
+/// "Send later" in a RocketVibe room: offered with text, scheduling clears the
+/// field and shows the chip; cancelled, the server's list no longer has it.
+fn schedule_checks(chat: std::rc::Rc<crate::chat::ChatPage>, rid: String, tag: String) {
+    let Some(session) = chat.native_session() else {
+        check("schedule: a RocketVibe session", false, "none");
+        return;
+    };
+    let composer = chat.composer_rc();
+    check("schedule: hidden with an empty field", !composer.schedule_state().0, composer.schedule_state());
+    let text = format!("scheduled {tag}");
+    composer.set_text(&text);
+    let (offered, _) = composer.schedule_state();
+    check("schedule: send later offered", offered, offered);
+    composer.schedule_preset(true);
+    glib::timeout_add_local_once(Duration::from_millis(4000), move || {
+        check("schedule: the field cleared", composer.text().is_empty(), composer.text());
+        let (_, chip) = composer.schedule_state();
+        check("schedule: the chip shows", chip.is_some(), &chip);
+        if std::env::var("RV_SMOKE_SCHEDULE_HOLD").as_deref() == Ok("1") {
+            // Left scheduled, the list open over a new draft: for a screenshot.
+            composer.set_text("another draft");
+            composer.open_scheduled_list();
+            return;
+        }
+        glib::spawn_future_local(async move {
+            let (s, r, t) = (session.clone(), rid.clone(), text.clone());
+            let cancelled = crate::on_tokio(async move {
+                let list = s.scheduled_messages(&r).await?;
+                let Some(made) = list.into_iter().find(|m| m.text == t) else {
+                    return Ok::<_, rv_core::native::Error>(false);
+                };
+                s.cancel_scheduled(&made.id).await?;
+                Ok(!s.scheduled_messages(&r).await?.iter().any(|m| m.text == t))
+            })
+            .await;
+            check("schedule: listed, then cancelled", matches!(cancelled, Ok(true)), &cancelled);
+            composer.refresh_scheduled();
+            glib::timeout_add_local_once(Duration::from_millis(2000), move || {
+                println!("smoke: schedule: chip after cancel: {:?}", composer.schedule_state().1);
+            });
+        });
+    });
 }
 
 fn check(label: &str, ok: bool, detail: impl std::fmt::Debug) {

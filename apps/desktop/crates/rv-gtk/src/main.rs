@@ -40,6 +40,7 @@ mod reactions;
 mod recorder;
 mod room_notifications;
 mod rows;
+mod scheduled;
 mod secrets;
 mod settings;
 mod sidebar_dialog;

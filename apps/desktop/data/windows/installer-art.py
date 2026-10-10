@@ -135,7 +135,7 @@ def small_image(size):
     diagonally, on a transparent ground."""
     ship = rocket().rotate(-35, resample=Image.BICUBIC, expand=True)
     ship = ship.crop(ship.getbbox())
-    scale = size * 0.94 / max(ship.size)
+    scale = size * 0.8 / max(ship.size)
     ship = ship.resize((round(ship.width * scale), round(ship.height * scale)), Image.LANCZOS)
     image = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     image.alpha_composite(ship, ((size - ship.width) // 2, (size - ship.height) // 2))
@@ -157,8 +157,71 @@ def back_image(size):
     ).convert("RGB")
 
 
+RAINBOW = [(255, 94, 126), (255, 159, 69), (255, 216, 74), (95, 224, 138), (72, 184, 255), (155, 123, 255)]
+
+
+def pill(size):
+    """The main button: a pink to teal pill with a soft top sheen. Its
+    caption is a label the script lays over it."""
+    w, h = size
+    big = (w * SS, h * SS)
+    fill = Image.new("RGBA", big)
+    draw = ImageDraw.Draw(fill)
+    for x in range(big[0]):
+        t = x / (big[0] - 1)
+        draw.line((x, 0, x, big[1]), fill=tuple(round(a + (b - a) * t) for a, b in zip(PINK, TEAL)) + (255,))
+    sheen = Image.new("RGBA", big, (0, 0, 0, 0))
+    ImageDraw.Draw(sheen).rounded_rectangle(
+        (big[1] * 0.3, big[1] * 0.08, big[0] - big[1] * 0.3, big[1] * 0.45), radius=big[1] * 0.2, fill=(255, 255, 255, 34)
+    )
+    fill = Image.alpha_composite(fill, sheen.filter(ImageFilter.GaussianBlur(big[1] * 0.06)))
+    mask = Image.new("L", big, 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, big[0] - 1, big[1] - 1), radius=big[1] / 2, fill=255)
+    fill.putalpha(mask)
+    return fill.resize(size, Image.LANCZOS)
+
+
+def rocket_sideways(height):
+    """The progress rocket, nose to the right."""
+    ship = rocket().rotate(-90, resample=Image.BICUBIC, expand=True)
+    ship = ship.crop(ship.getbbox())
+    return ship.resize((round(ship.width * height / ship.height), height), Image.LANCZOS)
+
+
+def rainbow(size):
+    """The progress trail: six bands, fading out at the tail (left). The
+    script stretches it lengthwise only, which bands do not mind."""
+    w, h = size
+    image = Image.new("RGBA", size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    band = h / len(RAINBOW)
+    for i, color in enumerate(RAINBOW):
+        draw.rectangle((0, round(i * band), w, round((i + 1) * band) - 1), fill=color + (255,))
+    fade = Image.new("L", size)
+    fade_draw = ImageDraw.Draw(fade)
+    for x in range(w):
+        fade_draw.line((x, 0, x, h), fill=round(255 * min(1.0, x / (w * 0.35)) ** 1.5))
+    image.putalpha(ImageChops.multiply(image.getchannel("A"), fade))
+    return image
+
+
+def track(size):
+    """Where the rocket is headed: a faint rounded lane."""
+    w, h = size
+    big = Image.new("RGBA", (w * SS, h * SS), (0, 0, 0, 0))
+    ImageDraw.Draw(big).rounded_rectangle(
+        (0, 0, w * SS - 1, h * SS - 1), radius=h * SS / 2, fill=(255, 255, 255, 22), outline=(255, 255, 255, 40), width=SS
+    )
+    return big.resize(size, Image.LANCZOS)
+
+
 def main():
     OUT.mkdir(exist_ok=True)
+    # The script's own controls: drawn at twice their size, stretched by Setup.
+    pill((288, 80)).save(OUT / "pill.png", optimize=True)
+    rocket_sideways(72).save(OUT / "rocket.png", optimize=True)
+    rainbow((1200, 36)).save(OUT / "rainbow.png", optimize=True)
+    track((1200, 36)).save(OUT / "track.png", optimize=True)
     # The image areas at 100%, 150% and 200% scaling (Inno Setup 6.7 help);
     # Setup picks the closest file.
     for w, h in [(202, 386), (336, 643), (430, 824)]:

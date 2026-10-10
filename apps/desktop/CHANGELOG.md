@@ -14,7 +14,7 @@ section here.
 
 ### Changed
 
-- The Windows installer wears the app's night sky: a dark wizard with a starry background, the rocket on the welcome and finish pages, and livelier words (English and French), also during an update.
+- The Windows installer wears the app's night sky: a borderless dark wizard with a starry background, pill buttons, a rocket trailing a rainbow as its progress bar, the rocket on the welcome and finish pages, and livelier words (English and French), also during an update.
 
 ## [0.13.0] - 2026-10-09
 

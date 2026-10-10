@@ -72,7 +72,7 @@ Footguns:
 | `data/com.rocketvibe.app.desktop` | The freedesktop launcher entry: `Exec=rocket-vibe-gtk %u`, `MimeType=x-scheme-handler/rocketvibe;`, `StartupWMClass=com.rocketvibe.app`. Installed by `scripts/install-desktop.sh` (checkout) and `scripts/install.sh` (AppImage). |
 | `data/icons/hicolor/<size>/apps/com.rocketvibe.app.png` | The icon at 32 to 512 px. The 48 and 128 px ones are also compiled into the binary (`rv-gtk/src/icon.rs`) so the window has its icon whether installed or not. |
 | `data/windows/rocket-vibe.ico` | Embedded in the Windows executable by `rv-gtk/build.rs` (winresource). |
-| `data/windows/rocket-vibe.iss` | The Inno Setup script CI compiles into `...-windows-x86_64-setup.exe` (6.7 or later: dark wizard, background color and image). |
+| `data/windows/rocket-vibe.iss` | The Inno Setup script CI compiles into `...-windows-x86_64-setup.exe` (6.7 or later). Its look is `installer-ui.iss`: dark wizard, borderless window, pill buttons, a rocket trailing a rainbow as progress bar. `installer-preview.iss` shows that wizard over a throwaway payload, installing nothing. |
 | `data/windows/installer-art.py`, `data/windows/installer/` | Draws the installer artwork (Pillow, deterministic) from the mobile splash rocket; the PNGs are committed. |
 | `data/macos/Info.plist`, `data/macos/entitlements.plist` | The GTK app's macOS bundle metadata and hardened-runtime entitlements, used by `scripts/package-macos.sh`. |
 | `macos/data/Info.plist`, `macos/data/entitlements.plist` | The SwiftUI app's own (bundle id `com.rocketvibe.app.swiftui`). |

@@ -57,28 +57,43 @@ fn loading(parent: &gtk::Box) -> gtk::Spinner {
     spinner
 }
 
-/// Channel or group: its name, flags, members and texts from `rooms.info`.
+/// The room a Rocket.Chat information dialog is about.
+pub struct RoomInfoTarget<'a> {
+    pub rid: &'a str,
+    pub name: &'a str,
+    pub kind: &'a str,
+    pub avatar: Option<String>,
+}
+
+/// Channel or group: its name, flags, members and texts from `rooms.info`,
+/// its own notifications, an invite link for those who may create one, and
+/// `new_discussion` when the room can host one. `toast` tells what happened.
 pub fn room_info(
     parent: &impl IsA<gtk::Widget>,
     session: Arc<Session>,
-    rid: &str,
-    name: &str,
-    kind: &str,
-    avatar: Option<String>,
-) {
+    room: RoomInfoTarget,
+    new_discussion: Option<Rc<dyn Fn()>>,
+    toast: Rc<dyn Fn(String)>,
+) -> adw::Dialog {
     let content = column();
-    let tile = with_photo(room_tile(name, kind, false, TileSize::Profile), Some(&session), avatar);
+    let tile = with_photo(room_tile(room.name, room.kind, false, TileSize::Profile), Some(&session), room.avatar);
     tile.set_halign(gtk::Align::Center);
     content.append(&tile);
-    content.append(&centered(name, &["details-name"]));
+    content.append(&centered(room.name, &["details-name"]));
     let spinner = loading(&content);
     let dialog = dialog(t("info.room"), content.upcast_ref(), 460);
     crate::widgets::present(&dialog, Some(parent));
-    let rid = rid.to_owned();
+    let rid = room.rid.to_owned();
     let me = session.info.username.clone();
     let notifications = crate::room_notifications::group(&session, &rid);
+    let weak = dialog.downgrade();
     glib::spawn_future_local(async move {
-        let info = on_tokio(async move { session.room_info(&rid).await }).await;
+        let (s, r) = (session.clone(), rid.clone());
+        let (info, invite) = on_tokio(async move {
+            let info = s.room_info(&r).await;
+            (info, s.can_invite(&r).await)
+        })
+        .await;
         spinner.set_visible(false);
         match info {
             Ok(info) => fill_room(&content, &info, &me),
@@ -87,7 +102,84 @@ pub fn room_info(
         if let Some(choice) = notifications {
             content.append(&choice);
         }
+        if invite {
+            content.append(&invite_group(session, rid, toast));
+        }
+        if let Some(start) = new_discussion {
+            let button = gtk::Button::builder()
+                .label(t("discussion.new"))
+                .halign(gtk::Align::Center)
+                .margin_top(8)
+                .css_classes(["new-discussion-button"])
+                .build();
+            button.connect_clicked(move |_| {
+                if let Some(dialog) = weak.upgrade() {
+                    dialog.close();
+                }
+                start();
+            });
+            content.append(&button);
+        }
     });
+    dialog
+}
+
+/// "Create an invite link": `findOrCreateInvite` (7 days, any number of
+/// uses), then the direct link with Copy. Asking again gets the same link.
+fn invite_group(session: Arc<Session>, rid: String, toast: Rc<dyn Fn(String)>) -> gtk::Widget {
+    let group = adw::PreferencesGroup::builder()
+        .title(t("invite.title"))
+        .description(t("invite.hint"))
+        .css_classes(["room-invite"])
+        .margin_top(8)
+        .build();
+    let row = adw::ActionRow::builder().title(t("invite.create")).activatable(true).build();
+    let copy = gtk::Button::builder()
+        .icon_name("edit-copy-symbolic")
+        .tooltip_text(t("invite.copy"))
+        .valign(gtk::Align::Center)
+        .css_classes(["flat", "invite-copy"])
+        .visible(false)
+        .build();
+    row.add_suffix(&copy);
+    group.add(&row);
+    let copied = {
+        let (copy, toast) = (copy.clone(), toast.clone());
+        move |link: &str| {
+            copy.clipboard().set_text(link);
+            toast(t("invite.copied").to_owned());
+        }
+    };
+    let copied = Rc::new(copied);
+    let (target, c) = (row.clone(), copied.clone());
+    copy.connect_clicked(move |_| c(&target.subtitle().unwrap_or_default()));
+    let copy_button = copy.clone();
+    row.connect_activated(move |row| {
+        if let Some(link) = row.subtitle().filter(|s| !s.is_empty()) {
+            copied(&link);
+            return;
+        }
+        row.set_sensitive(false);
+        let (s, r, row, copy, copied, toast) =
+            (session.clone(), rid.clone(), row.clone(), copy_button.clone(), copied.clone(), toast.clone());
+        glib::spawn_future_local(async move {
+            let link = on_tokio(async move { s.invite_link(&r).await }).await;
+            row.set_sensitive(true);
+            match link {
+                Ok(link) => {
+                    row.set_subtitle(&link);
+                    row.set_subtitle_selectable(true);
+                    copy.set_visible(true);
+                    copied(&link);
+                }
+                Err(e) => {
+                    eprintln!("Invite link not created: {e}");
+                    toast(t("invite.failed").to_owned());
+                }
+            }
+        });
+    });
+    group.upcast()
 }
 
 fn fill_room(content: &gtk::Box, info: &RoomInfo, me: &str) {

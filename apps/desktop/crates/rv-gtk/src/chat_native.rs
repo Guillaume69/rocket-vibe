@@ -136,6 +136,8 @@ impl ChatPage {
         let supports = |feature| features.iter().any(|f| f == feature);
         self.search_button.set_sensitive(supports("search"));
         self.marked_button.set_sensitive(supports("pins") && supports("stars"));
+        // Search across rooms reads the Rocket.Chat and Mattermost store only.
+        self.local_search_button.set_visible(false);
     }
 
     pub(super) fn native_rooms(&self) -> Vec<RoomRow> {
@@ -646,7 +648,10 @@ impl ChatPage {
             return;
         }
         match event {
-            RowEvent::JoinCall(_) | RowEvent::CallInfo(_) | RowEvent::VoiceCall { .. } => {}
+            RowEvent::JoinCall(_)
+            | RowEvent::CallInfo(_)
+            | RowEvent::VoiceCall { .. }
+            | RowEvent::OpenDiscussion(_) => {}
             RowEvent::Retry(id) => self.retry(id),
             RowEvent::React { id, shortcode, add } => self.native_react(id, shortcode, add),
             RowEvent::OpenThread(root) => self.open_thread(&root),

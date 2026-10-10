@@ -576,6 +576,45 @@ pub fn video_link_provider(provider: media::Provider, message_id: &str, video: &
     fitted(&card).upcast()
 }
 
+/// A discussion born in the room (`discussion-created`): "Discussion", its
+/// name when it has one, how many messages and when the last one came, Open.
+pub fn discussion(row: &rv_core::store::MessageRow, drid: &str, on_event: OnRowEvent) -> gtk::Widget {
+    let card =
+        gtk::Box::builder().spacing(12).css_classes(["call-card", "discussion-card"]).halign(gtk::Align::Start).build();
+    card.set_widget_name(&format!("discussion-{drid}"));
+    let text = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(2).build();
+    let kind = match row.author.as_deref().filter(|a| !a.is_empty()) {
+        Some(author) => format!("💬 {} · {author}", t("discussion.kind")),
+        None => format!("💬 {}", t("discussion.kind")),
+    };
+    text.append(&gtk::Label::builder().label(kind).xalign(0.0).css_classes(["message-note"]).build());
+    if let Some(name) = row.text.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
+        let name = gtk::Label::builder()
+            .label(name)
+            .xalign(0.0)
+            .wrap(true)
+            .css_classes(["call-title", "discussion-name"])
+            .build();
+        text.append(&name);
+    }
+    let mut summary = crate::i18n::tn("discussion.messages", row.discussion_count);
+    if let Some(last) = row.discussion_last {
+        summary = format!("{summary} · {}", crate::rows::short_time(last));
+    }
+    text.append(&gtk::Label::builder().label(summary).xalign(0.0).css_classes(["message-note"]).build());
+    card.append(&text);
+    let open = gtk::Button::builder()
+        .label(t("discussion.open"))
+        .css_classes(["call-join", "discussion-open"])
+        .valign(gtk::Align::Center)
+        .build();
+    open.set_cursor(pointer().as_ref());
+    let drid = drid.to_owned();
+    open.connect_clicked(move |_| on_event(RowEvent::OpenDiscussion(drid.clone())));
+    card.append(&open);
+    card.upcast()
+}
+
 /// A call message: "Video call" and, when the call is known, Join.
 pub fn call(call_id: Option<&str>, on_event: OnRowEvent) -> gtk::Widget {
     let card = gtk::Box::builder().spacing(12).css_classes(["call-card"]).halign(gtk::Align::Start).build();

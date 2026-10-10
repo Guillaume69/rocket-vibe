@@ -24,6 +24,8 @@ The native RocketVibe server embeds the browser application in its binary. Node 
 
 `uploads.ts` persists preparation/completion operations; voice recordings and photos are staged before Send. `voice.ts` lazily loads LiveKit's Apache-2.0 browser transport for microphone/camera/screenshare calls; it is a transport dependency, not a UI kit. Browser permissions and HTTPS are required outside loopback. Voice grants are scoped to the initiating account and call lifecycle across each asynchronous step. Serialized teardown completes before a new join, and its server request retains the departing session token.
 
+`voice-output.ts` observes native `setSinkId` promises on each call-owned AudioContext because LiveKit's Web Audio output switch does not await them. The native promise remains available to awaited callers; failures from retired calls cannot create notices or unhandled rejections, and new output requests cannot reach a closed context. The lifecycle browser fixture deliberately releases a delayed native sink change after actual call teardown.
+
 The SFU's WebSocket origin being reachable does not prove its ICE candidates are reachable. Firefox/Chromium connection tests exchange actual audio and inspect RTP statistics, with Firefox's standard ICE loopback policy. An initial SDK disconnection leaves error reporting to the awaiting connect handler; it closes the call/context and allows retry. Established disconnections and user cancellation still invalidate the lifecycle immediately.
 
 `security.ts` and `email.ts` expose native TOTP, recovery codes, verified contact and email factors. Native RocketVibe encrypted rooms use the shared Rust MLS engine through a dedicated WASM worker. `crypto/shared` is generated from mobile orchestration; `crypto/vault.ts` seals the complete private worker snapshot with a non-extractable WebCrypto key in separate IndexedDB, under a cross-tab lock and durable revision check. Private messages/drafts never enter the ordinary model, cache or outbox. Files use the native encrypted-object format; decrypted media URLs stay in the live view. Calls require supported frame encryption and the native MLS voice key. Unsupported or unapproved devices remain locked. Browser storage has no independent OS-keystore anti-rollback anchor: see [browser E2EE](../../docs/WEB_E2EE.md) for the delivery trust model and qualification limits. Notifications require a live tab; closed-tab Web Push is not implemented.
@@ -52,6 +54,9 @@ The SFU's WebSocket origin being reachable does not prove its ICE candidates are
 - apps/web/src/media.ts
 - apps/web/src/uploads.ts
 - apps/web/src/voice.ts
+- apps/web/src/voice-output.ts
+- apps/web/tests/voice-output.test.ts
+- apps/web/tests/voice-lifecycle.mjs
 - apps/web/tests/voice.mjs
 - apps/web/tests/voice-connection.mjs
 - apps/web/src/security.ts

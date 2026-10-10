@@ -74,6 +74,10 @@ The continuous web gate passes on `42ec65e7`: [CI evidence](https://github.com/G
 
 The React ownership and remaining native page/editor/media adapters are explicit in [WEB_REACT.md](WEB_REACT.md). Existing per-row parity debts remain below; a React rewrite does not establish complete GTK pixel parity or closed-tab behavior.
 
+## Post-merge CI regression, 2026-10-10
+
+The workflows on `34217cb3` exposed a late native `AudioContext.setSinkId` rejection during call teardown and a GTK quote fixture opening a menu without waiting for confirmation in the rendered timeline. The browser lifecycle fixture now deliberately holds the native sink change until the actual context is closed: it fails on the preceding controller with the same CI error, and passes against the corrected embedded bundle. All 28 affected voice scenarios and 53 Node tests pass locally. The GTK fixture waits for the current conversation's confirmed rendered row and uses that row for its menu event. The complete actual-GTK quote/thread/search/profile/typing smoke passes, alongside the Fedora gate's 566 passing tests and eight intentionally ignored tests.
+
 ## GTK inventory
 
 GTK baseline is inherited, not a new verification claim. Web status refers to the native provider; mappings and exclusions follow the accepted origin/account/encryption scope.

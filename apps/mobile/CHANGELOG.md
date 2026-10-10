@@ -35,6 +35,7 @@ release, and its notes are that version's section here.
 
 ### Fixed
 
+- On Mattermost and kChat, a room that changed more than a thousand times while the app was away reloads its newest messages instead of keeping a history with holes.
 - On Mattermost and kChat, a message whose send answer was lost (a network drop) is looked for before it goes out again, instead of posting it twice once the server has forgotten it.
 
 - Quote cards show emoji as glyphs instead of their `:shortcodes:`.

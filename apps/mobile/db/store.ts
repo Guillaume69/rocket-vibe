@@ -57,6 +57,7 @@ import {
   UPDATE_MESSAGE_TEXT,
   UPDATE_MESSAGE_MARKS,
   UPDATE_THREAD_FOLLOWERS,
+  CLEAR_ROOM_MESSAGES,
   SEARCH_MESSAGES,
   searchPattern,
   HIDE_ENCRYPTED_MESSAGES,
@@ -266,6 +267,10 @@ export function createStore(raw: SQLiteDatabase, serially: WriteQueue): Store {
     updateThreadFollowers: (id, followers) =>
       serially(async () => {
         await raw.runAsync(UPDATE_THREAD_FOLLOWERS, [followers, id]);
+      }),
+    clearRoomMessages: (rid) =>
+      serially(async () => {
+        await raw.runAsync(CLEAR_ROOM_MESSAGES, [rid]);
       }),
     hideEncryptedMessages: () =>
       serially(async () => {

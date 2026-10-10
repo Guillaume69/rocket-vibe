@@ -77,6 +77,24 @@ describe('MmCatchUp', () => {
     assert.equal(messages.has('p2'), false);
   });
 
+  test('room: a full since= answer drops the cache and reloads the newest page', async () => {
+    const flood = Array.from({ length: 1000 }, (_, i) => post(`f${i}`, { channel_id: 'ch1', update_at: 20 + i, message: `m${i}` }));
+    const { catchUp, engine, messages, store } = setup((call) => {
+      if (call.path !== '/channels/ch1/posts') return undefined;
+      if (call.query.get('since') !== null) return { body: postList(flood) };
+      return { body: postList([post('newest', { channel_id: 'ch1', update_at: 5000, message: 'newest' })]) };
+    });
+    const translate = new MmTranslator(new MmDirectory(new MmClient('http://x', null)), 'u-me');
+    await store.upsertMessage(translate.toMessage(post('stale', { channel_id: 'ch1', update_at: 10 }))!);
+    // An optimistic send still in the outbox survives.
+    await store.upsertMessage({ ...translate.toMessage(post('mine', { channel_id: 'ch1' }))!, updatedAt: 0 });
+    await catchUp.room(engine, 'ch1', () => false);
+    assert.equal(messages.has('stale'), false, 'the unvouched cache is gone');
+    assert.equal(messages.has('f0'), false, 'the full answer is not ingested');
+    assert.equal(messages.get('newest')?.text, 'newest');
+    assert.equal(messages.has('mine'), true);
+  });
+
   test('reconcile: the live rooms are kept, the rest purged', async () => {
     const { catchUp, engine, purges } = setup();
     await catchUp.reconcile(engine, () => false);

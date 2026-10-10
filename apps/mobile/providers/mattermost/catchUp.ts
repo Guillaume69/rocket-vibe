@@ -21,6 +21,8 @@ import type { MmRoomDoc } from './translator.ts';
 type Doc = Record<string, unknown>;
 
 const PREVIEWS = 40;
+/** Rows `?since=` answers at most (read in the 11.11 server), in no promised order. */
+const SINCE_CAP = 1000;
 const PREVIEW_CONCURRENCY = 4;
 const CURSOR_SCOPE = '*';
 const CURSOR_STREAM = 'mm-last-post';
@@ -142,6 +144,18 @@ export class MmCatchUp {
       query: { since },
     });
     const posts = Object.values(list.posts ?? {});
+    // A full answer may have left changes out, in no order, and ingesting it
+    // would move the cursor (the newest `updatedAt`) past them: the cache can no
+    // longer be vouched for. It goes, and the newest page comes back in its place;
+    // older history pages in from the server again when scrolled to.
+    if (posts.length >= SINCE_CAP) {
+      const first = await this.history.page(rid, null);
+      await this.live.ensureAuthors(first);
+      if (isDiscarded()) return;
+      await store.clearRoomMessages(rid);
+      await engine.ingestMessages(first);
+      return;
+    }
     let deleted = posts.filter((p) => typeof p.delete_at === 'number' && p.delete_at > 0).map((p) => String(p.id));
     if (this.deletedRoute) {
       const ids = await this.client.get<unknown>(`/channels/${rid}/deleted_posts`, { query: { since } }).catch(() => []);

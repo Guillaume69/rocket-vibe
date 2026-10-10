@@ -251,6 +251,9 @@ export const UPDATE_MESSAGE_TEXT = `UPDATE messages SET text = ?, attachments = 
 export const UPDATE_MESSAGE_MARKS = `UPDATE messages SET pinned = ?, starred = ? WHERE id = ?`;
 export const UPDATE_THREAD_FOLLOWERS = `UPDATE messages SET thread_followers = ? WHERE id = ?`;
 
+/** A room's cached messages, the optimistic ones (`updated_at` 0, still in the outbox) kept. */
+export const CLEAR_ROOM_MESSAGES = `DELETE FROM messages WHERE rid = ? AND updated_at > 0`;
+
 /**
  * Search across rooms, on the device: the messages this database holds whose
  * text contains the words, newest first. `LIKE` ignores ASCII case only;

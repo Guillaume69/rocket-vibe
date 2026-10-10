@@ -70,7 +70,8 @@ final class SignInWindow: NSObject, WKUIDelegate, WKNavigationDelegate, NSWindow
             }
             return .cancel
         }
-        if target == "about:blank" || kchatIsSignInPage(url: target) {
+        if target == "about:blank" || kchatIsSignInPage(url: target)
+            || navigationAction.targetFrame?.isMainFrame == false {
             return .allow
         }
         if let url = navigationAction.request.url, url.scheme == "https" || url.scheme == "http" {

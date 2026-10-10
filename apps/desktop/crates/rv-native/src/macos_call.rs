@@ -102,7 +102,7 @@ define_class!(
                     }
                     return;
                 }
-                Mode::SignIn(sign_in) => (sign_in.page)(&target),
+                Mode::SignIn(sign_in) => (sign_in.page)(&target) || !is_main_frame(action),
             };
             if allowed {
                 handler.call((WKNavigationActionPolicy::Allow,));
@@ -142,6 +142,13 @@ fn target_of(action: &WKNavigationAction) -> Option<String> {
     // SAFETY: reading the request of the action WebKit hands us.
     let request = unsafe { action.request() };
     request.URL().and_then(|u| u.absoluteString()).map(|s| s.to_string())
+}
+
+/// The page's own frames (Infomaniak's reCAPTCHA) load where they are; only
+/// the page itself leaving goes to the browser.
+fn is_main_frame(action: &WKNavigationAction) -> bool {
+    // SAFETY: reading the target frame of the action WebKit hands us.
+    unsafe { action.targetFrame() }.is_none_or(|frame| unsafe { frame.isMainFrame() })
 }
 
 fn open_in_browser(target: &str) {

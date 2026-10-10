@@ -90,12 +90,18 @@ fn show(anchor: &gtk::Widget, url: &str, caught: Rc<dyn Fn(String)>) -> Result<(
             take(&target);
             return true;
         }
+        // WebKitGTK does not say which frame navigates: what no click started
+        // (the page's reCAPTCHA frames, its script redirects) stays in the window.
+        let clicked = action.is_user_gesture();
         let inside = kind == webkit6::PolicyDecisionType::NavigationAction
-            && (target == "about:blank" || oauth::is_sign_in_page(&target));
+            && (target == "about:blank" || oauth::is_sign_in_page(&target) || !clicked);
         if inside {
             return false;
         }
         decision.ignore();
+        if !clicked {
+            return true;
+        }
         println!("sign-in: left for the browser {target}");
         if target.starts_with("https://") || target.starts_with("http://") {
             crate::cards::open_uri(web, &target);

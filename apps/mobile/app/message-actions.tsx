@@ -423,6 +423,17 @@ export default function MessageActionsScreen() {
     && sync.capabilities.reports === true && message.authorId !== undefined && message.authorId !== me
     && message.deleted !== true && (message.systemType === null || message.systemType === ENCRYPTED_TYPE);
 
+  // Forwarding (Rocket.Chat): the message's permalink as a quote in another
+  // room (`app/forward.tsx`). Not a system message, nor an encrypted one (`e2e`,
+  // every message of an encrypted room): the server could not quote ciphertext.
+  const forwardable = client.kind === 'rocketchat' && actions.includes('reply')
+    && message.systemType === null && message.deleted !== true;
+  const forward = () => {
+    const link = messagePermalink({ baseUrl: client.baseUrl, siteUrl, type: room.type, name: room.name, rid: message.rid, msgId: message.id });
+    router.back();
+    router.push({ pathname: '/forward', params: { link, mid: message.id } });
+  };
+
   // Adding counts one use of the emoji at the tap, before the server
   // answers, as everywhere; a removal counts nothing (`lib/emojiUsage.ts`).
   // On Rocket.Chat an addition goes out under an accepted code of the same
@@ -723,6 +734,9 @@ export default function MessageActionsScreen() {
               label={t('messageActions.reply')}
               onPress={()=>void reply()}
             />
+          )}
+          {forwardable && (
+            <ActionRow c={c} disabled={busy} icon="➡️" label={t('messageActions.forward')} onPress={forward} />
           )}
           {actions.includes('reply') && provider?.native && (
             <ActionRow c={c} disabled={busy} icon="↪️" label={t('messageActions.replyIn')}

@@ -10,6 +10,7 @@ Inputs: the message (author, timestamp, system type, text, attachments, pinned, 
 - **React**: unless the room is read-only.
 - **Reply** (quote): unless read-only or **encrypted**, because the server builds the quote card from the text, which it cannot read there; one answers in a thread instead.
 - **Reply in thread**: unless read-only or already in a thread.
+- **Forward** (Rocket.Chat, mobile so far): where Reply is offered, on an ordinary message. The message's permalink goes as a quote, `[ ](permalink)` alone, to a room picked in `app/forward.tsx` (searchable, encrypted and read-only rooms left out), through the outbox with the local quote card, then the target room opens; the server builds the quote attachment for that room's members (probed on 8.5.1), whether or not they see the source room.
 - **Copy**: when there is text once the leading quote links are stripped (`textToCopy` / `copyable_text`).
 - **Share** (mobile, text or file) and **Save / Download** (a file attachment, `title_link` first since `image_url` is only the thumbnail).
 - **Edit**: (`edit-message` permission, or my message and `Message_AllowEditing`) and within `Message_AllowEditing_BlockEditInMinutes` (0 = no limit). The time limit comes from **settings**, not permissions.
@@ -63,7 +64,7 @@ The same actions come from `rv-ffi` (`Chat::actions`, cached per message per lis
 
 ## Parity
 
-Same rule set in all three apps, delete confirmation included. Desktop adds Up-to-edit; mobile adds the ghost-delete purge and Share. Quick reactions (my top 5) and reacting with any emoji through the picker are in all three. Reporting a message is in all three ([parity](../parity.md) §5).
+Same rule set in all three apps, delete confirmation included. Desktop adds Up-to-edit; mobile adds the ghost-delete purge and Share. Quick reactions (my top 5) and reacting with any emoji through the picker are in all three. Reporting a message is in all three ([parity](../parity.md) §5). Forwarding to another Rocket.Chat room: mobile only so far.
 
 ## Sources
 

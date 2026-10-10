@@ -123,6 +123,7 @@ beta does.
 | React with any emoji (picker from the menu, the server's custom emoji included) | done | done | done | done | Mobile: "+" swaps the sheet's actions for the picker grid; GTK: "+" opens the picker in a popover; SwiftUI: "React with another emoji…" opens it in a popover on the row. Private RocketVibe conversations: standard emoji only. On Rocket.Chat, which accepts only its own emoji codes in `chat.react`, all three send an accepted alias and hide the glyphs it has no code for, from the picker and the quick row ([emoji](features/emoji.md#quick-reactions-and-reacting-with-any-emoji)). Web: Native provider: see [web-client](features/web-client.md). |
 | Report a message to the administrators (`chat.reportMessage`, RocketVibe `reports`) | done | done | done | done | Someone else's non-system message, never a private conversation; a required reason of at most 1,000 characters ([administration](features/administration.md)). SwiftUI checked by the Linux build of RocketVibeKit and the macOS CI build only. Web: Native provider: see [web-client](features/web-client.md). |
 | Reply (quote), reply in thread | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
+| Forward a message to another room (its permalink as a quote, Rocket.Chat) | done | missing | missing | n/a | GTK and SwiftUI owe it. RocketVibe has its own "Reply in…" another room (native quotes). Web: Native-origin client; Rocket.Chat is outside its scope. |
 | Copy text | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | Share an attachment | done | mapped | mapped | mapped | Desktop: download or open. Web: Native browser storage/HTTP/socket, HTTPS links, downloads and live-tab alerts; see web-client.md. |
 | Edit within the server's time limit and permissions (`chat.update`) | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
@@ -305,7 +306,7 @@ gaps, listed last.
 
 - **Mobile**: kChat "Sign in with Infomaniak" run on a real account; Mattermost stars changed elsewhere, live; several accounts per server;
   formatting toolbar; logs folder.
-- **GTK**: kChat "Sign in with Infomaniak"; email 2FA resend; replay of an offline sign-out; padlock tile once
+- **GTK**: forwarding a message (Rocket.Chat); kChat "Sign in with Infomaniak"; email 2FA resend; replay of an offline sign-out; padlock tile once
   unlocked; DM avatar versions in the list; video reduction; reconciliation snapshot; catch-up of
   deletions in rooms already caught up; message retention.
 - **SwiftUI**: everything GTK owes, plus `-wal` / `-shm` cleanup on sign-out;

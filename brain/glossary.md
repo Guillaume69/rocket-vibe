@@ -172,6 +172,7 @@ All code, comments and docs are in English. French survives in two places only: 
 | `message-search.tsx` | Message search in one room. |
 | `marked-messages.tsx` | Pinned and starred messages. |
 | `threads.tsx` | A room's threads, All and Following, with a follow bell per row (Rocket.Chat). |
+| `forward.tsx` | Pick a room to forward a message to, as a permalink quote (Rocket.Chat). |
 | `+native-intent.tsx` | Swallows the iOS share extension's `rocketvibe://dataUrl=` reopen and rewrites an old `salon/` room link to `room/`. |
 
 ## Mobile native (`apps/mobile/modules/`, `apps/mobile/plugins/`)

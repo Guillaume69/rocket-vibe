@@ -319,6 +319,7 @@
     "apps/mobile/app/answer-form.tsx",
     "apps/mobile/app/attach.tsx",
     "apps/mobile/app/call/[callId].tsx",
+    "apps/mobile/app/forward.tsx",
     "apps/mobile/app/index.tsx",
     "apps/mobile/app/login.tsx",
     "apps/mobile/app/marked-messages.tsx",
@@ -4372,37 +4373,37 @@
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2324,
+      "line": 2329,
       "kind": "endpoint",
       "surface": "e2e.title"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2325,
+      "line": 2330,
       "kind": "endpoint",
       "surface": "e2e.explanation"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2327,
+      "line": 2332,
       "kind": "endpoint",
       "surface": "e2e.field"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2328,
+      "line": 2333,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2329,
+      "line": 2334,
       "kind": "endpoint",
       "surface": "e2e.wrongPassword"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2330,
+      "line": 2335,
       "kind": "endpoint",
       "surface": "e2e.genericError"
     },

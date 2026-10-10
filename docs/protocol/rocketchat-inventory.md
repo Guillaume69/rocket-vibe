@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-536 production files scanned; 649 occurrences.
+537 production files scanned; 649 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -646,12 +646,12 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/ui/messages.ts:973](../../apps/mobile/ui/messages.ts#L973) | endpoint | e2e.unlock |
 | [apps/mobile/ui/messages.ts:974](../../apps/mobile/ui/messages.ts#L974) | endpoint | e2e.wrongPassword |
 | [apps/mobile/ui/messages.ts:975](../../apps/mobile/ui/messages.ts#L975) | endpoint | e2e.genericError |
-| [apps/mobile/ui/messages.ts:2324](../../apps/mobile/ui/messages.ts#L2324) | endpoint | e2e.title |
-| [apps/mobile/ui/messages.ts:2325](../../apps/mobile/ui/messages.ts#L2325) | endpoint | e2e.explanation |
-| [apps/mobile/ui/messages.ts:2327](../../apps/mobile/ui/messages.ts#L2327) | endpoint | e2e.field |
-| [apps/mobile/ui/messages.ts:2328](../../apps/mobile/ui/messages.ts#L2328) | endpoint | e2e.unlock |
-| [apps/mobile/ui/messages.ts:2329](../../apps/mobile/ui/messages.ts#L2329) | endpoint | e2e.wrongPassword |
-| [apps/mobile/ui/messages.ts:2330](../../apps/mobile/ui/messages.ts#L2330) | endpoint | e2e.genericError |
+| [apps/mobile/ui/messages.ts:2329](../../apps/mobile/ui/messages.ts#L2329) | endpoint | e2e.title |
+| [apps/mobile/ui/messages.ts:2330](../../apps/mobile/ui/messages.ts#L2330) | endpoint | e2e.explanation |
+| [apps/mobile/ui/messages.ts:2332](../../apps/mobile/ui/messages.ts#L2332) | endpoint | e2e.field |
+| [apps/mobile/ui/messages.ts:2333](../../apps/mobile/ui/messages.ts#L2333) | endpoint | e2e.unlock |
+| [apps/mobile/ui/messages.ts:2334](../../apps/mobile/ui/messages.ts#L2334) | endpoint | e2e.wrongPassword |
+| [apps/mobile/ui/messages.ts:2335](../../apps/mobile/ui/messages.ts#L2335) | endpoint | e2e.genericError |
 | [apps/mobile/ui/realNames.ts:47](../../apps/mobile/ui/realNames.ts#L47) | call:GET | 'settings.public' |
 | [apps/mobile/ui/realNames.ts:47](../../apps/mobile/ui/realNames.ts#L47) | endpoint | settings.public |
 | [apps/mobile/ui/serverRail.tsx:41](../../apps/mobile/ui/serverRail.tsx#L41) | endpoint | subscriptions.get |

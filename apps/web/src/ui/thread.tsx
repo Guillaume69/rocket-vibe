@@ -86,6 +86,14 @@ function ThreadView({ app, options }: { app: App; options: ThreadOptions }) {
         />
         <div ref={editor} className="composer-input rich-composer" />
         <IconButton name="mic" label={t("voice")} action={() => app.record()} />
+        {app.canSchedule() && app.root && (
+          <IconButton
+            name="up"
+            label={t("sendLater")}
+            className="send-later"
+            action={(node) => app.sendLater(node, app.root)}
+          />
+        )}
         <IconButton
           name="send"
           label={t("send")}

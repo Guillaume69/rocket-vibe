@@ -29,6 +29,7 @@
     "test:composer": "node tests/composer.mjs",
     "test:quiet": "node tests/quiet.mjs",
     "test:receipts": "node tests/receipts.mjs",
+    "test:scheduled": "node tests/scheduled.mjs",
     "format": "prettier --write src scripts tests *.js *.json index.html",
     "format:check": "prettier --check src scripts tests *.js *.json index.html"
   },

@@ -1433,6 +1433,11 @@ export const nativeSchema = {
           default: false,
           type: "boolean",
         },
+        scheduled_messages: {
+          default: false,
+          description: "Messages sent later by the server (`scheduled`).",
+          type: "boolean",
+        },
         search: {
           default: false,
           type: "boolean",
@@ -6359,6 +6364,86 @@ export const nativeSchema = {
       enum: ["pending", "waiting", "done", "failed", "cancelled"],
       type: "string",
     },
+    ScheduleMessage: {
+      additionalProperties: false,
+      description:
+        "`POST /api/v1/rooms/{id}/scheduled`. Replaying the same `operation_id`\nreturns the scheduled message it made; that id also becomes the sent\nmessage's, so the send itself can never happen twice.",
+      properties: {
+        operation_id: {
+          type: "string",
+        },
+        reply_to: {
+          description: "A thread reply, as `SendMessage.reply_to`.",
+          type: ["string", "null"],
+        },
+        send_at: {
+          description:
+            "RFC 3339, between `MIN_DELAY_SECONDS` and `MAX_DAYS` ahead.",
+          type: "string",
+        },
+        text: {
+          type: "string",
+        },
+      },
+      required: ["operation_id", "text", "send_at"],
+      type: "object",
+    },
+    ScheduledMessage: {
+      properties: {
+        error: {
+          type: ["string", "null"],
+        },
+        id: {
+          type: "string",
+        },
+        reply_to: {
+          type: ["string", "null"],
+        },
+        room_id: {
+          type: "string",
+        },
+        send_at: {
+          type: "string",
+        },
+        state: {
+          $ref: "#/$defs/ScheduledState",
+        },
+        text: {
+          type: "string",
+        },
+      },
+      required: ["id", "room_id", "text", "send_at", "state"],
+      type: "object",
+    },
+    ScheduledMessages: {
+      description:
+        "`GET /api/v1/scheduled`: the account's pending and failed scheduled\nmessages, every room, soonest first. A sent one leaves the list; the\nmessage itself arrives like any other.",
+      properties: {
+        messages: {
+          items: {
+            $ref: "#/$defs/ScheduledMessage",
+          },
+          type: "array",
+        },
+      },
+      required: ["messages"],
+      type: "object",
+    },
+    ScheduledState: {
+      oneOf: [
+        {
+          const: "pending",
+          description: "Waiting for `send_at`.",
+          type: "string",
+        },
+        {
+          const: "failed",
+          description:
+            "The server could not send it (no longer a member, the room became\nread-only or encrypted, no live session left); `error` says why. It\nstays listed until its author removes it.",
+          type: "string",
+        },
+      ],
+    },
     Scope: {
       additionalProperties: false,
       properties: {
@@ -8027,6 +8112,12 @@ export const nativeSchema = {
     run_command: {
       $ref: "#/$defs/RunCommand",
     },
+    schedule_message: {
+      $ref: "#/$defs/ScheduleMessage",
+    },
+    scheduled_messages: {
+      $ref: "#/$defs/ScheduledMessages",
+    },
     search_messages: {
       $ref: "#/$defs/SearchMessages",
     },
@@ -8084,6 +8175,8 @@ export const nativeSchema = {
     "own_profile",
     "update_profile",
     "update_preferences",
+    "schedule_message",
+    "scheduled_messages",
     "avatar_command",
     "profile_receipt",
     "search_messages",

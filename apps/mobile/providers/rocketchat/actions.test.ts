@@ -152,6 +152,12 @@ describe('ActionsRC', () => {
     ]);
   });
 
+  test('markUnread asks for the whole room, from its last message', async () => {
+    const { client, calls } = fakeClient({ success: true });
+    await new ActionsRC(client).markUnread('r1');
+    assert.deepEqual(calls, [{ path: 'subscriptions.unread', body: { roomId: 'r1' } }]);
+  });
+
   test('followThread maps to chat.followMessage / chat.unfollowMessage', async () => {
     const { client, calls } = fakeClient({ success: true });
     const a = new ActionsRC(client);

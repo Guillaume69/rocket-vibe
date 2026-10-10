@@ -123,6 +123,11 @@ export class ActionsRC implements ProviderActions {
     await this.client.post('subscriptions.read', { body: { rid } });
   }
 
+  /** `unread: 1`, `ls` just before the last message, then `subscriptions-changed`. */
+  async markUnread(rid: string): Promise<void> {
+    await this.client.post('subscriptions.unread', { body: { roomId: rid } });
+  }
+
   async openOrCreateDm(
     username: string,
   ): Promise<{ rid: string; rawRoom: Record<string, unknown> }> {

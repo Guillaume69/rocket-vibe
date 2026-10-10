@@ -1,7 +1,9 @@
 import { desc } from 'drizzle-orm';
 import { useCoalescedLiveQuery } from '../ui/liveQuery.ts';
 import { Redirect, Stack, useRouter } from 'expo-router';
-import { ActivityIndicator, SectionList, StyleSheet, Text, View } from 'react-native';
+import * as Haptics from 'expo-haptics';
+import { useCallback } from 'react';
+import { ActivityIndicator, Alert, SectionList, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { LocalDatabase } from '../db/client.ts';
@@ -265,6 +267,35 @@ function RoomRow({
   const name = roomTitle(room, displayNames) + (statusEmoji ? ` ${statusEmoji}` : '');
   const unread = subscription?.unread ?? 0;
   const alerting = subscription?.alert === true || unread > 0;
+  // Unread or read again from the list (Rocket.Chat). Decided on the count, not
+  // `alert`: a read leaves `alert` set while the room has unread threads, and
+  // the menu would then offer "Mark as read" forever.
+  const sync = useSync();
+  const actions = sync.phase === 'ready' ? sync.actions : null;
+  const markUnread = actions?.markUnread?.bind(actions);
+  const offerReadState = useCallback(() => {
+    if (actions === null || markUnread === undefined || subscription === null) return;
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const toRead = unread > 0;
+    Alert.alert(
+      name,
+      undefined,
+      [
+        {
+          text: t(toRead ? 'home.markRead' : 'home.markUnread'),
+          onPress: () => {
+            (toRead ? actions.markRead(room.rid) : markUnread(room.rid)).catch(() =>
+              Alert.alert(t('home.readStateFailed'), undefined, [{ text: t('common.close') }], {
+                cancelable: true,
+              }),
+            );
+          },
+        },
+        { text: t('common.cancel'), style: 'cancel' },
+      ],
+      { cancelable: true },
+    );
+  }, [actions, markUnread, subscription, unread, name, room.rid, t]);
   // Encrypted room: as long as no message is decrypted (`lastMessage` null,
   // the ciphertext is never stored), the lock placeholder. Once unlocked,
   // `updateEncryptedPreview` has put the last plaintext message there.
@@ -295,6 +326,7 @@ function RoomRow({
         onPress={() => room.voice
           ? void joinVoice(room.rid, name)
           : router.push({ pathname: '/room/[rid]', params: { rid: room.rid } })}
+        onLongPress={markUnread === undefined || subscription === null ? undefined : offerReadState}
         android_ripple={{ color: c.ripple }}
         unstable_pressDelay={LIST_PRESS_DELAY}
         style={({ pressed }) => [styles.row, { opacity: pressed ? 0.6 : 1 }]}

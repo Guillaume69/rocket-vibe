@@ -210,6 +210,11 @@ export interface ProviderActions {
   followThread?(rid: string, root: string, put: boolean): Promise<void>;
   markRead(rid: string, observation?:ReadObservation): Promise<void>;
   /**
+   * Makes the room unread again from its last message; the subscription the
+   * server rebroadcasts carries the badge. Absent where the server cannot.
+   */
+  markUnread?(rid: string): Promise<void>;
+  /**
    * Opens (or creates, idempotent server-side) the DM with `username`. Returns
    * the `rid` and the raw room document, to ingest so we can navigate without
    * waiting for the stream. Was written twice (profile card, search), with two

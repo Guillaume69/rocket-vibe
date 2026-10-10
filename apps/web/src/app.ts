@@ -66,6 +66,7 @@ import { cached, cacheMedia } from "./media";
 import { previewText, decorate } from "./presentation";
 import { canonical, categories, glyphs, emojiGlyph } from "./emoji";
 import { settings, roomSwitcher, profile } from "./panel-actions";
+import { quietNow } from "./quiet";
 
 export class App implements RowActions {
   readonly view = new ViewState();
@@ -1993,6 +1994,8 @@ export class App implements RowActions {
       return;
     const mode = this.preferences?.desktop_notifications || "default";
     if (mode === "nothing") return;
+    // Do not disturb, the rule the server applies to push.
+    if (quietNow(this.preferences, new Date())) return;
     for (const message of messages) {
       const room = this.model.rooms.get(message.room_id);
       if (

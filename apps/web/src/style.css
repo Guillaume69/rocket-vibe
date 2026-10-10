@@ -716,6 +716,10 @@ dialog::backdrop {
   flex: 1;
   text-align: left;
 }
+.quiet-time {
+  flex: none;
+  width: 7.5em;
+}
 .spotlight-row:hover,
 .spotlight-row.selected {
   background: #2c2946;

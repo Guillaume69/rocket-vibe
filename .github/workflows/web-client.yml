@@ -104,6 +104,7 @@ jobs:
           target/debug/rv-server create-user webbob
           target/debug/rv-server create-user websecurity
           target/debug/rv-server create-user webcomposer --admin
+          target/debug/rv-server create-user webquiet
           target/debug/rv-server create-user webvisual --admin
           target/debug/rv-server create-user webworkflows --admin
           target/debug/rv-server create-user webmedia --admin
@@ -130,6 +131,7 @@ jobs:
           npm run test:sessions
           npm run test:locked
           npm run test:composer
+          npm run test:quiet
           npm run test:security
           npm run test:visual
           npm run test:workflows

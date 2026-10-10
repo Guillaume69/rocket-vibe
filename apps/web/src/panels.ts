@@ -17,6 +17,7 @@ import type {
 import { operation, segment } from "./api";
 import { el, button, field, tile, dialog, toast } from "./dom";
 import { matchRooms } from "./room-match";
+import { clock, minuteOf, nextMorning } from "./quiet";
 import { t, language } from "./i18n";
 import { messageRow } from "./render";
 import { securitySettings, recentProof } from "./security";
@@ -857,6 +858,123 @@ export async function settings(
       }),
     );
     page.append(group);
+    // Do not disturb: the server holds push and call rings back, and this
+    // tab's notifications follow (`quietNow`).
+    const [quiet, quietRows] = preferencesGroup(
+      phrase("Do not disturb", "Ne pas déranger"),
+    );
+    // One save at a time, each with the revision the previous one left: two
+    // quick edits would otherwise race to the same revision and one be refused.
+    let saving: Promise<void> = Promise.resolve();
+    const save = (fields: Record<string, unknown>) =>
+      (saving = saving.catch(() => {}).then(() => send(fields)));
+    const send = async (fields: Record<string, unknown>) => {
+      await app.api.request("/api/v1/me/preferences", "PATCH", {
+        operation_id: operation(),
+        expected_revision: own.preferences.revision,
+        language: own.preferences.language,
+        clock_24h: own.preferences.clock_24h,
+        push_enabled: own.preferences.push_enabled,
+        push_mentions_only: own.preferences.push_mentions_only,
+        desktop_notifications:
+          own.preferences.desktop_notifications || "default",
+        ...fields,
+      });
+      own = await app.api.request<OwnProfile>("/api/v1/me/profile");
+      app.preferences = own.preferences;
+      render();
+    };
+    const render = () => {
+      quietRows.replaceChildren();
+      const until = own.preferences.muted_until
+        ? new Date(own.preferences.muted_until)
+        : undefined;
+      const muteRow = actionRow(
+        phrase("Mute notifications", "Couper les notifications"),
+        until
+          ? phrase("Until ", "Jusqu’à ") +
+              until.toLocaleTimeString(language, {
+                hour: "2-digit",
+                minute: "2-digit",
+              })
+          : phrase("Off", "Désactivé"),
+      );
+      const mute = el("select", "row-select");
+      mute.setAttribute(
+        "aria-label",
+        phrase("Mute notifications", "Couper les notifications"),
+      );
+      for (const [value, text] of [
+        ["", until ? phrase("Muted", "Coupées") : phrase("Off", "Désactivé")],
+        ["hour", phrase("For 1 hour", "Pendant 1 heure")],
+        ["morning", phrase("Until 08:00", "Jusqu’à 08:00")],
+        ...(until ? [["off", phrase("Unmute", "Réactiver")]] : []),
+      ]) {
+        const option = el("option", "", text);
+        option.value = value;
+        mute.append(option);
+      }
+      mute.addEventListener("change", () => {
+        const now = new Date();
+        const instant =
+          mute.value === "hour"
+            ? new Date(now.getTime() + 3600_000)
+            : mute.value === "morning"
+              ? nextMorning(now)
+              : null;
+        mute.disabled = true;
+        void save({ muted_until: instant ? instant.toISOString() : null })
+          .catch(toast)
+          .finally(() => (mute.disabled = false));
+      });
+      muteRow.append(mute);
+      const window = own.preferences.quiet_hours;
+      const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const scheduleRow = actionRow(
+        phrase("Quiet hours", "Heures calmes"),
+        window
+          ? phrase("Every day, ", "Chaque jour, ") + window.time_zone
+          : phrase("Off", "Désactivé"),
+      );
+      const enabled = el("input");
+      enabled.type = "checkbox";
+      enabled.checked = !!window;
+      enabled.setAttribute(
+        "aria-label",
+        phrase("Quiet hours", "Heures calmes"),
+      );
+      const start = el("input", "pill-entry quiet-time");
+      start.type = "time";
+      start.value = clock(window?.start_minute ?? 22 * 60);
+      start.setAttribute("aria-label", phrase("From", "De"));
+      const end = el("input", "pill-entry quiet-time");
+      end.type = "time";
+      end.value = clock(window?.end_minute ?? 8 * 60);
+      end.setAttribute("aria-label", phrase("To", "À"));
+      start.disabled = end.disabled = !window;
+      const apply = () => {
+        const from = minuteOf(start.value),
+          to = minuteOf(end.value);
+        if (enabled.checked && (from === null || to === null || from === to))
+          return;
+        enabled.disabled = start.disabled = end.disabled = true;
+        void save({
+          quiet_hours: enabled.checked
+            ? { start_minute: from, end_minute: to, time_zone: zone }
+            : null,
+        }).catch((error) => {
+          toast(error);
+          render();
+        });
+      };
+      enabled.addEventListener("change", apply);
+      start.addEventListener("change", apply);
+      end.addEventListener("change", apply);
+      scheduleRow.append(enabled, start, end);
+      quietRows.append(muteRow, scheduleRow);
+    };
+    render();
+    page.append(quiet);
   });
   host.add("language", t("language"), "language", (page) => {
     const [group, rows] = preferencesGroup(t("language"));

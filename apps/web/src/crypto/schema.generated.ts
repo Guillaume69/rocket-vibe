@@ -5310,6 +5310,30 @@ export const nativeSchema = {
       required: ["device_id", "instance_id", "data_epoch"],
       type: "object",
     },
+    QuietHours: {
+      additionalProperties: false,
+      description:
+        "A daily quiet window in the account's own time zone (an IANA name, the\ndevice's when the window was saved). Minutes since midnight; a window\nacross midnight has `start_minute > end_minute`; an empty one is refused.",
+      properties: {
+        end_minute: {
+          format: "uint16",
+          maximum: 65535,
+          minimum: 0,
+          type: "integer",
+        },
+        start_minute: {
+          format: "uint16",
+          maximum: 65535,
+          minimum: 0,
+          type: "integer",
+        },
+        time_zone: {
+          type: "string",
+        },
+      },
+      required: ["start_minute", "end_minute", "time_zone"],
+      type: "object",
+    },
     QuoteExcerpt: {
       properties: {
         author: {
@@ -7198,6 +7222,11 @@ export const nativeSchema = {
         language: {
           type: "string",
         },
+        muted_until: {
+          description:
+            "Absent: unchanged; `null` or a past instant: not muted. RFC 3339, at most\nseven days ahead.",
+          type: ["string", "null"],
+        },
         operation_id: {
           type: "string",
         },
@@ -7206,6 +7235,18 @@ export const nativeSchema = {
         },
         push_mentions_only: {
           type: "boolean",
+        },
+        quiet_hours: {
+          anyOf: [
+            {
+              $ref: "#/$defs/QuietHours",
+            },
+            {
+              type: "null",
+            },
+          ],
+          description:
+            "Absent: unchanged (a client that does not know the field keeps the\nschedule); `null`: removed.",
         },
       },
       required: [
@@ -7456,11 +7497,30 @@ export const nativeSchema = {
         language: {
           type: "string",
         },
+        muted_until: {
+          default: null,
+          description:
+            "Do not disturb until this instant (RFC 3339), whatever the schedule;\nabsent, or past, when not muted.",
+          type: ["string", "null"],
+        },
         push_enabled: {
           type: "boolean",
         },
         push_mentions_only: {
           type: "boolean",
+        },
+        quiet_hours: {
+          anyOf: [
+            {
+              $ref: "#/$defs/QuietHours",
+            },
+            {
+              type: "null",
+            },
+          ],
+          default: null,
+          description:
+            "Do not disturb on a schedule: no push, no ring, no desktop alert in it.",
         },
         revision: {
           type: "string",

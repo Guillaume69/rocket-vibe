@@ -40,6 +40,7 @@ release, and its notes are that version's section here.
 - On Mattermost and kChat, a muted channel no longer turns bold nor rises into Unread for ordinary messages; a mention still shows its badge.
 - On Mattermost and kChat, a room that changed more than a thousand times while the app was away reloads its newest messages instead of keeping a history with holes.
 - On Mattermost and kChat, a message whose send answer was lost (a network drop) is looked for before it goes out again, instead of posting it twice once the server has forgotten it.
+- On Mattermost and kChat, a message sent again while the server is still saving the first attempt stays "sending" until it shows, instead of turning "not sent".
 
 - Quote cards show emoji as glyphs instead of their `:shortcodes:`.
 - The room list previews a reply by its own words and a forwarded message as "↪ Quoted message", no longer by the raw quote link.

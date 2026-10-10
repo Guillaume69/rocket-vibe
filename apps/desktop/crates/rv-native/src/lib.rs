@@ -92,6 +92,17 @@ pub enum Go {
 /// (address, main frame, followed link) → where it goes.
 pub type Decide = fn(&str, bool, bool) -> Go;
 
+/// A sign-in window's rules: it shows the pages `page` accepts and sends the
+/// others to the browser; a navigation `redirect` recognises is cancelled,
+/// handed to `caught` on the main thread, and closes the window. No camera
+/// or microphone.
+#[derive(Clone)]
+pub struct SignIn {
+    pub page: fn(&str) -> bool,
+    pub redirect: fn(&str) -> bool,
+    pub caught: std::rc::Rc<dyn Fn(String)>,
+}
+
 /// A rectangle of the window, in its logical pixels from its top-left corner.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Rect {
@@ -120,7 +131,7 @@ mod windows_shell;
 #[cfg(windows)]
 mod windows_toast;
 #[cfg(windows)]
-pub use windows_call::call_window;
+pub use windows_call::{call_window, sign_in_window};
 #[cfg(windows)]
 pub use windows_impl::{available, badge, delivered, init, set_window, show, withdraw};
 #[cfg(windows)]
@@ -141,7 +152,7 @@ mod macos_player;
 #[cfg(target_os = "macos")]
 mod macos_shell;
 #[cfg(target_os = "macos")]
-pub use macos_call::call_window;
+pub use macos_call::{call_window, sign_in_window};
 #[cfg(target_os = "macos")]
 pub use macos_impl::{available, badge, delivered, init, set_window, show, withdraw};
 #[cfg(target_os = "macos")]
@@ -151,7 +162,7 @@ pub use macos_shell::{app_events, autostart, autostart_supported, claim_instance
 
 #[cfg(not(any(windows, target_os = "macos")))]
 mod other {
-    use super::{AppHandler, Handler, Toast, TrayLabels};
+    use super::{AppHandler, Handler, SignIn, Toast, TrayLabels};
 
     pub fn app_events(_handler: AppHandler) {}
     pub fn claim_instance(_args: &[String]) -> bool {
@@ -182,11 +193,14 @@ mod other {
     pub fn call_window(_url: &str, _title: &str, _allowed: fn(&str, &str) -> bool) -> Result<(), String> {
         Err("no call window here".to_owned())
     }
+    pub fn sign_in_window(_url: &str, _title: &str, _sign_in: SignIn) -> Result<(), String> {
+        Err("no sign-in window here".to_owned())
+    }
 }
 #[cfg(not(any(windows, target_os = "macos")))]
 pub use other::{
     app_events, autostart, autostart_supported, available, badge, call_window, claim_instance, delivered, init,
-    set_autostart, set_window, show, tray, withdraw,
+    set_autostart, set_window, show, sign_in_window, tray, withdraw,
 };
 
 /// Whether the system holds notifications back now (Windows only), so the

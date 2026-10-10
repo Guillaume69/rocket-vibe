@@ -11,13 +11,14 @@ On a RocketVibe server, the room shows how far the others read: under my most re
 ## What every app shows (the rule)
 
 - Take my most recent message in the room's main timeline (a root message, mine, confirmed by the server: not one still in the outbox, not a system message). Its readers are the marks whose `root_position` is at least the message's `position` (positions compare as numbers: a longer decimal string is greater, equal lengths compare as text).
-- No reader: nothing shows. A direct room: "Seen". A group: "Seen by" and up to three names (display name, else username), then "and N others" (FR: "Vu", "Vu par", "et N autres").
+- No reader: nothing shows. A direct room: "Seen". A group: "Seen by" and up to three names (display name, else username), then "and 1 other" or "and N others" (FR: "Vu", "Vu par", "et 1 autre", "et N autres"). A reader the frame has no profile for is counted in the others, never shown as an id; with no known name at all the line is "Seen".
+- No line in an encrypted room (its rows come from the private journal, whose positions are not the read positions), nor while the timeline shows an older stretch of history after a jump (my latest message is not on screen; an older one must not carry it).
 - A small dim line under that message, in the timeline only, never in a thread. Nothing for an older message: being older, it is read too.
 - Settings > My account: "Share read receipts" (FR "Partager les confirmations de lecture"), a switch, with the explanation that it works both ways. It sends `share_read_receipts` alone (the other preferences fields as read, `quiet_hours` and `muted_until` absent).
 
 ## Web
 
-Not offered yet.
+`seen` and `seenText` (`src/receipts.ts`, tested in `tests/receipts.test.ts`) apply the rule to the room's timeline (`App.seenLine`, `paintTimeline`'s `seen`, a `.seen-receipt` line under the message in `ui/messages.tsx`), names from the live frame's `profiles`; a frame whose `reads` changed for the open room repaints the timeline. An encrypted room renders through `PrivateChat` and shows none. A jump keeps the newest page in the same timeline, so the line stays on the latest message. Settings > My account, group "Privacy" (`panels.ts`): the switch sends `share_read_receipts` alone. Browser test `tests/receipts.mjs` (a read shows live as "Seen by", the switch hides it), in CI.
 
 ## Mobile
 
@@ -32,6 +33,11 @@ Not offered yet (GTK, SwiftUI).
 
 ## Sources
 
+- apps/web/src/receipts.ts
+- apps/web/src/app.ts
+- apps/web/src/ui/messages.tsx
+- apps/web/src/panels.ts
+- apps/web/tests/receipts.mjs
 - apps/mobile/lib/readReceipts.ts
 - apps/mobile/ui/readReceipts.tsx
 - apps/mobile/app/room/[rid].tsx

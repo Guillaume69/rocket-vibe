@@ -1151,6 +1151,14 @@ impl Composer {
         });
     }
 
+    /// Opens the scheduled list, as a click on the chip does.
+    pub fn open_scheduled_list(&self) {
+        let scheduler = self.scheduler.borrow().clone();
+        if let Some(scheduler) = scheduler {
+            scheduler.open_list();
+        }
+    }
+
     /// Reads the scheduled list again now.
     pub fn refresh_scheduled(&self) {
         let scheduler = self.scheduler.borrow().clone();

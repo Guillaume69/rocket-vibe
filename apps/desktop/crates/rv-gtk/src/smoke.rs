@@ -61,6 +61,7 @@
 //!   RV_SMOKE_SCHEDULE=<tag>  RocketVibe: types "scheduled <tag>", "Send later" must show; schedules
 //!                          it "In 1 hour": the field clears and the chip shows; cancels it from
 //!                          the list's data, then the list read again no longer has it
+//!                          (RV_SMOKE_SCHEDULE_HOLD=1: left scheduled, the list open, for a screenshot)
 //!   RV_SMOKE_REENTER=1     after opening the room: back to the list, tap the same room, expect it open
 //!   RV_SMOKE_EDIT=<tag>    sends "<tag> before", presses Up, types "<tag> after" in the row
 //!                          and saves after RV_SMOKE_EDIT_SAVE_MS (default 3000)
@@ -1284,6 +1285,12 @@ fn schedule_checks(chat: std::rc::Rc<crate::chat::ChatPage>, rid: String, tag: S
         check("schedule: the field cleared", composer.text().is_empty(), composer.text());
         let (_, chip) = composer.schedule_state();
         check("schedule: the chip shows", chip.is_some(), &chip);
+        if std::env::var("RV_SMOKE_SCHEDULE_HOLD").as_deref() == Ok("1") {
+            // Left scheduled, the list open over a new draft: for a screenshot.
+            composer.set_text("another draft");
+            composer.open_scheduled_list();
+            return;
+        }
         glib::spawn_future_local(async move {
             let (s, r, t) = (session.clone(), rid.clone(), text.clone());
             let cancelled = crate::on_tokio(async move {

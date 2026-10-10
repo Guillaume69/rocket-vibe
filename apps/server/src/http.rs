@@ -388,6 +388,11 @@ pub fn router(app: App) -> Router {
         .fallback(|| async { Error::missing() })
         .layer(axum::middleware::from_fn(private_metadata_no_store))
         .layer(DefaultBodyLimit::max(64 * 1024))
+        // Outermost: every handler sees the client behind a trusted proxy.
+        .layer(axum::middleware::from_fn_with_state(
+            app.clone(),
+            crate::client_address::resolve,
+        ))
         .with_state(app)
 }
 

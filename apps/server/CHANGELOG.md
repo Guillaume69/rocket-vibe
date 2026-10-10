@@ -8,6 +8,10 @@ everything before it is under that section.
 
 ## [Unreleased]
 
+### Fixed
+
+- Behind a reverse proxy, the login, invitation, recovery and email limits count each client separately: `RV_TRUSTED_PROXIES` lists the proxies whose `X-Forwarded-For` names the client, and the Compose file sets it. Before, every client shared the proxy's address, and about thirty failed logins a minute locked everyone out.
+
 ## [0.2.0] - 2026-10-09
 
 ### Added

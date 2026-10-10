@@ -36,6 +36,11 @@ struct Args {
         value_parser = clap::builder::BoolishValueParser::new()
     )]
     workflow_private_http: bool,
+    /// Reverse proxies whose `X-Forwarded-For` names the client, as a
+    /// comma-separated list of addresses or CIDR ranges. Empty trusts nobody:
+    /// behind a proxy, every client would then share the proxy's login limits.
+    #[arg(long, env = "RV_TRUSTED_PROXIES", default_value = "")]
+    trusted_proxies: String,
     /// Durable volume; include it with PostgreSQL in backups.
     #[arg(long, env = "RV_OBJECTS_DIR", default_value = "data/objects")]
     objects_dir: std::path::PathBuf,
@@ -255,7 +260,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 .transpose()?,
         )
         .with_e2ee(args.e2ee)
-        .with_private_http(args.workflow_private_http);
+        .with_private_http(args.workflow_private_http)
+        .with_trusted_proxies(rv_server::client_address::TrustedProxies::parse(
+            &args.trusted_proxies,
+        )?);
     match args.command {
         Command::Emoji { command } => match command {
             EmojiCommand::List => operator_output(rv_server::custom_emojis::catalog(&app).await)?,

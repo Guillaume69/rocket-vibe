@@ -1,6 +1,7 @@
 mod admin;
 pub mod auth;
 pub mod bots;
+pub mod client_address;
 mod commands;
 pub mod custom_emojis;
 mod delivery;
@@ -75,6 +76,8 @@ pub struct App {
     dummy_password_hash: String,
     socket_slots: Arc<limits::SocketSlots>,
     auth_key: Option<Arc<factor_crypto::AuthKey>>,
+    /// Reverse proxies allowed to name the client (`RV_TRUSTED_PROXIES`).
+    pub(crate) trusted_proxies: Arc<client_address::TrustedProxies>,
 }
 
 impl App {
@@ -133,6 +136,7 @@ impl App {
             dummy_password_hash,
             socket_slots: Arc::default(),
             auth_key: auth_key.map(Arc::new),
+            trusted_proxies: Arc::default(),
         };
         app.cleanup().await?;
         Ok(app)
@@ -160,6 +164,11 @@ impl App {
 
     pub fn with_private_http(mut self, private_http: bool) -> Self {
         self.private_http = private_http;
+        self
+    }
+
+    pub fn with_trusted_proxies(mut self, proxies: client_address::TrustedProxies) -> Self {
+        self.trusted_proxies = Arc::new(proxies);
         self
     }
 

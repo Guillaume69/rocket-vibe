@@ -24,6 +24,11 @@ services:
       RV_OBJECTS_DIR: /var/lib/rocketvibe/objects
       # Native E2EE, on by default; false turns it off (apps/server/README.md).
       RV_E2EE: ${RV_E2EE:-true}
+      # The API is published on 127.0.0.1 only: every peer the container sees
+      # is the host's reverse proxy through Docker's gateway, or a neighbour
+      # container. They may name the client in X-Forwarded-For, which keys the
+      # per-address login limits (apps/server/src/client_address.rs).
+      RV_TRUSTED_PROXIES: ${RV_TRUSTED_PROXIES:-127.0.0.0/8,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fc00::/7}
     volumes:
       - native-objects:/var/lib/rocketvibe/objects
     ports:

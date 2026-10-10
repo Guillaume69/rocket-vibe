@@ -159,6 +159,8 @@ curl https://chat.example.org/.well-known/rocketvibe
 
 La seconde réponse annonce les capacités du serveur : `voice` doit y valoir `true` si LiveKit est configuré.
 
+> **Adresse des clients.** Caddy transmet l'adresse de chaque client dans `X-Forwarded-For`. Le serveur ne la croit que si la connexion vient d'un proxy de confiance, `RV_TRUSTED_PROXIES` (adresses ou plages CIDR, séparées par des virgules). Le fichier Compose du dépôt y met déjà le local et les plages privées, celles de la passerelle Docker : les quotas de connexion (30 tentatives par minute et par adresse) comptent alors chaque client à part. Sans ce réglage, tous les clients partageraient le quota de Caddy, et une trentaine d'échecs par minute bloquerait la connexion de tout le monde.
+
 ## 6. Le pare-feu
 
 | Port | Rôle | Ouvert ? |
@@ -279,7 +281,6 @@ rv up --build -d
 
 ## Limites connues
 
-- **Quota de connexion partagé derrière le proxy.** Le serveur ignore `X-Forwarded-For` : tous les clients partagent le quota de l'IP de Caddy, soit 30 tentatives de connexion par minute. Ça va pour un petit groupe ; le réglage des proxys de confiance reste à faire avant une exposition publique.
 - **Petite plage UDP pour le vocal.** LiveKit n'a que 21 ports UDP (50000-50020). Pour un groupe nombreux, élargir la plage dans `docker/livekit.yaml`, dans les ports du fichier de prod et dans le pare-feu.
 - **Serveur pilote.** Le chiffrement de bout en bout a été activé avant sa revue indépendante ([RFC 0002](rfcs/0002-e2ee-native.md)).
 

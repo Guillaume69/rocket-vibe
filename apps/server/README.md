@@ -102,6 +102,13 @@ settings. To run an instance without it, add `RV_E2EE=false` to
 [internal review](../../docs/protocol/E2EE_REVIEW.md)). PostgreSQL has no port published on
 the host. This Compose file and its volumes are separate from the Rocket.Chat bench.
 
+Behind a reverse proxy, `RV_TRUSTED_PROXIES` (comma-separated addresses or CIDR
+ranges) lists the peers whose `X-Forwarded-For` names the client: the per-address
+login, invitation, recovery and mail limits key on that client
+(`src/client_address.rs`). Empty, the default outside Compose, trusts nobody. The
+Compose file trusts loopback and the private ranges, since the API is published on
+`127.0.0.1` only and Docker's gateway is the proxy's address inside the container.
+
 Create an account with a password of at least 12 bytes supplied by the
 environment variable `RV_USER_PASSWORD`; the value does not go through the arguments:
 

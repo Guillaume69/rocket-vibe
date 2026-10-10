@@ -246,3 +246,63 @@ async fn conversation_list_settings_come_from_the_account() {
         (rv_core::mattermost::directory::NameFormat::Username, true, 20)
     );
 }
+
+fn post_list(posts: &[Value]) -> String {
+    let order: Vec<&str> = posts.iter().filter_map(|p| p["id"].as_str()).collect();
+    let map: serde_json::Map<String, Value> =
+        posts.iter().map(|p| (p["id"].as_str().unwrap().to_owned(), p.clone())).collect();
+    json!({"order": order, "posts": map}).to_string()
+}
+
+fn channel_post(id: &str, at: i64) -> Value {
+    json!({"id": id, "channel_id": "ch1", "user_id": "u-me", "message": id, "create_at": at, "update_at": at, "root_id": ""})
+}
+
+#[tokio::test]
+async fn a_full_since_answer_reloads_the_newest_page_instead() {
+    let flood: Vec<Value> = (0..1000).map(|i| channel_post(&format!("f{i}"), 200 + i)).collect();
+    let server = FakeHttp::start(move |r| {
+        if r.path() != "/api/v4/channels/ch1/posts" {
+            return respond(404, r#"{"id": "api.context.404.app_error", "message": "Not found"}"#);
+        }
+        if r.target.contains("since=") {
+            respond(200, &post_list(&flood))
+        } else if r.target.contains("before=") {
+            respond(200, &post_list(&[]))
+        } else {
+            respond(200, &post_list(&[channel_post("newest", 5000)]))
+        }
+    })
+    .await;
+    let (store, sync) = sync(&server);
+    sync.ingest(&[channel_post("stale", 100)]);
+    store.write(|w| w.write_cursor("ch1", "messages", 100));
+    sync.catch_up_room("ch1").await.unwrap();
+    let ids: Vec<String> = store.messages("ch1", 50).into_iter().map(|m| m.id).collect();
+    assert_eq!(ids, ["newest"], "the unvouched cache is gone, the full answer not ingested");
+    assert_eq!(store.cursor("ch1", "messages"), Some(5000));
+}
+
+#[tokio::test]
+async fn a_live_reply_reads_its_cached_root_again() {
+    let server = FakeHttp::start(|r| match r.path() {
+        "/api/v4/posts/root1" => respond(
+            200,
+            &json!({"id": "root1", "channel_id": "ch1", "user_id": "u-me", "message": "root", "create_at": 10, "update_at": 60, "root_id": "", "reply_count": 3, "last_reply_at": 60})
+                .to_string(),
+        ),
+        _ => respond(404, r#"{"id": "api.context.404.app_error", "message": "Not found"}"#),
+    })
+    .await;
+    let (store, sync) = sync(&server);
+    sync.ingest(&[channel_post("root1", 10)]);
+    let reply = json!({"id": "r1", "channel_id": "ch1", "user_id": "u-me", "message": "re", "create_at": 60, "update_at": 60, "root_id": "root1"});
+    sync.apply_event("posted", &json!({"post": reply.to_string()}), &json!({})).await;
+    let root = store.messages_by_id(&["root1".to_owned()]).pop().unwrap();
+    assert_eq!(root.thread_count, 3);
+    // A reply whose root is not cached asks nothing.
+    let orphan = json!({"id": "r2", "channel_id": "ch1", "user_id": "u-me", "message": "re", "create_at": 70, "update_at": 70, "root_id": "old"});
+    sync.apply_event("posted", &json!({"post": orphan.to_string()}), &json!({})).await;
+    assert!(!server.requests().iter().any(|r| r.path() == "/api/v4/posts/old"));
+    assert!(store.messages_by_id(&["old".to_owned()]).is_empty());
+}

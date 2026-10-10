@@ -21,6 +21,11 @@ section here.
 
 ### Fixed
 
+- On Mattermost and kChat, a message whose send answer was lost is looked for before it goes out again, instead of posting it twice once the server has forgotten it; one sent again while the server still saves the first attempt stays "sending" instead of "not sent".
+- On Mattermost and kChat, a room that changed more than a thousand times while the app was away reloads its newest messages instead of keeping a history with holes.
+- On Mattermost and kChat, a muted channel no longer turns bold nor rises into Unread for ordinary messages; a mention still shows its badge.
+- On Mattermost and kChat, a thread's "N replies" moves as soon as someone answers, not at the next catch-up.
+- On Mattermost and kChat, search in a channel asks the server for that channel's matches only, so a busy team no longer leaves it empty.
 - A local database error (full disk, I/O error) rolls back the one write instead of crashing the app, and the GTK and SwiftUI apps sharing a database on macOS wait for each other instead of failing on a busy database.
 - Messages and files sent while the server restarts behind its proxy (a 5xx answer) stay queued instead of showing "not sent".
 - Closing a Rocket.Chat account while its connection waited to retry no longer reconnects it in the background with the old token.

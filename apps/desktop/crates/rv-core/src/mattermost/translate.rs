@@ -76,7 +76,8 @@ pub fn deleted(post: &Value) -> bool {
     num_of(post, "delete_at") > 0
 }
 
-/// Unread ROOT posts (replies live in threads, as on screen) and mentions.
+/// Unread ROOT posts (replies live in threads, as on screen) and mentions. A
+/// muted channel (`notify_props.mark_unread: "mention"`) counts its mentions only.
 pub fn counts(channel: &Value, member: &Value) -> (i64, i64) {
     let rooted = channel.get("total_msg_count_root").is_some_and(Value::is_i64)
         && member.get("msg_count_root").is_some_and(Value::is_i64);
@@ -87,7 +88,8 @@ pub fn counts(channel: &Value, member: &Value) -> (i64, i64) {
     };
     // Mattermost counts every message of a DM as a mention; the list shows a DM's unread count instead.
     let mentions = if str_of(channel, "type") == Some("D") { 0 } else { num_of(member, "mention_count") };
-    (unread.max(0), mentions)
+    let muted = member.pointer("/notify_props/mark_unread").and_then(Value::as_str) == Some("mention");
+    (if muted { num_of(member, "mention_count") } else { unread.max(0) }, mentions)
 }
 
 pub struct Translator<'a> {
@@ -435,6 +437,9 @@ mod tests {
         assert_eq!((sub.unread, sub.mentions, sub.roles.as_deref()), (3, 2, Some("owner")));
         let dm = json!({"id": "d1", "type": "D", "total_msg_count_root": 4});
         assert_eq!(counts(&dm, &json!({"msg_count_root": 1, "mention_count": 3})), (3, 0));
+        let channel = json!({"id": "ch1", "total_msg_count_root": 10});
+        let muted = json!({"msg_count_root": 2, "mention_count": 1, "notify_props": {"mark_unread": "mention"}});
+        assert_eq!(counts(&channel, &muted), (1, 1), "a muted channel counts its mentions only");
     }
 
     #[test]

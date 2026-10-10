@@ -205,6 +205,14 @@ async fn team_of(rest: &RestClient, mm: &MmSync, rid: &str) -> Result<String, Re
 /// Matches in the room, newest first.
 pub async fn search(rest: &RestClient, mm: &MmSync, rid: &str, terms: &str) -> Result<Vec<Message>, RestError> {
     let team = team_of(rest, mm, rid).await?;
+    // A channel narrows on the server (`in:<name>`, Mattermost's search syntax):
+    // asking the whole team for 60 hits and keeping the room's could leave
+    // nothing in a busy team. A DM's `in:` form is not probed: it keeps the
+    // team-wide ask. The room filter below stays either way.
+    let terms = match mm.channel_name(rid) {
+        Some(name) => format!("{terms} in:{name}"),
+        None => terms.to_owned(),
+    };
     let body = json!({"terms": terms, "is_or_search": false, "page": 0, "per_page": 60});
     let found = rest.post(&format!("teams/{team}/posts/search"), CallOptions::body(body)).await?;
     let posts: Vec<Value> =

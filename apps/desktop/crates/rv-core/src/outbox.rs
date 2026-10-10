@@ -5,6 +5,7 @@
 //! In an encrypted room the text is encrypted when it leaves, never before;
 //! without the room's key (locked) the row waits instead of failing.
 
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -42,6 +43,9 @@ pub struct Outbox {
     encryptor: Mutex<Option<Arc<Encryptor>>>,
     running: AtomicBool,
     again: AtomicBool,
+    /// Mattermost rows a POST went out for in this session, answered or not.
+    attempted: Mutex<HashSet<String>>,
+    started_at: i64,
 }
 
 impl Outbox {
@@ -56,6 +60,8 @@ impl Outbox {
             encryptor: Mutex::new(None),
             running: AtomicBool::new(false),
             again: AtomicBool::new(false),
+            attempted: Mutex::new(HashSet::new()),
+            started_at: chrono::Utc::now().timestamp_millis(),
         }
     }
 
@@ -166,15 +172,33 @@ impl Outbox {
 
     /// Mattermost mints the post id: the row leaves under its client id as
     /// `pending_post_id`, which the server echoes and deduplicates for a short
-    /// while. Past that, a refusal is checked against my newest posts.
+    /// while. Past that, a refusal is checked against my newest posts, and so is
+    /// a row about to go out again when it may already have (sent once in this
+    /// session with its answer lost, or queued before a restart): a blind replay
+    /// would post a duplicate once the server has forgotten the id.
     async fn pass_mattermost(&self, mm: &MmSync) -> bool {
         for entry in self.store.pending_outbox() {
+            let replay = self.attempted.lock().unwrap().contains(&entry.id) || entry.created_at < self.started_at;
+            if replay {
+                match self.mine_on_server(&entry).await {
+                    Delivered::Unknown => return false,
+                    Delivered::Yes(post) => {
+                        self.mm_delivered(mm, &entry.id, post);
+                        continue;
+                    }
+                    Delivered::No => {}
+                }
+            }
+            self.attempted.lock().unwrap().insert(entry.id.clone());
             let body = json!({"channel_id": entry.rid, "message": entry.text,
                 "root_id": entry.thread_id.clone().unwrap_or_default(),
                 "pending_post_id": crate::mattermost::pending_post_id(&self.me_id, &entry.id)});
             let post = match self.rest.post("posts", CallOptions::body(body)).await {
                 Ok(post) => post,
                 Err(e) if e.status == 0 => return false,
+                // The first POST of this row is still being saved: not a refusal.
+                // The row stays pending; the next pass looks for it first.
+                Err(e) if e.error.as_deref() == Some(STILL_SAVING) => return false,
                 Err(e) => match self.mine_on_server(&entry).await {
                     Delivered::Unknown => return false,
                     Delivered::Yes(post) => post,
@@ -184,13 +208,18 @@ impl Outbox {
                     }
                 },
             };
-            self.store.write(|w| {
-                w.delete_outbox(&entry.id);
-                w.delete_message(&entry.id);
-            });
-            mm.ingest(&[post]);
+            self.mm_delivered(mm, &entry.id, post);
         }
         true
+    }
+
+    fn mm_delivered(&self, mm: &MmSync, id: &str, post: Value) {
+        self.store.write(|w| {
+            w.delete_outbox(id);
+            w.delete_message(id);
+        });
+        mm.ingest(&[post]);
+        self.attempted.lock().unwrap().remove(id);
     }
 
     /// A post of mine with the same text, made since this row was queued: an older identical one is not it.
@@ -230,6 +259,9 @@ impl Outbox {
 /// shares the 10/min of `chat.sendMessage`), or a server error, such as a proxy's
 /// 502 while the server restarts. None of these says the message was refused;
 /// marking it failed would turn a maintenance window into retyped messages.
+/// Mattermost's answer while the first POST with the same `pending_post_id` is being saved.
+const STILL_SAVING: &str = "api.post.deduplicate_create_post.pending";
+
 fn unanswered(e: &RestError) -> bool {
     e.status == 0 || e.status == 429 || e.status >= 500
 }

@@ -1473,91 +1473,91 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 209,
+      "line": 217,
       "kind": "call:POST",
       "surface": "&format!(\"teams/{…}/posts/search\")"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 219,
+      "line": 227,
       "kind": "call:GET",
       "surface": "&channel_path"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 248,
+      "line": 256,
       "kind": "call:GET",
       "surface": "&format!(\"teams/{…}/channels/name/{…}\")"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 254,
+      "line": 262,
       "kind": "call:GET",
       "surface": "&path"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 259,
+      "line": 267,
       "kind": "call:GET",
       "surface": "&format!(\"users/{…}/status\")"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 286,
+      "line": 294,
       "kind": "call:GET",
       "surface": "\"users/me\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 311,
+      "line": 319,
       "kind": "call:PUT",
       "surface": "\"users/me/status\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 313,
+      "line": 321,
       "kind": "call:DELETE",
       "surface": "\"users/me/status/custom\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 315,
+      "line": 323,
       "kind": "call:PUT",
       "surface": "\"users/me/status/custom\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 322,
+      "line": 330,
       "kind": "call:GET",
       "surface": "\"users/me\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 325,
+      "line": 333,
       "kind": "call:PUT",
       "surface": "\"users/me/patch\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 347,
+      "line": 355,
       "kind": "call:PUT",
       "surface": "\"users/me/patch\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 353,
+      "line": 361,
       "kind": "call:POST",
       "surface": "\"users/search\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 366,
+      "line": 374,
       "kind": "call:POST",
       "surface": "&format!(\"teams/{…}/channels/search\")"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 385,
+      "line": 393,
       "kind": "call:POST",
       "surface": "\"users/status/ids\""
     },
@@ -1653,79 +1653,85 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/sync.rs",
-      "line": 146,
+      "line": 148,
       "kind": "call:GET",
       "surface": "&format!(\"posts/{…}\")"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/sync.rs",
-      "line": 177,
+      "line": 179,
       "kind": "call:GET",
       "surface": "\"users/me/preferences\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/sync.rs",
-      "line": 178,
+      "line": 180,
       "kind": "call:GET",
       "surface": "\"config/client\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/sync.rs",
-      "line": 285,
+      "line": 287,
       "kind": "call:GET",
       "surface": "\"users/me/preferences/flagged_post\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/sync.rs",
-      "line": 330,
+      "line": 332,
       "kind": "call:GET",
       "surface": "\"users/me/channels\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/sync.rs",
-      "line": 429,
+      "line": 431,
       "kind": "call:GET",
       "surface": "&format!(\"channels/{…}/posts\")"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/sync.rs",
-      "line": 438,
+      "line": 452,
       "kind": "call:GET",
       "surface": "&format!(\"channels/{…}/deleted_posts\")"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/sync.rs",
-      "line": 466,
+      "line": 480,
       "kind": "call:GET",
       "surface": "&format!(\"channels/{…}/posts\"), options).await?);"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/sync.rs",
-      "line": 541,
+      "line": 555,
       "kind": "call:GET",
       "surface": "&format!(\"posts/{…}\")"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/sync.rs",
-      "line": 556,
+      "line": 570,
       "kind": "call:GET",
       "surface": "&format!(\"posts/{…}/thread\")"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/sync.rs",
-      "line": 566,
+      "line": 580,
       "kind": "call:GET",
       "surface": "&channel_path"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/sync.rs",
-      "line": 567,
+      "line": 581,
       "kind": "call:GET",
       "surface": "&member_path"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/sync.rs",
-      "line": 619,
+      "line": 633,
+      "kind": "call:GET",
+      "surface": "&format!(\"posts/{…}\")"
+    },
+    {
+      "file": "apps/desktop/crates/rv-core/src/mattermost/sync.rs",
+      "line": 764,
       "kind": "call:GET",
       "surface": "&format!(\"posts/{…}\")"
     },
@@ -1791,37 +1797,37 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/outbox.rs",
-      "line": 124,
+      "line": 130,
       "kind": "call:POST",
       "surface": "\"chat.sendMessage\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/outbox.rs",
-      "line": 124,
+      "line": 130,
       "kind": "endpoint",
       "surface": "chat.sendMessage"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/outbox.rs",
-      "line": 175,
+      "line": 196,
       "kind": "call:POST",
       "surface": "\"posts\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/outbox.rs",
-      "line": 199,
+      "line": 228,
       "kind": "call:GET",
       "surface": "&format!(\"channels/{…}/posts\", entry.rid), options).await {"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/outbox.rs",
-      "line": 218,
+      "line": 247,
       "kind": "call:GET",
       "surface": "\"chat.getMessage\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/outbox.rs",
-      "line": 218,
+      "line": 247,
       "kind": "endpoint",
       "surface": "chat.getMessage"
     },

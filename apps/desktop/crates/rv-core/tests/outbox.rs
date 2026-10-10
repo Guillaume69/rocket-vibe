@@ -181,3 +181,66 @@ async fn locked_encrypted_room_waits_without_failing() {
     f.outbox.process().await;
     assert_eq!(sends(&f.server), 1);
 }
+
+async fn mattermost_fixture(handler: impl Fn(&Request) -> Response + Send + Sync + 'static) -> Fixture {
+    let server = FakeHttp::start(handler).await;
+    let store = Arc::new(Store::in_memory().unwrap());
+    let rest = RestClient::mattermost(server.url.clone());
+    let flavor = rv_core::mattermost::Flavor::Mattermost;
+    let sync = Arc::new(SyncEngine::for_mattermost(store.clone(), rest.clone(), "me", "u-me", flavor));
+    let outbox = Outbox::new(store.clone(), rest, sync, "u-me", "me");
+    outbox.set_id_generator(|| ID.to_owned());
+    Fixture { server, store, outbox }
+}
+
+fn mm_post(id: &str) -> serde_json::Value {
+    let now = chrono::Utc::now().timestamp_millis();
+    json!({"id": id, "channel_id": "ch1", "user_id": "u-me", "message": "hello", "create_at": now, "update_at": now, "root_id": ""})
+}
+
+fn mm_posts(server: &FakeHttp) -> usize {
+    server.requests().iter().filter(|r| r.method == "POST" && r.path() == "/api/v4/posts").count()
+}
+
+#[tokio::test]
+async fn a_mattermost_send_whose_answer_was_lost_is_looked_for_before_a_replay() {
+    let created = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let flag = created.clone();
+    let f = mattermost_fixture(move |r| {
+        if r.method == "POST" {
+            // Saved, but the answer never comes back.
+            flag.store(true, std::sync::atomic::Ordering::SeqCst);
+            return dropped();
+        }
+        let posts = if flag.load(std::sync::atomic::Ordering::SeqCst) { vec![mm_post("real1")] } else { vec![] };
+        let order: Vec<&str> = posts.iter().filter_map(|p| p["id"].as_str()).collect();
+        let map: serde_json::Map<String, serde_json::Value> =
+            posts.iter().map(|p| (p["id"].as_str().unwrap().to_owned(), p.clone())).collect();
+        respond(200, &json!({"order": order, "posts": map}).to_string())
+    })
+    .await;
+    f.outbox.enqueue("ch1", "hello", None);
+    f.outbox.process().await;
+    assert_eq!(scalar(&f.store, "SELECT status FROM outbox").as_deref(), Some("pending"));
+    f.outbox.process().await;
+    assert_eq!(mm_posts(&f.server), 1, "no second POST");
+    assert_eq!(count(&f.store, "SELECT COUNT(*) FROM outbox"), 0);
+    assert_eq!(count(&f.store, "SELECT COUNT(*) FROM messages WHERE id = 'real1'"), 1);
+}
+
+#[tokio::test]
+async fn a_mattermost_replay_racing_the_first_save_stays_pending() {
+    let f = mattermost_fixture(|r| {
+        if r.method == "POST" {
+            return respond(
+                500,
+                r#"{"id": "api.post.deduplicate_create_post.pending", "message": "pending", "status_code": 500}"#,
+            );
+        }
+        respond(200, r#"{"order": [], "posts": {}}"#)
+    })
+    .await;
+    f.outbox.enqueue("ch1", "hello", None);
+    f.outbox.process().await;
+    assert_eq!(scalar(&f.store, "SELECT status FROM outbox").as_deref(), Some("pending"));
+}

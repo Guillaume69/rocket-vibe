@@ -22,6 +22,8 @@ use crate::sync::{HISTORY_PAGE, HistoryPage};
 const PREVIEWS: usize = 40;
 const PREVIEW_CONCURRENCY: usize = 4;
 const MAX_WALK: usize = 20;
+/// Rows `?since=` answers at most (read in the 11.11 server), in no promised order.
+const SINCE_CAP: usize = 1000;
 const CURSOR_SCOPE: &str = "*";
 const CURSOR_STREAM: &str = "mm-last-post";
 
@@ -431,6 +433,18 @@ impl MmSync {
             .await?;
         let posts: Vec<Value> =
             list.get("posts").and_then(Value::as_object).map(|m| m.values().cloned().collect()).unwrap_or_default();
+        // A full answer may have left changes out, in no order, and ingesting it
+        // would move the cursor past them: the cache can no longer be vouched for.
+        // It goes, and the newest page comes back in its place, read just now.
+        if posts.len() >= SINCE_CAP {
+            let first = self.page(rid, None, HISTORY_PAGE as usize).await?;
+            self.store.write(|w| {
+                w.clear_room_messages(rid);
+                let newest = self.ingest_into(w, &first).unwrap_or(since);
+                w.write_cursor(rid, "messages", newest.max(since));
+            });
+            return Ok(());
+        }
         let mut gone: Vec<String> =
             posts.iter().filter(|p| deleted(p)).filter_map(|p| text(p, "id").map(str::to_owned)).collect();
         if self.deleted_route {
@@ -743,6 +757,15 @@ impl MmSync {
         }
         self.ingest(std::slice::from_ref(&post));
         self.write_room(&rid, root);
+        // A reply moves its root's "N replies", which no event carries
+        // (`thread_updated` is quiet): a cached root is read again. One the cache
+        // lacks stays out, or it would sit among the recent rows.
+        if let Some(root_id) = text(&post, "root_id").filter(|id| self.store.has_message(id))
+            && let Ok(fresh_root) = self.rest.get(&format!("posts/{root_id}"), CallOptions::default()).await
+        {
+            self.ensure_authors(std::slice::from_ref(&fresh_root)).await;
+            self.ingest(&[fresh_root]);
+        }
         let message = self.translate(&post)?;
         (!mine && fresh && message.system_type.is_none()).then_some(message)
     }
@@ -780,6 +803,13 @@ impl MmSync {
     pub fn team_of(&self, rid: &str) -> Option<String> {
         let live = self.live.lock().unwrap();
         text(live.channels.get(rid)?, "team_id").map(str::to_owned)
+    }
+
+    /// A public or private channel's name, the one `in:` search terms take; none for a conversation.
+    pub fn channel_name(&self, rid: &str) -> Option<String> {
+        let live = self.live.lock().unwrap();
+        let channel = live.channels.get(rid)?;
+        matches!(text(channel, "type"), Some("O" | "P")).then(|| text(channel, "name").map(str::to_owned)).flatten()
     }
 
     pub fn remember_channel(&self, channel: Value) {

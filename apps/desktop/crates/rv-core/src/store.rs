@@ -906,6 +906,14 @@ impl Writer<'_> {
         self.touch_messages(&rid);
     }
 
+    /// A room's cached messages, the optimistic ones (`updated_at` 0, still in the outbox) kept.
+    pub fn clear_room_messages(&mut self, rid: &str) {
+        self.conn
+            .execute("DELETE FROM messages WHERE rid = ?1 AND updated_at > 0", [rid])
+            .or_note(&mut self.failed, "clear room messages");
+        self.touch_messages(rid);
+    }
+
     /// Every room whose rid is not in `live`, with all it holds.
     pub fn purge_rooms_except(&mut self, live: &[String]) {
         let known: Vec<String> = self

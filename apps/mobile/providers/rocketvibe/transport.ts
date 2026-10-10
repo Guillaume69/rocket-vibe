@@ -476,6 +476,10 @@ export class NativeTransport {
   joinPublic(room: string): Promise<Room> { return this.request('Room', `/api/v1/rooms/${encodeURIComponent(room)}/join`, {}); }
   direct(input: DirectMessage): Promise<Room> { return this.request('Room', '/api/v1/direct-messages', input); }
   async addMember(room: string, user: string): Promise<void> { await this.value(`/api/v1/rooms/${encodeURIComponent(room)}/members/${encodeURIComponent(user)}`, {}); }
+  /** Scheduled messages (`docs/protocol/SCHEDULED.md`): the server sends them later for me. */
+  scheduleMessage(room:string,input:NativeTypes['ScheduleMessage']):Promise<NativeTypes['ScheduledMessage']>{return this.request('ScheduledMessage',`/api/v1/rooms/${encodeURIComponent(room)}/scheduled`,input);}
+  scheduledMessages():Promise<NativeTypes['ScheduledMessages']>{return this.request('ScheduledMessages','/api/v1/scheduled');}
+  async cancelScheduled(id:string):Promise<void>{await this.value(`/api/v1/scheduled/${encodeURIComponent(id)}`,undefined,false,undefined,'DELETE');}
   send(room: string, input: SendMessage): Promise<Message> { return this.request('Message', `/api/v1/rooms/${encodeURIComponent(room)}/messages`, input); }
   prepareUpload(input:NativeTypes['PrepareUpload']):Promise<NativeTypes['Upload']>{return this.request('Upload','/api/v1/uploads',input);}
   uploadStatus(id:string):Promise<NativeTypes['Upload']>{return this.request('Upload',`/api/v1/uploads/${encodeURIComponent(id)}`);}

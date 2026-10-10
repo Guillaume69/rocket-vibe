@@ -76,6 +76,7 @@ fn preferences_input(preferences: NativePreferences) -> Result<UpdatePreferences
         desktop_notifications,
         quiet_hours: None,
         muted_until: None,
+        share_read_receipts: None,
     })
 }
 fn notification(v: DesktopNotifications) -> String {

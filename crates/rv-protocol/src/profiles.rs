@@ -43,6 +43,13 @@ pub struct UpdatePreferences {
     #[serde(default, skip_serializing_if = "Option::is_none", with = "keep_or_set")]
     #[schemars(with = "Option<String>")]
     pub muted_until: Option<Option<String>>,
+    /// Absent: unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub share_read_receipts: Option<bool>,
+}
+
+pub(crate) fn shared_by_default() -> bool {
+    true
 }
 
 /// A daily quiet window in the account's own time zone (an IANA name, the

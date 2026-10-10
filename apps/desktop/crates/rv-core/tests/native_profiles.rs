@@ -147,6 +147,7 @@ fn direct_peer_identity_survives_offline_and_tracks_profile_changes_only_for_cur
             direct_peer: Some(stamp.user.clone()),
             typing: vec![],
             voice: vec![],
+            reads: vec![],
         }],
         rings: vec![],
     };

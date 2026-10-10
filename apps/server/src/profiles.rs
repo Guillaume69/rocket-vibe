@@ -46,6 +46,7 @@ struct Row {
     quiet_end: Option<i16>,
     quiet_zone: Option<String>,
     muted_until: Option<chrono::DateTime<chrono::Utc>>,
+    share_reads: bool,
     email: Option<String>,
     bot: bool,
     owner_id: Option<String>,
@@ -105,6 +106,7 @@ impl Row {
                     .muted_until
                     .filter(|until| *until > chrono::Utc::now())
                     .map(|until| until.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
+                share_read_receipts: self.share_reads,
             },
             email: self.email,
         }
@@ -342,10 +344,11 @@ pub(crate) async fn preferences(
     }
     admission(&mut tx, actor).await?;
     let window = quiet.clone().flatten();
-    let revision:String=sqlx::query_scalar("UPDATE users SET preferred_language=$2,clock_24h=$3,push_enabled=$4,push_mentions_only=$5,desktop_notifications=$6,quiet_start=CASE WHEN $7 THEN $8 ELSE quiet_start END,quiet_end=CASE WHEN $7 THEN $9 ELSE quiet_end END,quiet_zone=CASE WHEN $7 THEN $10 ELSE quiet_zone END,muted_until=CASE WHEN $11 THEN $12 ELSE muted_until END WHERE id=$1 RETURNING preferences_version")
+    let revision:String=sqlx::query_scalar("UPDATE users SET preferred_language=$2,clock_24h=$3,push_enabled=$4,push_mentions_only=$5,desktop_notifications=$6,quiet_start=CASE WHEN $7 THEN $8 ELSE quiet_start END,quiet_end=CASE WHEN $7 THEN $9 ELSE quiet_end END,quiet_zone=CASE WHEN $7 THEN $10 ELSE quiet_zone END,muted_until=CASE WHEN $11 THEN $12 ELSE muted_until END,share_reads=COALESCE($13,share_reads) WHERE id=$1 RETURNING preferences_version")
         .bind(&actor.id).bind(input.language).bind(input.clock_24h).bind(input.push_enabled).bind(input.push_mentions_only).bind(notification_name(input.desktop_notifications))
         .bind(quiet.is_some()).bind(window.as_ref().map(|w| w.start_minute as i16)).bind(window.as_ref().map(|w| w.end_minute as i16)).bind(window.map(|w| w.time_zone))
         .bind(muted.is_some()).bind(muted.flatten())
+        .bind(input.share_read_receipts)
         .fetch_one(&mut *tx).await?;
     let saved = receipt(&mut tx, actor, &input.operation_id, &hash, revision).await?;
     tx.commit().await?;

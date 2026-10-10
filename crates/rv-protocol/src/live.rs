@@ -48,6 +48,23 @@ pub struct LiveRoom {
     /// Accounts connected to this room's voice session.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub voice: Vec<crate::voice::VoiceParticipant>,
+    /// Read receipts: how far the other members read the room's root
+    /// messages, for those who share their reads, in a room of at most
+    /// `RECEIPT_MEMBERS` members, and only to a reader who shares theirs.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reads: Vec<ReadMark>,
+}
+
+/// Rooms above this many members carry no read receipts.
+pub const RECEIPT_MEMBERS: usize = 50;
+
+/// A member's read position in a room: every root message at or below
+/// `root_position` is read (positions are decimal strings, compared as
+/// numbers). The name comes from the frame's `profiles`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ReadMark {
+    pub user_id: String,
+    pub root_position: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

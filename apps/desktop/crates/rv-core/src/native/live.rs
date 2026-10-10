@@ -98,6 +98,7 @@ mod tests {
                 room_id: "room".into(),
                 membership_version: "grant".into(),
                 direct_peer: None,
+                reads: vec![],
                 typing: vec![
                     Typist { user: user.clone(), root_id: None },
                     Typist { user: user.clone(), root_id: Some("root".into()) },

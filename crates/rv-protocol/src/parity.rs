@@ -478,6 +478,10 @@ pub struct UserPreferences {
     /// absent, or past, when not muted.
     #[serde(default)]
     pub muted_until: Option<String>,
+    /// Read receipts, both ways: the others see how far I read, and I see
+    /// how far they did. On by default.
+    #[serde(default = "crate::profiles::shared_by_default")]
+    pub share_read_receipts: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]

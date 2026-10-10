@@ -677,6 +677,7 @@ async fn quiet_hours_are_validated_kept_when_absent_and_read_back(pool: PgPool) 
         desktop_notifications: Default::default(),
         quiet_hours,
         muted_until,
+        share_read_receipts: None,
     };
     let window = |zone: &str, start: u16, end: u16| QuietHours {
         start_minute: start,

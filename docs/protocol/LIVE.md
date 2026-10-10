@@ -55,6 +55,17 @@ of a thread is not displayed in the room's main flow. On a server announcing
 session, and the snapshot `rings`, the direct calls ringing the reader or rung
 by them ([VOICE.md](VOICE.md)). Both count against the same limits.
 
+**Read receipts.** A room entry may carry `reads`: `ReadMark`s, each
+`{user_id, root_position}`, how far another member read the room's root
+messages (every root at or below the position is read; positions compare as
+numbers, kept as strings). They are shared both ways: only members whose
+`share_read_receipts` preference is on appear, and only to a reader whose own
+preference is on ([PROFILES.md](PROFILES.md)). The reader's own mark is never
+included (it is in its `ReadState`). A room of more than `RECEIPT_MEMBERS` (50)
+members carries none, and past 512 marks in a snapshot none are sent at all.
+Threads keep their own reads and have no receipts. The name of a reader comes
+from the snapshot's `profiles`.
+
 These frames are distinct from `SyncBatch`es, have **no cursor** and do not
 modify the journal. An old socket without `live=true` continues to
 receive only the durable batches. HTTP and WebSocket keep the delivery barrier

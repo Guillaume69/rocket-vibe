@@ -8,8 +8,8 @@ use crate::{
 use rv_protocol::{
     User,
     live::{
-        LiveFrame, LiveRoom, LiveState, PresenceEntry, PresenceStatus, SetPresence, SetTyping,
-        Typist,
+        LiveFrame, LiveRoom, LiveState, PresenceEntry, PresenceStatus, RECEIPT_MEMBERS, ReadMark,
+        SetPresence, SetTyping, Typist,
     },
     voice::VoiceParticipant,
 };
@@ -198,6 +198,10 @@ pub(crate) async fn state(app: &App, actor: &Account) -> Result<LiveState> {
     #[allow(clippy::type_complexity)]
     let voices:Vec<(String,String,String,String,bool,bool,bool,bool)>=sqlx::query_as("SELECT s.room_id,u.id,u.username,u.display_name,s.muted,s.deafened,s.camera,s.screen FROM voice_sessions s JOIN users u ON u.id=s.user_id JOIN members m ON m.room_id=s.room_id AND m.user_id=s.user_id CROSS JOIN instance i WHERE s.room_id=ANY($1) AND s.state='connected' AND s.data_epoch=i.data_epoch AND NOT u.disabled ORDER BY s.room_id,s.joined_at,u.id LIMIT 513")
         .bind(&ids).fetch_all(&mut *tx).await?;
+    // Read receipts, both ways (`share_reads`), in small rooms only; past the
+    // bound the frame simply carries none.
+    let reads: Vec<(String, String, i64)> = sqlx::query_as("SELECT s.room_id,s.user_id,s.root_position FROM room_read_states s JOIN members m ON m.room_id=s.room_id AND m.user_id=s.user_id JOIN users u ON u.id=s.user_id WHERE s.room_id=ANY($1) AND s.user_id<>$2 AND NOT u.disabled AND u.share_reads AND (SELECT share_reads FROM users WHERE id=$2) AND (SELECT count(*) FROM members c WHERE c.room_id=s.room_id)<=$3 ORDER BY s.room_id,s.user_id LIMIT $4")
+        .bind(&ids).bind(&actor.id).bind(RECEIPT_MEMBERS as i64).bind(MAX_OBSERVATIONS as i64 + 1).fetch_all(&mut *tx).await?;
     if people.len() > MAX_OBSERVATIONS
         || typists.len() > MAX_OBSERVATIONS
         || voices.len() > MAX_OBSERVATIONS
@@ -238,8 +242,19 @@ pub(crate) async fn state(app: &App, actor: &Account) -> Result<LiveState> {
                 }),
             typing: vec![],
             voice: vec![],
+            reads: vec![],
         })
         .collect();
+    if reads.len() <= MAX_OBSERVATIONS {
+        for (room, user_id, root_position) in reads {
+            if let Some(room) = state.rooms.iter_mut().find(|r| r.room_id == room) {
+                room.reads.push(ReadMark {
+                    user_id,
+                    root_position: root_position.to_string(),
+                });
+            }
+        }
+    }
     for (room, id, username, display_name, muted, deafened, camera, screen) in voices {
         if let Some(room) = state.rooms.iter_mut().find(|r| r.room_id == room) {
             room.voice.push(VoiceParticipant {
@@ -282,4 +297,144 @@ pub(crate) async fn state(app: &App, actor: &Account) -> Result<LiveState> {
         state.rings.clear();
     }
     Ok(state)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{auth, store};
+    use rv_protocol::{CreateRoom, SendMessage, parity::MarkRead};
+    use sqlx::PgPool;
+
+    const PASSWORD: &str = "disposable-receipt-test-password";
+
+    async fn account(app: &App, name: &str) -> Account {
+        auth::create_user(app, name, PASSWORD.into(), false)
+            .await
+            .unwrap();
+        let session = auth::login(app, name.into(), PASSWORD.into())
+            .await
+            .unwrap();
+        auth::authenticate(app, &auth::hash_token(&session.token))
+            .await
+            .unwrap()
+    }
+
+    fn reads_of(state: &LiveState, room: &str) -> Vec<(String, String)> {
+        state
+            .rooms
+            .iter()
+            .find(|r| r.room_id == room)
+            .map(|r| {
+                r.reads
+                    .iter()
+                    .map(|m| (m.user_id.clone(), m.root_position.clone()))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    #[sqlx::test]
+    async fn read_receipts_follow_the_reads_both_ways_and_skip_large_rooms(pool: PgPool) {
+        let app = App::from_pool(pool).await.unwrap();
+        let alice = account(&app, "receipt-alice").await;
+        let bob = account(&app, "receipt-bob").await;
+        let room = store::create_room(
+            &app,
+            &alice,
+            CreateRoom {
+                name: "Receipts".into(),
+                private: true,
+                operation_id: None,
+                voice: false,
+            },
+        )
+        .await
+        .unwrap();
+        store::membership(&app, &alice, &room.id, &bob.id, false)
+            .await
+            .unwrap();
+        let sent = store::send(
+            &app,
+            &alice,
+            &room.id,
+            SendMessage {
+                operation_id: auth::random_token(),
+                text: "did you read this?".into(),
+                reply_to: None,
+                quotes: vec![],
+                cards: vec![],
+                files: vec![],
+            },
+        )
+        .await
+        .unwrap();
+        crate::room_reads::mark(
+            &app,
+            &bob,
+            &room.id,
+            MarkRead {
+                root_position: sent.position.clone(),
+                reply_position: "0".into(),
+            },
+        )
+        .await
+        .unwrap();
+        // Alice sees how far Bob read; never her own mark.
+        let seen = reads_of(&state(&app, &alice).await.unwrap(), &room.id);
+        assert_eq!(seen, vec![(bob.id.clone(), sent.position.clone())]);
+        // Bob turns receipts off: Alice no longer sees his, and he no longer sees hers.
+        let command =
+            |revision: String, share: Option<bool>| rv_protocol::profiles::UpdatePreferences {
+                operation_id: auth::random_token(),
+                expected_revision: revision,
+                language: "auto".into(),
+                clock_24h: true,
+                push_enabled: true,
+                push_mentions_only: false,
+                desktop_notifications: Default::default(),
+                quiet_hours: None,
+                muted_until: None,
+                share_read_receipts: share,
+            };
+        let revision = crate::profiles::own(&app, &bob)
+            .await
+            .unwrap()
+            .preferences
+            .revision;
+        crate::profiles::preferences(&app, &bob, command(revision, Some(false)))
+            .await
+            .unwrap();
+        // A command without the field keeps it off.
+        let revision = crate::profiles::own(&app, &bob)
+            .await
+            .unwrap()
+            .preferences
+            .revision;
+        crate::profiles::preferences(&app, &bob, command(revision, None))
+            .await
+            .unwrap();
+        assert!(
+            !crate::profiles::own(&app, &bob)
+                .await
+                .unwrap()
+                .preferences
+                .share_read_receipts
+        );
+        assert!(reads_of(&state(&app, &alice).await.unwrap(), &room.id).is_empty());
+        assert!(reads_of(&state(&app, &bob).await.unwrap(), &room.id).is_empty());
+        sqlx::query("UPDATE users SET share_reads=true WHERE id=$1")
+            .bind(&bob.id)
+            .execute(&app.pool)
+            .await
+            .unwrap();
+        // Past RECEIPT_MEMBERS members the room carries no receipts at all.
+        for i in 0..RECEIPT_MEMBERS {
+            let extra = account(&app, &format!("receipt-extra-{i}")).await;
+            store::membership(&app, &alice, &room.id, &extra.id, false)
+                .await
+                .unwrap();
+        }
+        assert!(reads_of(&state(&app, &alice).await.unwrap(), &room.id).is_empty());
+    }
 }

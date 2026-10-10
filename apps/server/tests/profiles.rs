@@ -234,6 +234,7 @@ async fn preferences_are_private_independent_and_live_status_is_sticky(pool: PgP
         desktop_notifications: DesktopNotifications::Mention,
         quiet_hours: None,
         muted_until: None,
+        share_read_receipts: None,
     };
     let receipt = alice.update_preferences(&prefs).await.unwrap();
     let after = alice.own_profile().await.unwrap();

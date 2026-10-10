@@ -74,6 +74,7 @@ fn preferences_input(preferences: &UserPreferences) -> UpdatePreferences {
         // Absent keeps them.
         quiet_hours: None,
         muted_until: None,
+        share_read_receipts: None,
     }
 }
 #[derive(Clone)]

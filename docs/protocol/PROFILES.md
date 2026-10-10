@@ -41,7 +41,10 @@ midnight, distinct, below 1440, `start_minute > end_minute` crossing midnight;
 at most seven days ahead; a past instant is no mute). Both are kept when the
 field is **absent** and removed by `null`, so a client that does not know them
 never wipes them; `UserPreferences` returns them (`muted_until` only while it is
-in the future). An invalid window or zone answers `invalid_request`. This storage
+in the future). An invalid window or zone answers `invalid_request`. `share_read_receipts`
+(on by default, absent in a command keeps it) shares read receipts both ways:
+off, the account's reads are hidden from the others and theirs from it
+([LIVE.md](LIVE.md)). This storage
 prepares the consumers' settings; it does not announce the P17 push service.
 Its revision is independent of public profile changes.
 

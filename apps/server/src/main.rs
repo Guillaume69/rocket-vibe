@@ -355,6 +355,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     }
                 }
             });
+            let scheduled_app = app.clone();
+            let scheduled_worker = tokio::spawn(async move {
+                let mut tick = tokio::time::interval(std::time::Duration::from_secs(5));
+                tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                loop {
+                    tick.tick().await;
+                    if let Err(error) = rv_server::scheduled::drain(&scheduled_app).await {
+                        tracing::error!(code = error.code, "scheduled messages iteration failed");
+                    }
+                }
+            });
             let preview_app = app.clone();
             let preview_worker = tokio::spawn(async move {
                 let mut tick = tokio::time::interval(std::time::Duration::from_secs(1));
@@ -389,6 +400,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             cleanup.abort();
             mail_worker.abort();
             preview_worker.abort();
+            scheduled_worker.abort();
             workflow_worker.abort();
             push_worker.abort();
             voice_worker.abort();

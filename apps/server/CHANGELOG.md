@@ -10,6 +10,7 @@ everything before it is under that section.
 
 ### Added
 
+- Scheduled messages: a member schedules a text message (a thread reply too) between one minute and 30 days ahead; the server sends it at that time as its author, once, even if no app runs, and keeps the ones it could not send for their author to see. Not in end-to-end encrypted rooms.
 - Read receipts: the live frame carries how far the other members of a small room (50 members at most) read it. An account preference turns them off both ways: its reads are hidden and it sees no one's.
 - Do not disturb: an account's preferences take quiet hours (a daily window in its time zone) and a mute until an instant (at most seven days). While either holds, no push is sent and no device rings for a call; messages still arrive. A client that does not know the new fields keeps them unchanged.
 

@@ -36,6 +36,7 @@ mod reauthentication;
 pub mod recovery;
 mod room_details;
 mod room_reads;
+pub mod scheduled;
 mod search;
 mod sessions;
 mod snapshots;

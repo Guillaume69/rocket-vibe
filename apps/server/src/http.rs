@@ -217,6 +217,15 @@ pub fn router(app: App) -> Router {
         )
         .route("/api/v1/me", get(me).patch(update_profile))
         .route("/api/v1/me/profile", get(own_profile))
+        .route("/api/v1/scheduled", get(scheduled_list))
+        .route(
+            "/api/v1/scheduled/{id}",
+            axum::routing::delete(scheduled_cancel),
+        )
+        .route(
+            "/api/v1/rooms/{room}/scheduled",
+            axum::routing::post(scheduled_create),
+        )
         .route(
             "/api/v1/me/preferences",
             axum::routing::patch(update_preferences),
@@ -540,6 +549,7 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
             reports: true,
             bots: true,
             workflows: true,
+            scheduled_messages: true,
             ..Default::default()
         },
         icon_revision: crate::instance_icon::revision(&app).await?,
@@ -2041,6 +2051,35 @@ async fn mark_room_read(
     let (actor, hash, proof) = read_access(&app, &headers, Scope::Room(&room)).await?;
     let state = room_reads::mark(&app, &actor, &room, body(input)?).await?;
     proof.json(&app, &hash, &state, &[room], None).await
+}
+async fn scheduled_create(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(room): Path<String>,
+    input: Input<rv_protocol::scheduled::ScheduleMessage>,
+) -> Result<Response> {
+    let hash = auth::bearer(&headers)?;
+    let actor = auth::authenticate(&app, &hash).await?;
+    let scheduled = crate::scheduled::schedule(&app, &actor, &room, body(input)?).await?;
+    let proof = ReadProof::capture(&app, &actor, Scope::None).await?;
+    proof.json(&app, &hash, &scheduled, &[], None).await
+}
+async fn scheduled_list(State(app): State<App>, headers: HeaderMap) -> Result<Response> {
+    let hash = auth::bearer(&headers)?;
+    let actor = auth::authenticate(&app, &hash).await?;
+    let list = crate::scheduled::list(&app, &actor).await?;
+    let proof = ReadProof::capture(&app, &actor, Scope::None).await?;
+    proof.json(&app, &hash, &list, &[], None).await
+}
+async fn scheduled_cancel(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<StatusCode> {
+    let hash = auth::bearer(&headers)?;
+    let actor = auth::authenticate(&app, &hash).await?;
+    crate::scheduled::cancel(&app, &actor, &id).await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 async fn room_favorite(
     State(app): State<App>,

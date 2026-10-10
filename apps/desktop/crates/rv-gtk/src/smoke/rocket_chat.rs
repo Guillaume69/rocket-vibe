@@ -321,7 +321,9 @@ pub(super) async fn discussion_checks(chat: Rc<ChatPage>, session: Arc<Session>,
     let drid = created.as_ref().and_then(|m| m.discussion_id.clone());
     check("the room announces the discussion", drid.is_some(), &drid);
     let Some(drid) = drid else { return };
-    check("the discussion opened", chat.current_rid().as_deref() == Some(drid.as_str()), chat.current_rid());
+    // The stream may announce it before the creation's answer opens it.
+    let opened = waited(|| (chat.current_rid().as_deref() == Some(drid.as_str())).then_some(()), 10).await;
+    check("the discussion opened", opened.is_some(), chat.current_rid());
     check("and is listed", session.store.listed(&drid), ());
     let first = waited(
         || session.store.messages(&drid, 20).into_iter().find(|m| m.text.as_deref() == Some(&format!("{tag} first"))),

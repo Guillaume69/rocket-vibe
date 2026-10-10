@@ -1509,7 +1509,10 @@ impl Session {
     /// Whether the server lists a room's threads and lets me follow one:
     /// Rocket.Chat only, Mattermost and kChat have no such list.
     pub fn threads_available(&self) -> bool {
-        self.sync.mattermost().is_none()
+        match self.backend() {
+            Backend::RocketChat => true,
+            Backend::Mattermost(_) => false,
+        }
     }
 
     /// One page of the room's threads (every one, or the ones I follow), the
@@ -1546,7 +1549,10 @@ impl Session {
     /// Whether the room list can mark a room unread or read: Rocket.Chat only
     /// (`subscriptions.unread`), not offered on Mattermost and kChat.
     pub fn unread_marks_available(&self) -> bool {
-        self.sync.mattermost().is_none()
+        match self.backend() {
+            Backend::RocketChat => true,
+            Backend::Mattermost(_) => false,
+        }
     }
 
     /// Makes the room unread from its last message, as the official clients'

@@ -273,10 +273,10 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/session.rs:1359](../../apps/desktop/crates/rv-core/src/session.rs#L1359) | call:POST | "commands.run" |
 | [apps/desktop/crates/rv-core/src/session.rs:1475](../../apps/desktop/crates/rv-core/src/session.rs#L1475) | call:GET | "chat.getMessage" |
 | [apps/desktop/crates/rv-core/src/session.rs:1475](../../apps/desktop/crates/rv-core/src/session.rs#L1475) | endpoint | chat.getMessage |
-| [apps/desktop/crates/rv-core/src/session.rs:1655](../../apps/desktop/crates/rv-core/src/session.rs#L1655) | call:GET | "chat.getMessage" |
-| [apps/desktop/crates/rv-core/src/session.rs:1655](../../apps/desktop/crates/rv-core/src/session.rs#L1655) | endpoint | chat.getMessage |
-| [apps/desktop/crates/rv-core/src/session.rs:1666](../../apps/desktop/crates/rv-core/src/session.rs#L1666) | call:GET | "chat.getThreadMessages", options).await?; |
-| [apps/desktop/crates/rv-core/src/session.rs:1666](../../apps/desktop/crates/rv-core/src/session.rs#L1666) | endpoint | chat.getThreadMessages |
+| [apps/desktop/crates/rv-core/src/session.rs:1661](../../apps/desktop/crates/rv-core/src/session.rs#L1661) | call:GET | "chat.getMessage" |
+| [apps/desktop/crates/rv-core/src/session.rs:1661](../../apps/desktop/crates/rv-core/src/session.rs#L1661) | endpoint | chat.getMessage |
+| [apps/desktop/crates/rv-core/src/session.rs:1672](../../apps/desktop/crates/rv-core/src/session.rs#L1672) | call:GET | "chat.getThreadMessages", options).await?; |
+| [apps/desktop/crates/rv-core/src/session.rs:1672](../../apps/desktop/crates/rv-core/src/session.rs#L1672) | endpoint | chat.getThreadMessages |
 | [apps/desktop/crates/rv-core/src/store.rs:438](../../apps/desktop/crates/rv-core/src/store.rs#L438) | resource | /file-upload/{…}/% |
 | [apps/desktop/crates/rv-core/src/store.rs:439](../../apps/desktop/crates/rv-core/src/store.rs#L439) | url | /api/v4/files/{…} |
 | [apps/desktop/crates/rv-core/src/sync.rs:14](../../apps/desktop/crates/rv-core/src/sync.rs#L14) | stream | stream-room-messages |

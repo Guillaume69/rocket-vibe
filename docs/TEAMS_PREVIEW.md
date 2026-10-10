@@ -94,6 +94,10 @@ node scripts/teams-browser-signin.mjs --smoke
 CARGO_BUILD_JOBS=1 CARGO_INCREMENTAL=0 scripts/build.sh
 ~~~
 
+On a constrained worktree drive, set RV_CARGO_TARGET_DIR to an absolute host
+cache directory before invoking build.sh. Its optional nested mount changes only
+the artifact location, retaining formatting, clippy, tests and build gates.
+
 The smoke command checks a dedicated browser's debugging transport and profile
 cleanup only. Synthetic signature, encrypted transfer, origin isolation, paging and
 expiry tests cannot qualify a real Microsoft account. See the

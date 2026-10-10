@@ -13,6 +13,8 @@ section here.
 
 - On a RocketVibe account in do not disturb, an incoming call shows without ringing (GTK and macOS).
 - Read receipts (GTK and macOS, RocketVibe servers): under my latest message in a room (not an encrypted one), a small line says "Seen" in a direct conversation, or "Seen by" and up to three names in a group, then "and N others", updated live as people read. Settings > My account, Privacy: "Share read receipts" turns them off both ways (others no longer see how far I read, and I no longer see theirs).
+- The room-list header toggles the server bar directly. The connection dot moves to the account footer, while clicking the bottom avatar offers Online, Away, Busy and Offline and its badge reflects my activity. Linux title bars omit the extra application icon while preserving window controls.
+
 - Do not disturb (GTK and macOS, RocketVibe servers): Settings > Notifications mutes notifications for an hour or until 08:00, or sets quiet hours every day (22:00 to 08:00 by default, in this computer's time zone). Messages still arrive and count as unread; the app shows no notification meanwhile, and the server holds back push and call rings on every device.
 - Ctrl+K (Cmd+K on macOS) opens a room switcher: type part of a room's name, the arrows pick, Enter opens it. The composer's link shortcut moves to Ctrl+Shift+K.
 - A room's threads (GTK and macOS, Rocket.Chat servers): a header button lists them, all or the ones I follow, with their reply count and last reply time, and a bell on each thread, in the list and in the open thread, follows or unfollows it.
@@ -35,6 +37,8 @@ section here.
 - The Windows uninstaller matches: the same frameless night sky, and its rocket crosses the lane, nose-dives and bursts into sparks while the app goes. Setup's questions (leave midway, uninstall, goodbye) are frameless dialogs in the same style instead of system message boxes, and the window drags from anywhere.
 
 ### Fixed
+
+- A notification waiting for its pictures no longer appears after its conversation has been opened.
 
 - Signing out of a Rocket.Chat or Mattermost account while offline no longer leaves the session open on the server: the sign-out is kept and sent again at the next start.
 - On Mattermost and kChat, a message whose send answer was lost is looked for before it goes out again, instead of posting it twice once the server has forgotten it; one sent again while the server still saves the first attempt stays "sending" instead of "not sent".

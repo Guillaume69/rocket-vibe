@@ -121,7 +121,24 @@ try {
       .getByLabel("Password", { exact: true })
       .fill("web-client-disposable-password");
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
-    await page.locator('.room-row[data-room="' + room.id + '"]').click();
+    await page
+      .locator('.room-row[data-room="' + room.id + '"]')
+      .click()
+      .catch(async (error) => {
+        await mkdir("../../.cache/web-shots", { recursive: true });
+        await page.screenshot({
+          path:
+            "../../.cache/web-shots/profile-login-failure-" + index + ".png",
+        });
+        console.log(
+          JSON.stringify({
+            index,
+            errors,
+            screen: await page.locator("body").innerText(),
+          }),
+        );
+        throw error;
+      });
     await page.locator('[data-id="' + message.id + '"]').waitFor();
   }
   const page = pages[0],
@@ -255,7 +272,23 @@ try {
       })
     ).id,
   );
-  await page.locator('.room-row[data-room="' + room.id + '"]').click();
+  await page
+    .locator('.room-row[data-room="' + room.id + '"]')
+    .click()
+    .catch(async (error) => {
+      await mkdir("../../.cache/web-shots", { recursive: true });
+      await page.screenshot({
+        path: "../../.cache/web-shots/profile-login-failure-" + index + ".png",
+      });
+      console.log(
+        JSON.stringify({
+          index,
+          errors,
+          screen: await page.locator("body").innerText(),
+        }),
+      );
+      throw error;
+    });
   await row.locator(".message-gutter button").click();
   await popup.locator(".details-name").waitFor();
   await page.setViewportSize({ width: 390, height: 600 });

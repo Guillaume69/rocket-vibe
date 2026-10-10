@@ -42,6 +42,10 @@ Live profile revisions reload the open card. A valid, complete live observation 
 
 Room info, profile with Message and Call, my profile with password and 2FA, live avatar changes: both apps ([parity](../parity.md) §8). Differences: mobile toggles the favourite from room info, desktop from the room list; mobile prefetches the profile so the sheet never jumps. Report this user is in all three apps. Mobile lists a room's members, changes their roles and edits the room's texts (Rocket.Chat); the desktop does none of these on Rocket.Chat.
 
+## Quick activity change
+
+The bottom avatar opens the four activity choices on GTK, SwiftUI, mobile and web. The badge on it shows my activity, separate from server connectivity. Choosing a status preserves the current status text and other profile fields; mobile uses a native form sheet, GTK and web use dismissible popovers, SwiftUI uses a platform menu. Native profile conflicts and pending operations retain the existing settings recovery paths.
+
 ## Sources
 
 - apps/web/src/render.ts
@@ -52,6 +56,7 @@ Room info, profile with Message and Call, my profile with password and 2FA, live
 - apps/mobile/app/room-info.tsx
 - apps/mobile/app/profile.tsx
 - apps/mobile/app/my-profile.tsx
+- apps/mobile/app/presence.tsx
 - apps/mobile/app/settings/index.tsx
 - apps/mobile/ui/reportForm.tsx
 - apps/mobile/lib/myProfile.ts

@@ -58,15 +58,14 @@ offers preparation, streamed transfer, idempotent confirmation and protected
 download / Range. Outboxes and readers are wired to the existing clients.
 [Voice](../../docs/protocol/VOICE.md) runs over an operator LiveKit SFU
 (`docker/compose.voice.yml`): voice channels, calls in every room and ringing
-direct calls; it replaced the Jitsi meetings. Desktop notifications,
-encryption and full parity remain in the backlog. The [public crypto directory](../../docs/protocol/E2EE_DIRECTORY.md)
-now verifies certified devices and KeyPackage publication; it does not yet
-make encrypted conversations available. The limits are explicit in
-the [pilot contract](../../docs/protocol/README.md).
+direct calls; it replaced the Jitsi meetings. The [public crypto directory](../../docs/protocol/E2EE_DIRECTORY.md) verifies certified
+devices and KeyPackage publication for native MLS encrypted conversations.
+Remaining parity and qualification limits are recorded in the
+[pilot contract](../../docs/protocol/README.md) and [browser encryption qualification](../../docs/WEB_E2EE.md).
 
 ## Browser client
 
-The server binary now embeds [apps/web](../web/README.md). Open its origin at `/` or a `/room/<id>` link. Built assets are checked in and embedded at Cargo build time; production and Docker need no Node runtime. Rebuild the web bundle with Node 24 before rebuilding the server when frontend code changes. The browser uses one account on this origin and leaves encrypted rooms locked. Use HTTPS outside the local bench.
+The server binary now embeds [apps/web](../web/README.md). Open its origin at `/` or a `/room/<id>` link. Built assets are checked in and embedded at Cargo build time; production and Docker need no Node runtime. Rebuild the web bundle with Node 24 before rebuilding the server when frontend code changes. The browser uses one account on this origin and supports native MLS encrypted conversations through WebAssembly; see [qualification limits](../../docs/WEB_E2EE.md). Use HTTPS outside the local bench.
 
 ## Releases
 

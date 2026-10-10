@@ -157,6 +157,8 @@ export function actionMenu(
   document.body.append(menu);
   const rect = anchor.getBoundingClientRect();
   menu.style.position = "fixed";
+  // Popovers default to inset: 0; clear the opposite edges before anchoring.
+  menu.style.inset = "auto";
   menu.style.margin = "0";
   menu.style.left = Math.max(8, rect.left) + "px";
   if (above) menu.style.bottom = window.innerHeight - rect.top + 6 + "px";

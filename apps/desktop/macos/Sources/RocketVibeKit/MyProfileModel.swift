@@ -109,6 +109,20 @@ public final class MyProfileModel {
             self.password = ""; self.method = nil; self.code = ""
         }
     }
+    public func setActivity(_ choice: String) async {
+        guard active, editable, saved != nil else { return }
+        if provider?.native != nil {
+            edited?.status = choice
+            await save()
+        } else if let chat = provider?.legacy {
+            await run {
+                _ = try await chat.setActivity(status: choice)
+                guard self.active else { return }
+                try await self.reload(resetDraft: true)
+            }
+        }
+    }
+
     public func setLanguage(_ choice: String) async {
         await preference { $0.language = choice }
         guard active, language == choice, let app else { return }

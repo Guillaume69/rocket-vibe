@@ -17,6 +17,11 @@ if [ -n "${RV_SMOKE_NOTIFY:-}" ]; then
   bus=(-v /etc/passwd:/etc/passwd:ro)
 fi
 
+if [ -n "${RV_SMOKE_DECORATIONS:-}" ]; then
+  mkdir -p "$home/.config/gtk-4.0"
+  printf '[Settings]\ngtk-decoration-layout=%s\n' "$RV_SMOKE_DECORATIONS" > "$home/.config/gtk-4.0/settings.ini"
+fi
+
 host_look=()
 if [ "${RV_HOST_LOOK:-}" = 1 ]; then
   mkdir -p "$home/.config/gtk-4.0"
@@ -27,6 +32,7 @@ fi
 docker run --rm --network host -u "$(id -u):$(id -g)" -v "$PWD:/src" -v "$out:/out" -v "$home:/home/smoke" -w /src \
   "${host_look[@]}" "${bus[@]}" \
   -e HOME=/home/smoke -e LANG=C.UTF-8 -e GDK_BACKEND=x11 -e DISPLAY=:99 -e GSK_RENDERER=cairo -e GTK_A11Y=none -e WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1 \
+  -e RV_SMOKE_NAVIGATION="${RV_SMOKE_NAVIGATION:-}" \
   -e RV_SMOKE_DELAY_MS="${RV_SMOKE_DELAY_MS:-15000}" \
   -e RV_SMOKE_LOGIN="$server|$user|$password" -e RV_SMOKE_KIND="${RV_SMOKE_KIND:-}" -e RV_SMOKE_ROOM="$room" -e RV_SMOKE_SEND="$message" \
   -e RV_SMOKE_SHOT="/out/$(basename "$shot")" \

@@ -141,6 +141,8 @@ export class App implements RowActions {
   completion = el("div", "completion");
   urls = new Set<string>();
   connection = "offline";
+  ownStatus?: import("./protocol").PresenceStatus;
+  ownProfileRevision?: string;
   quote?: Message;
   recorder?: MediaRecorder;
   fileWork = new WeakMap<HTMLElement, Promise<void>>();
@@ -417,6 +419,8 @@ export class App implements RowActions {
     this.room = undefined;
     this.quote = undefined;
     this.live = undefined;
+    this.ownStatus = undefined;
+    this.ownProfileRevision = undefined;
     this.pending = [];
     this.staged = [];
     this.stagedOriginal = false;
@@ -462,6 +466,38 @@ export class App implements RowActions {
    * for an administrator (asked once per account; the row joins an open menu
    * when the answer comes), sign out.
    */
+  activityMenu(anchor: HTMLElement): void {
+    const account = this.account;
+    if (!account || !this.info?.capabilities.profiles) return;
+    actionMenu(
+      anchor,
+      (["online", "away", "busy", "offline"] as const).map((status) => [
+        nt("presence." + status),
+        async () => {
+          const own =
+            await this.api.request<import("./protocol").OwnProfile>(
+              "/api/v1/me/profile",
+            );
+          if (this.account !== account) return;
+          await this.api.request("/api/v1/me", "PATCH", {
+            operation_id: operation(),
+            expected_revision: own.profile.revision,
+            username: own.profile.user.username,
+            display_name: own.profile.user.display_name,
+            bio: own.profile.bio,
+            status,
+            status_text: own.profile.status_text,
+          });
+          if (this.account !== account) return;
+          this.ownStatus = status;
+          this.view.changed();
+          await this.reconnect();
+        },
+      ]),
+      true,
+    );
+  }
+
   accountMenu(anchor: HTMLElement): void {
     const key = this.account?.key;
     const known =
@@ -537,11 +573,15 @@ export class App implements RowActions {
       await renew(this);
       if (generation !== this.generation) return;
       void this.loadEmojis().catch(() => {});
-      const preferences = (
+      const own =
         await this.api.request<import("./protocol").OwnProfile>(
           "/api/v1/me/profile",
-        )
-      ).preferences;
+        );
+      const preferences = own.preferences;
+      if (active()) {
+        this.ownStatus = own.profile.status;
+        this.ownProfileRevision = own.profile.revision;
+      }
       if (!active()) return;
       this.preferences = preferences;
       if (!this.model.cursor) {
@@ -2495,6 +2535,34 @@ export class App implements RowActions {
       .catch(() => {});
   }
   observeProfiles(state: LiveState): void {
+    const own = state.profiles?.find(
+      (stamp) => stamp.user.id === this.account?.session.user.id,
+    );
+    if (own && own.revision !== this.ownProfileRevision) {
+      this.ownProfileRevision = own.revision;
+      const account = this.account,
+        generation = this.generation;
+      void this.api
+        .request<import("./protocol").OwnProfile>("/api/v1/me/profile")
+        .then((profile) => {
+          if (
+            this.account !== account ||
+            this.generation !== generation ||
+            this.ownProfileRevision !== own.revision
+          )
+            return;
+          this.ownStatus = profile.profile.status;
+          this.view.changed();
+        })
+        .catch(() => {
+          if (
+            this.account === account &&
+            this.generation === generation &&
+            this.ownProfileRevision === own.revision
+          )
+            this.ownProfileRevision = undefined;
+        });
+    }
     for (const stamp of state.profiles || []) {
       this.profiles.set(stamp.user.id, Promise.resolve({ ...stamp, bio: "" }));
       for (const [id, message] of this.model.messages)

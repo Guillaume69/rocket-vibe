@@ -5,7 +5,7 @@ Goal: a client **faster and more reliable** than the official app, for personal 
 on a self-hosted Rocket.Chat server. It also signs in to Mattermost and kChat servers
 (`../../docs/MATTERMOST.md`).
 
-The `feature/rocketvibe-server` branch adds a [pilot mobile path](../../docs/NATIVE_MOBILE_PILOT.md)
+The app includes a [native mobile path](../../docs/NATIVE_MOBILE_PILOT.md)
 for the RocketVibe Rust server: login picks the account's provider and the same
 screens show Rocket.Chat or RocketVibe. Feature parity of the native server is
 still in progress.

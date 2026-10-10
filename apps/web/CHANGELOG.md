@@ -10,6 +10,8 @@ All notable changes are documented here in English.
 
 - During do not disturb, an incoming call shows in the tab without ringing.
 - Read receipts: under your latest message, "Seen" in a direct conversation and "Seen by" with names in a group, live. Settings > My account turns them off, both ways.
+- The bottom avatar opens a quick activity menu and carries its own presence badge. The separate server connection dot moves from the header to the account footer.
+
 - Do not disturb: Settings > Notifications mutes notifications for an hour or until morning, or every day between two times (quiet hours). The server then holds back phone notifications and call rings too, and this tab stays quiet.
 - Ctrl+K (Cmd+K) opens a room switcher, as on the desktop: type part of a room's name, the arrows pick, Enter opens it. The composer's link shortcut moves to Ctrl+Shift+K; New conversation stays in the "+" menu.
 - Native RocketVibe MLS encryption through the shared Rust engine in a WebAssembly worker, with identity/device approval, verified peers and explicit group creation/admission reviews.

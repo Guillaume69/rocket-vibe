@@ -2,7 +2,7 @@ import { desc } from 'drizzle-orm';
 import { useCoalescedLiveQuery } from '../ui/liveQuery.ts';
 import { Redirect, Stack, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { ActivityIndicator, Alert, SectionList, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -17,7 +17,7 @@ import { useActivity } from '../ui/activity.ts';
 import { useListTimeFormatter, useT } from '../ui/i18n.ts';
 import { roomTitle, useDisplayNames, useStatusEmojis } from '../ui/identities.tsx';
 import { RoomAvatar, UnreadBadge, SyncBar, Brand, AvatarTile } from '../ui/kit.tsx';
-import { presenceColors, usePresence } from '../ui/presence.ts';
+import { PRESENCE_KEYS, presenceColors, usePresence } from '../ui/presence.ts';
 import {
   buildSections,
   type HomeEntry,
@@ -26,7 +26,10 @@ import {
 } from '../ui/homeSections.ts';
 import { toggleCollapsedSection, useCollapsedSections } from '../ui/collapsedSections.ts';
 import { ServerRail } from '../ui/serverRail.tsx';
-import { useServerRailHidden } from '../ui/serverRailSetting.ts';
+import { setServerRailHidden, useServerRailHidden } from '../ui/serverRailSetting.ts';
+import { avatarUrl } from '../lib/upload.ts';
+import { ownActivityStatus, readMyProfile, type DefaultStatus } from '../lib/myProfile.ts';
+import { useAvatarEtags } from '../ui/identities.tsx';
 import { useSession } from '../ui/session.tsx';
 import { useSync } from '../ui/sync.tsx';
 import { useE2EUnlocked } from '../ui/e2e.ts';
@@ -69,14 +72,16 @@ export default function HomeScreen() {
           <ListHeader c={c} />
           <RoomList c={c} client={state.client} />
           <VoiceFooter c={c} />
+          <AccountFooter c={c} />
         </View>
       </View>
     </SafeAreaView>
   );
 }
 
-/** Top banner: unicorn + gradient logotype, settings wheel. */
+/** Top banner: server-bar toggle, brand and message search. */
 function ListHeader({ c }: { c: Colors }) {
+  const railHidden = useServerRailHidden();
   const router = useRouter();
   const t = useT();
   // The global catch-up (app opening, return to foreground) lights the bar:
@@ -84,9 +89,18 @@ function ListHeader({ c }: { c: Colors }) {
   const syncing = useActivity('global');
   return (
     <View style={[styles.header, { borderBottomColor: c.softBorder }]}>
+      <Tappable
+        onPress={() => setServerRailHidden(!railHidden)}
+        accessibilityRole="button"
+        accessibilityLabel={t(railHidden ? 'home.showServers' : 'home.hideServers')}
+        accessibilityState={{ expanded: !railHidden }}
+        style={styles.headerWheel}
+      >
+        <Icon name="network-server" size={21} color={railHidden ? c.secondaryText : c.accent} />
+      </Tappable>
       <View style={styles.headerBrand}>
         <Text style={styles.headerUnicorn}>🦄</Text>
-        <Brand c={c} size={23} />
+        <Brand c={c} size={20} />
       </View>
       <Tappable
         onPress={() => router.push('/search-messages')}
@@ -98,17 +112,55 @@ function ListHeader({ c }: { c: Colors }) {
       >
         <Icon name="system-search" size={21} color={c.secondaryText} />
       </Tappable>
-      <Tappable
-        onPress={() => router.push('/settings')}
-        android_ripple={{ color: c.ripple, borderless: true, radius: 22 }}
-        hitSlop={8}
-        accessibilityRole="button"
-        accessibilityLabel={t('home.settings')}
-        style={({ pressed }) => [styles.headerWheel, { opacity: pressed ? 0.55 : 1 }]}
-      >
+      <SyncBar c={c} active={syncing} />
+    </View>
+  );
+}
+
+function AccountFooter({ c }: { c: Colors }) {
+  const { state } = useSession();
+  const router = useRouter();
+  const t = useT();
+  const etags = useAvatarEtags();
+  const sync = useSync();
+  const ownActivity = sync.phase === 'ready' ? sync.provider.ownActivity : null;
+  const uid = state.phase === 'connected' ? state.session.userId : null;
+  const livePresence = usePresence(uid);
+  const chat = sync.phase === 'ready' ? sync.provider.native?.chat : null;
+  const subscribe = useCallback((fn: () => void) => chat?.subscribe(fn) ?? (() => {}), [chat]);
+  const snapshot = useCallback(() => chat?.profileVersionFor(uid) ?? '', [chat, uid]);
+  const revision = useSyncExternalStore(subscribe, snapshot);
+  const client = state.phase === 'connected' ? state.client : null;
+  const [chosen, setChosen] = useState<{ client: typeof client; status: DefaultStatus } | null>(null);
+  useEffect(() => {
+    let active = true;
+    if (chat && client) void chat.ownProfile().then(own => {
+      if (active) setChosen({ client, status: own.profile.status ?? 'online' });
+    }).catch(() => {});
+    else if (client && ownActivity) void ownActivity.read().then(status => {
+      if (active) setChosen({ client, status });
+    }).catch(() => {});
+    else if (client?.kind === 'rocketchat') void readMyProfile(client).then(own => {
+      if (active) setChosen({ client, status: own.status });
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [chat, client, revision, ownActivity]);
+  const ownStatus = chosen?.client === client ? chosen?.status : null;
+  const status = ownActivityStatus(client?.kind === 'rocketvibe', ownStatus, livePresence);
+  if (state.phase !== 'connected') return null;
+  const username = state.session.username;
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 10, borderTopWidth: 1, borderTopColor: c.softBorder }}>
+      <Tappable style={{ padding: 4 }} onPress={() => router.push('/presence')} accessibilityRole="button" accessibilityLabel={t('home.changeStatus')}>
+        <AvatarTile c={c} hueKey={username} initial={username.slice(0, 1)} size={36} radius={12}
+          uri={avatarUrl(state.client, { username, etag: etags.byUsername.get(username) })} />
+        {status && <View accessibilityLabel={t(PRESENCE_KEYS[status])} style={{ position: 'absolute', right: 2, bottom: 2,
+          width: 12, height: 12, borderRadius: 6, borderWidth: 2, borderColor: c.background, backgroundColor: presenceColors(c)[status] }} />}
+      </Tappable>
+      <Text numberOfLines={1} style={{ flex: 1, fontFamily: FONTS.bodyStrong, color: c.text }}>{username}</Text>
+      <Tappable style={styles.headerWheel} onPress={() => router.push('/settings')} accessibilityRole="button" accessibilityLabel={t('home.settings')}>
         <Icon name="emblem-system" size={21} color={c.secondaryText} />
       </Tappable>
-      <SyncBar c={c} active={syncing} />
     </View>
   );
 }
@@ -518,13 +570,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 18,
-    paddingVertical: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
     borderBottomWidth: 1,
   },
   headerBrand: { flexDirection: 'row', alignItems: 'center', gap: 9 },
   headerUnicorn: { fontSize: 22 },
-  headerWheel: { padding: 4 },
+  headerWheel: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   content: { paddingBottom: 8 },
   // The radius lives on the WRAPPER: its clip (`overflow`) cuts the ripple;
   // borderRadius on the Pressable itself is ignored by the ripple mask under

@@ -347,7 +347,10 @@ test("superseded initial and recovery snapshots cannot replace newer model state
         if (path === "/.well-known/rocketvibe")
           return { instance_id: "instance", data_epoch: "epoch" };
         if (path.startsWith("/api/v1/sync/changes")) throw new ApiError(409);
-        return { preferences: { desktop_notifications: "all" } };
+        return {
+          profile: { revision: "own-revision", status: "online" },
+          preferences: { desktop_notifications: "all" },
+        };
       },
       snapshot: async () => {
         started.resolve(undefined);
@@ -396,9 +399,17 @@ test("a delayed profile response from another generation cannot change preferenc
   const work = reconnect.call(target);
   await started.promise;
   target.generation++;
-  profile.resolve({ preferences: { desktop_notifications: "all" } });
+  profile.resolve({
+    profile: { revision: "late-own-revision", status: "busy" },
+    preferences: { desktop_notifications: "all" },
+  });
   await work;
   assert.equal(target.preferences.desktop_notifications, "nothing");
+  assert.equal(
+    target.ownStatus,
+    undefined,
+    "a stale own profile cannot change the avatar activity badge",
+  );
 });
 test("private assets register in-flight access and discard late cache writes without creating a URL", async () => {
   for (const lateCache of [false, true]) {
@@ -537,4 +548,34 @@ test("new message and HTTP workflow steps expose their result name editor", () =
     );
     assert.ok(labels.includes("workflows.save_as"), kind);
   }
+});
+
+test("an older failed profile refresh cannot discard the newer revision", async () => {
+  const target = Object.assign(app(), {
+    ownStatus: "online",
+    ownProfileRevision: undefined as string | undefined,
+    profiles: new Map(),
+    main: { querySelectorAll: () => [] },
+    view: { changed() {} },
+    renderTimeline() {},
+  });
+  let rejectOld!: (error: Error) => void;
+  const old = new Promise((_resolve, reject) => {
+    rejectOld = reject;
+  });
+  const newer = deferred<unknown>();
+  let reads = 0;
+  target.api.request = () => (++reads === 1 ? old : newer.promise);
+  const observe = method("observeProfiles", {
+    window: { dispatchEvent() {} },
+    Event: class {},
+  });
+  observe.call(target, { profiles: [{ user, revision: "R1" }] });
+  observe.call(target, { profiles: [{ user, revision: "R2" }] });
+  rejectOld(new Error("old read failed"));
+  await new Promise((resolve) => setImmediate(resolve));
+  newer.resolve({ profile: { user, revision: "R2", status: "busy" } });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(target.ownProfileRevision, "R2");
+  assert.equal(target.ownStatus, "busy");
 });

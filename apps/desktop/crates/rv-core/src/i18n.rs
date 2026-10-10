@@ -22,6 +22,8 @@ pub fn set(lang: Lang) {
 /// (key, French, English). A `{name}` is filled by `tf`; `a | b` is the
 /// singular and plural of `tn`.
 const CATALOG: &[(&str, &str, &str)] = &[
+    ("rail.hide", "Masquer la barre des serveurs", "Hide server bar"),
+    ("rail.show", "Afficher la barre des serveurs", "Show server bar"),
     (
         "crypto.observed_time",
         "Heure locale de préparation ou de lecture de ce message chiffré",

@@ -53,6 +53,7 @@ beta does.
 | Presence dot on DMs (`users.presence`, `user-status`) | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | System and video-call messages translated in previews | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | New conversation: `spotlight`, open a DM (`im.create`), join a channel (`channels.join`) | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
+| Mark a room as unread, or as read with its threads, from the room list (Rocket.Chat) | done | done | done | n/a | Mobile: long press; GTK: right-click menu; SwiftUI: context menu, checked by the macOS CI build only. Opening the room marks it unread as left: a desktop marking the OPEN room unread leaves it first. Mattermost, kChat and RocketVibe not mapped. Web: Native-origin client; Rocket.Chat is outside its scope. |
 | Rocket.Chat: create a channel or a private group (`channels.create`, `groups.create`) | missing | missing | missing | partial | On a RocketVibe server the apps create rooms; on Rocket.Chat none does. Set aside by the user on 2026-10-07. Web: Implemented native browser equivalent requires row-specific GTK qualification; see docs/WEB_CLIENT_EXECUTION.md. |
 | Unread total on the app | done | done | done | done | Mobile: launcher badge; GTK: window title, Windows tray, macOS Dock; SwiftUI: Dock. Web: Native provider: see [web-client](features/web-client.md). |
 
@@ -185,6 +186,7 @@ beta does.
 |---|---|---|---|---|---|
 | DMs and mentions notified, click opens the room | done | done | done | mapped | Mobile by push, even with the app killed; desktop while the app runs. Web: Native browser storage/HTTP/socket, HTTPS links, downloads and live-tab alerts; see web-client.md. |
 | Reply from the notification | done | done | done | missing | Where the desktop platform supports it. Web: No browser implementation yet. |
+| A room's own notifications: default, all messages, mentions or nothing (Rocket.Chat `rooms.saveNotification`, desktop and push together) | done | missing | missing | n/a | Mobile: the room information sheet (push follows it server-side). GTK and SwiftUI owe the choice AND honouring it: their notifications are decided locally from the account preference (`notify.rs`). Web: Native-origin client; Rocket.Chat is outside its scope. |
 | Nothing of encrypted rooms' content | done | done | done | done | Web: Encrypted room notifications never include decrypted content. src/app.ts. |
 | Running with the window closed, starting at login | mapped | done | missing | partial | Mobile: push arrives with the app closed. GTK: Windows tray, macOS Dock; Linux quits on close. Web: Installable public shell; closed-tab Web Push and OS autostart absent. |
 
@@ -306,7 +308,7 @@ gaps, listed last.
 
 - **Mobile**: kChat "Sign in with Infomaniak" run on a real account; Mattermost stars changed elsewhere, live; several accounts per server;
   formatting toolbar; logs folder.
-- **GTK**: forwarding a message (Rocket.Chat); kChat "Sign in with Infomaniak"; email 2FA resend; replay of an offline sign-out; padlock tile once
+- **GTK**: a room's own notifications and forwarding a message (Rocket.Chat); kChat "Sign in with Infomaniak"; email 2FA resend; replay of an offline sign-out; padlock tile once
   unlocked; DM avatar versions in the list; video reduction; reconciliation snapshot; catch-up of
   deletions in rooms already caught up; message retention.
 - **SwiftUI**: everything GTK owes, plus `-wal` / `-shm` cleanup on sign-out;

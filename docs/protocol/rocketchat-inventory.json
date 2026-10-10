@@ -530,6 +530,7 @@
     "apps/mobile/ui/roomMembership.tsx",
     "apps/mobile/ui/roomNotifications.tsx",
     "apps/mobile/ui/roomPagination.ts",
+    "apps/mobile/ui/roomSettingsEditor.tsx",
     "apps/mobile/ui/serverDots.ts",
     "apps/mobile/ui/serverRail.tsx",
     "apps/mobile/ui/serverRailSetting.ts",
@@ -4138,91 +4139,103 @@
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 141,
+      "line": 142,
+      "kind": "call:POST",
+      "surface": "'rooms.saveRoomSettings'"
+    },
+    {
+      "file": "apps/mobile/providers/rocketchat/actions.ts",
+      "line": 142,
+      "kind": "endpoint",
+      "surface": "rooms.saveRoomSettings"
+    },
+    {
+      "file": "apps/mobile/providers/rocketchat/actions.ts",
+      "line": 153,
       "kind": "call:POST",
       "surface": "`{…}.kick`"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 146,
+      "line": 158,
       "kind": "call:POST",
       "surface": "put ? 'chat.followMessage' : 'chat.unfollowMessage'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 146,
+      "line": 158,
       "kind": "endpoint",
       "surface": "chat.followMessage"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 146,
+      "line": 158,
       "kind": "endpoint",
       "surface": "chat.unfollowMessage"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 152,
+      "line": 164,
       "kind": "call:GET",
       "surface": "path"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 162,
+      "line": 174,
       "kind": "call:POST",
       "surface": "'subscriptions.read'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 162,
+      "line": 174,
       "kind": "endpoint",
       "surface": "subscriptions.read"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 167,
+      "line": 179,
       "kind": "call:POST",
       "surface": "'subscriptions.read'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 167,
+      "line": 179,
       "kind": "endpoint",
       "surface": "subscriptions.read"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 172,
+      "line": 184,
       "kind": "call:POST",
       "surface": "'rooms.saveNotification'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 172,
+      "line": 184,
       "kind": "endpoint",
       "surface": "rooms.saveNotification"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 179,
+      "line": 191,
       "kind": "call:POST",
       "surface": "'subscriptions.unread'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 179,
+      "line": 191,
       "kind": "endpoint",
       "surface": "subscriptions.unread"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 185,
+      "line": 197,
       "kind": "call:POST",
       "surface": "'im.create'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 185,
+      "line": 197,
       "kind": "endpoint",
       "surface": "im.create"
     },
@@ -4564,73 +4577,73 @@
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 999,
+      "line": 1001,
       "kind": "endpoint",
       "surface": "e2e.title"
-    },
-    {
-      "file": "apps/mobile/ui/messages.ts",
-      "line": 1000,
-      "kind": "endpoint",
-      "surface": "e2e.explanation"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
       "line": 1002,
       "kind": "endpoint",
-      "surface": "e2e.field"
-    },
-    {
-      "file": "apps/mobile/ui/messages.ts",
-      "line": 1003,
-      "kind": "endpoint",
-      "surface": "e2e.unlock"
+      "surface": "e2e.explanation"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
       "line": 1004,
       "kind": "endpoint",
-      "surface": "e2e.wrongPassword"
+      "surface": "e2e.field"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
       "line": 1005,
       "kind": "endpoint",
-      "surface": "e2e.genericError"
-    },
-    {
-      "file": "apps/mobile/ui/messages.ts",
-      "line": 2405,
-      "kind": "endpoint",
-      "surface": "e2e.title"
-    },
-    {
-      "file": "apps/mobile/ui/messages.ts",
-      "line": 2406,
-      "kind": "endpoint",
-      "surface": "e2e.explanation"
-    },
-    {
-      "file": "apps/mobile/ui/messages.ts",
-      "line": 2408,
-      "kind": "endpoint",
-      "surface": "e2e.field"
-    },
-    {
-      "file": "apps/mobile/ui/messages.ts",
-      "line": 2409,
-      "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2410,
+      "line": 1006,
       "kind": "endpoint",
       "surface": "e2e.wrongPassword"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2411,
+      "line": 1007,
+      "kind": "endpoint",
+      "surface": "e2e.genericError"
+    },
+    {
+      "file": "apps/mobile/ui/messages.ts",
+      "line": 2409,
+      "kind": "endpoint",
+      "surface": "e2e.title"
+    },
+    {
+      "file": "apps/mobile/ui/messages.ts",
+      "line": 2410,
+      "kind": "endpoint",
+      "surface": "e2e.explanation"
+    },
+    {
+      "file": "apps/mobile/ui/messages.ts",
+      "line": 2412,
+      "kind": "endpoint",
+      "surface": "e2e.field"
+    },
+    {
+      "file": "apps/mobile/ui/messages.ts",
+      "line": 2413,
+      "kind": "endpoint",
+      "surface": "e2e.unlock"
+    },
+    {
+      "file": "apps/mobile/ui/messages.ts",
+      "line": 2414,
+      "kind": "endpoint",
+      "surface": "e2e.wrongPassword"
+    },
+    {
+      "file": "apps/mobile/ui/messages.ts",
+      "line": 2415,
       "kind": "endpoint",
       "surface": "e2e.genericError"
     },

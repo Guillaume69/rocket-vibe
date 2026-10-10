@@ -199,6 +199,12 @@ describe('ActionsRC', () => {
     assert.deepEqual(read, [{ path: 'rooms.membersOrderedByRole', params: { roomId: 'r1', count: 50, offset: 50, filter: 'bo' } }]);
   });
 
+  test('saveRoomSettings sends only the changed texts under the server names', async () => {
+    const { client, calls } = fakeClient({ success: true });
+    await new ActionsRC(client).saveRoomSettings('r1', { topic: '', announcement: 'Hello' });
+    assert.deepEqual(calls, [{ path: 'rooms.saveRoomSettings', body: { rid: 'r1', roomTopic: '', roomAnnouncement: 'Hello' } }]);
+  });
+
   test('member roles and removal take the room kind route', async () => {
     const { client, calls } = fakeClient({ success: true });
     const a = new ActionsRC(client);

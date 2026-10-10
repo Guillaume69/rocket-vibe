@@ -37,6 +37,7 @@ import {NativeRoomFavorite} from '../ui/nativeRoomFavorite.tsx';
 import {EncryptedGroupSection} from '../ui/encryptedGroup.tsx';
 import { RoomNotificationChoice } from '../ui/roomNotifications.tsx';
 import { RoomInvite } from '../ui/roomInvite.tsx';
+import { RoomSettingsEditor } from '../ui/roomSettingsEditor.tsx';
 
 const TYPE_SENTENCE: Record<string, TranslationKey> = {
   c: 'roomInfo.typePublicChannel',
@@ -238,6 +239,10 @@ function RoomInfoContent({
       )}
       {!native && subscription !== undefined && (
         <RoomInvite c={c} client={client} siteUrl={siteUrl} rid={rid} type={room?.type} roles={subscription.roles} />
+      )}
+
+      {!native && extras !== null && subscription !== undefined && room?.type !== 'd' && (
+        <RoomSettingsEditor c={c} client={client} actions={actions} rid={rid} roles={subscription.roles} info={extras} onSaved={() => setRefreshing((value) => value + 1)} />
       )}
 
       {extras?.management && actions.roomManagement && <RoomCommands rid={rid} base={base} details={extras.management} actions={actions.roomManagement} c={c} refresh={()=>setRefreshing(value=>value+1)} />}

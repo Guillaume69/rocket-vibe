@@ -220,6 +220,8 @@ export interface ProviderActions {
   setMemberRole?(rid: string, type: string, userId: string, role: 'moderator' | 'owner', put: boolean): Promise<void>;
   /** Removes a member from the room. */
   removeMember?(rid: string, type: string, userId: string): Promise<void>;
+  /** Writes the given texts of the room (only those present). */
+  saveRoomSettings?(rid: string, fields: Partial<RoomTexts>): Promise<void>;
   markRead(rid: string, observation?:ReadObservation): Promise<void>;
   /**
    * Makes the room unread again from its last message; the subscription the
@@ -246,6 +248,9 @@ export interface ProviderActions {
 export type RoomMember = { id: string; username: string; name: string | null; status: string | null; avatarEtag: string | null; roles: string[] };
 /** One page of `ProviderActions.listMembers`, owners and moderators first. */
 export type MemberPage = { members: RoomMember[]; total: number };
+
+/** A room's texts as `ProviderActions.saveRoomSettings` writes them. */
+export type RoomTexts = { topic: string; description: string; announcement: string };
 
 /** One page of `ProviderActions.listThreads`. */
 export type ThreadPage = { threads: LocalMessage[]; total: number };

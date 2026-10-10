@@ -7,7 +7,7 @@
 
 import { mentionsE2E } from '../../lib/e2e/mentions.ts';
 import type { OutboxEncryptor } from '../../lib/outbox.ts';
-import type { MemberPage, ProviderActions, RoomInformation, RoomMember, ThreadPage } from '../../lib/provider.ts';
+import type { MemberPage, ProviderActions, RoomInformation, RoomMember, RoomTexts, ThreadPage } from '../../lib/provider.ts';
 import { toMessage, type LocalMessage, type RoomNotificationLevel } from '../../lib/normalize.ts';
 import type { RestClient } from '../../lib/rest.ts';
 
@@ -134,6 +134,18 @@ export class ActionsRC implements ProviderActions {
     const name = role === 'owner' ? 'Owner' : 'Moderator';
     await this.client.post(`${type === 'p' ? 'groups' : 'channels'}.${put ? 'add' : 'remove'}${name}`, {
       body: { roomId: rid, userId },
+    });
+  }
+
+  /** `rooms.saveRoomSettings` refuses any unknown key; `edit-room` is checked by the server. */
+  async saveRoomSettings(rid: string, fields: Partial<RoomTexts>): Promise<void> {
+    await this.client.post('rooms.saveRoomSettings', {
+      body: {
+        rid,
+        ...(fields.topic === undefined ? {} : { roomTopic: fields.topic }),
+        ...(fields.description === undefined ? {} : { roomDescription: fields.description }),
+        ...(fields.announcement === undefined ? {} : { roomAnnouncement: fields.announcement }),
+      },
     });
   }
 

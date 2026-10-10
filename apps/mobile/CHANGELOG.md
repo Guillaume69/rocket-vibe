@@ -24,6 +24,7 @@ release, and its notes are that version's section here.
 - On Rocket.Chat servers, discussions: their card in the parent room opens them (joining a public one), and "Start a discussion" on a message or "New discussion" in the room information creates one.
 - A formatting row ("Aa" beside the emoji button): bold, italic, strike, link, code, code block, quote and lists, around the selection, as on the desktop.
 - On Rocket.Chat servers, the room information sheet lists the room's members (owners and moderators first, searchable), each opening its profile; a long press makes or removes a moderator or an owner, or removes someone from the room, as your rights allow.
+- On Rocket.Chat servers, those allowed to edit a room change its topic, description and announcement from its information sheet.
 - My profile can remove my photo (Rocket.Chat and RocketVibe), after a confirmation.
 
 ### Fixed

@@ -11,6 +11,7 @@ release, and its notes are that version's section here.
 
 - A message the server refused no longer goes out again on every send: it waits for "Retry", so a few refused messages can no longer use up Rocket.Chat's 10 requests a minute and hold back the next message.
 - A message sent while the server restarts behind its proxy (a 5xx answer) stays queued instead of showing "not sent".
+- Signing out of a RocketVibe server, or switching accounts from it, now forgets that account's names, profile cards, call status and badge, as signing out of Rocket.Chat already did.
 - Private quotes and source previews now use the latest verified message edit.
 - Keep device-invitation controls available to a room member before MLS admission, while preserving server refusals for an already accepted group.
 

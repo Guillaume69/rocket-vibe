@@ -269,7 +269,10 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         });
         if (AppState.currentState === 'active') chat.start(); else chat.suspend();
       })().catch(() => { if (alive) setSync({phase:'error',message:translateCurrent('native.error')}); });
-      return () => { alive = false; appState.remove(); stop?.(); unmountUsage(); };
+      // The same purge as a Rocket.Chat session's end: without it, the next
+      // account inherited this one's identities, profile cards, call verdicts,
+      // badge and loaded-room marks.
+      return () => { alive = false; appState.remove(); stop?.(); unmountUsage(); forgetSessionStores(); };
     }
     let discarded = false;
     const isDiscarded = () => discarded;
@@ -706,30 +709,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       onAbort?.();
       armUploadProbe(null); // no more probing a stowed client
       stopTokenListener(); // nor re-registering with a server left behind
-      // The "this already had its opening load" caches are keyed by
-      // generation, whose counter restarts from zero in the next session:
-      // without a purge, a room from ANOTHER server could pass as already
-      // loaded. Each of these purges also invalidates the session token, which
-      // forbids still-mounted screens from repopulating them while unmounting:
-      // their cleanup runs AFTER this one (see `ui/sessionToken.ts`).
-      forgetLoadedRooms();
-      forgetLoadedThreads();
-      // And the rooms we kept listening to after leaving them: their
-      // subscriptions are worthless on a socket being closed.
-      releaseHotRooms();
-      // The rule "every module store is purged at session end", with no
-      // exception this time. Each of these let account data leak from the
-      // account left to the next: the permalink of a pending quote (which
-      // carries the OLD baseUrl), the usernames and photo versions (a stale
-      // etag makes Android's cache serve the old image again), the call
-      // availability verdict, the list of encrypted rooms and the icon badge,
-      // and the raw profile records.
-      forgetReplies();
-      forgetIdentities();
-      clearRealNames();
-      forgetCallAvailability();
-      forgetNotificationState();
-      forgetProfileCards();
+      forgetSessionStores();
       unmountUsage();
       unprofile();
       uncalls();
@@ -742,6 +722,33 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
   }, [state,adoptRenewedSession]);
 
   return <Context.Provider value={sync}>{children}</Context.Provider>;
+}
+
+/**
+ * The rule "every module store is purged at session end", for every provider.
+ * The "this already had its opening load" caches are keyed by generation,
+ * whose counter restarts from zero in the next session: without a purge, a
+ * room from ANOTHER server could pass as already loaded. Each of these purges
+ * also invalidates the session token, which forbids still-mounted screens from
+ * repopulating them while unmounting: their cleanup runs AFTER this one (see
+ * `ui/sessionToken.ts`). The rooms kept listened to after leaving them are
+ * released: their subscriptions are worthless on a socket being closed. The
+ * rest let account data leak from the account left to the next: the permalink
+ * of a pending quote (which carries the OLD baseUrl), the usernames and photo
+ * versions (a stale etag makes Android's cache serve the old image again), the
+ * call availability verdict, the list of encrypted rooms and the icon badge,
+ * and the raw profile records.
+ */
+function forgetSessionStores(): void {
+  forgetLoadedRooms();
+  forgetLoadedThreads();
+  releaseHotRooms();
+  forgetReplies();
+  forgetIdentities();
+  clearRealNames();
+  forgetCallAvailability();
+  forgetNotificationState();
+  forgetProfileCards();
 }
 
 export function useSync(): SyncState {

@@ -17,6 +17,7 @@ pub mod markdown;
 pub mod notification_navigation;
 pub mod notifications;
 pub mod profiles;
+pub mod quiet;
 mod read_intents;
 pub mod read_presentation;
 mod room_operations;
@@ -320,6 +321,9 @@ pub struct NativeSession {
     events: broadcast::Sender<()>,
     incoming: broadcast::Sender<crate::notify::Incoming>,
     notification_preference: Mutex<String>,
+    /// The account's do not disturb (quiet hours, mute end), as last read:
+    /// no desktop notification while it holds (`quiet::quiet`).
+    do_not_disturb: Mutex<(Option<rv_protocol::profiles::QuietHours>, Option<String>)>,
     notification_settings_known: AtomicBool,
     control: watch::Sender<u64>,
     wake: Notify,
@@ -391,6 +395,7 @@ impl NativeSession {
             events,
             incoming,
             notification_preference: Mutex::new("nothing".into()),
+            do_not_disturb: Mutex::new((None, None)),
             notification_settings_known: AtomicBool::new(false),
             control,
             wake: Notify::new(),

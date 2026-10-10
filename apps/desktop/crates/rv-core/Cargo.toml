@@ -19,6 +19,7 @@ doc = false
 aws-lc-rs = "1.18.1"
 base64 = "0.22.1"
 chrono = "0.4.45"
+chrono-tz = "0.10"
 fastrand = "2.5.0"
 getrandom = "0.3"
 futures-util = "0.3.34"

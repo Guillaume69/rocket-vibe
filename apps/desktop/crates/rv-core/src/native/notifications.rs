@@ -119,15 +119,29 @@ impl NativeSession {
         if changed {
             *current = choice.as_str().unwrap().into();
         }
+        drop(current);
+        *self.do_not_disturb.lock().unwrap() =
+            (own.preferences.quiet_hours.clone(), own.preferences.muted_until.clone());
         if !self.notification_settings_known.swap(true, Ordering::SeqCst) || changed {
             let _ = self.events.send(());
         }
     }
 
+    /// Whether the account is in do not disturb now, as the server decides for
+    /// push: muted, or inside its quiet hours read in their own time zone.
+    /// A notification already shown stays; only new ones stop.
+    pub fn quiet_now(&self) -> bool {
+        let (window, muted) = &*self.do_not_disturb.lock().unwrap();
+        super::quiet::quiet(window.as_ref(), muted.as_deref(), chrono::Utc::now())
+    }
+
     pub(super) fn publish_notifications(&self, notifications: Vec<store::Notification>) {
         let preference = self.notification_preference.lock().unwrap().clone();
+        // A message that comes in do not disturb never alerts, even later: as
+        // on the server, it is not deferred.
+        let quiet = self.quiet_now();
         for n in notifications {
-            if self.is_closed() || !wanted(&preference, &n.incoming) {
+            if self.is_closed() || quiet || !wanted(&preference, &n.incoming) {
                 continue;
             }
             if self.store.remember_notification(&n).unwrap_or(false) {
@@ -496,6 +510,35 @@ mod tests {
             })
             .unwrap();
         assert!(!s.notification_current(&reply));
+        // Do not disturb: a mute, then quiet hours read in their own zone,
+        // stop new notifications; outside the window they come back.
+        own.preferences.desktop_notifications = rv_protocol::profiles::DesktopNotifications::All;
+        let now = chrono::Utc::now();
+        own.preferences.muted_until = Some((now + chrono::Duration::hours(1)).to_rfc3339());
+        s.update_notification_preference(&own);
+        assert!(s.quiet_now());
+        publish("muted", "8", true, None);
+        assert!(incoming.try_recv().is_err());
+        own.preferences.muted_until = Some((now - chrono::Duration::minutes(1)).to_rfc3339());
+        let minute = super::super::quiet::minute_in("Asia/Tokyo", now);
+        own.preferences.quiet_hours = Some(rv_protocol::profiles::QuietHours {
+            start_minute: (minute + 1380) % 1440,
+            end_minute: (minute + 60) % 1440,
+            time_zone: "Asia/Tokyo".into(),
+        });
+        s.update_notification_preference(&own);
+        assert!(s.quiet_now());
+        publish("night", "9", false, None);
+        assert!(incoming.try_recv().is_err());
+        own.preferences.quiet_hours = Some(rv_protocol::profiles::QuietHours {
+            start_minute: (minute + 120) % 1440,
+            end_minute: (minute + 180) % 1440,
+            time_zone: "Asia/Tokyo".into(),
+        });
+        s.update_notification_preference(&own);
+        assert!(!s.quiet_now());
+        publish("day", "10", false, None);
+        assert_eq!(incoming.try_recv().unwrap().id, "day");
         s.shutdown();
     }
 }

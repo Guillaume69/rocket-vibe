@@ -8,9 +8,17 @@ use crate::{
 use rv_core::native::{
     self,
     profiles::*,
+    quiet,
     store::{AvatarUpload, ProfileOperation},
 };
 
+/// A daily quiet window: minutes since midnight in `time_zone` (IANA).
+#[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
+pub struct NativeQuietHours {
+    pub start_minute: u16,
+    pub end_minute: u16,
+    pub time_zone: String,
+}
 #[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
 pub struct NativePreferences {
     pub revision: String,
@@ -19,6 +27,11 @@ pub struct NativePreferences {
     pub push_enabled: bool,
     pub push_mentions_only: bool,
     pub desktop_notifications: String,
+    /// Do not disturb, read only here: `update_preferences` keeps them,
+    /// `mute_notifications` and `set_quiet_hours` change them.
+    pub quiet_hours: Option<NativeQuietHours>,
+    /// The mute's end (Unix seconds), as the server returned it: ahead then.
+    pub muted_until: Option<i64>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
 pub struct NativeOwnProfile {
@@ -38,6 +51,32 @@ pub struct NativeProfileIntention {
 }
 fn error(e: native::Error) -> RvError {
     native::rest_error(e).into()
+}
+fn quiet_hours(window: &QuietHours) -> NativeQuietHours {
+    NativeQuietHours {
+        start_minute: window.start_minute,
+        end_minute: window.end_minute,
+        time_zone: window.time_zone.clone(),
+    }
+}
+fn muted_until(value: Option<&str>) -> Option<i64> {
+    chrono::DateTime::parse_from_rfc3339(value?).ok().map(|d| d.timestamp())
+}
+/// A change of `preferences` that keeps do not disturb (absent fields).
+fn preferences_input(preferences: NativePreferences) -> Result<UpdatePreferences, RvError> {
+    let desktop_notifications = serde_json::from_value(serde_json::Value::String(preferences.desktop_notifications))
+        .map_err(|_| error(native::Error::Protocol("invalid_preferences")))?;
+    Ok(UpdatePreferences {
+        operation_id: native::room_operation_id(),
+        expected_revision: preferences.revision,
+        language: preferences.language,
+        clock_24h: preferences.clock_24h,
+        push_enabled: preferences.push_enabled,
+        push_mentions_only: preferences.push_mentions_only,
+        desktop_notifications,
+        quiet_hours: None,
+        muted_until: None,
+    })
 }
 fn notification(v: DesktopNotifications) -> String {
     match v {
@@ -78,8 +117,20 @@ fn own(value: OwnProfile) -> NativeOwnProfile {
             push_enabled: value.preferences.push_enabled,
             push_mentions_only: value.preferences.push_mentions_only,
             desktop_notifications: notification(value.preferences.desktop_notifications),
+            quiet_hours: value.preferences.quiet_hours.as_ref().map(quiet_hours),
+            muted_until: muted_until(value.preferences.muted_until.as_deref()),
         },
     }
+}
+/// `22:00` for 1320.
+#[uniffi::export]
+pub fn quiet_clock(minute: u16) -> String {
+    quiet::clock(minute)
+}
+/// Minutes since midnight of an `HH:MM` text; None when it is not one.
+#[uniffi::export]
+pub fn quiet_minute(text: String) -> Option<u16> {
+    native::workflows::time_parts(text.trim()).map(|(h, m)| (h * 60 + m) as u16)
 }
 #[uniffi::export]
 impl NativeChat {
@@ -152,24 +203,54 @@ impl NativeChat {
             .map_err(error)
     }
     pub async fn update_preferences(&self, preferences: NativePreferences) -> Result<NativeOwnProfile, RvError> {
-        let desktop_notifications =
-            serde_json::from_value(serde_json::Value::String(preferences.desktop_notifications))
-                .map_err(|_| error(native::Error::Protocol("invalid_preferences")))?;
-        let input = UpdatePreferences {
-            operation_id: native::room_operation_id(),
-            expected_revision: preferences.revision,
-            language: preferences.language,
-            clock_24h: preferences.clock_24h,
-            push_enabled: preferences.push_enabled,
-            push_mentions_only: preferences.push_mentions_only,
-            desktop_notifications,
-            quiet_hours: None,
-            muted_until: None,
-        };
+        let input = preferences_input(preferences)?;
         let s = self.session.clone();
         on_tokio(async move { s.change_profile(ProfileOperation::Preferences { input }).await.map(own) })
             .await
             .map_err(error)
+    }
+    /// Mutes notifications: `hour` for one hour, `morning` until the next
+    /// 08:00 on this machine's clock, anything else unmutes. Only the mute
+    /// changes.
+    pub async fn mute_notifications(
+        &self,
+        preferences: NativePreferences,
+        choice: String,
+    ) -> Result<NativeOwnProfile, RvError> {
+        let mut input = preferences_input(preferences)?;
+        input.muted_until = Some(quiet::mute_end(&choice, chrono::Local::now()));
+        let s = self.session.clone();
+        on_tokio(async move { s.change_profile(ProfileOperation::Preferences { input }).await.map(own) })
+            .await
+            .map_err(error)
+    }
+    /// Sets the daily quiet window, in this machine's time zone whatever
+    /// `window` names, or removes it (None). Only the window changes.
+    pub async fn set_quiet_hours(
+        &self,
+        preferences: NativePreferences,
+        window: Option<NativeQuietHours>,
+    ) -> Result<NativeOwnProfile, RvError> {
+        let window = window
+            .map(|w| {
+                let window = QuietHours {
+                    start_minute: w.start_minute,
+                    end_minute: w.end_minute,
+                    time_zone: native::workflows::system_time_zone(),
+                };
+                window.valid().then_some(window).ok_or_else(|| error(native::Error::Protocol("invalid_preferences")))
+            })
+            .transpose()?;
+        let mut input = preferences_input(preferences)?;
+        input.quiet_hours = Some(window);
+        let s = self.session.clone();
+        on_tokio(async move { s.change_profile(ProfileOperation::Preferences { input }).await.map(own) })
+            .await
+            .map_err(error)
+    }
+    /// Whether the account is in do not disturb now: no notification shows.
+    pub fn quiet_now(&self) -> bool {
+        self.session.quiet_now()
     }
     pub async fn change_avatar(
         &self,
@@ -217,6 +298,9 @@ impl NativeChat {
                         push_enabled: input.push_enabled,
                         push_mentions_only: input.push_mentions_only,
                         desktop_notifications: notification(input.desktop_notifications),
+                        // Only the changed field is known: None when kept or removed.
+                        quiet_hours: input.quiet_hours.clone().flatten().as_ref().map(quiet_hours),
+                        muted_until: muted_until(input.muted_until.clone().flatten().as_deref()),
                     }),
                     _ => None,
                 };

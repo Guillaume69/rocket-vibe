@@ -46,7 +46,7 @@ Same route: FCM token as `gcm`, FCM relays to APNs with the `.p8` key set in the
 ## Desktop
 
 - **Source.** `Session::incoming` (`rv-core/src/session.rs`) inspects each `stream-room-messages` event: skipped if it is mine, an edit, a system message other than `e2e`, or already in the store. `rv-core/src/notify.rs` builds an `Incoming` (author, room, DM or not, `mentions_me` from the parsed `md` or the text, body without ciphertext) and filters it with the account's `desktopNotifications` preference: `all`, `nothing`, otherwise DMs and mentions (`@me`, `@all`, `@here`).
-- **Suppression.** No notification when the window is active and already showing that room (`window.rs::notify`; the SwiftUI app checks `NSApp.isActive` and the open room).
+- **Suppression.** No notification when the window is active and already showing that room (`window.rs::notify`; the SwiftUI app checks `NSApp.isActive` and the open room). A RocketVibe account in do not disturb (muted, or inside its quiet hours read in their own zone) gets no new notification at all: `NativeSession::publish_notifications` drops them while `quiet_now` holds ([do-not-disturb.md](do-not-disturb.md)).
 - **Body.** `body_of` strips the quote permalink prefix, resolves emoji shortcodes, or names the file (📎) or image (🖼️). Encrypted: the `message.encrypted` string.
 - **Linux** (`rv-gtk/src/notifier.rs`): D-Bus `org.freedesktop.Notifications`, one notification per room (`replaces_id`), category `im.received`, `desktop-entry` hint. If the server advertises `inline-reply` (KDE Plasma), the reply typed in the notification is sent to the room; otherwise (GNOME) a Reply button opens the message with the composer ready. Opening a room closes its notification (`withdraw`).
 - **Windows and macOS** (no session bus): `rv-native` posts WinRT toasts (`toast_xml`, tag per room, inline reply box) or `UNUserNotificationCenter` notifications; clicks and replies come back through `rv_native::Event`. GLib notifications are the fallback when `rv-native` is unavailable (click only).
@@ -57,7 +57,7 @@ Same route: FCM token as `gcm`, FCM relays to APNs with the `.p8` key set in the
 - **Badge** (`rv-gtk/src/badge.rs`, `rv-core/src/rooms.rs`): `attention` counts unread DMs plus mentions; plain unread chatter gives a dot. Windows taskbar and macOS dock through `rv-native` (`badge_text` caps at "99+"); on Linux the Unity `LauncherEntry` D-Bus signal (KDE, Dash to Dock, Plank), count only.
 - **Running in the background** (`rv-gtk/src/background.rs`): on Windows and macOS closing the window keeps the app running (tray icon, dock), with optional start at login (`--background`); on Linux closing quits.
 - **Per room** (Rocket.Chat): the subscription keeps the room's own choice (`desktopNotifications` when `desktopPrefOrigin` is `subscription`) and `disableNotifications`; `notify::room_preference` makes the room's choice win over the account's in `Session::incoming`, and a room another client silenced shows nothing. `Session::room_notifications` writes `rooms.saveNotification` for desktop and push together, plus `disableNotifications: "0"` when another client had silenced the room, and the local column at once. GTK: a combo row in the room information dialog (`rv-gtk/src/room_notifications.rs`; for a DM, in the profile the header opens); SwiftUI: a picker in the room information overlay. Smoke step `RV_SMOKE_DETAILS=notifications` (with `RV_SMOKE_PEER`).
-- **Settings**: the `desktopNotifications` preference, which backend shows notifications, a test notification, and a link to the OS notification settings.
+- **Settings**: the `desktopNotifications` preference, which backend shows notifications, a test notification, and a link to the OS notification settings; on a RocketVibe account, the "Do not disturb" group (mute, quiet hours).
 - **SwiftUI** (`macos/Sources/RocketVibe/Notifier.swift`): `UNUserNotificationCenter` with a `message` category and a text-input Reply, one request per message grouped by `threadIdentifier = rid`, dock badge from `onAttention`. No background mode yet.
 
 ## Web
@@ -93,6 +93,8 @@ The desktop equivalent of push only works while the app runs. Both apps: DMs and
 - apps/mobile/ui/i18n.ts
 - apps/mobile/ui/settingsSections.tsx
 - apps/desktop/crates/rv-core/src/notify.rs
+- apps/desktop/crates/rv-core/src/native/notifications.rs
+- apps/desktop/crates/rv-core/src/native/quiet.rs
 - apps/desktop/crates/rv-core/src/session.rs
 - apps/desktop/crates/rv-core/src/rooms.rs
 - apps/desktop/crates/rv-gtk/src/notifier.rs

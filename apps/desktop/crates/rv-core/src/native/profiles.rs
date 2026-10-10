@@ -6,7 +6,9 @@ use super::{
 pub use rv_protocol::live::PresenceStatus;
 pub use rv_protocol::{
     parity::{UserPreferences, UserProfile},
-    profiles::{AvatarCommand, DesktopNotifications, OwnProfile, ProfileStamp, UpdatePreferences, UpdateProfile},
+    profiles::{
+        AvatarCommand, DesktopNotifications, OwnProfile, ProfileStamp, QuietHours, UpdatePreferences, UpdateProfile,
+    },
 };
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::Ordering;

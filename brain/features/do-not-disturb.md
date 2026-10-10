@@ -24,7 +24,10 @@ The app raises no notification of its own for a RocketVibe message: every messag
 
 ## Desktop
 
-Not offered yet (GTK, SwiftUI): the server holds push back, the desktop's own notifications do not follow it.
+- **The rule** (`rv-core/src/native/quiet.rs`): `quiet` (muted, `mute_ahead`, or `in_quiet_hours`) reads the window in its own zone through `chrono-tz` (`minute_in`; this machine's local time when the name does not parse), the same answer as the server's `account_quiet`; `mute_end` turns a choice into `muted_until` (`hour`: one hour from now, `morning`: the next 08:00 on this machine's clock, `next_morning`), `window` two `HH:MM` texts into a `QuietHours` carrying this machine's zone (`workflows::system_time_zone`, `iana-time-zone`). Unit tests: a window across midnight, a zone other than UTC (Paris, New York), an unknown zone, a mute, the choices.
+- **The app's own alerts** (`rv-core/src/native/notifications.rs`): `update_notification_preference` keeps the account's window and mute beside `desktop_notifications` (`do_not_disturb`, refreshed at connection, each minute and after every own-profile read), and `publish_notifications` drops every new notification while `NativeSession::quiet_now` holds: like the server, a message received in do not disturb never alerts later. A notification shown before stays, and its click and reply still work. Tested in `native_preferences_thread_replies_and_account_scope_survive_dispatch` (a mute, a window in Tokyo time, then a window that does not cover now). This covers GTK and SwiftUI, which both receive native notifications through `NativeSession::incoming`.
+- **GTK** (`rv-gtk/src/settings/native_profiles.rs`, Settings > Notifications, group "Do not disturb" under the notification choice): a "Mute notifications" combo row (Off or Muted, For 1 hour, Until 08:00, Unmute when muted; the subtitle says "Until HH:MM", and turns back to Off by itself when the mute ends) and a "Quiet hours" expander row whose switch saves at once (on with the two times shown, 22:00 to 08:00 by default; off removes the window), its subtitle "Every day, <zone>", and From and To entry rows saved by their apply button (`dnd.invalid_time` toast for a bad or empty window). Each save is an `UpdatePreferences` with only the changed field set (`preferences_input` leaves both absent, which keeps them), queued and resumable like the other preferences; while one is pending the rows show it and are not editable.
+- **SwiftUI** (`macos/Sources/RocketVibe/SettingsView.swift` `DoNotDisturbSection`, under the Notifications section for a RocketVibe account; `MyProfileModel.mute` / `setQuietHours`): the same picker (redrawn each half minute so an ended mute reads Off), a "Quiet hours" toggle and two time fields saved on Return. rv-ffi (`native_profiles.rs`): `NativePreferences` carries `quiet_hours` (`NativeQuietHours`) and `muted_until` (Unix seconds) read only, `update_preferences` keeps them, `mute_notifications` and `set_quiet_hours` (the window saved in this machine's zone) change one each, `quiet_now`, and the free `quiet_clock` / `quiet_minute`.
 
 ## Sources
 
@@ -45,5 +48,11 @@ Not offered yet (GTK, SwiftUI): the server holds push back, the desktop's own no
 - apps/mobile/ui/voice.tsx
 - apps/web/src/app.ts
 - apps/web/tests/quiet.mjs
+- apps/desktop/crates/rv-core/src/native/quiet.rs
+- apps/desktop/crates/rv-core/src/native/notifications.rs
+- apps/desktop/crates/rv-gtk/src/settings/native_profiles.rs
+- apps/desktop/crates/rv-ffi/src/native_profiles.rs
+- apps/desktop/macos/Sources/RocketVibe/SettingsView.swift
+- apps/desktop/macos/Sources/RocketVibeKit/MyProfileModel.swift
 - docs/protocol/PROFILES.md
 - docs/protocol/PUSH.md

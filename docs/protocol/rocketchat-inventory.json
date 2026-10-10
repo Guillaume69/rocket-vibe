@@ -77,6 +77,7 @@
     "apps/desktop/crates/rv-core/src/native/notification_navigation.rs",
     "apps/desktop/crates/rv-core/src/native/notifications.rs",
     "apps/desktop/crates/rv-core/src/native/profiles.rs",
+    "apps/desktop/crates/rv-core/src/native/quiet.rs",
     "apps/desktop/crates/rv-core/src/native/read_intents.rs",
     "apps/desktop/crates/rv-core/src/native/read_presentation.rs",
     "apps/desktop/crates/rv-core/src/native/room_operations.rs",
@@ -1269,85 +1270,85 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1398,
+      "line": 1416,
       "kind": "endpoint",
       "surface": "e2e.banner"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1399,
+      "line": 1417,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1400,
+      "line": 1418,
       "kind": "endpoint",
       "surface": "e2e.lock"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1401,
+      "line": 1419,
       "kind": "endpoint",
       "surface": "e2e.title"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1403,
+      "line": 1421,
       "kind": "endpoint",
       "surface": "e2e.body"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1407,
+      "line": 1425,
       "kind": "endpoint",
       "surface": "e2e.password"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1408,
+      "line": 1426,
       "kind": "endpoint",
       "surface": "e2e.wrong"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1409,
+      "line": 1427,
       "kind": "endpoint",
       "surface": "e2e.no_keys"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1410,
+      "line": 1428,
       "kind": "endpoint",
       "surface": "e2e.failed"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1411,
+      "line": 1429,
       "kind": "endpoint",
       "surface": "e2e.read_only"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1412,
+      "line": 1430,
       "kind": "endpoint",
       "surface": "e2e.status"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1413,
+      "line": 1431,
       "kind": "endpoint",
       "surface": "e2e.locked"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1414,
+      "line": 1432,
       "kind": "endpoint",
       "surface": "e2e.unlocked"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1513,
+      "line": 1531,
       "kind": "endpoint",
       "surface": "rooms.quoted_message"
     },
@@ -3363,31 +3364,31 @@
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/SettingsView.swift",
-      "line": 244,
+      "line": 245,
       "kind": "endpoint",
       "surface": "e2e.status"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/SettingsView.swift",
-      "line": 246,
+      "line": 247,
       "kind": "endpoint",
       "surface": "e2e.locked"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/SettingsView.swift",
-      "line": 246,
+      "line": 247,
       "kind": "endpoint",
       "surface": "e2e.unlocked"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/SettingsView.swift",
-      "line": 249,
+      "line": 250,
       "kind": "endpoint",
       "surface": "e2e.lock"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/SettingsView.swift",
-      "line": 251,
+      "line": 252,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },

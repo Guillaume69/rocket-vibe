@@ -15,6 +15,9 @@ public final class MyProfileModel {
     public private(set) var intentions: [NativeProfileIntention] = []
     public private(set) var language = "auto"
     public private(set) var desktopNotifications = "default"
+    /// Do not disturb on a RocketVibe account: the daily window and the mute's end.
+    public private(set) var quietHours: NativeQuietHours?
+    public private(set) var mutedUntil: Date?
     @ObservationIgnored private weak var app: AppModel?
     @ObservationIgnored private let provider: ChatProvider?
     @ObservationIgnored private let accountId: UUID
@@ -53,6 +56,8 @@ public final class MyProfileModel {
         if resetDraft || !dirty || saved.map({ Self.sameFields($0, fresh.me) }) == true { profileRevision = fresh.revision }
         own = fresh; saved = fresh.me
         language = fresh.preferences.language; desktopNotifications = fresh.preferences.desktopNotifications
+        quietHours = fresh.preferences.quietHours
+        mutedUntil = fresh.preferences.mutedUntil.map { Date(timeIntervalSince1970: TimeInterval($0)) }
         try pending()
         if resetDraft || !dirty { edited = fresh.me }
         if var fields = intention("profile")?.fields {
@@ -113,6 +118,36 @@ public final class MyProfileModel {
             guard self.active else { return }
             self.desktopNotifications = choice
         } }
+    }
+    /// The mute still ahead, nil once it has ended.
+    public func mutedNow(_ now: Date = Date()) -> Date? { mutedUntil.flatMap { $0 > now ? $0 : nil } }
+    /// `hour`, `morning` (the next 08:00) or `off`; only the mute changes.
+    public func mute(_ choice: String) async {
+        guard preferencesEditable, let preferences = own?.preferences, let chat = provider?.native else { return }
+        await run {
+            let fresh = try await chat.muteNotifications(preferences: preferences, choice: choice)
+            guard self.active else { return }
+            try self.install(fresh, resetDraft: false)
+        }
+    }
+    /// The daily window from two `HH:MM` texts, saved in this Mac's time
+    /// zone, or none; only the window changes. False when a time is invalid.
+    @discardableResult
+    public func setQuietHours(enabled: Bool, from: String, to: String) async -> Bool {
+        guard preferencesEditable, let preferences = own?.preferences, let chat = provider?.native else { return false }
+        var window: NativeQuietHours?
+        if enabled {
+            guard let start = quietMinute(text: from), let end = quietMinute(text: to), start != end else {
+                message = L("dnd.invalid_time"); return false
+            }
+            window = NativeQuietHours(startMinute: start, endMinute: end, timeZone: "")
+        }
+        await run {
+            let fresh = try await chat.setQuietHours(preferences: preferences, window: window)
+            guard self.active else { return }
+            try self.install(fresh, resetDraft: false)
+        }
+        return true
     }
     private func preference(_ change: (inout NativePreferences) -> Void) async {
         guard preferencesEditable, var preferences = own?.preferences, let chat = provider?.native else { return }

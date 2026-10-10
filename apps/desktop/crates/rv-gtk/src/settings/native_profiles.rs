@@ -11,6 +11,7 @@ use rv_core::{
     native::{
         Error, NativeSession,
         profiles::*,
+        quiet,
         store::{AvatarUpload, ProfileOperation},
     },
 };
@@ -57,6 +58,22 @@ fn command(own: &OwnProfile, fields: Me) -> ProfileOperation {
             status: serde_json::from_value(serde_json::json!(fields.status)).unwrap(),
             status_text: fields.status_text,
         },
+    }
+}
+/// A preferences change that keeps do not disturb as it is: the caller sets
+/// the one field it changes.
+fn preferences_input(preferences: &UserPreferences) -> UpdatePreferences {
+    UpdatePreferences {
+        operation_id: rv_core::native::room_operation_id(),
+        expected_revision: preferences.revision.clone(),
+        language: preferences.language.clone(),
+        clock_24h: preferences.clock_24h,
+        push_enabled: preferences.push_enabled,
+        push_mentions_only: preferences.push_mentions_only,
+        desktop_notifications: preferences.desktop_notifications,
+        // Absent keeps them.
+        quiet_hours: None,
+        muted_until: None,
     }
 }
 #[derive(Clone)]
@@ -233,8 +250,38 @@ pub(super) fn settings(host: &Host, pages: Pages, row: &adw::ActionRow, session:
     );
     notifications.add(&notify);
     pages.notifications.add(&notifications);
+    // Do not disturb: the server holds push and call rings back, and this
+    // app's own notifications follow (`NativeSession::quiet_now`).
+    let dnd = adw::PreferencesGroup::builder().title(t("dnd.title")).description(t("dnd.description")).build();
+    let mute_choices = gtk::StringList::new(&[t("dnd.off"), t("dnd.hour"), t("dnd.morning")]);
+    let mute = adw::ComboRow::builder().title(t("dnd.mute")).model(&mute_choices).build();
+    mute.add_css_class("native-dnd-mute");
+    let quiet_row = adw::ExpanderRow::builder()
+        .title(t("dnd.quiet_hours"))
+        .show_enable_switch(true)
+        .enable_expansion(false)
+        .css_classes(["native-quiet-hours"])
+        .build();
+    let from = adw::EntryRow::builder()
+        .title(t("dnd.from"))
+        .show_apply_button(true)
+        .text(quiet::clock(quiet::DEFAULT_START))
+        .css_classes(["native-quiet-from"])
+        .build();
+    let to = adw::EntryRow::builder()
+        .title(t("dnd.to"))
+        .show_apply_button(true)
+        .text(quiet::clock(quiet::DEFAULT_END))
+        .css_classes(["native-quiet-to"])
+        .build();
+    quiet_row.add_row(&from);
+    quiet_row.add_row(&to);
+    dnd.add(&mute);
+    dnd.add(&quiet_row);
+    pages.notifications.add(&dnd);
     status_group.set_sensitive(false);
     notifications.set_sensitive(false);
+    dnd.set_sensitive(false);
     let live = Rc::new(Cell::new(true));
     let active = live.clone();
     host.connect_closed(move || active.set(false));
@@ -263,6 +310,7 @@ pub(super) fn settings(host: &Host, pages: Pages, row: &adw::ActionRow, session:
         language.set_sensitive(true);
         status_group.set_sensitive(true);
         notifications.set_sensitive(true);
+        dnd.set_sensitive(true);
         edit.set_sensitive(true);
         let pending_group = adw::PreferencesGroup::new();
         page.add(&pending_group);
@@ -306,18 +354,7 @@ pub(super) fn settings(host: &Host, pages: Pages, row: &adw::ActionRow, session:
                             .unwrap();
                 }
                 let choice = preferences.language.clone();
-                let input = UpdatePreferences {
-                    operation_id: rv_core::native::room_operation_id(),
-                    expected_revision: preferences.revision,
-                    language: preferences.language,
-                    clock_24h: preferences.clock_24h,
-                    push_enabled: preferences.push_enabled,
-                    push_mentions_only: preferences.push_mentions_only,
-                    desktop_notifications: preferences.desktop_notifications,
-                    // Not touched here: absent keeps them.
-                    quiet_hours: None,
-                    muted_until: None,
-                };
+                let input = preferences_input(&preferences);
                 submit(&parent, s.clone(), Action::Change(ProfileOperation::Preferences { input }), move |success| {
                     if success && is_language {
                         i18n::save_choice(&choice);
@@ -325,6 +362,59 @@ pub(super) fn settings(host: &Host, pages: Pages, row: &adw::ActionRow, session:
                 });
             });
         }
+        {
+            let (s, parent, filling) = (state.clone(), parent.clone(), filling.clone());
+            mute.connect_selected_notify(move |row| {
+                if filling.get() || s.busy.get() {
+                    return;
+                }
+                let choice = match row.selected() {
+                    1 => "hour",
+                    2 => "morning",
+                    3 => "off",
+                    _ => return,
+                };
+                let mut input = preferences_input(&s.current.borrow().preferences);
+                input.muted_until = Some(quiet::mute_end(choice, chrono::Local::now()));
+                submit(&parent, s.clone(), Action::Change(ProfileOperation::Preferences { input }), |_| {});
+            });
+        }
+        // The switch saves at once (on with the two times shown, off removes
+        // the window); a time is saved by its apply button.
+        let send_window: Rc<dyn Fn()> = {
+            let (s, parent, filling) = (state.clone(), parent.clone(), filling.clone());
+            let (quiet_row, from, to) = (quiet_row.downgrade(), from.downgrade(), to.downgrade());
+            Rc::new(move || {
+                let (Some(quiet_row), Some(from), Some(to)) = (quiet_row.upgrade(), from.upgrade(), to.upgrade())
+                else {
+                    return;
+                };
+                if filling.get() || s.busy.get() {
+                    return;
+                }
+                let window = if quiet_row.enables_expansion() {
+                    let Some(window) = quiet::window(&from.text(), &to.text()) else {
+                        from.add_css_class("error");
+                        to.add_css_class("error");
+                        parent.toast(t("dnd.invalid_time"));
+                        return;
+                    };
+                    Some(window)
+                } else {
+                    None
+                };
+                from.remove_css_class("error");
+                to.remove_css_class("error");
+                let mut input = preferences_input(&s.current.borrow().preferences);
+                input.quiet_hours = Some(window);
+                submit(&parent, s.clone(), Action::Change(ProfileOperation::Preferences { input }), |_| {});
+            })
+        };
+        let again = send_window.clone();
+        quiet_row.connect_enable_expansion_notify(move |_| again());
+        let again = send_window.clone();
+        from.connect_apply(move |_| again());
+        to.connect_apply(move |_| send_window());
         let rows = RefCell::new(Vec::new());
         let mut signature = String::new();
         let mut remote_attempt = String::new();
@@ -335,11 +425,14 @@ pub(super) fn settings(host: &Host, pages: Pages, row: &adw::ActionRow, session:
             let queued = ["profile", "preferences", "avatar"]
                 .map(|slot| state.session.store.profile_operation(slot).ok().flatten());
             let own = state.current.borrow().clone();
+            // A mute that ends shows as off without waiting for the server.
+            let muted_now = quiet::muted_until(&own.preferences, chrono::Utc::now()).is_some();
             let fresh_signature = format!(
-                "{}:{}:{}:{:?}",
+                "{}:{}:{}:{}:{:?}",
                 own.profile.revision,
                 own.preferences.revision,
                 state.busy.get(),
+                muted_now,
                 queued.iter().map(|op| op.as_ref().map(|op| (op.command.id(), op.phase.as_str()))).collect::<Vec<_>>()
             );
             if fresh_signature != signature {
@@ -358,6 +451,12 @@ pub(super) fn settings(host: &Host, pages: Pages, row: &adw::ActionRow, session:
                 {
                     preferences.language = input.language.clone();
                     preferences.desktop_notifications = input.desktop_notifications;
+                    if let Some(window) = &input.quiet_hours {
+                        preferences.quiet_hours = window.clone();
+                    }
+                    if let Some(until) = &input.muted_until {
+                        preferences.muted_until = until.clone();
+                    }
                 }
                 row.set_title(&own.profile.user.display_name);
                 status.set_selected(STATUSES.iter().position(|s| *s == fields.status).unwrap_or(0) as u32);
@@ -371,9 +470,33 @@ pub(super) fn settings(host: &Host, pages: Pages, row: &adw::ActionRow, session:
                 notify.set_selected(
                     NOTIFICATION_CHOICES.iter().position(|s| Some(*s) == notifications.as_str()).unwrap_or(0) as u32,
                 );
+                let until = quiet::muted_until(&preferences, chrono::Utc::now());
+                let mut choices =
+                    vec![t(if until.is_some() { "dnd.muted" } else { "dnd.off" }), t("dnd.hour"), t("dnd.morning")];
+                if until.is_some() {
+                    choices.push(t("dnd.unmute"));
+                }
+                mute_choices.splice(0, mute_choices.n_items(), &choices);
+                mute.set_selected(0);
+                let until_text = until
+                    .map(|until| until.with_timezone(&chrono::Local).format("%H:%M").to_string())
+                    .map(|time| i18n::tf("dnd.until", &[("time", &time)]))
+                    .unwrap_or_default();
+                mute.set_subtitle(&until_text);
+                let window = preferences.quiet_hours.as_ref();
+                quiet_row.set_enable_expansion(window.is_some());
+                quiet_row.set_subtitle(
+                    &window.map(|w| i18n::tf("dnd.every_day", &[("zone", &w.time_zone)])).unwrap_or_default(),
+                );
+                from.set_text(&quiet::clock(window.map_or(quiet::DEFAULT_START, |w| w.start_minute)));
+                to.set_text(&quiet::clock(window.map_or(quiet::DEFAULT_END, |w| w.end_minute)));
+                from.remove_css_class("error");
+                to.remove_css_class("error");
                 status_group.set_sensitive(!state.busy.get() && queued[0].is_none());
                 language.set_sensitive(!state.busy.get() && queued[1].is_none());
                 notify.set_sensitive(!state.busy.get() && queued[1].is_none());
+                mute.set_sensitive(!state.busy.get() && queued[1].is_none());
+                quiet_row.set_sensitive(!state.busy.get() && queued[1].is_none());
                 edit.set_sensitive(!state.busy.get());
                 pending(&parent, &pending_group, &rows, &state);
                 filling.set(false);

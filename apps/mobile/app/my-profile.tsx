@@ -17,7 +17,7 @@
 
 import { Redirect, Stack, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import {File} from 'expo-file-system';
 import {NativeError} from '../providers/rocketvibe/transport.ts';
 import {profileIntent,nativeMyProfile,type SavedProfileOperation} from '../providers/rocketvibe/profileOperations.ts';
@@ -37,7 +37,7 @@ import {
 } from '../lib/myProfile.ts';
 import { RestClient, TwoFactorError, type TwoFactorCode } from '../lib/rest.ts';
 import { hash } from '../lib/sessionStore.ts';
-import { setAvatar, type FileToSend, avatarUrl } from '../lib/upload.ts';
+import { AVATAR_NO_PHOTO, setAvatar, type FileToSend, avatarUrl } from '../lib/upload.ts';
 import { pickAvatar } from '../ui/pickAvatar.ts';
 import { KeyboardAvoidingContainer } from '../ui/keyboard.tsx';
 import { translateCurrent, useT } from '../ui/i18n.ts';
@@ -154,6 +154,51 @@ function MyProfileForm({
       setBanner({ type: 'error', text: e instanceof Error ? e.message : t('myProfile.selectionFailed') });
     }
   }, [t,native]);
+
+  // Removing the photo is immediate, like the desktop's, after a confirmation:
+  // nothing to stage for Save. Rocket.Chat `users.resetAvatar`, whose
+  // `updateAvatar` event arrives without an etag (the no-photo marker set here
+  // at once); RocketVibe the avatar command without an image.
+  const myEtag = etags.byUsername.get(username);
+  const hasPhoto = localAvatar !== null || (myEtag != null && myEtag !== AVATAR_NO_PHOTO);
+  const removable = (client.kind === 'rocketchat' || (native && chat?.capabilities?.profile_avatars === true)) && hasPhoto;
+  const removePhoto = useCallback(() => {
+    if (localAvatar !== null) {
+      setLocalAvatar(null);
+      return;
+    }
+    Alert.alert(t('myProfile.removePhotoTitle'), t('myProfile.removePhotoBody'), [
+      { text: t('common.cancel'), style: 'cancel' },
+      {
+        text: t('myProfile.removePhoto'),
+        style: 'destructive',
+        onPress: () => void (async () => {
+          if (inFlight.current || initial === null) return;
+          inFlight.current = true;
+          setBusy(true);
+          setBanner(null);
+          try {
+            if (native) {
+              if (!chat || !initial.revision) throw new Error('profile unavailable');
+              const latest = nativeMyProfile(await chat.setOwnAvatar(initial.revision));
+              if (currentClient.current !== client) return;
+              setInitial(latest);
+              setForm(latest);
+            } else {
+              await client.post('users.resetAvatar', { body: {} });
+              await store?.updateUserAvatar(username, AVATAR_NO_PHOTO).catch(() => {});
+            }
+            setBanner({ type: 'success', text: t('myProfile.photoRemoved') });
+          } catch {
+            setBanner({ type: 'error', text: t(native ? 'native.error' : 'myProfile.saveFailed') });
+          } finally {
+            inFlight.current = false;
+            setBusy(false);
+          }
+        })(),
+      },
+    ], { cancelable: true });
+  }, [localAvatar, t, initial, native, chat, client, store, username]);
 
   const save = useCallback(
     async (twoFactor?: TwoFactorCode,nativeProofGiven=false) => {
@@ -359,6 +404,13 @@ function MyProfileForm({
           <Pressable disabled={busy||waiting||(native&&!chat?.capabilities?.profile_avatars)} onPress={() => void pickPhoto()} hitSlop={8}>
             <Text style={[styles.changePhoto, { color: c.cyan }]}>{t('myProfile.changePhoto')}</Text>
           </Pressable>
+          {removable && (
+            <Pressable disabled={busy || waiting} onPress={removePhoto} hitSlop={8} accessibilityRole="button">
+              <Text style={[styles.changePhoto, { color: c.dimmed }]}>
+                {t(localAvatar !== null ? 'myProfile.keepPhoto' : 'myProfile.removePhoto')}
+              </Text>
+            </Pressable>
+          )}
         </View>
 
         {/* Presence */}

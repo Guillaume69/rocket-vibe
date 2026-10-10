@@ -3218,6 +3218,18 @@
       "surface": "settings.public"
     },
     {
+      "file": "apps/mobile/app/my-profile.tsx",
+      "line": 188,
+      "kind": "call:POST",
+      "surface": "'users.resetAvatar'"
+    },
+    {
+      "file": "apps/mobile/app/my-profile.tsx",
+      "line": 188,
+      "kind": "endpoint",
+      "surface": "users.resetAvatar"
+    },
+    {
       "file": "apps/mobile/app/search.tsx",
       "line": 84,
       "kind": "call:GET",
@@ -4347,37 +4359,37 @@
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2309,
+      "line": 2314,
       "kind": "endpoint",
       "surface": "e2e.title"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2310,
+      "line": 2315,
       "kind": "endpoint",
       "surface": "e2e.explanation"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2312,
+      "line": 2317,
       "kind": "endpoint",
       "surface": "e2e.field"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2313,
+      "line": 2318,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2314,
+      "line": 2319,
       "kind": "endpoint",
       "surface": "e2e.wrongPassword"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2315,
+      "line": 2320,
       "kind": "endpoint",
       "surface": "e2e.genericError"
     },

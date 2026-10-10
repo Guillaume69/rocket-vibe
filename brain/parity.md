@@ -158,7 +158,7 @@ beta does.
 | Favourite a room | done | done | done | done | Mobile from room info, desktop from the room list. Web: Native provider: see [web-client](features/web-client.md). |
 | User profile (`users.info`), Message and Call buttons | done | done | done | partial | Web: Avatar/name/menu access, native facts/live presence, GTK card geometry, Message/Call/Report and own-card rules are qualified in tests/profiles.mjs. Bio markdown remains debt. |
 | My profile: avatar, status, name, bio, email and username (with password and 2FA) | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
-| Remove my photo (`users.resetAvatar`) | missing | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
+| Remove my photo (`users.resetAvatar`) | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | Live avatar changes (`updateAvatar`) | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | Report a user from the profile (`moderation.reportUser`, RocketVibe `reports`) | done | done | done | done | Not on my own profile ([administration](features/administration.md)). SwiftUI checked by the Linux build of RocketVibeKit and the macOS CI build only. Web: Native provider: see [web-client](features/web-client.md). |
 | Room members, room settings, roles | missing | missing | missing | done | Web: Native provider: see [web-client](features/web-client.md). |
@@ -305,7 +305,7 @@ gaps, listed last.
 
 - **Mobile**: kChat "Sign in with Infomaniak" run on a real account; Mattermost stars changed elsewhere, live; several accounts per server;
   formatting toolbar; list
-  continuation; removing my photo; logs folder; meeting information.
+  continuation; logs folder; meeting information.
 - **GTK**: kChat "Sign in with Infomaniak"; email 2FA resend; replay of an offline sign-out; padlock tile once
   unlocked; DM avatar versions in the list; video reduction; reconciliation snapshot; catch-up of
   deletions in rooms already caught up; message retention.

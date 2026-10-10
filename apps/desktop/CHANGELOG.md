@@ -7,6 +7,10 @@ section here.
 
 ## [Unreleased]
 
+### Added
+
+- A room's threads (GTK and macOS, Rocket.Chat servers): a header button lists them, all or the ones I follow, with their reply count and last reply time, and a bell on each thread, in the list and in the open thread, follows or unfollows it.
+
 ### Fixed
 
 - A local database error (full disk, I/O error) rolls back the one write instead of crashing the app, and the GTK and SwiftUI apps sharing a database on macOS wait for each other instead of failing on a busy database.

@@ -1,6 +1,6 @@
-# Voice sounds
+# App sounds
 
-Original sounds of the voice feature, synthesized from code by
+Original sounds of the app (voice, notifications), synthesized from code by
 `scripts/sounds/generate.mjs` (no sample, no third-party recording) and encoded
 by `scripts/sounds/encode.sh`. Regenerate them rather than editing the files.
 
@@ -11,3 +11,4 @@ by `scripts/sounds/encode.sh`. Regenerate them rather than editing the files.
 | `cue-join.ogg`, `cue-leave.ogg` | Someone joins or leaves the voice session you are in. |
 | `cue-mute.ogg`, `cue-unmute.ogg` | Your microphone or sound is cut or restored. |
 | `cue-missed.ogg` | A call was missed or declined. |
+| `cue-message.ogg` | A desktop notification for a new message (Windows), in place of the system sound. |

@@ -1,4 +1,4 @@
-; Windows installer for the desktop app, built by Inno Setup 6 in CI:
+﻿; Windows installer for the desktop app, built by Inno Setup 6 in CI:
 ;   ISCC /DAppVersion=<x.y.z> /DSourceDir=<package folder> /O<output dir> rocket-vibe.iss
 ; The package folder is what scripts/package-windows.sh lays out (bin, lib, share).
 
@@ -26,12 +26,9 @@ SetupIconFile=rocket-vibe.ico
 UninstallDisplayIcon={app}\rocket-vibe.ico
 Compression=lzma2/max
 SolidCompression=yes
-WizardStyle=modern
 CloseApplications=yes
 
-[Languages]
-Name: "en"; MessagesFile: "compiler:Default.isl"
-Name: "fr"; MessagesFile: "compiler:Languages\French.isl"
+#include "installer-ui.iss"
 
 [Files]
 ; The whole package folder, bin\rv-voice.exe (the voice sidecar) included: it

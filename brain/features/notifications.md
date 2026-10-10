@@ -50,6 +50,10 @@ Same route: FCM token as `gcm`, FCM relays to APNs with the `.p8` key set in the
 - **Body.** `body_of` strips the quote permalink prefix, resolves emoji shortcodes, or names the file (📎) or image (🖼️). Encrypted: the `message.encrypted` string.
 - **Linux** (`rv-gtk/src/notifier.rs`): D-Bus `org.freedesktop.Notifications`, one notification per room (`replaces_id`), category `im.received`, `desktop-entry` hint. If the server advertises `inline-reply` (KDE Plasma), the reply typed in the notification is sent to the room; otherwise (GNOME) a Reply button opens the message with the composer ready. Opening a room closes its notification (`withdraw`).
 - **Windows and macOS** (no session bus): `rv-native` posts WinRT toasts (`toast_xml`, tag per room, inline reply box) or `UNUserNotificationCenter` notifications; clicks and replies come back through `rv_native::Event`. GLib notifications are the fallback when `rv-native` is unavailable (click only).
+- **Pictures** (`rv-gtk/src/notifier/pictures.rs`): `Incoming` carries the author's photo (`Session::user_avatar`, etag included) and the message's first image (`media::image_attachments`, never for an encrypted message) as media paths. `AppWindow::notify` fetches both with the Rocket.Chat or Mattermost session (`MediaCache::fetch`, at most 2 s, then the notification shows without), skips Rocket.Chat's initials placeholder, scales them (photo into 128 px, image into 728 px) and writes PNGs to `<cache>/rocket-vibe-rs/notifications/<sha256 of the path>.png`: Windows reads no remote image for an unpackaged app, and ours need credentials anyway. A known file is reused without fetching; files unused for 7 days are deleted at the first notification. RocketVibe accounts get no pictures.
+- **Windows toasts** (`toast_xml`): a `<header>` per conversation (`#room`, or the person for a DM) groups the room's toasts in the Action Center, so the title is the author alone; the photo is `appLogoOverride` cropped round, the image an inline `<image>`. Quick buttons (Rocket.Chat and Mattermost accounts): 👍 ❤️ 😂 (`rv_native::QUICK_REACTIONS`, codes `chat.react` accepts) and "✓ Read" (mark as read; a longer label is cut in the button row), five buttons at most with the reply's Send. Their arguments extend the toast's `room|message` with `|react|:code:` or `|read`, parsed by `rv_native::activation` on both the COM and the WinRT path into `Event::React` / `Event::MarkRead`; the window then calls `Session::react` (recorded as a recent reaction) or `Session::mark_read` and withdraws the room's toast. Like a reply, an action that starts the app before a session exists is dropped.
+- **Sound** (Windows): toasts are `<audio silent="true"/>` and the app plays `assets/sounds/cue-message.ogg` (`sounds::Sound::Message`, synthesized by `scripts/sounds/generate.mjs`), unless `rv_native::quiet()`: the app's notifications turned off in Windows, `SHQueryUserNotificationState` other than "accepts notifications" (presentation, full-screen game), or Focus Assist / Do not disturb (the shell's undocumented WNF quiet-hours state, read from ntdll; unreadable counts as off). Settings has a "rocket-vibe sound" switch (marker file `<config>/rocket-vibe-rs/notification-sound-off`) that gives the system's sound back.
+- **Linux** also shows the author's photo, as the D-Bus `image-path` hint; macOS shows none of the above.
 - **Badge** (`rv-gtk/src/badge.rs`, `rv-core/src/rooms.rs`): `attention` counts unread DMs plus mentions; plain unread chatter gives a dot. Windows taskbar and macOS dock through `rv-native` (`badge_text` caps at "99+"); on Linux the Unity `LauncherEntry` D-Bus signal (KDE, Dash to Dock, Plank), count only.
 - **Running in the background** (`rv-gtk/src/background.rs`): on Windows and macOS closing the window keeps the app running (tray icon, dock), with optional start at login (`--background`); on Linux closing quits.
 - **Per room** (Rocket.Chat): the subscription keeps the room's own choice (`desktopNotifications` when `desktopPrefOrigin` is `subscription`) and `disableNotifications`; `notify::room_preference` makes the room's choice win over the account's in `Session::incoming`, and a room another client silenced shows nothing. `Session::room_notifications` writes `rooms.saveNotification` for desktop and push together, plus `disableNotifications: "0"` when another client had silenced the room, and the local column at once. GTK: a combo row in the room information dialog (`rv-gtk/src/room_notifications.rs`; for a DM, in the profile the header opens); SwiftUI: a picker in the room information overlay. Smoke step `RV_SMOKE_DETAILS=notifications` (with `RV_SMOKE_PEER`).
@@ -92,12 +96,17 @@ The desktop equivalent of push only works while the app runs. Both apps: DMs and
 - apps/desktop/crates/rv-core/src/session.rs
 - apps/desktop/crates/rv-core/src/rooms.rs
 - apps/desktop/crates/rv-gtk/src/notifier.rs
+- apps/desktop/crates/rv-gtk/src/notifier/pictures.rs
+- apps/desktop/crates/rv-gtk/src/sounds.rs
 - apps/desktop/crates/rv-gtk/src/badge.rs
 - apps/desktop/crates/rv-gtk/src/background.rs
 - apps/desktop/crates/rv-gtk/src/window.rs
 - apps/desktop/crates/rv-gtk/src/settings.rs
 - apps/desktop/crates/rv-native/src/lib.rs
 - apps/desktop/crates/rv-native/src/windows_impl.rs
+- apps/desktop/crates/rv-native/src/windows_toast.rs
+- assets/sounds/README.md
+- scripts/sounds/generate.mjs
 - apps/desktop/crates/rv-native/src/macos_impl.rs
 - apps/desktop/macos/Sources/RocketVibe/Notifier.swift
 - apps/desktop/macos/Sources/RocketVibe/RocketVibeApp.swift

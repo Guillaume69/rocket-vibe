@@ -602,6 +602,11 @@ impl Session {
             direct: kind == "d",
             body: (!encrypted).then(|| crate::notify::body_of(m)),
             mentions_me: crate::notify::mentions_me(m, &self.info.username),
+            avatar: m.author_name.as_deref().filter(|u| !u.is_empty()).map(|u| self.user_avatar(u)),
+            image: (!encrypted)
+                .then(|| media::image_attachments(m.attachments.as_deref()).into_iter().next())
+                .flatten()
+                .map(|i| i.source),
         };
         let account = self.notification_preference.lock().unwrap().clone();
         let (own, silenced) = self.store.room_notifications(&m.rid);

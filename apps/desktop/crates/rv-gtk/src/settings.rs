@@ -483,6 +483,15 @@ fn notifier_group() -> Option<adw::PreferencesGroup> {
         test.add_suffix(&send);
         test.set_activatable_widget(Some(&send));
         group.add(&test);
+        if cfg!(windows) {
+            let sound = adw::SwitchRow::builder()
+                .title(t("notify.sound"))
+                .subtitle(t("notify.sound_hint"))
+                .active(crate::notifier::own_sound())
+                .build();
+            sound.connect_active_notify(|row| crate::notifier::set_own_sound(row.is_active()));
+            group.add(&sound);
+        }
         filled = true;
     }
     if let Some(uri) = crate::notifier::system_settings_uri() {

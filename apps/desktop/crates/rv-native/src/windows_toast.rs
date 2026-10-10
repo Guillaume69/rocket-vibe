@@ -16,7 +16,7 @@ use windows::Win32::UI::Notifications::{
 use windows::core::{BOOL, GUID, IUnknown, Interface, PCWSTR, Ref, Result, implement};
 
 use crate::windows_impl::set_value;
-use crate::{Event, decode};
+use crate::{Event, activation};
 
 // Also declared in data/windows/rocket-vibe.iss; stable across app updates.
 const ACTIVATOR: GUID = GUID::from_u128(0x83b10f7c_b85b_4a2a_a67e_0c8dc7d71c53);
@@ -68,9 +68,6 @@ impl INotificationActivationCallback_Impl for Callback_Impl {
         }
         // SAFETY: the callback's NUL-terminated invokedArgs.
         let args = unsafe { text(*args, 8192)? };
-        let (room, message) = decode(&args)
-            .filter(|(_, message)| !message.is_empty() && !message.contains('|'))
-            .ok_or_else(|| windows::core::Error::from(E_INVALIDARG))?;
         let mut reply = None;
         for index in 0..count as usize {
             // SAFETY: data contains count entries for the duration of Activate.
@@ -87,10 +84,7 @@ impl INotificationActivationCallback_Impl for Callback_Impl {
             }
             reply = Some(value);
         }
-        let event = match reply.filter(|value| !value.trim().is_empty()) {
-            Some(text) => Event::Reply { room, message, text },
-            None => Event::Open { room, message },
-        };
+        let event = activation(&args, reply).ok_or_else(|| windows::core::Error::from(E_INVALIDARG))?;
         (self.0.handler)(event);
         Ok(())
     }
@@ -200,7 +194,17 @@ mod tests {
             );
             callback.Activate(w!("com.rocketvibe.app"), w!("scope|m1"), &[]).unwrap();
             assert_eq!(receive.try_recv().unwrap(), Event::Open { room: "scope".into(), message: "m1".into() });
+            // A quick button carries the reply box's input too: it is ignored.
+            callback.Activate(w!("com.rocketvibe.app"), w!("scope|m1|react|:+1:"), &[input]).unwrap();
+            assert_eq!(
+                receive.try_recv().unwrap(),
+                Event::React { room: "scope".into(), message: "m1".into(), shortcode: ":+1:".into() }
+            );
+            callback.Activate(w!("com.rocketvibe.app"), w!("scope|m1|read"), &[]).unwrap();
+            assert_eq!(receive.try_recv().unwrap(), Event::MarkRead { room: "scope".into(), message: "m1".into() });
             for (app, args, inputs) in [
+                (w!("com.rocketvibe.app"), w!("scope|m1|react|+1"), vec![]),
+                (w!("com.rocketvibe.app"), w!("scope|m1|read|x"), vec![]),
                 (w!("other.app"), w!("scope|m1"), vec![]),
                 (w!("com.rocketvibe.app"), w!("scope|"), vec![]),
                 (w!("com.rocketvibe.app"), w!("scope|m1|extra"), vec![]),

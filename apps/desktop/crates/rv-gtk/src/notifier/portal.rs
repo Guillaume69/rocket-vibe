@@ -145,6 +145,7 @@ mod tests {
             body: None,
             direct: true,
             mentions_me: false,
+            ..Default::default()
         };
         let data =
             payload(&incoming, "Sender", "New message").to_variant().get::<HashMap<String, glib::Variant>>().unwrap();
@@ -184,7 +185,7 @@ mod tests {
                 invocation.return_value(None);
             }).build().unwrap();
             let backend=Backend::new(connection.clone());
-            let incoming=Incoming {rid:format!("rv-native:{}:room","a".repeat(64)),id:"message".into(),author:String::new(),room_name:String::new(),body:None,direct:true,mentions_me:false};
+            let incoming=Incoming {rid:format!("rv-native:{}:room","a".repeat(64)),id:"message".into(),author:String::new(),room_name:String::new(),body:None,direct:true,mentions_me:false,..Default::default()};
             backend.show(&incoming,"first","Body");
             for _ in 0..200 { if held.borrow().is_some() {break} glib::timeout_future(std::time::Duration::from_millis(5)).await; }
             assert!(held.borrow().is_some());

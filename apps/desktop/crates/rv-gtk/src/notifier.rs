@@ -14,7 +14,10 @@ use gtk::{gio, glib};
 use rv_core::notify::Incoming;
 
 use crate::i18n::{t, tf};
+pub mod pictures;
 mod portal;
+
+pub use pictures::Pictures;
 
 const BUS: &str = "org.freedesktop.Notifications";
 const PATH: &str = "/org/freedesktop/Notifications";
@@ -40,8 +43,19 @@ fn session_bus() -> Option<gio::DBusConnection> {
     gio::bus_get_sync(gio::BusType::Session, None::<&gio::Cancellable>).ok()
 }
 
+/// A notification's button that acts by itself (Windows): a reaction to
+/// its message, or its room marked read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
+pub enum Quick {
+    React(String),
+    MarkRead,
+}
+
 type OnOpen = Rc<dyn Fn(String, String)>;
 type OnReply = Rc<dyn Fn(String, String, String)>;
+#[cfg(any(windows, target_os = "macos"))]
+type OnQuick = Rc<dyn Fn(String, String, Quick)>;
 
 thread_local! {
     static CURRENT: RefCell<std::rc::Weak<Notifier>> = RefCell::default();
@@ -49,16 +63,37 @@ thread_local! {
 
 #[cfg(any(windows, target_os = "macos"))]
 thread_local! {
-    /// Where clicks and replies on the system's own notifications go (Windows, macOS).
-    static NATIVE: RefCell<Option<(OnOpen, OnReply)>> = const { RefCell::new(None) };
+    /// Where clicks, replies and quick buttons on the system's own notifications go (Windows, macOS).
+    static NATIVE: RefCell<Option<(OnOpen, OnReply, OnQuick)>> = const { RefCell::new(None) };
 }
 
 #[cfg(any(windows, target_os = "macos"))]
 fn native_event(event: rv_native::Event) {
-    let Some((open, reply)) = NATIVE.with_borrow(Clone::clone) else { return };
+    let Some((open, reply, quick)) = NATIVE.with_borrow(Clone::clone) else { return };
     match event {
         rv_native::Event::Open { room, message } => open(room, message),
         rv_native::Event::Reply { room, message, text } => reply(room, message, text),
+        rv_native::Event::React { room, message, shortcode } => quick(room, message, Quick::React(shortcode)),
+        rv_native::Event::MarkRead { room, message } => quick(room, message, Quick::MarkRead),
+    }
+}
+
+fn sound_off_file() -> std::path::PathBuf {
+    glib::user_config_dir().join("rocket-vibe-rs").join("notification-sound-off")
+}
+
+/// Whether notifications play the app's own sound rather than the
+/// system's (Windows, where toasts can be made silent).
+pub fn own_sound() -> bool {
+    cfg!(windows) && !sound_off_file().exists()
+}
+
+pub fn set_own_sound(on: bool) {
+    if on {
+        let _ = std::fs::remove_file(sound_off_file());
+    } else if let Some(dir) = sound_off_file().parent() {
+        let _ = std::fs::create_dir_all(dir);
+        let _ = std::fs::write(sound_off_file(), "");
     }
 }
 
@@ -83,18 +118,23 @@ impl Notifier {
         app: &impl IsA<gio::Application>,
         open: impl Fn(String, String) + 'static,
         reply: impl Fn(String, String, String) + 'static,
+        quick: impl Fn(String, String, Quick) + 'static,
     ) -> Rc<Self> {
         let (open, reply): (OnOpen, OnReply) = (Rc::new(open), Rc::new(reply));
         let app = app.clone().upcast::<gio::Application>();
         #[cfg(any(windows, target_os = "macos"))]
         if session_bus().is_none() {
-            NATIVE.with_borrow_mut(|n| *n = Some((open.clone(), reply.clone())));
+            let quick: OnQuick = Rc::new(quick);
+            NATIVE.with_borrow_mut(|n| *n = Some((open.clone(), reply.clone(), quick)));
             rv_native::init(
                 crate::APP_ID,
                 "rocket-vibe",
                 Box::new(|event| glib::MainContext::default().invoke(move || native_event(event))),
             );
         }
+        // Only the system's own notifications have quick buttons.
+        #[cfg(not(any(windows, target_os = "macos")))]
+        let _ = quick;
         let Some(connection) = session_bus() else {
             let this = Rc::new(Notifier {
                 app,
@@ -197,15 +237,13 @@ impl Notifier {
 
     /// A notification of no room, to see whether the system shows ours.
     pub fn test(self: &Rc<Self>) {
-        self.show(&Incoming {
-            rid: String::new(),
-            id: String::new(),
+        let incoming = Incoming {
             author: "rocket-vibe".to_owned(),
-            room_name: String::new(),
             direct: true,
             body: Some(t("notify.test_body").to_owned()),
-            mentions_me: false,
-        });
+            ..Default::default()
+        };
+        self.show(&incoming, &Pictures::default());
     }
 
     /// What shows our notifications, in words.
@@ -239,7 +277,7 @@ impl Notifier {
         });
     }
 
-    pub fn show(self: &Rc<Self>, incoming: &Incoming) {
+    pub fn show(self: &Rc<Self>, incoming: &Incoming, pictures: &Pictures) {
         let summary = if incoming.direct {
             incoming.author.clone()
         } else {
@@ -261,17 +299,7 @@ impl Notifier {
         }
         let Some(connection) = self.connection.clone() else {
             if rv_native::available() {
-                let labels =
-                    rv_native::ReplyLabels { placeholder: t("notify.reply_placeholder"), send: t("notify.reply") };
-                rv_native::show(&rv_native::Toast {
-                    room: &incoming.rid,
-                    message: &incoming.id,
-                    title: &summary,
-                    body: &body,
-                    activation_link: rv_core::native::notifications::notification_url(&incoming.rid, &incoming.id)
-                        .as_deref(),
-                    reply: Some(labels),
-                });
+                self.show_native(incoming, &summary, &body, pictures);
                 return;
             }
             self.show_gio(incoming, &summary, &body);
@@ -281,6 +309,9 @@ impl Notifier {
         let mut hints: HashMap<String, glib::Variant> = HashMap::new();
         hints.insert("category".into(), "im.received".to_variant());
         hints.insert("desktop-entry".into(), crate::APP_ID.to_variant());
+        if let Some(avatar) = &pictures.avatar {
+            hints.insert("image-path".into(), avatar.to_variant());
+        }
         if self.inline_reply.get() {
             actions.extend(["inline-reply".to_owned(), t("notify.reply").to_owned()]);
             hints.insert("x-kde-reply-placeholder-text".into(), t("notify.reply_placeholder").to_variant());
@@ -344,6 +375,40 @@ impl Notifier {
                 )
                 .await;
         });
+    }
+
+    /// The system's own notification (Windows, macOS). On Windows: the
+    /// conversation as its header, the author's round photo, the picture,
+    /// quick buttons, and the app's own sound in place of the system's.
+    fn show_native(&self, incoming: &Incoming, summary: &str, body: &str, pictures: &Pictures) {
+        let link = rv_core::native::notifications::notification_url(&incoming.rid, &incoming.id);
+        let in_room = !incoming.rid.is_empty();
+        let header = (cfg!(windows) && in_room)
+            .then(|| if incoming.direct { incoming.author.clone() } else { format!("#{}", incoming.room_name) });
+        // Under a header naming the room, the author alone says who wrote.
+        let title = if header.is_some() { incoming.author.as_str() } else { summary };
+        // RocketVibe accounts route their actions by notification key: open and reply only.
+        let quick = (in_room && link.is_none()).then(|| rv_native::QuickActions {
+            reactions: &rv_native::QUICK_REACTIONS,
+            mark_read: t("notify.mark_read"),
+        });
+        let own_sound = own_sound();
+        rv_native::show(&rv_native::Toast {
+            room: &incoming.rid,
+            message: &incoming.id,
+            title,
+            body,
+            activation_link: link.as_deref(),
+            reply: Some(rv_native::ReplyLabels { placeholder: t("notify.reply_placeholder"), send: t("notify.reply") }),
+            header: header.as_deref(),
+            avatar: pictures.avatar.as_deref(),
+            image: pictures.image.as_deref(),
+            quick,
+            silent: own_sound,
+        });
+        if own_sound && !rv_native::quiet() {
+            crate::sounds::play(crate::sounds::Sound::Message);
+        }
     }
 
     fn show_gio(&self, incoming: &Incoming, summary: &str, body: &str) {

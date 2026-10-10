@@ -10,16 +10,20 @@
 //! notification-area icon and single instance, the macOS dock's reopen, and
 //! starting at login on both.
 
-/// What the user did with a notification: opened it, or answered from it.
+/// What the user did with a notification: opened it, answered from it,
+/// reacted to its message, or marked its room read.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Event {
     Open { room: String, message: String },
     Reply { room: String, message: String, text: String },
+    React { room: String, message: String, shortcode: String },
+    MarkRead { room: String, message: String },
 }
 
 pub type Handler = Box<dyn Fn(Event) + Send + Sync>;
 
 /// One notification per room: a newer one replaces it.
+#[derive(Default)]
 pub struct Toast<'a> {
     pub room: &'a str,
     pub message: &'a str,
@@ -29,12 +33,34 @@ pub struct Toast<'a> {
     pub activation_link: Option<&'a str>,
     /// Offer an inline reply field.
     pub reply: Option<ReplyLabels<'a>>,
+    /// The conversation, as a header grouping its toasts in the Action Center (Windows).
+    pub header: Option<&'a str>,
+    /// Local files as `file:` URIs: the author's photo, shown round, and the
+    /// message's picture (Windows reads no remote image for an unpackaged app).
+    pub avatar: Option<&'a str>,
+    pub image: Option<&'a str>,
+    /// Buttons that act without opening the app (Windows).
+    pub quick: Option<QuickActions<'a>>,
+    /// The app plays its own sound: the system's stays quiet (Windows).
+    pub silent: bool,
 }
 
+#[derive(Clone, Copy)]
 pub struct ReplyLabels<'a> {
     pub placeholder: &'a str,
     pub send: &'a str,
 }
+
+/// Reactions as (glyph, shortcode), and the mark-as-read button's label.
+#[derive(Clone, Copy)]
+pub struct QuickActions<'a> {
+    pub reactions: &'a [(&'a str, &'a str)],
+    pub mark_read: &'a str,
+}
+
+/// A toast's quick reactions, in its button row. Codes of the server's
+/// emoji list, which `chat.react` requires.
+pub const QUICK_REACTIONS: [(&str, &str); 3] = [("👍", ":+1:"), ("❤️", ":heart:"), ("😂", ":joy:")];
 
 /// What the tray icon, the dock or a second launch asks of the running app.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -157,6 +183,15 @@ pub use other::{
     set_autostart, set_window, show, tray, withdraw,
 };
 
+/// Whether the system holds notifications back now (Windows only), so the
+/// app keeps its own notification sound quiet too.
+#[cfg(windows)]
+pub use windows_impl::quiet;
+#[cfg(not(windows))]
+pub fn quiet() -> bool {
+    false
+}
+
 /// The smoke run's stand-in for a keyboard layout change (Windows only).
 #[cfg(windows)]
 pub use windows_impl::input_language_changed;
@@ -241,27 +276,91 @@ pub fn decode(arguments: &str) -> Option<(String, String)> {
     (!room.is_empty()).then(|| (room.to_owned(), message.to_owned()))
 }
 
+/// A quick action's arguments: the toast's, then `react|<shortcode>` or `read`.
+fn quick_arguments(room: &str, message: &str, action: &str) -> String {
+    format!("{}|{action}", encode(room, message))
+}
+
+/// What a toast activation means, from its arguments and the reply typed (if
+/// any): `room|message` opens or answers, `room|message|react|:code:` reacts,
+/// `room|message|read` marks read. Anything else is refused.
+pub fn activation(arguments: &str, reply: Option<String>) -> Option<Event> {
+    let (room, rest) = arguments.split_once('|')?;
+    let mut parts = rest.splitn(3, '|');
+    let message = parts.next().filter(|m| !m.is_empty() && !room.is_empty())?;
+    let (room, message) = (room.to_owned(), message.to_owned());
+    match (parts.next(), parts.next()) {
+        (None, None) => Some(match reply.filter(|text| !text.trim().is_empty()) {
+            Some(text) => Event::Reply { room, message, text },
+            None => Event::Open { room, message },
+        }),
+        (Some("read"), None) => Some(Event::MarkRead { room, message }),
+        (Some("react"), Some(code))
+            if code.len() > 2 && code.starts_with(':') && code.ends_with(':') && !code.contains('|') =>
+        {
+            Some(Event::React { room, message, shortcode: code.to_owned() })
+        }
+        _ => None,
+    }
+}
+
 /// XML text, escaped.
 pub fn xml_escape(text: &str) -> String {
     text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&apos;")
 }
 
-/// A Windows toast: title, body, and when asked a reply box and its button.
+/// A Windows toast: a header naming the conversation, title, body, the
+/// author's round photo and the message's picture; then when asked a reply
+/// box and its button, quick reactions and mark as read (five buttons at
+/// most, Windows' limit), and the system's sound or silence.
 pub fn toast_xml(toast: &Toast) -> String {
     let callback = xml_escape(&encode(toast.room, toast.message));
     let launch = toast.activation_link.map(xml_escape).unwrap_or_else(|| callback.clone());
     let activation = if toast.activation_link.is_some() { " activationType=\"protocol\"" } else { "" };
-    let actions = toast.reply.as_ref().map_or_else(String::new, |labels| {
+    let header = toast.header.map_or_else(String::new, |title| {
         format!(
-            "<actions><input id=\"reply\" type=\"text\" placeHolderContent=\"{}\"/>\
-             <action content=\"{}\" arguments=\"{callback}\" activationType=\"foreground\" hint-inputId=\"reply\"/></actions>",
-            xml_escape(labels.placeholder),
-            xml_escape(labels.send),
+            "<header id=\"{}\" title=\"{}\" arguments=\"{launch}\"{activation}/>",
+            xml_escape(&tag(toast.room)),
+            xml_escape(title)
         )
     });
+    let mut images = String::new();
+    if let Some(avatar) = toast.avatar {
+        images +=
+            &format!("<image placement=\"appLogoOverride\" hint-crop=\"circle\" src=\"{}\"/>", xml_escape(avatar));
+    }
+    if let Some(image) = toast.image {
+        images += &format!("<image src=\"{}\"/>", xml_escape(image));
+    }
+    let mut actions = String::new();
+    if let Some(labels) = &toast.reply {
+        actions += &format!(
+            "<input id=\"reply\" type=\"text\" placeHolderContent=\"{}\"/>\
+             <action content=\"{}\" arguments=\"{callback}\" activationType=\"foreground\" hint-inputId=\"reply\"/>",
+            xml_escape(labels.placeholder),
+            xml_escape(labels.send),
+        );
+    }
+    if let Some(quick) = &toast.quick {
+        let button = |content: &str, action: &str| {
+            format!(
+                "<action content=\"{}\" arguments=\"{}\" activationType=\"foreground\"/>",
+                xml_escape(content),
+                xml_escape(&quick_arguments(toast.room, toast.message, action))
+            )
+        };
+        // Mark as read keeps its place: the reactions share what is left.
+        let room = 5 - usize::from(toast.reply.is_some()) - 1;
+        for (glyph, shortcode) in quick.reactions.iter().take(room) {
+            actions += &button(glyph, &format!("react|{shortcode}"));
+        }
+        actions += &button(quick.mark_read, "read");
+    }
+    let actions = if actions.is_empty() { actions } else { format!("<actions>{actions}</actions>") };
+    let audio = if toast.silent { "<audio silent=\"true\"/>" } else { "" };
     format!(
-        "<toast launch=\"{launch}\"{activation}><visual><binding template=\"ToastGeneric\"><text>{}</text><text>{}</text>\
-         </binding></visual>{actions}</toast>",
+        "<toast launch=\"{launch}\"{activation}>{header}<visual><binding template=\"ToastGeneric\">\
+         <text>{}</text><text>{}</text>{images}</binding></visual>{actions}{audio}</toast>",
         xml_escape(toast.title),
         xml_escape(toast.body),
     )
@@ -288,6 +387,74 @@ mod tests {
     }
 
     #[test]
+    fn activations_name_the_action() {
+        let (room, message) = (String::from("r1"), String::from("m1"));
+        assert_eq!(activation("r1|m1", None), Some(Event::Open { room: room.clone(), message: message.clone() }));
+        assert_eq!(
+            activation("r1|m1", Some("  ".into())),
+            Some(Event::Open { room: room.clone(), message: message.clone() })
+        );
+        assert_eq!(
+            activation("r1|m1", Some("hi".into())),
+            Some(Event::Reply { room: room.clone(), message: message.clone(), text: "hi".into() })
+        );
+        assert_eq!(
+            activation("r1|m1|react|:+1:", Some("typed".into())),
+            Some(Event::React { room: room.clone(), message: message.clone(), shortcode: ":+1:".into() })
+        );
+        assert_eq!(activation("r1|m1|read", None), Some(Event::MarkRead { room, message }));
+        for refused in
+            ["", "r1", "|m1", "r1|", "r1|m1|x", "r1|m1|read|x", "r1|m1|react|+1", "r1|m1|react|::", "r1|m1|react"]
+        {
+            assert_eq!(activation(refused, None), None, "{refused}");
+        }
+    }
+
+    #[test]
+    fn a_rich_toast_groups_shows_pictures_and_offers_quick_buttons() {
+        let quick = QuickActions { reactions: &QUICK_REACTIONS, mark_read: "Mark as read" };
+        let toast = Toast {
+            room: "r",
+            message: "m",
+            title: "bob",
+            body: "look",
+            header: Some("#general & co"),
+            avatar: Some("file:///C:/cache/a.png"),
+            image: Some("file:///C:/cache/b%20c.png"),
+            reply: Some(ReplyLabels { placeholder: "Reply", send: "Send" }),
+            quick: Some(quick),
+            silent: true,
+            ..Default::default()
+        };
+        let xml = toast_xml(&toast);
+        assert!(xml.contains("<header id=\"r\" title=\"#general &amp; co\" arguments=\"r|m\"/>"));
+        assert!(
+            xml.contains("<image placement=\"appLogoOverride\" hint-crop=\"circle\" src=\"file:///C:/cache/a.png\"/>")
+        );
+        assert!(xml.contains("<image src=\"file:///C:/cache/b%20c.png\"/></binding>"));
+        assert!(xml.contains("<action content=\"👍\" arguments=\"r|m|react|:+1:\" activationType=\"foreground\"/>"));
+        assert!(
+            xml.contains("<action content=\"Mark as read\" arguments=\"r|m|read\" activationType=\"foreground\"/>")
+        );
+        assert_eq!(xml.matches("<action ").count(), 5, "Windows shows five buttons at most");
+        assert!(xml.ends_with("</actions><audio silent=\"true\"/></toast>"));
+        // Without a reply box, the reactions still leave room for mark as read.
+        let plain = toast_xml(&Toast { reply: None, silent: false, ..toast });
+        assert_eq!(plain.matches("<action ").count(), 4);
+        assert!(!plain.contains("<audio"));
+        let protocol = toast_xml(&Toast {
+            room: "r",
+            message: "m",
+            header: Some("x"),
+            activation_link: Some("rocketvibe://notification?key=r&msg=m"),
+            ..Default::default()
+        });
+        assert!(
+            protocol.contains("arguments=\"rocketvibe://notification?key=r&amp;msg=m\" activationType=\"protocol\"/>")
+        );
+    }
+
+    #[test]
     fn toast_xml_escapes_and_offers_a_reply() {
         let toast = Toast {
             room: "r",
@@ -296,6 +463,7 @@ mod tests {
             body: "a & b",
             activation_link: None,
             reply: Some(ReplyLabels { placeholder: "Reply", send: "Send" }),
+            ..Default::default()
         };
         let xml = toast_xml(&toast);
         assert!(xml.contains("<text>bob &lt;3</text><text>a &amp; b</text>"));

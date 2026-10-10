@@ -45,9 +45,14 @@ export class SlackReader {
   #identity: SlackIdentity | null = null;
   #requests = new Set<AbortController>();
   #closed = false;
+  #expected: {teamId:string;userId:string}|null = null;
+  #expiresAt: number|null = null;
   private readonly fetcher: typeof fetch;
   constructor(token: string, cookie: string, fetcher: typeof fetch = fetch) {
     validateCredentials(token,cookie); this.#token = token; this.#cookie = cookie; this.fetcher = fetcher;
+  }
+  static fromBrowser(session: import('./handoff.ts').SlackBrowserSession, fetcher: typeof fetch = fetch): SlackReader {
+    const reader=new SlackReader(session.token,session.cookie,fetcher);reader.#expected=session.account;reader.#expiresAt=session.expiresAt;return reader;
   }
   close(): void {
     this.#closed = true; this.#token = ''; this.#cookie = ''; this.#identity = null;
@@ -55,6 +60,7 @@ export class SlackReader {
   }
   async #call(method: Method, args: Record<string, string> = {}): Promise<Record<string, unknown>> {
     if (this.#closed) throw new SlackError('cancelled');
+    if(this.#expiresAt!==null && this.#expiresAt<=Date.now()+30000) { this.close(); throw new SlackError('session_expired'); }
     const controller = new AbortController(); this.#requests.add(controller);
     const timer = setTimeout(() => controller.abort(), 15000);
     try {
@@ -83,6 +89,7 @@ export class SlackReader {
   async authenticate(): Promise<SlackIdentity> {
     const body = await this.#call('auth.test');
     const teamId = text(body.team_id), userId = text(body.user_id);
+    if(this.#expected && (this.#expected.teamId!==teamId || this.#expected.userId!==userId)){ this.close(); throw new SlackError('identity_mismatch'); }
     let url: URL;
     try { url = new URL(text(body.url)); } catch { throw new SlackError('invalid_identity'); }
     if (!/^T[A-Z0-9]+$/.test(teamId) || !/^[UW][A-Z0-9]+$/.test(userId) || url.protocol !== 'https:' || !url.hostname.endsWith('.slack.com') || url.username || url.password || url.port || url.search || url.hash || url.pathname !== '/')

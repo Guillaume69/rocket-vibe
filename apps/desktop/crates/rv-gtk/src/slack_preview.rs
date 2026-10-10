@@ -3,6 +3,7 @@ use crate::{i18n::t, widgets};
 use adw::prelude::*;
 use gtk::glib;
 use rv_core::slack::{Conversation, Reader};
+use rv_core::slack_handoff::Pairing;
 use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
 use std::rc::Rc;
@@ -36,6 +37,7 @@ pub struct Preview {
     back: gtk::Button,
     connect: gtk::Button,
     reader: RefCell<Option<Arc<Reader>>>,
+    pairing: RefCell<Option<Arc<Pairing>>>,
     room: RefCell<Option<Conversation>>,
     cursor: RefCell<Option<String>>,
     seen: RefCell<HashSet<String>>,
@@ -54,10 +56,18 @@ impl Preview {
         root.append(&gtk::Label::builder().label(t("slack.title")).xalign(0.0).css_classes(["heading"]).build());
         root.append(&gtk::Label::builder().label(t("slack.previewHelp")).wrap(true).xalign(0.0).build());
         let form = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(8).build();
-        let (token_row, token) = widgets::pill_field(t("slack.token"), "xoxc-…", true);
-        let (cookie_row, cookie) = widgets::pill_field(t("slack.cookie"), "xoxd-…", true);
-        let connect = gtk::Button::with_label(t("slack.connect"));
+        let (token_row, token) = widgets::pill_field(t("slack.key"), "", true);
+        let (cookie_row, cookie) = widgets::pill_field(t("slack.response"), "", true);
+        let connect = gtk::Button::with_label(t("slack.import"));
+        token.set_editable(false);
+        cookie.set_max_length(300000);
+        let copy = gtk::Button::with_label(t("slack.copyKey"));
+        let pairing = Pairing::new().ok();
+        if let Some(p) = &pairing {
+            token.set_text(&p.code().unwrap_or_default());
+        }
         form.append(&token_row);
+        form.append(&copy);
         form.append(&cookie_row);
         form.append(&connect);
         root.append(&form);
@@ -87,12 +97,19 @@ impl Preview {
             back,
             connect,
             reader: RefCell::new(None),
+            pairing: RefCell::new(pairing),
             room: RefCell::new(None),
             cursor: RefCell::new(None),
             seen: RefCell::new(HashSet::new()),
             item_ids: RefCell::new(HashSet::new()),
             busy: Cell::new(false),
             generation: Cell::new(0),
+        });
+        let entry = this.token.clone();
+        copy.connect_clicked(move |_| {
+            if let Some(display) = gtk::gdk::Display::default() {
+                display.clipboard().set_text(&entry.text());
+            }
         });
         let weak = Rc::downgrade(&this);
         this.connect.connect_clicked(move |_| {
@@ -145,6 +162,21 @@ impl Preview {
         });
         this
     }
+    pub(crate) fn smoke_pairing(self: &Rc<Self>) {
+        let previous = self.token.text().to_string();
+        assert_eq!(previous.len(), 43);
+        assert!(!self.token.is_editable());
+        assert!(!self.token.property::<bool>("visibility"));
+        self.cookie.set_text("rvteams2.invalid");
+        self.connect();
+        assert!(self.status.text().contains("invalid_handoff"));
+        assert!(self.reader.borrow().is_none());
+        self.reset();
+        assert_eq!(self.token.text().len(), 43);
+        assert_ne!(self.token.text().as_str(), previous);
+        assert!(self.cookie.text().is_empty());
+        assert_eq!(self.connect.label().as_deref(), Some(t("slack.import")));
+    }
     pub fn unlock(&self) {
         match set_enabled(true) {
             Ok(()) => self.root.set_visible(true),
@@ -174,7 +206,12 @@ impl Preview {
         if let Some(reader) = self.reader.take() {
             reader.close();
         }
-        self.token.set_text("");
+        if let Some(p) = self.pairing.take() {
+            p.close();
+        }
+        let pair = Pairing::new().ok();
+        self.token.set_text(&pair.as_ref().and_then(|p| p.code().ok()).unwrap_or_default());
+        self.pairing.replace(pair);
         self.cookie.set_text("");
         self.room.replace(None);
         self.cursor.replace(None);
@@ -191,7 +228,20 @@ impl Preview {
         if self.busy.get() {
             return;
         }
-        let reader = match Reader::new(self.token.text().to_string(), self.cookie.text().to_string()) {
+        let session = match self.pairing.borrow().as_ref().map(|p| p.open(self.cookie.text().trim())) {
+            Some(Ok(s)) => s,
+            Some(Err(e)) => {
+                self.status.set_label(&e.to_string());
+                return;
+            }
+            None => {
+                self.status.set_label("Slack: pairing_closed");
+                return;
+            }
+        };
+        self.token.set_text("");
+        self.cookie.set_text("");
+        let reader = match Reader::from_browser(session) {
             Ok(r) => r,
             Err(e) => {
                 self.status.set_label(&e.to_string());
@@ -362,5 +412,16 @@ impl Preview {
                 }
             }
         });
+    }
+}
+
+impl Drop for Preview {
+    fn drop(&mut self) {
+        if let Some(reader) = self.reader.get_mut().take() {
+            reader.close();
+        }
+        if let Some(pair) = self.pairing.get_mut().take() {
+            pair.close();
+        }
     }
 }

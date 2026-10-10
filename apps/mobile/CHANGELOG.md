@@ -9,9 +9,11 @@ release, and its notes are that version's section here.
 
 ### Added
 
+- Experimental Slack browser pairing: import an encrypted workspace session from a fresh browser profile, then browse conversations and history without copying raw tokens or cookies. Sessions remain temporary and read-only.
+
 - An experimental Teams browser-import preview under the same nine-activation unlock as Slack: one-use public-key pairing, native conversation/history views and session-expiry checks. A separate development browser helper is required; real Teams sign-in remains unverified, and persistent accounts, sync and sending are still pending.
 
-- A hidden, experimental Slack read-only preview: activate the login icon nine times to unlock, validate paired session credentials, and browse conversations and paged plain-text history. Credentials stay in memory; browser sign-in, persistent accounts, live sync and sending are not yet available.
+- A hidden, experimental Slack read-only preview: activate the login icon nine times to unlock, validate paired session credentials, and browse conversations and paged plain-text history. Credentials stay in memory; persistent accounts, live sync and sending are not yet available.
 
 ## [0.18.1] - 2026-10-14
 

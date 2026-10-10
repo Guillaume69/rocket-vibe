@@ -1,13 +1,15 @@
 import RocketVibeCore
 import RocketVibeKit
 import SwiftUI
+import AppKit
 
 /// The first Slack increment stays independent of the persistent chat session.
 struct SlackPreviewView: View {
     let client: Client
     let onHide: () -> Void
-    @State private var token = ""
-    @State private var cookie = ""
+    @State private var key = ""
+    @State private var code = ""
+    @State private var pairing: SlackPairing?
     @State private var preview: SlackPreview?
     @State private var rooms: [SlackConversation] = []
     @State private var messages: [SlackMessage] = []
@@ -44,33 +46,40 @@ struct SlackPreviewView: View {
                 Button(L("slack.refresh")) { load(more: false) }.disabled(busy)
                 if cursor != nil { Button(L("slack.more")) { load(more: true) }.disabled(busy) }
             } else {
-                SecureField(L("slack.token"), text: $token).disabled(busy)
-                SecureField(L("slack.cookie"), text: $cookie).disabled(busy)
-                Button(L("slack.connect")) { connect() }.disabled(busy || token.isEmpty || cookie.isEmpty)
+                SecureField(L("slack.key"), text: .constant(key)).disabled(true)
+                Button(L("slack.copyKey")) { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(key, forType: .string) }.disabled(busy || key.isEmpty)
+                SecureField(L("slack.response"), text: $code).disabled(busy || key.isEmpty)
+                Button(L("slack.import")) { connect() }.disabled(busy || key.isEmpty || code.isEmpty)
             }
             if busy { ProgressView(L("slack.loading")) }
             if let status { Text(status).font(.caption) }
             Button(L("slack.disconnect")) { reset() }
             Button(L("slack.hide")) { reset(); onHide() }
         }
-        .onDisappear { reset() }
+        .onAppear { prepare() }
+        .onDisappear { reset(repair: false) }
     }
     private func date(_ ts: String) -> String {
         guard let seconds = Double(ts.split(separator: ".")[0]) else { return ts }
         return Date(timeIntervalSince1970: seconds).formatted(date: .abbreviated, time: .shortened)
     }
-    private func reset() {
+    private func prepare() {
+        do { let p = try client.slackPairing(); pairing = p; key = try p.pairingCode() }
+        catch { status = "Slack: pairing_unavailable" }
+    }
+    private func reset(repair: Bool = true) {
         generation = UUID(); request?.cancel(); request = nil; preview?.close(); preview = nil
-        token = ""; cookie = ""; rooms = []; messages = []; room = nil; cursor = nil; seen = []; busy = false; status = nil
+        pairing?.close(); pairing = nil; key = ""; code = ""; rooms = []; messages = []; room = nil; cursor = nil; seen = []; busy = false; status = nil
+        if repair { prepare() }
     }
     private func connect() {
-        guard !busy else { return }
-        busy = true; status = nil; let current = generation; let token = token; let cookie = cookie
+        guard !busy, let pairing else { return }
+        busy = true; status = nil; let current = generation; let code = code
         request = Task { @MainActor in
             do {
-                let found = try await client.slackPreview(token: token, cookie: cookie)
+                let found = try await pairing.connect(code: code.trimmingCharacters(in: .whitespacesAndNewlines))
                 guard !Task.isCancelled, current == generation else { found.close(); return }
-                preview = found; self.token = ""; self.cookie = ""; busy = false; load(more: false)
+                preview = found; self.key = ""; self.code = ""; busy = false; load(more: false)
             } catch {
                 guard !Task.isCancelled, current == generation else { return }
                 status = String(describing: error); busy = false

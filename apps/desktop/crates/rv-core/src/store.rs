@@ -260,6 +260,8 @@ const MIGRATIONS: &[&str] = &[
 
 /// How many messages a search across rooms answers at most.
 pub const SEARCH_LIMIT: i64 = 60;
+/// The messages a room keeps, the newest ones (`Writer::apply_retention`), as on mobile.
+pub const MESSAGES_KEPT_PER_ROOM: i64 = 500;
 
 /// `term` as a `LIKE` pattern (`ESCAPE '\'`): `%`, `_` and the backslash
 /// itself taken literally, anywhere in the text.
@@ -989,6 +991,38 @@ impl Writer<'_> {
         self.touch_messages(rid);
     }
 
+    /// Keeps each room's `kept` newest messages (by `ts`, then `id` for a
+    /// deterministic cut), as mobile's `APPLY_RETENTION` does: optimistic rows
+    /// (`updated_at` 0) and thread roots a stored reply points to stay. Only
+    /// the bottom goes, which history paging reads again from the server.
+    /// Answers how many rows went.
+    pub fn apply_retention(&mut self, kept: i64) -> usize {
+        let rids: Vec<String> = self
+            .conn
+            .prepare(
+                "SELECT DISTINCT rid FROM (SELECT rid, ROW_NUMBER() OVER (PARTITION BY rid ORDER BY ts DESC, id DESC) AS place \
+                 FROM messages WHERE updated_at <> 0) WHERE place > ?1",
+            )
+            .and_then(|mut q| q.query_map([kept], |r| r.get(0)).map(|rows| rows.filter_map(Result::ok).collect()))
+            .or_note(&mut self.failed, "retention rooms");
+        if rids.is_empty() {
+            return 0;
+        }
+        let gone = self
+            .conn
+            .execute(
+                "DELETE FROM messages WHERE id IN (SELECT id FROM (SELECT id, ROW_NUMBER() OVER \
+                 (PARTITION BY rid ORDER BY ts DESC, id DESC) AS place FROM messages WHERE updated_at <> 0) WHERE place > ?1) \
+                 AND id NOT IN (SELECT thread_id FROM messages WHERE thread_id IS NOT NULL)",
+                [kept],
+            )
+            .or_note(&mut self.failed, "retention");
+        for rid in &rids {
+            self.touch_messages(rid);
+        }
+        gone
+    }
+
     /// Every room whose rid is not in `live`, with all it holds.
     pub fn purge_rooms_except(&mut self, live: &[String]) {
         let known: Vec<String> = self
@@ -1424,6 +1458,33 @@ mod tests {
         });
         assert_eq!(store.count_since("r", 100), 2);
         assert_eq!(store.count_since("r", 0), 3);
+    }
+
+    #[test]
+    fn retention_keeps_the_newest_and_spares_optimistic_rows_and_referenced_roots() {
+        let store = Store::in_memory().unwrap();
+        let at =
+            |id: &str, ts: i64, updated_at: i64, rid: &str| Message { ts, ..message(id, Some(id), updated_at, rid) };
+        store.write(|w| {
+            for (i, ts) in [10, 20, 30, 40].into_iter().enumerate() {
+                w.upsert_message(&at(&format!("a{i}"), ts, 1, "r"));
+            }
+            // The oldest row is a thread root a stored reply points to.
+            w.upsert_message(&at("root", 5, 1, "r"));
+            w.upsert_message(&Message { thread_id: Some("root".into()), ..at("reply", 45, 1, "r") });
+            w.upsert_message(&at("mine", 1, 0, "r"));
+            w.upsert_message(&at("other", 1, 1, "s"));
+        });
+        let gone = store.write(|w| w.apply_retention(3));
+        let left: Vec<String> = store
+            .read(|c| {
+                c.prepare("SELECT id FROM messages ORDER BY id")
+                    .and_then(|mut q| q.query_map([], |r| r.get(0)).map(|rows| rows.filter_map(Result::ok).collect()))
+            })
+            .unwrap();
+        assert_eq!(left, ["a2", "a3", "mine", "other", "reply", "root"]);
+        assert_eq!(gone, 2);
+        assert_eq!(store.write(|w| w.apply_retention(3)), 0, "nothing more to cut");
     }
 
     #[test]

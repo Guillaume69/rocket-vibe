@@ -1092,6 +1092,7 @@ impl Session {
                     *self.notification_preference.lock().unwrap() = me.desktop_notifications;
                 }
                 let _ = self.sync.reconcile_rooms().await;
+                self.retain();
                 return;
             }
             Backend::RocketChat => {}
@@ -1115,6 +1116,14 @@ impl Session {
             *self.notification_preference.lock().unwrap() = me.desktop_notifications;
         }
         let _ = self.sync.reconcile_rooms().await;
+        self.retain();
+    }
+
+    /// The store keeps each room's newest messages, after the catch-up (trimming
+    /// first would download them again); the room's history pages back from the
+    /// server past them.
+    fn retain(&self) {
+        self.store.write(|w| w.apply_retention(crate::store::MESSAGES_KEPT_PER_ROOM));
     }
 
     /// Reads the Rocket.Chat server's custom emoji again and REPLACES the

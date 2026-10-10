@@ -24,6 +24,7 @@ section here.
 
 ### Changed
 
+- Rocket.Chat and Mattermost accounts keep each room's 500 newest messages on disk, as the Android app does; older ones come back from the server when you scroll to them, so the local database no longer grows forever.
 - The last colour emoji used as interface markers are monochrome icons, like every other icon of the app: a locked room's tile, the encryption banner and unlock card, the lock of an encrypted voice session, the two-factor shield, a thread's replies, file kinds in cards and staged files, the call card, and room kinds in the administration (GTK: Adwaita symbolic icons; SwiftUI: SF Symbols, with a "React" submenu instead of a smiley).
 - The Windows installer wears the app's night sky: a borderless dark wizard with a starry background, pill buttons, a rocket trailing a rainbow as its progress bar, the rocket on the welcome and finish pages, and livelier words (English and French), also during an update.
 - The Windows uninstaller matches: the same frameless night sky, and its rocket crosses the lane, nose-dives and bursts into sparks while the app goes. Setup's questions (leave midway, uninstall, goodbye) are frameless dialogs in the same style instead of system message boxes, and the window drags from anywhere.

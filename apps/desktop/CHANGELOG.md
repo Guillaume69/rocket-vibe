@@ -11,6 +11,9 @@ section here.
 
 - A room's threads (GTK and macOS, Rocket.Chat servers): a header button lists them, all or the ones I follow, with their reply count and last reply time, and a bell on each thread, in the list and in the open thread, follows or unfollows it.
 - Mark a room as unread, or as read, from its menu in the room list (GTK right-click and macOS context menu, Rocket.Chat servers). Marking the open room unread leaves it, so its badge stays until it is opened again.
+- A room's own notifications (GTK and macOS, Rocket.Chat servers): Default, All messages, Mentions or Nothing, in its information dialog (GTK: a direct conversation's profile opened from its header). The desktop notifications follow it over the account's preference, a room silenced by another client stays quiet, and the choice applies to push notifications on the phone too.
+- Forward a message to another room (GTK and macOS, Rocket.Chat servers): Forward, in the message menu beside Reply, lists the rooms by name (encrypted and read-only ones left out); the one picked opens and shows the message as a quote.
+- macOS: Shift-Return on a list item continues the list (the next bullet or number), or ends it on an empty item, as on GTK.
 
 ### Fixed
 

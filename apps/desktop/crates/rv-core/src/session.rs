@@ -595,8 +595,10 @@ impl Session {
             body: (!encrypted).then(|| crate::notify::body_of(m)),
             mentions_me: crate::notify::mentions_me(m, &self.info.username),
         };
-        let preference = self.notification_preference.lock().unwrap().clone();
-        crate::notify::wanted(&preference, &incoming).then_some(incoming)
+        let account = self.notification_preference.lock().unwrap().clone();
+        let (own, silenced) = self.store.room_notifications(&m.rid);
+        let preference = crate::notify::room_preference(&account, own.as_deref(), silenced);
+        crate::notify::wanted(preference, &incoming).then_some(incoming)
     }
 
     /// Who is typing in the room right now, me left out: under my username,
@@ -1279,6 +1281,31 @@ impl Session {
         actions::permalink(&base, kind, slug, rid, msg_id)
     }
 
+    /// Whether a message can be forwarded to another room: Rocket.Chat only
+    /// (its server builds the quote of a permalink), not Mattermost and kChat.
+    pub fn forwarding_available(&self) -> bool {
+        self.sync.mattermost().is_none()
+    }
+
+    /// Forwards a message of the room `(kind, slug, rid)` to `target`: its
+    /// permalink alone, the quote a reply starts with, through the outbox like
+    /// any send; the server attaches the original for the target's members.
+    pub async fn forward(
+        &self,
+        kind: &str,
+        slug: Option<&str>,
+        rid: &str,
+        msg_id: &str,
+        target: &str,
+    ) -> Result<(), RestError> {
+        if !self.forwarding_available() {
+            return Err(RestError::incomplete("forward: not on this server"));
+        }
+        let link = self.permalink(kind, slug, rid, msg_id).await;
+        self.send(target, &actions::quote(&link, "")).await;
+        Ok(())
+    }
+
     pub async fn react(&self, msg_id: &str, shortcode: &str, add: bool) -> Result<(), RestError> {
         if self.sync.mattermost().is_some() {
             return mattermost::actions::react(&self.rest, &self.info.user_id, msg_id, shortcode, add).await;
@@ -1456,6 +1483,25 @@ impl Session {
         }
         actions::mark_read(&self.rest, rid).await?;
         self.store.write(|w| w.set_unread_mark(rid, false));
+        Ok(())
+    }
+
+    /// Whether a room can have notifications of its own (`rooms.saveNotification`):
+    /// Rocket.Chat only, not offered on Mattermost and kChat.
+    pub fn room_notifications_available(&self) -> bool {
+        self.sync.mattermost().is_none()
+    }
+
+    /// The room's own notification choice: `default` (the account's), `all`,
+    /// `mentions` or `nothing`, desktop and push together. Shown at once; the
+    /// server's subscription, on the stream, then confirms it.
+    pub async fn room_notifications(&self, rid: &str, level: &str) -> Result<(), RestError> {
+        if !self.room_notifications_available() {
+            return Err(RestError::incomplete("room notifications: not on this server"));
+        }
+        let (_, silenced) = self.store.room_notifications(rid);
+        actions::room_notifications(&self.rest, rid, level, silenced).await?;
+        self.store.write(|w| w.set_room_notifications(rid, (level != "default").then_some(level)));
         Ok(())
     }
 

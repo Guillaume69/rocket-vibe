@@ -103,3 +103,24 @@ async fn rooms_are_marked_unread_and_read_with_their_threads() {
     assert_eq!(body(&server, 0), ("/api/v1/subscriptions.unread".into(), json!({"roomId": "R1"})));
     assert_eq!(body(&server, 1), ("/api/v1/subscriptions.read".into(), json!({"rid": "R1", "readThreads": true})));
 }
+
+#[tokio::test]
+async fn a_rooms_own_notifications_go_to_desktop_and_push_together() {
+    let server = FakeHttp::queue(vec![respond(200, r#"{"success":true}"#), respond(200, r#"{"success":true}"#)]).await;
+    let c = client(&server);
+    actions::room_notifications(&c, "R1", "nothing", false).await.unwrap();
+    actions::room_notifications(&c, "R1", "default", true).await.unwrap();
+    assert!(actions::room_notifications(&c, "R1", "loud", false).await.is_err(), "refused before any call");
+
+    let notifications = |level: &str| json!({"desktopNotifications": level, "mobilePushNotifications": level});
+    assert_eq!(
+        body(&server, 0),
+        ("/api/v1/rooms.saveNotification".into(), json!({"roomId": "R1", "notifications": notifications("nothing")}))
+    );
+    let mut lifted = notifications("default");
+    lifted["disableNotifications"] = json!("0");
+    assert_eq!(
+        body(&server, 1),
+        ("/api/v1/rooms.saveNotification".into(), json!({"roomId": "R1", "notifications": lifted}))
+    );
+}

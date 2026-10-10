@@ -28,6 +28,9 @@ public final class AppModel {
     /// the rail shows it instead of the host's initial.
     public private(set) var serverIcons: [String: Data] = [:]
     public private(set) var groups: [RoomGroup] = []
+    /// Moves with every reload of the room list, whether or not a row changed:
+    /// what the list leaves out (a room's own notifications) follows it.
+    public private(set) var roomsRevision = 0
     public private(set) var connection = ConnectionState.offline
     /// Encrypted rooms readable and writable (my E2E key unlocked).
     public private(set) var e2eUnlocked = false
@@ -364,6 +367,7 @@ public final class AppModel {
     func reloadRooms() {
         guard let provider, let fresh = try? provider.rooms() else { return }
         if fresh != groups { groups = fresh }
+        roomsRevision &+= 1
         if let room {
             if room.membershipIsCurrent, let fresh = rooms.first(where: { $0.rid == room.rid }) { room.update(room: fresh) }
             else {
@@ -537,6 +541,16 @@ public final class AppModel {
             if account == sessionId, room?.rid == source.rid || room?.rid == destination { notice = L("quote.unavailable") }
         }
     }
+    /// Forwards a message of `source` (Rocket.Chat): `destination` opens, and
+    /// the message's permalink goes there as a quote, through the outbox.
+    public func forward(source: RoomModel, message: String, destination: String) async {
+        guard chat != nil, source.provider.legacy === chat, rooms.contains(where: { $0.rid == destination }) else { return }
+        let account = sessionId
+        open(destination)
+        do { try await source.forward(message, to: destination) }
+        catch { if account == sessionId { notice = L("forward.failed") } }
+    }
+
     public func open(_ rid: String, remember: Bool = true, preserveNavigation: Bool = false) {
         guard let provider, let found = rooms.first(where: { $0.rid == rid }) else { return }
         if !preserveNavigation { cancelNotificationNavigation(); pendingRoomLink = nil }

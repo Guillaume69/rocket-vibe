@@ -40,7 +40,13 @@
 //!                          checks the read and opens the dialog; emoji: a custom one completes;
 //!                          threads: follows the newest thread and back, then opens it;
 //!                          unread: marks the open room read, then unread (it is left and
-//!                          stays unread), then read from the list, then opens it again
+//!                          stays unread), then read from the list, then opens it again;
+//!                          notifications: sets the room to Nothing, Mentions, then All, and
+//!                          a message RV_SMOKE_PEER ("<user id>|<token>") posts must raise a
+//!                          notification only where the room's choice wants it, then Default
+//!                          again, the dialog's choice following;
+//!                          forward:<room>: forwards the last message to <room>, which opens
+//!                          and gets it as a quote the server built
 //!   RV_SMOKE_NOTIFY=<reply>  stands in for the desktop's notification server (inline reply
 //!                          included), answers the first notification with <reply>, then clicks
 //!                          it: its room must open on that message (`-`: a server without inline
@@ -1020,6 +1026,206 @@ async fn unread_checks(
     );
 }
 
+/// Someone else (`peer`) posts `text` in the room: its id, once the stream
+/// brought it here, and whether the session raised a notification for it.
+async fn peer_post_notifies(
+    session: &std::sync::Arc<rv_core::session::Session>,
+    peer: &std::sync::Arc<rv_core::rest::RestClient>,
+    rid: &str,
+    text: &str,
+) -> (Option<String>, bool) {
+    let (s, peer, rid, text) = (session.clone(), peer.clone(), rid.to_owned(), text.to_owned());
+    crate::on_tokio(async move {
+        let mut events = s.events();
+        let options = rv_core::rest::CallOptions::body(serde_json::json!({"roomId": rid, "text": text}));
+        let posted = peer.post("chat.postMessage", options).await;
+        let Some(id) = posted
+            .as_ref()
+            .ok()
+            .and_then(|a| a.pointer("/message/_id").and_then(serde_json::Value::as_str).map(str::to_owned))
+        else {
+            println!("smoke: the peer's post: {posted:?}");
+            return (None, false);
+        };
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(6);
+        let mut notified = false;
+        while let Ok(Ok(event)) = tokio::time::timeout_at(deadline, events.recv()).await {
+            if let rv_core::session::SessionEvent::Incoming(n) = event
+                && n.id == id
+            {
+                notified = true;
+                break;
+            }
+        }
+        // The message itself did arrive: a silence is the choice, not a lost event.
+        for _ in 0..20 {
+            if s.store.has_message(&id) {
+                return (Some(id), notified);
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+        (None, notified)
+    })
+    .await
+}
+
+/// The room's own notifications as the server holds them: the desktop value and its origin.
+async fn server_room_notifications(
+    session: &std::sync::Arc<rv_core::session::Session>,
+    rid: &str,
+) -> Option<(String, String)> {
+    let (s, rid) = (session.clone(), rid.to_owned());
+    crate::on_tokio(async move {
+        let options = rv_core::rest::CallOptions::params([("roomId", rid.as_str())]);
+        let answer = s.rest.get("subscriptions.getOne", options).await.ok()?;
+        let sub = answer.get("subscription")?;
+        let text = |k: &str| sub.get(k).and_then(serde_json::Value::as_str).unwrap_or_default().to_owned();
+        Some((text("desktopNotifications"), text("desktopPrefOrigin")))
+    })
+    .await
+}
+
+/// A room set to Nothing raises nothing for a message from someone else, one
+/// set to Mentions only for a mention, one set to All for every message; the
+/// room's information dialog shows the choice.
+async fn room_notification_checks(
+    chat: Rc<crate::chat::ChatPage>,
+    session: std::sync::Arc<rv_core::session::Session>,
+    rid: String,
+) {
+    check("room notifications offered", session.room_notifications_available(), ());
+    let Some((uid, token)) = std::env::var("RV_SMOKE_PEER").ok().and_then(|p| {
+        let (uid, token) = p.split_once('|')?;
+        Some((uid.to_owned(), token.to_owned()))
+    }) else {
+        check("RV_SMOKE_PEER given", false, ());
+        return;
+    };
+    let peer = rv_core::rest::RestClient::new(session.info.base_url.parse().unwrap());
+    peer.set_credentials(Some(rv_core::rest::Credentials { auth_token: token, user_id: uid }));
+    let peer = std::sync::Arc::new(peer);
+    let tag = chrono::Utc::now().timestamp_millis();
+    // The account says nothing, so a room's All has to override it upward too.
+    let s = session.clone();
+    let before = crate::on_tokio(async move {
+        let before = s.me().await?.desktop_notifications;
+        s.set_preference("desktopNotifications", serde_json::json!("nothing")).await?;
+        Ok::<_, rv_core::rest::RestError>(before)
+    })
+    .await;
+    check("the account set to nothing", before.is_ok(), &before);
+    chat.show_room_info();
+    glib::timeout_future(Duration::from_millis(1500)).await;
+    let combo = || {
+        chat.widget()
+            .root()
+            .and_then(|r| find_by_class(r.upcast_ref(), "room-notifications"))
+            .and_downcast::<adw::ComboRow>()
+            .map(|c| c.selected())
+    };
+    for (level, plain, mention) in [("nothing", false, false), ("mentions", false, true), ("all", true, true)] {
+        let (s, r) = (session.clone(), rid.clone());
+        let saved = crate::on_tokio(async move { s.room_notifications(&r, level).await }).await;
+        let stored = session.store.room_notifications(&rid);
+        check(&format!("room set to {level}"), saved.is_ok() && stored.0.as_deref() == Some(level), (&saved, &stored));
+        let server = server_room_notifications(&session, &rid).await;
+        check(
+            &format!("the server holds {level} as the room's own"),
+            server.as_ref().is_some_and(|(v, o)| v == level && o == "subscription"),
+            &server,
+        );
+        let expected = rv_core::actions::ROOM_NOTIFICATION_LEVELS.iter().position(|l| *l == level).map(|i| i as u32);
+        check(&format!("the dialog shows {level}"), combo() == expected, combo());
+        let (id, notified) = peer_post_notifies(&session, &peer, &rid, &format!("smoke {level} {tag}")).await;
+        check(&format!("{level}: a plain message arrived"), id.is_some(), &id);
+        check(&format!("{level}: a plain message notifies: {plain}"), notified == plain, notified);
+        let text = format!("@{} smoke {level} {tag}", session.info.username);
+        let (id, notified) = peer_post_notifies(&session, &peer, &rid, &text).await;
+        check(&format!("{level}: a mention arrived"), id.is_some(), &id);
+        check(&format!("{level}: a mention notifies: {mention}"), notified == mention, notified);
+    }
+    let (s, r) = (session.clone(), rid.clone());
+    let saved = crate::on_tokio(async move { s.room_notifications(&r, "default").await }).await;
+    // The stream's copy of the subscription (origin `user`) must leave it at default too.
+    glib::timeout_future(Duration::from_millis(2000)).await;
+    let stored = session.store.room_notifications(&rid);
+    check("back to default", saved.is_ok() && stored == (None, false), (&saved, &stored));
+    check("the dialog shows Default", combo() == Some(0), combo());
+    let (id, notified) = peer_post_notifies(&session, &peer, &rid, &format!("smoke default {tag}")).await;
+    check("default: the account's nothing again", id.is_some() && !notified, (&id, notified));
+    if let Ok(before) = before {
+        let s = session.clone();
+        let restored =
+            crate::on_tokio(async move { s.set_preference("desktopNotifications", serde_json::json!(before)).await })
+                .await;
+        check("the account's preference restored", restored.is_ok(), &restored);
+    }
+}
+
+fn find_named(root: &gtk::Widget, name: &str) -> Option<gtk::Widget> {
+    if root.widget_name() == name {
+        return Some(root.clone());
+    }
+    std::iter::successors(root.first_child(), |w| w.next_sibling()).find_map(|c| find_named(&c, name))
+}
+
+/// Forwards the open room's last message to `target` (a room's name) through
+/// the dialog: the target opens, and the server turns the permalink into a quote.
+async fn forward_checks(
+    chat: Rc<crate::chat::ChatPage>,
+    session: std::sync::Arc<rv_core::session::Session>,
+    rid: String,
+    target: String,
+) {
+    check("forwarding offered", session.forwarding_available(), ());
+    let Some(row) = session.store.messages(&rid, 30).into_iter().rev().find(|m| m.system_type.is_none()) else {
+        check("a message to forward", false, ());
+        return;
+    };
+    let Some(to) = session.store.rooms().into_iter().find(|r| r.name == target || r.slug.as_deref() == Some(&target))
+    else {
+        check("the target room is listed", false, &target);
+        return;
+    };
+    let Some(dialog) = chat.forward_message(&row) else {
+        check("the forward dialog opens", false, ());
+        return;
+    };
+    glib::timeout_future(Duration::from_millis(500)).await;
+    let encrypted = session.store.rooms().into_iter().filter(|r| r.encrypted).map(|r| r.rid).collect::<Vec<_>>();
+    let offered_encrypted =
+        encrypted.iter().any(|e| find_named(dialog.upcast_ref(), &format!("forward-{e}")).is_some());
+    check("no encrypted room offered", !offered_encrypted, &encrypted);
+    let Some(target_row) =
+        find_named(dialog.upcast_ref(), &format!("forward-{}", to.rid)).and_downcast::<gtk::ListBoxRow>()
+    else {
+        check("the target is offered", false, &to.rid);
+        return;
+    };
+    target_row.activate();
+    glib::timeout_future(Duration::from_millis(500)).await;
+    check("the target room opens", chat.current_rid().as_deref() == Some(to.rid.as_str()), chat.current_rid());
+    let me = session.info.user_id.clone();
+    let built = |m: &rv_core::store::MessageRow| m.attachments.as_deref().is_some_and(|a| a.contains("message_link"));
+    let mut quoted = None;
+    for _ in 0..50 {
+        quoted = session.store.messages(&to.rid, 10).into_iter().rev().find(|m| {
+            m.author_id == me
+                && m.outbox_status.is_none()
+                && m.text.as_deref().is_some_and(|t| t.starts_with("[ ](") && t.contains(&format!("msg={}", row.id)))
+        });
+        if quoted.as_ref().is_some_and(built) {
+            break;
+        }
+        glib::timeout_future(Duration::from_millis(200)).await;
+    }
+    check(
+        "forwarded as a quote the server built",
+        quoted.as_ref().is_some_and(built),
+        quoted.as_ref().map(|m| (&m.text, &m.attachments)),
+    );
+}
+
 fn check(label: &str, ok: bool, detail: impl std::fmt::Debug) {
     println!("smoke: {label}: {detail:?} {}", if ok { "ok" } else { "FAILED" });
     if !ok {
@@ -1181,6 +1387,10 @@ fn details_checks(
             crate::marked::open(chat.widget(), session, &rid, |_| {});
         } else if what == "unread" {
             unread_checks(chat, session, rid).await;
+        } else if what == "notifications" {
+            room_notification_checks(chat, session, rid).await;
+        } else if let Some(target) = what.strip_prefix("forward:") {
+            forward_checks(chat, session, rid, target.to_owned()).await;
         } else if what == "threads" {
             let (s, r) = (session.clone(), rid.clone());
             let listed = crate::on_tokio(async move { s.threads(&r, false, 0, 50).await }).await;

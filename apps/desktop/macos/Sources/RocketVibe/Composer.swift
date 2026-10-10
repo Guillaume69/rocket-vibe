@@ -563,7 +563,7 @@ struct EditLastSheet: View {
 
 /// AppKit's text view: native editing, the system spell checker, text
 /// services and Edit > Emoji & Symbols. Return sends, Shift-Return starts a
-/// new line.
+/// new line, the next item's marker on a list item.
 struct ComposerField: NSViewRepresentable {
     @Binding var text: String
     let placeholder: String
@@ -661,7 +661,7 @@ struct ComposerField: NSViewRepresentable {
             case #selector(NSResponder.insertNewline(_:)):
                 if parent.onKey(.accept) { return true }
                 if NSApp.currentEvent?.modifierFlags.contains(.shift) == true {
-                    view.insertNewlineIgnoringFieldEditor(nil)
+                    if !continueList(view) { view.insertNewlineIgnoringFieldEditor(nil) }
                 } else {
                     parent.onSubmit()
                 }
@@ -669,6 +669,23 @@ struct ComposerField: NSViewRepresentable {
             default:
                 return false
             }
+        }
+
+        /// A line break on a list item continues the list (rv-core's
+        /// `list_break`, as GTK does); with a selection, a plain line break.
+        func continueList(_ view: NSTextView) -> Bool {
+            let range = view.selectedRange()
+            guard range.length == 0 else { return false }
+            let whole = view.string as NSString
+            let head = whole.substring(to: min(range.location, whole.length))
+            guard let next = listBreak(text: view.string, cursor: UInt32(head.unicodeScalars.count)) else {
+                return false
+            }
+            // One edit the undo manager takes back whole, then the cursor after the marker.
+            view.insertText(next.text, replacementRange: NSRange(location: 0, length: whole.length))
+            let before = String(String.UnicodeScalarView(next.text.unicodeScalars.prefix(Int(next.cursor))))
+            view.setSelectedRange(NSRange(location: (before as NSString).length, length: 0))
+            return true
         }
     }
 }

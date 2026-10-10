@@ -76,12 +76,16 @@ pub fn room_info(
     crate::widgets::present(&dialog, Some(parent));
     let rid = rid.to_owned();
     let me = session.info.username.clone();
+    let notifications = crate::room_notifications::group(&session, &rid);
     glib::spawn_future_local(async move {
         let info = on_tokio(async move { session.room_info(&rid).await }).await;
         spinner.set_visible(false);
         match info {
             Ok(info) => fill_room(&content, &info, &me),
             Err(_) => content.append(&centered(t("info.failed"), &["details-sub"])),
+        }
+        if let Some(choice) = notifications {
+            content.append(&choice);
         }
     });
 }
@@ -252,6 +256,9 @@ pub struct ProfileActions {
     pub call: Box<dyn Fn(rv_core::rooms::Found)>,
     /// Reports the account (by id) to the administrators.
     pub report: Box<dyn Fn(String)>,
+    /// The direct conversation the profile was opened from: its own
+    /// notifications are chosen here.
+    pub room: Option<String>,
 }
 
 /// A person, from `users.info`: by username, or by id when `by_id`.
@@ -434,6 +441,11 @@ fn fill_profile(
     }
     if let Some(bio) = &p.bio {
         section(content, t("info.bio"), bio, session.username());
+    }
+    if let (ProfileSource::Legacy(s), Some(rid)) = (session, &actions.room)
+        && let Some(choice) = crate::room_notifications::group(s, rid)
+    {
+        content.append(&choice);
     }
     // A bot never has a crypto device: no identity to compare.
     if let ProfileSource::Native(native) = session

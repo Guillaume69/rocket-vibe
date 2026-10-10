@@ -49,6 +49,13 @@ pub fn wanted(preference: &str, incoming: &Incoming) -> bool {
     }
 }
 
+/// The preference a room's messages follow: its own choice over the
+/// account's, and nothing at all once another client silenced it
+/// (`disableNotifications`).
+pub fn room_preference<'a>(account: &'a str, own: Option<&'a str>, silenced: bool) -> &'a str {
+    if silenced { "nothing" } else { own.unwrap_or(account) }
+}
+
 /// One line for the notification: the quote prefix and shortcodes resolved,
 /// a file's name when there is no text.
 pub fn body_of(message: &Message) -> String {
@@ -98,6 +105,26 @@ mod tests {
         assert!(wanted("all", &base));
         assert!(wanted("mention", &Incoming { direct: true, ..base.clone() }));
         assert!(!wanted("nothing", &Incoming { mentions_me: true, ..base }));
+    }
+
+    #[test]
+    fn a_rooms_own_choice_overrides_the_account() {
+        let base = Incoming {
+            rid: "r".into(),
+            id: "m".into(),
+            author: "bob".into(),
+            room_name: "general".into(),
+            direct: false,
+            body: None,
+            mentions_me: false,
+        };
+        assert!(wanted(room_preference("default", Some("all"), false), &base));
+        assert!(!wanted(room_preference("all", Some("nothing"), false), &base));
+        let mention = Incoming { mentions_me: true, ..base.clone() };
+        assert!(!wanted(room_preference("all", Some("mentions"), false), &base));
+        assert!(wanted(room_preference("nothing", Some("mentions"), false), &mention));
+        assert!(wanted(room_preference("all", None, false), &base), "no choice of its own: the account's");
+        assert!(!wanted(room_preference("all", Some("all"), true), &mention), "silenced by another client");
     }
 
     #[test]

@@ -24,6 +24,8 @@ pub struct RoomContext {
 
 pub struct Handlers {
     pub reply: Box<dyn Fn(MessageRow)>,
+    /// Forwards the message to another room, picked in a dialog.
+    pub forward: Box<dyn Fn(MessageRow)>,
     pub thread: Box<dyn Fn(String)>,
     pub edit: Box<dyn Fn(MessageRow)>,
     pub toast: Box<dyn Fn(String)>,
@@ -153,7 +155,18 @@ fn menu(
             Action::React => continue,
             Action::Reply => {
                 let (h, r) = (handlers.clone(), row.clone());
-                run(t("actions.reply"), Box::new(move || (h.reply)(r.clone())))
+                let reply = run(t("actions.reply"), Box::new(move || (h.reply)(r.clone())));
+                if session.forwarding_available()
+                    && actions::forwardable(allowed, row.system_type.as_deref(), row.outbox_status.is_some())
+                {
+                    column.append(&reply);
+                    let (h, r) = (handlers.clone(), row.clone());
+                    let forward = run(t("actions.forward"), Box::new(move || (h.forward)(r.clone())));
+                    forward.add_css_class("forward-action");
+                    forward
+                } else {
+                    reply
+                }
             }
             Action::ReplyInThread => {
                 let (h, id) = (handlers.clone(), row.id.clone());

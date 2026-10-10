@@ -109,6 +109,23 @@ impl Chat {
     }
 }
 
+/// The composer's text after a line break that continues a list.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct ListBreak {
+    pub text: String,
+    /// Where the cursor goes, in Unicode scalars from the text's start.
+    pub cursor: u32,
+}
+
+/// The line break key on a list item (`cursor` in Unicode scalars): the next
+/// item's marker, the same bullet or the next number, or the list's end on an
+/// item left empty. None where a plain line break is right.
+#[uniffi::export]
+pub fn list_break(text: String, cursor: u32) -> Option<ListBreak> {
+    rv_core::compose::list_break(&text, cursor as usize)
+        .map(|edited| ListBreak { text: edited.text, cursor: edited.start as u32 })
+}
+
 /// The emoji picker's pages, in the Android app's order.
 #[uniffi::export]
 pub fn emoji_categories() -> Vec<EmojiCategory> {
@@ -127,6 +144,19 @@ pub fn emoji_categories() -> Vec<EmojiCategory> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_list_goes_on_after_a_line_break() {
+        let next = super::list_break("- é".into(), 3).unwrap();
+        assert_eq!(
+            (next.text.as_str(), next.cursor),
+            (
+                "- é
+- ", 6
+            )
+        );
+        assert!(super::list_break("plain".into(), 5).is_none());
+    }
+
     #[test]
     fn the_picker_has_every_category_filled() {
         let categories = super::emoji_categories();

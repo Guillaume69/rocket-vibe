@@ -36,6 +36,9 @@ pub struct Notifier {
     /// rid → the notification it has on screen, replaced by the next one.
     by_room: RefCell<HashMap<String, u32>>,
     subscriptions: RefCell<Vec<gio::SignalSubscription>>,
+    /// The ringing call's notification (`show_call`), and its Accept / Decline.
+    call: RefCell<Option<(String, u32)>>,
+    on_call: RefCell<Option<OnCall>>,
 }
 
 /// Windows has no session bus, and GLib's attempt to start one there aborted the app.
@@ -57,6 +60,7 @@ pub enum Quick {
 type OnOpen = Rc<dyn Fn(String, String)>;
 type OnReply = Rc<dyn Fn(String, String, String)>;
 type OnQuick = Rc<dyn Fn(String, String, Quick)>;
+type OnCall = Rc<dyn Fn(bool)>;
 
 thread_local! {
     static CURRENT: RefCell<std::rc::Weak<Notifier>> = RefCell::default();
@@ -169,6 +173,8 @@ impl Notifier {
                 shown: RefCell::default(),
                 by_room: RefCell::default(),
                 subscriptions: RefCell::default(),
+                call: RefCell::default(),
+                on_call: RefCell::default(),
             });
             CURRENT.with_borrow_mut(|c| *c = Rc::downgrade(&this));
             return this;
@@ -184,6 +190,8 @@ impl Notifier {
             shown: RefCell::default(),
             by_room: RefCell::default(),
             subscriptions: RefCell::default(),
+            call: RefCell::default(),
+            on_call: RefCell::default(),
         });
         let weak = Rc::downgrade(&this);
         let invoked = connection.subscribe_to_signal(
@@ -196,6 +204,15 @@ impl Notifier {
             move |signal| {
                 let Some((id, action)) = signal.parameters.get::<(u32, String)>() else { return };
                 let Some(this) = weak.upgrade() else { return };
+                if (action == "accept" || action == "decline")
+                    && this.call.borrow().as_ref().is_some_and(|(_, call)| *call == id)
+                {
+                    let handler = this.on_call.borrow().clone();
+                    if let Some(handler) = handler {
+                        handler(action == "accept");
+                    }
+                    return;
+                }
                 // Taken out first: opening the room withdraws its notification, which borrows `shown`.
                 let target = this.shown.borrow().get(&id).cloned();
                 if (action == "default" || action == "reply")
@@ -439,6 +456,90 @@ impl Notifier {
                 this.shown.borrow_mut().insert(id, (rid.clone(), message));
                 this.by_room.borrow_mut().insert(rid, id);
             }
+        });
+    }
+
+    /// What the call notification's Accept (true) and Decline (false) do.
+    pub fn set_call_handler(&self, handler: impl Fn(bool) + 'static) {
+        self.on_call.replace(Some(Rc::new(handler)));
+    }
+
+    /// A call ringing in direct room `rid`: Accept and Decline where the
+    /// notification server takes actions, else a click opens its call card.
+    pub fn show_call(self: &Rc<Self>, rid: &str, message: &str, caller: &str) {
+        let body = t("voice_session.incoming");
+        let Some(connection) = self.connection.clone() else {
+            if rv_native::available() {
+                rv_native::show(&rv_native::Toast { room: rid, message, title: caller, body, ..Default::default() });
+            } else {
+                let notification = gio::Notification::new(caller);
+                notification.set_body(Some(body));
+                notification.set_priority(gio::NotificationPriority::Urgent);
+                notification
+                    .set_default_action_and_target_value("app.open-message", Some(&(rid, message).to_variant()));
+                self.app.send_notification(Some("call"), &notification);
+            }
+            self.call.replace(Some((rid.to_owned(), 0)));
+            return;
+        };
+        let actions = vec![
+            "default".to_owned(),
+            t("notify.open").to_owned(),
+            "decline".to_owned(),
+            t("voice_session.decline").to_owned(),
+            "accept".to_owned(),
+            t("voice_session.accept").to_owned(),
+        ];
+        let mut hints: HashMap<String, glib::Variant> = HashMap::new();
+        hints.insert("desktop-entry".into(), crate::APP_ID.to_variant());
+        hints.insert("urgency".into(), 2u8.to_variant());
+        let parameters =
+            ("rocket-vibe", 0u32, "", caller, glib::markup_escape_text(body).as_str(), actions, hints, 0i32)
+                .to_variant();
+        let (weak, rid, message) = (Rc::downgrade(self), rid.to_owned(), message.to_owned());
+        glib::spawn_future_local(async move {
+            let sent = connection
+                .call_future(Some(BUS), PATH, BUS, "Notify", Some(&parameters), None, gio::DBusCallFlags::NONE, 5000)
+                .await;
+            if let (Some(this), Some((id,))) = (weak.upgrade(), sent.ok().and_then(|v| v.get::<(u32,)>())) {
+                this.shown.borrow_mut().insert(id, (rid.clone(), message));
+                if let Some((_, stale)) = this.call.replace(Some((rid, id))) {
+                    this.close(stale);
+                }
+            }
+        });
+    }
+
+    /// The call stopped ringing: its notification goes.
+    pub fn withdraw_call(&self) {
+        let Some((rid, id)) = self.call.take() else { return };
+        if self.connection.is_none() {
+            if rv_native::available() {
+                rv_native::withdraw(&rid);
+            } else {
+                self.app.withdraw_notification("call");
+            }
+            return;
+        }
+        self.shown.borrow_mut().remove(&id);
+        self.close(id);
+    }
+
+    fn close(&self, id: u32) {
+        let Some(connection) = self.connection.clone() else { return };
+        glib::spawn_future_local(async move {
+            let _ = connection
+                .call_future(
+                    Some(BUS),
+                    PATH,
+                    BUS,
+                    "CloseNotification",
+                    Some(&(id,).to_variant()),
+                    None,
+                    gio::DBusCallFlags::NONE,
+                    2000,
+                )
+                .await;
         });
     }
 

@@ -149,6 +149,10 @@ pub async fn answer_conference(rest: &RestClient, id: &str) -> Result<String, Re
     meeting(&rest.post(&format!("conferences/{id}/answer"), CallOptions::default()).await?)
 }
 
+pub async fn decline_conference(rest: &RestClient, id: &str) -> Result<(), RestError> {
+    rest.post(&format!("conferences/{id}/decline"), CallOptions::default()).await.map(|_| ())
+}
+
 /// The call view opens `url?jwt=`, on kMeet's origin only.
 fn meeting(conference: &Value) -> Result<String, RestError> {
     let url = text(conference, "url").filter(|u| super::translate::is_kmeet(u));

@@ -81,6 +81,8 @@ pub enum SessionEvent {
     E2e,
     /// A new message from someone else that my notification preference wants shown.
     Incoming(Box<crate::notify::Incoming>),
+    /// The call ringing here changed: `Session::incoming_call`.
+    CallRing,
     /// What the server told me alone in a room: a slash command's answer.
     Private {
         rid: String,
@@ -229,6 +231,8 @@ pub struct Session {
     once: tokio::sync::OnceCell<()>,
     /// Rooms whose edits and deletions were caught up this session.
     synced: Arc<Mutex<std::collections::HashSet<String>>>,
+    /// Calls started in direct rooms, and the one ringing (`crate::call_ring`).
+    rings: Mutex<crate::call_ring::Rings>,
 }
 
 /// Exponential back-off from 1 s to `MAX_RECONNECT_DELAY_MS`, with up to 1 s of jitter.
@@ -409,6 +413,7 @@ impl Session {
             call_available: Mutex::default(),
             avatars: Mutex::default(),
             notification_preference: Mutex::new("default".to_owned()),
+            rings: Mutex::default(),
             e2e: Mutex::default(),
             custom_emoji: Mutex::default(),
             custom_emoji_names: Mutex::default(),
@@ -564,6 +569,9 @@ impl Session {
                 }
             }
             _ => {
+                if let Some(signal) = mm.call_signal(name, data) {
+                    self.call_signal(signal);
+                }
                 if let Some(m) = mm.apply_event(name, data, broadcast).await
                     && let Some(incoming) = self.incoming_message(&m)
                 {
@@ -619,6 +627,12 @@ impl Session {
                 }
             }
             return;
+        }
+        if collection == STREAM_ROOM_MESSAGES
+            && let Some(signal) =
+                args.first().and_then(crate::normalize::to_message).as_ref().and_then(crate::call_ring::signal_of)
+        {
+            self.call_signal(signal);
         }
         let incoming = (collection == STREAM_ROOM_MESSAGES).then(|| self.incoming(args)).flatten();
         self.sync.apply_event(collection, key, args);
@@ -1707,6 +1721,101 @@ impl Session {
         }
         let call_id = actions::start_call(&self.rest, rid).await?;
         actions::join_call(&self.rest, &call_id).await
+    }
+
+    /// The call ringing here, started by the other member of a direct room.
+    pub fn incoming_call(&self) -> Option<crate::call_ring::IncomingCall> {
+        self.rings.lock().unwrap().current().cloned()
+    }
+
+    /// Answered or ignored here: it rings no more.
+    pub fn dismiss_call(&self) {
+        if self.rings.lock().unwrap().stop_if(|_| true) {
+            let _ = self.events.send(SessionEvent::CallRing);
+        }
+    }
+
+    /// Declines a ringing call. kChat: its conference's `decline`. Rocket.Chat:
+    /// `video-conference.cancel`, which only its licensed direct calls accept.
+    pub async fn decline_call(&self, call_id: &str) -> Result<(), RestError> {
+        self.dismiss_call();
+        if matches!(self.backend(), Backend::Mattermost(_)) {
+            return mattermost::actions::decline_conference(&self.rest, call_id).await;
+        }
+        actions::cancel_call(&self.rest, call_id).await
+    }
+
+    fn call_signal(self: &Arc<Self>, signal: crate::call_ring::CallSignal) {
+        use crate::call_ring::CallSignal;
+        let now = chrono::Utc::now().timestamp_millis();
+        match &signal {
+            CallSignal::Over { message_id } => {
+                if self.rings.lock().unwrap().over(message_id) {
+                    let _ = self.events.send(SessionEvent::CallRing);
+                }
+            }
+            CallSignal::Call { message_id, author_id, ts, .. } => {
+                if !self.rings.lock().unwrap().admit(message_id, author_id, *ts, &self.info.user_id, now) {
+                    return;
+                }
+                let session = self.clone();
+                let ring = tokio::spawn(async move { session.ring(signal).await });
+                let mut tasks = self.tasks.lock().unwrap();
+                tasks.retain(|t| !t.is_finished());
+                tasks.push(ring);
+            }
+        }
+    }
+
+    /// The server's record of a call: Rocket.Chat's `video-conference.info`,
+    /// None on Mattermost, where the post is the record.
+    async fn call_check(&self, call_id: &str) -> Result<Option<crate::call_ring::CallCheck>, RestError> {
+        if matches!(self.backend(), Backend::Mattermost(_)) {
+            return Ok(None);
+        }
+        let info = self.rest.get("video-conference.info", CallOptions::params([("callId", call_id)])).await?;
+        crate::call_ring::rocketchat_check(&info).map(Some).ok_or_else(|| RestError::incomplete("no call record"))
+    }
+
+    /// Rings a call from the other member of a direct room until it is over,
+    /// answered elsewhere or `RING_MS` passed.
+    async fn ring(self: Arc<Self>, signal: crate::call_ring::CallSignal) {
+        use crate::call_ring::{CallSignal, RING_CHECK_MS};
+        let CallSignal::Call { rid, call_id, .. } = &signal else { return };
+        let Some((peer, name)) = self
+            .store
+            .rooms()
+            .into_iter()
+            .find(|r| &r.rid == rid && r.kind == "d")
+            .and_then(|r| Some((r.dm_other_uid?, r.name)))
+        else {
+            return;
+        };
+        let Ok(check) = self.call_check(call_id).await else { return };
+        let me = self.info.user_id.clone();
+        let now = || chrono::Utc::now().timestamp_millis();
+        let decided =
+            self.rings.lock().unwrap().decide(&signal, Some((&peer, Some(&name))), check.as_ref(), &me, now());
+        let Some(call) = decided else { return };
+        let _ = self.events.send(SessionEvent::CallRing);
+        let weak = Arc::downgrade(&self);
+        drop(self);
+        loop {
+            let wait = (call.until - now()).clamp(0, RING_CHECK_MS as i64) as u64;
+            tokio::time::sleep(Duration::from_millis(wait)).await;
+            let Some(s) = weak.upgrade() else { return };
+            if s.rings.lock().unwrap().current().is_none_or(|c| c.message_id != call.message_id) {
+                return;
+            }
+            let ended = now() >= call.until
+                || (check.is_some() && matches!(s.call_check(&call.call_id).await, Ok(Some(c)) if c.ended(&me)));
+            if ended {
+                if s.rings.lock().unwrap().stop_if(|c| c.message_id == call.message_id) {
+                    let _ = s.events.send(SessionEvent::CallRing);
+                }
+                return;
+            }
+        }
     }
 
     pub async fn join_call(&self, call_id: &str) -> Result<String, RestError> {

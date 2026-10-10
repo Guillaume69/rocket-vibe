@@ -341,6 +341,11 @@ pub async fn call_url(rest: &RestClient, call_id: &str) -> Result<Option<String>
     Ok(response.get("url").and_then(Value::as_str).filter(|u| !u.is_empty()).map(str::to_owned))
 }
 
+/// Declines a ringing call; only Rocket.Chat's licensed direct calls accept it.
+pub async fn cancel_call(rest: &RestClient, call_id: &str) -> Result<(), RestError> {
+    rest.post("video-conference.cancel", CallOptions::body(json!({"callId": call_id}))).await.map(|_| ())
+}
+
 pub async fn delete(rest: &RestClient, rid: &str, msg_id: &str) -> Result<(), RestError> {
     rest.post("chat.delete", CallOptions::body(json!({"roomId": rid, "msgId": msg_id}))).await.map(|_| ())
 }

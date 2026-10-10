@@ -124,6 +124,14 @@ impl MmSync {
         Translator { directory: &self.directory, me: &self.me }
     }
 
+    /// A call starting or ending in a `posted` or `post_edited` event (`crate::call_ring`).
+    pub fn call_signal(&self, name: &str, data: &Value) -> Option<crate::call_ring::CallSignal> {
+        if name != "posted" && name != "post_edited" {
+            return None;
+        }
+        crate::call_ring::signal_of(&self.translate(&Value::Object(object(data.get("post")?)?))?)
+    }
+
     pub fn translate(&self, post: &Value) -> Option<Message> {
         let mut message = self.translator().message(post)?;
         if self.flagged.lock().unwrap().contains(&message.id) {

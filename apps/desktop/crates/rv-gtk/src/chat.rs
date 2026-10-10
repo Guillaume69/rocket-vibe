@@ -21,6 +21,8 @@ use crate::widgets::Handler;
 use crate::widgets::{self, TileSize};
 use crate::{actions_menu, on_tokio};
 
+#[path = "chat_call_ring.rs"]
+mod call_ring;
 #[path = "chat_crypto.rs"]
 mod crypto;
 #[path = "chat_native.rs"]
@@ -258,6 +260,8 @@ pub struct ChatPage {
     history_at: Cell<usize>,
     walking: Cell<bool>,
     voice: Rc<voice::VoiceUi>,
+    /// The ringing call's id and its prompt (`chat_call_ring.rs`).
+    incoming_call: RefCell<Option<(String, adw::AlertDialog)>>,
 }
 
 impl ChatPage {
@@ -609,6 +613,7 @@ impl ChatPage {
             history_at: Cell::new(0),
             walking: Cell::new(false),
             voice: voice_ui,
+            incoming_call: RefCell::default(),
         });
         let weak = Rc::downgrade(&this);
         toggle_section.replace(Some(Rc::new(move |section| {

@@ -94,7 +94,7 @@ States `Closed`, `Connecting`, `Connected` (handshake done), `Authenticated`. Th
 
 One database per (server, account). `Store::open` sets WAL, runs `SCHEMA` (`rooms`, `subscriptions`, `messages`, `outbox`, `cursors`, `CREATE ... IF NOT EXISTS`), then the append-only `MIGRATIONS` list, counted by `PRAGMA user_version` (adding `md`, `drafts`, `urls`/`call_id`, `last_message_author`, `uploads`, E2E columns, `pinned`/`starred`, `roles`, the uploads' `tmid`, the sidebar `group_*` columns, then `people (uid, name, seen)` and `server_settings (key, value)` for Rocket.Chat real names). Never edit a shipped migration step; append one.
 
-Every write goes through `Store::write(|w| ...)`: one transaction, and one `Change` broadcast after the commit listing whether the room list changed and which rids' messages did. A write that touched nothing broadcasts nothing.
+Every write goes through `Store::write(|w| ...)`: one transaction, and one `Change` broadcast after the commit listing whether the room list changed and which rids' messages did. A write that touched nothing broadcasts nothing. A statement that fails (full disk, I/O error) is noted on the `Writer` (`or_note`) instead of panicking: the whole write rolls back, nothing is broadcast, and the closure's result is still returned. The mutex is taken poison-tolerant (`Store::conn`), and both stores set a 5 s `busy_timeout`, since the GTK and SwiftUI apps can open the same database on macOS.
 
 Invariants enforced in SQL:
 
@@ -120,7 +120,7 @@ Hot rooms, offline behaviour and how this compares to mobile: [../features/offli
 
 - success: delete the row, ingest the returned message;
 - status 0: stop the pass (unreachable), the row stays pending;
-- any other error: ask `chat.getMessage` whether the `_id` exists, because replaying an accepted `_id` answers 400 on 8.5. Found: ingest and delete. Not found: mark `failed`. Could not ask (status 0 or 429, `getMessage` sharing the send quota): stop the pass rather than burn the quota on the next rows.
+- any other error: ask `chat.getMessage` whether the `_id` exists, because replaying an accepted `_id` answers 400 on 8.5. Found: ingest and delete. Not found: mark `failed`. Could not ask (status 0, 429 with `getMessage` sharing the send quota, or a 5xx such as a proxy's 502 during a server restart): stop the pass rather than burn the quota on the next rows; the row stays pending.
 
 In an encrypted room the text is encrypted at send time through an encryptor closure the session installs; while locked the row waits instead of failing. The explicit retry is `Session::retry`.
 
@@ -129,6 +129,7 @@ In an encrypted room the text is encrypted at send time through an encryptor clo
 `Uploads` persists each file in the `uploads` table (`pending`, `sending`, `failed`) and sends it in two steps, `rooms.media/<rid>` then `rooms.mediaConfirm/<rid>/<fileId>`. The `fileId` is saved **between** the steps. Before replaying a confirm, `already_posted` checks the store for a message carrying that file, and if the store knows nothing it reloads the room's newest page and asks again, since the server's answer to a replayed confirm cannot be trusted ([rocket-chat.md](rocket-chat.md)). Other rules:
 
 - `validate` applies `FileUpload_MaxFileSize`, `FileUpload_MediaTypeWhiteList` (`image/*` patterns) and refuses files in encrypted rooms when encrypted files are off.
+- A 5xx answer to any step puts the row back to `pending` and stops the pass, like an unreachable server; a confirm the server did post is found again through the persisted `fileId`.
 - `claim_upload` makes a row `sending` atomically; at construction every `sending` row is rearmed to `pending` (only a dead run can leave one).
 - Offline: the pass stops and schedules itself again after 2, 5, 15, 30 s, without waiting for the socket.
 - `discard` removes the row and aborts the byte transfer; after the confirm nothing can take the message back. Temporary files (reduced images, pasted pictures) are deleted once settled.

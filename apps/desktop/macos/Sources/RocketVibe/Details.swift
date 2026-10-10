@@ -8,6 +8,7 @@ enum Panel: Identifiable, Equatable {
     case info
     case search
     case marked
+    case threads
     case profile(String)
     case profileId(String)
 
@@ -16,6 +17,7 @@ enum Panel: Identifiable, Equatable {
         case .info: return "info"
         case .search: return "search"
         case .marked: return "marked"
+        case .threads: return "threads"
         case let .profile(username): return "profile:\(username)"
         case let .profileId(uid): return "profile-id:\(uid)"
         }
@@ -31,6 +33,7 @@ struct PanelView: View {
         case .info: RoomInfoView(model: model)
         case .search: SearchView(model: model)
         case .marked: MarkedView(model: model)
+        case .threads: ThreadsView(model: model)
         case let .profile(username): ProfileView(username: username)
         case let .profileId(uid): ProfileView(username: uid, byId: true)
         }
@@ -324,6 +327,133 @@ struct MarkedView: View {
         .task(id: starred) {
             messages = nil
             messages = (try? await model.marked(starred: starred)) ?? []
+        }
+    }
+}
+
+/// The room's threads (Rocket.Chat), every one or those I follow, by pages
+/// of 50, the most recently answered first. The bell follows or unfollows
+/// one; a click opens it beside the room.
+struct ThreadsView: View {
+    @Environment(AppModel.self) var app
+    @Environment(\.closeModal) var dismiss
+    let model: RoomModel
+    @State var following = false
+    @State var entries: [ThreadEntry]?
+    @State var total = 0
+    @State var failed = false
+    @State var loadingMore = false
+    @State var busy: Set<String> = []
+    @State var editing: String?
+    @State var deleting: MessageItem?
+
+    var body: some View {
+        SheetFrame(title: L("threads.title")) {
+            VStack(spacing: 0) {
+                Picker("", selection: $following) {
+                    Text(L("threads.all")).tag(false)
+                    Text(L("threads.following")).tag(true)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .padding(12)
+                if failed && entries == nil {
+                    VStack(spacing: 10) {
+                        Text(L("info.failed")).foregroundStyle(.secondary)
+                        Button(L("native.retry")) { Task { await load(reset: true) } }
+                    }
+                    .frame(maxHeight: .infinity)
+                } else if let entries {
+                    if entries.isEmpty {
+                        Text(L(following ? "threads.none_following" : "threads.none"))
+                            .foregroundStyle(.secondary)
+                            .frame(maxHeight: .infinity)
+                    } else {
+                        ScrollView {
+                            LazyVStack(alignment: .leading, spacing: 0) {
+                                ForEach(entries, id: \.root.id) { entry in row(entry) }
+                                if entries.count < total {
+                                    Button(L("threads.more")) { Task { await load(reset: false) } }
+                                        .disabled(loadingMore)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(12)
+                                        .onAppear { Task { await load(reset: false) } }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    ProgressView().frame(maxHeight: .infinity)
+                }
+            }
+        }
+        .task(id: following) { await load(reset: true) }
+    }
+
+    @ViewBuilder func row(_ entry: ThreadEntry) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            MessageRow(
+                message: entry.root, model: model, editing: editing == entry.root.id, revealed: false,
+                setEditing: { editing = $0 }, askDelete: { deleting = $0 }
+            )
+            HStack {
+                if let last = entry.lastReply {
+                    Text(L("threads.summary", [
+                        "replies": model.repliesTitle(entry.root.threadCount),
+                        "time": Formatting.shortTime(last),
+                    ]))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button { Task { await toggle(entry) } } label: {
+                    Image(systemName: entry.following ? "bell.fill" : "bell.slash")
+                }
+                .buttonStyle(.borderless)
+                .help(L(entry.following ? "thread.unfollow" : "thread.follow"))
+                .disabled(busy.contains(entry.root.id))
+            }
+            .padding(.horizontal, 14)
+            .padding(.bottom, 8)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            dismiss()
+            app.openThread(entry.root.id)
+        }
+    }
+
+    /// The first page (`reset`, also on a tab switch), or the next one.
+    func load(reset: Bool) async {
+        if !reset && (loadingMore || entries == nil) { return }
+        if reset { entries = nil; failed = false; total = 0 }
+        loadingMore = true
+        defer { loadingMore = false }
+        let asked = following
+        do {
+            let page = try await model.threads(following: asked, offset: reset ? 0 : entries?.count ?? 0)
+            guard asked == following else { return }
+            let known = Set((entries ?? []).map { $0.root.id })
+            let shown = (entries ?? []) + page.threads.filter { !known.contains($0.root.id) }
+            entries = shown
+            total = page.threads.isEmpty ? shown.count : Int(page.total)
+        } catch {
+            guard asked == following else { return }
+            failed = true
+            if entries != nil { app.notice = L("info.failed") }
+        }
+    }
+
+    func toggle(_ entry: ThreadEntry) async {
+        let (root, on) = (entry.root.id, !entry.following)
+        busy.insert(root)
+        defer { busy.remove(root) }
+        do {
+            try await model.followThread(root, on)
+            if let i = entries?.firstIndex(where: { $0.root.id == root }) { entries?[i].following = on }
+            app.notice = L(on ? "thread.followed" : "thread.unfollowed")
+        } catch {
+            app.notice = L("thread.follow_failed")
         }
     }
 }

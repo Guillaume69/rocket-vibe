@@ -63,6 +63,10 @@ struct RoomView: View {
                 VoiceCallButton(room: model.room)
                 Button { panel = .marked } label: { Image(systemName: "pin") }.help(L("marked.title"))
                     .disabled(!model.supportsMarks)
+                if model.supportsThreads {
+                    Button { panel = .threads } label: { Image(systemName: "bubble.left.and.bubble.right") }
+                        .help(L("threads.title"))
+                }
                 Button { panel = .search } label: { Image(systemName: "magnifyingglass") }.help(L("search.title"))
                     .windowShortcut(KeyboardShortcut("f", modifiers: .command))
                     .disabled(!model.supportsSearch)

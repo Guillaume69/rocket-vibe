@@ -155,6 +155,10 @@ public final class RoomModel {
         guard active, !Task.isCancelled else { throw CancellationError() }
         return result
     }
+    /// The room's thread list and following a thread: Rocket.Chat only.
+    public var supportsThreads: Bool { active && chat?.threadsAvailable() == true }
+    /// A thread's model: whether I follow it, from the stored root, kept by `reload`.
+    public private(set) var followingThread = false
     public var supportsMarks: Bool { chat != nil || (provider.native?.supportedFeatures().contains("pins") == true && provider.native?.supportedFeatures().contains("stars") == true) }
     public var supportsSearch:Bool { active && (privateMode ? privateReady : (chat != nil || provider.native?.supportedFeatures().contains("search") == true)) }
     public let searchContext=UUID().uuidString
@@ -359,6 +363,10 @@ public final class RoomModel {
         }
         if let native = provider.native, let threadId {
             threadWriteAllowed = (try? native.threadWritable(room:room.rid,root:threadId)) == true
+        }
+        if let chat, let threadId {
+            let following = chat.threadFollowing(root: threadId)
+            if following != followingThread { followingThread = following }
         }
         closeQuoteReader()
         // A context window shows the stretch around an old message, not the latest page.
@@ -963,6 +971,19 @@ public final class RoomModel {
         guard active else { return [] }
         if let native = provider.native { return try await native.marked(room: room.rid, starred: starred) }
         return try await editableChat().marked(rid: room.rid, starred: starred)
+    }
+
+    /// One page of the room's threads, every one or those I follow.
+    public func threads(following: Bool, offset: Int) async throws -> ThreadsPage {
+        guard supportsThreads else { return ThreadsPage(threads: [], total: 0) }
+        return try await editableChat().threads(rid: room.rid, following: following, offset: UInt32(offset), count: 50)
+    }
+
+    /// Follows a thread or stops following it; this thread's bell moves at once.
+    public func followThread(_ root: String, _ on: Bool) async throws {
+        guard supportsThreads else { throw RvError.Local(message: L("native.error")) }
+        try await editableChat().followThread(root: root, on: on)
+        if root == threadId { followingThread = on }
     }
 
     /// Puts a quote of the message at the start of the draft.

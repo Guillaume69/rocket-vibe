@@ -1,5 +1,5 @@
-//! Rooms and people: their details, my own profile, search, calls, and the
-//! pinned and starred messages of a room.
+//! Rooms and people: their details, my own profile, search, calls, the
+//! pinned and starred messages of a room, and its threads.
 
 use rv_core::media::{self, AvatarTarget};
 use rv_core::session::two_factor_code;
@@ -39,6 +39,21 @@ impl From<rv_core::info::RoomInfo> for RoomDetails {
             default: r.default,
         }
     }
+}
+
+/// One thread of a room's list: its root, when it was last answered, whether I follow it.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct ThreadEntry {
+    pub root: MessageItem,
+    pub last_reply: Option<i64>,
+    pub following: bool,
+}
+
+/// One page of a room's threads, and how many there are in all.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct ThreadsPage {
+    pub threads: Vec<ThreadEntry>,
+    pub total: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
@@ -231,19 +246,54 @@ impl Chat {
     pub async fn marked(&self, rid: String, starred: bool) -> Result<Vec<MessageItem>, RvError> {
         let s = self.session.clone();
         let rows = on_tokio(async move { s.marked(&rid, starred).await }).await?;
-        let info = &self.session.info;
-        Ok(rows
+        Ok(rows.into_iter().map(|r| self.listed(r)).collect())
+    }
+
+    /// Whether the server lists a room's threads and lets me follow one (Rocket.Chat).
+    pub fn threads_available(&self) -> bool {
+        self.session.threads_available()
+    }
+
+    /// One page of the room's threads, every one or those I follow, the
+    /// most recently answered first.
+    pub async fn threads(&self, rid: String, following: bool, offset: u32, count: u32) -> Result<ThreadsPage, RvError> {
+        let s = self.session.clone();
+        let (rows, total) = on_tokio(async move { s.threads(&rid, following, offset, count).await }).await?;
+        let me = self.session.info.user_id.clone();
+        let threads = rows
             .into_iter()
-            .map(|r| {
-                let d = rv_core::timeline::Display {
-                    row: self.session.open_row(r),
-                    show_header: true,
-                    show_day: false,
-                    gutter_time: false,
-                    new_marker: false,
-                };
-                crate::model::message(d, &info.user_id, &info.username)
-            })
-            .collect())
+            .map(|r| ThreadEntry { last_reply: r.thread_last, following: r.followed_by(&me), root: self.listed(r) })
+            .collect();
+        Ok(ThreadsPage { threads, total })
+    }
+
+    /// Follows a thread (`on`) or stops following it.
+    pub async fn follow_thread(&self, root: String, on: bool) -> Result<(), RvError> {
+        let s = self.session.clone();
+        Ok(on_tokio(async move { s.follow_thread(&root, on).await }).await?)
+    }
+
+    /// Whether I follow the thread, by the stored copy of its root (false while unknown).
+    pub fn thread_following(&self, root: String) -> bool {
+        self.session
+            .store
+            .messages_by_id(std::slice::from_ref(&root))
+            .first()
+            .is_some_and(|r| r.followed_by(&self.session.info.user_id))
+    }
+}
+
+impl Chat {
+    /// A message of a list beside the room (pinned, starred, threads), opened when encrypted.
+    fn listed(&self, row: rv_core::store::MessageRow) -> MessageItem {
+        let info = &self.session.info;
+        let d = rv_core::timeline::Display {
+            row: self.session.open_row(row),
+            show_header: true,
+            show_day: false,
+            gutter_time: false,
+            new_marker: false,
+        };
+        crate::model::message(d, &info.user_id, &info.username)
     }
 }

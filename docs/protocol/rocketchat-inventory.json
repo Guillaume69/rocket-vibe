@@ -414,6 +414,7 @@
     "apps/mobile/lib/providerProfiles.ts",
     "apps/mobile/lib/push.ts",
     "apps/mobile/lib/pushToken.ts",
+    "apps/mobile/lib/quiet.ts",
     "apps/mobile/lib/quote.ts",
     "apps/mobile/lib/reactions.ts",
     "apps/mobile/lib/reconnect.ts",
@@ -475,6 +476,7 @@
     "apps/mobile/ui/deferredDraft.ts",
     "apps/mobile/ui/devices.tsx",
     "apps/mobile/ui/discussion.tsx",
+    "apps/mobile/ui/doNotDisturb.tsx",
     "apps/mobile/ui/drafts.ts",
     "apps/mobile/ui/e2e.ts",
     "apps/mobile/ui/embedCard.tsx",
@@ -4651,73 +4653,73 @@
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1001,
+      "line": 1015,
       "kind": "endpoint",
       "surface": "e2e.title"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1002,
+      "line": 1016,
       "kind": "endpoint",
       "surface": "e2e.explanation"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1004,
+      "line": 1018,
       "kind": "endpoint",
       "surface": "e2e.field"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1005,
+      "line": 1019,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1006,
+      "line": 1020,
       "kind": "endpoint",
       "surface": "e2e.wrongPassword"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1007,
+      "line": 1021,
       "kind": "endpoint",
       "surface": "e2e.genericError"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2417,
+      "line": 2445,
       "kind": "endpoint",
       "surface": "e2e.title"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2418,
+      "line": 2446,
       "kind": "endpoint",
       "surface": "e2e.explanation"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2420,
+      "line": 2448,
       "kind": "endpoint",
       "surface": "e2e.field"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2421,
+      "line": 2449,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2422,
+      "line": 2450,
       "kind": "endpoint",
       "surface": "e2e.wrongPassword"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2423,
+      "line": 2451,
       "kind": "endpoint",
       "surface": "e2e.genericError"
     },
@@ -4741,19 +4743,19 @@
     },
     {
       "file": "apps/mobile/ui/settingsSections.tsx",
-      "line": 337,
+      "line": 338,
       "kind": "call:GET",
       "surface": "'me'"
     },
     {
       "file": "apps/mobile/ui/settingsSections.tsx",
-      "line": 366,
+      "line": 367,
       "kind": "call:POST",
       "surface": "'users.setPreferences'"
     },
     {
       "file": "apps/mobile/ui/settingsSections.tsx",
-      "line": 366,
+      "line": 367,
       "kind": "endpoint",
       "surface": "users.setPreferences"
     }

@@ -5,7 +5,7 @@ import { Reconnector } from '../../lib/reconnect.ts';
 import { checkIdentity, transportFor } from './auth.ts';
 import { NativeStore, type NativeCommand } from './store.ts';
 import { NativeError, type NativeTransport } from './transport.ts';
-import {avatarBytes,type ProfileOperation,type ProfileSlot,type SavedProfileOperation} from './profileOperations.ts';
+import {avatarBytes,preferencesInput,type ProfileOperation,type ProfileSlot,type SavedProfileOperation} from './profileOperations.ts';
 import {avatarBase64} from '../../lib/nativeAvatars.ts';
 import type {MyProfile} from '../../lib/myProfile.ts';
 import { decodeNative } from './validation.ts';
@@ -902,7 +902,7 @@ export class NativeChat {
     return this.changeProfile({kind:'avatar',input:{operation_id:this.id(),expected_revision:revision},upload:upload?{mime:upload.mime as 'image/png'|'image/jpeg',base64:avatarBase64(upload.bytes)}:null});
   }
   updateOwnPreferences(before:import('./protocol.generated.ts').UserPreferences,changes:Partial<Omit<import('./protocol.generated.ts').UserPreferences,'revision'>>):Promise<import('./protocol.generated.ts').OwnProfile> {
-    return this.changeProfile({kind:'preferences',input:{operation_id:this.id(),expected_revision:before.revision,language:changes.language??before.language,clock_24h:changes.clock_24h??before.clock_24h,push_enabled:changes.push_enabled??before.push_enabled,push_mentions_only:changes.push_mentions_only??before.push_mentions_only,desktop_notifications:changes.desktop_notifications??before.desktop_notifications??'default'}});
+    return this.changeProfile({kind:'preferences',input:preferencesInput(this.id(),before,changes)});
   }
   async resumeProfile(slot:ProfileSlot):Promise<import('./protocol.generated.ts').OwnProfile> {
     this.ready();const saved=await this.store.profileOperations.get(slot);

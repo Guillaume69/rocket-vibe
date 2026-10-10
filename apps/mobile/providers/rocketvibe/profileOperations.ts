@@ -1,6 +1,6 @@
 /** Original profile commands survive a lost acknowledgement and process restart. */
 import type {NativeDatabase} from './store.ts';
-import type {AvatarCommand,OwnProfile,ProfileReceipt,UpdatePreferences,UpdateProfile} from './protocol.generated.ts';
+import type {AvatarCommand,OwnProfile,ProfileReceipt,UpdatePreferences,UpdateProfile,UserPreferences} from './protocol.generated.ts';
 import type {MyProfile} from '../../lib/myProfile.ts';
 import {avatarBase64} from '../../lib/nativeAvatars.ts';
 import {decodeNative} from './validation.ts';
@@ -14,6 +14,19 @@ export type ProfileSlot=ProfileOperation['kind'];
 export type SavedProfileOperation={command:ProfileOperation;phase:'pending'|'proof'|'failed';error:string|null};
 type Row={id:string;slot:string;payload:string;state:string;error:string|null};
 
+/**
+ * The preferences command for `changes` over `before`. Do not disturb follows
+ * the server's three states (docs/protocol/PROFILES.md): `quiet_hours` and
+ * `muted_until` go out ONLY when `changes` names them (`null` removes), absent
+ * otherwise so the stored schedule and mute are kept; a push level or language
+ * change never carries them, so it can never wipe them.
+ */
+export function preferencesInput(operationId:string,before:UserPreferences,changes:Partial<Omit<UserPreferences,'revision'>>):UpdatePreferences {
+  const input:UpdatePreferences={operation_id:operationId,expected_revision:before.revision,language:changes.language??before.language,clock_24h:changes.clock_24h??before.clock_24h,push_enabled:changes.push_enabled??before.push_enabled,push_mentions_only:changes.push_mentions_only??before.push_mentions_only,desktop_notifications:changes.desktop_notifications??before.desktop_notifications??'default'};
+  if('quiet_hours' in changes)input.quiet_hours=changes.quiet_hours??null;
+  if('muted_until' in changes)input.muted_until=changes.muted_until??null;
+  return input;
+}
 export function avatarBytes(value:string):Uint8Array {
   if(!value||value.length>2_796_204||value.length%4!==0||!/^[A-Za-z0-9+/]+={0,2}$/.test(value))throw new Error('invalid_avatar');
   const alphabet='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/',length=value.length/4*3-(value.endsWith('==')?2:value.endsWith('=')?1:0);

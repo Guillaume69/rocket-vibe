@@ -3,6 +3,7 @@ import {readFileSync} from 'node:fs';
 import {test} from 'node:test';
 import {NativeError,NativeTransport} from './transport.ts';
 import {decodeNative} from './validation.ts';
+import {preferencesInput,profileOperation} from './profileOperations.ts';
 const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
 
 test('profile transports preserve public/private contracts and reject forged commands',async()=>{
@@ -22,6 +23,33 @@ test('profile transports preserve public/private contracts and reject forged com
   assert.throws(()=>decodeNative('UpdateProfile',{...fixture.update_profile,user_id:'other'}));
   assert.throws(()=>decodeNative('UpdateProfile',{...fixture.update_profile,status:'admin'}));
   assert.throws(()=>decodeNative('UpdatePreferences',{...fixture.update_preferences,desktop_notifications:'unknown'}));
+});
+
+test('a preferences change sends do not disturb only when it names it',async()=>{
+  const quiet={start_minute:1320,end_minute:480,time_zone:'Europe/Paris'};
+  const before={...fixture.own_profile.preferences,quiet_hours:quiet,muted_until:'2026-07-01T13:00:00Z'};
+  // A push level change: both fields ABSENT, so the server keeps them.
+  const push=preferencesInput('op-1',before,{push_enabled:true,push_mentions_only:true});
+  assert.equal('quiet_hours' in push,false);assert.equal('muted_until' in push,false);
+  assert.equal(push.push_mentions_only,true);assert.equal(push.expected_revision,'preferences-revision');
+  assert.equal('quiet_hours' in JSON.parse(JSON.stringify(push)),false);
+  // A mute: only `muted_until` goes out; the schedule stays absent.
+  const mute=preferencesInput('op-2',before,{muted_until:'2026-07-01T14:00:00Z'});
+  assert.equal(mute.muted_until,'2026-07-01T14:00:00Z');assert.equal('quiet_hours' in mute,false);
+  // Unmute and schedule off: `null` removes.
+  assert.equal(preferencesInput('op-3',before,{muted_until:null}).muted_until,null);
+  const off=preferencesInput('op-4',before,{quiet_hours:null});
+  assert.equal(off.quiet_hours,null);assert.equal('muted_until' in off,false);
+  const on=preferencesInput('op-5',fixture.own_profile.preferences,{quiet_hours:quiet});
+  assert.deepEqual(on.quiet_hours,quiet);
+  // The commands survive the store's decode, null included, and the transport sends them as is.
+  for(const input of [push,mute,off,on])assert.deepEqual(profileOperation({kind:'preferences',input}),{kind:'preferences',input});
+  const calls:string[]=[];
+  const transport=new NativeTransport('http://localhost:3400',async(_input,options)=>{calls.push(options!.body as string);return new Response(JSON.stringify(fixture.profile_receipt));});
+  transport.restore('native-test-token');
+  await transport.updatePreferences(off);assert.deepEqual(JSON.parse(calls[0]),off);
+  await transport.updatePreferences(push);assert.equal('quiet_hours' in JSON.parse(calls[1]),false);
+  assert.throws(()=>decodeNative('UpdatePreferences',{...push,quiet_hours:{start_minute:1320,end_minute:480}}));
 });
 
 test('avatar transport sends binary bytes without a credential URL and bounds downloads',async()=>{

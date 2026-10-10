@@ -2482,12 +2482,16 @@ impl ChatPage {
     /// `force` builds every row again even when the data did not change:
     /// what they show also depends on presence, photos and the E2E lock.
     fn load_rooms(&self, force: bool) {
-        let rows = if self.native_session().is_some() {
+        let started = std::time::Instant::now();
+        let native = self.native_session().is_some();
+        let rows = if native {
             self.native_rooms()
         } else {
             self.session.borrow().as_ref().map(|s| s.store.rooms()).unwrap_or_default()
         };
-        if force || *self.rooms.borrow() != rows {
+        let read = started.elapsed();
+        let changed = force || *self.rooms.borrow() != rows;
+        if changed {
             let sections = rv_core::rooms::sections(&rows);
             let titled = sections.len() > 1;
             let mut objects = Vec::new();
@@ -2544,6 +2548,18 @@ impl ChatPage {
             for f in self.on_rooms_loaded.borrow().iter() {
                 f(());
             }
+        }
+        if native {
+            // Numbered: the log collapses identical lines back to back.
+            static SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let n = SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+            glib::g_info!(
+                "rocket-vibe-reload",
+                "room list #{n}: rows read in {:.1} ms, list {} (and its listeners) in {:.1} ms",
+                read.as_secs_f64() * 1000.0,
+                if changed { "rebuilt" } else { "unchanged" },
+                (started.elapsed() - read).as_secs_f64() * 1000.0
+            );
         }
     }
 

@@ -335,11 +335,11 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-gtk/src/chat.rs:1685](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1685) | endpoint | rooms.mark_failed |
 | [apps/desktop/crates/rv-gtk/src/chat.rs:1685](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1685) | endpoint | rooms.nothing_unread |
 | [apps/desktop/crates/rv-gtk/src/chat.rs:2129](../../apps/desktop/crates/rv-gtk/src/chat.rs#L2129) | endpoint | rooms.sign_out |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:2499](../../apps/desktop/crates/rv-gtk/src/chat.rs#L2499) | endpoint | rooms.section_unread |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:2500](../../apps/desktop/crates/rv-gtk/src/chat.rs#L2500) | endpoint | rooms.section_favorites |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:2502](../../apps/desktop/crates/rv-gtk/src/chat.rs#L2502) | endpoint | rooms.section_channels |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:2503](../../apps/desktop/crates/rv-gtk/src/chat.rs#L2503) | endpoint | rooms.section_direct |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:2619](../../apps/desktop/crates/rv-gtk/src/chat.rs#L2619) | endpoint | e2e.read_only |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:2503](../../apps/desktop/crates/rv-gtk/src/chat.rs#L2503) | endpoint | rooms.section_unread |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:2504](../../apps/desktop/crates/rv-gtk/src/chat.rs#L2504) | endpoint | rooms.section_favorites |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:2506](../../apps/desktop/crates/rv-gtk/src/chat.rs#L2506) | endpoint | rooms.section_channels |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:2507](../../apps/desktop/crates/rv-gtk/src/chat.rs#L2507) | endpoint | rooms.section_direct |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:2635](../../apps/desktop/crates/rv-gtk/src/chat.rs#L2635) | endpoint | e2e.read_only |
 | [apps/desktop/crates/rv-gtk/src/details/native_favorites.rs:19](../../apps/desktop/crates/rv-gtk/src/details/native_favorites.rs#L19) | endpoint | rooms.favorite_add |
 | [apps/desktop/crates/rv-gtk/src/details/native_favorites.rs:19](../../apps/desktop/crates/rv-gtk/src/details/native_favorites.rs#L19) | endpoint | rooms.favorite_remove |
 | [apps/desktop/crates/rv-gtk/src/details/native_favorites.rs:31](../../apps/desktop/crates/rv-gtk/src/details/native_favorites.rs#L31) | endpoint | rooms.conflict |

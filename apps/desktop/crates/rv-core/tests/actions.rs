@@ -82,3 +82,24 @@ async fn threads_are_listed_by_page_and_followed() {
     assert_eq!(body(&server, 2), ("/api/v1/chat.followMessage".into(), json!({"mid": "T1"})));
     assert_eq!(body(&server, 3), ("/api/v1/chat.unfollowMessage".into(), json!({"mid": "T1"})));
 }
+
+#[tokio::test]
+async fn rooms_are_marked_unread_and_read_with_their_threads() {
+    let server = FakeHttp::queue(vec![
+        respond(200, r#"{"success":true}"#),
+        respond(200, r#"{"success":true}"#),
+        respond(
+            400,
+            r#"{"success":false,"error":"There are no messages to mark unread [error-no-message-for-unread]","errorType":"error-no-message-for-unread"}"#,
+        ),
+    ])
+    .await;
+    let c = client(&server);
+    actions::mark_unread(&c, "R1").await.unwrap();
+    actions::mark_read(&c, "R1").await.unwrap();
+    let empty = actions::mark_unread(&c, "R2").await.unwrap_err();
+    assert_eq!((empty.status, empty.error_type.as_deref()), (400, Some(actions::NOTHING_TO_UNREAD)));
+
+    assert_eq!(body(&server, 0), ("/api/v1/subscriptions.unread".into(), json!({"roomId": "R1"})));
+    assert_eq!(body(&server, 1), ("/api/v1/subscriptions.read".into(), json!({"rid": "R1", "readThreads": true})));
+}

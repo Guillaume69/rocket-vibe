@@ -10,6 +10,7 @@ section here.
 ### Added
 
 - A room's threads (GTK and macOS, Rocket.Chat servers): a header button lists them, all or the ones I follow, with their reply count and last reply time, and a bell on each thread, in the list and in the open thread, follows or unfollows it.
+- Mark a room as unread, or as read, from its menu in the room list (GTK right-click and macOS context menu, Rocket.Chat servers). Marking the open room unread leaves it, so its badge stays until it is opened again.
 
 ### Fixed
 

@@ -976,6 +976,18 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("rooms.section_favorites", "Favoris", "Favorites"),
     ("rooms.favorite_add", "Ajouter aux favoris", "Add to favorites"),
     ("rooms.favorite_remove", "Retirer des favoris", "Remove from favorites"),
+    ("rooms.mark_unread", "Marquer comme non lu", "Mark as unread"),
+    ("rooms.mark_read", "Marquer comme lu", "Mark as read"),
+    (
+        "rooms.mark_failed",
+        "Impossible de changer l'état de lecture de ce salon.",
+        "Couldn't change this room's read state.",
+    ),
+    (
+        "rooms.nothing_unread",
+        "Ce salon n'a aucun message à marquer non lu.",
+        "This room has no message to mark unread.",
+    ),
     ("rooms.section_channels", "Salons", "Channels"),
     ("rooms.section_direct", "Messages privés", "Direct messages"),
     ("rooms.new", "Nouvelle conversation", "New conversation"),

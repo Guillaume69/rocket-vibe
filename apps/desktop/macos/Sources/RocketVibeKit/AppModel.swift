@@ -622,6 +622,30 @@ public final class AppModel {
         open(history[historyAt], remember: false)
     }
 
+    /// The room list's "Mark as unread" (`unread`) or "Mark as read", on
+    /// Rocket.Chat. The open room marked unread is left first, as the official
+    /// web client does: still open, it would read itself again.
+    public func markRoom(_ rid: String, unread: Bool) async {
+        guard let chat, chat.unreadMarksAvailable() else { return }
+        let accountKey = account?.key
+        if unread, room?.rid == rid { leaveRoom() }
+        do { try await chat.markRoom(rid: rid, unread: unread) }
+        catch let RvError.Local(message) where message == "nothing-unread" {
+            if accountKey == account?.key { notice = L("rooms.nothing_unread") }
+        } catch {
+            if accountKey == account?.key { notice = L("rooms.mark_failed") }
+        }
+    }
+
+    /// Shows no room: the open one is left and nothing in the list is selected.
+    public func leaveRoom() {
+        cancelNotificationNavigation(); pendingRoomLink = nil
+        room?.deactivate()
+        room = nil
+        closeThread(preserveNavigation: true)
+        chat?.closeRoom()
+    }
+
     public func markRead() async {
         if let chat, let room { await chat.markRead(rid: room.rid) }
     }

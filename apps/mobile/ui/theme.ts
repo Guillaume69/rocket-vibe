@@ -57,6 +57,8 @@ export interface Colors {
 
   /** Primary accent (pink). */
   accent: string;
+  /** Behind a mention of me, `@all` or `@here` (the desktop's tint). */
+  mentionSelf: string;
   /** Android touch ripple. */
   ripple: string;
   /** Text/icon PLACED on an accent fill or gradient. */
@@ -126,6 +128,7 @@ export const darkColors: Colors = {
   errorText: '#FF7A8A',
 
   accent: '#FF5FA2',
+  mentionSelf: '#4A2140',
   // Translucent (25 %): the RippleDrawable draws the color as is; opaque,
   // the wave is a harsh flash that crushes the content it covers.
   ripple: '#E14B9640',
@@ -184,6 +187,7 @@ export const lightColors: Colors = {
   errorText: '#D6335A',
 
   accent: '#E14B96',
+  mentionSelf: '#FBDCEB',
   // Same logic as in dark: translucent, otherwise an opaque flash.
   ripple: '#C0398A38',
   onAccent: '#FFFFFF',

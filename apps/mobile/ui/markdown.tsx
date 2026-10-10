@@ -80,6 +80,12 @@ export class RenderGuard extends Component<
  */
 export const MessageLongPress = createContext<(() => void) | undefined>(undefined);
 
+/**
+ * My username, so mentions of me (and `@all`, `@here`, which reach me too)
+ * stand apart from the others, as on the desktop (`rv-core/src/markdown.rs`).
+ */
+export const MentionSelf = createContext<string | null>(null);
+
 function Link({ url, label, c }: { url: string; label: string; c: Colors }) {
   const longPress = useContext(MessageLongPress);
   return (
@@ -91,9 +97,11 @@ function Link({ url, label, c }: { url: string; label: string; c: Colors }) {
 
 function Mention({ username, c }: { username: string; c: Colors }) {
   const longPress = useContext(MessageLongPress);
+  const me = useContext(MentionSelf);
+  const mine = username === 'all' || username === 'here' || (me !== null && username === me);
   return (
     <TappableText
-      style={[styles.mention, { color: c.accent }]}
+      style={[styles.mention, { color: c.accent }, mine && { backgroundColor: c.mentionSelf }]}
       onPress={() => openProfile(username)}
       onLongPress={longPress}
     >

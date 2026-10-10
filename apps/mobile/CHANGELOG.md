@@ -13,6 +13,8 @@ release, and its notes are that version's section here.
 - On Rocket.Chat servers, a long press on a room in the list marks it as unread, or as read when it has unread messages.
 - On Rocket.Chat servers, the room's information sheet chooses the room's own notifications: default, all messages, mentions or nothing, applied to push and desktop alike.
 - The room list shows the time of each room's last message (the hour today, the weekday this week, the date beyond), and the unread badge reads `@n` in pink when you are mentioned, as on the desktop.
+- Mentions of you, `@all` and `@here` stand out on a pink tint, as on the desktop.
+- Email addresses in messages open the mail app.
 
 ### Fixed
 

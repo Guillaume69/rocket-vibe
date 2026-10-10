@@ -56,7 +56,7 @@ import { useTimeFormatter, useT } from './i18n.ts';
 import { AvatarTile } from './kit.tsx';
 import { AudioPlayer } from './audioPlayer.tsx';
 import { VideoPlayer } from './videoPlayer.tsx';
-import { MessageLongPress, MessageBody, RenderGuard } from './markdown.tsx';
+import { MentionSelf, MessageLongPress, MessageBody, RenderGuard } from './markdown.tsx';
 import { TappableText } from './tappableText.tsx';
 import {
   type Colors,
@@ -276,7 +276,9 @@ export const MessageRow = memo(function MessageRow({
         ))}
         {!textIsFormTitle && (
           <MessageLongPress.Provider value={longPress}>
-            <MessageContent c={c} message={message} />
+            <MentionSelf.Provider value={me}>
+              <MessageContent c={c} message={message} />
+            </MentionSelf.Provider>
           </MessageLongPress.Provider>
         )}
         {message.form != null && client.kind === 'rocketvibe' && <FormCard c={c} id={message.id} json={message.form} />}

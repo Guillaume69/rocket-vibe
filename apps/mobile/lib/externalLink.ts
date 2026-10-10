@@ -6,8 +6,9 @@
  * app that claims to handle the scheme. Two things must therefore be true
  * BEFORE handing it to the system.
  *
- * 1. **The scheme is web.** `javascript:`, `intent:`, `file:`, `content:` go
- *    nowhere. The URLs displayed come from markdown, link previews
+ * 1. **The scheme is web, or an email address.** `javascript:`, `intent:`,
+ *    `file:`, `content:` go nowhere; `mailto:` opens the mail app, which shows
+ *    the draft before anything is sent (the parser links bare addresses so). The URLs displayed come from markdown, link previews
  *    (`message.urls`) and attachments: all other people's data, stored raw in
  *    the database and projected without validation.
  * 2. **It carries none of our credentials.** `protectedFileUrl`
@@ -41,6 +42,9 @@ export function isWebLink(url: unknown): url is string {
   return typeof url === 'string' && WEB.test(url);
 }
 
+/** `mailto:` and something after it, no spaces (the desktop accepts it too). */
+const MAIL = /^mailto:[^\s]+$/i;
+
 /** True if the URL carries `rc_uid` or `rc_token`. */
 export function carriesCredentials(url: string): boolean {
   return CREDENTIALS.test(url);
@@ -51,5 +55,5 @@ export function carriesCredentials(url: string): boolean {
  * the process?
  */
 export function canLeaveProcess(url: unknown): url is string {
-  return isWebLink(url) && !carriesCredentials(url);
+  return (isWebLink(url) || (typeof url === 'string' && MAIL.test(url))) && !carriesCredentials(url);
 }

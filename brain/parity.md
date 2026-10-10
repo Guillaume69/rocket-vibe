@@ -65,8 +65,8 @@ beta does.
 | Mark as read on open and while viewing | done | done | done | done | Mobile throttles with a 10 s floor; desktop needs the window focused and scrolled to the bottom. Web: Captured 1.5-second root reads, including no-scroll workflow arrivals, cancel on navigation; modal/history and controlled visibility-event cases qualified in tests/reads.mjs. |
 | Edited marker, sending state, failed with retry | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | Markdown from the server's `md`, local parse as fallback | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
-| `mailto:` links open | missing | done | done | done | Mobile opens http(s) only. Web: Native provider: see [web-client](features/web-client.md). |
-| Mentions of me highlighted apart from other mentions | missing | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
+| `mailto:` links open | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
+| Mentions of me highlighted apart from other mentions | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | `:shortcode:` emoji (6222 codes, same table) and custom emoji images | done | done | done | done | Mobile keeps custom emoji offline in SQLite; desktop refetches them each session. Web: Native provider: see [web-client](features/web-client.md). |
 | Images inline (original), viewer, protected-file token only to our origin | done | done | done | done | Web: GTK inline size/crop/title and viewer/menu captures compared on the same uploads; PNG export, live retention and withdrawal qualified. OS clipboard permission remains unqualified; external-app action maps to PNG download. tests/images.mjs. |
 | Photo avatars over gradient tiles, updated live | done | partial | partial | done | Desktop: a DM's tile uses `/avatar/uid/<uid>` with no version, so the partner's new photo reaches the room list only at the next session. Web: Native provider: see [web-client](features/web-client.md). |
@@ -304,7 +304,7 @@ What each app owes, from the tables above. Rows missing in all three are product
 gaps, listed last.
 
 - **Mobile**: kChat "Sign in with Infomaniak" run on a real account; Mattermost stars changed elsewhere, live; several accounts per server;
-  `mailto:` links; mentions of me highlighted; formatting toolbar; list
+  formatting toolbar; list
   continuation; removing my photo; logs folder; meeting information.
 - **GTK**: kChat "Sign in with Infomaniak"; email 2FA resend; replay of an offline sign-out; padlock tile once
   unlocked; DM avatar versions in the list; video reduction; reconciliation snapshot; catch-up of

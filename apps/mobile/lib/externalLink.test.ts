@@ -61,4 +61,12 @@ describe('canLeaveProcess', () => {
   test('a non-web scheme does not leave either', () => {
     assert.equal(canLeaveProcess('file:///sdcard/x.pdf'), false);
   });
+
+  test('an email address opens the mail app, never with our token', () => {
+    assert.equal(canLeaveProcess('mailto:bob@example.com'), true);
+    assert.equal(canLeaveProcess('MAILTO:bob@example.com?subject=hi'), true);
+    assert.equal(canLeaveProcess('mailto:'), false);
+    assert.equal(canLeaveProcess('mailto:a@b.c?body=rc_token=x'), false);
+    assert.equal(isWebLink('mailto:bob@example.com'), false, 'previews stay web-only');
+  });
 });

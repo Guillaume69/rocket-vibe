@@ -1881,6 +1881,7 @@ pub fn gallery(app: &adw::Application) -> bool {
         show_day,
         gutter_time,
         new_marker: false,
+        seen: None,
     };
     let samples = [
         display(row("1", "alice", "Emoji inline 😄 hello 🎉 world 🚀 and a 👍 end", now - 120_000), true, true, false),

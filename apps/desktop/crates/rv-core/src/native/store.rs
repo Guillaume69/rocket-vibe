@@ -762,6 +762,20 @@ impl NativeStore {
         }
         Self::encrypted_in(&conn, rid)
     }
+    /// A direct conversation (`kind: direct`); false for an unknown room.
+    pub fn room_direct(&self, rid: &str) -> rusqlite::Result<bool> {
+        let conn = self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !self.same(&conn)? {
+            return Ok(false);
+        }
+        conn.query_row(
+            "SELECT coalesce(json_extract(payload,'$.kind')='direct',0) FROM native_rooms WHERE id=?1",
+            [rid],
+            |row| row.get(0),
+        )
+        .optional()
+        .map(|direct| direct.unwrap_or(false))
+    }
     fn encrypted_in(conn: &Connection, rid: &str) -> rusqlite::Result<bool> {
         let payload: Option<String> =
             conn.query_row("SELECT payload FROM native_rooms WHERE id=?1", [rid], |row| row.get(0)).optional()?;

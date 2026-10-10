@@ -369,6 +369,7 @@ impl Chat {
             show_day: false,
             gutter_time: false,
             new_marker: false,
+            seen: None,
         };
         crate::model::message(d, &info.user_id, &info.username)
     }

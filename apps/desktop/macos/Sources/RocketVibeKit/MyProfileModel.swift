@@ -18,6 +18,8 @@ public final class MyProfileModel {
     /// Do not disturb on a RocketVibe account: the daily window and the mute's end.
     public private(set) var quietHours: NativeQuietHours?
     public private(set) var mutedUntil: Date?
+    /// Read receipts, both ways, on a RocketVibe account.
+    public private(set) var shareReadReceipts = true
     @ObservationIgnored private weak var app: AppModel?
     @ObservationIgnored private let provider: ChatProvider?
     @ObservationIgnored private let accountId: UUID
@@ -58,6 +60,7 @@ public final class MyProfileModel {
         language = fresh.preferences.language; desktopNotifications = fresh.preferences.desktopNotifications
         quietHours = fresh.preferences.quietHours
         mutedUntil = fresh.preferences.mutedUntil.map { Date(timeIntervalSince1970: TimeInterval($0)) }
+        shareReadReceipts = fresh.preferences.shareReadReceipts
         try pending()
         if resetDraft || !dirty { edited = fresh.me }
         if var fields = intention("profile")?.fields {
@@ -148,6 +151,15 @@ public final class MyProfileModel {
             try self.install(fresh, resetDraft: false)
         }
         return true
+    }
+    /// Shares read receipts or stops, both ways; only that changes.
+    public func setShareReadReceipts(_ share: Bool) async {
+        guard preferencesEditable, let preferences = own?.preferences, let chat = provider?.native else { return }
+        await run {
+            let fresh = try await chat.setShareReadReceipts(preferences: preferences, share: share)
+            guard self.active else { return }
+            try self.install(fresh, resetDraft: false)
+        }
     }
     private func preference(_ change: (inout NativePreferences) -> Void) async {
         guard preferencesEditable, var preferences = own?.preferences, let chat = provider?.native else { return }

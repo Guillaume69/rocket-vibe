@@ -475,13 +475,7 @@ impl NativeChat {
     /// Preserve journal sequence order, then apply the existing grouping and Markdown renderer.
     pub fn message_items(&self, room: String, limit: u32) -> Result<Vec<MessageItem>, RvError> {
         let rows = self.session.store.messages(&room, limit.clamp(1, 10_000) as usize).map_err(RvError::local)?;
-        Ok(self.with_profile_avatars(native_message_items(
-            rows,
-            &room,
-            &self.session.info.user_id,
-            &self.session.info.username,
-            None,
-        )))
+        Ok(self.with_profile_avatars(timeline_items(&self.session, rows, &room, None)))
     }
     pub fn thread_message_items(
         &self,
@@ -530,13 +524,9 @@ impl NativeChat {
             return Ok(vec![]);
         }
         let rows = self.session.store.messages(&room, limit.clamp(1, 10_000) as usize).map_err(RvError::local)?;
-        Ok(self.with_profile_avatars(native_message_items(
-            rows,
-            &room,
-            &self.session.info.user_id,
-            &self.session.info.username,
-            self.session.supported_features().iter().any(|f| f == "read_markers").then_some(root_position.as_str()),
-        )))
+        let after =
+            self.session.supported_features().iter().any(|f| f == "read_markers").then_some(root_position.as_str());
+        Ok(self.with_profile_avatars(timeline_items(&self.session, rows, &room, after)))
     }
     pub async fn spotlight(&self, query: String) -> Result<Vec<Found>, RvError> {
         let s = self.session.clone();
@@ -1007,6 +997,25 @@ impl NativeChat {
 
 pub(crate) fn native_error(error: rv_core::native::Error) -> RvError {
     rv_core::native::rest_error(error).into()
+}
+
+/// A room's main timeline, with its read receipt (`NativeSession::timeline`).
+fn timeline_items(
+    session: &rv_core::native::NativeSession,
+    rows: Vec<rv_core::native::store::MessageRow>,
+    rid: &str,
+    after: Option<&str>,
+) -> Vec<MessageItem> {
+    let (uid, username) = (&session.info.user_id, &session.info.username);
+    session
+        .timeline(rows, rid, after)
+        .into_iter()
+        .map(|row| {
+            let mut item = model::message(row, uid, username);
+            item.avatar.clear();
+            item
+        })
+        .collect()
 }
 
 fn native_message_items(

@@ -280,6 +280,17 @@ pub(super) fn settings(host: &Host, pages: Pages, row: &adw::ActionRow, session:
     dnd.add(&mute);
     dnd.add(&quiet_row);
     pages.notifications.add(&dnd);
+    // Read receipts, both ways: off, nobody sees how far I read and I see
+    // nobody's (`share_read_receipts`).
+    let privacy = adw::PreferencesGroup::builder().title(t("settings.privacy")).build();
+    let receipts = adw::SwitchRow::builder()
+        .title(t("settings.read_receipts"))
+        .subtitle(t("settings.read_receipts_hint"))
+        .css_classes(["native-read-receipts"])
+        .build();
+    privacy.add(&receipts);
+    page.add(&privacy);
+    privacy.set_sensitive(false);
     status_group.set_sensitive(false);
     notifications.set_sensitive(false);
     dnd.set_sensitive(false);
@@ -312,6 +323,8 @@ pub(super) fn settings(host: &Host, pages: Pages, row: &adw::ActionRow, session:
         status_group.set_sensitive(true);
         notifications.set_sensitive(true);
         dnd.set_sensitive(true);
+        receipts.set_active(state.current.borrow().preferences.share_read_receipts);
+        privacy.set_sensitive(true);
         edit.set_sensitive(true);
         let pending_group = adw::PreferencesGroup::new();
         page.add(&pending_group);
@@ -377,6 +390,17 @@ pub(super) fn settings(host: &Host, pages: Pages, row: &adw::ActionRow, session:
                 };
                 let mut input = preferences_input(&s.current.borrow().preferences);
                 input.muted_until = Some(quiet::mute_end(choice, chrono::Local::now()));
+                submit(&parent, s.clone(), Action::Change(ProfileOperation::Preferences { input }), |_| {});
+            });
+        }
+        {
+            let (s, parent, filling) = (state.clone(), parent.clone(), filling.clone());
+            receipts.connect_active_notify(move |row| {
+                if filling.get() || s.busy.get() {
+                    return;
+                }
+                let mut input = preferences_input(&s.current.borrow().preferences);
+                input.share_read_receipts = Some(row.is_active());
                 submit(&parent, s.clone(), Action::Change(ProfileOperation::Preferences { input }), |_| {});
             });
         }
@@ -458,6 +482,9 @@ pub(super) fn settings(host: &Host, pages: Pages, row: &adw::ActionRow, session:
                     if let Some(until) = &input.muted_until {
                         preferences.muted_until = until.clone();
                     }
+                    if let Some(share) = input.share_read_receipts {
+                        preferences.share_read_receipts = share;
+                    }
                 }
                 row.set_title(&own.profile.user.display_name);
                 status.set_selected(STATUSES.iter().position(|s| *s == fields.status).unwrap_or(0) as u32);
@@ -493,6 +520,8 @@ pub(super) fn settings(host: &Host, pages: Pages, row: &adw::ActionRow, session:
                 to.set_text(&quiet::clock(window.map_or(quiet::DEFAULT_END, |w| w.end_minute)));
                 from.remove_css_class("error");
                 to.remove_css_class("error");
+                receipts.set_active(preferences.share_read_receipts);
+                receipts.set_sensitive(!state.busy.get() && queued[1].is_none());
                 status_group.set_sensitive(!state.busy.get() && queued[0].is_none());
                 language.set_sensitive(!state.busy.get() && queued[1].is_none());
                 notify.set_sensitive(!state.busy.get() && queued[1].is_none());

@@ -32,6 +32,23 @@ impl Scope {
         };
         rows.map_err(Into::into)
     }
+    /// Laid out for the list; the room's timeline (not a thread) also gets
+    /// its read receipt.
+    fn group(
+        &self,
+        session: &NativeSession,
+        rows: Vec<rv_core::native::store::MessageRow>,
+    ) -> Vec<rv_core::timeline::Display> {
+        match &self.root {
+            None => session.timeline(rows, &self.room, self.unread.as_deref()),
+            Some(_) => rv_core::native::read_presentation::group(
+                rows,
+                &self.room,
+                &session.info.user_id,
+                self.unread.as_deref(),
+            ),
+        }
+    }
 }
 pub struct QuoteCards {
     list: Weak<crate::message_list::MessageList>,
@@ -106,15 +123,7 @@ impl QuoteCards {
     }
     fn display(&self, scope: &Scope, session: &NativeSession, rows: Vec<rv_core::native::store::MessageRow>) {
         if let Some(list) = self.list.upgrade() {
-            list.set_native_rows(
-                rv_core::native::read_presentation::group(
-                    rows,
-                    &scope.room,
-                    &session.info.user_id,
-                    scope.unread.as_deref(),
-                ),
-                &session.info.user_id,
-            );
+            list.set_native_rows(scope.group(session, rows), &session.info.user_id);
         }
     }
     fn mask(&self) {
@@ -203,12 +212,7 @@ impl QuoteCards {
                     this.mask();
                     return;
                 }
-                let mut display = rv_core::native::read_presentation::group(
-                    baseline,
-                    &scope.room,
-                    &session.info.user_id,
-                    scope.unread.as_deref(),
-                );
+                let mut display = scope.group(&session, baseline);
                 for (target, row) in display.iter_mut().zip(projected) {
                     target.row.attachments = row.attachments;
                 }

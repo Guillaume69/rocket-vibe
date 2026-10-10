@@ -808,6 +808,10 @@ fn message_from_provider(
         }
         column.append(&footer);
     }
+    // Read receipt: under my latest message of the room's timeline only.
+    if let Some(seen) = &d.seen {
+        column.append(&label(seen, &["message-note", "read-receipt"]));
+    }
 
     // An icon, not "⋯": that glyph is missing from many systems' fonts (WSLg).
     let more = gtk::Button::builder()

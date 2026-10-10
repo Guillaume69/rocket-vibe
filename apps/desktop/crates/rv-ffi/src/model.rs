@@ -444,6 +444,9 @@ pub struct MessageItem {
     /// A `discussion-created` message's discussion, drawn as a card
     /// (Rocket.Chat); its name is `param`.
     pub discussion: Option<DiscussionCard>,
+    /// The read receipt under my latest message ("Seen by Bob"), RocketVibe
+    /// room timeline only.
+    pub seen: Option<String>,
 }
 
 /// A discussion born in the room: its rid, how many messages it holds, when
@@ -571,6 +574,7 @@ pub fn message(d: Display, me_id: &str, me: &str) -> MessageItem {
         author,
         author_id: row.author_id,
         thread_id: row.thread_id,
+        seen: d.seen,
     }
 }
 
@@ -602,7 +606,7 @@ mod tests {
     use super::*;
 
     fn display(row: MessageRow) -> Display {
-        Display { row, show_header: true, show_day: false, gutter_time: false, new_marker: false }
+        Display { row, show_header: true, show_day: false, gutter_time: false, new_marker: false, seen: None }
     }
 
     #[test]

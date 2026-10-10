@@ -1,8 +1,10 @@
 name: mobile
 
 on:
+  # Every branch: a feature is checked before it lands; the APK stays
+  # tag/dispatch only.
   push:
-    branches: [master]
+    branches: ['**']
     tags: ['mobile-v*']
     paths:
       - 'apps/mobile/**'

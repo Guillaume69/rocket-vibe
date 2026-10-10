@@ -8,7 +8,7 @@ name: desktop-voice
 on:
   workflow_call:
   push:
-    branches: [master]
+    branches: ['**']
     paths:
       - 'apps/desktop/voice/**'
       - 'apps/desktop/crates/rv-voice-protocol/**'

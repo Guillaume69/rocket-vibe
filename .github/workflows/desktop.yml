@@ -1,8 +1,10 @@
 name: desktop
 
 on:
+  # Every branch: a feature is checked before it lands. Packages stay
+  # tag/dispatch only (PACKAGE and the per-job `if`s).
   push:
-    branches: [master]
+    branches: ['**']
     tags: ['desktop-v*']
     paths:
       - 'apps/desktop/**'

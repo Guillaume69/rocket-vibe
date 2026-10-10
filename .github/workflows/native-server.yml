@@ -2,7 +2,7 @@ name: native-server
 
 on:
   push:
-    branches: [master, 'feature/rocketvibe-server']
+    branches: ['**']
     paths:
       - 'Cargo.toml'
       - 'Cargo.lock'
@@ -35,9 +35,7 @@ on:
 
 concurrency:
   group: native-server-${{ github.ref }}
-  # Finish this RFC branch's benches and their reusable caches. A new lot can
-  # queue while the independent macOS workflow qualifies its UI immediately.
-  cancel-in-progress: ${{ github.ref != 'refs/heads/feature/rocketvibe-server' }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

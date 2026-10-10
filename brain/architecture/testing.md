@@ -74,7 +74,7 @@ Fixtures for media playback live in `apps/desktop/tests/media/` (`voice.ogg`, `v
 
 ## What CI gates on every change
 
-| App | On push to `master` and PRs |
+| App | On a push to any branch and PRs |
 |---|---|
 | Mobile | version consistency, `tsc --noEmit`, ESLint, `npm test` |
 | Desktop | version, `cargo fmt --check`, `clippy -D warnings`, `cargo test --workspace` (Fedora 44) |

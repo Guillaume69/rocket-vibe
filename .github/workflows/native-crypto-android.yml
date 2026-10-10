@@ -2,7 +2,7 @@ name: native-crypto-android
 
 on:
   push:
-    branches: [master, 'feature/rocketvibe-server']
+    branches: ['**']
     paths:
       - 'crates/rv-crypto*/**'
       - 'crates/rv-protocol/**'

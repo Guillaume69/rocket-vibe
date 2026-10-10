@@ -12,6 +12,7 @@ release, and its notes are that version's section here.
 - On Rocket.Chat servers, a 💬 button in the room header lists the room's threads, all of them or only the ones you follow, latest reply first; a bell on each thread and in the thread's header follows or unfollows it.
 - On Rocket.Chat servers, a long press on a room in the list marks it as unread, or as read when it has unread messages.
 - On Rocket.Chat servers, the room's information sheet chooses the room's own notifications: default, all messages, mentions or nothing, applied to push and desktop alike.
+- The room list shows the time of each room's last message (the hour today, the weekday this week, the date beyond), and the unread badge reads `@n` in pink when you are mentioned, as on the desktop.
 
 ### Fixed
 

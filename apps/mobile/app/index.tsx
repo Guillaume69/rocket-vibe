@@ -12,7 +12,7 @@ import { textPreview } from '../lib/markdown.ts';
 import { systemPreview } from '../lib/systemMessages.ts';
 import type { RestClient } from '../lib/rest.ts';
 import { useActivity } from '../ui/activity.ts';
-import { useT } from '../ui/i18n.ts';
+import { useListTimeFormatter, useT } from '../ui/i18n.ts';
 import { roomTitle, useDisplayNames, useStatusEmojis } from '../ui/identities.tsx';
 import { RoomAvatar, UnreadBadge, SyncBar, Brand, AvatarTile } from '../ui/kit.tsx';
 import { presenceColors, usePresence } from '../ui/presence.ts';
@@ -266,7 +266,9 @@ function RoomRow({
   const displayNames = useDisplayNames();
   const name = roomTitle(room, displayNames) + (statusEmoji ? ` ${statusEmoji}` : '');
   const unread = subscription?.unread ?? 0;
+  const mentioned = (subscription?.mentions ?? 0) > 0;
   const alerting = subscription?.alert === true || unread > 0;
+  const listTime = useListTimeFormatter();
   // Unread or read again from the list (Rocket.Chat). Decided on the count, not
   // `alert`: a read leaves `alert` set while the room has unread threads, and
   // the menu would then offer "Mark as read" forever.
@@ -374,7 +376,12 @@ function RoomRow({
         </Text>
       </View>
 
-        <UnreadBadge c={c} n={unread} />
+        <View style={styles.rowEnd}>
+          {room.lastMessageTs !== null && (
+            <Text style={[styles.rowTime, { color: unread > 0 ? c.text : c.dimmed }]}>{listTime(room.lastMessageTs)}</Text>
+          )}
+          <UnreadBadge c={c} n={unread} mentioned={mentioned} />
+        </View>
       </Tappable>
       <VoiceOccupants c={c} rid={room.rid} client={client} />
     </View>
@@ -462,6 +469,8 @@ const styles = StyleSheet.create({
     borderWidth: 2.5,
   },
   rowBody: { flex: 1, gap: 2 },
+  rowEnd: { alignItems: 'flex-end', gap: 4 },
+  rowTime: { fontFamily: FONTS.bodySemi, fontSize: 11.5 },
   roomName: { fontFamily: FONTS.bodyBold, fontSize: 15 },
   alertingName: { fontFamily: FONTS.bodyStrong },
   preview: { fontFamily: FONTS.body, fontSize: 12.5 },

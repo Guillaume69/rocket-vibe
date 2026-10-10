@@ -2729,6 +2729,31 @@ export function timeFormatter(language: Language): (ms: number) => string {
 }
 
 /**
+ * The time beside a room in the list, as the desktop writes it
+ * (`rv-gtk/src/rows.rs::short_time`): the hour today, the short weekday
+ * within the last 7 days, the date beyond. `nowMs` injectable for tests.
+ */
+export function listTimeFormatter(language: Language): (ms: number, nowMs?: number) => string {
+  const locale = language === 'fr' ? 'fr-FR' : 'en-US';
+  const time = timeFormatter(language);
+  const weekday = new Intl.DateTimeFormat(locale, { weekday: 'short' });
+  const date = new Intl.DateTimeFormat(locale, { day: '2-digit', month: '2-digit', year: 'numeric' });
+  return (ms, nowMs = Date.now()) => {
+    if (ms <= 0) return '';
+    const now = new Date(nowMs);
+    const then = new Date(ms);
+    const days = Math.round(
+      (new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() -
+        new Date(then.getFullYear(), then.getMonth(), then.getDate()).getTime()) /
+        86_400_000,
+    );
+    if (days <= 0) return time(ms);
+    if (days < 7) return weekday.format(then);
+    return date.format(then);
+  };
+}
+
+/**
  * Label of a day separator (ui/daySeparator): "Today", "Yesterday",
  * otherwise the date, with the weekday within the current year ("Thursday
  * 31 July"), with the year beyond ("31 July 2025": the weekday no longer

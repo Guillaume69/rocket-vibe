@@ -45,7 +45,7 @@ beta does.
 | Rooms sorted by last activity, live (`rooms.get`/`subscriptions.get` deltas, `rooms-changed`/`subscriptions-changed`) | done | done | done | mapped | Web: Native browser storage/HTTP/socket, HTTPS links, downloads and live-tab alerts; see web-client.md. |
 | Avatar, name, preview, unread badge | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | Rocket.Chat: people named as the server's `UI_Use_Real_Name` says (message authors, two-person DMs, notifications, typing), pushes included | partial | partial | partial | n/a | All three: group DMs keep usernames, `@mentions` stay `@username`, a real name changed elsewhere is not broadcast by 8.5 (it shows from the next message or profile). Mobile also names push senders by the payload's `senderName`. SwiftUI checked by the macOS CI build only. Web: Serving native origin only. |
-| Time of the last message and an `@n` badge on mentions | missing | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
+| Time of the last message and an `@n` badge on mentions | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | Encrypted rooms: padlock tile, "Encrypted message" preview | done | partial | partial | done | Desktop keeps the padlock tile once unlocked; mobile switches back to the room's tile. Web: Encrypted room notifications never include decrypted content. src/app.ts. |
 | Sync indicator while connecting or loading | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | Sections: Unread, Favourites, Channels, Direct messages | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
@@ -303,7 +303,7 @@ beta does.
 What each app owes, from the tables above. Rows missing in all three are product
 gaps, listed last.
 
-- **Mobile**: kChat "Sign in with Infomaniak" run on a real account; Mattermost stars changed elsewhere, live; several accounts per server; time and `@n` badge in the room list;
+- **Mobile**: kChat "Sign in with Infomaniak" run on a real account; Mattermost stars changed elsewhere, live; several accounts per server;
   `mailto:` links; mentions of me highlighted; formatting toolbar; list
   continuation; removing my photo; logs folder; meeting information.
 - **GTK**: kChat "Sign in with Infomaniak"; email 2FA resend; replay of an offline sign-out; padlock tile once

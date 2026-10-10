@@ -442,11 +442,13 @@ function TypingDot({ c, rank }: { c: Colors; rank: number }) {
  * stretches with its content: `minWidth` keeps it round at one digit, padding
  * does the rest.
  */
-export function UnreadBadge({ c, n }: { c: Colors; n: number }) {
+/** `mentioned`: the count reads `@n` in the accent colour, as on the desktop. */
+export function UnreadBadge({ c, n, mentioned = false }: { c: Colors; n: number; mentioned?: boolean }) {
   if (n < 1) return null;
+  const count = n > 99 ? '99+' : String(n);
   return (
-    <View style={[styles.unreadBadge, { backgroundColor: c.yellow }]}>
-      <Text style={[styles.unreadBadgeText, { color: c.onYellow }]}>{n > 99 ? '99+' : n}</Text>
+    <View style={[styles.unreadBadge, { backgroundColor: mentioned ? c.accent : c.yellow }]}>
+      <Text style={[styles.unreadBadgeText, { color: c.onYellow }]}>{mentioned ? `@${count}` : count}</Text>
     </View>
   );
 }

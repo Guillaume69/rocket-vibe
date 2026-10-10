@@ -25,6 +25,7 @@ import {
   type TranslateFn,
   timeFormatter,
   dayFormatter,
+  listTimeFormatter,
   deviceLanguage,
   translate,
 } from './messages.ts';
@@ -116,6 +117,15 @@ export function useT(): TranslateFn {
 export function useTimeFormatter(): (ms: number) => string {
   const language = useLanguage();
   return useMemo(() => timeFormatter(language), [language]);
+}
+
+/** The time beside a room in the list (`listTimeFormatter`). */
+export function useListTimeFormatter(): (ms: number) => string {
+  const language = useLanguage();
+  return useMemo(() => {
+    const format = listTimeFormatter(language);
+    return (ms: number) => format(ms);
+  }, [language]);
 }
 
 /** The day separator label ("Today", "Yesterday", the date). */

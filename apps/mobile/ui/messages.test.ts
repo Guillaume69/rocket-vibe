@@ -6,6 +6,7 @@ import {
   LANGUAGES,
   timeFormatter,
   dayFormatter,
+  listTimeFormatter,
   deviceLanguage,
   translate,
 } from './messages.ts';
@@ -79,6 +80,22 @@ describe('dayFormatter', () => {
     assert.equal(dayFormatter('fr')(new Date(2025, 6, 30, 12).getTime(), now), '30 juillet 2025');
     assert.equal(dayFormatter('en')(new Date(2026, 6, 30, 12).getTime(), now), 'Thursday, July 30');
     assert.equal(dayFormatter('en')(new Date(2025, 6, 30, 12).getTime(), now), 'July 30, 2025');
+  });
+});
+
+describe('listTimeFormatter', () => {
+  const now = new Date(2026, 7, 1, 12).getTime(); // Saturday 1 August 2026
+
+  test('the hour today, the weekday this week, the date beyond', () => {
+    assert.match(listTimeFormatter('fr')(new Date(2026, 7, 1, 9, 5).getTime(), now), /^09:05$/u);
+    assert.equal(listTimeFormatter('fr')(new Date(2026, 6, 30, 12).getTime(), now), 'jeu.');
+    assert.equal(listTimeFormatter('en')(new Date(2026, 6, 30, 12).getTime(), now), 'Thu');
+    assert.equal(listTimeFormatter('fr')(new Date(2026, 6, 20, 12).getTime(), now), '20/07/2026');
+    assert.equal(listTimeFormatter('en')(new Date(2026, 6, 20, 12).getTime(), now), '07/20/2026');
+  });
+
+  test('no time without a message', () => {
+    assert.equal(listTimeFormatter('en')(0, now), '');
   });
 });
 

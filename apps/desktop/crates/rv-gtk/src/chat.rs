@@ -164,7 +164,6 @@ fn load_collapsed() -> Vec<String> {
 
 pub struct ChatPage {
     native: Rc<RefCell<Option<Arc<rv_core::native::NativeSession>>>>,
-    native_forward: RefCell<Option<tokio::task::JoinHandle<()>>>,
     native_edit: RefCell<Option<(String, String, String)>>,
     native_crypto: RefCell<Option<rv_core::native::crypto::enrollment::rooms::messages::Access>>,
     native_crypto_ready: Cell<bool>,
@@ -503,7 +502,6 @@ impl ChatPage {
 
         let this = Rc::new(ChatPage {
             native: native_session,
-            native_forward: RefCell::default(),
             native_edit: RefCell::default(),
             native_crypto: RefCell::default(),
             native_crypto_ready: Cell::new(false),
@@ -1521,9 +1519,6 @@ impl ChatPage {
         self.native_unread_after.replace(None);
         self.native_edit.replace(None);
         self.native_membership.replace(None);
-        if let Some(forward) = self.native_forward.take() {
-            forward.abort();
-        }
         if let Some(native) = self.native.take() {
             native.shutdown();
         }

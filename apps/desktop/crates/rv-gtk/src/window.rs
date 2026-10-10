@@ -5,10 +5,9 @@ use std::sync::Arc;
 
 use adw::prelude::*;
 use gtk::glib;
+use rv_core::provider::{Chat, ChatEvent};
 use rv_core::rest::RestError;
 use rv_core::session::{self, Session, SessionEvent, SessionInfo};
-use rv_core::store::Change;
-use tokio::sync::broadcast::error::RecvError;
 
 use crate::chat::ChatPage;
 use crate::i18n::{t, tf};
@@ -16,17 +15,6 @@ use crate::login::LoginPage;
 use crate::{on_tokio, runtime, secrets};
 
 const DEFAULT_SERVER: &str = "https://chat.barrut.me";
-
-enum UiEvent {
-    Store(Change),
-    /// Change notifications were dropped: reload everything.
-    Resync,
-    Session(SessionEvent),
-}
-enum NativeUiEvent {
-    Changed,
-    Incoming(rv_core::notify::Incoming),
-}
 
 #[derive(Clone, PartialEq, Eq)]
 struct NotificationAction {
@@ -802,26 +790,100 @@ impl AppWindow {
         self.chat.chat().map(|c| c.info().clone())
     }
 
-    /// Relays a session's events to the main thread for as long as that
-    /// session is still the one on screen; `handle` answers false to stop.
-    fn pump<E: 'static>(
-        self: &Rc<Self>,
-        visible: rv_core::provider::Chat,
-        rx: async_channel::Receiver<E>,
-        handle: impl Fn(&Rc<Self>, E) -> bool + 'static,
-    ) {
+    /// Hears the account's events (`Chat::events`) on the main thread for as
+    /// long as it is still the one on screen. A burst of reloads, as the
+    /// RocketVibe server sends them, becomes one.
+    fn listen(self: &Rc<Self>, visible: Chat) {
+        let (mut rx, forward) = {
+            let _guard = runtime().enter();
+            visible.events()
+        };
+        self.forward.replace(Some(forward));
         let weak = Rc::downgrade(self);
+        let reload_pending = Rc::new(Cell::new(false));
         glib::spawn_future_local(async move {
-            while let Ok(event) = rx.recv().await {
+            while let Some(event) = rx.recv().await {
                 let Some(this) = weak.upgrade() else { return };
                 if this.chat.chat().is_none_or(|c| !c.same(&visible)) {
                     return;
                 }
-                if !handle(&this, event) {
+                if let ChatEvent::Reload = event {
+                    if !reload_pending.replace(true) {
+                        let (weak, pending) = (Rc::downgrade(&this), reload_pending.clone());
+                        // At the default priority, not an idle one: GTK redraws
+                        // (a spinner's animation) outrank idle sources, and a
+                        // reload put off behind them never ran.
+                        glib::spawn_future_local(async move {
+                            pending.set(false);
+                            if let Some(this) = weak.upgrade() {
+                                this.reload_account();
+                            }
+                        });
+                    }
+                    continue;
+                }
+                if !this.on_event(event) {
                     return;
                 }
             }
         });
+    }
+
+    /// Everything read again. For the RocketVibe server this is how any change
+    /// shows: the page reloads, and pending links, notifications to follow and
+    /// withdrawn notifications are looked at again.
+    fn reload_account(self: &Rc<Self>) {
+        match self.chat.chat() {
+            Some(Chat::Native(session)) => {
+                self.chat.on_native_change();
+                self.follow_link(false);
+                self.follow_notification(false);
+                if let Some(notifier) = self.notifier.borrow().as_ref() {
+                    for key in session.withdrawn_notifications() {
+                        notifier.withdraw(&key);
+                    }
+                }
+            }
+            Some(Chat::Legacy(_)) => self.chat.reload_all(),
+            None => {}
+        }
+    }
+
+    /// One event of the account on screen; false once the account is over.
+    fn on_event(self: &Rc<Self>, event: ChatEvent) -> bool {
+        match event {
+            ChatEvent::Changed(change) => self.chat.on_change(&change),
+            ChatEvent::Reload => self.reload_account(),
+            ChatEvent::Incoming(incoming) => self.notify(&incoming),
+            ChatEvent::Session(SessionEvent::Connection(c)) => self.chat.set_connection(c),
+            ChatEvent::Session(SessionEvent::Typing(rid)) => self.chat.on_typing(&rid),
+            ChatEvent::Session(SessionEvent::Presence) => self.chat.on_presence(),
+            ChatEvent::Session(SessionEvent::Upload(rid)) => self.chat.on_upload(&rid),
+            ChatEvent::Session(SessionEvent::Avatar) => self.chat.on_avatar(),
+            ChatEvent::Session(SessionEvent::Incoming(incoming)) => self.notify(&incoming),
+            ChatEvent::Session(SessionEvent::Private { rid, text }) => self.chat.on_private(&rid, &text),
+            ChatEvent::Session(SessionEvent::E2e) => {
+                self.chat.on_e2e();
+                if let Some(s) = self.session.borrow().clone() {
+                    let (info, jwk) = (s.info.clone(), s.e2e_export());
+                    runtime().spawn(async move { secrets::save_e2e(&info, jwk.as_deref()).await });
+                }
+            }
+            ChatEvent::Session(SessionEvent::Expired) => {
+                let expired = self.session.borrow().as_ref().map(|s| s.info.clone());
+                self.stop_session(true);
+                let this = self.clone();
+                glib::spawn_future_local(async move {
+                    if let Some(info) = expired {
+                        on_tokio(async move { secrets::remove(&info).await }).await;
+                    }
+                    this.previous.replace(on_tokio(secrets::load_all()).await.into_iter().next());
+                    this.show_login(Some(t("login.expired")));
+                });
+                return false;
+            }
+        }
+        true
     }
 
     fn start_session(self: &Rc<Self>, info: SessionInfo) {
@@ -835,8 +897,7 @@ impl AppWindow {
         }
     }
 
-    /// The RocketVibe server: its store changes and events only say "look
-    /// again"; notifications come apart.
+    /// The RocketVibe server.
     fn start_native(self: &Rc<Self>, info: SessionInfo, path: std::path::PathBuf) {
         let started = {
             let _guard = runtime().enter();
@@ -849,40 +910,8 @@ impl AppWindow {
         match started {
             Ok(session) => {
                 self.db_path.replace(Some(path));
-                let (tx, rx) = async_channel::bounded(64);
-                let (mut incoming, mut changes, mut events) =
-                    (session.incoming(), session.store.changes(), session.events());
-                self.forward.replace(Some(runtime().spawn(async move {
-                    loop {
-                        let event=tokio::select! {
-                            n=incoming.recv()=>match n {Ok(n)=>NativeUiEvent::Incoming(n),Err(RecvError::Closed)=>return,Err(RecvError::Lagged(_))=>continue},
-                            c=changes.recv()=>if matches!(c,Err(RecvError::Closed)){return}else{NativeUiEvent::Changed},
-                            e=events.recv()=>if matches!(e,Err(RecvError::Closed)){return}else{NativeUiEvent::Changed},
-                        };
-                        if tx.send(event).await.is_err(){return}
-                    }
-                })));
-                let visible = session.clone();
-                self.pump(session.clone().into(), rx, move |this, event| {
-                    match event {
-                        NativeUiEvent::Incoming(n) => {
-                            if visible.notification_current(&n) {
-                                this.notify(&n)
-                            }
-                        }
-                        NativeUiEvent::Changed => {
-                            this.follow_link(false);
-                            this.follow_notification(false);
-                            if let Some(notifier) = this.notifier.borrow().as_ref() {
-                                for key in visible.withdrawn_notifications() {
-                                    notifier.withdraw(&key);
-                                }
-                            }
-                        }
-                    }
-                    true
-                });
-                self.chat.set_native_session(session);
+                self.chat.set_native_session(session.clone());
+                self.listen(session.into());
                 self.stack.set_visible_child_name("chat");
                 self.refresh_rail();
             }
@@ -890,7 +919,7 @@ impl AppWindow {
         }
     }
 
-    /// Rocket.Chat, Mattermost or kChat: store changes and session events one by one.
+    /// Rocket.Chat, Mattermost or kChat.
     fn start_legacy(self: &Rc<Self>, info: SessionInfo, path: std::path::PathBuf) {
         let started = {
             let _guard = runtime().enter();
@@ -911,67 +940,9 @@ impl AppWindow {
             }
         });
 
-        let (tx, rx) = async_channel::unbounded();
-        let mut changes = session.store.changes();
-        let mut events = session.events();
-        let forward = runtime().spawn(async move {
-            loop {
-                let event = tokio::select! {
-                    c = changes.recv() => match c {
-                        Ok(c) => UiEvent::Store(c),
-                        Err(RecvError::Lagged(_)) => UiEvent::Resync,
-                        Err(RecvError::Closed) => return,
-                    },
-                    e = events.recv() => match e {
-                        Ok(e) => UiEvent::Session(e),
-                        Err(RecvError::Lagged(_)) => continue,
-                        Err(RecvError::Closed) => return,
-                    },
-                };
-                if tx.send(event).await.is_err() {
-                    return;
-                }
-            }
-        });
-        self.forward.replace(Some(forward));
-
-        self.pump(session.clone().into(), rx, |this, event| {
-            match event {
-                UiEvent::Store(change) => this.chat.on_change(&change),
-                UiEvent::Resync => this.chat.reload_all(),
-                UiEvent::Session(SessionEvent::Connection(c)) => this.chat.set_connection(c),
-                UiEvent::Session(SessionEvent::Typing(rid)) => this.chat.on_typing(&rid),
-                UiEvent::Session(SessionEvent::Presence) => this.chat.on_presence(),
-                UiEvent::Session(SessionEvent::Upload(rid)) => this.chat.on_upload(&rid),
-                UiEvent::Session(SessionEvent::Avatar) => this.chat.on_avatar(),
-                UiEvent::Session(SessionEvent::Incoming(incoming)) => this.notify(&incoming),
-                UiEvent::Session(SessionEvent::Private { rid, text }) => this.chat.on_private(&rid, &text),
-                UiEvent::Session(SessionEvent::E2e) => {
-                    this.chat.on_e2e();
-                    if let Some(s) = this.session.borrow().clone() {
-                        let (info, jwk) = (s.info.clone(), s.e2e_export());
-                        runtime().spawn(async move { secrets::save_e2e(&info, jwk.as_deref()).await });
-                    }
-                }
-                UiEvent::Session(SessionEvent::Expired) => {
-                    let expired = this.session.borrow().as_ref().map(|s| s.info.clone());
-                    this.stop_session(true);
-                    let this = this.clone();
-                    glib::spawn_future_local(async move {
-                        if let Some(info) = expired {
-                            on_tokio(async move { secrets::remove(&info).await }).await;
-                        }
-                        this.previous.replace(on_tokio(secrets::load_all()).await.into_iter().next());
-                        this.show_login(Some(t("login.expired")));
-                    });
-                    return false;
-                }
-            }
-            true
-        });
-
         self.chat.set_session(Some(session.clone()));
-        self.session.replace(Some(session));
+        self.session.replace(Some(session.clone()));
+        self.listen(session.into());
         self.stack.set_visible_child_name("chat");
         self.refresh_rail();
     }

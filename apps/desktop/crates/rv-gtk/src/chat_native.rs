@@ -1,9 +1,64 @@
 //! Native provider binding for the existing ChatPage, MessageList and Composer.
 use super::*;
 use rv_core::native::NativeSession;
-use tokio::sync::broadcast::error::RecvError;
 
 impl ChatPage {
+    /// The RocketVibe session changed something (its store or its live state):
+    /// read the page again. The window calls it, a burst folded into one.
+    pub fn on_native_change(self: &Rc<Self>) {
+        let Some(session) = self.native_session() else { return };
+        let status = session.status();
+        let changed = self.connection.get() != status.connection;
+        self.set_connection(status.connection);
+        self.native_features(&session);
+        self.reload_rooms();
+        if let Some(open) = self.current.borrow_mut().as_mut()
+            && let Some(room) = self.rooms.borrow().iter().find(|room| room.rid == open.rid)
+        {
+            open.encrypted = room.encrypted;
+        }
+        self.refresh_uploads();
+        self.refresh_room_header();
+        self.refresh_voice();
+        if let Some(rid) = self.current_rid() {
+            self.on_typing(&rid);
+        }
+        let changed_membership = self.native_membership.borrow().as_ref().is_some_and(|(rid, previous)| {
+            !self.has_room(rid)
+                || session.store.read_state(rid).ok().flatten().and_then(|s| s.membership_version) != *previous
+        });
+        if changed_membership {
+            self.invalidate_native_room();
+        }
+        if let Some(rid) = self.current_rid()
+            && session.store.room_access(&rid).ok().flatten().is_none()
+            && session.supported_features().iter().any(|f| f == "room_info")
+        {
+            let access_session = session.clone();
+            runtime().spawn(async move {
+                let _ = access_session.refresh_room_access(&rid).await;
+            });
+        }
+        if self.current_rid().is_some_and(|rid| !self.has_room(&rid)) {
+            self.invalidate_native_room();
+        } else {
+            self.reload_messages();
+            self.schedule_native_read();
+            if (changed || self.current.borrow().as_ref().is_some_and(|r| r.encrypted))
+                && status.connection == Connection::Online
+                && self.current_rid().is_some()
+            {
+                let page = self.clone();
+                glib::spawn_future_local(async move {
+                    page.native_history(false).await;
+                });
+            }
+        }
+        if changed && let Some(error) = status.error {
+            self.toast(t(native_error_key(&error)).to_owned());
+        }
+    }
+
     pub fn native_session(&self) -> Option<Arc<NativeSession>> {
         self.native.borrow().clone()
     }
@@ -32,80 +87,6 @@ impl ChatPage {
             false,
         ));
         self.reload_rooms();
-        let (tx, rx) = async_channel::bounded(1);
-        let (mut changes, mut events) = (session.store.changes(), session.events());
-        self.native_forward.replace(Some(runtime().spawn(async move {
-            loop {
-                let change = tokio::select! { c = changes.recv() => c, e = events.recv() => e };
-                if matches!(change, Err(RecvError::Closed)) {
-                    return;
-                }
-                if tx.send(()).await.is_err() {
-                    return;
-                }
-            }
-        })));
-        let weak = Rc::downgrade(self);
-        glib::spawn_future_local(async move {
-            while rx.recv().await.is_ok() {
-                let Some(this) = weak.upgrade() else {
-                    return;
-                };
-                if this.native_session().is_none_or(|s| !Arc::ptr_eq(&s, &session)) {
-                    return;
-                }
-                let status = session.status();
-                let changed = this.connection.get() != status.connection;
-                this.set_connection(status.connection);
-                this.native_features(&session);
-                this.reload_rooms();
-                if let Some(open) = this.current.borrow_mut().as_mut()
-                    && let Some(room) = this.rooms.borrow().iter().find(|room| room.rid == open.rid)
-                {
-                    open.encrypted = room.encrypted;
-                }
-                this.refresh_uploads();
-                this.refresh_room_header();
-                this.refresh_voice();
-                if let Some(rid) = this.current_rid() {
-                    this.on_typing(&rid);
-                }
-                let changed_membership = this.native_membership.borrow().as_ref().is_some_and(|(rid, previous)| {
-                    !this.has_room(rid)
-                        || session.store.read_state(rid).ok().flatten().and_then(|s| s.membership_version) != *previous
-                });
-                if changed_membership {
-                    this.invalidate_native_room();
-                }
-                if let Some(rid) = this.current_rid()
-                    && session.store.room_access(&rid).ok().flatten().is_none()
-                    && session.supported_features().iter().any(|f| f == "room_info")
-                {
-                    let access_session = session.clone();
-                    runtime().spawn(async move {
-                        let _ = access_session.refresh_room_access(&rid).await;
-                    });
-                }
-                if this.current_rid().is_some_and(|rid| !this.has_room(&rid)) {
-                    this.invalidate_native_room();
-                } else {
-                    this.reload_messages();
-                    this.schedule_native_read();
-                    if (changed || this.current.borrow().as_ref().is_some_and(|r| r.encrypted))
-                        && status.connection == Connection::Online
-                        && this.current_rid().is_some()
-                    {
-                        let page = this.clone();
-                        glib::spawn_future_local(async move {
-                            page.native_history(false).await;
-                        });
-                    }
-                }
-                if changed && let Some(error) = status.error {
-                    this.toast(t(native_error_key(&error)).to_owned());
-                }
-            }
-        });
     }
 
     pub(super) fn invalidate_native_room(&self) {

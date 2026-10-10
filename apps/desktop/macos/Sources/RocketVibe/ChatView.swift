@@ -514,17 +514,22 @@ struct AccountAvatar: View {
                     Task {
                         guard !busy else { return }
                         busy = true
+                        let accountId = app.sessionId
                         let model = MyProfileModel(app: app)
+                        defer {
+                            model.close()
+                            if app.sessionId == accountId { busy = false }
+                        }
                         await model.load()
+                        guard model.isCurrent, app.sessionId == accountId else { return }
                         if model.editable, var edited = model.edited {
                             edited.status = chosen
                             model.edited = edited
                             await model.save()
+                            guard model.isCurrent, app.sessionId == accountId else { return }
                             status = presence(model.saved?.status)
                         }
                         app.notice = model.message ?? (model.editable ? nil : L("profile.pending"))
-                        model.close()
-                        busy = false
                     }
                 }
             }
@@ -540,6 +545,7 @@ struct AccountAvatar: View {
         .disabled(busy).help(L("settings.presence"))
         .task(id: app.sessionId) {
             status = nil
+            busy = false
             var revision = ""
             while !Task.isCancelled {
                 if let legacy = app.provider?.legacy, let account = app.account {

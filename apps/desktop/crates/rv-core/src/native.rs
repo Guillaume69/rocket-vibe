@@ -22,6 +22,7 @@ mod read_intents;
 pub mod read_presentation;
 pub mod receipts;
 mod room_operations;
+pub mod scheduled;
 mod search;
 mod voice;
 pub mod workflows;
@@ -364,6 +365,8 @@ pub struct NativeSession {
     file_wake: Notify,
     file_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
     voice: crate::voice::VoiceController,
+    /// Scheduled messages sent and not answered yet: their operation ids.
+    scheduling: scheduled::Attempts,
 }
 impl NativeSession {
     pub fn start(info: SessionInfo, path: &Path) -> Result<Arc<Self>, Error> {
@@ -430,6 +433,7 @@ impl NativeSession {
             file_wake: Notify::new(),
             file_task: Mutex::new(None),
             voice: crate::voice::VoiceController::new(),
+            scheduling: scheduled::Attempts::default(),
         });
         let weak = Arc::downgrade(&session);
         let task = tokio::spawn(async move {
@@ -677,6 +681,7 @@ impl NativeSession {
                     workflows: true,
                     custom_emoji_admin: true,
                     instance_icon: true,
+                    scheduled_messages: true,
                     ..Default::default()
                 })
             })

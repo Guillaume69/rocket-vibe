@@ -9,6 +9,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import type { LocalDatabase } from '../db/client.ts';
 import { subscriptions, rooms } from '../db/schema.ts';
 import { textPreview } from '../lib/markdown.ts';
+import { stripQuotePrefix } from '../lib/quote.ts';
 import { systemPreview } from '../lib/systemMessages.ts';
 import type { RestClient } from '../lib/rest.ts';
 import { useActivity } from '../ui/activity.ts';
@@ -211,6 +212,17 @@ function Rooms({
   );
 }
 
+/**
+ * A last message that starts with quote links (a reply, a forward) previews
+ * by its own words, not by the raw `[ ](…?msg=…)` permalink; a quote with no
+ * words of its own (a forward) says it is one.
+ */
+function quotePreview(text: string, quotedLabel: string): string | null {
+  const own = stripQuotePrefix(text);
+  if (own === text) return textPreview(text);
+  return own.trim() === '' ? quotedLabel : textPreview(own);
+}
+
 type RoomRecord = typeof rooms.$inferSelect;
 type SubscriptionRow = typeof subscriptions.$inferSelect;
 type RoomEntry = HomeEntry<RoomRecord, SubscriptionRow>;
@@ -324,7 +336,7 @@ function RoomRow({
   const preview =
     room.encrypted && room.lastMessage === null
       ? t('home.encryptedMessages')
-      : (callPreview ?? (room.lastMessage !== null ? textPreview(room.lastMessage) : null) ??
+      : (callPreview ?? (room.lastMessage !== null ? quotePreview(room.lastMessage, t('home.quotedMessage')) : null) ??
         systemPreview(t, room.lastMessageType) ??
         ' ');
 

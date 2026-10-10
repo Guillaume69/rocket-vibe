@@ -69,9 +69,11 @@ export function DiscussionCard({
   return (
     <View style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}>
       <Text style={[styles.kind, { color: c.dimmed }]}>💬 {t('discussion.kind')}</Text>
-      <Text style={[styles.name, { color: c.text }]} numberOfLines={2}>
-        {name}
-      </Text>
+      {name.trim() !== '' && (
+        <Text style={[styles.name, { color: c.text }]} numberOfLines={2}>
+          {name}
+        </Text>
+      )}
       <Text style={[styles.detail, { color: c.dimmed }]}>{detail}</Text>
       {drid !== null && (
         <Tappable

@@ -117,3 +117,63 @@ impl Drop for SlackPreview {
         self.reader.close();
     }
 }
+
+/// Owns pending reader too, so leaving the view cancels authentication before it finishes.
+#[derive(uniffi::Object)]
+pub struct SlackPairing {
+    pairing: Arc<rv_core::slack_handoff::Pairing>,
+    reader: std::sync::Mutex<Option<Arc<rv_core::slack::Reader>>>,
+    closed: std::sync::atomic::AtomicBool,
+}
+#[uniffi::export]
+impl Client {
+    pub fn slack_pairing(&self) -> Result<Arc<SlackPairing>, RvError> {
+        Ok(Arc::new(SlackPairing {
+            pairing: rv_core::slack_handoff::Pairing::new().map_err(error)?,
+            reader: std::sync::Mutex::new(None),
+            closed: std::sync::atomic::AtomicBool::new(false),
+        }))
+    }
+}
+#[uniffi::export]
+impl SlackPairing {
+    pub fn pairing_code(&self) -> Result<String, RvError> {
+        self.pairing.code().map_err(error)
+    }
+    pub fn close(&self) {
+        self.closed.store(true, std::sync::atomic::Ordering::Release);
+        self.pairing.close();
+        if let Some(r) = self.reader.lock().expect("reader").take() {
+            r.close();
+        }
+    }
+    pub async fn connect(self: Arc<Self>, code: String) -> Result<Arc<SlackPreview>, RvError> {
+        on_tokio(async move {
+            let session = self.pairing.open(&code).map_err(error)?;
+            let reader = rv_core::slack::Reader::from_browser(session).map_err(error)?;
+            {
+                let mut slot = self.reader.lock().expect("reader");
+                if self.closed.load(std::sync::atomic::Ordering::Acquire) {
+                    reader.close();
+                    return Err(RvError::local("Slack: cancelled"));
+                }
+                *slot = Some(reader.clone());
+            }
+            let who = reader.authenticate().await.map_err(error)?;
+            if self.closed.load(std::sync::atomic::Ordering::Acquire) {
+                reader.close();
+                return Err(RvError::local("Slack: cancelled"));
+            }
+            Ok(Arc::new(SlackPreview {
+                reader,
+                identity: SlackIdentity { key: who.key, team: who.team, user: who.user },
+            }))
+        })
+        .await
+    }
+}
+impl Drop for SlackPairing {
+    fn drop(&mut self) {
+        self.close();
+    }
+}

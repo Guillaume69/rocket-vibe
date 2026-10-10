@@ -34,6 +34,10 @@ impl Preview {
         }
         this
     }
+    pub(crate) fn smoke_slack_pairing(&self) {
+        self.stack.set_visible_child_name("slack");
+        self.slack.smoke_pairing();
+    }
     pub fn unlock(&self) {
         self.root.set_visible(true);
         self.slack.unlock();

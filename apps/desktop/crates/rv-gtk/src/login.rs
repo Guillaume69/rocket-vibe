@@ -155,6 +155,13 @@ impl LoginPage {
         self.experimental_icon.emit_clicked();
         assert!(self.experimental.root.is_visible(), "ninth activation must unlock");
         assert!(crate::slack_preview::enabled(), "unlock must persist on device");
+        if std::env::var("RV_SMOKE_EXPERIMENTAL_PROVIDER").as_deref() == Ok("slack") {
+            self.experimental.smoke_slack_pairing();
+            println!(
+                "smoke: ninth activation unlocked Slack; masked public pairing, wrong-provider rejection and reset passed"
+            );
+            return;
+        }
         self.experimental.stack.set_visible_child_name("teams");
         assert_eq!(self.experimental.stack.visible_child_name().as_deref(), Some("teams"));
         println!("smoke: Slack and Teams hidden until ninth activation; Teams selected; setting persisted");

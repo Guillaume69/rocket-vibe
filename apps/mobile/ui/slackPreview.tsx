@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
+import * as Clipboard from 'expo-clipboard';
+import { Pairing } from '../providers/slack/handoff.ts';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import { SlackError, SlackReader, type SlackIdentity, type SlackConversation, type SlackMessage } from '../providers/slack/client.ts';
 import { useT } from './i18n.ts';
 import { useColors } from './theme.ts';
 export function SlackPreview({ onHide }: { onHide: () => void }) {
   const t = useT(), c = useColors();
-  const [token,setToken] = useState(''), [cookie,setCookie] = useState('');
+  const [pair] = useState(()=>new Pairing());
+  const [key,setKey] = useState(()=>pair.code()), [code,setCode] = useState('');
   const [identity,setIdentity] = useState<SlackIdentity|null>(null);
   const [rooms,setRooms] = useState<SlackConversation[]>([]), [messages,setMessages] = useState<SlackMessage[]>([]);
   const [room,setRoom] = useState<SlackConversation|null>(null);
@@ -13,10 +16,10 @@ export function SlackPreview({ onHide }: { onHide: () => void }) {
   const [busy,setBusy] = useState(false), [error,setError] = useState<string|null>(null);
   const reader = useRef<SlackReader|null>(null), generation = useRef(0), inFlight = useRef(false);
   const roomCursors = useRef(new Set<string>()), messageCursors = useRef(new Set<string>());
-  useEffect(() => () => { generation.current++; reader.current?.close(); reader.current = null; },[]);
+  useEffect(() => () => { generation.current++; reader.current?.close(); reader.current = null; pair.close(); },[pair]);
   const reset = () => {
     generation.current++; reader.current?.close(); reader.current = null;
-    setToken(''); setCookie(''); setIdentity(null); setRooms([]); setMessages([]); setRoom(null);
+    setKey(pair.rotate()); setCode(''); setIdentity(null); setRooms([]); setMessages([]); setRoom(null);
     setRoomCursor(null); setMessageCursor(null); inFlight.current = false; setBusy(false); setError(null);
     roomCursors.current.clear(); messageCursors.current.clear();
   };
@@ -29,11 +32,12 @@ export function SlackPreview({ onHide }: { onHide: () => void }) {
     } finally { if (version === generation.current) { inFlight.current = false; setBusy(false); } }
   };
   const connect = () => run(async () => {
-    const client = new SlackReader(token,cookie); reader.current?.close(); reader.current = client;
+    const session=pair.open(code.trim()); setKey(''); setCode('');
+    const client = SlackReader.fromBrowser(session); reader.current?.close(); reader.current = client;
     const version = generation.current;
     const who = await client.authenticate();
     if (version !== generation.current) return;
-    setIdentity(who); setToken(''); setCookie('');
+    setIdentity(who);
     const page = await client.conversations();
     if (version !== generation.current) return;
     setRooms(page.items); setRoomCursor(page.nextCursor);
@@ -61,11 +65,12 @@ export function SlackPreview({ onHide }: { onHide: () => void }) {
     <Text style={{color:c.text,fontSize:20,fontWeight:'700'}}>{t('slack.title')}</Text>
     <Text style={{color:c.dimmed}}>{t('slack.previewHelp')}</Text>
     {!identity && <>
-      <Text style={{color:c.text}}>{t('slack.token')}</Text>
-      <TextInput accessibilityLabel={t('slack.token')} secureTextEntry autoCapitalize="none" autoCorrect={false} value={token} onChangeText={setToken} editable={!busy} style={{color:c.text,borderColor:c.border,borderWidth:1,padding:12,borderRadius:12}} />
-      <Text style={{color:c.text}}>{t('slack.cookie')}</Text>
-      <TextInput accessibilityLabel={t('slack.cookie')} secureTextEntry autoCapitalize="none" autoCorrect={false} value={cookie} onChangeText={setCookie} editable={!busy} style={{color:c.text,borderColor:c.border,borderWidth:1,padding:12,borderRadius:12}} />
-      <PreviewButton label={t('slack.connect')} onPress={() => { void connect(); }} disabled={busy || !token || !cookie} />
+      <Text style={{color:c.text}}>{t('slack.key')}</Text>
+      <TextInput accessibilityLabel={t('slack.key')} secureTextEntry value={key} editable={false} style={{color:c.text}} />
+      <PreviewButton label={t('slack.copyKey')} disabled={busy||!key} onPress={()=>{void Clipboard.setStringAsync(key).catch(()=>setError(t('slack.failed')));}} />
+      <Text style={{color:c.text}}>{t('slack.response')}</Text>
+      <TextInput accessibilityLabel={t('slack.response')} secureTextEntry autoCapitalize="none" autoCorrect={false} value={code} onChangeText={setCode} editable={!busy&&!!key} maxLength={300000} style={{color:c.text,borderColor:c.border,borderWidth:1,padding:12,borderRadius:12}} />
+      <PreviewButton label={t('slack.import')} onPress={() => { void connect(); }} disabled={busy || !code || !key} />
     </>}
     {identity && <>
       <Text style={{color:c.text}}>{identity.team + ' · @' + identity.user}</Text>

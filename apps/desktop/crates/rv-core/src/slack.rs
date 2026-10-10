@@ -159,6 +159,8 @@ pub struct Reader {
     api: String,
     credentials: Mutex<Option<Credentials>>,
     identity: Mutex<Option<Identity>>,
+    expected: Option<(String, String)>,
+    expires_at: Option<u64>,
     closed: AtomicBool,
     cancellation: tokio::sync::watch::Sender<bool>,
 }
@@ -181,9 +183,18 @@ impl Reader {
             api,
             credentials: Mutex::new(Some(credentials)),
             identity: Mutex::new(None),
+            expected: None,
+            expires_at: None,
             closed: AtomicBool::new(false),
             cancellation,
         }))
+    }
+    pub fn from_browser(session: crate::slack_handoff::BrowserSession) -> Result<Arc<Self>, Error> {
+        let mut reader = Self::new(session.token.to_string(), session.cookie.to_string())?;
+        let value = Arc::get_mut(&mut reader).expect("new reader");
+        value.expected = Some((session.team_id, session.user_id));
+        value.expires_at = Some(session.expires_at);
+        Ok(reader)
     }
     pub fn close(&self) {
         self.closed.store(true, Ordering::Release);
@@ -195,6 +206,13 @@ impl Reader {
         let mut cancellation = self.cancellation.subscribe();
         if self.closed.load(Ordering::Acquire) {
             return Err(failure("cancelled"));
+        }
+        if self
+            .expires_at
+            .is_some_and(|end| end <= (chrono::Utc::now().timestamp_millis().max(0) as u64).saturating_add(30000))
+        {
+            self.close();
+            return Err(failure("session_expired"));
         }
         let request = {
             let credentials = self.credentials.lock().expect("credentials");
@@ -240,6 +258,10 @@ impl Reader {
     }
     pub async fn authenticate(&self) -> Result<Identity, Error> {
         let who = identity(&self.call("auth.test", &[]).await?)?;
+        if self.expected.as_ref().is_some_and(|(team, user)| team != &who.team_id || user != &who.user_id) {
+            self.close();
+            return Err(failure("identity_mismatch"));
+        }
         let mut pinned = self.identity.lock().expect("identity");
         if self.closed.load(Ordering::Acquire) {
             return Err(failure("cancelled"));
@@ -417,6 +439,28 @@ mod tests {
             requests
         });
         (api, task)
+    }
+    #[tokio::test]
+    async fn browser_identity_mismatch_closes_reader() {
+        let (api, task) = server(vec![(200, auth(), None)]).await;
+        let mut reader = Reader::with_api(TOKEN.to_owned(), COOKIE.to_owned(), api).unwrap();
+        Arc::get_mut(&mut reader).unwrap().expected = Some(("TOTHER".to_owned(), "UTEST".to_owned()));
+        assert_eq!(reader.authenticate().await.err().unwrap().code, "identity_mismatch");
+        assert_eq!(reader.authenticate().await.err().unwrap().code, "cancelled");
+        assert_eq!(task.await.unwrap().len(), 1);
+    }
+    #[tokio::test]
+    async fn browser_expiry_prevents_network_request() {
+        let session = crate::slack_handoff::BrowserSession {
+            team_id: "TTEST".to_owned(),
+            user_id: "UTEST".to_owned(),
+            token: zeroize::Zeroizing::new(TOKEN.to_owned()),
+            cookie: zeroize::Zeroizing::new(COOKIE.to_owned()),
+            expires_at: 0,
+        };
+        let reader = Reader::from_browser(session).unwrap();
+        assert_eq!(reader.authenticate().await.err().unwrap().code, "session_expired");
+        assert!(reader.credentials.lock().unwrap().is_none());
     }
     #[test]
     fn credentials_and_identity_boundaries() {

@@ -6,12 +6,12 @@ import { join,resolve,sep } from 'node:path';
 import { spawn } from 'node:child_process';
 import { BridgeError,tokenRequest } from './session.mjs';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
-function executable(){
+export function executable(){
   const paths=process.platform==='win32'?['C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe','C:/Program Files/Microsoft/Edge/Application/msedge.exe','C:/Program Files/Google/Chrome/Application/chrome.exe']:
     process.platform==='darwin'?['/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge','/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']:['/usr/bin/chromium','/usr/bin/chromium-browser','/usr/bin/google-chrome','/usr/bin/microsoft-edge'];
   const found=paths.find(p=>existsSync(p));if(!found)throw new BridgeError('supported_browser_missing');return found;
 }
-class Cdp {
+export class Cdp {
   #next=0;#pending=new Map();#listeners=new Set();
   constructor(ws){this.ws=ws;ws.addEventListener('message',event=>{
     let packet;try{if(event.data.length>4000000)return;packet=JSON.parse(event.data);}catch{return;}

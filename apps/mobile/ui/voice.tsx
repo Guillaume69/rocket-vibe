@@ -387,21 +387,37 @@ export function VoiceRingHost() {
     }
   };
   return (
-    <Modal transparent animationType="fade" statusBarTranslucent onRequestClose={ignore}>
-      <Pressable style={styles.scrim} onPress={ignore} accessibilityRole="button" accessibilityLabel={t('voice.ignore')}>
+    <IncomingCallPrompt c={c} client={state.phase === 'connected' ? state.client : null} callerId={incoming.caller.id} caller={caller}
+      onAccept={() => void answer()} onDecline={() => void controller.decline(incoming.id).catch(() => {})} onIgnore={ignore} />
+  );
+}
+
+/**
+ * The incoming call card over a scrim, with the caller's avatar, Decline and
+ * Accept. A tap on the scrim or Back ignores the call: `onIgnore` hides it
+ * and stops the ringtone, nothing is declined.
+ */
+export function IncomingCallPrompt({ c, client, callerId, caller, onAccept, onDecline, onIgnore }: {
+  c: Colors; client: RestClient | null; callerId: string; caller: string;
+  onAccept: () => void; onDecline: () => void; onIgnore: () => void;
+}) {
+  const t = useT();
+  return (
+    <Modal transparent animationType="fade" statusBarTranslucent onRequestClose={onIgnore}>
+      <Pressable style={styles.scrim} onPress={onIgnore} accessibilityRole="button" accessibilityLabel={t('voice.ignore')}>
         {/* Taps on the card stay on it: only the scrim around ignores. */}
         <View style={[styles.incoming, { backgroundColor: c.deepCard, borderColor: c.border }]} onStartShouldSetResponder={() => true}>
-          {state.phase === 'connected' && (
-            <SpeakingAvatar c={c} client={state.client} uid={incoming.caller.id} name={caller} speaking size={84} radius={28} />
+          {client !== null && (
+            <SpeakingAvatar c={c} client={client} uid={callerId} name={caller} speaking size={84} radius={28} />
           )}
           <Text style={[styles.incomingName, { color: c.text }]} numberOfLines={1}>{caller}</Text>
           <Text style={[styles.incomingLabel, { color: c.dimmed }]}>{t('voice.incoming')}</Text>
           <View style={styles.incomingActions}>
-            <Pressable accessibilityRole="button" accessibilityLabel={t('voice.decline')} onPress={() => void controller.decline(incoming.id).catch(() => {})}
+            <Pressable accessibilityRole="button" accessibilityLabel={t('voice.decline')} onPress={onDecline}
               style={[styles.answer, { backgroundColor: c.danger }]}>
               <Icon name="call-stop" size={28} color={c.onAccent} />
             </Pressable>
-            <Pressable accessibilityRole="button" accessibilityLabel={t('voice.accept')} onPress={() => void answer()}
+            <Pressable accessibilityRole="button" accessibilityLabel={t('voice.accept')} onPress={onAccept}
               style={[styles.answer, { backgroundColor: c.online }]}>
               <Icon name="call-start" size={28} color={c.onAccent} />
             </Pressable>

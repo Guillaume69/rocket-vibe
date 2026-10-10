@@ -66,6 +66,13 @@ export type LocalMessage = {
    * Rocket.Chat only; absent means none, like on the other servers.
    */
   threadFollowers?: string | null;
+  /**
+   * A `discussion-created` message: the discussion's room (`drid`), its
+   * message count (`dcount`) and last message time (`dlm`). Rocket.Chat only.
+   */
+  discussionId?: string | null;
+  discussionCount?: number;
+  discussionLast?: number | null;
   updatedAt: number;
   /**
    * The author is a bot account (RocketVibe only, RFC 0003). Not written by
@@ -224,6 +231,9 @@ export function toMessage(raw: Record<string, unknown>): LocalMessage | null {
     pinned: boolean(raw.pinned),
     starred: starredIds(raw.starred),
     threadFollowers: followerIds(raw.replies),
+    discussionId: asString(raw.drid),
+    discussionCount: asInt(raw.dcount),
+    discussionLast: toEpoch(raw.dlm),
     // `_updatedAt` is the server clock: it settles conflicts between the
     // WebSocket and a slower REST catch-up.
     updatedAt: toEpoch(raw._updatedAt) ?? ts,

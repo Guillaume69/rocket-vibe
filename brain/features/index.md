@@ -29,6 +29,7 @@ two-way parity tracker is [../parity.md](../parity.md). Back to
 |---|---|
 | [room-list.md](room-list.md) | Unread, Favourites, Channels and Direct-messages sections and their rules, folding, ordering by activity, previews, badges, presence, encrypted rooms. |
 | [room-view.md](room-view.md) | History window and keyset paging, live messages, edits and deletions, author grouping, day separators, new-messages bar, mark-as-read, markdown, system messages, quotes and cards, jumps, typing indicator. |
+| [discussions.md](discussions.md) | Rocket.Chat discussions: the parent's card, opening (joining a public one), creating from a message or a room. |
 | [threads.md](threads.md) | Root and replies fetched apart, paging by 100 up to 20 pages, reconnection guard, live replies, the thread composer and its limits, a room's thread list and following (Rocket.Chat). |
 | [search.md](search.md) | Debounced server search with stale answers dropped: `spotlight` for people and channels, `chat.search` in a room. |
 | [media-playback.md](media-playback.md) | Protected-file URLs, original images, viewers, lazily created players, GStreamer and CPU-frame paths on desktop, video-site cards. |

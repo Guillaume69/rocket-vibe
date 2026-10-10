@@ -29,6 +29,7 @@ const KEYS = {
   'rv-role-moderator':'sys.roleModerator',
   'rv-role-member':'sys.roleMember',
   uj: 'sys.uj',
+  'discussion-created': 'sys.discussionCreated',
   ujt: 'sys.ujt',
   ul: 'sys.ul',
   ult: 'sys.ult',

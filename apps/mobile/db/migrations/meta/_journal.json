@@ -204,6 +204,13 @@
       "when": 1791645878451,
       "tag": "0028_outbox_shown",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "6",
+      "when": 1791646831784,
+      "tag": "0029_message_discussions",
+      "breakpoints": true
     }
   ]
 }

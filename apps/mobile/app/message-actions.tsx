@@ -428,6 +428,10 @@ export default function MessageActionsScreen() {
   // every message of an encrypted room): the server could not quote ciphertext.
   const forwardable = client.kind === 'rocketchat' && actions.includes('reply')
     && message.systemType === null && message.deleted !== true;
+  const startDiscussion = () => {
+    router.back();
+    router.push({ pathname: '/new-discussion', params: { rid: message.rid, mid: message.id, text: message.text ?? '' } });
+  };
   const forward = () => {
     const link = messagePermalink({ baseUrl: client.baseUrl, siteUrl, type: room.type, name: room.name, rid: message.rid, msgId: message.id });
     router.back();
@@ -737,6 +741,9 @@ export default function MessageActionsScreen() {
           )}
           {forwardable && (
             <ActionRow c={c} disabled={busy} icon="➡️" label={t('messageActions.forward')} onPress={forward} />
+          )}
+          {forwardable && (
+            <ActionRow c={c} disabled={busy} icon="💬" label={t('messageActions.startDiscussion')} onPress={startDiscussion} />
           )}
           {actions.includes('reply') && provider?.native && (
             <ActionRow c={c} disabled={busy} icon="↪️" label={t('messageActions.replyIn')}

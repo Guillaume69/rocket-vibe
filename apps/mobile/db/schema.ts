@@ -147,6 +147,10 @@ export const messages = sqliteTable(
     starred: text('starred'),
     /** A thread root's followers (`replies`), serialised uids; `null` if none. See `lib/marks.ts`. */
     threadFollowers: text('thread_followers'),
+    /** `drid`, `dcount`, `dlm` of a `discussion-created` message: the discussion it opens. */
+    discussionId: text('discussion_id'),
+    discussionCount: integer('discussion_count').notNull().default(0),
+    discussionLast: integer('discussion_last'),
     updatedAt: integer('updated_at').notNull().default(0),
     /**
      * The author is a bot account (RocketVibe, RFC 0003): the row shows a

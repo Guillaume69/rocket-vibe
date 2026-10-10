@@ -178,6 +178,19 @@ export default function RootLayout() {
                         contentStyle: { backgroundColor: darkColors.deepCard },
                       }}
                     />
+                    {/* New discussion (Rocket.Chat), from a message or the room info. */}
+                    <Stack.Screen
+                      name="new-discussion"
+                      options={{
+                        presentation: 'formSheet',
+                        headerShown: false,
+                        sheetAllowedDetents: 'fitToContents',
+                        sheetGrabberVisible: true,
+                        sheetCornerRadius: 24,
+                        sheetElevation: 24,
+                        contentStyle: { backgroundColor: darkColors.deepCard },
+                      }}
+                    />
                     {/* Room info (tap on the name in the header). */}
                     <Stack.Screen
                       name="room-info"

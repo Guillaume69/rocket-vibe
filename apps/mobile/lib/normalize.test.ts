@@ -55,6 +55,12 @@ describe('toMessage: pins and stars', () => {
     assert.equal(m?.threadFollowers, '["u1","u2"]');
     assert.equal(toMessage({ ...base, msg: 'x' })?.threadFollowers, null);
   });
+
+  test('a discussion-created message carries its discussion', () => {
+    const m = toMessage({ ...base, t: 'discussion-created', msg: 'plans', drid: 'd1', dcount: 4, dlm: { $date: 900 } });
+    assert.deepEqual([m?.discussionId, m?.discussionCount, m?.discussionLast], ['d1', 4, 900]);
+    assert.deepEqual([toMessage({ ...base, msg: 'x' })?.discussionId, toMessage({ ...base, msg: 'x' })?.discussionCount], [null, 0]);
+  });
 });
 
 describe('toEpoch: the three shapes the server sends', () => {

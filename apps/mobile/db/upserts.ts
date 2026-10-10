@@ -20,8 +20,9 @@ export const UPSERT_MESSAGE = `
 INSERT INTO messages (
   id, rid, text, ts, author_id, author_name, system_type,
   thread_id, thread_count, thread_last, thread_shown, edited_at, md,
-  attachments, reactions, urls, call_id, encrypted_raw, pinned, starred, thread_followers, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  attachments, reactions, urls, call_id, encrypted_raw, pinned, starred, thread_followers,
+  discussion_id, discussion_count, discussion_last, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
   -- Encrypted message: keep the already decrypted plaintext if the resync
   -- arrives without a key (excluded.text null). Ordinary message: unchanged.
@@ -54,6 +55,9 @@ ON CONFLICT(id) DO UPDATE SET
   pinned = excluded.pinned,
   starred = excluded.starred,
   thread_followers = excluded.thread_followers,
+  discussion_id = excluded.discussion_id,
+  discussion_count = excluded.discussion_count,
+  discussion_last = excluded.discussion_last,
   updated_at = excluded.updated_at
 WHERE excluded.updated_at >= messages.updated_at
 `;
@@ -702,6 +706,9 @@ export function messageParams(m: LocalMessage): SqlParam[] {
     b(m.pinned),
     m.starred,
     m.threadFollowers ?? null,
+    m.discussionId ?? null,
+    m.discussionCount ?? 0,
+    m.discussionLast ?? null,
     m.updatedAt,
   ];
 }

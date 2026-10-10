@@ -12,7 +12,7 @@
 
 import { eq } from 'drizzle-orm';
 import { useCoalescedLiveQuery } from '../ui/liveQuery.ts';
-import { Stack, useLocalSearchParams } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
@@ -86,6 +86,7 @@ function RoomInfoContent({
   const bottomMargin = useSheetBottomMargin();
   const t = useT();
   const unlocked = useE2EUnlocked(e2e);
+  const router = useRouter();
   const { state } = useSession();
   const siteUrl = state.phase === 'connected' ? state.session.siteUrl : null;
   const { data: rows } = useCoalescedLiveQuery(
@@ -206,6 +207,19 @@ function RoomInfoContent({
 
       {!native && subscription !== undefined && (
         <RoomNotificationChoice c={c} rid={rid} base={base} actions={actions} current={subscription.pushPreference} />
+      )}
+      {!native && client.kind === 'rocketchat' && subscription !== undefined && room?.encrypted !== true && (
+        <Tappable
+          onPress={() => {
+            router.back();
+            router.push({ pathname: '/new-discussion', params: { rid } });
+          }}
+          accessibilityRole="button"
+          android_ripple={{ color: c.ripple }}
+          style={[styles.favorite, { backgroundColor: c.card }]}
+        >
+          <Text style={[styles.favoriteText, { color: c.text }]}>💬 {t('discussion.new')}</Text>
+        </Tappable>
       )}
       {!native && subscription !== undefined && (
         <RoomInvite c={c} client={client} siteUrl={siteUrl} rid={rid} type={room?.type} roles={subscription.roles} />

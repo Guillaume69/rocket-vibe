@@ -75,6 +75,7 @@ Each feature doc covers mobile and desktop, and says where they differ.
 | [uploads.md](features/uploads.md) | The two-step upload behind a persisted queue, local dedup, retries, progress, protected downloads. |
 | [voice-messages.md](features/voice-messages.md) | Recording and playback, and why the formats differ per app. |
 | [message-actions.md](features/message-actions.md) | Which actions show, the endpoints, the menus, pinned and starred lists. |
+| [discussions.md](features/discussions.md) | Rocket.Chat discussions: card, opening, creation. |
 | [threads.md](features/threads.md) | Thread loading and paging, live replies, the thread composer and its limits, thread list and following. |
 | [search.md](features/search.md) | `spotlight` to find people and channels, `chat.search` inside a room. |
 | [media-playback.md](features/media-playback.md) | Protected media URLs, image viewers, audio/video players, video-site cards. |

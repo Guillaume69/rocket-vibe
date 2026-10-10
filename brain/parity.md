@@ -144,6 +144,13 @@ beta does.
 | Follow or unfollow a thread, from the list and from the open thread, shown live | done | done | done | missing | Rocket.Chat servers only (`chat.followMessage`), same limits as the list. SwiftUI checked by the macOS CI build only. Web: Native provider only, which has no route yet. |
 | "Also send to the room" (`tshow`) from the thread composer | done | missing | missing | missing | Rocket.Chat (`Capabilities.alsoInRoom`): a one-shot checkbox above the thread composer, kept in the outbox row (`outbox.shown`) for the replay. GTK and SwiftUI owe it. Web: No browser implementation yet. |
 
+### Discussions - [discussions](features/discussions.md)
+
+| Feature | Mobile | GTK | SwiftUI | Web | Notes |
+|---|---|---|---|---|---|
+| A discussion's card in its parent (name, message count, last activity), opening it, joining a public one | done | missing | missing | n/a | Rocket.Chat. GTK and SwiftUI show `discussion-created` as an unknown system message. Web: Native-origin client; Rocket.Chat is outside its scope. |
+| Start a discussion from a message or a room (`rooms.createDiscussion`) | done | missing | missing | n/a | Rocket.Chat, name required, optional first message. Web: as above. |
+
 ## 7. Search - [search](features/search.md)
 
 | Feature | Mobile | GTK | SwiftUI | Web | Notes |
@@ -309,7 +316,7 @@ gaps, listed last.
 
 - **Mobile**: kChat "Sign in with Infomaniak" run on a real account; Mattermost stars changed elsewhere, live; several accounts per server;
   formatting toolbar; logs folder.
-- **GTK**: a room's own notifications, forwarding a message, "also send to the room" in a thread and invite links (Rocket.Chat); search across rooms; kChat "Sign in with Infomaniak"; email 2FA resend; replay of an offline sign-out; padlock tile once
+- **GTK**: a room's own notifications, forwarding a message, "also send to the room" in a thread, invite links and discussions (Rocket.Chat); search across rooms; kChat "Sign in with Infomaniak"; email 2FA resend; replay of an offline sign-out; padlock tile once
   unlocked; DM avatar versions in the list; video reduction; reconciliation snapshot; catch-up of
   deletions in rooms already caught up; message retention.
 - **SwiftUI**: everything GTK owes, plus `-wal` / `-shm` cleanup on sign-out;

@@ -9,6 +9,7 @@
 import { useRouter } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import {callContext, meetingLink} from '../lib/call.ts';
+import { DiscussionCard } from './discussion.tsx';
 import { openExternalLink } from './externalLink.ts';
 import {useSession} from './session.tsx';
 import { memo, useEffect, useMemo, useState } from 'react';
@@ -74,7 +75,14 @@ import { Tappable } from './tappable.tsx';
 import { useAuthorizedUri } from './authorizedImage.ts';
 
 /** `authorBot`, `form` and `threadFollowers` optional: render-only rows (search, pins, encrypted projections) may not carry them. */
-export type MessageRowData = Omit<typeof messages.$inferSelect, 'authorBot' | 'form' | 'threadFollowers'> & { authorBot?: boolean; form?: string | null; threadFollowers?: string | null };
+export type MessageRowData = Omit<typeof messages.$inferSelect, 'authorBot' | 'form' | 'threadFollowers' | 'discussionId' | 'discussionCount' | 'discussionLast'> & {
+  authorBot?: boolean;
+  form?: string | null;
+  threadFollowers?: string | null;
+  discussionId?: string | null;
+  discussionCount?: number;
+  discussionLast?: number | null;
+};
 
 export const MessageRow = memo(function MessageRow({
   c,
@@ -374,6 +382,17 @@ function MessageContent({ c, message }: { c: Colors; message: MessageRowData }) 
   }
   if (message.systemType === 'videoconf') {
     return <CallCard c={c} callId={message.callId} rid={message.rid} />;
+  }
+  if (message.systemType === 'discussion-created') {
+    return (
+      <DiscussionCard
+        c={c}
+        name={message.text ?? ''}
+        drid={message.discussionId ?? null}
+        count={message.discussionCount ?? 0}
+        last={message.discussionLast ?? null}
+      />
+    );
   }
   if (message.systemType === 'videoconf-ended') {
     return <CallCard c={c} callId={null} rid={message.rid} title={callSummaryText(t, 'rv-call-answered', message.text ?? '')} />;

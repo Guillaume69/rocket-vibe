@@ -692,7 +692,7 @@ export class NativeStore {
       local.updatedAt = 0;
       await this.db.runAsync(UPSERT_MESSAGE, messageParams(local));
       const refs=await this.quotes.enqueue(id,rid,selected,permit);
-      await this.db.runAsync(INSERT_OUTBOX, [id,rid,text,replyTo??null,Date.now()]);
+      await this.db.runAsync(INSERT_OUTBOX, [id,rid,text,replyTo??null,0,Date.now()]);
       await this.db.runAsync('INSERT INTO native_outbox_quotes(id,rid,payload) VALUES(?,?,?)',[id,rid,JSON.stringify(refs)]);
     });
   }

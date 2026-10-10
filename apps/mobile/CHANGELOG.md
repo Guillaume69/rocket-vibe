@@ -15,6 +15,7 @@ release, and its notes are that version's section here.
 - The room list shows the time of each room's last message (the hour today, the weekday this week, the date beyond), and the unread badge reads `@n` in pink when you are mentioned, as on the desktop.
 - Mentions of you, `@all` and `@here` stand out on a pink tint, as on the desktop.
 - Email addresses in messages open the mail app.
+- A line break typed in a list item continues the list (`- `, `* `, `1. `), and one on an empty item ends it, as on the desktop.
 - My profile can remove my photo (Rocket.Chat and RocketVibe), after a confirmation.
 
 ### Fixed

@@ -101,7 +101,7 @@ beta does.
 | Formatting toolbar and live styling | missing | done | missing | done | Web: DOM editor, GTK span styles and cursor-line markers; apps/web/tests/composer.mjs. |
 | Spell check | mapped | done | done | mapped | Mobile: the system keyboard's. Web: Native browser storage/HTTP/socket, HTTPS links, downloads and live-tab alerts; see web-client.md. |
 | Up arrow in an empty field edits my last message | n/a | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
-| List continuation on Enter | missing | done | missing | done | Web: Native provider: see [web-client](features/web-client.md). |
+| List continuation on Enter | done | done | missing | done | Web: Native provider: see [web-client](features/web-client.md). |
 | Reply with quote (permalink prefix) | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | Attach files | done | done | done | done | Desktop: file chooser, drag-and-drop and paste, in place of the Android share sheet. Web: Native provider: see [web-client](features/web-client.md). |
 | Pre-send preview with captions and quality | done | done | done | done | Web: GTK 40-pixel thumbnail/type/size, full-size preview and parked Original choice; actual JPEG 1920/82 reduction, atomic ordered batch and first-file caption qualified in tests/images.mjs. |
@@ -304,8 +304,7 @@ What each app owes, from the tables above. Rows missing in all three are product
 gaps, listed last.
 
 - **Mobile**: kChat "Sign in with Infomaniak" run on a real account; Mattermost stars changed elsewhere, live; several accounts per server;
-  formatting toolbar; list
-  continuation; logs folder; meeting information.
+  formatting toolbar; logs folder; meeting information.
 - **GTK**: kChat "Sign in with Infomaniak"; email 2FA resend; replay of an offline sign-out; padlock tile once
   unlocked; DM avatar versions in the list; video reduction; reconciliation snapshot; catch-up of
   deletions in rooms already caught up; message retention.

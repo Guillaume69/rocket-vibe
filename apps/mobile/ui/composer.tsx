@@ -36,6 +36,7 @@ import {
 } from 'react-native';
 
 import { quote } from '../lib/quote.ts';
+import { listBreak, typedBreak } from '../lib/listBreak.ts';
 import { commandErrorKey, splitCommand, runCommand, textCommand } from '../lib/commands.ts';
 import { NativeError } from '../providers/rocketvibe/transport.ts';
 import type { MentionCandidate } from '../lib/mentionCompletion.ts';
@@ -193,7 +194,7 @@ export function Composer({
 
   // Emoji autocompletion: cursor + insertion, mechanics shared with the thread
   // composer (`useEmojiCompletion`).
-  const { cursor, selection, onSelection, pickEmoji, insertAtCursor, reset } =
+  const { cursor, selection, onSelection, pickEmoji, insertAtCursor, placeCursor, reset } =
     useEmojiCompletion(draft, setDraft, saveDraft);
   const { commands, granted } = useCommands(client, rid);
   const privateNote = usePrivateNote(rid);
@@ -258,12 +259,20 @@ export function Composer({
   }, [response]);
 
   const changeDraft = useCallback(
-    (text: string) => {
+    (typed: string) => {
+      // A line break typed in a list item continues the list, or ends it on an
+      // empty item (`lib/listBreak.ts`, the desktop's rule). `cursor` is where
+      // the break went in, or just after it when the selection event came first
+      // (the platform does not promise their order); `typedBreak` checks both.
+      const at = typedBreak(draft, typed, cursor) ?? typedBreak(draft, typed, cursor - 1);
+      const continued = at === null ? null : listBreak(draft, at);
+      const text = continued?.text ?? typed;
       setDraft(text);
       saveDraft(text);
+      if (continued !== null) placeCursor(continued.cursor);
       onInput?.(text.trim().length>0);
     },
-    [saveDraft,onInput],
+    [saveDraft,onInput,draft,cursor,placeCursor],
   );
 
   const send = useCallback(() => {

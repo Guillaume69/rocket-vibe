@@ -50,7 +50,7 @@ GTK has a formatting toolbar (bold, italic, strike, heading, link, inline code, 
 
 - GTK: Enter sends, Shift+Enter breaks the line, the field grows to 160 px then scrolls.
 - SwiftUI: Return sends, Shift+Return breaks the line, Cmd+Return on the send button; the field grows to 170 px.
-- Mobile: a multiline field, the send button (➤) replaces the microphone as soon as there is text or a staged file, never while recording. The 😀 button swaps the keyboard for the emoji panel.
+- Mobile: a multiline field (Enter breaks the line; in a list item the break continues the list, or ends it on an empty item: `lib/listBreak.ts`, a port of `compose::list_break` with its test cases, applied in `ui/composer.tsx`'s `changeDraft` when `typedBreak` sees exactly one break typed at the caret), the send button (➤) replaces the microphone as soon as there is text or a staged file, never while recording. The 😀 button swaps the keyboard for the emoji panel.
 
 ## Attachments in the composer
 
@@ -60,7 +60,7 @@ Desktop: the file chooser, drag-and-drop on the page and paste (files, or a pict
 
 ## Parity
 
-Both apps: outbox send with retry, drafts per room and thread, `@`/`:` completion, picker, quote reply, attachments with captions and quality, voice, slash commands. Desktop only: the formatting toolbar and live styling (GTK), spell check, Up-to-edit, list continuation. Mobile only: video reduction. All clients can replay a staged voice message before sending.
+Both apps: outbox send with retry, drafts per room and thread, `@`/`:` completion, picker, quote reply, attachments with captions and quality, voice, slash commands. Desktop only: the formatting toolbar and live styling (GTK), spell check, Up-to-edit. List continuation: GTK and mobile, not SwiftUI. Mobile only: video reduction. All clients can replay a staged voice message before sending.
 
 ## Web
 

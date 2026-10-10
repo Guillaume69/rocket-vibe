@@ -65,6 +65,8 @@ export function useEmojiCompletion(
   onSelection: (e: NativeSyntheticEvent<TextInputSelectionChangeEventData>) => void;
   pickEmoji: (insertion: string, start: number) => void;
   insertAtCursor: (insertion: string) => void;
+  /** Puts the caret at `at`, imposed once (a rewrite of the text, e.g. a list continued). */
+  placeCursor: (at: number) => void;
   reset: () => void;
 } {
   const [cursor, setCursor] = useState(() => draft.length);
@@ -111,13 +113,18 @@ export function useEmojiCompletion(
     [draft, cursor, setDraft, saveDraft],
   );
 
+  const placeCursor = useCallback((at: number) => {
+    setCursor(at);
+    setSelection({ start: at, end: at });
+  }, []);
+
   // On send (field cleared): caret at the start, imposed once.
   const reset = useCallback(() => {
     setCursor(0);
     setSelection({ start: 0, end: 0 });
   }, []);
 
-  return { cursor, selection, onSelection, pickEmoji, insertAtCursor, reset };
+  return { cursor, selection, onSelection, pickEmoji, insertAtCursor, placeCursor, reset };
 }
 
 /** What is shown and what is inserted for a resolved suggestion. */

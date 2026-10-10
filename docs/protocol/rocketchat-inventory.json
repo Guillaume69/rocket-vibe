@@ -366,6 +366,7 @@
     "apps/mobile/lib/externalLink.ts",
     "apps/mobile/lib/integrationCards.ts",
     "apps/mobile/lib/linkPreview.ts",
+    "apps/mobile/lib/listBreak.ts",
     "apps/mobile/lib/markdown.ts",
     "apps/mobile/lib/marks.ts",
     "apps/mobile/lib/mediaAuth.ts",

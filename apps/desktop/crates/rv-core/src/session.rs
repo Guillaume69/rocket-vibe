@@ -297,8 +297,50 @@ pub enum UnlockError {
     Key(crate::e2e::E2eError),
 }
 
+/// The server's sign-out. kChat's token belongs to Infomaniak: never revoked
+/// from here, so always settled. Anything but success or a refused token
+/// (offline, a 5xx while the server restarts, the rate limit) is worth another try.
+async fn server_logout(rest: &RestClient, flavor: Option<Flavor>) -> bool {
+    let answer = match flavor {
+        Some(Flavor::Kchat) => return true,
+        Some(Flavor::Mattermost) => rest.post("users/logout", CallOptions::default()).await,
+        None => rest.post("logout", CallOptions::default()).await,
+    };
+    answer.as_ref().map_or_else(crate::rest::is_token_rejected, |_| true)
+}
+
+/// The keychain key of a sign-out kept for replay, beside the account's own
+/// (`<server>|<user id>`), so signing in again to the same account never meets it.
+pub fn pending_logout_key(account_key: &str) -> String {
+    format!("logout|{account_key}")
+}
+
+/// The secret kept for a sign-out to replay: the session's, marked, so that
+/// neither app lists it as an account (`is_pending_logout`).
+pub fn pending_logout_secret(info: &SessionInfo) -> Value {
+    let mut secret = info.secret();
+    secret["pendingLogout"] = json!(true);
+    secret
+}
+
+pub fn is_pending_logout(secret: &Value) -> bool {
+    secret.get("pendingLogout").and_then(Value::as_bool) == Some(true)
+}
+
 impl Session {
     /// Must run inside a tokio runtime.
+    /// A sign-out the network interrupted, replayed from the session kept
+    /// aside: true once settled, so the entry can go.
+    pub async fn replay_logout(info: &SessionInfo) -> bool {
+        let Ok(base) = info.base_url.parse::<Url>() else { return true };
+        let rest = match info.mattermost {
+            Some(flavor) => mattermost::client(base, Some(flavor)),
+            None => RestClient::new(base),
+        };
+        rest.set_credentials(Some(Credentials { auth_token: info.auth_token.clone(), user_id: info.user_id.clone() }));
+        server_logout(&rest, info.mattermost).await
+    }
+
     pub fn start(info: SessionInfo, db_path: &Path) -> rusqlite::Result<Arc<Session>> {
         // A native account must never enter the Rocket.Chat REST/DDP engine.
         if info.native.is_some() {
@@ -1213,15 +1255,15 @@ impl Session {
         self.outbox.process().await;
     }
 
-    /// Best effort: the local state is logged out whatever the server says.
-    pub async fn logout(&self) {
+    /// Signs this session out on the server. The local state is logged out
+    /// whatever the server says; true once the sign-out is SETTLED (done, or
+    /// moot: the server already refuses the token), false when it could not be
+    /// reached. The caller then keeps the session aside and replays it at the
+    /// next start (`replay_logout`, `pending_logout_secret`), as mobile does:
+    /// otherwise the server session stays open until it expires.
+    pub async fn logout(&self) -> bool {
         self.shutdown();
-        match self.info.mattermost {
-            Some(flavor) => mattermost::logout(&self.rest, flavor).await,
-            None => {
-                let _ = self.rest.post("logout", CallOptions::default()).await;
-            }
-        }
+        server_logout(&self.rest, self.info.mattermost).await
     }
 
     /// The server's public settings, read once per session.

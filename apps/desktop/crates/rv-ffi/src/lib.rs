@@ -124,7 +124,23 @@ impl Client {
     /// `home`: where GLib would put its user directories, for sessions shared with the GTK app.
     #[uniffi::constructor]
     pub fn new(home: String) -> Arc<Self> {
-        Arc::new(Client { dirs: Arc::new(Dirs::glib(std::path::Path::new(&home))) })
+        let dirs = Arc::new(Dirs::glib(std::path::Path::new(&home)));
+        // Sign-outs an earlier run could not tell the server about.
+        let pending = dirs.clone();
+        runtime().spawn(async move {
+            let entries = blocking({
+                let dirs = pending.clone();
+                move || accounts::pending_logouts(&dirs)
+            })
+            .await;
+            for (key, info) in entries {
+                if Session::replay_logout(&info).await {
+                    let dirs = pending.clone();
+                    blocking(move || accounts::forget_logout(&dirs, &key)).await;
+                }
+            }
+        });
+        Arc::new(Client { dirs })
     }
 
     /// Where the apps keep their small preferences (language, folded sections).
@@ -776,14 +792,18 @@ impl Chat {
         Ok(on_tokio(async move { s.set_status(&status, &message).await }).await?)
     }
 
-    /// Signs out on the server (best effort) and forgets the account and its cache.
+    /// Signs out on the server and forgets the account and its cache; a
+    /// sign-out the server did not hear (offline) is kept for the next start.
     pub async fn sign_out(&self) {
         let s = self.session.clone();
-        on_tokio(async move { s.logout().await }).await;
+        let settled = on_tokio(async move { s.logout().await }).await;
         self.session.store.close();
         let (dirs, info, database) = (self.dirs.clone(), self.session.info.clone(), self.database.clone());
         blocking(move || {
             accounts::remove(&dirs, &info);
+            if !settled {
+                accounts::keep_logout(&dirs, &info);
+            }
             rv_core::store::Store::remove_files(&database);
         })
         .await;

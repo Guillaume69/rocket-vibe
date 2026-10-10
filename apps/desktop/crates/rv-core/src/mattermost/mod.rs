@@ -130,13 +130,6 @@ pub async fn login_with_token(base: &Url, token: &str, flavor: Flavor) -> Result
     session_info(base, token.trim(), &me, flavor)
 }
 
-/// Best effort, as on Rocket.Chat. A kChat token belongs to Infomaniak: never revoked from here.
-pub async fn logout(rest: &RestClient, flavor: Flavor) {
-    if flavor == Flavor::Mattermost {
-        let _ = rest.post("users/logout", CallOptions::default()).await;
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KchatServer {
     pub name: String,

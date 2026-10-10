@@ -66,9 +66,57 @@ fn entry(key: &str) -> keyring::Result<keyring::Entry> {
     keyring::Entry::new(KEYCHAIN_SERVICE, key)
 }
 
+/// An account's secret; a sign-out kept for replay is not one.
 fn parse(secret: &str) -> Option<SessionInfo> {
     let v: Value = serde_json::from_str(secret).ok()?;
+    if rv_core::session::is_pending_logout(&v) {
+        return None;
+    }
     SessionInfo::from_secret(&v)
+}
+
+/// A sign-out the server did not hear (offline): kept in the Keychain, marked,
+/// and listed in the same index as the accounts (the GTK app shares it on
+/// macOS), until `pending_logouts` hands it back for replay. Blocking.
+pub fn keep_logout(dirs: &Dirs, info: &SessionInfo) {
+    let k = rv_core::session::pending_logout_key(&key(info));
+    let secret = rv_core::session::pending_logout_secret(info).to_string();
+    if entry(&k).and_then(|e| e.set_password(&secret)).is_err() {
+        return;
+    }
+    let index = dirs.file("accounts");
+    let mut all = lines(&index);
+    if !all.contains(&k) {
+        all.push(k);
+        let _ = std::fs::write(index, all.join("\n"));
+    }
+}
+
+/// The sign-outs kept aside, by their Keychain key. Blocking.
+pub fn pending_logouts(dirs: &Dirs) -> Vec<(String, SessionInfo)> {
+    lines(&dirs.file("accounts"))
+        .into_iter()
+        .filter(|k| k.starts_with("logout|"))
+        .filter_map(|k| {
+            let secret = entry(&k).ok()?.get_password().ok()?;
+            let v: Value = serde_json::from_str(&secret).ok()?;
+            rv_core::session::is_pending_logout(&v)
+                .then(|| SessionInfo::from_secret(&v))
+                .flatten()
+                .map(|info| (k, info))
+        })
+        .collect()
+}
+
+/// A replayed sign-out leaves the Keychain and the index. Blocking.
+pub fn forget_logout(dirs: &Dirs, k: &str) {
+    if let Ok(e) = entry(k) {
+        let _ = e.delete_credential();
+    }
+    let index = dirs.file("accounts");
+    let mut all = lines(&index);
+    all.retain(|l| l != k);
+    let _ = std::fs::write(index, all.join("\n"));
 }
 
 /// Every account signed in on this machine, the active one first. Blocking.

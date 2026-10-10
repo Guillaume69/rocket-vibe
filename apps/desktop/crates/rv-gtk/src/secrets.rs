@@ -36,9 +36,38 @@ pub fn set_active(info: &SessionInfo) {
     let _ = std::fs::write(file, account_key(info));
 }
 
+/// An account's secret; a sign-out kept for replay is not one.
 fn parse(secret: &[u8]) -> Option<SessionInfo> {
     let v: Value = serde_json::from_slice(secret).ok()?;
+    if rv_core::session::is_pending_logout(&v) {
+        return None;
+    }
     SessionInfo::from_secret(&v)
+}
+
+/// A sign-out the server did not hear (offline): its session stays in the
+/// keychain, marked, until `replay_logouts` settles it at a later start.
+pub async fn keep_logout(info: &SessionInfo) {
+    let key = rv_core::session::pending_logout_key(&account_key(info));
+    let secret = rv_core::session::pending_logout_secret(info).to_string().into_bytes();
+    if tokio::time::timeout(TIMEOUT, keychain::put(&key, secret)).await.is_err() {
+        eprintln!("Keychain write failed: the sign-out will not be replayed");
+    }
+}
+
+/// Replays the sign-outs kept aside; each settled one leaves the keychain.
+pub async fn replay_logouts() {
+    let Ok(secrets) = tokio::time::timeout(TIMEOUT, keychain::all()).await else { return };
+    for secret in secrets {
+        let Ok(v) = serde_json::from_slice::<Value>(&secret) else { continue };
+        if !rv_core::session::is_pending_logout(&v) {
+            continue;
+        }
+        let Some(info) = SessionInfo::from_secret(&v) else { continue };
+        if rv_core::session::Session::replay_logout(&info).await {
+            keychain::delete(&rv_core::session::pending_logout_key(&account_key(&info))).await;
+        }
+    }
 }
 
 /// Every account signed in on this machine, the active one first.

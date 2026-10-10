@@ -455,6 +455,8 @@ impl AppWindow {
                 Ok(None) => {}
             }
         }
+        // Sign-outs an earlier run could not tell the server about.
+        glib::spawn_future_local(on_tokio(secrets::replay_logouts()));
         let this = self.clone();
         glib::spawn_future_local(async move {
             let accounts = on_tokio(secrets::load_all()).await;
@@ -1049,7 +1051,9 @@ impl AppWindow {
             let info = session.info.clone();
             on_tokio(async move {
                 secrets::remove(&info).await;
-                session.logout().await;
+                if !session.logout().await {
+                    secrets::keep_logout(&info).await;
+                }
             })
             .await;
             match on_tokio(secrets::load_all()).await.into_iter().next() {

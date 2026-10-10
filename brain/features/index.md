@@ -52,6 +52,7 @@ two-way parity tracker is [../parity.md](../parity.md). Back to
 
 | Doc | What's here |
 |---|---|
+| [do-not-disturb.md](do-not-disturb.md) | RocketVibe server: quiet hours and a mute; push, rings and the apps' own alerts held back, `account_quiet`. |
 | [notifications.md](notifications.md) | Mobile FCM chain (native token, patched server bundle, data-only push, `push.get` for hidden content, WorkManager catch-up, inline reply, iOS extension, badge); desktop notifier on D-Bus, WinRT or UserNotifications, and badge. |
 | [e2ee.md](e2ee.md) | Encrypted rooms for the user: lock tile, placeholders, unlock, key kept across launches, encrypted sends and media, notifications without ciphertext. |
 | [e2ee-history.md](e2ee-history.md) | RocketVibe server: encrypted history requested by a new device, reviewed and shared by another device of the account, imported page by page. |

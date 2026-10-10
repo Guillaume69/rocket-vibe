@@ -71,8 +71,12 @@ async function marker(name) {
 }
 try {
   const fingerprint = await identity(page, names[0]);
-  const users = await fixture(page, "/api/v1/users");
-  const peer = users.find((user) => user.username === names[1]);
+  const peer = (
+    await fixture(
+      page,
+      "/api/v1/users/lookup?username=" + encodeURIComponent(names[1]),
+    )
+  ).user;
   const own = await fixture(page, "/api/v1/me");
   assert.ok(peer, "Disposable desktop user is visible");
   const room = await fixture(page, "/api/v1/rooms", "POST", {

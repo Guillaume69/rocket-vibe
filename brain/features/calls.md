@@ -23,7 +23,7 @@ The desktop applies the same exception with the same bounds (2026-09-30), and th
 
 ## Mobile
 
-- **Entry points.** The room header's 📞 button (`ui/roomHeader.tsx`) and the profile sheet's Call button (`app/profile.tsx`, which opens or creates the DM first) call `startConference`, then push `/call/[callId]` with the room name as title. A call message renders as `CallCard` (`ui/messageRow.tsx`) with a Join button when its `callId` was extracted from the message block (`callId`, `lib/normalize.ts`); older messages without it show only the label.
+- **Entry points.** The room header's video call button (`ui/roomHeader.tsx`, the camera icon, as on the desktop) and the profile sheet's Call button (`app/profile.tsx`, which opens or creates the DM first) call `startConference`, then push `/call/[callId]` with the room name as title. A call message renders as `CallCard` (`ui/messageRow.tsx`) with a Join button when its `callId` was extracted from the message block (`callId`, `lib/normalize.ts`); older messages without it show only the label.
 - **Call screen** `app/call/[callId].tsx`:
   - asks `CAMERA` and `RECORD_AUDIO` up front (Android) so the system prompt appears before the call, not in the middle; a refusal does not block the call;
   - calls `joinConference`; a URL whose origin cannot be read is refused rather than loaded unguarded;

@@ -4,6 +4,7 @@ import type { FileOutbox } from '../lib/provider.ts';
 import { useFileProgress } from './fileProgress.ts';
 import { useT } from './i18n.ts';
 import type { Colors } from './theme.ts';
+import { InlineIcon } from './icon.tsx';
 
 export type UploadBandRow = { id: string; name: string; uri: string; status: 'pending' | 'sending' | 'failed' };
 
@@ -34,6 +35,10 @@ export function UploadBands({ c, rows, files }: { c: Colors; rows: readonly Uplo
         return (
           <View key={upload.id} style={styles.band}>
             <Text style={[styles.label, { color: failed ? c.errorText : c.dimmed }]} numberOfLines={1}>
+              <InlineIcon
+                name={failed ? 'dialog-warning' : upload.status === 'sending' ? 'document-send' : 'content-loading'}
+                spaced
+              />
               {label}
             </Text>
             {/* "Retry" only makes sense on a failure, and it needs the id: the

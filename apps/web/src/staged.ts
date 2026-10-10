@@ -16,7 +16,11 @@ export function stagedChip(
     image.src = url;
     image.alt = "";
     thumb.append(image);
-  } else thumb.append(el("span", "staged-icon", audio ? "🎵" : "📄"));
+  } else {
+    const symbol = icon(audio ? "audio-file" : "text-file");
+    symbol.classList.add("staged-icon");
+    thumb.append(symbol);
+  }
   const names = el("div", "file-names");
   const extension =
     file.name.split(".").length > 1 ? file.name.split(".").at(-1)! : "";

@@ -180,6 +180,8 @@ globally (see `docs/DEV.md`).
 | `npm test` | Unit tests (`node --test` on `lib/`, `db/`, `ui/`, `providers/` and the `plugins/*.test.mjs`). |
 | `npm run seed` | (Re)seeds the test data on the dev server. |
 | `npm run db:generate` | Generates the Drizzle migrations from the schema. |
+| `npm run emojis:generate` | Regenerates the shortcode table (`lib/emojis.generated.ts`) from `emoji-toolkit`. |
+| `npm run icons:generate` | Regenerates the icon font and its name table from `assets/icons/*.svg`. |
 
 For a **release**: `source scripts/env.sh && cd android && ./gradlew assembleRelease`,
 then `adb install -r app/build/outputs/apk/release/app-release.apk`.
@@ -257,6 +259,10 @@ the root) documents the variables expected by the dev server.
 ## Licence & status
 
 Personal project, in active development. Main branch: **`master`**.
+
+The interface icons are GNOME's Adwaita symbolic icons (GNOME Project, CC BY-SA 3.0
+United States or LGPL-3.0), shipped as the `RocketVibeIcons` font under the same terms:
+see `assets/icons/README.md`.
 See `ROADMAP.md` for the v1 scope (**iOS at launch** is out of scope and documented as
 accepted debt; **E2EE**, Jitsi **calls** and a bounded **server administration**, first
 ruled out, have shipped).

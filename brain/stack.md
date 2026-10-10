@@ -52,11 +52,11 @@ Native modules (each requires a dev-client rebuild, see [architecture/mobile-nat
 | `react-native-webview` | 13.16.1 | Only for the Jitsi call screen (`app/call/[callId].tsx`), the one allowed WebView. |
 | `expo-share-intent` | `^8.0.1` | Share into the app; patched by `patches/expo-share-intent+8.0.1.patch` through `patch-package` on `postinstall`. |
 | Media | `expo-audio`, `expo-video`, `expo-image-picker`, `expo-image-manipulator`, `expo-document-picker`, `expo-media-library`, `expo-file-system`, `expo-sharing` (all `~57.0.x`) | Voice messages, players, pickers, saving. |
-| Fonts | `@expo-google-fonts/baloo-2`, `@expo-google-fonts/nunito` (`^0.4.2`) | Embedded at build time by the `expo-font` plugin. |
+| Fonts | `@expo-google-fonts/baloo-2`, `@expo-google-fonts/nunito` (`^0.4.2`), and the generated `assets/fonts/RocketVibeIcons.ttf` (Adwaita icons) | Embedded at build time by the `expo-font` plugin. |
 
 Local Expo modules under `apps/mobile/modules/`: `video-compressor` (video downscaling, Android Media3 and iOS AVFoundation), `downloads` (public Downloads folder, Android only), `fcm-token` and `notification-reply` (iOS only), `file-transfer`, `crypto-native` (the `rv-crypto-mobile` library and its Kotlin bindings, built by Cargo during the Gradle build) and `voice` (LiveKit audio and the `rv-voice-mobile` noise remover). Config plugins under `apps/mobile/plugins/` customise the generated native projects; `android/` and `ios/` are gitignored (CNG).
 
-Dev tooling: ESLint 9 with `eslint-config-expo ~57.0.0`, `patch-package ^8.0.1`, `emoji-toolkit 10.0.0` (source of the generated emoji table), Node's built-in test runner.
+Dev tooling: ESLint 9 with `eslint-config-expo ~57.0.0`, `patch-package ^8.0.1`, `emoji-toolkit 10.0.0` (source of the generated emoji table), `svg2ttf 6.1.0` and `svgpath 2.6.0` (the icon font generator), Node's built-in test runner.
 
 Android build chain (local and CI): Node 24, Temurin JDK 17 (env.sh accepts 17 to 24), Gradle 9.3.1 from the wrapper, SDK `platforms;android-36`, `build-tools;36.0.0`, NDK `27.1.12297006`, `compileSdk`/`targetSdk` 36, `minSdk` 24. The application id is `com.rocketvibe.app`, the URL scheme `rocketvibe`. Native libraries are restricted to `arm64-v8a,x86_64` by `plugins/with-target-architectures.js`; CI builds `arm64-v8a` only.
 

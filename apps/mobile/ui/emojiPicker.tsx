@@ -62,6 +62,7 @@ import type { TranslationKey } from './messages.ts';
 import { useHardwareBack } from './hardwareBack.ts';
 import { type Colors, LIST_PRESS_DELAY, FONTS } from './theme.ts';
 import { Tappable } from './tappable.tsx';
+import { Icon } from './icon.tsx';
 
 /** A search in the picker casts a wider net than the inline strip. */
 const SEARCH_LIMIT = 300;
@@ -89,7 +90,7 @@ const SWIPE_DURATION = 250;
 type PanelState = 'closed' | 'open' | 'yielded';
 
 /**
- * Drives a composer's emoji panel: the 😀/⌨️ toggle, back that closes it
+ * Drives a composer's emoji panel: the emoji / keyboard toggle, back that closes it
  * instead of leaving the screen, and the height matched to the real keyboard.
  * Shared by room and thread: same gestures, one mechanism.
  */
@@ -114,7 +115,7 @@ export function useEmojiPanel(fieldRef: RefObject<TextInput | null>) {
       : defaultHeight(screenHeight);
 
   // The panel mounts once the screen has settled, at zero height, and never
-  // unmounts. Mounting the grid costs several frames: on the 😀 tap that cost
+  // unmounts. Mounting the grid costs several frames: on the emoji button tap that cost
   // would land right on the critical path and look like a freeze. Paid while the
   // screen is idle, it does not show; the tap then only changes a height.
   // `runAfterInteractions` waits for the room opening (and its scroll) to finish,
@@ -159,7 +160,7 @@ export function useEmojiPanel(fieldRef: RefObject<TextInput | null>) {
   useHardwareBack(state === 'open', close);
 
   return {
-    /** True when the panel holds the place (button shows ⌨️, banners hidden). */
+    /** True when the panel holds the place (the button shows the keyboard, banners hidden). */
     open: state === 'open',
     /** Mounted (possibly at zero height). */
     mounted,
@@ -304,7 +305,7 @@ export function EmojiGrid({
   return (
       <View style={{ height }}>
       <View style={[styles.search, { backgroundColor: c.deepCard }]}>
-        <Text style={styles.magnifier}>🔍</Text>
+        <Icon name="system-search" size={14} color={c.tertiaryText} />
         <TextInput
           value={search}
           onChangeText={setSearch}
@@ -316,7 +317,7 @@ export function EmojiGrid({
         />
         {search !== '' && (
           <Pressable onPress={() => setSearch('')} hitSlop={8} accessibilityLabel={t('emojiPicker.clearSearch')}>
-            <Text style={[styles.clear, { color: c.tertiaryText }]}>✕</Text>
+            <Icon name="edit-clear" size={15} color={c.tertiaryText} style={styles.clear} />
           </Pressable>
         )}
       </View>
@@ -397,9 +398,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: 12,
   },
-  magnifier: { fontSize: 14 },
   searchField: { flex: 1, fontFamily: FONTS.body, fontSize: 15, paddingVertical: 9 },
-  clear: { fontSize: 15, paddingHorizontal: 2 },
+  clear: { paddingHorizontal: 2 },
   tabs: {
     flexDirection: 'row',
     borderBottomWidth: StyleSheet.hairlineWidth,

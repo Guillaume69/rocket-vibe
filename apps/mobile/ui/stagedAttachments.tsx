@@ -1,7 +1,8 @@
 /**
  * Attachments WAITING to be sent, as chips above the field, like Rocket.Chat
- * web. Each chip shows a thumbnail (image, video) or an emoji tile, the name,
- * the format and the size, and a ✕ to remove it; tapping it opens a preview.
+ * web. Each chip shows a thumbnail (image, video) or an icon tile, the name,
+ * the format and the size, and a close button to remove it; tapping it opens a
+ * preview.
  * A voice message keeps its player, to listen back.
  * The typed text goes as the caption of the FIRST attachment (see `ui/composer.tsx`).
  */
@@ -18,7 +19,8 @@ import {
   type PendingFile,
 } from './attachmentPreview.tsx';
 import { useT } from './i18n.ts';
-import { fileEmoji, isImage, shortFormat } from './mime.ts';
+import { fileIcon, isImage, shortFormat } from './mime.ts';
+import { Icon } from './icon.tsx';
 import type { SendQuality } from './attachmentQuality.ts';
 import { type Colors, FONTS } from './theme.ts';
 
@@ -145,7 +147,7 @@ function Chip({
             end={{ x: 1, y: 1 }}
             style={styles.thumbnail}
           >
-            <Text style={styles.emoji}>{fileEmoji(attachment.type)}</Text>
+            <Icon name={fileIcon(attachment.type)} size={20} color={c.secondaryText} />
           </LinearGradient>
         )}
         <View style={styles.info}>
@@ -167,7 +169,7 @@ function Chip({
         accessibilityLabel={t('attachmentPreview.remove')}
         style={({ pressed }) => [styles.remove, { opacity: busy ? 0.4 : pressed ? 0.6 : 1 }]}
       >
-        <Text style={[styles.removeGlyph, { color: c.secondaryText }]}>✕</Text>
+        <Icon name="window-close" size={14} color={c.secondaryText} />
       </Pressable>
     </Animated.View>
   );
@@ -193,11 +195,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#00000010',
   },
-  emoji: { fontSize: 20 },
   info: { flexShrink: 1, minWidth: 0, gap: 1 },
   name: { fontFamily: FONTS.bodyBold, fontSize: 13 },
   meta: { fontFamily: FONTS.body, fontSize: 11 },
   remove: { paddingHorizontal: 10, paddingVertical: 8 },
-  removeGlyph: { fontFamily: FONTS.bodySemi, fontSize: 14 },
   qualities: { flexDirection: 'row', gap: 6, paddingHorizontal: 12, paddingBottom: 4 },
 });

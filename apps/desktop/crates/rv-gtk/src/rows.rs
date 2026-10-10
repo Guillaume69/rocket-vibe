@@ -142,7 +142,7 @@ fn opens_profile(widget: &impl IsA<gtk::Widget>, on_event: OnRowEvent, username:
 
 pub fn room_tile(name: &str, kind: &str, encrypted: bool, size: TileSize) -> gtk::Widget {
     if encrypted {
-        return widgets::tile(name, "🔒", size, true);
+        return widgets::icon_tile(name, "channel-secure-symbolic", size, true);
     }
     let glyph = if kind == "d" { widgets::initial(name) } else { "#".to_owned() };
     widgets::tile(name, &glyph, size, false)
@@ -745,7 +745,11 @@ fn message_from_provider(
         if row.thread_count > 0 {
             let n = row.thread_count;
             let chip = gtk::Button::builder()
-                .label(format!("💬 {}", tn("message.replies", n)))
+                .child(&widgets::with_icon(
+                    "chat-message-new-symbolic",
+                    &gtk::Label::new(Some(&tn("message.replies", n))),
+                    &[],
+                ))
                 .css_classes(["thread-chip"])
                 .margin_top(3)
                 .build();

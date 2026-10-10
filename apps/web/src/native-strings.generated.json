@@ -527,8 +527,8 @@
     "This device does not have this encrypted room’s current key yet: accept the pending change in its encryption, then try again."
   ],
   "voice_session.secure": [
-    "🔒 {status} · chiffré de bout en bout",
-    "🔒 {status} · end-to-end encrypted"
+    "{status} · chiffré de bout en bout",
+    "{status} · end-to-end encrypted"
   ],
   "voice_session.moved": [
     "Le vocal continue sur un autre appareil.",

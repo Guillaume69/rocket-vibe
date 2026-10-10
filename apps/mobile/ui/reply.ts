@@ -4,7 +4,7 @@
  *
  * Same family as `attachmentSource`, but as OBSERVABLE STATE rather than a
  * promise: the sheet arms the target then closes; the composer, mounted well
- * before, shows it in its banner while it lives, cancelled (✕, back) or
+ * before, shows it in its banner while it lives, cancelled (close button, back) or
  * settled by sending. Key = `rid` for the room, `rid:threadId` for a thread:
  * both composers can coexist (the thread is stacked on the room) without
  * stealing each other's target. Memory only, on purpose: unlike the draft, a

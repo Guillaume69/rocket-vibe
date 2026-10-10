@@ -12,6 +12,7 @@ import {
 } from '../ui/attachmentSource.ts';
 import { LIST_PRESS_DELAY, FONTS, useColors } from '../ui/theme.ts';
 import { Tappable } from '../ui/tappable.tsx';
+import { Icon, type IconName } from '../ui/icon.tsx';
 
 /**
  * "Attach" sheet: the source menu for an attachment, like the official app.
@@ -28,11 +29,11 @@ import { Tappable } from '../ui/tappable.tsx';
  * sheet is sliding away permanently breaks EVERY activity launch on Android.
  */
 
-const OPTIONS: { source: AttachmentSource; icon: string; key: TranslationKey }[] = [
-  { source: 'photo', icon: '📷', key: 'attach.photo' },
-  { source: 'video', icon: '🎥', key: 'attach.video' },
-  { source: 'library', icon: '🖼️', key: 'attach.library' },
-  { source: 'file', icon: '📁', key: 'attach.file' },
+const OPTIONS: { source: AttachmentSource; icon: IconName; key: TranslationKey }[] = [
+  { source: 'photo', icon: 'camera-photo', key: 'attach.photo' },
+  { source: 'video', icon: 'camera-video', key: 'attach.video' },
+  { source: 'library', icon: 'image-x-generic', key: 'attach.library' },
+  { source: 'file', icon: 'folder', key: 'attach.file' },
 ];
 
 export default function AttachScreen() {
@@ -72,7 +73,7 @@ export default function AttachScreen() {
             accessibilityLabel={t(o.key)}
             style={({ pressed }) => [styles.row, { opacity: pressed ? 0.7 : 1 }]}
           >
-            <Text style={styles.rowIcon}>{o.icon}</Text>
+            <Icon name={o.icon} size={20} color={c.dimmed} style={styles.rowIcon} />
             <Text style={[styles.rowText, { color: c.text }]}>{t(o.key)}</Text>
           </Tappable>
         </View>
@@ -92,6 +93,6 @@ const styles = StyleSheet.create({
     paddingVertical: 15,
     paddingHorizontal: 8,
   },
-  rowIcon: { fontSize: 19, width: 24, textAlign: 'center' },
+  rowIcon: { width: 24, textAlign: 'center' },
   rowText: { fontFamily: FONTS.bodyBold, fontSize: 15.5 },
 });

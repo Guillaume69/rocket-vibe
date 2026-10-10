@@ -23,7 +23,7 @@
  * No delay and no bet on an animation duration: we never close BEFORE, so
  * there is nothing to wait for.
  *
- * Only one request lives at a time (the UI opens only one sheet, and 📎 is
+ * Only one request lives at a time (the UI opens only one sheet, and attach is
  * frozen while an attachment is pending); to be safe, a new request settles
  * the previous one, and `answerSource` is idempotent: the sheet's unmount
  * calls it after a possible choice, to no effect.

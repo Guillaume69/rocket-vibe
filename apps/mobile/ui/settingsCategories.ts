@@ -6,6 +6,7 @@
  * and tested (`ui/settingsCategories.test.ts`), from flags the screen reads.
  */
 
+import type { IconName } from './icon.tsx';
 import type { TranslationKey } from './messages.ts';
 
 export type SettingsCategory =
@@ -22,24 +23,24 @@ export type SettingsCategory =
 
 export type CategoryInfo = {
   key: SettingsCategory;
-  /** An emoji, drawn by the system font like every icon of the app. */
-  icon: string;
+  /** The desktop's icon for the same category (`rv-gtk/src/settings.rs`). */
+  icon: IconName;
   label: TranslationKey;
   /** One line under the label: what is inside. */
   hint: TranslationKey;
 };
 
 export const SETTINGS_CATEGORIES: readonly CategoryInfo[] = [
-  { key: 'account', icon: '👤', label: 'settings.categoryAccount', hint: 'settings.categoryAccountHint' },
-  { key: 'notifications', icon: '🔔', label: 'settings.categoryNotifications', hint: 'settings.categoryNotificationsHint' },
-  { key: 'language', icon: '🌐', label: 'settings.categoryLanguage', hint: 'settings.categoryLanguageHint' },
-  { key: 'encryption', icon: '🔐', label: 'settings.categoryEncryption', hint: 'settings.categoryEncryptionHint' },
-  { key: 'security', icon: '🛡️', label: 'settings.categorySecurity', hint: 'settings.categorySecurityHint' },
-  { key: 'devices', icon: '📱', label: 'settings.categoryDevices', hint: 'settings.categoryDevicesHint' },
-  { key: 'bots', icon: '🤖', label: 'settings.categoryBots', hint: 'settings.categoryBotsHint' },
-  { key: 'workflows', icon: '⚡', label: 'settings.categoryWorkflows', hint: 'settings.categoryWorkflowsHint' },
-  { key: 'accounts', icon: '👥', label: 'settings.categoryAccounts', hint: 'settings.categoryAccountsHint' },
-  { key: 'app', icon: 'ℹ️', label: 'settings.categoryApp', hint: 'settings.categoryAppHint' },
+  { key: 'account', icon: 'avatar-default', label: 'settings.categoryAccount', hint: 'settings.categoryAccountHint' },
+  { key: 'notifications', icon: 'preferences-system-notifications', label: 'settings.categoryNotifications', hint: 'settings.categoryNotificationsHint' },
+  { key: 'language', icon: 'preferences-desktop-locale', label: 'settings.categoryLanguage', hint: 'settings.categoryLanguageHint' },
+  { key: 'encryption', icon: 'channel-secure', label: 'settings.categoryEncryption', hint: 'settings.categoryEncryptionHint' },
+  { key: 'security', icon: 'security-high', label: 'settings.categorySecurity', hint: 'settings.categorySecurityHint' },
+  { key: 'devices', icon: 'computer', label: 'settings.categoryDevices', hint: 'settings.categoryDevicesHint' },
+  { key: 'bots', icon: 'system-run', label: 'settings.categoryBots', hint: 'settings.categoryBotsHint' },
+  { key: 'workflows', icon: 'media-playlist-repeat', label: 'settings.categoryWorkflows', hint: 'settings.categoryWorkflowsHint' },
+  { key: 'accounts', icon: 'system-users', label: 'settings.categoryAccounts', hint: 'settings.categoryAccountsHint' },
+  { key: 'app', icon: 'emblem-system', label: 'settings.categoryApp', hint: 'settings.categoryAppHint' },
 ];
 
 /** What the current account and server offer; each flag fills one category. */

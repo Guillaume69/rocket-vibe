@@ -8,12 +8,18 @@ import type {CryptoGroupAccess,CryptoGroupView} from '../providers/rocketvibe/cr
 import {useSync} from './sync.tsx';
 import {useT} from './i18n.ts';
 import {Tappable} from './tappable.tsx';
+import { InlineIcon } from './icon.tsx';
 import {FONTS,type Colors} from './theme.ts';
 import type {TranslationKey} from './messages.ts';
 
-function Action({c,label,onPress,disabled}:{c:Colors;label:string;onPress:()=>void;disabled:boolean}) {
-  return <Tappable disabled={disabled} accessibilityRole="button" onPress={onPress}>
+function Action({c,label,onPress,disabled,checked}:{c:Colors;label:React.ReactNode;onPress:()=>void;disabled:boolean;checked?:boolean}) {
+  return <Tappable disabled={disabled} accessibilityRole={checked===undefined?'button':'checkbox'}
+    accessibilityState={checked===undefined?{disabled}:{checked,disabled}} onPress={onPress}>
     <Text style={[styles.action,{color:c.cyan}]}>{label}</Text></Tappable>;
+}
+/** A checkbox inside an action's label. */
+function Check({on}:{on:boolean}) {
+  return <InlineIcon name={on?'checkbox-checked':'checkbox'} />;
 }
 export function EncryptedGroupSection({c,room,membership}:{c:Colors;room:string;membership:string}) {
   const sync=useSync(),chat=sync.phase==='ready'?sync.provider.native?.chat:null;
@@ -109,11 +115,11 @@ function Group({c,room,membership,chat}:{c:Colors;room:string;membership:string;
           {botMember && (!view.roster.group || view.accepted && !view.event) && <Text style={[styles.text,{color:c.secondaryText}]}>{t('bots.errBotMember')}</Text>}
           {!botMember && (!view.roster.group || view.accepted && !view.event) && <>
             <Text style={[styles.text,{color:c.secondaryText}]}>{t('group.chooseDevices')}</Text>
-            {view.eligible.map(d=><Action key={d.device} c={c} label={`${selected.includes(d.device)?'☑':'☐'} ${who(d.user)} · ${d.device}${d.replacement?` · ${t('group.replaceDevice')}`:''}`} onPress={()=>toggle(d.device)} disabled={busy}/>)}
+            {view.eligible.map(d=><Action key={d.device} c={c} label={<><Check on={selected.includes(d.device)}/> {`${who(d.user)} · ${d.device}${d.replacement?` · ${t('group.replaceDevice')}`:''}`}</>} onPress={()=>toggle(d.device)} disabled={busy} checked={selected.includes(d.device)}/>)}
             {view.participants.map(p=><View key={p.device} style={styles.device}>
               <Text style={[styles.text,{color:c.text}]}>{who(p.user)} · {p.device}</Text>
               <Text selectable style={[styles.fingerprint,{color:c.secondaryText}]}>{p.certificate}</Text>
-              {p.device!==view.own_device && <Action c={c} label={`${removals.includes(p.device)?'☑':'☐'} ${t('group.removeDevice')}`} onPress={()=>toggle(p.device,true)} disabled={busy}/>}
+              {p.device!==view.own_device && <Action c={c} label={<><Check on={removals.includes(p.device)}/> {t('group.removeDevice')}</>} onPress={()=>toggle(p.device,true)} disabled={busy} checked={removals.includes(p.device)}/>}
             </View>)}
             <Action c={c} label={t(view.roster.group?'group.previewChange':'group.previewCreate')} onPress={()=>prepare()} disabled={busy}/>
           </>}

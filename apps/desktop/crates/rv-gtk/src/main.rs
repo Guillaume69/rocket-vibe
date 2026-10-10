@@ -163,9 +163,10 @@ fn main() -> glib::ExitCode {
         });
         app.add_action(&reply);
         #[cfg(target_os = "linux")]
-        if let Some(settings) = gtk::Settings::default() {
+        if let Some(settings) = gtk::Settings::default()
+            && let Some(layout) = settings.gtk_decoration_layout()
+        {
             // Preserve the desktop's chosen window controls, omit the app icon.
-            let layout = settings.gtk_decoration_layout().unwrap_or_default();
             let clean = layout
                 .split(':')
                 .map(|side| {

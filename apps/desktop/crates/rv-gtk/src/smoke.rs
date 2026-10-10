@@ -2220,7 +2220,7 @@ async fn navigation_checks(window: adw::ApplicationWindow, chat: Rc<crate::chat:
         );
     }
     let toggle = find_by_class(root, "rail-toggle").and_downcast::<gtk::Button>().expect("rail toggle");
-    let theme = gtk::IconTheme::for_display(&window.display());
+    let theme = gtk::IconTheme::for_display(&gtk::prelude::WidgetExt::display(&window));
     check("rail toggle icon exists", toggle.icon_name().is_some_and(|name| theme.has_icon(&name)), toggle.icon_name());
     let before = crate::rail::hidden();
     toggle.emit_clicked();

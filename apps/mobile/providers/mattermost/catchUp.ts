@@ -21,6 +21,8 @@ import type { MmRoomDoc } from './translator.ts';
 type Doc = Record<string, unknown>;
 
 const PREVIEWS = 40;
+/** Rows `?since=` answers at most (read in the 11.11 server), in no promised order. */
+const SINCE_CAP = 1000;
 const PREVIEW_CONCURRENCY = 4;
 const CURSOR_SCOPE = '*';
 const CURSOR_STREAM = 'mm-last-post';
@@ -57,15 +59,21 @@ export class MmCatchUp {
   async global(engine: SyncEngine, isDiscarded: () => boolean): Promise<void> {
     const mark = this.live.mark();
     // A server older than 5.32 has no categories: the rooms keep the default sections.
-    const [channels, members, format] = await Promise.all([
+    const [channels, members, format, flags] = await Promise.all([
       this.channels(),
       this.client.pages<Doc>('/users/me/channel_members'),
       this.nameFormat(),
+      this.client.get<unknown>('/users/me/preferences/flagged_post').catch(() => null),
       this.categories?.load().catch(() => {}),
       this.categories?.sidebar.load().catch(() => {}),
     ]);
     if (format !== null) this.directory.setNameFormat(format);
     if (isDiscarded()) return;
+    // My stars are preferences, not in the posts: the set marks every post read from now on.
+    if (Array.isArray(flags)) {
+      const ids = (flags as Doc[]).filter((p) => p?.value !== 'false' && typeof p?.name === 'string').map((p) => String(p.name));
+      for (const event of this.live.resetFlags(ids)) await engine.apply(event);
+    }
     const memberOf = new Map(members.map((m) => [String(m.channel_id), m]));
     const live = channels.filter((c) => !(typeof c.delete_at === 'number' && c.delete_at > 0) && memberOf.has(String(c.id)));
     this.categories?.rankConversations(live);
@@ -142,6 +150,18 @@ export class MmCatchUp {
       query: { since },
     });
     const posts = Object.values(list.posts ?? {});
+    // A full answer may have left changes out, in no order, and ingesting it
+    // would move the cursor (the newest `updatedAt`) past them: the cache can no
+    // longer be vouched for. It goes, and the newest page comes back in its place;
+    // older history pages in from the server again when scrolled to.
+    if (posts.length >= SINCE_CAP) {
+      const first = await this.history.page(rid, null);
+      await this.live.ensureAuthors(first);
+      if (isDiscarded()) return;
+      await store.clearRoomMessages(rid);
+      await engine.ingestMessages(first);
+      return;
+    }
     let deleted = posts.filter((p) => typeof p.delete_at === 'number' && p.delete_at > 0).map((p) => String(p.id));
     if (this.deletedRoute) {
       const ids = await this.client.get<unknown>(`/channels/${rid}/deleted_posts`, { query: { since } }).catch(() => []);

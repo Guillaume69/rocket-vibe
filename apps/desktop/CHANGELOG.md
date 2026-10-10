@@ -19,6 +19,10 @@ section here.
 - Invite links (GTK and macOS, Rocket.Chat servers): where my roles allow it, a channel's or group's information dialog creates its invite link (7 days, any number of uses) and copies it; the link is the server's own, not the go.rocket.chat redirect.
 - Discussions (GTK and macOS, Rocket.Chat servers): a discussion born in a room shows as a card (its name, message count, last activity, Open), which opens it, joining it first when it belongs to a public channel. "Start a discussion" in a message's menu and "New discussion" in a room's information dialog create one, named after the message's first line, with an optional first message.
 
+### Changed
+
+- The last colour emoji used as interface markers are monochrome icons, like every other icon of the app: a locked room's tile, the encryption banner and unlock card, the lock of an encrypted voice session, the two-factor shield, a thread's replies, file kinds in cards and staged files, the call card, and room kinds in the administration (GTK: Adwaita symbolic icons; SwiftUI: SF Symbols, with a "React" submenu instead of a smiley).
+
 ### Fixed
 
 - The room list previews a message that quotes another by its own words, and a forwarded message (a quote with no words) as "↪ Quoted message" instead of an empty line (GTK and macOS).

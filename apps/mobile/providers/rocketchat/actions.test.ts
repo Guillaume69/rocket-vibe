@@ -173,6 +173,48 @@ describe('ActionsRC', () => {
     ]);
   });
 
+  test('listMembers: the server order and filter, roles kept, unreadable entries dropped', async () => {
+    const read: { path: string; params: unknown }[] = [];
+    const client = {
+      get: async (path: string, options: { params?: unknown } = {}) => {
+        read.push({ path, params: options.params });
+        return {
+          members: [
+            { _id: 'u0', username: 'admin', name: 'Admin', status: 'online', roles: ['owner'] },
+            { _id: 'u1', username: 'alice', status: 'away', avatarETag: 'e1' },
+            { username: 'ghost' },
+          ],
+          total: 3,
+        };
+      },
+    } as unknown as RestClient;
+    const page = await new ActionsRC(client).listMembers('r1', ' bo ', 50);
+    assert.deepEqual(page, {
+      members: [
+        { id: 'u0', username: 'admin', name: 'Admin', status: 'online', avatarEtag: null, roles: ['owner'] },
+        { id: 'u1', username: 'alice', name: null, status: 'away', avatarEtag: 'e1', roles: [] },
+      ],
+      total: 3,
+    });
+    assert.deepEqual(read, [{ path: 'rooms.membersOrderedByRole', params: { roomId: 'r1', count: 50, offset: 50, filter: 'bo' } }]);
+  });
+
+  test('saveRoomSettings sends only the changed texts under the server names', async () => {
+    const { client, calls } = fakeClient({ success: true });
+    await new ActionsRC(client).saveRoomSettings('r1', { topic: '', announcement: 'Hello' });
+    assert.deepEqual(calls, [{ path: 'rooms.saveRoomSettings', body: { rid: 'r1', roomTopic: '', roomAnnouncement: 'Hello' } }]);
+  });
+
+  test('member roles and removal take the room kind route', async () => {
+    const { client, calls } = fakeClient({ success: true });
+    const a = new ActionsRC(client);
+    await a.setMemberRole('r1', 'c', 'u1', 'moderator', true);
+    await a.setMemberRole('r1', 'p', 'u1', 'owner', false);
+    await a.removeMember('r1', 'p', 'u1');
+    assert.deepEqual(calls.map((x) => x.path), ['channels.addModerator', 'groups.removeOwner', 'groups.kick']);
+    assert.deepEqual(calls[0].body, { roomId: 'r1', userId: 'u1' });
+  });
+
   test('followThread maps to chat.followMessage / chat.unfollowMessage', async () => {
     const { client, calls } = fakeClient({ success: true });
     const a = new ActionsRC(client);

@@ -7,6 +7,7 @@ import { subscriptions } from '../db/schema.ts';
 import type { RoomNotificationLevel } from '../lib/normalize.ts';
 import type { ProviderActions } from '../lib/provider.ts';
 import { useT } from './i18n.ts';
+import { useCoalescedLiveQuery } from './liveQuery.ts';
 import type { TranslationKey } from './messages.ts';
 import { Tappable } from './tappable.tsx';
 import { FONTS, type Colors } from './theme.ts';
@@ -90,6 +91,28 @@ export function RoomNotificationChoice({
       {failed && <Text style={[styles.error, { color: c.errorText }]}>{t('roomNotifications.failed')}</Text>}
     </View>
   );
+}
+
+/**
+ * The same choice for a room known only by its id: a direct message, whose
+ * header opens the other person's profile rather than the room's information
+ * (`app/profile.tsx`, the `dm` parameter). Nothing until the subscription is local.
+ */
+export function RoomNotificationChoiceFor({
+  c,
+  rid,
+  base,
+  actions,
+}: {
+  c: Colors;
+  rid: string;
+  base: LocalDatabase;
+  actions: ProviderActions;
+}) {
+  const { data } = useCoalescedLiveQuery(base.select().from(subscriptions).where(eq(subscriptions.rid, rid)), [rid]);
+  const subscription = data?.[0];
+  if (subscription === undefined) return null;
+  return <RoomNotificationChoice c={c} rid={rid} base={base} actions={actions} current={subscription.pushPreference} />;
 }
 
 const styles = StyleSheet.create({

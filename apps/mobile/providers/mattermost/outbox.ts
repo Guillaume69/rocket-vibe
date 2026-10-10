@@ -8,7 +8,13 @@
  *
  * The echo is only a short-lived server cache, not stored: a replay much later
  * cannot rely on it. Before declaring a refusal, the newest posts of the room
- * are read for one of mine with the same text and thread.
+ * are read for one of mine with the same text and thread; and before REPLAYING
+ * a row that may already have gone out (sent once in this session whose answer
+ * was lost, or queued before this outbox started, so before a restart), the
+ * same look comes first, or the replay would post a duplicate once the cache
+ * has forgotten the id. A replay that races the first POST still being saved
+ * answers `api.post.deduplicate_create_post.pending`: the post is coming, the
+ * row stays pending and is looked for again a moment later.
  */
 
 import type { LocalMessage } from '../../lib/normalize.ts';
@@ -30,6 +36,9 @@ export function pendingPostId(myId: string, clientId: string): string {
 }
 const CHECK_DEPTH = 30;
 const CLOCK_SKEW_MS = 120_000;
+/** The server's answer while the first POST with the same `pending_post_id` is being saved. */
+const STILL_SAVING = 'api.post.deduplicate_create_post.pending';
+const SAVING_RETRY_MS = 3_000;
 
 export class MmOutbox implements Outbox {
   private readonly store: OutboxStore;
@@ -40,6 +49,10 @@ export class MmOutbox implements Outbox {
   private readonly now: () => number;
   private inFlight = false;
   private rerun = false;
+  /** Rows a POST went out for in this session, answered or not. */
+  private readonly attempted = new Set<string>();
+  private readonly startedAt: number;
+  private readonly later: (run: () => void) => void;
 
   constructor(options: {
     store: OutboxStore;
@@ -48,6 +61,8 @@ export class MmOutbox implements Outbox {
     generateId: () => string;
     ingest: Ingest;
     now?: () => number;
+    /** Runs a pass again later (a post still being saved); a timer by default. */
+    later?: (run: () => void) => void;
   }) {
     this.store = options.store;
     this.client = options.client;
@@ -55,6 +70,8 @@ export class MmOutbox implements Outbox {
     this.generateId = options.generateId;
     this.ingest = options.ingest;
     this.now = options.now ?? (() => Date.now());
+    this.startedAt = this.now();
+    this.later = options.later ?? ((run) => void setTimeout(run, SAVING_RETRY_MS));
   }
 
   async send(rid: string, text: string, threadId: string | null = null, localAttachments: string | null = null): Promise<string> {
@@ -117,6 +134,15 @@ export class MmOutbox implements Outbox {
 
   private async runPass(): Promise<boolean> {
     for (const row of await this.store.listToSend()) {
+      if (this.attempted.has(row.id) || row.createdAt < this.startedAt) {
+        const found = await this.findMine(row);
+        if (found === UNKNOWN) return false;
+        if (found !== null) {
+          await this.delivered(row.id, found);
+          continue;
+        }
+      }
+      this.attempted.add(row.id);
       try {
         const post = await this.client.post<Record<string, unknown>>('/posts', {
           body: { channel_id: row.rid, message: row.text, root_id: row.threadId ?? '', pending_post_id: pendingPostId(this.me.id, row.id) },
@@ -124,6 +150,12 @@ export class MmOutbox implements Outbox {
         await this.delivered(row.id, post);
       } catch (e) {
         if (e instanceof MmError && e.status === 0) return false;
+        // Not a refusal: the first POST is still being saved. The next pass looks
+        // for it before any replay (the row is in `attempted`).
+        if (e instanceof MmError && e.id === STILL_SAVING) {
+          this.later(() => void this.process());
+          return false;
+        }
         const found = await this.findMine(row);
         if (found === UNKNOWN) return false;
         if (found !== null) {
@@ -140,6 +172,7 @@ export class MmOutbox implements Outbox {
     await this.ingest(post);
     await this.store.deleteOutbox(localId);
     await this.store.deleteOptimisticMessage(localId);
+    this.attempted.delete(localId);
   }
 
   /** A post of mine with the same text, made since this row was queued: an older identical one is not it. */

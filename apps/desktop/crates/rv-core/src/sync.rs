@@ -43,6 +43,15 @@ fn topic_of(key: &str) -> &str {
     key.split_once('/').map_or("", |(_, topic)| topic)
 }
 
+/// The server family a session speaks to. Every per-server choice matches on
+/// it, exhaustively: a forgotten case is a compile error, not a silent fall
+/// through to Rocket.Chat's REST on a Mattermost server.
+pub(crate) enum Backend<'a> {
+    RocketChat,
+    /// Mattermost or kChat, with the engine that maps its channels and posts.
+    Mattermost(&'a Arc<MmSync>),
+}
+
 pub struct SyncEngine {
     store: Arc<Store>,
     rest: RestClient,
@@ -62,8 +71,12 @@ impl SyncEngine {
         SyncEngine { mattermost: Some(Arc::new(mm)), ..Self::new(store, rest, me, me_uid) }
     }
 
-    pub fn mattermost(&self) -> Option<&Arc<MmSync>> {
-        self.mattermost.as_ref()
+    /// Which server family this engine reads; match on it, exhaustively.
+    pub(crate) fn backend(&self) -> Backend<'_> {
+        match &self.mattermost {
+            Some(mm) => Backend::Mattermost(mm),
+            None => Backend::RocketChat,
+        }
     }
 
     pub fn apply_event(&self, collection: &str, key: &str, args: &[Value]) {
@@ -117,8 +130,11 @@ impl SyncEngine {
 
     /// Returns the newest `_updatedAt` ingested: the stuff cursors are made of.
     pub fn ingest_messages(&self, raw: &[Value]) -> Option<i64> {
-        if let Some(mm) = &self.mattermost {
-            return mm.ingest(raw);
+        match self.backend() {
+            Backend::Mattermost(mm) => {
+                return mm.ingest(raw);
+            }
+            Backend::RocketChat => {}
         }
         self.store.write(|w| ingest_into(w, raw))
     }
@@ -126,8 +142,9 @@ impl SyncEngine {
     /// A room document a REST answer carried (a discussion created, a
     /// channel joined): stored at once, ahead of the stream. Rocket.Chat only.
     pub fn ingest_room(&self, raw: &Value) {
-        if self.mattermost.is_some() {
-            return;
+        match self.backend() {
+            Backend::Mattermost(_) => return,
+            Backend::RocketChat => {}
         }
         if let Some(r) = to_room(raw, &self.me, &self.me_uid) {
             self.store.write(|w| w.upsert_room(&r));
@@ -137,8 +154,11 @@ impl SyncEngine {
     /// `rooms.get` + `subscriptions.get` with `updatedSince`: every room and
     /// counter in two requests. Without a cursor, the full load.
     pub async fn catch_up_global(&self) -> Result<(), RestError> {
-        if let Some(mm) = &self.mattermost {
-            return mm.catch_up_global().await;
+        match self.backend() {
+            Backend::Mattermost(mm) => {
+                return mm.catch_up_global().await;
+            }
+            Backend::RocketChat => {}
         }
         let options = |stream: &str| {
             let mut o = CallOptions::default();
@@ -195,8 +215,11 @@ impl SyncEngine {
     /// the full subscription list no longer has goes. An empty list is not
     /// trusted to mean "no rooms".
     pub async fn reconcile_rooms(&self) -> Result<(), RestError> {
-        if let Some(mm) = &self.mattermost {
-            return mm.reconcile_rooms().await;
+        match self.backend() {
+            Backend::Mattermost(mm) => {
+                return mm.reconcile_rooms().await;
+            }
+            Backend::RocketChat => {}
         }
         let response = self.rest.get("subscriptions.get", CallOptions::default()).await?;
         let live: Vec<String> = response
@@ -219,8 +242,11 @@ impl SyncEngine {
     /// may have missed. `chat.syncMessages` takes one room and one kind per
     /// call; two pages at most per kind, the cursor keeps the rest for later.
     pub async fn catch_up_room(&self, rid: &str) -> Result<(), RestError> {
-        if let Some(mm) = &self.mattermost {
-            return mm.catch_up_room(rid).await;
+        match self.backend() {
+            Backend::Mattermost(mm) => {
+                return mm.catch_up_room(rid).await;
+            }
+            Backend::RocketChat => {}
         }
         let Some(since) = self.store.cursor(rid, "messages") else { return Ok(()) };
         self.sync_pages(rid, "UPDATED", "messages", since).await?;
@@ -278,8 +304,11 @@ impl SyncEngine {
     }
 
     pub async fn load_history(&self, rid: &str, kind: &str, latest: Option<i64>) -> Result<HistoryPage, RestError> {
-        if let Some(mm) = &self.mattermost {
-            return mm.load_history(rid, latest).await;
+        match self.backend() {
+            Backend::Mattermost(mm) => {
+                return mm.load_history(rid, latest).await;
+            }
+            Backend::RocketChat => {}
         }
         let messages = self.history(rid, kind, latest, None).await?;
         self.store.write(|w| {
@@ -306,8 +335,11 @@ impl SyncEngine {
         latest: Option<i64>,
         oldest: Option<i64>,
     ) -> Result<Vec<Message>, RestError> {
-        if let Some(mm) = &self.mattermost {
-            return mm.history_range(rid, latest, oldest).await;
+        match self.backend() {
+            Backend::Mattermost(mm) => {
+                return mm.history_range(rid, latest, oldest).await;
+            }
+            Backend::RocketChat => {}
         }
         Ok(self.history(rid, kind, latest, oldest).await?.iter().filter_map(to_message).collect())
     }
@@ -337,8 +369,11 @@ impl SyncEngine {
 
     /// The server's copy of one message, not stored.
     pub async fn fetch_message(&self, id: &str) -> Result<Option<Message>, RestError> {
-        if let Some(mm) = &self.mattermost {
-            return mm.fetch_message(id).await;
+        match self.backend() {
+            Backend::Mattermost(mm) => {
+                return mm.fetch_message(id).await;
+            }
+            Backend::RocketChat => {}
         }
         let response = self.rest.get("chat.getMessage", CallOptions::params([("msgId", id)])).await?;
         Ok(response.get("message").and_then(to_message))

@@ -73,12 +73,12 @@ pub fn quote(provider: Option<&media::Provider>, q: &Quote, me: &str) -> gtk::Wi
         }
     }
     for file in &q.files {
-        let glyph = match file.kind {
-            FileKind::Audio => "🎵",
-            FileKind::Video => "🎬",
-            FileKind::Other => "📎",
+        let icon = match file.kind {
+            FileKind::Audio => "audio-x-generic-symbolic",
+            FileKind::Video => "video-x-generic-symbolic",
+            FileKind::Other => "mail-attachment-symbolic",
         };
-        card.append(&label(&format!("{glyph} {}", file.title), &["quote-text"]));
+        card.append(&widgets::with_icon(icon, &label(&file.title, &["quote-text"]), &[]));
     }
     card.upcast()
 }
@@ -226,11 +226,11 @@ pub fn file_provider(session: media::Provider, f: &FileAttachment) -> gtk::Widge
         gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(6).css_classes(["file-card"]).build();
     let top = gtk::Box::new(gtk::Orientation::Horizontal, 10);
     let icon = match f.kind {
-        FileKind::Audio => "🎵",
-        FileKind::Video => "🎬",
-        FileKind::Other => "📄",
+        FileKind::Audio => "audio-x-generic-symbolic",
+        FileKind::Video => "video-x-generic-symbolic",
+        FileKind::Other => "text-x-generic-symbolic",
     };
-    top.append(&gtk::Label::builder().label(icon).css_classes(["file-icon"]).build());
+    top.append(&gtk::Image::builder().icon_name(icon).css_classes(["file-icon"]).build());
     let names = gtk::Box::new(gtk::Orientation::Vertical, 1);
     names.set_hexpand(true);
     let title = label(&f.title, &["file-title"]);
@@ -618,7 +618,11 @@ pub fn discussion(row: &rv_core::store::MessageRow, drid: &str, on_event: OnRowE
 /// A call message: "Video call" and, when the call is known, Join.
 pub fn call(call_id: Option<&str>, on_event: OnRowEvent) -> gtk::Widget {
     let card = gtk::Box::builder().spacing(12).css_classes(["call-card"]).halign(gtk::Align::Start).build();
-    card.append(&gtk::Label::builder().label(format!("📹 {}", t("message.call"))).css_classes(["call-title"]).build());
+    card.append(&widgets::with_icon(
+        "camera-video-symbolic",
+        &gtk::Label::new(Some(t("message.call"))),
+        &["call-title"],
+    ));
     if let Some(call_id) = call_id {
         let join = gtk::Button::builder().label(t("message.join")).css_classes(["call-join"]).build();
         join.set_cursor(pointer().as_ref());

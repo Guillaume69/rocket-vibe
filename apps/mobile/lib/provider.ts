@@ -30,6 +30,10 @@ export type SyncChange =
   | { type: 'message-deleted'; id: string }
   | { type: 'room-deleted'; rid: string }
   | { type: 'subscription-deleted-by-sub'; subId: string }
+  /** A message's `starred` column alone (a star set elsewhere); a message not cached stays absent. */
+  | { type: 'message-starred'; id: string; starred: string | null }
+  /** A thread root's "N replies" and last reply alone; a root not cached stays absent. */
+  | { type: 'thread-counters'; id: string; count: number; last: number | null }
   /**
    * New version of the photo of a user (by username) OR of a room (by rid):
    * one of the two keys, never both. `etag` is the avatar URL cache-buster; it
@@ -210,6 +214,18 @@ export interface ProviderActions {
   listThreads?(rid: string, following: boolean, offset: number): Promise<ThreadPage>;
   /** Follows or unfollows the thread of `root` (idempotent server-side). */
   followThread?(rid: string, root: string, put: boolean): Promise<void>;
+  /**
+   * A page of a channel's or group's members from `offset`, owners and
+   * moderators first, `filter` searched by the server. Absent where the
+   * server has no such list (a DM has none).
+   */
+  listMembers?(rid: string, filter: string, offset: number): Promise<MemberPage>;
+  /** Gives or takes a member's room role; `type` is the room's (`c` or `p`). */
+  setMemberRole?(rid: string, type: string, userId: string, role: 'moderator' | 'owner', put: boolean): Promise<void>;
+  /** Removes a member from the room. */
+  removeMember?(rid: string, type: string, userId: string): Promise<void>;
+  /** Writes the given texts of the room (only those present). */
+  saveRoomSettings?(rid: string, fields: Partial<RoomTexts>): Promise<void>;
   markRead(rid: string, observation?:ReadObservation): Promise<void>;
   /**
    * Makes the room unread again from its last message; the subscription the
@@ -231,6 +247,14 @@ export interface ProviderActions {
    */
   openOrCreateDm(username: string,uid?:string): Promise<{ rid: string; rawRoom: Record<string, unknown> }>;
 }
+
+/** A room member as `ProviderActions.listMembers` reads it; `roles` in the room (`owner`, `moderator`, `leader`). */
+export type RoomMember = { id: string; username: string; name: string | null; status: string | null; avatarEtag: string | null; roles: string[] };
+/** One page of `ProviderActions.listMembers`, owners and moderators first. */
+export type MemberPage = { members: RoomMember[]; total: number };
+
+/** A room's texts as `ProviderActions.saveRoomSettings` writes them. */
+export type RoomTexts = { topic: string; description: string; announcement: string };
 
 /** One page of `ProviderActions.listThreads`. */
 export type ThreadPage = { threads: LocalMessage[]; total: number };

@@ -245,19 +245,6 @@ pub const INVITE_DAYS: u32 = 7;
 /// owners and moderators by default).
 pub const INVITE_PERMISSION: &str = "create-invite-links";
 
-/// The room's invite (`findOrCreateInvite`, 7 days, any number of uses):
-/// the same user, room and settings get the same one back. Its id.
-pub async fn find_or_create_invite(rest: &RestClient, rid: &str) -> Result<String, RestError> {
-    let body = json!({"rid": rid, "days": INVITE_DAYS, "maxUses": 0});
-    let invite = rest.post("findOrCreateInvite", CallOptions::body(body)).await?;
-    invite
-        .get("_id")
-        .and_then(Value::as_str)
-        .filter(|id| !id.is_empty())
-        .map(str::to_owned)
-        .ok_or_else(|| RestError::incomplete("findOrCreateInvite: no invite id"))
-}
-
 /// The direct invite link, served by the server itself: never the answer's
 /// `url`, which goes through `go.rocket.chat` unless the workspace says otherwise.
 pub fn invite_link(site_url: &str, id: &str) -> String {
@@ -279,32 +266,6 @@ pub fn suggested_discussion_name(text: Option<&str>) -> String {
     } else {
         line.to_owned()
     }
-}
-
-/// Creates a discussion of the room `prid` (`rooms.createDiscussion`), from
-/// one of its messages (`pmid`, left unchanged), with a first message
-/// (`reply`). The server takes an empty name: the caller refuses one. The
-/// new room's document.
-pub async fn create_discussion(
-    rest: &RestClient,
-    prid: &str,
-    name: &str,
-    pmid: Option<&str>,
-    reply: Option<&str>,
-) -> Result<Value, RestError> {
-    let mut body = json!({"prid": prid, "t_name": name});
-    if let Some(pmid) = pmid {
-        body["pmid"] = json!(pmid);
-    }
-    if let Some(reply) = reply.map(str::trim).filter(|r| !r.is_empty()) {
-        body["reply"] = json!(reply);
-    }
-    let response = rest.post("rooms.createDiscussion", CallOptions::body(body)).await?;
-    response
-        .get("discussion")
-        .filter(|d| d.get("_id").and_then(Value::as_str).is_some())
-        .cloned()
-        .ok_or_else(|| RestError::incomplete("rooms.createDiscussion: no discussion"))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

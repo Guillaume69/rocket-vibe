@@ -349,7 +349,10 @@ pub(super) async fn discussion_checks(chat: Rc<ChatPage>, session: Arc<Session>,
     let theirs = format!("{tag} theirs");
     let (r, t) = (rid.clone(), theirs.clone());
     let made =
-        crate::on_tokio(async move { rv_core::actions::create_discussion(&peer, &r, &t, None, None).await }).await;
+        crate::on_tokio(
+            async move { rv_core::rocketchat::actions::create_discussion(&peer, &r, &t, None, None).await },
+        )
+        .await;
     let their_rid = made.as_ref().ok().and_then(|d| d.get("_id")).and_then(|v| v.as_str()).map(str::to_owned);
     check("the peer starts a discussion", their_rid.is_some(), made.as_ref().err());
     let Some(their_rid) = their_rid else { return };

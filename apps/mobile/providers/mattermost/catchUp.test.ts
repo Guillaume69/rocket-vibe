@@ -35,7 +35,7 @@ function setup(extra: (call: Call) => ReturnType<Parameters<typeof fakeServer>[0
   const live = new MmLive(client, directory, 'u-me');
   const history = new MmHistory(client, live);
   const local = memoryStore();
-  const engine = new SyncEngine(local.store, new MmTranslator(directory, 'u-me'));
+  const engine = new SyncEngine(local.store, new MmTranslator(directory, 'u-me', null, undefined, live.flagged));
   const catchUp = new MmCatchUp({ client, directory, live, history, myId: 'u-me', deletedRoute });
   return { catchUp, engine, history, server, live, ...local };
 }
@@ -49,6 +49,19 @@ describe('MmCatchUp', () => {
     assert.equal(subscriptions.get('ch1')?.unread, 2);
     assert.equal(subscriptions.get('ch1')?.mentions, 1);
     assert.equal(cursors.get('*|mm-last-post'), 100);
+  });
+
+  test('global: my flags star the cached posts, and the next list unstars the ones gone', async () => {
+    let flags = [{ category: 'flagged_post', name: 'p1', value: 'true' }];
+    const { catchUp, engine, messages, store } = setup((call) => (call.path === '/users/me/preferences/flagged_post' ? { body: flags } : undefined));
+    const translate = new MmTranslator(new MmDirectory(new MmClient('http://x', null)), 'u-me');
+    await store.upsertMessage(translate.toMessage(post('p1', { channel_id: 'ch1' }))!);
+    await catchUp.global(engine, () => false);
+    assert.equal(messages.get('p1')?.starred, '["u-me"]');
+    assert.equal(messages.has('p2'), false, 'a flag on an uncached post adds no row');
+    flags = [];
+    await catchUp.global(engine, () => false);
+    assert.equal(messages.get('p1')?.starred, null);
   });
 
   test('global again with nothing new: only conversations are written again, their preview kept', async () => {
@@ -75,6 +88,24 @@ describe('MmCatchUp', () => {
     await catchUp.room(engine, 'ch1', () => false);
     assert.equal(messages.get('p1')?.text, 'edited');
     assert.equal(messages.has('p2'), false);
+  });
+
+  test('room: a full since= answer drops the cache and reloads the newest page', async () => {
+    const flood = Array.from({ length: 1000 }, (_, i) => post(`f${i}`, { channel_id: 'ch1', update_at: 20 + i, message: `m${i}` }));
+    const { catchUp, engine, messages, store } = setup((call) => {
+      if (call.path !== '/channels/ch1/posts') return undefined;
+      if (call.query.get('since') !== null) return { body: postList(flood) };
+      return { body: postList([post('newest', { channel_id: 'ch1', update_at: 5000, message: 'newest' })]) };
+    });
+    const translate = new MmTranslator(new MmDirectory(new MmClient('http://x', null)), 'u-me');
+    await store.upsertMessage(translate.toMessage(post('stale', { channel_id: 'ch1', update_at: 10 }))!);
+    // An optimistic send still in the outbox survives.
+    await store.upsertMessage({ ...translate.toMessage(post('mine', { channel_id: 'ch1' }))!, updatedAt: 0 });
+    await catchUp.room(engine, 'ch1', () => false);
+    assert.equal(messages.has('stale'), false, 'the unvouched cache is gone');
+    assert.equal(messages.has('f0'), false, 'the full answer is not ingested');
+    assert.equal(messages.get('newest')?.text, 'newest');
+    assert.equal(messages.has('mine'), true);
   });
 
   test('reconcile: the live rooms are kept, the rest purged', async () => {

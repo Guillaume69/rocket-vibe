@@ -5,7 +5,7 @@ import { reactionList } from '../../lib/reactions.ts';
 import { MmClient } from './client.ts';
 import { MmDirectory } from './directory.ts';
 import { post } from './testing.ts';
-import { MM_POST, MM_QUIET, MmTranslator, record } from './translator.ts';
+import { MM_POST, MM_QUIET, MmTranslator, membershipCounts, record } from './translator.ts';
 
 function translator() {
   const directory = new MmDirectory(new MmClient('http://mm.test', 't'));
@@ -151,5 +151,26 @@ describe('Room previews', () => {
     const channel = { id: 'ch1', type: 'O', name: 'dev', update_at: 5, last_post_at: 9 };
     assert.equal(translator().toRoom({ channel })?.keepPreview, true);
     assert.equal(translator().toRoom({ channel, lastPost: null })?.keepPreview, false);
+  });
+});
+
+describe('membershipCounts', () => {
+  const channel = { type: 'O', total_msg_count_root: 10, total_msg_count: 12 };
+  test('unread roots and mentions of a membership', () => {
+    assert.deepEqual(membershipCounts(channel, { msg_count_root: 7, mention_count: 2 }), { unread: 3, mentions: 2 });
+  });
+  test('a muted channel counts its mentions only', () => {
+    assert.deepEqual(
+      membershipCounts(channel, { msg_count_root: 7, mention_count: 0, notify_props: { mark_unread: 'mention' } }),
+      { unread: 0, mentions: 0 },
+    );
+    assert.deepEqual(
+      membershipCounts(channel, { msg_count_root: 7, mention_count: 1, notify_props: { mark_unread: 'mention' } }),
+      { unread: 1, mentions: 1 },
+    );
+    assert.deepEqual(
+      membershipCounts(channel, { msg_count_root: 7, mention_count: 0, notify_props: { mark_unread: 'all' } }),
+      { unread: 3, mentions: 0 },
+    );
   });
 });

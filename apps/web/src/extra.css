@@ -287,6 +287,23 @@
 .tile {
   position: relative;
 }
+/* A symbolic icon in a tile or a staged file's thumbnail, where an emoji
+   used to stand. */
+.tile > .tile-icon {
+  color: #ffffff;
+}
+.tile-room > .tile-icon {
+  width: 20px;
+  height: 20px;
+}
+.symbolic-icon.staged-icon {
+  width: 22px;
+  height: 22px;
+}
+.file-icon > .symbolic-icon {
+  width: 26px;
+  height: 26px;
+}
 /* The GTK scrollers use an unobtrusive rounded overlay thumb everywhere. */
 :root {
   color-scheme: dark;

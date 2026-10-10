@@ -26,7 +26,8 @@ import { probeCallAvailable } from './call.ts';
 import type { RestClient } from './rest.ts';
 
 /** One of the two forms `users.info` accepts (never both at once). */
-export type ProfileParams = { username?: string; uid?: string; cryptoRoom?:string };
+/** `dm`: the direct message the profile is opened from, for its own settings (notifications). */
+export type ProfileParams = { username?: string; uid?: string; cryptoRoom?:string; dm?: string };
 
 /**
  * Why `user` is missing: a catalogue key (translated at DISPLAY time, this

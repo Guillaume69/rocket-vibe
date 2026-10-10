@@ -9,7 +9,7 @@ release, and its notes are that version's section here.
 
 ### Added
 
-- On Rocket.Chat servers, a 💬 button in the room header lists the room's threads, all of them or only the ones you follow, latest reply first; a bell on each thread and in the thread's header follows or unfollows it.
+- On Rocket.Chat servers, a button in the room header lists the room's threads, all of them or only the ones you follow, latest reply first; a bell on each thread and in the thread's header follows or unfollows it.
 - On Rocket.Chat servers, a long press on a room in the list marks it as unread, or as read when it has unread messages.
 - On Rocket.Chat servers, the room's information sheet chooses the room's own notifications: default, all messages, mentions or nothing, applied to push and desktop alike.
 - The room list shows the time of each room's last message (the hour today, the weekday this week, the date beyond), and the unread badge reads `@n` in pink when you are mentioned, as on the desktop.
@@ -18,15 +18,31 @@ release, and its notes are that version's section here.
 - A line break typed in a list item continues the list (`- `, `* `, `1. `), and one on an empty item ends it, as on the desktop.
 - A video call card offers "Meeting information": the meeting's link without your personal token, to copy or open in the browser.
 - On Rocket.Chat servers, "Forward" in a message's actions sends it, as a quote, to another room you pick.
-- A 🔍 in the room list searches messages across every room, among those already on the device, newest first; a result opens the room at the message.
+- A search button in the room list searches messages across every room, among those already on the device, newest first; a result opens the room at the message.
 - On Rocket.Chat servers, a thread reply can also be sent to the room ("Also send to the room" above the thread composer).
 - On Rocket.Chat servers, the room information sheet shares an invite link to a channel or group (for owners, moderators and admins), valid 7 days, in the server's own address.
 - On Rocket.Chat servers, discussions: their card in the parent room opens them (joining a public one), and "Start a discussion" on a message or "New discussion" in the room information creates one.
 - A formatting row ("Aa" beside the emoji button): bold, italic, strike, link, code, code block, quote and lists, around the selection, as on the desktop.
+- On Rocket.Chat servers, the room information sheet lists the room's members (owners and moderators first, searchable), each opening its profile; a long press makes or removes a moderator or an owner, or removes someone from the room, as your rights allow.
+- On Rocket.Chat servers, those allowed to edit a room change its topic, description and announcement from its information sheet.
 - My profile can remove my photo (Rocket.Chat and RocketVibe), after a confirmation.
+
+### Changed
+
+- The interface draws its icons with the desktop's monochrome GNOME Adwaita icons, tinted by the theme, instead of colour emoji that looked different on every phone: buttons, headers, menus, settings, administration, voice controls, attachments and file types.
+- Screen readers say what those icons alone show: an encrypted room, a voice participant's muted microphone, sound, camera or shared screen, the state of checkboxes.
+- The composer is laid out like the desktop's: a single outlined field holding attach, emoji and microphone, lit cyan while typing, and a round send button that stays in place, dimmed while there is nothing to send, and turns into stop while recording.
 
 ### Fixed
 
+- On Mattermost and kChat, a thread's "N replies" moves as soon as someone answers, not at the next catch-up.
+- On Mattermost and kChat, a star set or removed in another client shows at once, and a starred message no longer loses its star when it is edited or reacted to.
+- On Mattermost and kChat, a muted channel no longer turns bold nor rises into Unread for ordinary messages; a mention still shows its badge.
+- On Mattermost and kChat, a room that changed more than a thousand times while the app was away reloads its newest messages instead of keeping a history with holes.
+- On Mattermost and kChat, a message whose send answer was lost (a network drop) is looked for before it goes out again, instead of posting it twice once the server has forgotten it.
+- On Mattermost and kChat, a message sent again while the server is still saving the first attempt stays "sending" until it shows, instead of turning "not sent".
+
+- Quote cards show emoji as glyphs instead of their `:shortcodes:`.
 - The room list previews a reply by its own words and a forwarded message as "↪ Quoted message", no longer by the raw quote link.
 
 - A message the server refused no longer goes out again on every send: it waits for "Retry", so a few refused messages can no longer use up Rocket.Chat's 10 requests a minute and hold back the next message.

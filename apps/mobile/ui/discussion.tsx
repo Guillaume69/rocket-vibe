@@ -9,6 +9,7 @@ import { useSession } from './session.tsx';
 import { useSync } from './sync.tsx';
 import { Tappable } from './tappable.tsx';
 import { FONTS, LIST_PRESS_DELAY, type Colors } from './theme.ts';
+import { InlineIcon } from './icon.tsx';
 
 /**
  * A Rocket.Chat discussion: a room of its own (`prid` = the parent), announced
@@ -68,7 +69,7 @@ export function DiscussionCard({
     .join(' · ');
   return (
     <View style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}>
-      <Text style={[styles.kind, { color: c.dimmed }]}>💬 {t('discussion.kind')}</Text>
+      <Text style={[styles.kind, { color: c.dimmed }]}><InlineIcon name="chat-message-new" /> {t('discussion.kind')}</Text>
       {name.trim() !== '' && (
         <Text style={[styles.name, { color: c.text }]} numberOfLines={2}>
           {name}

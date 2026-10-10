@@ -8,7 +8,7 @@ import { MmClient } from './client.ts';
 import { MmDirectory } from './directory.ts';
 import { MmLive } from './live.ts';
 import { fakeServer, post } from './testing.ts';
-import { MM_MEMBERSHIP, MM_POST, MM_ROOM, MM_ROOM_DELETED, MmTranslator } from './translator.ts';
+import { MM_MEMBERSHIP, MM_POST, MM_ROOM, MM_ROOM_DELETED, MM_STARRED, MM_THREAD, MmTranslator } from './translator.ts';
 
 function setup(route: Parameters<typeof fakeServer>[0] = () => undefined) {
   const server = fakeServer(route);
@@ -79,6 +79,24 @@ describe('MmLive.expand', () => {
     assert.equal(events[0]?.collection, MM_POST);
   });
 
+  test("a live reply brings its root's fresh reply counters, never the whole root", async () => {
+    const { live, server, translator } = setup((call) =>
+      call.path === '/posts/root1' ? { body: post('root1', { channel_id: 'ch1', reply_count: 4, last_reply_at: 900 }) } : undefined,
+    );
+    const reply = JSON.stringify(post('r9', { channel_id: 'ch1', root_id: 'root1', user_id: 'u-bob' }));
+    const events = await live.expand('posted', { post: reply }, { channel_id: 'ch1' });
+    assert.deepEqual(events.filter((e) => e.collection === MM_POST).map((e) => (e.args[0] as { id: string }).id), ['r9']);
+    const counters = events.find((e) => e.collection === MM_THREAD)!;
+    assert.deepEqual(translator.translateEvent(counters), { kind: 'change', change: { type: 'thread-counters', id: 'root1', count: 4, last: 900 } });
+    assert.equal(server.calls.filter((c) => c.path === '/posts/root1').length, 1);
+  });
+
+  test('a root post asks for nothing more', async () => {
+    const { live, server } = setup();
+    await live.expand('posted', { post: JSON.stringify(post('p5', { channel_id: 'ch1' })) }, { channel_id: 'ch1' });
+    assert.equal(server.calls.some((c) => c.path.startsWith('/posts/')), false);
+  });
+
   test('a post in an unknown channel loads it first', async () => {
     const { live, server } = setup((call) => {
       if (call.path === '/channels/new') return { body: { id: 'new', type: 'O', total_msg_count: 0, total_msg_count_root: 0 } };
@@ -137,6 +155,19 @@ describe('kChat reads made elsewhere', () => {
 });
 
 describe('Preferences set elsewhere', () => {
+  test('a star set or removed in another client rewrites the column, and the post keeps it when read again', async () => {
+    const { live, server } = setup();
+    const translator = new MmTranslator(new MmDirectory(new MmClient(server.base, 'tok')), 'u-me', null, undefined, live.flagged);
+    const set = await live.expand('preferences_changed', { preferences: JSON.stringify([{ user_id: 'u-me', category: 'flagged_post', name: 'p1', value: 'true' }]) }, {});
+    assert.deepEqual(set.map((e) => [e.collection, e.eventKey]), [[MM_STARRED, 'p1']]);
+    assert.deepEqual(translator.translateEvent(set[0]!), { kind: 'change', change: { type: 'message-starred', id: 'p1', starred: '["u-me"]' } });
+    assert.equal(translator.toMessage(post('p1', { channel_id: 'ch1' }))?.starred, '["u-me"]');
+    const removed = await live.expand('preferences_deleted', { preferences: [{ user_id: 'u-me', category: 'flagged_post', name: 'p1', value: 'true' }] }, {});
+    assert.deepEqual(translator.translateEvent(removed[0]!), { kind: 'change', change: { type: 'message-starred', id: 'p1', starred: null } });
+    assert.equal(translator.toMessage(post('p1', { channel_id: 'ch1' }))?.starred, null);
+    assert.equal(server.calls.length, 0, 'no post is fetched');
+  });
+
   test('a new name format names the conversations again; a closed DM leaves the list', async () => {
     const server = fakeServer(() => undefined);
     const client = new MmClient(server.base, 'tok', { fetch: server.fetcher });

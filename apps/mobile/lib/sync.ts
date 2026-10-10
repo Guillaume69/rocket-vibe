@@ -76,6 +76,12 @@ export interface Store {
   updateMessageMarks(id: string, pinned: boolean, starred: string | null): Promise<void>;
   /** A thread root's followers set locally after a successful (un)follow (`lib/marks.ts`). */
   updateThreadFollowers(id: string, followers: string | null): Promise<void>;
+  /** Only the `starred` column; no row for an id the cache does not hold. */
+  updateMessageStarred(id: string, starred: string | null): Promise<void>;
+  /** Only a root's thread counters; no row for an id the cache does not hold. */
+  updateThreadCounters(id: string, count: number, last: number | null): Promise<void>;
+  /** Forgets a room's cached messages (a catch-up that cannot vouch for them), optimistic ones kept. */
+  clearRoomMessages(rid: string): Promise<void>;
   /**
    * Sets the avatar version (`avatarETag`) of a user, designated by their
    * USERNAME: it is the only key the stream carries. No effect on a username
@@ -260,6 +266,12 @@ export class SyncEngine {
       case 'message-deleted':
         await this.store.deleteMessage(change.id);
         this.stats.deletions++;
+        return;
+      case 'message-starred':
+        await this.store.updateMessageStarred(change.id, change.starred);
+        return;
+      case 'thread-counters':
+        await this.store.updateThreadCounters(change.id, change.count, change.last);
         return;
       case 'room-deleted':
         await this.store.deleteRoom(change.rid);

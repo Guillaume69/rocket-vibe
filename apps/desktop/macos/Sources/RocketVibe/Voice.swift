@@ -566,7 +566,13 @@ struct VoicePage: View {
         let members = voice.members(room.rid)
         let sharer = mine ? members.first(where: { $0.screen }) : nil
         VStack(spacing: 16) {
-            if let status { Text(status).font(.vibe(13, .bold)).foregroundStyle(mine && state.phase == .connected ? Vibe.mint : Vibe.muted) }
+            if let status {
+                HStack(spacing: 5) {
+                    if mine && state.encrypted { Image(systemName: "lock.fill") }
+                    Text(status)
+                }
+                .font(.vibe(13, .bold)).foregroundStyle(mine && state.phase == .connected ? Vibe.mint : Vibe.muted)
+            }
             if members.isEmpty {
                 Spacer()
                 Text(L("voice_session.empty")).foregroundStyle(Vibe.muted)

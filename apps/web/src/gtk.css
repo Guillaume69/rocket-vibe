@@ -34,7 +34,7 @@ window, label, entry, textview, button { font-family: "Nunito", "Noto Color Emoj
 .rainbow-yellow { background: #FFD34E; }
 .rainbow-cyan { background: #34E1D0; }
 .rainbow-violet { background: #A78BFA; }
-.shield { font-size: 34px; }
+.shield { -gtk-icon-size: 34px; }
 .step-title { font-family: "Baloo 2"; font-weight: 700; font-size: 21px; }
 .step-intro { color: #8F89AB; font-size: 13px; }
 .back-link { color: #F3F0FF; font-family: "Baloo 2"; font-weight: 700; font-size: 17px; }
@@ -147,7 +147,7 @@ button.cta:active, button.cta:disabled { opacity: 0.75; }
 .staged-chip { background: #0F0E1C; border: 1px solid #2C2946; border-radius: 12px; padding: 6px 4px 6px 6px; }
 .staged-chip:hover { border-color: #A78BFA; }
 .staged-thumb { background: #1E1B33; border-radius: 8px; }
-.staged-icon { font-size: 22px; }
+.staged-icon { -gtk-icon-size: 22px; }
 .staged-quality { font-size: 12.5px; color: #8F89AB; }
 .update-card { background: #171529; border: 1.5px solid #2C2946; border-radius: 16px; padding: 10px 12px; margin: 6px 8px; }
 .update-title { font-weight: 800; font-size: 13px; }
@@ -225,7 +225,7 @@ button.retry { color: #FF7A8A; font-weight: 700; font-size: 12px; padding: 0 4px
 .quote-card .quote-card { background: #1E1B33; }
 .quote-author { font-weight: 800; font-size: 12.5px; color: #A78BFA; }
 .file-card, .link-card, .call-card { background: #171529; border: 1px solid #2C2946; border-radius: 12px; padding: 10px 12px; margin-top: 4px; }
-.file-icon { font-size: 26px; }
+.file-icon { -gtk-icon-size: 26px; }
 .file-title { font-weight: 700; }
 .file-detail, .link-site { font-size: 12px; color: #8F89AB; }
 button.file-action, button.call-join { background: linear-gradient(135deg, #FF5FA2, #A78BFA); color: #0D0B1A; font-weight: 800; border-radius: 999px; padding: 2px 14px; min-height: 28px; }

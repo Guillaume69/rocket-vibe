@@ -23,6 +23,10 @@ export const MM_ROOM_DELETED = 'mm:room-deleted';
 export const MM_MEMBERSHIP = 'mm:membership';
 export const MM_AVATAR = 'mm:avatar';
 export const MM_QUIET = 'mm:quiet';
+/** A post flagged or unflagged (`{id, on}`), by me in any client. */
+export const MM_STARRED = 'mm:starred';
+/** A root read again after a live reply: only its counters are written. */
+export const MM_THREAD = 'mm:thread';
 
 /** A channel and, when known, its newest root post: what the room list shows. */
 export type MmRoomDoc = { channel: Record<string, unknown>; lastPost?: Record<string, unknown> | null };
@@ -51,12 +55,26 @@ export class MmTranslator implements Translator {
   private readonly myId: string;
   private readonly categories: MmCategories | null;
   private readonly fileBase: string;
+  /** The posts I flagged (`flagged_post` preferences), kept by `MmLive`. */
+  private readonly flagged: ReadonlySet<string>;
 
-  constructor(directory: MmDirectory, myId: string, categories: MmCategories | null = null, fileBase = '/api/v4/files') {
+  constructor(
+    directory: MmDirectory,
+    myId: string,
+    categories: MmCategories | null = null,
+    fileBase = '/api/v4/files',
+    flagged: ReadonlySet<string> = new Set(),
+  ) {
     this.directory = directory;
     this.myId = myId;
     this.categories = categories;
     this.fileBase = fileBase;
+    this.flagged = flagged;
+  }
+
+  /** A flag is mine alone: the column holds my uid or nothing. */
+  private starredColumn(on: boolean): string | null {
+    return on ? JSON.stringify([this.myId]) : null;
   }
 
   translateEvent(event: DdpEvent): Translation {
@@ -88,6 +106,14 @@ export class MmTranslator implements Translator {
         return username === null || etag === null
           ? IGNORE
           : change({ type: 'avatar', username, rid: null, etag });
+      }
+      case MM_STARRED: {
+        const id = str(doc?.id);
+        return id === null ? IGNORE : change({ type: 'message-starred', id, starred: this.starredColumn(doc?.on === true) });
+      }
+      case MM_THREAD: {
+        const id = str(doc?.id);
+        return id === null ? IGNORE : change({ type: 'thread-counters', id, count: num(doc?.reply_count), last: positive(doc?.last_reply_at) });
       }
       case MM_QUIET:
         return SILENCE;
@@ -131,7 +157,8 @@ export class MmTranslator implements Translator {
       callId: call?.conferenceId ?? null,
       encryptedRaw: null,
       pinned: raw.is_pinned === true,
-      starred: null,
+      // Not in the post: a re-read would otherwise drop the star.
+      starred: this.starredColumn(this.flagged.has(id)),
       updatedAt: positive(raw.update_at) ?? ts,
     };
   }
@@ -265,6 +292,9 @@ export class MmTranslator implements Translator {
 /**
  * Unread ROOT posts (replies live in threads, as on the screen) and mentions of
  * one membership. Servers without the root counters fall back on the totals.
+ * A muted channel (`notify_props.mark_unread: "mention"`) counts its mentions
+ * as its unread, as the web client does: plain messages neither bolden it nor
+ * lift it into Unread, a mention still shows its `@n` badge.
  */
 export function membershipCounts(channel: Record<string, unknown>, member: Record<string, unknown>): { unread: number; mentions: number } {
   const rootTotal = channel.total_msg_count_root;
@@ -272,8 +302,9 @@ export function membershipCounts(channel: Record<string, unknown>, member: Recor
   const unread = useRoot
     ? num(rootTotal) - num(member.msg_count_root)
     : num(channel.total_msg_count) - num(member.msg_count);
+  const muted = (member.notify_props as { mark_unread?: unknown } | undefined)?.mark_unread === 'mention';
   // Mattermost counts every message of a DM as a mention; the list shows a DM's unread count instead.
-  return { unread: Math.max(0, unread), mentions: channel.type === 'D' ? 0 : num(member.mention_count) };
+  return { unread: muted ? num(member.mention_count) : Math.max(0, unread), mentions: channel.type === 'D' ? 0 : num(member.mention_count) };
 }
 
 /** Mattermost OpenGraph embeds to the `urls` shape `lib/linkPreview.ts` reads. */

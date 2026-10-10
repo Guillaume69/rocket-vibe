@@ -25,6 +25,7 @@ import { textOf, emojiUnicode, type Root } from '../lib/markdown.ts';
 import { openProfileCard } from '../lib/profilePreload.ts';
 import { openExternalLink } from './externalLink.ts';
 import { TappableText } from './tappableText.tsx';
+import { InlineIcon } from './icon.tsx';
 import { type Colors, FONTS } from './theme.ts';
 
 const MONO_FONT = Platform.select({ android: 'monospace', default: 'Menlo' });
@@ -167,7 +168,14 @@ function Block({ block, c }: { block: Paragraph | Blocks | BigEmoji; c: Colors }
       return <List c={c} items={block.value} bullet={(item, i) => `${item.number ?? i + 1}.`} />;
 
     case 'TASKS':
-      return <List c={c} items={block.value} bullet={(t) => (t.status === true ? '☑' : '☐')} />;
+      return (
+        <List
+          c={c}
+          items={block.value}
+          bullet={(t) => <InlineIcon name={t.status === true ? 'checkbox-checked' : 'checkbox'} />}
+          checked={(t) => t.status === true}
+        />
+      );
 
     case 'BIG_EMOJI': {
       // The parser VALIDATES no shortcode: `:not_an_emoji:` alone on its line
@@ -205,16 +213,25 @@ function List<T extends { value: Inlines[] }>({
   c,
   items,
   bullet,
+  checked,
 }: {
   c: Colors;
   items: T[];
-  bullet: (item: T, index: number) => string;
+  bullet: (item: T, index: number) => React.ReactNode;
+  /** A task list: the box's state, which a screen reader cannot read off the icon. */
+  checked?: (item: T) => boolean;
 }) {
   return (
     <View style={styles.list}>
       {(Array.isArray(items) ? items : []).map((item, i) => (
         <View key={i} style={styles.listItem}>
-          <Text style={{ color: c.dimmed }}>{bullet(item, i)}</Text>
+          <Text
+            style={{ color: c.dimmed }}
+            accessibilityRole={checked === undefined ? undefined : 'checkbox'}
+            accessibilityState={checked === undefined ? undefined : { checked: checked(item) }}
+          >
+            {bullet(item, i)}
+          </Text>
           <Text style={[styles.paragraph, styles.itemText, { color: c.text }]}>
             {renderInlines(item.value, c)}
           </Text>

@@ -27,7 +27,7 @@ import { type Colors, FONTS, LIST_PRESS_DELAY, useColors } from '../ui/theme.ts'
  * ciphertext, and a read-only room refuses the post.
  */
 export default function ForwardScreen() {
-  const { link, mid } = useLocalSearchParams<{ link: string; mid: string }>();
+  const { link, mid, from } = useLocalSearchParams<{ link: string; mid: string; from?: string }>();
   const { state } = useSession();
   const sync = useSync();
   const c = useColors();
@@ -41,7 +41,9 @@ export default function ForwardScreen() {
       </View>
     );
   }
-  return <Forward c={c} base={sync.base} outbox={sync.outbox} client={state.client} link={link} mid={mid} />;
+  return (
+    <Forward c={c} base={sync.base} outbox={sync.outbox} client={state.client} link={link} mid={mid} from={typeof from === 'string' ? from : null} />
+  );
 }
 
 function Forward({
@@ -51,6 +53,7 @@ function Forward({
   client,
   link,
   mid,
+  from,
 }: {
   c: Colors;
   base: LocalDatabase;
@@ -58,28 +61,28 @@ function Forward({
   client: RestClient;
   link: string;
   mid: string;
+  /** The message's own room: not a destination. */
+  from: string | null;
 }) {
   const t = useT();
   const router = useRouter();
   const names = useDisplayNames();
   const [query, setQuery] = useState('');
   const [sending, setSending] = useState(false);
-  const [failed, setFailed] = useState(false);
   const { data: roomRows } = useCoalescedLiveQuery(base.select().from(rooms).orderBy(desc(rooms.lastMessageTs)));
   const { data: source } = useCoalescedLiveQuery(base.select().from(messages).where(eq(messages.id, mid)), [mid]);
   const original = source?.[0];
   const targets = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
     return (roomRows ?? [])
-      .filter((r) => !r.encrypted && !r.readOnly)
+      .filter((r) => !r.encrypted && !r.readOnly && r.rid !== from)
       .map((room) => ({ room, title: roomTitle(room, names) }))
       .filter(({ title }) => needle === '' || title.toLocaleLowerCase().includes(needle));
-  }, [roomRows, names, query]);
+  }, [roomRows, names, query, from]);
 
   const forwardTo = (rid: string) => {
     if (sending) return;
     setSending(true);
-    setFailed(false);
     // The quote card shows at once; the server echo then replaces it.
     const preview =
       original === undefined
@@ -90,13 +93,12 @@ function Forward({
             text: original.text,
             attachments: original.attachments,
           });
-    outbox.send(rid, quote(link, ''), null, preview).then(
-      () => router.replace({ pathname: '/room/[rid]', params: { rid } }),
-      () => {
-        setSending(false);
-        setFailed(true);
-      },
-    );
+    // Not awaited: `send` resolves after the network attempt, which the REST
+    // limit can hold for 30 s (seen on the emulator). The optimistic message
+    // is in the target room at once, and a refusal shows there as "not sent"
+    // with Retry, like any send.
+    void outbox.send(rid, quote(link, ''), null, preview).catch(() => {});
+    router.replace({ pathname: '/room/[rid]', params: { rid } });
   };
 
   return (
@@ -113,7 +115,6 @@ function Forward({
           style={[styles.field, { color: c.text, borderColor: c.border }]}
         />
       </View>
-      {failed && <Text style={[styles.error, { color: c.errorText }]}>{t('forward.failed')}</Text>}
       <FlatList
         data={targets}
         keyExtractor={({ room }) => room.rid}
@@ -169,5 +170,4 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 10 },
   name: { flex: 1, fontFamily: FONTS.body, fontSize: 16 },
   empty: { textAlign: 'center', padding: 24, fontFamily: FONTS.body, fontSize: 14 },
-  error: { textAlign: 'center', paddingHorizontal: 16, fontFamily: FONTS.body, fontSize: 14 },
 });

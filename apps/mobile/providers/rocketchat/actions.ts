@@ -7,12 +7,14 @@
 
 import { mentionsE2E } from '../../lib/e2e/mentions.ts';
 import type { OutboxEncryptor } from '../../lib/outbox.ts';
-import type { ProviderActions, RoomInformation, ThreadPage } from '../../lib/provider.ts';
+import type { MemberPage, ProviderActions, RoomInformation, RoomMember, RoomTexts, ThreadPage } from '../../lib/provider.ts';
 import { toMessage, type LocalMessage, type RoomNotificationLevel } from '../../lib/normalize.ts';
 import type { RestClient } from '../../lib/rest.ts';
 
 /** Roots per page of the thread list. */
 const THREAD_PAGE = 50;
+/** Members per page of the member list. */
+const MEMBER_PAGE = 50;
 
 export class ActionsRC implements ProviderActions {
   // A plain field, not a "parameter property": the latter is not erasable
@@ -100,6 +102,55 @@ export class ActionsRC implements ProviderActions {
       .map((raw) => toMessage(raw))
       .filter((m): m is LocalMessage => m !== null);
     return { threads, total: typeof response.total === 'number' ? response.total : offset + threads.length };
+  }
+
+  /**
+   * `rooms.membersOrderedByRole` (owners, then moderators, then the rest),
+   * `filter` matched by the server; a DM answers `error-room-type-not-supported`.
+   */
+  async listMembers(rid: string, filter: string, offset: number): Promise<MemberPage> {
+    const response = await this.client.get<{ members?: Record<string, unknown>[]; total?: number }>(
+      'rooms.membersOrderedByRole',
+      { params: { roomId: rid, count: MEMBER_PAGE, offset, ...(filter.trim() === '' ? {} : { filter: filter.trim() }) } },
+    );
+    const text = (v: unknown) => (typeof v === 'string' && v !== '' ? v : null);
+    const members = (response.members ?? []).flatMap((raw): RoomMember[] => {
+      const id = text(raw._id);
+      const username = text(raw.username);
+      if (id === null || username === null) return [];
+      const roles = Array.isArray(raw.roles) ? raw.roles.filter((r): r is string => typeof r === 'string') : [];
+      return [{ id, username, name: text(raw.name), status: text(raw.status), avatarEtag: text(raw.avatarETag), roles }];
+    });
+    return { members, total: typeof response.total === 'number' ? response.total : offset + members.length };
+  }
+
+  /**
+   * `channels.*` for a channel, `groups.*` for a private group (there is no
+   * `rooms.*` route). Not idempotent: adding a role already held answers
+   * `error-user-already-moderator` / `-owner`, so the caller asks from the
+   * roles it shows.
+   */
+  async setMemberRole(rid: string, type: string, userId: string, role: 'moderator' | 'owner', put: boolean): Promise<void> {
+    const name = role === 'owner' ? 'Owner' : 'Moderator';
+    await this.client.post(`${type === 'p' ? 'groups' : 'channels'}.${put ? 'add' : 'remove'}${name}`, {
+      body: { roomId: rid, userId },
+    });
+  }
+
+  /** `rooms.saveRoomSettings` refuses any unknown key; `edit-room` is checked by the server. */
+  async saveRoomSettings(rid: string, fields: Partial<RoomTexts>): Promise<void> {
+    await this.client.post('rooms.saveRoomSettings', {
+      body: {
+        rid,
+        ...(fields.topic === undefined ? {} : { roomTopic: fields.topic }),
+        ...(fields.description === undefined ? {} : { roomDescription: fields.description }),
+        ...(fields.announcement === undefined ? {} : { roomAnnouncement: fields.announcement }),
+      },
+    });
+  }
+
+  async removeMember(rid: string, type: string, userId: string): Promise<void> {
+    await this.client.post(`${type === 'p' ? 'groups' : 'channels'}.kick`, { body: { roomId: rid, userId } });
   }
 
   /** The server rebroadcasts the root, whose `replies` then carries the change. */

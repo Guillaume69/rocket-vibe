@@ -30,6 +30,7 @@ import type { TranslationKey } from '../ui/messages.ts';
 import { useSession } from '../ui/session.tsx';
 import { useSync } from '../ui/sync.tsx';
 import { FONTS, useColors } from '../ui/theme.ts';
+import { InlineIcon } from '../ui/icon.tsx';
 import { useSheetBottomMargin } from '../ui/sheetMargin.ts';
 import {RoomCommands} from '../ui/roomManagement.tsx';
 import {RoomMembershipBound} from '../ui/roomMembership.tsx';
@@ -37,6 +38,7 @@ import {NativeRoomFavorite} from '../ui/nativeRoomFavorite.tsx';
 import {EncryptedGroupSection} from '../ui/encryptedGroup.tsx';
 import { RoomNotificationChoice } from '../ui/roomNotifications.tsx';
 import { RoomInvite } from '../ui/roomInvite.tsx';
+import { RoomSettingsEditor } from '../ui/roomSettingsEditor.tsx';
 
 const TYPE_SENTENCE: Record<string, TranslationKey> = {
   c: 'roomInfo.typePublicChannel',
@@ -178,8 +180,12 @@ function RoomInfoContent({
           radius={22}
         />
         <View style={styles.identity}>
-          <Text style={[styles.name, { color: c.text }]} numberOfLines={2}>
-            {room?.encrypted === true && <Text style={styles.encryptedBadge}>🔒 </Text>}
+          <Text
+            style={[styles.name, { color: c.text }]}
+            numberOfLines={2}
+            accessibilityLabel={room?.encrypted === true ? `${t('home.encryptedRoom')}, ${name}` : undefined}
+          >
+            {room?.encrypted === true && <InlineIcon name="channel-secure" style={styles.encryptedBadge} spaced />}
             {room?.type === 'c' ? '#' : ''}
             {name}
           </Text>
@@ -208,6 +214,21 @@ function RoomInfoContent({
       {!native && subscription !== undefined && (
         <RoomNotificationChoice c={c} rid={rid} base={base} actions={actions} current={subscription.pushPreference} />
       )}
+      {actions.listMembers !== undefined && room !== undefined && room.type !== 'd' && (
+        <Tappable
+          onPress={() => {
+            router.back();
+            router.push({ pathname: '/room-members', params: { rid } });
+          }}
+          accessibilityRole="button"
+          android_ripple={{ color: c.ripple }}
+          style={[styles.favorite, { backgroundColor: c.card }]}
+        >
+          <Text style={[styles.favoriteText, { color: c.text }]}>
+            <InlineIcon name="system-users" /> {extras?.members != null ? t('members.count', { n: extras.members }) : t('members.title')}
+          </Text>
+        </Tappable>
+      )}
       {!native && client.kind === 'rocketchat' && subscription !== undefined && room?.encrypted !== true && (
         <Tappable
           onPress={() => {
@@ -218,11 +239,15 @@ function RoomInfoContent({
           android_ripple={{ color: c.ripple }}
           style={[styles.favorite, { backgroundColor: c.card }]}
         >
-          <Text style={[styles.favoriteText, { color: c.text }]}>💬 {t('discussion.new')}</Text>
+          <Text style={[styles.favoriteText, { color: c.text }]}><InlineIcon name="chat-message-new" /> {t('discussion.new')}</Text>
         </Tappable>
       )}
       {!native && subscription !== undefined && (
         <RoomInvite c={c} client={client} siteUrl={siteUrl} rid={rid} type={room?.type} roles={subscription.roles} />
+      )}
+
+      {!native && extras !== null && subscription !== undefined && room?.type !== 'd' && (
+        <RoomSettingsEditor c={c} client={client} actions={actions} rid={rid} roles={subscription.roles} info={extras} onSaved={() => setRefreshing((value) => value + 1)} />
       )}
 
       {extras?.management && actions.roomManagement && <RoomCommands rid={rid} base={base} details={extras.management} actions={actions.roomManagement} c={c} refresh={()=>setRefreshing(value=>value+1)} />}

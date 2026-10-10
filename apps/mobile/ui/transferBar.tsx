@@ -1,6 +1,7 @@
 import { StyleSheet, Text, View } from 'react-native';
 
 import { type Colors, FONTS } from './theme.ts';
+import { InlineIcon } from './icon.tsx';
 import { progressLabel, useProgress } from './transfers.ts';
 
 /**
@@ -46,7 +47,7 @@ export function TransferBar({
   return (
     <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: radius, overflow: 'hidden' }]}>
       <View style={[styles.badge, { backgroundColor: c.card + 'D9' }]}>
-        <Text style={[styles.badgeText, { color: c.text }]}>⬇ {progressLabel(p)}</Text>
+        <Text style={[styles.badgeText, { color: c.text }]}><InlineIcon name="folder-download" /> {progressLabel(p)}</Text>
       </View>
       <View style={[styles.track, styles.mediaTrack]}>{padding}</View>
     </View>

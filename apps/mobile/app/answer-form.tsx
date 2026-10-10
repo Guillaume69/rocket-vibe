@@ -25,6 +25,7 @@ import { useSession } from '../ui/session.tsx';
 import { useSheetBottomMargin } from '../ui/sheetMargin.ts';
 import { useSync } from '../ui/sync.tsx';
 import { Tappable } from '../ui/tappable.tsx';
+import { Icon } from '../ui/icon.tsx';
 import { FONTS, LIST_PRESS_DELAY, useColors, type Colors } from '../ui/theme.ts';
 import { answerInput, formErrorKey, formState, parseForm } from '../ui/workflowsModel.ts';
 
@@ -203,7 +204,7 @@ function ChoicesInput({ c, field, value, disabled, onChange }: { c: Colors; fiel
 function CheckRow({ c, label, on, disabled, onPress, children }: { c: Colors; label?: string; on: boolean; disabled: boolean; onPress: () => void; children?: React.ReactNode }) {
   return (
     <Tappable disabled={disabled} accessibilityRole="checkbox" accessibilityState={{ checked: on, disabled }} onPress={onPress} style={styles.option}>
-      <Text style={[styles.check, { color: on ? c.accent : c.dimmed }]}>{on ? '☑' : '☐'}</Text>
+      <Icon name={on ? 'checkbox-checked' : 'checkbox'} size={18} color={on ? c.accent : c.dimmed} style={styles.check} />
       {children ?? <Text style={[styles.text, styles.grow, { color: c.text }]}>{label}</Text>}
     </Tappable>
   );
@@ -228,7 +229,7 @@ function FieldInput({ c, field, value, disabled, onChange }: { c: Colors; field:
                 onPress={() => onChange(on && field.required !== true ? '' : option)}
                 style={styles.option}
               >
-                <Text style={[styles.check, { color: on ? c.accent : c.dimmed }]}>{on ? '◉' : '○'}</Text>
+                <Icon name={on ? 'radio-checked' : 'radio'} size={18} color={on ? c.accent : c.dimmed} style={styles.check} />
                 <Text style={[styles.text, styles.grow, { color: c.text }]}>{option}</Text>
               </Tappable>
             );
@@ -364,7 +365,7 @@ function PersonInput({ c, field, named, chat, room, value, disabled, onChange }:
 function PersonRow({ c, user, on, disabled, onPress }: { c: Colors; user: User; on: boolean; disabled: boolean; onPress: () => void }) {
   return (
     <Tappable disabled={disabled} accessibilityRole="radio" accessibilityState={{ selected: on, disabled }} onPress={onPress} style={styles.option}>
-      <Text style={[styles.check, { color: on ? c.accent : c.dimmed }]}>{on ? '◉' : '○'}</Text>
+      <Icon name={on ? 'radio-checked' : 'radio'} size={18} color={on ? c.accent : c.dimmed} style={styles.check} />
       <PersonName c={c} user={user} />
     </Tappable>
   );
@@ -389,7 +390,7 @@ const styles = StyleSheet.create({
   input: { fontFamily: FONTS.body, fontSize: 16, paddingHorizontal: 14, paddingVertical: 12, borderRadius: 14, borderWidth: StyleSheet.hairlineWidth },
   multiline: { minHeight: 96, textAlignVertical: 'top' },
   option: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8 },
-  check: { fontSize: 18, width: 22, textAlign: 'center' },
+  check: { width: 22, textAlign: 'center' },
   button: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', paddingVertical: 13, borderRadius: 14 },
   inactive: { opacity: 0.6 },
   buttonText: { fontFamily: FONTS.bodyStrong, fontSize: 15 },

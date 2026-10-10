@@ -9,7 +9,7 @@ use adw::prelude::*;
 use gtk::glib;
 use rv_core::info::{Profile, RoomInfo, local_time};
 use rv_core::markdown;
-use rv_core::media::{AvatarTarget, avatar_path};
+use rv_core::provider::Chat;
 use rv_core::session::Session;
 
 use crate::i18n::{t, tf, tn};
@@ -353,62 +353,17 @@ pub struct ProfileActions {
     pub room: Option<String>,
 }
 
-/// A person, from `users.info`: by username, or by id when `by_id`.
-pub fn profile(parent: &impl IsA<gtk::Widget>, session: Arc<Session>, key: &str, by_id: bool, actions: ProfileActions) {
-    profile_with_source(parent, ProfileSource::Legacy(session), key, by_id, actions);
+/// The RocketVibe server's profile version, which moves when a profile
+/// changes there; Rocket.Chat and Mattermost profiles are read once.
+fn profile_version(chat: &Chat) -> Option<String> {
+    chat.native().map(|s| s.profile_version())
 }
-pub fn profile_native(
-    parent: &impl IsA<gtk::Widget>,
-    session: Arc<rv_core::native::NativeSession>,
-    key: &str,
-    by_id: bool,
-    actions: ProfileActions,
-) {
-    profile_with_source(parent, ProfileSource::Native(session), key, by_id, actions);
+/// The RocketVibe session was closed under the open dialog.
+fn closed(chat: &Chat) -> bool {
+    chat.native().is_some_and(|s| s.is_closed())
 }
-#[derive(Clone)]
-enum ProfileSource {
-    Legacy(Arc<Session>),
-    Native(Arc<rv_core::native::NativeSession>),
-}
-impl ProfileSource {
-    fn username(&self) -> &str {
-        match self {
-            Self::Legacy(s) => &s.info.username,
-            Self::Native(s) => &s.info.username,
-        }
-    }
-    fn user_id(&self) -> &str {
-        match self {
-            Self::Legacy(s) => &s.info.user_id,
-            Self::Native(s) => &s.info.user_id,
-        }
-    }
-    fn version(&self) -> Option<String> {
-        match self {
-            Self::Legacy(_) => None,
-            Self::Native(s) => Some(s.profile_version()),
-        }
-    }
-    fn closed(&self) -> bool {
-        matches!(self,Self::Native(s) if s.is_closed())
-    }
-    async fn read(&self, key: &str, by_id: bool) -> Result<Profile, rv_core::rest::RestError> {
-        match self {
-            Self::Legacy(s) => s.profile(key, by_id).await,
-            Self::Native(s) => {
-                s.profile(key, by_id).await.map(|p| s.profile_presentation(&p)).map_err(rv_core::native::rest_error)
-            }
-        }
-    }
-}
-fn profile_with_source(
-    parent: &impl IsA<gtk::Widget>,
-    source: ProfileSource,
-    key: &str,
-    by_id: bool,
-    actions: ProfileActions,
-) {
+/// A person: by username, or by id when `by_id`.
+pub fn profile_chat(parent: &impl IsA<gtk::Widget>, source: Chat, key: &str, by_id: bool, actions: ProfileActions) {
     let content = column();
     loading(&content);
     let dialog = dialog(t("info.profile"), content.upcast_ref(), 520);
@@ -419,7 +374,7 @@ fn profile_with_source(
     let active = Rc::new(Cell::new(true));
     let (tx, rx) = async_channel::bounded(1);
     tx.try_send(()).ok();
-    let forward = if let ProfileSource::Native(s) = &source {
+    let forward = if let Chat::Native(s) = &source {
         let (mut changes, mut events) = (s.store.changes(), s.events());
         Some(crate::runtime().spawn(async move {
             loop {
@@ -442,20 +397,20 @@ fn profile_with_source(
     glib::spawn_future_local(async move {
         let mut displayed = None;
         while rx.recv().await.is_ok() && active.get() {
-            if source.closed() {
+            if closed(&source) {
                 dialog.close();
                 return;
             }
-            let version = source.version();
+            let version = profile_version(&source);
             if displayed.as_ref() == Some(&version) {
                 continue;
             }
             let (s, k) = (source.clone(), key.clone());
-            let found = on_tokio(async move { s.read(&k, by_id).await }).await;
+            let found = on_tokio(async move { s.profile(&k, by_id).await }).await;
             if !active.get() {
                 return;
             }
-            if source.closed() {
+            if closed(&source) {
                 dialog.close();
                 return;
             }
@@ -467,7 +422,7 @@ fn profile_with_source(
                     key = p.id.clone();
                     by_id = true;
                     fill_profile(&content, &dialog, &source, &p, actions.clone());
-                    displayed = Some(source.version());
+                    displayed = Some(profile_version(&source));
                 }
                 Err(_) => {
                     content.append(&centered(t("info.failed"), &["details-sub"]));
@@ -477,20 +432,9 @@ fn profile_with_source(
     });
 }
 
-fn fill_profile(
-    content: &gtk::Box,
-    dialog: &adw::Dialog,
-    session: &ProfileSource,
-    p: &Profile,
-    actions: Rc<ProfileActions>,
-) {
+fn fill_profile(content: &gtk::Box, dialog: &adw::Dialog, session: &Chat, p: &Profile, actions: Rc<ProfileActions>) {
     let tile = widgets::tile(&p.username, &widgets::initial(&p.username), TileSize::Profile, false);
-    let tile = match session {
-        ProfileSource::Legacy(s) => {
-            with_photo(tile, Some(s), Some(avatar_path(AvatarTarget::User(&p.username), p.avatar_etag.as_deref())))
-        }
-        ProfileSource::Native(s) => crate::rows::with_native_photo(tile, s, p.avatar_etag.clone()),
-    };
+    let tile = crate::rows::person_photo(tile, session, &p.username, p.avatar_etag.clone());
     tile.set_halign(gtk::Align::Center);
     content.append(&tile);
     content.append(&centered(p.name.as_deref().unwrap_or(&p.username), &["details-name"]));
@@ -504,8 +448,8 @@ fn fill_profile(
         content.append(&line);
     }
     if let Some(presence) = match session {
-        ProfileSource::Legacy(s) => s.presence(&p.id).or(p.presence),
-        ProfileSource::Native(_) => p.presence,
+        Chat::Legacy(s) => s.presence(&p.id).or(p.presence),
+        Chat::Native(_) => p.presence,
     } {
         let line = gtk::Box::builder().spacing(6).halign(gtk::Align::Center).build();
         let dot = presence_dot(presence, &[]);
@@ -532,21 +476,21 @@ fn fill_profile(
         ));
     }
     if let Some(bio) = &p.bio {
-        section(content, t("info.bio"), bio, session.username());
+        section(content, t("info.bio"), bio, &session.info().username);
     }
-    if let (ProfileSource::Legacy(s), Some(rid)) = (session, &actions.room)
+    if let (Chat::Legacy(s), Some(rid)) = (session, &actions.room)
         && let Some(choice) = crate::room_notifications::group(s, rid)
     {
         content.append(&choice);
     }
     // A bot never has a crypto device: no identity to compare.
-    if let ProfileSource::Native(native) = session
+    if let Chat::Native(native) = session
         && native.crypto_settings_supported()
         && !p.bot
     {
         crate::native_crypto::profile_button(content, dialog, native.clone(), p.id.clone());
     }
-    if p.id != session.user_id() {
+    if p.id != session.info().user_id {
         let buttons = gtk::Box::builder().spacing(10).halign(gtk::Align::Center).margin_top(12).build();
         let message = gtk::Button::builder().label(t("info.message")).css_classes(["file-action"]).build();
         let call = gtk::Button::builder().label(t("info.call")).css_classes(["flat"]).build();
@@ -570,15 +514,15 @@ fn fill_profile(
         });
         buttons.append(&message);
         if match session {
-            ProfileSource::Legacy(_) => true,
-            ProfileSource::Native(session) => session.voice_supported(),
+            Chat::Legacy(_) => true,
+            Chat::Native(session) => session.voice_supported(),
         } {
             buttons.append(&call);
         }
         content.append(&buttons);
         if match session {
-            ProfileSource::Legacy(_) => true,
-            ProfileSource::Native(session) => session.reports_supported(),
+            Chat::Legacy(_) => true,
+            Chat::Native(session) => session.reports_supported(),
         } {
             let report = gtk::Button::builder()
                 .label(t("report.user"))
@@ -603,7 +547,7 @@ pub fn search(
     rid: &str,
     go: impl Fn(String, Option<String>) + 'static,
 ) {
-    search_with_source(parent, SearchSource::Legacy(session), rid, go);
+    search_with_source(parent, SearchSource::Chat(Chat::Legacy(session)), rid, go);
 }
 /// The native provider's search, with the same dialog and `go`.
 pub fn search_native(
@@ -612,7 +556,16 @@ pub fn search_native(
     rid: &str,
     go: impl Fn(String, Option<String>) + 'static,
 ) -> adw::Dialog {
-    search_with_source(parent, SearchSource::Native(session), rid, go)
+    search_with_source(parent, SearchSource::Chat(Chat::Native(session)), rid, go)
+}
+/// The server's search of any account, with the same dialog and `go`.
+pub fn search_chat(
+    parent: &impl IsA<gtk::Widget>,
+    chat: Chat,
+    rid: &str,
+    go: impl Fn(String, Option<String>) + 'static,
+) -> adw::Dialog {
+    search_with_source(parent, SearchSource::Chat(chat), rid, go)
 }
 /// Private search of an encrypted RocketVibe room, on this device only.
 pub fn search_private(
@@ -625,29 +578,28 @@ pub fn search_private(
     search_with_source(parent, SearchSource::Private(access, username), rid, go)
 }
 #[derive(Clone)]
+/// The server's search of an account, or an encrypted room's search on this device.
 enum SearchSource {
-    Legacy(Arc<Session>),
-    Native(Arc<rv_core::native::NativeSession>),
+    Chat(Chat),
     Private(rv_core::native::crypto::enrollment::rooms::messages::Access, String),
 }
 impl SearchSource {
     fn username(&self) -> &str {
         match self {
-            Self::Legacy(s) => &s.info.username,
-            Self::Native(s) => &s.info.username,
+            Self::Chat(chat) => &chat.info().username,
             Self::Private(_, username) => username,
         }
     }
+    /// The RocketVibe server's search version: results go stale when it moves.
     fn version(&self) -> Option<String> {
         match self {
-            Self::Legacy(_) | Self::Private(..) => None,
-            Self::Native(s) => Some(s.search_version().unwrap_or_else(|_| "unavailable".into())),
+            Self::Chat(chat) => chat.native().map(|s| s.search_version().unwrap_or_else(|_| "unavailable".into())),
+            Self::Private(..) => None,
         }
     }
     async fn search(&self, rid: &str, text: &str) -> Result<Vec<rv_core::normalize::Message>, ()> {
         match self {
-            Self::Legacy(s) => s.search(rid, text).await.map_err(|_| ()),
-            Self::Native(s) => s.search(rid, text).await.map_err(|_| ()),
+            Self::Chat(chat) => chat.search(rid, text).await.map_err(|_| ()),
             Self::Private(access, _) => Ok(access
                 .search(text.to_owned())
                 .await
@@ -692,7 +644,7 @@ fn search_with_source(
         go(id, thread);
     });
     let generation = Rc::new(Cell::new(0u64));
-    if matches!(&session, SearchSource::Native(_)) {
+    if matches!(&session, SearchSource::Chat(Chat::Native(_))) {
         let (source, generation, results, status) =
             (session.clone(), generation.clone(), results.clone(), status.clone());
         let dialog = dialog.downgrade();

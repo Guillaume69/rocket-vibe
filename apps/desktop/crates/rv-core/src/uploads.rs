@@ -21,8 +21,9 @@ use tokio::task::AbortHandle;
 
 use crate::actions::ServerSettings;
 use crate::mattermost::sync::MmSync;
-use crate::rest::{Api, CallOptions, RestClient, RestError};
+use crate::rest::{CallOptions, RestClient, RestError};
 use crate::store::{Store, UploadRow};
+use crate::sync::Backend;
 use crate::sync::SyncEngine;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -287,9 +288,14 @@ impl Uploads {
     }
 
     async fn post(self: &Arc<Self>, row: &UploadRow) -> Result<Outcome, RestError> {
-        if let Some(mm) = self.sync.mattermost().cloned() {
-            return self.post_mattermost(row, &mm).await;
-        }
+        let mm = match self.sync.backend() {
+            Backend::Mattermost(mm) => mm.clone(),
+            Backend::RocketChat => return self.post_rocket_chat(row).await,
+        };
+        self.post_mattermost(row, &mm).await
+    }
+
+    async fn post_rocket_chat(self: &Arc<Self>, row: &UploadRow) -> Result<Outcome, RestError> {
         if self.store.room_encrypted(&row.rid) {
             return self.post_encrypted(row).await;
         }
@@ -468,7 +474,10 @@ impl Uploads {
     /// The bytes, in a task of their own so that Discard can cut them off.
     async fn send_bytes(self: &Arc<Self>, row: &UploadRow, upload: Upload) -> Result<String, RestError> {
         let (this, task_row) = (self.clone(), row.clone());
-        let mattermost = self.rest.api() == Api::Mattermost;
+        let mattermost = match self.sync.backend() {
+            Backend::Mattermost(_) => true,
+            Backend::RocketChat => false,
+        };
         let task = tokio::spawn(async move {
             let (progress_of, progress_row) = (this.clone(), task_row.clone());
             let (path, field) = if mattermost {
@@ -501,11 +510,12 @@ impl Uploads {
         if self.store.file_posted(rid, file_id) {
             return true;
         }
-        let read = if self.sync.mattermost().is_some() {
-            self.sync.catch_up_room(rid).await
-        } else {
-            let Some(kind) = self.store.room_kind(rid) else { return false };
-            self.sync.load_history(rid, &kind, None).await.map(|_| ())
+        let read = match self.sync.backend() {
+            Backend::Mattermost(_) => self.sync.catch_up_room(rid).await,
+            Backend::RocketChat => {
+                let Some(kind) = self.store.room_kind(rid) else { return false };
+                self.sync.load_history(rid, &kind, None).await.map(|_| ())
+            }
         };
         read.is_ok() && self.store.file_posted(rid, file_id)
     }

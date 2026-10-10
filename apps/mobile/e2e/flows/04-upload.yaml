@@ -1,4 +1,4 @@
-# Upload: caption typed BEFORE the 📎 (it goes out with the file), selection
+# Upload: caption typed BEFORE attaching (it goes out with the file), selection
 # in the system picker (the harness pushed ${FILE} into Downloads), then
 # the caption appears as a message: proof that rooms.media + mediaConfirm
 # succeeded.
@@ -27,7 +27,7 @@ appId: com.rocketvibe.app
 - eraseText
 - inputText: '${CAPTION}'
 # NO hideKeyboard here: on Android it sometimes turns into a BACK, which
-# leaves the room screen. The 📎 stays visible with the keyboard open.
+# leaves the room screen. The attach button stays visible with the keyboard open.
 - tapOn: 'Joindre un fichier'
 # System picker (documentsui): the freshly pushed file is visible in
 # "Recent".

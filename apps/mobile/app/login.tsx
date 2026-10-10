@@ -24,6 +24,7 @@ import { NativeEmailRecovery } from '../ui/nativeEmailRecovery.tsx';
 import { PrimaryButton, PillField, Brand, AvatarTile } from '../ui/kit.tsx';
 import { useSession } from '../ui/session.tsx';
 import { type Colors, FONTS, useColors } from '../ui/theme.ts';
+import { Icon } from '../ui/icon.tsx';
 
 /**
  * Login screen, in three steps: server -> credentials -> second factor.
@@ -460,7 +461,7 @@ export default function LoginScreen() {
             {kind !== 'kchat' && <PillField
               c={c}
               label={t('login.serverAddress')}
-              icon="🌐"
+              icon="network-server"
               value={address}
               onChangeText={setAddress}
               onSubmitEditing={submitServer}
@@ -775,7 +776,7 @@ function TwoFactorCrest({ c, subtitle }: { c: Colors; subtitle: string }) {
         deg={[c.purple, c.cyan] as const}
         size={70}
         radius={22}
-        child={<Text style={styles.shieldGlyph}>🛡️</Text>}
+        child={<Icon name="security-high" size={34} color={c.onAccent} />}
       />
       <Text style={[styles.crestTitle, { color: c.text }]}>{t('login.magicVerification')}</Text>
       <Text style={[styles.crestSubtitle, { color: c.dimmed }]}>{subtitle}</Text>
@@ -831,7 +832,6 @@ const styles = StyleSheet.create({
   serverChip: { borderRadius: 14, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 12 },
   chipText: { fontFamily: FONTS.bodySemi, fontSize: 12.5 },
   crest: { alignItems: 'center', gap: 4, marginTop: 6, marginBottom: 4 },
-  shieldGlyph: { fontSize: 34 },
   crestTitle: { fontFamily: FONTS.title, fontSize: 21, marginTop: 12 },
   crestSubtitle: { fontFamily: FONTS.body, fontSize: 13, textAlign: 'center', lineHeight: 19 },
   card: { borderRadius: 16, borderWidth: 1, padding: 16, gap: 9 },

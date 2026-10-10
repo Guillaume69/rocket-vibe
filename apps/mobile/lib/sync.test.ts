@@ -273,6 +273,17 @@ function makeStore() {
       const m = messages.find((x) => x.id === id);
       if (m !== undefined) Object.assign(m, { pinned, starred });
     },
+    clearRoomMessages: async (rid) => {
+      for (let i = messages.length - 1; i >= 0; i--) if (messages[i]!.rid === rid && messages[i]!.updatedAt > 0) messages.splice(i, 1);
+    },
+    updateThreadCounters: async (id, threadCount, threadLast) => {
+      const m = messages.find((x) => x.id === id);
+      if (m !== undefined) Object.assign(m, { threadCount, threadLast });
+    },
+    updateMessageStarred: async (id, starred) => {
+      const m = messages.find((x) => x.id === id);
+      if (m !== undefined) Object.assign(m, { starred });
+    },
     updateThreadFollowers: async (id, threadFollowers) => {
       const m = messages.find((x) => x.id === id);
       if (m !== undefined) Object.assign(m, { threadFollowers });

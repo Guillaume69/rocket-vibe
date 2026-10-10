@@ -93,6 +93,84 @@ describe('MmOutbox', () => {
   });
 });
 
+describe('MmOutbox replays', () => {
+  test('a send whose answer was lost is looked for before it goes out again', async () => {
+    let created = false;
+    let fail = true;
+    const server = fakeServer((call) => {
+      if (call.method === 'POST') {
+        created = true;
+        return { status: 201, body: post('real1', { user_id: 'u-me', message: 'hi', create_at: Date.now() }) };
+      }
+      return { body: postList(created ? [post('real1', { user_id: 'u-me', message: 'hi', create_at: Date.now() })] : []) };
+    });
+    // The server saved the post, the answer never came back.
+    const lossy = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const answer = await server.fetcher(input, init);
+      if (fail && init?.method === 'POST') {
+        fail = false;
+        throw new TypeError('Network request failed');
+      }
+      return answer;
+    }) as typeof fetch;
+    const local = outboxStore();
+    const ingested: Record<string, unknown>[] = [];
+    const outbox = new MmOutbox({
+      store: local.store,
+      client: new MmClient(server.base, 'tok', { fetch: lossy }),
+      me: { id: 'u-me', username: 'me' },
+      generateId: () => 'local1',
+      ingest: async (doc) => void ingested.push(doc),
+    });
+    await outbox.send('ch1', 'hi');
+    assert.equal(local.rows.get('local1')?.status, 'pending');
+    await outbox.process();
+    assert.equal(server.calls.filter((c) => c.method === 'POST').length, 1, 'no second POST');
+    assert.equal(ingested[0]?.id, 'real1');
+    assert.equal(local.rows.size, 0);
+  });
+
+  test('a row queued before a restart is looked for first, and sent when absent', async () => {
+    const { outbox, server, rows, ingested } = setup((call) =>
+      call.method === 'POST' ? { status: 201, body: post('real2', { message: 'later' }) } : { body: postList([]) },
+    );
+    rows.set('old1', { id: 'old1', rid: 'ch1', text: 'later', threadId: null, status: 'pending', attempts: 0, createdAt: Date.now() - 60_000 });
+    await outbox.process();
+    assert.deepEqual(server.calls.map((c) => c.method), ['GET', 'POST']);
+    assert.equal(ingested[0]?.id, 'real2');
+  });
+});
+
+describe('MmOutbox while the first POST is being saved', () => {
+  test('a replay answered "pending" stays pending, then the saved post is found', async () => {
+    let saved = false;
+    const server = fakeServer((call) => {
+      if (call.method === 'POST') return { status: 500, body: { id: 'api.post.deduplicate_create_post.pending', message: 'pending' } };
+      return { body: postList(saved ? [post('real1', { user_id: 'u-me', message: 'hi', create_at: Date.now() })] : []) };
+    });
+    const local = outboxStore();
+    const ingested: Record<string, unknown>[] = [];
+    const later: (() => void)[] = [];
+    const outbox = new MmOutbox({
+      store: local.store,
+      client: new MmClient(server.base, 'tok', { fetch: server.fetcher }),
+      me: { id: 'u-me', username: 'me' },
+      generateId: () => 'local1',
+      ingest: async (doc) => void ingested.push(doc),
+      later: (run) => void later.push(run),
+    });
+    await outbox.send('ch1', 'hi');
+    assert.equal(local.rows.get('local1')?.status, 'pending');
+    assert.equal(later.length, 1);
+    saved = true;
+    later[0]!();
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(server.calls.filter((c) => c.method === 'POST').length, 1, 'no second POST');
+    assert.equal(ingested[0]?.id, 'real1');
+    assert.equal(local.rows.size, 0);
+  });
+});
+
 describe('MmOutbox after a refusal', () => {
   test('an older post of mine with the same text does not make a refused send delivered', async () => {
     const { outbox, ingested, rows } = setup((call) => {

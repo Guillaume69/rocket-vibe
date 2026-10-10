@@ -33,6 +33,7 @@ import { useAvatarEtags } from './identities.tsx';
 import { AvatarTile } from './kit.tsx';
 import { type Colors, LIST_PRESS_DELAY } from './theme.ts';
 import { Tappable } from './tappable.tsx';
+import { Icon } from './icon.tsx';
 
 /**
  * Enough rows to cover all active authors of a busy room, few enough for the
@@ -120,8 +121,8 @@ export function MentionCompletionBanner({
             accessibilityLabel={`@${username}`}
           >
             {uid === null ? (
-              // Special mention (@all, @here): megaphone, no photo.
-              <Text style={styles.specialGlyph}>📣</Text>
+              // Special mention (@all, @here): a group, no photo.
+              <Icon name="system-users" size={18} color={c.dimmed} />
             ) : (
               <AvatarTile
                 c={c}
@@ -152,6 +153,5 @@ const styles = StyleSheet.create({
   // ripple mask under Fabric.
   bulletWrapper: { borderRadius: 999, overflow: 'hidden' },
   bullet: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 6 },
-  specialGlyph: { fontSize: 18 },
   name: { fontSize: 13, maxWidth: 140 },
 });

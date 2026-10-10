@@ -8,8 +8,9 @@ pins, stars (Mattermost's flagged posts), favourites and my own sidebar
 categories as room-list sections, search in a room, room info and profiles,
 custom emoji, kChat's kMeet calls (joined from their post; starting one is not
 mapped) and live clearing of a read made in another kChat client. Push, quotes
-and E2EE are not mapped; neither are muted channels, live thread reply counts,
-or, on mobile, stars changed elsewhere (`docs/MATTERMOST.md` §8).
+and E2EE are not mapped; neither are, on the desktop, muted channels and live
+thread reply counts (`docs/MATTERMOST.md` §8). Stars changed in another client
+show live in both apps.
 A DM shows its unread count, never mentions: Mattermost counts every DM message
 in `mention_count`.
 
@@ -89,6 +90,20 @@ Rocket.Chat call fails cleanly instead of hitting the wrong server.
   `custom_call` post to a `videoconf` whose `callId` is the meeting URL, or to
   `videoconf-ended` with its length; `mountProviderCalls` binds a join that
   returns that URL as is (`lib/providerCalls.ts`). See [calls](calls.md).
+- Stars: a star is my `flagged_post` preference, absent from the post. `MmLive.flagged`
+  is loaded at each global catch-up (`/users/me/preferences/flagged_post`,
+  `MmLive.resetFlags`), moved by `preferences_changed` / `preferences_deleted`,
+  by `MmActions.star` and by the starred list, and read by `MmTranslator.toMessage`,
+  so a re-read post keeps its star. A change emits `mm:starred`, translated to
+  the `message-starred` sync change, which rewrites only a cached row
+  (`Store.updateMessageStarred`). A post unflagged while the app was not running
+  stays starred until it is read again.
+- Live replies: `thread_updated` is quiet, so `MmLive.posted` reads a reply's root
+  again (`GET /posts/<id>`, one read in flight per root) and emits `mm:thread`,
+  translated to the `thread-counters` sync change: only the cached root's
+  `thread_count` / `thread_last` move (`Store.updateThreadCounters`). A whole
+  post would insert an old root the cache lacks, and the room pages back from
+  its oldest row.
 - kChat reads made elsewhere: `badge_updated` makes `MmLive.recount` read my
   memberships again and emit the rooms whose counts moved.
 - People: `MmDirectory` names users under the account's name format (my
@@ -156,7 +171,11 @@ Rocket.Chat call fails cleanly instead of hitting the wrong server.
 
 - `MmOutbox`: the client id leaves as `pending_post_id`, the real post (server
   id) replaces the optimistic row. A refusal is checked against the room's newest
-  posts before marking the row failed.
+  posts before marking the row failed, and so is a row about to be sent again
+  when it may already have gone out (its answer lost in this session, or queued
+  before a restart). `api.post.deduplicate_create_post.pending` (the first POST
+  still being saved) is not a refusal: the row stays pending and a pass 3 s
+  later looks for the post.
 - `MmUploadQueue`: bytes to `POST /files?channel_id=`, the file id recorded, then
   a post with `file_ids`, over the same `uploads` table and lifecycle as
   Rocket.Chat's.

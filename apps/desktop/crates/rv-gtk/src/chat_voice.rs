@@ -492,6 +492,8 @@ pub(super) struct VoiceUi {
     pub(super) page: adw::ToolbarView,
     page_title: gtk::Label,
     page_status: gtk::Label,
+    /// The lock before an encrypted session's status.
+    page_lock: gtk::Image,
     page_controls: Controls,
     open_chat: gtk::Button,
     /// The people, as tiles sharing all the page's room.
@@ -555,6 +557,10 @@ impl VoiceUi {
         let open_chat = gtk::Button::builder().label(t("voice_session.open_chat")).css_classes(["flat"]).build();
         header.pack_end(&open_chat);
         let page_status = gtk::Label::builder().css_classes(["voice-status"]).build();
+        let page_lock = gtk::Image::builder().icon_name("channel-secure-symbolic").visible(false).build();
+        let status_row = gtk::Box::builder().spacing(6).halign(gtk::Align::Center).build();
+        status_row.append(&page_lock);
+        status_row.append(&page_status);
         let cards = TileGrid::new();
         let empty = gtk::Label::builder().label(t("voice_session.empty")).css_classes(["empty-hint"]).build();
         let join = widgets::cta(t("voice_session.join"));
@@ -596,7 +602,7 @@ impl VoiceUi {
         let share_row = gtk::Box::builder().spacing(14).vexpand(true).visible(false).build();
         share_row.append(&stage);
         share_row.append(&strip_scroll);
-        column.append(&page_status);
+        column.append(&status_row);
         column.append(&empty);
         column.append(&share_row);
         column.append(&cards);
@@ -614,6 +620,7 @@ impl VoiceUi {
             page,
             page_title,
             page_status,
+            page_lock,
             page_controls,
             open_chat,
             cards,
@@ -1028,6 +1035,7 @@ impl ChatPage {
         };
         voice.page_status.set_label(&label);
         voice.page_status.set_visible(status.is_some());
+        voice.page_lock.set_visible(status.is_some() && mine && snapshot.encrypted);
         if mine && snapshot.state == ConnectionState::Connected {
             voice.page_status.add_css_class("connected");
         } else {

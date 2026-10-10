@@ -88,6 +88,8 @@ export class MmActions implements ProviderActions {
     const preference = [{ user_id: this.myId, category: 'flagged_post', name: mid, value: 'true' }];
     if (put) await this.client.put('/users/me/preferences', { body: preference });
     else await this.client.post('/users/me/preferences/delete', { body: preference });
+    // The screen writes the column; the set keeps it through the next read of the post.
+    this.live.flag(mid, put);
   }
 
   async listPinned(rid: string): Promise<LocalMessage[]> {
@@ -98,6 +100,7 @@ export class MmActions implements ProviderActions {
     const list = await this.messages(
       await this.client.get('/users/me/posts/flagged', { query: { channel_id: rid, per_page: 100 } }),
     );
+    for (const m of list) this.live.flag(m.id, true);
     return list.map((m) => ({ ...m, starred: JSON.stringify([this.myId]) }));
   }
 

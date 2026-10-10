@@ -111,6 +111,7 @@ export function Avatar({
   user,
   size = "message",
   glyph,
+  icon,
   children,
 }: {
   app: App;
@@ -118,6 +119,8 @@ export function Avatar({
   user?: User | null;
   size?: string;
   glyph?: string;
+  /** A symbolic icon in the glyph's place (a locked room), never an emoji. */
+  icon?: string;
   children?: ReactNode;
 }) {
   const [image, setImage] = useState<string>();
@@ -153,7 +156,12 @@ export function Avatar({
   }, [app, user?.id, work, generation, app.connection]);
   return (
     <div
-      className={"tile tile-" + size + " tile-g" + gradient(name)}
+      className={
+        "tile tile-" +
+        size +
+        // A locked room's tile is neutral, as on the desktop.
+        (icon ? " tile-neutral" : " tile-g" + gradient(name))
+      }
       data-avatar-user={user?.id}
       data-react-avatar="true"
       title={user?.display_name || user?.username}
@@ -164,6 +172,8 @@ export function Avatar({
           src={image}
           alt={user?.display_name || user?.username || name}
         />
+      ) : icon ? (
+        <Symbol name={icon} className="tile-icon" />
       ) : (
         (glyph ?? initials(name))
       )}

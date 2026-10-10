@@ -11,6 +11,7 @@ import type { TranslationKey } from '../../ui/messages.ts';
 import { PRESENCE_KEYS, presenceColors } from '../../ui/presence.ts';
 import { useSession } from '../../ui/session.tsx';
 import { Tappable } from '../../ui/tappable.tsx';
+import { Icon, type IconName } from '../../ui/icon.tsx';
 import { type Colors, FONTS, LIST_PRESS_DELAY, useColors } from '../../ui/theme.ts';
 
 /**
@@ -105,11 +106,11 @@ function Dashboard({ c, admin, client }: { c: Colors; admin: ProviderAdmin; clie
       {admin.canSetIcon?.() === true && <IconSetting c={c} admin={admin} client={client} />}
 
       <View style={[styles.list, { backgroundColor: c.deepCard, borderColor: c.border }]}>
-        <NavRow c={c} icon="🛡️" label={t('admin.moderation')} hint={t('admin.moderationHint')} count={reports} first onPress={() => router.push('/admin/moderation')} />
-        <NavRow c={c} icon="#️⃣" label={t('admin.rooms')} hint={t('admin.roomsHint')} onPress={() => router.push('/admin/rooms')} />
-        <NavRow c={c} icon="👥" label={t('admin.users')} hint={t('admin.usersHint')} onPress={() => router.push('/admin/users')} />
+        <NavRow c={c} icon="dialog-warning" label={t('admin.moderation')} hint={t('admin.moderationHint')} count={reports} first onPress={() => router.push('/admin/moderation')} />
+        <NavRow c={c} icon="chat-message-new" label={t('admin.rooms')} hint={t('admin.roomsHint')} onPress={() => router.push('/admin/rooms')} />
+        <NavRow c={c} icon="system-users" label={t('admin.users')} hint={t('admin.usersHint')} onPress={() => router.push('/admin/users')} />
         {admin.canManageEmojis?.() === true && (
-          <NavRow c={c} icon="😀" label={t('admin.emoji')} hint={t('admin.emojiHint')} onPress={() => router.push('/admin/emoji')} />
+          <NavRow c={c} icon="face-smile" label={t('admin.emoji')} hint={t('admin.emojiHint')} onPress={() => router.push('/admin/emoji')} />
         )}
       </View>
     </ScrollView>
@@ -234,7 +235,7 @@ function BotSetting({ c, admin }: { c: Colors; admin: ProviderAdmin }) {
   );
 }
 
-function NavRow({ c, icon, label, hint, count, first = false, onPress }: { c: Colors; icon: string; label: string; hint: string; count?: number; first?: boolean; onPress: () => void }) {
+function NavRow({ c, icon, label, hint, count, first = false, onPress }: { c: Colors; icon: IconName; label: string; hint: string; count?: number; first?: boolean; onPress: () => void }) {
   return (
     <Tappable
       onPress={onPress}
@@ -248,7 +249,7 @@ function NavRow({ c, icon, label, hint, count, first = false, onPress }: { c: Co
         { opacity: pressed ? 0.7 : 1 },
       ]}
     >
-      <Text style={adminStyles.icon}>{icon}</Text>
+      <Icon name={icon} size={20} color={c.dimmed} style={adminStyles.icon} />
       <View style={adminStyles.rowTexts}>
         <Text style={[adminStyles.title, { color: c.text }]}>{label}</Text>
         <Text style={[adminStyles.sub, { color: c.dimmed }]} numberOfLines={1}>{hint}</Text>

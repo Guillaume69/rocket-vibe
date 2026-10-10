@@ -444,7 +444,7 @@ impl ChatPage {
         // GtkWindowHandle, where a double click maximizes the window.
         let room_content = gtk::Box::new(gtk::Orientation::Vertical, 0);
         let e2e_banner = gtk::Box::builder().spacing(10).css_classes(["e2e-banner"]).visible(false).build();
-        e2e_banner.append(&gtk::Label::builder().label("🔒").build());
+        e2e_banner.append(&gtk::Image::from_icon_name("channel-secure-symbolic"));
         e2e_banner.append(&gtk::Label::builder().label(t("e2e.banner")).hexpand(true).xalign(0.0).wrap(true).build());
         let unlock_button = gtk::Button::builder()
             .label(t("e2e.unlock"))
@@ -610,21 +610,12 @@ impl ChatPage {
         let weak = Rc::downgrade(&this);
         marked_button.connect_clicked(move |_| {
             let Some(this) = weak.upgrade() else { return };
-            if let (Some(session), Some(rid)) = (this.native_session(), this.current_rid()) {
-                let (target, expected) = (Rc::downgrade(&this), session.clone());
-                crate::marked::open_native(&this.split, session, &rid, move |id| {
-                    if let Some(this) = target.upgrade()
-                        && this.native_session().is_some_and(|s| Arc::ptr_eq(&s, &expected))
-                    {
-                        this.jump_to(&id);
-                    }
-                });
-                return;
-            }
-            let (Some(session), Some(rid)) = (this.session(), this.current_rid()) else { return };
-            let target = Rc::downgrade(&this);
-            crate::marked::open(&this.split, session, &rid, move |id| {
-                if let Some(this) = target.upgrade() {
+            let (Some(chat), Some(rid)) = (this.chat(), this.current_rid()) else { return };
+            let (target, expected) = (Rc::downgrade(&this), chat.clone());
+            crate::marked::open_chat(&this.split, chat, &rid, move |id| {
+                if let Some(this) = target.upgrade()
+                    && this.chat().is_some_and(|c| c.same(&expected))
+                {
                     this.jump_to(&id);
                 }
             });
@@ -659,18 +650,9 @@ impl ChatPage {
                         None => this.jump_to(&id),
                     }
                 });
-            } else if let (Some(session), Some(rid)) = (this.session(), this.current_rid()) {
+            } else if let (Some(chat), Some(rid)) = (this.chat(), this.current_rid()) {
                 let target = Rc::downgrade(&this);
-                crate::details::search(&this.split, session, &rid, move |id, thread| {
-                    let Some(this) = target.upgrade() else { return };
-                    match thread {
-                        Some(root) => this.open_thread_of(&root),
-                        None => this.jump_to(&id),
-                    }
-                });
-            } else if let (Some(session), Some(rid)) = (this.native_session(), this.current_rid()) {
-                let target = Rc::downgrade(&this);
-                crate::details::search_native(&this.split, session, &rid, move |id, thread| {
+                crate::details::search_chat(&this.split, chat, &rid, move |id, thread| {
                     let Some(this) = target.upgrade() else { return };
                     match thread {
                         Some(root) => this.open_thread_of(&root),
@@ -1851,10 +1833,8 @@ impl ChatPage {
             }),
             room,
         };
-        if let Some(session) = self.native_session() {
-            crate::details::profile_native(&self.split, session, key, by_id, actions);
-        } else if let Some(session) = self.session() {
-            crate::details::profile(&self.split, session, key, by_id, actions);
+        if let Some(chat) = self.chat() {
+            crate::details::profile_chat(&self.split, chat, key, by_id, actions);
         }
     }
 
@@ -1994,36 +1974,26 @@ impl ChatPage {
     }
 
     fn new_conversation(self: &Rc<Self>) {
-        if let Some(session) = self.native_session() {
-            let (w1, w2, w3) = (Rc::downgrade(self), Rc::downgrade(self), Rc::downgrade(self));
-            crate::spotlight::open_native(
-                &self.split,
-                session,
-                move |rid| w1.upgrade().is_some_and(|this| this.rooms.borrow().iter().any(|r| r.rid == rid)),
-                move |found| {
-                    if let Some(this) = w2.upgrade() {
-                        this.go_to(found);
-                    }
-                },
-                move || {
-                    if let Some(this) = w3.upgrade() {
-                        this.native_conversation(false);
-                    }
-                },
-            );
-            return;
-        }
-        let Some(session) = self.session() else { return };
-        let (w1, w2) = (Rc::downgrade(self), Rc::downgrade(self));
-        crate::spotlight::open(
+        let Some(chat) = self.chat() else { return };
+        let (w1, w2, w3) = (Rc::downgrade(self), Rc::downgrade(self), Rc::downgrade(self));
+        // The RocketVibe server creates channels from here too.
+        let create: Option<Rc<dyn Fn()>> = chat.native().map(|_| {
+            Rc::new(move || {
+                if let Some(this) = w3.upgrade() {
+                    this.native_conversation(false);
+                }
+            }) as Rc<dyn Fn()>
+        });
+        crate::spotlight::open_chat(
             &self.split,
-            session,
+            chat,
             move |rid| w1.upgrade().is_some_and(|this| this.rooms.borrow().iter().any(|r| r.rid == rid)),
             move |found| {
                 if let Some(this) = w2.upgrade() {
                     this.go_to(found);
                 }
             },
+            create,
         );
     }
 
@@ -3006,6 +2976,13 @@ impl ChatPage {
 
     pub fn session(&self) -> Option<Arc<Session>> {
         self.session.borrow().clone()
+    }
+
+    /// The account on screen, whichever server it speaks to: at most one of
+    /// `session` and `native` is set (`set_session` and `set_native_session`
+    /// each clear the other).
+    pub fn chat(&self) -> Option<rv_core::provider::Chat> {
+        self.native_session().map(Into::into).or_else(|| self.session().map(Into::into))
     }
 
     fn current_name(&self) -> String {

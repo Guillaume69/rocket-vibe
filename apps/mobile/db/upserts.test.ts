@@ -51,6 +51,7 @@ import {
   UPDATE_ROOM_AVATAR,
   UPDATE_MESSAGE_MARKS,
   UPDATE_THREAD_FOLLOWERS,
+  CLEAR_ROOM_MESSAGES,
   SEARCH_MESSAGES,
   searchPattern,
   UPDATE_USER_AVATAR,
@@ -395,6 +396,15 @@ describe('upserts idempotents', () => {
     assert.deepEqual(ids('e_n'), ['g']);
     assert.deepEqual(ids('%'), ['g']);
     assert.deepEqual(db.prepare(SEARCH_MESSAGES).all(searchPattern('api'), 1).length, 1);
+  });
+
+  test('clearing a room keeps its optimistic messages and the other rooms', () => {
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'a', rid: 'r1', updatedAt: 100 }));
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'pending', rid: 'r1', updatedAt: 0 }));
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'b', rid: 'r2', updatedAt: 100 }));
+    db.prepare(CLEAR_ROOM_MESSAGES).run('r1');
+    const ids = db.prepare('SELECT id FROM messages ORDER BY id').all().map((r) => (r as { id: string }).id);
+    assert.deepEqual(ids, ['b', 'pending']);
   });
 
   test('a catch-up cursor never goes back', () => {

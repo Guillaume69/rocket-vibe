@@ -109,6 +109,25 @@ pub fn with_photo(tile: gtk::Widget, session: Option<&Arc<Session>>, path: Optio
     }
     tile
 }
+/// A person's photo on whichever server the account speaks to: by username
+/// and photo version on Rocket.Chat and Mattermost, by file id on RocketVibe
+/// (`version` is the one or the other).
+pub fn person_photo(
+    tile: gtk::Widget,
+    chat: &rv_core::provider::Chat,
+    username: &str,
+    version: Option<String>,
+) -> gtk::Widget {
+    use rv_core::media::{AvatarTarget, avatar_path};
+    use rv_core::provider::Chat;
+    match chat {
+        Chat::Legacy(s) => {
+            with_photo(tile, Some(s), Some(avatar_path(AvatarTarget::User(username), version.as_deref())))
+        }
+        Chat::Native(s) => with_native_photo(tile, s, version),
+    }
+}
+
 pub fn with_native_photo(
     tile: gtk::Widget,
     session: &Arc<rv_core::native::NativeSession>,
@@ -144,7 +163,7 @@ fn opens_profile(widget: &impl IsA<gtk::Widget>, on_event: OnRowEvent, username:
 
 pub fn room_tile(name: &str, kind: &str, encrypted: bool, size: TileSize) -> gtk::Widget {
     if encrypted {
-        return widgets::tile(name, "🔒", size, true);
+        return widgets::icon_tile(name, "channel-secure-symbolic", size, true);
     }
     let glyph = if kind == "d" { widgets::initial(name) } else { "#".to_owned() };
     widgets::tile(name, &glyph, size, false)
@@ -763,7 +782,11 @@ fn message_from_provider(
         if row.thread_count > 0 {
             let n = row.thread_count;
             let chip = gtk::Button::builder()
-                .label(format!("💬 {}", tn("message.replies", n)))
+                .child(&widgets::with_icon(
+                    "chat-message-new-symbolic",
+                    &gtk::Label::new(Some(&tn("message.replies", n))),
+                    &[],
+                ))
                 .css_classes(["thread-chip"])
                 .margin_top(3)
                 .build();

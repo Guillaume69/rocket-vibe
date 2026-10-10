@@ -39,6 +39,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { saveInBackground } from './attachmentActions.ts';
 import { useT } from './i18n.ts';
 import { FONTS, useColors } from './theme.ts';
+import { Icon } from './icon.tsx';
 import { progressLabel, useProgress } from './transfers.ts';
 import {useNativePreview} from './nativePreview.ts';
 import { useAuthorizedUri } from './authorizedImage.ts';
@@ -253,7 +254,7 @@ function ImageModal({ target, onClose }: { target: ImageTarget | null; onClose: 
           accessibilityRole="button"
           accessibilityLabel={t('common.close')}
         >
-          <Text style={[styles.cross, { color: c.text }]}>✕</Text>
+          <Icon name="window-close" size={18} color={c.text} />
         </Pressable>
 
         {target?.local !== true && (
@@ -266,7 +267,7 @@ function ImageModal({ target, onClose }: { target: ImageTarget | null; onClose: 
             accessibilityLabel={t('messageActions.save')}
           >
             {progress === undefined ? (
-              <Text style={[styles.cross, { color: c.text }]}>⤓</Text>
+              <Icon name="folder-download" size={18} color={c.text} />
             ) : (
               <Text style={[styles.percentage, { color: c.text }]}>
                 {progressLabel(progress)}
@@ -316,7 +317,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   percentage: { fontFamily: FONTS.bodySemi, fontSize: 11 },
-  cross: { fontFamily: FONTS.bodyStrong, fontSize: 17, lineHeight: 20 },
   caption: {
     position: 'absolute',
     left: 16,

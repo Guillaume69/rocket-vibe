@@ -9,7 +9,6 @@ use std::sync::Arc;
 use adw::prelude::*;
 use gtk::{gio, glib};
 use rv_core::account::{Me, STATUSES, basic_info_changes, needs_password};
-use rv_core::media::{AvatarTarget, avatar_path};
 use rv_core::rest::RestError;
 use rv_core::session::{Session, two_factor_code};
 
@@ -80,10 +79,20 @@ fn dialog(parent: &gtk::Widget, admin: rv_core::admin::Admin, sign_out: impl Fn(
     dialog
 }
 
+/// The profile editor's account: the RocketVibe one carries the own profile
+/// its editor works on, so this stays its own enum rather than a bare `Chat`.
 #[derive(Clone)]
 enum ProfileSource {
     Legacy(Arc<Session>),
     Native(Arc<rv_core::native::NativeSession>, Rc<RefCell<rv_core::native::profiles::OwnProfile>>),
+}
+impl ProfileSource {
+    fn chat(&self) -> rv_core::provider::Chat {
+        match self {
+            Self::Legacy(session) => rv_core::provider::Chat::Legacy(session.clone()),
+            Self::Native(session, _) => rv_core::provider::Chat::Native(session.clone()),
+        }
+    }
 }
 
 /// Account selection and local preferences are shared by both providers.
@@ -730,14 +739,7 @@ fn edit_profile_for(host: &Host, source: ProfileSource, me: Me) {
     let photo_group = adw::PreferencesGroup::new();
     let photo_row = adw::ActionRow::builder().title(t("settings.photo")).build();
     let tile = widgets::tile(&me.username, &widgets::initial(&me.username), TileSize::Room, false);
-    let photo = match &source {
-        ProfileSource::Legacy(session) => with_photo(
-            tile,
-            Some(session),
-            Some(avatar_path(AvatarTarget::User(&me.username), me.avatar_etag.as_deref())),
-        ),
-        ProfileSource::Native(session, _) => crate::rows::with_native_photo(tile, session, me.avatar_etag.clone()),
-    };
+    let photo = crate::rows::person_photo(tile, &source.chat(), &me.username, me.avatar_etag.clone());
     photo.set_margin_top(6);
     photo.set_margin_bottom(6);
     photo_row.add_prefix(&photo);

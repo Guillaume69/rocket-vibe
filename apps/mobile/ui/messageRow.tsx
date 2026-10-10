@@ -40,7 +40,7 @@ import { recordReaction } from './emojiUsage.ts';
 import { isDeletedUsername } from '../lib/deletedUser.ts';
 import { BotBadge } from './botBadge.tsx';
 import { formState, parseForm } from './workflowsModel.ts';
-import { messageTree } from '../lib/markdown.ts';
+import { messageTree, textPreview } from '../lib/markdown.ts';
 import { useJoinVoice, useVoice } from './voice.tsx';
 import { callSummaryText, systemText } from '../lib/systemMessages.ts';
 import { reactionList, type DisplayedReaction } from '../lib/reactions.ts';
@@ -58,6 +58,7 @@ import {subscribeNativeFile} from '../lib/nativeFiles.ts';
 import { useAvatarEtags, useDisplayNames, useIdentities, useStatusEmojis } from './identities.tsx';
 import { useTimeFormatter, useT } from './i18n.ts';
 import { AvatarTile } from './kit.tsx';
+import { type IconName, InlineIcon } from './icon.tsx';
 import { AudioPlayer } from './audioPlayer.tsx';
 import { VideoPlayer } from './videoPlayer.tsx';
 import { MentionSelf, MessageLongPress, MessageBody, RenderGuard } from './markdown.tsx';
@@ -336,7 +337,7 @@ export const MessageRow = memo(function MessageRow({
             style={[styles.threadBullet, { backgroundColor: c.card, borderColor: c.border }]}
           >
             <Text style={[styles.threadBulletText, { color: c.cyan }]}>
-              💬 {threadLabel ?? t('messageRow.replies', { n: message.threadCount })}
+              <InlineIcon name="chat-message-new" /> {threadLabel ?? t('messageRow.replies', { n: message.threadCount })}
               {message.threadLast !== null && ` · ${formatTime(message.threadLast)}`}
             </Text>
           </Pressable>
@@ -344,7 +345,9 @@ export const MessageRow = memo(function MessageRow({
         {sendStatus === 'failed' && (
           <View style={styles.failureActions}>
             <Pressable onPress={onRetry ?? undefined}>
-              <Text style={[styles.time, { color: c.errorText }]}>{failureLabel ?? t('messageRow.failedRetry')}</Text>
+              <Text style={[styles.time, { color: c.errorText }]}>
+                <InlineIcon name="dialog-warning" /> {failureLabel ?? t('messageRow.failedRetry')}
+              </Text>
             </Pressable>
             {onDiscard && <Pressable onPress={() => onDiscard(message.id)}>
               <Text style={[styles.time, { color: c.dimmed }]}>{t('messageRow.discard')}</Text>
@@ -508,8 +511,10 @@ function Quote({
 }) {
   const t = useT();
   // The quoted message may itself be a reply: show only its words, not its
-  // quote permalink; its quote shows as a nested block.
-  const text = quoteText(attachment).trim();
+  // quote permalink; its quote shows as a nested block. Flattened like the room
+  // list's preview: emoji shortcodes as glyphs, markdown markers dropped.
+  const raw = quoteText(attachment).trim();
+  const text = raw === '' ? '' : textPreview(raw);
   // A private source names its author by uid: shown as the rows show it.
   const identities = useIdentities();
   const named = typeof attachment.author_name === 'string' ? attachment.author_name : null;
@@ -551,7 +556,7 @@ function Quote({
       ))}
       {empty && (
         <Text style={[styles.text, styles.italic, { color: c.dimmed }]}>
-          {attachment.native_unavailable === true ? t('quote.unavailable') : `📎 ${t('common.attachment')}`}
+          {attachment.native_unavailable === true ? t('quote.unavailable') : <><InlineIcon name="mail-attachment" /> {t('common.attachment')}</>}
         </Text>
       )}
     </Pressable>
@@ -591,11 +596,15 @@ function QuotedFile({
       />
     );
   }
-  const glyph =
-    typeof attachment.audio_url === 'string' ? '🎵' : typeof attachment.video_url === 'string' ? '🎬' : '📎';
+  const icon: IconName =
+    typeof attachment.audio_url === 'string'
+      ? 'audio-x-generic'
+      : typeof attachment.video_url === 'string'
+        ? 'video-x-generic'
+        : 'mail-attachment';
   return (
     <Text style={[styles.text, styles.italic, { color: c.dimmed }]} numberOfLines={1}>
-      {glyph} {attachment.title ?? t('common.attachment')}
+      <InlineIcon name={icon} /> {attachment.title ?? t('common.attachment')}
     </Text>
   );
 }
@@ -715,7 +724,7 @@ function FormCard({ c, id, json }: { c: Colors; id: string; json: string }) {
   const status = formState(form, me, shownAt);
   return (
     <View style={[styles.formCard, { backgroundColor: c.card, borderColor: c.border }]}>
-      <Text style={[styles.callCardTitle, { color: c.text }]}>📝 {form.title}</Text>
+      <Text style={[styles.callCardTitle, { color: c.text }]}><InlineIcon name="document-edit" /> {form.title}</Text>
       {form.recipient != null && <Text style={[styles.formLine, { color: c.secondaryText }]}>{t('forms.for', { username: form.recipient.username })}</Text>}
       <Text style={[styles.formLine, { color: c.dimmed }]} numberOfLines={3}>
         {form.fields.map((f) => `${f.label}${f.required === true ? ' *' : ''}`).join(' · ')}
@@ -775,7 +784,9 @@ function CallCard({ c, callId,rid,title }: { c: Colors; callId: string | null;ri
       : null;
   return (
     <View style={[styles.callCard, { backgroundColor: c.card, borderColor: c.border }]}>
-      <Text style={[styles.callCardTitle, { color: c.text }]}>{title ?? t('messageRow.videoCall')}</Text>
+      <Text style={[styles.callCardTitle, { color: c.text }]}>
+        {title ?? <><InlineIcon name="camera-video" /> {t('messageRow.videoCall')}</>}
+      </Text>
       {callId !== null && (
         <Tappable
           onPress={() => {if(state.phase==='connected')router.push({ pathname: '/call/[callId]', params: { callId,rid,account:callContext(state.client) } });}}
@@ -1006,7 +1017,7 @@ function NativeAttachment({c,attachment,client,maxWidth,onLongPress,quoted=false
     const stop=subscribeNativeFile(url,()=>{setLoaded({url,local:null,failed:false});load();});
     return()=>{active=false;stop();};
   },[kind,url,attachment.title,attachment.image_type,attachment.audio_type,attachment.video_type,attachment.size]);
-  if(quoted&&failed)return <Text style={[styles.text,styles.italic,{color:c.dimmed}]} numberOfLines={1}>📎 {attachment.title}</Text>;
+  if(quoted&&failed)return <Text style={[styles.text,styles.italic,{color:c.dimmed}]} numberOfLines={1}><InlineIcon name="mail-attachment" /> {attachment.title}</Text>;
   if(!kind||failed)return <FileAttachment c={c} client={client} path={source} title={attachment.title??null} size={attachment.size??null} onLongPress={onLongPress}/>;
   if(!local)return <ActivityIndicator color={c.accent}/>;
   if(kind==='image')return <AttachedImage attachment={attachment} client={client} local={local} minWidth={quoted?QUOTED_IMAGE_WIDTH:120} maxWidth={maxWidth} minHeight={quoted?72:0} maxHeight={quoted?200:400} style={quoted?styles.quotedImage:styles.attachedImage} onLongPress={onLongPress}/>;
@@ -1043,7 +1054,7 @@ function FileAttachment({
   return (
     <Pressable onPress={pick} onLongPress={onLongPress} delayLongPress={350}>
       <Text style={[styles.text, { color: c.accent }]} numberOfLines={2}>
-        📄 {title ?? t('messageRow.file')}
+        <InlineIcon name="text-x-generic" /> {title ?? t('messageRow.file')}
       </Text>
       <TransferBar transfer={path} c={c} />
     </Pressable>

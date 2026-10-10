@@ -23,6 +23,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useT } from './i18n.ts';
 import { type Colors, FONTS } from './theme.ts';
+import { Icon } from './icon.tsx';
 import { mediaSource } from '../lib/mediaAuth.ts';
 
 export function VideoPlayer({
@@ -133,7 +134,7 @@ export function VideoModal({
         accessibilityRole="button"
         accessibilityLabel={t('common.close')}
       >
-        <Text style={[styles.cross, { color: c.text }]}>✕</Text>
+        <Icon name="window-close" size={18} color={c.text} />
       </Pressable>
 
       {title != null && title !== '' && (
@@ -198,7 +199,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  cross: { fontFamily: FONTS.bodyStrong, fontSize: 17, lineHeight: 20 },
   caption: { position: 'absolute', left: 16, right: 16, alignItems: 'center' },
   captionText: { fontFamily: FONTS.body, fontSize: 13, textAlign: 'center' },
 });

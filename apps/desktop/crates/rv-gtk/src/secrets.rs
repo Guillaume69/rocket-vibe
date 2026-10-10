@@ -348,11 +348,23 @@ mod keychain {
 
     pub async fn put(key: &str, secret: Vec<u8>) -> Result<(), String> {
         let keyring = oo7::Keyring::new().await.map_err(|e| e.to_string())?;
-        // Items from before accounts had a key of their own: replaced by keyed ones.
+        // Items from before accounts had a key of their own hold another
+        // account's session: keyed again before going, kept when unreadable.
         for item in keyring.search_items(&attributes()).await.map_err(|e| e.to_string())? {
-            if item.attributes().await.is_ok_and(|a| !a.contains_key("account")) {
-                let _ = item.delete().await;
+            if !item.attributes().await.is_ok_and(|a| !a.contains_key("account")) {
+                continue;
             }
+            let Ok(old) = item.secret().await else { continue };
+            let Some(info) = super::parse(&old) else { continue };
+            let old_key = super::account_key(&info);
+            if old_key != key {
+                let mut attributes = attributes();
+                attributes.insert("account", &old_key);
+                if keyring.create_item("rocket-vibe session", &attributes, old.to_vec(), true).await.is_err() {
+                    continue;
+                }
+            }
+            let _ = item.delete().await;
         }
         let mut attributes = attributes();
         attributes.insert("account", key);

@@ -970,15 +970,16 @@ impl AppWindow {
         crate::media::clear();
         if let Some(session) = self.session.take() {
             session.shutdown();
+            // Tasks still running hold the store: release the file itself, or
+            // Windows refuses the deletion below and the messages stay on disk.
+            if delete_cache {
+                session.store.close();
+            }
         }
         if let Some(path) = self.db_path.take()
             && delete_cache
         {
-            for suffix in ["", "-wal", "-shm"] {
-                let mut p = path.clone().into_os_string();
-                p.push(suffix);
-                let _ = std::fs::remove_file(p);
-            }
+            rv_core::store::Store::remove_files(&path);
         }
     }
 

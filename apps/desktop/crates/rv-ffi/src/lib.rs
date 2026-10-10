@@ -386,10 +386,14 @@ impl Chat {
                     let _ = tokio::task::spawn_blocking(move || accounts::save(&dirs, &info, jwk.as_deref())).await;
                 }
                 if e == Event::Expired {
+                    // Tasks still running hold the store: release the file first.
+                    if let Some(s) = session.upgrade() {
+                        s.store.close();
+                    }
                     let (dirs, info, database) = (dirs.clone(), info.clone(), database.clone());
                     let _ = tokio::task::spawn_blocking(move || {
                         accounts::remove(&dirs, &info);
-                        let _ = std::fs::remove_file(database);
+                        rv_core::store::Store::remove_files(&database);
                     })
                     .await;
                 }
@@ -799,10 +803,11 @@ impl Chat {
     pub async fn sign_out(&self) {
         let s = self.session.clone();
         on_tokio(async move { s.logout().await }).await;
+        self.session.store.close();
         let (dirs, info, database) = (self.dirs.clone(), self.session.info.clone(), self.database.clone());
         blocking(move || {
             accounts::remove(&dirs, &info);
-            let _ = std::fs::remove_file(database);
+            rv_core::store::Store::remove_files(&database);
         })
         .await;
     }

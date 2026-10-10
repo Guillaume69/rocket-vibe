@@ -309,6 +309,33 @@ impl Store {
         self.conn.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
+    /// Lets go of the database file now, whoever still holds this store: a
+    /// catch-up or a send still running after `Session::shutdown` keeps an
+    /// `Arc<Store>`, and Windows refuses to delete a file SQLite holds open, so
+    /// a signed-out account's messages stayed on disk. Afterwards the store
+    /// is an empty in-memory database: reads find nothing and writes roll back.
+    pub fn close(&self) {
+        let Ok(memory) = Connection::open_in_memory() else { return };
+        let old = std::mem::replace(&mut *self.conn(), memory);
+        if let Err((_, error)) = old.close() {
+            eprintln!("rocket-vibe: closing the local database failed: {error}");
+        }
+    }
+
+    /// Deletes a database and its WAL files, once `close`d; a failure other
+    /// than "already gone" is reported, never silent.
+    pub fn remove_files(path: &Path) {
+        for suffix in ["", "-wal", "-shm"] {
+            let mut file = path.as_os_str().to_owned();
+            file.push(suffix);
+            if let Err(error) = std::fs::remove_file(&file)
+                && error.kind() != std::io::ErrorKind::NotFound
+            {
+                eprintln!("rocket-vibe: could not delete {}: {error}", file.to_string_lossy());
+            }
+        }
+    }
+
     /// One transaction. A statement that fails rolls the whole write back and
     /// broadcasts nothing; `f`'s result is still returned (its failed
     /// statements counted as no rows), as a read that fails returns nothing.
@@ -1326,6 +1353,30 @@ mod tests {
         assert_eq!(count(&store, "outbox"), 0);
         store.write(|w| w.insert_outbox("o2", "r", "again", None));
         assert_eq!(count(&store, "outbox"), 1);
+    }
+
+    #[test]
+    fn close_releases_the_file_while_the_store_is_still_shared() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("account.sqlite");
+        let store = std::sync::Arc::new(Store::open(&path).unwrap());
+        let straggler = store.clone(); // a catch-up still running after shutdown
+        store.write(|w| w.insert_outbox("o1", "r", "hi", None));
+        store.close();
+        for suffix in ["", "-wal", "-shm"] {
+            let mut file = path.clone().into_os_string();
+            file.push(suffix);
+            match std::fs::remove_file(&file) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => panic!("{suffix}: {e}"),
+            }
+        }
+        assert!(!path.exists());
+        // The late task neither panics nor recreates the file.
+        straggler.write(|w| w.insert_outbox("o2", "r", "late", None));
+        assert!(straggler.pending_outbox().is_empty());
+        assert!(!path.exists());
     }
 
     #[test]

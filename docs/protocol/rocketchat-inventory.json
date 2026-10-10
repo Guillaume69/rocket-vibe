@@ -331,6 +331,7 @@
     "apps/mobile/app/profile.tsx",
     "apps/mobile/app/room-info.tsx",
     "apps/mobile/app/room/[rid].tsx",
+    "apps/mobile/app/search-messages.tsx",
     "apps/mobile/app/search.tsx",
     "apps/mobile/app/settings/[category].tsx",
     "apps/mobile/app/settings/index.tsx",
@@ -483,6 +484,7 @@
     "apps/mobile/ui/liveQuery.ts",
     "apps/mobile/ui/loadedRooms.ts",
     "apps/mobile/ui/loadedThreads.ts",
+    "apps/mobile/ui/localSearch.ts",
     "apps/mobile/ui/markdown.tsx",
     "apps/mobile/ui/mentionCompletion.tsx",
     "apps/mobile/ui/messageGrouping.ts",
@@ -4493,37 +4495,37 @@
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2329,
+      "line": 2334,
       "kind": "endpoint",
       "surface": "e2e.title"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2330,
+      "line": 2335,
       "kind": "endpoint",
       "surface": "e2e.explanation"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2332,
+      "line": 2337,
       "kind": "endpoint",
       "surface": "e2e.field"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2333,
+      "line": 2338,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2334,
+      "line": 2339,
       "kind": "endpoint",
       "surface": "e2e.wrongPassword"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2335,
+      "line": 2340,
       "kind": "endpoint",
       "surface": "e2e.genericError"
     },

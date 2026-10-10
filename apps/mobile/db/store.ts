@@ -57,6 +57,8 @@ import {
   UPDATE_MESSAGE_TEXT,
   UPDATE_MESSAGE_MARKS,
   UPDATE_THREAD_FOLLOWERS,
+  SEARCH_MESSAGES,
+  searchPattern,
   HIDE_ENCRYPTED_MESSAGES,
   UPDATE_ENCRYPTED_PREVIEW,
   HIDE_ENCRYPTED_PREVIEW,
@@ -521,6 +523,19 @@ export type EmojiUsageStore = {
   read: () => Promise<EmojiUse[]>;
   record: (code: string) => Promise<void>;
 };
+
+/** Ids of the messages containing `term`, newest first. */
+export type LocalSearch = { search(term: string, limit: number): Promise<string[]> };
+
+/** Search across rooms on the device (`SEARCH_MESSAGES`, `ui/localSearch.ts`). A read: no queue. */
+export function createLocalSearch(raw: SQLiteDatabase): LocalSearch {
+  return {
+    async search(term, limit) {
+      const rows = await raw.getAllAsync<{ id: string }>(SEARCH_MESSAGES, [searchPattern(term), limit]);
+      return rows.map((r) => r.id);
+    },
+  };
+}
 
 export function createEmojiUsageStore(
   raw: SQLiteDatabase,

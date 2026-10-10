@@ -246,6 +246,26 @@ export const UPDATE_MESSAGE_TEXT = `UPDATE messages SET text = ?, attachments = 
  */
 export const UPDATE_MESSAGE_MARKS = `UPDATE messages SET pinned = ?, starred = ? WHERE id = ?`;
 export const UPDATE_THREAD_FOLLOWERS = `UPDATE messages SET thread_followers = ? WHERE id = ?`;
+
+/**
+ * Search across rooms, on the device: the messages this database holds whose
+ * text contains the words, newest first. `LIKE` ignores ASCII case only;
+ * `searchPattern` escapes the wildcards. A decrypted message (`e2e` with its
+ * text) is found, a locked one has no text. Ids only: the screen reads the rows.
+ */
+export const SEARCH_MESSAGES = `
+SELECT id FROM messages
+WHERE text LIKE ? ESCAPE '\\'
+  AND (system_type IS NULL OR system_type = 'e2e')
+ORDER BY ts DESC, id DESC
+LIMIT ?
+`;
+
+/** `term` as a `LIKE` pattern: `%`, `_` and the escape itself taken literally. */
+export function searchPattern(term: string): string {
+  return `%${term.trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+}
+
 /** Re-masks every encrypted message on lock: the local plaintext disappears,
  *  attachments included (they carry each file's key), the ciphertext
  *  (`encrypted_raw`) stays to decrypt again at the next unlock.

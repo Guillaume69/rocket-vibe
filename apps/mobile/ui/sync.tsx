@@ -42,6 +42,7 @@ import {
   createDraftStore,
   createEmojiStore,
   createEmojiUsageStore,
+  createLocalSearch,
   createOutboxStore,
   createUploadStore,
   type DraftStore,
@@ -98,6 +99,7 @@ import { NativeStore } from '../providers/rocketvibe/store.ts';
 import {createNativeFilesIO,mountNativeFiles} from './nativeFiles.ts';
 import { notify } from './toast.tsx';
 import { mountEmojiUsage } from './emojiUsage.ts';
+import { mountLocalSearch } from './localSearch.ts';
 
 export type SyncState =
   | { phase: 'idle' }
@@ -205,6 +207,8 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         await store.prepare();
         if (!alive) return;
         unmountUsage = mountEmojiUsage(createEmojiUsageStore(raw,writeQueue));
+        const unmountEmoji = unmountUsage, unmountSearch = mountLocalSearch(createLocalSearch(raw));
+        unmountUsage = () => { unmountEmoji(); unmountSearch(); };
         const provider = createProvider(session,client,() => idFromBytes(Crypto.getRandomBytes(12)),store,{
           pushAndroid:Platform.OS==='android',
           voice:VoiceNative!==null,
@@ -321,6 +325,8 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       if (discarded) return;
       // Device data of this account (quick reactions), taken back at session end.
       unmountUsage = mountEmojiUsage(createEmojiUsageStore(raw, writeQueue));
+      const unmountEmoji = unmountUsage, unmountSearch = mountLocalSearch(createLocalSearch(raw));
+      unmountUsage = () => { unmountEmoji(); unmountSearch(); };
       // E2EE engine (read side): decrypts during ingestion as soon as a room key
       // is available. The private key is stored in the Keystore per
       // (SERVER, ACCOUNT), like the SQLite database just above, and for the same

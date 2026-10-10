@@ -18,6 +18,7 @@ release, and its notes are that version's section here.
 - A line break typed in a list item continues the list (`- `, `* `, `1. `), and one on an empty item ends it, as on the desktop.
 - A video call card offers "Meeting information": the meeting's link without your personal token, to copy or open in the browser.
 - On Rocket.Chat servers, "Forward" in a message's actions sends it, as a quote, to another room you pick.
+- A 🔍 in the room list searches messages across every room, among those already on the device, newest first; a result opens the room at the message.
 - My profile can remove my photo (Rocket.Chat and RocketVibe), after a confirmation.
 
 ### Fixed

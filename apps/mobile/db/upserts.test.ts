@@ -51,6 +51,8 @@ import {
   UPDATE_ROOM_AVATAR,
   UPDATE_MESSAGE_MARKS,
   UPDATE_THREAD_FOLLOWERS,
+  SEARCH_MESSAGES,
+  searchPattern,
   UPDATE_USER_AVATAR,
   DELETE_MESSAGE,
   DELETE_OPTIMISTIC_MESSAGE,
@@ -373,6 +375,26 @@ describe('upserts idempotents', () => {
     assert.deepEqual(read(), { push_preference: 'mentions' });
     db.prepare(UPSERT_SUBSCRIPTION).run(...sub({ rid: 'r1', updatedAt: 200 }));
     assert.deepEqual(read(), { push_preference: null });
+  });
+
+  test('search across rooms: words in any case, newest first, wildcards literal', () => {
+    const put = (id: string, rid: string, text: string | null, ts: number, systemType: string | null = null) =>
+      db.prepare(UPSERT_MESSAGE).run(...msg({ id, rid, text, ts, systemType, updatedAt: ts }));
+    put('a', 'r1', 'Deploy the API tonight', 100);
+    put('b', 'r2', 'the api is down', 200);
+    put('c', 'r2', 'unrelated', 300);
+    put('d', 'r3', 'api', 400, 'uj'); // a join: never a result
+    put('e', 'r3', 'secret api plan', 500, 'e2e'); // decrypted
+    put('f', 'r3', null, 600, 'e2e'); // still locked
+    put('g', 'r1', '100% done_now', 700);
+    const ids = (term: string) =>
+      db.prepare(SEARCH_MESSAGES).all(searchPattern(term), 50).map((r) => (r as { id: string }).id);
+    assert.deepEqual(ids('API'), ['e', 'b', 'a']);
+    assert.deepEqual(ids('  api is '), ['b']);
+    assert.deepEqual(ids('0%'), ['g']);
+    assert.deepEqual(ids('e_n'), ['g']);
+    assert.deepEqual(ids('%'), ['g']);
+    assert.deepEqual(db.prepare(SEARCH_MESSAGES).all(searchPattern('api'), 1).length, 1);
   });
 
   test('a catch-up cursor never goes back', () => {

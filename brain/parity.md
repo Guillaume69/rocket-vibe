@@ -150,7 +150,7 @@ beta does.
 |---|---|---|---|---|---|
 | Search messages in the room (`chat.search`) | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | Open a result at its message | done | done | done | done | SwiftUI does not open a thread reply in its thread. Web: Native provider: see [web-client](features/web-client.md). |
-| Search across rooms | missing | missing | missing | missing | Web: No browser implementation yet. |
+| Search across rooms (on the device: the messages already synced, any server kind) | done | missing | missing | missing | Mobile: local SQLite (`SEARCH_MESSAGES`), 500 newest per room plus opened history; private RocketVibe conversations stay searched per room. GTK and SwiftUI owe it (their store keeps every message: no retention). Web: No browser implementation yet. |
 
 ## 8. Room info and profiles - [room-info-and-profiles](features/room-info-and-profiles.md)
 
@@ -308,7 +308,7 @@ gaps, listed last.
 
 - **Mobile**: kChat "Sign in with Infomaniak" run on a real account; Mattermost stars changed elsewhere, live; several accounts per server;
   formatting toolbar; logs folder.
-- **GTK**: a room's own notifications and forwarding a message (Rocket.Chat); kChat "Sign in with Infomaniak"; email 2FA resend; replay of an offline sign-out; padlock tile once
+- **GTK**: a room's own notifications and forwarding a message (Rocket.Chat); search across rooms; kChat "Sign in with Infomaniak"; email 2FA resend; replay of an offline sign-out; padlock tile once
   unlocked; DM avatar versions in the list; video reduction; reconciliation snapshot; catch-up of
   deletions in rooms already caught up; message retention.
 - **SwiftUI**: everything GTK owes, plus `-wal` / `-shm` cleanup on sign-out;
@@ -316,8 +316,7 @@ gaps, listed last.
   formatting toolbar; list continuation; notification backend description; logs
   folder; new versions; running with the window closed and starting at login;
   meeting information.
-- **All three**: "also send to the room" in a thread, and the thread list and following on Mattermost, kChat and RocketVibe servers; search across
-  rooms; room members, settings and roles; creating an encrypted room; creating a
+- **All three**: "also send to the room" in a thread, and the thread list and following on Mattermost, kChat and RocketVibe servers; room members, settings and roles; creating an encrypted room; creating a
   channel or private group on Rocket.Chat; "Deleted
   user" on messages ingested before the deletion, on server-computed names and in
   private conversations; Rocket.Chat real names (`UI_Use_Real_Name`): group DMs

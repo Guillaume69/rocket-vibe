@@ -86,6 +86,16 @@ function ListHeader({ c }: { c: Colors }) {
         <Brand c={c} size={23} />
       </View>
       <Tappable
+        onPress={() => router.push('/search-messages')}
+        android_ripple={{ color: c.ripple, borderless: true, radius: 22 }}
+        hitSlop={8}
+        accessibilityRole="button"
+        accessibilityLabel={t('searchMessages.title')}
+        style={({ pressed }) => [styles.headerWheel, { opacity: pressed ? 0.55 : 1 }]}
+      >
+        <Text style={styles.headerWheelGlyph}>🔍</Text>
+      </Tappable>
+      <Tappable
         onPress={() => router.push('/settings')}
         android_ripple={{ color: c.ripple, borderless: true, radius: 22 }}
         hitSlop={8}

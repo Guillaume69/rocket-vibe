@@ -1,6 +1,6 @@
 # Search
 
-Two searches, both server-side and debounced: finding people and channels to start a conversation (`spotlight`), and finding messages inside the open room (`chat.search`). Neither app searches its local database, and neither app searches messages across rooms: `chat.search` requires a `roomId`.
+Three searches, debounced: finding people and channels to start a conversation (`spotlight`, server), finding messages inside the open room (`chat.search`, server), and, on mobile, finding messages across rooms on the device (local SQLite), since `chat.search` requires a `roomId` and asking every room would spend the REST rate limit.
 
 ## Shared rules
 
@@ -27,9 +27,13 @@ This is the only place the apps call `spotlight`; `@` mention completion deliber
 - GTK: a dialog (`details::search` in `rv-gtk/src/details.rs`) listing author, date and the rendered body. A click closes it and **goes to the message**: a thread reply opens its thread, anything else is revealed in the room, in the history around it when it is older than what is loaded, whatever its age (`Chat::jump_to`, the context window of [room-view.md](room-view.md)). A toast says so only when the server cannot give the message back.
 - SwiftUI: `SearchView` in `Details.swift`, the same list; a tap jumps through `RoomModel.jump(to:)`, which opens the history around an old message as GTK does. It does not special-case thread replies.
 
+## Messages across rooms (mobile, on the device)
+
+A 🔍 in the room list's header opens `app/search-messages.tsx`. `ui/localSearch.ts` holds the session's search, mounted by `ui/sync.tsx` with the database like the emoji usage store; `createLocalSearch` (`db/store.ts`) runs `SEARCH_MESSAGES` (`db/upserts.ts`): `text LIKE ? ESCAPE` with `searchPattern` escaping `%`, `_` and the backslash, ordinary messages and decrypted `e2e` ones (a locked one has no text), newest first, 60 at most, ids only; the screen then reads the rows and their rooms through drizzle. `LIKE` ignores ASCII case only (accents count). It covers what the device holds, whatever the server kind: the last 500 messages per room on mobile, plus history already opened; the screen says so. A tap opens the room at the message (`requestJump` before the push), or the thread of a reply not shown in the room. Private RocketVibe conversations keep their own on-device search, per room (`CryptoConversationAccess.search`).
+
 ## Parity
 
-Both apps: spotlight for new conversations, `chat.search` in a room, jumping from a result to the message whatever its age. Neither: a search across rooms, or a filter over the local room list.
+Both apps: spotlight for new conversations, `chat.search` in a room, jumping from a result to the message whatever its age. Search across rooms: mobile only, on the device. Neither: a filter over the local room list.
 
 ## Sources
 

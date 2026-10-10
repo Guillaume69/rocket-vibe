@@ -1,6 +1,6 @@
 # Room switcher
 
-A keyboard shortcut opens a dialog over the window that lists the account's rooms, searched by name as typed; Return opens the selected room, the arrows move the selection, a click on a row opens it, and a click outside or Escape closes it with nothing opened. It covers every room of the list, on any server kind (Rocket.Chat, Mattermost and kChat, RocketVibe), voice channels included (opening one joins its session, as a click in the list does).
+On the desktop, a keyboard shortcut opens a dialog over the window that lists the account's rooms, searched by name as typed; Return opens the selected room, the arrows move the selection, a click on a row opens it, and a click outside or Escape closes it with nothing opened. It covers every room of the list, on any server kind (Rocket.Chat, Mattermost and kChat, RocketVibe), voice channels included (opening one joins its session, as a click in the list does).
 
 ## The rule
 
@@ -8,7 +8,7 @@ A keyboard shortcut opens a dialog over the window that lists the account's room
 
 ## Mobile
 
-Not offered: the room list has no filter of its own, and the search screen (`app/search.tsx`) is the server's spotlight (people and public rooms), not the joined rooms.
+No keyboard to call it from: the same need is a filter field at the top of the room list (`RoomFilter` in `app/index.tsx`). While it holds text, the sections flatten into one list ranked by `filterRooms` (`lib/roomFilter.ts`, the rule above ported with the same fold table and test cases), matched on the shown name (`roomTitle`, a DM's peer) and the room's `name`; the New conversation rows step aside, and a tap opens the room even with the keyboard up (`keyboardShouldPersistTaps`). The search screen (`app/search.tsx`) stays the server's spotlight (people and public rooms).
 
 ## Desktop
 
@@ -36,3 +36,5 @@ Ctrl+K opens "New conversation" (`panels.ts#newConversation`: people, public roo
 - apps/web/src/app.ts
 - apps/web/src/panels.ts
 - apps/mobile/app/search.tsx
+- apps/mobile/app/index.tsx
+- apps/mobile/lib/roomFilter.ts

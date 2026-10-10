@@ -56,7 +56,7 @@ beta does.
 | New conversation: `spotlight`, open a DM (`im.create`), join a channel (`channels.join`) | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | Mark a room as unread, or as read with its threads, from the room list (Rocket.Chat) | done | done | done | n/a | Mobile: long press; GTK: right-click menu; SwiftUI: context menu, checked by the macOS CI build only. Opening the room marks it unread as left: a desktop marking the OPEN room unread leaves it first. Mattermost, kChat and RocketVibe not mapped. Web: Native-origin client; Rocket.Chat is outside its scope. |
 | Rocket.Chat: create a channel or a private group (`channels.create`, `groups.create`) | missing | missing | missing | partial | On a RocketVibe server the apps create rooms; on Rocket.Chat none does. Set aside by the user on 2026-10-07. Web: Implemented native browser equivalent requires row-specific GTK qualification; see docs/WEB_CLIENT_EXECUTION.md. |
-| Room switcher: the account's rooms searched by name from the keyboard - [room-switcher](features/room-switcher.md) | missing | done | done | missing | GTK Ctrl+K (the composer's link moved to Ctrl+Shift+K), SwiftUI Cmd+K, both over `rooms::switcher_matches`; SwiftUI checked by the macOS CI build only. Mobile owes a filter of the joined rooms (its search is the server's spotlight). Web: Ctrl+K opens New conversation, not the joined rooms. |
+| Room switcher: the account's rooms searched by name from the keyboard - [room-switcher](features/room-switcher.md) | mapped | done | done | missing | GTK Ctrl+K (the composer's link moved to Ctrl+Shift+K), SwiftUI Cmd+K, both over `rooms::switcher_matches`; SwiftUI checked by the macOS CI build only. Mobile: a filter field atop the room list, the same ranking (`lib/roomFilter.ts`). Web: Ctrl+K opens New conversation, not the joined rooms. |
 | Unread total on the app | done | done | done | done | Mobile: launcher badge; GTK: window title, Windows tray, macOS Dock; SwiftUI: Dock. Web: Native provider: see [web-client](features/web-client.md). |
 
 ## 3. Room view - [room-view](features/room-view.md), [media-playback](features/media-playback.md), [avatars](features/avatars.md), [emoji](features/emoji.md)
@@ -321,7 +321,7 @@ beta does.
 What each app owes, from the tables above. Rows missing in all three native apps
 are product gaps, listed last.
 
-- **Mobile**: kChat "Sign in with Infomaniak" run on a real account; several accounts per server; a filter of the joined rooms (the room switcher's need);
+- **Mobile**: kChat "Sign in with Infomaniak" run on a real account; several accounts per server;
   live styling of the draft; logs folder; in notifications the author's photo,
   the message's picture, quick reactions and mark as read, the app's own sound.
 - **GTK**: "also send to the room" in a thread, invite links and discussions (Rocket.Chat); search across rooms; a forwarded message (a quote with no words) previews empty in the room list; kChat "Sign in with Infomaniak"; email 2FA resend; replay of an offline sign-out; padlock tile once

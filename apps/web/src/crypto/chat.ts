@@ -1,3 +1,7 @@
+import { messageMenu, type MenuAction } from "../ui/menu";
+import { showThread } from "../ui/thread";
+import { clearView } from "../ui/portals";
+import { timelineBanner } from "../ui/banners";
 import type { App } from "../app";
 import type {
   Message,
@@ -12,10 +16,9 @@ import type { RowActions } from "../render";
 import { el, button, dialog, field, stopMedia, toast } from "../dom";
 import { messageRow } from "../render";
 import { iconButton } from "../icons";
-import { composer } from "../composer";
 import { t } from "../i18n";
 import { nt } from "../native-i18n";
-import { profile, settings } from "../panels";
+import { profile, settings } from "../panel-actions";
 import { encryptedRoom } from "./panels";
 import { cryptoAccess, type CryptoAccess } from "./access";
 import type {
@@ -82,6 +85,7 @@ export class PrivateChat {
     this.fence = app.roomFence(room);
     this.actions = {
       privateFiles: true,
+      pendingActions: (message) => this.pendingFor(message),
       profile: (message) => profile(app, message.author.id, () => this.active),
       menu: (message, anchor) => this.menu(message, anchor),
       thread: (message) => this.thread(message),
@@ -135,18 +139,18 @@ export class PrivateChat {
     action = () => encryptedRoom(this.app, this.room),
   ): void {
     if (!this.active) return;
-    const banner = el("div", "e2e-banner");
-    banner.append(
-      el("p", "", nt(key)),
-      button(nt("crypto.group_title"), action),
+    timelineBanner(
+      this.app.timeline,
+      nt(key),
+      nt("crypto.group_title"),
+      action,
     );
-    this.app.timeline.replaceChildren(banner);
     this.rows.clear();
     this.threadRows.clear();
     this.view = undefined;
     this.threadView = undefined;
     this.app.threadPane.hidden = true;
-    this.app.threadTimeline.replaceChildren();
+    clearView(this.app.threadTimeline);
     this.retireMedia();
     this.app.renderHeader();
   }
@@ -161,8 +165,8 @@ export class PrivateChat {
     stopMedia(this.app.timeline);
     stopMedia(this.app.threadTimeline);
     if (this.app.room === this.room) {
-      this.app.timeline.replaceChildren();
-      this.app.threadTimeline.replaceChildren();
+      clearView(this.app.timeline);
+      clearView(this.app.threadTimeline);
       this.app.composer.value = "";
       this.app.threadComposer.value = "";
       this.app.replyBar.replaceChildren();
@@ -361,7 +365,7 @@ export class PrivateChat {
     );
     for (const time of this.app.timeline.querySelectorAll(".message-time"))
       time.setAttribute("title", nt("crypto.observed_time"));
-    this.pending(this.app.timeline, this.view);
+
     if (!this.view.can_send) {
       const note = el("div", "e2e-banner");
       note.append(
@@ -474,59 +478,25 @@ export class PrivateChat {
     if (!this.active || this.app.root !== root) return;
     this.threadView = view;
     this.threadRows = await this.project(view);
-    const header = el("header", "headerbar");
-    header.append(
-      el("span", "room-title", t("thread")),
-      iconButton("close", t("close"), () => this.app.closeThread()),
-    );
-    this.app.threadTimeline = el("div", "timeline");
-    this.app.threadComposer = composer();
-    this.app.threadTimeline.addEventListener("scroll", () => {
-      if (this.app.threadTimeline.scrollTop < 100)
-        void this.older(true).catch(toast);
-    });
-    const input = this.app.threadComposer;
-    input.setAttribute("aria-label", t("thread"));
-    input.value = view.draft;
-    input.disabled = !this.canSendThread;
-    input.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
-        event.preventDefault();
-        void this.send(input.value, root).catch((error) => {
+    const conversation = this.threadConversation;
+    showThread(this.app, {
+      draft: view.draft,
+      disabled: !this.canSendThread,
+      send: async (text) => {
+        if (this.active && this.app.root === root) await this.send(text, root);
+      },
+      save: (text) => {
+        void conversation.saveDraft(text).catch((error) => {
           if (this.active && this.app.root === root) toast(error);
         });
-      }
+      },
+      older: () => {
+        void this.older(true).catch(toast);
+      },
+      files: (files) => {
+        if (this.active && this.app.root === root) this.addFiles(files);
+      },
     });
-    const conversation = this.threadConversation;
-    input.addEventListener(
-      "input",
-      () =>
-        void conversation.saveDraft(input.value).catch((error) => {
-          if (this.active && this.app.root === root) toast(error);
-        }),
-    );
-    const files = el("input");
-    files.type = "file";
-    files.multiple = true;
-    files.hidden = true;
-    files.onchange = () => {
-      if (this.app.root === root) this.addFiles(Array.from(files.files ?? []));
-      files.value = "";
-    };
-    const footer = el("div", "composer");
-    footer.append(
-      files,
-      iconButton("attach", t("attach"), () => files.click()),
-      input,
-      iconButton("mic", t("voice"), () => this.app.record()),
-      iconButton("send", t("send"), () => this.send(input.value, root), "send"),
-    );
-    this.app.threadPane.replaceChildren(
-      header,
-      this.app.threadTimeline,
-      footer,
-    );
-    this.app.threadPane.hidden = false;
     this.renderThread();
   }
   async closeThread(): Promise<void> {
@@ -536,7 +506,7 @@ export class PrivateChat {
     const access = this.threadAccess;
     this.threadAccess = undefined;
     stopMedia(this.app.threadTimeline);
-    this.app.threadTimeline.replaceChildren();
+    clearView(this.app.threadTimeline);
     this.app.threadComposer.value = "";
     this.retireMedia();
     await access?.close();
@@ -549,7 +519,6 @@ export class PrivateChat {
         [...this.threadRows.values()],
         this.actions,
       );
-      this.pending(this.app.threadTimeline, this.threadView);
     }
   }
   message(id: string): Message | undefined {
@@ -584,38 +553,31 @@ export class PrivateChat {
       this.paging = false;
     }
   }
-  private pending(container: HTMLElement, view: CryptoConversationView): void {
-    for (const row of view.messages) {
-      const operation =
-        row.amendment?.operation ??
-        (row.status !== "journaled" ? row.operation : null);
-      if (!operation) continue;
-      const node = container.querySelector<HTMLElement>(
-        '[data-id="' + row.id + '"]',
-      );
-      if (!node) continue;
-      const actions = el("div", "private-pending");
-      actions.append(
-        el("span", "message-note", t("pending")),
-        button(t("retry"), async () => {
-          await this.target(this.message(row.id)!)?.resume(operation);
-          await this.refresh();
-        }),
-        button(t("cancel"), async () => {
-          await this.target(this.message(row.id)!)?.cancel(operation);
-          await this.refresh();
-        }),
-      );
-      if (row.status === "cancelled")
-        actions.replaceChildren(
-          button(t("retry"), async () => {
-            await this.target(this.message(row.id)!)?.restore(operation);
-            await this.refresh();
-          }),
-        );
-      node.querySelector(".private-pending")?.remove();
-      node.append(actions);
-    }
+  private pendingFor(
+    message: Message,
+  ): ReturnType<NonNullable<RowActions["pendingActions"]>> {
+    if (!this.active) return;
+    const view = message.reply_to ? this.threadView : this.view;
+    const row = view?.messages.find((row) => row.id === message.id);
+    const operation =
+      row?.amendment?.operation ??
+      (row?.status !== "journaled" ? row?.operation : null);
+    if (!row || !operation) return;
+    return {
+      cancelled: row.status === "cancelled",
+      retry: async () => {
+        const target = this.target(this.message(row.id));
+        if (!this.active || !target) return;
+        if (row.status === "cancelled") await target.restore(operation);
+        else await target.resume(operation);
+        await this.refresh();
+      },
+      cancel: async () => {
+        if (!this.active) return;
+        await this.target(this.message(row.id))?.cancel(operation);
+        await this.refresh();
+      },
+    };
   }
   private target(
     message: Message | undefined,
@@ -635,47 +597,19 @@ export class PrivateChat {
   }
   private async menu(message: Message, anchor: HTMLElement): Promise<void> {
     if (!this.active || !anchor.isConnected) return;
-    const node = el("div", "actions-menu");
-    node.popover = "auto";
-    const body = el("div");
-    node.append(body);
-    document.body.append(node);
-    const rect = anchor.getBoundingClientRect();
-    node.style.left =
-      Math.max(10, Math.min(innerWidth - 268, rect.right - 250)) + "px";
-    node.style.top =
-      Math.max(10, Math.min(innerHeight - 420, rect.bottom + 4)) + "px";
-    const close = () => {
-      node.hidePopover();
-      node.remove();
-    };
-    node.addEventListener("toggle", () => {
-      if (!node.matches(":popover-open")) node.remove();
-    });
-    const action = (label: string, work: () => Promise<void> | void) =>
-      button(
-        label,
-        async () => {
-          if (!this.active || !this.message(message.id)) {
-            close();
-            return;
-          }
-          await work();
-          close();
-        },
-        "menu-action",
-      );
-    const quick = el("div", "quick-reactions");
-    for (const [name, glyph] of [
+    const actions: MenuAction[] = [];
+    const action = (
+      label: string,
+      work: () => Promise<void> | void,
+    ): MenuAction => [label, work];
+    const quick: MenuAction[] = [
       ["thumbsup", "👍"],
       ["heart", "❤️"],
       ["joy", "😂"],
       ["tada", "🎉"],
       ["open_mouth", "😮"],
-    ])
-      quick.append(action(glyph, () => this.react(message, name)));
-    body.append(quick);
-    body.append(
+    ].map(([name, glyph]) => [glyph, () => this.react(message, name)]);
+    actions.push(
       action(t("reply"), () => this.thread(message)),
       action(t("quote"), async () => {
         this.selectingQuote = true;
@@ -711,7 +645,7 @@ export class PrivateChat {
       ),
     );
     if (message.author.id === this.app.account?.session.user.id) {
-      body.append(
+      actions.push(
         action(t("edit"), () => {
           const [edit, content] = dialog(t("edit")),
             [wrap, input] = field(t("message"), message.text);
@@ -746,8 +680,13 @@ export class PrivateChat {
         }),
       );
     }
-    body.append(action(t("react"), () => this.app.emojiPicker(message)));
-    node.showPopover();
+    actions.push(action(t("react"), () => this.app.emojiPicker(message)));
+    messageMenu(
+      anchor,
+      quick,
+      actions,
+      () => this.active && !!this.message(message.id),
+    );
   }
   async search(): Promise<void> {
     if (!this.active || !this.conversation) return;

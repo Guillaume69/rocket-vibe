@@ -1,3 +1,5 @@
+import { adminDashboard } from "./ui/admin-dashboard";
+import { versionParts, newerVersion } from "./admin-format";
 import type { App } from "./app";
 import type {
   AdminOverview,
@@ -15,24 +17,11 @@ import { sidebarDialog, preferencesGroup, actionRow } from "./sidebar";
 import { language, t } from "./i18n";
 import { botBadge } from "./bots";
 import { nt } from "./native-i18n";
-import { switchRow, accountFence } from "./preferences-controls";
+import { accountFence } from "./preferences-controls";
 import type { InstanceSettings } from "./protocol";
-import { roomInfo } from "./panels";
+import { roomInfo } from "./panel-actions";
 import { iconButton } from "./icons";
 const label = (en: string, fr: string) => (language === "fr" ? fr : en);
-function versionParts(text: string): bigint[] | undefined {
-  const match = /^(?:server-v|v)?(\d+)\.(\d+)\.(\d+)$/.exec(text);
-  return match?.slice(1).map(BigInt);
-}
-function newerVersion(latest: string, current: string): boolean {
-  const a = versionParts(latest),
-    b = versionParts(current);
-  if (!a || !b) return false;
-  for (let index = 0; index < 3; index++) {
-    if (a[index] !== b[index]) return a[index] > b[index];
-  }
-  return false;
-}
 async function latestServerVersion(): Promise<string | undefined> {
   try {
     const response = await fetch(
@@ -66,52 +55,6 @@ async function latestServerVersion(): Promise<string | undefined> {
   } catch {
     return;
   }
-}
-function uptime(started: string): string | undefined {
-  const seconds = Math.floor((Date.now() - Date.parse(started)) / 1000);
-  if (!Number.isFinite(seconds) || seconds < 0) return;
-  const d = Math.floor(seconds / 86400),
-    h = Math.floor((seconds % 86400) / 3600),
-    m = Math.floor((seconds % 3600) / 60);
-  return d
-    ? nt("admin.days", { d, h })
-    : h
-      ? nt("admin.hours", { h, m })
-      : nt("admin.minutes", { m });
-}
-function uploadSize(bytes: number): string {
-  // GLib uses the system locale for sizes, independently of the UI language.
-  const locale = navigator.language || language;
-  const french = locale.startsWith("fr");
-  if (bytes < 1000)
-    return (
-      new Intl.NumberFormat(locale).format(bytes) +
-      " " +
-      (french
-        ? bytes === 1
-          ? "octet"
-          : "octets"
-        : bytes === 1
-          ? "byte"
-          : "bytes")
-    );
-  const units = french
-    ? ["ko", "Mo", "Go", "To", "Po", "Eo"]
-    : ["kB", "MB", "GB", "TB", "PB", "EB"];
-  let value = bytes / 1000,
-    unit = 0;
-  while (value >= 1000 && unit < units.length - 1) {
-    value /= 1000;
-    unit++;
-  }
-  return (
-    value.toLocaleString(locale, {
-      minimumFractionDigits: 1,
-      maximumFractionDigits: 1,
-    }) +
-    " " +
-    units[unit]
-  );
 }
 export function report(app: App, kind: "messages" | "users", id: string): void {
   const [node, body] = dialog(t("reports"));
@@ -355,193 +298,42 @@ export async function administration(app: App): Promise<void> {
   };
   const requests = new WeakMap<HTMLElement, number>();
   const dashboard = (page: HTMLElement) => {
-    page.classList.add("admin-dashboard-page");
-    const cards = el("div", "admin-cards");
-    const columns = [
-      el("div", "admin-card-column"),
-      el("div", "admin-card-column"),
-    ];
-    cards.append(...columns);
-    let nextCard = 0;
-    const add = (
-      title: string,
-      values: [string, string | number][],
-      id: string,
-    ) => {
-      const [group, rows] = preferencesGroup(title);
-      group.dataset.adminCard = id;
-      for (const [name, value] of values) rows.append(textValue(name, value));
-      columns[nextCard++ % columns.length].append(group);
-      return { group, rows };
+    const badge = () => {
+      const count = overview.reports.messages + overview.reports.users;
+      host.setBadge("moderation", count > 0 ? String(count) : undefined);
     };
-    const deployment = add(nt("admin.deployment"), [], "deployment");
-    const refresh = iconButton(
-      "refresh",
-      nt("admin.refresh_figures"),
-      async () => {
+    badge();
+    adminDashboard(page, {
+      overview,
+      policy: instanceSettings?.user_bots,
+      latest: latestVersion,
+      icon: app.info?.capabilities.instance_icon
+        ? iconCard(app, valid)
+        : undefined,
+      valid: () => valid() && host.node.open && page.isConnected,
+      refresh: async () => {
         const updated = await app.api.request<AdminOverview>(
           "/api/v1/admin/overview",
         );
-        if (!valid() || !page.isConnected) return;
-        overview = updated;
-        page.replaceChildren();
-        dashboard(page);
+        if (valid() && host.node.open && page.isConnected) {
+          overview = updated;
+          badge();
+        }
+        return updated;
       },
-      "flat admin-refresh",
-    );
-    deployment.group.querySelector("h3")!.append(refresh);
-    const version = textValue(nt("admin.version"), overview.server_version);
-    deployment.rows.append(version);
-    void latestVersion.then((latest) => {
-      if (!latest || !valid() || !version.isConnected) return;
-      const available = newerVersion(latest, overview.server_version);
-      version.append(
-        el(
-          "span",
-          "admin-update" + (available ? " available" : ""),
-          available
-            ? nt("admin.update_available", { version: latest })
-            : nt("admin.up_to_date"),
-        ),
-      );
+      updatePolicy: async (on) => {
+        if (!valid()) throw Error("Account changed");
+        const updated = await app.api.request<InstanceSettings>(
+          "/api/v1/admin/settings",
+          "PATCH",
+          { operation_id: operation(), user_bots: on },
+        );
+        if (valid() && host.node.open && page.isConnected)
+          instanceSettings = updated;
+        return updated.user_bots;
+      },
+      moderation: () => host.select("moderation"),
     });
-    const elapsed = uptime(overview.started_at);
-    if (elapsed !== undefined)
-      deployment.rows.append(textValue(nt("admin.uptime"), elapsed));
-    deployment.rows.append(
-      textValue(
-        nt("admin.database"),
-        "PostgreSQL " + overview.postgres_version,
-      ),
-    );
-    if (overview.migration_version)
-      deployment.rows.append(
-        textValue(nt("admin.migration"), overview.migration_version),
-      );
-    const instance = textValue(
-      nt("admin.instance"),
-      overview.instance_id.length > 12
-        ? overview.instance_id.slice(0, 12) + "…"
-        : overview.instance_id,
-    );
-    instance.querySelector<HTMLElement>(".admin-value")!.title =
-      overview.instance_id;
-    instance.append(
-      iconButton(
-        "copy",
-        nt("actions.copy"),
-        () => navigator.clipboard.writeText(overview.instance_id),
-        "flat admin-copy",
-      ),
-    );
-    deployment.rows.append(instance);
-    const users = add(
-      nt("admin.cat.users"),
-      [
-        [nt("admin.total"), overview.users.total],
-        [nt("admin.active"), overview.users.active],
-        [nt("admin.deactivated"), overview.users.deactivated],
-        [nt("admin.admins"), overview.users.admins],
-      ],
-      "users",
-    );
-    for (const presence of ["online", "away", "busy", "offline"] as const) {
-      const row = textValue(
-        nt("presence." + presence),
-        overview.users[presence],
-      );
-      const dot = el("span", "presence " + presence);
-      dot.title = nt("presence." + presence);
-      row.prepend(dot);
-      users.rows.append(row);
-    }
-    const kinds = (title: string, values: AdminOverview["rooms"], id: string) =>
-      add(
-        title,
-        [
-          [nt("admin.total"), values.total],
-          [nt("admin.public"), values.public],
-          [nt("admin.private"), values.private],
-          [nt("admin.direct"), values.direct],
-          [nt("admin.encrypted"), values.encrypted],
-        ],
-        id,
-      );
-    kinds(nt("admin.cat.rooms"), overview.rooms, "rooms");
-    kinds(nt("admin.messages"), overview.messages, "messages");
-    add(
-      nt("admin.uploads"),
-      [
-        [nt("admin.uploads_count"), overview.uploads.count],
-        [nt("admin.uploads_size"), uploadSize(overview.uploads.bytes)],
-      ],
-      "uploads",
-    );
-    const reports = add(
-      nt("admin.reports"),
-      [
-        [nt("admin.reported_messages"), overview.reports.messages],
-        [nt("admin.reported_users"), overview.reports.users],
-      ],
-      "reports",
-    );
-    const moderation = actionRow(nt("admin.open_moderation"), "", () =>
-      host.select("moderation"),
-    );
-    moderation.classList.add("admin-open-moderation");
-    reports.rows.append(moderation);
-    const reportCount = overview.reports.messages + overview.reports.users;
-    host.setBadge(
-      "moderation",
-      reportCount > 0 ? String(reportCount) : undefined,
-    );
-    if (instanceSettings) {
-      const [group, rows] = preferencesGroup(nt("admin.bots"));
-      const toggle = switchRow(
-        nt("admin.user_bots"),
-        instanceSettings.user_bots,
-        (on) => {
-          void (async () => {
-            if (!valid() || !toggle.isConnected) return;
-            const input = toggle.querySelector<HTMLInputElement>("input")!;
-            const previous = instanceSettings!.user_bots;
-            input.disabled = true;
-            try {
-              const updated = await app.api.request<InstanceSettings>(
-                "/api/v1/admin/settings",
-                "PATCH",
-                { operation_id: operation(), user_bots: on },
-              );
-              if (!valid() || !toggle.isConnected) return;
-              instanceSettings = updated;
-              input.checked = updated.user_bots;
-            } catch (error) {
-              if (valid() && toggle.isConnected) input.checked = previous;
-              throw error;
-            } finally {
-              if (valid() && toggle.isConnected) input.disabled = false;
-            }
-          })().catch(toast);
-        },
-      );
-      const policyInput = toggle.querySelector<HTMLInputElement>("input")!;
-      policyInput.classList.add("row-switch");
-      policyInput.setAttribute("role", "switch");
-      const text = el("div", "action-row-text");
-      text.append(
-        toggle.querySelector(".action-row-title")!,
-        el("span", "action-row-subtitle", nt("admin.user_bots_hint")),
-      );
-      toggle.prepend(text);
-      rows.append(toggle);
-      group.dataset.adminCard = "bots";
-      columns[nextCard++ % columns.length].append(group);
-    }
-    if (app.info?.capabilities.instance_icon) {
-      const group = iconCard(app, valid);
-      columns[nextCard++ % columns.length].append(group);
-    }
-    page.append(cards);
   };
   async function users(
     page: HTMLElement,

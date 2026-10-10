@@ -140,6 +140,12 @@ export function icon(name: string): SVGSVGElement | HTMLSpanElement {
   svg.append(path);
   return svg;
 }
+
+export function iconSource(name: string): { mask?: string; path?: string } {
+  return native[name]
+    ? { mask: native[name] }
+    : { path: paths[name] || paths.more };
+}
 export function iconButton(
   name: string,
   label: string,

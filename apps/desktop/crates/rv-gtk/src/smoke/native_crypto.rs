@@ -26,7 +26,11 @@ pub(super) fn install(window: &Rc<AppWindow>) {
             && session.status().connection == rv_core::session::Connection::Online
         {
             assert!(session.info.username.starts_with("gtkweb"));
-            assert_eq!(session.info.base_url.trim_end_matches('/'), "http://host.docker.internal:3417");
+            assert!(
+                ["http://host.docker.internal:3417", "http://host.docker.internal:3420"]
+                    .contains(&session.info.base_url.trim_end_matches('/')),
+                "GTK interoperability requires a dedicated local bench"
+            );
             let directory = PathBuf::from(&directory);
             glib::spawn_future_local(async move {
                 run(window.clone(), directory).await;

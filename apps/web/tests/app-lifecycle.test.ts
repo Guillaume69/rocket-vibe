@@ -468,25 +468,19 @@ test("private assets register in-flight access and discard late cache writes wit
 });
 test("a delayed edit receipt cannot repopulate a different session's model", async () => {
   const target = app(),
-    receipt = deferred<unknown>(),
-    actions = new Map<string, Function>();
-  const body = node(),
-    row = node();
-  row.querySelector = () => body;
-  const editing = { ...target, main: { querySelector: () => row } };
+    receipt = deferred<unknown>();
+  const editing = { ...target };
   editing.api.request = () => receipt.promise;
-  const edit = method("editMessage", {
-    operation: () => "operation",
+  const edit = method("updateMessage", {
     segment: encodeURIComponent,
-    el: () => node(),
-    t: (key: string) => key,
-    button: (label: string, action: Function) => {
-      actions.set(label, action);
-      return node();
-    },
   });
-  edit.call(editing, message("edited"), "1");
-  const work = actions.get("save")!();
+  const work = edit.call(
+    editing,
+    message("edited"),
+    "1",
+    "Edited content",
+    "operation",
+  );
   editing.generation++;
   editing.account = { ...editing.account, key: "another-fixture" };
   editing.model = new Model();

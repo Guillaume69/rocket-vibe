@@ -1,6 +1,46 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Api } from "../src/api.ts";
+test("a stale delivery lease refetches a read, with bounded retries and no mutation replay", async (context) => {
+  const api = new Api();
+  api.token = "fixture";
+  let calls = 0;
+  context.mock.method(globalThis, "fetch", async () => {
+    calls++;
+    return calls === 1
+      ? Response.json(
+          { code: "delivery_revalidate", request_id: "fixture" },
+          { status: 409 },
+        )
+      : Response.json({ current: true });
+  });
+  assert.deepEqual(await api.request("/api/v1/me"), { current: true });
+  assert.equal(calls, 2);
+  context.mock.method(globalThis, "fetch", async () => {
+    calls++;
+    return Response.json(
+      { code: "delivery_revalidate", request_id: "fixture" },
+      { status: 409 },
+    );
+  });
+  calls = 0;
+  await assert.rejects(api.request("/api/v1/me"));
+  assert.equal(calls, 3);
+  calls = 0;
+  await assert.rejects(api.request("/api/v1/rooms", "POST", {}));
+  assert.equal(calls, 1);
+  context.mock.method(globalThis, "fetch", async () => {
+    calls++;
+    api.token = "another-session";
+    return Response.json(
+      { code: "delivery_revalidate", request_id: "fixture" },
+      { status: 409 },
+    );
+  });
+  calls = 0;
+  await assert.rejects(api.request("/api/v1/me"));
+  assert.equal(calls, 1);
+});
 const rejected = () =>
   Response.json(
     { code: "session_rejected", request_id: "native-envelope" },

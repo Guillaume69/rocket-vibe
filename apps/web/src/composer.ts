@@ -14,6 +14,7 @@ interface Span {
   style: Style;
 }
 export interface Composer extends HTMLDivElement {
+  dispose(): void;
   value: string;
   selectionStart: number;
   selectionEnd: number;
@@ -115,8 +116,10 @@ function plain(node: Node): string {
   return text;
 }
 
-export function composer(): Composer {
-  const node = el("div", "composer-input rich-composer") as Composer;
+export function composer(element?: HTMLDivElement): Composer {
+  const lifetime = new AbortController();
+  const node = (element ||
+    el("div", "composer-input rich-composer")) as Composer;
   node.contentEditable = "true";
   node.role = "textbox";
   node.setAttribute("aria-multiline", "true");
@@ -293,76 +296,110 @@ export function composer(): Composer {
   };
   node.setRangeText = (value, start, end, mode) =>
     replace(value, start, end, mode);
-  node.addEventListener("beforeinput", (event) => {
-    if (disabled) {
-      event.preventDefault();
-      return;
-    }
-    if (
-      event.inputType === "insertParagraph" ||
-      event.inputType === "insertLineBreak"
-    ) {
+  node.addEventListener(
+    "beforeinput",
+    (event) => {
+      if (disabled) {
+        event.preventDefault();
+        return;
+      }
+      if (
+        event.inputType === "insertParagraph" ||
+        event.inputType === "insertLineBreak"
+      ) {
+        event.preventDefault();
+        capture();
+        replace("\n", selectionStart, selectionEnd);
+        return;
+      }
+      if (
+        event.inputType === "historyUndo" ||
+        event.inputType === "historyRedo"
+      ) {
+        event.preventDefault();
+        history(event.inputType === "historyUndo");
+        return;
+      }
+      if (!composing) remember();
+    },
+    { signal: lifetime.signal },
+  );
+  node.addEventListener(
+    "keydown",
+    (event) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
+        event.preventDefault();
+        history(!event.shiftKey);
+      }
+    },
+    { signal: lifetime.signal },
+  );
+  node.addEventListener(
+    "paste",
+    (event) => {
+      if (event.clipboardData?.files.length) return;
       event.preventDefault();
       capture();
-      replace("\n", selectionStart, selectionEnd);
-      return;
-    }
-    if (
-      event.inputType === "historyUndo" ||
-      event.inputType === "historyRedo"
-    ) {
-      event.preventDefault();
-      history(event.inputType === "historyUndo");
-      return;
-    }
-    if (!composing) remember();
-  });
-  node.addEventListener("keydown", (event) => {
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
-      event.preventDefault();
-      history(!event.shiftKey);
-    }
-  });
-  node.addEventListener("paste", (event) => {
-    if (event.clipboardData?.files.length) return;
-    event.preventDefault();
-    capture();
-    replace(
-      event.clipboardData?.getData("text/plain") || "",
-      selectionStart,
-      selectionEnd,
-    );
-  });
-  node.addEventListener("compositionstart", () => {
-    remember();
-    composing = true;
-  });
-  node.addEventListener("compositionend", () => {
-    composing = false;
-    text = plain(node);
-    capture();
-    paint();
-  });
-  node.addEventListener("input", () => {
-    text = plain(node);
-    capture();
-    if (!composing) paint();
-  });
+      replace(
+        event.clipboardData?.getData("text/plain") || "",
+        selectionStart,
+        selectionEnd,
+      );
+    },
+    { signal: lifetime.signal },
+  );
+  node.addEventListener(
+    "compositionstart",
+    () => {
+      remember();
+      composing = true;
+    },
+    { signal: lifetime.signal },
+  );
+  node.addEventListener(
+    "compositionend",
+    () => {
+      composing = false;
+      text = plain(node);
+      capture();
+      paint();
+    },
+    { signal: lifetime.signal },
+  );
+  node.addEventListener(
+    "input",
+    () => {
+      text = plain(node);
+      capture();
+      if (!composing) paint();
+    },
+    { signal: lifetime.signal },
+  );
   let selectionEvents: AbortController | undefined;
-  node.addEventListener("focus", () => {
-    select(selectionStart, selectionEnd);
-    selectionEvents?.abort();
-    selectionEvents = new AbortController();
-    document.addEventListener(
-      "selectionchange",
-      () => {
-        capture();
-        if (!composing && line(selectionEnd) !== paintedLine) paint();
-      },
-      { signal: selectionEvents.signal },
-    );
+  node.addEventListener(
+    "focus",
+    () => {
+      select(selectionStart, selectionEnd);
+      selectionEvents?.abort();
+      selectionEvents = new AbortController();
+      document.addEventListener(
+        "selectionchange",
+        () => {
+          capture();
+          if (!composing && line(selectionEnd) !== paintedLine) paint();
+        },
+        { signal: selectionEvents.signal },
+      );
+    },
+    { signal: lifetime.signal },
+  );
+  node.addEventListener("blur", () => selectionEvents?.abort(), {
+    signal: lifetime.signal,
   });
-  node.addEventListener("blur", () => selectionEvents?.abort());
+  node.dispose = () => {
+    selectionEvents?.abort();
+    lifetime.abort();
+  };
   paint();
   return node;
 }

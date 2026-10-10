@@ -1,3 +1,5 @@
+import { userProfile } from "./ui/profile";
+import { clearView } from "./ui/portals";
 import type { App } from "./app";
 import type {
   User,
@@ -17,7 +19,7 @@ import { el, button, field, tile, dialog, toast } from "./dom";
 import { t, language } from "./i18n";
 import { messageRow } from "./render";
 import { securitySettings, recentProof } from "./security";
-import { administration, report } from "./admin";
+import { administration, report } from "./admin-actions";
 import packageInfo from "../package.json";
 import { sidebarDialog, preferencesGroup, actionRow } from "./sidebar";
 import { icon, iconButton } from "./icons";
@@ -279,23 +281,6 @@ export async function profile(
     available();
   let value: UserProfile | undefined,
     loading = false;
-  const presence = el("div", "profile-presence");
-  const showPresence = () => {
-    const status =
-      app.live?.presence.find((item) => item.user.id === id)?.status ||
-      (app.live && !app.live.limited ? "offline" : undefined);
-    presence.replaceChildren();
-    if (!status || !value) return;
-    presence.append(
-      el("span", "presence " + status),
-      el(
-        "span",
-        "details-sub",
-        nt("presence." + status) +
-          (value.status_text ? " · " + value.status_text : ""),
-      ),
-    );
-  };
   const openDirect = async (call = false) => {
     if (!active()) return;
     const room = await app.api.request<Room>(
@@ -319,6 +304,22 @@ export async function profile(
     )
       await app.voice.join(room.id);
   };
+  const showPresence = () => {
+    if (!value || !active()) return;
+    userProfile(body, {
+      app,
+      profile: value,
+      valid: active,
+      direct: openDirect,
+      peer: () => encryptedPeer(app, id),
+      report: () => {
+        if (active()) {
+          node.close();
+          return report(app, "users", id);
+        }
+      },
+    });
+  };
   const load = async () => {
     if (loading || !active()) return;
     loading = true;
@@ -328,77 +329,13 @@ export async function profile(
       );
       if (!active()) return;
       value = found;
-      const portrait = tile(value.user.username, "profile");
       app.profiles.set(id, Promise.resolve(value));
-      app.avatar(value.user, portrait);
-      body.replaceChildren(
-        portrait,
-        el(
-          "h2",
-          "details-name",
-          value.user.display_name || value.user.username,
-        ),
-        el("p", "details-sub profile-username", "@" + value.user.username),
-      );
-      if (value.user.bot) {
-        const line = el("div", "profile-bot");
-        line.append(botBadge());
-        if (value.bot_owner)
-          line.append(
-            el(
-              "span",
-              "details-sub",
-              nt("bots.owner", { owner: value.bot_owner.username }),
-            ),
-          );
-        body.append(line);
-      }
       showPresence();
-      body.append(presence);
-      if (value.bio) body.append(el("div", "profile-bio-section", ""));
-      const bio = body.querySelector(".profile-bio-section");
-      if (bio)
-        bio.append(
-          el("div", "details-section", nt("info.bio")),
-          el("p", "profile-bio", value.bio),
-        );
-      if (id !== app.account?.session.user.id) {
-        const actions = el("div", "profile-actions");
-        actions.append(
-          button(nt("info.message"), () => openDirect(), "file-action"),
-        );
-        if (app.info?.capabilities.voice)
-          actions.append(
-            button(nt("info.call"), () => openDirect(true), "flat"),
-          );
-        body.append(actions);
-        if (
-          app.info?.capabilities.e2ee &&
-          app.info.capabilities.device_sessions
-        )
-          body.append(
-            button(
-              nt("crypto.peer_title"),
-              () => encryptedPeer(app, id),
-              "flat",
-            ),
-          );
-        if (app.info?.capabilities.reports)
-          body.append(
-            button(
-              nt("report.user"),
-              () => {
-                if (!active()) return;
-                node.close();
-                return report(app, "users", id);
-              },
-              "flat report-user",
-            ),
-          );
-      }
     } catch {
-      if (active())
-        body.replaceChildren(el("p", "details-sub", nt("info.failed")));
+      if (active()) {
+        clearView(body);
+        body.append(el("p", "details-sub", nt("info.failed")));
+      }
     } finally {
       loading = false;
     }

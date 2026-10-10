@@ -4,6 +4,8 @@ The native RocketVibe server serves this actual browser client at `/`. It uses t
 
 The interface reuses the GTK theme, Nunito/Baloo 2 fonts, Adwaita icons, Noto emoji and project sounds. Chat, threads, actions, search, drafts, offline queues, uploads, recording, profiles, room management, administration, security settings, bots, workflows, their message forms and LiveKit calls are implemented. See [execution and remaining parity](../../docs/WEB_CLIENT_EXECUTION.md).
 
+React 19 renders the application screens and keyed conversation components. The existing transport/MLS state machines and bounded native editor/media adapters retain their behavior; see [React architecture and adapter boundaries](../../docs/WEB_REACT.md).
+
 ## Build
 
 Use Node 24. Run from `apps/web`:

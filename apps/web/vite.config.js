@@ -1,9 +1,11 @@
 import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 const backend = process.env.RV_WEB_API_URL || "http://127.0.0.1:3400";
 export default defineConfig({
   plugins: [
+    react(),
     {
       name: "normalize-text-assets",
       enforce: "pre",

@@ -202,6 +202,10 @@ The user chose a true server-delivered browser client, on its own branch/worktre
 
 Sources: apps/web/src/app.ts; apps/web/src/api.ts; docs/rfcs/0005-web-client.md.
 
+## Web React architecture, 2026-10-10
+
+The user requested React after the initial direct-DOM web delivery. React 19 and TypeScript own the browser screens; Vite still produces the bundle embedded by the native server. The controller keeps its tested session, queues, membership fences and MLS worker. Native contenteditable/media hosts and existing scoped page builders are explicit adapters, not a second account store or new design system. See [React architecture](../docs/WEB_REACT.md).
+
 ## Sources
 
 - `docs/protocol/E2EE_AMENDMENTS.md`

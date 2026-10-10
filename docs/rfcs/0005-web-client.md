@@ -8,7 +8,7 @@ Deliver a true browser client directly from the native RocketVibe server, in its
 
 ## Implemented architecture
 
-`apps/web` uses strict TypeScript, native browser DOM controls and Vite. No UI kit or remote GTK process. Production assets are committed and embedded by `apps/server/build.rs`; the standalone binary and Docker image need no Node runtime. The explicit root/room routes never replace missing API/assets with HTML. HTML/worker/manifest are no-store and hashed assets immutable.
+`apps/web` uses React 19, strict TypeScript, native browser controls and Vite. The React component and adapter boundaries are documented in [WEB_REACT.md](../WEB_REACT.md). No UI kit or remote GTK process. Production assets are committed and embedded by `apps/server/build.rs`; the standalone binary and Docker image need no Node runtime. The explicit root/room routes never replace missing API/assets with HTML. HTML/worker/manifest are no-store and hashed assets immutable.
 
 The native HTTP API supplies actions and ticketed WebSocket frames supply updates. IndexedDB stores the model, sole session, drafts, operation intents, pending text/files and private media. Revision/position and membership-lifetime checks prevent old operations/content reappearing after withdrawal and rejoin. Web Locks serialize replay/rotation and BroadcastChannel coordinates tabs. Protected media is hash-verified, separate from public worker caches.
 

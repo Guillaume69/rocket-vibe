@@ -10,8 +10,14 @@ All notable changes are documented here in English.
 - Protected private conversations, drafts, threads, local search, message actions and encrypted attachments, plus identity recovery, history sharing/backups and storage-key controls.
 - Browser frame encryption using the native MLS voice exporter, with refusal when encryption is unavailable.
 
+### Changed
+
+- Render the browser application with React 19 and strict TypeScript, preserving the GTK theme, keyed media playback, ordinary/private threads and existing session/crypto engines.
+- Load settings and administration panels on demand, with shared React dialogs, navigation, profile cards, message menus, dashboard and call controls.
+
 ### Fixed
 
+- Refetch a read when the server requests delivery-lease revalidation, with bounded retries and no automatic mutation replay.
 - Keep ordinary voice joins usable when the server omits its false E2EE flag, while continuing to reject encryption mismatches.
 - Keep the selected settings category when the administration permission lookup finishes after the user has already changed pages.
 - Reopen private views after a fresh membership snapshot without exposing ordinary cached content.

@@ -80,17 +80,9 @@ fn page(session: &Chat, rid: &str, starred: bool, go: Rc<dyn Fn(String)>) -> gtk
 }
 
 pub fn open(parent: &impl IsA<gtk::Widget>, session: Arc<Session>, rid: &str, go: impl Fn(String) + 'static) {
-    open_provider(parent, Chat::Legacy(session), rid, go);
+    open_chat(parent, Chat::Legacy(session), rid, go);
 }
-pub fn open_native(
-    parent: &impl IsA<gtk::Widget>,
-    session: Arc<rv_core::native::NativeSession>,
-    rid: &str,
-    go: impl Fn(String) + 'static,
-) {
-    open_provider(parent, Chat::Native(session), rid, go);
-}
-fn open_provider(parent: &impl IsA<gtk::Widget>, session: Chat, rid: &str, go: impl Fn(String) + 'static) {
+pub fn open_chat(parent: &impl IsA<gtk::Widget>, session: Chat, rid: &str, go: impl Fn(String) + 'static) {
     let dialog = adw::Dialog::builder().title(t("marked.title")).content_width(440).content_height(560).build();
     let weak = dialog.downgrade();
     let go: Rc<dyn Fn(String)> = Rc::new(move |id| {

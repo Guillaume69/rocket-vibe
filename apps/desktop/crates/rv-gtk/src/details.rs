@@ -261,19 +261,6 @@ pub struct ProfileActions {
     pub room: Option<String>,
 }
 
-/// A person, from `users.info`: by username, or by id when `by_id`.
-pub fn profile(parent: &impl IsA<gtk::Widget>, session: Arc<Session>, key: &str, by_id: bool, actions: ProfileActions) {
-    profile_with_source(parent, Chat::Legacy(session), key, by_id, actions);
-}
-pub fn profile_native(
-    parent: &impl IsA<gtk::Widget>,
-    session: Arc<rv_core::native::NativeSession>,
-    key: &str,
-    by_id: bool,
-    actions: ProfileActions,
-) {
-    profile_with_source(parent, Chat::Native(session), key, by_id, actions);
-}
 /// The RocketVibe server's profile version, which moves when a profile
 /// changes there; Rocket.Chat and Mattermost profiles are read once.
 fn profile_version(chat: &Chat) -> Option<String> {
@@ -283,7 +270,8 @@ fn profile_version(chat: &Chat) -> Option<String> {
 fn closed(chat: &Chat) -> bool {
     chat.native().is_some_and(|s| s.is_closed())
 }
-fn profile_with_source(parent: &impl IsA<gtk::Widget>, source: Chat, key: &str, by_id: bool, actions: ProfileActions) {
+/// A person: by username, or by id when `by_id`.
+pub fn profile_chat(parent: &impl IsA<gtk::Widget>, source: Chat, key: &str, by_id: bool, actions: ProfileActions) {
     let content = column();
     loading(&content);
     let dialog = dialog(t("info.profile"), content.upcast_ref(), 520);
@@ -477,6 +465,15 @@ pub fn search_native(
     go: impl Fn(String, Option<String>) + 'static,
 ) -> adw::Dialog {
     search_with_source(parent, SearchSource::Chat(Chat::Native(session)), rid, go)
+}
+/// The server's search of any account, with the same dialog and `go`.
+pub fn search_chat(
+    parent: &impl IsA<gtk::Widget>,
+    chat: Chat,
+    rid: &str,
+    go: impl Fn(String, Option<String>) + 'static,
+) -> adw::Dialog {
+    search_with_source(parent, SearchSource::Chat(chat), rid, go)
 }
 /// Private search of an encrypted RocketVibe room, on this device only.
 pub fn search_private(

@@ -58,6 +58,16 @@ impl Chat {
         }
     }
 
+    /// The very same session: a late answer checks it still speaks for the
+    /// account on screen before acting.
+    pub fn same(&self, other: &Chat) -> bool {
+        match (self, other) {
+            (Chat::Legacy(a), Chat::Legacy(b)) => Arc::ptr_eq(a, b),
+            (Chat::Native(a), Chat::Native(b)) => Arc::ptr_eq(a, b),
+            _ => false,
+        }
+    }
+
     /// People and channels matching `query`, for "New conversation".
     pub async fn spotlight(&self, query: &str) -> Result<Vec<Found>, RestError> {
         match self {

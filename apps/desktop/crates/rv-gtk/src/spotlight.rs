@@ -3,14 +3,12 @@
 
 use std::cell::Cell;
 use std::rc::Rc;
-use std::sync::Arc;
 
 use adw::prelude::*;
 use gtk::glib;
 use rv_core::media::{AvatarTarget, avatar_path};
 use rv_core::provider::Chat;
 use rv_core::rooms::Found;
-use rv_core::session::Session;
 
 use crate::i18n::t;
 use crate::on_tokio;
@@ -47,27 +45,10 @@ fn result_row(session: &Chat, found: &Found, joined: bool) -> gtk::Widget {
     row.upcast()
 }
 
-/// `joined(rid)` says whether I am already in a room; `pick` gets the choice.
-pub fn open(
-    parent: &impl IsA<gtk::Widget>,
-    session: Arc<Session>,
-    joined: impl Fn(&str) -> bool + 'static,
-    pick: impl Fn(Found) + 'static,
-) {
-    open_source(parent, Chat::Legacy(session), joined, pick, None);
-}
-
-pub fn open_native(
-    parent: &impl IsA<gtk::Widget>,
-    session: Arc<rv_core::native::NativeSession>,
-    joined: impl Fn(&str) -> bool + 'static,
-    pick: impl Fn(Found) + 'static,
-    create: impl Fn() + 'static,
-) {
-    open_source(parent, Chat::Native(session), joined, pick, Some(Rc::new(create)));
-}
-
-fn open_source(
+/// "New conversation" for any account. `joined(rid)` says whether I am already
+/// in a room, `pick` gets the choice, and `create` adds the "new channel" entry
+/// where the server has one.
+pub fn open_chat(
     parent: &impl IsA<gtk::Widget>,
     session: Chat,
     joined: impl Fn(&str) -> bool + 'static,

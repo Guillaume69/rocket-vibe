@@ -6,8 +6,8 @@ threads, live messages, unread counts, who types (received only, as on
 Rocket.Chat), presence, sending text and files, reactions, edits, deletions,
 pins, stars (Mattermost's flagged posts), favourites and my own sidebar
 categories as room-list sections, search in a room, room info and profiles,
-custom emoji, kChat's kMeet calls (joined from their post; starting one is not
-mapped) and live clearing of a read made in another kChat client. Push, quotes
+custom emoji, kChat's kMeet calls (joined from their post, ringing in a direct room while the app
+runs; starting one is not mapped) and live clearing of a read made in another kChat client. Push, quotes
 and E2EE are not mapped (`docs/MATTERMOST.md` §8). A muted channel counts its
 mentions only, a live reply moves its root's reply count, and stars changed in
 another client show live, in both apps.
@@ -122,8 +122,9 @@ Rocket.Chat call fails cleanly instead of hitting the wrong server.
 - Settings: `Provider.sidebarSettings` (`providers/mattermost/sidebarSettings.ts`)
   reads and writes the name format and the limit; My account shows them
   (`SidebarSettingsCard`, `ui/settingsSections.tsx`).
-- kMeet: `Provider.calls` (`providers/mattermost/kmeet.ts`) starts and answers
-  conferences; see [calls](calls.md).
+- kMeet: `Provider.calls` (`providers/mattermost/kmeet.ts`) starts, answers and
+  declines conferences; a `custom_call` posted in a direct room rings
+  (`Provider.callSignal`, the post ended stops it); see [calls](calls.md#ringing).
 - Cards: integrations' `props.attachments` map to Rocket.Chat's attachment
   shape, and a text-less post previews its first card or file.
 - Lists: `MmClient.pages` walks `page`/`per_page`; `/users/me/channels` is read
@@ -268,7 +269,8 @@ there, so the UIs read the same store:
 - Custom emoji: `mattermost::actions::custom_emojis` in `once_per_session`
   fills the same code→path map as Rocket.Chat, paths `/api/v4/emoji/<id>/image`.
 - kMeet calls: `translate::kmeet_call`, as on mobile; `Session::join_call` and
-  `call_link` hand back the meeting URL (`kmeet_url`). GTK draws an ended call
+  `call_link` hand back the meeting URL (`kmeet_url`); a call posted in a direct
+  room rings (`MmSync::call_signal`, `decline_conference`, [calls](calls.md#ringing)). GTK draws an ended call
   with `cards::voice_call` (no button), SwiftUI with `VoiceCallCard` (no voice
   model, so no button).
 - `badge_updated`: `MmSync::recount`, as on mobile.

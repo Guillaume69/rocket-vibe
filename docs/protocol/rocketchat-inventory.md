@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-548 production files scanned; 681 occurrences.
+549 production files scanned; 681 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -668,10 +668,10 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/providers/rocketchat/index.ts:57](../../apps/mobile/providers/rocketchat/index.ts#L57) | call:GET | 'chat.search' |
 | [apps/mobile/providers/rocketchat/index.ts:57](../../apps/mobile/providers/rocketchat/index.ts#L57) | endpoint | chat.search |
 | [apps/mobile/ui/botsModel.ts:162](../../apps/mobile/ui/botsModel.ts#L162) | url | /api/v1/rooms |
-| [apps/mobile/ui/discussion.tsx:33](../../apps/mobile/ui/discussion.tsx#L33) | call:GET | 'rooms.info' |
-| [apps/mobile/ui/discussion.tsx:33](../../apps/mobile/ui/discussion.tsx#L33) | endpoint | rooms.info |
-| [apps/mobile/ui/discussion.tsx:35](../../apps/mobile/ui/discussion.tsx#L35) | call:POST | 'channels.join' |
-| [apps/mobile/ui/discussion.tsx:35](../../apps/mobile/ui/discussion.tsx#L35) | endpoint | channels.join |
+| [apps/mobile/ui/discussion.tsx:34](../../apps/mobile/ui/discussion.tsx#L34) | call:GET | 'rooms.info' |
+| [apps/mobile/ui/discussion.tsx:34](../../apps/mobile/ui/discussion.tsx#L34) | endpoint | rooms.info |
+| [apps/mobile/ui/discussion.tsx:36](../../apps/mobile/ui/discussion.tsx#L36) | call:POST | 'channels.join' |
+| [apps/mobile/ui/discussion.tsx:36](../../apps/mobile/ui/discussion.tsx#L36) | endpoint | channels.join |
 | [apps/mobile/ui/messages.ts:983](../../apps/mobile/ui/messages.ts#L983) | endpoint | e2e.title |
 | [apps/mobile/ui/messages.ts:984](../../apps/mobile/ui/messages.ts#L984) | endpoint | e2e.explanation |
 | [apps/mobile/ui/messages.ts:986](../../apps/mobile/ui/messages.ts#L986) | endpoint | e2e.field |

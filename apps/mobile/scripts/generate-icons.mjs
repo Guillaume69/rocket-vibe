@@ -20,6 +20,7 @@
  * Deterministic output (names sorted, code points from U+E000 in that order,
  * a fixed timestamp): rerunning the script must leave `git diff` empty.
  */
+import { Buffer } from 'node:buffer';
 import { createRequire } from 'node:module';
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -133,7 +134,7 @@ export function build(icons) {
     copyright:
       'Icons: GNOME Project (https://www.gnome.org), adwaita-icon-theme 50.0, under CC BY-SA 3.0 United States ' +
       '(http://creativecommons.org/licenses/by-sa/3.0/us/) or LGPL-3.0; this font is a derivative under the same ' +
-      'terms. Send arrow: RocketVibe.',
+      'terms. Send arrow and link: RocketVibe.',
     description: 'RocketVibe interface icons',
     url: 'http://creativecommons.org/licenses/by-sa/3.0/us/',
     version: '1.0',

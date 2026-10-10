@@ -427,6 +427,7 @@
     "apps/mobile/lib/voiceGrid.ts",
     "apps/mobile/plugins/ios-notification-service/NotificationService.swift",
     "apps/mobile/plugins/native-push-source.js",
+    "apps/mobile/plugins/with-emoji-compat.js",
     "apps/mobile/plugins/with-fcm-deeplink.js",
     "apps/mobile/plugins/with-incoming-share.js",
     "apps/mobile/plugins/with-ios-push.js",
@@ -4516,25 +4517,25 @@
     },
     {
       "file": "apps/mobile/ui/discussion.tsx",
-      "line": 33,
+      "line": 34,
       "kind": "call:GET",
       "surface": "'rooms.info'"
     },
     {
       "file": "apps/mobile/ui/discussion.tsx",
-      "line": 33,
+      "line": 34,
       "kind": "endpoint",
       "surface": "rooms.info"
     },
     {
       "file": "apps/mobile/ui/discussion.tsx",
-      "line": 35,
+      "line": 36,
       "kind": "call:POST",
       "surface": "'channels.join'"
     },
     {
       "file": "apps/mobile/ui/discussion.tsx",
-      "line": 35,
+      "line": 36,
       "kind": "endpoint",
       "surface": "channels.join"
     },

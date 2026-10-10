@@ -744,7 +744,7 @@ export default function MessageActionsScreen() {
             <ActionRow c={c} disabled={busy} icon="document-send" label={t('messageActions.forward')} onPress={forward} />
           )}
           {forwardable && (
-            <ActionRow c={c} disabled={busy} icon="💬" label={t('messageActions.startDiscussion')} onPress={startDiscussion} />
+            <ActionRow c={c} disabled={busy} icon="chat-message-new" label={t('messageActions.startDiscussion')} onPress={startDiscussion} />
           )}
           {actions.includes('reply') && provider?.native && (
             <ActionRow c={c} disabled={busy} icon="mail-forward" label={t('messageActions.replyIn')}

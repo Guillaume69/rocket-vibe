@@ -223,7 +223,7 @@ function RoomInfoContent({
           android_ripple={{ color: c.ripple }}
           style={[styles.favorite, { backgroundColor: c.card }]}
         >
-          <Text style={[styles.favoriteText, { color: c.text }]}>💬 {t('discussion.new')}</Text>
+          <Text style={[styles.favoriteText, { color: c.text }]}><InlineIcon name="chat-message-new" /> {t('discussion.new')}</Text>
         </Tappable>
       )}
       {!native && subscription !== undefined && (

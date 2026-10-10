@@ -157,6 +157,26 @@ public final class RoomModel {
     }
     /// The room's thread list and following a thread: Rocket.Chat only.
     public var supportsThreads: Bool { active && chat?.threadsAvailable() == true }
+    /// A room's own notifications (Rocket.Chat): `default`, `all`, `mentions` or `nothing`.
+    public var supportsRoomNotifications: Bool { active && threadId == nil && chat?.roomNotificationsAvailable() == true }
+    public func roomNotifications() -> String { chat?.roomNotifications(rid: room.rid) ?? "default" }
+    /// Saves the room's own notifications; false when the server refused.
+    public func setRoomNotifications(_ level: String) async -> Bool {
+        guard active, let chat else { return false }
+        do { try await chat.setRoomNotifications(rid: room.rid, level: level); return true } catch { return false }
+    }
+    /// Forwarding (Rocket.Chat): where the message can be quoted, already on the server.
+    public func forwardable(_ message: MessageItem) -> Bool {
+        guard active, !privateMode, message.delivery == .sent, let chat else { return false }
+        return chat.forwardable(rid: room.rid, messageId: message.id, inThread: threadId != nil)
+    }
+    /// The rooms a message can be forwarded to, matching `query` by name.
+    public func forwardTargets(_ query: String) -> [Room] { chat?.forwardTargets(query: query) ?? [] }
+    /// Sends the message's permalink to `target` as a quote, through the outbox.
+    func forward(_ messageId: String, to target: String) async throws {
+        guard let chat else { throw CancellationError() }
+        try await chat.forward(kind: room.kind, slug: room.slug, rid: room.rid, messageId: messageId, target: target)
+    }
     /// A thread's model: whether I follow it, from the stored root, kept by `reload`.
     public private(set) var followingThread = false
     public var supportsMarks: Bool { chat != nil || (provider.native?.supportedFeatures().contains("pins") == true && provider.native?.supportedFeatures().contains("stars") == true) }

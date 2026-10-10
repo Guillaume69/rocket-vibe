@@ -433,6 +433,7 @@ struct MessageRow: View, Equatable {
     @State var draft = ""
     @State var viewing: ImageItem?
     @State private var choosingQuote = false
+    @State private var forwarding = false
     /// The emoji picker, to react with any emoji.
     @State private var reacting = false
 
@@ -492,6 +493,9 @@ struct MessageRow: View, Equatable {
         }
         .modalOverlay(isPresented: $choosingQuote) {
             QuoteDestinations(model: model, messageId: message.id)
+        }
+        .modalOverlay(isPresented: $forwarding) {
+            ForwardDestinations(model: model, messageId: message.id)
         }
     }
 
@@ -651,6 +655,9 @@ struct MessageRow: View, Equatable {
         if actions.contains(.reply), model?.provider.native != nil {
             Button(L("quote.elsewhere")) { choosingQuote = true }
         }
+        if actions.contains(.reply), model?.forwardable(message) == true {
+            Button(L("actions.forward")) { forwarding = true }
+        }
         if message.delivery == .sent, model?.membershipIsCurrent == true,
            let link = app.native?.permalink(room: message.rid, message: message.id, root: message.threadId) {
             Button(L("actions.copy_link")) {
@@ -755,6 +762,42 @@ struct QuoteDestinations: View {
             }
             Button(L("actions.cancel")) { close() }
         }.padding(20).frame(width:380,height:360)
+    }
+}
+
+/// Forwarding a message (Rocket.Chat): the rooms it can go to, by name; the
+/// one picked opens and gets the message as a quote.
+struct ForwardDestinations: View {
+    @Environment(AppModel.self) var app
+    @Environment(\.closeModal) var close
+    let model: RoomModel?
+    let messageId: String
+    @State private var search = ""
+
+    var body: some View {
+        VStack(alignment:.leading, spacing:12) {
+            Text(L("forward.title")).font(.headline)
+            TextField(L("forward.placeholder"), text:$search).firstModalField()
+            ScrollView {
+                VStack(alignment:.leading, spacing:4) {
+                    let targets = model?.forwardTargets(search) ?? []
+                    if targets.isEmpty { Text(L("forward.none")).foregroundStyle(Vibe.faint) }
+                    ForEach(targets, id: \.rid) { target in
+                        Button {
+                            close()
+                            let id = messageId
+                            if let model { Task { await app.forward(source:model,message:id,destination:target.rid) } }
+                        } label: {
+                            HStack(spacing:8) {
+                                Avatar(path: target.avatar, name: target.name, size: 24)
+                                Text((target.kind == "c" ? "#" : "") + target.name).lineLimit(1)
+                            }
+                        }.buttonStyle(.plain).padding(.vertical,4)
+                    }
+                }.frame(maxWidth:.infinity,alignment:.leading)
+            }
+            Button(L("actions.cancel")) { close() }
+        }.padding(20).frame(width:380,height:420)
     }
 }
 

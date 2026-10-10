@@ -92,6 +92,7 @@ struct RoomInfoView: View {
                 } else {
                     ProgressView()
                 }
+                if model.supportsRoomNotifications { RoomNotificationPicker(model: model) }
                 if model.supportsRoomManagement { NativeRoomControls(model: model, details: management, refreshed: { fresh in management = fresh; details = fresh.info }) }
             if app.native?.cryptoSettingsSupported() == true { CryptoRoomSection(room: model.room.rid) }
             }
@@ -119,6 +120,38 @@ struct RoomInfoView: View {
         if d.archived { out.append(L("info.archived")) }
         if d.default { out.append(L("info.default")) }
         return out.joined(separator: " · ")
+    }
+}
+
+/// A room's own notifications (Rocket.Chat), desktop and push together:
+/// shown from the stored subscription, which the server's broadcasts move.
+struct RoomNotificationPicker: View {
+    @Environment(AppModel.self) var app
+    let model: RoomModel
+    @State private var saving: String?
+    @State private var failed = false
+    /// rv-core's `ROOM_NOTIFICATION_LEVELS`, in that order.
+    static let levels = ["default", "all", "mentions", "nothing"]
+
+    var body: some View {
+        let _ = app.roomsRevision
+        let current = saving ?? model.roomNotifications()
+        Section {
+            Picker(L("room_notifications.title"), selection: Binding(get: { current }, set: { choose($0, from: current) })) {
+                ForEach(Self.levels, id: \.self) { Text(L("room_notifications.\($0)")).tag($0) }
+            }
+            .disabled(saving != nil)
+            if failed { Text(L("room_notifications.failed")).foregroundStyle(.secondary) }
+        }
+    }
+
+    func choose(_ level: String, from current: String) {
+        guard saving == nil, level != current else { return }
+        saving = level; failed = false
+        Task {
+            let saved = await model.setRoomNotifications(level)
+            saving = nil; failed = !saved
+        }
     }
 }
 

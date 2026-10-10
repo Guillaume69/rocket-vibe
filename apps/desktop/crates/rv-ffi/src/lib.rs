@@ -621,33 +621,9 @@ impl Chat {
     /// What the actions menu offers on this message, by the server's rules.
     /// Before `prepare_actions` answered, by what a member may do.
     pub fn actions(&self, rid: String, message_id: String, in_thread: bool) -> Vec<MessageAction> {
-        let s = &self.session;
-        let Some(row) = s.store.messages_by_id(std::slice::from_ref(&message_id)).into_iter().next() else {
-            return Vec::new();
-        };
-        let row = s.open_row(row);
-        let (read_only, encrypted) =
-            s.store.rooms().iter().find(|r| r.rid == rid).map_or((false, false), |r| (r.read_only, r.encrypted));
-        let rules = self.rules.lock().unwrap();
-        let fallback = rv_core::actions::ServerSettings::from_list(&[]);
-        let ctx = rv_core::actions::ActionContext {
-            author_id: &row.author_id,
-            ts: row.ts,
-            system_type: row.system_type.as_deref(),
-            text: row.text.as_deref(),
-            has_file: !rv_core::content::files(row.attachments.as_deref()).is_empty()
-                || !rv_core::media::image_attachments(row.attachments.as_deref()).is_empty(),
-            me: &s.info.user_id,
-            settings: rules.0.as_ref().unwrap_or(&fallback),
-            permissions: rules.1.get(&rid).map(Vec::as_slice),
-            read_only,
-            encrypted,
-            in_thread,
-            pinned: row.pinned,
-            starred: row.starred_by(&s.info.user_id),
-            now: chrono::Utc::now().timestamp_millis(),
-        };
-        rv_core::actions::possible_actions(&ctx).into_iter().map(action).collect()
+        self.possible_actions(&rid, &message_id, in_thread)
+            .map(|(_, possible)| possible.into_iter().map(action).collect())
+            .unwrap_or_default()
     }
 
     /// The reactions the actions menu offers first, as shortcodes: the ones I
@@ -943,4 +919,42 @@ pub fn complete_emoji(prefix: String, limit: u32) -> Vec<EmojiMatch> {
         .into_iter()
         .map(|(code, glyph)| EmojiMatch { shortcode: code.to_owned(), glyph: glyph.to_owned() })
         .collect()
+}
+
+impl Chat {
+    /// The message as stored and what its actions menu offers, by the
+    /// server's rules (before `prepare_actions` answered, by what a member may do).
+    pub(crate) fn possible_actions(
+        &self,
+        rid: &str,
+        message_id: &str,
+        in_thread: bool,
+    ) -> Option<(rv_core::store::MessageRow, Vec<rv_core::actions::Action>)> {
+        let s = &self.session;
+        let row = s.store.messages_by_id(&[message_id.to_owned()]).into_iter().next()?;
+        let row = s.open_row(row);
+        let (read_only, encrypted) =
+            s.store.rooms().iter().find(|r| r.rid == rid).map_or((false, false), |r| (r.read_only, r.encrypted));
+        let rules = self.rules.lock().unwrap();
+        let fallback = rv_core::actions::ServerSettings::from_list(&[]);
+        let ctx = rv_core::actions::ActionContext {
+            author_id: &row.author_id,
+            ts: row.ts,
+            system_type: row.system_type.as_deref(),
+            text: row.text.as_deref(),
+            has_file: !rv_core::content::files(row.attachments.as_deref()).is_empty()
+                || !rv_core::media::image_attachments(row.attachments.as_deref()).is_empty(),
+            me: &s.info.user_id,
+            settings: rules.0.as_ref().unwrap_or(&fallback),
+            permissions: rules.1.get(rid).map(Vec::as_slice),
+            read_only,
+            encrypted,
+            in_thread,
+            pinned: row.pinned,
+            starred: row.starred_by(&s.info.user_id),
+            now: chrono::Utc::now().timestamp_millis(),
+        };
+        let possible = rv_core::actions::possible_actions(&ctx);
+        Some((row, possible))
+    }
 }

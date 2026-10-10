@@ -1,11 +1,12 @@
 //! Rooms and people: their details, my own profile, search, calls, the
-//! pinned and starred messages of a room, and its threads.
+//! pinned and starred messages of a room, its threads, its own
+//! notifications, and forwarding a message to another room.
 
 use rv_core::media::{self, AvatarTarget};
 use rv_core::session::two_factor_code;
 use serde_json::json;
 
-use crate::model::{MessageItem, Presence, RvError};
+use crate::model::{MessageItem, Presence, Room, RvError};
 use crate::{Chat, on_tokio};
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
@@ -297,6 +298,55 @@ impl Chat {
     /// No room open any more: its deletions and typing are no longer heard.
     pub fn close_room(&self) {
         self.session.close_room();
+    }
+
+    /// Whether a room can have notifications of its own (Rocket.Chat).
+    pub fn room_notifications_available(&self) -> bool {
+        self.session.room_notifications_available()
+    }
+
+    /// The room's own notifications as stored: `default` (the account's),
+    /// `all`, `mentions` or `nothing`; a room another client silenced says `nothing`.
+    pub fn room_notifications(&self, rid: String) -> String {
+        match self.session.store.room_notifications(&rid) {
+            (_, true) => "nothing".to_owned(),
+            (own, false) => own.unwrap_or_else(|| "default".to_owned()),
+        }
+    }
+
+    /// Chooses the room's own notifications, desktop and push together.
+    pub async fn set_room_notifications(&self, rid: String, level: String) -> Result<(), RvError> {
+        let s = self.session.clone();
+        Ok(on_tokio(async move { s.room_notifications(&rid, &level).await }).await?)
+    }
+
+    /// Whether the message can be forwarded to another room (Rocket.Chat):
+    /// where it can be quoted, an ordinary message on the server.
+    pub fn forwardable(&self, rid: String, message_id: String, in_thread: bool) -> bool {
+        self.session.forwarding_available()
+            && self.possible_actions(&rid, &message_id, in_thread).is_some_and(|(row, possible)| {
+                rv_core::actions::forwardable(&possible, row.system_type.as_deref(), row.outbox_status.is_some())
+            })
+    }
+
+    /// The rooms a message can go to, matching `query` by name, latest activity first.
+    pub fn forward_targets(&self, query: String) -> Vec<Room> {
+        let rows = self.session.store.rooms();
+        rv_core::rooms::forward_targets(&rows, &query).into_iter().map(|r| crate::model::room(r, None, None)).collect()
+    }
+
+    /// Forwards a message of the room (`kind`, `slug`, `rid`) to `target`: its
+    /// permalink as a quote, through the outbox.
+    pub async fn forward(
+        &self,
+        kind: String,
+        slug: Option<String>,
+        rid: String,
+        message_id: String,
+        target: String,
+    ) -> Result<(), RvError> {
+        let s = self.session.clone();
+        Ok(on_tokio(async move { s.forward(&kind, slug.as_deref(), &rid, &message_id, &target).await }).await?)
     }
 
     /// Whether I follow the thread, by the stored copy of its root (false while unknown).

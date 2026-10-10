@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-563 production files scanned; 697 occurrences.
+565 production files scanned; 697 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -390,11 +390,11 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-gtk/src/settings.rs:391](../../apps/desktop/crates/rv-gtk/src/settings.rs#L391) | endpoint | e2e.lock |
 | [apps/desktop/crates/rv-gtk/src/settings.rs:391](../../apps/desktop/crates/rv-gtk/src/settings.rs#L391) | endpoint | e2e.unlock |
 | [apps/desktop/crates/rv-gtk/src/settings.rs:405](../../apps/desktop/crates/rv-gtk/src/settings.rs#L405) | endpoint | e2e.locked |
-| [apps/desktop/crates/rv-gtk/src/smoke.rs:951](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L951) | call:GET | "subscriptions.getOne", options).await.ok()?; |
-| [apps/desktop/crates/rv-gtk/src/smoke.rs:951](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L951) | endpoint | subscriptions.getOne |
-| [apps/desktop/crates/rv-gtk/src/smoke.rs:1045](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L1045) | endpoint | chat.postMessage |
-| [apps/desktop/crates/rv-gtk/src/smoke.rs:1084](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L1084) | call:GET | "subscriptions.getOne", options).await.ok()?; |
-| [apps/desktop/crates/rv-gtk/src/smoke.rs:1084](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L1084) | endpoint | subscriptions.getOne |
+| [apps/desktop/crates/rv-gtk/src/smoke.rs:953](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L953) | call:GET | "subscriptions.getOne", options).await.ok()?; |
+| [apps/desktop/crates/rv-gtk/src/smoke.rs:953](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L953) | endpoint | subscriptions.getOne |
+| [apps/desktop/crates/rv-gtk/src/smoke.rs:1047](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L1047) | endpoint | chat.postMessage |
+| [apps/desktop/crates/rv-gtk/src/smoke.rs:1086](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L1086) | call:GET | "subscriptions.getOne", options).await.ok()?; |
+| [apps/desktop/crates/rv-gtk/src/smoke.rs:1086](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L1086) | endpoint | subscriptions.getOne |
 | [apps/desktop/crates/rv-gtk/src/smoke/rocket_chat.rs:189](../../apps/desktop/crates/rv-gtk/src/smoke/rocket_chat.rs#L189) | call:GET | "chat.getMessage", rv_core::rest::CallOptions::params([("msgId", id.as_str())])).await |
 | [apps/desktop/crates/rv-gtk/src/smoke/rocket_chat.rs:189](../../apps/desktop/crates/rv-gtk/src/smoke/rocket_chat.rs#L189) | endpoint | chat.getMessage |
 | [apps/desktop/crates/rv-gtk/src/smoke/rocket_chat.rs:412](../../apps/desktop/crates/rv-gtk/src/smoke/rocket_chat.rs#L412) | endpoint | rooms.quoted_message |

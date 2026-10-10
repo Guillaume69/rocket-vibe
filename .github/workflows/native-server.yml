@@ -273,7 +273,7 @@ jobs:
               xvfb-run -a -s "-screen 0 1600x1000x24" cargo test --locked -p rocket-vibe-gtk categories_subpages_and_narrow_windows -- --ignored --test-threads=1
               xvfb-run -a -s "-screen 0 1600x1000x24" cargo test --locked -p rocket-vibe-gtk an_alert_over_the_dialog_closes_alone_on_its_backdrop_with_its_close_response -- --ignored --test-threads=1
               xvfb-run -a cargo test --locked -p rocket-vibe-gtk the_editor_and_the_form_card_follow_the_contract -- --ignored --test-threads=1
-              cargo build --locked -p rv-core --example native-smoke --example native-files-smoke
+              cargo build --locked -p rv-core --example native-smoke --example native-files-smoke --example native-reload-peer
               cargo build --locked -p rocket-vibe-gtk
               timeout 30s bash scripts/check-notification-activation.sh
             '
@@ -289,6 +289,12 @@ jobs:
         run: |
           docker compose -f docker/compose.native-pilot.yml run --rm --no-deps mobile node scripts/native-quotes-gtk-seed.ts
           docker compose -f docker/compose.native-pilot.yml run --rm --no-deps --user nobody desktop bash scripts/native-quotes-smoke.sh
+      - name: GTK reload benchmark (a trend, not a gate)
+        run: |
+          docker compose -f docker/compose.native-pilot.yml exec -T -e RV_USER_PASSWORD=native-pilot-test-password server             sh -c 'rv-server create-user reload-gtk && rv-server create-user reload-peer'
+          docker compose -f docker/compose.native-pilot.yml run --rm --no-deps desktop bash scripts/native-reload-smoke.sh
+          bash apps/desktop/scripts/native-reload-summary.sh artifacts/native-reload.log | tee -a "$GITHUB_STEP_SUMMARY"
+          grep -q 'native reload #' artifacts/native-reload.log || echo '::warning::the GTK reload benchmark traced no reload'
       - name: Native streamed files and existing GTK attachment controls
         run: |
           docker compose -f docker/compose.native-files-pilot.yml up -d postgres bootstrap server

@@ -13,7 +13,7 @@ fn file() -> std::path::PathBuf {
 pub fn enabled() -> bool {
     file().exists()
 }
-fn set_enabled(value: bool) -> std::io::Result<()> {
+pub(super) fn set_enabled(value: bool) -> std::io::Result<()> {
     let file = file();
     if value {
         std::fs::create_dir_all(file.parent().expect("config dir"))?;

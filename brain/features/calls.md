@@ -10,7 +10,7 @@ Video calls use the conference provider configured on the Rocket.Chat server (Ji
 - `POST video-conference.start {roomId}` creates the conference **and** posts the call message (`t: 'videoconf'`) in the room, returning `data.callId`. That message is how the other members learn of the call: mobile ringing (`VideoConf_Mobile_Ringing`) is off on the target server.
 - `POST video-conference.join {callId[, state: {cam, mic}]}` returns the provider URL to open, with the Jitsi JWT in it when the server requires one.
 - `GET video-conference.capabilities` is the availability probe: `400 no-videoconf-provider-app` when no provider is installed (the local Docker server), and the call buttons stay hidden.
-- `GET video-conference.info {callId}` (desktop only) gives the call's own URL, used for the shareable link.
+- `GET video-conference.info {callId}` (GTK and mobile) gives the call's own URL, used for the shareable link, cut before its query and fragment so the joiner's `jwt` never leaves (GTK `call::meeting_link`, mobile `withoutToken` in `lib/call.ts`).
 - No DDP method is involved: REST to act, as everywhere ([../architecture/rocket-chat.md](../architecture/rocket-chat.md)).
 
 **Availability probe caching.** Both apps remember the answer per server for the session: a definite "no" (a 4xx other than 401) sticks, a network failure (`status 0`) or a refused token (401) is not remembered, so a later room opening retries. When unsure the button is hidden: a missing button beats one that fails on tap. Mobile: `probeCallAvailable` / `memoizedCallAvailable` in `lib/call.ts`, cleared by `forgetCallAvailability` at session end (the store is module-level, so it was per process before). Desktop: `Session::call_available`.
@@ -49,7 +49,7 @@ kChat calls are kMeet meetings its server opens (`docs/MATTERMOST.md` §6.5): `P
 
 ## Parity
 
-Start, join, call card with Join, profile Call: both apps ([parity](../parity.md) §12). Desktop only: meeting info dialog with the token-free link. The origin lock is the same rule on Android, Windows and macOS; Linux delegates to a browser.
+Start, join, call card with Join, profile Call: both apps ([parity](../parity.md) §12). Meeting info with the token-free link: GTK (dialog) and mobile (the call card's "Meeting information", an alert with Copy and Open in the browser), not SwiftUI. The origin lock is the same rule on Android, Windows and macOS; Linux delegates to a browser.
 
 ## Sources
 

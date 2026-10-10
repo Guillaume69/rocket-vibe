@@ -16,6 +16,7 @@ release, and its notes are that version's section here.
 - Mentions of you, `@all` and `@here` stand out on a pink tint, as on the desktop.
 - Email addresses in messages open the mail app.
 - A line break typed in a list item continues the list (`- `, `* `, `1. `), and one on an empty item ends it, as on the desktop.
+- A video call card offers "Meeting information": the meeting's link without your personal token, to copy or open in the browser.
 - My profile can remove my photo (Rocket.Chat and RocketVibe), after a confirmation.
 
 ### Fixed

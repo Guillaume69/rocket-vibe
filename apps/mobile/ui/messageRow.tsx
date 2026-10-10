@@ -7,11 +7,14 @@
  */
 
 import { useRouter } from 'expo-router';
-import {callContext} from '../lib/call.ts';
+import * as Clipboard from 'expo-clipboard';
+import {callContext, meetingLink} from '../lib/call.ts';
+import { openExternalLink } from './externalLink.ts';
 import {useSession} from './session.tsx';
 import { memo, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Image,
   Pressable,
   StyleSheet,
@@ -730,6 +733,27 @@ function CallCard({ c, callId,rid,title }: { c: Colors; callId: string | null;ri
   const router = useRouter();
   const t = useT();
   const {state}=useSession();
+  // The meeting's link to share, without the joiner's token (Rocket.Chat only:
+  // a RocketVibe call has no external meeting).
+  const info =
+    callId !== null && state.phase === 'connected' && state.client.kind === 'rocketchat'
+      ? () => {
+          const client = state.client;
+          meetingLink(client, callId).then(
+            (link) =>
+              Alert.alert(t('call.info'), link ?? t('call.noLink'), [
+                { text: t('common.close'), style: 'cancel' },
+                ...(link === null
+                  ? []
+                  : [
+                      { text: t('call.copyLink'), onPress: () => void Clipboard.setStringAsync(link) },
+                      { text: t('call.openBrowser'), onPress: () => openExternalLink(link) },
+                    ]),
+              ], { cancelable: true }),
+            () => Alert.alert(t('call.info'), t('call.infoFailed'), [{ text: t('common.close') }], { cancelable: true }),
+          );
+        }
+      : null;
   return (
     <View style={[styles.callCard, { backgroundColor: c.card, borderColor: c.border }]}>
       <Text style={[styles.callCardTitle, { color: c.text }]}>{title ?? t('messageRow.videoCall')}</Text>
@@ -746,6 +770,11 @@ function CallCard({ c, callId,rid,title }: { c: Colors; callId: string | null;ri
           ]}
         >
           <Text style={[styles.joinText, { color: c.onAccent }]}>{t('messageRow.join')}</Text>
+        </Tappable>
+      )}
+      {info !== null && (
+        <Tappable onPress={info} hitSlop={8} accessibilityRole="button" accessibilityLabel={t('call.info')}>
+          <Text style={[styles.callInfo, { color: c.cyan }]}>{t('call.info')}</Text>
         </Tappable>
       )}
     </View>
@@ -1191,6 +1220,7 @@ const styles = StyleSheet.create({
   callCardTitle: { fontFamily: FONTS.bodyBold, fontSize: 14, flexShrink: 1 },
   join: { borderRadius: 999, paddingHorizontal: 16, paddingVertical: 7 },
   joinText: { fontFamily: FONTS.bodyStrong, fontSize: 13 },
+  callInfo: { fontFamily: FONTS.bodySemi, fontSize: 13 },
   formCard: { alignSelf: 'stretch', borderRadius: 12, borderWidth: 1, padding: 10, gap: 4, marginTop: 4 },
   formLine: { fontFamily: FONTS.body, fontSize: 12.5, lineHeight: 17 },
 });

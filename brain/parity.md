@@ -213,7 +213,7 @@ beta does.
 | Feature | Mobile | GTK | SwiftUI | Web | Notes |
 |---|---|---|---|---|---|
 | Start and join a Jitsi call (`video-conference.start`, `.join`), Rocket.Chat servers | done | done | done | n/a | Locked on the call's origin: mobile WebView, WebView2 on Windows, WKWebView on macOS; on Linux a Chromium app window, else the browser. Web: Native RocketVibe origin only; calls use LiveKit. |
-| Meeting information: the link without the token (`video-conference.info`) | missing | done | missing | n/a | Web: Native RocketVibe origin only; calls use LiveKit. |
+| Meeting information: the link without the token (`video-conference.info`) | done | done | missing | n/a | Web: Native RocketVibe origin only; calls use LiveKit. |
 | kChat kMeet calls: start from the room, Join from the call card, ended call with its length | done | done | done | n/a | SwiftUI: checked by the macOS CI build only. Web: Serving native origin only; external providers are outside the accepted web scope. |
 | Mattermost and kChat people named under the account's name format, with their custom status emoji | done | done | done | n/a | SwiftUI: author labels and DM names come from rv-ffi; the views are checked by the macOS CI build only. Web: Serving native origin only; external providers are outside the accepted web scope. |
 | Mattermost and kChat lists only the conversations the account lists (closed ones hidden, the Direct Messages limit) | done | done | done | n/a | Web: Serving native origin only; external providers are outside the accepted web scope. |
@@ -304,7 +304,7 @@ What each app owes, from the tables above. Rows missing in all three are product
 gaps, listed last.
 
 - **Mobile**: kChat "Sign in with Infomaniak" run on a real account; Mattermost stars changed elsewhere, live; several accounts per server;
-  formatting toolbar; logs folder; meeting information.
+  formatting toolbar; logs folder.
 - **GTK**: kChat "Sign in with Infomaniak"; email 2FA resend; replay of an offline sign-out; padlock tile once
   unlocked; DM avatar versions in the list; video reduction; reconciliation snapshot; catch-up of
   deletions in rooms already caught up; message retention.

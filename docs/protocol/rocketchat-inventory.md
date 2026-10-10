@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-536 production files scanned; 647 occurrences.
+536 production files scanned; 649 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -475,8 +475,10 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/lib/call.ts:76](../../apps/mobile/lib/call.ts#L76) | endpoint | video-conference.start |
 | [apps/mobile/lib/call.ts:99](../../apps/mobile/lib/call.ts#L99) | call:POST | 'video-conference.join' |
 | [apps/mobile/lib/call.ts:99](../../apps/mobile/lib/call.ts#L99) | endpoint | video-conference.join |
-| [apps/mobile/lib/call.ts:129](../../apps/mobile/lib/call.ts#L129) | call:GET | 'video-conference.capabilities' |
-| [apps/mobile/lib/call.ts:129](../../apps/mobile/lib/call.ts#L129) | endpoint | video-conference.capabilities |
+| [apps/mobile/lib/call.ts:115](../../apps/mobile/lib/call.ts#L115) | call:GET | 'video-conference.info' |
+| [apps/mobile/lib/call.ts:115](../../apps/mobile/lib/call.ts#L115) | endpoint | video-conference.info |
+| [apps/mobile/lib/call.ts:146](../../apps/mobile/lib/call.ts#L146) | call:GET | 'video-conference.capabilities' |
+| [apps/mobile/lib/call.ts:146](../../apps/mobile/lib/call.ts#L146) | endpoint | video-conference.capabilities |
 | [apps/mobile/lib/catchUp.ts:42](../../apps/mobile/lib/catchUp.ts#L42) | call:GET | 'rooms.get' |
 | [apps/mobile/lib/catchUp.ts:42](../../apps/mobile/lib/catchUp.ts#L42) | endpoint | rooms.get |
 | [apps/mobile/lib/catchUp.ts:45](../../apps/mobile/lib/catchUp.ts#L45) | call:GET | 'subscriptions.get' |
@@ -638,18 +640,18 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/providers/rocketchat/index.ts:57](../../apps/mobile/providers/rocketchat/index.ts#L57) | call:GET | 'chat.search' |
 | [apps/mobile/providers/rocketchat/index.ts:57](../../apps/mobile/providers/rocketchat/index.ts#L57) | endpoint | chat.search |
 | [apps/mobile/ui/botsModel.ts:162](../../apps/mobile/ui/botsModel.ts#L162) | url | /api/v1/rooms |
-| [apps/mobile/ui/messages.ts:964](../../apps/mobile/ui/messages.ts#L964) | endpoint | e2e.title |
-| [apps/mobile/ui/messages.ts:965](../../apps/mobile/ui/messages.ts#L965) | endpoint | e2e.explanation |
-| [apps/mobile/ui/messages.ts:967](../../apps/mobile/ui/messages.ts#L967) | endpoint | e2e.field |
-| [apps/mobile/ui/messages.ts:968](../../apps/mobile/ui/messages.ts#L968) | endpoint | e2e.unlock |
-| [apps/mobile/ui/messages.ts:969](../../apps/mobile/ui/messages.ts#L969) | endpoint | e2e.wrongPassword |
-| [apps/mobile/ui/messages.ts:970](../../apps/mobile/ui/messages.ts#L970) | endpoint | e2e.genericError |
-| [apps/mobile/ui/messages.ts:2314](../../apps/mobile/ui/messages.ts#L2314) | endpoint | e2e.title |
-| [apps/mobile/ui/messages.ts:2315](../../apps/mobile/ui/messages.ts#L2315) | endpoint | e2e.explanation |
-| [apps/mobile/ui/messages.ts:2317](../../apps/mobile/ui/messages.ts#L2317) | endpoint | e2e.field |
-| [apps/mobile/ui/messages.ts:2318](../../apps/mobile/ui/messages.ts#L2318) | endpoint | e2e.unlock |
-| [apps/mobile/ui/messages.ts:2319](../../apps/mobile/ui/messages.ts#L2319) | endpoint | e2e.wrongPassword |
-| [apps/mobile/ui/messages.ts:2320](../../apps/mobile/ui/messages.ts#L2320) | endpoint | e2e.genericError |
+| [apps/mobile/ui/messages.ts:969](../../apps/mobile/ui/messages.ts#L969) | endpoint | e2e.title |
+| [apps/mobile/ui/messages.ts:970](../../apps/mobile/ui/messages.ts#L970) | endpoint | e2e.explanation |
+| [apps/mobile/ui/messages.ts:972](../../apps/mobile/ui/messages.ts#L972) | endpoint | e2e.field |
+| [apps/mobile/ui/messages.ts:973](../../apps/mobile/ui/messages.ts#L973) | endpoint | e2e.unlock |
+| [apps/mobile/ui/messages.ts:974](../../apps/mobile/ui/messages.ts#L974) | endpoint | e2e.wrongPassword |
+| [apps/mobile/ui/messages.ts:975](../../apps/mobile/ui/messages.ts#L975) | endpoint | e2e.genericError |
+| [apps/mobile/ui/messages.ts:2324](../../apps/mobile/ui/messages.ts#L2324) | endpoint | e2e.title |
+| [apps/mobile/ui/messages.ts:2325](../../apps/mobile/ui/messages.ts#L2325) | endpoint | e2e.explanation |
+| [apps/mobile/ui/messages.ts:2327](../../apps/mobile/ui/messages.ts#L2327) | endpoint | e2e.field |
+| [apps/mobile/ui/messages.ts:2328](../../apps/mobile/ui/messages.ts#L2328) | endpoint | e2e.unlock |
+| [apps/mobile/ui/messages.ts:2329](../../apps/mobile/ui/messages.ts#L2329) | endpoint | e2e.wrongPassword |
+| [apps/mobile/ui/messages.ts:2330](../../apps/mobile/ui/messages.ts#L2330) | endpoint | e2e.genericError |
 | [apps/mobile/ui/realNames.ts:47](../../apps/mobile/ui/realNames.ts#L47) | call:GET | 'settings.public' |
 | [apps/mobile/ui/realNames.ts:47](../../apps/mobile/ui/realNames.ts#L47) | endpoint | settings.public |
 | [apps/mobile/ui/serverRail.tsx:41](../../apps/mobile/ui/serverRail.tsx#L41) | endpoint | subscriptions.get |

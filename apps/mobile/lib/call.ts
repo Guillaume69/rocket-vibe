@@ -106,6 +106,23 @@ export async function joinConference(
 }
 
 /**
+ * The meeting's own address, to share (`video-conference.info`), WITHOUT the
+ * query nor the fragment: the URL `join` returns carries the joiner's signed
+ * token (`?jwt=`), which must never be handed to someone else. The desktop's
+ * `call::meeting_link`. `null` when the provider gives no address.
+ */
+export async function meetingLink(client: RestClient, callId: string): Promise<string | null> {
+  const r = await client.get<{ url?: unknown }>('video-conference.info', { params: { callId } });
+  const url = asString(r.url);
+  return url === null ? null : withoutToken(url);
+}
+
+/** `url` cut before its query or fragment. */
+export function withoutToken(url: string): string {
+  return url.split(/[?#]/u)[0] ?? url;
+}
+
+/**
  * Rocket.Chat availability, MEMOIZED per session client: the probe costs only
  * one call per session, however many rooms are opened.
  *

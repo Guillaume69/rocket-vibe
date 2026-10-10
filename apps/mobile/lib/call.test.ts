@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import {test} from 'node:test';
+import {describe,test} from 'node:test';
 import {RestClient} from './rest.ts';
-import {memoizedCallAvailable,callContext,setProviderCalls,startConference,joinConference,probeCallAvailable,type NativeCalls} from './call.ts';
+import {memoizedCallAvailable,callContext,setProviderCalls,startConference,joinConference,probeCallAvailable,withoutToken,type NativeCalls} from './call.ts';
 
 test('existing Rocket.Chat call endpoints and media state remain unchanged',async()=>{
   const requests:{path:string;method:string;body:unknown}[]=[];
@@ -54,4 +54,12 @@ test('late availability response cannot seed a replacement provider cache',async
   const old=setProviderCalls(client,null),pending=probeCallAvailable(client);
   const current=setProviderCalls(client,null);old();release(Response.json({success:true}));
   assert.equal(await pending,false);assert.equal(memoizedCallAvailable(client),false);current();
+});
+
+describe('withoutToken', () => {
+  test("the meeting's link never carries the joiner's token", () => {
+    assert.equal(withoutToken('https://meet.example/RocketChat6ac0?jwt=abc.def#config.x=1'), 'https://meet.example/RocketChat6ac0');
+    assert.equal(withoutToken('https://meet.example/room#x'), 'https://meet.example/room');
+    assert.equal(withoutToken('https://meet.example/room'), 'https://meet.example/room');
+  });
 });

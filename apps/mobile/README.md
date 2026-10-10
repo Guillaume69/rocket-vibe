@@ -18,6 +18,10 @@ still in progress.
 
 ---
 
+The hidden Slack/Teams previews unlock after nine login-icon activations. Teams requires
+the [development browser helper](../../docs/TEAMS_PREVIEW.md); live sign-in remains
+unverified, and persistent Teams accounts, sync and sending are pending.
+
 ## What it is
 
 A Rocket.Chat consumer client for Rocket.Chat **8** or newer (and the RocketVibe server),

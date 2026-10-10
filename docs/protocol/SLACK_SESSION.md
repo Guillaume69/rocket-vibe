@@ -1,6 +1,8 @@
 # Slack session provider protocol and implementation handoff
 
-Date: 8 October 2026. Status: researched design, **no Slack provider implemented**.
+Date: 8 October 2026. Researched full-provider design. Implementation update on
+10 October: a transient read-only browser-import preview now exists on all three
+native apps; see [usage](../SLACK_PREVIEW.md). Full persistent provider remains pending.
 Scope: Session mode, using a user's `d` cookie and a workspace `xoxc-` token.
 Destination: the existing Android, GTK and SwiftUI interfaces, with as much
 Rocket.Chat / RocketVibe feature parity as Slack permits.

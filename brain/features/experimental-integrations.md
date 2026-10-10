@@ -3,8 +3,8 @@
 Slack is the first implementation increment from the provider handoffs. After
 that preview was pushed, Teams gained an isolated read foundation, then a development
 browser-import preview on all three native apps. Live Teams sign-in remains unqualified
-and requires the separate developer helper. The first Slack
-increment is a transient read-only preview on the login screen. It is independent
+and requires the separate developer helper. Slack now also has an encrypted browser-import
+flow through a developer helper. Both previews are transient and read-only on the login screen. It is independent
 of the normal persistent account, store, outbox and sync lifecycle. It does not
 advertise a complete provider or enable any of the existing chat action menus.
 
@@ -23,8 +23,9 @@ preview and its credentials.
 
 lib/experimentalUnlock.ts implements the sequence; ui/experimentalProviders.ts
 persists only the enable flag in SecureStore. app/login.tsx attaches it to the
-unicorn button. ui/slackPreview.tsx shows the paired masked xoxc token and original
-d cookie value, validates the workspace/user with auth.test, then lists joined
+unicorn button. ui/slackPreview.tsx shows a masked public pairing code and encrypted
+browser response, opens the one-use providers/slack/handoff.ts envelope, validates
+the workspace/user with auth.test against the transferred identity, then lists joined
 conversations through users.conversations. Selecting a conversation reads a
 page of conversations.history. Load more carries the server cursor unchanged;
 repeated cursors fail explicitly. Refresh rereads the first page.
@@ -49,26 +50,26 @@ Close cancels pending requests and zeroizes retained credential strings.
 GTK embeds experimental_preview.rs under the login hero, selecting slack_preview.rs
 or teams_preview.rs, with masked native entries,
 conversation buttons and selectable message text. SwiftUI uses
-SlackPreviewView.swift over the transient SlackPreview UniFFI object. The
+SlackPreviewView.swift over SlackPairing and the transient SlackPreview UniFFI object. The
 unlock flag lives at <config>/rocket-vibe-rs/experimental-providers, shared by
 the desktop interfaces. Removing a preview never revokes the upstream browser
-session. Outstanding Swift authentication is fenced after cancellation; the
-bounded Rust request may finish before its result is closed and discarded.
+session. SlackPairing also owns the pending authentication reader, so closing the Swift panel
+cancels its outstanding request; generation fences discard late UI completions.
 
 ## Limits and next increments
 
-Slack supports manually supplied paired session credentials. Teams uses the encrypted
-public-key handoff from a separate development browser helper. This code has fixture
+Slack and Teams use provider-separated encrypted public-key handoffs from separate
+development browser helpers. Raw paired credentials are no longer requested by the Slack UI. This code has fixture
 coverage and does not replace the protocol's live qualification plan. No account
 credentials were used during implementation. Installed Android and macOS runtime
 qualification remains outstanding. Message bodies display as plain text with
 Slack formatting syntax; author IDs remain IDs, non-text content has a placeholder.
-Thread replies, files, real-time RTM, credential acquisition, secure persistent
-accounts, local/offline projection and writes remain missing. A has_more history
+Thread replies, files, real-time RTM, packaged acquisition, phone-only sign-in, secure
+persistent accounts, local/offline projection and writes remain missing. A has_more history
 response without a cursor fails as pagination_unsupported instead of silently
 claiming a complete page sequence. No automated quota retry or background polling.
 
-Next: own browser acquisition and vault lifecycle (S-A), then neutral projection
+Next: qualify browser acquisition and implement the vault lifecycle (S-A), then neutral projection
 (S-B), cookie RTM plus reconnect repair (S-C), then durable writes (S-D). Teams
 now has its next transient browser-import increment, following the first Slack
 preview, under the shared unlock. See [Teams architecture](../architecture/teams.md)
@@ -95,6 +96,32 @@ The pushed Slack increment also passes both [web CI](https://github.com/Guillaum
 and [macOS CI](https://github.com/Guillaume69/rocket-vibe/actions/runs/37960337204).
 The latter compiles, packages and launches the actual SwiftUI app. Manual
 nine-activation interaction and real Slack sessions on macOS remain unqualified.
+
+## Slack browser-import increment
+
+scripts/slack-browser-signin.mjs opens a fresh helper-owned Chromium profile and a
+loopback pairing page. Only Slack web-client targets are inspected. The evaluated
+context checks its current Slack origin/path before reading localConfig_v2; privileged
+CDP reads the original secure HttpOnly d cookie for that target. One selected inline
+boot token can supply a fallback. Validated workspace records are selected on the
+local page; each pair passes fixed-origin auth.test before export, and the native
+reader rechecks the exact transferred workspace/user. Navigation, cookie changes,
+cancellation and failed revalidation cannot advertise an old transferable session.
+
+Slack's own browser handles password/SSO/MFA. X25519/HKDF-SHA256/AES-256-GCM seal a
+provider-specific rvslack1 envelope with a five-minute transfer deadline. Successful
+import consumes the native private key. The local session limit is one hour from
+acquisition, shortened by a known cookie expiry; native reads stop thirty seconds
+before it. This limit is not the upstream token lifetime and no refresh is attempted.
+No raw credentials enter the clipboard, pairing page, logs, SQLite or durable account
+storage. Normal browser auth cache can exist in its temporary profile during use;
+shutdown removes that exact profile, while crashes can leave cleanup debt. Rust
+zeroizes retained secrets, while JS strings do not guarantee physical zeroization.
+
+See [Slack preview usage](../../docs/SLACK_PREVIEW.md). This is a developer bridge;
+packaged/phone-only sign-in and production qualification remain missing. The user
+has a workspace available for manual acceptance, but no live sign-in was performed
+while implementing the helper. Synthetic success is not account qualification.
 
 ## Teams browser-import preview
 
@@ -163,3 +190,13 @@ on macOS, installed Android behavior, real account sign-in or private service DT
 - apps/desktop/macos/Sources/RocketVibe/SlackPreviewView.swift
 - docs/protocol/SLACK_SESSION.md
 - docs/protocol/MICROSOFT_TEAMS.md
+
+- scripts/slack-browser-signin.mjs
+- scripts/slack/browser.mjs
+- scripts/slack/session.mjs
+- scripts/slack/server.mjs
+- apps/mobile/providers/slack/handoff.ts
+- apps/mobile/providers/slack/handoff.test.ts
+- apps/desktop/crates/rv-core/src/slack_handoff.rs
+- docs/protocol/fixtures/slack-handoff.json
+- docs/SLACK_PREVIEW.md

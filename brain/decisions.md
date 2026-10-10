@@ -344,6 +344,17 @@ from revealing credentials. The native private key is consumed on import/disposa
 This remains a transient read preview with no stored account or enabled writes;
 [usage](../docs/TEAMS_PREVIEW.md) records its required developer helper and limitations.
 
+## Slack uses an owned browser and encrypted workspace pairing (2026-10-10)
+
+The manual token/cookie form is replaced by a developer browser bridge so users do
+not copy raw session credentials. The helper inspects only a fresh temporary Slack
+profile, validates each workspace with auth.test and encrypts the selected session
+to a one-use native public key. Domain separation rejects a Teams response in Slack.
+The native reader revalidates the exact workspace/user and enforces a local one-hour
+preview limit without assuming a Slack token expiry or refresh contract. Saved vault
+accounts, packaged/phone-only acquisition and RTM remain subsequent increments.
+[Usage](../docs/SLACK_PREVIEW.md) distinguishes synthetic coverage from live acceptance.
+
 ## Sources
 
 - `apps/desktop/crates/rv-gtk/src/notifier/custom.rs`
@@ -413,3 +424,7 @@ This remains a transient read preview with no stored account or enabled writes;
 - `apps/server/migrations/0062_email_sign_in.sql`
 - `apps/desktop/whatsapp/main.go`
 - `apps/desktop/whatsapp/engine/vault.go`
+- scripts/slack-browser-signin.mjs
+- scripts/slack/session.mjs
+- apps/mobile/providers/slack/handoff.ts
+- apps/desktop/crates/rv-core/src/slack_handoff.rs

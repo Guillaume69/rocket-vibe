@@ -362,7 +362,7 @@ beta does.
 
 | Feature | Mobile | GTK | SwiftUI | Web | Notes |
 |---|---|---|---|---|---|
-| Slack Session mode provider | partial | partial | partial | n/a | [Researched protocol](../docs/protocol/SLACK_SESSION.md), [probe plan](../docs/protocol/SLACK_SESSION_PROBES.md) and [evidence](../docs/protocol/slack-session-evidence.json). Paired token/cookie API and RTM messages, typing, edits, deletion and reaction-add measured in one workspace; First transient read-only preview: manual credential validation, cursor-paged conversations and plain-text history on all three. Browser acquisition, persistent accounts, RTM, full translation and writes remain missing; installed Android/macOS qualification is outstanding. The protocol maps P01-P23 and explicitly retains Android killed-app push, E2EE, native calls and administration/reporting gaps. Web: RocketVibe server only. |
+| Slack Session mode provider | partial | partial | partial | n/a | [Researched protocol](../docs/protocol/SLACK_SESSION.md), [probe plan](../docs/protocol/SLACK_SESSION_PROBES.md) and [evidence](../docs/protocol/slack-session-evidence.json). Paired token/cookie API and RTM messages, typing, edits, deletion and reaction-add measured in one workspace; Transient read-only preview on all three: developer browser helper, encrypted public-key workspace pairing, native identity revalidation, cursor-paged conversations and plain-text history. Packaged/phone-only acquisition, live helper acceptance, persistent accounts, RTM, full translation and writes remain missing; installed Android/macOS qualification is outstanding. The protocol maps P01-P23 and explicitly retains Android killed-app push, E2EE, native calls and administration/reporting gaps. Web: RocketVibe server only. |
 
 ## Open debt
 

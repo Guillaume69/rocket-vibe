@@ -9,8 +9,8 @@ function fakeStore(encrypted: ReadonlySet<string> = new Set()) {
   const outbox = new Map<string, OutboxRow>();
   const messages: LocalMessage[] = [];
   const store: OutboxStore = {
-    insertOutbox: async (id, rid, text, threadId) =>
-      void outbox.set(id, { id, rid, text, threadId, status: 'pending', attempts: 0, createdAt: Date.now() }),
+    insertOutbox: async (id, rid, text, threadId, shown) =>
+      void outbox.set(id, { id, rid, text, threadId, shown, status: 'pending', attempts: 0, createdAt: Date.now() }),
     listToSend: async () => [...outbox.values()].filter((l) => l.status === 'pending'),
     markFailed: async (id, error) => {
       const l = outbox.get(id);
@@ -131,6 +131,24 @@ describe('OutboxEngine', () => {
     await engine.send('r1', 'outside the thread');
     const ordinary = (queries[1].message ?? {}) as Record<string, unknown>;
     assert.ok(!('tmid' in ordinary));
+  });
+
+  test('"also send to the room": `tshow` with `tmid`, shown at once, never outside a thread', async () => {
+    const { engine, queries, messages } = testEngine({
+      reply: async (body) => {
+        const m = (body.message ?? {}) as Record<string, unknown>;
+        return ok({ success: true, message: { ...m, ts: { $date: 2000 }, u: { _id: 'u1' } } });
+      },
+    });
+    await engine.send('r1', 'also in the room', 'root', null, undefined, true);
+    const sent = (queries[0].message ?? {}) as Record<string, unknown>;
+    assert.equal(sent.tmid, 'root');
+    assert.equal(sent.tshow, true);
+    assert.equal(messages[0]?.threadShown, true, 'the optimistic reply shows in the room');
+    await engine.send('r1', 'plain', null, null, undefined, true);
+    assert.ok(!('tshow' in ((queries[1].message ?? {}) as Record<string, unknown>)));
+    await engine.send('r1', 'thread only', 'root');
+    assert.ok(!('tshow' in ((queries[2].message ?? {}) as Record<string, unknown>)));
   });
 
   test('network unreachable: the row STAYS pending, ready for the replay', async () => {

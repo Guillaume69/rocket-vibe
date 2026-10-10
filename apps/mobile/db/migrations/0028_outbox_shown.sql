@@ -1,0 +1,1 @@
+ALTER TABLE `outbox` ADD `shown` integer DEFAULT false NOT NULL;

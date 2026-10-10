@@ -350,6 +350,7 @@ type RawOutbox = {
   rid: string;
   text: string;
   thread_id: string | null;
+  shown: number;
   status: 'pending' | 'failed';
   attempts: number;
   created_at: number;
@@ -360,9 +361,9 @@ export function createOutboxStore(raw: SQLiteDatabase, serially: WriteQueue): Ou
   // during an open batch, they would join its transaction, and a rollback of
   // the batch would then take away the message the user just sent.
   return {
-    insertOutbox(id, rid, text, threadId) {
+    insertOutbox(id, rid, text, threadId, shown = false) {
       return serially(() =>
-        raw.runAsync(INSERT_OUTBOX, [id, rid, text, threadId, Date.now()]).then(() => {}),
+        raw.runAsync(INSERT_OUTBOX, [id, rid, text, threadId, shown ? 1 : 0, Date.now()]).then(() => {}),
       );
     },
     async listToSend(): Promise<OutboxRow[]> {
@@ -372,6 +373,7 @@ export function createOutboxStore(raw: SQLiteDatabase, serially: WriteQueue): Ou
         rid: l.rid,
         text: l.text,
         threadId: l.thread_id,
+        shown: l.shown === 1,
         status: l.status,
         attempts: l.attempts,
         createdAt: l.created_at,

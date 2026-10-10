@@ -32,13 +32,15 @@ export type OutboxRow = {
   rid: string;
   text: string;
   threadId: string | null;
+  /** A thread reply also shown in the room (`tshow`). */
+  shown?: boolean;
   status: 'pending' | 'failed';
   attempts: number;
   createdAt: number;
 };
 
 export interface OutboxStore {
-  insertOutbox(id: string, rid: string, text: string, threadId: string | null): Promise<void>;
+  insertOutbox(id: string, rid: string, text: string, threadId: string | null, shown?: boolean): Promise<void>;
   listToSend(): Promise<OutboxRow[]>;
   markFailed(id: string, error: string): Promise<void>;
   /** A failed row back to `pending`: the explicit "Retry". */
@@ -107,7 +109,11 @@ export class OutboxEngine {
     text: string,
     threadId: string | null = null,
     localAttachments: string | null = null,
+    _quotes?: readonly unknown[],
+    /** A thread reply ALSO posted to the room (`tshow`); ignored outside a thread. */
+    alsoInRoom = false,
   ): Promise<string> {
+    const shown = threadId !== null && alsoInRoom;
     const id = this.generateId();
     const when = this.now();
     await this.store.upsertMessage({
@@ -121,7 +127,7 @@ export class OutboxEngine {
       threadId,
       threadCount: 0,
       threadLast: null,
-      threadShown: false,
+      threadShown: shown,
       editedAt: null,
       md: null,
       attachments: localAttachments,
@@ -135,7 +141,7 @@ export class OutboxEngine {
       // and the optimistic one never overwrites a real state.
       updatedAt: 0,
     });
-    await this.store.insertOutbox(id, rid, text, threadId);
+    await this.store.insertOutbox(id, rid, text, threadId, shown);
     await this.process();
     return id;
   }
@@ -215,6 +221,7 @@ export class OutboxEngine {
       _id: row.id,
       rid: row.rid,
       ...(row.threadId === null ? {} : { tmid: row.threadId }),
+      ...(row.threadId !== null && row.shown === true ? { tshow: true } : {}),
     };
     if (!(await this.store.roomEncrypted(row.rid))) return { ...base, msg: row.text };
     const content = this.encryptor?.encrypt(row.rid, { msg: row.text }) ?? null;

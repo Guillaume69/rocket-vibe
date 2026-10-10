@@ -26,6 +26,7 @@ Replies are ordinary message rows with a thread column (mobile `messages.thread_
 - **Composer**: the shared composer with `threadId`, placeholder "Reply...", draft key `rid:tmid`, mention candidates from the whole room. 📎 and 🎤 send into the thread: the composer passes `threadId` to `FileOutbox.send` (the Rocket.Chat queue's `tmid`, the native intent's `reply_to`, or the encrypted thread's private view), and `ui/uploadBands.tsx` shows the thread's own queued files with Retry. A reply target armed from this thread's action sheet is keyed `rid:threadId` so it stays with this composer. After a send, the list scrolls to the end when the optimistic message actually appears in the data (no timer; the write-to-render chain has no upper bound).
 - A root's chip in the room shows "💬 N replies · time of last" (`ui/messageRow.tsx`); inside the thread the root shows no chip. "Reply in thread" on a reply opens its root (`threadId ?? id`). In the pinned and starred lists, a reply not shown in the room opens its thread rather than jumping in the room.
 - Failed sends show retry and discard on their row, as in the room; reactions toggle on tap.
+- **Also send to the room** (Rocket.Chat, `Capabilities.alsoInRoom`): a checkbox above the thread composer, for one reply. `Outbox.send(..., alsoInRoom)` shows the optimistic reply in the room at once (`threadShown`), keeps it in the row (`outbox.shown`, migration `0028`) for a replay, and sends `tshow: true` with `tmid` (probed on 8.5.1: echoed).
 - **Thread list**: a 💬 button in `RoomHeader` (only when the provider has `listThreads`, Rocket.Chat, and not in a protected room) opens `app/threads.tsx`: two tabs, All and Following, each loaded on first opening, a page of 50 at a time on scroll (`ProviderActions.listThreads`, `providers/rocketchat/actions.ts`). Rendered from the provider like the pinned and starred lists, not ingested; a row opens its thread, a page that brings nothing new ends the list.
 - **Following**: `ui/threadFollow.tsx`. `useThreadFollow` reads "I follow" from the root's `threadFollowers` and my uid (`followedBy`, `lib/marks.ts`); a gesture shows its outcome at once, calls `ProviderActions.followThread`, then writes the column (`Store.updateThreadFollowers`) until the rebroadcast root confirms it; a refusal restores the state and says so. Its bell sits in the thread screen's native header (once the root is local) and on each row of the list; a follow changed there reloads the other tab.
 
@@ -46,7 +47,7 @@ Thread list and following go through rv-ffi's `Chat` (`threads_available`, `thre
 
 ## Parity
 
-Thread view, live replies and thread composer in all three. Thread list and following: see [parity](../parity.md), section 6, Rocket.Chat servers only. Not available anywhere: "also send to the room" (`tshow`) on send, an unread-threads list. Files and voice messages in a thread: all three send them into the thread, encrypted RocketVibe threads included (files only there).
+Thread view, live replies and thread composer in all three. Thread list and following: see [parity](../parity.md), section 6, Rocket.Chat servers only. "Also send to the room": mobile only. Not available anywhere: an unread-threads list. Files and voice messages in a thread: all three send them into the thread, encrypted RocketVibe threads included (files only there).
 
 ## Sources
 

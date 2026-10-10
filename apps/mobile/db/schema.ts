@@ -186,6 +186,8 @@ export const outbox = sqliteTable(
     rid: text('rid').notNull(),
     text: text('text').notNull(),
     threadId: text('thread_id'),
+    /** A thread reply also shown in the room (`tshow`). */
+    shown: integer('shown', { mode: 'boolean' }).notNull().default(false),
     status: text('status').$type<OutboxStatus>().notNull().default('pending'),
     attempts: integer('attempts').notNull().default(0),
     lastError: text('last_error'),

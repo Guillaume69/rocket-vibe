@@ -151,6 +151,8 @@ export function Composer({
   // above the field, the typed text becomes the first one's caption, and
   // everything goes on ➤. Nothing is sent on pick.
   const parkingKey = `${rid}:${threadId ?? ''}`;
+  // A thread reply also posted to the room (Rocket.Chat `tshow`).
+  const [alsoInRoom, setAlsoInRoom] = useState(false);
   const [parked] = useState(() => {
     const p = nativeEncryptedReady ? undefined : parkedAttachments.get(parkingKey);
     parkedAttachments.delete(parkingKey);
@@ -415,13 +417,15 @@ export function Composer({
     // real attachments rebuilt from the permalink, will overwrite it.
     const localAttachments = response === null ? null : response.localAttachment;
     cancelReply(replyKey);
+    // "Also send to the room" holds for one reply, as in the official clients.
+    setAlsoInRoom(false);
     // The optimistic display and the intent's persistence are in `send`: nothing
     // to await from here. A refusal will become an actionable "failed" status on
     // the row itself. `send` resolves with the client `_id` as soon as it is
     // written locally: the thread scrolls when THIS message appears in its list,
     // not after a delay.
     outbox
-      .send(rid, textToSend, threadId, localAttachments)
+      .send(rid, textToSend, threadId, localAttachments, undefined, alsoInRoom)
       .then((idMessage) => afterSend?.(idMessage))
       .catch((e: unknown) => console.warn('send: local failure', e));
   }, [
@@ -434,6 +438,7 @@ export function Composer({
     files,
     rid,
     threadId,
+    alsoInRoom,
     response,
     replyKey,
     afterSend,
@@ -715,6 +720,19 @@ export function Composer({
           onPick={pickEmoji}
         />
       )}
+      {threadId !== null && sync.phase === 'ready' && sync.capabilities.alsoInRoom === true && (
+        <Tappable
+          onPress={() => setAlsoInRoom((v) => !v)}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: alsoInRoom }}
+          hitSlop={6}
+          style={styles.alsoInRoom}
+        >
+          <Text style={[styles.alsoInRoomText, { color: alsoInRoom ? c.text : c.dimmed }]}>
+            {alsoInRoom ? '☑' : '☐'} {t('thread.alsoInRoom')}
+          </Text>
+        </Tappable>
+      )}
       <View style={[styles.composer, { borderTopColor: c.softBorder }]}>
         {files !== null && (
           <Tappable
@@ -825,6 +843,8 @@ function LockedComposer({ c }: { c: Colors }) {
 }
 
 const styles = StyleSheet.create({
+  alsoInRoom: { alignSelf: 'flex-start', paddingHorizontal: 14, paddingTop: 6 },
+  alsoInRoomText: { fontFamily: FONTS.bodySemi, fontSize: 13 },
   composer: {
     flexDirection: 'row',
     alignItems: 'flex-end',

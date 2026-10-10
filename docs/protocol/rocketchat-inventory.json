@@ -3637,25 +3637,25 @@
     },
     {
       "file": "apps/mobile/lib/outbox.ts",
-      "line": 173,
+      "line": 179,
       "kind": "call:POST",
       "surface": "'chat.sendMessage'"
     },
     {
       "file": "apps/mobile/lib/outbox.ts",
-      "line": 173,
+      "line": 179,
       "kind": "endpoint",
       "surface": "chat.sendMessage"
     },
     {
       "file": "apps/mobile/lib/outbox.ts",
-      "line": 250,
+      "line": 257,
       "kind": "call:GET",
       "surface": "'chat.getMessage'"
     },
     {
       "file": "apps/mobile/lib/outbox.ts",
-      "line": 251,
+      "line": 258,
       "kind": "endpoint",
       "surface": "chat.getMessage"
     },
@@ -4495,37 +4495,37 @@
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2334,
+      "line": 2335,
       "kind": "endpoint",
       "surface": "e2e.title"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2335,
+      "line": 2336,
       "kind": "endpoint",
       "surface": "e2e.explanation"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2337,
+      "line": 2338,
       "kind": "endpoint",
       "surface": "e2e.field"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2338,
+      "line": 2339,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2339,
+      "line": 2340,
       "kind": "endpoint",
       "surface": "e2e.wrongPassword"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2340,
+      "line": 2341,
       "kind": "endpoint",
       "surface": "e2e.genericError"
     },

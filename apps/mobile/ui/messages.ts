@@ -1109,6 +1109,7 @@ const fr = {
   'thread.title': 'Fil',
   'thread.notFound': 'Fil introuvable.',
   'thread.reply': 'Répondre dans le fil',
+  'thread.alsoInRoom': 'Envoyer aussi dans le salon',
 
   // ── Thread list (app/threads.tsx) and following (ui/threadFollow.tsx)
   'threads.title': 'Fils',
@@ -2458,6 +2459,7 @@ const en: Record<TranslationKey, string> = {
   'thread.title': 'Thread',
   'thread.notFound': 'Thread not found.',
   'thread.reply': 'Reply in thread',
+  'thread.alsoInRoom': 'Also send to the room',
 
   'threads.title': 'Threads',
   'threads.all': 'All',

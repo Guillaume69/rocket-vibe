@@ -97,6 +97,8 @@ export type Capabilities = {
   roomFavorites?: boolean;
   roomReads?: boolean;
   quotes?: boolean;
+  /** A thread reply can also be posted to the room (Rocket.Chat `tshow`). */
+  alsoInRoom?: boolean;
   /** Voice sessions in every room, voice channels and ringing DMs (RocketVibe). */
   voice?: boolean;
   /** Server administration from the app (`Provider.admin`), for an administrator. */
@@ -288,6 +290,7 @@ export const ROCKETCHAT_CAPABILITIES: Capabilities = {
   search: true,
   administration: true,
   reports: true,
+  alsoInRoom: true,
   threadTemplate: 'tmid',
 };
 
@@ -306,6 +309,8 @@ export interface Outbox {
     threadId?: string | null,
     localAttachments?: string | null,
     quotes?: readonly import('../providers/rocketvibe/quotes.ts').NativeQuoteSelection[],
+    /** A thread reply also posted to the room (`Capabilities.alsoInRoom`). */
+    alsoInRoom?: boolean,
   ): Promise<string>;
   process(): Promise<void>;
   discard(id: string): Promise<void>;

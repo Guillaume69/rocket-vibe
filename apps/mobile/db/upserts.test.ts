@@ -468,7 +468,7 @@ describe('upserts idempotents', () => {
 
 describe('outbox', () => {
   test('the cycle pending -> failed -> rearmed -> deleted', () => {
-    db.prepare(INSERT_OUTBOX).run('a'.repeat(24), 'r1', 'hello', null, 1000);
+    db.prepare(INSERT_OUTBOX).run('a'.repeat(24), 'r1', 'hello', null, 0, 1000);
 
     let wait = db.prepare(LIST_OUTBOX_TO_SEND).all().map(row);
     assert.equal(wait.length, 1);
@@ -488,8 +488,8 @@ describe('outbox', () => {
   });
 
   test('the replay lists in creation order', () => {
-    db.prepare(INSERT_OUTBOX).run('b'.repeat(24), 'r1', 'second', null, 2000);
-    db.prepare(INSERT_OUTBOX).run('c'.repeat(24), 'r1', 'first', null, 1000);
+    db.prepare(INSERT_OUTBOX).run('b'.repeat(24), 'r1', 'second', null, 0, 2000);
+    db.prepare(INSERT_OUTBOX).run('c'.repeat(24), 'r1', 'first', null, 0, 1000);
     const orders = db.prepare(LIST_OUTBOX_TO_SEND).all().map((l) => row(l).text);
     assert.deepEqual(orders, ['first', 'second']);
   });
@@ -772,7 +772,7 @@ describe('purge of ghost rooms (reconciliation)', () => {
   test('the purge ALSO takes outbox, uploads, drafts and cursors', () => {
     for (const rid of ['r1', 'r2']) {
       db.prepare(UPSERT_ROOM).run(...room({ rid, updatedAt: 100 }));
-      db.prepare(INSERT_OUTBOX).run(`${rid}-outbox`, rid, 'hey', null, 1000);
+      db.prepare(INSERT_OUTBOX).run(`${rid}-outbox`, rid, 'hey', null, 0, 1000);
       db.prepare(INSERT_UPLOAD).run(
         `${rid}-tlv`, rid, 'file:///a.jpg', 'a.jpg', 'image/jpeg', null, 1000, null,
       );
@@ -798,7 +798,7 @@ describe('purge of ghost rooms (reconciliation)', () => {
   test('an orphaned outbox (room already purged) is picked up', () => {
     // The zombie left by a purge from before this fix: no room, no subscription,
     // no message anymore, only the outbox row.
-    db.prepare(INSERT_OUTBOX).run('z'.repeat(24), 'rZombie', 'never sent', null, 1000);
+    db.prepare(INSERT_OUTBOX).run('z'.repeat(24), 'rZombie', 'never sent', null, 0, 1000);
     db.prepare(UPSERT_ROOM).run(...room({ rid: 'r1', updatedAt: 100 }));
 
     const known = (db.prepare(LIST_KNOWN_RIDS).all() as { rid: string }[]).map((l) => l.rid);
@@ -827,7 +827,7 @@ describe('purge of ghost rooms (reconciliation)', () => {
 describe('leaving a room: the satellite tables go with it', () => {
   test('outbox, uploads, drafts and cursors of the rid are erased', () => {
     for (const rid of ['r1', 'r2']) {
-      db.prepare(INSERT_OUTBOX).run(`${rid}-outbox`, rid, 'hey', null, 1000);
+      db.prepare(INSERT_OUTBOX).run(`${rid}-outbox`, rid, 'hey', null, 0, 1000);
       db.prepare(INSERT_UPLOAD).run(
         `${rid}-tlv`, rid, 'file:///a.jpg', 'a.jpg', 'image/jpeg', null, 1000, null,
       );

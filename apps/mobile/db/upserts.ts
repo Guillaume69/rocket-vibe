@@ -525,8 +525,8 @@ export function customEmojiParams(e: {
 // ---------------------------------------------------------------------------
 
 export const INSERT_OUTBOX = `
-INSERT INTO outbox (id, rid, text, thread_id, status, attempts, last_error, created_at)
-VALUES (?, ?, ?, ?, 'pending', 0, NULL, ?)
+INSERT INTO outbox (id, rid, text, thread_id, shown, status, attempts, last_error, created_at)
+VALUES (?, ?, ?, ?, ?, 'pending', 0, NULL, ?)
 `;
 
 /** Is the room encrypted? Decides a message's send path. */
@@ -538,7 +538,7 @@ export const ROOM_ENCRYPTED = `SELECT encrypted FROM rooms WHERE rid = ?`;
  * a few of them ate the 10/min quota before the new message's turn came.
  */
 export const LIST_OUTBOX_TO_SEND = `
-SELECT id, rid, text, thread_id, status, attempts, created_at FROM outbox
+SELECT id, rid, text, thread_id, shown, status, attempts, created_at FROM outbox
 WHERE status = 'pending' ORDER BY created_at
 `;
 

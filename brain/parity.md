@@ -142,7 +142,7 @@ beta does.
 | Files and voice messages in a thread | done | done | done | done | Encrypted RocketVibe threads included. SwiftUI checked by the macOS CI build only. Web: Native provider: see [web-client](features/web-client.md). |
 | List of a room's threads, All and Following, latest reply first, paged | done | done | done | missing | Rocket.Chat servers only (`chat.getThreadsList`): Mattermost and kChat not mapped, the RocketVibe server has no list route yet. No Unread filter anywhere (see [decisions](decisions.md)). SwiftUI checked by the macOS CI build only. Web: Native provider only, which has no route yet. |
 | Follow or unfollow a thread, from the list and from the open thread, shown live | done | done | done | missing | Rocket.Chat servers only (`chat.followMessage`), same limits as the list. SwiftUI checked by the macOS CI build only. Web: Native provider only, which has no route yet. |
-| "Also send to the room" (`tshow`) from the thread composer | missing | missing | missing | missing | Web: No browser implementation yet. |
+| "Also send to the room" (`tshow`) from the thread composer | done | missing | missing | missing | Rocket.Chat (`Capabilities.alsoInRoom`): a one-shot checkbox above the thread composer, kept in the outbox row (`outbox.shown`) for the replay. GTK and SwiftUI owe it. Web: No browser implementation yet. |
 
 ## 7. Search - [search](features/search.md)
 
@@ -308,7 +308,7 @@ gaps, listed last.
 
 - **Mobile**: kChat "Sign in with Infomaniak" run on a real account; Mattermost stars changed elsewhere, live; several accounts per server;
   formatting toolbar; logs folder.
-- **GTK**: a room's own notifications and forwarding a message (Rocket.Chat); search across rooms; kChat "Sign in with Infomaniak"; email 2FA resend; replay of an offline sign-out; padlock tile once
+- **GTK**: a room's own notifications, forwarding a message and "also send to the room" in a thread (Rocket.Chat); search across rooms; kChat "Sign in with Infomaniak"; email 2FA resend; replay of an offline sign-out; padlock tile once
   unlocked; DM avatar versions in the list; video reduction; reconciliation snapshot; catch-up of
   deletions in rooms already caught up; message retention.
 - **SwiftUI**: everything GTK owes, plus `-wal` / `-shm` cleanup on sign-out;
@@ -316,7 +316,7 @@ gaps, listed last.
   formatting toolbar; list continuation; notification backend description; logs
   folder; new versions; running with the window closed and starting at login;
   meeting information.
-- **All three**: "also send to the room" in a thread, and the thread list and following on Mattermost, kChat and RocketVibe servers; room members, settings and roles; creating an encrypted room; creating a
+- **All three**: the thread list and following on Mattermost, kChat and RocketVibe servers; room members, settings and roles; creating an encrypted room; creating a
   channel or private group on Rocket.Chat; "Deleted
   user" on messages ingested before the deletion, on server-computed names and in
   private conversations; Rocket.Chat real names (`UI_Use_Real_Name`): group DMs

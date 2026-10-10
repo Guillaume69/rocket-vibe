@@ -46,6 +46,8 @@ Editing is a message action, not a composer mode. Mobile edits in the action she
 
 GTK has a formatting toolbar (bold, italic, strike, heading, link, inline code, code block, quote, bullets, numbers) over `rv-core/src/compose.rs`, which toggles Rocket.Chat markers around the selection or before its lines. The draft is styled as typed (`compose::spans`), markers are hidden except on the cursor's line (`hidden_markers`), Shift+Enter in a list continues it (`list_break`), and misspelled words get suggestions and "Add to dictionary" on right-click (`rv-gtk/src/spell.rs`). Every desktop send and edit passes through `compose::fenced`, which puts code fences on lines of their own as the server's parser needs. SwiftUI uses AppKit's text view (system spell checker, Emoji & Symbols) without a toolbar. Mobile has no formatting aids: the user types markdown.
 
+Mobile has the toolbar without the live styling: "Aa" beside 😀 shows a row of buttons (bold, italic, strike, link, inline code, code block, quote, bullets, numbers, in GTK's order) over `lib/formatting.ts`, a port of `toggle_wrap`, `toggle_lines`, `code_block` and `link` with their test cases; they act on the selection the composer now tracks whole (`selectionEnd`, `placeSelection` in `ui/emojiCompletion.tsx`) and select the result.
+
 ## Keys and layout
 
 - GTK: Enter sends, Shift+Enter breaks the line, the field grows to 160 px then scrolls.
@@ -60,7 +62,7 @@ Desktop: the file chooser, drag-and-drop on the page and paste (files, or a pict
 
 ## Parity
 
-Both apps: outbox send with retry, drafts per room and thread, `@`/`:` completion, picker, quote reply, attachments with captions and quality, voice, slash commands. Desktop only: the formatting toolbar and live styling (GTK), spell check, Up-to-edit. List continuation: GTK and mobile, not SwiftUI. Mobile only: video reduction. All clients can replay a staged voice message before sending.
+Both apps: outbox send with retry, drafts per room and thread, `@`/`:` completion, picker, quote reply, attachments with captions and quality, voice, slash commands. Formatting toolbar: GTK and mobile; live styling: GTK only. Desktop only: spell check, Up-to-edit. List continuation: GTK and mobile, not SwiftUI. Mobile only: video reduction. All clients can replay a staged voice message before sending.
 
 ## Web
 

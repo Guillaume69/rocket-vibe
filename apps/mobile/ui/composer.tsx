@@ -29,6 +29,7 @@ import {
   ActivityIndicator,
   Keyboard,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -37,6 +38,7 @@ import {
 
 import { quote } from '../lib/quote.ts';
 import { listBreak, typedBreak } from '../lib/listBreak.ts';
+import { codeBlock, link, toggleLines, toggleWrap, type Edited } from '../lib/formatting.ts';
 import { commandErrorKey, splitCommand, runCommand, textCommand } from '../lib/commands.ts';
 import { NativeError } from '../providers/rocketvibe/transport.ts';
 import type { MentionCandidate } from '../lib/mentionCompletion.ts';
@@ -196,8 +198,20 @@ export function Composer({
 
   // Emoji autocompletion: cursor + insertion, mechanics shared with the thread
   // composer (`useEmojiCompletion`).
-  const { cursor, selection, onSelection, pickEmoji, insertAtCursor, placeCursor, reset } =
+  const { cursor, selection, onSelection, pickEmoji, insertAtCursor, placeCursor, selectionEnd, placeSelection, reset } =
     useEmojiCompletion(draft, setDraft, saveDraft);
+  // The formatting row (`lib/formatting.ts`, the desktop's rules), shown on demand.
+  const [formatting, setFormatting] = useState(false);
+  const format = useCallback(
+    (apply: (text: string, start: number, end: number) => Edited) => {
+      const edited = apply(draft, Math.min(cursor, selectionEnd), Math.max(cursor, selectionEnd));
+      setDraft(edited.text);
+      saveDraft(edited.text);
+      placeSelection(edited.start, edited.end);
+      fieldRef.current?.focus();
+    },
+    [draft, cursor, selectionEnd, saveDraft, placeSelection],
+  );
   const { commands, granted } = useCommands(client, rid);
   const privateNote = usePrivateNote(rid);
 
@@ -733,6 +747,22 @@ export function Composer({
           </Text>
         </Tappable>
       )}
+      {formatting && !emoji.open && (
+        <ScrollView horizontal keyboardShouldPersistTaps="always" showsHorizontalScrollIndicator={false} contentContainerStyle={styles.formatRow}>
+          {FORMATS.map((f) => (
+            <Tappable
+              key={f.key}
+              onPress={() => format(f.apply)}
+              accessibilityRole="button"
+              accessibilityLabel={t(f.key)}
+              android_ripple={{ color: c.ripple, borderless: true }}
+              style={[styles.formatButton, { borderColor: c.border }]}
+            >
+              <Text style={[styles.formatGlyph, f.style, { color: c.text }]}>{f.glyph}</Text>
+            </Tappable>
+          ))}
+        </ScrollView>
+      )}
       <View style={[styles.composer, { borderTopColor: c.softBorder }]}>
         {files !== null && (
           <Tappable
@@ -760,6 +790,16 @@ export function Composer({
           accessibilityLabel={emoji.open ? t('room.backToKeyboard') : t('room.pickEmoji')}
         >
           <Text style={styles.attach}>{emoji.open ? '⌨️' : '😀'}</Text>
+        </Tappable>
+        <Tappable
+          onPress={() => setFormatting((v) => !v)}
+          android_ripple={{ color: c.ripple, borderless: true }}
+          style={styles.emojiButton}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: formatting }}
+          accessibilityLabel={t('format.toolbar')}
+        >
+          <Text style={[styles.formatToggle, { color: formatting ? c.accent : c.dimmed }]}>Aa</Text>
         </Tappable>
         <TextInput
           ref={fieldRef}
@@ -842,7 +882,29 @@ function LockedComposer({ c }: { c: Colors }) {
   );
 }
 
+/** The buttons, in the desktop toolbar's order (`rv-gtk/src/composer.rs::toolbar`). */
+const FORMATS: readonly {
+  key: 'format.bold' | 'format.italic' | 'format.strike' | 'format.code' | 'format.link' | 'format.codeBlock' | 'format.quote' | 'format.bullets' | 'format.numbers';
+  glyph: string;
+  style?: object;
+  apply: (text: string, start: number, end: number) => Edited;
+}[] = [
+  { key: 'format.bold', glyph: 'B', style: { fontWeight: '700' }, apply: (x, s, e) => toggleWrap(x, s, e, '*') },
+  { key: 'format.italic', glyph: 'I', style: { fontStyle: 'italic' }, apply: (x, s, e) => toggleWrap(x, s, e, '_') },
+  { key: 'format.strike', glyph: 'S', style: { textDecorationLine: 'line-through' }, apply: (x, s, e) => toggleWrap(x, s, e, '~') },
+  { key: 'format.link', glyph: '🔗', apply: link },
+  { key: 'format.code', glyph: '</>', apply: (x, s, e) => toggleWrap(x, s, e, '`') },
+  { key: 'format.codeBlock', glyph: '{ }', apply: codeBlock },
+  { key: 'format.quote', glyph: '“', apply: (x, s, e) => toggleLines(x, s, e, 'quote') },
+  { key: 'format.bullets', glyph: '•', apply: (x, s, e) => toggleLines(x, s, e, 'bullet') },
+  { key: 'format.numbers', glyph: '1.', apply: (x, s, e) => toggleLines(x, s, e, 'numbered') },
+];
+
 const styles = StyleSheet.create({
+  formatRow: { gap: 6, paddingHorizontal: 12, paddingTop: 6 },
+  formatButton: { minWidth: 38, height: 34, borderRadius: 10, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
+  formatGlyph: { fontFamily: FONTS.bodySemi, fontSize: 15 },
+  formatToggle: { fontFamily: FONTS.bodyStrong, fontSize: 17 },
   alsoInRoom: { alignSelf: 'flex-start', paddingHorizontal: 14, paddingTop: 6 },
   alsoInRoomText: { fontFamily: FONTS.bodySemi, fontSize: 13 },
   composer: {

@@ -99,7 +99,7 @@ beta does.
 | `@` mention completion (recent authors, `@all`, `@here`) | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | `:` emoji completion | done | done | done | done | Mobile matches substrings and shows up to 30; desktop matches prefixes and shows 8. Web: Native provider: see [web-client](features/web-client.md). |
 | Emoji picker (search, categories) | done | done | done | done | SwiftUI has its own grid, and the system's Emoji & Symbols works in its composer. Web: Native provider: see [web-client](features/web-client.md). |
-| Formatting toolbar and live styling | missing | done | missing | done | Web: DOM editor, GTK span styles and cursor-line markers; apps/web/tests/composer.mjs. |
+| Formatting toolbar and live styling | partial | done | missing | done | Mobile: the toolbar (an "Aa" row: bold, italic, strike, link, code, code block, quote, bullets, numbers, the desktop's rules ported in `lib/formatting.ts`), no live styling of the draft. Web: DOM editor, GTK span styles and cursor-line markers; apps/web/tests/composer.mjs. |
 | Spell check | mapped | done | done | mapped | Mobile: the system keyboard's. Web: Native browser storage/HTTP/socket, HTTPS links, downloads and live-tab alerts; see web-client.md. |
 | Up arrow in an empty field edits my last message | n/a | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | List continuation on Enter | done | done | missing | done | Web: Native provider: see [web-client](features/web-client.md). |
@@ -315,7 +315,7 @@ What each app owes, from the tables above. Rows missing in all three are product
 gaps, listed last.
 
 - **Mobile**: kChat "Sign in with Infomaniak" run on a real account; Mattermost stars changed elsewhere, live; several accounts per server;
-  formatting toolbar; logs folder.
+  live styling of the draft; logs folder.
 - **GTK**: a room's own notifications, forwarding a message, "also send to the room" in a thread, invite links and discussions (Rocket.Chat); search across rooms; kChat "Sign in with Infomaniak"; email 2FA resend; replay of an offline sign-out; padlock tile once
   unlocked; DM avatar versions in the list; video reduction; reconciliation snapshot; catch-up of
   deletions in rooms already caught up; message retention.

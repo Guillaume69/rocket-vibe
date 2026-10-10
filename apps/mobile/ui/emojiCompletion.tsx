@@ -67,14 +67,20 @@ export function useEmojiCompletion(
   insertAtCursor: (insertion: string) => void;
   /** Puts the caret at `at`, imposed once (a rewrite of the text, e.g. a list continued). */
   placeCursor: (at: number) => void;
+  /** End of the current selection (`cursor` is its start). */
+  selectionEnd: number;
+  /** Selects `[start, end)`, imposed once (a formatting button). */
+  placeSelection: (start: number, end: number) => void;
   reset: () => void;
 } {
   const [cursor, setCursor] = useState(() => draft.length);
+  const [selectionEnd, setSelectionEnd] = useState(() => draft.length);
   const [selection, setSelection] = useState<Selection | undefined>(undefined);
 
   const onSelection = useCallback(
     (e: NativeSyntheticEvent<TextInputSelectionChangeEventData>) => {
       setCursor(e.nativeEvent.selection.start);
+      setSelectionEnd(e.nativeEvent.selection.end);
       // Release: native takes the caret back. `undefined` to `undefined` is a no-op
       // for React, so no extra render while typing.
       setSelection(undefined);
@@ -115,7 +121,14 @@ export function useEmojiCompletion(
 
   const placeCursor = useCallback((at: number) => {
     setCursor(at);
+    setSelectionEnd(at);
     setSelection({ start: at, end: at });
+  }, []);
+
+  const placeSelection = useCallback((start: number, end: number) => {
+    setCursor(start);
+    setSelectionEnd(end);
+    setSelection({ start, end });
   }, []);
 
   // On send (field cleared): caret at the start, imposed once.
@@ -124,7 +137,7 @@ export function useEmojiCompletion(
     setSelection({ start: 0, end: 0 });
   }, []);
 
-  return { cursor, selection, onSelection, pickEmoji, insertAtCursor, placeCursor, reset };
+  return { cursor, selection, onSelection, pickEmoji, insertAtCursor, placeCursor, selectionEnd, placeSelection, reset };
 }
 
 /** What is shown and what is inserted for a resolved suggestion. */

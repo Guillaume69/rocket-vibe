@@ -368,6 +368,7 @@
     "apps/mobile/lib/emojiUsage.ts",
     "apps/mobile/lib/emojis.ts",
     "apps/mobile/lib/externalLink.ts",
+    "apps/mobile/lib/formatting.ts",
     "apps/mobile/lib/integrationCards.ts",
     "apps/mobile/lib/invites.ts",
     "apps/mobile/lib/linkPreview.ts",
@@ -4542,37 +4543,37 @@
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2362,
+      "line": 2372,
       "kind": "endpoint",
       "surface": "e2e.title"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2363,
+      "line": 2373,
       "kind": "endpoint",
       "surface": "e2e.explanation"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2365,
+      "line": 2375,
       "kind": "endpoint",
       "surface": "e2e.field"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2366,
+      "line": 2376,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2367,
+      "line": 2377,
       "kind": "endpoint",
       "surface": "e2e.wrongPassword"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2368,
+      "line": 2378,
       "kind": "endpoint",
       "surface": "e2e.genericError"
     },

@@ -71,7 +71,7 @@ jobs:
           trap 'rm -f "$changed"' EXIT
           git diff --name-only "$base" HEAD -- > "$changed"
           clients=false
-          if grep -Evq '^(crates/(rv-crypto|rv-crypto-spike)/|docs/.*\.md$|[^/]+\.md$)' "$changed"; then
+          if grep -Evq '^(crates/rv-crypto/|docs/.*\.md$|[^/]+\.md$)' "$changed"; then
             clients=true
           fi
           # Once another crate consumes the shared engine, its changes require
@@ -206,12 +206,7 @@ jobs:
         working-directory: apps/mobile
         run: npm ci --no-audit --no-fund
       - run: bash apps/server/scripts/check.sh
-      - name: Typecheck mobile app
-        working-directory: apps/mobile
-        run: npm run typecheck
-      - name: Mobile regression tests
-        working-directory: apps/mobile
-        run: npm test
+      # The mobile typecheck and tests are mobile.yml's, on every branch.
       - name: Export Android JavaScript bundle
         working-directory: apps/mobile
         run: npx expo export --platform android --output-dir ../../artifacts/native-mobile-android
@@ -265,14 +260,12 @@ jobs:
           tags: rocketvibe-native-check
           cache-from: type=gha,scope=native-check-image
           cache-to: type=gha,scope=native-check-image,mode=max,ignore-error=true
-      - name: Desktop workspace checks and pilot binaries
+      - name: Desktop GTK widget tests and pilot binaries
         run: |
           mkdir -p .cache/native-desktop-cargo artifacts
           docker run --rm -v "$PWD:/workspace" -v "$PWD/.cache/native-desktop-cargo:/cargo" \
             -w /workspace/apps/desktop rocket-vibe-rs-build bash -ec '
-              cargo fmt --all -- --check
-              cargo clippy --locked --workspace --all-targets -- -D warnings
-              cargo test --locked --workspace
+              # fmt, clippy and the workspace tests run in desktop.yml, on every branch.
               xvfb-run -a cargo test --locked -p rocket-vibe-gtk native_link_previews_paint -- --ignored --test-threads=1
               xvfb-run -a cargo test --locked -p rocket-vibe-gtk native_activity_uses_existing_join_and_info_buttons -- --ignored --test-threads=1
               xvfb-run -a cargo test --locked -p rocket-vibe-gtk native_group_review_uses_existing_controls_and_requires_confirmation -- --ignored --test-threads=1

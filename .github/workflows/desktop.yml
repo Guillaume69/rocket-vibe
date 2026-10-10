@@ -8,11 +8,21 @@ on:
     tags: ['desktop-v*']
     paths:
       - 'apps/desktop/**'
+      # Path dependencies of rv-core (apps/desktop/crates/rv-core/Cargo.toml).
+      - 'crates/rv-client/**'
+      - 'crates/rv-crypto/**'
+      - 'crates/rv-crypto-public/**'
+      - 'crates/rv-protocol/**'
       - 'scripts/version.mjs'
       - '.github/workflows/desktop.yml'
   pull_request:
     paths:
       - 'apps/desktop/**'
+      # Path dependencies of rv-core (apps/desktop/crates/rv-core/Cargo.toml).
+      - 'crates/rv-client/**'
+      - 'crates/rv-crypto/**'
+      - 'crates/rv-crypto-public/**'
+      - 'crates/rv-protocol/**'
       - 'scripts/version.mjs'
       - '.github/workflows/desktop.yml'
   workflow_dispatch:

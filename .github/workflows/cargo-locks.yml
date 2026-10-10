@@ -1,0 +1,38 @@
+# The Rust code keeps separate workspaces, each with its own Cargo.lock
+# (scripts/cargo-locks.mjs says why). This keeps them from drifting: within one
+# semver-compatible line, a crate resolves to the same version in every lock.
+name: cargo-locks
+
+on:
+  push:
+    branches: ['**']
+    paths:
+      - '**/Cargo.lock'
+      - '**/Cargo.toml'
+      - 'scripts/cargo-locks.mjs'
+      - '.github/workflows/cargo-locks.yml'
+  pull_request:
+    paths:
+      - '**/Cargo.lock'
+      - '**/Cargo.toml'
+      - 'scripts/cargo-locks.mjs'
+      - '.github/workflows/cargo-locks.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: cargo-locks-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  agree:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+      - run: node scripts/cargo-locks.mjs

@@ -20,7 +20,7 @@ import { nt } from "./native-i18n";
 import { accountFence } from "./preferences-controls";
 import type { InstanceSettings } from "./protocol";
 import { roomInfo } from "./panel-actions";
-import { iconButton } from "./icons";
+import { icon, iconButton } from "./icons";
 const label = (en: string, fr: string) => (language === "fr" ? fr : en);
 async function latestServerVersion(): Promise<string | undefined> {
   try {
@@ -551,9 +551,19 @@ export async function administration(app: App): Promise<void> {
           }),
       );
       row.dataset.adminRoom = room.name.toLowerCase();
-      row.prepend(
-        tile(room.name, "message", room.kind === "private" ? "🔒" : "#"),
+      const roomTile = tile(
+        room.name,
+        "message",
+        room.kind === "private" ? "" : "#",
       );
+      if (room.kind === "private") {
+        // The GTK admin's locked tile: neutral, a symbolic lock.
+        roomTile.classList.add("tile-neutral");
+        const lock = icon("lock");
+        lock.classList.add("tile-icon");
+        roomTile.append(lock);
+      }
+      row.prepend(roomTile);
       rows.append(row);
     }
     result.append(group);

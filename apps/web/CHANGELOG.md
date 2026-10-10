@@ -12,6 +12,7 @@ All notable changes are documented here in English.
 
 ### Changed
 
+- A locked room's tile, a private room in the administration and a staged file draw symbolic Adwaita icons instead of colour emoji, like the desktop.
 - Render the browser application with React 19 and strict TypeScript, preserving the GTK theme, keyed media playback, ordinary/private threads and existing session/crypto engines.
 - Load settings and administration panels on demand, with shared React dialogs, navigation, profile cards, message menus, dashboard and call controls.
 

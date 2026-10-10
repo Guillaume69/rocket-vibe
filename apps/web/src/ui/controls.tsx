@@ -111,6 +111,7 @@ export function Avatar({
   user,
   size = "message",
   glyph,
+  icon,
   children,
 }: {
   app: App;
@@ -118,6 +119,8 @@ export function Avatar({
   user?: User | null;
   size?: string;
   glyph?: string;
+  /** A symbolic icon in the glyph's place (a locked room), never an emoji. */
+  icon?: string;
   children?: ReactNode;
 }) {
   const [image, setImage] = useState<string>();
@@ -164,6 +167,8 @@ export function Avatar({
           src={image}
           alt={user?.display_name || user?.username || name}
         />
+      ) : icon ? (
+        <Symbol name={icon} className="tile-icon" />
       ) : (
         (glyph ?? initials(name))
       )}

@@ -45,7 +45,13 @@ import fullscreenIcon from "./icons-native/view-fullscreen-symbolic.svg";
 import restoreIcon from "./icons-native/view-restore-symbolic.svg";
 import openFileIcon from "./icons-native/document-open-symbolic.svg";
 import stopIcon from "./icons-native/media-playback-stop-symbolic.svg";
+import lockIcon from "./icons-native/channel-secure-symbolic.svg";
+import audioFileIcon from "./icons-native/audio-x-generic-symbolic.svg";
+import textFileIcon from "./icons-native/text-x-generic-symbolic.svg";
 const native: Record<string, string> = {
+  lock: lockIcon,
+  "audio-file": audioFileIcon,
+  "text-file": textFileIcon,
   fullscreen: fullscreenIcon,
   restore: restoreIcon,
   "open-file": openFileIcon,

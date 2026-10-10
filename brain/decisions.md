@@ -39,6 +39,7 @@ The non-obvious choices behind rocket-vibe and why they were made, grouped by ar
 - **New Architecture is not a safety net.** Mandatory since RN 0.82; `newArchEnabled=false` does nothing.
 - **`react-native-reanimated` is accepted, not fought.** It costs RAM, but `expo-router` depends on it directly; dropping it would mean dropping expo-router.
 - **Drafts in SQLite, not MMKV.** The roadmap planned MMKV; drafts are debounced (400 ms), so async latency is irrelevant, and a native dependency (full rebuild) was not worth it when the database already holds all local state (`drafts` table, `apps/mobile/ui/drafts.ts`). See [composer](features/composer.md).
+- **Interface icons are the desktop's Adwaita icons, drawn from a font, never emoji** (user decision, 2026-10-10). Mobile drew every button, header and menu icon with a colour emoji, which each phone maker draws its own way (a Samsung shows Samsung's) and which never takes the theme's colour, while GTK and the web client draw GNOME's monochrome symbolic icons. Mobile now draws the same Adwaita icons, generated into a TrueType font (`apps/mobile/scripts/generate-icons.mjs`) and shown by `<Text>`: no new runtime dependency (`react-native-svg` would be one), tinted like text, sharp at every size, and it nests in a sentence. Emoji in content stay emoji. See [mobile-app](architecture/mobile-app.md).
 - **i18n catalogue typed against French.** `fr` defines the keys; `en` is `Record<TranslationKey, string>`, so `tsc` rejects a missing or extra key. See [i18n](architecture/i18n.md).
 
 ## Data model

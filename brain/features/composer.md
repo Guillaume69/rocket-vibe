@@ -52,11 +52,11 @@ Mobile has the toolbar without the live styling: "Aa" beside 😀 shows a row of
 
 - GTK: Enter sends, Shift+Enter breaks the line, the field grows to 160 px then scrolls.
 - SwiftUI: Return sends, Shift+Return breaks the line, Cmd+Return on the send button; the field grows to 170 px.
-- Mobile: a multiline field (Enter breaks the line; in a list item the break continues the list, or ends it on an empty item: `lib/listBreak.ts`, a port of `compose::list_break` with its test cases, applied in `ui/composer.tsx`'s `changeDraft` when `typedBreak` sees exactly one break typed at the caret), the send button (➤) replaces the microphone as soon as there is text or a staged file, never while recording. The 😀 button swaps the keyboard for the emoji panel.
+- GTK and mobile share one layout: an outlined pill holding attach, the field, the emoji button and the microphone, its border cyan with a soft halo while the field has the focus (`.composer-pill` in `rv-gtk/src/style.rs`; `styles.pill` in `apps/mobile/ui/composer.tsx`), then a round gradient send button with an up arrow. On mobile the send button is always there, dimmed and inert while there is nothing to send (no text, staged file or armed RocketVibe reply), and becomes the red stop button while recording, where GTK swaps the whole row for its recording bar. Mobile's field is multiline (Enter breaks the line; in a list item the break continues the list, or ends it on an empty item: `lib/listBreak.ts`, a port of `compose::list_break` with its test cases, applied in `ui/composer.tsx`'s `changeDraft` when `typedBreak` sees exactly one break typed at the caret); the smiley swaps the keyboard for the emoji panel and becomes a keyboard while it is open.
 
 ## Attachments in the composer
 
-Mobile: 📎 opens a native sheet (`app/attach.tsx`) offering photo, video (camera), library (up to 10, ordered) or file. The sheet answers through `ui/attachmentSource.ts` while staying open and the composer closes it after the picker returns, because Android crashes durably when an activity launches while a view is being removed (`ui/launchPicker.ts`). Picked files become chips (`ui/stagedAttachments.tsx`): a thumbnail, a real player for voice, a Reduced / Original toggle for reducible media (reduction happens at send, not at pick). Android back removes the last chip; a removed chip deletes its cache copy. Leaving the room parks the chips in memory for that room and thread (`parkedAttachments`).
+Mobile: the paperclip opens a native sheet (`app/attach.tsx`) offering photo, video (camera), library (up to 10, ordered) or file. The sheet answers through `ui/attachmentSource.ts` while staying open and the composer closes it after the picker returns, because Android crashes durably when an activity launches while a view is being removed (`ui/launchPicker.ts`). Picked files become chips (`ui/stagedAttachments.tsx`): a thumbnail, a real player for voice, a Reduced / Original toggle for reducible media (reduction happens at send, not at pick). Android back removes the last chip; a removed chip deletes its cache copy. Leaving the room parks the chips in memory for that room and thread (`parkedAttachments`).
 
 Desktop: the file chooser, drag-and-drop on the page and paste (files, or a picture saved as PNG) stage files as chips (`rv-gtk/src/staged.rs`) with a preview and an image quality choice; `Staged::switch` keeps each room's chips while another is open.
 
@@ -70,6 +70,10 @@ The native serving-origin client uses the GTK toolbar/draft styling with a real 
 
 ## Sources
 
+- apps/mobile/ui/composer.tsx
+- apps/mobile/ui/icon.tsx
+- apps/desktop/crates/rv-gtk/src/composer.rs
+- apps/desktop/crates/rv-gtk/src/style.rs
 - apps/web/src/app.ts
 - apps/web/src/staged.ts
 - apps/web/src/uploads.ts

@@ -60,6 +60,14 @@ impl ChatPage {
         }
     }
 
+    /// Live traffic in rooms that are not on screen: their rows in the list,
+    /// nothing else (`ChatEvent::Rooms`).
+    pub fn on_native_rooms(self: &Rc<Self>) {
+        if self.native_session().is_some() {
+            self.reload_rooms();
+        }
+    }
+
     pub fn native_session(&self) -> Option<Arc<NativeSession>> {
         self.native.borrow().clone()
     }

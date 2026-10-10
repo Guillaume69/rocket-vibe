@@ -44,7 +44,7 @@ impl NativeStore {
         tx.commit()?;
         drop(conn);
         if changed > 0 {
-            let _ = self.changes.send(());
+            let _ = self.changes.send(super::StoreChange::All);
         }
         Ok(true)
     }

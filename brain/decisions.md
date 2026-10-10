@@ -219,6 +219,12 @@ Sources: apps/web/src/app.ts; apps/web/src/api.ts; docs/rfcs/0005-web-client.md.
 
 The user requested React after the initial direct-DOM web delivery. React 19 and TypeScript own the browser screens; Vite still produces the bundle embedded by the native server. The controller keeps its tested session, queues, membership fences and MLS worker. Native contenteditable/media hosts and existing scoped page builders are explicit adapters, not a second account store or new design system. See [React architecture](../docs/WEB_REACT.md).
 
+## GTK RocketVibe refresh scope, 2026-10-11
+
+The user chose to measure before giving the RocketVibe store finer changes. The CI benchmark (`native-server.yml`, see [architecture/desktop-gtk.md](architecture/desktop-gtk.md)) showed 80 whole-page reloads for a 60-message burst, a 20 ms median on a debug build: every message, two in three of them in rooms not on screen, rebuilt the open conversation. Only the live batch says which rooms it touched (its own, plus the rooms whose quote cards cite its messages), so only it is scoped (`StoreChange::Rooms`); every other write still asks for everything, and the open room among the touched ones still reloads whole. A narrow scope that misses a case leaves a row late, never a message missing. SwiftUI keeps its full resync for now.
+
+Sources: apps/desktop/crates/rv-core/src/native/store.rs; apps/desktop/crates/rv-gtk/src/window.rs.
+
 ## Sources
 
 - `docs/protocol/E2EE_AMENDMENTS.md`

@@ -114,6 +114,27 @@ fn describe(e: &RestError, asking_code: bool, recovering: bool) -> String {
     }
 }
 
+/// A burst of RocketVibe changes folded into one refresh.
+#[derive(Default)]
+struct Refresh {
+    changes: u32,
+    /// The rooms the live traffic touched; None once any change asks for everything.
+    rooms: Option<std::collections::BTreeSet<String>>,
+}
+
+impl Refresh {
+    fn fold(&mut self, rooms: Option<Vec<String>>) {
+        if self.changes == 0 {
+            self.rooms = Some(Default::default());
+        }
+        self.changes += 1;
+        match (rooms, self.rooms.as_mut()) {
+            (Some(rooms), Some(touched)) => touched.extend(rooms),
+            _ => self.rooms = None,
+        }
+    }
+}
+
 impl AppWindow {
     pub fn new(app: &adw::Application) -> Rc<Self> {
         let login = LoginPage::new();
@@ -803,57 +824,70 @@ impl AppWindow {
         };
         self.forward.replace(Some(forward));
         let weak = Rc::downgrade(self);
-        // Reloads asked since the last one ran: 0 when none is scheduled.
-        let folded = Rc::new(Cell::new(0u32));
+        // The refresh asked since the last one ran: None when none is scheduled.
+        let pending: Rc<RefCell<Option<Refresh>>> = Rc::default();
         glib::spawn_future_local(async move {
             while let Some(event) = rx.recv().await {
                 let Some(this) = weak.upgrade() else { return };
                 if this.chat.chat().is_none_or(|c| !c.same(&visible)) {
                     return;
                 }
-                if let ChatEvent::Reload = event {
-                    if folded.replace(folded.get() + 1) == 0 {
-                        let (weak, folded) = (Rc::downgrade(&this), folded.clone());
-                        // At the default priority, not an idle one: GTK redraws
-                        // (a spinner's animation) outrank idle sources, and a
-                        // reload put off behind them never ran.
-                        glib::spawn_future_local(async move {
-                            let count = folded.replace(0);
-                            if let Some(this) = weak.upgrade() {
-                                this.reload_account(count);
-                            }
-                        });
+                let rooms = match event {
+                    ChatEvent::Reload => None,
+                    ChatEvent::Rooms(rooms) => Some(rooms),
+                    event => {
+                        if !this.on_event(event) {
+                            return;
+                        }
+                        continue;
                     }
-                    continue;
-                }
-                if !this.on_event(event) {
-                    return;
+                };
+                let scheduled = pending.borrow().is_some();
+                pending.borrow_mut().get_or_insert_with(Refresh::default).fold(rooms);
+                if !scheduled {
+                    let (weak, pending) = (Rc::downgrade(&this), pending.clone());
+                    // At the default priority, not an idle one: GTK redraws
+                    // (a spinner's animation) outrank idle sources, and a
+                    // reload put off behind them never ran.
+                    glib::spawn_future_local(async move {
+                        let refresh = pending.take();
+                        if let (Some(this), Some(refresh)) = (weak.upgrade(), refresh) {
+                            this.reload_account(&refresh);
+                        }
+                    });
                 }
             }
         });
     }
 
-    /// Everything read again. For the RocketVibe server this is how any change
-    /// shows: the page reloads, and pending links, notifications to follow and
-    /// withdrawn notifications are looked at again. `folded` counts the
-    /// reloads this one stands for.
+    /// How a RocketVibe change shows: the page reloads, or only the room list
+    /// when the live traffic of the burst left the open room alone; pending
+    /// links, notifications to follow and withdrawn notifications are looked
+    /// at again either way.
     ///
-    /// Measured with `G_MESSAGES_DEBUG=rocket-vibe-reload`: each RocketVibe
-    /// reload writes its time to standard error (`rocket-vibe.log` on Windows),
-    /// to tell whether reloading everything costs enough to warrant finer changes.
-    fn reload_account(self: &Rc<Self>, folded: u32) {
+    /// Measured with `G_MESSAGES_DEBUG=rocket-vibe-reload`: each one writes
+    /// its time to standard error (`rocket-vibe.log` on Windows).
+    fn reload_account(self: &Rc<Self>, refresh: &Refresh) {
         match self.chat.chat() {
             Some(Chat::Native(session)) => {
                 let started = std::time::Instant::now();
-                self.chat.on_native_change();
+                let open = self.chat.current_rid();
+                let whole = refresh.rooms.as_ref().is_none_or(|rooms| open.is_some_and(|rid| rooms.contains(&rid)));
+                if whole {
+                    self.chat.on_native_change();
+                } else {
+                    self.chat.on_native_rooms();
+                }
                 let (encrypted, rooms) = self.chat.reload_context();
                 // Numbered: the log collapses identical lines back to back.
                 static SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
                 let n = SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
                 glib::g_info!(
                     "rocket-vibe-reload",
-                    "native reload #{n}: {:.1} ms for {folded} change(s), open room {}, {rooms} rooms",
+                    "native {} #{n}: {:.1} ms for {} change(s), open room {}, {rooms} rooms",
+                    if whole { "reload" } else { "rooms" },
                     started.elapsed().as_secs_f64() * 1000.0,
+                    refresh.changes,
                     if encrypted { "encrypted" } else { "plain or none" }
                 );
                 self.follow_link(false);
@@ -873,7 +907,10 @@ impl AppWindow {
     fn on_event(self: &Rc<Self>, event: ChatEvent) -> bool {
         match event {
             ChatEvent::Changed(change) => self.chat.on_change(&change),
-            ChatEvent::Reload => self.reload_account(1),
+            ChatEvent::Reload => self.reload_account(&Refresh { changes: 1, rooms: None }),
+            ChatEvent::Rooms(rooms) => {
+                self.reload_account(&Refresh { changes: 1, rooms: Some(rooms.into_iter().collect()) })
+            }
             ChatEvent::Incoming(incoming) => self.notify(&incoming),
             ChatEvent::Session(SessionEvent::Connection(c)) => self.chat.set_connection(c),
             ChatEvent::Session(SessionEvent::Typing(rid)) => self.chat.on_typing(&rid),

@@ -225,6 +225,49 @@ pub fn copyable_text(text: Option<&str>) -> Option<&str> {
     (!words.is_empty()).then_some(words)
 }
 
+/// What the room list previews of a last message: its own words after any
+/// quote links, or None for a quote with no words of its own (a forward),
+/// which the list names as one. Text that starts with no quote stays whole.
+pub fn preview_words(text: &str) -> Option<&str> {
+    let own = strip_quote_prefix(text);
+    if own.len() == text.len() {
+        return Some(text);
+    }
+    let own = own.trim();
+    (!own.is_empty()).then_some(own)
+}
+
+/// How many days a new invite link lives: one of the values the server
+/// accepts (0 for never, 1, 7, 15, 30).
+pub const INVITE_DAYS: u32 = 7;
+
+/// The permission that lets someone create a room's invite links (admins,
+/// owners and moderators by default).
+pub const INVITE_PERMISSION: &str = "create-invite-links";
+
+/// The direct invite link, served by the server itself: never the answer's
+/// `url`, which goes through `go.rocket.chat` unless the workspace says otherwise.
+pub fn invite_link(site_url: &str, id: &str) -> String {
+    let id = url::form_urlencoded::byte_serialize(id.as_bytes()).collect::<String>().replace('+', "%20");
+    format!("{}/invite/{id}", site_url.trim_end_matches('/'))
+}
+
+/// The longest name suggested for a discussion.
+pub const DISCUSSION_NAME_MAX: usize = 60;
+
+/// A message's first non-empty line (its quote links left out), shortened:
+/// the name suggested for the discussion it starts.
+pub fn suggested_discussion_name(text: Option<&str>) -> String {
+    let words = strip_quote_prefix(text.unwrap_or_default());
+    let line = words.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or_default();
+    if line.chars().count() > DISCUSSION_NAME_MAX {
+        let cut: String = line.chars().take(DISCUSSION_NAME_MAX - 1).collect();
+        format!("{}…", cut.trim_end())
+    } else {
+        line.to_owned()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Reaction {
     /// With colons, as the server keys it: `:+1:`.
@@ -546,6 +589,35 @@ mod tests {
         assert_eq!(strip_quote_prefix(&format!("[ ]({link}) [ ]({link}) two")), "two");
         assert_eq!(strip_quote_prefix("[ ](https://ex.org/a) not a quote"), "[ ](https://ex.org/a) not a quote");
         assert_eq!(copyable_text(Some(&quote(link, ""))), None);
+    }
+
+    #[test]
+    fn previews_read_a_quote_by_its_own_words() {
+        let link = "https://chat.example.com/channel/general?msg=M1";
+        assert_eq!(preview_words(&quote(link, "yes")), Some("yes"));
+        assert_eq!(preview_words(&format!("[ ]({link}) [ ]({link}) two")), Some("two"));
+        assert_eq!(preview_words(&quote(link, "")), None, "a forward");
+        assert_eq!(preview_words(&format!("[ ]({link})  \n ")), None);
+        assert_eq!(preview_words("  plain "), Some("  plain "), "no quote: untouched");
+        assert_eq!(preview_words("[ ](https://ex.org/a) x"), Some("[ ](https://ex.org/a) x"));
+    }
+
+    #[test]
+    fn invite_links_are_direct() {
+        assert_eq!(invite_link("https://chat.example.com/", "aB3dE9"), "https://chat.example.com/invite/aB3dE9");
+        assert_eq!(invite_link("http://localhost:3000", "a b"), "http://localhost:3000/invite/a%20b");
+    }
+
+    #[test]
+    fn a_discussion_is_named_after_its_message() {
+        assert_eq!(suggested_discussion_name(Some("\n  first line \nsecond")), "first line");
+        assert_eq!(suggested_discussion_name(None), "");
+        let link = "https://chat.example.com/channel/general?msg=M1";
+        assert_eq!(suggested_discussion_name(Some(&quote(link, "quoted words"))), "quoted words");
+        let long = "é".repeat(80);
+        let name = suggested_discussion_name(Some(&long));
+        assert_eq!(name.chars().count(), DISCUSSION_NAME_MAX);
+        assert!(name.ends_with('…'));
     }
 
     #[test]

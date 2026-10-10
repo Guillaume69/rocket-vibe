@@ -45,6 +45,8 @@ pub enum RowEvent {
         add: bool,
     },
     OpenThread(String),
+    /// A discussion card's Open, by the discussion's rid (Rocket.Chat).
+    OpenDiscussion(String),
     /// The in-place editor: Enter saves, Escape gives up.
     SaveEdit,
     CancelEdit,
@@ -376,7 +378,11 @@ fn room_widget(
             let author = r.last_author.as_deref().unwrap_or_default();
             label(format!("{author} {}", i18n::system_message(kind, param)).trim(), &["room-preview"])
         }
-        (Some(m), _) => label(&rv_core::runs::preview(rv_core::actions::strip_quote_prefix(m)), &["room-preview"]),
+        // A quote previews by its own words; a forward (no words) says it is one.
+        (Some(m), _) => match rv_core::actions::preview_words(m) {
+            Some(words) => label(&rv_core::runs::preview(words), &["room-preview"]),
+            None => label(t("rooms.quoted_message"), &["room-preview"]),
+        },
         (None, true) => label(t("rooms.encrypted"), &["room-preview", "encrypted"]),
         (None, false) => label("", &["room-preview"]),
     };
@@ -575,6 +581,18 @@ fn message_from_provider(
         outer.append(&marker);
     }
 
+    // A discussion born here: its card, in place of the sentence (Rocket.Chat).
+    if row.system_type.as_deref() == Some("discussion-created")
+        && let Some(drid) = row.discussion_id.as_deref().filter(|_| session.is_some())
+    {
+        let card = cards::discussion(row, drid, on_event.clone());
+        card.set_margin_start(44);
+        card.set_margin_top(4);
+        card.set_margin_bottom(4);
+        outer.set_widget_name(&row.id);
+        outer.append(&card);
+        return outer.upcast();
+    }
     if is_system(row) && !is_call {
         let system = label(&system_line(row), &["system-message"]);
         system.set_wrap(true);

@@ -34,6 +34,13 @@ struct ThreadView: View {
             }
             // This thread's files waiting to go, with Retry when refused.
             UploadsView(model: model)
+            // For the next reply only: the model unchecks it once sent.
+            if model.supportsAlsoInRoom && !model.room.readOnly {
+                Toggle(L("thread.also_in_room"), isOn: Binding(get: { model.alsoInRoom }, set: { model.alsoInRoom = $0 }))
+                    .toggleStyle(.checkbox)
+                    .padding(.horizontal, 14)
+                    .padding(.top, 6)
+            }
             Composer(model: model, staged: $staged)
         }
         .background(Vibe.night)

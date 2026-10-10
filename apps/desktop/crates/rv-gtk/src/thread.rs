@@ -18,6 +18,8 @@ pub struct ThreadPage {
     pub composer: Rc<Composer>,
     /// Follows the thread or stops (Rocket.Chat): its bell shows whether I do.
     pub follow: gtk::Button,
+    /// "Also send to the room" (Rocket.Chat): for the next reply only.
+    pub also: gtk::CheckButton,
     pub root_id: String,
     pub rid: String,
     session: Shared<Arc<Session>>,
@@ -43,6 +45,14 @@ impl ThreadPage {
         composer.root.set_visible(!read_only);
         let content = gtk::Box::new(gtk::Orientation::Vertical, 0);
         content.append(&list.root);
+        let also = gtk::CheckButton::builder()
+            .label(t("thread.also_in_room"))
+            .css_classes(["thread-also"])
+            .margin_start(16)
+            .margin_top(4)
+            .visible(false)
+            .build();
+        content.append(&also);
         content.append(&composer.root);
         let view = adw::ToolbarView::new();
         let header = adw::HeaderBar::new();
@@ -57,6 +67,7 @@ impl ThreadPage {
             list,
             composer,
             follow,
+            also,
             root_id: root_id.to_owned(),
             rid: rid.to_owned(),
             session,

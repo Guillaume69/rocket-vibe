@@ -37,6 +37,7 @@
 //!   RV_SMOKE_REPORT, RV_SMOKE_ADMIN  members' reports and the administration: see `admin`
 //!   RV_SMOKE_DETAILS=profile:<user> | room | search:<text> | settings | emoji:<code> | marked
 //!                          | threads | jump:<message id> | permissions:<expected, comma-separated>
+//!                          | local_search | also_in_room | invite | discussion | preview: see `rocket_chat`
 //!                          checks the read and opens the dialog; emoji: a custom one completes;
 //!                          threads: follows the newest thread and back, then opens it;
 //!                          unread: marks the open room read, then unread (it is left and
@@ -107,6 +108,7 @@ mod native_crypto;
 mod native_files;
 mod native_quotes;
 mod native_reads;
+mod rocket_chat;
 mod room_management;
 mod security;
 
@@ -1420,6 +1422,16 @@ fn details_checks(
             forward_checks(chat, session, rid, target.to_owned()).await;
         } else if let Some(target) = what.strip_prefix("switcher:") {
             switcher_checks(chat, session, target.to_owned()).await;
+        } else if let Some(text) = what.strip_prefix("local_search:") {
+            rocket_chat::local_search_checks(chat, session, text.to_owned()).await;
+        } else if let Some(tag) = what.strip_prefix("also_in_room:") {
+            rocket_chat::also_in_room_checks(chat, session, rid, tag.to_owned()).await;
+        } else if let Some(expected) = what.strip_prefix("invite:") {
+            rocket_chat::invite_checks(chat, session, rid, expected == "yes").await;
+        } else if let Some(tag) = what.strip_prefix("discussion:") {
+            rocket_chat::discussion_checks(chat, session, rid, tag.to_owned()).await;
+        } else if let Some(target) = what.strip_prefix("preview:") {
+            rocket_chat::preview_checks(session, rid, target.to_owned()).await;
         } else if what == "threads" {
             let (s, r) = (session.clone(), rid.clone());
             let listed = crate::on_tokio(async move { s.threads(&r, false, 0, 50).await }).await;

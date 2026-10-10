@@ -180,6 +180,8 @@ pub struct ChatPage {
     native_read_pending: Rc<Cell<bool>>,
     native_read_last: Rc<RefCell<Option<String>>>,
     search_button: gtk::Button,
+    /// Search across rooms, on the device (Rocket.Chat and Mattermost).
+    local_search_button: gtk::Button,
     marked_button: gtk::Button,
     /// The room's threads (Rocket.Chat only).
     threads_button: gtk::Button,
@@ -345,6 +347,13 @@ impl ChatPage {
             .tooltip_text(t("rooms.new"))
             .build();
         sidebar_header.pack_end(&new_conversation);
+        let local_search_button = gtk::Button::builder()
+            .icon_name("system-search-symbolic")
+            .css_classes(["flat"])
+            .tooltip_text(format!("{} (Ctrl+Shift+F)", t("local_search.title")))
+            .visible(false)
+            .build();
+        sidebar_header.pack_end(&local_search_button);
 
         let account_tile = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         let account_name = label("", &["account-name"]);
@@ -508,6 +517,7 @@ impl ChatPage {
             native_read_pending: Rc::default(),
             native_read_last: Rc::default(),
             search_button: search_button.clone(),
+            local_search_button: local_search_button.clone(),
             marked_button: marked_button.clone(),
             threads_button: threads_button.clone(),
             root,
@@ -652,6 +662,12 @@ impl ChatPage {
                         None => this.jump_to(&id),
                     }
                 });
+            }
+        });
+        let weak = Rc::downgrade(&this);
+        local_search_button.connect_clicked(move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.open_local_search();
             }
         });
         let weak = Rc::downgrade(&this);
@@ -831,6 +847,14 @@ impl ChatPage {
         self.split.add_controller(mouse);
         let keys = gtk::ShortcutController::new();
         keys.set_scope(gtk::ShortcutScope::Global);
+        let w = weak.clone();
+        let search = gtk::CallbackAction::new(move |_, _| {
+            if let Some(this) = w.upgrade() {
+                this.open_local_search();
+            }
+            glib::Propagation::Stop
+        });
+        keys.add_shortcut(gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string("<Control><Shift>f"), Some(search)));
         for (trigger, back) in [("<Alt>Left", true), ("<Alt>Right", false)] {
             let w = weak.clone();
             let action = gtk::CallbackAction::new(move |_, _| {
@@ -1100,6 +1124,7 @@ impl ChatPage {
                 });
             }
             RowEvent::OpenThread(root) => self.open_thread(&root),
+            RowEvent::OpenDiscussion(drid) => self.open_discussion(&drid),
             RowEvent::Profile(username) => self.show_profile(&username, false),
             // RocketVibe call rows only.
             RowEvent::VoiceCall { .. } => {}
@@ -1142,7 +1167,8 @@ impl ChatPage {
                     encrypted: open.encrypted,
                     in_thread,
                 };
-                let (w1, w2, w3, w4, w5, w6) = (
+                let (w1, w2, w3, w4, w5, w6, w7) = (
+                    Rc::downgrade(self),
                     Rc::downgrade(self),
                     Rc::downgrade(self),
                     Rc::downgrade(self),
@@ -1159,6 +1185,11 @@ impl ChatPage {
                     forward: Box::new(move |row| {
                         if let Some(this) = w6.upgrade() {
                             this.forward_message(&row);
+                        }
+                    }),
+                    discussion: Box::new(move |row| {
+                        if let Some(this) = w7.upgrade() {
+                            this.start_discussion(Some(&row));
                         }
                     }),
                     thread: Box::new(move |root| {
@@ -1321,6 +1352,66 @@ impl ChatPage {
         }))
     }
 
+    /// "Start a discussion" (a message's menu, `source`) or "New discussion"
+    /// (the room's information): the dialog, then the new room opens.
+    pub fn start_discussion(self: &Rc<Self>, source: Option<&rv_core::store::MessageRow>) -> Option<adw::Dialog> {
+        let (Some(session), Some(open)) = (self.session(), self.current.borrow().clone()) else { return None };
+        if !session.discussions_available() {
+            return None;
+        }
+        let (w1, w2, expected) = (Rc::downgrade(self), Rc::downgrade(self), session.clone());
+        Some(crate::discussions::create(
+            &self.split,
+            session,
+            &open.rid,
+            source,
+            move |rid| {
+                if let Some(this) = w1.upgrade()
+                    && this.session().is_some_and(|s| Arc::ptr_eq(&s, &expected))
+                {
+                    this.user_navigation();
+                    this.reload_rooms();
+                    this.open_room(&rid);
+                }
+            },
+            move || {
+                if let Some(this) = w2.upgrade() {
+                    this.toast(t("discussion.failed").to_owned());
+                }
+            },
+        ))
+    }
+
+    /// A discussion card's Open: its room when listed, else joined first when
+    /// it belongs to a public channel; one of a private group says it is for
+    /// its members.
+    pub fn open_discussion(self: &Rc<Self>, drid: &str) {
+        self.user_navigation();
+        if self.rooms.borrow().iter().any(|r| r.rid == drid) {
+            self.open_room(drid);
+            return;
+        }
+        let Some(session) = self.session() else { return };
+        let (weak, expected, drid) = (Rc::downgrade(self), session.clone(), drid.to_owned());
+        glib::spawn_future_local(async move {
+            let rid = drid.clone();
+            let access = on_tokio(async move { session.open_discussion(&rid).await }).await;
+            let Some(this) = weak.upgrade() else { return };
+            if this.session().is_none_or(|s| !Arc::ptr_eq(&s, &expected)) {
+                return;
+            }
+            use rv_core::session::DiscussionAccess;
+            match access {
+                Ok(DiscussionAccess::Listed | DiscussionAccess::Joined) => {
+                    this.reload_rooms();
+                    this.open_room(&drid);
+                }
+                Ok(DiscussionAccess::MembersOnly) => this.toast(t("discussion.unavailable").to_owned()),
+                Err(_) => this.toast(t("discussion.open_failed").to_owned()),
+            }
+        });
+    }
+
     fn open_thread(self: &Rc<Self>, root_id: &str) {
         if self.native_session().is_some() {
             self.open_native_thread(root_id);
@@ -1341,9 +1432,16 @@ impl ChatPage {
         });
         let (weak, rid, root) = (Rc::downgrade(self), open.rid.clone(), root_id.to_owned());
         let composer = Rc::downgrade(&thread.composer);
+        // "Also send to the room": one reply at a time, unchecked once it goes.
+        thread.also.set_visible(session.also_in_room_available() && !open.read_only);
+        let also = thread.also.downgrade();
         thread.composer.connect_submit(move |text| {
             if let (Some(this), Some(composer)) = (weak.upgrade(), composer.upgrade()) {
-                this.send_or_run(&composer, &rid, Some(&root), text);
+                let shown = also.upgrade().is_some_and(|also| also.is_visible() && also.is_active());
+                if let Some(also) = also.upgrade() {
+                    also.set_active(false);
+                }
+                this.send_or_run_shown(&composer, &rid, Some(&root), text, shown);
             }
         });
         let weak = Rc::downgrade(self);
@@ -1431,6 +1529,7 @@ impl ChatPage {
         }
         self.search_button.set_sensitive(true);
         self.marked_button.set_sensitive(true);
+        self.local_search_button.set_visible(session.is_some());
         self.set_loading(false);
         if let Some(s) = &session {
             let host = url::Url::parse(&s.info.base_url).ok().and_then(|u| u.host_str().map(str::to_owned));
@@ -1621,8 +1720,62 @@ impl ChatPage {
         match (&open.dm_other_uid, open.kind.as_str()) {
             (Some(uid), "d") => self.profile_dialog(uid, true, Some(open.rid.clone())),
             _ => {
-                crate::details::room_info(&self.split, session, &open.rid, &open.name, &open.kind, open.avatar.clone())
+                // A discussion of this room, from the information dialog: not in an encrypted one.
+                let weak = Rc::downgrade(self);
+                let new_discussion: Option<Rc<dyn Fn()>> =
+                    (session.discussions_available() && !open.encrypted && !open.read_only).then(|| {
+                        Rc::new(move || {
+                            if let Some(this) = weak.upgrade() {
+                                this.start_discussion(None);
+                            }
+                        }) as Rc<dyn Fn()>
+                    });
+                let weak = Rc::downgrade(self);
+                let toast: Rc<dyn Fn(String)> = Rc::new(move |text| {
+                    if let Some(this) = weak.upgrade() {
+                        this.toast(text);
+                    }
+                });
+                let room = crate::details::RoomInfoTarget {
+                    rid: &open.rid,
+                    name: &open.name,
+                    kind: &open.kind,
+                    avatar: open.avatar.clone(),
+                };
+                crate::details::room_info(&self.split, session, room, new_discussion, toast);
             }
+        }
+    }
+
+    /// Search across rooms, on the device: a hit opens its room at the
+    /// message, or the thread of a reply. Not on RocketVibe servers, whose
+    /// private conversations keep their own search per room.
+    pub fn open_local_search(self: &Rc<Self>) -> Option<adw::Dialog> {
+        if self.native_session().is_some() {
+            return None;
+        }
+        let session = self.session()?;
+        let (weak, expected) = (Rc::downgrade(self), session.clone());
+        Some(crate::local_search::open(&self.split, session, move |rid, id, thread| {
+            if let Some(this) = weak.upgrade()
+                && this.session().is_some_and(|s| Arc::ptr_eq(&s, &expected))
+            {
+                this.open_search_hit(&rid, &id, thread);
+            }
+        }))
+    }
+
+    /// A message found across rooms: its room, scrolled to it, or its thread.
+    pub fn open_search_hit(self: &Rc<Self>, rid: &str, id: &str, thread: Option<String>) {
+        self.user_navigation();
+        self.open_room(rid);
+        if self.current_rid().as_deref() != Some(rid) {
+            self.toast(t("marked.not_loaded").to_owned());
+            return;
+        }
+        match thread {
+            Some(root) => self.open_thread_of(&root),
+            None => self.jump_to(id),
         }
     }
 
@@ -2634,13 +2787,25 @@ impl ChatPage {
     /// Sends `text`, or runs it when it names a slash command; a command the
     /// server refuses goes back into `composer`.
     fn send_or_run(self: &Rc<Self>, composer: &Rc<Composer>, rid: &str, thread: Option<&str>, text: String) {
+        self.send_or_run_shown(composer, rid, thread, text, false);
+    }
+
+    /// `send_or_run`, a thread reply also sent to the room when `shown`.
+    fn send_or_run_shown(
+        self: &Rc<Self>,
+        composer: &Rc<Composer>,
+        rid: &str,
+        thread: Option<&str>,
+        text: String,
+        shown: bool,
+    ) {
         let Some(session) = self.session.borrow().clone() else { return };
-        if thread.is_none() && self.list.is_detached() {
+        if (thread.is_none() || shown) && self.list.is_detached() {
             self.list.jump();
         }
         let (rid, thread) = (rid.to_owned(), thread.map(str::to_owned));
         if rv_core::commands::split(&text).is_none() {
-            runtime().spawn(async move { session.send_in(&rid, &text, thread.as_deref()).await });
+            runtime().spawn(async move { session.send_reply(&rid, &text, thread.as_deref(), shown).await });
             return;
         }
         let (weak, composer) = (Rc::downgrade(self), Rc::downgrade(composer));
@@ -2650,7 +2815,7 @@ impl ChatPage {
                 match session.run_command(&rid, &text, thread.as_deref()).await {
                     Some(result) => result.err(),
                     None => {
-                        session.send_in(&rid, &text, thread.as_deref()).await;
+                        session.send_reply(&rid, &text, thread.as_deref(), shown).await;
                         None
                     }
                 }

@@ -140,6 +140,9 @@ impl Translator<'_> {
             pinned: post.get("is_pinned").and_then(Value::as_bool).unwrap_or(false),
             starred: None,
             thread_followers: None,
+            discussion_id: None,
+            discussion_count: 0,
+            discussion_last: None,
         })
     }
 

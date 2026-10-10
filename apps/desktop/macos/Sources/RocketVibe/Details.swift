@@ -68,6 +68,8 @@ struct RoomInfoView: View {
     @State var details: RoomDetails?
     @State var management: NativeRoomManagement?
     @State var failed = false
+    /// "New discussion" (Rocket.Chat), over this sheet.
+    @State var discussing = false
 
     var body: some View {
         SheetFrame(title: L("info.room")) {
@@ -93,11 +95,16 @@ struct RoomInfoView: View {
                     ProgressView()
                 }
                 if model.supportsRoomNotifications { RoomNotificationPicker(model: model) }
+                if model.supportsDiscussions { InviteSection(model: model) }
+                if model.canCreateDiscussion {
+                    Section { Button(L("discussion.new")) { discussing = true } }
+                }
                 if model.supportsRoomManagement { NativeRoomControls(model: model, details: management, refreshed: { fresh in management = fresh; details = fresh.info }) }
             if app.native?.cryptoSettingsSupported() == true { CryptoRoomSection(room: model.room.rid) }
             }
             .formStyle(.grouped)
         }
+        .modalOverlay(isPresented: $discussing) { NewDiscussionSheet(model: model, source: nil) }
         .task(id: "\(model.roomInformationRevision):\(app.connection)") {
             guard model.supportsRoomInfo else { dismiss(); return }
             details = nil; management = nil; failed = false

@@ -181,6 +181,8 @@ struct RoomListView: View {
     @State var found: [Found] = []
     @State var searching = false
     @State var creating = false
+    /// Search across rooms, on the device.
+    @State var searchingMessages = false
     /// "New message" puts the cursor in the search, which finds people and channels.
     @FocusState var searchFocused: Bool
 
@@ -215,11 +217,18 @@ struct RoomListView: View {
         .task(id: query) { await search() }
         .task(id: app.account?.key) { query = ""; found = []; creating = false }
         .modalOverlay(isPresented: $creating) { NewRoomSheet() }
+        .modalOverlay(isPresented: $searchingMessages, style: .sheet(width: 520, height: 640)) { LocalSearchSheet() }
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     Wordmark(size: 21)
                     Spacer()
+                    if app.supportsLocalSearch {
+                        Button { searchingMessages = true } label: { Image(systemName: "text.magnifyingglass") }
+                            .buttonStyle(.borderless)
+                            .windowShortcut(KeyboardShortcut("f", modifiers: [.command, .shift]))
+                            .help(L("local_search.title"))
+                    }
                     Menu {
                         Button { searchFocused = true } label: { Label(L("rooms.new_message"), systemImage: "square.and.pencil") }
                         if app.native != nil {

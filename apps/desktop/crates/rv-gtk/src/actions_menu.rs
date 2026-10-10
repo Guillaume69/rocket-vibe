@@ -26,6 +26,8 @@ pub struct Handlers {
     pub reply: Box<dyn Fn(MessageRow)>,
     /// Forwards the message to another room, picked in a dialog.
     pub forward: Box<dyn Fn(MessageRow)>,
+    /// Starts a discussion from the message (Rocket.Chat).
+    pub discussion: Box<dyn Fn(MessageRow)>,
     pub thread: Box<dyn Fn(String)>,
     pub edit: Box<dyn Fn(MessageRow)>,
     pub toast: Box<dyn Fn(String)>,
@@ -163,7 +165,15 @@ fn menu(
                     let (h, r) = (handlers.clone(), row.clone());
                     let forward = run(t("actions.forward"), Box::new(move || (h.forward)(r.clone())));
                     forward.add_css_class("forward-action");
-                    forward
+                    if session.discussions_available() {
+                        column.append(&forward);
+                        let (h, r) = (handlers.clone(), row.clone());
+                        let start = run(t("discussion.start"), Box::new(move || (h.discussion)(r.clone())));
+                        start.add_css_class("discussion-action");
+                        start
+                    } else {
+                        forward
+                    }
                 } else {
                     reply
                 }

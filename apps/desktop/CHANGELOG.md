@@ -17,6 +17,10 @@ section here.
 - macOS: Shift-Return on a list item continues the list (the next bullet or number), or ends it on an empty item, as on GTK.
 - Windows notifications come dressed up: the author's round photo, a header per conversation that groups its notifications, the picture of an image message, and buttons to react (👍 ❤️ 😂) or mark the room read without opening the app (Rocket.Chat and Mattermost accounts). Linux notifications show the author's photo too.
 - On Windows, notifications play rocket-vibe's own little sparkle, quiet whenever Windows holds notifications back (Do not disturb, a presentation, a full-screen game); a switch in Settings > Notifications gives the system's sound back.
+- Search messages across rooms, on the device (GTK and macOS, Rocket.Chat and Mattermost servers): a search button in the room list's header (Ctrl+Shift+F, Cmd+Shift+F) finds the words of every message already stored here, encrypted ones once unlocked, newest first under their room's name; a result opens its room at the message, or its thread.
+- "Also send to the room" under a thread's composer (GTK and macOS, Rocket.Chat servers): the next reply also shows in the room, at once and after a resend.
+- Invite links (GTK and macOS, Rocket.Chat servers): where my roles allow it, a channel's or group's information dialog creates its invite link (7 days, any number of uses) and copies it; the link is the server's own, not the go.rocket.chat redirect.
+- Discussions (GTK and macOS, Rocket.Chat servers): a discussion born in a room shows as a card (its name, message count, last activity, Open), which opens it, joining it first when it belongs to a public channel. "Start a discussion" in a message's menu and "New discussion" in a room's information dialog create one, named after the message's first line, with an optional first message.
 
 ### Changed
 
@@ -31,6 +35,7 @@ section here.
 - On Mattermost and kChat, a muted channel no longer turns bold nor rises into Unread for ordinary messages; a mention still shows its badge.
 - On Mattermost and kChat, a thread's "N replies" moves as soon as someone answers, not at the next catch-up.
 - On Mattermost and kChat, search in a channel asks the server for that channel's matches only, so a busy team no longer leaves it empty.
+- The room list previews a message that quotes another by its own words, and a forwarded message (a quote with no words) as "↪ Quoted message" instead of an empty line (GTK and macOS).
 - A local database error (full disk, I/O error) rolls back the one write instead of crashing the app, and the GTK and SwiftUI apps sharing a database on macOS wait for each other instead of failing on a busy database.
 - Messages and files sent while the server restarts behind its proxy (a 5xx answer) stay queued instead of showing "not sent".
 - Closing a Rocket.Chat account while its connection waited to retry no longer reconnects it in the background with the old token.

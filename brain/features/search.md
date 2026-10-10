@@ -33,7 +33,7 @@ A search button in the room list's header opens `app/search-messages.tsx`. `ui/l
 
 ## Messages across rooms (desktop, on the device)
 
-`Store::search_messages` (`rv-core/src/store.rs`) reads the stored messages with `LIKE ? ESCAPE '\'` (`%`, `_` and `\` escaped), newest first, 60 at most. The desktop never stores decrypted text (only my own messages still in the outbox), so `Session::search_local` also reads `Store::sealed_messages` and decrypts them while the room keys are unlocked. Rocket.Chat, Mattermost and kChat; not on a native RocketVibe session.
+`Store::search_messages` (`rv-core/src/store.rs`) reads the stored messages with `LIKE ? ESCAPE '\'` (`%`, `_` and `\` escaped), newest first, 60 at most, over what the store keeps (each room's 500 newest after retention, plus history opened since). The desktop never stores decrypted text (only my own messages still in the outbox), so `Session::search_local` also reads `Store::sealed_messages` and decrypts them while the room keys are unlocked. Rocket.Chat, Mattermost and kChat; not on a native RocketVibe session.
 
 - GTK: a search button in the sidebar header, or Ctrl+Shift+F (`chat.rs`), opens `rv-gtk/src/local_search.rs`: the hits under their room's name; a click opens the room at the message, or the thread for a reply.
 - SwiftUI: `LocalSearchSheet` (`macos/Sources/RocketVibe/LocalSearch.swift`), from a sidebar button, Cmd+Shift+F.

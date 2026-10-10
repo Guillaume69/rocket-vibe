@@ -160,7 +160,7 @@ beta does.
 |---|---|---|---|---|---|
 | Search messages in the room (`chat.search`) | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | Open a result at its message | done | done | done | done | SwiftUI does not open a thread reply in its thread. Web: Native provider: see [web-client](features/web-client.md). |
-| Search across rooms (on the device: the messages already synced, any server kind) | done | done | done | missing | Mobile: local SQLite (`SEARCH_MESSAGES`), 500 newest per room plus opened history; private RocketVibe conversations stay searched per room. Desktop: `Store::search_messages` plus the sealed rows decrypted while unlocked (Ctrl+Shift+F, Cmd+Shift+F), Rocket.Chat and Mattermost, not native RocketVibe sessions; SwiftUI's view checked by the macOS CI build only. Web: No browser implementation yet. |
+| Search across rooms (on the device: the messages already synced, any server kind) | done | done | done | missing | Mobile: local SQLite (`SEARCH_MESSAGES`), 500 newest per room plus opened history; private RocketVibe conversations stay searched per room. Desktop: `Store::search_messages` over the same 500 newest per room plus opened history, the sealed rows decrypted while unlocked (Ctrl+Shift+F, Cmd+Shift+F), Rocket.Chat and Mattermost, not native RocketVibe sessions; SwiftUI's view checked by the macOS CI build only. Web: No browser implementation yet. |
 
 ## 8. Room info and profiles - [room-info-and-profiles](features/room-info-and-profiles.md)
 
@@ -278,7 +278,7 @@ beta does.
 | Reconnection with back-off, dead-socket probe, catch-up after the subscriptions are armed | done | done | done | partial | Web: Implemented native browser equivalent requires row-specific GTK qualification; see docs/WEB_CLIENT_EXECUTION.md. |
 | Rooms deleted server-side purged locally | done | partial | partial | partial | Desktop purges without mobile's snapshot taken before the request: a room created meanwhile can be purged until the next catch-up. Web: Implemented native browser equivalent requires row-specific GTK qualification; see docs/WEB_CLIENT_EXECUTION.md. |
 | `chat.syncMessages` catch-up of edits and deletions | done | partial | partial | mapped | Desktop catches a room up once per session: a deletion in a room already caught up while another was open stays visible until it is caught up again. Web: Native browser storage/HTTP/socket, HTTPS links, downloads and live-tab alerts; see web-client.md. |
-| Message retention (500 newest per room) | done | missing | missing | missing | Web: No browser implementation yet. |
+| Message retention (500 newest per room) | done | done | done | missing | Desktop: `Writer::apply_retention` once per session after the catch-up, Rocket.Chat and Mattermost accounts (`Session::retain`, shared by GTK and SwiftUI). Web: No browser implementation yet. |
 
 ## 15. Server administration - [administration](features/administration.md)
 
@@ -326,7 +326,7 @@ are product gaps, listed last.
   the message's picture, quick reactions and mark as read, the app's own sound.
 - **GTK**: kChat "Sign in with Infomaniak"; email 2FA resend; replay of an offline sign-out; padlock tile once
   unlocked; DM avatar versions in the list; video reduction; reconciliation snapshot; catch-up of
-  deletions in rooms already caught up; message retention; outside Windows
+  deletions in rooms already caught up; outside Windows
   toasts, the notification's picture, quick reactions, mark as read and own sound
   (Linux has the photo), and none of them for RocketVibe accounts.
 - **SwiftUI**: everything GTK owes, plus

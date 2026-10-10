@@ -46,7 +46,7 @@ Reconciliation ignores an empty list (an active account always has subscriptions
 
 **Outbox** (`OutboxEngine`, `apps/mobile/lib/outbox.ts`, table `outbox`). The message `_id` (24 hex characters) is generated client-side; the optimistic row and the outbox row are written before any network call. Passes run in order, one at a time, and a pass requested mid-flush runs right after. Unreachable (`status 0`): the row stays `pending` (pending) for the next trigger. Any other error: `chat.getMessage` decides. Found means delivered (ingest it, drop the row), absent means `failed` (retry offered in the UI), and a network error, 429 or 5xx means unknown (row stays pending, pass stops). The automatic replay lists `pending` rows only: a failed row goes out again only through the user's "Retry" (`OutboxEngine.retry`, `REARM_OUTBOX`), so refused messages cost no requests on later passes. In an encrypted room the text is encrypted only when leaving, and a locked room makes the row wait instead of failing. File sends use a separate queue with the same spirit (`uploads`, `apps/mobile/lib/uploadQueue.ts`); see [uploads.md](uploads.md).
 
-**Retention.** Once per session, after catch-up, `applyRetention` keeps the 500 newest messages per room (`MESSAGES_KEPT_PER_ROOM` in `apps/mobile/db/store.ts`), sparing optimistic rows and thread roots still referenced. The app re-downloads anything older when paging back.
+**Retention.** Once per session, after catch-up, `applyRetention` keeps the 500 newest messages per room (`MESSAGES_KEPT_PER_ROOM` in `apps/mobile/db/store.ts`), sparing optimistic rows and thread roots still referenced. The app re-downloads anything older when paging back. The desktop does the same at the end of `Session::once_per_session` (after the global catch-up and the reconciliation), `Writer::apply_retention(MESSAGES_KEPT_PER_ROOM)` in `rv-core/src/store.rs`, for Rocket.Chat and Mattermost accounts; a native RocketVibe session keeps its own store.
 
 **Reconciliation race.** `reconcileRooms` snapshots the known rids before the request and only purges rooms in that snapshot, so a DM created by the stream during the round trip is not deleted.
 
@@ -77,7 +77,7 @@ Reconciliation ignores an empty list (an active account always has subscriptions
 | Live coverage | open room plus 3 hot rooms | every room via `__my_messages__`; deletions open room only |
 | Room catch-up skip | `generation` plus hot-room LRU | per-session `synced` set |
 | History reload on reopen | skipped under the same `generation` | always |
-| Retention | 500 per room, once per session | none |
+| Retention | 500 per room, once per session | 500 per room, once per session |
 | Reconciliation snapshot before the request | yes | no (`purge_rooms_except` reads the known rids at write time) |
 | Background | socket closed, driver suspended, push | socket kept |
 | Logout interrupted offline | queued and replayed at next start | best effort, not replayed |

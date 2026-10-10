@@ -2811,6 +2811,11 @@ impl ChatPage {
     /// The account on screen, whichever server it speaks to: at most one of
     /// `session` and `native` is set (`set_session` and `set_native_session`
     /// each clear the other).
+    /// For the reload trace: is the open room encrypted, and how many rooms the list holds.
+    pub fn reload_context(&self) -> (bool, usize) {
+        (self.current.borrow().as_ref().is_some_and(|o| o.encrypted), self.rooms.borrow().len())
+    }
+
     pub fn chat(&self) -> Option<rv_core::provider::Chat> {
         self.native_session().map(Into::into).or_else(|| self.session().map(Into::into))
     }

@@ -13,10 +13,12 @@ struct ChatView: View {
     }
 
     var body: some View {
+        @Bindable var app = app
         HStack(spacing: 0) {
             if !app.railHidden { ServerRail() }
             split
         }
+        .modalOverlay(isPresented: $app.switching) { RoomSwitcher() }
         // Settings > Accounts lists these accounts: they stay fresh with the rail hidden.
         .task(id: app.account?.key) {
             await app.refreshAccounts()

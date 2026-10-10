@@ -48,6 +48,7 @@ mod spell;
 mod spotlight;
 mod staged;
 mod style;
+mod switcher;
 mod thread;
 mod threads;
 mod tile_grid;

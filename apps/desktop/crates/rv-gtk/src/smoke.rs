@@ -46,7 +46,9 @@
 //!                          notification only where the room's choice wants it, then Default
 //!                          again, the dialog's choice following;
 //!                          forward:<room>: forwards the last message to <room>, which opens
-//!                          and gets it as a quote the server built
+//!                          and gets it as a quote the server built;
+//!                          switcher:<room>: the quick switcher (Ctrl+K) opens once, lists
+//!                          <room> first for its name, and Enter opens it
 //!   RV_SMOKE_NOTIFY=<reply>  stands in for the desktop's notification server (inline reply
 //!                          included), answers the first notification with <reply>, then clicks
 //!                          it: its room must open on that message (`-`: a server without inline
@@ -1226,6 +1228,31 @@ async fn forward_checks(
     );
 }
 
+async fn switcher_checks(
+    chat: Rc<crate::chat::ChatPage>,
+    session: std::sync::Arc<rv_core::session::Session>,
+    target: String,
+) {
+    let Some(to) = session.store.rooms().into_iter().find(|r| r.name == target || r.slug.as_deref() == Some(&target))
+    else {
+        check("the target room is listed", false, &target);
+        return;
+    };
+    let dialog = chat.open_switcher();
+    check("a second Ctrl+K keeps one switcher", chat.open_switcher() == dialog, ());
+    let Some(search) = find_named(dialog.upcast_ref(), "switcher-search").and_downcast::<gtk::SearchEntry>() else {
+        check("the switcher's search field", false, ());
+        return;
+    };
+    search.set_text(&to.name);
+    glib::timeout_future(Duration::from_millis(600)).await;
+    let row = find_named(dialog.upcast_ref(), &format!("switcher-{}", to.rid)).and_downcast::<gtk::ListBoxRow>();
+    check("the room is listed first", row.as_ref().is_some_and(|r| r.index() == 0 && r.is_selected()), &to.rid);
+    search.emit_activate();
+    glib::timeout_future(Duration::from_millis(500)).await;
+    check("Enter opens it", chat.current_rid().as_deref() == Some(to.rid.as_str()), chat.current_rid());
+}
+
 fn check(label: &str, ok: bool, detail: impl std::fmt::Debug) {
     println!("smoke: {label}: {detail:?} {}", if ok { "ok" } else { "FAILED" });
     if !ok {
@@ -1391,6 +1418,8 @@ fn details_checks(
             room_notification_checks(chat, session, rid).await;
         } else if let Some(target) = what.strip_prefix("forward:") {
             forward_checks(chat, session, rid, target.to_owned()).await;
+        } else if let Some(target) = what.strip_prefix("switcher:") {
+            switcher_checks(chat, session, target.to_owned()).await;
         } else if what == "threads" {
             let (s, r) = (session.clone(), rid.clone());
             let listed = crate::on_tokio(async move { s.threads(&r, false, 0, 50).await }).await;

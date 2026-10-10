@@ -47,6 +47,8 @@ public final class AppModel {
     public private(set) var voice: VoiceModel?
     /// A short message for the window's toast.
     public var notice: String?
+    /// The quick room switcher (Cmd+K) over the window.
+    public var switching = false
     /// The settings overlay over the window, and the category it shows
     /// (`shownSettingsCategory` falls back when it has nothing here).
     public internal(set) var settingsShown = false

@@ -480,7 +480,7 @@ pub fn identifier(label: &str, taken: &[String]) -> String {
 }
 
 /// The letter under an accent, for ids typed in French.
-fn fold(c: char) -> char {
+pub(crate) fn fold(c: char) -> char {
     match c {
         'à' | 'â' | 'ä' | 'á' | 'ã' | 'å' => 'a',
         'ç' => 'c',

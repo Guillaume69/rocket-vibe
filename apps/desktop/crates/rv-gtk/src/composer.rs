@@ -108,7 +108,8 @@ impl Composer {
                     gdk::Key::b => Format::Wrap("*"),
                     gdk::Key::i => Format::Wrap("_"),
                     gdk::Key::x if shift => Format::Wrap("~"),
-                    gdk::Key::k => Format::Link,
+                    // Ctrl+K alone opens the room switcher (`ChatPage::open_switcher`).
+                    gdk::Key::k if shift => Format::Link,
                     gdk::Key::e if shift => Format::CodeBlock,
                     gdk::Key::e => Format::Wrap("`"),
                     gdk::Key::_7 if shift => Format::Lines(LineKind::Numbered),

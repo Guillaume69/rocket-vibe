@@ -113,6 +113,41 @@ pub fn forward_targets(rooms: &[RoomRow], query: &str) -> Vec<RoomRow> {
         .collect()
 }
 
+/// Lowercase, the letter under an accent: what the switcher compares.
+fn folded(text: &str) -> String {
+    text.to_lowercase().chars().map(crate::native::workflows::fold).collect()
+}
+
+/// The quick switcher (Ctrl+K): the rooms whose shown name (or slug) holds
+/// `query`, accents and case aside. A name starting with it comes first, then
+/// one with a word starting with it, then the rest; ties go to the latest
+/// activity. An empty query lists every room, latest activity first.
+pub fn switcher_matches(rooms: &[RoomRow], query: &str) -> Vec<RoomRow> {
+    let needle = folded(query.trim());
+    let rank = |r: &RoomRow| -> Option<u8> {
+        if needle.is_empty() {
+            return Some(0);
+        }
+        [Some(r.name.as_str()), r.slug.as_deref()]
+            .into_iter()
+            .flatten()
+            .filter_map(|name| {
+                let name = folded(name);
+                if name.starts_with(&needle) {
+                    Some(0)
+                } else if name.split(|c: char| !c.is_alphanumeric()).any(|word| word.starts_with(&needle)) {
+                    Some(1)
+                } else {
+                    name.contains(&needle).then_some(2)
+                }
+            })
+            .min()
+    };
+    let mut found: Vec<(u8, &RoomRow)> = rooms.iter().filter_map(|r| rank(r).map(|k| (k, r))).collect();
+    found.sort_by(|(ka, a), (kb, b)| ka.cmp(kb).then(b.last_ts.cmp(&a.last_ts)));
+    found.into_iter().map(|(_, r)| r.clone()).collect()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Found {
     User { id: String, username: String, name: Option<String> },
@@ -164,6 +199,19 @@ mod tests {
             voice: false,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn the_switcher_ranks_a_name_start_then_a_word_start_then_the_rest() {
+        let at = |name: &str, ts: i64| RoomRow { last_ts: ts, ..room(name, "c", 0) };
+        let rooms = [at("dev-ops", 1), at("Équipe dev", 3), at("devoirs", 2), at("ad-hoc devs", 4), at("android", 9)];
+        let names = |q: &str| switcher_matches(&rooms, q).into_iter().map(|r| r.name).collect::<Vec<_>>();
+        assert_eq!(names("DEV"), ["devoirs", "dev-ops", "ad-hoc devs", "Équipe dev"]);
+        assert_eq!(names("equipe"), ["Équipe dev"], "accents and case aside");
+        assert_eq!(names("evo"), ["devoirs"], "anywhere in the name, last");
+        assert_eq!(names(" "), ["android", "ad-hoc devs", "Équipe dev", "devoirs", "dev-ops"]);
+        let slugged = RoomRow { slug: Some("general".into()), ..room("Général du bureau", "c", 0) };
+        assert_eq!(switcher_matches(&[slugged], "gene").len(), 1);
     }
 
     #[test]

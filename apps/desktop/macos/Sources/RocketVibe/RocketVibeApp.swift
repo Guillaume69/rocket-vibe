@@ -148,6 +148,9 @@ struct AppCommands: Commands {
                 .keyboardShortcut(.leftArrow, modifiers: .option)
             Button(L("nav.forward")) { app.goForward() }
                 .keyboardShortcut(.rightArrow, modifiers: .option)
+            // Not over the settings or the administration, which cover the rooms.
+            Button(L("switcher.title") + "…") { if !app.panelShown && app.account != nil { app.switching = true } }
+                .keyboardShortcut("k", modifiers: .command)
         }
     }
 }

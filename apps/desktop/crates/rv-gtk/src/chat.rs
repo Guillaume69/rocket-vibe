@@ -200,6 +200,8 @@ pub struct ChatPage {
     rooms_store: gio::ListStore,
     rooms_selection: gtk::SingleSelection,
     rooms: RefCell<Vec<RoomRow>>,
+    /// The open quick switcher, so a second Ctrl+K does not stack another.
+    switcher: glib::WeakRef<adw::Dialog>,
     /// The rid shown at each position of the list; None for a section title.
     slots: RefCell<Vec<Option<String>>>,
     /// Sections folded in the room list, remembered across launches.
@@ -525,6 +527,7 @@ impl ChatPage {
             rooms_store,
             rooms_selection,
             rooms: RefCell::default(),
+            switcher: glib::WeakRef::new(),
             slots: RefCell::default(),
             collapsed: RefCell::new(load_collapsed()),
             on_unread: RefCell::default(),
@@ -838,6 +841,15 @@ impl ChatPage {
             });
             keys.add_shortcut(gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string(trigger), Some(action)));
         }
+        // The quick room switcher; in the composer, Ctrl+Shift+K is the link.
+        let w = weak.clone();
+        let switcher = gtk::CallbackAction::new(move |_, _| {
+            if let Some(this) = w.upgrade() {
+                this.open_switcher();
+            }
+            glib::Propagation::Stop
+        });
+        keys.add_shortcut(gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string("<Control>k"), Some(switcher)));
         self.split.add_controller(keys);
         let copy = gtk::EventControllerKey::builder().propagation_phase(gtk::PropagationPhase::Capture).build();
         let w = weak.clone();
@@ -1259,6 +1271,27 @@ impl ChatPage {
                     .await;
             composer.set_reply(&name, &preview, link);
         });
+    }
+
+    /// The quick room switcher (Ctrl+K): the room picked among the account's opens.
+    pub fn open_switcher(self: &Rc<Self>) -> adw::Dialog {
+        if let Some(open) = self.switcher.upgrade() {
+            return open;
+        }
+        let rooms = self.rooms.borrow().clone();
+        let weak = Rc::downgrade(self);
+        let dialog = crate::switcher::open(&self.split, self.session(), rooms, move |rid| {
+            let Some(this) = weak.upgrade() else { return };
+            // The account may have changed while the dialog was open.
+            if !this.rooms.borrow().iter().any(|r| r.rid == rid) {
+                return;
+            }
+            this.user_navigation();
+            this.open_room(&rid);
+            this.voice_channel_opened(&rid);
+        });
+        self.switcher.set(Some(&dialog));
+        dialog
     }
 
     /// Forwarding (Rocket.Chat): the room picked in a dialog opens, and the

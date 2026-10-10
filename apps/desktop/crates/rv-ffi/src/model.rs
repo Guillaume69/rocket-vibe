@@ -243,6 +243,25 @@ impl RoomGroup {
     }
 }
 
+/// The quick switcher (Cmd+K): the rooms of `rooms` matching `query`, in
+/// `rv_core::rooms::switcher_matches`'s order (name start, word start,
+/// anywhere; latest activity first).
+#[uniffi::export]
+pub fn switcher_matches(rooms: Vec<Room>, query: String) -> Vec<Room> {
+    let rows: Vec<RoomRow> = rooms
+        .iter()
+        .map(|r| RoomRow {
+            rid: r.rid.clone(),
+            name: r.name.clone(),
+            slug: r.slug.clone(),
+            last_ts: r.last_ts,
+            ..Default::default()
+        })
+        .collect();
+    let order = rv_core::rooms::switcher_matches(&rows, &query);
+    order.iter().filter_map(|m| rooms.iter().find(|r| r.rid == m.rid).cloned()).collect()
+}
+
 pub fn room(r: RoomRow, clear_last: Option<String>, presence: Option<Presence>) -> Room {
     let system = r.last_type.as_deref().filter(|kind| *kind != "e2e");
     let preview = match (&r.last_message, r.encrypted) {

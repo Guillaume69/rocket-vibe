@@ -76,6 +76,8 @@ export interface Store {
   updateMessageMarks(id: string, pinned: boolean, starred: string | null): Promise<void>;
   /** A thread root's followers set locally after a successful (un)follow (`lib/marks.ts`). */
   updateThreadFollowers(id: string, followers: string | null): Promise<void>;
+  /** Only the `starred` column; no row for an id the cache does not hold. */
+  updateMessageStarred(id: string, starred: string | null): Promise<void>;
   /** Forgets a room's cached messages (a catch-up that cannot vouch for them), optimistic ones kept. */
   clearRoomMessages(rid: string): Promise<void>;
   /**
@@ -262,6 +264,9 @@ export class SyncEngine {
       case 'message-deleted':
         await this.store.deleteMessage(change.id);
         this.stats.deletions++;
+        return;
+      case 'message-starred':
+        await this.store.updateMessageStarred(change.id, change.starred);
         return;
       case 'room-deleted':
         await this.store.deleteRoom(change.rid);

@@ -22,6 +22,7 @@ import {
   MM_POST,
   MM_POST_DELETED,
   MM_QUIET,
+  MM_STARRED,
   MM_ROOM,
   MM_ROOM_DELETED,
   record,
@@ -49,6 +50,8 @@ export class MmLive {
   readonly channels = new Map<string, Doc>();
   readonly members = new Map<string, Doc>();
   readonly lastPosts = new Map<string, Doc>();
+  /** The posts I flagged; the translator reads it, so a re-read post keeps its star. */
+  readonly flagged = new Set<string>();
   private clock = 0;
   private readonly touched = new Map<string, number>();
 
@@ -121,7 +124,7 @@ export class MmLive {
     if (QUIET_EVENTS.has(name)) return [{ collection: MM_QUIET, eventKey: name, args: [] }];
     if (CATEGORY_EVENTS.has(name)) return this.regroup();
     if (name === 'badge_updated') return this.recount();
-    if (name === 'preferences_changed') return this.preferences(data.preferences);
+    if (name === 'preferences_changed' || name === 'preferences_deleted') return this.preferences(data.preferences, name === 'preferences_changed');
     const channelId = str(data.channel_id) ?? str(broadcast.channel_id);
     switch (name) {
       case 'typing': {
@@ -284,7 +287,7 @@ export class MmLive {
    * Preferences set elsewhere (kChat web, another client): a conversation
    * closed or reopened, the number listed, or the name format.
    */
-  private preferences(raw: unknown): DdpEvent[] {
+  private preferences(raw: unknown, set: boolean): DdpEvent[] {
     let list: unknown = raw;
     if (typeof raw === 'string') {
       try {
@@ -293,6 +296,10 @@ export class MmLive {
         return [];
       }
     }
+    // A star (`flagged_post`) set or removed in another client: only the cached post moves.
+    const flags = Array.isArray(list) ? list.filter((p: Doc) => p?.category === 'flagged_post' && typeof p?.name === 'string') : [];
+    const starred = flags.map((p: Doc) => this.flag(String(p.name), set && p.value !== 'false'));
+    if (!set) return starred;
     const conversations = [...this.channels.entries()].filter(([, c]) => c.type === 'D' || c.type === 'G');
     const out: (DdpEvent | null)[] = [];
     if (this.categories?.sidebar.apply(list)) {
@@ -302,7 +309,25 @@ export class MmLive {
     const pref = Array.isArray(list) ? list.find((p: Doc) => p?.category === 'display_settings' && p?.name === 'name_format') : undefined;
     const format = nameFormatOf((pref as Doc | undefined)?.value);
     if (format !== null && this.directory.setNameFormat(format)) out.push(...conversations.map(([rid]) => this.roomEvent(rid)));
-    return compact(out);
+    return [...starred, ...compact(out)];
+  }
+
+  /** Notes a post (un)flagged; the event writes the cached row's column. */
+  flag(id: string, on: boolean): DdpEvent {
+    if (on) this.flagged.add(id);
+    else this.flagged.delete(id);
+    return { collection: MM_STARRED, eventKey: id, args: [{ id, on }] };
+  }
+
+  /**
+   * My flags as the server lists them (connection setup): the set is replaced,
+   * and the cached posts whose star moved since the last list are rewritten.
+   * One unflagged before the app started stays starred until it is read again.
+   */
+  resetFlags(ids: string[]): DdpEvent[] {
+    const now = new Set(ids);
+    const moved = [...ids.filter((id) => !this.flagged.has(id)), ...[...this.flagged].filter((id) => !now.has(id))];
+    return moved.map((id) => this.flag(id, now.has(id)));
   }
 
   /** Categories come without their content: read them again, then every membership row. */

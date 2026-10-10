@@ -59,15 +59,21 @@ export class MmCatchUp {
   async global(engine: SyncEngine, isDiscarded: () => boolean): Promise<void> {
     const mark = this.live.mark();
     // A server older than 5.32 has no categories: the rooms keep the default sections.
-    const [channels, members, format] = await Promise.all([
+    const [channels, members, format, flags] = await Promise.all([
       this.channels(),
       this.client.pages<Doc>('/users/me/channel_members'),
       this.nameFormat(),
+      this.client.get<unknown>('/users/me/preferences/flagged_post').catch(() => null),
       this.categories?.load().catch(() => {}),
       this.categories?.sidebar.load().catch(() => {}),
     ]);
     if (format !== null) this.directory.setNameFormat(format);
     if (isDiscarded()) return;
+    // My stars are preferences, not in the posts: the set marks every post read from now on.
+    if (Array.isArray(flags)) {
+      const ids = (flags as Doc[]).filter((p) => p?.value !== 'false' && typeof p?.name === 'string').map((p) => String(p.name));
+      for (const event of this.live.resetFlags(ids)) await engine.apply(event);
+    }
     const memberOf = new Map(members.map((m) => [String(m.channel_id), m]));
     const live = channels.filter((c) => !(typeof c.delete_at === 'number' && c.delete_at > 0) && memberOf.has(String(c.id)));
     this.categories?.rankConversations(live);

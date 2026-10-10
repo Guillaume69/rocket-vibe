@@ -48,6 +48,7 @@ function fullFakeStore() {
     updateMessageMarks: async () => {},
     updateThreadFollowers: async () => {},
     clearRoomMessages: async () => {},
+    updateMessageStarred: async () => {},
     hideEncryptedMessages: async () => {},
     updateEncryptedPreview: async () => {},
     updateUserAvatar: async () => {},

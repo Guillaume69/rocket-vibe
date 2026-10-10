@@ -3828,19 +3828,19 @@
     },
     {
       "file": "apps/mobile/lib/sync.ts",
-      "line": 132,
+      "line": 134,
       "kind": "stream",
       "surface": "stream-room-messages"
     },
     {
       "file": "apps/mobile/lib/sync.ts",
-      "line": 133,
+      "line": 135,
       "kind": "stream",
       "surface": "stream-notify-user"
     },
     {
       "file": "apps/mobile/lib/sync.ts",
-      "line": 134,
+      "line": 136,
       "kind": "stream",
       "surface": "stream-notify-room"
     },

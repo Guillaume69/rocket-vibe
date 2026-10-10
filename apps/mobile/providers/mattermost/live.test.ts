@@ -8,7 +8,7 @@ import { MmClient } from './client.ts';
 import { MmDirectory } from './directory.ts';
 import { MmLive } from './live.ts';
 import { fakeServer, post } from './testing.ts';
-import { MM_MEMBERSHIP, MM_POST, MM_ROOM, MM_ROOM_DELETED, MmTranslator } from './translator.ts';
+import { MM_MEMBERSHIP, MM_POST, MM_ROOM, MM_ROOM_DELETED, MM_STARRED, MmTranslator } from './translator.ts';
 
 function setup(route: Parameters<typeof fakeServer>[0] = () => undefined) {
   const server = fakeServer(route);
@@ -155,6 +155,19 @@ describe('kChat reads made elsewhere', () => {
 });
 
 describe('Preferences set elsewhere', () => {
+  test('a star set or removed in another client rewrites the column, and the post keeps it when read again', async () => {
+    const { live, server } = setup();
+    const translator = new MmTranslator(new MmDirectory(new MmClient(server.base, 'tok')), 'u-me', null, undefined, live.flagged);
+    const set = await live.expand('preferences_changed', { preferences: JSON.stringify([{ user_id: 'u-me', category: 'flagged_post', name: 'p1', value: 'true' }]) }, {});
+    assert.deepEqual(set.map((e) => [e.collection, e.eventKey]), [[MM_STARRED, 'p1']]);
+    assert.deepEqual(translator.translateEvent(set[0]!), { kind: 'change', change: { type: 'message-starred', id: 'p1', starred: '["u-me"]' } });
+    assert.equal(translator.toMessage(post('p1', { channel_id: 'ch1' }))?.starred, '["u-me"]');
+    const removed = await live.expand('preferences_deleted', { preferences: [{ user_id: 'u-me', category: 'flagged_post', name: 'p1', value: 'true' }] }, {});
+    assert.deepEqual(translator.translateEvent(removed[0]!), { kind: 'change', change: { type: 'message-starred', id: 'p1', starred: null } });
+    assert.equal(translator.toMessage(post('p1', { channel_id: 'ch1' }))?.starred, null);
+    assert.equal(server.calls.length, 0, 'no post is fetched');
+  });
+
   test('a new name format names the conversations again; a closed DM leaves the list', async () => {
     const server = fakeServer(() => undefined);
     const client = new MmClient(server.base, 'tok', { fetch: server.fetcher });

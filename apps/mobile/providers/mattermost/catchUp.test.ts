@@ -35,7 +35,7 @@ function setup(extra: (call: Call) => ReturnType<Parameters<typeof fakeServer>[0
   const live = new MmLive(client, directory, 'u-me');
   const history = new MmHistory(client, live);
   const local = memoryStore();
-  const engine = new SyncEngine(local.store, new MmTranslator(directory, 'u-me'));
+  const engine = new SyncEngine(local.store, new MmTranslator(directory, 'u-me', null, undefined, live.flagged));
   const catchUp = new MmCatchUp({ client, directory, live, history, myId: 'u-me', deletedRoute });
   return { catchUp, engine, history, server, live, ...local };
 }
@@ -49,6 +49,19 @@ describe('MmCatchUp', () => {
     assert.equal(subscriptions.get('ch1')?.unread, 2);
     assert.equal(subscriptions.get('ch1')?.mentions, 1);
     assert.equal(cursors.get('*|mm-last-post'), 100);
+  });
+
+  test('global: my flags star the cached posts, and the next list unstars the ones gone', async () => {
+    let flags = [{ category: 'flagged_post', name: 'p1', value: 'true' }];
+    const { catchUp, engine, messages, store } = setup((call) => (call.path === '/users/me/preferences/flagged_post' ? { body: flags } : undefined));
+    const translate = new MmTranslator(new MmDirectory(new MmClient('http://x', null)), 'u-me');
+    await store.upsertMessage(translate.toMessage(post('p1', { channel_id: 'ch1' }))!);
+    await catchUp.global(engine, () => false);
+    assert.equal(messages.get('p1')?.starred, '["u-me"]');
+    assert.equal(messages.has('p2'), false, 'a flag on an uncached post adds no row');
+    flags = [];
+    await catchUp.global(engine, () => false);
+    assert.equal(messages.get('p1')?.starred, null);
   });
 
   test('global again with nothing new: only conversations are written again, their preview kept', async () => {

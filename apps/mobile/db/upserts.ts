@@ -251,6 +251,8 @@ export const UPDATE_MESSAGE_TEXT = `UPDATE messages SET text = ?, attachments = 
 export const UPDATE_MESSAGE_MARKS = `UPDATE messages SET pinned = ?, starred = ? WHERE id = ?`;
 export const UPDATE_THREAD_FOLLOWERS = `UPDATE messages SET thread_followers = ? WHERE id = ?`;
 
+export const UPDATE_MESSAGE_STARRED = `UPDATE messages SET starred = ? WHERE id = ?`;
+
 /** A room's cached messages, the optimistic ones (`updated_at` 0, still in the outbox) kept. */
 export const CLEAR_ROOM_MESSAGES = `DELETE FROM messages WHERE rid = ? AND updated_at > 0`;
 

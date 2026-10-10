@@ -30,6 +30,8 @@ export type SyncChange =
   | { type: 'message-deleted'; id: string }
   | { type: 'room-deleted'; rid: string }
   | { type: 'subscription-deleted-by-sub'; subId: string }
+  /** A message's `starred` column alone (a star set elsewhere); a message not cached stays absent. */
+  | { type: 'message-starred'; id: string; starred: string | null }
   /**
    * New version of the photo of a user (by username) OR of a room (by rid):
    * one of the two keys, never both. `etag` is the avatar URL cache-buster; it

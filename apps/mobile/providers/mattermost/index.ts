@@ -72,7 +72,7 @@ export function createMattermostProvider(
   directory.remember({ id: session.userId, username: session.username, displayName: null, lastPictureUpdate: null });
   const categories = new MmCategories(client, session.userId);
   const live = new MmLive(client, directory, session.userId, categories);
-  const translator = new MmTranslator(directory, session.userId, categories);
+  const translator = new MmTranslator(directory, session.userId, categories, undefined, live.flagged);
   const history = new MmHistory(client, live);
   const catchUp = new MmCatchUp({ client, directory, live, history, categories, myId: session.userId, deletedRoute: kchat });
   const actions = new MmActions({ client, directory, live, translator, myId: session.userId, categories });

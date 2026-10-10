@@ -30,6 +30,10 @@ export function memoryStore() {
     updateMessageText: async () => {},
     updateMessageMarks: async () => {},
     updateThreadFollowers: async () => {},
+    updateMessageStarred: async (id, starred) => {
+      const m = messages.get(id);
+      if (m !== undefined) messages.set(id, { ...m, starred });
+    },
     clearRoomMessages: async (rid) => {
       for (const [id, m] of messages) if (m.rid === rid && m.updatedAt > 0) messages.delete(id);
     },

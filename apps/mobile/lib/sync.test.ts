@@ -276,6 +276,10 @@ function makeStore() {
     clearRoomMessages: async (rid) => {
       for (let i = messages.length - 1; i >= 0; i--) if (messages[i]!.rid === rid && messages[i]!.updatedAt > 0) messages.splice(i, 1);
     },
+    updateMessageStarred: async (id, starred) => {
+      const m = messages.find((x) => x.id === id);
+      if (m !== undefined) Object.assign(m, { starred });
+    },
     updateThreadFollowers: async (id, threadFollowers) => {
       const m = messages.find((x) => x.id === id);
       if (m !== undefined) Object.assign(m, { threadFollowers });

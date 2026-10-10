@@ -23,6 +23,8 @@ export const MM_ROOM_DELETED = 'mm:room-deleted';
 export const MM_MEMBERSHIP = 'mm:membership';
 export const MM_AVATAR = 'mm:avatar';
 export const MM_QUIET = 'mm:quiet';
+/** A post flagged or unflagged (`{id, on}`), by me in any client. */
+export const MM_STARRED = 'mm:starred';
 
 /** A channel and, when known, its newest root post: what the room list shows. */
 export type MmRoomDoc = { channel: Record<string, unknown>; lastPost?: Record<string, unknown> | null };
@@ -51,12 +53,26 @@ export class MmTranslator implements Translator {
   private readonly myId: string;
   private readonly categories: MmCategories | null;
   private readonly fileBase: string;
+  /** The posts I flagged (`flagged_post` preferences), kept by `MmLive`. */
+  private readonly flagged: ReadonlySet<string>;
 
-  constructor(directory: MmDirectory, myId: string, categories: MmCategories | null = null, fileBase = '/api/v4/files') {
+  constructor(
+    directory: MmDirectory,
+    myId: string,
+    categories: MmCategories | null = null,
+    fileBase = '/api/v4/files',
+    flagged: ReadonlySet<string> = new Set(),
+  ) {
     this.directory = directory;
     this.myId = myId;
     this.categories = categories;
     this.fileBase = fileBase;
+    this.flagged = flagged;
+  }
+
+  /** A flag is mine alone: the column holds my uid or nothing. */
+  private starredColumn(on: boolean): string | null {
+    return on ? JSON.stringify([this.myId]) : null;
   }
 
   translateEvent(event: DdpEvent): Translation {
@@ -88,6 +104,10 @@ export class MmTranslator implements Translator {
         return username === null || etag === null
           ? IGNORE
           : change({ type: 'avatar', username, rid: null, etag });
+      }
+      case MM_STARRED: {
+        const id = str(doc?.id);
+        return id === null ? IGNORE : change({ type: 'message-starred', id, starred: this.starredColumn(doc?.on === true) });
       }
       case MM_QUIET:
         return SILENCE;
@@ -131,7 +151,8 @@ export class MmTranslator implements Translator {
       callId: call?.conferenceId ?? null,
       encryptedRaw: null,
       pinned: raw.is_pinned === true,
-      starred: null,
+      // Not in the post: a re-read would otherwise drop the star.
+      starred: this.starredColumn(this.flagged.has(id)),
       updatedAt: positive(raw.update_at) ?? ts,
     };
   }

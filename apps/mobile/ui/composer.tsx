@@ -207,7 +207,8 @@ export function Composer({
       const edited = apply(draft, Math.min(cursor, selectionEnd), Math.max(cursor, selectionEnd));
       setDraft(edited.text);
       saveDraft(edited.text);
-      placeSelection(edited.start, edited.end);
+      // A frame later, for the reason given in `changeDraft`.
+      requestAnimationFrame(() => placeSelection(edited.start, edited.end));
       fieldRef.current?.focus();
     },
     [draft, cursor, selectionEnd, saveDraft, placeSelection],
@@ -274,18 +275,29 @@ export function Composer({
     if (response !== null) fieldRef.current?.focus();
   }, [response]);
 
+  // The last text this field reported, and the draft it was reported against:
+  // keystrokes can arrive faster than the renders (an input method committing
+  // a word, fast typing), and the `draft` of this callback's closure is then
+  // older than the field (seen on the emulator: "-" against "- un\n").
+  const lastTyped = useRef<{ base: string; text: string } | null>(null);
   const changeDraft = useCallback(
     (typed: string) => {
+      // Nothing else rewrote the draft since (send, emoji, formatting): the field's
+      // last text is the truth; otherwise the draft is.
+      const before = lastTyped.current?.base === draft ? lastTyped.current.text : draft;
       // A line break typed in a list item continues the list, or ends it on an
-      // empty item (`lib/listBreak.ts`, the desktop's rule). `cursor` is where
-      // the break went in, or just after it when the selection event came first
-      // (the platform does not promise their order); `typedBreak` checks both.
-      const at = typedBreak(draft, typed, cursor) ?? typedBreak(draft, typed, cursor - 1);
-      const continued = at === null ? null : listBreak(draft, at);
+      // empty item (`lib/listBreak.ts`, the desktop's rule). The caret is only a
+      // hint: `typedBreak` finds the break from the texts themselves.
+      const at = typedBreak(before, typed, cursor);
+      const continued = at === null ? null : listBreak(before, at);
       const text = continued?.text ?? typed;
+      lastTyped.current = { base: draft, text };
       setDraft(text);
       saveDraft(text);
-      if (continued !== null) placeCursor(continued.cursor);
+      // A frame later: given with the new text, Android applies the selection to
+      // the OLD one and clamps it (seen: caret 7 on a 6-character text, the next
+      // letter typed before the space).
+      if (continued !== null) requestAnimationFrame(() => placeCursor(continued.cursor));
       onInput?.(text.trim().length>0);
     },
     [saveDraft,onInput,draft,cursor,placeCursor],

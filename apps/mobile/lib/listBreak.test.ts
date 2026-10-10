@@ -38,9 +38,15 @@ describe('typedBreak', () => {
     assert.equal(typedBreak('- one two', '- one\n two', 5), 5);
   });
 
+  test('a stale caret: the difference says where, a run of breaks taken at its start', () => {
+    assert.equal(typedBreak('- un', '- un\n', 0), 4);
+    assert.equal(typedBreak('- a\n- b', '- a\n\n- b', 0), 3);
+    assert.equal(typedBreak('ab', 'a\nb', 99), 1);
+  });
+
   test('anything else is not a typed break', () => {
     assert.equal(typedBreak('- one', '- one\nx', 5), null);
     assert.equal(typedBreak('- one', '- onex', 5), null);
-    assert.equal(typedBreak('- one', '- on\ne', 5), null);
+    assert.equal(typedBreak('- one', '- onf\n', 5), null);
   });
 });

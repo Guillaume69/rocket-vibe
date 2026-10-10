@@ -41,12 +41,22 @@ export function listBreak(text: string, cursor: number): { text: string; cursor:
 }
 
 /**
- * Where `after` is `before` with ONE line break typed at `cursor`, the
- * position of that break; else `null` (a paste, a deletion, autocorrect).
+ * Where `after` is `before` with ONE line break typed in, the position of that
+ * break; else `null` (a paste, a deletion, autocorrect). The caret is tried
+ * first, but it cannot be trusted alone: Android does not promise the order of
+ * the text and selection events, and text an input method commits may move
+ * the caret late or not at all (seen on the emulator). The difference itself
+ * then says where; inside a run of breaks it cannot tell which one is new, and
+ * takes the first, the break typed at the end of a line.
  */
 export function typedBreak(before: string, after: string, cursor: number): number | null {
-  if (after.length !== before.length + 1 || after[cursor] !== '\n') return null;
-  return after.slice(0, cursor) === before.slice(0, cursor) && after.slice(cursor + 1) === before.slice(cursor)
-    ? cursor
-    : null;
+  if (after.length !== before.length + 1) return null;
+  const at = (i: number) =>
+    i >= 0 && after[i] === '\n' && after.slice(0, i) === before.slice(0, i) && after.slice(i + 1) === before.slice(i);
+  if (at(cursor)) return cursor;
+  if (at(cursor - 1)) return cursor - 1;
+  let i = 0;
+  while (i < before.length && before[i] === after[i]) i++;
+  while (i > 0 && after[i - 1] === '\n') i--;
+  return at(i) ? i : null;
 }

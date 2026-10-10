@@ -208,7 +208,7 @@ struct SettingsView: View {
         }
     }
 
-    var notifications: some View {
+    @ViewBuilder var notifications: some View {
         Section(L("settings.notifications")) {
             if let profile, profile.saved != nil { NotificationPreference(model: profile) }
             Button(L("notify.test")) { Notifier.shared.test() }
@@ -218,6 +218,7 @@ struct SettingsView: View {
                 }
             }
         }
+        if let profile, profile.native, profile.saved != nil { DoNotDisturbSection(model: profile) }
     }
 
     var languageSection: some View {
@@ -362,6 +363,65 @@ struct NotificationPreference: View {
         }
         .disabled(model.native ? !model.preferencesEditable : model.busy)
     }
+}
+
+/// Do not disturb on a RocketVibe account (`quiet_hours`, `muted_until`): the
+/// server holds push and call rings back, and this app's notifications follow
+/// (`NativeSession::quiet_now` in rv-core).
+struct DoNotDisturbSection: View {
+    let model: MyProfileModel
+    @State private var from = ""
+    @State private var to = ""
+
+    var body: some View {
+        Section {
+            // Redrawn each half minute, so an ended mute reads "Off" by itself.
+            TimelineView(.periodic(from: .now, by: 30)) { context in
+                let until = model.mutedNow(context.date)
+                Picker(selection: Binding(get: { "" }, set: { choice in Task { await model.mute(choice) } })) {
+                    Text(L(until == nil ? "dnd.off" : "dnd.muted")).tag("")
+                    Text(L("dnd.hour")).tag("hour")
+                    Text(L("dnd.morning")).tag("morning")
+                    if until != nil { Text(L("dnd.unmute")).tag("off") }
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(L("dnd.mute"))
+                        if let until {
+                            Text(L("dnd.until", ["time": until.formatted(date: .omitted, time: .shortened)]))
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+            Toggle(isOn: Binding(get: { model.quietHours != nil }, set: { on in
+                Task { await model.setQuietHours(enabled: on, from: from, to: to) }
+            })) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(L("dnd.quiet_hours"))
+                    if let window = model.quietHours {
+                        Text(L("dnd.every_day", ["zone": window.timeZone])).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            // A time is saved on Return, as on the web on change.
+            TextField(L("dnd.from"), text: $from).onSubmit { save() }.disabled(model.quietHours == nil)
+            TextField(L("dnd.to"), text: $to).onSubmit { save() }.disabled(model.quietHours == nil)
+        } header: {
+            Text(L("dnd.title"))
+        } footer: {
+            Text(L("dnd.description")).font(.caption).foregroundStyle(.secondary)
+        }
+        .disabled(!model.preferencesEditable)
+        .onAppear { fill() }
+        .onChange(of: model.quietHours) { fill() }
+    }
+
+    private func fill() {
+        from = quietClock(minute: model.quietHours?.startMinute ?? 22 * 60)
+        to = quietClock(minute: model.quietHours?.endMinute ?? 8 * 60)
+    }
+
+    private func save() { Task { await model.setQuietHours(enabled: true, from: from, to: to) } }
 }
 
 /// My photo, presence and status, name, username, email and bio.

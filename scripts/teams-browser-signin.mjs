@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** Development bridge. No credential output/files, no existing-profile attachment. */
+/** Development bridge. No credential printing/export, no existing-profile attachment. */
 import { spawn } from 'node:child_process';
 import { bridgeServer } from './teams/server.mjs';
 import { ownedBrowser } from './teams/browser.mjs';

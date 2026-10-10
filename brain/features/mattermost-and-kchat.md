@@ -8,9 +8,9 @@ pins, stars (Mattermost's flagged posts), favourites and my own sidebar
 categories as room-list sections, search in a room, room info and profiles,
 custom emoji, kChat's kMeet calls (joined from their post; starting one is not
 mapped) and live clearing of a read made in another kChat client. Push, quotes
-and E2EE are not mapped; neither are, on the desktop, muted channels and live
-thread reply counts (`docs/MATTERMOST.md` §8). Stars changed in another client
-show live in both apps.
+and E2EE are not mapped (`docs/MATTERMOST.md` §8). A muted channel counts its
+mentions only, a live reply moves its root's reply count, and stars changed in
+another client show live, in both apps.
 A DM shows its unread count, never mentions: Mattermost counts every DM message
 in `mention_count`.
 
@@ -165,7 +165,14 @@ Rocket.Chat call fails cleanly instead of hitting the wrong server.
   (across teams) and fetches the newest root post of the 40 most recently changed
   rooms for the list preview; an unchanged room is not rewritten. A room's
   catch-up reads `?since=` (edits and `delete_at` deletions); kChat adds
-  `/channels/<id>/deleted_posts`.
+  `/channels/<id>/deleted_posts`. A full answer (1000 rows, the server's cap,
+  in no order) cannot be vouched for: the room's cache goes, optimistic rows
+  kept (`Store.clearRoomMessages`), and the newest page is read in its place.
+- A muted membership (`notify_props.mark_unread: "mention"`) counts its
+  mentions as its unread (`membershipCounts`), so it stays out of Unread.
+- Search in a room adds `in:<channel name>` to the terms for a public or
+  private channel (not probed on a bench); a conversation keeps the team-wide
+  ask. The room filter on the answer stays.
 
 ### Sending
 
@@ -247,7 +254,11 @@ there, so the UIs read the same store:
   mobile driver (derived unread, previews of the 40 most recent rooms, paging by
   post id through an instant-to-id index, `since=` room catch-up, kChat's
   `deleted_posts`), stars from the `flagged_post` preferences. `SyncEngine`
-  delegates its public methods to it.
+  delegates its public methods to it. A full `since=` answer clears the room
+  (`Writer::clear_room_messages`, optimistic rows kept) and reads the newest
+  page; a live reply whose root is cached reads the root again (`posted`);
+  `translate::counts` counts a muted membership's mentions only;
+  `actions::search` adds `in:<name>` for a channel (`MmSync::channel_name`).
 - Sidebar categories: `mattermost::categories::load` at each global catch-up and
   on `sidebar_category_*` (`MmSync::regroup` rewrites every membership);
   `categories::place` sets `favorite`, `group_id`, `group_name`, `group_rank` on
@@ -286,7 +297,10 @@ there, so the UIs read the same store:
   `authentication_challenge` or kChat's Pusher (`mattermost::pusher`), a ping every
   30 s, `Lost` after 75 s of silence, the reconnection back-off of DDP.
 - `Outbox` and `Uploads` branch on it: `pending_post_id`, my newest posts read
-  before a refusal; bytes to `POST /files`, then a post with `file_ids`, the file
+  before a refusal and before replaying a row that may already have gone out
+  (attempted in this session, or queued before the outbox started);
+  `api.post.deduplicate_create_post.pending` keeps the row pending for the next
+  trigger; bytes to `POST /files`, then a post with `file_ids`, the file
   id persisted between the two.
 - `MediaCache::for_mattermost` maps the Rocket.Chat avatar paths the screens
   build onto `/api/v4/users/<id>/image`; a room has no photo there.

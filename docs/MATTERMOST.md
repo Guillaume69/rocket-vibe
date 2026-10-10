@@ -489,11 +489,10 @@ Infomaniak's open-source app and probed in a note-to-self DM:
 
 Push (a third-party app gets none on kChat: Infomaniak's proxy routes to its own
 app id), ending a kMeet call nobody joined (`/cancel`), quotes, room settings and roles, end-to-end
-encryption, sending who types, and, on the desktop, muted channels
-(`notify_props.mark_unread`: they count as unread there; mobile counts their
-mentions only) and the live update of a thread's reply count (mobile reads the
-root again on a live reply). Stars changed elsewhere (`preferences_changed` /
-`preferences_deleted`, category `flagged_post`) are followed by both apps.
+encryption and sending who types. Both apps count a muted channel's
+(`notify_props.mark_unread: "mention"`) mentions only, read a cached root again
+on a live reply (`thread_updated` is quiet), and follow stars changed elsewhere
+(`preferences_changed` / `preferences_deleted`, category `flagged_post`).
 
 ## 9. Validating an implementation
 

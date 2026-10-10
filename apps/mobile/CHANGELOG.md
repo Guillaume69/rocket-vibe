@@ -36,6 +36,7 @@ release, and its notes are that version's section here.
 ### Fixed
 
 - On Mattermost and kChat, a thread's "N replies" moves as soon as someone answers, not at the next catch-up.
+- On Mattermost and kChat, search in a channel asks the server for that channel's matches only, so a busy team no longer leaves it empty.
 - On Mattermost and kChat, a star set or removed in another client shows at once, and a starred message no longer loses its star when it is edited or reacted to.
 - On Mattermost and kChat, a muted channel no longer turns bold nor rises into Unread for ordinary messages; a mention still shows its badge.
 - On Mattermost and kChat, a room that changed more than a thousand times while the app was away reloads its newest messages instead of keeping a history with holes.

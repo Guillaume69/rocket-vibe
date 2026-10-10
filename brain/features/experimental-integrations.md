@@ -123,6 +123,30 @@ packaged/phone-only sign-in and production qualification remain missing. The use
 has a workspace available for manual acceptance, but no live sign-in was performed
 while implementing the helper. Synthetic success is not account qualification.
 
+### Validation of the Slack browser increment
+
+2026-10-10: TypeScript and touched-file ESLint pass, all 1,679 mobile/helper tests
+pass, and Android export bundles successfully. The installed Edge --smoke checks
+owned browser transport and temporary-profile cleanup without performing sign-in.
+The shared encrypted fixture is opened by native Rust and mobile crypto, including
+original cookie bytes; wrong recipients, altered envelopes, invalid plaintext,
+identity mismatch, expiry and cancellation are covered by synthetic tests.
+
+The Fedora build.sh gate passes formatting, warnings-denied clippy, all 589 desktop
+tests and the workspace binary build.
+The [macOS CI](https://github.com/Guillaume69/rocket-vibe/actions/runs/38081199626)
+passes actual SwiftUI compilation, Swift tests, offline self-check, packaging,
+notarization and app launch. [Web CI](https://github.com/Guillaume69/rocket-vibe/actions/runs/38081199622)
+also passes its server build and browser compatibility checks. Live Slack browser
+sign-in, MFA and workspace acceptance still require the user's manual test;
+installed Android behavior and manual macOS interaction remain unqualified.
+
+GTK launches under Xvfb with isolated temporary configuration and no network. Eight
+activations keep experiments hidden; the ninth reveals Slack. The smoke verifies
+masked, non-editable public pairing, wrong-provider response rejection without a
+reader, and a disconnect/reset that clears the response and rotates the key. A
+rendered screenshot confirms the native provider selector and pairing/import controls.
+
 ## Teams browser-import preview
 
 The development helper opens a fresh official Teams browser with an owned temporary

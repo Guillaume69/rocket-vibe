@@ -8,6 +8,8 @@ are not implemented. Real Slack sign-in with this new helper still needs qualifi
 
 ## Try it
 
+Use a native development build from the codex/slack-teams branch for these controls.
+
 1. On the app login screen, activate the RocketVibe icon nine times, with no gap
    longer than two seconds. Select Slack in the experimental provider selector.
 2. Copy the public pairing code from the Slack panel.

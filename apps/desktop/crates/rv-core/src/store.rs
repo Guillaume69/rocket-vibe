@@ -1012,6 +1012,18 @@ impl Writer<'_> {
         self.touch_rooms();
     }
 
+    /// The room list's "mark as unread" (`unread`) or "mark as read", shown at
+    /// once: the subscription the server then broadcasts, newer, replaces it.
+    pub fn set_unread_mark(&mut self, rid: &str, unread: bool) {
+        let sql = if unread {
+            "UPDATE subscriptions SET unread = MAX(unread, 1), alert = 1 WHERE rid = ?1"
+        } else {
+            "UPDATE subscriptions SET unread = 0, mentions = 0, group_mentions = 0, alert = 0 WHERE rid = ?1"
+        };
+        self.conn.execute(sql, [rid]).or_note(&mut self.failed, "unread mark");
+        self.touch_rooms();
+    }
+
     /// A room's photo changed (or went: `NO_PHOTO`).
     pub fn set_room_avatar(&mut self, rid: &str, etag: &str) {
         self.conn
@@ -1197,6 +1209,39 @@ mod tests {
         assert_eq!(store.rooms()[0].name, "Bob Durand");
         store.write(|w| w.set_real_names(false));
         assert_eq!(store.rooms()[0].name, "bob", "off again: the username");
+    }
+
+    #[test]
+    fn an_unread_mark_shows_until_the_server_says_otherwise() {
+        let store = Store::in_memory().unwrap();
+        let room = Room {
+            rid: "r".into(),
+            kind: "c".into(),
+            display_name: Some("r".into()),
+            updated_at: 1,
+            ..Room::default()
+        };
+        let sub = |unread: i64, alert: bool, updated_at: i64| Subscription {
+            rid: "r".into(),
+            open: true,
+            unread,
+            alert,
+            mentions: 2,
+            updated_at,
+            ..Subscription::default()
+        };
+        store.write(|w| {
+            w.upsert_room(&room);
+            w.upsert_subscription(&sub(0, false, 10));
+            w.set_unread_mark("r", true);
+        });
+        let r = &store.rooms()[0];
+        assert_eq!((r.unread, r.alert), (1, true));
+        store.write(|w| w.upsert_subscription(&sub(3, true, 20)));
+        assert_eq!(store.rooms()[0].unread, 3, "the server's newer copy wins");
+        store.write(|w| w.set_unread_mark("r", false));
+        let r = &store.rooms()[0];
+        assert_eq!((r.unread, r.mentions, r.alert), (0, 0, false));
     }
 
     #[test]

@@ -1101,13 +1101,27 @@ impl Session {
         self.transport.open(&self.info.auth_token);
     }
 
+    /// The open room's own subscriptions (deletions, typing) go with it.
+    fn stop_hearing(&self, rid: &str) {
+        self.transport.unsubscribe(STREAM_NOTIFY_ROOM, &format!("{rid}/deleteMessage"));
+        self.transport.unsubscribe(STREAM_NOTIFY_ROOM, &format!("{rid}/{}", live::USER_ACTIVITY));
+        self.typing.lock().unwrap().clear(rid);
+    }
+
+    /// No room open any more (one marked unread while open is left): its
+    /// deletions and typing are no longer heard, a catch-up reloads nothing.
+    pub fn close_room(&self) {
+        let previous = self.current_room.lock().unwrap().take();
+        if let Some((old, _)) = previous {
+            self.stop_hearing(&old);
+        }
+    }
+
     /// Switches the open room and loads its latest page.
     pub async fn open_room(&self, rid: &str, kind: &str) -> Result<HistoryPage, RestError> {
         let previous = self.current_room.lock().unwrap().replace((rid.to_owned(), kind.to_owned()));
         if let Some((old, _)) = previous {
-            self.transport.unsubscribe(STREAM_NOTIFY_ROOM, &format!("{old}/deleteMessage"));
-            self.transport.unsubscribe(STREAM_NOTIFY_ROOM, &format!("{old}/{}", live::USER_ACTIVITY));
-            self.typing.lock().unwrap().clear(&old);
+            self.stop_hearing(&old);
         }
         // Deletions are not on `__my_messages__`: they stay per room.
         self.transport.subscribe(STREAM_NOTIFY_ROOM, &format!("{rid}/deleteMessage"));
@@ -1413,6 +1427,35 @@ impl Session {
         }
         actions::follow_thread(&self.rest, root, on).await?;
         self.store.write(|w| w.set_thread_follower(root, &self.info.user_id, on));
+        Ok(())
+    }
+
+    /// Whether the room list can mark a room unread or read: Rocket.Chat only
+    /// (`subscriptions.unread`), not offered on Mattermost and kChat.
+    pub fn unread_marks_available(&self) -> bool {
+        self.sync.mattermost().is_none()
+    }
+
+    /// Makes the room unread from its last message, as the official clients'
+    /// "Mark as unread". The badge shows at once; the server's subscription,
+    /// on the stream, then sets it as it is.
+    pub async fn mark_unread(&self, rid: &str) -> Result<(), RestError> {
+        if !self.unread_marks_available() {
+            return Err(RestError::incomplete("mark unread: not on this server"));
+        }
+        actions::mark_unread(&self.rest, rid).await?;
+        self.store.write(|w| w.set_unread_mark(rid, true));
+        Ok(())
+    }
+
+    /// The room list's "Mark as read": every message and thread of the room,
+    /// the badge going at once. Unlike [`Session::mark_read`], a failure is told.
+    pub async fn mark_room_read(&self, rid: &str) -> Result<(), RestError> {
+        if !self.unread_marks_available() {
+            return Err(RestError::incomplete("mark read: not on this server"));
+        }
+        actions::mark_read(&self.rest, rid).await?;
+        self.store.write(|w| w.set_unread_mark(rid, false));
         Ok(())
     }
 

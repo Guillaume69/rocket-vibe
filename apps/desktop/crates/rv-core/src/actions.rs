@@ -297,6 +297,26 @@ pub async fn favorite(rest: &RestClient, rid: &str, on: bool) -> Result<(), Rest
     rest.post("rooms.favorite", CallOptions::body(json!({"roomId": rid, "favorite": on}))).await.map(|_| ())
 }
 
+/// The answer of `subscriptions.unread` in a room with no message to mark.
+pub const NOTHING_TO_UNREAD: &str = "error-no-message-for-unread";
+
+/// Makes the room unread from its last message (`subscriptions.unread`): the
+/// server sets my subscription's `unread` to 1, `alert`, and `ls` just
+/// before that message, then broadcasts it on `subscriptions-changed`. A room
+/// with no message answers 400 [`NOTHING_TO_UNREAD`].
+pub async fn mark_unread(rest: &RestClient, rid: &str) -> Result<(), RestError> {
+    let options = CallOptions { retry_on_network_error: true, ..CallOptions::body(json!({"roomId": rid})) };
+    rest.post("subscriptions.unread", options).await.map(|_| ())
+}
+
+/// Marks the whole room read, its threads too (`readThreads`): without it a
+/// room with an unread thread keeps `alert` and stays in Unread (probed on 8.5.1).
+pub async fn mark_read(rest: &RestClient, rid: &str) -> Result<(), RestError> {
+    let options =
+        CallOptions { retry_on_network_error: true, ..CallOptions::body(json!({"rid": rid, "readThreads": true})) };
+    rest.post("subscriptions.read", options).await.map(|_| ())
+}
+
 pub async fn pin(rest: &RestClient, msg_id: &str) -> Result<(), RestError> {
     rest.post("chat.pinMessage", CallOptions::body(json!({"messageId": msg_id}))).await.map(|_| ())
 }

@@ -52,7 +52,7 @@ Mobile has the toolbar without the live styling: "Aa" beside 😀 shows a row of
 
 - GTK: Enter sends, Shift+Enter breaks the line, the field grows to 160 px then scrolls.
 - SwiftUI: Return sends, Shift+Return breaks the line, Cmd+Return on the send button; the field grows to 170 px.
-- GTK and mobile share one layout: an outlined pill holding attach, the field, the emoji button and the microphone, its border cyan with a soft halo while the field has the focus (`.composer-pill` in `rv-gtk/src/style.rs`; `styles.pill` in `apps/mobile/ui/composer.tsx`), then a round gradient send button with an up arrow. On mobile the send button is always there, dimmed and inert while there is nothing to send (no text, staged file or armed RocketVibe reply), and becomes the red stop button while recording, where GTK swaps the whole row for its recording bar. Mobile's field is multiline (Enter breaks the line; in a list item the break continues the list, or ends it on an empty item: `lib/listBreak.ts`, a port of `compose::list_break` with its test cases, applied in `ui/composer.tsx`'s `changeDraft` when `typedBreak` sees exactly one break typed at the caret); the smiley swaps the keyboard for the emoji panel and becomes a keyboard while it is open.
+- GTK, SwiftUI and mobile share one layout: an outlined pill holding attach, the field, the emoji button and the microphone (`.composer-pill` in `rv-gtk/src/style.rs`; the rounded field of `Composer.swift`; `styles.pill` and `pillSurface` in `apps/mobile`, its border cyan with a soft halo while the field has the focus, and a tap anywhere in it focusing the field), then a round gradient send button with an up arrow. On mobile and SwiftUI the send button is always there, dimmed and inert while there is nothing to send (no text, staged file or armed RocketVibe reply), and becomes the stop button while recording, where GTK swaps the whole row for its recording bar. Mobile's field is multiline (Enter breaks the line; in a list item the break continues the list, or ends it on an empty item: `lib/listBreak.ts`, a port of `compose::list_break` with its test cases, applied in `ui/composer.tsx`'s `changeDraft` when `typedBreak` sees exactly one break typed at the caret); the smiley swaps the keyboard for the emoji panel and becomes a keyboard while it is open.
 
 ## Attachments in the composer
 
@@ -70,9 +70,8 @@ The native serving-origin client uses the GTK toolbar/draft styling with a real 
 
 ## Sources
 
-- apps/mobile/ui/composer.tsx
 - apps/mobile/ui/icon.tsx
-- apps/desktop/crates/rv-gtk/src/composer.rs
+- apps/mobile/ui/kit.tsx
 - apps/desktop/crates/rv-gtk/src/style.rs
 - apps/web/src/app.ts
 - apps/web/src/staged.ts

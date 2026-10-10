@@ -52,6 +52,23 @@ test('a preferences change sends do not disturb only when it names it',async()=>
   assert.throws(()=>decodeNative('UpdatePreferences',{...push,quiet_hours:{start_minute:1320,end_minute:480}}));
 });
 
+test('the read receipts switch sends that field alone, and no other change carries it',async()=>{
+  const before={...fixture.own_profile.preferences,quiet_hours:{start_minute:1320,end_minute:480,time_zone:'Europe/Paris'},muted_until:'2026-07-01T13:00:00Z',share_read_receipts:true};
+  const off=preferencesInput('op-1',before,{share_read_receipts:false});
+  assert.equal(off.share_read_receipts,false);
+  assert.equal('quiet_hours' in off,false);assert.equal('muted_until' in off,false);
+  // The other fields as read.
+  assert.equal(off.language,before.language);assert.equal(off.push_enabled,before.push_enabled);assert.equal(off.clock_24h,before.clock_24h);
+  assert.equal(preferencesInput('op-2',before,{share_read_receipts:true}).share_read_receipts,true);
+  // A language change (or a push level) leaves it absent: the server keeps it.
+  assert.equal('share_read_receipts' in preferencesInput('op-3',{...before,share_read_receipts:false},{language:'fr'}),false);
+  assert.deepEqual(profileOperation({kind:'preferences',input:off}),{kind:'preferences',input:off});
+  const calls:string[]=[];
+  const transport=new NativeTransport('http://localhost:3400',async(_input,options)=>{calls.push(options!.body as string);return new Response(JSON.stringify(fixture.profile_receipt));});
+  transport.restore('native-test-token');
+  await transport.updatePreferences(off);assert.equal(JSON.parse(calls[0]).share_read_receipts,false);
+});
+
 test('avatar transport sends binary bytes without a credential URL and bounds downloads',async()=>{
   let request:RequestInit|undefined,url:URL|undefined;
   const transport=new NativeTransport('http://localhost:3400',async(input,options)=>{

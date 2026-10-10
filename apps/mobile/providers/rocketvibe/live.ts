@@ -1,6 +1,8 @@
 /** Volatile photo, never stored in SQLite or replayed through an outbox. */
 import type {DdpEvent} from '../../lib/ddp.ts';
-import type {LiveState} from './protocol.generated.ts';
+import type {LiveState,ReadMark} from './protocol.generated.ts';
+
+const NO_READS:readonly ReadMark[]=[];
 
 function typists(state:LiveState|null):Map<string,{key:string;name:string}> {
   const entries=new Map<string,{key:string;name:string}>();
@@ -18,6 +20,14 @@ export class NativeLive {
   private events=new Set<(event:DdpEvent)=>void>();
   private losses=new Set<()=>void>();
   get state():LiveState|null{return this.photo;}
+  /** A room's read receipts in the current photo: the same array until a frame changes it. */
+  reads(rid:string):readonly ReadMark[] {return this.photo?.rooms.find(r=>r.room_id===rid)?.reads??NO_READS;}
+  /** Display name, else username, of a member the photo knows (its `profiles` first); null otherwise. */
+  memberName(uid:string):string|null {
+    const state=this.photo;if(!state)return null;
+    const user=state.profiles?.find(p=>p.user.id===uid)?.user??state.presence.find(p=>p.user.id===uid)?.user??state.rooms.find(r=>r.direct_peer?.id===uid)?.direct_peer;
+    return user?(user.display_name||user.username||null):null;
+  }
   subscribe(fn:()=>void):()=>void {this.listeners.add(fn);return()=>{this.listeners.delete(fn);};}
   onEvent(fn:(event:DdpEvent)=>void):()=>void {this.events.add(fn);return()=>{this.events.delete(fn);};}
   onLoss(fn:()=>void):()=>void {this.losses.add(fn);return()=>{this.losses.delete(fn);};}

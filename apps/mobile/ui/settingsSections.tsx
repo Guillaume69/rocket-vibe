@@ -213,6 +213,44 @@ function AccountCategory({ c, account }: { c: Colors; account: SettingsAccount }
         onPress={() => router.push('/my-profile')}
       />
       {sidebar !== undefined && <SidebarSettingsCard c={c} source={sidebar} />}
+      {account.client.kind === 'rocketvibe' && <PrivacyCard c={c} />}
+    </>
+  );
+}
+
+/**
+ * Privacy, on a RocketVibe account: whether read receipts are shared
+ * (brain/features/read-receipts.md). Both ways: off, the others no longer see
+ * how far I read, and I no longer see how far they did. The save sends that
+ * field alone (`preferencesInput`), through the preferences' pending intent.
+ */
+function PrivacyCard({ c }: { c: Colors }) {
+  const t = useT();
+  const natives = useNatives();
+  const p = natives.preferences;
+  // Absent: on, the server's default. While saving, the switch shows the choice.
+  const [wanted, setWanted] = useState<boolean | null>(null);
+  const shared = natives.busy && wanted !== null ? wanted : p?.share_read_receipts !== false;
+  return (
+    <>
+      <View style={[styles.card, { backgroundColor: c.deepCard, borderColor: c.border }]}>
+        <Text style={[styles.settingTitle, { color: c.text }]}>{t('settings.privacy')}</Text>
+        <View style={styles.switchRow}>
+          <Text style={[styles.settingLabel, styles.grow, { color: c.text }]}>{t('settings.shareReads')}</Text>
+          <Switch
+            value={shared}
+            disabled={p === null || natives.busy || natives.intention !== null}
+            onValueChange={(next) => {
+              setWanted(next);
+              void natives.change({ share_read_receipts: next });
+            }}
+            trackColor={{ true: c.accent }}
+            accessibilityLabel={t('settings.shareReads')}
+          />
+        </View>
+        <Text style={[styles.settingHelp, { color: c.dimmed }]}>{t('settings.shareReadsHelp')}</Text>
+      </View>
+      <NativeSaveState c={c} natives={natives} error="settings.saveFailed" />
     </>
   );
 }
@@ -736,6 +774,7 @@ export const styles = StyleSheet.create({
   card: { borderRadius: 16, borderWidth: 1, padding: 16, gap: 10 },
   settingTitle: { fontFamily: FONTS.title, fontSize: 16 },
   settingHelp: { fontFamily: FONTS.body, fontSize: 13, lineHeight: 18 },
+  settingLabel: { fontFamily: FONTS.body, fontSize: 15 },
   switchRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   grow: { flex: 1 },
   options: { marginTop: 2 },

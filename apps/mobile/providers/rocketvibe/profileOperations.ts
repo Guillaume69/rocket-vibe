@@ -19,12 +19,15 @@ type Row={id:string;slot:string;payload:string;state:string;error:string|null};
  * the server's three states (docs/protocol/PROFILES.md): `quiet_hours` and
  * `muted_until` go out ONLY when `changes` names them (`null` removes), absent
  * otherwise so the stored schedule and mute are kept; a push level or language
- * change never carries them, so it can never wipe them.
+ * change never carries them, so it can never wipe them. `share_read_receipts`
+ * (read receipts, absent keeps) likewise goes out only when named.
  */
 export function preferencesInput(operationId:string,before:UserPreferences,changes:Partial<Omit<UserPreferences,'revision'>>):UpdatePreferences {
   const input:UpdatePreferences={operation_id:operationId,expected_revision:before.revision,language:changes.language??before.language,clock_24h:changes.clock_24h??before.clock_24h,push_enabled:changes.push_enabled??before.push_enabled,push_mentions_only:changes.push_mentions_only??before.push_mentions_only,desktop_notifications:changes.desktop_notifications??before.desktop_notifications??'default'};
   if('quiet_hours' in changes)input.quiet_hours=changes.quiet_hours??null;
   if('muted_until' in changes)input.muted_until=changes.muted_until??null;
+  // Read receipts: absent keeps them, so only the switch that names them sends them.
+  if(typeof changes.share_read_receipts==='boolean')input.share_read_receipts=changes.share_read_receipts;
   return input;
 }
 export function avatarBytes(value:string):Uint8Array {

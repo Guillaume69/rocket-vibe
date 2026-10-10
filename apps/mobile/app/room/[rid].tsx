@@ -75,6 +75,7 @@ import {parseRoomLink,roomLinkMatches,roomLinkUrl,serviceUrl,type RoomLink} from
 import { SyncEngine } from '../../lib/sync.ts';
 import { MessageRow, type MessageRowData } from '../../ui/messageRow.tsx';
 import { usePresence } from '../../ui/presence.ts';
+import { ReadReceiptLine, useReadReceipt } from '../../ui/readReceipts.tsx';
 import { useT,translateCurrent,useTimeFormatter } from '../../ui/i18n.ts';
 import { useDisplayNames } from '../../ui/identityStore.ts';
 import { useSession } from '../../ui/session.tsx';
@@ -1073,6 +1074,20 @@ function Room({
     [outboxRows],
   );
   const highlighted = jumpIndex >= 0 ? targetJump : null;
+  // Read receipts (RocketVibe): the line under my latest confirmed root
+  // message, from the live frame. Not in a context window (an older stretch)
+  // nor in an encrypted room, whose rows carry no stored position.
+  const receipt = useReadReceipt({
+    live: native ? nativeChat?.live : undefined,
+    rid,
+    enabled: native && !protectedRoom && context === null,
+    rowsDesc: data,
+    me: provider.identity.accountId,
+    positions,
+    pending: outboxById,
+    direct: room?.type === 'd',
+  });
+  const listExtra = useMemo(() => ({ highlighted, receipt }), [highlighted, receipt]);
   const renderRow = useCallback(
     ({ item }: { item: ListRow }) => {
       if ('bar' in item) {
@@ -1117,10 +1132,11 @@ function Room({
             continuation={continuations.has(item.id)}
             repeatedTime={repeatedTimes.has(item.id)}
           />
+          {receipt !== null && receipt.messageId === item.id && <ReadReceiptLine c={c} text={receipt.text} />}
         </View>
       );
     },
-    [c, client, outboxById, retry, discard, openActions, openThread, t, me, react, continuations, repeatedTimes, highlighted, provider,protectedRoom,conversation.view,conversation.busy],
+    [c, client, outboxById, retry, discard, openActions, openThread, t, me, react, continuations, repeatedTimes, highlighted, provider,protectedRoom,conversation.view,conversation.busy,receipt],
   );
 
   return (
@@ -1195,7 +1211,7 @@ function Room({
                     : 'message'
             }
             renderItem={renderRow}
-            extraData={highlighted}
+            extraData={listExtra}
             onScroll={onScroll}
             scrollEventThrottle={16}
             // Inverted: the end of the DATA is the visual top, the past.

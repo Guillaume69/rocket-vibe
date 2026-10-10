@@ -81,3 +81,22 @@ test('actual native runner never persists live frames, fences old grants and ser
     assert.deepEqual(presence,['online','offline']);
   } finally{release();chat.stop();await new Promise(r=>setImmediate(r));db.close();}
 });
+
+test('read receipts follow the live photo and their readers are named from its profiles',t=>{
+  t.mock.timers.enable({apis:['setTimeout']});
+  const live=new NativeLive(),rid=fixture.room.id;let updates=0;live.subscribe(()=>updates++);
+  assert.deepEqual(live.reads(rid),[]);assert.equal(live.memberName('carol'),null);
+  const reads=[{user_id:'carol',root_position:'9007199254740993'}];
+  const frame:LiveState={...photo,profiles:[{revision:'1',status_text:'',user:{id:'carol',username:'carol',display_name:''}}],rooms:[{...photo.rooms[0],reads}]};
+  // The wire shape decodes, and the rule's input is the frame's own array.
+  assert.deepEqual(decodeNative('LiveFrame',{type:'live',data:frame}).data.rooms[0].reads,reads);
+  live.apply(frame);assert.equal(updates,1);
+  const first=live.reads(rid);assert.deepEqual(first,reads);assert.equal(live.reads(rid),first);
+  // No display name: the username; a peer known only from presence is named too.
+  assert.equal(live.memberName('carol'),'carol');assert.equal(live.memberName('bob'),'Bob');
+  assert.equal(live.reads('other'),live.reads('another'));
+  // A frame that moves a mark notifies; the photo's expiry forgets them.
+  live.apply({...frame,rooms:[{...frame.rooms[0],reads:[{user_id:'carol',root_position:'9007199254740994'}]}]});
+  assert.equal(updates,2);assert.equal(live.reads(rid)[0].root_position,'9007199254740994');
+  t.mock.timers.tick(8000);assert.deepEqual(live.reads(rid),[]);
+});

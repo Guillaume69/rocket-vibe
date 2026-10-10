@@ -22,7 +22,7 @@ fn failed(error: files::Error) -> CryptoBridgeError {
 
 /// Seals `source` into a new private `object`. Returns the descriptor's
 /// secret and checks, and the object's size and SHA-256 for its reservation.
-#[uniffi::export]
+#[cfg_attr(feature = "native-bindings", uniffi::export)]
 pub fn seal_file(source: String, object: String) -> Result<String> {
     let sealed = files::seal_path(local(&source)?, local(&object)?).map_err(failed)?;
     Ok(json!({"key":sealed.key_text(),"bytes":sealed.bytes.to_string(),"sha256":sealed.sha256_text(),
@@ -31,7 +31,7 @@ pub fn seal_file(source: String, object: String) -> Result<String> {
 }
 /// Opens a downloaded `object` into `target` with its descriptor; nothing is
 /// published at `target` unless every chunk, the size and the digest match.
-#[uniffi::export]
+#[cfg_attr(feature = "native-bindings", uniffi::export)]
 pub fn open_file(
     key: String,
     bytes: String,

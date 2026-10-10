@@ -11,7 +11,7 @@ enum Action {
     Renew {},
     RenewIfDue {},
 }
-#[uniffi::export]
+#[cfg_attr(feature = "native-bindings", uniffi::export)]
 impl CryptoInstallation {
     pub fn storage_action(&self, directory: String, input: String) -> Result<String> {
         if input.len() > 256 {

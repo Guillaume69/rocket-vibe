@@ -25,6 +25,10 @@ On the RocketVibe native server (MLS end-to-end encryption, not Rocket.Chat E2EE
 - `rv-core` `enrollment/history.rs`: `HistoryApproval.can_delegate`, `share_history(approval, delegate)`.
 - GTK: the review `AdwAlertDialog` of `native_crypto/history.rs` gains a destructive "delegate" response; SwiftUI: `CryptoHistoryControls.swift` alert button over `CryptoModel.shareHistory(delegate:)` and the FFI `history_action` (`crates/rv-ffi/src/native_crypto/history.rs`). Strings `crypto.history_share_delegate`, `crypto.history_delegate_body`.
 
+## Web
+
+The history offer review in `apps/web/src/crypto/settings-controls.ts` includes a separate destructive delegation confirmation. It calls the same protected bridge and generated history orchestrator as mobile. The operation's irreversible effect and pending/resume behavior are described by the existing GTK strings. Browser end-to-end qualification of delegation is still debt; see `docs/WEB_E2EE.md`.
+
 ## Sources
 
 - docs/protocol/E2EE_DELEGATION.md
@@ -39,3 +43,7 @@ On the RocketVibe native server (MLS end-to-end encryption, not Rocket.Chat E2EE
 - apps/desktop/crates/rv-gtk/src/native_crypto/history.rs
 - apps/desktop/crates/rv-ffi/src/native_crypto/history.rs
 - apps/desktop/macos/Sources/RocketVibe/CryptoHistoryControls.swift
+- apps/web/src/crypto/chat.ts
+- apps/web/src/crypto/settings-controls.ts
+- apps/web/src/crypto/voice.ts
+- docs/WEB_E2EE.md

@@ -4,6 +4,19 @@ All notable changes are documented here in English.
 
 ## [Unreleased]
 
+### Added
+
+- Native RocketVibe MLS encryption through the shared Rust engine in a WebAssembly worker, with identity/device approval, verified peers and explicit group creation/admission reviews.
+- Protected private conversations, drafts, threads, local search, message actions and encrypted attachments, plus identity recovery, history sharing/backups and storage-key controls.
+- Browser frame encryption using the native MLS voice exporter, with refusal when encryption is unavailable.
+
+### Fixed
+
+- Keep ordinary voice joins usable when the server omits its false E2EE flag, while continuing to reject encryption mismatches.
+- Keep the selected settings category when the administration permission lookup finishes after the user has already changed pages.
+- Reopen private views after a fresh membership snapshot without exposing ordinary cached content.
+- Keep encrypted voice access independent of message sending, and finish identity recovery before loading controls that require a registered device.
+
 ## [0.3.0] - 2026-10-09
 
 ### Added

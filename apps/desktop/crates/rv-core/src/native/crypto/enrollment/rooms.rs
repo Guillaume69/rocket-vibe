@@ -338,7 +338,21 @@ impl Access {
             }
         }
         let event = if roster.group.is_some() && local.pending.is_none() {
-            self.0.crypto.events(&self.0.id).await?.page.events.into_iter().next()
+            match self.0.crypto.events(&self.0.id).await {
+                Ok(batch) => {
+                    batch.page.events.into_iter().find(|event| local.accepted.is_some() || event.welcome.is_some())
+                }
+                // A signed room roster remains readable before device admission.
+                // Its private head does not. Keep invitation controls available,
+                // and never hide a refusal after this device accepted a group.
+                Err(error)
+                    if local.accepted.is_none()
+                        && matches!(error.refusal(), Some(crate::native::Error::Network(rv_client::Error::Server { status: 403, code, .. })) if code == "permission_denied") =>
+                {
+                    None
+                }
+                Err(error) => return Err(error),
+            }
         } else {
             None
         };

@@ -118,6 +118,7 @@ export function markdown(
   return fragment;
 }
 export interface RowActions {
+  privateFiles?: boolean;
   profile(message: Message): Promise<void>;
   menu(message: Message, anchor: HTMLElement): Promise<void>;
   answerForm(message: Message): Promise<void>;
@@ -216,13 +217,18 @@ export function messageRow(
       el("span", "message-note", language === "fr" ? "modifié" : "edited"),
     );
   for (const file of message.files || []) {
-    if (inlineImage(file)) {
+    if (
+      inlineImage(actions.privateFiles ? { ...file, encrypted: false } : file)
+    ) {
       column.append(
         imageAttachment(file, (file, node) => actions.file(file, node)),
       );
       continue;
     }
-    if (file.media_type.startsWith("video/") && !file.encrypted) {
+    if (
+      file.media_type.startsWith("video/") &&
+      (!file.encrypted || actions.privateFiles)
+    ) {
       column.append(
         videoAttachment(file, (file, node) => actions.file(file, node)),
       );

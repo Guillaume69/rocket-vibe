@@ -2,7 +2,7 @@
 
 Reference: [RFC 0005](rfcs/0005-web-client.md). Direction selected on 2026-10-08: a real browser client, delivered by the RocketVibe server, with GTK as the visual reference.
 
-Current state: real application implemented and embedded in the server. One serving origin/account; encrypted conversations explicitly unsupported. Statuses below describe native RocketVibe equivalents, not Rocket.Chat endpoint support.
+Current state: real application implemented and embedded in the server. One serving origin/account. On 2026-10-09 the user requested usable browser E2EE, superseding its temporary exclusion; shared-engine integration and qualification are tracked in [WEB_E2EE.md](WEB_E2EE.md). Statuses below describe native RocketVibe equivalents, not Rocket.Chat endpoint support.
 
 ## Construction and qualification
 
@@ -87,7 +87,7 @@ GTK baseline is inherited, not a new verification claim. Web status refers to th
 | Rooms sorted by last activity, live (`rooms.get`/`subscriptions.get` deltas, `rooms-changed`/`subscriptions-changed`) | done | mapped | Native browser storage/HTTP/socket, HTTPS links, downloads and live-tab alerts; see web-client.md. |
 | Avatar, name, preview, unread badge | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Time of the last message and an `@n` badge on mentions | done | done | Native provider: see [web implementation](../apps/web/README.md). |
-| Encrypted rooms: padlock tile, "Encrypted message" preview | partial | done | Locked metadata; no encrypted content or sending. src/app.ts. |
+| Encrypted rooms: padlock tile, "Encrypted message" preview | partial | done | Locked metadata; private content is shown only through the verified Rust MLS journal. src/crypto/chat.ts. |
 | Sync indicator while connecting or loading | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Sections: Unread, Favourites, Channels, Direct messages | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Presence dot on DMs (`users.presence`, `user-status`) | done | done | Native provider: see [web implementation](../apps/web/README.md). |
@@ -121,7 +121,7 @@ GTK baseline is inherited, not a new verification claim. Web status refers to th
 | Reactions row, toggle (`chat.react`) | done | partial | Implemented native browser equivalent requires row-specific GTK qualification; see docs/WEB_CLIENT_EXECUTION.md. |
 | Thread chip opens the thread | done | partial | Implemented native browser equivalent requires row-specific GTK qualification; see docs/WEB_CLIENT_EXECUTION.md. |
 | Upload strip: progress, waiting, failed with retry or discard | done | done | Native provider: see [web implementation](../apps/web/README.md). |
-| Encrypted rooms: locked state, "Unlock to read" | done | done | Locked metadata; no encrypted content or sending. src/app.ts. |
+| Encrypted rooms: locked state, "Unlock to read" | done | done | Locked metadata; private content is shown only through the verified Rust MLS journal. src/crypto/chat.ts. |
 | Send through the outbox, retry | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Enter sends, Shift+Enter new line | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Drafts per room and thread | done | done | Native provider: see [web implementation](../apps/web/README.md). |
@@ -181,7 +181,7 @@ GTK baseline is inherited, not a new verification claim. Web status refers to th
 | New versions | done | mapped | Native browser storage/HTTP/socket, HTTPS links, downloads and live-tab alerts; see web-client.md. |
 | DMs and mentions notified, click opens the room | done | mapped | Native browser storage/HTTP/socket, HTTPS links, downloads and live-tab alerts; see web-client.md. |
 | Reply from the notification | done | missing | No browser implementation yet. |
-| Nothing of encrypted rooms' content | done | done | Locked metadata; no encrypted content or sending. src/app.ts. |
+| Nothing of encrypted rooms' content | done | done | Locked metadata; private content is shown only through the verified Rust MLS journal. src/crypto/chat.ts. |
 | Running with the window closed, starting at login | done | partial | Installable public shell; closed-tab Web Push and OS autostart absent. |
 | Unlock with the E2E password, decrypt messages and previews, lock again | done | n/a | Encrypted rooms explicitly excluded by the user, 2026-10-08. |
 | Room keys AES-128 and AES-256 | done | n/a | Encrypted rooms explicitly excluded by the user, 2026-10-08. |
@@ -189,16 +189,16 @@ GTK baseline is inherited, not a new verification claim. Web status refers to th
 | Encrypted files, both directions | done | n/a | Encrypted rooms explicitly excluded by the user, 2026-10-08. |
 | Key kept across launches | done | n/a | Encrypted rooms explicitly excluded by the user, 2026-10-08. |
 | Create an encrypted room | missing | n/a | Encrypted rooms explicitly excluded by the user, 2026-10-08. |
-| RocketVibe server: create an encrypted room (MLS group): prepare the device for invitations, review and confirm creation, admission and device changes | done | n/a | Encrypted rooms explicitly excluded by the user, 2026-10-08. |
-| RocketVibe server: a new device asks for history, another device of the account reviews and shares it, the new device imports it ([e2ee-history](features/e2ee-history.md)) | done | n/a | Encrypted rooms explicitly excluded by the user, 2026-10-08. |
-| RocketVibe server: history backup with a separate code (enable, join, continuous upload, restore) | done | n/a | Encrypted rooms explicitly excluded by the user, 2026-10-08. |
+| RocketVibe server: create an encrypted room (MLS group): prepare the device for invitations, review and confirm creation, admission and device changes | done | partial | Shared Rust MLS engine with browser ceremonies; see docs/WEB_E2EE.md for qualification and remaining debt. |
+| RocketVibe server: a new device asks for history, another device of the account reviews and shares it, the new device imports it ([e2ee-history](features/e2ee-history.md)) | done | partial | Shared Rust MLS engine with browser ceremonies; see docs/WEB_E2EE.md for qualification and remaining debt. |
+| RocketVibe server: history backup with a separate code (enable, join, continuous upload, restore) | done | partial | Shared Rust MLS engine with browser ceremonies; see docs/WEB_E2EE.md for qualification and remaining debt. |
 | RocketVibe server: edit and delete own private messages, pending on the target until accepted ([e2ee-private-actions](features/e2ee-private-actions.md)) | done | n/a | Encrypted rooms explicitly excluded by the user, 2026-10-08. |
 | RocketVibe server: react to private messages, pending on the target until accepted ([e2ee-private-actions](features/e2ee-private-actions.md)) | done | n/a | Encrypted rooms explicitly excluded by the user, 2026-10-08. |
-| RocketVibe server: search an encrypted room on the device ([e2ee-private-actions](features/e2ee-private-actions.md)) | done | n/a | Encrypted rooms explicitly excluded by the user, 2026-10-08. |
-| RocketVibe server: send and open encrypted files in private rooms ([e2ee-private-files](features/e2ee-private-files.md)) | done | n/a | Encrypted rooms explicitly excluded by the user, 2026-10-08. |
+| RocketVibe server: search an encrypted room on the device ([e2ee-private-actions](features/e2ee-private-actions.md)) | done | partial | Shared Rust MLS engine with browser ceremonies; see docs/WEB_E2EE.md for qualification and remaining debt. |
+| RocketVibe server: send and open encrypted files in private rooms ([e2ee-private-files](features/e2ee-private-files.md)) | done | partial | Shared Rust MLS engine with browser ceremonies; see docs/WEB_E2EE.md for qualification and remaining debt. |
 | RocketVibe server: storage key renewed every 30 days and on request, old keys destroyed ([e2ee-storage-keys](features/e2ee-storage-keys.md)) | done | n/a | Encrypted rooms explicitly excluded by the user, 2026-10-08. |
-| RocketVibe server: hand control of the account to another device with a history share ([e2ee-delegation](features/e2ee-delegation.md)) | done | n/a | Encrypted rooms explicitly excluded by the user, 2026-10-08. |
-| RocketVibe server: recovered history shown in conversations | done | n/a | Encrypted rooms explicitly excluded by the user, 2026-10-08. |
+| RocketVibe server: hand control of the account to another device with a history share ([e2ee-delegation](features/e2ee-delegation.md)) | done | partial | Shared Rust MLS engine with browser ceremonies; see docs/WEB_E2EE.md for qualification and remaining debt. |
+| RocketVibe server: recovered history shown in conversations | done | partial | Shared Rust MLS engine with browser ceremonies; see docs/WEB_E2EE.md for qualification and remaining debt. |
 | Start and join a Jitsi call (`video-conference.start`, `.join`), Rocket.Chat servers | done | n/a | Native RocketVibe origin only; calls use LiveKit. |
 | Meeting information: the link without the token (`video-conference.info`) | done | n/a | Native RocketVibe origin only; calls use LiveKit. |
 | Voice channels: speaker mark, entered on selection, writable | done | partial | LiveKit implementation in src/voice.ts; audio/video/mute/rejoin qualified, exhaustive device/ringing/share qualification remains. |
@@ -220,7 +220,7 @@ GTK baseline is inherited, not a new verification claim. Web status refers to th
 | A shared screen full screen | done | done | Native exit/double-click affordance, follows actual SFU takeover and closes on capture-ended events. apps/web/tests/voice.mjs. |
 | Direct call: the other person leaving hangs up here, and the chat comes back | done | done | Actual two-browser call test verifies automatic hangup and chat restoration on peer departure. |
 | A shared screen's sound, without the call's voices unless asked | partial | partial | Verified own-audio exclusion gates program-sound publication; otherwise video only. Native opt-in call mix and deafen are qualified over real RTP. Controlled program-sound fixture qualifies processing/cleanup; browser OS-loopback exclusion and platform capture remain debt. |
-| Voice in encrypted rooms (end-to-end encrypted frames) | done | n/a | Encrypted rooms explicitly excluded by the user, 2026-10-08. |
+| Voice in encrypted rooms (end-to-end encrypted frames) | done | partial | Shared MLS exporter and LiveKit encrypted transforms; browser qualification tracked in docs/WEB_E2EE.md. |
 | `rocketvibe://room/<rid>?host=` opens the room | done | mapped | Native browser storage/HTTP/socket, HTTPS links, downloads and live-tab alerts; see web-client.md. |
 | Share files and text into a room from other apps | mapped | mapped | Native browser storage/HTTP/socket, HTTPS links, downloads and live-tab alerts; see web-client.md. |
 | Local SQLite per (server, account), screens read the database | done | mapped | Native browser storage/HTTP/socket, HTTPS links, downloads and live-tab alerts; see web-client.md. |

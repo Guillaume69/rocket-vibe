@@ -73,6 +73,7 @@ try {
     "Notifications",
     "Language",
     "Voice",
+    "Encryption",
     "Security",
     "Devices",
     "Bots",

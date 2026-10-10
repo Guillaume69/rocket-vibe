@@ -17,6 +17,7 @@ import { read, write } from "./store";
 import { preferencesGroup, actionRow } from "./sidebar";
 import { sound } from "./sounds";
 import { t, language } from "./i18n";
+import { encryptedVoice, type EncryptedVoice } from "./crypto/voice";
 export class Voice {
   current?: string;
   membership?: string | null;
@@ -30,6 +31,8 @@ export class Voice {
   cameraWork: Promise<void> = Promise.resolve();
   pendingCameras = new Set<import("livekit-client").LocalVideoTrack>();
   cancelled = false;
+  private encryption?: EncryptedVoice;
+  private encryptionTimer?: ReturnType<typeof setInterval>;
   ringDialogs = new Map<string, HTMLDialogElement>();
   bar = el("div", "voice-bar");
   stage = el("div", "voice-stage");
@@ -138,19 +141,11 @@ export class Voice {
       this.app.account?.key === account &&
       membership &&
       room &&
-      !room.encrypted &&
       room.read_state?.membership_version === membership,
     );
   }
   async join(id = this.app.room): Promise<void> {
-    if (
-      !id ||
-      !this.app.account ||
-      !this.app.info ||
-      this.app.model.rooms.get(id)?.encrypted ||
-      this.busy
-    )
-      return;
+    if (!id || !this.app.account || !this.app.info || this.busy) return;
     if (this.current === id) {
       this.show();
       return;
@@ -186,13 +181,22 @@ export class Voice {
       this.status.classList.remove("connected");
       this.controls.replaceChildren();
       this.show();
+      if (room?.encrypted)
+        this.encryption = await encryptedVoice(
+          this.app,
+          id,
+          () =>
+            lifecycle === this.lifecycle &&
+            !this.cancelled &&
+            this.hasAccess(id, account, member),
+        );
       const grant = await this.app.api.request<VoiceGrant>(
         "/api/v1/rooms/" + segment(id) + "/voice/join",
         "POST",
         {
           data_epoch: this.app.account.epoch,
           membership_version: member,
-          e2ee: false,
+          e2ee: !!room?.encrypted,
           ring: room?.kind === "direct",
         },
       );
@@ -200,7 +204,8 @@ export class Voice {
         return;
       if (!this.hasAccess(id, account, member))
         throw new Error(nt("voice_session.join_failed"));
-      if (grant.e2ee) throw new Error(t("encryptedHint"));
+      if (!!grant.e2ee !== !!room?.encrypted)
+        throw Error(nt("voice_session.key_unavailable"));
       this.current = id;
       this.bar.replaceChildren(
         el("span", "", room?.name || ""),
@@ -255,7 +260,12 @@ export class Voice {
       return;
     if (!this.hasAccess(grant.room_id, account, membership))
       throw new Error(nt("voice_session.join_failed"));
-    if (grant.e2ee) throw new Error(t("encryptedHint"));
+    if (
+      !!grant.e2ee !== !!this.app.model.rooms.get(grant.room_id)?.encrypted ||
+      (grant.e2ee && !this.encryption)
+    )
+      throw Error(nt("voice_session.key_unavailable"));
+    if (grant.e2ee) await this.encryption!.check();
     this.loop?.pause();
     this.loop = undefined;
     const url = new URL(grant.url);
@@ -293,6 +303,7 @@ export class Voice {
       volumeValue(Number(localStorage.getItem("rv-voice-input-volume") ?? 1)),
     );
     const room = new Room({
+      e2ee: grant.e2ee ? this.encryption!.options : undefined,
       adaptiveStream: true,
       dynacast: true,
       webAudioMix: { audioContext },
@@ -307,6 +318,36 @@ export class Voice {
       },
     });
     this.room = room;
+    if (grant.e2ee) {
+      await room.setE2EEEnabled(true);
+      if (lifecycle !== this.lifecycle || this.cancelled) {
+        await room.disconnect();
+        return;
+      }
+      const encryption = this.encryption!;
+      let checking = false;
+      this.encryptionTimer = setInterval(() => {
+        if (checking || this.encryption !== encryption) return;
+        checking = true;
+        void encryption
+          .check()
+          .catch((error) => {
+            if (this.encryption === encryption) {
+              toast(error);
+              void this.leave();
+            }
+          })
+          .finally(() => {
+            checking = false;
+          });
+      }, 5000);
+      room.on(RoomEvent.EncryptionError, (error) => {
+        if (this.room === room) {
+          toast(error);
+          void this.leave();
+        }
+      });
+    }
     this.current = grant.room_id;
     this.membership = membership;
     const ownsCall = () =>
@@ -1677,6 +1718,10 @@ export class Voice {
   }
   async leave(notify = true): Promise<void> {
     this.lifecycle++;
+    clearInterval(this.encryptionTimer);
+    this.encryptionTimer = undefined;
+    this.encryption?.close();
+    this.encryption = undefined;
     clearTimeout(this.fullscreenEndTimer);
     this.fullscreenEndTimer = undefined;
     this.shareAbort?.abort();
@@ -1767,7 +1812,6 @@ export class Voice {
         this.ringDialogs.has(ring.id)
       )
         continue;
-      if (this.app.model.rooms.get(ring.room_id)?.encrypted) continue;
       const [node, body] = dialog(
         language === "fr" ? "Appel entrant" : "Incoming call",
       );
@@ -1799,14 +1843,26 @@ export class Voice {
             if (!this.hasAccess(ring.room_id, account, member)) return;
             this.current = ring.room_id;
             this.membership = member;
+            this.cancelled = false;
             try {
+              const encrypted = !!this.app.model.rooms.get(ring.room_id)
+                ?.encrypted;
+              if (encrypted)
+                this.encryption = await encryptedVoice(
+                  this.app,
+                  ring.room_id,
+                  () =>
+                    lifecycle === this.lifecycle &&
+                    !this.cancelled &&
+                    this.hasAccess(ring.room_id, account, member),
+                );
               const grant = await this.app.api.request<VoiceGrant>(
                 "/api/v1/voice/rings/" + segment(ring.id) + "/accept",
                 "POST",
                 {
                   data_epoch: this.app.account.epoch,
                   membership_version: member,
-                  e2ee: false,
+                  e2ee: encrypted,
                 },
               );
               node.close();

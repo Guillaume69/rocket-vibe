@@ -3,12 +3,18 @@ use super::*;
 use rv_crypto::account::{self, Directory, peers};
 use rv_protocol::e2ee;
 
-#[derive(Clone, uniffi::Record)]
+#[derive(Clone)]
+#[cfg_attr(feature = "native-bindings", derive(uniffi::Record))]
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PeerReview {
     pub id: String,
     pub status_json: String,
 }
-#[derive(Clone, uniffi::Record)]
+#[derive(Clone)]
+#[cfg_attr(feature = "native-bindings", derive(uniffi::Record))]
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PeerApproval {
     pub id: String,
     pub user: String,
@@ -59,7 +65,7 @@ impl CryptoInstallation {
         Ok(view)
     }
 }
-#[uniffi::export]
+#[cfg_attr(feature = "native-bindings", uniffi::export)]
 impl CryptoInstallation {
     pub fn peer_view(
         &self,

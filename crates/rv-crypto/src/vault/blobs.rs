@@ -34,7 +34,7 @@ fn digest(scope: &Scope, id: [u8; 16], row: &Row) -> Result<[u8; 32], Error> {
     hash.update(&row.ciphertext);
     Ok(hash.finalize().into())
 }
-pub(super) fn initialize(db: &Connection) -> Result<(), Error> {
+pub(crate) fn initialize(db: &Connection) -> Result<(), Error> {
     db.execute_batch("CREATE TABLE IF NOT EXISTS private_blobs(id BLOB PRIMARY KEY CHECK(length(id)=16),nonce BLOB NOT NULL CHECK(length(nonce)=24),ciphertext BLOB NOT NULL,rekeyed INTEGER NOT NULL DEFAULT 0 CHECK(rekeyed IN (0,1)));")
         .map_err(|_| Error::Storage)?;
     migrate(db)

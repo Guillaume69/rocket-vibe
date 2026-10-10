@@ -57,7 +57,7 @@ fn status(
 ) -> std::result::Result<String, account::Error> {
     serde_json::to_string(&c.backup_status(d)?).map_err(|_| account::Error::Changed)
 }
-#[uniffi::export]
+#[cfg_attr(feature = "native-bindings", uniffi::export)]
 impl CryptoInstallation {
     pub fn recovery_action(&self, directory: String, input: String) -> Result<String> {
         let input = Zeroizing::new(input);

@@ -53,7 +53,7 @@ function server() {
   const version = section?.match(/^version\s*=\s*"([^"]+)"/m)?.[1];
   if (!version) fail('no [package] version in apps/server/Cargo.toml');
   const lock = readFileSync(join(ROOT, 'Cargo.lock'), 'utf8');
-  const locked = lock.match(/name = "rv-server"\nversion = "([^"]+)"/)?.[1];
+  const locked = lock.match(/name = "rv-server"\r?\nversion = "([^"]+)"/)?.[1];
   if (locked !== version) fail(`Cargo.lock rv-server ${locked} ≠ apps/server/Cargo.toml ${version}`);
   return version;
 }

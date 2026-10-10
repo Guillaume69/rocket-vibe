@@ -3,9 +3,13 @@
 use super::*;
 use rv_crypto::account::{self, Coordinator};
 use rv_protocol::e2ee;
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::{SystemTime, UNIX_EPOCH};
 
-#[derive(Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "native-bindings", derive(uniffi::Enum))]
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum IdentityPhase {
     Missing,
     IdentityCreated,
@@ -15,7 +19,10 @@ pub enum IdentityPhase {
     Expired,
     Renewing,
 }
-#[derive(Clone, uniffi::Record)]
+#[derive(Clone)]
+#[cfg_attr(feature = "native-bindings", derive(uniffi::Record))]
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct IdentityStatus {
     pub phase: IdentityPhase,
     pub root_fingerprint: String,
@@ -46,7 +53,10 @@ impl From<account::View> for IdentityStatus {
         }
     }
 }
-#[derive(Clone, uniffi::Record)]
+#[derive(Clone)]
+#[cfg_attr(feature = "native-bindings", derive(uniffi::Record))]
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct IdentityApproval {
     pub id: String,
     pub root_fingerprint: String,
@@ -75,10 +85,13 @@ impl CryptoInstallation {
         let directory = coordinator
             .directory(wire)
             .map_err(|_| CryptoBridgeError::Changed)?;
+        #[cfg(not(target_arch = "wasm32"))]
         let time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|_| CryptoBridgeError::Changed)?
             .as_secs();
+        #[cfg(target_arch = "wasm32")]
+        let time = (js_sys::Date::now() / 1000.0) as u64;
         let result = action(&coordinator, &directory, time);
         if matches!(result, Err(account::Error::Withdrawn(_))) {
             self.stop();
@@ -90,7 +103,7 @@ impl CryptoInstallation {
         })
     }
 }
-#[uniffi::export]
+#[cfg_attr(feature = "native-bindings", uniffi::export)]
 impl CryptoInstallation {
     pub fn identity_view(&self, directory: String) -> Result<IdentityStatus> {
         self.identity_call(&directory, |c, d, time| Ok(c.view(d, time)?.into()))

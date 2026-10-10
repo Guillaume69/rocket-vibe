@@ -24,6 +24,11 @@ import { icon, iconButton } from "./icons";
 import { botsPage, botBadge } from "./bots";
 import { workflowsPage } from "./workflows";
 import { nt } from "./native-i18n";
+import {
+  encryptionSettings,
+  encryptedRoom,
+  encryptedPeer,
+} from "./crypto/panels";
 
 /** The new conversation dialog, opened on its people, rooms or create tab. */
 export async function newConversation(
@@ -163,6 +168,10 @@ export async function newConversation(
     tabs.querySelector<HTMLButtonElement>("button:last-child")?.click();
 }
 export async function search(app: App): Promise<void> {
+  if (app.privateChat) {
+    await app.privateChat.search();
+    return;
+  }
   if (!app.room) return;
   const room = app.room;
   const [node, body] = dialog(t("search"));
@@ -363,6 +372,17 @@ export async function profile(
             button(nt("info.call"), () => openDirect(true), "flat"),
           );
         body.append(actions);
+        if (
+          app.info?.capabilities.e2ee &&
+          app.info.capabilities.device_sessions
+        )
+          body.append(
+            button(
+              nt("crypto.peer_title"),
+              () => encryptedPeer(app, id),
+              "flat",
+            ),
+          );
         if (app.info?.capabilities.reports)
           body.append(
             button(
@@ -417,6 +437,10 @@ export async function roomInfo(app: App): Promise<void> {
     el("h2", "details-name", details.room.name),
   );
   const form = el("div", "details-form");
+  if (app.info?.capabilities.e2ee && app.info.capabilities.device_sessions)
+    body.append(
+      button(nt("crypto.group_title"), () => encryptedRoom(app, id), "flat"),
+    );
   body.append(form);
   const fields = new Map<string, HTMLInputElement>();
   for (const [key, label, value] of [
@@ -870,6 +894,10 @@ export async function settings(
     host.add("voice", phrase("Voice", "Voix"), "mic", (page) =>
       app.voice.settings(page),
     );
+  if (app.info?.capabilities.e2ee && app.info.capabilities.device_sessions)
+    host.add("encryption", nt("settings.cat.encryption"), "security", (page) =>
+      encryptionSettings(app, page),
+    );
   host.add("security", t("security"), "security", (page) =>
     securitySettings(app, page),
   );
@@ -985,6 +1013,7 @@ export async function settings(
     rows.append(actionRow(phrase("Version", "Version"), packageInfo.version));
     page.append(about);
   });
+  host.select(initialCategory);
   const permissions = await app.api.request<{
     manage_accounts: boolean;
     manage_instance: boolean;
@@ -1007,6 +1036,5 @@ export async function settings(
     },
     true,
   );
-  host.select(initialCategory);
 }
 // Administration lives in admin.ts.

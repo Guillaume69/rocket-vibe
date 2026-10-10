@@ -4,7 +4,7 @@ Status: implemented on `codex/web-client`; qualification and remaining parity tr
 
 ## Accepted scope
 
-Deliver a true browser client directly from the native RocketVibe server, in its own worktree and branch, with GTK as the design reference. The browser signs into only the service that delivers it, with one account. Server/account switching and the GTK rail are intentionally absent. Encrypted rooms are unsupported for now: show locked metadata and prevent content, plaintext sends, file/recording and call actions. Installed GTK/mobile behavior is unchanged.
+Deliver a true browser client directly from the native RocketVibe server, in its own worktree and branch, with GTK as the design reference. The browser signs into only the service that delivers it, with one account. Server/account switching and the GTK rail are intentionally absent. The initial encrypted-room exclusion was superseded on 2026-10-09 by the user's request for usable browser encryption. Its implementation and distinct browser-storage trust model are described in [WEB_E2EE.md](../WEB_E2EE.md).
 
 ## Implemented architecture
 
@@ -24,7 +24,7 @@ Actual GTK reference builds/captures use the mandatory Fedora build script. The 
 
 Browser origin storage replaces native SQLite/keyring; clearing site data removes local pending work. HTTPS room links replace the custom application scheme. Browser capture/media permission dialogs control devices/screens. Foreground browser notifications, title unread count and click-to-room are implemented; closed-tab Web Push and inline notification reply are absent. Browser installation/public asset updates map binary updates, while native tray/autostart remain unavailable.
 
-Only the native serving provider is in scope. Rocket.Chat, cross-origin authentication and CORS account switching are not enabled. No encrypted keys/plaintext are delegated to the server. A future crypto/browser-vault proposal needs its own lifecycle and delivery trust qualification.
+Only the native serving provider is in scope. Rocket.Chat, cross-origin authentication and CORS account switching are not enabled. Encrypted keys/plaintext are not delegated to the server. Browser crypto lifecycle and delivery trust qualification are tracked in [WEB_E2EE.md](../WEB_E2EE.md).
 
 ## Evidence and remaining work
 

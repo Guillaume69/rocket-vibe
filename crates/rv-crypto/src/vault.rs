@@ -10,10 +10,10 @@ use openmls_rust_crypto::OpenMlsRustCrypto;
 use rusqlite::{Connection, OpenFlags, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::{collections::BTreeMap, path::Path};
+#[cfg(not(target_arch = "wasm32"))]
 use std::{
-    collections::BTreeMap,
     fs::{self, OpenOptions},
-    path::Path,
     time::Duration,
 };
 use zeroize::{Zeroize, Zeroizing};
@@ -299,26 +299,41 @@ fn read(connection: &Connection) -> Result<Sealed, Error> {
     })
 }
 fn connection(path: &Path) -> Result<Connection, Error> {
-    let metadata = fs::symlink_metadata(path).map_err(|_| Error::Storage)?;
-    if !metadata.is_file() || metadata.file_type().is_symlink() {
-        return Err(Error::Storage);
-    }
-    #[cfg(unix)]
+    #[cfg(not(target_arch = "wasm32"))]
     {
-        use std::os::unix::fs::MetadataExt;
-        if metadata.mode() & 0o077 != 0 || metadata.nlink() != 1 {
+        let metadata = fs::symlink_metadata(path).map_err(|_| Error::Storage)?;
+        if !metadata.is_file() || metadata.file_type().is_symlink() {
             return Err(Error::Storage);
         }
-    }
-    let db = Connection::open_with_flags(
-        path,
-        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )
-    .map_err(|_| Error::Storage)?;
-    db.busy_timeout(Duration::from_secs(5))
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            if metadata.mode() & 0o077 != 0 || metadata.nlink() != 1 {
+                return Err(Error::Storage);
+            }
+        }
+        let db = Connection::open_with_flags(
+            path,
+            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
         .map_err(|_| Error::Storage)?;
-    db.execute_batch("PRAGMA trusted_schema=OFF; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA secure_delete=ON; PRAGMA temp_store=MEMORY;").map_err(|_| Error::Storage)?;
-    Ok(db)
+        db.busy_timeout(Duration::from_secs(5))
+            .map_err(|_| Error::Storage)?;
+        db.execute_batch("PRAGMA trusted_schema=OFF; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA secure_delete=ON; PRAGMA temp_store=MEMORY;").map_err(|_| Error::Storage)?;
+        Ok(db)
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let db = Connection::open_with_flags(
+            path,
+            OpenFlags::SQLITE_OPEN_READ_WRITE
+                | OpenFlags::SQLITE_OPEN_CREATE
+                | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .map_err(|_| Error::Storage)?;
+        db.execute_batch("PRAGMA trusted_schema=OFF; PRAGMA journal_mode=MEMORY; PRAGMA secure_delete=ON; PRAGMA temp_store=MEMORY;").map_err(|_| Error::Storage)?;
+        Ok(db)
+    }
 }
 
 pub struct Vault {
@@ -335,16 +350,23 @@ impl Vault {
         if !scope.valid() {
             return Err(Error::Scope);
         }
-        let mut options = OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
+        #[cfg(not(target_arch = "wasm32"))]
         {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
+            let mut options = OpenOptions::new();
+            options.write(true).create_new(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.mode(0o600);
+            }
+            let file = options.open(path).map_err(|_| Error::Storage)?;
+            file.sync_all().map_err(|_| Error::Storage)?;
+            drop(file);
         }
-        let file = options.open(path).map_err(|_| Error::Storage)?;
-        file.sync_all().map_err(|_| Error::Storage)?;
-        drop(file);
+        #[cfg(target_arch = "wasm32")]
+        if crate::browser::exists(path) {
+            return Err(Error::Storage);
+        }
         let mut db = connection(path)?;
         let row = seal(&scope, &key, 0, &Document::default())?;
         let checkpoint = checkpoint(&scope, &row)?;
@@ -360,6 +382,8 @@ impl Vault {
             )
             .map_err(|_| Error::Storage)?;
         transaction.commit().map_err(|_| Error::Storage)?;
+        #[cfg(target_arch = "wasm32")]
+        crate::browser::created(path);
         #[cfg(unix)]
         {
             // Make the new directory entry durable before its checkpoint can
@@ -610,6 +634,9 @@ impl Vault {
         if self.pending {
             return Err(Error::Pending);
         }
+        #[cfg(target_arch = "wasm32")]
+        return Ok(()); // No WAL in the worker's volatile SQLite VFS.
+        #[cfg(not(target_arch = "wasm32"))]
         self.db
             .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| {
                 r.get::<_, i64>(0)

@@ -69,7 +69,7 @@ fn status(value: Option<ImportStatus>) -> Value {
 fn changed() -> account::Error {
     account::Error::Changed
 }
-#[uniffi::export]
+#[cfg_attr(feature = "native-bindings", uniffi::export)]
 impl CryptoInstallation {
     pub fn history_action(&self, directory: String, input: String) -> Result<String> {
         // Record pages are the largest input: 200 records under 4 MiB.

@@ -478,6 +478,27 @@
   border-radius: 12px;
   overflow: hidden;
 }
+.crypto-code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+  user-select: text;
+  padding: 12px;
+}
+.crypto-fingerprint .action-row-subtitle {
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.crypto-settings-controls .preferences-box > p {
+  padding: 12px 14px;
+  margin: 0;
+}
+.private-pending {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-inline-start: 48px;
+}
 .action-row {
   display: flex;
   align-items: center;

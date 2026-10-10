@@ -4,11 +4,9 @@ use crate::vault::{Checkpoint, Error, Key, Records, Scope, Vault};
 use openmls_rust_crypto::OpenMlsRustCrypto;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::{
-    fs::{self, File, OpenOptions},
-    path::PathBuf,
-    sync::Arc,
-};
+#[cfg(not(target_arch = "wasm32"))]
+use std::fs::{self, File, OpenOptions};
+use std::{path::PathBuf, sync::Arc};
 use zeroize::{Zeroize, Zeroizing};
 
 const SECRET_LIMIT: usize = 2048;
@@ -17,7 +15,11 @@ const ROTATED: &str = "vault-key-rotated-at-v1";
 /// Automatic rotation period of the storage key.
 pub const ROTATION_PERIOD: u64 = 30 * 86400;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) struct Lease(File);
+#[cfg(target_arch = "wasm32")]
+pub(crate) struct Lease;
+#[cfg(not(target_arch = "wasm32"))]
 impl Drop for Lease {
     fn drop(&mut self) {
         // Explicit unlock also releases a briefly inherited descriptor while
@@ -103,7 +105,7 @@ impl Manager {
         Ok(self.scope == other.scope && self.location()? == other.location()?)
     }
     pub fn new(directory: PathBuf, scope: Scope, storage: Arc<dyn Storage>) -> Result<Self, Error> {
-        if !scope.valid() || !directory.is_absolute() {
+        if !scope.valid() || !private_directory(&directory) {
             return Err(Error::Scope);
         }
         let tuple = serde_json::to_vec(&("rocketvibe-crypto-protected-v1", &scope))
@@ -125,7 +127,7 @@ impl Manager {
     fn location(&self) -> Result<[u8; 32], Error> {
         // A copied DB in a second directory must not fork the same device's
         // send state under a different lock while sharing a keystore entry.
-        let canonical = fs::canonicalize(&self.directory).map_err(|_| Error::Storage)?;
+        let canonical = location(&self.directory)?;
         let mut hash = Sha256::new();
         hash.update(b"rocketvibe-crypto-location-v1");
         hash.update(canonical.as_os_str().as_encoded_bytes());
@@ -234,9 +236,8 @@ impl Manager {
         let mut record = match self.read()? {
             Some(record) => record,
             None => {
-                match fs::symlink_metadata(self.path()) {
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                    _ => return Err(Error::NotInitialized),
+                if database_exists(&self.path())? {
+                    return Err(Error::NotInitialized);
                 }
                 let key = Key::generate()?;
                 let fresh = Secret {
@@ -259,12 +260,10 @@ impl Manager {
             drop(self.open(&mut record)?);
             return Ok(());
         }
-        let mut vault = match fs::symlink_metadata(self.path()) {
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                Vault::create(&self.path(), self.scope.clone(), record.key()?)?
-            }
-            Ok(_) => Vault::recover_initial(&self.path(), self.scope.clone(), record.key()?)?,
-            Err(_) => return Err(Error::Storage),
+        let mut vault = if database_exists(&self.path())? {
+            Vault::recover_initial(&self.path(), self.scope.clone(), record.key()?)?
+        } else {
+            Vault::create(&self.path(), self.scope.clone(), record.key()?)?
         };
         self.protect(&mut record, &mut vault)
     }
@@ -381,6 +380,9 @@ impl Manager {
         if current.as_ref() != Some(&retired) {
             self.write(current.as_ref(), &retired)?;
         }
+        #[cfg(target_arch = "wasm32")]
+        crate::browser::remove(&self.path())?;
+        #[cfg(not(target_arch = "wasm32"))]
         for suffix in [".sqlite", ".sqlite-wal", ".sqlite-shm"] {
             match fs::remove_file(self.directory.join(format!("{}{suffix}", self.name))) {
                 Ok(()) => {}
@@ -396,6 +398,7 @@ impl Manager {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn lease(directory: &std::path::Path, name: &str) -> Result<Lease, Error> {
     let mut builder = fs::DirBuilder::new();
     builder.recursive(true);
@@ -460,8 +463,56 @@ pub(crate) fn lease(directory: &std::path::Path, name: &str) -> Result<Lease, Er
         }
     }
 }
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn lease(directory: &std::path::Path, _name: &str) -> Result<Lease, Error> {
+    // Only the browser worker may use this target. The host holds the Web Lock
+    // across restoration, this synchronous operation and the durable IDB commit.
+    if directory != std::path::Path::new("/crypto") {
+        return Err(Error::Scope);
+    }
+    Ok(Lease)
+}
+pub(crate) fn location(directory: &std::path::Path) -> Result<PathBuf, Error> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        fs::canonicalize(directory).map_err(|_| Error::Storage)
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        if directory != std::path::Path::new("/crypto") {
+            return Err(Error::Scope);
+        }
+        Ok(directory.into())
+    }
+}
+pub(crate) fn private_directory(directory: &std::path::Path) -> bool {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        directory.is_absolute()
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        directory == std::path::Path::new("/crypto")
+    }
+}
+fn database_exists(path: &std::path::Path) -> Result<bool, Error> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        match fs::symlink_metadata(path) {
+            Ok(_) => Ok(true),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+            Err(_) => Err(Error::Storage),
+        }
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        Ok(crate::browser::exists(path))
+    }
+}
 /// How long an operation waits for another one holding the vault.
+#[cfg(not(target_arch = "wasm32"))]
 const LEASE_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
+#[cfg(not(target_arch = "wasm32"))]
 fn try_lease(file: &fs::File) -> Result<(), Error> {
     #[cfg(not(target_os = "android"))]
     file.try_lock().map_err(|error| match error {

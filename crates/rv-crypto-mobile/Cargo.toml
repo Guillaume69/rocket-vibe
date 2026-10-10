@@ -7,7 +7,9 @@ publish = false
 [workspace]
 
 [features]
-bindgen = ["uniffi/cli"]
+default = ["native-bindings"]
+native-bindings = ["dep:uniffi"]
+bindgen = ["native-bindings", "uniffi/cli"]
 
 [lib]
 name = "rv_crypto_mobile"
@@ -28,9 +30,13 @@ serde_json = "1"
 serde = { version = "1", features = ["derive"] }
 sha2 = "0.11"
 thiserror = "2"
-uniffi = { version = "=0.32.2" }
+uniffi = { version = "=0.32.2", optional = true }
 url = "2.5.8"
 zeroize = "1"
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+js-sys = "0.3"
+getrandom = { version = "0.4", features = ["wasm_js"] }
 
 [dev-dependencies]
 tempfile = "3"

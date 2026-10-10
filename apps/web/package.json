@@ -6,7 +6,11 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "check": "tsc --noEmit",
-    "build": "node scripts/sync-design.mjs && node scripts/sync-strings.mjs && node scripts/licenses.mjs && npm run check && vite build && node scripts/build-shell.mjs",
+    "build": "node scripts/crypto-assets.mjs && node scripts/sync-design.mjs && node scripts/sync-strings.mjs && node scripts/sync-crypto.mjs && node scripts/licenses.mjs && npm run check && vite build && node scripts/build-shell.mjs",
+    "crypto:build": "node scripts/build-crypto.mjs",
+    "test:e2ee": "node tests/e2ee.mjs",
+    "test:crypto-storage": "node tests/crypto-storage.mjs",
+    "test:desktop-crypto": "node tests/desktop-crypto.mjs",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
     "test:browser": "node tests/browser.mjs",
     "test:visual": "node tests/visual.mjs",

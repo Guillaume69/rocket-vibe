@@ -14,3 +14,8 @@ pub mod installation;
 pub mod packages;
 pub mod protected;
 pub mod vault;
+
+// A browser worker owns the virtual encrypted databases. Its host persists an
+// authenticated snapshot before exposing any result or sending an HTTP packet.
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+pub mod browser;

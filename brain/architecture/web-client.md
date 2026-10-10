@@ -26,9 +26,16 @@ The native RocketVibe server embeds the browser application in its binary. Node 
 
 The SFU's WebSocket origin being reachable does not prove its ICE candidates are reachable. Firefox/Chromium connection tests exchange actual audio and inspect RTP statistics, with Firefox's standard ICE loopback policy. An initial SDK disconnection leaves error reporting to the awaiting connect handler; it closes the call/context and allows retry. Established disconnections and user cancellation still invalidate the lifecycle immediately.
 
-`security.ts` and `email.ts` expose native TOTP, recovery codes, verified contact and email factors. Encrypted rooms remain locked: no reading, plaintext send, file/recording or call action is offered. There is no browser crypto vault. Notifications require a live tab; closed-tab Web Push is not implemented.
+`security.ts` and `email.ts` expose native TOTP, recovery codes, verified contact and email factors. Native RocketVibe encrypted rooms use the shared Rust MLS engine through a dedicated WASM worker. `crypto/shared` is generated from mobile orchestration; `crypto/vault.ts` seals the complete private worker snapshot with a non-extractable WebCrypto key in separate IndexedDB, under a cross-tab lock and durable revision check. Private messages/drafts never enter the ordinary model, cache or outbox. Files use the native encrypted-object format; decrypted media URLs stay in the live view. Calls require supported frame encryption and the native MLS voice key. Unsupported or unapproved devices remain locked. Browser storage has no independent OS-keystore anti-rollback anchor: see [browser E2EE](../../docs/WEB_E2EE.md) for the delivery trust model and qualification limits. Notifications require a live tab; closed-tab Web Push is not implemented.
 
 ## Sources
+
+- docs/WEB_E2EE.md
+- crates/rv-crypto-web/src/lib.rs
+- apps/web/src/crypto/worker.ts
+- apps/web/src/crypto/vault.ts
+- apps/web/src/crypto/chat.ts
+- apps/web/src/crypto/settings-controls.ts
 
 - apps/web/src/composer.ts
 - apps/web/tests/composer.mjs

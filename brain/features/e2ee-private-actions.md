@@ -36,6 +36,10 @@ On the RocketVibe native server (MLS end-to-end encryption, not Rocket.Chat E2EE
 - GTK: `chat_native.rs` adds quick reactions, Edit and Delete to the encrypted message menu and handles reaction chips and in-place save; `chat_crypto.rs` `start_crypto_edit` / `crypto_amend` / `crypto_react`, `thread.rs` `amend_private` / `react_private`; `chat.rs` `edit_last` takes the encrypted path and the search button opens `details::search_private`.
 - SwiftUI: `RoomModel` (`macos/Sources/RocketVibeKit/RoomModel.swift`) offers `.react` on journaled private rows and `.edit` / `.delete` on own ones, routes them to `NativeCryptoMessages.react` / `amend`, and searches through `NativeCryptoMessages.search` (`crates/rv-ffi/src/native_crypto/messages.rs`); `supportsEditing` and `supportsSearch` follow `privateReady`, so Up in an empty composer works too.
 
+## Web
+
+`apps/web/src/crypto/chat.ts` routes private message menus, edits/deletions, reaction chips, threads, quotes and search through the generated shared orchestration in `src/crypto/shared/cryptoConversations.ts`. Pending operations remain protected in the Rust vault until a verified receipt; retry/cancel/restore target that original operation. Search stays on the device. Cross-browser checks cover edits, edited quotes and threaded replies; additional GTK state qualification is recorded in `docs/WEB_E2EE.md`.
+
 ## Sources
 
 - docs/protocol/E2EE_AMENDMENTS.md
@@ -64,3 +68,7 @@ On the RocketVibe native server (MLS end-to-end encryption, not Rocket.Chat E2EE
 - apps/desktop/crates/rv-gtk/src/details.rs
 - apps/desktop/crates/rv-ffi/src/native_crypto/messages.rs
 - apps/desktop/macos/Sources/RocketVibeKit/RoomModel.swift
+- apps/web/src/crypto/chat.ts
+- apps/web/src/crypto/settings-controls.ts
+- apps/web/src/crypto/voice.ts
+- docs/WEB_E2EE.md

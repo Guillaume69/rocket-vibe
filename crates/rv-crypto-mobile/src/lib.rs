@@ -12,6 +12,7 @@ use std::{
 };
 use zeroize::Zeroizing;
 mod conversations;
+#[cfg(feature = "native-bindings")]
 mod files;
 mod groups;
 mod history;
@@ -24,9 +25,11 @@ mod withdrawals;
 pub use identity::{IdentityApproval, IdentityPhase, IdentityStatus};
 pub use peers::{PeerApproval, PeerReview};
 
+#[cfg(feature = "native-bindings")]
 uniffi::setup_scaffolding!();
 
-#[derive(Debug, thiserror::Error, uniffi::Error)]
+#[derive(Debug, thiserror::Error)]
+#[cfg_attr(feature = "native-bindings", derive(uniffi::Error))]
 pub enum CryptoBridgeError {
     #[error("crypto_storage_unavailable")]
     Storage,
@@ -57,7 +60,7 @@ impl From<vault::Error> for CryptoBridgeError {
 
 /// Kotlin-only foreign trait. Expo exposes no read/write-secret function to JS.
 /// Returning None means a confirmed absence; failures must throw.
-#[uniffi::export(with_foreign)]
+#[cfg_attr(feature = "native-bindings", uniffi::export(with_foreign))]
 pub trait ProtectedKeystore: Send + Sync {
     fn read(&self, name: String) -> Result<Option<Vec<u8>>>;
     fn write(&self, name: String, value: Vec<u8>) -> Result<()>;
@@ -83,7 +86,10 @@ impl protected::Storage for Platform {
             .map_err(|_| vault::Error::Storage)
     }
 }
-#[derive(Clone, uniffi::Record)]
+#[derive(Clone)]
+#[cfg_attr(feature = "native-bindings", derive(uniffi::Record))]
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CryptoAccount {
     pub origin: String,
     pub instance: String,
@@ -102,19 +108,25 @@ impl From<CryptoAccount> for installation::Account {
         }
     }
 }
-#[derive(Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "native-bindings", derive(uniffi::Enum))]
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum InstallationPhase {
     Missing,
     Initializing,
     Ready,
 }
-#[derive(Clone, uniffi::Record)]
+#[derive(Clone)]
+#[cfg_attr(feature = "native-bindings", derive(uniffi::Record))]
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InstallationStatus {
     pub phase: InstallationPhase,
     pub account_fingerprint: String,
     pub incarnation: String,
 }
-#[derive(uniffi::Object)]
+#[cfg_attr(feature = "native-bindings", derive(uniffi::Object))]
 pub struct CryptoInstallation {
     slot: installation::Installation,
     fingerprint: String,
@@ -158,9 +170,9 @@ impl CryptoInstallation {
         })
     }
 }
-#[uniffi::export]
+#[cfg_attr(feature = "native-bindings", uniffi::export)]
 impl CryptoInstallation {
-    #[uniffi::constructor]
+    #[cfg_attr(feature = "native-bindings", uniffi::constructor)]
     pub fn open(
         directory: String,
         account: CryptoAccount,

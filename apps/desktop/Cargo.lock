@@ -1434,9 +1434,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "899def5c37c4fd7b2664648c28120ecec138e4d395b459e5ca34f9cce2dd77fd"
 dependencies = [
  "cfg-if",
+ "js-sys",
  "libc",
  "r-efi 5.3.0",
  "wasip2",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -3297,6 +3299,7 @@ version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6b08d90fc020cb5354d5f08ca17711b84c82e2bcc7331753fd94f000d99a8c8"
 dependencies = [
+ "getrandom 0.4.3",
  "log",
  "openmls_serialization_helpers",
  "openmls_traits",
@@ -3305,6 +3308,7 @@ dependencies = [
  "serde_bytes",
  "thiserror",
  "tls_codec",
+ "web-time",
  "zeroize",
 ]
 
@@ -4270,6 +4274,8 @@ dependencies = [
  "chacha20poly1305",
  "data-encoding",
  "ed25519-dalek",
+ "getrandom 0.2.17",
+ "getrandom 0.3.4",
  "getrandom 0.4.3",
  "keyring",
  "openmls",
@@ -5595,6 +5601,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5a6580f308b1fad9207618087a65c04e7a10bc77e02c8e84e9b00dd4b12fa0bb"
 dependencies = [
  "js-sys",
+ "serde",
  "wasm-bindgen",
 ]
 

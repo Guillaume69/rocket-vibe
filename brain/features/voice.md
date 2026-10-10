@@ -324,6 +324,10 @@ Screen sound requests `restrictOwnAudio` and is published only when the actual c
 
 Real two-browser calls qualify microphone/camera/screen RTP, quiet-speech halos, gains, ringing, teardown, share takeover and capture-ended cleanup. A Fedora GTK session receives the browser's actual screen track and sends a microphone track back. Captures compare its native share stage and audio menu with the browser. This does not qualify physical devices or every browser/OS.
 
+## Web encryption
+
+The browser uses the room's verified MLS voice exporter with LiveKit's encoded-transform worker. `apps/web/src/crypto/voice.ts` prepares the key before joining and passes its padded base64 string as the native-compatible PBKDF2 passphrase. `Voice` requires an encrypted server grant and enables E2EE before connection or microphone capture. Unsupported transforms, missing/currently unaccepted group keys and encryption errors leave the call without a plaintext fallback. Approved epoch changes replace the frame key; account/membership scope loss terminates its worker.
+
 ## Sources
 
 - docs/protocol/VOICE.md
@@ -399,3 +403,7 @@ Real two-browser calls qualify microphone/camera/screen RTP, quiet-speech halos,
 - apps/desktop/crates/rv-gtk/src/details/native_rooms.rs
 - .github/workflows/desktop-voice.yml
 - apps/mobile/ui/alerts.ts
+- apps/web/src/crypto/chat.ts
+- apps/web/src/crypto/settings-controls.ts
+- apps/web/src/crypto/voice.ts
+- docs/WEB_E2EE.md

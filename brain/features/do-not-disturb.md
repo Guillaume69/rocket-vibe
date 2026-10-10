@@ -10,7 +10,7 @@ An account on a RocketVibe server can silence its notifications on a schedule (q
 
 ## Web
 
-Settings > Notifications, group "Do not disturb" (`panels.ts`): a "Mute notifications" choice (for 1 hour, until 08:00, unmute; the row says until when) and "Quiet hours" (a switch and two time fields, saved on change with the browser's time zone, `Intl.DateTimeFormat().resolvedOptions().timeZone`). `quietNow` (`src/quiet.ts`, tested in `tests/quiet.test.ts`, `minuteIn` reading the window's zone through `Intl`) stops `App.notify` while quiet.
+Settings > Notifications, group "Do not disturb" (`panels.ts`): a "Mute notifications" choice (for 1 hour, until 08:00, unmute; the row says until when) and "Quiet hours" (a switch and two time fields, saved on change with the browser's time zone, `Intl.DateTimeFormat().resolvedOptions().timeZone`). `quietNow` (`src/quiet.ts`, tested in `tests/quiet.test.ts`, `minuteIn` reading the window's zone through `Intl`) stops `App.notify` while quiet. Saves run one after another, each with the revision the previous one left (two quick edits would otherwise race to the same revision). Browser test: `tests/quiet.mjs` (mute, schedule with the browser's zone, edits that keep the other field, no error).
 
 ## Mobile
 
@@ -32,5 +32,6 @@ Not offered yet (GTK, SwiftUI): the server holds push back, the desktop's own no
 - apps/web/src/quiet.ts
 - apps/web/src/panels.ts
 - apps/web/src/app.ts
+- apps/web/tests/quiet.mjs
 - docs/protocol/PROFILES.md
 - docs/protocol/PUSH.md

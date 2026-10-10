@@ -9,6 +9,7 @@
 pub mod actions;
 pub mod categories;
 pub mod directory;
+pub mod oauth;
 pub mod pusher;
 pub mod socket;
 pub mod sync;

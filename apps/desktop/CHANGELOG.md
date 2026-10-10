@@ -30,7 +30,7 @@ section here.
 
 ### Changed
 
-- GTK, RocketVibe servers: a message arriving in a room that is not open refreshes only the room list, no longer the whole window, so traffic elsewhere stops redrawing (and, in an encrypted room, decrypting again) the conversation on screen.
+- GTK, RocketVibe servers: a message arriving in a room that is not open refreshes only the room list, no longer the whole window, so traffic elsewhere stops redrawing (and, in an encrypted room, decrypting again) the conversation on screen. On every account, the GTK room list now replaces only the rows that changed instead of rebuilding them all.
 - Rocket.Chat and Mattermost accounts keep each room's 500 newest messages on disk, as the Android app does; older ones come back from the server when you scroll to them, so the local database no longer grows forever.
 - The last colour emoji used as interface markers are monochrome icons, like every other icon of the app: a locked room's tile, the encryption banner and unlock card, the lock of an encrypted voice session, the two-factor shield, a thread's replies, file kinds in cards and staged files, the call card, and room kinds in the administration (GTK: Adwaita symbolic icons; SwiftUI: SF Symbols, with a "React" submenu instead of a smiley).
 - The Windows installer wears the app's night sky: a borderless dark wizard with a starry background, pill buttons, a rocket trailing a rainbow as its progress bar, the rocket on the welcome and finish pages, and livelier words (English and French), also during an update.
@@ -39,7 +39,7 @@ section here.
 ### Fixed
 
 - A notification waiting for its pictures no longer appears after its conversation has been opened.
-
+- GTK, RocketVibe servers: a contact's presence dot in the room list follows its changes, instead of waiting for some other room to change.
 - Signing out of a Rocket.Chat or Mattermost account while offline no longer leaves the session open on the server: the sign-out is kept and sent again at the next start.
 - On Mattermost and kChat, a message whose send answer was lost is looked for before it goes out again, instead of posting it twice once the server has forgotten it; one sent again while the server still saves the first attempt stays "sending" instead of "not sent".
 - On Mattermost and kChat, a room that changed more than a thousand times while the app was away reloads its newest messages instead of keeping a history with holes.

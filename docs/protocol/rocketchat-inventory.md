@@ -264,8 +264,8 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/session.rs:1433](../../apps/desktop/crates/rv-core/src/session.rs#L1433) | endpoint | chat.getMessage |
 | [apps/desktop/crates/rv-core/src/session.rs:1444](../../apps/desktop/crates/rv-core/src/session.rs#L1444) | call:GET | "chat.getThreadMessages", options).await?; |
 | [apps/desktop/crates/rv-core/src/session.rs:1444](../../apps/desktop/crates/rv-core/src/session.rs#L1444) | endpoint | chat.getThreadMessages |
-| [apps/desktop/crates/rv-core/src/store.rs:343](../../apps/desktop/crates/rv-core/src/store.rs#L343) | resource | /file-upload/{…}/% |
-| [apps/desktop/crates/rv-core/src/store.rs:344](../../apps/desktop/crates/rv-core/src/store.rs#L344) | url | /api/v4/files/{…} |
+| [apps/desktop/crates/rv-core/src/store.rs:399](../../apps/desktop/crates/rv-core/src/store.rs#L399) | resource | /file-upload/{…}/% |
+| [apps/desktop/crates/rv-core/src/store.rs:400](../../apps/desktop/crates/rv-core/src/store.rs#L400) | url | /api/v4/files/{…} |
 | [apps/desktop/crates/rv-core/src/sync.rs:14](../../apps/desktop/crates/rv-core/src/sync.rs#L14) | stream | stream-room-messages |
 | [apps/desktop/crates/rv-core/src/sync.rs:15](../../apps/desktop/crates/rv-core/src/sync.rs#L15) | stream | stream-notify-user |
 | [apps/desktop/crates/rv-core/src/sync.rs:16](../../apps/desktop/crates/rv-core/src/sync.rs#L16) | stream | stream-notify-room |

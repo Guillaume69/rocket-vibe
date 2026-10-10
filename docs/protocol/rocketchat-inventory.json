@@ -2075,13 +2075,13 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/store.rs",
-      "line": 343,
+      "line": 399,
       "kind": "resource",
       "surface": "/file-upload/{…}/%"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/store.rs",
-      "line": 344,
+      "line": 400,
       "kind": "url",
       "surface": "/api/v4/files/{…}"
     },

@@ -172,6 +172,9 @@ fn decimal(value: &str) -> rusqlite::Result<u64> {
 impl NativeStore {
     pub fn open(path: &Path, identity: Identity) -> rusqlite::Result<Self> {
         let conn = Connection::open(path)?;
+        // Another app on the same database (GTK and SwiftUI on macOS) waits
+        // its turn instead of failing on SQLITE_BUSY.
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.execute_batch("CREATE TABLE IF NOT EXISTS native_state(singleton INTEGER PRIMARY KEY CHECK(singleton=1),instance TEXT NOT NULL,epoch TEXT NOT NULL,cursor TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS native_rooms(id TEXT PRIMARY KEY,payload TEXT NOT NULL);
@@ -329,7 +332,7 @@ impl NativeStore {
         behavior: rusqlite::TransactionBehavior,
         fnc: impl FnOnce(&Transaction) -> rusqlite::Result<(T, bool)>,
     ) -> rusqlite::Result<T> {
-        let mut conn = self.conn.lock().unwrap();
+        let mut conn = self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let before = conn.total_changes();
         let tx = conn.transaction_with_behavior(behavior)?;
         let (result, rotate) = fnc(&tx)?;
@@ -354,7 +357,7 @@ impl NativeStore {
         self.search_revision.load(Ordering::SeqCst)
     }
     pub fn cursor(&self) -> rusqlite::Result<Option<String>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if !self.same(&conn)? {
             return Ok(None);
         }
@@ -426,11 +429,11 @@ impl NativeStore {
         })
     }
     pub fn has_command_revision_conflict(&self, id: &str) -> rusqlite::Result<bool> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         Ok(self.same(&conn)? && conn.query_row("SELECT 1 FROM native_commands WHERE message_id=?1 AND state='failed' AND error='revision_conflict'",[id],|_|Ok(())).optional()?.is_some())
     }
     pub fn pending_commands(&self) -> rusqlite::Result<Vec<PendingCommand>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if !self.same(&conn)? {
             return Ok(vec![]);
         }
@@ -443,7 +446,7 @@ impl NativeStore {
         })
     }
     pub fn command_draft(&self, message: &str) -> rusqlite::Result<Option<String>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if !self.same(&conn)? {
             return Ok(None);
         }
@@ -753,7 +756,7 @@ impl NativeStore {
         })
     }
     pub fn room_encrypted(&self, rid: &str) -> rusqlite::Result<bool> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if !self.same(&conn)? {
             return Err(rusqlite::Error::InvalidQuery);
         }
@@ -772,7 +775,7 @@ impl NativeStore {
             .map(|encrypted| encrypted.unwrap_or(false))
     }
     pub fn rooms(&self) -> rusqlite::Result<Vec<Room>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if !self.same(&conn)? {
             return Ok(vec![]);
         }
@@ -791,7 +794,7 @@ impl NativeStore {
         .collect()
     }
     pub fn message_rank(&self, rid: &str, id: &str) -> rusqlite::Result<Option<u32>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if !self.same(&conn)? {
             return Ok(None);
         }
@@ -807,7 +810,7 @@ impl NativeStore {
         conn.query_row("SELECT count(*) FROM native_messages WHERE rid=?1 AND reply_to IS NULL AND NOT deleted AND (position IS NULL OR length(position)>length(?2) OR (length(position)=length(?2) AND position>?2))",params![rid,position],|r|r.get(0)).map(Some)
     }
     pub fn messages(&self, rid: &str, limit: usize) -> rusqlite::Result<Vec<MessageRow>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if !self.same(&conn)? {
             return Ok(vec![]);
         }
@@ -820,7 +823,7 @@ impl NativeStore {
     }
     /// The form a stored message carries (RFC 0004), as last received.
     pub fn message_form(&self, id: &str) -> rusqlite::Result<Option<rv_protocol::workflows::WorkflowForm>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if !self.same(&conn)? {
             return Ok(None);
         }
@@ -831,10 +834,10 @@ impl NativeStore {
         Ok(form.and_then(|form| serde_json::from_str(&form).ok()))
     }
     pub fn oldest(&self, rid: &str) -> rusqlite::Result<Option<String>> {
-        self.conn.lock().unwrap().query_row("SELECT position FROM native_messages WHERE rid=?1 AND reply_to IS NULL AND position IS NOT NULL ORDER BY length(position),position LIMIT 1",[rid],|r|r.get(0)).optional()
+        self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner).query_row("SELECT position FROM native_messages WHERE rid=?1 AND reply_to IS NULL AND position IS NOT NULL ORDER BY length(position),position LIMIT 1",[rid],|r|r.get(0)).optional()
     }
     pub fn selected_messages(&self, ids: &[String]) -> rusqlite::Result<Vec<MessageRow>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if !self.same(&conn)? {
             return Ok(vec![]);
         }
@@ -879,14 +882,14 @@ impl NativeStore {
         )
     }
     pub fn quote_selection(&self, rid: &str, id: &str) -> rusqlite::Result<QuoteSelection> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if !self.same(&conn)? {
             return Err(rusqlite::Error::InvalidQuery);
         }
         quotes::selection(&conn, &self.identity, rid, id)
     }
     pub fn public_quote_sources(&self, rid: &str, ids: &[String]) -> rusqlite::Result<Option<PublicQuoteSources>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if !self.same(&conn)? {
             return Ok(None);
         }
@@ -984,7 +987,7 @@ impl NativeStore {
         Ok(())
     }
     pub fn pending(&self) -> rusqlite::Result<Vec<Pending>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if !self.same(&conn)? {
             return Ok(vec![]);
         }
@@ -1025,7 +1028,7 @@ impl NativeStore {
         })
     }
     pub fn draft(&self, rid: &str) -> rusqlite::Result<String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if !self.same(&conn)? {
             return Ok(String::new());
         }
@@ -1035,7 +1038,7 @@ impl NativeStore {
             .unwrap_or_default())
     }
     pub fn set_draft(&self, rid: &str, text: &str) -> rusqlite::Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if !self.same(&conn)?
             || conn.query_row("SELECT 1 FROM native_rooms WHERE id=?1", [rid], |_| Ok(())).optional()?.is_none()
         {

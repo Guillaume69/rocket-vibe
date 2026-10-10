@@ -4,7 +4,8 @@
 
 use std::collections::BTreeSet;
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::time::Duration;
 
 use rusqlite::{Connection, OptionalExtension, params};
 use tokio::sync::broadcast;
@@ -241,6 +242,36 @@ pub struct Store {
 pub struct Writer<'a> {
     conn: &'a Connection,
     change: Change,
+    /// The first statement that failed: the whole write then rolls back.
+    failed: Failure<'a>,
+}
+
+struct Failure<'a> {
+    conn: &'a Connection,
+    first: Option<(&'static str, rusqlite::Error)>,
+}
+
+/// A failed statement is noted on the writer instead of panicking: a full
+/// disk or an I/O error rolls one write back, it no longer takes the app down
+/// (a panic used to poison the connection's mutex, and every later read, the
+/// GTK main thread's included, panicked in turn).
+trait OrNote<T> {
+    fn or_note(self, failed: &mut Failure, what: &'static str) -> T;
+}
+
+impl<T: Default> OrNote<T> for rusqlite::Result<T> {
+    fn or_note(self, failed: &mut Failure, what: &'static str) -> T {
+        self.unwrap_or_else(|e| {
+            // SQLite rolls some errors' transaction back by itself (full disk,
+            // I/O): reopen one, so the statements still to come in this write
+            // cannot commit on their own, and are rolled back with it.
+            if failed.conn.is_autocommit() {
+                let _ = failed.conn.execute_batch("BEGIN");
+            }
+            failed.first.get_or_insert((what, e));
+            T::default()
+        })
+    }
 }
 
 impl Store {
@@ -253,6 +284,9 @@ impl Store {
     }
 
     fn from_connection(conn: Connection) -> rusqlite::Result<Store> {
+        // The GTK and SwiftUI apps may open the same database on macOS: wait
+        // for the other's write rather than fail on SQLITE_BUSY.
+        conn.busy_timeout(Duration::from_secs(5))?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.execute_batch(SCHEMA)?;
         let applied: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
@@ -268,16 +302,38 @@ impl Store {
         self.changes.subscribe()
     }
 
+    /// The connection, even after a panic elsewhere left the mutex poisoned:
+    /// an interrupted transaction is rolled back when it drops, so the
+    /// connection itself is sound.
+    fn conn(&self) -> MutexGuard<'_, Connection> {
+        self.conn.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// One transaction. A statement that fails rolls the whole write back and
+    /// broadcasts nothing; `f`'s result is still returned (its failed
+    /// statements counted as no rows), as a read that fails returns nothing.
     pub fn write<R>(&self, f: impl FnOnce(&mut Writer) -> R) -> R {
-        let mut conn = self.conn.lock().unwrap();
+        let mut conn = self.conn();
+        // BEGIN (deferred) takes no lock: it cannot meet a busy database.
         let tx = conn.transaction().expect("begin");
-        let (result, change) = {
-            let mut writer = Writer { conn: &tx, change: Change::default() };
+        let (result, change, failed) = {
+            let mut writer =
+                Writer { conn: &tx, change: Change::default(), failed: Failure { conn: &tx, first: None } };
             let result = f(&mut writer);
-            (result, writer.change)
+            (result, writer.change, writer.failed.first)
         };
-        tx.commit().expect("commit");
+        let failed = match failed {
+            Some(failed) => {
+                drop(tx); // rolls back
+                Some(failed)
+            }
+            None => tx.commit().err().map(|e| ("commit", e)),
+        };
         drop(conn);
+        if let Some((what, error)) = failed {
+            eprintln!("rocket-vibe: local database write rolled back ({what}): {error}");
+            return result;
+        }
         if change.rooms || !change.rids.is_empty() {
             let _ = self.changes.send(change);
         }
@@ -285,7 +341,7 @@ impl Store {
     }
 
     pub fn read<R>(&self, f: impl FnOnce(&Connection) -> rusqlite::Result<R>) -> rusqlite::Result<R> {
-        f(&self.conn.lock().unwrap())
+        f(&self.conn())
     }
 
     pub fn cursor(&self, scope: &str, stream: &str) -> Option<i64> {
@@ -608,7 +664,7 @@ impl Writer<'_> {
                  ON CONFLICT(key) DO UPDATE SET value = excluded.value WHERE value IS NOT excluded.value",
                 [if on { "1" } else { "0" }],
             )
-            .expect("real names setting");
+            .or_note(&mut self.failed, "real names setting");
         if changed > 0 {
             self.touch_rooms();
         }
@@ -629,7 +685,7 @@ impl Writer<'_> {
                  WHERE excluded.seen >= people.seen AND people.name IS NOT excluded.name",
                 params![uid, name, seen],
             )
-            .expect("note person");
+            .or_note(&mut self.failed, "note person");
         if changed > 0 {
             self.touch_rooms();
         }
@@ -710,7 +766,7 @@ impl Writer<'_> {
                     m.encrypted_raw, m.updated_at, m.md, m.urls, m.call_id, m.pinned, m.starred
                 ],
             )
-            .expect("upsert message");
+            .or_note(&mut self.failed, "upsert message");
         self.touch_messages(&m.rid);
     }
 
@@ -745,7 +801,7 @@ impl Writer<'_> {
                     r.last_message_author, r.last_encrypted, r.keep_preview
                 ],
             )
-            .expect("upsert room");
+            .or_note(&mut self.failed, "upsert room");
         self.touch_rooms();
     }
 
@@ -776,22 +832,23 @@ impl Writer<'_> {
                     s.last_seen, s.updated_at, s.e2e_key, s.roles, s.group_id, s.group_name, s.group_rank
                 ],
             )
-            .expect("upsert subscription");
+            .or_note(&mut self.failed, "upsert subscription");
         self.touch_rooms();
     }
 
     pub fn delete_message(&mut self, id: &str) {
         let Some(rid) = self.rid_of("SELECT rid FROM messages WHERE id = ?1", id) else { return };
-        self.conn.execute("DELETE FROM messages WHERE id = ?1", [id]).expect("delete message");
+        self.conn.execute("DELETE FROM messages WHERE id = ?1", [id]).or_note(&mut self.failed, "delete message");
         self.touch_messages(&rid);
     }
 
     /// Every room whose rid is not in `live`, with all it holds.
     pub fn purge_rooms_except(&mut self, live: &[String]) {
-        let known: Vec<String> = {
-            let mut q = self.conn.prepare("SELECT rid FROM rooms UNION SELECT rid FROM subscriptions").expect("rooms");
-            q.query_map([], |r| r.get(0)).expect("rooms").filter_map(Result::ok).collect()
-        };
+        let known: Vec<String> = self
+            .conn
+            .prepare("SELECT rid FROM rooms UNION SELECT rid FROM subscriptions")
+            .and_then(|mut q| q.query_map([], |r| r.get(0)).map(|rows| rows.filter_map(Result::ok).collect()))
+            .or_note(&mut self.failed, "rooms");
         for rid in known.iter().filter(|rid| !live.contains(rid)) {
             self.delete_room(rid);
         }
@@ -799,9 +856,11 @@ impl Writer<'_> {
 
     pub fn delete_room(&mut self, rid: &str) {
         for table in ["messages", "subscriptions", "rooms", "outbox", "uploads"] {
-            self.conn.execute(&format!("DELETE FROM {table} WHERE rid = ?1"), [rid]).expect("delete room");
+            self.conn
+                .execute(&format!("DELETE FROM {table} WHERE rid = ?1"), [rid])
+                .or_note(&mut self.failed, "delete room");
         }
-        self.conn.execute("DELETE FROM cursors WHERE scope = ?1", [rid]).expect("delete cursors");
+        self.conn.execute("DELETE FROM cursors WHERE scope = ?1", [rid]).or_note(&mut self.failed, "delete cursors");
         self.touch_rooms();
         self.touch_messages(rid);
     }
@@ -819,7 +878,7 @@ impl Writer<'_> {
                  ON CONFLICT(scope, stream) DO UPDATE SET value = excluded.value WHERE excluded.value > cursors.value",
                 params![scope, stream, value],
             )
-            .expect("write cursor");
+            .or_note(&mut self.failed, "write cursor");
     }
 
     pub fn cursor(&self, scope: &str, stream: &str) -> Option<i64> {
@@ -839,7 +898,7 @@ impl Writer<'_> {
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                 params![u.id, u.rid, u.path, u.name, u.mime, u.caption, u.file_id, u.status, u.temporary, now, u.tmid],
             )
-            .expect("insert upload");
+            .or_note(&mut self.failed, "insert upload");
         self.touch_messages(&u.rid);
     }
 
@@ -854,52 +913,62 @@ impl Writer<'_> {
         let n = self
             .conn
             .execute("UPDATE uploads SET status = 'sending' WHERE id = ?1 AND status = 'pending'", [id])
-            .expect("claim upload");
+            .or_note(&mut self.failed, "claim upload");
         self.touch_upload(id);
         n == 1
     }
 
     pub fn set_upload_status(&mut self, id: &str, status: &str) {
-        self.conn.execute("UPDATE uploads SET status = ?2 WHERE id = ?1", [id, status]).expect("upload status");
+        self.conn
+            .execute("UPDATE uploads SET status = ?2 WHERE id = ?1", [id, status])
+            .or_note(&mut self.failed, "upload status");
         self.touch_upload(id);
     }
 
     /// Uploads a previous run left half-sent go back in the queue.
     pub fn rearm_sending_uploads(&mut self) {
-        self.conn.execute("UPDATE uploads SET status = 'pending' WHERE status = 'sending'", []).expect("rearm");
+        self.conn
+            .execute("UPDATE uploads SET status = 'pending' WHERE status = 'sending'", [])
+            .or_note(&mut self.failed, "rearm");
     }
 
     pub fn set_favorite(&mut self, rid: &str, on: bool) {
-        self.conn.execute("UPDATE subscriptions SET favorite = ?2 WHERE rid = ?1", params![rid, on]).expect("favorite");
+        self.conn
+            .execute("UPDATE subscriptions SET favorite = ?2 WHERE rid = ?1", params![rid, on])
+            .or_note(&mut self.failed, "favorite");
         self.touch_rooms();
     }
 
     /// A room's photo changed (or went: `NO_PHOTO`).
     pub fn set_room_avatar(&mut self, rid: &str, etag: &str) {
-        self.conn.execute("UPDATE rooms SET avatar_etag = ?2 WHERE rid = ?1", [rid, etag]).expect("room avatar");
+        self.conn
+            .execute("UPDATE rooms SET avatar_etag = ?2 WHERE rid = ?1", [rid, etag])
+            .or_note(&mut self.failed, "room avatar");
         self.touch_rooms();
     }
 
     pub fn set_upload_file_id(&mut self, id: &str, file_id: &str) {
-        self.conn.execute("UPDATE uploads SET file_id = ?2 WHERE id = ?1", [id, file_id]).expect("upload file id");
+        self.conn
+            .execute("UPDATE uploads SET file_id = ?2 WHERE id = ?1", [id, file_id])
+            .or_note(&mut self.failed, "upload file id");
     }
 
     pub fn delete_upload(&mut self, id: &str) {
         self.touch_upload(id);
-        self.conn.execute("DELETE FROM uploads WHERE id = ?1", [id]).expect("delete upload");
+        self.conn.execute("DELETE FROM uploads WHERE id = ?1", [id]).or_note(&mut self.failed, "delete upload");
     }
 
     /// An empty draft is deleted rather than stored.
     pub fn set_draft(&mut self, key: &str, text: &str) {
         if text.trim().is_empty() {
-            self.conn.execute("DELETE FROM drafts WHERE key = ?1", [key]).expect("delete draft");
+            self.conn.execute("DELETE FROM drafts WHERE key = ?1", [key]).or_note(&mut self.failed, "delete draft");
         } else {
             self.conn
                 .execute(
                     "INSERT INTO drafts (key, text) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET text = excluded.text",
                     params![key, text],
                 )
-                .expect("set draft");
+                .or_note(&mut self.failed, "set draft");
         }
     }
 
@@ -909,7 +978,7 @@ impl Writer<'_> {
                 "INSERT OR IGNORE INTO outbox (id, rid, text, thread_id) VALUES (?1, ?2, ?3, ?4)",
                 params![id, rid, text, thread_id],
             )
-            .expect("insert outbox");
+            .or_note(&mut self.failed, "insert outbox");
         self.touch_messages(rid);
     }
 
@@ -1211,5 +1280,68 @@ mod tests {
         let rows = store.messages("r", 50);
         assert_eq!(rows.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["a", "b"]);
         assert_eq!(rows[1].outbox_status.as_deref(), Some("pending"));
+    }
+
+    #[test]
+    fn a_failed_statement_rolls_the_write_back_without_panicking() {
+        let store = Store::in_memory().unwrap();
+        let mut changes = store.changes();
+        let upload = UploadRow {
+            id: "up".into(),
+            rid: "r".into(),
+            path: "/tmp/a".into(),
+            name: "a".into(),
+            mime: "text/plain".into(),
+            caption: None,
+            file_id: None,
+            status: "pending".into(),
+            temporary: false,
+            tmid: None,
+        };
+        // The second insert breaks the primary key: the outbox row written
+        // before it goes too, and nothing is broadcast.
+        store.write(|w| {
+            w.insert_outbox("o1", "r", "hi", None);
+            w.insert_upload(&upload, 0);
+            w.insert_upload(&upload, 0);
+        });
+        assert_eq!(count(&store, "outbox"), 0);
+        assert_eq!(count(&store, "uploads"), 0);
+        assert!(changes.try_recv().is_err());
+        // The store is still usable, reads and writes alike.
+        store.write(|w| w.insert_outbox("o2", "r", "again", None));
+        assert_eq!(count(&store, "outbox"), 1);
+    }
+
+    #[test]
+    fn statements_after_an_automatic_rollback_do_not_commit_alone() {
+        let store = Store::in_memory().unwrap();
+        store.write(|w| {
+            // What SQLite does by itself on a full disk: the transaction is gone.
+            w.conn.execute_batch("ROLLBACK").unwrap();
+            let failed: rusqlite::Result<usize> = w.conn.execute("INSERT INTO missing_table VALUES (1)", []);
+            failed.or_note(&mut w.failed, "simulated");
+            w.insert_outbox("o1", "r", "hi", None);
+        });
+        assert_eq!(count(&store, "outbox"), 0);
+        store.write(|w| w.insert_outbox("o2", "r", "again", None));
+        assert_eq!(count(&store, "outbox"), 1);
+    }
+
+    #[test]
+    fn a_panic_inside_a_write_does_not_poison_the_store() {
+        let store = std::sync::Arc::new(Store::in_memory().unwrap());
+        let inner = store.clone();
+        let outcome = std::thread::spawn(move || {
+            inner.write(|w| {
+                w.insert_outbox("o1", "r", "hi", None);
+                panic!("caller bug");
+            })
+        })
+        .join();
+        assert!(outcome.is_err());
+        assert_eq!(count(&store, "outbox"), 0);
+        store.write(|w| w.insert_outbox("o2", "r", "again", None));
+        assert_eq!(count(&store, "outbox"), 1);
     }
 }

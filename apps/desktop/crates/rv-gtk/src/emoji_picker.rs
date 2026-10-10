@@ -100,7 +100,7 @@ fn add_unicode(grid: &gtk::FlowBox, codes: &[&'static str], pick: &Rc<dyn Fn(Pic
     }
 }
 
-/// The 😊 button opening the picker; `pick` receives the chosen glyph, or a
+/// The smiley button opening the picker; `pick` receives the chosen glyph, or a
 /// server emoji's `:code:`.
 pub fn button(pick: impl Fn(&str) + 'static, custom: CustomSource) -> gtk::MenuButton {
     let popover = popover(

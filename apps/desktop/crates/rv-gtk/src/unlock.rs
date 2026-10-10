@@ -14,9 +14,7 @@ use crate::on_tokio;
 pub fn ask(parent: &impl IsA<gtk::Widget>, session: Arc<Session>) {
     let column =
         gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(12).css_classes(["details"]).build();
-    column.append(
-        &gtk::Image::builder().icon_name("channel-secure-symbolic").pixel_size(34).css_classes(["shield"]).build(),
-    );
+    column.append(&gtk::Image::builder().icon_name("channel-secure-symbolic").css_classes(["shield"]).build());
     column.append(
         &gtk::Label::builder()
             .label(t("e2e.body"))

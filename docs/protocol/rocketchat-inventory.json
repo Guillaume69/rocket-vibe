@@ -2854,43 +2854,43 @@
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/unlock.rs",
-      "line": 22,
+      "line": 20,
       "kind": "endpoint",
       "surface": "e2e.body"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/unlock.rs",
-      "line": 29,
+      "line": 27,
       "kind": "endpoint",
       "surface": "e2e.password"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/unlock.rs",
-      "line": 35,
+      "line": 33,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/unlock.rs",
-      "line": 43,
+      "line": 41,
       "kind": "endpoint",
       "surface": "e2e.title"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/unlock.rs",
-      "line": 62,
+      "line": 60,
       "kind": "endpoint",
       "surface": "e2e.wrong"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/unlock.rs",
-      "line": 63,
+      "line": 61,
       "kind": "endpoint",
       "surface": "e2e.no_keys"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/unlock.rs",
-      "line": 64,
+      "line": 62,
       "kind": "endpoint",
       "surface": "e2e.failed"
     },

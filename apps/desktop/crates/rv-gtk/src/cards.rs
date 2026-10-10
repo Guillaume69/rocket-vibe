@@ -230,7 +230,7 @@ pub fn file_provider(session: media::Provider, f: &FileAttachment) -> gtk::Widge
         FileKind::Video => "video-x-generic-symbolic",
         FileKind::Other => "text-x-generic-symbolic",
     };
-    top.append(&gtk::Image::builder().icon_name(icon).pixel_size(26).css_classes(["file-icon"]).build());
+    top.append(&gtk::Image::builder().icon_name(icon).css_classes(["file-icon"]).build());
     let names = gtk::Box::new(gtk::Orientation::Vertical, 1);
     names.set_hexpand(true);
     let title = label(&f.title, &["file-title"]);

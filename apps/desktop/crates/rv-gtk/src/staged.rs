@@ -139,7 +139,6 @@ fn chip(item: &Picked, mime: &str, on_remove: impl Fn() + 'static) -> gtk::Widge
         None => thumb.add_overlay(
             &gtk::Image::builder()
                 .icon_name(if audio { "audio-x-generic-symbolic" } else { "text-x-generic-symbolic" })
-                .pixel_size(22)
                 .css_classes(["staged-icon"])
                 .build(),
         ),

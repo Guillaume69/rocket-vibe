@@ -42,7 +42,7 @@ A reply uses Rocket.Chat's native quote: the text is prefixed by an invisible li
 
 Editing is a message action, not a composer mode. Mobile edits in the action sheet's own text field ([message actions](message-actions.md)). GTK edits in place in the message list (`MessageList::start_edit`), and **Up in an empty composer** edits my last message when the server still allows it (else a "too late" toast). SwiftUI opens an edit card in a modal overlay on Up (`Composer.swift`) and edits in place from the menu.
 
-## Formatting (desktop)
+## Formatting
 
 GTK has a formatting toolbar (bold, italic, strike, heading, link, inline code, code block, quote, bullets, numbers) over `rv-core/src/compose.rs`, which toggles Rocket.Chat markers around the selection or before its lines. The draft is styled as typed (`compose::spans`), markers are hidden except on the cursor's line (`hidden_markers`), Shift+Enter in a list continues it (`list_break`), and misspelled words get suggestions and "Add to dictionary" on right-click (`rv-gtk/src/spell.rs`). Every desktop send and edit passes through `compose::fenced`, which puts code fences on lines of their own as the server's parser needs. SwiftUI uses AppKit's text view (system spell checker, Emoji & Symbols) without a toolbar. Mobile has no formatting aids: the user types markdown.
 

@@ -802,7 +802,8 @@ impl AppWindow {
         };
         self.forward.replace(Some(forward));
         let weak = Rc::downgrade(self);
-        let reload_pending = Rc::new(Cell::new(false));
+        // Reloads asked since the last one ran: 0 when none is scheduled.
+        let folded = Rc::new(Cell::new(0u32));
         glib::spawn_future_local(async move {
             while let Some(event) = rx.recv().await {
                 let Some(this) = weak.upgrade() else { return };
@@ -810,15 +811,15 @@ impl AppWindow {
                     return;
                 }
                 if let ChatEvent::Reload = event {
-                    if !reload_pending.replace(true) {
-                        let (weak, pending) = (Rc::downgrade(&this), reload_pending.clone());
+                    if folded.replace(folded.get() + 1) == 0 {
+                        let (weak, folded) = (Rc::downgrade(&this), folded.clone());
                         // At the default priority, not an idle one: GTK redraws
                         // (a spinner's animation) outrank idle sources, and a
                         // reload put off behind them never ran.
                         glib::spawn_future_local(async move {
-                            pending.set(false);
+                            let count = folded.replace(0);
                             if let Some(this) = weak.upgrade() {
-                                this.reload_account();
+                                this.reload_account(count);
                             }
                         });
                     }
@@ -833,11 +834,24 @@ impl AppWindow {
 
     /// Everything read again. For the RocketVibe server this is how any change
     /// shows: the page reloads, and pending links, notifications to follow and
-    /// withdrawn notifications are looked at again.
-    fn reload_account(self: &Rc<Self>) {
+    /// withdrawn notifications are looked at again. `folded` counts the
+    /// reloads this one stands for.
+    ///
+    /// Measured with `G_MESSAGES_DEBUG=rocket-vibe-reload`: each RocketVibe
+    /// reload writes its time to standard error (`rocket-vibe.log` on Windows),
+    /// to tell whether reloading everything costs enough to warrant finer changes.
+    fn reload_account(self: &Rc<Self>, folded: u32) {
         match self.chat.chat() {
             Some(Chat::Native(session)) => {
+                let started = std::time::Instant::now();
                 self.chat.on_native_change();
+                let (encrypted, rooms) = self.chat.reload_context();
+                glib::g_info!(
+                    "rocket-vibe-reload",
+                    "native reload: {:.1} ms for {folded} change(s), open room {}, {rooms} rooms",
+                    started.elapsed().as_secs_f64() * 1000.0,
+                    if encrypted { "encrypted" } else { "plain or none" }
+                );
                 self.follow_link(false);
                 self.follow_notification(false);
                 if let Some(notifier) = self.notifier.borrow().as_ref() {
@@ -855,7 +869,7 @@ impl AppWindow {
     fn on_event(self: &Rc<Self>, event: ChatEvent) -> bool {
         match event {
             ChatEvent::Changed(change) => self.chat.on_change(&change),
-            ChatEvent::Reload => self.reload_account(),
+            ChatEvent::Reload => self.reload_account(1),
             ChatEvent::Incoming(incoming) => self.notify(&incoming),
             ChatEvent::Session(SessionEvent::Connection(c)) => self.chat.set_connection(c),
             ChatEvent::Session(SessionEvent::Typing(rid)) => self.chat.on_typing(&rid),

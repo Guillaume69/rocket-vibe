@@ -76,6 +76,11 @@ pub struct Message {
     /// A thread root's followers (`replies`), by id, comma-separated: the
     /// author and every replier are added by the server, anyone may follow.
     pub thread_followers: Option<String>,
+    /// A `discussion-created` message's discussion room (`drid`), how many
+    /// messages it holds (`dcount`) and its last message time (`dlm`).
+    pub discussion_id: Option<String>,
+    pub discussion_count: i64,
+    pub discussion_last: Option<i64>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -182,6 +187,9 @@ pub fn to_message(raw: &Value) -> Option<Message> {
             .and_then(Value::as_array)
             .map(|users| users.iter().filter_map(|u| string(Some(u))).collect::<Vec<_>>().join(","))
             .filter(|ids| !ids.is_empty()),
+        discussion_id: string(raw.get("drid")),
+        discussion_count: integer(raw.get("dcount")),
+        discussion_last: raw.get("dlm").and_then(to_epoch),
         updated_at: raw.get("_updatedAt").and_then(to_epoch).unwrap_or(ts),
         system_type,
     })
@@ -346,6 +354,17 @@ mod tests {
             to_message(&json!({"_id": "m", "rid": "r", "ts": {"$date": 1}, "u": {"_id": "u"}, "replies": []})).unwrap();
         assert!(bare.thread_followers.is_none());
     }
+    #[test]
+    fn a_discussion_created_message_names_its_room() {
+        let m = to_message(&json!({"_id": "m", "rid": "r", "ts": {"$date": 1}, "u": {"_id": "u"},
+            "t": "discussion-created", "msg": "Plans", "drid": "d1", "dcount": 2, "dlm": {"$date": 7}}))
+        .unwrap();
+        assert_eq!((m.discussion_id.as_deref(), m.discussion_count, m.discussion_last), (Some("d1"), 2, Some(7)));
+        assert_eq!(m.text.as_deref(), Some("Plans"));
+        let plain = to_message(&json!({"_id": "m", "rid": "r", "ts": 1, "u": {"_id": "u"}})).unwrap();
+        assert_eq!((plain.discussion_id, plain.discussion_count, plain.discussion_last), (None, 0, None));
+    }
+
     #[test]
     fn call_id_comes_from_the_block() {
         let m = to_message(&json!({"_id":"m","rid":"r","ts":1,"u":{"_id":"u"},"t":"videoconf",

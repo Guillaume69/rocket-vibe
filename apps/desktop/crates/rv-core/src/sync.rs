@@ -123,6 +123,17 @@ impl SyncEngine {
         self.store.write(|w| ingest_into(w, raw))
     }
 
+    /// A room document a REST answer carried (a discussion created, a
+    /// channel joined): stored at once, ahead of the stream. Rocket.Chat only.
+    pub fn ingest_room(&self, raw: &Value) {
+        if self.mattermost.is_some() {
+            return;
+        }
+        if let Some(r) = to_room(raw, &self.me, &self.me_uid) {
+            self.store.write(|w| w.upsert_room(&r));
+        }
+    }
+
     /// `rooms.get` + `subscriptions.get` with `updatedSince`: every room and
     /// counter in two requests. Without a cursor, the full load.
     pub async fn catch_up_global(&self) -> Result<(), RestError> {

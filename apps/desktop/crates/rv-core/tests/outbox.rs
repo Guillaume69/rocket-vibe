@@ -60,6 +60,37 @@ async fn send_shows_optimistic_row_then_reconciles() {
 }
 
 #[tokio::test]
+async fn a_reply_also_sent_to_the_room_shows_there_and_leaves_with_tshow() {
+    let up = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let flag = up.clone();
+    let f = fixture(move |_| {
+        if flag.load(std::sync::atomic::Ordering::SeqCst) { respond(200, &server_message(ID)) } else { dropped() }
+    })
+    .await;
+    f.outbox.enqueue_reply("r", "hello", Some("root"), true);
+    let shown = f.store.messages("r", 10);
+    assert_eq!(shown.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), [ID], "in the room at once");
+    // Offline: the replay keeps `tshow`.
+    f.outbox.process().await;
+    up.store(true, std::sync::atomic::Ordering::SeqCst);
+    f.outbox.process().await;
+    let sent = f.server.requests().into_iter().rfind(|r| r.path().ends_with("chat.sendMessage")).unwrap();
+    let body: serde_json::Value = serde_json::from_str(&sent.body).unwrap();
+    assert_eq!((body["message"]["tmid"].as_str(), body["message"]["tshow"].as_bool()), (Some("root"), Some(true)));
+    assert_eq!(count(&f.store, "SELECT COUNT(*) FROM outbox"), 0);
+}
+
+#[tokio::test]
+async fn a_thread_reply_stays_out_of_the_room_and_sends_no_tshow() {
+    let f = fixture(|_| respond(200, &server_message(ID))).await;
+    f.outbox.enqueue_reply("r", "hello", Some("root"), false);
+    assert!(f.store.messages("r", 10).is_empty());
+    f.outbox.process().await;
+    let body: serde_json::Value = serde_json::from_str(&f.server.requests()[0].body).unwrap();
+    assert_eq!(body["message"]["tshow"], serde_json::Value::Null);
+}
+
+#[tokio::test]
 async fn refusal_that_was_delivered_is_not_a_failure() {
     let f = fixture(|r| {
         if r.path().ends_with("chat.sendMessage") {

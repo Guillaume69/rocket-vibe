@@ -25,6 +25,8 @@ pub struct OutboxEntry {
     pub text: String,
     pub thread_id: Option<String>,
     pub created_at: i64,
+    /// A thread reply also sent to the room (`tshow`): a replay keeps it.
+    pub shown: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -106,6 +108,11 @@ pub struct MessageRow {
     /// A form a workflow asks (RocketVibe, RFC 0004), as JSON: read it with
     /// `native::workflows::row_form`. Always None on Rocket.Chat.
     pub form: Option<String>,
+    /// A `discussion-created` message's discussion (`drid`), its message
+    /// count (`dcount`) and last message time (`dlm`). Rocket.Chat only.
+    pub discussion_id: Option<String>,
+    pub discussion_count: i64,
+    pub discussion_last: Option<i64>,
 }
 
 impl From<&Message> for MessageRow {
@@ -134,6 +141,9 @@ impl From<&Message> for MessageRow {
             thread_followers: m.thread_followers.clone(),
             author_bot: false,
             form: None,
+            discussion_id: m.discussion_id.clone(),
+            discussion_count: m.discussion_count,
+            discussion_last: m.discussion_last,
         }
     }
 }
@@ -240,7 +250,35 @@ const MIGRATIONS: &[&str] = &[
     "ALTER TABLE subscriptions ADD COLUMN notifications TEXT;
      ALTER TABLE subscriptions ADD COLUMN notifications_off INTEGER NOT NULL DEFAULT 0;
      DELETE FROM cursors WHERE stream = 'subscriptions'",
+    "ALTER TABLE outbox ADD COLUMN shown INTEGER NOT NULL DEFAULT 0",
+    // A discussion card's room; the stored `discussion-created` messages get
+    // theirs from the next history page that carries them again.
+    "ALTER TABLE messages ADD COLUMN discussion_id TEXT;
+     ALTER TABLE messages ADD COLUMN discussion_count INTEGER NOT NULL DEFAULT 0;
+     ALTER TABLE messages ADD COLUMN discussion_last INTEGER",
 ];
+
+/// How many messages a search across rooms answers at most.
+pub const SEARCH_LIMIT: i64 = 60;
+
+/// `term` as a `LIKE` pattern (`ESCAPE '\'`): `%`, `_` and the backslash
+/// itself taken literally, anywhere in the text.
+pub fn search_pattern(term: &str) -> String {
+    let mut pattern = String::from("%");
+    for c in term.trim().chars() {
+        if matches!(c, '%' | '_' | '\\') {
+            pattern.push('\\');
+        }
+        pattern.push(c);
+    }
+    pattern.push('%');
+    pattern
+}
+
+/// What a search across rooms reads: ordinary messages, and encrypted ones
+/// whose words the store holds (a sealed one has none). `LIKE` ignores ASCII
+/// case only.
+const SEARCHED: &str = r"m.text LIKE ?1 ESCAPE '\' AND (m.system_type IS NULL OR m.system_type = 'e2e')";
 
 /// A room's shown name (rooms aliased `r`): a two-person DM under its peer's
 /// real name when the Rocket.Chat server shows real names
@@ -576,7 +614,7 @@ impl Store {
     pub fn pending_outbox(&self) -> Vec<OutboxEntry> {
         self.read(|c| {
             let mut q = c.prepare(
-                "SELECT id, rid, text, thread_id, CAST(created_at AS INTEGER) FROM outbox WHERE status = 'pending' ORDER BY created_at, id",
+                "SELECT id, rid, text, thread_id, CAST(created_at AS INTEGER), shown FROM outbox WHERE status = 'pending' ORDER BY created_at, id",
             )?;
             q.query_map([], |r| {
                 Ok(OutboxEntry {
@@ -585,6 +623,7 @@ impl Store {
                     text: r.get(2)?,
                     thread_id: r.get(3)?,
                     created_at: r.get(4)?,
+                    shown: r.get(5)?,
                 })
             })?
             .collect()
@@ -662,11 +701,40 @@ impl Store {
         self.message_rows("(m.id = ?1 OR m.thread_id = ?1)", root_id, i64::MAX)
     }
 
+    /// The stored messages of every room whose words contain `term`, newest
+    /// first, `limit` at most: ordinary ones and encrypted ones whose words
+    /// the store holds (mine still in the outbox). Those it holds sealed are
+    /// [`Store::sealed_messages`], which only the session can open.
+    pub fn search_messages(&self, term: &str, limit: i64) -> Vec<MessageRow> {
+        if term.trim().is_empty() {
+            return Vec::new();
+        }
+        let mut rows = self.message_rows(SEARCHED, &search_pattern(term), limit);
+        rows.reverse();
+        rows
+    }
+
+    /// Every encrypted message stored without its words, oldest first.
+    pub fn sealed_messages(&self) -> Vec<MessageRow> {
+        self.message_rows("m.system_type = ?1 AND m.text IS NULL AND m.encrypted_raw IS NOT NULL", "e2e", i64::MAX)
+    }
+
+    /// Whether the room is in my list (an open subscription).
+    pub fn listed(&self, rid: &str) -> bool {
+        self.read(|c| {
+            c.query_row("SELECT 1 FROM subscriptions WHERE rid = ?1 AND open = 1", [rid], |_| Ok(())).optional()
+        })
+        .ok()
+        .flatten()
+        .is_some()
+    }
+
     fn message_rows(&self, filter: &str, key: &str, limit: i64) -> Vec<MessageRow> {
         let sql = format!(
             "SELECT m.id, m.ts, m.text, m.author_name, m.author_id, m.system_type, m.edited_at IS NOT NULL,
                     m.attachments, m.thread_count, o.status, m.md, m.reactions, m.thread_id, m.urls, m.call_id, m.encrypted_raw, m.rid,
-                    m.pinned, m.starred, m.thread_last, m.thread_followers
+                    m.pinned, m.starred, m.thread_last, m.thread_followers,
+                    m.discussion_id, m.discussion_count, m.discussion_last
              FROM messages m LEFT JOIN outbox o ON o.id = m.id
              WHERE {filter}
              ORDER BY m.ts DESC, m.id DESC LIMIT ?2"
@@ -699,6 +767,9 @@ impl Store {
                         thread_followers: r.get(20)?,
                         author_bot: false,
                         form: None,
+                        discussion_id: r.get(21)?,
+                        discussion_count: r.get(22)?,
+                        discussion_last: r.get(23)?,
                     })
                 })?
                 .collect()
@@ -797,8 +868,9 @@ impl Writer<'_> {
             .execute(
                 "INSERT INTO messages (id, rid, text, ts, author_id, author_name, system_type, thread_id,
                    thread_count, thread_last, thread_shown, edited_at, attachments, reactions, encrypted_raw, updated_at, md, urls, call_id,
-                   pinned, starred, thread_followers)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)
+                   pinned, starred, thread_followers, discussion_id, discussion_count, discussion_last)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22,
+                   ?23, ?24, ?25)
                  ON CONFLICT(id) DO UPDATE SET
                    text = CASE WHEN excluded.system_type = 'e2e' THEN COALESCE(excluded.text, messages.text) ELSE excluded.text END,
                    ts = excluded.ts,
@@ -818,13 +890,16 @@ impl Writer<'_> {
                    call_id = excluded.call_id,
                    pinned = excluded.pinned,
                    starred = excluded.starred,
-                   thread_followers = excluded.thread_followers
+                   thread_followers = excluded.thread_followers,
+                   discussion_id = excluded.discussion_id,
+                   discussion_count = excluded.discussion_count,
+                   discussion_last = excluded.discussion_last
                  WHERE excluded.updated_at >= messages.updated_at",
                 params![
                     m.id, m.rid, m.text, m.ts, m.author_id, m.author_name, m.system_type, m.thread_id,
                     m.thread_count, m.thread_last, m.thread_shown, m.edited_at, m.attachments, m.reactions,
                     m.encrypted_raw, m.updated_at, m.md, m.urls, m.call_id, m.pinned, m.starred,
-                    m.thread_followers
+                    m.thread_followers, m.discussion_id, m.discussion_count, m.discussion_last
                 ],
             )
             .or_note(&mut self.failed, "upsert message");
@@ -1092,10 +1167,15 @@ impl Writer<'_> {
     }
 
     pub fn insert_outbox(&mut self, id: &str, rid: &str, text: &str, thread_id: Option<&str>) {
+        self.insert_reply(id, rid, text, thread_id, false);
+    }
+
+    /// `insert_outbox`, with `shown` for a thread reply also sent to the room (`tshow`).
+    pub fn insert_reply(&mut self, id: &str, rid: &str, text: &str, thread_id: Option<&str>, shown: bool) {
         self.conn
             .execute(
-                "INSERT OR IGNORE INTO outbox (id, rid, text, thread_id) VALUES (?1, ?2, ?3, ?4)",
-                params![id, rid, text, thread_id],
+                "INSERT OR IGNORE INTO outbox (id, rid, text, thread_id, shown) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![id, rid, text, thread_id, shown && thread_id.is_some()],
             )
             .or_note(&mut self.failed, "insert outbox");
         self.touch_messages(rid);
@@ -1466,6 +1546,75 @@ mod tests {
             w.delete_outbox("b");
         });
         assert!(store.pending_outbox().is_empty());
+    }
+
+    #[test]
+    fn a_reply_also_sent_to_the_room_keeps_it_in_the_outbox() {
+        let store = Store::in_memory().unwrap();
+        store.write(|w| {
+            w.insert_reply("a", "r", "shown", Some("root"), true);
+            w.insert_reply("b", "r", "hidden", Some("root"), false);
+            w.insert_reply("c", "r", "no thread", None, true);
+        });
+        let shown: Vec<(String, bool)> = store.pending_outbox().into_iter().map(|e| (e.id, e.shown)).collect();
+        assert_eq!(shown, [("a".into(), true), ("b".into(), false), ("c".into(), false)]);
+    }
+
+    #[test]
+    fn search_across_rooms_reads_words_newest_first() {
+        let store = Store::in_memory().unwrap();
+        store.write(|w| {
+            let at = |id: &str, text: Option<&str>, ts: i64, rid: &str| Message { ts, ..message(id, text, 1, rid) };
+            w.upsert_message(&at("old", Some("Hello world"), 10, "r"));
+            w.upsert_message(&at("new", Some("hello again"), 30, "s"));
+            w.upsert_message(&at("reply", Some("a HELLO in a thread"), 20, "r"));
+            w.upsert_message(&at("other", Some("goodbye"), 40, "r"));
+            w.upsert_message(&Message { system_type: Some("uj".into()), ..at("joined", Some("hello"), 50, "r") });
+            // Sealed: its words are not stored. Mine still in the outbox: they are.
+            w.upsert_message(&Message {
+                system_type: Some("e2e".into()),
+                encrypted_raw: Some("{}".into()),
+                ..at("sealed", None, 60, "p")
+            });
+            w.upsert_message(&Message { system_type: Some("e2e".into()), ..at("mine", Some("hello secret"), 70, "p") });
+            w.upsert_message(&at("percent", Some("100% sure_thing \\o/"), 80, "r"));
+            w.upsert_message(&at("decoy", Some("1000 sureXthing \\xo/"), 90, "r"));
+        });
+        let ids =
+            |term: &str, limit: i64| store.search_messages(term, limit).into_iter().map(|m| m.id).collect::<Vec<_>>();
+        assert_eq!(ids("hello", 60), ["mine", "new", "reply", "old"], "ASCII case ignored, system lines left out");
+        assert_eq!(ids("hello", 2), ["mine", "new"]);
+        assert_eq!(ids("0%", 60), ["percent"], "% is literal");
+        assert_eq!(ids("e_t", 60), ["percent"], "_ is literal");
+        assert_eq!(ids("\\o", 60), ["percent"], "the backslash is literal");
+        assert!(ids("  ", 60).is_empty());
+        assert_eq!(store.sealed_messages().into_iter().map(|m| m.id).collect::<Vec<_>>(), ["sealed"]);
+        assert_eq!(search_pattern(" a%b_c\\ "), "%a\\%b\\_c\\\\%");
+    }
+
+    #[test]
+    fn a_discussion_card_keeps_its_room() {
+        let store = Store::in_memory().unwrap();
+        let created = Message {
+            system_type: Some("discussion-created".into()),
+            discussion_id: Some("d1".into()),
+            discussion_count: 3,
+            discussion_last: Some(99),
+            ..message("m", Some("Plans"), 1, "r")
+        };
+        store.write(|w| w.upsert_message(&created));
+        let row = store.messages("r", 10).pop().unwrap();
+        assert_eq!(
+            (row.discussion_id.as_deref(), row.discussion_count, row.discussion_last),
+            (Some("d1"), 3, Some(99))
+        );
+        store.write(|w| w.upsert_message(&Message { discussion_count: 4, updated_at: 2, ..created.clone() }));
+        assert_eq!(store.messages("r", 10)[0].discussion_count, 4);
+        assert!(!store.listed("d1"));
+        store.write(|w| {
+            w.upsert_subscription(&Subscription { rid: "d1".into(), open: true, updated_at: 1, ..Default::default() })
+        });
+        assert!(store.listed("d1"));
     }
 
     #[test]

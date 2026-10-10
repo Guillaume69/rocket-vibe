@@ -69,6 +69,13 @@ impl Outbox {
 
     /// Shows the message at once and persists the intent. Call `process` to send.
     pub fn enqueue(&self, rid: &str, text: &str, thread_id: Option<&str>) -> String {
+        self.enqueue_reply(rid, text, thread_id, false)
+    }
+
+    /// `enqueue`, a thread reply `shown` in the room too (`tshow`): it shows
+    /// there at once, and the row keeps it for a replay. Rocket.Chat only.
+    pub fn enqueue_reply(&self, rid: &str, text: &str, thread_id: Option<&str>, shown: bool) -> String {
+        let shown = shown && thread_id.is_some();
         let id = (self.id_generator.lock().unwrap())();
         let message = Message {
             id: id.clone(),
@@ -79,12 +86,13 @@ impl Outbox {
             author_name: Some(self.me_name.clone()),
             system_type: self.store.room_encrypted(rid).then(|| crate::normalize::ENCRYPTED_TYPE.to_owned()),
             thread_id: thread_id.map(str::to_owned),
+            thread_shown: shown,
             updated_at: 0,
             ..Default::default()
         };
         self.store.write(|w| {
             w.upsert_message(&message);
-            w.insert_outbox(&id, rid, text, thread_id);
+            w.insert_reply(&id, rid, text, thread_id, shown);
         });
         id
     }
@@ -147,6 +155,10 @@ impl Outbox {
         let mut message = json!({"_id": entry.id, "rid": entry.rid});
         if let Some(tmid) = &entry.thread_id {
             message["tmid"] = json!(tmid);
+            // Probed on 8.5.1: accepted beside `tmid` and echoed.
+            if entry.shown {
+                message["tshow"] = json!(true);
+            }
         }
         if !self.store.room_encrypted(&entry.rid) {
             message["msg"] = json!(entry.text);

@@ -87,6 +87,17 @@ pub enum SessionEvent {
     },
 }
 
+/// How a discussion's card reaches its room ([`Session::open_discussion`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiscussionAccess {
+    /// In my list already: open it.
+    Listed,
+    /// A public one, joined just now and listed: open it.
+    Joined,
+    /// A private one I am not in: for its members only.
+    MembersOnly,
+}
+
 pub fn normalize_server(input: &str) -> Option<Url> {
     let input = input.trim().trim_end_matches('/');
     let with_scheme = if input.contains("://") { input.to_owned() } else { format!("https://{input}") };
@@ -1727,12 +1738,138 @@ impl Session {
 
     /// Sends into a thread when `thread_id` is set.
     pub async fn send_in(&self, rid: &str, text: &str, thread_id: Option<&str>) {
+        self.send_reply(rid, text, thread_id, false).await;
+    }
+
+    /// `send_in`, a thread reply also sent to the room when `shown` (`tshow`,
+    /// only where [`Session::also_in_room_available`]).
+    pub async fn send_reply(&self, rid: &str, text: &str, thread_id: Option<&str>, shown: bool) {
         let text = crate::compose::fenced(text.trim());
         if text.is_empty() {
             return;
         }
-        self.outbox.enqueue(rid, &text, thread_id);
+        let shown = shown && self.also_in_room_available();
+        self.outbox.enqueue_reply(rid, &text, thread_id, shown);
         self.outbox.process().await;
+    }
+
+    /// Whether a thread reply can also be sent to the room (`tshow`):
+    /// Rocket.Chat only.
+    pub fn also_in_room_available(&self) -> bool {
+        match self.backend() {
+            Backend::RocketChat => true,
+            Backend::Mattermost(_) => false,
+        }
+    }
+
+    /// The stored messages of every room whose words contain `term`
+    /// (ignoring ASCII case), newest first, [`store::SEARCH_LIMIT`] at most,
+    /// opened as the rooms show them. Encrypted ones count once unlocked:
+    /// their words are never stored, so they are read here.
+    ///
+    /// [`store::SEARCH_LIMIT`]: crate::store::SEARCH_LIMIT
+    pub fn search_local(&self, term: &str) -> Vec<crate::store::MessageRow> {
+        let term = term.trim();
+        if term.is_empty() {
+            return Vec::new();
+        }
+        let limit = crate::store::SEARCH_LIMIT;
+        let mut found: Vec<crate::store::MessageRow> =
+            self.store.search_messages(term, limit).into_iter().map(|row| self.open_row(row)).collect();
+        if self.e2e_unlocked() {
+            let needle = term.to_ascii_lowercase();
+            found.extend(
+                self.store
+                    .sealed_messages()
+                    .into_iter()
+                    .map(|row| self.open_row(row))
+                    .filter(|row| row.text.as_deref().is_some_and(|text| text.to_ascii_lowercase().contains(&needle))),
+            );
+        }
+        found.sort_by(|a, b| b.ts.cmp(&a.ts).then_with(|| b.id.cmp(&a.id)));
+        found.dedup_by(|a, b| a.id == b.id);
+        found.truncate(limit as usize);
+        found
+    }
+
+    /// Whether rooms have invite links and discussions here: Rocket.Chat only.
+    pub fn discussions_available(&self) -> bool {
+        match self.backend() {
+            Backend::RocketChat => true,
+            Backend::Mattermost(_) => false,
+        }
+    }
+
+    /// Whether I may share an invite link to the room: a channel or private
+    /// group of a Rocket.Chat server, where my roles (global and in the room)
+    /// grant `create-invite-links`. False when that could not be asked.
+    pub async fn can_invite(&self, rid: &str) -> bool {
+        if !self.discussions_available() || !matches!(self.store.room_kind(rid).as_deref(), Some("c" | "p")) {
+            return false;
+        }
+        self.permissions(rid).await.is_some_and(|granted| granted.iter().any(|p| p == actions::INVITE_PERMISSION))
+    }
+
+    /// The room's invite link to share, valid 7 days for any number of uses:
+    /// the direct one on `Site_Url` (else our base URL).
+    pub async fn invite_link(&self, rid: &str) -> Result<String, RestError> {
+        if !self.discussions_available() {
+            return Err(RestError::incomplete("invite: not on this server"));
+        }
+        let id = actions::find_or_create_invite(&self.rest, rid).await?;
+        let base = self.settings().await.site_url.clone().unwrap_or_else(|| self.info.base_url.clone());
+        Ok(actions::invite_link(&base, &id))
+    }
+
+    /// Creates a discussion of `prid` named `name`, from the message `pmid`
+    /// when there is one, with a first message `reply`; stored and listed
+    /// before it returns, so it opens at once. Its rid.
+    pub async fn create_discussion(
+        &self,
+        prid: &str,
+        name: &str,
+        pmid: Option<&str>,
+        reply: Option<&str>,
+    ) -> Result<String, RestError> {
+        if !self.discussions_available() {
+            return Err(RestError::incomplete("discussion: not on this server"));
+        }
+        // The server takes an empty name and makes a nameless room.
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(RestError::incomplete("discussion: no name"));
+        }
+        let room = actions::create_discussion(&self.rest, prid, name, pmid, reply).await?;
+        let rid = room.get("_id").and_then(Value::as_str).unwrap_or_default().to_owned();
+        self.sync.ingest_room(&room);
+        self.sync.catch_up_global().await?;
+        Ok(rid)
+    }
+
+    /// Reaches a discussion from its card: listed already, or joined when it
+    /// belongs to a public channel; one of a private group is for its members.
+    pub async fn open_discussion(&self, drid: &str) -> Result<DiscussionAccess, RestError> {
+        if !self.discussions_available() {
+            return Err(RestError::incomplete("discussion: not on this server"));
+        }
+        if self.store.listed(drid) {
+            return Ok(DiscussionAccess::Listed);
+        }
+        let info = match self.rest.get("rooms.info", CallOptions::params([("roomId", drid)])).await {
+            Ok(info) => info,
+            // Refused (not a member, gone): no way in from here.
+            Err(e) if e.status != 0 && e.status != 429 && e.status < 500 => return Ok(DiscussionAccess::MembersOnly),
+            Err(e) => return Err(e),
+        };
+        if info.pointer("/room/t").and_then(Value::as_str) != Some("c") {
+            return Ok(DiscussionAccess::MembersOnly);
+        }
+        let joined = self.rest.post("channels.join", CallOptions::body(json!({"roomId": drid}))).await?;
+        if let Some(room) = joined.get("channel") {
+            self.sync.ingest_room(room);
+        }
+        self.sync.catch_up_global().await?;
+        Ok(DiscussionAccess::Joined)
     }
 
     pub fn shutdown(&self) {

@@ -67,34 +67,38 @@ pub fn hidden() -> bool {
     hidden_file().exists()
 }
 
-/// A server's icon decoded at most 88 pixels wide (twice the tile), whatever
-/// size its file declares: a server's file never decodes at full size here.
+/// A server's icon as a square decoded at most 88 pixels wide (twice the
+/// tile), whatever size its file declares: a server's file never decodes at
+/// full size here, and a non-square one is center-cropped like a tile covers.
 pub(crate) fn icon_texture(bytes: &[u8]) -> Option<gtk::gdk::Texture> {
     use gtk::gdk_pixbuf::PixbufLoader;
     const SIDE: i32 = 88;
     let loader = PixbufLoader::new();
     loader.connect_size_prepared(|loader, width, height| {
-        let scale = (f64::from(SIDE) / f64::from(width.max(height).max(1))).min(1.0);
+        let scale = (f64::from(SIDE) / f64::from(width.min(height).max(1))).min(1.0);
         loader.set_size(((f64::from(width) * scale) as i32).max(1), ((f64::from(height) * scale) as i32).max(1));
     });
     loader.write(bytes).ok()?;
     loader.close().ok()?;
     let pixbuf = loader.pixbuf()?;
+    let edge = pixbuf.width().min(pixbuf.height());
+    let square = pixbuf.new_subpixbuf((pixbuf.width() - edge) / 2, (pixbuf.height() - edge) / 2, edge, edge);
     #[allow(deprecated)]
-    Some(gtk::gdk::Texture::for_pixbuf(&pixbuf))
+    Some(gtk::gdk::Texture::for_pixbuf(&square))
 }
 
-/// A server's icon in a tile's place and size.
-fn icon_picture(texture: &gtk::gdk::Texture) -> gtk::Widget {
-    gtk::Picture::builder()
-        .paintable(texture)
-        .content_fit(gtk::ContentFit::Cover)
-        .width_request(44)
-        .height_request(44)
+/// A server's icon at exactly a tile's size. A `gtk::Image` measures its
+/// `pixel_size`; a `gtk::Picture` measures its texture, twice the tile.
+pub(crate) fn icon_image(texture: Option<&gtk::gdk::Texture>) -> gtk::Image {
+    let image = gtk::Image::builder()
+        .pixel_size(44)
+        .halign(gtk::Align::Center)
+        .valign(gtk::Align::Center)
         .overflow(gtk::Overflow::Hidden)
         .css_classes(["rail-icon"])
-        .build()
-        .upcast()
+        .build();
+    image.set_paintable(texture);
+    image
 }
 
 /// What the rail shows of a server: its host, without `www.`.
@@ -201,7 +205,7 @@ impl Rail {
             let overlay = gtk::Overlay::builder().child(&tile).build();
             overlay.add_overlay(&dot);
             if let Some(texture) = self.icons.borrow().get(&key) {
-                overlay.set_child(Some(&icon_picture(texture)));
+                overlay.set_child(Some(&icon_image(Some(texture))));
             }
             self.load_icon(info, &key, &overlay, &tile);
             self.slots.borrow_mut().push((info.clone(), key.clone(), overlay.downgrade(), tile.clone()));
@@ -270,7 +274,7 @@ impl Rail {
             match icon {
                 Icon::Image(bytes) => {
                     if let Some(texture) = icon_texture(&bytes) {
-                        overlay.set_child(Some(&icon_picture(&texture)));
+                        overlay.set_child(Some(&icon_image(Some(&texture))));
                         this.icons.borrow_mut().insert(key, texture);
                     }
                 }
@@ -340,6 +344,27 @@ impl Rail {
                     dot.set_visible(unread);
                 }
             });
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "requires a GTK display; run under Xvfb"]
+    fn an_icon_is_exactly_a_tile_whatever_its_file() {
+        gtk::init().unwrap();
+        let wide = gtk::gdk_pixbuf::Pixbuf::new(gtk::gdk_pixbuf::Colorspace::Rgb, true, 8, 300, 192).unwrap();
+        wide.fill(0xff5fa2ff);
+        let png = wide.save_to_bufferv("png", &[]).unwrap();
+        let texture = icon_texture(&png).unwrap();
+        assert_eq!((texture.width(), texture.height()), (88, 88));
+        let image = icon_image(Some(&texture));
+        for orientation in [gtk::Orientation::Horizontal, gtk::Orientation::Vertical] {
+            let (minimum, natural, _, _) = image.measure(orientation, -1);
+            assert_eq!((minimum, natural), (44, 44));
         }
     }
 }

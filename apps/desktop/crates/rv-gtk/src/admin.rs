@@ -518,14 +518,8 @@ fn icon_card(screen: &Screen, cards: &Cards) {
         .css_classes(["admin-icon"])
         .build();
     let row = adw::ActionRow::builder().title(t("admin.icon_none")).use_markup(false).build();
-    let preview = gtk::Picture::builder()
-        .content_fit(gtk::ContentFit::Cover)
-        .width_request(44)
-        .height_request(44)
-        .overflow(gtk::Overflow::Hidden)
-        .css_classes(["rail-icon"])
-        .visible(false)
-        .build();
+    let preview = crate::rail::icon_image(None);
+    preview.set_visible(false);
     row.add_prefix(&preview);
     let change = gtk::Button::builder().label(t("admin.icon_change")).valign(gtk::Align::Center).build();
     let remove = gtk::Button::builder()

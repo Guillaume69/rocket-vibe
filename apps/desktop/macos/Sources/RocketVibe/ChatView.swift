@@ -221,6 +221,11 @@ struct RoomListView: View {
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
+                    Button { app.setRailHidden(!app.railHidden) } label: {
+                        Image(systemName: "sidebar.left").foregroundStyle(app.railHidden ? Vibe.muted : Vibe.mint)
+                    }
+                    .buttonStyle(.plain)
+                    .help(L(app.railHidden ? "rail.show" : "rail.hide"))
                     Wordmark(size: 21)
                     Spacer()
                     if app.supportsLocalSearch {
@@ -497,6 +502,72 @@ struct PresenceDot: View {
     }
 }
 
+/// My avatar opens the four statuses and carries its own presence badge.
+struct AccountAvatar: View {
+    @Environment(AppModel.self) var app
+    @State private var status: Presence?
+    @State private var busy = false
+    var body: some View {
+        Menu {
+            ForEach(["online", "away", "busy", "offline"], id: \.self) { chosen in
+                Button(L("presence.\(chosen)")) {
+                    Task {
+                        guard !busy else { return }
+                        busy = true
+                        let model = MyProfileModel(app: app)
+                        await model.load()
+                        if model.editable, var edited = model.edited {
+                            edited.status = chosen
+                            model.edited = edited
+                            await model.save()
+                            status = presence(model.saved?.status)
+                        }
+                        app.notice = model.message ?? (model.editable ? nil : L("profile.pending"))
+                        model.close()
+                        busy = false
+                    }
+                }
+            }
+        } label: {
+            if let account = app.account {
+                Avatar(path: app.media?.avatar(user: account.username), name: account.username, size: 26)
+                    .overlay(alignment: .bottomTrailing) {
+                        if let status { PresenceDot(presence: status).overlay(Circle().stroke(Vibe.deep, lineWidth: 2)) }
+                    }
+            }
+        }
+        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+        .disabled(busy).help(L("settings.presence"))
+        .task(id: app.sessionId) {
+            status = nil
+            var revision = ""
+            while !Task.isCancelled {
+                if let legacy = app.provider?.legacy, let account = app.account {
+                    status = legacy.presenceOf(uid: account.userId)
+                } else if let native = app.native {
+                    let version = native.profileVersion()
+                    if revision != version {
+                        let model = MyProfileModel(app: app)
+                        await model.load()
+                        if model.isCurrent { status = presence(model.saved?.status); revision = version }
+                        model.close()
+                    }
+                }
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            }
+        }
+    }
+    private func presence(_ value: String?) -> Presence? {
+        switch value {
+        case "online": return .online
+        case "away": return .away
+        case "busy": return .busy
+        case "offline": return .offline
+        default: return nil
+        }
+    }
+}
+
 /// Me and the connection; the block opens the account menu: settings, the
 /// server administration for an administrator, sign out.
 struct AccountBar: View {
@@ -504,6 +575,7 @@ struct AccountBar: View {
 
     var body: some View {
         HStack(spacing: 8) {
+            AccountAvatar()
             Menu {
                 Button { app.openSettings() } label: { Label(L("settings.title"), systemImage: "gearshape") }
                 if app.administrator {
@@ -516,7 +588,6 @@ struct AccountBar: View {
             } label: {
                 HStack(spacing: 8) {
                     if let account = app.account {
-                        Avatar(path: app.media?.avatar(user: account.username), name: account.username, size: 26)
                         VStack(alignment: .leading, spacing: 0) {
                             Text(account.username).font(.vibe(13.5, .heavy))
                             Text(URL(string: account.baseUrl)?.host() ?? account.baseUrl)

@@ -30,7 +30,8 @@
     "test:quiet": "node tests/quiet.mjs",
     "test:receipts": "node tests/receipts.mjs",
     "format": "prettier --write src scripts tests *.js *.json index.html",
-    "format:check": "prettier --check src scripts tests *.js *.json index.html"
+    "format:check": "prettier --check src scripts tests *.js *.json index.html",
+    "test:navigation": "node tests/navigation.mjs"
   },
   "devDependencies": {
     "@types/react": "19.3.0",

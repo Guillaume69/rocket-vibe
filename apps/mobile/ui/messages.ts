@@ -1121,6 +1121,9 @@ const fr = {
 
   // ── Home (conversation list)
   'home.settings': 'Paramètres',
+  'home.showServers': 'Afficher les serveurs',
+  'home.hideServers': 'Masquer les serveurs',
+  'home.changeStatus': 'Changer mon statut',
   'rail.add': 'Ajouter un serveur',
   'home.sectionUnread': 'Non lus',
   'home.sectionFavorites': 'Favoris',
@@ -2550,6 +2553,9 @@ const en: Record<TranslationKey, string> = {
   'sys.unknownWithParam': '(system action “{type}”: {p})',
 
   'home.settings': 'Settings',
+  'home.showServers': 'Show servers',
+  'home.hideServers': 'Hide servers',
+  'home.changeStatus': 'Change my status',
   'rail.add': 'Add a server',
   'home.sectionUnread': 'Unread',
   'home.sectionFavorites': 'Favorites',

@@ -347,7 +347,10 @@ test("superseded initial and recovery snapshots cannot replace newer model state
         if (path === "/.well-known/rocketvibe")
           return { instance_id: "instance", data_epoch: "epoch" };
         if (path.startsWith("/api/v1/sync/changes")) throw new ApiError(409);
-        return { preferences: { desktop_notifications: "all" } };
+        return {
+          profile: { revision: "own-revision", status: "online" },
+          preferences: { desktop_notifications: "all" },
+        };
       },
       snapshot: async () => {
         started.resolve(undefined);
@@ -396,9 +399,17 @@ test("a delayed profile response from another generation cannot change preferenc
   const work = reconnect.call(target);
   await started.promise;
   target.generation++;
-  profile.resolve({ preferences: { desktop_notifications: "all" } });
+  profile.resolve({
+    profile: { revision: "late-own-revision", status: "busy" },
+    preferences: { desktop_notifications: "all" },
+  });
   await work;
   assert.equal(target.preferences.desktop_notifications, "nothing");
+  assert.equal(
+    target.ownStatus,
+    undefined,
+    "a stale own profile cannot change the avatar activity badge",
+  );
 });
 test("private assets register in-flight access and discard late cache writes without creating a URL", async () => {
   for (const lateCache of [false, true]) {

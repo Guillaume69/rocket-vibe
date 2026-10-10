@@ -355,6 +355,7 @@
     "apps/mobile/app/answer-form.tsx",
     "apps/mobile/app/app-update.tsx",
     "apps/mobile/app/attach.tsx",
+    "apps/mobile/app/call-ring/[callId].tsx",
     "apps/mobile/app/call/[callId].tsx",
     "apps/mobile/app/forward.tsx",
     "apps/mobile/app/index.tsx",
@@ -4142,27 +4143,51 @@
     },
     {
       "file": "apps/mobile/plugins/with-fcm-deeplink.js",
-      "line": 1075,
+      "line": 1080,
       "kind": "url",
       "surface": "/api/v1/chat.sendMessage"
     },
     {
       "file": "apps/mobile/plugins/with-fcm-deeplink.js",
-      "line": 1088,
+      "line": 1093,
       "kind": "url",
       "surface": "/api/v1/chat.sendMessage"
     },
     {
       "file": "apps/mobile/plugins/with-fcm-deeplink.js",
-      "line": 1182,
+      "line": 1187,
       "kind": "url",
       "surface": "/api/v1/push.get"
     },
     {
       "file": "apps/mobile/plugins/with-fcm-deeplink.js",
-      "line": 1200,
+      "line": 1205,
       "kind": "url",
       "surface": "/api/v1/push.get"
+    },
+    {
+      "file": "apps/mobile/plugins/with-fcm-deeplink.js",
+      "line": 1295,
+      "kind": "url",
+      "surface": "/api/v1/chat.getMessage"
+    },
+    {
+      "file": "apps/mobile/plugins/with-fcm-deeplink.js",
+      "line": 1303,
+      "kind": "url",
+      "surface": "/api/v1/rooms.info"
+    },
+    {
+      "file": "apps/mobile/plugins/with-fcm-deeplink.js",
+      "line": 1305,
+      "kind": "url",
+      "surface": "/api/v1/video-conference.info"
+    },
+    {
+      "file": "apps/mobile/plugins/with-fcm-deeplink.js",
+      "line": 1350,
+      "kind": "url",
+      "surface": "/api/v1/video-conference.cancel"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",

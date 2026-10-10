@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-606 production files scanned; 708 occurrences.
+607 production files scanned; 712 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -596,10 +596,14 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/plugins/native-push-source.js:178](../../apps/mobile/plugins/native-push-source.js#L178) | url | /api/v1/voice/rings |
 | [apps/mobile/plugins/native-push-source.js:221](../../apps/mobile/plugins/native-push-source.js#L221) | url | /api/v1/push/notifications |
 | [apps/mobile/plugins/native-push-source.js:280](../../apps/mobile/plugins/native-push-source.js#L280) | url | /api/v1/rooms |
-| [apps/mobile/plugins/with-fcm-deeplink.js:1075](../../apps/mobile/plugins/with-fcm-deeplink.js#L1075) | url | /api/v1/chat.sendMessage |
-| [apps/mobile/plugins/with-fcm-deeplink.js:1088](../../apps/mobile/plugins/with-fcm-deeplink.js#L1088) | url | /api/v1/chat.sendMessage |
-| [apps/mobile/plugins/with-fcm-deeplink.js:1182](../../apps/mobile/plugins/with-fcm-deeplink.js#L1182) | url | /api/v1/push.get |
-| [apps/mobile/plugins/with-fcm-deeplink.js:1200](../../apps/mobile/plugins/with-fcm-deeplink.js#L1200) | url | /api/v1/push.get |
+| [apps/mobile/plugins/with-fcm-deeplink.js:1080](../../apps/mobile/plugins/with-fcm-deeplink.js#L1080) | url | /api/v1/chat.sendMessage |
+| [apps/mobile/plugins/with-fcm-deeplink.js:1093](../../apps/mobile/plugins/with-fcm-deeplink.js#L1093) | url | /api/v1/chat.sendMessage |
+| [apps/mobile/plugins/with-fcm-deeplink.js:1187](../../apps/mobile/plugins/with-fcm-deeplink.js#L1187) | url | /api/v1/push.get |
+| [apps/mobile/plugins/with-fcm-deeplink.js:1205](../../apps/mobile/plugins/with-fcm-deeplink.js#L1205) | url | /api/v1/push.get |
+| [apps/mobile/plugins/with-fcm-deeplink.js:1295](../../apps/mobile/plugins/with-fcm-deeplink.js#L1295) | url | /api/v1/chat.getMessage |
+| [apps/mobile/plugins/with-fcm-deeplink.js:1303](../../apps/mobile/plugins/with-fcm-deeplink.js#L1303) | url | /api/v1/rooms.info |
+| [apps/mobile/plugins/with-fcm-deeplink.js:1305](../../apps/mobile/plugins/with-fcm-deeplink.js#L1305) | url | /api/v1/video-conference.info |
+| [apps/mobile/plugins/with-fcm-deeplink.js:1350](../../apps/mobile/plugins/with-fcm-deeplink.js#L1350) | url | /api/v1/video-conference.cancel |
 | [apps/mobile/providers/rocketchat/actions.ts:28](../../apps/mobile/providers/rocketchat/actions.ts#L28) | call:POST | 'rooms.favorite' |
 | [apps/mobile/providers/rocketchat/actions.ts:28](../../apps/mobile/providers/rocketchat/actions.ts#L28) | endpoint | rooms.favorite |
 | [apps/mobile/providers/rocketchat/actions.ts:32](../../apps/mobile/providers/rocketchat/actions.ts#L32) | call:GET | 'rooms.info' |

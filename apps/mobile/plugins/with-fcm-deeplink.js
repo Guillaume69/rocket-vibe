@@ -249,6 +249,10 @@ class ${SERVICE_CLASS} : ExpoFirebaseMessagingService() {
         debugLog(this, "content " + rid + ": no session for " + contentHost + " -> ignored")
         return true
       }
+      if (ejson.optString("messageType") == "videoconf" && contentHost.isNotEmpty()) {
+        val session = readSession(this, contentHost)
+        if (session != null && ringCall(this, session, contentHost, ejson.optString("messageId"), rid, ejson.optString("type"), "videoconf")) return true
+      }
       val title = extras.getString("title") ?: return false
       val text = extras.getString("message") ?: return false
       // (debug, and only when the probe is armed, see probeArmed) The local
@@ -325,6 +329,7 @@ class ${SERVICE_CLASS} : ExpoFirebaseMessagingService() {
     // we are about to skip showing it.
     NotificationManagerCompat.from(this).cancel(messageId.hashCode())
     cancelCatchUp(this, messageId)
+    if (ringCall(this, session, host, messageId, rid, payload.optString("type"), payload.optString("messageType"))) return true
     if (alreadyShown(this, messageId)) {
       debugLog(this, "id-only " + messageId + ": already shown elsewhere -> no second add")
       return true
@@ -1246,6 +1251,121 @@ private fun waitAfter429(conn: HttpURLConnection): Long {
 
 /** Strips trailing "/", like withoutTrailingSlash on the JS side (sessionStore). */
 private fun withoutTrailingSlash(u: String): String = u.trimEnd('/')
+
+// A call started in a direct room (lib/callRing.ts): no server rings a
+// third-party app, so the call message's push rings it over the lock screen
+// like a RocketVibe voice ring, once the server's record of the call names the
+// other member of a two-person room as its caller and says it still rings.
+// Any member can post a \`videoconf\` message: the record, not the message, decides.
+private const val CALL_RING_MS = 40_000L
+private const val CALL_STATUS_EXPIRED = 2
+
+private fun rcGet(session: JSONObject, path: String): JSONObject? {
+  var conn: HttpURLConnection? = null
+  return try {
+    conn = (URL(withoutTrailingSlash(session.optString("baseUrl")) + path).openConnection() as HttpURLConnection).apply {
+      requestMethod = "GET"
+      setRequestProperty("X-User-Id", session.optString("userId"))
+      setRequestProperty("X-Auth-Token", session.optString("authToken"))
+      setRequestProperty("Accept", "application/json")
+      connectTimeout = TIMEOUT_PUSH_GET_MS
+      readTimeout = TIMEOUT_PUSH_GET_MS
+    }
+    if (conn.responseCode != 200) return null
+    JSONObject(conn.inputStream.bufferedReader().use { it.readText() }).takeIf { it.optBoolean("success", false) }
+  } catch (e: Exception) {
+    null
+  } finally {
+    conn?.disconnect()
+  }
+}
+
+private fun encoded(value: String): String = URLEncoder.encode(value, "UTF-8")
+
+private fun epochOf(iso: String): Long? = try {
+  SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSX", Locale.US).parse(iso)?.time
+} catch (e: Exception) {
+  null
+}
+
+/** \`true\` when the push rang as a call; \`false\` leaves it to the message notification. */
+private fun ringCall(ctx: Context, session: JSONObject, host: String, messageId: String, rid: String, roomType: String, messageType: String): Boolean {
+  if (messageType != "videoconf" || roomType != "d" || messageId.isEmpty() || rid.isEmpty()) return false
+  try {
+    val blocks = rcGet(session, "/api/v1/chat.getMessage?msgId=" + encoded(messageId))?.optJSONObject("message")?.optJSONArray("blocks") ?: return false
+    var callId = ""
+    for (i in 0 until blocks.length()) {
+      val block = blocks.optJSONObject(i) ?: continue
+      if (block.optString("type") == "video_conf") { callId = block.optString("callId"); break }
+    }
+    if (callId.isEmpty()) return false
+    val me = session.optString("userId")
+    val uids = rcGet(session, "/api/v1/rooms.info?roomId=" + encoded(rid))?.optJSONObject("room")?.optJSONArray("uids") ?: return false
+    if (uids.length() != 2) return false
+    val call = rcGet(session, "/api/v1/video-conference.info?callId=" + encoded(callId)) ?: return false
+    val caller = call.optJSONObject("createdBy") ?: return false
+    val callerId = caller.optString("_id")
+    if (call.optString("rid") != rid || callerId.isEmpty() || callerId == me || (0 until uids.length()).none { uids.optString(it) == callerId }) return false
+    if (!call.isNull("endedAt") || call.optInt("status", 0) >= CALL_STATUS_EXPIRED) return false
+    val users = call.optJSONArray("users")
+    if (users != null && (0 until users.length()).any { users.optJSONObject(it)?.optString("_id") == me }) return false
+    val created = epochOf(call.optString("createdAt")) ?: System.currentTimeMillis()
+    val remaining = minOf(created, System.currentTimeMillis()) + CALL_RING_MS - System.currentTimeMillis()
+    if (remaining < 2000L) return false
+    val name = caller.optString("name").ifEmpty { caller.optString("username") }
+      .ifEmpty { localizedString(ctx, R.string.rv_push_incoming_call, "Incoming call") }
+    val answer = "rocketvibe://call-ring/" + Uri.encode(callId) + "?rid=" + Uri.encode(rid) + "&host=" + Uri.encode(session.optString("baseUrl"))
+    val decline = PendingIntent.getBroadcast(ctx, ("call-decline:" + callId).hashCode(),
+      Intent(ctx, NativeCallReceiver::class.java).setAction("decline").putExtra("host", host).putExtra("callId", callId),
+      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    com.rocketvibe.voice.VoiceRinging.show(ctx, "call:" + callId, name.take(128), answer, decline, remaining)
+    debugLog(ctx, "call " + callId + " rings (" + messageId + ")")
+    return true
+  } catch (e: Exception) {
+    debugLog(ctx, "call ring failed (" + messageId + "): " + e.javaClass.simpleName)
+    return false
+  }
+}
+
+/** "Decline" on a ringing call: stop ringing now, \`video-conference.cancel\` through WorkManager. */
+class NativeCallReceiver : BroadcastReceiver() {
+  override fun onReceive(ctx: Context, intent: Intent) {
+    val callId = intent.getStringExtra("callId") ?: return
+    val host = intent.getStringExtra("host") ?: return
+    com.rocketvibe.voice.VoiceRinging.cancel(ctx, "call:" + callId)
+    val work = OneTimeWorkRequest.Builder(NativeCallDeclineWorker::class.java)
+      .setInputData(Data.Builder().putString("host", host).putString("callId", callId).build())
+      .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+      .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST).build()
+    WorkManager.getInstance(ctx).enqueueUniqueWork("call-decline:" + callId, ExistingWorkPolicy.KEEP, work)
+  }
+}
+
+/** Only Rocket.Chat's licensed direct calls accept \`cancel\`: any answer ends the work. */
+class NativeCallDeclineWorker(ctx: Context, params: WorkerParameters) : Worker(ctx, params) {
+  override fun doWork(): Result {
+    val session = readSession(applicationContext, inputData.getString("host") ?: return Result.failure()) ?: return Result.success()
+    var conn: HttpURLConnection? = null
+    return try {
+      conn = (URL(withoutTrailingSlash(session.optString("baseUrl")) + "/api/v1/video-conference.cancel").openConnection() as HttpURLConnection).apply {
+        requestMethod = "POST"
+        doOutput = true
+        setRequestProperty("X-User-Id", session.optString("userId"))
+        setRequestProperty("X-Auth-Token", session.optString("authToken"))
+        setRequestProperty("Content-Type", "application/json")
+        connectTimeout = TIMEOUT_PUSH_GET_MS
+        readTimeout = TIMEOUT_PUSH_GET_MS
+      }
+      conn.outputStream.use { it.write(JSONObject().put("callId", inputData.getString("callId")).toString().toByteArray()) }
+      conn.responseCode
+      Result.success()
+    } catch (e: Exception) {
+      if (runAttemptCount >= 2) Result.success() else Result.retry()
+    } finally {
+      conn?.disconnect()
+    }
+  }
+}
 ${nativePushSource()}
 `;
 }
@@ -1381,6 +1501,7 @@ function declareComponents(application) {
   addService(application);
   addReceiver(application);
   addReceiver(application, '.NativeVoiceReceiver');
+  addReceiver(application, '.NativeCallReceiver');
   addReceiver(application, `.${LEGACY_RECEIVER_CLASS}`);
   return application;
 }

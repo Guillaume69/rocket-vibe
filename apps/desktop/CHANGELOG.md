@@ -11,6 +11,7 @@ section here.
 
 - A local database error (full disk, I/O error) rolls back the one write instead of crashing the app, and the GTK and SwiftUI apps sharing a database on macOS wait for each other instead of failing on a busy database.
 - Messages and files sent while the server restarts behind its proxy (a 5xx answer) stay queued instead of showing "not sent".
+- Closing a Rocket.Chat account while its connection waited to retry no longer reconnects it in the background with the old token.
 - Signing out, or an expired session, deletes the account's local messages on Windows too: the database file was still held open by a background task, so the deletion failed silently. SwiftUI now also deletes the database's `-wal` and `-shm` files.
 - GTK: a server's icon in the server bar, and its preview in the Dashboard, is the size of a tile without an icon; a large icon file no longer draws it twice as big.
 - Prepare a desktop device for invitation into an existing MLS group before admission, and review its Welcome instead of an earlier commit. Verified with a real GTK/browser encrypted message round trip.

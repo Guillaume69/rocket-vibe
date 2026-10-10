@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -192,6 +193,9 @@ pub struct Session {
     events: broadcast::Sender<SessionEvent>,
     current_room: Mutex<Option<(String, String)>>,
     tasks: Mutex<Vec<JoinHandle<()>>>,
+    /// Set by `shutdown`: a reconnection timer never reopens a session closed
+    /// while it slept.
+    closed: AtomicBool,
     settings: tokio::sync::OnceCell<ServerSettings>,
     /// `permissions.listAll` (ours only) and my global roles, fetched once.
     access: tokio::sync::OnceCell<(Vec<actions::PermissionRoles>, Vec<String>)>,
@@ -212,6 +216,12 @@ pub struct Session {
     once: tokio::sync::OnceCell<()>,
     /// Rooms whose edits and deletions were caught up this session.
     synced: Arc<Mutex<std::collections::HashSet<String>>>,
+}
+
+/// Exponential back-off from 1 s to `MAX_RECONNECT_DELAY_MS`, with up to 1 s of jitter.
+fn reconnect_delay(attempt: u32) -> u64 {
+    let base = (1000u64 << attempt.min(5)).min(MAX_RECONNECT_DELAY_MS);
+    (base + fastrand::u64(0..1000)).min(MAX_RECONNECT_DELAY_MS)
 }
 
 /// Rocket.Chat's DDP, or the socket of a Mattermost or kChat account.
@@ -336,6 +346,7 @@ impl Session {
             events,
             current_room: Mutex::new(None),
             tasks: Mutex::default(),
+            closed: AtomicBool::new(false),
             settings: tokio::sync::OnceCell::new(),
             access: tokio::sync::OnceCell::new(),
             commands: tokio::sync::OnceCell::new(),
@@ -401,15 +412,8 @@ impl Session {
                     });
                 }
                 DdpEvent::Lost => {
-                    let base = (1000u64 << attempt.min(5)).min(MAX_RECONNECT_DELAY_MS);
-                    let delay = (base + fastrand::u64(0..1000)).min(MAX_RECONNECT_DELAY_MS);
+                    s.reconnect_after(reconnect_delay(attempt));
                     attempt += 1;
-                    let transport = s.transport.clone();
-                    let token = s.info.auth_token.clone();
-                    tokio::spawn(async move {
-                        tokio::time::sleep(Duration::from_millis(delay)).await;
-                        transport.open(&token);
-                    });
                 }
             }
         }
@@ -437,20 +441,33 @@ impl Session {
                     tokio::spawn(async move { s.catch_up().await });
                 }
                 LiveEvent::Lost => {
-                    let base = (1000u64 << attempt.min(5)).min(MAX_RECONNECT_DELAY_MS);
-                    let delay = (base + fastrand::u64(0..1000)).min(MAX_RECONNECT_DELAY_MS);
+                    s.reconnect_after(reconnect_delay(attempt));
                     attempt += 1;
-                    let (transport, token) = (s.transport.clone(), s.info.auth_token.clone());
-                    let retry = tokio::spawn(async move {
-                        tokio::time::sleep(Duration::from_millis(delay)).await;
-                        transport.open(&token);
-                    });
-                    let mut tasks = s.tasks.lock().unwrap();
-                    tasks.retain(|t| !t.is_finished());
-                    tasks.push(retry);
                 }
             }
         }
+    }
+
+    /// Reopens the transport after `delay` ms. The timer is tracked, so
+    /// `shutdown` cancels it; one that raced the shutdown sees `closed` and
+    /// stays shut, rather than signing a closed account back in.
+    fn reconnect_after(self: &Arc<Self>, delay: u64) {
+        let session = Arc::downgrade(self);
+        let retry = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(delay)).await;
+            if let Some(s) = session.upgrade()
+                && !s.closed.load(Ordering::SeqCst)
+            {
+                s.transport.open(&s.info.auth_token);
+            }
+        });
+        let mut tasks = self.tasks.lock().unwrap();
+        if self.closed.load(Ordering::SeqCst) {
+            retry.abort();
+            return;
+        }
+        tasks.retain(|t| !t.is_finished());
+        tasks.push(retry);
     }
 
     /// One Mattermost event, in arrival order: typing and presence here, the
@@ -1462,8 +1479,10 @@ impl Session {
     }
 
     pub fn shutdown(&self) {
+        let mut tasks = self.tasks.lock().unwrap();
+        self.closed.store(true, Ordering::SeqCst);
         self.transport.close();
-        for task in self.tasks.lock().unwrap().drain(..) {
+        for task in tasks.drain(..) {
             task.abort();
         }
     }

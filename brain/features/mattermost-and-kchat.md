@@ -165,7 +165,11 @@ Rocket.Chat call fails cleanly instead of hitting the wrong server.
 
 - `MmOutbox`: the client id leaves as `pending_post_id`, the real post (server
   id) replaces the optimistic row. A refusal is checked against the room's newest
-  posts before marking the row failed.
+  posts before marking the row failed, and so is a row about to be sent again
+  when it may already have gone out (its answer lost in this session, or queued
+  before a restart). `api.post.deduplicate_create_post.pending` (the first POST
+  still being saved) is not a refusal: the row stays pending and a pass 3 s
+  later looks for the post.
 - `MmUploadQueue`: bytes to `POST /files?channel_id=`, the file id recorded, then
   a post with `file_ids`, over the same `uploads` table and lifecycle as
   Rocket.Chat's.

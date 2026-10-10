@@ -6,13 +6,15 @@ function token(value: string): void {
 }
 export class TeamsReader {
   #tokens: TeamsSessionTokens;
+  private readonly expiresAt: number;
   #account: TeamsAccount;
   #routes: TeamsRoutes|null = null;
   #closed = false;
   #discoveryVersion = 0;
   #requests = new Set<AbortController>();
   private readonly fetcher: typeof fetch;
-  constructor(account: TeamsAccount, tokens: TeamsSessionTokens, fetcher: typeof fetch = fetch) {
+  constructor(account: TeamsAccount, tokens: TeamsSessionTokens, fetcher: typeof fetch = fetch, expiresAt = Infinity) {
+    this.expiresAt = expiresAt;
     accountKey(account); for (const value of [tokens.spaces,tokens.aggregator,tokens.chat]) token(value);
     this.#account = {...account}; this.#tokens = {...tokens}; this.fetcher = fetcher;
   }
@@ -22,6 +24,7 @@ export class TeamsReader {
   }
   async #call(url: string, audience: keyof TeamsSessionTokens, method: 'GET'|'POST' = 'GET'): Promise<unknown> {
     if (this.#closed) throw new TeamsError('cancelled');
+    if (this.expiresAt <= Date.now()+30000) throw new TeamsError('session_expired');
     const controller = new AbortController(); this.#requests.add(controller);
     const timer = setTimeout(() => controller.abort(),15000);
     try {

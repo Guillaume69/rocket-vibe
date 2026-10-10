@@ -44,7 +44,7 @@ struct LoginView: View {
 
             Form {
                 if experimental {
-                    SlackPreviewView(client: app.client) {
+                    ExperimentalPreviewView(client: app.client) {
                         do { try app.client.setExperimentalProviders(enabled: false); experimental = false }
                         catch { unlockError = L("slack.unlockFailed") }
                     }

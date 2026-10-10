@@ -17,7 +17,7 @@ if command -v cygpath >/dev/null 2>&1; then repo=$(cygpath -m "$repo"); fi
 target_mount=()
 if [[ -n "${RV_BUILD_TARGET_DIR:-}" ]]; then target_mount=(-v "$RV_BUILD_TARGET_DIR:/workspace/apps/desktop/target"); fi
 docker run --rm -u "$build_user" -v "$repo:/workspace" -v rv-cargo:/cargo "${target_mount[@]}" -w /workspace/apps/desktop \
-  -e PROFILE="$profile" -e CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-2}" \
+  -e PROFILE="$profile" -e CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-2}" -e CARGO_INCREMENTAL \
   -e CARGO_PROFILE_DEV_DEBUG -e CARGO_PROFILE_TEST_DEBUG "$image" bash -c '
   set -euo pipefail
   cargo fmt --all -- --check

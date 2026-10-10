@@ -34,7 +34,14 @@ stable after a username change.
 
 `PATCH /api/v1/me/preferences` accepts `UpdatePreferences`: language
 `auto` / `fr` / `en`, 24-hour clock, push enablement, mentions only and
-desktop notifications `default` / `all` / `mention` / `nothing`. This storage
+desktop notifications `default` / `all` / `mention` / `nothing`, and do not
+disturb: `quiet_hours` (`QuietHours`: `start_minute`, `end_minute` since
+midnight, distinct, below 1440, `start_minute > end_minute` crossing midnight;
+`time_zone` an IANA name, the device's when saved) and `muted_until` (RFC 3339,
+at most seven days ahead; a past instant is no mute). Both are kept when the
+field is **absent** and removed by `null`, so a client that does not know them
+never wipes them; `UserPreferences` returns them (`muted_until` only while it is
+in the future). An invalid window or zone answers `invalid_request`. This storage
 prepares the consumers' settings; it does not announce the P17 push service.
 Its revision is independent of public profile changes.
 

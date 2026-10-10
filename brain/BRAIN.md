@@ -88,6 +88,7 @@ Each feature doc covers mobile and desktop, and says where they differ.
 | [room-info-and-profiles.md](features/room-info-and-profiles.md) | Room info, user profiles, editing my own profile. |
 | [settings.md](features/settings.md) | What each setting is and where it is stored, the categories and their layout per app. |
 | [administration.md](features/administration.md) | Server administration and reports: the model per provider, the Rocket.Chat mapping, the RocketVibe contract, deleted accounts. |
+| [do-not-disturb.md](features/do-not-disturb.md) | RocketVibe quiet hours and mute. |
 | [notifications.md](features/notifications.md) | Mobile FCM push with hidden content, the native service, desktop notifier and badge. |
 | [e2ee.md](features/e2ee.md) | Encrypted rooms as the user sees them: lock, unlock, sends, media, notifications. |
 | [e2ee-history.md](features/e2ee-history.md) | RocketVibe server: a new device recovers encrypted history from another device of the account. |

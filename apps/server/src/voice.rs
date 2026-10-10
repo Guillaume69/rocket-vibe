@@ -185,7 +185,7 @@ async fn start_ring(
     room: &str,
     epoch: &str,
 ) -> Result<Option<String>> {
-    let callee: Option<(String, String)> = sqlx::query_as("SELECT u.id,u.chosen_status FROM members m JOIN users u ON u.id=m.user_id WHERE m.room_id=$1 AND m.user_id<>$2 AND NOT u.disabled")
+    let callee: Option<(String, String)> = sqlx::query_as("SELECT u.id,CASE WHEN account_quiet(u.quiet_start,u.quiet_end,u.quiet_zone,u.muted_until) THEN 'busy' ELSE u.chosen_status END FROM members m JOIN users u ON u.id=m.user_id WHERE m.room_id=$1 AND m.user_id<>$2 AND NOT u.disabled")
         .bind(room).bind(&actor.id).fetch_optional(&mut **tx).await?;
     let Some((callee, status)) = callee else {
         return Ok(None);
@@ -214,7 +214,8 @@ async fn start_ring(
     }
     // The row now carries `call: ringing`.
     system_messages::revise(tx, &message).await?;
-    // Busy means do not disturb: the call shows in the app, no device rings.
+    // Busy, or do not disturb by schedule or mute: the call shows in the app,
+    // no device rings.
     if status != "busy" {
         sqlx::query("INSERT INTO voice_pushes(ring_id,device_id,generation,kind) SELECT $1,d.device_id,d.generation,'ring' FROM push_devices d JOIN instance i ON i.singleton AND i.data_epoch=d.data_epoch WHERE d.user_id=$2 AND EXISTS(SELECT 1 FROM sessions s WHERE s.device_id=d.device_id AND s.expires_at>now())")
             .bind(&id).bind(&callee).execute(&mut **tx).await?;

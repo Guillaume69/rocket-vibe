@@ -8,6 +8,10 @@ everything before it is under that section.
 
 ## [Unreleased]
 
+### Added
+
+- Do not disturb: an account's preferences take quiet hours (a daily window in its time zone) and a mute until an instant (at most seven days). While either holds, no push is sent and no device rings for a call; messages still arrive. A client that does not know the new fields keeps them unchanged.
+
 ### Fixed
 
 - Behind a reverse proxy, the login, invitation, recovery and email limits count each client separately: `RV_TRUSTED_PROXIES` lists the proxies whose `X-Forwarded-For` names the client, and the Compose file sets it. Before, every client shared the proxy's address, and about thirty failed logins a minute locked everyone out.

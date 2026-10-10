@@ -93,6 +93,7 @@ The non-obvious choices behind rocket-vibe and why they were made, grouped by ar
 
 ## Push
 
+- **Do not disturb silences, it does not defer** (RocketVibe server, 2026-10-10). A message sent during quiet hours or a mute never pushes later: a morning burst of stale notifications would be worse than the unread count the apps already show. The window is stored with its own time zone so the server can judge it without the device, and the new preference fields are kept when absent so older clients cannot wipe them ([do-not-disturb](features/do-not-disturb.md)).
 - **Direct FCM HTTP v1 to our own Firebase project.** The public gateway only serves official app ids. A foreground service with a permanent socket is capped by Android 15 and drains battery; local notifications from the socket die with the process. See [notifications](features/notifications.md).
 - **The server bundle is patched so official apps keep their push.** The gateway/native choice is global in Rocket.Chat; `docker/patch-push.mjs` routes only `appName: rocket-vibe` tokens natively (and adds an `apns` block for iOS).
 - **Hidden-content push is kept** (user decision, 2026-07-16: nothing readable at Google or Apple). Each push carries only a `messageId`; the native service fetches content with `push.get`, with a WorkManager retry on failure (`apps/mobile/plugins/with-fcm-deeplink.js`). Bursts degrade to "New message" because `push.get` shares the 10/min limit. No fix may propose lifting it.

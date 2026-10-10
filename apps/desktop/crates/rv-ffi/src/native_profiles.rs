@@ -163,6 +163,8 @@ impl NativeChat {
             push_enabled: preferences.push_enabled,
             push_mentions_only: preferences.push_mentions_only,
             desktop_notifications,
+            quiet_hours: None,
+            muted_until: None,
         };
         let s = self.session.clone();
         on_tokio(async move { s.change_profile(ProfileOperation::Preferences { input }).await.map(own) })

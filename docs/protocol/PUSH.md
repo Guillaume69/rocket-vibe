@@ -77,6 +77,15 @@ status other than "busy", no active "online / busy" lease. The
 Room and thread reads use the original position of the message.
 `@here` keeps the recipients frozen by the mention capture.
 
+**Do not disturb.** Capture and delivery also skip an account in do not
+disturb (`account_quiet`, migration 0055): inside its daily `quiet_hours`
+window, read in its own time zone, or before its `muted_until` instant. The
+notification is not deferred: a message captured then never pushes, and a
+pending one is retired. Reading a push already delivered and replying from it
+do not check do not disturb (`eligible_push_recipients` against
+`audible_push_recipients`). A call ring to an account in do not disturb is
+skipped like one to a busy callee: the call shows in the app, no device rings.
+
 Workers take at most four tasks with leases of 60 seconds,
 `SKIP LOCKED` and a distinct lease identifier. They recheck eligibility,
 the epoch, the token generation, account activation and the duration of the membership.

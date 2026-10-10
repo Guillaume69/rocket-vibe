@@ -471,6 +471,13 @@ pub struct UserPreferences {
     pub push_mentions_only: bool,
     #[serde(default)]
     pub desktop_notifications: crate::profiles::DesktopNotifications,
+    /// Do not disturb on a schedule: no push, no ring, no desktop alert in it.
+    #[serde(default)]
+    pub quiet_hours: Option<crate::profiles::QuietHours>,
+    /// Do not disturb until this instant (RFC 3339), whatever the schedule;
+    /// absent, or past, when not muted.
+    #[serde(default)]
+    pub muted_until: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]

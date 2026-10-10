@@ -427,7 +427,6 @@
     "apps/mobile/lib/voiceGrid.ts",
     "apps/mobile/plugins/ios-notification-service/NotificationService.swift",
     "apps/mobile/plugins/native-push-source.js",
-    "apps/mobile/plugins/with-emoji-compat.js",
     "apps/mobile/plugins/with-fcm-deeplink.js",
     "apps/mobile/plugins/with-incoming-share.js",
     "apps/mobile/plugins/with-ios-push.js",

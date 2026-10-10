@@ -19,6 +19,7 @@ import { sound } from "./sounds";
 import { t, language } from "./i18n";
 import { encryptedVoice, type EncryptedVoice } from "./crypto/voice";
 export class Voice {
+  visible = false;
   current?: string;
   membership?: string | null;
   room?: import("livekit-client").Room;
@@ -204,7 +205,7 @@ export class Voice {
         return;
       if (!this.hasAccess(id, account, member))
         throw new Error(nt("voice_session.join_failed"));
-      if (grant.e2ee !== !!room?.encrypted)
+      if (!!grant.e2ee !== !!room?.encrypted)
         throw Error(nt("voice_session.key_unavailable"));
       this.current = id;
       this.bar.replaceChildren(
@@ -261,7 +262,7 @@ export class Voice {
     if (!this.hasAccess(grant.room_id, account, membership))
       throw new Error(nt("voice_session.join_failed"));
     if (
-      grant.e2ee !== !!this.app.model.rooms.get(grant.room_id)?.encrypted ||
+      !!grant.e2ee !== !!this.app.model.rooms.get(grant.room_id)?.encrypted ||
       (grant.e2ee && !this.encryption)
     )
       throw Error(nt("voice_session.key_unavailable"));
@@ -1709,11 +1710,15 @@ export class Voice {
     this.heading.textContent =
       this.app.model.rooms.get(this.current)?.name || t("voice");
     this.app.roomPane.append(this.page);
+    this.visible = true;
     this.app.roomPane.classList.add("voice-open");
+    this.app.view.changed();
     this.app.threadPane.hidden = true;
   }
   hide(): void {
+    this.visible = false;
     this.app.roomPane.classList.remove("voice-open");
+    this.app.view.changed();
     this.app.scheduleRead();
   }
   async leave(notify = true): Promise<void> {

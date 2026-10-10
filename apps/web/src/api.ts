@@ -20,6 +20,7 @@ export class Api {
     method = "GET",
     input?: unknown,
     anonymous = false,
+    revalidations = 0,
   ): Promise<T> {
     if (!path.startsWith("/api/") && path !== "/.well-known/rocketvibe")
       throw new Error("Invalid API path");
@@ -51,6 +52,26 @@ export class Api {
         typeof value.code === "string"
           ? value.code
           : "http_" + response.status;
+      // A read can lose its authorization lease while the server builds it.
+      // Refetch from scratch with the same active session; never replay a mutation.
+      if (
+        method === "GET" &&
+        response.status === 409 &&
+        code === "delivery_revalidate" &&
+        revalidations < 2 &&
+        token === this.token &&
+        value &&
+        typeof value === "object" &&
+        "request_id" in value &&
+        typeof value.request_id === "string"
+      )
+        return this.request<T>(
+          path,
+          method,
+          input,
+          anonymous,
+          revalidations + 1,
+        );
       if (
         response.status === 401 &&
         token === this.token &&

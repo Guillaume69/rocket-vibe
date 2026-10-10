@@ -1,3 +1,8 @@
+import { emptyTimeline, timelineBanner } from "./ui/banners";
+import { paintTimeline } from "./ui/messages";
+import { clearView } from "./ui/portals";
+import { flushSync } from "react-dom";
+import { ViewState } from "./ui/state";
 import { nt } from "./native-i18n";
 import { PrivateChat } from "./crypto/chat";
 import { Api, ApiError, operation, secret, segment } from "./api";
@@ -13,7 +18,6 @@ import {
   type Pending,
 } from "./store";
 import type {
-  AuthenticationStep,
   AuthChallenge,
   Session,
   Discovery,
@@ -31,12 +35,9 @@ import {
   el,
   button,
   field,
-  tile,
   dialog,
   toast,
   stopMedia,
-  retainMessageMedia,
-  initials,
   actionMenu,
   menuRow,
 } from "./dom";
@@ -46,7 +47,7 @@ import { attachVideo } from "./video-attachment";
 import { attachImage, inlineImage, openImage } from "./image-attachment";
 import { stagedChip, reducedImage } from "./staged";
 import { humanSize } from "./media-format";
-import { messageRow, type RowActions } from "./render";
+import type { RowActions } from "./render";
 import { t, language, setLanguage } from "./i18n";
 import {
   enqueueUpload,
@@ -57,25 +58,17 @@ import {
 import { Voice } from "./voice";
 import { administration, report } from "./admin";
 import { logoutSession, renew } from "./session";
-import { sky } from "./sky";
 import { listBreak } from "./composition";
 import { composer } from "./composer";
 import { cached, cacheMedia } from "./media";
 import { previewText, decorate } from "./presentation";
 import { canonical, categories, glyphs, emojiGlyph } from "./emoji";
-import {
-  settings,
-  newConversation,
-  roomInfo,
-  search,
-  marked,
-  profile,
-} from "./panels";
+import { settings, newConversation, profile } from "./panels";
 
-function brand(size = "header"): HTMLElement {
-  return el("span", "brand brand-" + size, "rocket-vibe");
-}
 export class App implements RowActions {
+  readonly view = new ViewState();
+  private readonly lifetime = new AbortController();
+  private sessionTimer?: ReturnType<typeof setInterval>;
   privateChat?: PrivateChat;
   api = new Api();
   model = new Model();
@@ -194,7 +187,7 @@ export class App implements RowActions {
             void this.flush();
         });
     };
-    setInterval(() => {
+    this.sessionTimer = setInterval(() => {
       if (
         this.account &&
         new Date(this.account.session.expires_at).getTime() - Date.now() <
@@ -202,27 +195,51 @@ export class App implements RowActions {
       )
         void this.reconnect();
     }, 60000);
-    window.addEventListener("online", () => void this.reconnect());
-    window.addEventListener("offline", () => this.setConnection("offline"));
-    window.addEventListener("focus", () => this.scheduleRead());
-    document.addEventListener("focusin", () => this.scheduleRead());
-    document.addEventListener("visibilitychange", () => this.scheduleRead());
-    window.addEventListener("popstate", () => {
-      const id = location.pathname.startsWith("/room/")
-        ? decodeURIComponent(location.pathname.slice(6))
-        : undefined;
-      if (id && this.model.rooms.has(id)) void this.openRoom(id, false);
+    window.addEventListener("online", () => void this.reconnect(), {
+      signal: this.lifetime.signal,
     });
-    document.addEventListener("keydown", (event) => {
-      if (event.defaultPrevented || !this.account) return;
-      if ((event.ctrlKey || event.metaKey) && event.key === "k") {
-        event.preventDefault();
-        void newConversation(this);
-      }
-      if (event.key === "Escape" && this.root) {
-        this.closeThread();
-      }
+    window.addEventListener("offline", () => this.setConnection("offline"), {
+      signal: this.lifetime.signal,
     });
+    window.addEventListener("focus", () => this.scheduleRead(), {
+      signal: this.lifetime.signal,
+    });
+    document.addEventListener("focusin", () => this.scheduleRead(), {
+      signal: this.lifetime.signal,
+    });
+    document.addEventListener("visibilitychange", () => this.scheduleRead(), {
+      signal: this.lifetime.signal,
+    });
+    window.addEventListener(
+      "popstate",
+      () => {
+        const id = location.pathname.startsWith("/room/")
+          ? decodeURIComponent(location.pathname.slice(6))
+          : undefined;
+        if (id && this.model.rooms.has(id)) void this.openRoom(id, false);
+      },
+      { signal: this.lifetime.signal },
+    );
+    document.addEventListener(
+      "keydown",
+      (event) => {
+        if (event.defaultPrevented || !this.account) return;
+        if ((event.ctrlKey || event.metaKey) && event.key === "k") {
+          event.preventDefault();
+          void newConversation(this);
+        }
+        if (event.key === "Escape" && this.root) {
+          this.closeThread();
+        }
+      },
+      { signal: this.lifetime.signal },
+    );
+  }
+  async dispose(): Promise<void> {
+    this.lifetime.abort();
+    clearInterval(this.sessionTimer);
+    this.channel.close();
+    await this.stop();
   }
   async init(): Promise<void> {
     setLanguage(language);
@@ -236,154 +253,7 @@ export class App implements RowActions {
     } else this.login();
   }
   login(): void {
-    this.mount.replaceChildren();
-    const page = el("div", "login-page");
-    const stars = sky();
-    const form = el("form", "login-form");
-    const hero = el("div", "hero");
-    hero.append(el("div", "unicorn-hero", "🦄"));
-    const rainbow = el("div", "rainbow");
-    for (const color of ["pink", "yellow", "cyan", "violet"])
-      rainbow.append(el("i", "rainbow-bar rainbow-" + color));
-    hero.append(rainbow, brand("hero"), el("div", "slogan", t("slogan")));
-    hero.append(el("div", "login-origin", location.host));
-    const [usernameWrap, username] = field(t("username"));
-    username.autocomplete = "username";
-    username.required = true;
-    const [passwordWrap, password] = field(t("password"), "", "password");
-    password.autocomplete = "current-password";
-    password.required = true;
-    const error = el("div", "login-error");
-    error.setAttribute("role", "alert");
-    const submit = el("button", "cta", t("login"));
-    submit.type = "submit";
-    const lang = button(language === "fr" ? "English" : "Français", () => {
-      setLanguage(language === "fr" ? "en" : "fr");
-      this.login();
-    });
-    let mode = "login";
-    const extra = el("div");
-    const switchMode = (value: string) => {
-      mode = value;
-      extra.replaceChildren();
-      password.autocomplete =
-        value === "signup" ? "new-password" : "current-password";
-      if (value !== "login") {
-        const [wrap] = field(
-          value === "signup" ? t("invitation") : t("recoveryCode"),
-        );
-        extra.append(
-          wrap,
-          button(t("login"), () => switchMode("login")),
-        );
-        if (value === "recovery")
-          extra.append(
-            button(
-              language === "fr"
-                ? "Recevoir un code par email"
-                : "Email me a recovery code",
-              async () => {
-                const info = await this.api.request<Discovery>(
-                  "/.well-known/rocketvibe",
-                  "GET",
-                  undefined,
-                  true,
-                );
-                if (!info.capabilities.email_recovery) return;
-                await this.api.request(
-                  "/api/v1/auth/recovery/email/start",
-                  "POST",
-                  {
-                    operation_id: operation(),
-                    username: username.value,
-                    instance_id: info.instance_id,
-                    data_epoch: info.data_epoch,
-                  },
-                  true,
-                );
-                toast(
-                  language === "fr"
-                    ? "Si une adresse vérifiée est disponible, le code vous sera envoyé."
-                    : "If a verified address is available, a recovery code will be sent.",
-                );
-              },
-            ),
-          );
-      }
-      submit.textContent =
-        value === "signup"
-          ? t("signup")
-          : value === "recovery"
-            ? t("recovery")
-            : t("login");
-    };
-    const modes = el("div", "login-links");
-    modes.append(
-      button(t("signup"), () => switchMode("signup")),
-      button(t("recovery"), () => switchMode("recovery")),
-    );
-    form.append(
-      hero,
-      usernameWrap,
-      passwordWrap,
-      extra,
-      error,
-      submit,
-      modes,
-      lang,
-    );
-    if (this.account) form.append(button(t("cancel"), () => this.build()));
-    form.addEventListener("submit", (event) => {
-      event.preventDefault();
-      submit.disabled = true;
-      error.textContent = "";
-      void (async () => {
-        const info = await this.api.request<Discovery>(
-          "/.well-known/rocketvibe",
-          "GET",
-          undefined,
-          true,
-        );
-        if (!info.protocol_versions.includes(1))
-          throw new Error("Unsupported protocol");
-        if (mode === "login") {
-          const step = await this.api.request<AuthenticationStep>(
-            "/api/v1/auth/start",
-            "POST",
-            { username: username.value, password: password.value },
-            true,
-          );
-          password.value = "";
-          if (step.kind === "challenge") this.challenge(step.challenge, info);
-          else await this.accept(step.session, info);
-        } else {
-          const token = extra.querySelector("input")!.value;
-          const session = await this.api.request<Session>(
-            mode === "signup"
-              ? "/api/v1/auth/invitations/accept"
-              : "/api/v1/auth/recovery",
-            "POST",
-            mode === "signup"
-              ? { username: username.value, password: password.value, token }
-              : {
-                  username: username.value,
-                  token,
-                  new_password: password.value,
-                },
-            true,
-          );
-          password.value = "";
-          await this.accept(session, info);
-        }
-      })().catch((reason) => {
-        error.textContent =
-          reason instanceof Error ? reason.message : String(reason);
-        submit.disabled = false;
-      });
-    });
-    page.append(stars, form);
-    this.mount.append(page);
-    username.focus();
+    this.view.screen("login");
   }
   challenge(challenge: AuthChallenge, info: Discovery): void {
     const [node, body] = dialog(t("code"));
@@ -613,6 +483,7 @@ export class App implements RowActions {
           ? t("connecting")
           : t("offline");
     this.comet.classList.toggle("active", value === "connecting");
+    this.view.changed();
   }
   async reconnect(): Promise<void> {
     if (!this.account) return;
@@ -882,278 +753,180 @@ export class App implements RowActions {
       this.login();
       return;
     }
-    this.mount.replaceChildren();
-    this.main = el("main", "shell");
-    this.sidebar = el("aside", "sidebar");
-    this.rooms = el("div", "rooms");
-    const head = el("header", "sidebar-header headerbar");
-    this.status = el("span", "status-dot " + this.connection);
-    const statusButton = button("", () => this.reconnect());
-    statusButton.append(this.status);
-    const title = el("div", "brand-wrap");
-    title.append(el("span", "unicorn-header", "🦄"), brand());
-    // "+" names what it creates; sign out lives in the account menu.
-    const plus: HTMLButtonElement = iconButton("plus", t("new"), () => {
-      actionMenu(plus, [
-        [t("newMessage"), () => newConversation(this, "people")],
-        [t("browseChannels"), () => newConversation(this, "rooms")],
-        [t("newChannel"), () => newConversation(this, "create")],
-      ]);
-    });
-    plus.setAttribute("aria-haspopup", "menu");
-    head.append(statusButton, title, plus);
-    const accountButton: HTMLButtonElement = button(
-      "",
-      () => this.accountMenu(accountButton),
-      "account",
-    );
-    accountButton.setAttribute("aria-label", t("accountMenu"));
-    accountButton.setAttribute("aria-haspopup", "menu");
-    accountButton.title = t("accountMenu");
-    const portrait = tile(this.account.session.user.username, "message");
-    this.avatar(this.account.session.user, portrait);
-    accountButton.append(portrait);
-    const text = el("div");
-    text.append(
-      el(
-        "div",
-        "account-name",
-        this.account.session.user.display_name ||
-          this.account.session.user.username,
-      ),
-      el("div", "account-host", location.host),
-    );
-    accountButton.append(text, icon("app"));
-    this.sidebar.append(head, this.rooms, accountButton);
-    this.roomPane = el("section", "room-content");
-    this.header = el("header", "headerbar room-header");
-    this.timeline = el("div", "timeline");
-    this.timeline.setAttribute("aria-label", t("message"));
-    this.timeline.tabIndex = 0;
-    this.pendingRows = el("div", "pending-rows");
-    this.timeline.addEventListener("scroll", () => {
-      this.jump.hidden =
-        this.timeline.scrollHeight -
-          this.timeline.scrollTop -
-          this.timeline.clientHeight <
-        100;
-      const marker = this.timeline.querySelector(".new-marker");
-      if (marker) {
-        this.newPill.hidden =
-          marker.getBoundingClientRect().bottom >=
-          this.timeline.getBoundingClientRect().top;
-      }
-      if (this.timeline.scrollTop < 100) void this.older();
-      this.scheduleRead();
-    });
-    this.comet = el("div", "comet");
-    this.typing = el("div", "typing");
-    this.strip = el("div", "upload-strip");
-    this.replyBar = el("div", "reply-bar");
-    this.replyBar.hidden = true;
-    this.composer = composer();
-    for (const node of this.roomPane.querySelectorAll<HTMLElement>(
-      ".composer,.format-bar,.upload-strip",
-    ))
-      node.hidden = this.composer.disabled;
-    this.composer.placeholder = t("message");
-    this.composer.setAttribute("aria-label", t("message"));
-
-    this.roomPane.addEventListener("dragover", (event) => {
-      if (event.dataTransfer?.types.includes("Files")) {
-        event.preventDefault();
-        this.roomPane.classList.add("drag-active");
-      }
-    });
-    this.roomPane.addEventListener("dragleave", () =>
-      this.roomPane.classList.remove("drag-active"),
-    );
-    this.roomPane.addEventListener("drop", (event) => {
-      event.preventDefault();
-      this.roomPane.classList.remove("drag-active");
-      if (event.dataTransfer)
-        void this.stage([...event.dataTransfer.files]).catch(toast);
-    });
-    this.composer.addEventListener("paste", (event) => {
-      const files = [...(event.clipboardData?.files || [])];
-      if (files.length) {
-        event.preventDefault();
-        void this.stage(files).catch(toast);
-      }
-    });
-    this.composer.addEventListener("input", () => {
-      void this.saveDraft();
-      void this.setTyping(true);
-      void this.complete().catch(toast);
-      this.composer.style.height = "auto";
-      this.composer.style.height =
-        Math.min(180, this.composer.scrollHeight) + "px";
-    });
-    this.composer.addEventListener("keydown", (event) => {
-      if (
-        event.key === "Enter" &&
-        event.shiftKey &&
-        !event.isComposing &&
-        this.composer.selectionStart === this.composer.selectionEnd
-      ) {
-        const edited = listBreak(
-          this.composer.value,
-          this.composer.selectionStart,
-        );
-        if (edited) {
-          event.preventDefault();
-          this.composer.value = edited.text;
-          this.composer.setSelectionRange(edited.cursor, edited.cursor);
-          void this.saveDraft();
-          return;
-        }
-      }
-      if (
-        (event.ctrlKey || event.metaKey) &&
-        ["b", "i", "k", "e"].includes(event.key.toLowerCase())
-      ) {
-        event.preventDefault();
-        event.stopPropagation();
-        const key = event.key.toLowerCase();
-        if (key === "b") this.format("**", "**");
-        else if (key === "i") this.format("_", "_");
-        else if (key === "k") this.formatLink();
-        else
-          this.format(
-            event.shiftKey ? "\x60\x60\x60\n" : "\x60",
-            event.shiftKey ? "\n\x60\x60\x60" : "\x60",
-          );
-        return;
-      }
-      if (event.key === "ArrowUp" && !this.composer.value && this.room) {
-        const last = this.model
-          .timeline(this.room)
-          .findLast(
-            (message) =>
-              message.author.id === this.account?.session.user.id &&
-              !message.system,
-          );
-        if (last) {
-          event.preventDefault();
-          void this.api
-            .request<MessagePermissions>(
-              "/api/v1/messages/" + segment(last.id) + "/permissions",
-            )
-            .then((permissions) => {
-              if (permissions.edit)
-                this.editMessage(last, permissions.revision);
-            })
-            .catch(toast);
-          return;
-        }
-      }
-      const options = [
-        ...this.completion.querySelectorAll<HTMLButtonElement>("button"),
-      ];
-      if (
-        options.length &&
-        ["ArrowDown", "ArrowUp", "Tab", "Enter", "Escape"].includes(event.key)
-      ) {
-        event.preventDefault();
-        if (event.key === "Escape") {
-          this.completion.replaceChildren();
-          return;
-        }
-        const current = options.findIndex((option) =>
-          option.classList.contains("chosen"),
-        );
-        if (event.key === "Enter" || event.key === "Tab") {
-          options[Math.max(0, current)].click();
-          return;
-        }
-        const index =
-          (current + (event.key === "ArrowDown" ? 1 : -1) + options.length) %
-          options.length;
-        options.forEach((option, i) =>
-          option.classList.toggle("chosen", i === index),
-        );
-        return;
-      }
-      if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
-        event.preventDefault();
-        void this.send().catch(toast);
-      }
-    });
-    const pill = el("div", "composer-pill");
-    pill.append(
-      iconButton("attach", t("attach"), () => this.pickFile(), "attach-button"),
-      this.composer,
-      iconButton(
-        "smile",
-        t("react"),
-        () => this.emojiPicker(),
-        "attach-button",
-      ),
-      iconButton("mic", t("voice"), () => this.record(), "attach-button"),
-    );
-    const compose = el("div", "composer");
-    compose.append(
-      pill,
-      iconButton("send", t("send"), () => this.send(), "send"),
-    );
-    const format = el("div", "format-bar");
-    const add = (
-      label: string,
-      tip: string,
-      action: () => void,
-      style = "",
-    ) => {
-      const control = button(label, action, "format-button " + style);
-      control.title = tip;
-      control.setAttribute("aria-label", tip);
-      format.append(control);
-    };
-    add("B", "Bold", () => this.format("**", "**"), "bold");
-    add("I", "Italic", () => this.format("_", "_"), "italic");
-    add("S", "Strike", () => this.format("~", "~"), "strike");
-    add("H", "Heading", () => this.formatLines("# "));
-    format.append(
-      iconButton("attach", "Link", () => this.formatLink(), "format-button"),
-    );
-    add("</>", "Inline code", () => this.format("\x60", "\x60"));
-    add("{ }", "Code block", () =>
-      this.format("\x60\x60\x60\n", "\n\x60\x60\x60"),
-    );
-    add("“", "Quote", () => this.formatLines("> "));
-    add("☷", "Bullets", () => this.formatLines("- "));
-    add("≡", "Numbers", () => this.formatLines("numbered"));
-    this.completion = el("div", "completion");
-    this.completion.hidden = false;
-    this.roomPane.append(
-      this.comet,
-      this.header,
-      this.timeline,
-      this.pendingRows,
-      this.strip,
-      this.typing,
-      this.replyBar,
-      this.completion,
-      compose,
-      format,
-      this.jump,
-      this.newPill,
-    );
-    this.jump.hidden = true;
-    this.newPill.hidden = true;
-    this.jump.setAttribute(
-      "aria-label",
-      language === "fr" ? "Derniers messages" : "Latest messages",
-    );
-    this.threadPane = el("aside", "thread-pane");
-    this.threadPane.hidden = true;
-    this.main.append(this.sidebar, this.roomPane, this.threadPane);
-    this.mount.append(this.main);
+    flushSync(() => this.view.screen("shell"));
     this.refresh();
     const target = location.pathname.startsWith("/room/")
       ? decodeURIComponent(location.pathname.slice(6))
       : undefined;
     if (target && this.model.rooms.has(target))
       void this.openRoom(target, false);
+  }
+  bindShellEvents(): () => void {
+    const lifetime = new AbortController();
+    this.replyBar.hidden = true;
+    this.threadPane.hidden = true;
+    this.timeline.addEventListener(
+      "scroll",
+      () => {
+        this.jump.hidden =
+          this.timeline.scrollHeight -
+            this.timeline.scrollTop -
+            this.timeline.clientHeight <
+          100;
+        const marker = this.timeline.querySelector(".new-marker");
+        if (marker) {
+          this.newPill.hidden =
+            marker.getBoundingClientRect().bottom >=
+            this.timeline.getBoundingClientRect().top;
+        }
+        if (this.timeline.scrollTop < 100) void this.older();
+        this.scheduleRead();
+      },
+      { signal: lifetime.signal },
+    );
+    this.roomPane.addEventListener(
+      "dragover",
+      (event) => {
+        if (event.dataTransfer?.types.includes("Files")) {
+          event.preventDefault();
+          this.roomPane.classList.add("drag-active");
+        }
+      },
+      { signal: lifetime.signal },
+    );
+    this.roomPane.addEventListener(
+      "dragleave",
+      () => this.roomPane.classList.remove("drag-active"),
+      { signal: lifetime.signal },
+    );
+    this.roomPane.addEventListener(
+      "drop",
+      (event) => {
+        event.preventDefault();
+        this.roomPane.classList.remove("drag-active");
+        if (event.dataTransfer)
+          void this.stage([...event.dataTransfer.files]).catch(toast);
+      },
+      { signal: lifetime.signal },
+    );
+    this.composer.addEventListener(
+      "paste",
+      (event) => {
+        const files = [...(event.clipboardData?.files || [])];
+        if (files.length) {
+          event.preventDefault();
+          void this.stage(files).catch(toast);
+        }
+      },
+      { signal: lifetime.signal },
+    );
+    this.composer.addEventListener(
+      "input",
+      () => {
+        void this.saveDraft();
+        void this.setTyping(true);
+        void this.complete().catch(toast);
+        this.composer.style.height = "auto";
+        this.composer.style.height =
+          Math.min(180, this.composer.scrollHeight) + "px";
+      },
+      { signal: lifetime.signal },
+    );
+    this.composer.addEventListener(
+      "keydown",
+      (event) => {
+        if (
+          event.key === "Enter" &&
+          event.shiftKey &&
+          !event.isComposing &&
+          this.composer.selectionStart === this.composer.selectionEnd
+        ) {
+          const edited = listBreak(
+            this.composer.value,
+            this.composer.selectionStart,
+          );
+          if (edited) {
+            event.preventDefault();
+            this.composer.value = edited.text;
+            this.composer.setSelectionRange(edited.cursor, edited.cursor);
+            void this.saveDraft();
+            return;
+          }
+        }
+        if (
+          (event.ctrlKey || event.metaKey) &&
+          ["b", "i", "k", "e"].includes(event.key.toLowerCase())
+        ) {
+          event.preventDefault();
+          event.stopPropagation();
+          const key = event.key.toLowerCase();
+          if (key === "b") this.format("**", "**");
+          else if (key === "i") this.format("_", "_");
+          else if (key === "k") this.formatLink();
+          else
+            this.format(
+              event.shiftKey ? "\x60\x60\x60\n" : "\x60",
+              event.shiftKey ? "\n\x60\x60\x60" : "\x60",
+            );
+          return;
+        }
+        if (event.key === "ArrowUp" && !this.composer.value && this.room) {
+          const last = this.model
+            .timeline(this.room)
+            .findLast(
+              (message) =>
+                message.author.id === this.account?.session.user.id &&
+                !message.system,
+            );
+          if (last) {
+            event.preventDefault();
+            void this.api
+              .request<MessagePermissions>(
+                "/api/v1/messages/" + segment(last.id) + "/permissions",
+              )
+              .then((permissions) => {
+                if (permissions.edit)
+                  this.editMessage(last, permissions.revision);
+              })
+              .catch(toast);
+            return;
+          }
+        }
+        const options = [
+          ...this.completion.querySelectorAll<HTMLButtonElement>("button"),
+        ];
+        if (
+          options.length &&
+          ["ArrowDown", "ArrowUp", "Tab", "Enter", "Escape"].includes(event.key)
+        ) {
+          event.preventDefault();
+          if (event.key === "Escape") {
+            this.completion.replaceChildren();
+            return;
+          }
+          const current = options.findIndex((option) =>
+            option.classList.contains("chosen"),
+          );
+          if (event.key === "Enter" || event.key === "Tab") {
+            options[Math.max(0, current)].click();
+            return;
+          }
+          const index =
+            (current + (event.key === "ArrowDown" ? 1 : -1) + options.length) %
+            options.length;
+          options.forEach((option, i) =>
+            option.classList.toggle("chosen", i === index),
+          );
+          return;
+        }
+        if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+          event.preventDefault();
+          void this.send().catch(toast);
+        }
+      },
+      { signal: lifetime.signal },
+    );
+    return () => lifetime.abort();
   }
   refresh(): void {
     window.dispatchEvent(new Event("rv-profile-update"));
@@ -1163,7 +936,7 @@ export class App implements RowActions {
       this.root = undefined;
       this.threadPane.hidden = true;
       stopMedia(this.timeline);
-      this.timeline.replaceChildren();
+      clearView(this.timeline);
       this.composer.value = "";
       this.quote = undefined;
     }
@@ -1176,9 +949,7 @@ export class App implements RowActions {
       this.model.rooms.get(this.room)?.encrypted &&
       !this.privateChat
     ) {
-      this.timeline.replaceChildren(
-        el("div", "e2e-banner", nt("crypto.loading")),
-      );
+      timelineBanner(this.timeline, nt("crypto.loading"));
       const room = this.room,
         generation = this.generation;
       queueMicrotask(() => {
@@ -1201,302 +972,21 @@ export class App implements RowActions {
     this.scheduleRead();
   }
   renderRooms(): void {
-    this.rooms.replaceChildren();
-    const rooms = [...this.model.rooms.values()];
-    const latest = (room: Room) => {
-      const values = this.model.timeline(room.id);
-      return values.at(-1);
-    };
-    rooms.sort((a, b) =>
-      (latest(b)?.created_at || "").localeCompare(latest(a)?.created_at || ""),
-    );
-    const unread = (room: Room) =>
-      Number(room.read_state?.unread_roots || 0) +
-      Number(room.read_state?.unread_replies || 0);
-    const groups: [string, Room[], string][] = [
-      [t("unread"), rooms.filter((room) => unread(room) > 0), "unread"],
-      [
-        t("favorites"),
-        rooms.filter((room) => room.read_state?.favorite && unread(room) === 0),
-        "favorites",
-      ],
-      [
-        t("channels"),
-        rooms.filter(
-          (room) =>
-            room.kind !== "direct" &&
-            !room.read_state?.favorite &&
-            unread(room) === 0,
-        ),
-        "channels",
-      ],
-      [
-        t("direct"),
-        rooms.filter(
-          (room) =>
-            room.kind === "direct" &&
-            !room.read_state?.favorite &&
-            unread(room) === 0,
-        ),
-        "direct",
-      ],
-    ];
-    let total = 0;
-    for (const room of rooms) total += unread(room);
-    document.title = (total ? "(" + total + ") " : "") + "rocket-vibe";
-    for (const [label, values, key] of groups) {
-      if (!values.length) continue;
-      const collapsed = localStorage.getItem("rv-fold:" + label) === "true";
-      const section = button(
-        (collapsed ? "› " : "⌄ ") +
-          label +
-          (collapsed ? " " + values.length : ""),
-        () => {
-          localStorage.setItem("rv-fold:" + label, String(!collapsed));
-          this.renderRooms();
-        },
-        "section-header",
-      );
-      // Channels and Direct messages offer to create one right there.
-      const tab =
-        key === "channels"
-          ? ("create" as const)
-          : key === "direct"
-            ? ("people" as const)
-            : null;
-      if (tab) {
-        const line = el("div", "section-line");
-        line.append(
-          section,
-          iconButton(
-            "plus",
-            t(tab === "create" ? "newChannel" : "newMessage"),
-            () => newConversation(this, tab),
-            "flat section-add",
-          ),
-        );
-        this.rooms.append(line);
-      } else this.rooms.append(section);
-      if (collapsed) continue;
-      for (const room of values) {
-        const message = latest(room);
-        const row = button(
-          "",
-          () => this.openRoom(room.id),
-          "room-row" + (room.id === this.room ? " selected" : ""),
-        );
-        row.dataset.room = room.id;
-        row.append(
-          tile(
-            room.name,
-            "room",
-            room.encrypted ? "🔒" : room.kind === "direct" ? undefined : "#",
-          ),
-        );
-        if (room.kind === "direct") {
-          const peer = this.live?.rooms.find(
-            (item) => item.room_id === room.id,
-          )?.direct_peer;
-          if (peer) this.avatar(peer, row.querySelector<HTMLElement>(".tile")!);
-          const entry = this.live?.presence.find((item) =>
-            peer
-              ? item.user.id === peer.id
-              : item.user.username === room.name ||
-                item.user.display_name === room.name,
-          );
-          if (entry) {
-            const dot = el("span", "presence-dot " + entry.status);
-            dot.title = entry.status;
-            row.querySelector(".tile")?.append(dot);
-          }
-        }
-        const column = el("div", "room-column");
-        const top = el("div", "room-top");
-        if (room.voice) top.append(icon("volume"));
-        top.append(
-          el(
-            "span",
-            "room-name" + (unread(room) > 0 ? " unread" : ""),
-            room.name,
-          ),
-        );
-        if (message)
-          top.append(
-            el(
-              "span",
-              "room-time",
-              new Date(message.created_at).toLocaleTimeString(language, {
-                hour: "2-digit",
-                minute: "2-digit",
-                hour12: false,
-              }),
-            ),
-          );
-        column.append(
-          top,
-          el(
-            "div",
-            "room-preview",
-            room.encrypted
-              ? t("encrypted")
-              : message
-                ? previewText(message)
-                : "",
-          ),
-        );
-        row.append(column);
-        if (unread(room))
-          row.append(el("span", "badge badge-unread", String(unread(room))));
-        if (Number(room.read_state?.mentions))
-          row.append(
-            el("span", "badge badge-mention", "@" + room.read_state?.mentions),
-          );
-        row.addEventListener("contextmenu", (event) => {
-          event.preventDefault();
-          void this.favorite(room).catch(toast);
-        });
-        this.rooms.append(row);
-        const participants =
-          this.live?.rooms.find((item) => item.room_id === room.id)?.voice ||
-          [];
-        if (participants.length) {
-          row.classList.add("has-voice-roster");
-          const roster = el(
-            "div",
-            "room-voice-roster" + (room.id === this.room ? " selected" : ""),
-          );
-          roster.dataset.voiceRoom = room.id;
-          for (const participant of participants) {
-            const entry = button(
-              "",
-              () => this.voice.join(room.id),
-              "room-voice-person",
-            );
-            const avatar = tile(
-              participant.user.id,
-              "header",
-              initials(
-                participant.user.display_name || participant.user.username,
-              ),
-            );
-            this.avatar(participant.user, avatar);
-            const frame = el("div", "voice-avatar small");
-            frame.append(avatar);
-            entry.dataset.voiceUser = participant.user.id;
-            if (
-              this.voice.current === room.id &&
-              this.voice.speaking.has(participant.user.id)
-            )
-              frame.classList.add("speaking");
-            if (participant.user.id !== this.account?.session.user.id)
-              entry.addEventListener("contextmenu", (event) => {
-                event.preventDefault();
-                void this.voice
-                  .personMenu(
-                    participant.user.id,
-                    participant.user.display_name || participant.user.username,
-                    event.clientX,
-                    event.clientY,
-                  )
-                  .catch(toast);
-              });
-            entry.append(
-              frame,
-              el(
-                "span",
-                "",
-                participant.user.display_name || participant.user.username,
-              ),
-            );
-            for (const [on, name] of [
-              [participant.muted, "mic-muted"],
-              [participant.deafened, "volume-muted"],
-            ] as const)
-              if (on) {
-                const state = icon(name);
-                state.classList.add("voice-state");
-                entry.append(state);
-              }
-            if (participant.camera) entry.append(icon("camera"));
-            if (participant.screen) entry.append(icon("screen"));
-            roster.append(entry);
-          }
-          this.rooms.append(roster);
-        }
-      }
-    }
+    this.view.changed();
   }
   renderHeader(): void {
-    this.header.replaceChildren();
     const room = this.room ? this.model.rooms.get(this.room) : undefined;
-    this.main.classList.toggle("room-open", !!room);
     this.composer.disabled =
       !this.draftReady ||
       !room ||
       (!!room.encrypted && !this.privateChat?.canSend) ||
       this.roomPermissions.get(room.id)?.send === false;
-    for (const node of this.roomPane.querySelectorAll<HTMLElement>(
-      ".composer,.format-bar,.upload-strip",
-    ))
-      node.hidden = this.composer.disabled;
     this.composer.placeholder =
       room && this.roomPermissions.get(room.id)?.send === false
         ? t("readOnly")
         : t("message");
-    if (!room) {
-      this.header.append(brand());
-      if (!this.timeline.children.length) {
-        const empty = el("div", "empty-state");
-        empty.append(
-          el("div", "unicorn-hero", "🦄"),
-          el("h2", "empty-title", t("empty")),
-          el("p", "empty-hint", t("emptyHint")),
-        );
-        this.timeline.append(empty);
-      }
-      return;
-    }
-    const title = button("", () => roomInfo(this));
-    title.className = "room-heading flat";
-    const portrait = tile(
-      room.name,
-      "header",
-      room.kind === "direct" ? undefined : "#",
-    );
-    const peer = this.live?.rooms.find(
-      (item) => item.room_id === room.id,
-    )?.direct_peer;
-    if (peer) this.avatar(peer, portrait);
-    title.append(portrait, el("span", "room-title", room.name));
-
-    this.header.append(
-      iconButton(
-        "back",
-        t("close"),
-        () => {
-          this.room = undefined;
-          history.pushState(null, "", "/");
-          stopMedia(this.timeline);
-          this.timeline.replaceChildren();
-          this.refresh();
-        },
-        "mobile-back flat",
-      ),
-      title,
-      iconButton("pin", t("pins"), () => marked(this)),
-      iconButton("search", t("search"), () => search(this)),
-    );
-    if (
-      this.info?.capabilities.voice &&
-      (!room.encrypted || this.privateChat?.active)
-    )
-      this.header.append(
-        iconButton(
-          "video",
-          language === "fr" ? "Rejoindre l’appel" : "Join call",
-          () => this.voice.join(),
-        ),
-      );
+    if (!room && !this.timeline.children.length) emptyTimeline(this.timeline);
+    this.view.changed();
   }
   async refreshPermissions(id: string): Promise<void> {
     const account = this.account?.key,
@@ -1559,7 +1049,7 @@ export class App implements RowActions {
     this.threadPane.hidden = true;
     this.replyBar.hidden = true;
     stopMedia(this.timeline);
-    this.timeline.replaceChildren();
+    clearView(this.timeline);
     if (navigate) history.pushState(null, "", "/room/" + segment(id));
     if (this.model.rooms.get(id)?.encrypted) {
       this.staged = [];
@@ -1649,85 +1139,21 @@ export class App implements RowActions {
     actions: RowActions = this,
   ): void {
     const pinned =
-        container.scrollHeight - container.scrollTop - container.clientHeight <
-        100,
-      top = container.scrollTop,
+      container.scrollHeight - container.scrollTop - container.clientHeight <
+      100;
+    const top = container.scrollTop,
       height = container.scrollHeight;
-    const existing = new Map(
-      [...container.querySelectorAll<HTMLElement>("[data-id]")].map((row) => [
-        row.dataset.id!,
-        row,
-      ]),
+    for (const extra of container.querySelectorAll(
+      ":scope > .pending-rows,:scope > .e2e-banner",
+    ))
+      extra.remove();
+    paintTimeline(
+      container,
+      messages,
+      this.account!.session.user.id,
+      actions,
+      container === this.timeline ? this.firstUnread : undefined,
     );
-    const nodes: HTMLElement[] = [];
-    let previous: Message | undefined;
-    let day = "";
-    for (const message of messages) {
-      const stamp = new Date(message.created_at),
-        today = new Date(),
-        yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      const date =
-        stamp.toDateString() === today.toDateString()
-          ? t("today")
-          : stamp.toDateString() === yesterday.toDateString()
-            ? t("yesterday")
-            : stamp.toLocaleDateString(language, {
-                weekday: "long",
-                day: "numeric",
-                month: "long",
-              });
-      if (date !== day) {
-        nodes.push(el("div", "day-separator", date));
-        day = date;
-      }
-      if (container === this.timeline && message.id === this.firstUnread)
-        nodes.push(el("div", "new-marker unread-divider", t("newMessages")));
-      const grouped =
-        !!previous &&
-        previous.author.id === message.author.id &&
-        new Date(message.created_at).getTime() -
-          new Date(previous.created_at).getTime() <
-          300000 &&
-        new Date(previous.created_at).toDateString() ===
-          new Date(message.created_at).toDateString();
-      const old = existing.get(message.id);
-      let next =
-        old &&
-        (old.dataset.editing === "true" ||
-          (old.dataset.stamp === JSON.stringify(message) &&
-            old.classList.contains("grouped") === grouped))
-          ? old
-          : messageRow(
-              message,
-              this.account!.session.user.id,
-              actions,
-              grouped,
-            );
-      if (old && old !== next) {
-        if (retainMessageMedia(old, next)) next = old;
-        else stopMedia(old);
-      }
-      nodes.push(next);
-      previous = message.system ? undefined : message;
-    }
-    for (const old of existing.values())
-      if (!nodes.includes(old)) stopMedia(old);
-    // Move retained widgets so selection, media playback and focus survive a sync.
-    for (const child of [...container.children])
-      if (!nodes.includes(child as HTMLElement)) child.remove();
-    for (let index = 0; index < nodes.length; index++) {
-      if (container.children[index] !== nodes[index])
-        if (nodes[index].isConnected && "moveBefore" in container)
-          container.moveBefore(nodes[index], container.children[index] || null);
-        else
-          container.insertBefore(
-            nodes[index],
-            container.children[index] || null,
-          );
-    }
-    while (container.children.length > nodes.length)
-      container.lastElementChild!.remove();
     if (pinned) container.scrollTop = container.scrollHeight;
     else if (top < 100)
       container.scrollTop = top + container.scrollHeight - height;
@@ -1975,25 +1401,7 @@ export class App implements RowActions {
     if (this.root) this.renderThread();
   }
   renderPending(): void {
-    this.pendingRows.replaceChildren();
-    for (const pending of this.pending.filter(
-      (item) => item.room === this.room && !item.payload.reply_to,
-    )) {
-      const row = el("div", "pending-row");
-      row.append(
-        el("span", "message-body pending", pending.payload.text),
-        el("span", "message-note", pending.error ? t("failed") : t("pending")),
-      );
-      if (pending.error)
-        row.append(
-          button(t("retry"), () => this.flush()),
-          button(t("cancel"), async () => {
-            await write("outbox", pending.account + ":" + pending.id);
-            await this.loadPending();
-          }),
-        );
-      this.pendingRows.append(row);
-    }
+    this.view.changed();
   }
   async flush(): Promise<void> {
     if (this.flushing) {
@@ -2237,16 +1645,7 @@ export class App implements RowActions {
     } catch {}
   }
   renderTyping(): void {
-    const users =
-      this.live?.rooms
-        .find((room) => room.room_id === this.room)
-        ?.typing.filter(
-          (user) => user.user.id !== this.account?.session.user.id,
-        )
-        .map((user) => user.user.display_name || user.user.username) || [];
-    this.typing.textContent = users.length
-      ? users.join(", ") + (language === "fr" ? " écrit…" : " is typing…")
-      : "";
+    this.view.changed();
   }
   async thread(message: Message): Promise<void> {
     if (this.model.rooms.get(message.room_id)?.encrypted) {
@@ -2607,59 +2006,39 @@ export class App implements RowActions {
     node.showPopover();
   }
   editMessage(message: Message, revision: string): void {
+    if (!this.roomFence(message.room_id)()) return;
+    this.main
+      .querySelector<HTMLElement>('[data-id="' + message.id + '"]')
+      ?.dispatchEvent(
+        new CustomEvent("rv-edit-message", { detail: { revision } }),
+      );
+  }
+  async updateMessage(
+    message: Message,
+    revision: string,
+    text: string,
+    id: string,
+  ): Promise<void> {
     const current = this.roomFence(message.room_id);
     if (!current()) return;
-    const row = this.main.querySelector<HTMLElement>(
-      '[data-id="' + message.id + '"]',
-    );
-    if (!row) return;
-    const body = row.querySelector<HTMLElement>(".message-body");
-    if (!body) return;
-    row.dataset.editing = "true";
-    const editor = el("div", "edit-field"),
-      input = el("textarea", "composer-input");
-    input.value = message.text;
-    input.rows = 3;
-    const id = operation();
-    const cancel = () => {
-      body.textContent = message.text;
-      delete row.dataset.editing;
-      row.dataset.stamp = "";
-      this.refresh();
-    };
-    editor.append(
-      input,
-      button(t("cancel"), cancel, "edit-button"),
-      button(
-        t("save"),
-        async () => {
-          if (!current() || !row.isConnected) return;
-          const receipt = await this.api.request<Message>(
-            "/api/v1/messages/" + segment(message.id),
-            "PATCH",
-            {
-              operation_id: id,
-              expected_revision: revision,
-              content: {
-                kind: "plain",
-                markdown: input.value,
-                mentions: [],
-                quotes: (message.quotes || []).map((quote) => quote.reference),
-                files: (message.files || []).map((file) => file.id),
-              },
-            },
-          );
-          if (!current()) return;
-          this.model.put(receipt);
-          delete row.dataset.editing;
-          row.dataset.stamp = "";
-          this.refresh();
+    const receipt = await this.api.request<Message>(
+      "/api/v1/messages/" + segment(message.id),
+      "PATCH",
+      {
+        operation_id: id,
+        expected_revision: revision,
+        content: {
+          kind: "plain",
+          markdown: text,
+          mentions: [],
+          quotes: (message.quotes || []).map((quote) => quote.reference),
+          files: (message.files || []).map((file) => file.id),
         },
-        "edit-button save",
-      ),
+      },
     );
-    body.replaceChildren(editor);
-    input.focus();
+    if (!current()) return;
+    this.model.put(receipt);
+    this.refresh();
   }
   notify(messages: Message[]): void {
     if (
@@ -3147,7 +2526,10 @@ export class App implements RowActions {
       for (const node of this.main.querySelectorAll<HTMLElement>(
         "[data-avatar-user]",
       ))
-        if (node.dataset.avatarUser === stamp.user.id) {
+        if (
+          node.dataset.avatarUser === stamp.user.id &&
+          node.dataset.reactAvatar !== "true"
+        ) {
           node.replaceChildren(
             document.createTextNode(
               stamp.user.username.slice(0, 1).toUpperCase(),
@@ -3156,6 +2538,7 @@ export class App implements RowActions {
           this.avatar(stamp.user, node);
         }
     }
+    this.view.changed();
     this.renderTimeline();
     if (this.root) this.renderThread();
     window.dispatchEvent(new Event("rv-profile-update"));

@@ -1,3 +1,5 @@
+import { clearView } from "../ui/portals";
+import { timelineBanner } from "../ui/banners";
 import type { App } from "../app";
 import type {
   Message,
@@ -135,18 +137,18 @@ export class PrivateChat {
     action = () => encryptedRoom(this.app, this.room),
   ): void {
     if (!this.active) return;
-    const banner = el("div", "e2e-banner");
-    banner.append(
-      el("p", "", nt(key)),
-      button(nt("crypto.group_title"), action),
+    timelineBanner(
+      this.app.timeline,
+      nt(key),
+      nt("crypto.group_title"),
+      action,
     );
-    this.app.timeline.replaceChildren(banner);
     this.rows.clear();
     this.threadRows.clear();
     this.view = undefined;
     this.threadView = undefined;
     this.app.threadPane.hidden = true;
-    this.app.threadTimeline.replaceChildren();
+    clearView(this.app.threadTimeline);
     this.retireMedia();
     this.app.renderHeader();
   }
@@ -161,8 +163,8 @@ export class PrivateChat {
     stopMedia(this.app.timeline);
     stopMedia(this.app.threadTimeline);
     if (this.app.room === this.room) {
-      this.app.timeline.replaceChildren();
-      this.app.threadTimeline.replaceChildren();
+      clearView(this.app.timeline);
+      clearView(this.app.threadTimeline);
       this.app.composer.value = "";
       this.app.threadComposer.value = "";
       this.app.replyBar.replaceChildren();
@@ -536,7 +538,7 @@ export class PrivateChat {
     const access = this.threadAccess;
     this.threadAccess = undefined;
     stopMedia(this.app.threadTimeline);
-    this.app.threadTimeline.replaceChildren();
+    clearView(this.app.threadTimeline);
     this.app.threadComposer.value = "";
     this.retireMedia();
     await access?.close();

@@ -7,6 +7,7 @@ import type { RestClient } from '../lib/rest.ts';
 import { useT } from './i18n.ts';
 import type { TranslationKey } from './messages.ts';
 import { Tappable } from './tappable.tsx';
+import { InlineIcon } from './icon.tsx';
 import { FONTS, type Colors } from './theme.ts';
 
 const FIELDS: readonly { key: keyof RoomTexts; label: TranslationKey }[] = [
@@ -72,7 +73,7 @@ export function RoomSettingsEditor({
         android_ripple={{ color: c.ripple }}
         style={[styles.button, { backgroundColor: c.card }]}
       >
-        <Text style={[styles.buttonText, { color: c.text }]}>✎ {t('roomSettings.edit')}</Text>
+        <Text style={[styles.buttonText, { color: c.text }]}><InlineIcon name="document-edit" /> {t('roomSettings.edit')}</Text>
       </Tappable>
     );
   }

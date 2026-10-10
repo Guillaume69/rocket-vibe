@@ -225,7 +225,7 @@ function RoomInfoContent({
           style={[styles.favorite, { backgroundColor: c.card }]}
         >
           <Text style={[styles.favoriteText, { color: c.text }]}>
-            👥 {extras?.members != null ? t('members.count', { n: extras.members }) : t('members.title')}
+            <InlineIcon name="system-users" /> {extras?.members != null ? t('members.count', { n: extras.members }) : t('members.title')}
           </Text>
         </Tappable>
       )}

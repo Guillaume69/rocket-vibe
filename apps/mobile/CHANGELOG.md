@@ -12,6 +12,11 @@ release, and its notes are that version's section here.
 - Android can check GitHub for a newer mobile APK from Settings > App, show an optional update notice, download with progress and SHA-256 verification, and install through Android confirmation while retaining app data. Update checks and installation recovery work independently of chat accounts.
 - "Remind me" in a message's actions, on every server: in 1 hour, in 3 hours, tomorrow at 09:00, or a day and time you pick, up to a year ahead. At that time a notification shows the room, the author and the start of the message, even with the app closed, and opens the message (its thread for a reply). The reminder is kept on the phone only; when Android would deliver it late (exact alarms off, the default from Android 14), the app explains it once and offers "Alarms and reminders", and the Reminders list keeps an Allow banner until it is granted; "Cancel reminder" on the message, or the Reminders list in Settings, removes it, and signing out removes the account's reminders.
 - A Read-only switch in the room settings of a Rocket.Chat room (with the right to edit it), saved only when switched; the composer follows the new state. On a RocketVibe server, the room information's member list can now remove a member (confirmed) and add one by username, a member's name opens their profile, and the list reloads after a role change or a membership change.
+- A call started in a direct conversation on Rocket.Chat or kChat rings: the incoming call
+  card with the ringtone, Accept opens the call, Decline tells the server, a tap outside
+  only silences it. On Rocket.Chat the push rings it over the lock screen on Android
+  (Accept and Decline in the notification) and as a time-sensitive alert on iOS; kChat
+  sends no push to this app, so it rings while the app runs.
 
 ### Fixed
 

@@ -170,7 +170,7 @@ mod tests {
         let now = f["now"].as_u64().unwrap();
         let wrong = Pairing::new().unwrap();
         assert_eq!(wrong.open_at(code, now).err().unwrap().code, "invalid_handoff");
-        let pair = pairing(f["pairingKey"].as_str().unwrap());
+        let pair = pairing(f["privateKey"].as_str().unwrap());
         let mut modified = code.to_owned();
         modified.replace_range(modified.len() - 4..modified.len() - 3, "x");
         assert!(pair.open_at(&modified, now).is_err());

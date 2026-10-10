@@ -6,7 +6,7 @@ An account on a RocketVibe server can silence its notifications on a schedule (q
 
 - Preferences (`docs/protocol/PROFILES.md`): `quiet_hours` (`QuietHours` in `crates/rv-protocol/src/profiles.rs`: `start_minute`, `end_minute` since midnight, distinct, below 1440, `start_minute > end_minute` when it crosses midnight, `time_zone` an IANA name, the device's when saved) and `muted_until` (RFC 3339, at most seven days ahead). In `UpdatePreferences` both are `Option<Option<_>>`: **absent keeps**, `null` removes, so a client that does not send them never wipes them; `UserPreferences` returns them, `muted_until` only while it is in the future. `QuietHours::covers` is the rule every client applies.
 - Server (`docs/protocol/PUSH.md`): `account_quiet` (migration `0055_quiet_hours.sql`) reads the window in its own zone (`now() AT TIME ZONE`) and the mute. `audible_push_recipients`, the eligible recipients minus those in do not disturb, decides capture (`push.rs`, the send transaction) and delivery (the worker's claim, and the retirement of pending pushes): a message sent in quiet hours never pushes, it is not deferred. Reading a delivered push's content and replying from it keep `eligible_push_recipients`, so a notification shown before quiet hours still answers. A call ring to an account in do not disturb is skipped like one to a busy callee (`voice.rs`, `start_ring`). Validation: the window (`QuietHours::valid`), the zone (`chrono_tz`), the instant (`profiles.rs`); tests in `apps/server/src/push/tests.rs`.
-- The apps' own notifications follow the same rule locally, with the device's clock.
+- The apps' own notifications follow the same rule locally, with the device's clock. So does an incoming call while an app is open: its prompt shows, silently (web `voice.ts`, mobile `VoiceRingHost`, GTK `ChatPage::voice_rings` through `NativeSession::quiet_now`, SwiftUI `VoiceModel.rings` through `quietNow`); the caller still hears it ring until it is answered or missed.
 
 ## Web
 
@@ -20,7 +20,7 @@ Writes go through `useNativePreferences` (`ui/nativePreferences.ts`) and `Native
 
 `lib/quiet.ts` is the web's rule ported (`covers`, `minuteIn`, `quietNow`, `mutedUntil`, `clock`, `minuteOf`, `nextMorning`, `validWindow`; `lib/quiet.test.ts`). `minuteIn` asks Hermes' `Intl.DateTimeFormat` for the window's zone through `format` and a parse (no `formatToParts`), and falls back to the phone's clock if the engine refuses the zone.
 
-The app raises no notification of its own for a RocketVibe message: every message notification is an FCM push the server sent (`plugins/native-push-source.js`, `ui/notifications.tsx` only displays received pushes), and the server sends none while quiet. Incoming calls: the server skips the system ring (`VoiceRinging`), but with the app open the in-app ring prompt and its ringtone (`VoiceRingHost`, `ui/voice.tsx`, from the live `rings`) still show, as for a busy callee and as on the web.
+The app raises no notification of its own for a RocketVibe message: every message notification is an FCM push the server sent (`plugins/native-push-source.js`, `ui/notifications.tsx` only displays received pushes), and the server sends none while quiet. Incoming calls: the server skips the system ring (`VoiceRinging`), and with the app open the in-app prompt (`VoiceRingHost`, `ui/voice.tsx`, from the live `rings`) shows without its ringtone: `quietNow` on the account's own profile, read when the call arrives.
 
 ## Desktop
 

@@ -108,6 +108,7 @@ mod native_crypto;
 mod native_files;
 mod native_quotes;
 mod native_reads;
+mod native_reload;
 mod rocket_chat;
 mod room_management;
 mod security;
@@ -156,6 +157,7 @@ pub fn install(window: &Rc<AppWindow>) {
     native_reads::install(window);
     native_quotes::install(window);
     native_files::install(window);
+    native_reload::install(window);
     native_crypto::install(window);
     email_factor::install(window);
     email_settings::install(window);

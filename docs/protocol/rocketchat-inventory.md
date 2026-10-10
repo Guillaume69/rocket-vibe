@@ -549,8 +549,8 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/lib/permissions.ts:27](../../apps/mobile/lib/permissions.ts#L27) | endpoint | permissions.listAll |
 | [apps/mobile/lib/permissions.ts:28](../../apps/mobile/lib/permissions.ts#L28) | call:GET | 'me' |
 | [apps/mobile/lib/presence.ts:26](../../apps/mobile/lib/presence.ts#L26) | stream | stream-notify-logged |
-| [apps/mobile/lib/presence.ts:163](../../apps/mobile/lib/presence.ts#L163) | call:GET | 'users.presence' |
-| [apps/mobile/lib/presence.ts:163](../../apps/mobile/lib/presence.ts#L163) | endpoint | users.presence |
+| [apps/mobile/lib/presence.ts:169](../../apps/mobile/lib/presence.ts#L169) | call:GET | 'users.presence' |
+| [apps/mobile/lib/presence.ts:169](../../apps/mobile/lib/presence.ts#L169) | endpoint | users.presence |
 | [apps/mobile/lib/profilePreload.ts:75](../../apps/mobile/lib/profilePreload.ts#L75) | call:GET | 'users.info' |
 | [apps/mobile/lib/profilePreload.ts:75](../../apps/mobile/lib/profilePreload.ts#L75) | endpoint | users.info |
 | [apps/mobile/lib/pushToken.ts:33](../../apps/mobile/lib/pushToken.ts#L33) | call:POST | 'push.token' |

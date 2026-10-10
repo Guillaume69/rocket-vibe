@@ -221,3 +221,22 @@ describe('PresenceEngine: invalidation', () => {
     assert.equal(engine.statusOf('u1'), 'offline');
   });
 });
+
+
+test('a confirmed own activity changes without a stream and wins over an older snapshot', async () => {
+  const engine = new PresenceEngine();
+  engine.apply(event([['me', 'alice', 1, '']]));
+  let release!: (response: Response) => void;
+  const held = new Promise<Response>((resolve) => { release = resolve; });
+  const client = new RestClient('http://x', { fetch: async () => held, sleep: async () => {} });
+  const loading = engine.load(client);
+  await Promise.resolve();
+  engine.confirm('me', 'busy');
+  assert.equal(engine.statusOf('me'), 'busy', 'confirmed choice does not depend on a broadcast');
+  release(new Response(JSON.stringify({ users: [{ _id: 'me', status: 'online' }] }),
+    { status: 200, headers: { 'Content-Type': 'application/json' } }));
+  await loading;
+  assert.equal(engine.statusOf('me'), 'busy', 'pre-save snapshot cannot undo the choice');
+  engine.invalidate();
+  assert.equal(engine.statusOf('me'), null, 'the confirmation stays scoped to the current connection');
+});

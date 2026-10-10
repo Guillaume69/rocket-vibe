@@ -57,7 +57,11 @@ export default function PresenceSheet() {
         if (active.current !== client) return;
         await saveStatus(client, { status, message: before.statusText });
       }
-      if (active.current === client) router.back();
+      if (active.current === client) {
+        if (sync.phase === 'ready' && state.phase === 'connected')
+          sync.presence.confirm(state.session.userId, status);
+        router.back();
+      }
     } catch {
       if (active.current === client) setError(t('myProfile.saveFailed'));
     } finally {

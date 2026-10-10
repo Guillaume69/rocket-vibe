@@ -3824,13 +3824,13 @@
     },
     {
       "file": "apps/mobile/lib/presence.ts",
-      "line": 163,
+      "line": 169,
       "kind": "call:GET",
       "surface": "'users.presence'"
     },
     {
       "file": "apps/mobile/lib/presence.ts",
-      "line": 163,
+      "line": 169,
       "kind": "endpoint",
       "surface": "users.presence"
     },

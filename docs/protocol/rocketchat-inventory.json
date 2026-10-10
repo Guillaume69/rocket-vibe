@@ -367,6 +367,7 @@
     "apps/mobile/lib/emojis.ts",
     "apps/mobile/lib/externalLink.ts",
     "apps/mobile/lib/integrationCards.ts",
+    "apps/mobile/lib/invites.ts",
     "apps/mobile/lib/linkPreview.ts",
     "apps/mobile/lib/listBreak.ts",
     "apps/mobile/lib/markdown.ts",
@@ -517,6 +518,7 @@
     "apps/mobile/ui/reportForm.tsx",
     "apps/mobile/ui/roomCover.ts",
     "apps/mobile/ui/roomHeader.tsx",
+    "apps/mobile/ui/roomInvite.tsx",
     "apps/mobile/ui/roomManagement.tsx",
     "apps/mobile/ui/roomMembership.tsx",
     "apps/mobile/ui/roomNotifications.tsx",
@@ -3588,6 +3590,12 @@
       "surface": "e2e.fetchMyKeys"
     },
     {
+      "file": "apps/mobile/lib/invites.ts",
+      "line": 28,
+      "kind": "call:POST",
+      "surface": "'findOrCreateInvite'"
+    },
+    {
       "file": "apps/mobile/lib/messageActions.ts",
       "line": 158,
       "kind": "call:GET",
@@ -4459,73 +4467,73 @@
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 969,
-      "kind": "endpoint",
-      "surface": "e2e.title"
-    },
-    {
-      "file": "apps/mobile/ui/messages.ts",
-      "line": 970,
-      "kind": "endpoint",
-      "surface": "e2e.explanation"
-    },
-    {
-      "file": "apps/mobile/ui/messages.ts",
       "line": 972,
       "kind": "endpoint",
-      "surface": "e2e.field"
+      "surface": "e2e.title"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
       "line": 973,
       "kind": "endpoint",
-      "surface": "e2e.unlock"
-    },
-    {
-      "file": "apps/mobile/ui/messages.ts",
-      "line": 974,
-      "kind": "endpoint",
-      "surface": "e2e.wrongPassword"
+      "surface": "e2e.explanation"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
       "line": 975,
       "kind": "endpoint",
-      "surface": "e2e.genericError"
-    },
-    {
-      "file": "apps/mobile/ui/messages.ts",
-      "line": 2335,
-      "kind": "endpoint",
-      "surface": "e2e.title"
-    },
-    {
-      "file": "apps/mobile/ui/messages.ts",
-      "line": 2336,
-      "kind": "endpoint",
-      "surface": "e2e.explanation"
-    },
-    {
-      "file": "apps/mobile/ui/messages.ts",
-      "line": 2338,
-      "kind": "endpoint",
       "surface": "e2e.field"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2339,
+      "line": 976,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2340,
+      "line": 977,
       "kind": "endpoint",
       "surface": "e2e.wrongPassword"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
+      "line": 978,
+      "kind": "endpoint",
+      "surface": "e2e.genericError"
+    },
+    {
+      "file": "apps/mobile/ui/messages.ts",
       "line": 2341,
+      "kind": "endpoint",
+      "surface": "e2e.title"
+    },
+    {
+      "file": "apps/mobile/ui/messages.ts",
+      "line": 2342,
+      "kind": "endpoint",
+      "surface": "e2e.explanation"
+    },
+    {
+      "file": "apps/mobile/ui/messages.ts",
+      "line": 2344,
+      "kind": "endpoint",
+      "surface": "e2e.field"
+    },
+    {
+      "file": "apps/mobile/ui/messages.ts",
+      "line": 2345,
+      "kind": "endpoint",
+      "surface": "e2e.unlock"
+    },
+    {
+      "file": "apps/mobile/ui/messages.ts",
+      "line": 2346,
+      "kind": "endpoint",
+      "surface": "e2e.wrongPassword"
+    },
+    {
+      "file": "apps/mobile/ui/messages.ts",
+      "line": 2347,
       "kind": "endpoint",
       "surface": "e2e.genericError"
     },

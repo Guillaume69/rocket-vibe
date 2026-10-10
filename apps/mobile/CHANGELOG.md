@@ -20,6 +20,7 @@ release, and its notes are that version's section here.
 - On Rocket.Chat servers, "Forward" in a message's actions sends it, as a quote, to another room you pick.
 - A 🔍 in the room list searches messages across every room, among those already on the device, newest first; a result opens the room at the message.
 - On Rocket.Chat servers, a thread reply can also be sent to the room ("Also send to the room" above the thread composer).
+- On Rocket.Chat servers, the room information sheet shares an invite link to a channel or group (for owners, moderators and admins), valid 7 days, in the server's own address.
 - My profile can remove my photo (Rocket.Chat and RocketVibe), after a confirmation.
 
 ### Fixed

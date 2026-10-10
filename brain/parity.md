@@ -163,6 +163,7 @@ beta does.
 | Remove my photo (`users.resetAvatar`) | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | Live avatar changes (`updateAvatar`) | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | Report a user from the profile (`moderation.reportUser`, RocketVibe `reports`) | done | done | done | done | Not on my own profile ([administration](features/administration.md)). SwiftUI checked by the Linux build of RocketVibeKit and the macOS CI build only. Web: Native provider: see [web-client](features/web-client.md). |
+| Share an invite link to a channel or private group (Rocket.Chat `findOrCreateInvite`, the direct `<Site_Url>/invite/<id>` form) | done | missing | missing | n/a | Mobile: the room information sheet, for `create-invite-links` holders, 7 days, unlimited uses, through the system share sheet. GTK and SwiftUI owe it. Web: Native-origin client; Rocket.Chat is outside its scope. |
 | Room members, room settings, roles | missing | missing | missing | done | Web: Native provider: see [web-client](features/web-client.md). |
 
 ## 9. Settings - [settings](features/settings.md)
@@ -308,7 +309,7 @@ gaps, listed last.
 
 - **Mobile**: kChat "Sign in with Infomaniak" run on a real account; Mattermost stars changed elsewhere, live; several accounts per server;
   formatting toolbar; logs folder.
-- **GTK**: a room's own notifications, forwarding a message and "also send to the room" in a thread (Rocket.Chat); search across rooms; kChat "Sign in with Infomaniak"; email 2FA resend; replay of an offline sign-out; padlock tile once
+- **GTK**: a room's own notifications, forwarding a message, "also send to the room" in a thread and invite links (Rocket.Chat); search across rooms; kChat "Sign in with Infomaniak"; email 2FA resend; replay of an offline sign-out; padlock tile once
   unlocked; DM avatar versions in the list; video reduction; reconciliation snapshot; catch-up of
   deletions in rooms already caught up; message retention.
 - **SwiftUI**: everything GTK owes, plus `-wal` / `-shm` cleanup on sign-out;

@@ -36,6 +36,7 @@ import {RoomMembershipBound} from '../ui/roomMembership.tsx';
 import {NativeRoomFavorite} from '../ui/nativeRoomFavorite.tsx';
 import {EncryptedGroupSection} from '../ui/encryptedGroup.tsx';
 import { RoomNotificationChoice } from '../ui/roomNotifications.tsx';
+import { RoomInvite } from '../ui/roomInvite.tsx';
 
 const TYPE_SENTENCE: Record<string, TranslationKey> = {
   c: 'roomInfo.typePublicChannel',
@@ -85,6 +86,8 @@ function RoomInfoContent({
   const bottomMargin = useSheetBottomMargin();
   const t = useT();
   const unlocked = useE2EUnlocked(e2e);
+  const { state } = useSession();
+  const siteUrl = state.phase === 'connected' ? state.session.siteUrl : null;
   const { data: rows } = useCoalescedLiveQuery(
     base.select().from(rooms).where(eq(rooms.rid, rid)),
     [rid],
@@ -203,6 +206,9 @@ function RoomInfoContent({
 
       {!native && subscription !== undefined && (
         <RoomNotificationChoice c={c} rid={rid} base={base} actions={actions} current={subscription.pushPreference} />
+      )}
+      {!native && subscription !== undefined && (
+        <RoomInvite c={c} client={client} siteUrl={siteUrl} rid={rid} type={room?.type} roles={subscription.roles} />
       )}
 
       {extras?.management && actions.roomManagement && <RoomCommands rid={rid} base={base} details={extras.management} actions={actions.roomManagement} c={c} refresh={()=>setRefreshing(value=>value+1)} />}

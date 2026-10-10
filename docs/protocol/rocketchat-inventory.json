@@ -2195,43 +2195,43 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/uploads.rs",
-      "line": 323,
+      "line": 326,
       "kind": "call:POST",
       "surface": "&format!(\"rooms.mediaConfirm/{…}/{…}\", row.rid)"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/uploads.rs",
-      "line": 323,
+      "line": 326,
       "kind": "endpoint",
       "surface": "rooms.mediaConfirm/{…}/{…}"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/uploads.rs",
-      "line": 366,
+      "line": 369,
       "kind": "call:POST",
       "surface": "\"posts\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/uploads.rs",
-      "line": 450,
+      "line": 453,
       "kind": "call:POST",
       "surface": "&format!(\"rooms.mediaConfirm/{…}/{…}\", row.rid)"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/uploads.rs",
-      "line": 450,
+      "line": 453,
       "kind": "endpoint",
       "surface": "rooms.mediaConfirm/{…}/{…}"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/uploads.rs",
-      "line": 474,
+      "line": 477,
       "kind": "endpoint",
       "surface": "rooms.media/{…}"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/uploads.rs",
-      "line": 476,
+      "line": 479,
       "kind": "call:UPLOAD",
       "surface": "&path, field, upload.bytes, &upload.name, &upload.mime, upload.texts, move |sent, total| {"
     },

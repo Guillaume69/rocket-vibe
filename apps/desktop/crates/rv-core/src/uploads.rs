@@ -265,7 +265,10 @@ impl Uploads {
             match result {
                 _ if abandoned => {}
                 Ok(Outcome::Done) => {}
-                Ok(Outcome::Offline) => {
+                // A server error (a proxy's 502 while the server restarts) is
+                // no refusal either: the file waits, and a confirm the server
+                // did post is found again by its persisted `file_id`.
+                Ok(Outcome::Offline) | Err(RestError { status: 500.., .. }) => {
                     self.store.write(|w| w.set_upload_status(&row.id, "pending"));
                     return false;
                 }

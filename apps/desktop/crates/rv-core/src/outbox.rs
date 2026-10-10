@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 
 use crate::mattermost::sync::MmSync;
 use crate::normalize::Message;
-use crate::rest::{CallOptions, RestClient};
+use crate::rest::{CallOptions, RestClient, RestError};
 use crate::store::Store;
 use crate::sync::SyncEngine;
 
@@ -205,7 +205,7 @@ impl Outbox {
                             .is_some_and(|at| at >= entry.created_at - CLOCK_SKEW_MS)
                 })
                 .map_or(Delivered::No, Delivered::Yes),
-            Err(e) if e.status == 0 || e.status == 429 => Delivered::Unknown,
+            Err(e) if unanswered(&e) => Delivered::Unknown,
             Err(_) => Delivered::No,
         }
     }
@@ -216,12 +216,18 @@ impl Outbox {
                 Some(doc) if doc.get("_id").and_then(Value::as_str) == Some(id) => Delivered::Yes(doc.clone()),
                 _ => Delivered::No,
             },
-            // 429: `chat.getMessage` shares the 10/min limit of `chat.sendMessage`.
-            // Neither that nor silence is a denial from the server.
-            Err(e) if e.status == 0 || e.status == 429 => Delivered::Unknown,
+            Err(e) if unanswered(&e) => Delivered::Unknown,
             Err(_) => Delivered::No,
         }
     }
+}
+
+/// The lookup got no verdict: silence, the rate limit (`chat.getMessage`
+/// shares the 10/min of `chat.sendMessage`), or a server error, such as a proxy's
+/// 502 while the server restarts. None of these says the message was refused;
+/// marking it failed would turn a maintenance window into retyped messages.
+fn unanswered(e: &RestError) -> bool {
+    e.status == 0 || e.status == 429 || e.status >= 500
 }
 
 #[cfg(test)]

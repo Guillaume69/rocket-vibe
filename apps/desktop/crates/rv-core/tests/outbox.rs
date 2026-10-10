@@ -84,6 +84,29 @@ async fn refusal_that_was_not_delivered_fails() {
 }
 
 #[tokio::test]
+async fn server_error_keeps_pending_and_retry_resends() {
+    // A proxy's 502 while the server restarts answers both the send and the
+    // lookup: no verdict, so the row waits instead of turning "not sent".
+    let up = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let flag = up.clone();
+    let f = fixture(move |_| {
+        if flag.load(std::sync::atomic::Ordering::SeqCst) {
+            respond(200, &server_message(ID))
+        } else {
+            respond(502, "<html>Bad Gateway</html>")
+        }
+    })
+    .await;
+    f.outbox.enqueue("r", "hello", None);
+    f.outbox.process().await;
+    assert_eq!(scalar(&f.store, "SELECT status FROM outbox").as_deref(), Some("pending"));
+
+    up.store(true, std::sync::atomic::Ordering::SeqCst);
+    f.outbox.process().await;
+    assert_eq!(count(&f.store, "SELECT COUNT(*) FROM outbox"), 0);
+}
+
+#[tokio::test]
 async fn unreachable_keeps_pending_and_retry_resends() {
     let online = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let flag = online.clone();

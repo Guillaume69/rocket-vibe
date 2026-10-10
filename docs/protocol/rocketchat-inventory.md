@@ -284,13 +284,13 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/sync.rs:332](../../apps/desktop/crates/rv-core/src/sync.rs#L332) | call:GET | "chat.getMessage" |
 | [apps/desktop/crates/rv-core/src/sync.rs:332](../../apps/desktop/crates/rv-core/src/sync.rs#L332) | endpoint | chat.getMessage |
 | [apps/desktop/crates/rv-core/src/uploads.rs:89](../../apps/desktop/crates/rv-core/src/uploads.rs#L89) | resource | /file-upload/{…}/{…} |
-| [apps/desktop/crates/rv-core/src/uploads.rs:323](../../apps/desktop/crates/rv-core/src/uploads.rs#L323) | call:POST | &format!("rooms.mediaConfirm/{…}/{…}", row.rid) |
-| [apps/desktop/crates/rv-core/src/uploads.rs:323](../../apps/desktop/crates/rv-core/src/uploads.rs#L323) | endpoint | rooms.mediaConfirm/{…}/{…} |
-| [apps/desktop/crates/rv-core/src/uploads.rs:366](../../apps/desktop/crates/rv-core/src/uploads.rs#L366) | call:POST | "posts" |
-| [apps/desktop/crates/rv-core/src/uploads.rs:450](../../apps/desktop/crates/rv-core/src/uploads.rs#L450) | call:POST | &format!("rooms.mediaConfirm/{…}/{…}", row.rid) |
-| [apps/desktop/crates/rv-core/src/uploads.rs:450](../../apps/desktop/crates/rv-core/src/uploads.rs#L450) | endpoint | rooms.mediaConfirm/{…}/{…} |
-| [apps/desktop/crates/rv-core/src/uploads.rs:474](../../apps/desktop/crates/rv-core/src/uploads.rs#L474) | endpoint | rooms.media/{…} |
-| [apps/desktop/crates/rv-core/src/uploads.rs:476](../../apps/desktop/crates/rv-core/src/uploads.rs#L476) | call:UPLOAD | &path, field, upload.bytes, &upload.name, &upload.mime, upload.texts, move \|sent, total\| { |
+| [apps/desktop/crates/rv-core/src/uploads.rs:326](../../apps/desktop/crates/rv-core/src/uploads.rs#L326) | call:POST | &format!("rooms.mediaConfirm/{…}/{…}", row.rid) |
+| [apps/desktop/crates/rv-core/src/uploads.rs:326](../../apps/desktop/crates/rv-core/src/uploads.rs#L326) | endpoint | rooms.mediaConfirm/{…}/{…} |
+| [apps/desktop/crates/rv-core/src/uploads.rs:369](../../apps/desktop/crates/rv-core/src/uploads.rs#L369) | call:POST | "posts" |
+| [apps/desktop/crates/rv-core/src/uploads.rs:453](../../apps/desktop/crates/rv-core/src/uploads.rs#L453) | call:POST | &format!("rooms.mediaConfirm/{…}/{…}", row.rid) |
+| [apps/desktop/crates/rv-core/src/uploads.rs:453](../../apps/desktop/crates/rv-core/src/uploads.rs#L453) | endpoint | rooms.mediaConfirm/{…}/{…} |
+| [apps/desktop/crates/rv-core/src/uploads.rs:477](../../apps/desktop/crates/rv-core/src/uploads.rs#L477) | endpoint | rooms.media/{…} |
+| [apps/desktop/crates/rv-core/src/uploads.rs:479](../../apps/desktop/crates/rv-core/src/uploads.rs#L479) | call:UPLOAD | &path, field, upload.bytes, &upload.name, &upload.mime, upload.texts, move \|sent, total\| { |
 | [apps/desktop/crates/rv-gtk/src/chat_native.rs:1015](../../apps/desktop/crates/rv-gtk/src/chat_native.rs#L1015) | endpoint | rooms.new |
 | [apps/desktop/crates/rv-gtk/src/chat_quotes.rs:98](../../apps/desktop/crates/rv-gtk/src/chat_quotes.rs#L98) | endpoint | spotlight |
 | [apps/desktop/crates/rv-gtk/src/chat.rs:122](../../apps/desktop/crates/rv-gtk/src/chat.rs#L122) | endpoint | rooms.favorite_add |

@@ -409,7 +409,7 @@ impl NativeChat {
                 listener.on_event(Event::Resync);
                 drop(s);
                 let next = tokio::select! {
-                    c = changes.recv() => c, e = events.recv() => e,
+                    c = changes.recv() => c.map(|_| ()), e = events.recv() => e,
                     n = incoming.recv() => {
                         match n {
                             Ok(n) => if let Some(s)=session.upgrade() && s.notification_current(&n) {

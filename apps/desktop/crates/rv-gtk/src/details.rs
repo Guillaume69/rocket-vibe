@@ -240,7 +240,8 @@ pub fn native_room_info(
     tx.try_send(()).ok();
     let forward = crate::runtime().spawn(async move {
         loop {
-            let update = tokio::select! { result = changes.recv() => result, result = events.recv() => result };
+            let update =
+                tokio::select! { result = changes.recv() => result.map(|_| ()), result = events.recv() => result };
             if matches!(update, Err(RecvError::Closed)) {
                 return;
             }

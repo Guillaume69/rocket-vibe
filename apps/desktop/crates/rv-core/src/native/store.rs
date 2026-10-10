@@ -140,10 +140,18 @@ impl MessageRow {
         }
     }
 }
+/// What a committed write touched, so a listener redoes only that.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StoreChange {
+    /// Live traffic: these rooms' rows and messages, nothing else.
+    Rooms(Vec<String>),
+    /// Anything else: read everything again.
+    All,
+}
 pub struct NativeStore {
     conn: Mutex<Connection>,
     identity: Identity,
-    changes: broadcast::Sender<()>,
+    changes: broadcast::Sender<StoreChange>,
     projection: AtomicU64,
     search_revision: AtomicU64,
 }
@@ -261,7 +269,7 @@ impl NativeStore {
             search_revision: AtomicU64::new(0),
         })
     }
-    pub fn changes(&self) -> broadcast::Receiver<()> {
+    pub fn changes(&self) -> broadcast::Receiver<StoreChange> {
         self.changes.subscribe()
     }
     pub fn clear(&self) -> rusqlite::Result<()> {
@@ -332,10 +340,19 @@ impl NativeStore {
         behavior: rusqlite::TransactionBehavior,
         fnc: impl FnOnce(&Transaction) -> rusqlite::Result<(T, bool)>,
     ) -> rusqlite::Result<T> {
+        self.atomic_scoped(behavior, |tx| fnc(tx).map(|(result, rotate)| (result, rotate, None)))
+    }
+    /// A transaction whose write is announced as touching only `rooms` when it
+    /// names them and does not rotate the projection.
+    fn atomic_scoped<T>(
+        &self,
+        behavior: rusqlite::TransactionBehavior,
+        fnc: impl FnOnce(&Transaction) -> rusqlite::Result<(T, bool, Option<Vec<String>>)>,
+    ) -> rusqlite::Result<T> {
         let mut conn = self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let before = conn.total_changes();
         let tx = conn.transaction_with_behavior(behavior)?;
-        let (result, rotate) = fnc(&tx)?;
+        let (result, rotate, rooms) = fnc(&tx)?;
         tx.commit()?;
         if rotate {
             self.projection.fetch_add(1, Ordering::SeqCst);
@@ -346,7 +363,10 @@ impl NativeStore {
         let changed = rotate || conn.total_changes() != before;
         drop(conn);
         if changed {
-            let _ = self.changes.send(());
+            let _ = self.changes.send(match rooms {
+                Some(rooms) if !rotate => StoreChange::Rooms(rooms),
+                _ => StoreChange::All,
+            });
         }
         Ok(result)
     }
@@ -713,11 +733,32 @@ impl NativeStore {
         if batch.protocol_version != VERSION {
             return Err(rusqlite::Error::InvalidQuery);
         }
-        self.atomic_invalidation(|tx| {
+        self.atomic_scoped(rusqlite::TransactionBehavior::Deferred, |tx| {
             if !self.same(tx)? {
                 return Err(rusqlite::Error::InvalidQuery);
             }
             let candidates = reader.map(|me| notifications::capture(tx, batch, me)).transpose()?.unwrap_or_default();
+            // The rooms on screen that change: the batch's own, and those whose
+            // quote cards cite one of its messages (an edit or a deletion
+            // refreshes them).
+            let mut rooms = std::collections::BTreeSet::new();
+            for change in &batch.changes {
+                match change {
+                    Change::RoomUpsert(room) => {
+                        rooms.insert(room.id.clone());
+                    }
+                    Change::MessageUpsert(message) => {
+                        rooms.insert(message.room_id.clone());
+                        let mut citing = tx.prepare_cached(
+                            "SELECT DISTINCT rid FROM native_quote_references WHERE source_room=?1 AND source_id=?2",
+                        )?;
+                        for rid in citing.query_map(params![message.room_id, message.id], |r| r.get::<_, String>(0))? {
+                            rooms.insert(rid?);
+                        }
+                    }
+                    Change::RoomRemoved { .. } => {}
+                }
+            }
             let mut rotate = batch.changes.iter().any(|c| matches!(c, Change::RoomRemoved { .. }));
             for change in &batch.changes {
                 match change {
@@ -735,7 +776,7 @@ impl NativeStore {
                     Err(e) => Some(Err(e)),
                 })
                 .collect::<rusqlite::Result<Vec<_>>>()?;
-            Ok((candidates, rotate))
+            Ok((candidates, rotate, Some(rooms.into_iter().collect())))
         })
     }
     pub fn ingest(&self, messages: &[Message]) -> rusqlite::Result<()> {
@@ -1152,6 +1193,51 @@ mod tests {
         assert_eq!(store.cursor().unwrap().as_deref(), Some("initial"));
         assert_eq!(store.pending().unwrap().len(), 1);
         assert_eq!(store.messages("room-id", 100).unwrap().last().unwrap().text, "queued");
+    }
+
+    #[test]
+    fn live_batches_name_the_rooms_they_touch_and_those_citing_them() {
+        let store = store();
+        let snapshot = snapshot();
+        store.snapshot(&snapshot).unwrap();
+        let mut changes = store.changes();
+        let batch = |changes: Vec<Change>, cursor: &str| SyncBatch {
+            protocol_version: 1,
+            changes,
+            cursor: cursor.into(),
+            has_more: false,
+        };
+        let mut message = snapshot.messages[0].clone();
+        let rid = message.room_id.clone();
+        message.text = "edited".into();
+        message.revision = (decimal(&message.revision).unwrap() + 1).to_string();
+        store.batch(&batch(vec![Change::MessageUpsert(message.clone())], "one")).unwrap();
+        assert_eq!(changes.try_recv().unwrap(), StoreChange::Rooms(vec![rid.clone()]));
+        store
+            .conn
+            .lock()
+            .unwrap()
+            .execute(
+                "INSERT INTO native_quote_references VALUES('citing','other-room',0,?1,?2,'1')",
+                params![message.id, rid],
+            )
+            .unwrap();
+        message.text = "edited again".into();
+        message.revision = (decimal(&message.revision).unwrap() + 1).to_string();
+        store.batch(&batch(vec![Change::MessageUpsert(message)], "two")).unwrap();
+        let mut both = vec![rid.clone(), "other-room".to_owned()];
+        both.sort();
+        assert_eq!(
+            changes.try_recv().unwrap(),
+            StoreChange::Rooms(both),
+            "a quote card in another room follows its source"
+        );
+        store.batch(&batch(vec![Change::RoomRemoved { room_id: rid }], "three")).unwrap();
+        assert_eq!(changes.try_recv().unwrap(), StoreChange::All, "a withdrawn room reloads everything");
+        store.enqueue("queued", "other-room", "text", "alice").ok();
+        while let Ok(change) = changes.try_recv() {
+            assert_eq!(change, StoreChange::All, "only live batches are scoped");
+        }
     }
 
     #[test]

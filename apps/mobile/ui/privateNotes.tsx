@@ -10,6 +10,7 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import { messageTree } from '../lib/markdown.ts';
 import { Tappable } from './tappable.tsx';
+import { Icon } from './icon.tsx';
 import { useT } from './i18n.ts';
 import { MessageBody, RenderGuard } from './markdown.tsx';
 import { type Colors, FONTS } from './theme.ts';
@@ -61,7 +62,7 @@ export function PrivateNote({ c, rid, text }: { c: Colors; rid: string; text: st
         style={styles.close}
         accessibilityLabel={t('common.close')}
       >
-        <Text style={{ color: c.dimmed }}>✕</Text>
+        <Icon name="window-close" size={14} color={c.dimmed} />
       </Tappable>
     </View>
   );

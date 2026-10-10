@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- RocketVibe: the desktop send arrow (rv-gtk widgets::send_arrow, 2.4 px round stroke on 20 px) scaled to the 16 px Adwaita grid, as filled outlines. -->
+<svg height="16px" viewBox="0 0 16 16" width="16px" xmlns="http://www.w3.org/2000/svg">
+    <path d="M8.96 13.2L8.96 2.8A0.96 0.96 0 0 0 7.04 2.8L7.04 13.2A0.96 0.96 0 0 0 8.96 13.2ZM4.2788 7.8788L8.6788 3.4788A0.96 0.96 0 0 0 7.3212 2.1212L2.9212 6.5212A0.96 0.96 0 0 0 4.2788 7.8788ZM13.0788 6.5212L8.6788 2.1212A0.96 0.96 0 0 0 7.3212 3.4788L11.7212 7.8788A0.96 0.96 0 0 0 13.0788 6.5212Z" fill="#2e3436"/>
+</svg>

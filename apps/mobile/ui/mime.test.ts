@@ -1,7 +1,19 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { shortFormat } from './mime.ts';
+import { fileIcon, shortFormat } from './mime.ts';
+
+describe('fileIcon', () => {
+  test('a family, else the attachment', () => {
+    assert.equal(fileIcon('video/mp4'), 'video-x-generic');
+    assert.equal(fileIcon('audio/ogg'), 'audio-x-generic');
+    assert.equal(fileIcon('application/pdf'), 'x-office-document');
+    assert.equal(fileIcon('text/plain'), 'text-x-generic');
+    assert.equal(fileIcon('application/zip'), 'package-x-generic');
+    assert.equal(fileIcon('application/x-7z-compressed'), 'package-x-generic');
+    assert.equal(fileIcon('application/octet-stream'), 'mail-attachment');
+  });
+});
 
 describe('shortFormat', () => {
   test("the name's extension wins", () => {

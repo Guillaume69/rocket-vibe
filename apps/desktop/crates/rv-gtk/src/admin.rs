@@ -165,13 +165,12 @@ fn avatar(screen: &Screen, username: &str, version: Option<&str>, size: TileSize
 }
 
 fn room_tile(room: &AdminRoom) -> gtk::Widget {
-    let glyph = match room.kind {
-        RoomType::Public => "#".to_owned(),
-        RoomType::Private => "🔒".to_owned(),
-        RoomType::Direct => widgets::initial(&room.name),
-        RoomType::Discussion => "💬".to_owned(),
-    };
-    widgets::tile(&room.name, &glyph, TileSize::Message, room.kind == RoomType::Private)
+    match room.kind {
+        RoomType::Public => widgets::tile(&room.name, "#", TileSize::Message, false),
+        RoomType::Private => widgets::icon_tile(&room.name, "channel-secure-symbolic", TileSize::Message, true),
+        RoomType::Direct => widgets::tile(&room.name, &widgets::initial(&room.name), TileSize::Message, false),
+        RoomType::Discussion => widgets::icon_tile(&room.name, "chat-message-new-symbolic", TileSize::Message, false),
+    }
 }
 
 /// Asks before an action that cannot be taken back.

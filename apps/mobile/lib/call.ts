@@ -149,7 +149,7 @@ export async function probeCallAvailable(client: RestClient,room?:string,members
     return true;
   } catch (e) {
     // A 401 says nothing about video conferencing, it says the session is over.
-    // Memoizing it turned the 📞 button off for the life of the process, even
+    // Memoizing it turned the call button off for the life of the process, even
     // after a successful reconnection, and no gesture got out of it.
     if (current(client,binding) && e instanceof RestError && e.status >=400 && e.status<500 && e.status!==429 && !isTokenRejected(e)) {
       availabilityByClient.set(client, false);

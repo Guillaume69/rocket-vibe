@@ -4,7 +4,7 @@ Encrypted (E2EE) rooms are readable and writable in both apps once the user unlo
 
 ## What the user sees
 
-- **Room list.** Encrypted rooms carry a lock (🔒). Their preview is the last message decrypted when unlocked, otherwise a fixed "Encrypted messages" label; the base64 blob of `lastMessage` is never rendered.
+- **Room list.** Encrypted rooms carry a lock icon. Their preview is the last message decrypted when unlocked, otherwise a fixed "Encrypted messages" label; the base64 blob of `lastMessage` is never rendered.
 - **Room, locked.** Each `t: 'e2e'` message shows a placeholder ("🔒 Encrypted message, not supported" on mobile (French "🔒 Message chiffré, non pris en charge"), "message.encrypted" on desktop). The composer is replaced by an unlock affordance, since the server would refuse clear text in that room (`error-not-allowed`).
 - **Unlock.** A password prompt asks for the E2E password (distinct from the login password). A wrong password says so; a missing key ("no E2E keys on this account") or a network error get their own message. On success the prompt closes and the messages already loaded turn readable in place, without reloading the room.
 - **Once per device.** The unlocked private key is kept (Keystore on mobile, system keychain on desktop), so later launches open unlocked without asking. Settings shows the state and offers "Lock" (forget the key on this device) or "Unlock".

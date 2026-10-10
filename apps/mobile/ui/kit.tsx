@@ -38,6 +38,7 @@ import { useAvatarEtags } from './identities.tsx';
 import {useNativeAvatar} from './nativeAvatar.ts';
 import { useDayFormatter } from './i18n.ts';
 import { type Colors, avatarGradient, type Gradient, FONTS } from './theme.ts';
+import { Icon, type IconName } from './icon.tsx';
 import { useAuthorizedUri } from './authorizedImage.ts';
 
 const START = { x: 0, y: 0 } as const;
@@ -231,8 +232,8 @@ export function RoomAvatar({
   const etags = useAvatarEtags();
   // LOCKED encrypted room: grey tile + closed lock (unreadable). Unlocked: back
   // to the ORDINARY rendering (coloured tile, `#` or avatar): the room is
-  // readable, it looks like a readable room. `🔓` vs `🔒` alone were too close
-  // at this size to signal the state.
+  // readable, it looks like a readable room. An open lock versus a closed one
+  // alone was too close at this size to signal the state.
   if (encrypted && !encryptedUnlocked) {
     return (
       <AvatarTile
@@ -240,7 +241,7 @@ export function RoomAvatar({
         neutral
         size={size}
         radius={radius}
-        child={<Text style={{ fontSize: Math.round(size * 0.42) }}>🔒</Text>}
+        child={<Icon name="channel-secure" size={Math.round(size * 0.42)} color={c.secondaryText} />}
       />
     );
   }
@@ -470,11 +471,27 @@ export function DaySeparator({ c, ts }: { c: Colors; ts: number }) {
   );
 }
 
+/**
+ * A pill's fill and outline: cyan with a soft halo while its field has the
+ * focus, the desktop's `.pill-entry` and `.composer-pill`. Shared by
+ * `PillField` and the composer.
+ */
+export function pillSurface(c: Colors, focus: boolean): ViewStyle {
+  return {
+    backgroundColor: c.card,
+    borderColor: focus ? c.cyan : c.border,
+    // DERIVED from the token (`24` hex ≈ 14% opacity).
+    ...(focus && { boxShadow: `0px 0px 0px 3px ${c.cyan}24` }),
+  };
+}
+
 export type PillFieldProps = {
   c: Colors;
   label: string;
   value: string;
-  icon?: string;
+  icon?: IconName;
+  /** A character in the icon's place (`@` before a username). */
+  prefix?: string;
   /** "Code" field, large and spaced (2FA code entry). */
   large?: boolean;
   /** Multiline field (bio): the pill grows, the text aligns to the top. */
@@ -485,7 +502,7 @@ export type PillFieldProps = {
  * Pill field: cyan outline and focus ring, as in the design. Shared by login
  * and the "My profile" screen: one source for the style.
  */
-export function PillField({ c, label, value, icon, large, multiline, ...props }: PillFieldProps) {
+export function PillField({ c, label, value, icon, prefix, large, multiline, ...props }: PillFieldProps) {
   const [focus, setFocus] = useState(false);
   const field = useRef<TextInput>(null);
   return (
@@ -498,12 +515,11 @@ export function PillField({ c, label, value, icon, large, multiline, ...props }:
         style={[
           styles.pill,
           multiline === true && styles.pillMultiline,
-          { backgroundColor: c.card, borderColor: focus ? c.cyan : c.border },
-          // Soft focus ring, DERIVED from the token (`24` hex ≈ 14% opacity).
-          focus && { boxShadow: `0px 0px 0px 3px ${c.cyan}24` },
+          pillSurface(c, focus),
         ]}
       >
-        {icon !== undefined && <Text style={styles.fieldIcon}>{icon}</Text>}
+        {icon !== undefined && <Icon name={icon} size={15} color={c.dimmed} />}
+        {prefix !== undefined && <Text style={[styles.fieldIcon, { color: c.dimmed }]}>{prefix}</Text>}
         <TextInput
           ref={field}
           value={value}

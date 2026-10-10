@@ -82,6 +82,7 @@ Screens read SQLite through `ui/liveQuery.ts#useCoalescedLiveQuery`, a drop-in f
 - Theme "Nuit Etoilee". Two full palettes, `darkColors` and `lightColors`, share the `Colors` interface. `useColors()` always returns the dark one; `app.json` forces `userInterfaceStyle: "dark"` and `_layout.tsx` hard-codes `darkColors` for the navigation shell. Turning on system light/dark takes those three edits. Contract: no hard-coded colour in a component, every colour comes from a token.
 - `FONTS`: Baloo 2 for titles, Nunito for body, loaded by the `expo-font` config plugin; names differ per platform (file name on Android, PostScript name on iOS).
 - Shared constants: `LIST_PRESS_DELAY` (120 ms press delay on list rows so a scroll cancels the highlight), `availableBodyWidth`, `avatarGradient` (stable gradient per name).
+- Icons: `ui/icon.tsx` (`Icon`, with a `label` when it alone shows a state; `InlineIcon` inside a sentence, which a screen reader does not voice, so the words or the label around must) draws the GNOME Adwaita symbolic icons the desktop uses, from the `RocketVibeIcons` font (`FONTS.icons`), monochrome and tinted by `color`. The SVGs live in `assets/icons/` (adwaita-icon-theme 50.0, plus the desktop's send arrow); `scripts/generate-icons.mjs` (`npm run icons:generate`, dev dependencies `svg2ttf` and `svgpath`) turns them into `assets/fonts/RocketVibeIcons.ttf` and the name table `ui/icons.generated.ts`, deterministically, drops drawings outside the 16 px box as GTK clips them, and refuses anything but filled paths. Icons force the font's one face: nested in italic or bold text, Android would look for a face the font does not have. `ui/icons.test.ts` fails when an SVG changed without regenerating. An emoji is never an icon: content emoji stay emoji, and the emoji picker's category tabs stay glyphs, as on desktop.
 - `ui/kit.tsx` holds the shared visual bricks built only on theme tokens and RN primitives: `PrimaryButton`, `Brand`, `AvatarTile`, `RoomAvatar`, `SyncBar`, `TypingIndicator`, `UnreadBadge`, `DaySeparator`, `PillField`. It is the project's own kit, not a UI library.
 
 ## The native-components rule
@@ -90,6 +91,10 @@ From `ROADMAP.md` §4.2 and `CLAUDE.md`: RN primitives first; level-1 native bin
 
 ## Sources
 
+- apps/mobile/ui/icon.tsx
+- apps/mobile/ui/icons.generated.ts
+- apps/mobile/scripts/generate-icons.mjs
+- apps/mobile/assets/icons/README.md
 - apps/mobile/app/_layout.tsx
 - apps/mobile/app/index.tsx
 - apps/mobile/app/+native-intent.tsx

@@ -406,8 +406,12 @@ struct AdminRoomRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Text(glyph)
-                .font(.vibeTitle(15, .bold))
+            Group {
+                switch mark {
+                case .symbol(let name): Image(systemName: name).font(.system(size: 14, weight: .semibold))
+                case .text(let text): Text(text).font(.vibeTitle(15, .bold))
+                }
+            }
                 .foregroundStyle(Vibe.ink)
                 .frame(width: 32, height: 32)
                 .background(LinearGradient(colors: Vibe.tile(for: room.name), startPoint: .topLeading, endPoint: .bottomTrailing),
@@ -422,12 +426,16 @@ struct AdminRoomRow: View {
         }
     }
 
-    var glyph: String {
+    /// A symbol rather than a character, never an emoji: a lock, a discussion.
+    enum Mark { case symbol(String), text(String) }
+
+    /// A room kind's mark: a symbol, never an emoji, or a character.
+    var mark: Mark {
         switch room.kind {
-        case .public: return "#"
-        case .private: return "🔒"
-        case .direct: return String(room.name.prefix(1)).uppercased()
-        case .discussion: return "💬"
+        case .public: return .text("#")
+        case .private: return .symbol("lock.fill")
+        case .direct: return .text(String(room.name.prefix(1)).uppercased())
+        case .discussion: return .symbol("bubble.left.and.bubble.right.fill")
         }
     }
 

@@ -32,6 +32,7 @@ import { useE2EUnlocked } from '../ui/e2e.ts';
 import type { E2EEngine } from '../lib/e2e/engine.ts';
 import { type Colors, LIST_PRESS_DELAY, FONTS, useColors } from '../ui/theme.ts';
 import { Tappable } from '../ui/tappable.tsx';
+import { Icon, InlineIcon } from '../ui/icon.tsx';
 import { VoiceBar, VoiceOccupants, useJoinVoice } from '../ui/voice.tsx';
 
 /**
@@ -94,7 +95,7 @@ function ListHeader({ c }: { c: Colors }) {
         accessibilityLabel={t('searchMessages.title')}
         style={({ pressed }) => [styles.headerWheel, { opacity: pressed ? 0.55 : 1 }]}
       >
-        <Text style={styles.headerWheelGlyph}>🔍</Text>
+        <Icon name="system-search" size={21} color={c.secondaryText} />
       </Tappable>
       <Tappable
         onPress={() => router.push('/settings')}
@@ -104,7 +105,7 @@ function ListHeader({ c }: { c: Colors }) {
         accessibilityLabel={t('home.settings')}
         style={({ pressed }) => [styles.headerWheel, { opacity: pressed ? 0.55 : 1 }]}
       >
-        <Text style={styles.headerWheelGlyph}>⚙️</Text>
+        <Icon name="emblem-system" size={21} color={c.secondaryText} />
       </Tappable>
       <SyncBar c={c} active={syncing} />
     </View>
@@ -385,9 +386,13 @@ function RoomRow({
             alerting && styles.alertingName,
           ]}
           numberOfLines={1}
+          // The lock and speaker are glyphs a screen reader cannot voice.
+          accessibilityLabel={[room.encrypted && t('home.encryptedRoom'), room.voice && t('voice.channel'), name]
+            .filter(Boolean)
+            .join(', ')}
         >
-          {room.encrypted && <Text style={styles.encryptedBadge}>🔒 </Text>}
-          {room.voice && <Text style={styles.encryptedBadge}>🔊 </Text>}
+          {room.encrypted && <InlineIcon name="channel-secure" style={styles.encryptedBadge} spaced />}
+          {room.voice && <InlineIcon name="audio-volume-high" style={styles.encryptedBadge} spaced />}
           {name}
         </Text>
         <Text
@@ -467,7 +472,6 @@ const styles = StyleSheet.create({
   headerBrand: { flexDirection: 'row', alignItems: 'center', gap: 9 },
   headerUnicorn: { fontSize: 22 },
   headerWheel: { padding: 4 },
-  headerWheelGlyph: { fontSize: 21 },
   content: { paddingBottom: 8 },
   // The radius lives on the WRAPPER: its clip (`overflow`) cuts the ripple;
   // borderRadius on the Pressable itself is ignored by the ripple mask under

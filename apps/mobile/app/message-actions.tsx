@@ -61,6 +61,7 @@ import { useSession } from '../ui/session.tsx';
 import { useSync } from '../ui/sync.tsx';
 import { LIST_PRESS_DELAY, FONTS, useColors } from '../ui/theme.ts';
 import { Tappable } from '../ui/tappable.tsx';
+import { Icon, type IconName } from '../ui/icon.tsx';
 import {CryptoNative} from '../modules/crypto-native/index.ts';
 import type {CryptoConversationAccess} from '../providers/rocketvibe/cryptoConversations.ts';
 import {privateRow} from '../providers/rocketvibe/cryptoProjection.ts';
@@ -662,7 +663,7 @@ export default function MessageActionsScreen() {
               void act(() => (mine !== undefined ? Promise.resolve() : react(code, true)));
             }}
           />
-          <ActionRow c={c} disabled={busy} icon="←" label={t('common.cancel')} onPress={closePicker} />
+          <ActionRow c={c} disabled={busy} icon="go-previous" label={t('common.cancel')} onPress={closePicker} />
         </View>
       ) : destinations!==null ? (
         <View style={styles.actionList}>
@@ -671,11 +672,11 @@ export default function MessageActionsScreen() {
             placeholderTextColor={c.tertiaryText} style={[styles.field,{color:c.text,backgroundColor:c.card,borderColor:c.border}]} />
           <ScrollView style={{maxHeight:Math.max(100,maxHeight-160)}} keyboardShouldPersistTaps="handled">
             {destinations.filter(r=>r.name.toLocaleLowerCase().includes(destinationFilter.toLocaleLowerCase())).map(r=>(
-              <ActionRow key={r.rid} c={c} disabled={busy} icon={r.encrypted?'🔒':'↩️'} label={r.name}
+              <ActionRow key={r.rid} c={c} disabled={busy} icon={r.encrypted?'channel-secure':'mail-forward'} label={r.name}
                 onPress={()=>{if(busy)return;setBusy(true);void reply(r.rid).finally(()=>setBusy(false));}} />
             ))}
           </ScrollView>
-          <ActionRow c={c} disabled={busy} icon="←" label={t('common.cancel')} onPress={()=>setDestinations(null)} />
+          <ActionRow c={c} disabled={busy} icon="go-previous" label={t('common.cancel')} onPress={()=>setDestinations(null)} />
         </View>
       ) : isEditing ? (
         <View style={styles.editBlock}>
@@ -734,26 +735,26 @@ export default function MessageActionsScreen() {
             <ActionRow
               c={c}
               disabled={busy}
-              icon="↩️"
+              icon="mail-reply-sender"
               label={t('messageActions.reply')}
               onPress={()=>void reply()}
             />
           )}
           {forwardable && (
-            <ActionRow c={c} disabled={busy} icon="➡️" label={t('messageActions.forward')} onPress={forward} />
+            <ActionRow c={c} disabled={busy} icon="document-send" label={t('messageActions.forward')} onPress={forward} />
           )}
           {forwardable && (
-            <ActionRow c={c} disabled={busy} icon="💬" label={t('messageActions.startDiscussion')} onPress={startDiscussion} />
+            <ActionRow c={c} disabled={busy} icon="chat-message-new" label={t('messageActions.startDiscussion')} onPress={startDiscussion} />
           )}
           {actions.includes('reply') && provider?.native && (
-            <ActionRow c={c} disabled={busy} icon="↪️" label={t('messageActions.replyIn')}
+            <ActionRow c={c} disabled={busy} icon="mail-forward" label={t('messageActions.replyIn')}
               onPress={()=>void chooseDestination()} />
           )}
           {actions.includes('replyInThread') && (
             <ActionRow
               c={c}
               disabled={busy}
-              icon="🧵"
+              icon="mail-reply-all"
               label={t('messageActions.replyInThread')}
               onPress={() => {
                 void Haptics.selectionAsync();
@@ -766,7 +767,7 @@ export default function MessageActionsScreen() {
             <ActionRow
               c={c}
               disabled={busy}
-              icon="📋"
+              icon="edit-copy"
               label={t('messageActions.copy')}
               onPress={() => void act(async()=>{
                 const text=isPrivate==='1'?await privateAccess.current?.readMessage(message.id).then(v=>v?.document.text):textToCopy(message.text);
@@ -778,7 +779,7 @@ export default function MessageActionsScreen() {
           {actions.includes('share') && (
             <>
               {provider?.native&&payload.revision&&state.phase==='connected'&&(
-                <ActionRow c={c} disabled={busy} icon="🔗" label={t('messageActions.copyLink')}
+                <ActionRow c={c} disabled={busy} icon="go-jump" label={t('messageActions.copyLink')}
                   onPress={()=>void act(()=>{
                     const link=nativeRoomPermalink(state.session,message.rid,message.id,message.threadId);
                     if(!link)throw new NativeError(400,'invalid_link');
@@ -788,7 +789,7 @@ export default function MessageActionsScreen() {
             <ActionRow
               c={c}
               disabled={busy}
-              icon="📤"
+              icon="folder-publicshare"
               label={t('messageActions.share')}
               onPress={() => void act(share)}
             />
@@ -798,7 +799,7 @@ export default function MessageActionsScreen() {
             <ActionRow
               c={c}
               disabled={busy}
-              icon="⬇️"
+              icon="folder-download"
               label={t('messageActions.save')}
               onPress={() => void act(save)}
             />
@@ -807,7 +808,7 @@ export default function MessageActionsScreen() {
             <ActionRow
               c={c}
               disabled={busy}
-              icon="✏️"
+              icon="document-edit"
               label={t('messageActions.edit')}
               onPress={() => {
                 void Haptics.selectionAsync();
@@ -819,7 +820,7 @@ export default function MessageActionsScreen() {
             <ActionRow
               c={c}
               disabled={busy}
-              icon="📌"
+              icon="view-pin"
               label={t('messageActions.pin')}
               onPress={() => void act(() => pin(true))}
             />
@@ -828,7 +829,7 @@ export default function MessageActionsScreen() {
             <ActionRow
               c={c}
               disabled={busy}
-              icon="📌"
+              icon="view-pin"
               label={t('messageActions.unpin')}
               onPress={() => void act(() => pin(false))}
             />
@@ -837,7 +838,7 @@ export default function MessageActionsScreen() {
             <ActionRow
               c={c}
               disabled={busy}
-              icon="⭐"
+              icon="starred"
               label={t('messageActions.star')}
               onPress={() => void act(() => star(true))}
             />
@@ -846,7 +847,7 @@ export default function MessageActionsScreen() {
             <ActionRow
               c={c}
               disabled={busy}
-              icon="⭐"
+              icon="non-starred"
               label={t('messageActions.unstar')}
               onPress={() => void act(() => star(false))}
             />
@@ -855,7 +856,7 @@ export default function MessageActionsScreen() {
             <ActionRow
               c={c}
               disabled={busy}
-              icon="🚩"
+              icon="dialog-warning"
               label={t('messageActions.report')}
               onPress={() => {
                 void Haptics.selectionAsync();
@@ -867,7 +868,7 @@ export default function MessageActionsScreen() {
             <ActionRow
               c={c}
               disabled={busy}
-              icon="🗑"
+              icon="user-trash"
               label={t('common.delete')}
               destructive
               // A deletion is for everyone and cannot be undone: confirmed,
@@ -922,7 +923,7 @@ function ActionRow({
   destructive = false,
 }: {
   c: ReturnType<typeof useColors>;
-  icon: string;
+  icon: IconName;
   label: string;
   onPress: () => void;
   disabled: boolean;
@@ -939,7 +940,7 @@ function ActionRow({
         unstable_pressDelay={LIST_PRESS_DELAY}
         style={({ pressed }) => [styles.row, { opacity: pressed ? 0.7 : 1 }]}
       >
-        <Text style={styles.rowIcon}>{icon}</Text>
+        <Icon name={icon} size={20} color={destructive ? c.errorText : c.dimmed} style={styles.rowIcon} />
         <Text style={[styles.rowText, { color: destructive ? c.errorText : c.text }]}>
           {label}
         </Text>
@@ -987,7 +988,7 @@ const styles = StyleSheet.create({
     paddingVertical: 15,
     paddingHorizontal: 8,
   },
-  rowIcon: { fontSize: 19, width: 24, textAlign: 'center' },
+  rowIcon: { width: 24, textAlign: 'center' },
   rowText: { fontFamily: FONTS.bodyBold, fontSize: 15.5 },
   editBlock: { gap: 12 },
   field: {

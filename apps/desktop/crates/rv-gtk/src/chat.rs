@@ -435,7 +435,7 @@ impl ChatPage {
         // GtkWindowHandle, where a double click maximizes the window.
         let room_content = gtk::Box::new(gtk::Orientation::Vertical, 0);
         let e2e_banner = gtk::Box::builder().spacing(10).css_classes(["e2e-banner"]).visible(false).build();
-        e2e_banner.append(&gtk::Label::builder().label("🔒").build());
+        e2e_banner.append(&gtk::Image::from_icon_name("channel-secure-symbolic"));
         e2e_banner.append(&gtk::Label::builder().label(t("e2e.banner")).hexpand(true).xalign(0.0).wrap(true).build());
         let unlock_button = gtk::Button::builder()
             .label(t("e2e.unlock"))

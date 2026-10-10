@@ -1,23 +1,25 @@
 /**
- * Shared MIME mappings: THE app's family → emoji table.
+ * Shared MIME mappings: THE app's family → icon table.
  *
  * The audit found two (composer preview, share thumbnails), already diverging
  * on audio: any family added to one was missing from the other. The `audio/`
  * branch is harmless for the composer preview, which routes audio to
- * `AudioPlayer` before asking for an emoji.
+ * `AudioPlayer` before asking for an icon.
  */
 
-/** Emoji by MIME family, for non-image renderings. */
-export function fileEmoji(type: string): string {
-  if (type.startsWith('video/')) return '🎬';
-  if (type.startsWith('audio/')) return '🎵';
-  if (type === 'application/pdf') return '📄';
-  if (type.startsWith('text/')) return '📃';
-  if (type.includes('zip') || type.includes('compressed')) return '🗜️';
-  return '📎';
+import type { IconName } from './icon.tsx';
+
+/** Icon by MIME family, for non-image renderings. */
+export function fileIcon(type: string): IconName {
+  if (type.startsWith('video/')) return 'video-x-generic';
+  if (type.startsWith('audio/')) return 'audio-x-generic';
+  if (type === 'application/pdf') return 'x-office-document';
+  if (type.startsWith('text/')) return 'text-x-generic';
+  if (type.includes('zip') || type.includes('compressed')) return 'package-x-generic';
+  return 'mail-attachment';
 }
 
-/** An image MIME type: rendered as a thumbnail rather than an emoji tile. */
+/** An image MIME type: rendered as a thumbnail rather than an icon tile. */
 export function isImage(type: string): boolean {
   return type.startsWith('image/');
 }

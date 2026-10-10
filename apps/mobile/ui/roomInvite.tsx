@@ -7,6 +7,7 @@ import type { RestClient } from '../lib/rest.ts';
 import { useT } from './i18n.ts';
 import { Tappable } from './tappable.tsx';
 import { FONTS, type Colors } from './theme.ts';
+import { InlineIcon } from './icon.tsx';
 
 /**
  * "Share an invite link" in a Rocket.Chat channel or private group, for those
@@ -68,7 +69,7 @@ export function RoomInvite({
         android_ripple={{ color: c.ripple }}
         style={[styles.button, { backgroundColor: c.card, opacity: busy ? 0.6 : 1 }]}
       >
-        <Text style={[styles.label, { color: c.text }]}>🔗 {t('roomInvite.share')}</Text>
+        <Text style={[styles.label, { color: c.text }]}><InlineIcon name="link" /> {t('roomInvite.share')}</Text>
       </Tappable>
       <Text style={[styles.hint, { color: failed ? c.errorText : c.dimmed }]}>
         {t(failed ? 'roomInvite.failed' : 'roomInvite.hint')}

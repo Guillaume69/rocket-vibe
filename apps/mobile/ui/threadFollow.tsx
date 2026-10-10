@@ -6,6 +6,7 @@ import type { ProviderActions } from '../lib/provider.ts';
 import type { SyncEngine } from '../lib/sync.ts';
 import { useT } from './i18n.ts';
 import { Tappable } from './tappable.tsx';
+import { InlineIcon } from './icon.tsx';
 import { FONTS, type Colors } from './theme.ts';
 
 /**
@@ -98,7 +99,7 @@ export function FollowButton({
       style={({ pressed }) => [styles.button, { opacity: pressed || busy ? 0.5 : 1 }]}
     >
       <Text style={[styles.text, { color: following ? c.accent : c.dimmed }]}>
-        {following ? '🔔' : '🔕'}
+        <InlineIcon name={following ? 'preferences-system-notifications' : 'notifications-disabled'} />
         {!compact && ` ${t(following ? 'threads.followingShort' : 'threads.follow')}`}
       </Text>
     </Tappable>

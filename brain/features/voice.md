@@ -98,13 +98,13 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
   outgoing rings to the controller, says why a session ended). A tap outside the incoming
   ring's card or Back IGNORES the call: the prompt hides and the ringtone stops, but nothing
   is sent, so the caller hears it ring until it times out as a missed call; Decline stays an
-  explicit button. The voice alerts are dismissible (`ui/alerts.ts`). A voice channel shows 🔊 and
-  joins on tap (`app/index.tsx`); the room header's 📞 joins the room's voice and rings in a
+  explicit button. The voice alerts are dismissible (`ui/alerts.ts`). A voice channel shows a speaker icon and
+  joins on tap (`app/index.tsx`); the room header's call button joins the room's voice and rings in a
   DM (`ui/roomHeader.tsx`). `app/voice/[rid].tsx` is the call screen: a tile per person
   sharing all the screen (`lib/voiceGrid.ts`: the cells that hold the largest picture
   between 2:3 and 16:9, so a phone held upright stacks two people), whose border glows
   while they speak (Reanimated), chat button, controls; a long press on someone opens
-  `app/voice/person.tsx` (their volume, mute for me), as on the list's occupants (🔕 when
+  `app/voice/person.tsx` (their volume, mute for me), as on the list's occupants (a muted-bell icon when
   muted here). The ⌃ beside the microphone opens `app/voice/menu.tsx`: output route (the
   microphone follows it), input volume and level meter, output volume, noise remover,
   deafen, share quality; both are native sheets, the sliders `ui/slider.tsx` (gesture
@@ -146,7 +146,7 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
   `BaseKeyProvider` after creating the room (its constructor needs WebRTC loaded) and sets
   `Room.e2eeOptions` before connecting. The controller refuses a grant that says `e2ee`
   without a key, follows new epochs every 15 s (`refreshKey`, `setE2eeKey`), and the voice
-  screen shows "🔒 … end-to-end encrypted". Android pauses the poll in the background: a
+  screen shows a lock and "… end-to-end encrypted". Android pauses the poll in the background: a
   rotation then waits for the app to come back.
 
 ## Desktop

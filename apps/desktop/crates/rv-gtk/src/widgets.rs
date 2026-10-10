@@ -33,6 +33,46 @@ pub enum TileSize {
 
 /// Rounded square filled with the person's (or room's) gradient.
 pub fn tile(key: &str, glyph: &str, size: TileSize, neutral: bool) -> gtk::Widget {
+    let label = gtk::Label::builder()
+        .label(glyph)
+        .css_classes(["tile-glyph"])
+        .halign(gtk::Align::Center)
+        .valign(gtk::Align::Center)
+        .build();
+    tile_with(key, &label, size, neutral)
+}
+
+/// A tile holding a symbolic icon rather than a character: a locked room, a
+/// discussion. Never an emoji, which the font draws in colour.
+pub fn icon_tile(key: &str, icon: &str, size: TileSize, neutral: bool) -> gtk::Widget {
+    let px = match size {
+        TileSize::Room => 20,
+        TileSize::Message => 16,
+        TileSize::Header => 14,
+        TileSize::Profile => 40,
+    };
+    let image = gtk::Image::builder()
+        .icon_name(icon)
+        .pixel_size(px)
+        .css_classes(["tile-glyph"])
+        .halign(gtk::Align::Center)
+        .valign(gtk::Align::Center)
+        .build();
+    tile_with(key, &image, size, neutral)
+}
+
+/// A symbolic icon before a widget, where an emoji used to mark it.
+pub fn with_icon(icon: &str, widget: &impl IsA<gtk::Widget>, classes: &[&str]) -> gtk::Box {
+    let row = gtk::Box::builder().spacing(6).build();
+    for class in classes {
+        row.add_css_class(class);
+    }
+    row.append(&gtk::Image::builder().icon_name(icon).valign(gtk::Align::Center).build());
+    row.append(widget);
+    row
+}
+
+fn tile_with(key: &str, child: &impl IsA<gtk::Widget>, size: TileSize, neutral: bool) -> gtk::Widget {
     let (px, class) = match size {
         TileSize::Room => (44, "tile-room"),
         TileSize::Message => (34, "tile-message"),
@@ -40,12 +80,6 @@ pub fn tile(key: &str, glyph: &str, size: TileSize, neutral: bool) -> gtk::Widge
         TileSize::Profile => (96, "tile-profile"),
     };
     let gradient = if neutral { "tile-neutral".to_owned() } else { format!("tile-g{}", gradient_index(key)) };
-    let label = gtk::Label::builder()
-        .label(glyph)
-        .css_classes(["tile-glyph"])
-        .halign(gtk::Align::Center)
-        .valign(gtk::Align::Center)
-        .build();
     // Explicitly non-expanding: otherwise the centred glyph's expand flags
     // propagate up and the tile claims half of every row it sits in.
     let tile = gtk::Overlay::builder()
@@ -57,7 +91,7 @@ pub fn tile(key: &str, glyph: &str, size: TileSize, neutral: bool) -> gtk::Widge
         .halign(gtk::Align::Center)
         .valign(gtk::Align::Start)
         .overflow(gtk::Overflow::Hidden)
-        .child(&label)
+        .child(child)
         .build();
     tile.upcast()
 }

@@ -30,6 +30,7 @@ import type { TranslationKey } from '../ui/messages.ts';
 import { useSession } from '../ui/session.tsx';
 import { useSync } from '../ui/sync.tsx';
 import { FONTS, useColors } from '../ui/theme.ts';
+import { InlineIcon } from '../ui/icon.tsx';
 import { useSheetBottomMargin } from '../ui/sheetMargin.ts';
 import {RoomCommands} from '../ui/roomManagement.tsx';
 import {RoomMembershipBound} from '../ui/roomMembership.tsx';
@@ -179,8 +180,12 @@ function RoomInfoContent({
           radius={22}
         />
         <View style={styles.identity}>
-          <Text style={[styles.name, { color: c.text }]} numberOfLines={2}>
-            {room?.encrypted === true && <Text style={styles.encryptedBadge}>🔒 </Text>}
+          <Text
+            style={[styles.name, { color: c.text }]}
+            numberOfLines={2}
+            accessibilityLabel={room?.encrypted === true ? `${t('home.encryptedRoom')}, ${name}` : undefined}
+          >
+            {room?.encrypted === true && <InlineIcon name="channel-secure" style={styles.encryptedBadge} spaced />}
             {room?.type === 'c' ? '#' : ''}
             {name}
           </Text>
@@ -234,7 +239,7 @@ function RoomInfoContent({
           android_ripple={{ color: c.ripple }}
           style={[styles.favorite, { backgroundColor: c.card }]}
         >
-          <Text style={[styles.favoriteText, { color: c.text }]}>💬 {t('discussion.new')}</Text>
+          <Text style={[styles.favoriteText, { color: c.text }]}><InlineIcon name="chat-message-new" /> {t('discussion.new')}</Text>
         </Tappable>
       )}
       {!native && subscription !== undefined && (

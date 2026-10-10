@@ -232,7 +232,35 @@ export class MmLive {
           : { ...member, mention_count: num(member.mention_count) + (mentions ? 1 : 0) });
       }
     }
-    return compact([postEvent(post), isRoot ? this.roomEvent(rid, post) : null, this.membershipEvent(rid)]);
+    // A reply moves its root's "N replies", which no event carries
+    // (`thread_updated` is quiet): the root is read again, its counters fresh.
+    const root = isRoot ? null : await this.freshRoot(String(post.root_id));
+    return compact([postEvent(post), root === null ? null : postEvent(root), isRoot ? this.roomEvent(rid, post) : null, this.membershipEvent(rid)]);
+  }
+
+  /** Roots being read again: a reply arriving meanwhile asks for one more read, the newest count winning. */
+  private readonly rootReads = new Map<string, { again: boolean }>();
+
+  private async freshRoot(id: string): Promise<Doc | null> {
+    const running = this.rootReads.get(id);
+    if (running !== undefined) {
+      running.again = true;
+      return null;
+    }
+    const state = { again: false };
+    this.rootReads.set(id, state);
+    try {
+      let root: Doc;
+      do {
+        state.again = false;
+        root = await this.client.get<Doc>(`/posts/${id}`);
+      } while (state.again);
+      return root;
+    } catch {
+      return null;
+    } finally {
+      this.rootReads.delete(id);
+    }
   }
 
   /**

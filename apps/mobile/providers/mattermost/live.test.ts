@@ -79,6 +79,24 @@ describe('MmLive.expand', () => {
     assert.equal(events[0]?.collection, MM_POST);
   });
 
+  test('a live reply brings its root back with fresh reply counters', async () => {
+    const { live, server } = setup((call) =>
+      call.path === '/posts/root1' ? { body: post('root1', { channel_id: 'ch1', reply_count: 4, last_reply_at: 900 }) } : undefined,
+    );
+    const reply = JSON.stringify(post('r9', { channel_id: 'ch1', root_id: 'root1', user_id: 'u-bob' }));
+    const events = await live.expand('posted', { post: reply }, { channel_id: 'ch1' });
+    const posts = events.filter((e) => e.collection === MM_POST).map((e) => (e.args[0] as { id: string; reply_count?: number }));
+    assert.deepEqual(posts.map((p) => p.id), ['r9', 'root1']);
+    assert.equal(posts[1]?.reply_count, 4);
+    assert.equal(server.calls.filter((c) => c.path === '/posts/root1').length, 1);
+  });
+
+  test('a root post asks for nothing more', async () => {
+    const { live, server } = setup();
+    await live.expand('posted', { post: JSON.stringify(post('p5', { channel_id: 'ch1' })) }, { channel_id: 'ch1' });
+    assert.equal(server.calls.some((c) => c.path.startsWith('/posts/')), false);
+  });
+
   test('a post in an unknown channel loads it first', async () => {
     const { live, server } = setup((call) => {
       if (call.path === '/channels/new') return { body: { id: 'new', type: 'O', total_msg_count: 0, total_msg_count_root: 0 } };

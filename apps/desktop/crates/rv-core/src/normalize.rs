@@ -120,6 +120,22 @@ pub struct Subscription {
     pub group_name: Option<String>,
     /// Where the room's section sits in my sidebar order; `None` keeps the default order.
     pub group_rank: Option<i64>,
+    /// The room's own desktop notification choice (`all`, `mentions`,
+    /// `nothing`); `None` follows the account's preference.
+    pub notifications: Option<String>,
+    /// `disableNotifications`, which other clients set: the room says nothing.
+    pub notifications_off: bool,
+}
+
+/// A room's own notification choice, from a subscription's value and origin
+/// (`desktopPrefOrigin`, `mobilePrefOrigin`): only `subscription` is the
+/// room's own. Choosing "default" either removes the fields or copies the
+/// account's preference with the origin `user` (probed on 8.5.1).
+pub fn room_level(value: Option<&Value>, origin: Option<&Value>) -> Option<String> {
+    if origin.and_then(Value::as_str) != Some("subscription") {
+        return None;
+    }
+    value.and_then(Value::as_str).filter(|v| matches!(*v, "all" | "mentions" | "nothing")).map(str::to_owned)
 }
 
 pub fn to_message(raw: &Value) -> Option<Message> {
@@ -262,6 +278,8 @@ pub fn to_subscription(raw: &Value) -> Option<Subscription> {
         group_id: None,
         group_name: None,
         group_rank: None,
+        notifications: room_level(raw.get("desktopNotifications"), raw.get("desktopPrefOrigin")),
+        notifications_off: boolean(raw.get("disableNotifications")),
     })
 }
 
@@ -436,5 +454,23 @@ mod tests {
         assert!(s.alert && s.open && s.favorite);
         assert_eq!((s.last_seen, s.updated_at), (Some(9), 11));
         assert!(to_subscription(&json!({"_id":"s1"})).is_none());
+    }
+
+    #[test]
+    fn a_rooms_own_notifications_are_told_by_their_origin() {
+        let sub = |extra: Value| {
+            let mut raw = json!({"_id":"s1","rid":"r"});
+            raw.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            to_subscription(&raw).unwrap()
+        };
+        let own = sub(json!({"desktopNotifications":"nothing","desktopPrefOrigin":"subscription"}));
+        assert_eq!(own.notifications.as_deref(), Some("nothing"));
+        let copied = sub(json!({"desktopNotifications":"all","desktopPrefOrigin":"user"}));
+        assert_eq!(copied.notifications, None, "the account's preference, copied by \"default\"");
+        assert_eq!(sub(json!({})).notifications, None);
+        let odd = sub(json!({"desktopNotifications":"default","desktopPrefOrigin":"subscription"}));
+        assert_eq!(odd.notifications, None);
+        assert!(!own.notifications_off);
+        assert!(sub(json!({"disableNotifications":true})).notifications_off);
     }
 }

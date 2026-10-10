@@ -99,6 +99,20 @@ pub fn badge(rooms: &[RoomRow]) -> Badge {
     }
 }
 
+/// Where a message can be forwarded, matching `query` in the shown name
+/// (case-insensitive), in the list's order. Encrypted rooms are left out (the
+/// server cannot build a quote from ciphertext), so are read-only ones (they
+/// refuse the post) and voice channels.
+pub fn forward_targets(rooms: &[RoomRow], query: &str) -> Vec<RoomRow> {
+    let needle = query.trim().to_lowercase();
+    rooms
+        .iter()
+        .filter(|r| !r.encrypted && !r.read_only && !r.voice)
+        .filter(|r| needle.is_empty() || r.name.to_lowercase().contains(&needle))
+        .cloned()
+        .collect()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Found {
     User { id: String, username: String, name: Option<String> },
@@ -150,6 +164,19 @@ mod tests {
             voice: false,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn forward_targets_leave_out_what_cannot_take_the_quote() {
+        let mut secret = room("Secret", "p", 0);
+        secret.encrypted = true;
+        let mut news = room("News", "c", 0);
+        news.read_only = true;
+        let rooms = [room("General", "c", 0), secret, news, room("bob", "d", 0)];
+        let rids = |q: &str| forward_targets(&rooms, q).into_iter().map(|r| r.rid).collect::<Vec<_>>();
+        assert_eq!(rids(""), ["General", "bob"]);
+        assert_eq!(rids(" GEN "), ["General"]);
+        assert!(rids("secret").is_empty());
     }
 
     #[test]

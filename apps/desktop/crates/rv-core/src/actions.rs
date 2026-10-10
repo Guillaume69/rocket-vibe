@@ -192,6 +192,13 @@ pub fn permalink(base: &str, kind: &str, name: Option<&str>, rid: &str, msg_id: 
 }
 
 /// Rocket.Chat quotes by an invisible link before the reply.
+/// Whether a message can be forwarded to another room: where it can be
+/// quoted (Reply, never in an encrypted room), and an ordinary message
+/// already on the server (no system line, nothing still in the outbox).
+pub fn forwardable(allowed: &[Action], system_type: Option<&str>, pending: bool) -> bool {
+    allowed.contains(&Action::Reply) && system_type.is_none() && !pending
+}
+
 pub fn quote(permalink: &str, text: &str) -> String {
     if text.is_empty() { format!("[ ]({permalink})") } else { format!("[ ]({permalink}) {text}") }
 }
@@ -315,6 +322,31 @@ pub async fn mark_read(rest: &RestClient, rid: &str) -> Result<(), RestError> {
     let options =
         CallOptions { retry_on_network_error: true, ..CallOptions::body(json!({"rid": rid, "readThreads": true})) };
     rest.post("subscriptions.read", options).await.map(|_| ())
+}
+
+/// The levels a room's own notifications take (`rooms.saveNotification`
+/// refuses anything else with `error-invalid-settings`).
+pub const ROOM_NOTIFICATION_LEVELS: [&str; 4] = ["default", "all", "mentions", "nothing"];
+
+/// A room's own notifications, desktop and push together (`default` hands
+/// them back to the account's preference). `lift_silence` also clears the
+/// `disableNotifications` another client set, which would keep the room quiet
+/// whatever is chosen.
+pub async fn room_notifications(
+    rest: &RestClient,
+    rid: &str,
+    level: &str,
+    lift_silence: bool,
+) -> Result<(), RestError> {
+    if !ROOM_NOTIFICATION_LEVELS.contains(&level) {
+        return Err(RestError::incomplete("room notifications: unknown level"));
+    }
+    let mut notifications = json!({"desktopNotifications": level, "mobilePushNotifications": level});
+    if lift_silence {
+        notifications["disableNotifications"] = json!("0");
+    }
+    let body = json!({"roomId": rid, "notifications": notifications});
+    rest.post("rooms.saveNotification", CallOptions::body(body)).await.map(|_| ())
 }
 
 pub async fn pin(rest: &RestClient, msg_id: &str) -> Result<(), RestError> {
@@ -486,6 +518,14 @@ mod tests {
         assert!(!actions.contains(&Action::Reply));
         c.text = None;
         assert!(possible_actions(&c).is_empty());
+    }
+
+    #[test]
+    fn forwarding_follows_quoting() {
+        assert!(forwardable(&[Action::React, Action::Reply], None, false));
+        assert!(!forwardable(&[Action::React, Action::ReplyInThread], None, false), "encrypted or read-only");
+        assert!(!forwardable(&[Action::Reply], Some("uj"), false));
+        assert!(!forwardable(&[Action::Reply], None, true), "not on the server yet");
     }
 
     #[test]

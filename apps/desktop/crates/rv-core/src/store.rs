@@ -236,6 +236,10 @@ const MIGRATIONS: &[&str] = &[
     "CREATE TABLE people (uid TEXT PRIMARY KEY, name TEXT NOT NULL, seen INTEGER NOT NULL DEFAULT 0);
      CREATE TABLE server_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
     "ALTER TABLE messages ADD COLUMN thread_followers TEXT",
+    // Every subscription comes again, so the rooms already stored get theirs.
+    "ALTER TABLE subscriptions ADD COLUMN notifications TEXT;
+     ALTER TABLE subscriptions ADD COLUMN notifications_off INTEGER NOT NULL DEFAULT 0;
+     DELETE FROM cursors WHERE stream = 'subscriptions'",
 ];
 
 /// A room's shown name (rooms aliased `r`): a two-person DM under its peer's
@@ -526,6 +530,20 @@ impl Store {
             .ok()
             .flatten()
             .flatten()
+    }
+
+    /// The room's own desktop notification choice (`None`: the account's) and
+    /// whether another client silenced it (`disableNotifications`).
+    pub fn room_notifications(&self, rid: &str) -> (Option<String>, bool) {
+        self.read(|c| {
+            c.query_row("SELECT notifications, notifications_off FROM subscriptions WHERE rid = ?1", [rid], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .optional()
+        })
+        .ok()
+        .flatten()
+        .unwrap_or((None, false))
     }
 
     /// When I last read the room (`ls`), as the server last told us.
@@ -852,8 +870,8 @@ impl Writer<'_> {
         self.conn
             .execute(
                 "INSERT INTO subscriptions (rid, sub_id, unread, mentions, group_mentions, alert, open, favorite, last_seen, updated_at, e2e_key, roles,
-                                            group_id, group_name, group_rank)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
+                                            group_id, group_name, group_rank, notifications, notifications_off)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
                  ON CONFLICT(rid) DO UPDATE SET
                    sub_id = COALESCE(excluded.sub_id, subscriptions.sub_id),
                    unread = excluded.unread,
@@ -868,11 +886,14 @@ impl Writer<'_> {
                    roles = excluded.roles,
                    group_id = excluded.group_id,
                    group_name = excluded.group_name,
-                   group_rank = excluded.group_rank
+                   group_rank = excluded.group_rank,
+                   notifications = excluded.notifications,
+                   notifications_off = excluded.notifications_off
                  WHERE excluded.updated_at >= subscriptions.updated_at",
                 params![
                     s.rid, s.sub_id, s.unread, s.mentions, s.group_mentions, s.alert, s.open, s.favorite,
-                    s.last_seen, s.updated_at, s.e2e_key, s.roles, s.group_id, s.group_name, s.group_rank
+                    s.last_seen, s.updated_at, s.e2e_key, s.roles, s.group_id, s.group_name, s.group_rank,
+                    s.notifications, s.notifications_off
                 ],
             )
             .or_note(&mut self.failed, "upsert subscription");
@@ -1021,6 +1042,19 @@ impl Writer<'_> {
             "UPDATE subscriptions SET unread = 0, mentions = 0, group_mentions = 0, alert = 0 WHERE rid = ?1"
         };
         self.conn.execute(sql, [rid]).or_note(&mut self.failed, "unread mark");
+        self.touch_rooms();
+    }
+
+    /// The room's own notification choice, saved on the server: shown at once,
+    /// the subscription the server then broadcasts confirming it. Any choice
+    /// lifts another client's `disableNotifications`, which the save cleared too.
+    pub fn set_room_notifications(&mut self, rid: &str, level: Option<&str>) {
+        self.conn
+            .execute(
+                "UPDATE subscriptions SET notifications = ?2, notifications_off = 0 WHERE rid = ?1",
+                params![rid, level],
+            )
+            .or_note(&mut self.failed, "room notifications");
         self.touch_rooms();
     }
 
@@ -1242,6 +1276,26 @@ mod tests {
         store.write(|w| w.set_unread_mark("r", false));
         let r = &store.rooms()[0];
         assert_eq!((r.unread, r.mentions, r.alert), (0, 0, false));
+    }
+
+    #[test]
+    fn a_rooms_own_notifications_round_trip() {
+        let store = Store::in_memory().unwrap();
+        let sub = |notifications: Option<&str>, off: bool, updated_at: i64| Subscription {
+            rid: "r".into(),
+            open: true,
+            notifications: notifications.map(str::to_owned),
+            notifications_off: off,
+            updated_at,
+            ..Subscription::default()
+        };
+        assert_eq!(store.room_notifications("r"), (None, false), "an unknown room: the account's");
+        store.write(|w| w.upsert_subscription(&sub(Some("nothing"), true, 10)));
+        assert_eq!(store.room_notifications("r"), (Some("nothing".into()), true));
+        store.write(|w| w.set_room_notifications("r", Some("all")));
+        assert_eq!(store.room_notifications("r"), (Some("all".into()), false));
+        store.write(|w| w.upsert_subscription(&sub(None, false, 20)));
+        assert_eq!(store.room_notifications("r"), (None, false), "absence is the default, not a gap");
     }
 
     #[test]

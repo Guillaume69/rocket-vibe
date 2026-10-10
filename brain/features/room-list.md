@@ -50,7 +50,7 @@ The home screen of both apps: every room the account is subscribed to, grouped i
 
 GTK and SwiftUI split the footer into an avatar activity menu and the name/gear account menu. The avatar offers Online, Away, Busy and Offline; its badge reflects my activity, independently of the server connection dot beside the account controls. A status choice reads the current profile and keeps its status text. Native accounts use the existing revision-checked, persisted profile operations; legacy accounts use the provider's status action. GTK ignores completions from a previous session. SwiftUI reuses MyProfileModel's account and pending-operation guards. Native own-profile revisions refresh the badge when another client changes my choice; legacy presence events update it.
 
-Web provides the same avatar shortcut, presence badge and footer connection control. It refreshes my chosen status when my live profile revision changes. There is no web server-bar button because the browser uses a single serving origin. Mobile uses the bottom avatar and a keyboard-free native form sheet, keeps the status message, and fences completions to the originating account.
+Web provides the same avatar shortcut, presence badge and footer connection control. It refreshes my chosen status when my live profile revision changes. There is no web server-bar button because the browser uses a single serving origin. Mobile uses the bottom avatar and a keyboard-free native form sheet, keeps the status message, and fences completions to the originating account. A successful choice confirms my activity into PresenceEngine immediately, even when the server does not broadcast; a snapshot begun before the save cannot undo it.
 
 ## Sources
 

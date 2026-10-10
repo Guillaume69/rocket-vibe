@@ -1148,7 +1148,8 @@ impl ChatPage {
                     encrypted: open.encrypted,
                     in_thread,
                 };
-                let (w1, w2, w3, w4, w5) = (
+                let (w1, w2, w3, w4, w5, w6) = (
+                    Rc::downgrade(self),
                     Rc::downgrade(self),
                     Rc::downgrade(self),
                     Rc::downgrade(self),
@@ -1159,6 +1160,11 @@ impl ChatPage {
                     reply: Box::new(move |row| {
                         if let Some(this) = w1.upgrade() {
                             this.start_reply(row, in_thread);
+                        }
+                    }),
+                    forward: Box::new(move |row| {
+                        if let Some(this) = w6.upgrade() {
+                            this.forward_message(&row);
                         }
                     }),
                     thread: Box::new(move |root| {
@@ -1271,6 +1277,33 @@ impl ChatPage {
                     .await;
             composer.set_reply(&name, &preview, link);
         });
+    }
+
+    /// Forwarding (Rocket.Chat): the room picked in a dialog opens, and the
+    /// message's permalink goes there as a quote, through the outbox.
+    pub fn forward_message(self: &Rc<Self>, row: &rv_core::store::MessageRow) -> Option<adw::Dialog> {
+        let (Some(session), Some(open)) = (self.session(), self.current.borrow().clone()) else { return None };
+        let rooms = self.rooms.borrow().clone();
+        let (weak, s, id) = (Rc::downgrade(self), session.clone(), row.id.clone());
+        Some(crate::forward::open(&self.split, session, rooms, move |target| {
+            let Some(this) = weak.upgrade() else { return };
+            if this.session().is_none_or(|current| !Arc::ptr_eq(&current, &s)) {
+                return;
+            }
+            this.user_navigation();
+            this.open_room(&target);
+            let (s, open, id, weak) = (s.clone(), open.clone(), id.clone(), weak.clone());
+            glib::spawn_future_local(async move {
+                let sent =
+                    on_tokio(async move { s.forward(&open.kind, open.slug.as_deref(), &open.rid, &id, &target).await })
+                        .await;
+                if sent.is_err()
+                    && let Some(this) = weak.upgrade()
+                {
+                    this.toast(t("forward.failed").to_owned());
+                }
+            });
+        }))
     }
 
     fn open_thread(self: &Rc<Self>, root_id: &str) {
@@ -1571,7 +1604,7 @@ impl ChatPage {
         }
         let (Some(session), Some(open)) = (self.session(), self.current.borrow().clone()) else { return };
         match (&open.dm_other_uid, open.kind.as_str()) {
-            (Some(uid), "d") => self.show_profile(uid, true),
+            (Some(uid), "d") => self.profile_dialog(uid, true, Some(open.rid.clone())),
             _ => {
                 crate::details::room_info(&self.split, session, &open.rid, &open.name, &open.kind, open.avatar.clone())
             }
@@ -1606,6 +1639,11 @@ impl ChatPage {
     }
 
     pub fn show_profile(self: &Rc<Self>, key: &str, by_id: bool) {
+        self.profile_dialog(key, by_id, None);
+    }
+
+    /// A profile; `room`, the direct conversation it was opened from.
+    fn profile_dialog(self: &Rc<Self>, key: &str, by_id: bool, room: Option<String>) {
         let (w1, w2, w3) = (Rc::downgrade(self), Rc::downgrade(self), Rc::downgrade(self));
         let actions = crate::details::ProfileActions {
             message: Box::new(move |found| {
@@ -1658,6 +1696,7 @@ impl ChatPage {
                     this.report(crate::admin::ReportTarget::User(id));
                 }
             }),
+            room,
         };
         if let Some(session) = self.native_session() {
             crate::details::profile_native(&self.split, session, key, by_id, actions);

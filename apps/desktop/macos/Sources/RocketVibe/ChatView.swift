@@ -522,10 +522,8 @@ struct AccountAvatar: View {
                         }
                         await model.load()
                         guard model.isCurrent, app.sessionId == accountId else { return }
-                        if model.editable, var edited = model.edited {
-                            edited.status = chosen
-                            model.edited = edited
-                            await model.save()
+                        if model.editable, model.saved != nil {
+                            await model.setActivity(chosen)
                             guard model.isCurrent, app.sessionId == accountId else { return }
                             status = presence(model.saved?.status)
                         }
@@ -547,15 +545,25 @@ struct AccountAvatar: View {
             status = nil
             busy = false
             var revision = ""
+            var retryAfter = Date.distantPast
+            var retryDelay: TimeInterval = 1
             while !Task.isCancelled {
                 if let legacy = app.provider?.legacy, let account = app.account {
                     status = legacy.presenceOf(uid: account.userId)
-                } else if let native = app.native {
+                } else if let native = app.native, native.profilesAvailable() {
                     let version = native.profileVersion()
-                    if revision != version {
+                    if revision != version, Date() >= retryAfter {
                         let model = MyProfileModel(app: app)
                         await model.load()
-                        if model.isCurrent { status = presence(model.saved?.status); revision = version }
+                        if model.isCurrent, let saved = model.saved {
+                            status = presence(saved.status)
+                            revision = version
+                            retryDelay = 1
+                            retryAfter = .distantPast
+                        } else {
+                            retryAfter = Date().addingTimeInterval(retryDelay)
+                            retryDelay = min(30, retryDelay * 2)
+                        }
                         model.close()
                     }
                 }

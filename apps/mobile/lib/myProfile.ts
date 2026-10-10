@@ -20,6 +20,10 @@ import type { RestClient, TwoFactorCode } from './rest.ts';
 /** Status CHOSEN by the user (statusDefault), distinct from live presence. */
 export type DefaultStatus = 'online' | 'away' | 'busy' | 'offline';
 
+export function ownActivityStatus(native: boolean, chosen: DefaultStatus | null, observed: DefaultStatus | null): DefaultStatus | null {
+  return native ? chosen : observed ?? chosen;
+}
+
 export type MyProfile = {
   /** Present for the native provider's conditional writes. */
   revision?: string;

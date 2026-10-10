@@ -313,6 +313,19 @@ pub fn me_of(user: &Value, status: Option<&Value>) -> Me {
     }
 }
 
+pub async fn set_activity(rest: &RestClient, me: &str, status: Presence) -> Result<Presence, RestError> {
+    let wire = if status == Presence::Busy { "dnd" } else { status.as_str() };
+    let result = rest.put("users/me/status", CallOptions::body(json!({"user_id": me, "status": wire}))).await?;
+    if result.get("user_id").and_then(Value::as_str) != Some(me) {
+        return Err(RestError::incomplete("Unexpected activity response."));
+    }
+    result
+        .get("status")
+        .and_then(Value::as_str)
+        .and_then(presence)
+        .ok_or_else(|| RestError::incomplete("Unexpected activity response."))
+}
+
 /// Both at once, as on Rocket.Chat: the status, and the custom text (cleared when empty).
 pub async fn set_status(rest: &RestClient, me: &str, status: &str, message: &str) -> Result<(), RestError> {
     let status = if status == "busy" { "dnd" } else { status };

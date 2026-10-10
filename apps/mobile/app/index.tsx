@@ -28,7 +28,7 @@ import { toggleCollapsedSection, useCollapsedSections } from '../ui/collapsedSec
 import { ServerRail } from '../ui/serverRail.tsx';
 import { setServerRailHidden, useServerRailHidden } from '../ui/serverRailSetting.ts';
 import { avatarUrl } from '../lib/upload.ts';
-import { readMyProfile, type DefaultStatus } from '../lib/myProfile.ts';
+import { ownActivityStatus, readMyProfile, type DefaultStatus } from '../lib/myProfile.ts';
 import { useAvatarEtags } from '../ui/identities.tsx';
 import { useSession } from '../ui/session.tsx';
 import { useSync } from '../ui/sync.tsx';
@@ -123,6 +123,7 @@ function AccountFooter({ c }: { c: Colors }) {
   const t = useT();
   const etags = useAvatarEtags();
   const sync = useSync();
+  const ownActivity = sync.phase === 'ready' ? sync.provider.ownActivity : null;
   const uid = state.phase === 'connected' ? state.session.userId : null;
   const livePresence = usePresence(uid);
   const chat = sync.phase === 'ready' ? sync.provider.native?.chat : null;
@@ -136,12 +137,16 @@ function AccountFooter({ c }: { c: Colors }) {
     if (chat && client) void chat.ownProfile().then(own => {
       if (active) setChosen({ client, status: own.profile.status ?? 'online' });
     }).catch(() => {});
-    else if (client) void readMyProfile(client).then(own => {
+    else if (client && ownActivity) void ownActivity.read().then(status => {
+      if (active) setChosen({ client, status });
+    }).catch(() => {});
+    else if (client?.kind === 'rocketchat') void readMyProfile(client).then(own => {
       if (active) setChosen({ client, status: own.status });
     }).catch(() => {});
     return () => { active = false; };
-  }, [chat, client, revision]);
-  const status = livePresence ?? (chosen?.client === client ? chosen?.status : null);
+  }, [chat, client, revision, ownActivity]);
+  const ownStatus = chosen?.client === client ? chosen?.status : null;
+  const status = ownActivityStatus(client?.kind === 'rocketvibe', ownStatus, livePresence);
   if (state.phase !== 'connected') return null;
   const username = state.session.username;
   return (

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
 import { PRESENCE_EVENT, PresenceEngine, STREAM_NOTIFY_LOGGED } from './presence.ts';
+import { ownActivityStatus } from './myProfile.ts';
 import { RestClient } from './rest.ts';
 
 const event = (args: unknown[]) => ({
@@ -239,4 +240,17 @@ test('a confirmed own activity changes without a stream and wins over an older s
   assert.equal(engine.statusOf('me'), 'busy', 'pre-save snapshot cannot undo the choice');
   engine.invalidate();
   assert.equal(engine.statusOf('me'), null, 'the confirmation stays scoped to the current connection');
+});
+
+
+test('a roomless native own badge follows my profile while peer presence expires', () => {
+  const engine = new PresenceEngine();
+  engine.replace([]);
+  engine.confirm('me','away');
+  engine.replace([]);
+  assert.equal(engine.statusOf('me'),'offline');
+  assert.equal(ownActivityStatus(true,'away',engine.statusOf('me')),'away');
+  assert.equal(ownActivityStatus(true,'busy',engine.statusOf('me')),'busy','a later own profile changes the badge');
+  assert.equal(ownActivityStatus(true,null,engine.statusOf('me')),null,'missing own profile stays unknown');
+  assert.equal(ownActivityStatus(false,'online',engine.statusOf('me')),'offline','legacy observed activity still drives its badge');
 });

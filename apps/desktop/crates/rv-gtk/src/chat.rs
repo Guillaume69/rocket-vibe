@@ -1985,7 +1985,7 @@ impl ChatPage {
         if *self.own_profile_revision.borrow() == revision {
             return;
         }
-        self.own_profile_revision.replace(revision);
+        self.own_profile_revision.replace(revision.clone());
         let weak = Rc::downgrade(self);
         glib::spawn_future_local(async move {
             let s = session.clone();
@@ -1994,6 +1994,9 @@ impl ChatPage {
             else {
                 return;
             };
+            if *this.own_profile_revision.borrow() != revision {
+                return;
+            }
             if let Ok(own) = result {
                 let status = serde_json::to_value(own.profile.status).unwrap();
                 this.show_own_presence(status.as_str().unwrap());
@@ -2055,27 +2058,14 @@ impl ChatPage {
                                     },
                                 })
                                 .await
-                                .map(|_| ())
+                                .map(|own| {
+                                    serde_json::to_value(own.profile.status).unwrap().as_str().unwrap().to_owned()
+                                })
                             })
                             .await
                             .map_err(|e| e.to_string())
                         } else if let Some(session) = session.clone() {
-                            let s = session.clone();
-                            let me = on_tokio(async move { s.me().await }).await;
-                            match me {
-                                Ok(me) => {
-                                    if weak
-                                        .upgrade()
-                                        .is_none_or(|p| p.session().is_none_or(|s| !Arc::ptr_eq(&s, &session)))
-                                    {
-                                        return;
-                                    }
-                                    on_tokio(async move { session.set_status(status, &me.status_text).await })
-                                        .await
-                                        .map_err(|e| e.to_string())
-                                }
-                                Err(e) => Err(e.to_string()),
-                            }
+                            on_tokio(async move { session.set_activity(status).await }).await.map_err(|e| e.to_string())
                         } else {
                             return;
                         };
@@ -2087,7 +2077,7 @@ impl ChatPage {
                         };
                         if current {
                             this.presence_busy.set(false);
-                            if result.is_ok() {
+                            if let Ok(status) = &result {
                                 this.show_own_presence(status);
                             }
                             this.toast(

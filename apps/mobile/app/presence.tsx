@@ -28,6 +28,7 @@ export default function PresenceSheet() {
   const t = useT();
   const c = useColors();
   const client = state.phase === 'connected' ? state.client : null;
+  const ownActivity = sync.phase === 'ready' ? sync.provider.ownActivity : null;
   const chat = sync.phase === 'ready' ? sync.provider.native?.chat : null;
   const active = useRef(client);
   const saving = useRef(false);
@@ -45,21 +46,26 @@ export default function PresenceSheet() {
     setBusy(true);
     setError('');
     try {
+      let confirmed = status;
       if (client.kind === 'rocketvibe') {
         if (!chat?.status.online || !chat.capabilities?.profiles)
           throw new Error();
         const before = nativeMyProfile(await chat.ownProfile());
         if (active.current !== client) return;
-        await chat.editOwnProfile({ ...before, status });
-      } else {
+        confirmed = nativeMyProfile(await chat.editOwnProfile({ ...before, status })).status;
+      } else if (ownActivity) {
+        confirmed = await ownActivity.set(status);
+      } else if (client.kind === 'rocketchat') {
         // setStatus replaces the text too: read it fresh and preserve it.
         const before = await readMyProfile(client);
         if (active.current !== client) return;
         await saveStatus(client, { status, message: before.statusText });
+      } else {
+        throw new Error();
       }
       if (active.current === client) {
         if (sync.phase === 'ready' && state.phase === 'connected')
-          sync.presence.confirm(state.session.userId, status);
+          sync.presence.confirm(state.session.userId, confirmed);
         router.back();
       }
     } catch {

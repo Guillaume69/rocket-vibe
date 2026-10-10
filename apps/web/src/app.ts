@@ -2555,7 +2555,11 @@ export class App implements RowActions {
           this.view.changed();
         })
         .catch(() => {
-          if (this.account === account && this.generation === generation)
+          if (
+            this.account === account &&
+            this.generation === generation &&
+            this.ownProfileRevision === own.revision
+          )
             this.ownProfileRevision = undefined;
         });
     }

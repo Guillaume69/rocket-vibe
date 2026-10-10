@@ -549,3 +549,33 @@ test("new message and HTTP workflow steps expose their result name editor", () =
     assert.ok(labels.includes("workflows.save_as"), kind);
   }
 });
+
+test("an older failed profile refresh cannot discard the newer revision", async () => {
+  const target = Object.assign(app(), {
+    ownStatus: "online",
+    ownProfileRevision: undefined as string | undefined,
+    profiles: new Map(),
+    main: { querySelectorAll: () => [] },
+    view: { changed() {} },
+    renderTimeline() {},
+  });
+  let rejectOld!: (error: Error) => void;
+  const old = new Promise((_resolve, reject) => {
+    rejectOld = reject;
+  });
+  const newer = deferred<unknown>();
+  let reads = 0;
+  target.api.request = () => (++reads === 1 ? old : newer.promise);
+  const observe = method("observeProfiles", {
+    window: { dispatchEvent() {} },
+    Event: class {},
+  });
+  observe.call(target, { profiles: [{ user, revision: "R1" }] });
+  observe.call(target, { profiles: [{ user, revision: "R2" }] });
+  rejectOld(new Error("old read failed"));
+  await new Promise((resolve) => setImmediate(resolve));
+  newer.resolve({ profile: { user, revision: "R2", status: "busy" } });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(target.ownProfileRevision, "R2");
+  assert.equal(target.ownStatus, "busy");
+});

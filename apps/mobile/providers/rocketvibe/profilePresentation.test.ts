@@ -19,6 +19,7 @@ async function bench(){
   let profile:UserProfile={...fixture.own_profile.profile,user:fixture.session.user};
   let epoch=fixture.discovery.data_epoch,profileRead:Promise<UserProfile>|null=null,avatarRead:Promise<Uint8Array>|null=null;
   const transport={discover:async()=>({...fixture.discovery,data_epoch:epoch,capabilities:{...fixture.discovery.capabilities,profiles:true,profile_avatars:true,presence:false,read_markers:false}}),
+    ownProfile:async()=>({...fixture.own_profile,profile:profileRead?await profileRead:profile}),
     me:async()=>fixture.session.user,changes:async()=>({protocol_version:1,changes:[],cursor:'before-profiles',has_more:false}),socketUrl:async()=>'ws://localhost/fake',
     userProfile:async()=>profileRead??profile,lookupProfile:async()=>profileRead??profile,avatarBytes:async()=>avatarRead??new Uint8Array([137,80,78,71,13,10,26,10])} as unknown as NativeTransport;
   const socket={readyState:0,onopen:null,onclose:null,onerror:null,onmessage:null,close:()=>{}} as unknown as WebSocket;
@@ -81,5 +82,20 @@ test('another member changing their profile does not discard the current sheet r
     await b.live(b.profile(),[{...b.profile(),revision:'other-profile',user:{...b.profile().user,id:'other-user',username:'other'}}]);
     assert.equal(b.chat.profileVersionFor(b.session.userId),version);
     pending.resolve(b.profile());assert.equal((await response).user.id,b.session.userId);
+  }finally{await b.close();}
+});
+
+
+test('confirmed own profile wakes the avatar without live profile observations',async()=>{
+  const b=await bench();
+  try{
+    await b.chat.ownProfile();const version=b.chat.profileVersionFor(b.session.userId);
+    let notified=0;const unsub=b.chat.subscribe(()=>{notified++;});
+    b.setProfile({...b.profile(),revision:'local-activity',status:'away'});
+    assert.equal((await b.chat.ownProfile()).profile.status,'away');
+    assert.notEqual(b.chat.profileVersionFor(b.session.userId),version);
+    assert.equal(notified,1);
+    await b.chat.ownProfile();assert.equal(notified,1,'unchanged revision does not create a refresh loop');
+    unsub();
   }finally{await b.close();}
 });

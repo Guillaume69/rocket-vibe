@@ -22,6 +22,8 @@ so GTK and SwiftUI run unchanged past the sign-in screen.
 
 ## Mobile
 
+**Room search.** `providers/mattermost/search.ts` reads the current channel and, for a conversation, its complete member list and usernames. Search adds `in:<channel-name>`, `in:@<other-user>` for a DM, `in:@<all-member-usernames>` for a group, or `in:@<me>` for a self-DM before the result limit. Missing scope information fails explicitly rather than making a team-wide request. Results are still filtered by channel id. Public, private, direct, group and self-direct scopes are qualified against Mattermost 11.11.1 by `scripts/probe-mattermost-search.mjs`; kChat live scope qualification remains open. Desktop uses the same resolver in `rv-core/src/mattermost/actions.rs`, shared by GTK and SwiftUI.
+
 ### Server kinds
 
 `ProviderKind` gains `mattermost` and `kchat` (`lib/provider.ts`); both build
@@ -335,6 +337,10 @@ opens Infomaniak's real page in the GTK sign-in window and forges a redirect for
 another request, which must be caught, refused and close the window.
 
 ## Sources
+
+- apps/mobile/providers/mattermost/search.ts
+- apps/mobile/providers/mattermost/search.test.ts
+- scripts/probe-mattermost-search.mjs
 
 - `docs/MATTERMOST.md`: the protocol both apps speak, with its provenance and how to validate it
 

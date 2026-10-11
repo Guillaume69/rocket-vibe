@@ -162,7 +162,7 @@ beta does.
 
 | Feature | Mobile | GTK | SwiftUI | Web | Notes |
 |---|---|---|---|---|---|
-| Search messages in the room (`chat.search`) | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
+| Search messages in the room (`chat.search`) | done | done | done | done | Mattermost public/private channels, DMs, group DMs and self-DMs are scoped before the result limit on mobile and shared desktop core, qualified on 11.11.1. The kChat mapping still needs live qualification. Web: Native provider: see [web-client](features/web-client.md). |
 | Open a result at its message | done | done | done | done | SwiftUI does not open a thread reply in its thread. Web: Native provider: see [web-client](features/web-client.md). |
 | Search across rooms (on the device: the messages already synced, any server kind) | done | done | done | done | Mobile: local SQLite (`SEARCH_MESSAGES`), 500 newest per room plus opened history; private RocketVibe conversations stay searched per room. Desktop: `Store::search_messages` over the same 500 newest per room plus opened history, the sealed rows decrypted while unlocked (Ctrl+Shift+F, Cmd+Shift+F), Rocket.Chat and Mattermost, not native RocketVibe sessions; SwiftUI's view checked by the macOS CI build only. Web: the model this browser holds (snapshot, opened history, live messages, 500 per room after retention), from the sidebar's search button or Ctrl+Shift+F, hits under their room, opened through `jumpTo` (`src/local-search.ts`); encrypted (MLS) rooms are left out, their clear text never entering the model, and stay searched per room, as mobile's private conversations. |
 

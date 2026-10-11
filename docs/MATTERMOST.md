@@ -445,13 +445,15 @@ refuses an oversize file with 413.
 | Favourite a room | `PUT /users/me/preferences [{user_id, category: "favorite_channel", name: channelId, value: "true" \| "false"}]` (4.8) |
 | Open a DM | `POST /channels/direct [myId, otherId]` (idempotent) |
 | Join a channel | `POST /channels/<id>/members {user_id}` |
-| Search a room | `POST /teams/<team>/posts/search {terms, is_or_search: false, page: 0, per_page: 60}`, keep the room's posts. A DM has no team: use any team of mine (`GET /users/me/teams`) |
+| Search a room | `POST /teams/<team>/posts/search {terms, is_or_search: false, page: 0, per_page: 60}` with an exact `in:` scope before the page limit, then keep only the room's posts. A DM has no team: use any team of mine (`GET /users/me/teams`) |
 | Room info | `GET /channels/<id>` (`header` = topic, `purpose` = description) and `/channels/<id>/stats` (`member_count`) |
 | Profile | `GET /users/<id>` or `/users/username/<u>`, `GET /users/<id>/status`; custom status in `props.customStatus` (JSON-encoded, `text`) |
 | My status | `PUT /users/me/status {user_id, status}` (busy is `dnd`); custom text `PUT`/`DELETE /users/me/status/custom` |
 | Notification preference | read `notify_props.desktop` from `/users/me`, write it back whole with `PUT /users/me/patch {notify_props}` (a patch replaces the map) |
 | People search | `POST /users/search {term, limit}`; channels `POST /teams/<team>/channels/search {term}` |
 | Permalink | `<server>/_redirect/pl/<postId>` (the server finds the team) |
+
+Search qualification (2026-10-11, Mattermost 11.11.1): `in:<channel-name>` selects a public or private channel; `in:@<username>` selects a DM, including oneself; `in:@<all-member-usernames>` selects a group conversation. The apps read current channel metadata and paged membership, resolve usernames, and reject an unresolved scope rather than searching the whole team. A 120-post unrelated flood produces 100 unscoped hits despite the requested `per_page: 60`, hiding older room targets; all five scoped searches return only their target. Run `node scripts/probe-mattermost-search.mjs` on the seeded disposable local bench. The script deletes its probe posts. Source: Mattermost's [search documentation](https://docs.mattermost.com/end-user-guide/collaborate/search-for-messages) and [11.11.1 channel-name resolver](https://github.com/mattermost/mattermost/blob/v11.11.1/server/channels/app/post.go). These scopes have not been probed against kChat's proprietary backend.
 
 ### 6.4 Custom emoji [probed]
 

@@ -657,7 +657,10 @@ fn message_from_provider(
     let form = native.and_then(|_| rv_core::native::workflows::row_form(row));
     // A form step's text is its title, which the card shows already.
     let titled = form.as_ref().is_some_and(|f| rv_core::native::workflows::text_is_form_title(row.text.as_deref(), f));
-    let blocks = if is_call || titled {
+    let blocks = if is_call
+        || titled
+        || native.is_some() && rv_core::native::social::parse_attachment(row.attachments.as_deref()).is_some()
+    {
         Vec::new()
     } else if encrypted {
         // Opened by the list (`Session::open_row`): in clear when unlocked.
@@ -710,6 +713,9 @@ fn message_from_provider(
     }
     if let Some(native) = native {
         let provider = media::Provider::RocketVibe(native.clone());
+        if let Some(value) = rv_core::native::social::parse_attachment(row.attachments.as_deref()) {
+            column.append(&crate::social::card(native, &row.rid, &row.id, value, &row.author_id, on_event.clone()));
+        }
         for image in image_attachments(row.attachments.as_deref()) {
             column.append(&image_provider(provider.clone(), &image));
         }

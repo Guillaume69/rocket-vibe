@@ -17,6 +17,7 @@ import { useT } from '../../ui/i18n.ts';
 import { useSession } from '../../ui/session.tsx';
 import { type Colors, FONTS, useColors } from '../../ui/theme.ts';
 import { Icon, InlineIcon } from '../../ui/icon.tsx';
+import { VoiceReactions } from '../../ui/social.tsx';
 import { SpeakingAvatar, VoiceControls, useJoinVoice, useListening, usePeople, usePersonSheet, useRoomVoice, useVoice } from '../../ui/voice.tsx';
 import { VoiceVideoView } from '../../modules/voice/index.ts';
 
@@ -131,7 +132,8 @@ export default function VoiceScreen() {
       )}
       <View style={[styles.footer, { borderTopColor: c.softBorder }]}>
         {here ? (
-          <VoiceControls c={c} size="large" />
+          <><VoiceReactions room={rid}/>
+          <VoiceControls c={c} size="large" /></>
         ) : (
           <Pressable
             onPress={() => void join(rid, title ?? '', false, direct)}

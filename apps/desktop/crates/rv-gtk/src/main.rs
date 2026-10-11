@@ -48,6 +48,7 @@ mod sidebar_dialog;
 mod sign_in_window;
 mod sizer;
 mod smoke;
+mod social;
 mod sounds;
 mod spell;
 mod spotlight;

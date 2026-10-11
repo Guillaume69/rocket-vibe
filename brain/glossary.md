@@ -261,6 +261,11 @@ The code had French names until the English rename. These are the only French wo
 - **Links.** `rocketvibe://salon/<rid>`, rewritten to `room/` on mobile (`apps/mobile/lib/roomLink.ts`) and accepted by both desktop parsers.
 - **Native push, kept one release.** `ReponseNotifReceiver` and `RattrapagePushWorker` (empty subclasses of the new classes), the RemoteInput key `rv_reponse`, the worker input key `ombre`, the work-name prefix `rattrapage-push-` (cancelled alongside `push-catch-up-`), the shown-messages preferences `rvpush-affiches` (read after `rvpush-shown`), the iOS reply action `rv-repondre` (accepted with `rv-reply`), and the native language key `key_v1-langue-preferee` (read after `key_v1-preferred-language`; iOS `langue-preferee`). The debug files `rvpush-journal.log` and `rvpush-sonde` were renamed without a fallback (`rvpush.log`, `rvpush-probe`).
 
+- **Social card**: typed poll, game-night RSVP or public image in Message.social, with a text fallback for older clients; see features/social.md.
+- **Sticker shelf**: an account's reusable public image links, server-backed on RocketVibe and device-local on Rocket.Chat.
+- **Voice burst**: a short-lived emoji reaction seen only by connected participants in the room's current voice session, absent from history.
+
+
 ## Sources
 
 - `CLAUDE.md`
@@ -295,3 +300,7 @@ The code had French names until the English rename. These are the only French wo
 - `apps/desktop/crates/rv-native/src/lib.rs`
 - `apps/desktop/docs/MACOS-SWIFTUI.md`
 - `apps/desktop/macos/Sources/RocketVibe/Modals.swift`
+
+- `crates/rv-protocol/src/social.rs`
+- `apps/server/src/giphy.rs`
+- `brain/features/social.md`

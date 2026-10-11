@@ -41,6 +41,17 @@ pub fn router(app: App) -> Router {
             put(register_push).delete(unregister_push),
         )
         .route("/api/v1/push/notifications/{id}", get(push_content))
+        .route("/api/v1/gifs", get(gif_search))
+        .route("/api/v1/stickers", get(sticker_list).post(sticker_save))
+        .route(
+            "/api/v1/stickers/{id}",
+            axum::routing::delete(sticker_remove),
+        )
+        .route("/api/v1/rooms/{room}/social", post(social_create))
+        .route("/api/v1/rooms/{room}/images", post(social_image))
+        .route("/api/v1/messages/{id}/social/answer", post(social_answer))
+        .route("/api/v1/messages/{id}/social/close", post(social_close))
+        .route("/api/v1/rooms/{room}/voice/reactions", post(voice_react))
         .route("/api/v1/commands", get(command_list))
         .route("/api/v1/commands/run", post(run_command))
         .route("/api/v1/emoji", get(emoji_catalog))
@@ -558,6 +569,10 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
             thread_list: true,
             thread_follow: true,
             thread_also_in_room: true,
+            social_cards: true,
+            sticker_shelf: true,
+            giphy: app.giphy.is_some(),
+            voice_reactions: app.livekit.is_some(),
             ..Default::default()
         },
         icon_revision: crate::instance_icon::revision(&app).await?,
@@ -2221,6 +2236,15 @@ async fn command_list(
 ) -> Result<Response> {
     let (account, hash, proof) = read_access(&app, &headers, Scope::None).await?;
     let mut list = rv_protocol::commands::catalogue();
+    if app.giphy.is_some() {
+        list.commands.push(rv_protocol::commands::SlashCommand {
+            command: "giphy".into(),
+            params: "search term".into(),
+            description: "Find a GIF".into(),
+            client_side: true,
+            literal: true,
+        });
+    }
     // A room names the workflow commands offered there (RFC 0004).
     if let Some(room) = &query.room {
         list.commands
@@ -2975,5 +2999,110 @@ async fn answer_form(
 ) -> Result<StatusCode> {
     let actor = account(&app, &headers).await?;
     crate::workflows::answer(&app, &actor, &message, body(input)?).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
+struct GifQuery {
+    #[serde(default)]
+    q: String,
+    #[serde(default)]
+    stickers: bool,
+}
+async fn gif_search(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(q): Query<GifQuery>,
+) -> Result<Response> {
+    let (actor, hash, proof) = read_access(&app, &headers, Scope::None).await?;
+    let provider = app
+        .giphy
+        .as_ref()
+        .ok_or_else(|| Error::new(StatusCode::SERVICE_UNAVAILABLE, "giphy_not_configured"))?;
+    let mut tx = app.pool.begin().await?;
+    auth::lock_active(&mut tx, &actor).await?;
+    crate::limits::message_action(&mut tx, &actor.id).await?;
+    tx.commit().await?;
+    let value = provider.search(&q.q, q.stickers).await?;
+    let bytes = serde_json::to_vec(&rv_protocol::social::GifList { items: value })
+        .map_err(|_| Error::internal())?;
+    let lease = proof.lock(&app, &hash, &[], None).await?;
+    Ok(crate::delivery::leased_bytes(
+        bytes.into(),
+        lease,
+        "application/json",
+    ))
+}
+async fn sticker_list(State(app): State<App>, headers: HeaderMap) -> Result<Response> {
+    let (actor, hash, proof) = read_access(&app, &headers, Scope::None).await?;
+    let value = crate::social::shelf(&app, &actor).await?;
+    let bytes = serde_json::to_vec(&rv_protocol::social::StickerList { stickers: value })
+        .map_err(|_| Error::internal())?;
+    let lease = proof.lock(&app, &hash, &[], None).await?;
+    Ok(crate::delivery::leased_bytes(
+        bytes.into(),
+        lease,
+        "application/json",
+    ))
+}
+async fn sticker_save(
+    State(app): State<App>,
+    headers: HeaderMap,
+    input: Input<rv_protocol::social::SaveSticker>,
+) -> Result<StatusCode> {
+    crate::social::save_sticker(&app, &account(&app, &headers).await?, body(input)?).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+async fn sticker_remove(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<StatusCode> {
+    crate::social::remove_sticker(&app, &account(&app, &headers).await?, &id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+async fn social_create(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(room): Path<String>,
+    input: Input<rv_protocol::social::CreateSocial>,
+) -> Result<StatusCode> {
+    crate::social::create(&app, &account(&app, &headers).await?, &room, body(input)?).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+async fn social_image(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(room): Path<String>,
+    input: Input<rv_protocol::social::SendImage>,
+) -> Result<StatusCode> {
+    crate::social::image(&app, &account(&app, &headers).await?, &room, body(input)?).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+async fn social_answer(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    input: Input<rv_protocol::social::AnswerSocial>,
+) -> Result<StatusCode> {
+    crate::social::answer(&app, &account(&app, &headers).await?, &id, body(input)?).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+async fn social_close(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    input: Input<rv_protocol::social::ClosePoll>,
+) -> Result<StatusCode> {
+    crate::social::close(&app, &account(&app, &headers).await?, &id, body(input)?).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+async fn voice_react(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(room): Path<String>,
+    input: Input<rv_protocol::social::ReactVoice>,
+) -> Result<StatusCode> {
+    crate::social::react_voice(&app, &account(&app, &headers).await?, &room, body(input)?).await?;
     Ok(StatusCode::NO_CONTENT)
 }

@@ -19,7 +19,7 @@ export function nativeAttachments(message:Message):string|null {
   const cards=message.cards??[];
   if(cards.length&&(message.deleted||message.system))throw new Error('invalid_card');
   if(files.length&&(message.deleted||message.system))throw new Error('invalid_file');
-  const all=[...nativeFileAttachments(files,message.room_id),...nativeCardAttachments(cards)];
+  const all=[...nativeFileAttachments(files,message.room_id),...nativeCardAttachments(cards),...(message.social&&!message.deleted&&!message.system?[{native_social:message.social}]:[])];
   return all.length?JSON.stringify(all):null;
 }
 /** Shared projection for message files and membership-scoped quoted sources. */

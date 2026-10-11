@@ -24,6 +24,7 @@ pub mod receipts;
 mod room_operations;
 pub mod scheduled;
 mod search;
+pub mod social;
 mod voice;
 pub mod workflows;
 pub use room_operations::{
@@ -682,6 +683,10 @@ impl NativeSession {
                     custom_emoji_admin: true,
                     instance_icon: true,
                     scheduled_messages: true,
+                    social_cards: true,
+                    sticker_shelf: true,
+                    giphy: true,
+                    voice_reactions: true,
                     ..Default::default()
                 })
             })

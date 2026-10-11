@@ -17,6 +17,9 @@ struct Args {
     /// The LiveKit SFU of voice sessions: client origin, API origin and key.
     #[arg(long, env = "RV_LIVEKIT_CONFIG_FILE", hide_env_values = true)]
     livekit_config_file: Option<std::path::PathBuf>,
+    /// Private JSON containing the GIPHY API key and optional content rating.
+    #[arg(long, env = "RV_GIPHY_CONFIG_FILE", hide_env_values = true)]
+    giphy_config_file: Option<std::path::PathBuf>,
     /// Offer native end-to-end encryption to clients (`e2ee` capability). On
     /// by default; `RV_E2EE=false` turns it off for this instance.
     #[arg(
@@ -257,6 +260,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             args.livekit_config_file
                 .as_deref()
                 .map(rv_server::livekit::LiveKit::from_file)
+                .transpose()?,
+        )
+        .with_giphy(
+            args.giphy_config_file
+                .as_deref()
+                .map(rv_server::giphy::Giphy::from_file)
                 .transpose()?,
         )
         .with_e2ee(args.e2ee)

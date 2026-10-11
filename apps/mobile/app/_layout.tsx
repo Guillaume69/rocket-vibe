@@ -202,6 +202,10 @@ export default function RootLayout() {
                         fields scroll, so a tall sheet rather than one fitted
                         to its content. */}
                     <Stack.Screen
+                      name="social"
+                      options={{presentation:'formSheet',headerShown:false,sheetAllowedDetents:[0.75,1.0],sheetGrabberVisible:true,sheetCornerRadius:24,contentStyle:{backgroundColor:darkColors.deepCard}}}
+                    />
+                    <Stack.Screen
                       name="answer-form"
                       options={{
                         presentation: 'formSheet',

@@ -438,6 +438,7 @@ pub struct MessageItem {
     pub author_bot: bool,
     /// A form a workflow asks (RocketVibe, RFC 0004): its card and who may answer.
     pub form: Option<crate::native_workflows::FormItem>,
+    pub social: Option<crate::social::SocialItem>,
     /// The name the header shows: the username, or on Mattermost the name
     /// under the account's name format with the custom status emoji.
     pub author_label: String,
@@ -561,6 +562,7 @@ pub fn message(d: Display, me_id: &str, me: &str) -> MessageItem {
         pinned: row.pinned,
         starred: row.starred_by(me_id),
         author_bot: row.author_bot,
+        social: rv_core::native::social::parse_attachment(row.attachments.as_deref()).map(crate::social::social_item),
         form: form.map(|form| crate::native_workflows::form_item(form, me_id)),
         author_label: author.clone(),
         discussion: row

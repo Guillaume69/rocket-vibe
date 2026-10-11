@@ -20,6 +20,7 @@ export type AdminUserCounts = { "active": number; "admins": number; "away": numb
 export type AdminUserPage = { "items": (AdminUser)[]; "next"?: string | null; };
 export type AnswerForm = { "answers": {  }; "operation_id": string; };
 export type AnswerRing = { "data_epoch": string; "e2ee"?: boolean; "membership_version": string; };
+export type AnswerSocial = { "choices": (number)[]; "operation_id": string; };
 export type ApiError = { "code": string; "request_id": string; };
 export type ApplicationCancellation = { "fingerprint": string; "header": string; "operation_id": string; "room_id": string; "scope": Scope; };
 export type ApplicationMessage = { "ciphertext": string; "proof": string; "receipt": ApplicationReceipt; };
@@ -44,11 +45,12 @@ export type BotScope = "rooms:read" | "messages:write" | "files:write" | "reacti
 export type BotScopeRoutes = { "routes": (BotRoute)[]; "scope"?: BotScope | null; };
 export type BotsContract = { "bot": Bot; "bot_key": BotKey; "bot_key_created": BotKeyCreated; "bot_key_list": BotKeyList; "bot_list": BotList; "bot_reference": BotReference; "create_bot": CreateBot; "create_bot_key": CreateBotKey; "instance_settings": InstanceSettings; "update_bot": UpdateBot; "update_instance_settings": UpdateInstanceSettings; };
 export type CallSummary = { "duration_seconds"?: number | null; "state": RingState; };
-export type Capabilities = { "account_invitations"?: boolean; "account_recovery"?: boolean; "administration"?: boolean; "bots"?: boolean; "calls": boolean; "custom_emoji_admin"?: boolean; "custom_emojis"?: boolean; "deletion"?: boolean; "device_sessions"?: boolean; "direct_messages": boolean; "durable_sync": boolean; "e2ee": boolean; "editing"?: boolean; "email_factor_delivery"?: boolean; "email_factors"?: boolean; "email_recovery"?: boolean; "email_removal"?: boolean; "email_verification"?: boolean; "favorites"?: boolean; "fine_permissions"?: boolean; "idempotent_room_creation"?: boolean; "instance_icon"?: boolean; "link_previews"?: boolean; "pins"?: boolean; "presence"?: boolean; "private_rooms": boolean; "profile_avatars"?: boolean; "profiles"?: boolean; "push": boolean; "quotes"?: boolean; "reactions": boolean; "read_markers"?: boolean; "reauthentication"?: boolean; "reauthentication_retirement"?: boolean; "reports"?: boolean; "room_discovery"?: boolean; "room_info"?: boolean; "room_leave"?: boolean; "room_roles"?: boolean; "room_settings"?: boolean; "scheduled_messages"?: boolean; "search"?: boolean; "second_factors"?: boolean; "session_rotation"?: boolean; "slash_commands"?: boolean; "snapshot_paging"?: boolean; "stars"?: boolean; "structured_cards"?: boolean; "text_messages": boolean; "thread_also_in_room"?: boolean; "thread_follow"?: boolean; "thread_list"?: boolean; "threads": boolean; "typing"?: boolean; "uploads": boolean; "voice"?: boolean; "workflows"?: boolean; };
+export type Capabilities = { "account_invitations"?: boolean; "account_recovery"?: boolean; "administration"?: boolean; "bots"?: boolean; "calls": boolean; "custom_emoji_admin"?: boolean; "custom_emojis"?: boolean; "deletion"?: boolean; "device_sessions"?: boolean; "direct_messages": boolean; "durable_sync": boolean; "e2ee": boolean; "editing"?: boolean; "email_factor_delivery"?: boolean; "email_factors"?: boolean; "email_recovery"?: boolean; "email_removal"?: boolean; "email_verification"?: boolean; "favorites"?: boolean; "fine_permissions"?: boolean; "giphy"?: boolean; "idempotent_room_creation"?: boolean; "instance_icon"?: boolean; "link_previews"?: boolean; "pins"?: boolean; "presence"?: boolean; "private_rooms": boolean; "profile_avatars"?: boolean; "profiles"?: boolean; "push": boolean; "quotes"?: boolean; "reactions": boolean; "read_markers"?: boolean; "reauthentication"?: boolean; "reauthentication_retirement"?: boolean; "reports"?: boolean; "room_discovery"?: boolean; "room_info"?: boolean; "room_leave"?: boolean; "room_roles"?: boolean; "room_settings"?: boolean; "scheduled_messages"?: boolean; "search"?: boolean; "second_factors"?: boolean; "session_rotation"?: boolean; "slash_commands"?: boolean; "snapshot_paging"?: boolean; "social_cards"?: boolean; "stars"?: boolean; "sticker_shelf"?: boolean; "structured_cards"?: boolean; "text_messages": boolean; "thread_also_in_room"?: boolean; "thread_follow"?: boolean; "thread_list"?: boolean; "threads": boolean; "typing"?: boolean; "uploads": boolean; "voice"?: boolean; "voice_reactions"?: boolean; "workflows"?: boolean; };
 export type CardField = { "short"?: boolean; "title": string; "value": string; };
 export type Change = { "data": Room; "type": "room_upsert"; } | { "data": Message; "type": "message_upsert"; } | { "data": { "room_id": string; }; "type": "room_removed"; };
 export type ChangeEmailFactor = { "context": ReauthenticationContext; "email_version": string; "factor_version"?: string | null; "operation_id": string; };
 export type ChangeRoomRole = { "expected_revision": string; "operation_id": string; "role": RoomRole; };
+export type ClosePoll = { "operation_id": string; };
 export type CommandList = { "commands": (SlashCommand)[]; };
 export type CommitHistoryShare = { "scope": Scope; "share": string; };
 export type CompleteUpload = { "content": MessageContent; "operation_id": string; "reply_to"?: string | null; };
@@ -57,6 +59,7 @@ export type CreateBot = { "description"?: string; "display_name": string; "opera
 export type CreateBotKey = { "expires_in_days"?: number | null; "label": string; "operation_id": string; };
 export type CreateEmoji = { "aliases"?: string; "operation_id": string; };
 export type CreateRoom = { "name": string; "operation_id"?: string | null; "private": boolean; "voice"?: boolean; };
+export type CreateSocial = { "closes_at"?: string | null; "kind": "poll"; "multiple": boolean; "operation_id": string; "options": (string)[]; "question": string; "reply_to"?: string | null; } | { "description": string; "kind": "game_night"; "operation_id": string; "reply_to"?: string | null; "starts_at": string; "title": string; };
 export type CreateWorkflow = { "bot_id": string; "description"?: string; "enabled"?: boolean; "name": string; "operation_id": string; "steps": (Step)[]; "trigger": Trigger; };
 export type CustomEmoji = { "aliases": (string)[]; "bytes": string; "file_id": string; "id": string; "media_type": string; "name": string; "revision": string; "sha256": string; };
 export type DeleteAdminUser = { "operation_id": string; "revision": string; };
@@ -96,6 +99,8 @@ export type FormField = { "id": string; "kind": FormFieldKind; "label": string; 
 export type FormFieldKind = "text" | "long_text" | "number" | "choice" | "person";
 export type FormRecipient = "trigger_user" | "anyone";
 export type Format = "native1";
+export type GifItem = { "height": number; "id": string; "source"?: string | null; "title": string; "url": string; "width": number; };
+export type GifList = { "items": (GifItem)[]; };
 export type GroupCancellation = { "device_id": string; "fingerprint": string; "incarnation": string; "operation_id": string; "room_id": string; "scope": Scope; };
 export type GroupEvent = { "commit"?: string | null; "receipt": GroupReceipt; "transition": string; "welcome"?: GroupWelcome | null; };
 export type GroupEventPage = { "events": (GroupEvent)[]; "next"?: string | null; };
@@ -132,11 +137,11 @@ export type LeaveRoom = { "expected_revision": string; "operation_id": string; }
 export type LinkPreview = { "description"?: string | null; "image"?: PreviewImage | null; "kind": PreviewKind; "site"?: string | null; "title"?: string | null; "url": string; };
 export type LiveFrame = { "data": LiveState; "type": "live"; };
 export type LiveRoom = { "direct_peer"?: User | null; "membership_version": string; "reads"?: (ReadMark)[]; "room_id": string; "typing": (Typist)[]; "voice"?: (VoiceParticipant)[]; };
-export type LiveState = { "emoji_catalog_revision"?: string | null; "limited": boolean; "presence": (PresenceEntry)[]; "profiles"?: (ProfileStamp)[]; "rings"?: (VoiceRing)[]; "rooms": (LiveRoom)[]; "ttl_ms": number; };
+export type LiveState = { "emoji_catalog_revision"?: string | null; "limited": boolean; "presence": (PresenceEntry)[]; "profiles"?: (ProfileStamp)[]; "rings"?: (VoiceRing)[]; "rooms": (LiveRoom)[]; "ttl_ms": number; "voice_reactions"?: (VoiceReaction)[]; };
 export type Login = { "password": string; "username": string; };
 export type MarkRead = { "reply_position": string; "root_position": string; };
 export type MarkThreadRead = { "position": string; };
-export type Message = { "also_in_room"?: boolean; "author": User; "body"?: Document | null; "call"?: CallSummary | null; "cards"?: (IntegrationCard)[]; "created_at": string; "deleted"?: boolean; "edited_at"?: string | null; "files"?: (FileDescriptor)[]; "form"?: WorkflowForm | null; "id": string; "personal_follow"?: PersonalFollow | null; "personal_mention"?: boolean | null; "personal_star"?: PersonalStar | null; "pinned"?: boolean; "position": string; "previews"?: (LinkPreview)[]; "quotes"?: (MessageQuote)[]; "reactions"?: (MessageReaction)[]; "reply_to"?: string | null; "revision": string; "room_id": string; "system"?: SystemMessage | null; "text": string; "thread"?: ThreadSummary | null; };
+export type Message = { "also_in_room"?: boolean; "author": User; "body"?: Document | null; "call"?: CallSummary | null; "cards"?: (IntegrationCard)[]; "created_at": string; "deleted"?: boolean; "edited_at"?: string | null; "files"?: (FileDescriptor)[]; "form"?: WorkflowForm | null; "id": string; "personal_follow"?: PersonalFollow | null; "personal_mention"?: boolean | null; "personal_star"?: PersonalStar | null; "pinned"?: boolean; "position": string; "previews"?: (LinkPreview)[]; "quotes"?: (MessageQuote)[]; "reactions"?: (MessageReaction)[]; "reply_to"?: string | null; "revision": string; "room_id": string; "social"?: SocialCard | null; "system"?: SystemMessage | null; "text": string; "thread"?: ThreadSummary | null; };
 export type MessageContent = { "files": (string)[]; "kind": "plain"; "markdown": string; "mentions": (string)[]; "quotes": (QuoteReference)[]; } | { "format": string; "key_version": string; "kind": "encrypted"; "payload": string; };
 export type MessagePage = { "has_more": boolean; "messages": (Message)[]; };
 export type MessagePermissions = { "delete": boolean; "edit": boolean; "edit_until"?: string | null; "message_id": string; "pin": boolean; "react": boolean; "revision": string; "star": boolean; };
@@ -148,6 +153,7 @@ export type OwnProfile = { "email"?: string | null; "preferences": UserPreferenc
 export type ParityContract = { "accept_invitation"?: AcceptInvitation | null; "account_permissions": AccountPermissions; "auth_challenge": AuthChallenge; "authentication_step"?: AuthenticationStep | null; "begin_email_verification"?: BeginEmailVerification | null; "begin_factor_setup"?: BeginFactorSetup | null; "begin_reauthentication"?: BeginReauthentication | null; "change_email_factor"?: ChangeEmailFactor | null; "change_room_role"?: ChangeRoomRole | null; "complete_upload": CompleteUpload; "confirm_email_verification"?: ConfirmEmailVerification | null; "delete_message": DeleteMessage; "device_session"?: DeviceSession | null; "disable_factor"?: DisableFactor | null; "e2ee_application_receipt"?: ApplicationReceipt | null; "e2ee_application_settlement"?: ApplicationSettlement | null; "e2ee_application_submission"?: ApplicationSubmission | null; "e2ee_available_key_package"?: AvailableKeyPackage | null; "e2ee_commit_history_share"?: CommitHistoryShare | null; "e2ee_delivery_page"?: DeliveryPage | null; "e2ee_directory"?: Directory | null; "e2ee_group_events"?: GroupEventPage | null; "e2ee_group_roster"?: GroupRoster | null; "e2ee_group_settlement"?: GroupSettlement | null; "e2ee_group_state"?: GroupState | null; "e2ee_group_submission"?: GroupSubmission | null; "e2ee_history_backup_page"?: HistoryBackupPage | null; "e2ee_history_backup_periods"?: HistoryBackupPeriods | null; "e2ee_history_backup_receipt"?: HistoryBackupReceipt | null; "e2ee_history_key"?: HistoryKeyState | null; "e2ee_history_key_settlement"?: HistoryKeySettlement | null; "e2ee_history_records_page"?: HistoryRecordsPage | null; "e2ee_history_records_receipt"?: HistoryRecordsReceipt | null; "e2ee_history_requests"?: HistoryRequests | null; "e2ee_history_share"?: HistoryShareState | null; "e2ee_operation_receipt"?: OperationReceipt | null; "e2ee_publish_history_key"?: PublishHistoryKey | null; "e2ee_publish_history_request"?: PublishHistoryRequest | null; "e2ee_publish_key_packages"?: PublishKeyPackages | null; "e2ee_publish_root_backup"?: PublishRootBackup | null; "e2ee_register_device"?: RegisterDevice | null; "e2ee_revoke_device"?: RevokeDevice | null; "e2ee_root_backup"?: RootBackupState | null; "e2ee_root_backup_settlement"?: RootBackupSettlement | null; "e2ee_upload_history_backup"?: UploadHistoryBackup | null; "e2ee_upload_history_records"?: UploadHistoryRecords | null; "edit_message": EditMessage; "email_factor_change"?: EmailFactorChange | null; "email_recovery_requested"?: EmailRecoveryRequested | null; "email_removal_receipt"?: EmailRemovalReceipt | null; "email_status"?: EmailStatus | null; "email_verification_step"?: EmailVerificationStep | null; "enable_factor"?: EnableFactor | null; "factor_backup_codes"?: FactorBackupCodes | null; "factor_email_delivery"?: FactorEmailDelivery | null; "factor_setup"?: FactorSetup | null; "factor_status"?: FactorStatus | null; "file": FileDescriptor; "finish_factor"?: FinishFactor | null; "finish_reauthentication"?: FinishReauthentication | null; "key_backup": EncryptedKeyBackup; "leave_room"?: LeaveRoom | null; "mark": SetMark; "mark_read": MarkRead; "message_permissions": MessagePermissions; "preferences": UserPreferences; "prepare_upload": PrepareUpload; "profile": UserProfile; "public_device_key": PublicDeviceKey; "reaction": SetReaction; "read_state": ReadState; "reauthentication_grant"?: ReauthenticationGrant | null; "reauthentication_status"?: ReauthenticationStatus | null; "reauthentication_step"?: ReauthenticationStep | null; "recover_account"?: RecoverAccount | null; "regenerate_factor_backups"?: RegenerateFactorBackups | null; "remove_verified_email"?: RemoveVerifiedEmail | null; "rename_device"?: RenameDevice | null; "renew_session"?: RenewSession | null; "request_email_recovery"?: RequestEmailRecovery | null; "request_factor_email"?: RequestFactorEmail | null; "resume_email_removal"?: ResumeEmailRemoval | null; "resume_email_verification"?: ResumeEmailVerification | null; "resume_reauthentication"?: ResumeReauthentication | null; "retire_email_removal"?: RetireEmailRemoval | null; "retire_email_verification"?: RetireEmailVerification | null; "retire_reauthentication"?: RetireReauthentication | null; "room_command_receipt"?: RoomCommandReceipt | null; "room_details"?: RoomDetails | null; "room_favorite"?: SetRoomFavorite | null; "room_key_envelope": RoomKeyEnvelope; "room_members"?: RoomMemberPage | null; "room_permissions": RoomPermissions; "update_room"?: UpdateRoom | null; "upload": Upload; "verify_factor": VerifyFactor; };
 export type PersonalFollow = { "present": boolean; "revision": string; };
 export type PersonalStar = { "present": boolean; "revision": string; };
+export type PollOption = { "label": string; "voters": (string)[]; };
 export type PrepareUpload = { "bytes": string; "encrypted": boolean; "filename"?: string | null; "media_type": string; "operation_id": string; "room_id": string; "sha256": string; };
 export type PresenceEntry = { "status": PresenceStatus; "user": User; };
 export type PresenceStatus = "online" | "away" | "busy" | "offline";
@@ -167,6 +173,7 @@ export type PushRegistration = { "data_epoch": string; "device_id": string; "ins
 export type QuietHours = { "end_minute": number; "start_minute": number; "time_zone": string; };
 export type QuoteExcerpt = { "author": User; "created_at": string; "files"?: (FileDescriptor)[]; "membership_version": string; "quotes"?: (MessageQuote)[]; "references"?: (QuoteReference)[]; "revision": string; "text": string; };
 export type QuoteReference = { "message_id": string; "revision": string; "room_id": string; };
+export type ReactVoice = { "emoji": string; "operation_id": string; };
 export type ReadMark = { "root_position": string; "user_id": string; };
 export type ReadState = { "favorite": boolean; "favorite_revision"?: string | null; "group_mentions": string; "membership_version"?: string | null; "mentions": string; "reply_position": string; "revision": string; "room_id": string; "root_position": string; "unread_replies": string; "unread_roots": string; };
 export type ReauthenticationContext = { "data_epoch": string; "device_id": string; "instance_id": string; "user_id": string; };
@@ -210,6 +217,7 @@ export type RootBackupVersion = { "publication": string; "receipt": RootBackupRe
 export type RunCommand = { "command": string; "params": string; "room_id": string; };
 export type RunStarted = { "run_id": string; };
 export type RunState = "pending" | "waiting" | "done" | "failed" | "cancelled";
+export type SaveSticker = { "name": string; "operation_id": string; "url": string; };
 export type ScheduleMessage = { "operation_id": string; "reply_to"?: string | null; "send_at": string; "text": string; };
 export type ScheduledMessage = { "error"?: string | null; "id": string; "reply_to"?: string | null; "room_id": string; "send_at": string; "state": ScheduledState; "text": string; };
 export type ScheduledMessages = { "messages": (ScheduledMessage)[]; };
@@ -218,6 +226,7 @@ export type Scope = { "data_epoch": string; "instance_id": string; };
 export type SearchMessages = { "before"?: string | null; "limit"?: number | null; "q": string; };
 export type SearchPage = { "has_more": boolean; "membership_version": string; "messages": (Message)[]; };
 export type SecondFactor = "totp" | "email" | "recovery_code";
+export type SendImage = { "operation_id": string; "reply_to"?: string | null; "title": string; "url": string; };
 export type SendMessage = { "also_in_room"?: boolean; "cards"?: (IntegrationCard)[]; "files"?: (EncryptedFile)[]; "operation_id": string; "quotes"?: (QuoteReference)[]; "reply_to"?: string | null; "text": string; };
 export type Session = { "expires_at": string; "token": string; "user": User; };
 export type SetMark = { "operation_id": string; "present": boolean; };
@@ -228,8 +237,12 @@ export type SetTyping = { "active": boolean; "membership_version": string; "root
 export type SlashCommand = { "client_side": boolean; "command": string; "description": string; "literal"?: boolean; "params": string; };
 export type Snapshot = { "cursor": string; "messages": (Message)[]; "protocol_version": number; "rooms": (Room)[]; };
 export type SnapshotPage = { "cursor"?: string | null; "messages": (Message)[]; "next"?: string | null; "page_index": number; "protocol_version": number; "rooms": (Room)[]; "snapshot_id": string; };
+export type SocialCard = { "closed": boolean; "closes_at"?: string | null; "kind": "poll"; "multiple": boolean; "options": (PollOption)[]; "question": string; } | { "declined": (string)[]; "description": string; "going": (string)[]; "kind": "game_night"; "maybe": (string)[]; "starts_at": string; "title": string; } | { "height": number; "kind": "image"; "powered_by"?: string | null; "source"?: string | null; "title": string; "url": string; "width": number; };
+export type SocialContract = { "answer": AnswerSocial; "close": ClosePoll; "create": CreateSocial; "gif": GifItem; "gif_list": GifList; "react_voice": ReactVoice; "save_sticker": SaveSticker; "send_image": SendImage; "sticker": Sticker; "sticker_list": StickerList; };
 export type SocketTicket = { "expires_at": string; "ticket": string; };
 export type Step = { "cards"?: (IntegrationCard)[]; "in_thread"?: boolean; "kind": "message"; "room": string; "save_as"?: string | null; "text": string; } | { "kind": "wait"; "seconds": number; } | { "body"?: string | null; "continue_on_error"?: boolean; "headers"?: (HttpHeader)[]; "kind": "http"; "method": HttpMethod; "save_as"?: string | null; "url": string; } | { "fields": (FormField)[]; "kind": "form"; "recipient": FormRecipient; "room": string; "save_as": string; "title": string; };
+export type Sticker = { "id": string; "name": string; "url": string; };
+export type StickerList = { "stickers": (Sticker)[]; };
 export type SyncBatch = { "changes": (Change)[]; "cursor": string; "has_more": boolean; "protocol_version": number; };
 export type SystemMessage = { "kind": "call_started"; "meeting_id": string; } | { "kind": "room_created"; "name": string; } | { "kind": "room_renamed"; "name": string; } | { "kind": "topic_changed"; "topic": string; } | { "description": string; "kind": "description_changed"; } | { "announcement": string; "kind": "announcement_changed"; } | { "kind": "privacy_changed"; "private": boolean; } | { "kind": "read_only_changed"; "read_only": boolean; } | { "kind": "member_joined"; } | { "kind": "member_left"; } | { "kind": "member_added"; "user": User; } | { "kind": "member_removed"; "user": User; } | { "kind": "role_changed"; "previous_role": RoomRole; "role": RoomRole; "user": User; };
 export type ThreadEntry = { "following": boolean; "last_reply_position": string; "root": Message; "unread": string; };
@@ -256,6 +269,7 @@ export type UserProfile = { "avatar_file_id"?: string | null; "bio": string; "bo
 export type VerifyFactor = { "challenge_id": string; "code": string; "method": SecondFactor; };
 export type VoiceGrant = { "can_publish": boolean; "e2ee"?: boolean; "expires_at": string; "ring"?: VoiceRing | null; "room_id": string; "token": string; "url": string; };
 export type VoiceParticipant = { "camera"?: boolean; "deafened": boolean; "muted": boolean; "screen"?: boolean; "user": User; };
+export type VoiceReaction = { "emoji": string; "id": string; "room_id": string; "user_id": string; };
 export type VoiceRing = { "callee": User; "caller": User; "expires_in_ms": number; "id": string; "room_id": string; "state": RingState; };
 export type WebhookSecret = { "path": string; };
 export type Workflow = { "bot": User; "created_at": string; "description": string; "enabled": boolean; "has_webhook"?: boolean; "id": string; "last_run"?: WorkflowRun | null; "name": string; "next_fire_at"?: string | null; "owner": User; "revision": string; "steps": (Step)[]; "trigger": Trigger; "updated_at": string; };
@@ -265,7 +279,7 @@ export type WorkflowRun = { "created_at": string; "error"?: string | null; "id":
 export type WorkflowRunList = { "runs": (WorkflowRun)[]; };
 export type WorkflowsContract = { "answer_form": AnswerForm; "create_workflow": CreateWorkflow; "run_started": RunStarted; "update_workflow": UpdateWorkflow; "webhook_secret": WebhookSecret; "workflow": Workflow; "workflow_form": WorkflowForm; "workflow_list": WorkflowList; "workflow_run_list": WorkflowRunList; };
 
-export type NativeTypes = { AcceptInvitation: AcceptInvitation; AccountPermissions: AccountPermissions; AdminContract: AdminContract; AdminMessageCounts: AdminMessageCounts; AdminOperation: AdminOperation; AdminOverview: AdminOverview; AdminReport: AdminReport; AdminReportCounts: AdminReportCounts; AdminReportedMessage: AdminReportedMessage; AdminReportedMessagePage: AdminReportedMessagePage; AdminReportedUser: AdminReportedUser; AdminReportedUserPage: AdminReportedUserPage; AdminRoom: AdminRoom; AdminRoomCounts: AdminRoomCounts; AdminRoomPage: AdminRoomPage; AdminUploadCounts: AdminUploadCounts; AdminUser: AdminUser; AdminUserCounts: AdminUserCounts; AdminUserPage: AdminUserPage; AnswerForm: AnswerForm; AnswerRing: AnswerRing; ApiError: ApiError; ApplicationCancellation: ApplicationCancellation; ApplicationMessage: ApplicationMessage; ApplicationReceipt: ApplicationReceipt; ApplicationSettlement: ApplicationSettlement; ApplicationSubmission: ApplicationSubmission; AuthChallenge: AuthChallenge; AuthenticationStep: AuthenticationStep; AvailableKeyPackage: AvailableKeyPackage; AvatarCommand: AvatarCommand; BeginEmailVerification: BeginEmailVerification; BeginFactorSetup: BeginFactorSetup; BeginReauthentication: BeginReauthentication; Bot: Bot; BotKey: BotKey; BotKeyCreated: BotKeyCreated; BotKeyList: BotKeyList; BotList: BotList; BotReference: BotReference; BotRoute: BotRoute; BotScope: BotScope; BotScopeRoutes: BotScopeRoutes; BotsContract: BotsContract; CallSummary: CallSummary; Capabilities: Capabilities; CardField: CardField; Change: Change; ChangeEmailFactor: ChangeEmailFactor; ChangeRoomRole: ChangeRoomRole; CommandList: CommandList; CommitHistoryShare: CommitHistoryShare; CompleteUpload: CompleteUpload; ConfirmEmailVerification: ConfirmEmailVerification; CreateBot: CreateBot; CreateBotKey: CreateBotKey; CreateEmoji: CreateEmoji; CreateRoom: CreateRoom; CreateWorkflow: CreateWorkflow; CustomEmoji: CustomEmoji; DeleteAdminUser: DeleteAdminUser; DeleteMessage: DeleteMessage; DeliveryContent: DeliveryContent; DeliveryEvent: DeliveryEvent; DeliveryPage: DeliveryPage; DesktopNotifications: DesktopNotifications; Device: Device; DeviceSession: DeviceSession; DirectMessage: DirectMessage; Directory: Directory; DisableFactor: DisableFactor; Discovery: Discovery; Document: Document; EditMessage: EditMessage; EmailDeliveryState: EmailDeliveryState; EmailFactorChange: EmailFactorChange; EmailRecoveryRequested: EmailRecoveryRequested; EmailRemovalReceipt: EmailRemovalReceipt; EmailStatus: EmailStatus; EmailVerificationStep: EmailVerificationStep; EmojiCatalog: EmojiCatalog; EnableFactor: EnableFactor; EncryptedFile: EncryptedFile; EncryptedKeyBackup: EncryptedKeyBackup; Every: Every; FactorBackupCodes: FactorBackupCodes; FactorEmailDelivery: FactorEmailDelivery; FactorSetup: FactorSetup; FactorStatus: FactorStatus; FileDescriptor: FileDescriptor; FinishFactor: FinishFactor; FinishReauthentication: FinishReauthentication; FormAnswer: FormAnswer; FormField: FormField; FormFieldKind: FormFieldKind; FormRecipient: FormRecipient; Format: Format; GroupCancellation: GroupCancellation; GroupEvent: GroupEvent; GroupEventPage: GroupEventPage; GroupMember: GroupMember; GroupReceipt: GroupReceipt; GroupRoster: GroupRoster; GroupSettlement: GroupSettlement; GroupState: GroupState; GroupSubmission: GroupSubmission; GroupWelcome: GroupWelcome; HistoryBackupPage: HistoryBackupPage; HistoryBackupPeriod: HistoryBackupPeriod; HistoryBackupPeriods: HistoryBackupPeriods; HistoryBackupReceipt: HistoryBackupReceipt; HistoryKeyCancellation: HistoryKeyCancellation; HistoryKeyReceipt: HistoryKeyReceipt; HistoryKeySettlement: HistoryKeySettlement; HistoryKeyState: HistoryKeyState; HistoryKeyVersion: HistoryKeyVersion; HistoryRecordsPage: HistoryRecordsPage; HistoryRecordsReceipt: HistoryRecordsReceipt; HistoryRequestEntry: HistoryRequestEntry; HistoryRequests: HistoryRequests; HistoryShareState: HistoryShareState; HttpHeader: HttpHeader; HttpMethod: HttpMethod; IconCommand: IconCommand; Identity: Identity; InstanceIcon: InstanceIcon; InstanceSettings: InstanceSettings; IntegrationCard: IntegrationCard; JoinVoice: JoinVoice; LeaveRoom: LeaveRoom; LinkPreview: LinkPreview; LiveFrame: LiveFrame; LiveRoom: LiveRoom; LiveState: LiveState; Login: Login; MarkRead: MarkRead; MarkThreadRead: MarkThreadRead; Message: Message; MessageContent: MessageContent; MessagePage: MessagePage; MessagePermissions: MessagePermissions; MessageQuote: MessageQuote; MessageReaction: MessageReaction; Node: Node; OperationReceipt: OperationReceipt; OwnProfile: OwnProfile; ParityContract: ParityContract; PersonalFollow: PersonalFollow; PersonalStar: PersonalStar; PrepareUpload: PrepareUpload; PresenceEntry: PresenceEntry; PresenceStatus: PresenceStatus; PreviewImage: PreviewImage; PreviewKind: PreviewKind; ProfileReceipt: ProfileReceipt; ProfileStamp: ProfileStamp; PublicDeviceKey: PublicDeviceKey; PublicRoom: PublicRoom; PublicRoomPage: PublicRoomPage; PublishHistoryKey: PublishHistoryKey; PublishHistoryRequest: PublishHistoryRequest; PublishKeyPackages: PublishKeyPackages; PublishRootBackup: PublishRootBackup; PushContent: PushContent; PushRegistration: PushRegistration; QuietHours: QuietHours; QuoteExcerpt: QuoteExcerpt; QuoteReference: QuoteReference; ReadMark: ReadMark; ReadState: ReadState; ReauthenticationContext: ReauthenticationContext; ReauthenticationGrant: ReauthenticationGrant; ReauthenticationStatus: ReauthenticationStatus; ReauthenticationStep: ReauthenticationStep; RecoverAccount: RecoverAccount; RegenerateFactorBackups: RegenerateFactorBackups; RegisterDevice: RegisterDevice; RegisterPush: RegisterPush; RemoveEmoji: RemoveEmoji; RemoveVerifiedEmail: RemoveVerifiedEmail; RenameDevice: RenameDevice; RenewSession: RenewSession; ReportInput: ReportInput; RequestEmailRecovery: RequestEmailRecovery; RequestFactorEmail: RequestFactorEmail; ResumeEmailRemoval: ResumeEmailRemoval; ResumeEmailVerification: ResumeEmailVerification; ResumeReauthentication: ResumeReauthentication; RetireEmailRemoval: RetireEmailRemoval; RetireEmailVerification: RetireEmailVerification; RetireReauthentication: RetireReauthentication; Revocation: Revocation; RevokeDevice: RevokeDevice; RingState: RingState; Room: Room; RoomCommandReceipt: RoomCommandReceipt; RoomDetails: RoomDetails; RoomKeyEnvelope: RoomKeyEnvelope; RoomKind: RoomKind; RoomMember: RoomMember; RoomMemberPage: RoomMemberPage; RoomPermissions: RoomPermissions; RoomRole: RoomRole; RootBackupCancellation: RootBackupCancellation; RootBackupReceipt: RootBackupReceipt; RootBackupSettlement: RootBackupSettlement; RootBackupState: RootBackupState; RootBackupVersion: RootBackupVersion; RunCommand: RunCommand; RunStarted: RunStarted; RunState: RunState; ScheduleMessage: ScheduleMessage; ScheduledMessage: ScheduledMessage; ScheduledMessages: ScheduledMessages; ScheduledState: ScheduledState; Scope: Scope; SearchMessages: SearchMessages; SearchPage: SearchPage; SecondFactor: SecondFactor; SendMessage: SendMessage; Session: Session; SetMark: SetMark; SetPresence: SetPresence; SetReaction: SetReaction; SetRoomFavorite: SetRoomFavorite; SetTyping: SetTyping; SlashCommand: SlashCommand; Snapshot: Snapshot; SnapshotPage: SnapshotPage; SocketTicket: SocketTicket; Step: Step; SyncBatch: SyncBatch; SystemMessage: SystemMessage; ThreadEntry: ThreadEntry; ThreadList: ThreadList; ThreadPage: ThreadPage; ThreadReadState: ThreadReadState; ThreadSummary: ThreadSummary; Trigger: Trigger; Typist: Typist; UpdateAdminUser: UpdateAdminUser; UpdateBot: UpdateBot; UpdateInstanceSettings: UpdateInstanceSettings; UpdatePreferences: UpdatePreferences; UpdateProfile: UpdateProfile; UpdateRoom: UpdateRoom; UpdateWorkflow: UpdateWorkflow; Upload: Upload; UploadHistoryBackup: UploadHistoryBackup; UploadHistoryRecords: UploadHistoryRecords; UploadState: UploadState; User: User; UserPreferences: UserPreferences; UserProfile: UserProfile; VerifyFactor: VerifyFactor; VoiceGrant: VoiceGrant; VoiceParticipant: VoiceParticipant; VoiceRing: VoiceRing; WebhookSecret: WebhookSecret; Workflow: Workflow; WorkflowForm: WorkflowForm; WorkflowList: WorkflowList; WorkflowRun: WorkflowRun; WorkflowRunList: WorkflowRunList; WorkflowsContract: WorkflowsContract; };
+export type NativeTypes = { AcceptInvitation: AcceptInvitation; AccountPermissions: AccountPermissions; AdminContract: AdminContract; AdminMessageCounts: AdminMessageCounts; AdminOperation: AdminOperation; AdminOverview: AdminOverview; AdminReport: AdminReport; AdminReportCounts: AdminReportCounts; AdminReportedMessage: AdminReportedMessage; AdminReportedMessagePage: AdminReportedMessagePage; AdminReportedUser: AdminReportedUser; AdminReportedUserPage: AdminReportedUserPage; AdminRoom: AdminRoom; AdminRoomCounts: AdminRoomCounts; AdminRoomPage: AdminRoomPage; AdminUploadCounts: AdminUploadCounts; AdminUser: AdminUser; AdminUserCounts: AdminUserCounts; AdminUserPage: AdminUserPage; AnswerForm: AnswerForm; AnswerRing: AnswerRing; AnswerSocial: AnswerSocial; ApiError: ApiError; ApplicationCancellation: ApplicationCancellation; ApplicationMessage: ApplicationMessage; ApplicationReceipt: ApplicationReceipt; ApplicationSettlement: ApplicationSettlement; ApplicationSubmission: ApplicationSubmission; AuthChallenge: AuthChallenge; AuthenticationStep: AuthenticationStep; AvailableKeyPackage: AvailableKeyPackage; AvatarCommand: AvatarCommand; BeginEmailVerification: BeginEmailVerification; BeginFactorSetup: BeginFactorSetup; BeginReauthentication: BeginReauthentication; Bot: Bot; BotKey: BotKey; BotKeyCreated: BotKeyCreated; BotKeyList: BotKeyList; BotList: BotList; BotReference: BotReference; BotRoute: BotRoute; BotScope: BotScope; BotScopeRoutes: BotScopeRoutes; BotsContract: BotsContract; CallSummary: CallSummary; Capabilities: Capabilities; CardField: CardField; Change: Change; ChangeEmailFactor: ChangeEmailFactor; ChangeRoomRole: ChangeRoomRole; ClosePoll: ClosePoll; CommandList: CommandList; CommitHistoryShare: CommitHistoryShare; CompleteUpload: CompleteUpload; ConfirmEmailVerification: ConfirmEmailVerification; CreateBot: CreateBot; CreateBotKey: CreateBotKey; CreateEmoji: CreateEmoji; CreateRoom: CreateRoom; CreateSocial: CreateSocial; CreateWorkflow: CreateWorkflow; CustomEmoji: CustomEmoji; DeleteAdminUser: DeleteAdminUser; DeleteMessage: DeleteMessage; DeliveryContent: DeliveryContent; DeliveryEvent: DeliveryEvent; DeliveryPage: DeliveryPage; DesktopNotifications: DesktopNotifications; Device: Device; DeviceSession: DeviceSession; DirectMessage: DirectMessage; Directory: Directory; DisableFactor: DisableFactor; Discovery: Discovery; Document: Document; EditMessage: EditMessage; EmailDeliveryState: EmailDeliveryState; EmailFactorChange: EmailFactorChange; EmailRecoveryRequested: EmailRecoveryRequested; EmailRemovalReceipt: EmailRemovalReceipt; EmailStatus: EmailStatus; EmailVerificationStep: EmailVerificationStep; EmojiCatalog: EmojiCatalog; EnableFactor: EnableFactor; EncryptedFile: EncryptedFile; EncryptedKeyBackup: EncryptedKeyBackup; Every: Every; FactorBackupCodes: FactorBackupCodes; FactorEmailDelivery: FactorEmailDelivery; FactorSetup: FactorSetup; FactorStatus: FactorStatus; FileDescriptor: FileDescriptor; FinishFactor: FinishFactor; FinishReauthentication: FinishReauthentication; FormAnswer: FormAnswer; FormField: FormField; FormFieldKind: FormFieldKind; FormRecipient: FormRecipient; Format: Format; GifItem: GifItem; GifList: GifList; GroupCancellation: GroupCancellation; GroupEvent: GroupEvent; GroupEventPage: GroupEventPage; GroupMember: GroupMember; GroupReceipt: GroupReceipt; GroupRoster: GroupRoster; GroupSettlement: GroupSettlement; GroupState: GroupState; GroupSubmission: GroupSubmission; GroupWelcome: GroupWelcome; HistoryBackupPage: HistoryBackupPage; HistoryBackupPeriod: HistoryBackupPeriod; HistoryBackupPeriods: HistoryBackupPeriods; HistoryBackupReceipt: HistoryBackupReceipt; HistoryKeyCancellation: HistoryKeyCancellation; HistoryKeyReceipt: HistoryKeyReceipt; HistoryKeySettlement: HistoryKeySettlement; HistoryKeyState: HistoryKeyState; HistoryKeyVersion: HistoryKeyVersion; HistoryRecordsPage: HistoryRecordsPage; HistoryRecordsReceipt: HistoryRecordsReceipt; HistoryRequestEntry: HistoryRequestEntry; HistoryRequests: HistoryRequests; HistoryShareState: HistoryShareState; HttpHeader: HttpHeader; HttpMethod: HttpMethod; IconCommand: IconCommand; Identity: Identity; InstanceIcon: InstanceIcon; InstanceSettings: InstanceSettings; IntegrationCard: IntegrationCard; JoinVoice: JoinVoice; LeaveRoom: LeaveRoom; LinkPreview: LinkPreview; LiveFrame: LiveFrame; LiveRoom: LiveRoom; LiveState: LiveState; Login: Login; MarkRead: MarkRead; MarkThreadRead: MarkThreadRead; Message: Message; MessageContent: MessageContent; MessagePage: MessagePage; MessagePermissions: MessagePermissions; MessageQuote: MessageQuote; MessageReaction: MessageReaction; Node: Node; OperationReceipt: OperationReceipt; OwnProfile: OwnProfile; ParityContract: ParityContract; PersonalFollow: PersonalFollow; PersonalStar: PersonalStar; PollOption: PollOption; PrepareUpload: PrepareUpload; PresenceEntry: PresenceEntry; PresenceStatus: PresenceStatus; PreviewImage: PreviewImage; PreviewKind: PreviewKind; ProfileReceipt: ProfileReceipt; ProfileStamp: ProfileStamp; PublicDeviceKey: PublicDeviceKey; PublicRoom: PublicRoom; PublicRoomPage: PublicRoomPage; PublishHistoryKey: PublishHistoryKey; PublishHistoryRequest: PublishHistoryRequest; PublishKeyPackages: PublishKeyPackages; PublishRootBackup: PublishRootBackup; PushContent: PushContent; PushRegistration: PushRegistration; QuietHours: QuietHours; QuoteExcerpt: QuoteExcerpt; QuoteReference: QuoteReference; ReactVoice: ReactVoice; ReadMark: ReadMark; ReadState: ReadState; ReauthenticationContext: ReauthenticationContext; ReauthenticationGrant: ReauthenticationGrant; ReauthenticationStatus: ReauthenticationStatus; ReauthenticationStep: ReauthenticationStep; RecoverAccount: RecoverAccount; RegenerateFactorBackups: RegenerateFactorBackups; RegisterDevice: RegisterDevice; RegisterPush: RegisterPush; RemoveEmoji: RemoveEmoji; RemoveVerifiedEmail: RemoveVerifiedEmail; RenameDevice: RenameDevice; RenewSession: RenewSession; ReportInput: ReportInput; RequestEmailRecovery: RequestEmailRecovery; RequestFactorEmail: RequestFactorEmail; ResumeEmailRemoval: ResumeEmailRemoval; ResumeEmailVerification: ResumeEmailVerification; ResumeReauthentication: ResumeReauthentication; RetireEmailRemoval: RetireEmailRemoval; RetireEmailVerification: RetireEmailVerification; RetireReauthentication: RetireReauthentication; Revocation: Revocation; RevokeDevice: RevokeDevice; RingState: RingState; Room: Room; RoomCommandReceipt: RoomCommandReceipt; RoomDetails: RoomDetails; RoomKeyEnvelope: RoomKeyEnvelope; RoomKind: RoomKind; RoomMember: RoomMember; RoomMemberPage: RoomMemberPage; RoomPermissions: RoomPermissions; RoomRole: RoomRole; RootBackupCancellation: RootBackupCancellation; RootBackupReceipt: RootBackupReceipt; RootBackupSettlement: RootBackupSettlement; RootBackupState: RootBackupState; RootBackupVersion: RootBackupVersion; RunCommand: RunCommand; RunStarted: RunStarted; RunState: RunState; SaveSticker: SaveSticker; ScheduleMessage: ScheduleMessage; ScheduledMessage: ScheduledMessage; ScheduledMessages: ScheduledMessages; ScheduledState: ScheduledState; Scope: Scope; SearchMessages: SearchMessages; SearchPage: SearchPage; SecondFactor: SecondFactor; SendImage: SendImage; SendMessage: SendMessage; Session: Session; SetMark: SetMark; SetPresence: SetPresence; SetReaction: SetReaction; SetRoomFavorite: SetRoomFavorite; SetTyping: SetTyping; SlashCommand: SlashCommand; Snapshot: Snapshot; SnapshotPage: SnapshotPage; SocialCard: SocialCard; SocialContract: SocialContract; SocketTicket: SocketTicket; Step: Step; Sticker: Sticker; StickerList: StickerList; SyncBatch: SyncBatch; SystemMessage: SystemMessage; ThreadEntry: ThreadEntry; ThreadList: ThreadList; ThreadPage: ThreadPage; ThreadReadState: ThreadReadState; ThreadSummary: ThreadSummary; Trigger: Trigger; Typist: Typist; UpdateAdminUser: UpdateAdminUser; UpdateBot: UpdateBot; UpdateInstanceSettings: UpdateInstanceSettings; UpdatePreferences: UpdatePreferences; UpdateProfile: UpdateProfile; UpdateRoom: UpdateRoom; UpdateWorkflow: UpdateWorkflow; Upload: Upload; UploadHistoryBackup: UploadHistoryBackup; UploadHistoryRecords: UploadHistoryRecords; UploadState: UploadState; User: User; UserPreferences: UserPreferences; UserProfile: UserProfile; VerifyFactor: VerifyFactor; VoiceGrant: VoiceGrant; VoiceParticipant: VoiceParticipant; VoiceReaction: VoiceReaction; VoiceRing: VoiceRing; WebhookSecret: WebhookSecret; Workflow: Workflow; WorkflowForm: WorkflowForm; WorkflowList: WorkflowList; WorkflowRun: WorkflowRun; WorkflowRunList: WorkflowRunList; WorkflowsContract: WorkflowsContract; };
 
 export const nativeSchema = {
   "$defs": {
@@ -975,6 +989,27 @@ export const nativeSchema = {
       "required": [
         "membership_version",
         "data_epoch"
+      ],
+      "type": "object"
+    },
+    "AnswerSocial": {
+      "additionalProperties": false,
+      "properties": {
+        "choices": {
+          "items": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "operation_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "choices"
       ],
       "type": "object"
     },
@@ -1746,6 +1781,10 @@ export const nativeSchema = {
           "default": false,
           "type": "boolean"
         },
+        "giphy": {
+          "default": false,
+          "type": "boolean"
+        },
         "idempotent_room_creation": {
           "default": false,
           "type": "boolean"
@@ -1850,7 +1889,15 @@ export const nativeSchema = {
           "default": false,
           "type": "boolean"
         },
+        "social_cards": {
+          "default": false,
+          "type": "boolean"
+        },
         "stars": {
+          "default": false,
+          "type": "boolean"
+        },
+        "sticker_shelf": {
           "default": false,
           "type": "boolean"
         },
@@ -1889,6 +1936,10 @@ export const nativeSchema = {
         "voice": {
           "default": false,
           "description": "Voice sessions in every room, voice channels and ringing direct calls.",
+          "type": "boolean"
+        },
+        "voice_reactions": {
+          "default": false,
           "type": "boolean"
         },
         "workflows": {
@@ -2035,6 +2086,18 @@ export const nativeSchema = {
         "operation_id",
         "expected_revision",
         "role"
+      ],
+      "type": "object"
+    },
+    "ClosePoll": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id"
       ],
       "type": "object"
     },
@@ -2215,6 +2278,91 @@ export const nativeSchema = {
         "private"
       ],
       "type": "object"
+    },
+    "CreateSocial": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "closes_at": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "const": "poll",
+              "type": "string"
+            },
+            "multiple": {
+              "type": "boolean"
+            },
+            "operation_id": {
+              "type": "string"
+            },
+            "options": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "question": {
+              "type": "string"
+            },
+            "reply_to": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "operation_id",
+            "question",
+            "options",
+            "multiple"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "description": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "game_night",
+              "type": "string"
+            },
+            "operation_id": {
+              "type": "string"
+            },
+            "reply_to": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "starts_at": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "operation_id",
+            "title",
+            "starts_at",
+            "description"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "CreateWorkflow": {
       "additionalProperties": false,
@@ -3204,6 +3352,57 @@ export const nativeSchema = {
         "native1"
       ],
       "type": "string"
+    },
+    "GifItem": {
+      "properties": {
+        "height": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "id": {
+          "type": "string"
+        },
+        "source": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "width": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "url",
+        "width",
+        "height"
+      ],
+      "type": "object"
+    },
+    "GifList": {
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/GifItem"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "type": "object"
     },
     "GroupCancellation": {
       "additionalProperties": false,
@@ -4222,6 +4421,12 @@ export const nativeSchema = {
           "format": "uint32",
           "minimum": 0,
           "type": "integer"
+        },
+        "voice_reactions": {
+          "items": {
+            "$ref": "#/$defs/VoiceReaction"
+          },
+          "type": "array"
         }
       },
       "required": [
@@ -4411,6 +4616,17 @@ export const nativeSchema = {
         },
         "room_id": {
           "type": "string"
+        },
+        "social": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SocialCard"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Server-managed social state; older clients retain the ordinary text fallback."
         },
         "system": {
           "anyOf": [
@@ -5895,6 +6111,24 @@ export const nativeSchema = {
       ],
       "type": "object"
     },
+    "PollOption": {
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "voters": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "label",
+        "voters"
+      ],
+      "type": "object"
+    },
     "PrepareUpload": {
       "additionalProperties": false,
       "properties": {
@@ -6336,6 +6570,22 @@ export const nativeSchema = {
         "room_id",
         "message_id",
         "revision"
+      ],
+      "type": "object"
+    },
+    "ReactVoice": {
+      "additionalProperties": false,
+      "properties": {
+        "emoji": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "emoji"
       ],
       "type": "object"
     },
@@ -7411,6 +7661,26 @@ export const nativeSchema = {
       ],
       "type": "string"
     },
+    "SaveSticker": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "name",
+        "url"
+      ],
+      "type": "object"
+    },
     "ScheduleMessage": {
       "additionalProperties": false,
       "description": "`POST /api/v1/rooms/{id}/scheduled`. Replaying the same `operation_id`\nreturns the scheduled message it made; that id also becomes the sent\nmessage's, so the send itself can never happen twice.",
@@ -7580,6 +7850,33 @@ export const nativeSchema = {
         "recovery_code"
       ],
       "type": "string"
+    },
+    "SendImage": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "type": "string"
+        },
+        "reply_to": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "title",
+        "url"
+      ],
+      "type": "object"
     },
     "SendMessage": {
       "additionalProperties": false,
@@ -7846,6 +8143,183 @@ export const nativeSchema = {
       ],
       "type": "object"
     },
+    "SocialCard": {
+      "oneOf": [
+        {
+          "properties": {
+            "closed": {
+              "type": "boolean"
+            },
+            "closes_at": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "const": "poll",
+              "type": "string"
+            },
+            "multiple": {
+              "type": "boolean"
+            },
+            "options": {
+              "items": {
+                "$ref": "#/$defs/PollOption"
+              },
+              "type": "array"
+            },
+            "question": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "question",
+            "options",
+            "multiple",
+            "closed"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "declined": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": {
+              "type": "string"
+            },
+            "going": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "const": "game_night",
+              "type": "string"
+            },
+            "maybe": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "starts_at": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "title",
+            "starts_at",
+            "description",
+            "going",
+            "maybe",
+            "declined"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "height": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "image",
+              "type": "string"
+            },
+            "powered_by": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "source": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "title": {
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            },
+            "width": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "title",
+            "url",
+            "width",
+            "height"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "SocialContract": {
+      "properties": {
+        "answer": {
+          "$ref": "#/$defs/AnswerSocial"
+        },
+        "close": {
+          "$ref": "#/$defs/ClosePoll"
+        },
+        "create": {
+          "$ref": "#/$defs/CreateSocial"
+        },
+        "gif": {
+          "$ref": "#/$defs/GifItem"
+        },
+        "gif_list": {
+          "$ref": "#/$defs/GifList"
+        },
+        "react_voice": {
+          "$ref": "#/$defs/ReactVoice"
+        },
+        "save_sticker": {
+          "$ref": "#/$defs/SaveSticker"
+        },
+        "send_image": {
+          "$ref": "#/$defs/SendImage"
+        },
+        "sticker": {
+          "$ref": "#/$defs/Sticker"
+        },
+        "sticker_list": {
+          "$ref": "#/$defs/StickerList"
+        }
+      },
+      "required": [
+        "gif_list",
+        "sticker_list",
+        "create",
+        "answer",
+        "close",
+        "save_sticker",
+        "send_image",
+        "react_voice",
+        "sticker",
+        "gif"
+      ],
+      "type": "object"
+    },
     "SocketTicket": {
       "properties": {
         "expires_at": {
@@ -7997,6 +8471,39 @@ export const nativeSchema = {
           "type": "object"
         }
       ]
+    },
+    "Sticker": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "url"
+      ],
+      "type": "object"
+    },
+    "StickerList": {
+      "properties": {
+        "stickers": {
+          "items": {
+            "$ref": "#/$defs/Sticker"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "stickers"
+      ],
+      "type": "object"
     },
     "SyncBatch": {
       "properties": {
@@ -9124,6 +9631,29 @@ export const nativeSchema = {
       ],
       "type": "object"
     },
+    "VoiceReaction": {
+      "properties": {
+        "emoji": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "room_id": {
+          "type": "string"
+        },
+        "user_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "room_id",
+        "user_id",
+        "emoji"
+      ],
+      "type": "object"
+    },
     "VoiceRing": {
       "properties": {
         "callee": {
@@ -9521,6 +10051,9 @@ export const nativeSchema = {
     "snapshot_page": {
       "$ref": "#/$defs/SnapshotPage"
     },
+    "social": {
+      "$ref": "#/$defs/SocialContract"
+    },
     "socket_ticket": {
       "$ref": "#/$defs/SocketTicket"
     },
@@ -9593,7 +10126,8 @@ export const nativeSchema = {
     "administration",
     "bots",
     "workflows",
-    "parity"
+    "parity",
+    "social"
   ],
   "title": "Contract",
   "type": "object"

@@ -13,6 +13,7 @@ mod error;
 pub mod factor_crypto;
 mod factors;
 mod files;
+pub mod giphy;
 mod http;
 mod instance_icon;
 pub mod invitations;
@@ -40,6 +41,7 @@ pub mod scheduled;
 mod search;
 mod sessions;
 mod snapshots;
+pub mod social;
 mod store;
 mod sync;
 mod system_messages;
@@ -60,6 +62,7 @@ pub struct App {
     pub push: Option<Arc<push::Sender>>,
     /// The operator's SFU: advertises the `voice` capability when configured.
     pub livekit: Option<Arc<livekit::LiveKit>>,
+    pub giphy: Option<Arc<giphy::Giphy>>,
     /// Advertises the `e2ee` capability: on by default, an operator may turn
     /// native end-to-end encryption off for an instance (`RV_E2EE=false`).
     pub e2ee: bool,
@@ -125,6 +128,7 @@ impl App {
             mail: None,
             push: None,
             livekit: None,
+            giphy: None,
             e2ee: true,
             private_http: false,
             started_at: chrono::Utc::now(),
@@ -170,6 +174,11 @@ impl App {
 
     pub fn with_trusted_proxies(mut self, proxies: client_address::TrustedProxies) -> Self {
         self.trusted_proxies = Arc::new(proxies);
+        self
+    }
+
+    pub fn with_giphy(mut self, giphy: Option<giphy::Giphy>) -> Self {
+        self.giphy = giphy.map(Arc::new);
         self
     }
 
@@ -225,6 +234,7 @@ impl App {
             "DELETE FROM account_invitations WHERE id IN (SELECT id FROM account_invitations WHERE expires_at<now()-interval '30 days' LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM account_recovery_codes WHERE id IN (SELECT id FROM account_recovery_codes WHERE expires_at<now()-interval '30 days' LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM moderation_commands WHERE (actor_id,operation_id) IN (SELECT actor_id,operation_id FROM moderation_commands WHERE created_at<=clock_timestamp()-interval '7 days' LIMIT 1000 FOR UPDATE SKIP LOCKED)",
+            "DELETE FROM voice_reactions WHERE id IN (SELECT id FROM voice_reactions WHERE expires_at<=clock_timestamp() LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM snapshot_heads WHERE id IN (SELECT id FROM snapshot_heads WHERE expires_at<=now() LIMIT 8 FOR UPDATE SKIP LOCKED)",
         ] {
             sqlx::query(query).execute(&self.pool).await?;

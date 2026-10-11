@@ -256,6 +256,7 @@ const MIGRATIONS: &[&str] = &[
     "ALTER TABLE messages ADD COLUMN discussion_id TEXT;
      ALTER TABLE messages ADD COLUMN discussion_count INTEGER NOT NULL DEFAULT 0;
      ALTER TABLE messages ADD COLUMN discussion_last INTEGER",
+    "CREATE TABLE sticker_shelf(id TEXT PRIMARY KEY,name TEXT NOT NULL,url TEXT NOT NULL UNIQUE)",
 ];
 
 /// How many messages a search across rooms answers at most.

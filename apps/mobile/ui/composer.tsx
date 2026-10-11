@@ -39,6 +39,8 @@ import {
 import { quote } from '../lib/quote.ts';
 import { listBreak, typedBreak } from '../lib/listBreak.ts';
 import { codeBlock, link, toggleLines, toggleWrap, type Edited } from '../lib/formatting.ts';
+import { requestGifSelection } from "./gifSelection.ts";
+import { SocialButton } from "./social.tsx";
 import { commandErrorKey, splitCommand, runCommand, textCommand } from '../lib/commands.ts';
 import { NativeError } from '../providers/rocketvibe/transport.ts';
 import type { MentionCandidate } from '../lib/mentionCompletion.ts';
@@ -308,6 +310,7 @@ export function Composer({
 
   const send = useCallback(() => {
     const caption = draft.trim();
+    if (response===null && pending.length===0 && !encrypted && /^\/giphy(?:\s|$)/i.test(caption) && (client.kind==='rocketchat'||client.kind==='rocketvibe')) { const request=requestGifSelection(); void request.result.then(sent=>{if(sent&&!unmounted.current&&draftRef.current===draft){setDraft('');reset();clearDraft();}}); router.push({pathname:'/social',params:{rid,request:request.id,mode:'giphy',q:caption.replace(/^\/giphy\s*/i,''),...(threadId?{root:threadId}:{})}}); return; }
     // An armed quote prefixes the text with its permalink `[ ](…)`: the server
     // will turn it into the quote attachment (lib/quote.ts).
     let textToSend = response === null || response.native ? caption : quote(response.permalink, caption);
@@ -881,6 +884,7 @@ export function Composer({
               )}
             </Tappable>
           )}
+          {!encrypted && (client.kind==='rocketchat'||client.kind==='rocketvibe') && <SocialButton room={rid} thread={threadId}/>}
           <TextInput
             ref={fieldRef}
             value={draft}

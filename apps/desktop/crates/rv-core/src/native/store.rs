@@ -254,6 +254,7 @@ impl NativeStore {
             ("files", "TEXT"),
             ("urls", "TEXT"),
             ("cards", "TEXT"),
+            ("social", "TEXT"),
             ("author_bot", "INTEGER NOT NULL DEFAULT 0"),
             ("form", "TEXT"),
         ] {
@@ -605,6 +606,11 @@ impl NativeStore {
             return Err(rusqlite::Error::InvalidQuery);
         }
         tx.execute("UPDATE native_messages SET cards=?2 WHERE id=?1", params![message.id, json(&message.cards)?])?;
+        let social = message.social.as_deref().filter(|_| !message.deleted && message.system.is_none());
+        tx.execute(
+            "UPDATE native_messages SET social=?2 WHERE id=?1",
+            params![message.id, social.map(json).transpose()?],
+        )?;
         let form = message.form.as_deref().filter(|_| !message.deleted && message.system.is_none());
         tx.execute("UPDATE native_messages SET form=?2 WHERE id=?1", params![message.id, form.map(json).transpose()?])?;
         tx.execute(

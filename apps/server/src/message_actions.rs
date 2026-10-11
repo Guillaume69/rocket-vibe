@@ -132,6 +132,9 @@ pub async fn apply(app: &App, account: &Account, id: &str, command: Command) -> 
     }
     let own =
         message.author_id == account.id && message.created_at + Duration::minutes(15) > Utc::now();
+    if text.is_some() && message.social.is_some() {
+        return Err(Error::new(StatusCode::CONFLICT, "social_card_immutable"));
+    }
     if message.system.is_some() {
         return Err(Error::forbidden());
     }

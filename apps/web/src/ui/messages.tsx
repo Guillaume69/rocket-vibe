@@ -24,6 +24,7 @@ import { videoLink, videoLinks } from "../video-links";
 import { stopMedia } from "../dom";
 import { operation, segment } from "../api";
 import { ActionButton, Avatar, IconButton, Symbol } from "./controls";
+import { SocialMessage } from "../social";
 import { useApp } from "./context";
 import { elementView, renderView } from "./portals";
 
@@ -680,20 +681,22 @@ export function MessageView({
         {message.form ? (
           <WorkflowCard message={message} mine={mine} actions={actions} />
         ) : (
-          <div className="message-body">
-            {editing ? (
-              <InlineEditor
-                message={message}
-                revision={editing.revision}
-                actions={actions}
-                close={() => setEditing(undefined)}
-              />
-            ) : message.body ? (
-              <Markdown nodes={message.body.nodes} />
-            ) : (
-              message.text
-            )}
-          </div>
+          !message.social && (
+            <div className="message-body">
+              {editing ? (
+                <InlineEditor
+                  message={message}
+                  revision={editing.revision}
+                  actions={actions}
+                  close={() => setEditing(undefined)}
+                />
+              ) : message.body ? (
+                <Markdown nodes={message.body.nodes} />
+              ) : (
+                message.text
+              )}
+            </div>
+          )
         )}
         {message.edited_at && (
           <span className="message-note">
@@ -728,6 +731,7 @@ export function MessageView({
               actions={actions}
             />
           ))}
+        {message.social && <SocialMessage app={app} message={message} />}
         {(message.cards || []).map((card, index) => (
           <div
             key={index}

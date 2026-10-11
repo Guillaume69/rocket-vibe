@@ -3,6 +3,8 @@
 use gtk::gdk;
 
 const CSS: &str = r#"
+.voice-reaction-strip { font-size: 32px; padding: 4px; }
+.social-card { padding: 14px; border-radius: 14px; background: #171529; border: 1px solid #30294a; }
 :root {
   --accent-bg-color: #FF5FA2;
   --accent-fg-color: #0B0913;

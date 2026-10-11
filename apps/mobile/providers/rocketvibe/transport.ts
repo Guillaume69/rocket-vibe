@@ -43,6 +43,16 @@ function adminPage(path:string,page:AdminPage):string {
 }
 
 export class NativeTransport {
+  gifs(q:string,stickers=false):Promise<NativeTypes['GifList']>{return this.request('GifList', '/api/v1/gifs?q='+encodeURIComponent(q)+'&stickers='+stickers);}
+  stickers():Promise<NativeTypes['StickerList']>{return this.request('StickerList','/api/v1/stickers');}
+  async saveSticker(input:NativeTypes['SaveSticker']):Promise<void>{await this.value('/api/v1/stickers',input);}
+  async removeSticker(id:string):Promise<void>{await this.value('/api/v1/stickers/'+encodeURIComponent(id),undefined,false,undefined,'DELETE');}
+  async createSocial(room:string,input:NativeTypes['CreateSocial']):Promise<void>{await this.value('/api/v1/rooms/'+encodeURIComponent(room)+'/social',input);}
+  async answerSocial(id:string,input:NativeTypes['AnswerSocial']):Promise<void>{await this.value('/api/v1/messages/'+encodeURIComponent(id)+'/social/answer',input);}
+  async closePoll(id:string,input:NativeTypes['ClosePoll']):Promise<void>{await this.value('/api/v1/messages/'+encodeURIComponent(id)+'/social/close',input);}
+  async sendImage(room:string,input:NativeTypes['SendImage']):Promise<void>{await this.value('/api/v1/rooms/'+encodeURIComponent(room)+'/images',input);}
+  async reactVoice(room:string,input:NativeTypes['ReactVoice']):Promise<void>{await this.value('/api/v1/rooms/'+encodeURIComponent(room)+'/voice/reactions',input);}
+
   cryptoGroupRoster(room:string):Promise<NativeTypes['GroupRoster']> {
     return this.request('GroupRoster',`/api/v1/e2ee/rooms/${encodeURIComponent(room)}/roster`);
   }

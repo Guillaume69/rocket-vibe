@@ -253,6 +253,10 @@ Sources: apps/web/src/notifications.ts; apps/web/scripts/build-shell.mjs.
 The web reduces videos with the browser's own WebCodecs codecs, which need a container library on both ends. Mediabunny (MPL-2.0, unmodified, no runtime dependency, released weekly) does the demux of MP4, QuickTime, WebM and Matroska, the decode/encode pipeline and the MP4 mux in one package; the alternatives were `mp4box` (BSD-3-Clause, demux only for our needs, building AAC/Opus sample entries by hand to mux) plus `mp4-muxer` (MIT, deprecated by its author in favour of Mediabunny). MPL-2.0 is file-level copyleft: used unmodified, it only asks that its notice ship, which `scripts/licenses.mjs` does. It is pinned to a version at least two weeks old and lives only in the reduction worker's chunk, out of the service worker's precache. The server's CSP stays `worker-src 'self'`: allowing `blob:` workers for Mediabunny's alpha merger is not worth it for canvas recordings, which go out in original quality.
 
 Sources: brain/features/uploads.md, apps/web/src/video-reduce.worker.ts.
+## Typed social content (2026-10-11)
+
+Use an additive optional Message.social field for polls, game nights and public image posts. Existing IntegrationCard forbids unknown fields, so extending it would reject these messages in older clients. Keep readable text fallbacks and capability-gated controls. Store GIPHY credentials only on the server; Rocket.Chat clients use the installed app's preview/selection REST contract. Keep structured social content out of encrypted rooms until the encrypted protocol carries it.
+
 
 ## Sources
 
@@ -304,3 +308,7 @@ Sources: brain/features/uploads.md, apps/web/src/video-reduce.worker.ts.
 - `scripts/version.mjs`
 - `apps/mobile/ui/alerts.ts`
 - `apps/desktop/macos/Sources/RocketVibe/Modals.swift`
+
+- `crates/rv-protocol/src/social.rs`
+- `apps/server/src/giphy.rs`
+- `brain/features/social.md`

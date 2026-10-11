@@ -1774,7 +1774,25 @@ export class Voice {
     this.leaving = leaving;
     await leaving;
   }
+  private reactionIds = new Set<string>();
   observe(state: LiveState): void {
+    for (const reaction of state.voice_reactions ?? []) {
+      if (
+        this.reactionIds.has(reaction.id) ||
+        reaction.room_id !== this.current
+      )
+        continue;
+      this.reactionIds.add(reaction.id);
+      const tile = this.cards.get(reaction.user_id);
+      if (!tile) continue;
+      const burst = el("span", "voice-reaction-burst", reaction.emoji);
+      burst.setAttribute("aria-label", reaction.emoji);
+      tile.append(burst);
+      setTimeout(() => burst.remove(), 3000);
+    }
+    const observed = new Set((state.voice_reactions ?? []).map((r) => r.id));
+    for (const id of this.reactionIds)
+      if (!observed.has(id)) this.reactionIds.delete(id);
     if (
       this.current &&
       !this.hasAccess(this.current, this.app.account?.key, this.membership)

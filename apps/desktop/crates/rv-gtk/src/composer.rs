@@ -53,6 +53,8 @@ pub struct Composer {
     on_edit_last: Handler<()>,
     staged: Rc<crate::staged::Staged>,
     attach: gtk::Button,
+    social: gtk::Button,
+    social_target: Rc<RefCell<Option<crate::social::Target>>>,
     mic: gtk::Button,
     on_send_files: Handler<Outgoing>,
     commands: RefCell<Commands>,
@@ -192,7 +194,14 @@ impl Composer {
             .css_classes(["flat", "attach-button"])
             .valign(gtk::Align::End)
             .build();
+        let social = gtk::Button::builder()
+            .icon_name("view-more-symbolic")
+            .tooltip_text("Polls, game nights, stickers and GIFs")
+            .css_classes(["flat", "attach-button"])
+            .visible(false)
+            .build();
         pill.append(&attach);
+        pill.append(&social);
         pill.append(&stack);
         let text_for_picker = text.clone();
         let custom_names: Rc<RefCell<Option<crate::emoji_picker::CustomSource>>> = Rc::default();
@@ -382,6 +391,8 @@ impl Composer {
             on_edit_last: RefCell::default(),
             staged,
             attach: attach.clone(),
+            social: social.clone(),
+            social_target: Rc::default(),
             mic: mic.clone(),
             on_send_files: RefCell::default(),
             commands: RefCell::default(),
@@ -392,6 +403,12 @@ impl Composer {
             scheduled_chip: scheduled_chip.clone(),
             scheduler: RefCell::default(),
             schedule_target: RefCell::default(),
+        });
+        let weak = Rc::downgrade(&this);
+        social.connect_clicked(move |b| {
+            if let Some(target) = weak.upgrade().and_then(|c| c.social_target.borrow().clone()) {
+                crate::social::menu(b.upcast_ref(), target);
+            }
         });
         let weak = Rc::downgrade(&this);
         crate::scheduled::menu(&later, move |choice| {
@@ -661,6 +678,15 @@ impl Composer {
     /// draft, saves it as it changes, and offers the room's authors after `@`.
     pub fn bind(self: &Rc<Self>, session: &Arc<Session>, rid: &str, thread: Option<&str>) {
         self.unbind_native();
+        let supported = session.info.mattermost.is_none() && !session.store.room_encrypted(rid);
+        self.social.set_visible(supported);
+        if supported {
+            self.social_target.replace(Some(crate::social::Target::Legacy {
+                session: session.clone(),
+                room: rid.into(),
+                root: thread.map(str::to_owned),
+            }));
+        }
         self.attach.set_sensitive(true);
         self.mic.set_sensitive(true);
         let key = match thread {
@@ -697,6 +723,18 @@ impl Composer {
 
     pub fn bind_native(self: &Rc<Self>, session: &Arc<rv_core::native::NativeSession>, rid: &str) {
         self.unbind_native();
+        let supported = session.store.room_encrypted(rid).is_ok_and(|e| !e)
+            && (session.social_supported("social_cards")
+                || session.social_supported("sticker_shelf")
+                || session.social_supported("giphy"));
+        self.social.set_visible(supported);
+        if supported {
+            self.social_target.replace(Some(crate::social::Target::Native {
+                session: session.clone(),
+                room: rid.into(),
+                root: None,
+            }));
+        }
         let files = session.supported_features().iter().any(|f| f == "uploads");
         self.quote_author.files.set(files);
         self.attach.set_sensitive(files);
@@ -725,6 +763,8 @@ impl Composer {
         });
     }
     pub fn unbind_native(&self) {
+        self.social_target.replace(None);
+        self.social.set_visible(false);
         self.schedule_target.replace(None);
         self.scheduler.replace(None);
         self.update_later();
@@ -770,6 +810,13 @@ impl Composer {
         membership: Option<String>,
     ) {
         self.bind_native(session, rid);
+        if self.social.is_visible() {
+            self.social_target.replace(Some(crate::social::Target::Native {
+                session: session.clone(),
+                room: rid.into(),
+                root: Some(root.into()),
+            }));
+        }
         self.schedule_target.replace(Some((session.clone(), rid.to_owned(), Some(root.to_owned()))));
         self.rearm_schedule();
         self.on_changed.replace(None);
@@ -1187,6 +1234,26 @@ impl Composer {
         }
         let mut text = self.text();
         let files = !self.staged.is_empty();
+        if !files
+            && self.reply_link.borrow().is_none()
+            && self.native_reply.borrow().is_none()
+            && let Some(("giphy", query)) = rv_core::commands::split(&text)
+            && let Some(target) = self.social_target.borrow().clone()
+        {
+            let buffer = self.text.buffer();
+            let expected = text.clone();
+            let key = target.room().to_owned();
+            let current_target = self.social_target.clone();
+            let sent: Rc<dyn Fn()> = Rc::new(move || {
+                if current_target.borrow().as_ref().is_some_and(|t| t.room() == key)
+                    && buffer.text(&buffer.start_iter(), &buffer.end_iter(), false).as_str() == expected
+                {
+                    buffer.set_text("");
+                }
+            });
+            crate::social::gallery(self.text.upcast_ref(), target, true, query, Some(sent));
+            return;
+        }
         if text.trim().is_empty()
             && !files
             && self.native_reply.borrow().is_none()

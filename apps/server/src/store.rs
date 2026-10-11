@@ -38,6 +38,7 @@ impl RoomRow {
 
 #[derive(FromRow)]
 pub(crate) struct MessageRow {
+    pub social: Option<Json<rv_protocol::social::SocialCard>>,
     pub id: String,
     pub room_id: String,
     pub author_id: String,
@@ -71,6 +72,11 @@ impl MessageRow {
         let body = (!self.deleted && self.system.is_none())
             .then(|| Box::new(rv_protocol::markdown::parse(&self.text)));
         Message {
+            social: if self.deleted {
+                None
+            } else {
+                self.social.map(|s| Box::new(s.0))
+            },
             id: self.id,
             room_id: self.room_id,
             author: Box::new(User {
@@ -140,7 +146,7 @@ impl MessageRow {
     }
 }
 
-pub(crate) const MESSAGE_SELECT: &str = "SELECT m.id,m.room_id,m.author_id,u.username,u.display_name,u.deleted AS author_deleted,u.bot AS author_bot,m.text,m.reply_to,m.also_in_room,(SELECT count(*) FROM messages r WHERE r.reply_to=m.id AND NOT r.deleted) AS thread_replies,(SELECT max(r.created_at) FROM messages r WHERE r.reply_to=m.id AND NOT r.deleted) AS thread_last_reply,m.system,m.created_at,m.position,m.revision,m.deleted,m.edited_at,m.pinned,m.quote_references,m.files,m.previews,m.cards,(SELECT jsonb_strip_nulls(jsonb_build_object('state',v.state,'duration_seconds',CASE WHEN v.answered_at IS NOT NULL AND v.ended_at IS NOT NULL THEN floor(extract(epoch FROM v.ended_at-v.answered_at))::int END)) FROM voice_rings v WHERE v.message_id=m.id) AS call,(SELECT jsonb_strip_nulls(jsonb_build_object('title',f.title,'fields',f.fields,'recipient',CASE WHEN r.id IS NULL THEN NULL ELSE jsonb_build_object('id',r.id,'username',r.username,'display_name',r.display_name) END,'answered_by',CASE WHEN a.id IS NULL THEN NULL ELSE jsonb_build_object('id',a.id,'username',a.username,'display_name',a.display_name) END,'answered_at',to_jsonb(f.answered_at),'expires_at',to_jsonb(f.expires_at),'people',(SELECT jsonb_agg(jsonb_build_object('id',p.id,'username',p.username,'display_name',p.display_name) ORDER BY p.username) FROM users p WHERE p.id IN (SELECT jsonb_array_elements_text(x->'people') FROM jsonb_array_elements(f.fields) x)))) FROM workflow_forms f LEFT JOIN users r ON r.id=f.recipient_id LEFT JOIN users a ON a.id=f.answered_by WHERE f.message_id=m.id) AS form,COALESCE((SELECT jsonb_agg(jsonb_build_object('emoji',g.emoji,'users',g.users) ORDER BY g.emoji) FROM (SELECT e.emoji,jsonb_agg(jsonb_build_object('id',a.id,'username',a.username,'display_name',a.display_name,'deleted',a.deleted) ORDER BY a.id) AS users FROM message_reactions e JOIN users a ON a.id=e.user_id WHERE e.message_id=m.id GROUP BY e.emoji) g),'[]'::jsonb) AS reactions FROM messages m JOIN users u ON u.id=m.author_id";
+pub(crate) const MESSAGE_SELECT: &str = "SELECT m.social,m.id,m.room_id,m.author_id,u.username,u.display_name,u.deleted AS author_deleted,u.bot AS author_bot,m.text,m.reply_to,m.also_in_room,(SELECT count(*) FROM messages r WHERE r.reply_to=m.id AND NOT r.deleted) AS thread_replies,(SELECT max(r.created_at) FROM messages r WHERE r.reply_to=m.id AND NOT r.deleted) AS thread_last_reply,m.system,m.created_at,m.position,m.revision,m.deleted,m.edited_at,m.pinned,m.quote_references,m.files,m.previews,m.cards,(SELECT jsonb_strip_nulls(jsonb_build_object('state',v.state,'duration_seconds',CASE WHEN v.answered_at IS NOT NULL AND v.ended_at IS NOT NULL THEN floor(extract(epoch FROM v.ended_at-v.answered_at))::int END)) FROM voice_rings v WHERE v.message_id=m.id) AS call,(SELECT jsonb_strip_nulls(jsonb_build_object('title',f.title,'fields',f.fields,'recipient',CASE WHEN r.id IS NULL THEN NULL ELSE jsonb_build_object('id',r.id,'username',r.username,'display_name',r.display_name) END,'answered_by',CASE WHEN a.id IS NULL THEN NULL ELSE jsonb_build_object('id',a.id,'username',a.username,'display_name',a.display_name) END,'answered_at',to_jsonb(f.answered_at),'expires_at',to_jsonb(f.expires_at),'people',(SELECT jsonb_agg(jsonb_build_object('id',p.id,'username',p.username,'display_name',p.display_name) ORDER BY p.username) FROM users p WHERE p.id IN (SELECT jsonb_array_elements_text(x->'people') FROM jsonb_array_elements(f.fields) x)))) FROM workflow_forms f LEFT JOIN users r ON r.id=f.recipient_id LEFT JOIN users a ON a.id=f.answered_by WHERE f.message_id=m.id) AS form,COALESCE((SELECT jsonb_agg(jsonb_build_object('emoji',g.emoji,'users',g.users) ORDER BY g.emoji) FROM (SELECT e.emoji,jsonb_agg(jsonb_build_object('id',a.id,'username',a.username,'display_name',a.display_name,'deleted',a.deleted) ORDER BY a.id) AS users FROM message_reactions e JOIN users a ON a.id=e.user_id WHERE e.message_id=m.id GROUP BY e.emoji) g),'[]'::jsonb) AS reactions FROM messages m JOIN users u ON u.id=m.author_id";
 
 pub(crate) fn send_fingerprint(room: &str, text: &str) -> String {
     crate::auth::hash_token(&serde_json::json!([room, text]).to_string())

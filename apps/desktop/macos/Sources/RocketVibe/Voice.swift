@@ -496,6 +496,7 @@ struct VoiceControls: View {
                 .disabled(!state.canPublish)
                 .modalOverlay(isPresented: $picker, style: .sheet(width: 760, height: 560)) { SharePicker(voice: voice) }
             }
+            VoiceReactionsView(voice: voice)
             Button { Task { await voice.leave() } } label: {
                 Image(systemName: "phone.down.fill")
                     .frame(width: compact ? 26 : 46, height: compact ? 26 : 46)

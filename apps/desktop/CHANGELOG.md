@@ -7,6 +7,15 @@ section here.
 
 ## [Unreleased]
 
+### Added
+
+- Quick polls, game-night RSVP cards, private sticker shelves and ephemeral voice reactions on RocketVibe servers in unencrypted rooms.
+- A GIF search and selection picker for /giphy, preserving the draft on cancel and supporting thread replies. RocketVibe needs server GIPHY configuration; installed clients also support Rocket.Chat commands.preview.
+
+### Fixed
+
+- Restore macOS incoming-call acceptance by converting the server's call link to a URL before opening its window.
+
 ## [0.15.0] - 2026-10-11
 
 ### Added

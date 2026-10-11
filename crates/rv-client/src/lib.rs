@@ -2193,6 +2193,109 @@ impl NativeClient {
             .map(str::to_owned)
             .ok_or(Error::InvalidUrl)
     }
+    pub async fn create_social(
+        &self,
+        room: &str,
+        input: &rv_protocol::social::CreateSocial,
+    ) -> Result<(), Error> {
+        if !path_segment(room) {
+            return Err(Error::InvalidUrl);
+        }
+        self.empty_input(
+            Method::POST,
+            &format!("/api/v1/rooms/{room}/social"),
+            Some(input),
+        )
+        .await
+    }
+    pub async fn answer_social(
+        &self,
+        id: &str,
+        input: &rv_protocol::social::AnswerSocial,
+    ) -> Result<(), Error> {
+        if !path_segment(id) {
+            return Err(Error::InvalidUrl);
+        }
+        self.empty_input(
+            Method::POST,
+            &format!("/api/v1/messages/{id}/social/answer"),
+            Some(input),
+        )
+        .await
+    }
+    pub async fn close_poll(
+        &self,
+        id: &str,
+        input: &rv_protocol::social::ClosePoll,
+    ) -> Result<(), Error> {
+        if !path_segment(id) {
+            return Err(Error::InvalidUrl);
+        }
+        self.empty_input(
+            Method::POST,
+            &format!("/api/v1/messages/{id}/social/close"),
+            Some(input),
+        )
+        .await
+    }
+    pub async fn gifs(
+        &self,
+        q: &str,
+        stickers: bool,
+    ) -> Result<rv_protocol::social::GifList, Error> {
+        let q: String = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("q", q)
+            .append_pair("stickers", if stickers { "true" } else { "false" })
+            .finish();
+        self.get(&format!("/api/v1/gifs?{q}")).await
+    }
+    pub async fn stickers(&self) -> Result<rv_protocol::social::StickerList, Error> {
+        self.get("/api/v1/stickers").await
+    }
+    pub async fn save_sticker(
+        &self,
+        input: &rv_protocol::social::SaveSticker,
+    ) -> Result<(), Error> {
+        self.empty_input(Method::POST, "/api/v1/stickers", Some(input))
+            .await
+    }
+    pub async fn remove_sticker(&self, id: &str) -> Result<(), Error> {
+        if !path_segment(id) {
+            return Err(Error::InvalidUrl);
+        }
+        self.empty(Method::DELETE, &format!("/api/v1/stickers/{id}"), false)
+            .await
+    }
+    pub async fn send_image(
+        &self,
+        room: &str,
+        input: &rv_protocol::social::SendImage,
+    ) -> Result<(), Error> {
+        if !path_segment(room) {
+            return Err(Error::InvalidUrl);
+        }
+        self.empty_input(
+            Method::POST,
+            &format!("/api/v1/rooms/{room}/images"),
+            Some(input),
+        )
+        .await
+    }
+    pub async fn react_voice(
+        &self,
+        room: &str,
+        input: &rv_protocol::social::ReactVoice,
+    ) -> Result<(), Error> {
+        if !path_segment(room) {
+            return Err(Error::InvalidUrl);
+        }
+        self.empty_input(
+            Method::POST,
+            &format!("/api/v1/rooms/{room}/voice/reactions"),
+            Some(input),
+        )
+        .await
+    }
     pub async fn logout(&self) -> Result<(), Error> {
         self.empty(Method::POST, "/api/v1/auth/logout", true).await
     }

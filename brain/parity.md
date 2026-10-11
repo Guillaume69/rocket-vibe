@@ -146,9 +146,9 @@ beta does.
 |---|---|---|---|---|---|
 | Thread view: root and replies, live, composer targeting the thread | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | Files and voice messages in a thread | done | done | done | done | Encrypted RocketVibe threads included. SwiftUI checked by the macOS CI build only. Web: Native provider: see [web-client](features/web-client.md). |
-| List of a room's threads, All and Following, latest reply first, paged | done | done | done | missing | Rocket.Chat servers only (`chat.getThreadsList`): Mattermost and kChat not mapped, the RocketVibe server has no list route yet. No Unread filter anywhere (see [decisions](decisions.md)). SwiftUI checked by the macOS CI build only. Web: Native provider only, which has no route yet. |
-| Follow or unfollow a thread, from the list and from the open thread, shown live | done | done | done | missing | Rocket.Chat servers only (`chat.followMessage`), same limits as the list. SwiftUI checked by the macOS CI build only. Web: Native provider only, which has no route yet. |
-| "Also send to the room" (`tshow`) from the thread composer | done | done | done | missing | Rocket.Chat (`Capabilities.alsoInRoom`, desktop `Session::also_in_room_available`): a one-shot checkbox above the thread composer, kept in the outbox row (`outbox.shown`) for the replay. SwiftUI's view checked by the macOS CI build only. Web: No browser implementation yet. |
+| List of a room's threads, All and Following, latest reply first, paged | done | done | done | done | Native apps: Rocket.Chat servers (`chat.getThreadsList`); Mattermost and kChat not mapped. The RocketVibe server now offers `GET /rooms/{id}/threads` (`thread_list`, [threads](features/threads.md)): Mobile, GTK and SwiftUI still owe it on RocketVibe accounts. No Unread filter anywhere (see [decisions](decisions.md)). SwiftUI checked by the macOS CI build only. Web: the room header's Threads dialog, All / Following, more on scroll, plaintext rooms only (`tests/threads.mjs`). |
+| Follow or unfollow a thread, from the list and from the open thread, shown live | done | done | done | done | Native apps: Rocket.Chat servers (`chat.followMessage`), same limits as the list. The RocketVibe server now offers `PUT /messages/{id}/follow` and a private live root upsert with `personal_follow` (`thread_follow`): Mobile, GTK and SwiftUI still owe it on RocketVibe accounts. SwiftUI checked by the macOS CI build only. Web: Follow / Unfollow on each list row and a bell in the open thread's header, repainted on every sync frame. |
+| "Also send to the room" (`tshow`) from the thread composer | done | done | done | done | Rocket.Chat (`Capabilities.alsoInRoom`, desktop `Session::also_in_room_available`): a one-shot checkbox above the thread composer, kept in the outbox row (`outbox.shown`) for the replay. The RocketVibe server now offers `SendMessage.also_in_room` and `?also_in_room=true` history (`thread_also_in_room`): Mobile, GTK and SwiftUI still owe it on RocketVibe accounts. SwiftUI's view checked by the macOS CI build only. Web: the same one-shot checkbox, kept in the outbox payload; text replies only, not files. |
 
 ### Discussions - [discussions](features/discussions.md)
 
@@ -328,19 +328,21 @@ are product gaps, listed last.
 
 - **Mobile**: kChat "Sign in with Infomaniak" run on a real account; several accounts per server;
   live styling of the draft; logs folder; in notifications the author's photo,
-  the message's picture, quick reactions and mark as read, the app's own sound.
+  the message's picture, quick reactions and mark as read, the app's own sound;
+  on RocketVibe accounts the thread list, following and "also send to the room"
+  (the server has the routes, section 6).
 - **GTK**: kChat "Sign in with Infomaniak"; email 2FA resend; padlock tile once
   unlocked; DM avatar versions in the list; video reduction; reconciliation snapshot; catch-up of
   deletions in rooms already caught up; outside Windows
   toasts, the notification's picture, quick reactions, mark as read and own sound
-  (Linux has the photo), and none of them for RocketVibe accounts.
+  (Linux has the photo), and none of them for RocketVibe accounts; on RocketVibe
+  accounts the thread list, following and "also send to the room" (section 6).
 - **SwiftUI**: everything GTK owes, plus
   workflow variables inserted at the cursor in a one-line URL;
   formatting toolbar; notification backend description; logs
   folder; new versions; running with the window closed and starting at login;
   the notification's photo, picture, quick reactions, mark as read and own sound.
-- **Web**: missing: replay of an offline sign-out, video reduction, the thread
-  list, following and "also send to the room", search across rooms, the logs
+- **Web**: missing: replay of an offline sign-out, video reduction, search across rooms, the logs
   folder, reply from a notification, message retention, the notification's
   photo, picture, quick reactions, mark as read and own sound. Partial, mostly pending row-by-row
   qualification against GTK (`docs/WEB_CLIENT_EXECUTION.md`): link previews,

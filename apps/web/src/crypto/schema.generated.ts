@@ -641,6 +641,24 @@ export const nativeSchema = {
       required: ["membership_version", "data_epoch"],
       type: "object",
     },
+    AnswerSocial: {
+      additionalProperties: false,
+      properties: {
+        choices: {
+          items: {
+            format: "uint32",
+            minimum: 0,
+            type: "integer",
+          },
+          type: "array",
+        },
+        operation_id: {
+          type: "string",
+        },
+      },
+      required: ["operation_id", "choices"],
+      type: "object",
+    },
     ApiError: {
       properties: {
         code: {
@@ -1352,6 +1370,10 @@ export const nativeSchema = {
           default: false,
           type: "boolean",
         },
+        giphy: {
+          default: false,
+          type: "boolean",
+        },
         idempotent_room_creation: {
           default: false,
           type: "boolean",
@@ -1458,7 +1480,15 @@ export const nativeSchema = {
           default: false,
           type: "boolean",
         },
+        social_cards: {
+          default: false,
+          type: "boolean",
+        },
         stars: {
+          default: false,
+          type: "boolean",
+        },
+        sticker_shelf: {
           default: false,
           type: "boolean",
         },
@@ -1501,6 +1531,10 @@ export const nativeSchema = {
           default: false,
           description:
             "Voice sessions in every room, voice channels and ringing direct calls.",
+          type: "boolean",
+        },
+        voice_reactions: {
+          default: false,
           type: "boolean",
         },
         workflows: {
@@ -1624,6 +1658,16 @@ export const nativeSchema = {
         },
       },
       required: ["operation_id", "expected_revision", "role"],
+      type: "object",
+    },
+    ClosePoll: {
+      additionalProperties: false,
+      properties: {
+        operation_id: {
+          type: "string",
+        },
+      },
+      required: ["operation_id"],
       type: "object",
     },
     CommandList: {
@@ -1772,6 +1816,76 @@ export const nativeSchema = {
       },
       required: ["name", "private"],
       type: "object",
+    },
+    CreateSocial: {
+      oneOf: [
+        {
+          additionalProperties: false,
+          properties: {
+            closes_at: {
+              type: ["string", "null"],
+            },
+            kind: {
+              const: "poll",
+              type: "string",
+            },
+            multiple: {
+              type: "boolean",
+            },
+            operation_id: {
+              type: "string",
+            },
+            options: {
+              items: {
+                type: "string",
+              },
+              type: "array",
+            },
+            question: {
+              type: "string",
+            },
+            reply_to: {
+              default: null,
+              type: ["string", "null"],
+            },
+          },
+          required: ["kind", "operation_id", "question", "options", "multiple"],
+          type: "object",
+        },
+        {
+          additionalProperties: false,
+          properties: {
+            description: {
+              type: "string",
+            },
+            kind: {
+              const: "game_night",
+              type: "string",
+            },
+            operation_id: {
+              type: "string",
+            },
+            reply_to: {
+              default: null,
+              type: ["string", "null"],
+            },
+            starts_at: {
+              type: "string",
+            },
+            title: {
+              type: "string",
+            },
+          },
+          required: [
+            "kind",
+            "operation_id",
+            "title",
+            "starts_at",
+            "description",
+          ],
+          type: "object",
+        },
+      ],
     },
     CreateWorkflow: {
       additionalProperties: false,
@@ -2636,6 +2750,46 @@ export const nativeSchema = {
     Format: {
       enum: ["native1"],
       type: "string",
+    },
+    GifItem: {
+      properties: {
+        height: {
+          format: "uint32",
+          minimum: 0,
+          type: "integer",
+        },
+        id: {
+          type: "string",
+        },
+        source: {
+          type: ["string", "null"],
+        },
+        title: {
+          type: "string",
+        },
+        url: {
+          type: "string",
+        },
+        width: {
+          format: "uint32",
+          minimum: 0,
+          type: "integer",
+        },
+      },
+      required: ["id", "title", "url", "width", "height"],
+      type: "object",
+    },
+    GifList: {
+      properties: {
+        items: {
+          items: {
+            $ref: "#/$defs/GifItem",
+          },
+          type: "array",
+        },
+      },
+      required: ["items"],
+      type: "object",
     },
     GroupCancellation: {
       additionalProperties: false,
@@ -3509,6 +3663,12 @@ export const nativeSchema = {
           minimum: 0,
           type: "integer",
         },
+        voice_reactions: {
+          items: {
+            $ref: "#/$defs/VoiceReaction",
+          },
+          type: "array",
+        },
       },
       required: ["ttl_ms", "limited", "presence", "rooms"],
       type: "object",
@@ -3683,6 +3843,18 @@ export const nativeSchema = {
         },
         room_id: {
           type: "string",
+        },
+        social: {
+          anyOf: [
+            {
+              $ref: "#/$defs/SocialCard",
+            },
+            {
+              type: "null",
+            },
+          ],
+          description:
+            "Server-managed social state; older clients retain the ordinary text fallback.",
         },
         system: {
           anyOf: [
@@ -5080,6 +5252,21 @@ export const nativeSchema = {
       required: ["present", "revision"],
       type: "object",
     },
+    PollOption: {
+      properties: {
+        label: {
+          type: "string",
+        },
+        voters: {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+      },
+      required: ["label", "voters"],
+      type: "object",
+    },
     PrepareUpload: {
       additionalProperties: false,
       properties: {
@@ -5465,6 +5652,19 @@ export const nativeSchema = {
         },
       },
       required: ["room_id", "message_id", "revision"],
+      type: "object",
+    },
+    ReactVoice: {
+      additionalProperties: false,
+      properties: {
+        emoji: {
+          type: "string",
+        },
+        operation_id: {
+          type: "string",
+        },
+      },
+      required: ["operation_id", "emoji"],
       type: "object",
     },
     ReadMark: {
@@ -6413,6 +6613,22 @@ export const nativeSchema = {
       enum: ["pending", "waiting", "done", "failed", "cancelled"],
       type: "string",
     },
+    SaveSticker: {
+      additionalProperties: false,
+      properties: {
+        name: {
+          type: "string",
+        },
+        operation_id: {
+          type: "string",
+        },
+        url: {
+          type: "string",
+        },
+      },
+      required: ["operation_id", "name", "url"],
+      type: "object",
+    },
     ScheduleMessage: {
       additionalProperties: false,
       description:
@@ -6546,6 +6762,26 @@ export const nativeSchema = {
     SecondFactor: {
       enum: ["totp", "email", "recovery_code"],
       type: "string",
+    },
+    SendImage: {
+      additionalProperties: false,
+      properties: {
+        operation_id: {
+          type: "string",
+        },
+        reply_to: {
+          default: null,
+          type: ["string", "null"],
+        },
+        title: {
+          type: "string",
+        },
+        url: {
+          type: "string",
+        },
+      },
+      required: ["operation_id", "title", "url"],
+      type: "object",
     },
     SendMessage: {
       additionalProperties: false,
@@ -6775,6 +7011,162 @@ export const nativeSchema = {
       ],
       type: "object",
     },
+    SocialCard: {
+      oneOf: [
+        {
+          properties: {
+            closed: {
+              type: "boolean",
+            },
+            closes_at: {
+              type: ["string", "null"],
+            },
+            kind: {
+              const: "poll",
+              type: "string",
+            },
+            multiple: {
+              type: "boolean",
+            },
+            options: {
+              items: {
+                $ref: "#/$defs/PollOption",
+              },
+              type: "array",
+            },
+            question: {
+              type: "string",
+            },
+          },
+          required: ["kind", "question", "options", "multiple", "closed"],
+          type: "object",
+        },
+        {
+          properties: {
+            declined: {
+              items: {
+                type: "string",
+              },
+              type: "array",
+            },
+            description: {
+              type: "string",
+            },
+            going: {
+              items: {
+                type: "string",
+              },
+              type: "array",
+            },
+            kind: {
+              const: "game_night",
+              type: "string",
+            },
+            maybe: {
+              items: {
+                type: "string",
+              },
+              type: "array",
+            },
+            starts_at: {
+              type: "string",
+            },
+            title: {
+              type: "string",
+            },
+          },
+          required: [
+            "kind",
+            "title",
+            "starts_at",
+            "description",
+            "going",
+            "maybe",
+            "declined",
+          ],
+          type: "object",
+        },
+        {
+          properties: {
+            height: {
+              format: "uint32",
+              minimum: 0,
+              type: "integer",
+            },
+            kind: {
+              const: "image",
+              type: "string",
+            },
+            powered_by: {
+              type: ["string", "null"],
+            },
+            source: {
+              type: ["string", "null"],
+            },
+            title: {
+              type: "string",
+            },
+            url: {
+              type: "string",
+            },
+            width: {
+              format: "uint32",
+              minimum: 0,
+              type: "integer",
+            },
+          },
+          required: ["kind", "title", "url", "width", "height"],
+          type: "object",
+        },
+      ],
+    },
+    SocialContract: {
+      properties: {
+        answer: {
+          $ref: "#/$defs/AnswerSocial",
+        },
+        close: {
+          $ref: "#/$defs/ClosePoll",
+        },
+        create: {
+          $ref: "#/$defs/CreateSocial",
+        },
+        gif: {
+          $ref: "#/$defs/GifItem",
+        },
+        gif_list: {
+          $ref: "#/$defs/GifList",
+        },
+        react_voice: {
+          $ref: "#/$defs/ReactVoice",
+        },
+        save_sticker: {
+          $ref: "#/$defs/SaveSticker",
+        },
+        send_image: {
+          $ref: "#/$defs/SendImage",
+        },
+        sticker: {
+          $ref: "#/$defs/Sticker",
+        },
+        sticker_list: {
+          $ref: "#/$defs/StickerList",
+        },
+      },
+      required: [
+        "gif_list",
+        "sticker_list",
+        "create",
+        "answer",
+        "close",
+        "save_sticker",
+        "send_image",
+        "react_voice",
+        "sticker",
+        "gif",
+      ],
+      type: "object",
+    },
     SocketTicket: {
       properties: {
         expires_at: {
@@ -6896,6 +7288,33 @@ export const nativeSchema = {
           type: "object",
         },
       ],
+    },
+    Sticker: {
+      properties: {
+        id: {
+          type: "string",
+        },
+        name: {
+          type: "string",
+        },
+        url: {
+          type: "string",
+        },
+      },
+      required: ["id", "name", "url"],
+      type: "object",
+    },
+    StickerList: {
+      properties: {
+        stickers: {
+          items: {
+            $ref: "#/$defs/Sticker",
+          },
+          type: "array",
+        },
+      },
+      required: ["stickers"],
+      type: "object",
     },
     SyncBatch: {
       properties: {
@@ -7870,6 +8289,24 @@ export const nativeSchema = {
       required: ["user", "muted", "deafened"],
       type: "object",
     },
+    VoiceReaction: {
+      properties: {
+        emoji: {
+          type: "string",
+        },
+        id: {
+          type: "string",
+        },
+        room_id: {
+          type: "string",
+        },
+        user_id: {
+          type: "string",
+        },
+      },
+      required: ["id", "room_id", "user_id", "emoji"],
+      type: "object",
+    },
     VoiceRing: {
       properties: {
         callee: {
@@ -8240,6 +8677,9 @@ export const nativeSchema = {
     snapshot_page: {
       $ref: "#/$defs/SnapshotPage",
     },
+    social: {
+      $ref: "#/$defs/SocialContract",
+    },
     socket_ticket: {
       $ref: "#/$defs/SocketTicket",
     },
@@ -8313,6 +8753,7 @@ export const nativeSchema = {
     "bots",
     "workflows",
     "parity",
+    "social",
   ],
   title: "Contract",
   type: "object",

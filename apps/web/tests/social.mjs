@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { chromium } from "playwright";
-import {tmpdir} from "node:os";
-import {join} from "node:path";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 const base = process.env.RV_WEB_TEST_URL || "http://127.0.0.1:3418";
 assert.ok(["localhost", "127.0.0.1"].includes(new URL(base).hostname));
 const password = "web-client-disposable-password";
@@ -201,7 +201,9 @@ try {
   await page.keyboard.press("Escape");
   assert.equal((await api("/api/v1/stickers", alice.token)).stickers.length, 0);
   await page.screenshot({
-    path: process.env.RV_SOCIAL_SCREENSHOT || join(tmpdir(), "rv-social-browser.png"),
+    path:
+      process.env.RV_SOCIAL_SCREENSHOT ||
+      join(tmpdir(), "rv-social-browser.png"),
     fullPage: true,
   });
   await page.setViewportSize({ width: 390, height: 844 });

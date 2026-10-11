@@ -200,14 +200,14 @@ beta does.
 | Feature | Mobile | GTK | SwiftUI | Web | Notes |
 |---|---|---|---|---|---|
 | DMs and mentions notified, click opens the room | done | done | done | mapped | Mobile by push, even with the app killed; desktop while the app runs. Web: Native browser storage/HTTP/socket, HTTPS links, downloads and live-tab alerts; see web-client.md. |
-| Reply from the notification | done | done | done | missing | Where the desktop platform supports it. Web: No browser implementation yet. |
+| Reply from the notification | done | done | done | partial | Where the desktop platform supports it. Web: a text field (`type: "text"`, sent through the outbox) only in a browser allowing three buttons, after Mark as read and Like; Chromium and Firefox allow two, so there a click opens the room with the composer focused (`src/notifications.ts`; `apps/web/tests/notifications.mjs` drives the handler, no real field rendered). |
 | A room's own notifications: default, all messages, mentions or nothing (Rocket.Chat `rooms.saveNotification`, desktop and push together) | done | done | done | n/a | Mobile: the room information sheet, the profile for a DM (push follows it server-side). GTK: a combo row in the room information dialog, in the profile for a DM; SwiftUI: a picker in the room information overlay, checked by the macOS CI build only. The desktop decides locally: the room's choice overrides the account's and a room silenced by another client (`disableNotifications`) stays quiet (`notify::room_preference`). Mattermost and kChat not mapped. Web: Native-origin client; Rocket.Chat is outside its scope. |
 | Do not disturb on a schedule or for a while (RocketVibe server: quiet hours, a mute; push, rings and the app's own alerts) - [do-not-disturb](features/do-not-disturb.md) | done | done | done | done | The server holds push and rings back for every app (`account_quiet`). Web: Settings > Notifications, `src/quiet.ts`. Mobile: Settings > Notifications, the "Do not disturb" card (`ui/doNotDisturb.tsx`, `lib/quiet.ts`); it raises no alert of its own for a RocketVibe message (every one is a server push). GTK and SwiftUI: Settings > Notifications, group "Do not disturb"; their own alerts stop through `NativeSession::quiet_now` (`rv-core/src/native/quiet.rs`); SwiftUI's view checked by the macOS CI build only. With an app open, an incoming call's prompt shows without its ringtone. |
 | Nothing of encrypted rooms' content | done | done | done | done | Web: Encrypted room notifications never include decrypted content. src/app.ts. |
-| The author's photo in the notification | missing | partial | missing | missing | GTK: Windows toasts (round) and Linux D-Bus (`image-path`), for Rocket.Chat and Mattermost accounts; not RocketVibe accounts, not macOS. Mobile: the MessagingStyle `Person` has no icon. SwiftUI and Web: title and text only. |
-| The message's picture in the notification | missing | partial | missing | missing | GTK: Windows toasts only, Rocket.Chat and Mattermost accounts. Others show the "🖼️ title" line. |
-| React (👍 ❤️ 😂) and mark as read from the notification | missing | partial | missing | missing | GTK: Windows toasts only, Rocket.Chat and Mattermost accounts. Mobile and SwiftUI: reply only; Web: click only. |
-| The app's own notification sound | missing | partial | missing | missing | GTK: Windows (silent toast, `cue-message.ogg`, quiet when Windows holds notifications back, a switch gives the system's sound back). Elsewhere the system's sound. |
+| The author's photo in the notification | missing | partial | missing | done | GTK: Windows toasts (round) and Linux D-Bus (`image-path`), for Rocket.Chat and Mattermost accounts; not RocketVibe accounts, not macOS. Mobile: the MessagingStyle `Person` has no icon. SwiftUI: title and text only. Web: `icon`, a 192 px data URL drawn from the authenticated photo (checked in Chromium; Safari not checked). |
+| The message's picture in the notification | missing | partial | missing | partial | GTK: Windows toasts only, Rocket.Chat and Mattermost accounts. Others show the "🖼️ title" line. Web: `image`, a data URL of the first inline picture, shown by Chromium outside macOS only; Firefox does not implement it. |
+| React (👍 ❤️ 😂) and mark as read from the notification | missing | partial | missing | partial | GTK: Windows toasts only, Rocket.Chat and Mattermost accounts. Mobile and SwiftUI: reply only. Web: Mark as read and 👍 only (`Notification.maxActions` is 2 in Chromium), performed by a live tab with its session, or by the next tab opened; no buttons where the browser has none. |
+| The app's own notification sound | missing | partial | missing | done | GTK: Windows (silent toast, `cue-message.ogg`, quiet when Windows holds notifications back, a switch gives the system's sound back). Elsewhere the system's sound. Web: a silent notification and `cue-message.ogg` played by the page, the same switch in Settings > Notifications; the system's sound before the tab's first user activation, when autoplay would refuse it. |
 | Running with the window closed, starting at login | mapped | done | missing | partial | Mobile: push arrives with the app closed. GTK: Windows tray, macOS Dock; Linux quits on close. Web: Installable public shell; closed-tab Web Push and OS autostart absent. |
 
 ## 11. End-to-end encryption - [e2ee](features/e2ee.md)
@@ -341,11 +341,12 @@ are product gaps, listed last.
   folder; new versions; running with the window closed and starting at login;
   the notification's photo, picture, quick reactions, mark as read and own sound.
 - **Web**: missing: video reduction, the thread
-  list, following and "also send to the room", reply from a notification, the notification's
-  photo, picture, quick reactions, mark as read and own sound. Partial, mostly pending row-by-row
+  list, following and "also send to the room". Partial, mostly pending row-by-row
   qualification against GTK (`docs/WEB_CLIENT_EXECUTION.md`): link previews,
   embeds, quote cards, system messages, reactions, the thread chip, profiles,
-  the notification check, running with the tab closed; most native E2EE rows
+  the notification check, running with the tab closed; reply from a notification
+  (a text field only with a third button), the notification's picture
+  (Chromium outside macOS) and quick reactions (👍 only); most native E2EE rows
   (encrypted rooms, history share and backup, private edits, reactions, search
   and files, storage keys, delegation, recovered history); most voice rows; the
   outbox, reconnection and purge rows; "Deleted user"; bots and workflows.

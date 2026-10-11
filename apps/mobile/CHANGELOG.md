@@ -7,6 +7,8 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-11
+
 ### Added
 
 - On RocketVibe servers, "Send later" (the chevron beside send, or a long press on send) schedules the typed text: in 1 hour, tomorrow at 08:00, or a day and time you pick, up to 30 days ahead; in a thread it schedules a reply. The server sends it even if the app is closed. A "N scheduled" chip above the composer lists the room's scheduled messages, to cancel one, or to remove one that could not be sent and see why. Not offered in end-to-end encrypted rooms.
@@ -713,7 +715,8 @@ First published version: Android, for Rocket.Chat 8 or later.
 - Profiles, room info, my profile (status, photo, information).
 - Interface in French and English.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.10.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.11.0...HEAD
+[0.11.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.10.0...mobile-v0.11.0
 [0.10.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.9.1...mobile-v0.10.0
 [0.9.1]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.9.0...mobile-v0.9.1
 [0.9.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.8.0...mobile-v0.9.0

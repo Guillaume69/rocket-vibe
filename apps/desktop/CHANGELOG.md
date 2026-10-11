@@ -7,6 +7,8 @@ section here.
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-10-11
+
 ### Added
 
 - Scheduled messages (GTK and macOS, RocketVibe servers): a chevron beside the send button offers "Send later": in 1 hour, tomorrow at 08:00, or a date and time you pick (from one minute to 30 days ahead). The server sends the message at that time, even if the app is closed; in a thread it goes out as a reply. A "N scheduled" chip above the composer lists what waits in the room, with Cancel, and says when one could not be sent (with Remove). Not offered in encrypted rooms, with a file staged or a quote.
@@ -1123,7 +1125,8 @@ the mobile app (see `docs/PARITY.md`).
   `rocketvibe://` links) and zip; a macOS app in a DMG, signed with a Developer ID and
   notarized by Apple.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.13.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.14.0...HEAD
+[0.14.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.13.0...desktop-v0.14.0
 [0.13.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.12.2...desktop-v0.13.0
 [0.12.2]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.12.1...desktop-v0.12.2
 [0.12.1]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.12.0...desktop-v0.12.1

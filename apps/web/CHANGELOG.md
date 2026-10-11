@@ -4,6 +4,8 @@ All notable changes are documented here in English.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-11
+
 ### Added
 
 - Send later: the arrow beside Send schedules the message for in an hour, tomorrow at 08:00 or a time you pick (up to 30 days), and the server sends it then even with the tab closed. A "N scheduled" chip above the composer lists them, to cancel. Not in end-to-end encrypted rooms.
@@ -24,6 +26,8 @@ All notable changes are documented here in English.
 - Load settings and administration panels on demand, with shared React dialogs, navigation, profile cards, message menus, dashboard and call controls.
 
 ### Fixed
+
+- Clear scheduled-message text when switching accounts and discard late scheduling responses after leaving their room or thread, preserving the new conversation's draft.
 
 - Observe LiveKit's asynchronous audio-output changes on the call-owned context, preventing late device-switch rejections after voice teardown.
 - Refetch a read when the server requests delivery-lease revalidation, with bounded retries and no automatic mutation replay.
@@ -124,6 +128,7 @@ All notable changes are documented here in English.
 - LiveKit audio/video calls, capture controls and browser notifications while the tab is alive.
 - Encrypted rooms shown locked, with sending and media/call actions unavailable.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/web-v0.3.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/web-v0.4.0...HEAD
+[0.4.0]: https://github.com/Guillaume69/rocket-vibe/compare/web-v0.3.0...web-v0.4.0
 [0.3.0]: https://github.com/Guillaume69/rocket-vibe/compare/web-v0.2.0...web-v0.3.0
 [0.2.0]: https://github.com/Guillaume69/rocket-vibe/releases/tag/web-v0.2.0

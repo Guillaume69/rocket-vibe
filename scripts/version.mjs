@@ -36,6 +36,21 @@ function desktop() {
   const section = cargo.split(/^\[/m).find((s) => s.startsWith('workspace.package]'));
   const version = section?.match(/^version\s*=\s*"([^"]+)"/m)?.[1];
   if (!version) fail('no [workspace.package] version in apps/desktop/Cargo.toml');
+  for (const path of ['apps/desktop/voice/Cargo.toml', 'apps/desktop/voice/screen-audio/Cargo.toml']) {
+    const source = readFileSync(join(ROOT, path), 'utf8');
+    const own = source.split(/^\[/m).find((s) => s.startsWith('package]'))?.match(/^version\s*=\s*"([^"]+)"/m)?.[1];
+    if (own !== version) fail(`${path} ${own} != desktop ${version}`);
+  }
+  for (const [path, names] of [
+    ['apps/desktop/Cargo.lock', ['rocket-vibe-gtk', 'rv-core', 'rv-ffi', 'rv-native', 'rv-voice-protocol']],
+    ['apps/desktop/voice/Cargo.lock', ['rv-voice', 'rv-screen-audio', 'rv-voice-protocol']],
+  ]) {
+    const source = readFileSync(join(ROOT, path), 'utf8');
+    for (const name of names) {
+      const own = source.match(new RegExp('name = "' + name + '"\\r?\\nversion = "([^"\\n]+)"'))?.[1];
+      if (own !== version) fail(`${path} ${name} ${own} != desktop ${version}`);
+    }
+  }
   return version;
 }
 

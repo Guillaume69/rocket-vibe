@@ -145,6 +145,7 @@ export class App implements RowActions {
   /** The account's scheduled messages, every room (`GET /api/v1/scheduled`). */
   scheduled: import("./protocol").ScheduledMessage[] = [];
   private scheduledTimer?: ReturnType<typeof setInterval>;
+  private scheduledReading = 0;
   /** The operation of a schedule still unanswered, replayed by a retry. */
   private scheduling?: { key: string; operation: string };
   roomPermissions = new Map<string, import("./protocol").RoomPermissions>();
@@ -396,6 +397,11 @@ export class App implements RowActions {
     const token = this.api.token,
       hasPresence = this.info?.capabilities.presence;
     this.generation++;
+    clearInterval(this.scheduledTimer);
+    this.scheduledTimer = undefined;
+    this.scheduledReading++;
+    this.scheduled = [];
+    this.scheduling = undefined;
     clearTimeout(this.presenceTimer);
     this.roomOpening++;
     this.threadOpening++;
@@ -1281,12 +1287,19 @@ export class App implements RowActions {
   }
   async refreshScheduled(): Promise<void> {
     if (!this.info?.capabilities.scheduled_messages || !this.account) return;
-    const account = this.account.key;
+    const account = this.account,
+      generation = this.generation,
+      reading = ++this.scheduledReading;
     const list =
       await this.api.request<import("./protocol").ScheduledMessages>(
         "/api/v1/scheduled",
       );
-    if (account !== this.account?.key) return;
+    if (
+      account !== this.account ||
+      generation !== this.generation ||
+      reading !== this.scheduledReading
+    )
+      return;
     this.scheduled = list.messages;
     this.view.changed();
   }
@@ -1300,10 +1313,28 @@ export class App implements RowActions {
       toast(t("scheduleTime"));
       return;
     }
-    const key = [room, root ?? "", text, at.toISOString()].join("\u0000");
+    const account = this.account,
+      generation = this.generation,
+      opening = this.roomOpening,
+      threadOpening = this.threadOpening,
+      roomCurrent = this.roomFence(room),
+      active = () =>
+        account === this.account &&
+        generation === this.generation &&
+        roomCurrent(),
+      visible = () =>
+        active() &&
+        opening === this.roomOpening &&
+        room === this.room &&
+        editor === (root ? this.threadComposer : this.composer) &&
+        (!root || (root === this.root && threadOpening === this.threadOpening));
+    const key = [account.key, room, root ?? "", text, at.toISOString()].join(
+      "\u0000",
+    );
     const operationId =
       this.scheduling?.key === key ? this.scheduling.operation : operation();
-    this.scheduling = { key, operation: operationId };
+    const pending = { key, operation: operationId };
+    this.scheduling = pending;
     await this.api.request(
       "/api/v1/rooms/" + segment(room) + "/scheduled",
       "POST",
@@ -1314,15 +1345,23 @@ export class App implements RowActions {
         ...(root ? { reply_to: root } : {}),
       },
     );
-    this.scheduling = undefined;
+    if (!active()) return;
+    if (this.scheduling === pending) this.scheduling = undefined;
+    if (!visible()) return;
     if (editor.value === text) {
       editor.value = "";
-      await write(
-        "drafts",
-        this.account.key + ":" + room + (root ? ":thread:" + root : ""),
-        "",
+      await writeBatch(
+        [
+          {
+            store: "drafts",
+            key: account.key + ":" + room + (root ? ":thread:" + root : ""),
+            value: "",
+          },
+        ],
+        () => visible() && editor.value === "",
       );
     }
+    if (!visible()) return;
     toast(t("scheduledFor").replace("{at}", when(at, language)));
     await this.refreshScheduled();
   }

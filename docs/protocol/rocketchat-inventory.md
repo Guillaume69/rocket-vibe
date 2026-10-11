@@ -513,8 +513,8 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/app/search.tsx:84](../../apps/mobile/app/search.tsx#L84) | endpoint | spotlight |
 | [apps/mobile/app/search.tsx:139](../../apps/mobile/app/search.tsx#L139) | call:POST | 'channels.join' |
 | [apps/mobile/app/search.tsx:139](../../apps/mobile/app/search.tsx#L139) | endpoint | channels.join |
-| [apps/mobile/app/social.tsx:279](../../apps/mobile/app/social.tsx#L279) | call:POST | "chat.sendMessage" |
-| [apps/mobile/app/social.tsx:279](../../apps/mobile/app/social.tsx#L279) | endpoint | chat.sendMessage |
+| [apps/mobile/app/social.tsx:280](../../apps/mobile/app/social.tsx#L280) | call:POST | "chat.sendMessage" |
+| [apps/mobile/app/social.tsx:280](../../apps/mobile/app/social.tsx#L280) | endpoint | chat.sendMessage |
 | [apps/mobile/app/unlock-e2e.tsx:52](../../apps/mobile/app/unlock-e2e.tsx#L52) | endpoint | e2e.genericError |
 | [apps/mobile/app/unlock-e2e.tsx:52](../../apps/mobile/app/unlock-e2e.tsx#L52) | endpoint | e2e.wrongPassword |
 | [apps/mobile/app/unlock-e2e.tsx:61](../../apps/mobile/app/unlock-e2e.tsx#L61) | endpoint | e2e.title |

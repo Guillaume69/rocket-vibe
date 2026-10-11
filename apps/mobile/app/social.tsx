@@ -18,6 +18,7 @@ import { useLanguage } from "../ui/i18n.ts";
 import { translate } from "../ui/messages.ts";
 import { useColors, FONTS, type Colors } from "../ui/theme.ts";
 import { useSheetBottomMargin } from "../ui/sheetMargin.ts";
+import { KeyboardAvoidingContainer } from "../ui/keyboard.tsx";
 import { readLocalStickers, writeLocalStickers } from "../ui/social.tsx";
 import { finishGifSelection } from "../ui/gifSelection.ts";
 import {
@@ -373,6 +374,7 @@ export default function SocialScreen() {
     </View>
   );
   if (mode === "giphy") return (
+    <KeyboardAvoidingContainer>
     <View style={{ flex: 1, backgroundColor: c.deepCard, padding: 20, paddingBottom: bottom, gap: 14 }}>
       <Text style={[styles.heading, { color: c.text }]}>GIF</Text>
       <TextInput
@@ -404,6 +406,7 @@ export default function SocialScreen() {
         <SocialAction text={translate(language, "social.send")} onPress={() => { if (selected) void send(selected); }} busy={busy || searching || !selected} selected={!!selected} c={c} />
       </View>
     </View>
+    </KeyboardAvoidingContainer>
   );
   return (
     <ScrollView

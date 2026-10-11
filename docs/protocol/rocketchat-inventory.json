@@ -3663,13 +3663,13 @@
     },
     {
       "file": "apps/mobile/app/social.tsx",
-      "line": 279,
+      "line": 280,
       "kind": "call:POST",
       "surface": "\"chat.sendMessage\""
     },
     {
       "file": "apps/mobile/app/social.tsx",
-      "line": 279,
+      "line": 280,
       "kind": "endpoint",
       "surface": "chat.sendMessage"
     },

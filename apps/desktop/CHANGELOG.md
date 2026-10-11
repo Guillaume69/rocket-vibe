@@ -19,6 +19,10 @@ section here.
 
 - In a read-only Rocket.Chat room, those whose roles let them post there anyway (owners and moderators by default) keep the composer, in the room and in its threads. The macOS app also hides a thread's composer in a read-only room for everyone else, as GTK does.
 
+### Fixed
+
+- Signing in to another account on Linux (GTK) no longer deletes an account signed in with a version older than multi-account support: its keyring item is saved again under its own key instead of being dropped.
+
 ## [0.14.0] - 2026-10-11
 
 ### Added

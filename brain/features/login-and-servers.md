@@ -49,6 +49,10 @@ How a user signs in to a Rocket.Chat server (password, then a second factor when
 
 **SwiftUI (macOS).** `LoginView` and `RocketVibeKit/LoginModel.swift` repeat the GTK flow over `rv-ffi` (`Client.probe`, `login`, `requestEmailCode`). `rv-ffi/src/accounts.rs` stores accounts exactly where rv-gtk keeps them on macOS (same Keychain service, same files, same database names), so the two macOS apps share sessions. `AppModel` resumes the first account and falls back to the next on sign-out or expiry.
 
+## Web
+
+One account on the serving origin ([web-client](web-client.md)). Sign-out (`App.logout` in `apps/web/src/app.ts`, `logoutSession` in `src/session.ts`) finishes a pending session rotation, sends `POST /api/v1/auth/logout` with its own transport and then always purges the account from IndexedDB (`purge`). Its result is `revoked` (done, or a 401 `session_rejected`), `deferred` or `refused`. `deferred` is a server not reached (`logouts.ts#logoutOutcome`: no answer, a timeout, a 5xx, 408, 429, or a 401 without the server's `session_rejected` code, which a proxy could have sent): the session's token, plus the `next_token` of a rotation intent that may have committed, goes to the `logouts` store (IndexedDB version 6) as `{id, tokens, expires}`, nothing else, never purged with the account and never shown. The expiry is the session's, or 30 days from now for a successor (`SESSION_DAYS`, the server's session lifetime). A toast says the server will be told when reachable. `finishPendingLogouts` replays each entry at the start (`App.init`), on the browser's `online` event and when the sync socket opens: a settled token (success, `session_rejected`, any other refusal) leaves the entry, an unreached one keeps it, an entry past its expiry goes without a request; one run at a time per tab, and across tabs under the `rv-logout-replay` Web Lock. Unit tests: `tests/logouts.test.ts`, `tests/session.test.ts`; browser test `tests/logout-replay.mjs` (the request blocked by Playwright routing, then allowed: the token answers 401 after the replay, online and at the next start).
+
 ## Parity
 
 [parity](../parity.md) §1 is done on desktop except email 2FA, which is partial: GTK and SwiftUI request the code automatically and have no resend control. Other differences worth knowing: mobile holds one account per server, desktop several; mobile keeps the database on sign-out, desktop deletes it (the `.sqlite`, `-wal` and `-shm` files, `Store::remove_files`, after `Store::close` has released the file that tasks still running hold, which Windows would otherwise refuse to delete); mobile and desktop replay failed Rocket.Chat, Mattermost and kChat sign-outs at next launch; desktop persists the revocation marker in the keychain. A failed native RocketVibe sign-out keeps the account signed in.
@@ -70,6 +74,10 @@ Mobile keeps a labelled, 44-point server button in the home header. Settings mov
 - apps/mobile/lib/sessionStore.ts
 - apps/mobile/lib/storageKeys.ts
 - apps/mobile/lib/deferredLogout.ts
+- apps/web/src/logouts.ts
+- apps/web/src/session.ts
+- apps/web/tests/logouts.test.ts
+- apps/web/tests/logout-replay.mjs
 - apps/desktop/crates/rv-core/tests/logout_replay.rs
 - apps/desktop/crates/rv-gtk/src/secrets.rs
 - apps/desktop/crates/rv-ffi/src/accounts.rs

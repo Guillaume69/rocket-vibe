@@ -2020,3 +2020,15 @@ progress {
 .anchored-menu {
   min-width: 220px;
 }
+.local-hit {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+.local-hit > .message {
+  width: 100%;
+}
+.local-search-scope {
+  margin: 4px 0 8px;
+}

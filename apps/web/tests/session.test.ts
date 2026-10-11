@@ -4,6 +4,7 @@ import { Api } from "../src/api.ts";
 import { logoutSession, renew } from "../src/session.ts";
 import { all, purge, read, write, type Account } from "../src/store.ts";
 import type { App } from "../src/app.ts";
+import type { PendingLogout } from "../src/logouts.ts";
 import { deferred, memoryIndexedDB } from "./storage.ts";
 globalThis.indexedDB = memoryIndexedDB();
 const locks = new Map<string, Promise<unknown>>();
@@ -92,7 +93,7 @@ test("logout waits for rotation and revokes its committed successor", async (con
   assert.equal(logouts, 0);
   response.resolve();
   await rotating;
-  assert.equal(await signingOut, true);
+  assert.equal(await signingOut, "revoked");
   assert.equal(logouts, 1);
   assert.equal(serverToken, "");
   assert.equal(app.account, undefined);
@@ -134,7 +135,7 @@ test("logout recovers a durable successor after a lost rotation response", async
     room: "private",
     blob: new Blob(["private bytes"]),
   });
-  assert.equal(await logoutSession(app), true);
+  assert.equal(await logoutSession(app), "revoked");
   assert.deepEqual(paths, [
     "/api/v1/me",
     "/api/v1/me/sessions",
@@ -154,7 +155,7 @@ test("an expiring session without a rotation intent is revoked directly", async 
     return new Response(null, { status: 204 });
   });
   await write("accounts", account.key, account);
-  assert.equal(await logoutSession(app), true);
+  assert.equal(await logoutSession(app), "revoked");
   assert.equal(requests, 1);
   assert.equal((await all("accounts")).length, 0);
 });
@@ -178,13 +179,13 @@ test("a queued renewal cannot restore the account after locked logout", async (c
   await started.promise;
   const rotating = renew(app);
   response.resolve();
-  assert.equal(await signingOut, true);
+  assert.equal(await signingOut, "revoked");
   await rotating;
   assert.equal(requests, 1);
   assert.equal((await all("accounts")).length, 0);
   assert.equal((await all("operations")).length, 0);
 });
-test("offline logout reports unconfirmed revocation and purges local secrets", async (context) => {
+test("offline logout purges local secrets and keeps only the token for a replay", async (context) => {
   const { app, account } = fixture();
   app.info!.capabilities.session_rotation = false;
   context.mock.method(globalThis, "fetch", async () => {
@@ -194,8 +195,58 @@ test("offline logout reports unconfirmed revocation and purges local secrets", a
   await write("operations", account.key + ":intent", {
     token: "fixture-private-intent",
   });
-  assert.equal(await logoutSession(app), false);
+  assert.equal(await logoutSession(app), "deferred");
   assert.equal(app.account, undefined);
   assert.equal((await all("accounts")).length, 0);
   assert.equal((await all("operations")).length, 0);
+  const pending = await all<PendingLogout>("logouts");
+  assert.equal(pending.length, 1);
+  assert.deepEqual(pending[0].tokens, ["fixture-predecessor"]);
+  assert.equal(pending[0].expires, account.session.expires_at);
+  // Nothing but the id, the tokens and the expiry: no user, no account key.
+  assert.deepEqual(Object.keys(pending[0]).sort(), ["expires", "id", "tokens"]);
+  await write("logouts", pending[0].id);
+});
+test("offline logout during a rotation keeps the successor that may be live", async (context) => {
+  const { app, account } = fixture(),
+    successor = "2".repeat(64);
+  context.mock.method(globalThis, "fetch", async () => {
+    throw new TypeError("offline");
+  });
+  await write("accounts", account.key, account);
+  await write("operations", account.key + ":renew", {
+    operation_id: "unknown",
+    next_token: successor,
+  });
+  assert.equal(await logoutSession(app), "deferred");
+  assert.equal((await all("operations")).length, 0);
+  const [pending] = await all<PendingLogout>("logouts");
+  assert.deepEqual(pending.tokens, ["fixture-predecessor", successor]);
+  // The successor can live a full session from the renewal.
+  assert.ok(Date.parse(pending.expires) > Date.now() + 29 * 86_400_000);
+  await write("logouts", pending.id);
+});
+test("a refused logout keeps nothing to replay", async (context) => {
+  const { app, account } = fixture();
+  app.info!.capabilities.session_rotation = false;
+  context.mock.method(globalThis, "fetch", async () =>
+    Response.json({ code: "forbidden" }, { status: 403 }),
+  );
+  await write("accounts", account.key, account);
+  assert.equal(await logoutSession(app), "refused");
+  assert.equal((await all("logouts")).length, 0);
+  assert.equal((await all("accounts")).length, 0);
+});
+test("an already revoked session keeps nothing to replay", async (context) => {
+  const { app, account } = fixture();
+  app.info!.capabilities.session_rotation = false;
+  context.mock.method(globalThis, "fetch", async () =>
+    Response.json(
+      { code: "session_rejected", request_id: "r" },
+      { status: 401 },
+    ),
+  );
+  await write("accounts", account.key, account);
+  assert.equal(await logoutSession(app), "revoked");
+  assert.equal((await all("logouts")).length, 0);
 });

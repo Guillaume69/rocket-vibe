@@ -6,6 +6,9 @@ export const roomSwitcher = (
 ) => import("./panels").then((panel) => panel.roomSwitcher(...args));
 export const search = (...args: Parameters<typeof import("./panels").search>) =>
   import("./panels").then((panel) => panel.search(...args));
+export const localSearch = (
+  ...args: Parameters<typeof import("./panels").localSearch>
+) => import("./panels").then((panel) => panel.localSearch(...args));
 export const marked = (...args: Parameters<typeof import("./panels").marked>) =>
   import("./panels").then((panel) => panel.marked(...args));
 export const profile = (

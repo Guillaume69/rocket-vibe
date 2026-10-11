@@ -1,4 +1,5 @@
 import { dialogContents } from "./ui/dialog";
+import { noteError } from "./diagnostics";
 export function stopMedia(node: ParentNode): void {
   for (const player of node.querySelectorAll<HTMLMediaElement>("audio,video"))
     if (
@@ -168,6 +169,7 @@ export function actionMenu(
   return menu;
 }
 export function toast(error: unknown): void {
+  noteError(error);
   const text = error instanceof Error ? error.message : String(error);
   const node = el("div", "toast", text);
   document.querySelector("#toasts")?.append(node);

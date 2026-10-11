@@ -17,6 +17,8 @@ import type {
 import { operation, segment } from "./api";
 import { el, button, field, tile, dialog, toast } from "./dom";
 import { matchRooms } from "./room-match";
+import { searchLocal } from "./local-search";
+import { downloadDiagnostics } from "./diagnostics";
 import { clock, minuteOf, nextMorning } from "./quiet";
 import { t, language } from "./i18n";
 import { messageRow } from "./render";
@@ -295,6 +297,67 @@ export async function search(app: App): Promise<void> {
   input.addEventListener("keydown", (event) => {
     if (event.key === "Enter") void run().catch(toast);
   });
+  input.focus();
+}
+/**
+ * Search across rooms, in this browser (`searchLocal`), from the sidebar's
+ * search button or Ctrl+Shift+F as on GTK (`rv-gtk/src/local_search.rs`): the
+ * hits under their room's name, newest first; opening one goes to the message
+ * (`jumpTo`: the room around it, or its thread for a reply).
+ */
+export function localSearch(app: App): void {
+  const account = app.account?.key;
+  if (!account) return;
+  const [node, body] = dialog(t("localSearchTitle"));
+  node.classList.add("local-search-dialog");
+  const [wrap, input] = field(t("localSearchPlaceholder"));
+  input.type = "search";
+  const scope = el("p", "dim local-search-scope", t("localSearchScope"));
+  const status = el("p", "dim");
+  status.hidden = true;
+  const list = el("div", "search-results");
+  body.append(wrap, scope, status, list);
+  let timer: ReturnType<typeof setTimeout>;
+  const run = () => {
+    if (!node.open || account !== app.account?.key) return;
+    const hits = searchLocal(
+      app.model.messages.values(),
+      app.model.rooms,
+      input.value,
+    );
+    list.replaceChildren(
+      ...hits.map(({ message, room }) => {
+        const hit = el("div", "search-hit local-hit");
+        hit.dataset.hit = message.id;
+        hit.append(
+          el(
+            "span",
+            "room-subtitle local-hit-room",
+            (room.kind === "direct" ? "" : "#") + room.name,
+          ),
+          messageRow(message, app.account!.session.user.id, app),
+          button(t("openMessage"), async () => {
+            node.close();
+            await app.jumpTo(message);
+          }),
+        );
+        return hit;
+      }),
+    );
+    status.textContent = t("localSearchNone");
+    status.hidden = !input.value.trim() || hits.length > 0;
+  };
+  input.addEventListener("input", () => {
+    clearTimeout(timer);
+    timer = setTimeout(run, 300);
+  });
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.isComposing) {
+      clearTimeout(timer);
+      run();
+    }
+  });
+  node.addEventListener("close", () => clearTimeout(timer));
   input.focus();
 }
 export async function marked(app: App): Promise<void> {
@@ -1180,6 +1243,12 @@ export async function settings(
   host.add("app", phrase("App", "Application"), "app", (page) => {
     const [about, rows] = preferencesGroup(phrase("About", "À propos"));
     rows.append(actionRow(phrase("Version", "Version"), packageInfo.version));
+    // The browser's stand-in for the desktop's logs folder.
+    rows.append(
+      actionRow(t("diagnostics"), t("diagnosticsHint"), () =>
+        downloadDiagnostics(packageInfo.version, app.connection),
+      ),
+    );
     page.append(about);
   });
   host.select(initialCategory);

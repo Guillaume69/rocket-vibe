@@ -28,11 +28,13 @@ The voice page ports GTK's centered 16:9 TileGrid, native six-button controls, c
 
 Speaking now uses the native PCM thresholds, decay and hangover instead of SFU hints. Deafen uses the GTK/server wire attribute. Screen sharing keeps GTK's quality choices, stage label/fullscreen placement and mini participant presentation, with the browser's consent picker for sources. Capture quality reaches both capture and encoder. Fullscreen follows takeover and closes on capture ending. Shared sound is processed before publication, rejects capture with unconfirmed own-audio exclusion and implements GTK's opt-in call mix. Browser/OS program-sound capture remains partial; see [voice](voice.md) for the actual bench evidence and fallback.
 
-Known qualification debt: full GTK visual-state comparisons, closed-tab Web Push, offline signout replay, and exhaustive call/device/platform qualification. The detailed inventory and current evidence live in `docs/WEB_CLIENT_EXECUTION.md`. Implemented code is not a claim of complete GTK parity.
+Known qualification debt: full GTK visual-state comparisons, closed-tab Web Push and exhaustive call/device/platform qualification. The detailed inventory and current evidence live in `docs/WEB_CLIENT_EXECUTION.md`. Implemented code is not a claim of complete GTK parity.
 
 Message avatars and author names open the GTK-sized profile card. Its native identity, BOT owner, live status, Message/Call/Report actions, own-card exclusions and narrow layout follow `details.rs`. Live revisions refresh the card, expired observations clear presence, and missing leases in a complete observation mean Offline. Browser presence renews every 20 seconds while connected and clears on orderly shutdown. Profile DM actions fetch the personal read/access state before navigation. Bio markdown remains debt; see [room info and profiles](room-info-and-profiles.md).
 
-The shipping review fences reconnect snapshots, history/thread loads, action receipts, preview caching and upload preparation/completion to their captured account and membership lifetime. A room change cannot erase the new composer draft or quote. The text outbox preserves creation order and reruns when another send arrives during its worker. Personal-star revisions merge independently of message revisions. Online logout shares the renewal lock, recovers an already-committed successor if necessary and revokes that token before purging local storage; offline server revocation remains unconfirmed.
+The shipping review fences reconnect snapshots, history/thread loads, action receipts, preview caching and upload preparation/completion to their captured account and membership lifetime. A room change cannot erase the new composer draft or quote. The text outbox preserves creation order and reruns when another send arrives during its worker. Personal-star revisions merge independently of message revisions. Online logout shares the renewal lock, recovers an already-committed successor if necessary and revokes that token before purging local storage. When the server cannot be reached, the purge still happens and only the token waits in the `logouts` store for a replay at the next start or when back online ([login-and-servers](login-and-servers.md#web)).
+
+Local data follows the native apps: the persisted model keeps 500 messages per room after the session catch-up ([offline-and-sync](offline-and-sync.md#web)), the sidebar search (Ctrl+Shift+F) finds words across the rooms this browser holds ([search](search.md)), and Settings > App > Diagnostics downloads recent client-side events in place of a logs folder ([settings](settings.md#web)).
 
 Call takeover caused by duplicate identity or participant removal clears only the old local call. Incoming acceptance catches initial connection failures and checks membership before capture. Camera capture obtained after leave is stopped before publication, pending publications are stopped during teardown, and muted cameras restore the avatar.
 
@@ -67,6 +69,9 @@ Media uses GTK-style inline controls, protected video posters and native human-r
 - apps/web/src/session.ts
 - apps/web/src/uploads.ts
 - apps/web/src/store.ts
+- apps/web/src/logouts.ts
+- apps/web/src/local-search.ts
+- apps/web/src/diagnostics.ts
 - apps/web/src/dom.ts
 - apps/web/tests/media.mjs
 - docs/WEB_CLIENT_EXECUTION.md

@@ -19,12 +19,13 @@ import { Asset, requestPermissionsAsync } from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
 
 import { decryptFile, type FileEncryption } from '../lib/e2e/crypto.ts';
-import { downloadedFraction, downloadAttachment, toGallery } from '../lib/attachment.ts';
+import { downloadedFraction, downloadAttachment, safeFileName, withExtension, toGallery } from '../lib/attachment.ts';
 import { Downloads } from '../modules/downloads/index.ts';
 import {loadNativeFile} from '../lib/nativeFiles.ts';
 import {exportNativePreview} from '../lib/nativePreviews.ts';
 import type { Progress } from './transfers.ts';
-import { mediaHeaders } from '../lib/mediaAuth.ts';
+import { mediaHeaders, mediaLease, requiresMediaBearer } from '../lib/mediaAuth.ts';
+import { authorizedMedia } from './authorizedMedia.ts';
 
 /** Thrown when nothing can open the file: the caller tells the screen. */
 export class FileOpenError extends Error {
@@ -52,6 +53,16 @@ type AttachmentOptions = {
  */
 async function toCache(options: AttachmentOptions): Promise<string> {
   if(options.url.startsWith('rv-file:'))return loadNativeFile(options.url,options.onProgress);
+  const lease = mediaLease(options.url);
+  if (lease !== undefined) {
+    const fallback = options.url.split(/[?#]/)[0]?.split('/').at(-1);
+    const name = withExtension(safeFileName(options.title || fallback), options.type);
+    return authorizedMedia.get(lease, options.url, name, (written, total) => {
+      options.onProgress?.(downloadedFraction(written, total, options.size));
+    });
+  }
+  if (requiresMediaBearer(options.url)) throw new FileOpenError('Media session closed.');
+  await authorizedMedia.prepare();
   const folder = FileSystem.cacheDirectory;
   if (folder === null) {
     throw new FileOpenError('No cache directory available.');

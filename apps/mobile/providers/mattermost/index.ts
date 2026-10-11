@@ -64,7 +64,7 @@ export function createMattermostProvider(
   options: MattermostOptions = {},
 ): Provider {
   const kchat = session.kind === 'kchat';
-  setMediaBearer(session.baseUrl, session.authToken);
+  setMediaBearer(session.baseUrl, session.authToken, session.userId);
   const client = new MmClient(session.baseUrl, session.authToken, {
     fetch: options.fetch,
     plainErrors: kchat,

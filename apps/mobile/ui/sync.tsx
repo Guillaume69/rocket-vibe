@@ -20,6 +20,7 @@
  */
 
 import * as Crypto from 'expo-crypto';
+import { forgetAuthorizedMedia } from './authorizedMedia.ts';
 import {NativeError} from '../providers/rocketvibe/transport.ts';
 import {mountProviderProfiles} from '../lib/providerProfiles.ts';
 import {VoiceNative} from '../modules/voice/index.ts';
@@ -714,6 +715,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       discarded = true;
+      forgetAuthorizedMedia(session);
       // Order matters: stop the reconnector BEFORE closing, otherwise the
       // close could still schedule an attempt.
       reconnector?.stop();

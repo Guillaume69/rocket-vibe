@@ -18,6 +18,7 @@ import { unregisterToken } from '../lib/pushToken.ts';
 import { RestClient } from '../lib/rest.ts';
 import { clientForSession, resumeSession, logoutSession, sessionRejected } from '../lib/sessionTransport.ts';
 import { forgetReminders } from './reminders.ts';
+import { forgetAuthorizedMedia } from './authorizedMedia.ts';
 import {
   addPendingLogout,
   clearE2EPrivateKey,
@@ -82,6 +83,7 @@ function clientFor(session: Session, onTokenRejected: (token: string) => void): 
  * deletions are independent, hence in parallel.
  */
 async function clearTraces(session: Session): Promise<void> {
+  forgetAuthorizedMedia(session);
   await Promise.all([
     clearSession(session.baseUrl),
     clearE2EPrivateKey(session.baseUrl, session.userId),

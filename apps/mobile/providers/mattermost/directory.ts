@@ -101,7 +101,7 @@ export class MmDirectory {
   }
 
   remember(user: MmUser): void {
-    rememberUserId(this.client.baseUrl, user.username, user.id);
+    rememberUserId(this.client.baseUrl, user.username, user.id, this.client.token);
     const named = user.fullName === undefined && user.nickname === undefined ? user : { ...user, displayName: displayNameOf(user, this.format) };
     this.byId.set(named.id, named);
     this.byUsername.set(named.username, named);

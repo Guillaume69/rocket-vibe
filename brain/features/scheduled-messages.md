@@ -18,6 +18,8 @@ On a RocketVibe server, a text message can be written now and sent later: the se
 
 `apps/web/src/scheduled.ts` holds the offered times (`inOneHour`, `tomorrowMorning`), the bounds (`acceptable`), the room filter (`forRoom`) and the 24-hour `when` label. `App` in `apps/web/src/app.ts`: `canSchedule` (capability, room not encrypted, posting allowed, nothing staged), `sendLater` (the `actionMenu` above the button), `pickTime` (a dialog with a `datetime-local` field), `schedule` (keeps its operation id in `scheduling` until the answer, so a retry of the same text and time replays it; clears the composer and its saved draft only if the text is unchanged), `refreshScheduled` (on room open and every minute from `open`, after each schedule or cancel), `cancelScheduled`, `showScheduled` (the list dialog, Cancel or Remove). The "Send later" button (icon `up`) sits left of send in the room composer (`apps/web/src/ui/application.tsx`) and the thread composer (`apps/web/src/ui/thread.tsx`, with the thread root as `reply_to`); the chip `.scheduled-chip` sits above the room composer. Tests: `apps/web/tests/scheduled.test.ts`, browser `apps/web/tests/scheduled.mjs` (schedule from the menu, the chip, the server row an hour ahead, nothing sent, then Cancel).
 
+Scheduled lists and scheduling acknowledgements are tied to the captured account, session generation and room or thread opening. Signout clears the private list, pending retry and refresh timer before asynchronous teardown. Older list reads cannot replace newer results, and late acknowledgements never clear another conversation's draft. `apps/web/tests/app-lifecycle.test.ts` covers these boundaries.
+
 ## Mobile
 
 RocketVibe accounts only: `Provider.scheduled` (`lib/scheduled.ts`) exists on the RocketVibe driver alone and shows only while `capabilities.scheduledMessages` (the server's `scheduled_messages` and the app's own flag, `effectiveCapabilities` in `providers/rocketvibe/index.ts`) holds; Rocket.Chat and Mattermost accounts show nothing of it.
@@ -50,3 +52,4 @@ Not offered yet (GTK, SwiftUI).
 - apps/mobile/ui/composer.tsx
 - apps/mobile/app/send-later.tsx
 - apps/mobile/app/scheduled-messages.tsx
+- apps/web/tests/app-lifecycle.test.ts

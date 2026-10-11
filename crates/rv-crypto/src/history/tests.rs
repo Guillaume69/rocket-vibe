@@ -64,6 +64,7 @@ pub(crate) fn document(author: &LocalDevice, room: &str, number: u64) -> Documen
     };
     Document {
         message: SendMessage {
+            also_in_room: false,
             operation_id: operation,
             text: format!("recovered words {room} {number}"),
             reply_to: None,

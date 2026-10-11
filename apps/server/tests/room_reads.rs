@@ -103,6 +103,7 @@ async fn search_plaintext_is_room_scoped_paginated_and_tracks_edits_and_deletion
         .send(
             &room,
             &SendMessage {
+                also_in_room: false,
                 cards: Vec::new(),
                 operation_id: "search-quote".into(),
                 text: "reference only".into(),
@@ -620,6 +621,7 @@ async fn thread_send(
         .send(
             room,
             &SendMessage {
+                also_in_room: false,
                 cards: Vec::new(),
                 operation_id: id.into(),
                 text: text.into(),
@@ -1128,6 +1130,7 @@ impl QuoteBench {
             .send(
                 &origin.id,
                 &SendMessage {
+                    also_in_room: false,
                     cards: Vec::new(),
                     reply_to: None,
                     operation_id: "quote-source".into(),
@@ -1159,6 +1162,7 @@ impl QuoteBench {
     }
     fn input(&self, operation: &str, text: &str) -> SendMessage {
         SendMessage {
+            also_in_room: false,
             cards: Vec::new(),
             reply_to: None,
             operation_id: operation.into(),
@@ -1205,6 +1209,7 @@ async fn nested_quotes_resolve_each_grant_bound_depth_and_keep_shared_journal_re
         .send(
             &q.destination,
             &SendMessage {
+                also_in_room: false,
                 cards: Vec::new(),
                 reply_to: None,
                 operation_id: "nested-outer".into(),
@@ -1284,6 +1289,7 @@ async fn nested_quotes_resolve_each_grant_bound_depth_and_keep_shared_journal_re
         .send(
             &q.destination,
             &SendMessage {
+                also_in_room: false,
                 cards: Vec::new(),
                 reply_to: None,
                 operation_id: "nested-third".into(),
@@ -1724,6 +1730,7 @@ async fn opposing_cross_room_quotes_use_one_domain_lock_order(pool: PgPool) {
         .send(
             &q.destination,
             &SendMessage {
+                also_in_room: false,
                 cards: Vec::new(),
                 reply_to: None,
                 operation_id: "quote-other-source".into(),
@@ -1736,6 +1743,7 @@ async fn opposing_cross_room_quotes_use_one_domain_lock_order(pool: PgPool) {
         .unwrap();
     let forward = q.input("quote-forward", "Réponse dans la destination");
     let reverse = SendMessage {
+        also_in_room: false,
         cards: Vec::new(),
         reply_to: None,
         operation_id: "quote-reverse".into(),
@@ -1873,6 +1881,7 @@ async fn reads_are_monotone_across_devices_and_only_other_new_roots_count(pool: 
         .send(
             &room,
             &SendMessage {
+                also_in_room: false,
                 cards: Vec::new(),
                 reply_to: None,
                 quotes: vec![],
@@ -1887,6 +1896,7 @@ async fn reads_are_monotone_across_devices_and_only_other_new_roots_count(pool: 
         .send(
             &room,
             &SendMessage {
+                also_in_room: false,
                 cards: Vec::new(),
                 reply_to: None,
                 quotes: vec![],
@@ -1922,6 +1932,7 @@ async fn reads_are_monotone_across_devices_and_only_other_new_roots_count(pool: 
         .send(
             &room,
             &SendMessage {
+                also_in_room: false,
                 cards: Vec::new(),
                 reply_to: None,
                 quotes: vec![],
@@ -2062,6 +2073,7 @@ async fn withdrawal_rejoin_purges_preferences_and_old_receipts_do_not_restore_th
         .send(
             &room,
             &SendMessage {
+                also_in_room: false,
                 cards: Vec::new(),
                 reply_to: None,
                 quotes: vec![],
@@ -2139,6 +2151,7 @@ async fn mentions_resolve_current_members_once_and_direct_mentions_take_priority
         StatusCode::NO_CONTENT
     );
     let input = SendMessage {
+        also_in_room: false,
         cards: Vec::new(),
         reply_to: None,
         quotes: vec![],
@@ -2249,6 +2262,7 @@ async fn edits_can_withdraw_mentions_but_cannot_ping_a_new_or_previous_recipient
         .send(
             &room,
             &SendMessage {
+                also_in_room: false,
                 cards: Vec::new(),
                 reply_to: None,
                 quotes: vec![],
@@ -2307,6 +2321,7 @@ async fn joining_after_a_group_mention_and_rejoining_do_not_receive_historical_p
         .send(
             &room,
             &SendMessage {
+                also_in_room: false,
                 cards: Vec::new(),
                 reply_to: None,
                 quotes: vec![],
@@ -2371,6 +2386,7 @@ async fn joining_after_a_group_mention_and_rejoining_do_not_receive_historical_p
         .send(
             &room,
             &SendMessage {
+                also_in_room: false,
                 cards: Vec::new(),
                 reply_to: None,
                 quotes: vec![],
@@ -2409,6 +2425,7 @@ async fn read_quota_keeps_retries_state_reads_and_favorite_commands_available(po
                 .send(
                     &room,
                     &SendMessage {
+                        also_in_room: false,
                         cards: Vec::new(),
                         reply_to: None,
                         quotes: vec![],
@@ -2508,6 +2525,7 @@ async fn favorite_versions_and_membership_lifetimes_ignore_reads_messages_and_ro
         .send(
             &room,
             &SendMessage {
+                also_in_room: false,
                 cards: Vec::new(),
                 reply_to: None,
                 quotes: vec![],
@@ -2609,6 +2627,7 @@ async fn reads_and_preferences_reject_forged_fields_future_positions_and_private
             .send(
                 &room,
                 &SendMessage {
+                    also_in_room: false,
                     cards: Vec::new(),
                     reply_to: None,
                     quotes: vec![],

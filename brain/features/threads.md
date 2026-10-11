@@ -11,7 +11,24 @@ A thread is a root message plus the replies that carry its id as `tmid`. Both ap
 - Live replies arrive on the same message streams as the room's messages ([offline and sync](offline-and-sync.md)).
 - **List**: `chat.getThreadsList?rid=&count=&offset=[&type=following]` returns the roots, newest last reply first, with `total`. Its `type=unread` filter is not offered: no REST route reads ONE thread (REST `chat.getThreadMessages` leaves `tunread` alone, `subscriptions.read {readThreads: true}` clears the whole room's), so an unread list would never empty.
 - **Following**: a root's `replies` is the uids of its followers (the author and every replier are added automatically). `chat.followMessage` / `chat.unfollowMessage {mid}` are idempotent and rebroadcast the root, so the followers stay live through ordinary ingestion. Exact behaviour in `CLAUDE.md`, "Threads: list and follow".
-- Mattermost and RocketVibe servers offer neither here: the Mattermost provider does not map its threads routes yet (not probed), and the RocketVibe server has no list or follow route (`docs/protocol/THREADS.md`).
+- Mattermost servers offer neither here: the Mattermost provider does not map its threads routes yet (not probed). The RocketVibe server has the list, following and "also send to the room" (below), but only the web client calls them so far: the mobile and desktop RocketVibe providers do not.
+
+## The RocketVibe server
+
+Contract in `docs/protocol/THREADS.md` ("List, following and also send to the room"), code in `apps/server/src/threads.rs`, migration `0058_thread_follows.sql`; three capabilities, `thread_list`, `thread_follow`, `thread_also_in_room`, all `false` on an older server.
+
+- **List**: `GET /api/v1/rooms/{room}/threads?filter=all|following&before=&limit=` answers `ThreadList` of `ThreadEntry {root, last_reply_position, following, unread}` and a `next` cursor. A thread is a live root with at least one live reply, ordered by the position of its latest live reply (the cursor too), so a new reply moves it to the top. `unread` is the replies by others past my thread read position (`thread_read_states`, the same rule as the room counters). Members only; plaintext threads only (an encrypted room's roots are opaque MLS routing).
+- **Following**: table `thread_follows (root, room, user, present, revision)`. `PUT /api/v1/messages/{id}/follow` with `SetMark` is shaped and replayed like a star (`message_actions` receipt, `409` on another body), a reply's id acting on its root. A reply makes its author follow again and, at the first reply, the root's author unless they already chose (`take_part`, from `store::send_in_tx`, so file and scheduled replies count); an explicit unfollow stays a row, so others' replies do not undo it. Each change journals a private `message_upsert` of the root for that account, carrying `personal_follow {present, revision}`; `marks::personalize` adds it to every account-scoped read, so the list, the thread page, history and snapshots agree.
+- **Also send to the room**: `SendMessage.also_in_room` (replies only) is stored in `messages.also_in_room` and comes back as `Message.also_in_room`; the reply keeps its `reply_to`. Room history returns it among the roots only with `?also_in_room=true`, so an older client's keyset paging never lands on rows it filters out. The flag joins the send fingerprint only when set.
+
+## Web
+
+Over the RocketVibe server only, each part shown when its capability is announced (`apps/web/src`).
+
+- **Thread list**: a speech-bubble button (`threads`, the same `chat-message-new` symbol as the desktop) in the room header, hidden in an encrypted room, opens `panels.ts` `threads`: a dialog (closes on its backdrop) with All / Following tabs, rows of the root (`messageRow`), "N replies · last <time>", the unread count, Follow / Unfollow and Open thread; the next page loads as the list scrolls to its end (and at once while it does not fill the dialog).
+- **Following**: `App.followThread` sends the `PUT`, puts the returned root in the model and refreshes; `App.following` reads the newest `personal_follow` of the model's copy or the row's. `Model.put` (`store.ts`) merges `personal_follow` by its own revision like `personal_star`. The open thread's header has a bell (`ui/thread.tsx` `FollowButton`, `aria-pressed`); it and the list rows repaint on `rv-model-update` (fired by `App.refresh` after each sync frame), so a follow from another session shows live.
+- **Also send to the room**: a checkbox above the thread composer, cleared after each send; `App.send(text, root, alsoInRoom)` puts `also_in_room` in the outbox payload, so a replay keeps it. Room history asks for `also_in_room=true` (`App.shownReplies`); `Model.timeline(room)` shows such replies among the roots, but only within the loaded window of roots, so an older one put there by an opened thread cannot make history paging skip. The row carries a "Replied in a thread" chip that opens the thread, and the room's read position skips it (it is read with its thread). Files sent from the thread composer do not carry the flag.
+- Browser test `tests/threads.mjs` (two accounts): order, Following empty then set by replying, Unfollow from a row, a follow made over the API showing live in the open thread, the also-in-room reply in the room and in `?also_in_room=true` history only. Unit tests in `tests/model.test.ts`.
 
 ## Storage
 
@@ -51,7 +68,7 @@ Thread list and following go through rv-ffi's `Chat` (`threads_available`, `thre
 
 ## Parity
 
-Thread view, live replies and thread composer in all three. Thread list and following: see [parity](../parity.md), section 6, Rocket.Chat servers only. "Also send to the room": mobile only. Not available anywhere: an unread-threads list. Files and voice messages in a thread: all three send them into the thread, encrypted RocketVibe threads included (files only there).
+Thread view, live replies and thread composer in all four. Thread list, following and "also send to the room": see [parity](../parity.md), section 6; the native apps on Rocket.Chat servers, the web on the RocketVibe server. Mobile, GTK and SwiftUI still owe them on RocketVibe accounts, whose server now has the routes. Not available anywhere: an unread-threads list. Files and voice messages in a thread: all three send them into the thread, encrypted RocketVibe threads included (files only there).
 
 ## Sources
 
@@ -87,3 +104,16 @@ Thread view, live replies and thread composer in all three. Thread list and foll
 - apps/desktop/macos/Sources/RocketVibe/ThreadView.swift
 - apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift
 - apps/desktop/macos/Sources/RocketVibeKit/RoomModel.swift
+- docs/protocol/THREADS.md
+- apps/server/src/threads.rs
+- apps/server/src/store.rs
+- apps/server/src/marks.rs
+- apps/server/src/http.rs
+- apps/server/migrations/0058_thread_follows.sql
+- crates/rv-protocol/src/lib.rs
+- apps/web/src/panels.ts
+- apps/web/src/ui/thread.tsx
+- apps/web/src/ui/application.tsx
+- apps/web/src/store.ts
+- apps/web/src/app.ts
+- apps/web/tests/threads.mjs

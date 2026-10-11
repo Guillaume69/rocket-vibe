@@ -538,6 +538,7 @@ impl CryptoInstallation {
                 getrandom::fill(&mut nonce).map_err(|_| CryptoBridgeError::Storage)?;
                 let operation = HEXLOWER.encode(&nonce);
                 let message = SendMessage {
+                    also_in_room: false,
                     operation_id: operation.clone(),
                     text,
                     reply_to: request.thread,

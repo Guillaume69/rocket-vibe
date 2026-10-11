@@ -336,7 +336,12 @@ export class App implements RowActions {
           event.preventDefault();
           void localSearch(this).catch(toast);
         }
-        if (event.key === "Escape" && this.root) {
+        // Escape closes the topmost layer only: an open dialog takes it first.
+        if (
+          event.key === "Escape" &&
+          this.root &&
+          !document.querySelector("dialog[open]")
+        ) {
           this.closeThread();
         }
       },
@@ -1123,8 +1128,15 @@ export class App implements RowActions {
     );
     return () => lifetime.abort();
   }
+  /** Room history also carries the replies sent to the room, when the server can. */
+  shownReplies(separator: "?" | "&"): string {
+    return this.info?.capabilities.thread_also_in_room
+      ? separator + "also_in_room=true"
+      : "";
+  }
   refresh(): void {
     window.dispatchEvent(new Event("rv-profile-update"));
+    window.dispatchEvent(new Event("rv-model-update"));
     this.renderRooms();
     if (this.room && !this.model.rooms.has(this.room)) {
       this.room = undefined;
@@ -1300,7 +1312,7 @@ export class App implements RowActions {
       const current = this.roomFence(id);
       const [page, details] = await Promise.all([
         this.api.request<MessagePage>(
-          "/api/v1/rooms/" + segment(id) + "/messages",
+          "/api/v1/rooms/" + segment(id) + "/messages" + this.shownReplies("?"),
         ),
         this.api.request<import("./protocol").RoomDetails>(
           "/api/v1/rooms/" + segment(id),
@@ -1768,7 +1780,8 @@ export class App implements RowActions {
         "/api/v1/rooms/" +
           segment(message.room_id) +
           "/messages?before=" +
-          String(BigInt(message.position) + 1n),
+          String(BigInt(message.position) + 1n) +
+          this.shownReplies("&"),
       );
       if (
         !current() ||
@@ -1802,7 +1815,11 @@ export class App implements RowActions {
     this.loading = true;
     try {
       const page = await this.api.request<MessagePage>(
-        "/api/v1/rooms/" + segment(id) + "/messages?before=" + before,
+        "/api/v1/rooms/" +
+          segment(id) +
+          "/messages?before=" +
+          before +
+          this.shownReplies("&"),
       );
       if (!current() || id !== this.room || opening !== this.roomOpening)
         return;
@@ -1835,7 +1852,11 @@ export class App implements RowActions {
         this.composer.value,
       );
   }
-  async send(text = this.composer.value, root?: string): Promise<void> {
+  async send(
+    text = this.composer.value,
+    root?: string,
+    alsoInRoom = false,
+  ): Promise<void> {
     if (this.model.rooms.get(this.room ?? "")?.encrypted) {
       await this.privateChat?.send(text, root);
       return;
@@ -1934,6 +1955,8 @@ export class App implements RowActions {
     const id = operation(),
       payload: import("./protocol").SendMessage = { operation_id: id, text };
     if (root) payload.reply_to = root;
+    if (root && alsoInRoom && this.info?.capabilities.thread_also_in_room)
+      payload.also_in_room = true;
     if (quote)
       payload.quotes = [
         {
@@ -2097,7 +2120,11 @@ export class App implements RowActions {
     const room = this.model.rooms.get(this.room!),
       membership = room?.read_state?.membership_version,
       node = [...this.timeline.children].findLast(
-        (child) => (child as HTMLElement).dataset.id,
+        (child) =>
+          (child as HTMLElement).dataset.id &&
+          // A reply also sent to the room is read with its thread.
+          !this.model.messages.get((child as HTMLElement).dataset.id!)
+            ?.reply_to,
       ) as HTMLElement | undefined,
       message = node?.dataset.id
         ? (this.privateChat?.message(node.dataset.id) ??
@@ -2270,7 +2297,10 @@ export class App implements RowActions {
     this.threadOlder = page.has_more;
     showThread(this, {
       draft,
-      send: (text) => this.send(text, root),
+      root,
+      follow: !!this.info?.capabilities.thread_follow,
+      alsoInRoom: !!this.info?.capabilities.thread_also_in_room,
+      send: (text, alsoInRoom) => this.send(text, root, alsoInRoom),
       save: (text) => {
         if (active())
           void write("drafts", account + ":" + room + ":thread:" + root, text);
@@ -2282,6 +2312,29 @@ export class App implements RowActions {
     this.renderThread();
     this.threadTimeline.scrollTop = this.threadTimeline.scrollHeight;
     this.threadComposer.focus();
+  }
+  /** Follows or unfollows the thread of `root` (a reply acts on its root). */
+  async followThread(root: string, present: boolean): Promise<Message> {
+    const message = await this.api.request<Message>(
+      "/api/v1/messages/" + segment(root) + "/follow",
+      "PUT",
+      { operation_id: operation(), present },
+    );
+    if (this.model.rooms.has(message.room_id)) {
+      this.model.put(message);
+      this.refresh();
+    }
+    return message;
+  }
+  /** Whether this reader follows `root`, from the newest copy known. */
+  following(root: Message): boolean {
+    const known = this.model.messages.get(root.id)?.personal_follow,
+      own = root.personal_follow;
+    const newest =
+      known && (!own || BigInt(known.revision) >= BigInt(own.revision))
+        ? known
+        : own;
+    return !!newest?.present;
   }
   closeThread(): void {
     void this.privateChat?.closeThread();

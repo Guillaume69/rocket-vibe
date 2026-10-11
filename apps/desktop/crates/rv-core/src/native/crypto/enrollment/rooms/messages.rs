@@ -380,6 +380,7 @@ impl Access {
         let session = room.0.session.upgrade().ok_or_else(room_changed)?;
         let (id, sealed) = session.upload_private_object(&room.0.id, &path).await?;
         let document = SendMessage {
+            also_in_room: false,
             operation_id: crate::native::room_operation_id(),
             text: caption,
             reply_to: self.0.thread.clone(),

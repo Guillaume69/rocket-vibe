@@ -21,7 +21,15 @@ fn operation() -> String {
 }
 
 fn message(text: String) -> SendMessage {
-    SendMessage { cards: Vec::new(), reply_to: None, quotes: vec![], operation_id: operation(), text, files: vec![] }
+    SendMessage {
+        also_in_room: false,
+        cards: Vec::new(),
+        reply_to: None,
+        quotes: vec![],
+        operation_id: operation(),
+        text,
+        files: vec![],
+    }
 }
 
 async fn room(client: &NativeClient, name: &str, member: &str) -> String {

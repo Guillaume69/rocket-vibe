@@ -325,6 +325,7 @@ async fn execute(
                 .then(|| text_at(context, &["trigger", "thread"]).map(str::to_owned))
                 .flatten();
             let input = SendMessage {
+                also_in_room: false,
                 operation_id: operation(run, step),
                 text: render_message(text, context),
                 reply_to,
@@ -529,7 +530,7 @@ async fn form(
             &mut tx,
             bot,
             &room,
-            SendMessage {
+            SendMessage { also_in_room: false,
                 operation_id: operation(run, step),
                 text: title.to_owned(),
                 reply_to: None,

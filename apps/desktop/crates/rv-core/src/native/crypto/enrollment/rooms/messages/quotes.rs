@@ -119,6 +119,7 @@ impl Access {
                         author: doc.author.username,
                         files,
                         document: SendMessage {
+                            also_in_room: false,
                             operation_id: entry.id,
                             text: doc.text,
                             reply_to: None,
@@ -340,6 +341,7 @@ mod tests {
     fn entry(text: &str, quotes: Vec<QuoteReference>) -> Source {
         Source {
             document: SendMessage {
+                also_in_room: false,
                 operation_id: "source".into(),
                 text: text.into(),
                 reply_to: None,

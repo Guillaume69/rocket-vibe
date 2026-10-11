@@ -245,6 +245,7 @@ async fn protected_http_worker_publishes_joins_rotates_and_reconciles_real_postg
             &alice,
             &room.id,
             SendMessage {
+                also_in_room: false,
                 operation_id: auth::random_token(),
                 text: "must not reach encrypted room".into(),
                 quotes: vec![],

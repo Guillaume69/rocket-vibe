@@ -333,6 +333,11 @@ pub fn router(app: App) -> Router {
             "/api/v1/messages/{message}/star",
             axum::routing::put(set_star),
         )
+        .route(
+            "/api/v1/messages/{message}/follow",
+            axum::routing::put(set_follow),
+        )
+        .route("/api/v1/rooms/{room}/threads", get(thread_list))
         .route("/api/v1/rooms/{room}/pins", get(pins))
         .route("/api/v1/rooms/{room}/stars", get(stars))
         .route("/api/v1/rooms/{room}/join", post(join_public))
@@ -550,6 +555,9 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
             bots: true,
             workflows: true,
             scheduled_messages: true,
+            thread_list: true,
+            thread_follow: true,
+            thread_also_in_room: true,
             ..Default::default()
         },
         icon_revision: crate::instance_icon::revision(&app).await?,
@@ -2386,6 +2394,48 @@ async fn file_download(
 struct History {
     before: Option<String>,
     limit: Option<i64>,
+    /// Room history only: also the replies sent to the room.
+    #[serde(default)]
+    also_in_room: bool,
+}
+#[derive(Deserialize)]
+struct ThreadListQuery {
+    filter: Option<String>,
+    before: Option<String>,
+    limit: Option<i64>,
+}
+async fn thread_list(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(room): Path<String>,
+    Query(input): Query<ThreadListQuery>,
+) -> Result<Response> {
+    let following = match input.filter.as_deref() {
+        None | Some("all") => false,
+        Some("following") => true,
+        Some(_) => return Err(Error::invalid()),
+    };
+    let before = input.before.map(|p| room_reads::position(&p)).transpose()?;
+    let limit = input.limit.unwrap_or(50);
+    if !(1..=100).contains(&limit) {
+        return Err(Error::invalid());
+    }
+    let (actor, hash, proof) = read_access(&app, &headers, Scope::All).await?;
+    let list = crate::threads::list(&app, &actor, &room, following, before, limit).await?;
+    let roots: Vec<_> = list.threads.iter().map(|t| t.root.clone()).collect();
+    let mut delivery_rooms = crate::quotes::delivery_rooms(&roots);
+    delivery_rooms.push(room);
+    proof.json(&app, &hash, &list, &delivery_rooms, None).await
+}
+async fn set_follow(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    input: Input<rv_protocol::parity::SetMark>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    let root = crate::threads::follow(&app, &actor, &id, body(input)?).await?;
+    message(State(app), headers, Path(root)).await
 }
 async fn reply(
     state: State<App>,
@@ -2466,7 +2516,7 @@ async fn history(
         return Err(Error::invalid());
     }
     let (account, hash, proof) = read_access(&app, &headers, Scope::All).await?;
-    let messages = store::history(&app, &account, &room, before, limit).await?;
+    let messages = store::history(&app, &account, &room, before, limit, input.also_in_room).await?;
     let mut delivery_rooms = crate::quotes::delivery_rooms(&messages.messages);
     delivery_rooms.push(room);
     proof

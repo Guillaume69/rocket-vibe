@@ -859,6 +859,7 @@ impl NativeSession {
             .send(
                 &pending.room_id,
                 &rv_protocol::SendMessage {
+                    also_in_room: false,
                     cards: Vec::new(),
                     reply_to: pending.reply_to.clone(),
                     quotes: pending.quotes,

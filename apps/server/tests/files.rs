@@ -188,6 +188,7 @@ async fn quoted_files_keep_the_source_room_authority_and_never_create_destinatio
         .send(
             &destination,
             &SendMessage {
+                also_in_room: false,
                 cards: Vec::new(),
                 operation_id: auth::random_token(),
                 text: "Quote with attachment".into(),
@@ -447,6 +448,7 @@ async fn file_retry_is_one_atomic_message_with_protected_manifests_and_range_rea
                 .send(
                     &room,
                     &SendMessage {
+                        also_in_room: false,
                         cards: Vec::new(),
                         operation_id: prepare.operation_id,
                         text: "reuse reservation identity".into(),

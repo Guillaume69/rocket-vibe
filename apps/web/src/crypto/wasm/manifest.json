@@ -1,11 +1,11 @@
 {
   "version": 1,
-  "source": "b8674bd350196b7f3447e653ab5e041377dd27bcad96b61eb0f77b3e9eab57e3",
+  "source": "18001e8d78750f5b035fdc036946efeb24b5ee451e4b4cc124004a5e77c0c9f3",
   "artifacts": {
     "LICENSES.txt": "1e7a91621b53c89f5417c237a3201dbf1f60420425eff6b49fd95e689d66fff2",
     "rv_crypto_web.d.ts": "1632fdd0f83f5185bbbc61324f5c671cda6daa63ab543dfd740df5313446acba",
     "rv_crypto_web.js": "5e89a0fa9e4f7cc592a9933380273a94c4ce08c4ca33a08f80fad16ba6b0c883",
-    "rv_crypto_web_bg.wasm": "f8851df7913bc46310c0b714be23f79af6162721451fbac8060b1b043d553ac5",
+    "rv_crypto_web_bg.wasm": "b7d5d8cd565fb43b60c146dec98b2ab591b5259f1d1a9e712bd5f9da146c0a4d",
     "rv_crypto_web_bg.wasm.d.ts": "061ec66ca64c37b096cf026e2b6f73f34607787d9b07c81f033ba2c429c068b8"
   }
 }

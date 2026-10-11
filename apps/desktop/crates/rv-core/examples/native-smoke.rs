@@ -27,6 +27,7 @@ async fn marker(client: &NativeClient, rid: &str, text: &str) {
         .send(
             rid,
             &SendMessage {
+                also_in_room: false,
                 cards: Vec::new(),
                 reply_to: None,
                 quotes: vec![],

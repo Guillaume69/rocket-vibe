@@ -260,6 +260,7 @@ async fn send(app: &App, row: &Due) -> Result<()> {
         &account,
         &row.room_id,
         SendMessage {
+            also_in_room: false,
             operation_id: row.operation_id.clone(),
             text: row.text.clone(),
             reply_to: row.reply_to.clone(),

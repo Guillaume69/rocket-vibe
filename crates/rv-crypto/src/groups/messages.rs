@@ -616,6 +616,7 @@ impl Coordinator {
             packet::Kind::Delete
         };
         let message = SendMessage {
+            also_in_room: false,
             operation_id,
             text: text.unwrap_or_default(),
             reply_to: receipt.header.thread.clone(),
@@ -644,6 +645,7 @@ impl Coordinator {
             packet::Kind::Unreact
         };
         let message = SendMessage {
+            also_in_room: false,
             operation_id,
             text: emoji.to_owned(),
             reply_to: receipt.header.thread.clone(),

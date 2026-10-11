@@ -207,6 +207,7 @@ pub(super) fn observation(account: &Account) -> MessageObservation {
 }
 pub(super) fn message(id: &str) -> SendMessage {
     SendMessage {
+        also_in_room: false,
         operation_id: id.into(),
         text: "Texte privé **riche** 🐾\nseconde ligne".into(),
         reply_to: Some("thread-root".into()),

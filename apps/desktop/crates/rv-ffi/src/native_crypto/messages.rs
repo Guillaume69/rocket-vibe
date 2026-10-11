@@ -220,6 +220,7 @@ impl NativeCryptoMessages {
             access
                 .send_selected(
                     messages::SendMessage {
+                        also_in_room: false,
                         operation_id: operation,
                         text,
                         reply_to: thread,

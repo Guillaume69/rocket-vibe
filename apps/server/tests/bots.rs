@@ -106,6 +106,7 @@ fn key(label: &str) -> CreateBotKey {
 }
 fn message(text: &str, operation: &str) -> SendMessage {
     SendMessage {
+        also_in_room: false,
         operation_id: operation.into(),
         text: text.into(),
         reply_to: None,

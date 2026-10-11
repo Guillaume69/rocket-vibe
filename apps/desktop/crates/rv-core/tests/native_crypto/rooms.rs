@@ -602,6 +602,7 @@ async fn renewed_device_rotates_its_actual_room_leaf_recovers_lost_ack_and_keeps
     let chat = message_settings(&pilot).await.messages("room".into(), None).await.unwrap();
     assert!(chat.refresh(None, 50).await.unwrap().can_send);
     let message = |operation: &str, text: &str| rv_protocol::SendMessage {
+        also_in_room: false,
         operation_id: operation.into(),
         text: text.into(),
         reply_to: None,
@@ -740,6 +741,7 @@ async fn private_conversation_recovers_lost_send_reopens_drafts_and_never_projec
     chat.set_draft("private-message-cleartext **changed** 🐾".into()).await.unwrap();
     assert_eq!(pilot.server.requests().len(), before, "local draft saves must work without HTTP");
     let document = rv_protocol::SendMessage {
+        also_in_room: false,
         operation_id: "private-send-one".into(),
         text: "private-message-cleartext **changed** 🐾".into(),
         reply_to: None,
@@ -751,9 +753,13 @@ async fn private_conversation_recovers_lost_send_reopens_drafts_and_never_projec
     assert!(chat.send(document.clone()).await.is_err());
     assert_eq!(book.lock().unwrap().message_posts, 1);
     assert!(
-        chat.send(rv_protocol::SendMessage { operation_id: "private-would-duplicate".into(), ..document })
-            .await
-            .is_err()
+        chat.send(rv_protocol::SendMessage {
+            also_in_room: false,
+            operation_id: "private-would-duplicate".into(),
+            ..document
+        })
+        .await
+        .is_err()
     );
     assert_eq!(book.lock().unwrap().message_posts, 1);
     assert_eq!(chat.draft().await.unwrap(), "private-message-cleartext **changed** 🐾");
@@ -789,6 +795,7 @@ async fn private_conversation_recovers_lost_send_reopens_drafts_and_never_projec
     assert!(
         unavailable
             .send(rv_protocol::SendMessage {
+                also_in_room: false,
                 operation_id: "invalid-private-thread".into(),
                 text: "private-message-cleartext wrong thread".into(),
                 reply_to: Some("unseen-root".into()),
@@ -811,6 +818,7 @@ async fn private_conversation_recovers_lost_send_reopens_drafts_and_never_projec
     assert!(
         thread
             .send(rv_protocol::SendMessage {
+                also_in_room: false,
                 operation_id: "private-thread-one".into(),
                 text: "private-message-cleartext thread draft".into(),
                 reply_to: Some(accepted(&book, 1)),
@@ -881,6 +889,7 @@ async fn private_conversation_recovers_lost_send_reopens_drafts_and_never_projec
     assert!(clear_selection.selection.admission.is_none());
     assert_eq!(clear_selection.text, "Ordinary source words");
     let quoted = rv_protocol::SendMessage {
+        also_in_room: false,
         operation_id: "private-quote-one".into(),
         text: String::new(),
         reply_to: None,
@@ -1055,6 +1064,7 @@ async fn private_edits_and_deletions_show_on_their_target_and_resume_like_sends(
     let chat = message_settings(&pilot).await.messages("room".into(), None).await.unwrap();
     chat.refresh(None, 50).await.unwrap();
     chat.send(rv_protocol::SendMessage {
+        also_in_room: false,
         operation_id: "amend-original".into(),
         text: "private-message-cleartext original".into(),
         reply_to: None,

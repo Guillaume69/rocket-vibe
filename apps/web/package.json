@@ -35,6 +35,7 @@
     "test:global-search": "node tests/global-search.mjs",
     "test:logout-replay": "node tests/logout-replay.mjs",
     "test:notifications": "node tests/notifications.mjs",
+    "test:threads": "node tests/threads.mjs",
     "format": "prettier --write src scripts tests *.js *.json index.html",
     "format:check": "prettier --check src scripts tests *.js *.json index.html",
     "test:navigation": "node tests/navigation.mjs"

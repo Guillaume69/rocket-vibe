@@ -47,6 +47,7 @@ pub(crate) struct MessageRow {
     pub author_bot: bool,
     pub text: String,
     pub reply_to: Option<String>,
+    pub also_in_room: bool,
     pub thread_replies: i64,
     pub thread_last_reply: Option<DateTime<Utc>>,
     pub system: Option<Json<rv_protocol::system::SystemMessage>>,
@@ -81,6 +82,7 @@ impl MessageRow {
             }),
             text: self.text,
             reply_to: self.reply_to,
+            also_in_room: self.also_in_room,
             thread: (self.thread_replies > 0).then(|| {
                 Box::new(rv_protocol::ThreadSummary {
                     replies: self.thread_replies.to_string(),
@@ -111,6 +113,7 @@ impl MessageRow {
             reactions: self.reactions.0,
             pinned: self.pinned,
             personal_star: None,
+            personal_follow: None,
             personal_mention: None,
             call: self.call.map(|call| Box::new(call.0)),
             form: if self.deleted {
@@ -137,7 +140,7 @@ impl MessageRow {
     }
 }
 
-pub(crate) const MESSAGE_SELECT: &str = "SELECT m.id,m.room_id,m.author_id,u.username,u.display_name,u.deleted AS author_deleted,u.bot AS author_bot,m.text,m.reply_to,(SELECT count(*) FROM messages r WHERE r.reply_to=m.id AND NOT r.deleted) AS thread_replies,(SELECT max(r.created_at) FROM messages r WHERE r.reply_to=m.id AND NOT r.deleted) AS thread_last_reply,m.system,m.created_at,m.position,m.revision,m.deleted,m.edited_at,m.pinned,m.quote_references,m.files,m.previews,m.cards,(SELECT jsonb_strip_nulls(jsonb_build_object('state',v.state,'duration_seconds',CASE WHEN v.answered_at IS NOT NULL AND v.ended_at IS NOT NULL THEN floor(extract(epoch FROM v.ended_at-v.answered_at))::int END)) FROM voice_rings v WHERE v.message_id=m.id) AS call,(SELECT jsonb_strip_nulls(jsonb_build_object('title',f.title,'fields',f.fields,'recipient',CASE WHEN r.id IS NULL THEN NULL ELSE jsonb_build_object('id',r.id,'username',r.username,'display_name',r.display_name) END,'answered_by',CASE WHEN a.id IS NULL THEN NULL ELSE jsonb_build_object('id',a.id,'username',a.username,'display_name',a.display_name) END,'answered_at',to_jsonb(f.answered_at),'expires_at',to_jsonb(f.expires_at),'people',(SELECT jsonb_agg(jsonb_build_object('id',p.id,'username',p.username,'display_name',p.display_name) ORDER BY p.username) FROM users p WHERE p.id IN (SELECT jsonb_array_elements_text(x->'people') FROM jsonb_array_elements(f.fields) x)))) FROM workflow_forms f LEFT JOIN users r ON r.id=f.recipient_id LEFT JOIN users a ON a.id=f.answered_by WHERE f.message_id=m.id) AS form,COALESCE((SELECT jsonb_agg(jsonb_build_object('emoji',g.emoji,'users',g.users) ORDER BY g.emoji) FROM (SELECT e.emoji,jsonb_agg(jsonb_build_object('id',a.id,'username',a.username,'display_name',a.display_name,'deleted',a.deleted) ORDER BY a.id) AS users FROM message_reactions e JOIN users a ON a.id=e.user_id WHERE e.message_id=m.id GROUP BY e.emoji) g),'[]'::jsonb) AS reactions FROM messages m JOIN users u ON u.id=m.author_id";
+pub(crate) const MESSAGE_SELECT: &str = "SELECT m.id,m.room_id,m.author_id,u.username,u.display_name,u.deleted AS author_deleted,u.bot AS author_bot,m.text,m.reply_to,m.also_in_room,(SELECT count(*) FROM messages r WHERE r.reply_to=m.id AND NOT r.deleted) AS thread_replies,(SELECT max(r.created_at) FROM messages r WHERE r.reply_to=m.id AND NOT r.deleted) AS thread_last_reply,m.system,m.created_at,m.position,m.revision,m.deleted,m.edited_at,m.pinned,m.quote_references,m.files,m.previews,m.cards,(SELECT jsonb_strip_nulls(jsonb_build_object('state',v.state,'duration_seconds',CASE WHEN v.answered_at IS NOT NULL AND v.ended_at IS NOT NULL THEN floor(extract(epoch FROM v.ended_at-v.answered_at))::int END)) FROM voice_rings v WHERE v.message_id=m.id) AS call,(SELECT jsonb_strip_nulls(jsonb_build_object('title',f.title,'fields',f.fields,'recipient',CASE WHEN r.id IS NULL THEN NULL ELSE jsonb_build_object('id',r.id,'username',r.username,'display_name',r.display_name) END,'answered_by',CASE WHEN a.id IS NULL THEN NULL ELSE jsonb_build_object('id',a.id,'username',a.username,'display_name',a.display_name) END,'answered_at',to_jsonb(f.answered_at),'expires_at',to_jsonb(f.expires_at),'people',(SELECT jsonb_agg(jsonb_build_object('id',p.id,'username',p.username,'display_name',p.display_name) ORDER BY p.username) FROM users p WHERE p.id IN (SELECT jsonb_array_elements_text(x->'people') FROM jsonb_array_elements(f.fields) x)))) FROM workflow_forms f LEFT JOIN users r ON r.id=f.recipient_id LEFT JOIN users a ON a.id=f.answered_by WHERE f.message_id=m.id) AS form,COALESCE((SELECT jsonb_agg(jsonb_build_object('emoji',g.emoji,'users',g.users) ORDER BY g.emoji) FROM (SELECT e.emoji,jsonb_agg(jsonb_build_object('id',a.id,'username',a.username,'display_name',a.display_name,'deleted',a.deleted) ORDER BY a.id) AS users FROM message_reactions e JOIN users a ON a.id=e.user_id WHERE e.message_id=m.id GROUP BY e.emoji) g),'[]'::jsonb) AS reactions FROM messages m JOIN users u ON u.id=m.author_id";
 
 pub(crate) fn send_fingerprint(room: &str, text: &str) -> String {
     crate::auth::hash_token(&serde_json::json!([room, text]).to_string())
@@ -620,6 +623,7 @@ pub(crate) async fn send_in_tx(
             .reply_to
             .as_ref()
             .is_some_and(|root| !identifier(root) || root == &input.operation_id)
+        || (input.also_in_room && input.reply_to.is_none())
         || (input.text.trim().is_empty()
             && input.quotes.is_empty()
             && files.is_empty()
@@ -639,10 +643,16 @@ pub(crate) async fn send_in_tx(
             &input.quotes,
             input.reply_to.as_deref(),
         );
-        if input.cards.is_empty() {
+        let original = if input.cards.is_empty() {
             original
         } else {
             crate::auth::hash_token(&serde_json::json!([original, input.cards]).to_string())
+        };
+        // Absent from older fingerprints: a reply kept in its thread hashes as before.
+        if input.also_in_room {
+            crate::auth::hash_token(&serde_json::json!([original, "also_in_room"]).to_string())
+        } else {
+            original
         }
     });
     // All sends by a user serialize before room / journal locks. This also protects
@@ -679,6 +689,7 @@ pub(crate) async fn send_in_tx(
                     && existing.reply_to == input.reply_to
                     && existing.files.0 == files
                     && existing.cards.0 == input.cards
+                    && existing.also_in_room == input.also_in_room
             },
             |value| value == expected_fingerprint,
         );
@@ -699,7 +710,7 @@ pub(crate) async fn send_in_tx(
     // Client message IDs are globally unique. A collision belonging to another user
     // is a conflict, never a response exposing that user's message.
     let result = sqlx::query(
-        "INSERT INTO messages(id,room_id,author_id,operation_id,text,send_fingerprint,quote_references,reply_to,files,cards) VALUES($1,$2,$3,$1,$4,$5,$6,$7,$8,$9)",
+        "INSERT INTO messages(id,room_id,author_id,operation_id,text,send_fingerprint,quote_references,reply_to,files,cards,also_in_room) VALUES($1,$2,$3,$1,$4,$5,$6,$7,$8,$9,$10)",
     )
     .bind(&id)
     .bind(room_id)
@@ -710,6 +721,7 @@ pub(crate) async fn send_in_tx(
     .bind(&input.reply_to)
     .bind(Json(files))
     .bind(Json(&input.cards))
+    .bind(input.also_in_room)
     .execute(&mut **tx)
     .await;
     match result {
@@ -742,6 +754,7 @@ pub(crate) async fn send_in_tx(
     .await?;
     if let Some(root) = &input.reply_to {
         crate::threads::refresh(tx, room_id, root).await?;
+        crate::threads::take_part(tx, room_id, root, &account.id).await?;
     }
     crate::room_reads::message_changed(tx, room_id).await?;
     crate::workflows::on_message(tx, account, room_id, &message).await?;
@@ -754,11 +767,19 @@ pub async fn history(
     room_id: &str,
     before: Option<i64>,
     limit: i64,
+    also_in_room: bool,
 ) -> Result<MessagePage> {
     let mut tx = app.pool.begin().await?;
     require_member(&mut tx, room_id, &account.id).await?;
+    // Replies also sent to the room only for a client that asks: an older one
+    // would page its timeline over rows it does not show.
+    let shown = if also_in_room {
+        "(m.reply_to IS NULL OR m.also_in_room)"
+    } else {
+        "m.reply_to IS NULL"
+    };
     let query = format!(
-        "{MESSAGE_SELECT} WHERE m.room_id=$1 AND m.reply_to IS NULL AND m.position<$2 ORDER BY m.position DESC LIMIT $3"
+        "{MESSAGE_SELECT} WHERE m.room_id=$1 AND {shown} AND m.position<$2 ORDER BY m.position DESC LIMIT $3"
     );
     let mut messages: Vec<Message> = sqlx::query_as::<_, MessageRow>(&query)
         .bind(room_id)

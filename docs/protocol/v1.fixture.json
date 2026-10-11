@@ -168,6 +168,22 @@
   "mark_thread_read": {
     "position": "9007199254740995"
   },
+  "thread_list": {
+    "threads": [{
+      "root": {
+        "id": "message-id", "room_id": "room-id",
+        "author": { "id": "alice-id", "username": "alice", "display_name": "Alice" },
+        "text": "Bonjour 🚀", "created_at": "2026-09-30T12:00:00+00:00",
+        "position": "9007199254740993", "revision": "9007199254740995",
+        "thread": { "replies": "2", "last_reply_at": "2026-09-30T12:00:00+00:00" },
+        "personal_follow": { "present": true, "revision": "9007199254740996" }
+      },
+      "last_reply_position": "9007199254740995",
+      "following": true,
+      "unread": "1"
+    }],
+    "next": null
+  },
   "emoji_catalog": {
     "revision": "3",
     "items": [{

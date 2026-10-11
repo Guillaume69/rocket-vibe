@@ -330,6 +330,7 @@ impl ThreadPage {
                 access
                     .send_selected(
                         private::SendMessage {
+                            also_in_room: false,
                             operation_id: rv_core::native::room_operation_id(),
                             text,
                             reply_to: Some(root),

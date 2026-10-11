@@ -2045,3 +2045,37 @@ progress {
 .local-search-scope {
   margin: 4px 0 8px;
 }
+.tabs button[aria-selected="true"] {
+  background: #2c2946;
+}
+.thread-entry {
+  border-bottom: 1px solid #2c2946;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+}
+.thread-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px;
+}
+.thread-meta .dim {
+  flex: 1;
+  min-width: 0;
+}
+.thread-unread {
+  color: #a78bfa;
+  font-weight: 700;
+}
+.thread-follow[aria-pressed="true"] {
+  color: #a78bfa;
+}
+.also-in-room {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 14px 0;
+  font-size: 13px;
+  color: #c9c3e6;
+}

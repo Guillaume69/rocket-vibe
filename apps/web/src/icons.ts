@@ -72,6 +72,9 @@ const native: Record<string, string> = {
   download: downloadIcon,
   moderation: moderationIcon,
   rooms: roomsIcon,
+  // The desktop's thread-list button uses the same symbol.
+  threads: roomsIcon,
+  follow: notificationsIcon,
   play: playIcon,
   pause: pauseIcon,
   volume: volumeIcon,

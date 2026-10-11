@@ -293,6 +293,7 @@ async fn body<T: DeserializeOwned>(response: Response) -> T {
 }
 fn plaintext() -> SendMessage {
     SendMessage {
+        also_in_room: false,
         operation_id: auth::random_token(),
         text: "must stay on the client".into(),
         quotes: vec![],

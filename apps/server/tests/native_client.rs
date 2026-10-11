@@ -173,6 +173,7 @@ async fn rust_client_exchanges_and_replays_on_real_server(pool: PgPool) {
     let room = alice.direct(&bob_session.user.id).await.unwrap();
     let snapshot = bob.snapshot().await.unwrap();
     let operation = SendMessage {
+        also_in_room: false,
         cards: Vec::new(),
         reply_to: None,
         quotes: vec![],

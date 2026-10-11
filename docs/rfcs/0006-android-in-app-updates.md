@@ -1,6 +1,6 @@
 # RFC 0006: Android updates from GitHub releases
 
-Status: proposed, feasibility research only. No application code or release workflow changed.
+Status: implemented on `codex/android-in-app-update-research`; validation and remaining device qualification below. The release workflow is unchanged.
 Date: 2026-10-11.
 Research branch: `codex/android-in-app-update-research`.
 Inspected worktree base: `db521ac9b2445eaa2579933a8fe0dbbb2698b49a`.
@@ -40,7 +40,7 @@ The worktree version is already newer than that published mobile release. A corr
 
 The APK itself was not downloaded or installed during this research. Its package metadata, actual signer and successful replacement of an installed build remain unverified.
 
-## Proposed user flow
+## User flow
 
 1. Settings > App shows the installed version and Check for updates. Checks do not depend on signing into a chat server.
 2. An optional foreground/startup check, at most every six hours, presents a dismissible update notice. Checking never starts a download or installation by itself. Provide an automatic-check switch.
@@ -70,12 +70,12 @@ Only arm64 devices can use today's CI APK. An x86_64 emulator can exercise metad
 
 ## Native boundary and verification
 
-Proposed files, all new unless noted:
+Implementation files:
 
 - `apps/mobile/lib/appUpdates.ts`: pure release parsing/selection and check scheduling, with injected fetch/storage for Node tests.
 - `apps/mobile/modules/app-updater/`: optional Android Expo module, Kotlin I/O, streaming SHA-256, package inspection, install permission, PackageInstaller session and persistent result state.
 - `apps/mobile/ui/appUpdates.tsx`: shared update state and native React Native controls; wire it into existing `AppCategory` and the root layout.
-- `apps/mobile/plugins/with-app-updater.js`: CNG-safe permission/receiver configuration where module manifest merging is insufficient. Register in `app.json` if needed.
+- `apps/mobile/modules/app-updater/android/src/main/AndroidManifest.xml`: CNG-safe manifest contributions for the install permission, non-exported receiver and confirmation activity. The updater needs no manifest config plugin. A separate `with-expo-package-list.js` build plugin explicitly registers Expo's generated Kotlin package list; native validation exposed its omission from the current template's compile inputs.
 - Existing English/French dictionaries: all app-visible messages.
 
 Use a native streaming downloader/hash so a roughly 90 MiB APK never travels through JS as bytes or base64. Stage into a dedicated private updater directory with a `.part` suffix; enforce expected byte count, storage budget, timeout and cancellation; close and verify before making the file eligible for installation. Revalidate any reused staged APK.
@@ -96,8 +96,19 @@ For the first implementation use `USER_ACTION_REQUIRED` on Android 12+ and handl
 
 Run mobile typecheck, lint and meaningful Node tests from `apps/mobile/`. New native code requires clean prebuild and a real native build/install; Metro alone cannot prove installation. Android 8+ permission behavior and Android 12+ session behavior need coverage within the application's actual supported OS range.
 
-When implemented, add the English Unreleased changelog entry and update the brain's mobile-native, settings and updater documentation plus parity. Current code has no Android updater; this proposal does not change that status. GTK already implements updates, SwiftUI still owes them, and Web uses server-delivered assets. iOS installation is outside this APK proposal.
+When implemented, add the English Unreleased changelog entry and update the brain's mobile-native, settings and updater documentation plus parity. Android now implements this updater; `brain/features/mobile-updates.md` describes the code and `brain/parity.md` records its platform status. GTK already implements updates, SwiftUI still owes them, and Web uses server-delivered assets. iOS installation is outside this APK proposal.
 
+## Validation (2026-10-11)
+
+- Mobile TypeScript check passes.
+- Full mobile regression suite: 1,708 tests pass, including eight updater discovery/restart tests and two CNG package-list registration guards.
+- Full mobile lint: zero errors, five pre-existing warnings outside the updater; the new updater files have zero warnings.
+- Kotlin updater compilation and six native stream-verification tests pass: valid streamed bytes, truncation, checksum mismatch, oversized body, cancellation and staged-file revalidation.
+- Full x86_64 debug APK build passes, including a clean Expo rebuild with the generated package-list fix. Windows C++ staging uses an ignored local Gradle init script with a short build directory to avoid Nitro's long-path limit.
+- Android 36.1 emulator: real GitHub metadata check, installed-version display and automatic-check preference survive relaunch; the app opens the per-source install grant and waits for permission.
+- From the app, a private staged same-debug-key x86_64 test APK upgrades 0.10.0 (1000) to 0.10.1 (1001) after Android confirmation. Cancelling leaves 0.10.0 intact and retry succeeds. A private app-data marker survives replacement; the native result receiver records success after the old JS process exits.
+- The native downloader fetches the real public 0.9.1 GitHub APK and verifies its expected byte count and SHA-256, then correctly refuses its lower version. Temporary fixture routes, staging and test metadata are removed; no test release is published.
+- Production arm64 GitHub APK replacement on a physical device, including retained chat sessions/databases: not yet qualified. The available emulator is x86_64; today's GitHub APK is arm64-only.
 ## Alternatives
 
 A Check for updates button that opens the matching release page is smaller but still requires the user to download and open the APK manually. Expo JS OTA updates do not replace APK/native-code updates. A third-party installer package is unnecessary given the existing local-module pattern.

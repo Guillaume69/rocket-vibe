@@ -65,4 +65,5 @@ two-way parity tracker is [../parity.md](../parity.md). Back to
 | [voice.md](voice.md) | RocketVibe server: voice sessions over LiveKit in every room, voice channels, ringing direct calls, who speaks; the Android module, the controller and screens; the desktop sidecar and core. |
 | [calls.md](calls.md) | Rocket.Chat servers: Jitsi over `video-conference.*`, availability probe, the mobile WebView exception and its origin lock, desktop call windows per platform. |
 | [sharing-and-links.md](sharing-and-links.md) | `rocketvibe://room/<rid>?host=` deep links, the incoming share screen, the outgoing-link guard, desktop drag and paste. |
+| [mobile-updates.md](mobile-updates.md) | Android GitHub APK updates: release checks, verified download, native installer and recovery. |
 | [desktop-updates.md](desktop-updates.md) | GitHub release discovery, cached check and dismissal, in-place replacement on Linux, installer on Windows, DMG on macOS. |

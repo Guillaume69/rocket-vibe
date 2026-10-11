@@ -6,7 +6,7 @@ The mobile app uses Expo's Continuous Native Generation: `android/` and `ios/` a
 
 `apps/mobile/.gitignore` ignores `/android/` and `/ios/` (and `modules/*/android/build/`). In SDK 57 `expo prebuild` wipes and regenerates by default, so a hand edit inside `android/` is silently lost at the next prebuild. This has happened: an ABI tweak made by hand in `gradle.properties` vanished and the APK grew from 60 to 150 MB, which is why `with-target-architectures.js` exists. `npm run prebuild` runs `expo prebuild --platform android --clean`; builds are local Gradle, never EAS (see [../operations.md](../operations.md)).
 
-`app.json` lists the plugins applied at prebuild: Expo's own (`expo-router`, `expo-secure-store`, `expo-sqlite`, `expo-notifications` with icon, colour and `default` channel, `expo-audio`, `expo-font` with the Baloo 2 and Nunito files, `expo-video`, `expo-image-picker` with permission texts, `expo-share-intent` with Android intent filters and iOS activation rules, `expo-sharing`) and the five local ones below. Android permissions declared there: `CAMERA`, `RECORD_AUDIO`, `MODIFY_AUDIO_SETTINGS`. `googleServicesFile` points at `google-services.json` (Android) and `GoogleService-Info.plist` (iOS), both gitignored secrets.
+`app.json` lists the plugins applied at prebuild: Expo's own (`expo-router`, `expo-secure-store`, `expo-sqlite`, `expo-notifications` with icon, colour and `default` channel, `expo-audio`, `expo-font` with the Baloo 2 and Nunito files, `expo-video`, `expo-image-picker` with permission texts, `expo-share-intent` with Android intent filters and iOS activation rules, `expo-sharing`) and the local plugins below. Android permissions declared there: `CAMERA`, `RECORD_AUDIO`, `MODIFY_AUDIO_SETTINGS`. `googleServicesFile` points at `google-services.json` (Android) and `GoogleService-Info.plist` (iOS), both gitignored secrets.
 
 ## Config plugins (`apps/mobile/plugins/`)
 
@@ -19,6 +19,7 @@ Each plugin that rewrites a generated file is idempotent (it checks for a marker
 | `ios-notification-service/NotificationService.swift` | Not a plugin but its payload: the Notification Service Extension. Reads the session from the shared keychain, fetches `push.get`, rewrites title and body, sets `threadIdentifier` to the rid and stores `ejson` in `userInfo["body"]` for expo-notifications' tap routing. No WorkManager equivalent: a failed fetch stays "New message". |
 | `with-target-architectures.js` | Sets `reactNativeArchitectures=arm64-v8a,x86_64` in `gradle.properties` (Pixel and Apple Silicon AVD are arm64, the Linux AVD is x86_64); drops about 55 MB of unused ABIs. CI overrides it to `arm64-v8a` on the Gradle command line. |
 | `with-signature-release.js` | Adds a `release` signing config fed by `RV_KEYSTORE`, `RV_KEYSTORE_PASSWORD`, `RV_KEY_ALIAS`, `RV_KEY_PASSWORD`, switches the release build type to it, and adds a task-graph guard that fails any Release task when `RV_KEYSTORE` is empty, rather than silently signing with the debug key (Android refuses an update signed by another key). |
+| `with-expo-package-list.js` | Registers Expo's generated Kotlin package list as an explicit Kotlin compilation input and dependency. Prevents a clean/cached build omitting `ExpoModulesPackageList`, which otherwise stops Expo modules loading at launch. |
 | `with-incoming-share.js` | Patches `MainActivity.onCreate`: when the activity is restored (`savedInstanceState`) or launched from history with a `SEND`/`SEND_MULTIPLE` intent, it swaps in the launcher `MAIN` intent, so a share is not replayed on every relaunch. |
 
 Push details are in [../features/notifications.md](../features/notifications.md) and `docs/PUSH.md`.
@@ -30,6 +31,7 @@ Autolinked by Expo from `modules/`. Each `index.ts` uses `requireOptionalNativeM
 | Module | Platforms | Purpose |
 |---|---|---|
 | `video-compressor` | Android (Kotlin, Media3 Transformer), iOS (Swift, AVFoundation) | `compress(uri, maxShortSide, videoBitrate)`: re-encodes a video to MP4 H.264 before upload, short side capped, writing into the app cache so `deleteIfTemporary` can clean it. Used by `ui/prepareAttachment.ts`; if the result is not smaller, the original is sent. |
+| `app-updater` | Android only | Private streamed APK download and SHA-256 verification, package/signer/version/SDK/ABI preflight, install-source permission, durable PackageInstaller sessions and confirmation notification. Its module manifest merges permission, receiver and activity through CNG. See [Android updates](../features/mobile-updates.md). |
 | `downloads` | Android only | `save(source, name, type)`: copies a cached file into the public Downloads folder (`MediaStore.Downloads` from Android 10, the public directory before). On iOS it is `null` and `ui/attachment.ts` opens the share sheet instead. |
 | `fcm-token` | iOS only | Hands the APNs token to Firebase and returns the FCM token Rocket.Chat expects as `gcm`; emits `tokenRefreshed` on rotation. Android gets its FCM token directly from `getDevicePushTokenAsync()` (`lib/push.ts`). |
 | `voice` | Android only (Kotlin, LiveKit Android SDK) | RocketVibe voice sessions: one process-wide LiveKit room in a microphone foreground service with an ongoing call notification, microphone, deafen, routes, a single `change` event with the whole snapshot, the voice sounds (copied from `assets/sounds` by its Gradle task), and incoming call rings (`VoiceRinging`, `IncomingCallActivity` over the lock screen). Removes LiveKit's screen-capture service from the manifest. See [voice](../features/voice.md). |
@@ -66,6 +68,12 @@ Prepared, never built. `app.json` has an `ios` section (`bundleIdentifier` `com.
 
 ## Sources
 
+- apps/mobile/modules/app-updater/index.ts
+- apps/mobile/modules/app-updater/android/src/main/AndroidManifest.xml
+- apps/mobile/modules/app-updater/android/src/main/java/com/rocketvibe/updater/AppUpdaterModule.kt
+- apps/mobile/modules/app-updater/android/src/main/java/com/rocketvibe/updater/UpdateResultReceiver.kt
+- apps/mobile/modules/app-updater/android/src/main/java/com/rocketvibe/updater/VerifiedDownload.kt
+
 - apps/mobile/.gitignore
 - apps/mobile/app.json
 - apps/mobile/package.json
@@ -77,6 +85,8 @@ Prepared, never built. `app.json` has an `ios` section (`bundleIdentifier` `com.
 - apps/mobile/plugins/with-target-architectures.js
 - apps/mobile/plugins/with-signature-release.js
 - apps/mobile/plugins/with-incoming-share.js
+- apps/mobile/plugins/with-expo-package-list.js
+- apps/mobile/plugins/with-expo-package-list.test.mjs
 - apps/mobile/modules/video-compressor/index.ts
 - apps/mobile/modules/video-compressor/android/src/main/java/com/rocketvibe/videocompressor/VideoCompressorModule.kt
 - apps/mobile/modules/video-compressor/ios/VideoCompressorModule.swift

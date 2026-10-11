@@ -101,6 +101,7 @@ Each feature doc covers mobile and desktop, and says where they differ.
 | [voice.md](features/voice.md) | RocketVibe server: voice channels, calls in every room and ringing DMs over LiveKit. |
 | [calls.md](features/calls.md) | Rocket.Chat servers: Jitsi calls, the mobile WebView exception, desktop call windows. |
 | [sharing-and-links.md](features/sharing-and-links.md) | `rocketvibe://` deep links, the incoming share screen, outgoing-link guard, drag and paste. |
+| [mobile-updates.md](features/mobile-updates.md) | Android GitHub APK updates: release checks, verified download, native installer and recovery. |
 | [desktop-updates.md](features/desktop-updates.md) | The desktop self-update from GitHub releases, per platform. |
 | [web-client.md](features/web-client.md) | Server-delivered web client, one origin/account, GTK design and browser limits. |
 

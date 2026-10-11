@@ -1456,6 +1456,18 @@ export class NativeChat {
     this.ready();
     await this.transport.addMember(rid,user.id);
   }
+  /**
+   * Removes a member (`DELETE /rooms/{room}/members/{user}`, room owner only).
+   * Not one of the versioned room commands: no operation id, and a replay of
+   * a removal already done answers `204` again. The room's details revision
+   * moves; its `room_upsert` arrives on the live socket.
+   */
+  async removeMember(rid: string, user: string): Promise<void> {
+    this.ready();
+    const generation=this.generation;
+    checkIdentity(this.session,await this.transport.discover());this.roomOperationGeneration(generation);
+    await this.transport.removeMember(rid,user);
+  }
   async users(): Promise<import('./protocol.generated.ts').User[]> {
     this.ready();
     const generation = this.generation;

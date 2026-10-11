@@ -205,6 +205,19 @@ describe('ActionsRC', () => {
     assert.deepEqual(calls, [{ path: 'rooms.saveRoomSettings', body: { rid: 'r1', roomTopic: '', roomAnnouncement: 'Hello' } }]);
   });
 
+  test('saveRoomSettings sends readOnly only when it is part of the change', async () => {
+    const { client, calls } = fakeClient({ success: true });
+    const a = new ActionsRC(client);
+    await a.saveRoomSettings('r1', { readOnly: true });
+    await a.saveRoomSettings('r1', { readOnly: false, description: 'D' });
+    await a.saveRoomSettings('r1', { topic: 'T' });
+    assert.deepEqual(calls.map((x) => x.body), [
+      { rid: 'r1', readOnly: true },
+      { rid: 'r1', roomDescription: 'D', readOnly: false },
+      { rid: 'r1', roomTopic: 'T' },
+    ]);
+  });
+
   test('member roles and removal take the room kind route', async () => {
     const { client, calls } = fakeClient({ success: true });
     const a = new ActionsRC(client);

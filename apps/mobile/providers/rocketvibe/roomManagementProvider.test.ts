@@ -19,7 +19,7 @@ test('room controls intersect capabilities, actor permissions and DM restriction
     const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',kind:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
     const {db,adapter}=nativeTestDatabase(),store=new NativeStore(adapter,createWriteQueue(),session);
     const room={...fixture.room,kind:scenario==='direct'?'direct':'private'};
-    const transport={discover:async()=>({...fixture.discovery,capabilities:{...fixture.discovery.capabilities,room_info:true,room_settings:scenario!=='unsupported',room_roles:scenario!=='unsupported',room_leave:scenario!=='unsupported',voice:scenario!=='silent'}}),me:async()=>fixture.session.user,changes:async()=>({protocol_version:1,changes:[],cursor:'initial',has_more:false}),socketUrl:async()=>'ws://localhost/fake',roomDetails:async()=>({...fixture.parity.room_details,room,voice:true,permissions:{...fixture.parity.room_details.permissions,role:scenario==='member'?'member':'owner',change_settings:owner}})} as unknown as NativeTransport;
+    const transport={discover:async()=>({...fixture.discovery,capabilities:{...fixture.discovery.capabilities,room_info:true,room_settings:scenario!=='unsupported',room_roles:scenario!=='unsupported',room_leave:scenario!=='unsupported',voice:scenario!=='silent'}}),me:async()=>fixture.session.user,changes:async()=>({protocol_version:1,changes:[],cursor:'initial',has_more:false}),socketUrl:async()=>'ws://localhost/fake',roomDetails:async()=>({...fixture.parity.room_details,room,voice:true,permissions:{...fixture.parity.room_details.permissions,role:scenario==='member'?'member':'owner',change_settings:owner,remove_member:owner||scenario==='direct',invite:owner||scenario==='direct'}})} as unknown as NativeTransport;
     const client={get:()=>{throw new Error('Native management cannot call Rocket.Chat');}} as unknown as RestClient;
     const provider=createRocketVibeProvider(session,client,()=>{throw new Error('Reads cannot create operations');},store,{transport,socket});
     try{
@@ -28,6 +28,9 @@ test('room controls intersect capabilities, actor permissions and DM restriction
       assert.equal(info.management?.canEdit,owner);
       assert.equal(info.management?.canChangeRoles,owner);
       assert.equal(info.management?.canLeave,owner||scenario==='member');
+      // Removal and addition follow the room rights, never in a DM.
+      assert.equal(info.management?.canRemove,owner);
+      assert.equal(info.management?.canInvite,owner);
       // The voice channel switch: an owner, not a DM, a server announcing voice.
       assert.equal(info.management?.voice,scenario==='owner'||scenario==='unsupported'?true:undefined);
       assert.equal(provider.capabilities.roomSettings,scenario!=='unsupported');
@@ -58,5 +61,25 @@ test('existing sheet actions retain saved fields, resume a receipt and explicitl
     await assert.rejects(actions.leave(fixture.room.id,'fresh'),(error:unknown)=>error instanceof NativeError && error.code==='last_room_owner');
     const failed=await actions.intention(fixture.room.id);assert.equal(failed?.type,'leave');assert.equal(failed?.failed,true);
     assert.equal(await actions.clear(fixture.room.id,'other-key'),false);assert.equal(await actions.clear(fixture.room.id,failed!.key),true);
+  }finally{provider.native!.chat.stop();await store.state();db.close();}
+});
+test('member removal and addition reach the owner routes with the account behind the username',async()=>{
+  const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',kind:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
+  const {db,adapter}=nativeTestDatabase(),store=new NativeStore(adapter,createWriteQueue(),session);
+  const calls:string[]=[];
+  const transport={discover:async()=>({...fixture.discovery,capabilities:{...fixture.discovery.capabilities,room_info:true}}),me:async()=>fixture.session.user,changes:async()=>({protocol_version:1,changes:[],cursor:'initial',has_more:false}),socketUrl:async()=>'ws://localhost/fake',
+    users:async()=>[{...fixture.session.user,id:'bob-id',username:'bob'}],
+    addMember:async(room:string,user:string)=>{calls.push(`add ${room} ${user}`);},
+    removeMember:async(room:string,user:string)=>{calls.push(`remove ${room} ${user}`);},
+  } as unknown as NativeTransport;
+  const client={post:()=>{throw new Error('Native management cannot call Rocket.Chat');}} as unknown as RestClient;
+  const provider=createRocketVibeProvider(session,client,()=>{throw new Error('Membership changes are not saved operations');},store,{transport,socket});
+  try{
+    await store.applySnapshot({protocol_version:1,rooms:[fixture.room],messages:[],cursor:'initial'});await provider.native!.chat.connect();const actions=provider.actions.roomManagement!;
+    await actions.invite(fixture.room.id,' bob ');
+    await actions.remove(fixture.room.id,'bob-id');
+    assert.deepEqual(calls,[`add ${fixture.room.id} bob-id`,`remove ${fixture.room.id} bob-id`]);
+    await assert.rejects(actions.invite(fixture.room.id,'nobody'),(error:unknown)=>error instanceof NativeError && error.code==='user_not_found');
+    assert.equal(await actions.intention(fixture.room.id),null);
   }finally{provider.native!.chat.stop();await store.state();db.close();}
 });

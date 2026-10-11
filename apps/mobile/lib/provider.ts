@@ -226,8 +226,8 @@ export interface ProviderActions {
   setMemberRole?(rid: string, type: string, userId: string, role: 'moderator' | 'owner', put: boolean): Promise<void>;
   /** Removes a member from the room. */
   removeMember?(rid: string, type: string, userId: string): Promise<void>;
-  /** Writes the given texts of the room (only those present). */
-  saveRoomSettings?(rid: string, fields: Partial<RoomTexts>): Promise<void>;
+  /** Writes the given settings of the room (only those present). */
+  saveRoomSettings?(rid: string, fields: RoomSettingsChange): Promise<void>;
   markRead(rid: string, observation?:ReadObservation): Promise<void>;
   /**
    * Makes the room unread again from its last message; the subscription the
@@ -257,6 +257,8 @@ export type MemberPage = { members: RoomMember[]; total: number };
 
 /** A room's texts as `ProviderActions.saveRoomSettings` writes them. */
 export type RoomTexts = { topic: string; description: string; announcement: string };
+/** What `ProviderActions.saveRoomSettings` sends: the changed texts and, when switched, read-only. */
+export type RoomSettingsChange = Partial<RoomTexts> & { readOnly?: boolean };
 
 /** One page of `ProviderActions.listThreads`. */
 export type ThreadPage = { threads: LocalMessage[]; total: number };
@@ -288,7 +290,8 @@ export type RoomRole = 'owner'|'moderator'|'member';
 /** `voice`: whether it is a voice channel, present only where an owner may change it (a
  * room that is not direct, on a server announcing voice); absent leaves the flag as it is. */
 export type RoomFields = {name:string;isPrivate:boolean;topic:string;description:string;announcement:string;readOnly:boolean;voice?:boolean};
-export type RoomSettings = RoomFields & {revision:string;canEdit:boolean;canChangeRoles:boolean;canLeave:boolean;role:RoomRole};
+/** `canRemove` / `canInvite`: my room rights (`remove_member`, `invite`), outside a DM. */
+export type RoomSettings = RoomFields & {revision:string;canEdit:boolean;canChangeRoles:boolean;canLeave:boolean;canRemove:boolean;canInvite:boolean;role:RoomRole};
 /** `bot`: a bot account (RocketVibe, RFC 0003); absent on Rocket.Chat. */
 export type ProviderRoomMember = {id:string;username:string;name:string|null;role:RoomRole;deactivated:boolean;bot?:boolean};
 export type ProviderRoomMemberPage = {revision:string;members:ProviderRoomMember[];continuation:string|null};
@@ -297,6 +300,10 @@ export type RoomManagement = {
   members(rid:string,continuation:string|null,revision:string):Promise<ProviderRoomMemberPage>;
   edit(rid:string,revision:string,fields:RoomFields):Promise<void>;
   changeRole(rid:string,revision:string,target:string,role:RoomRole):Promise<void>;
+  /** Removes a member (an owner's right); unversioned on the server, the room's revision moves. */
+  remove(rid:string,user:string):Promise<void>;
+  /** Adds the account with that username as a member (an owner's right). */
+  invite(rid:string,username:string):Promise<void>;
   leave(rid:string,revision:string):Promise<void>;
   intention(rid:string):Promise<RoomIntent|null>;
   resume(rid:string):Promise<void>;

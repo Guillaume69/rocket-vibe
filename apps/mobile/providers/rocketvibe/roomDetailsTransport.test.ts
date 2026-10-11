@@ -34,6 +34,22 @@ test('room operations use typed authenticated routes and original operation bodi
   assert.deepEqual(sent.slice(2,5).map(r=>JSON.parse(r.body!)),[update,role,leave]);
 });
 
+test('membership changes use the owner routes: POST to add, DELETE without a body to remove',async()=>{
+  const sent:{verb:string|undefined;path:string;body:unknown}[]=[];
+  const client = new NativeTransport('https://example.org',async(url,options)=>{
+    assert.equal(new Headers(options?.headers).get('authorization'),'Bearer saved-token');
+    sent.push({verb:options?.method,path:new URL(String(url)).pathname,body:options?.body});
+    return new Response(null,{status:204});
+  });
+  client.restore('saved-token');
+  await client.addMember('room id','bob-id');
+  await client.removeMember('room id','bob-id');
+  assert.deepEqual(sent,[
+    {verb:'POST',path:'/api/v1/rooms/room%20id/members/bob-id',body:'{}'},
+    {verb:'DELETE',path:'/api/v1/rooms/room%20id/members/bob-id',body:undefined},
+  ]);
+});
+
 test('room command cooldown preserves member reads and receipt recovery',async t=>{
   t.mock.timers.enable({apis:['Date']});
   let mutations=0;

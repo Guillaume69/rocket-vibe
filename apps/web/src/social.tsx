@@ -153,24 +153,85 @@ export function gifs(
   query = "",
   root?: string,
   onSent?: () => void,
-): void {
+): HTMLDialogElement | undefined {
   const held = capture(app);
   if (!held.room) return;
   const room = held.room,
-    [node, body] = dialog("GIF · Powered By GIPHY"),
+    [node, body] = dialog("GIF"),
     [qw, q] = field(t("social.search_gifs"), query);
+  node.classList.add("gif-picker");
   q.maxLength = 128;
   const grid = el("div", "social-media-grid"),
     error = el("p", "error");
-  let serial = 0;
-  const current = () => held.current() && node.open;
+  let serial = 0,
+    timer: ReturnType<typeof setTimeout> | undefined;
+  let selected:
+    | {
+        item: GifList["items"][number];
+        operation: string;
+        saveOperation: string;
+      }
+    | undefined;
+  let sending = false;
+  const current = () =>
+    held.current() && node.open && (!root || app.root === root);
+  const send = button(
+    t("social.send"),
+    async () => {
+      if (!current() || !selected || sending) return;
+      const choice = selected;
+      sending = true;
+      q.disabled = true;
+      grid.inert = true;
+      try {
+        await app.api.request(
+          "/api/v1/rooms/" + segment(room) + "/images",
+          "POST",
+          {
+            operation_id: choice.operation,
+            title: choice.item.title || "GIF",
+            url: choice.item.url,
+            reply_to: root ?? null,
+          },
+        );
+        if (current()) {
+          onSent?.();
+          node.close();
+        }
+      } finally {
+        sending = false;
+        q.disabled = false;
+        grid.inert = false;
+      }
+    },
+    "suggested",
+  );
+  send.disabled = true;
+  const save = button(t("social.save_to_sticker_shelf"), async () => {
+    if (!current() || !selected || sending) return;
+    const choice = selected;
+    await app.api.request("/api/v1/stickers", "POST", {
+      operation_id: choice.saveOperation,
+      name: (choice.item.title || "GIF").slice(0, 100),
+      url: choice.item.url,
+    });
+    if (current() && selected === choice) {
+      save.textContent = t("social.saved");
+      save.disabled = true;
+    }
+  });
+  save.disabled = true;
   const search = async () => {
-    const version = ++serial;
+    const version = ++serial,
+      term = q.value;
+    selected = undefined;
+    send.disabled = true;
+    save.disabled = true;
     error.textContent = "";
     grid.replaceChildren(el("p", "dim", t("social.searching")));
     try {
       const result = await app.api.request<GifList>(
-        "/api/v1/gifs?q=" + encodeURIComponent(q.value),
+        "/api/v1/gifs?q=" + encodeURIComponent(term),
       );
       if (!current() || version !== serial) return;
       grid.replaceChildren();
@@ -183,37 +244,29 @@ export function gifs(
         image.referrerPolicy = "no-referrer";
         const sendId = operation(),
           saveId = operation();
-        const send = button(
-          t("social.send"),
-          async () => {
-            if (!current()) return;
-            await app.api.request(
-              "/api/v1/rooms/" + segment(room) + "/images",
-              "POST",
-              {
-                operation_id: sendId,
-                title: item.title || "GIF",
-                url: item.url,
-                reply_to: root ?? null,
-              },
-            );
-            if (current()) {
-              onSent?.();
-              node.close();
-            }
+        const choose = button(
+          item.title || t("social.select"),
+          () => {
+            if (!current() || sending || version !== serial) return;
+            selected = { item, operation: sendId, saveOperation: saveId };
+            for (const option of grid.querySelectorAll<HTMLButtonElement>(
+              ".gif-choice",
+            ))
+              option.setAttribute("aria-pressed", String(option === choose));
+            send.disabled = false;
+            save.disabled = false;
+            save.textContent = t("social.save_to_sticker_shelf");
+            q.focus();
           },
-          "suggested",
+          "flat gif-choice",
         );
-        const save = button(t("social.save_to_sticker_shelf"), async () => {
-          if (!current()) return;
-          await app.api.request("/api/v1/stickers", "POST", {
-            operation_id: saveId,
-            name: (item.title || "GIF").slice(0, 100),
-            url: item.url,
-          });
-          if (current()) save.textContent = t("social.saved");
-        });
-        wrap.append(image, send, save);
+        choose.setAttribute("aria-pressed", "false");
+        choose.setAttribute("aria-label", item.title || t("social.select"));
+        choose.replaceChildren(
+          image,
+          el("span", "", item.title || t("social.select")),
+        );
+        wrap.append(choose);
         grid.append(wrap);
       }
       if (!result.items.length)
@@ -227,17 +280,36 @@ export function gifs(
           : t("social.search_failed_try_again");
     }
   };
-  body.append(qw, button(t("social.search"), search), error, grid);
-  q.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      void search();
+  const footer = el("div", "gif-footer");
+  footer.append(el("span", "dim", "Powered By GIPHY"), save, send);
+  body.append(qw, error, grid, footer);
+  q.addEventListener("input", () => {
+    ++serial;
+    selected = undefined;
+    send.disabled = true;
+    save.disabled = true;
+    grid.replaceChildren(el("p", "dim", t("social.searching")));
+    clearTimeout(timer);
+    timer = setTimeout(() => void search(), 300);
+  });
+  node.addEventListener("keydown", (event) => {
+    if (
+      event.key === "Enter" &&
+      !event.isComposing &&
+      !event.shiftKey &&
+      !(event.target instanceof HTMLButtonElement)
+    ) {
+      event.preventDefault();
+      if (!send.disabled) send.click();
     }
   });
   node.addEventListener("close", () => {
-    serial++;
+    ++serial;
+    clearTimeout(timer);
   });
+  q.focus();
   void search();
+  return node;
 }
 export function stickers(app: App, root?: string): void {
   const held = capture(app);

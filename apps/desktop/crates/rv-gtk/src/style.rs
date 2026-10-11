@@ -3,6 +3,11 @@
 use gtk::gdk;
 
 const CSS: &str = r#"
+button.gif-choice { padding: 3px; border: 2px solid transparent; border-radius: 12px; background: #171529; }
+button.gif-choice:hover { background: #24203A; }
+button.gif-choice:checked { border-color: #FF5FA2; background: #2C2038; }
+.gif-grid flowboxchild { padding: 0; }
+entry.gif-search { min-height: 36px; border-radius: 12px; }
 .voice-reaction-strip { font-size: 32px; padding: 4px; }
 .social-card { padding: 14px; border-radius: 14px; background: #171529; border: 1px solid #30294a; }
 :root {

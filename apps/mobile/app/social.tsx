@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import {
   ScrollView,
   View,
@@ -18,6 +18,7 @@ import { useLanguage } from "../ui/i18n.ts";
 import { translate } from "../ui/messages.ts";
 import { useColors, FONTS, type Colors } from "../ui/theme.ts";
 import { useSheetBottomMargin } from "../ui/sheetMargin.ts";
+import { KeyboardAvoidingContainer } from "../ui/keyboard.tsx";
 import { readLocalStickers, writeLocalStickers } from "../ui/social.tsx";
 import { finishGifSelection } from "../ui/gifSelection.ts";
 import {
@@ -95,6 +96,8 @@ export default function SocialScreen() {
     [query, setQuery] = useState(params.q ?? ""),
     [url, setUrl] = useState(""),
     [items, setItems] = useState<Media[]>([]),
+    [selected, setSelected] = useState<Media | null>(null),
+    [searching, setSearching] = useState(params.mode === "giphy"),
     [resultQuery, setResultQuery] = useState(query),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
@@ -150,6 +153,8 @@ export default function SocialScreen() {
     if (!active()) return;
     setError("");
     setItems([]);
+    setSelected(null);
+    setSearching(true);
     try {
       if (next === "stickers") {
         const stickers = chat
@@ -187,16 +192,24 @@ export default function SocialScreen() {
             ? translate(language, "social.giphy_is_unavailable_on_this_server")
             : translate(language, "social.could_not_load_the_shelf"),
         );
+    } finally {
+      if (active() && version === request.current) setSearching(false);
     }
   };
+  const gifQuery = mode === "giphy" ? query : "";
+  const loadMedia = useEffectEvent((next: Mode) => { void load(next); });
   useEffect(() => {
     if (mode === "stickers" || mode === "giphy") {
-      const timer = setTimeout(() => void load(mode), 0);
-      return () => clearTimeout(timer);
+      request.current++;
+      const timer = setTimeout(() => loadMedia(mode), mode === "giphy" ? 300 : 0);
+      return () => { clearTimeout(timer); request.current++; };
     }
-  }, [mode, account]);
+  }, [mode, account, gifQuery]);
   const change = (next: Mode) => {
     request.current++;
+    setSelected(null);
+    setItems([]);
+    setSearching(next === "giphy" || next === "stickers");
     setMode(next);
     setError("");
   };
@@ -245,6 +258,7 @@ export default function SocialScreen() {
     });
   const send = (item: Media) =>
     run(async () => {
+      if (mode === "giphy" && query !== resultQuery) return;
       if (chat)
         await chat.transport.sendImage(params.rid, {
           operation_id: op("send:" + item.url),
@@ -358,6 +372,41 @@ export default function SocialScreen() {
         autoCapitalize="sentences"
       />
     </View>
+  );
+  if (mode === "giphy") return (
+    <KeyboardAvoidingContainer>
+    <View style={{ flex: 1, backgroundColor: c.deepCard, padding: 20, paddingBottom: bottom, gap: 14 }}>
+      <Text style={[styles.heading, { color: c.text }]}>GIF</Text>
+      <TextInput
+        accessibilityLabel={translate(language, "social.search_gifs")}
+        placeholder={translate(language, "social.search_gifs")}
+        placeholderTextColor={c.dimmed}
+        value={query} maxLength={128} autoFocus autoCorrect={false} autoCapitalize="none"
+        onChangeText={value => { request.current++; setSelected(null); setItems([]); setSearching(true); setQuery(value); }}
+        onSubmitEditing={() => { if (selected && !searching) void send(selected); }}
+        returnKeyType={selected ? "send" : "search"} blurOnSubmit={false} editable={!busy}
+        style={[styles.input, { color: c.text, borderColor: c.border }]}
+      />
+      {error !== "" && <Text accessibilityLiveRegion="polite" style={{ color: c.errorText }}>{error}</Text>}
+      {searching && <ActivityIndicator color={c.accent} />}
+      <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 10 }}>
+        {!searching && !items.length && !error && <Text style={{ color: c.dimmed }}>{translate(language, "social.no_gifs_found")}</Text>}
+        <View style={styles.grid}>
+          {items.map(item => <Pressable key={item.id} accessibilityRole="button" accessibilityLabel={item.name}
+            accessibilityState={{ selected: selected?.id === item.id, disabled: busy }} disabled={busy}
+            onPress={() => setSelected(item)}
+            style={[styles.item, { borderWidth: 2, borderColor: selected?.id === item.id ? c.accent : c.border, backgroundColor: c.card }]}>
+            <Image source={{ uri: item.url }} style={{ height: 145, width: "100%" }} resizeMode="contain" />
+          </Pressable>)}
+        </View>
+      </ScrollView>
+      <Text style={{ color: c.dimmed }}>Powered By GIPHY</Text>
+      <View style={styles.row}>
+        <SocialAction text={translate(language, "social.save_to_sticker_shelf")} onPress={() => { if (selected) void save(selected); }} busy={busy || searching || !selected} c={c} />
+        <SocialAction text={translate(language, "social.send")} onPress={() => { if (selected) void send(selected); }} busy={busy || searching || !selected} selected={!!selected} c={c} />
+      </View>
+    </View>
+    </KeyboardAvoidingContainer>
   );
   return (
     <ScrollView
@@ -536,65 +585,14 @@ export default function SocialScreen() {
           }
         </>
       )}
-      {mode === "giphy" && (
-        <>
-          {field(translate(language, "social.search_gifs"), query, setQuery)}
-          {
-            <SocialAction
-              text={translate(language, "social.search")}
-              onPress={() => void load("giphy")}
-              selected={false}
-              busy={busy}
-              c={c}
-            />
-          }
-          <Text style={{ color: c.dimmed }}>Powered By GIPHY</Text>
-        </>
-      )}
-      {(mode === "giphy" || mode === "stickers") && (
+      {mode === "stickers" && (
         <View style={styles.grid}>
-          {items.map((item) => (
-            <View
-              key={item.id}
-              style={[styles.item, { borderColor: c.border }]}
-            >
-              <Image
-                source={{ uri: item.url }}
-                style={{ height: 130, width: "100%" }}
-                resizeMode="contain"
-                accessibilityLabel={item.name}
-              />
-              <Text numberOfLines={2} style={{ color: c.text }}>
-                {item.name}
-              </Text>
-              {
-                <SocialAction
-                  text={translate(language, "social.send")}
-                  onPress={() => void send(item)}
-                  selected={false}
-                  busy={busy}
-                  c={c}
-                />
-              }
-              {mode === "giphy" ? (
-                <SocialAction
-                  text={translate(language, "social.save")}
-                  onPress={() => void save(item)}
-                  selected={false}
-                  busy={busy}
-                  c={c}
-                />
-              ) : (
-                <SocialAction
-                  text={translate(language, "social.remove")}
-                  onPress={() => void remove(item)}
-                  selected={false}
-                  busy={busy}
-                  c={c}
-                />
-              )}
-            </View>
-          ))}
+          {items.map(item => <View key={item.id} style={[styles.item, { borderColor: c.border }]}>
+            <Image source={{ uri: item.url }} style={{ height: 130, width: "100%" }} resizeMode="contain" accessibilityLabel={item.name} />
+            <Text numberOfLines={2} style={{ color: c.text }}>{item.name}</Text>
+            <SocialAction text={translate(language, "social.send")} onPress={() => void send(item)} busy={busy} c={c} />
+            <SocialAction text={translate(language, "social.remove")} onPress={() => void remove(item)} busy={busy} c={c} />
+          </View>)}
         </View>
       )}
       {mode === "stickers" && (

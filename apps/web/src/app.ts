@@ -1025,6 +1025,7 @@ export class App implements RowActions {
       () => {
         void this.saveDraft();
         void this.setTyping(true);
+        if (this.openGifPicker(this.composer.value)) return;
         void this.complete().catch(toast);
         this.composer.style.height = "auto";
         this.composer.style.height =
@@ -1853,6 +1854,51 @@ export class App implements RowActions {
         this.composer.value,
       );
   }
+  private gifPicker?: HTMLDialogElement;
+  openGifPicker(text: string, root?: string): boolean {
+    if (
+      !this.account ||
+      !this.room ||
+      !this.draftReady ||
+      this.quote ||
+      this.staged.length ||
+      this.model.rooms.get(this.room)?.encrypted ||
+      this.roomPermissions.get(this.room)?.send === false ||
+      !/^\/giphy(?:\s|$)/i.test(text.trim()) ||
+      !this.info?.capabilities.giphy
+    )
+      return false;
+    if (this.gifPicker?.open) return true;
+    this.completion.replaceChildren();
+    const picker = gifs(
+      this,
+      text.trim().replace(/^\/giphy\s*/i, ""),
+      root,
+      () => {
+        const editor = root ? this.threadComposer : this.composer;
+        if (editor?.value === text) {
+          editor.value = "";
+          if (root && this.account && this.room)
+            void write(
+              "drafts",
+              this.account.key + ":" + this.room + ":thread:" + root,
+              "",
+            );
+          else void this.saveDraft();
+        }
+      },
+    );
+    this.gifPicker = picker;
+    if (picker)
+      picker.addEventListener(
+        "close",
+        () => {
+          if (this.gifPicker === picker) this.gifPicker = undefined;
+        },
+        { once: true },
+      );
+    return true;
+  }
   async send(
     text = this.composer.value,
     root?: string,
@@ -1871,27 +1917,7 @@ export class App implements RowActions {
       this.roomPermissions.get(this.room)?.send === false
     )
       return;
-    if (
-      !this.quote &&
-      !this.staged.length &&
-      /^\/giphy(?:\s|$)/i.test(text.trim()) &&
-      this.info?.capabilities.giphy
-    ) {
-      gifs(this, text.trim().replace(/^\/giphy\s*/i, ""), root, () => {
-        const editor = root ? this.threadComposer : this.composer;
-        if (editor?.value === text) {
-          editor.value = "";
-          if (root && this.account && this.room)
-            void write(
-              "drafts",
-              this.account.key + ":" + this.room + ":thread:" + root,
-              "",
-            );
-          else void this.saveDraft();
-        }
-      });
-      return;
-    }
+    if (this.openGifPicker(text, root)) return;
     const account = this.account,
       room = this.room,
       opening = this.roomOpening,
@@ -2932,6 +2958,7 @@ export class App implements RowActions {
                 : ""),
             () => {
               this.composer.value = "/" + item.command + " ";
+              this.openGifPicker(this.composer.value);
               this.completion.replaceChildren();
               this.composer.focus();
               void this.saveDraft();

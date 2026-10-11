@@ -50,6 +50,9 @@ struct SocialPanel: View {
     @State var error: String?
     @State var attempts: [String: String] = [:]
     @State var searchVersion = 0
+    @State var selected: SocialMediaItem?
+    @State var searching = false
+    @FocusState var searchFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -60,8 +63,8 @@ struct SocialPanel: View {
                     Button(L("social.poll")) { mode = "poll" }
                     Button(L("social.game")) { mode = "game" }
                 }
-                Button(L("social.shelf")) { mode = "stickers"; Task { await load() } }
-                if model.supportsGiphy { Button("GIF · Powered By GIPHY") { mode = "giphy"; Task { await load() } } }
+                Button(L("social.shelf")) { mode = "stickers" }
+                if model.supportsGiphy { Button("GIF · Powered By GIPHY") { mode = "giphy" } }
             } else if mode == "poll" || mode == "game" {
                 TextField(L("social.title"), text: $title)
                 if mode == "poll" {
@@ -76,32 +79,67 @@ struct SocialPanel: View {
                 Button(L("social.post")) { act { try await create(); dismiss() } }.disabled(busy || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             } else {
                 if mode == "giphy" {
-                    HStack { TextField(L("social.search"), text: $query).onSubmit { Task { await load() } }; Button(L("social.search")) { Task { await load() } } }
+                    TextField(L("social.search_gifs"), text: $query)
+                        .focused($searchFocused)
+                        .disabled(busy)
+                        .onSubmit { sendSelected() }
                 }
                 ScrollView {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 160))], spacing: 12) {
                         ForEach(items, id: \.id) { item in
                             VStack {
-                                SocialImage(url: item.url).frame(height: 130).accessibilityLabel(item.title)
-                                Text(item.title).lineLimit(2)
-                                HStack {
-                                    Button(L("composer.send")) { act { try await model.socialSend(item, operation: attempt("send:" + item.url), gif: mode == "giphy", query: searched); onSent(); dismiss() } }
-                                    if mode == "giphy" { Button(L("social.save")) { act { try await model.socialSave(item, operation: attempt("save:" + item.url)) } } }
-                                    else { Button(L("social.remove")) { act { try await model.socialRemove(item.id); await load() } } }
-                                }.disabled(busy)
+                                if mode == "giphy" {
+                                    Button { selected = item; searchFocused = true } label: {
+                                        SocialImage(url: item.url).frame(height: 130).accessibilityLabel(item.title)
+                                    }.buttonStyle(.plain).disabled(busy)
+                                } else { SocialImage(url: item.url).frame(height: 130).accessibilityLabel(item.title) }
+                                if mode != "giphy" {
+                                    Text(item.title).lineLimit(2)
+                                    HStack {
+                                        Button(L("composer.send")) { act { try await model.socialSend(item, operation: attempt("send:" + item.url), gif: false, query: searched); onSent(); dismiss() } }
+                                        Button(L("social.remove")) { act { try await model.socialRemove(item.id); await load() } }
+                                    }.disabled(busy)
+                                }
                             }.padding(10).background(Vibe.card, in: RoundedRectangle(cornerRadius: 12))
+                                .overlay(RoundedRectangle(cornerRadius: 12).stroke(selected?.id == item.id ? Vibe.pink : .clear, lineWidth: 2))
                         }
                     }
-                    if items.isEmpty && !busy { Text(L("social.empty")).foregroundStyle(Vibe.muted) }
+                    if searching { ProgressView() }
+                    else if items.isEmpty && !busy { Text(L("social.empty")).foregroundStyle(Vibe.muted) }
                 }.frame(minHeight: 160, maxHeight: 360)
                 if mode == "stickers" {
                     TextField(L("social.title"), text: $title); TextField("https://…", text: $url)
                     Button(L("social.add")) { act { let item = SocialMediaItem(id: "", title: title, url: url); try await model.socialSave(item, operation: attempt("add:" + title + url)); title = ""; url = ""; await load() } }.disabled(busy)
-                } else { Text("Powered By GIPHY").font(.caption).foregroundStyle(Vibe.muted) }
+                } else {
+                    HStack {
+                        Text("Powered By GIPHY").font(.caption).foregroundStyle(Vibe.muted)
+                        Spacer()
+                        Button(L("social.save_to_sticker_shelf")) {
+                            if let item = selected { act { try await model.socialSave(item, operation: attempt("save:" + item.url)) } }
+                        }.disabled(busy || searching || selected == nil)
+                        Button(L("composer.send")) { sendSelected() }
+                            .disabled(busy || searching || selected == nil)
+                            .windowShortcut(KeyboardShortcut(.return, modifiers: []))
+                    }
+                }
             }
             if busy { ProgressView() }
         }.padding(22).frame(width: 560)
-        .task { mode = initialMode; query = initialQuery; if mode == "giphy" || mode == "stickers" { await load() } }
+        .task { mode = initialMode; query = initialQuery }
+        .task(id: mode + ":" + query) {
+            guard mode == "giphy" || mode == "stickers" else { return }
+            selected = nil; items = []; searching = true
+            if mode == "giphy" {
+                do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
+            }
+            guard !Task.isCancelled else { return }
+            await load()
+        }
+        .onChange(of: query) { _, _ in
+            guard mode == "giphy" else { return }
+            searchVersion += 1; selected = nil; items = []; searching = true
+        }
+        .onAppear { searchFocused = initialMode == "giphy" }
         .onDisappear { searchVersion += 1 }
     }
     var heading: String { mode == "poll" ? L("social.poll") : mode == "game" ? L("social.game") : mode == "giphy" ? "GIF · Powered By GIPHY" : L("social.shelf") }
@@ -112,8 +150,14 @@ struct SocialPanel: View {
     }
     func load() async {
         searchVersion += 1; let version = searchVersion; let heldQuery = query
+        selected = nil; items = []; searching = true
+        defer { if version == searchVersion { searching = false } }
         do { let found = try await model.socialMedia(gifs: mode == "giphy", query: heldQuery); guard version == searchVersion else { return }; items = found; searched = heldQuery; error = nil }
         catch { if version == searchVersion { self.error = L("social.failed") } }
+    }
+    func sendSelected() {
+        guard !busy, !searching, let item = selected, query == searched else { return }
+        act { try await model.socialSend(item, operation: attempt("send:" + item.url), gif: true, query: searched); onSent(); dismiss() }
     }
     func create() async throws {
         let key = "create:" + mode + title + details + String(multiple) + String(closes) + String(date.timeIntervalSince1970)

@@ -11,6 +11,7 @@ release, and its notes are that version's section here.
 
 - Scope Mattermost and kChat searches to the current channel, direct conversation or group before the server's result limit, so busy teams no longer hide older room matches.
 - Mattermost and kChat protected media now belongs to its account and live session. Logout and account switching remove media credentials and cached copies, and late downloads cannot restore them.
+- Typing /giphy opens a compact GIF grid immediately. Search updates as you type in both the command and sharing-menu pickers; choosing a GIF highlights it, and Enter or the shared Send button sends it. Search changes discard old selections and stale responses, and cancellation preserves the draft.
 - Isolate account databases with a SHA-256 identity, preserve unambiguous legacy drafts and pending sends during upgrade, and reconcile existing reminders with the new identity.
 - Commit optimistic messages and their outbox entries together, so a failed queue write leaves no orphaned message.
 - Keep Rocket.Chat, Mattermost and kChat HTTP deadlines and cancellation active until the response body finishes.

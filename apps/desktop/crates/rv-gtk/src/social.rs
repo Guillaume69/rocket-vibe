@@ -18,6 +18,17 @@ pub enum Target {
     Legacy { session: Arc<Session>, room: String, root: Option<String> },
 }
 impl Target {
+    pub fn supports_gifs(&self) -> bool {
+        match self {
+            Self::Native { session, room, .. } => {
+                session.social_supported("giphy")
+                    && session.store.room_encrypted(room).is_ok_and(|encrypted| !encrypted)
+            }
+            Self::Legacy { session, room, .. } => {
+                session.info.mattermost.is_none() && !session.store.room_encrypted(room)
+            }
+        }
+    }
     pub fn room(&self) -> &str {
         match self {
             Self::Native { room, .. } | Self::Legacy { room, .. } => room,
@@ -154,6 +165,9 @@ fn clear(body: &gtk::Box) {
     }
 }
 fn image(url: &str) -> gtk::Picture {
+    image_preview(url, 512)
+}
+fn image_preview(url: &str, max_edge: i32) -> gtk::Picture {
     let picture = gtk::Picture::builder()
         .content_fit(gtk::ContentFit::Contain)
         .width_request(180)
@@ -166,8 +180,8 @@ fn image(url: &str) -> gtk::Picture {
         let bytes = on_tokio(async move { rv_core::social::image_bytes(&url).await }).await;
         let (Some(picture), Ok(bytes)) = (weak.upgrade(), bytes) else { return };
         let loader = gtk::gdk_pixbuf::PixbufLoader::new();
-        loader.connect_size_prepared(|loader, width, height| {
-            let scale = 512.0 / f64::from(width.max(height).max(512));
+        loader.connect_size_prepared(move |loader, width, height| {
+            let scale = f64::from(max_edge) / f64::from(width.max(height).max(max_edge));
             loader.set_size((f64::from(width) * scale) as i32, (f64::from(height) * scale) as i32);
         });
         if loader.write(&bytes).is_err() || loader.close().is_err() {
@@ -194,6 +208,7 @@ fn image(url: &str) -> gtk::Picture {
 }
 pub fn menu(anchor: &gtk::Widget, target: Target) {
     let (d, body) = dialog(anchor, rv_core::i18n::t("social.share_something"));
+    d.set_content_height(220);
     if target.native().is_some_and(|s| s.can_social(target.room())) {
         for (kind, label) in
             [(false, rv_core::i18n::t("social.poll").to_owned()), (true, rv_core::i18n::t("social.game").to_owned())]
@@ -221,8 +236,290 @@ pub fn menu(anchor: &gtk::Widget, target: Target) {
         body.append(&b);
     }
 }
+/// A selection is staged locally. Only Return or Send executes the preview.
+pub fn gif_gallery(anchor: &gtk::Widget, target: Target, query: &str, on_sent: Option<Rc<dyn Fn()>>) -> adw::Dialog {
+    let d = adw::Dialog::builder().title("GIF").content_width(720).content_height(600).build();
+    d.add_css_class("gif-picker");
+    let panel = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    let header = adw::HeaderBar::new();
+    header.set_title_widget(Some(&gtk::Label::new(Some("GIF"))));
+    panel.append(&header);
+    let body = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(12)
+        .margin_top(16)
+        .margin_bottom(16)
+        .margin_start(20)
+        .margin_end(20)
+        .vexpand(true)
+        .build();
+    panel.append(&body);
+    d.set_child(Some(&panel));
+    let q = gtk::Entry::builder()
+        .placeholder_text(rv_core::i18n::t("social.search_gifs"))
+        .primary_icon_name("system-search-symbolic")
+        .css_classes(["gif-search"])
+        .build();
+    body.append(&q);
+    q.set_widget_name("gif-search");
+    q.set_max_length(128);
+    q.set_text(query);
+    let error = status(&body);
+    let grid = gtk::FlowBox::builder()
+        .selection_mode(gtk::SelectionMode::None)
+        .max_children_per_line(3)
+        .homogeneous(true)
+        .min_children_per_line(1)
+        .row_spacing(12)
+        .column_spacing(12)
+        .build();
+    grid.add_css_class("gif-grid");
+    grid.set_widget_name("gif-grid");
+    let scroll = gtk::ScrolledWindow::builder()
+        .vexpand(true)
+        .min_content_height(280)
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .child(&grid)
+        .build();
+    body.append(&scroll);
+    let footer = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+    footer.append(
+        &gtk::Label::builder().label("Powered By GIPHY").hexpand(true).xalign(0.0).css_classes(["dim-label"]).build(),
+    );
+    let save = gtk::Button::with_label(rv_core::i18n::t("social.save_to_sticker_shelf"));
+    save.set_sensitive(false);
+    footer.append(&save);
+    let send = gtk::Button::with_label(rv_core::i18n::t("social.send"));
+    send.add_css_class("suggested-action");
+    send.set_widget_name("gif-send");
+    send.set_sensitive(false);
+    footer.append(&send);
+    body.append(&footer);
+    let selected = Rc::new(RefCell::new(None::<(Choice, String, String, String)>));
+    let sequence = Rc::new(Cell::new(0u64));
+    let busy = Rc::new(Cell::new(false));
+    save.connect_clicked({
+        let (selected, target, error, d, sequence) =
+            (selected.clone(), target.clone(), error.clone(), d.downgrade(), sequence.clone());
+        move |b| {
+            let Some((choice, _, _, id)) = selected.borrow().clone() else { return };
+            b.set_sensitive(false);
+            let version = sequence.get();
+            let (target, error, b, d, sequence, selected) =
+                (target.clone(), error.clone(), b.downgrade(), d.clone(), sequence.clone(), selected.clone());
+            let expected_id = id.clone();
+            glib::spawn_future_local(async move {
+                let result = on_tokio(async move { target.save(&choice, &id).await }).await;
+                if d.upgrade().is_none_or(|d| !d.is_mapped())
+                    || sequence.get() != version
+                    || selected.borrow().as_ref().is_none_or(|(_, _, _, id)| *id != expected_id)
+                {
+                    return;
+                }
+                if let Some(b) = b.upgrade() {
+                    match result {
+                        Ok(()) => b.set_label(rv_core::i18n::t("social.saved")),
+                        Err(e) => {
+                            error.set_label(&e);
+                            b.set_sensitive(true);
+                        }
+                    }
+                }
+            });
+        }
+    });
+    send.connect_clicked({
+        let (d, q, grid, error, target, selected, busy) = (
+            d.downgrade(),
+            q.downgrade(),
+            grid.downgrade(),
+            error.clone(),
+            target.clone(),
+            selected.clone(),
+            busy.clone(),
+        );
+        move |button| {
+            let (Some(q), Some(grid)) = (q.upgrade(), grid.upgrade()) else { return };
+            if busy.get() {
+                return;
+            }
+            let Some((choice, query, id, _)) = selected.borrow().clone() else { return };
+            busy.set(true);
+            button.set_sensitive(false);
+            q.set_sensitive(false);
+            grid.set_sensitive(false);
+            let (d, q, grid, error, target, busy, button, sent) = (
+                d.clone(),
+                q.clone(),
+                grid.clone(),
+                error.clone(),
+                target.clone(),
+                busy.clone(),
+                button.downgrade(),
+                on_sent.clone(),
+            );
+            glib::spawn_future_local(async move {
+                let result = on_tokio(async move { target.send(&choice, &query, &id).await }).await;
+                busy.set(false);
+                q.set_sensitive(true);
+                grid.set_sensitive(true);
+                if let Some(button) = button.upgrade() {
+                    button.set_sensitive(true);
+                }
+                if let Some(d) = d.upgrade().filter(|d| d.is_mapped()) {
+                    match result {
+                        Ok(()) => {
+                            if let Some(sent) = sent {
+                                sent();
+                            }
+                            d.close();
+                        }
+                        Err(e) => error.set_label(&e),
+                    }
+                }
+            });
+        }
+    });
+    let load = Rc::new({
+        let (d, q, grid, error, target, selected, sequence, send, save) = (
+            d.downgrade(),
+            q.downgrade(),
+            grid.clone(),
+            error.clone(),
+            target.clone(),
+            selected.clone(),
+            sequence.clone(),
+            send.clone(),
+            save.clone(),
+        );
+        move || {
+            let Some(q) = q.upgrade() else { return };
+            let serial = sequence.get() + 1;
+            sequence.set(serial);
+            selected.replace(None);
+            send.set_sensitive(false);
+            save.set_sensitive(false);
+            while let Some(child) = grid.first_child() {
+                grid.remove(&child);
+            }
+            error.set_label(rv_core::i18n::t("social.searching"));
+            let query = q.text().to_string();
+            let (d, grid, error, target, selected, sequence, send, save) = (
+                d.clone(),
+                grid.clone(),
+                error.clone(),
+                target.clone(),
+                selected.clone(),
+                sequence.clone(),
+                send.clone(),
+                save.clone(),
+            );
+            glib::spawn_future_local(async move {
+                let (reader, search) = (target.clone(), query.clone());
+                let result = on_tokio(async move { reader.gifs(&search).await }).await;
+                let Some(d) = d.upgrade().filter(|d| d.is_mapped()) else { return };
+                if serial != sequence.get() {
+                    return;
+                }
+                match result {
+                    Err(e) => error.set_label(&e),
+                    Ok(items) => {
+                        error.set_label(if items.is_empty() { rv_core::i18n::t("social.no_gifs_found") } else { "" });
+                        let mut first = None::<gtk::ToggleButton>;
+                        for item in items {
+                            let choose = gtk::ToggleButton::new();
+                            choose.add_css_class("gif-choice");
+                            choose.set_tooltip_text(Some(&item.title));
+                            if let Some(first) = &first {
+                                choose.set_group(Some(first));
+                            } else {
+                                first = Some(choose.clone());
+                            }
+                            let content = gtk::Box::new(gtk::Orientation::Vertical, 6);
+                            content.append(&image_preview(&item.url, 180));
+                            choose.set_child(Some(&content));
+                            let (selected, send, save, choice, query, id, save_id, sequence) = (
+                                selected.clone(),
+                                send.clone(),
+                                save.clone(),
+                                item.clone(),
+                                query.clone(),
+                                rv_core::native::room_operation_id(),
+                                rv_core::native::room_operation_id(),
+                                sequence.clone(),
+                            );
+                            choose.connect_toggled(move |b| {
+                                if b.is_active() && sequence.get() == serial {
+                                    selected.replace(Some((
+                                        choice.clone(),
+                                        query.clone(),
+                                        id.clone(),
+                                        save_id.clone(),
+                                    )));
+                                    send.set_sensitive(true);
+                                    save.set_label(rv_core::i18n::t("social.save_to_sticker_shelf"));
+                                    save.set_sensitive(true);
+                                } else if sequence.get() == serial {
+                                    selected.replace(None);
+                                    send.set_sensitive(false);
+                                    save.set_sensitive(false);
+                                }
+                            });
+                            grid.insert(&choose, -1);
+                        }
+                    }
+                }
+                drop(d);
+            });
+        }
+    });
+    q.connect_changed({
+        let (sequence, selected, send, save, grid, error, load) =
+            (sequence.clone(), selected.clone(), send.clone(), save.clone(), grid.clone(), error.clone(), load.clone());
+        move |_| {
+            let version = sequence.get() + 1;
+            sequence.set(version);
+            selected.replace(None);
+            send.set_sensitive(false);
+            save.set_sensitive(false);
+            while let Some(child) = grid.first_child() {
+                grid.remove(&child);
+            }
+            error.set_label(rv_core::i18n::t("social.searching"));
+            let (sequence, load) = (sequence.clone(), load.clone());
+            glib::timeout_add_local_once(std::time::Duration::from_millis(300), move || {
+                if sequence.get() == version {
+                    load();
+                }
+            });
+        }
+    });
+    let keys = gtk::EventControllerKey::builder().propagation_phase(gtk::PropagationPhase::Capture).build();
+    keys.connect_key_pressed(move |_, key, _, modifiers| {
+        if matches!(key, gdk::Key::Return | gdk::Key::KP_Enter)
+            && modifiers.is_empty()
+            && send.is_sensitive()
+            && !busy.get()
+        {
+            send.emit_clicked();
+            glib::Propagation::Stop
+        } else {
+            glib::Propagation::Proceed
+        }
+    });
+    d.add_controller(keys);
+    d.connect_closed(move |_| sequence.set(sequence.get() + 1));
+    widgets::present(&d, Some(anchor));
+    q.grab_focus();
+    load();
+    d
+}
 pub fn gallery(anchor: &gtk::Widget, target: Target, gif: bool, query: &str, on_sent: Option<Rc<dyn Fn()>>) {
-    let title = if gif { "GIF · Powered By GIPHY".to_owned() } else { rv_core::i18n::t("social.shelf").to_owned() };
+    if gif {
+        gif_gallery(anchor, target, query, on_sent);
+        return;
+    }
+    let title = rv_core::i18n::t("social.shelf").to_owned();
     let (d, body) = dialog(anchor, &title);
     let q = entry(&body, rv_core::i18n::t("social.search_name"));
     q.set_text(query);

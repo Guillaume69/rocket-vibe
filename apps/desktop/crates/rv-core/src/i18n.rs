@@ -70,6 +70,7 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("social.add_2_10_distinct_options", "Ajoutez 2 à 10 options différentes.", "Add 2–10 distinct options."),
     ("social.choose_a_date", "Choisissez une date.", "Choose a date."),
     ("social.searching", "Recherche…", "Searching…"),
+    ("social.select", "Sélectionner", "Select"),
     ("social.no_gifs_found", "Aucun GIF trouvé.", "No GIFs found."),
     (
         "social.gif_search_is_not_enabled_on_this_server",

@@ -248,6 +248,15 @@ delivered and what remains to be done to close J0 and J1. The
 This version is a local bench, not a server meant to replace a Rocket.Chat instance
 containing real data.
 
+## Channel images
+
+With object storage configured, discovery announces `room_avatars`. A channel's
+owner can upload a PNG or JPEG up to 2 MiB through
+`PUT /api/v1/rooms/{room}/avatar`; images are normalized to PNG. Uploads use the
+room-command receipt and revision rules, and image reads remain restricted to
+current members. GTK exposes the upload in Room information. See the
+[room protocol](../../docs/protocol/ROOMS.md) for request and retry details.
+
 ## GIF search
 
 Copy `giphy.example.json` outside the checkout, supply your own GIPHY key, restrict the file to its owner (`chmod 600` on Unix), and start with `RV_GIPHY_CONFIG_FILE=/path/to/giphy.json` or `--giphy-config-file /path/to/giphy.json`. The JSON accepts `api_key` and an optional `rating` (`pg` by default). In Docker, mount the private file read-only and use its container path. Restart after changing it. With no file, GIF search is disabled. The key is kept on the server; clients only receive public image results. Rocket.Chat servers configure their own installed GIPHY app instead. See [social features](../../brain/features/social.md).

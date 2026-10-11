@@ -94,6 +94,131 @@ fn png(color: u8) -> Vec<u8> {
     bytes.into_inner()
 }
 
+#[sqlx::test]
+async fn channel_images_are_owner_only_versioned_and_replay_safe(pool: PgPool) {
+    let b = Bench::start(pool).await;
+    let (owner, _, owner_token) = b.user("channel-owner").await;
+    let (member, member_id, _) = b.user("channel-member").await;
+    let (outsider, _, _) = b.user("channel-outsider").await;
+    let room = owner
+        .create_room(&rv_protocol::CreateRoom {
+            name: "Pictures".into(),
+            private: true,
+            operation_id: Some("create-pictures".into()),
+            voice: false,
+        })
+        .await
+        .unwrap();
+    owner.add_member(&room.id, &member_id).await.unwrap();
+    let before = owner.room_details(&room.id).await.unwrap();
+    let input = AvatarCommand {
+        operation_id: "channel-photo".into(),
+        expected_revision: before.revision.clone(),
+    };
+    assert!(
+        member
+            .set_room_avatar(&room.id, &input, "image/png", png(40))
+            .await
+            .is_err()
+    );
+    assert!(
+        outsider
+            .set_room_avatar(&room.id, &input, "image/png", png(40))
+            .await
+            .is_err()
+    );
+    let receipt = owner
+        .set_room_avatar(&room.id, &input, "image/png", png(40))
+        .await
+        .unwrap();
+    assert_eq!(
+        owner
+            .set_room_avatar(&room.id, &input, "image/png", png(40))
+            .await
+            .unwrap()
+            .applied_revision,
+        receipt.applied_revision
+    );
+    assert!(
+        owner
+            .set_room_avatar(&room.id, &input, "image/png", png(60))
+            .await
+            .is_err(),
+        "same nonce, different bytes rejected"
+    );
+    let after = owner.room_details(&room.id).await.unwrap();
+    assert_ne!(before.revision, after.revision);
+    assert_ne!(
+        before.room.revision, after.room.revision,
+        "journal revision moves"
+    );
+    assert!(
+        owner
+            .room_avatar_bytes(&room.id, &before.room.revision)
+            .await
+            .is_err(),
+        "old image URL retires"
+    );
+    let bytes = member
+        .room_avatar_bytes(&room.id, &after.room.revision)
+        .await
+        .unwrap();
+    assert!(bytes.starts_with(b"\x89PNG\r\n\x1a\n"));
+    assert!(
+        outsider
+            .room_avatar_bytes(&room.id, &after.room.revision)
+            .await
+            .is_err()
+    );
+    let invalid = AvatarCommand {
+        operation_id: "bad-photo".into(),
+        expected_revision: after.revision.clone(),
+    };
+    assert!(
+        owner
+            .set_room_avatar(&room.id, &invalid, "image/png", b"not an image".to_vec())
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        owner.room_details(&room.id).await.unwrap().revision,
+        after.revision
+    );
+    let next = AvatarCommand {
+        operation_id: "new-photo".into(),
+        expected_revision: after.revision,
+    };
+    owner
+        .set_room_avatar(&room.id, &next, "image/png", png(60))
+        .await
+        .unwrap();
+    assert!(
+        member
+            .room_avatar_bytes(&room.id, &after.room.revision)
+            .await
+            .is_err()
+    );
+    let current = owner.room_details(&room.id).await.unwrap();
+    assert_eq!(
+        b.request(
+            Method::DELETE,
+            &owner_token,
+            &format!("/api/v1/rooms/{}/members/{}", room.id, member_id),
+            json!({})
+        )
+        .await
+        .status(),
+        StatusCode::NO_CONTENT
+    );
+    assert!(
+        member
+            .room_avatar_bytes(&room.id, &current.room.revision)
+            .await
+            .is_err(),
+        "revoked member loses image access"
+    );
+}
+
 #[sqlx::test(migrations = "./migrations")]
 async fn mobile_profiles_and_protected_avatars_use_the_existing_provider(pool: PgPool) {
     let b = Bench::start(pool).await;

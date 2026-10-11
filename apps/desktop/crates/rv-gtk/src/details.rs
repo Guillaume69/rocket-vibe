@@ -19,6 +19,7 @@ use crate::{markdown_view, on_tokio};
 mod members;
 mod native_favorites;
 mod native_rooms;
+mod room_avatar;
 mod room_settings;
 pub(crate) use native_favorites::menu as native_favorite_menu;
 
@@ -91,7 +92,9 @@ pub fn room_info(
     let content = column();
     let tile = with_photo(room_tile(room.name, room.kind, false, TileSize::Profile), Some(&session), room.avatar);
     tile.set_halign(gtk::Align::Center);
-    content.append(&tile);
+    let photo = gtk::Box::builder().halign(gtk::Align::Center).build();
+    photo.append(&tile);
+    content.append(&photo);
     content.append(&centered(room.name, &["details-name"]));
     // Read again after the texts are saved.
     let facts = column();
@@ -126,7 +129,15 @@ pub fn room_info(
             let shown = Rc::new(std::cell::RefCell::new(info.clone()));
             let members = members_group(&dialog, session.clone(), &rid, info.as_ref().and_then(|i| i.members), profile);
             content.append(&members.0);
-            if edit && info.is_some() {
+            if edit && let Some(info) = info.as_ref() {
+                let (s, photo, name, kind) = (session.clone(), photo.clone(), info.name.clone(), info.kind.clone());
+                let saved = Rc::new(move |path: String| {
+                    while let Some(child) = photo.first_child() {
+                        photo.remove(&child);
+                    }
+                    photo.append(&with_photo(room_tile(&name, &kind, false, TileSize::Profile), Some(&s), Some(path)));
+                });
+                content.append(&room_avatar::controls(&dialog, Chat::Legacy(session.clone()), rid.clone(), saved));
                 let button = gtk::Button::builder()
                     .label(t("room_settings.edit"))
                     .halign(gtk::Align::Center)
@@ -412,7 +423,11 @@ pub fn native_room_info(
                     cached = Some(details.clone());
                     let can_invite = details.permissions.invite;
                     let info = rv_core::info::native_room_info(details.clone());
-                    let tile = room_tile(&info.name, &info.kind, false, TileSize::Profile);
+                    let tile = crate::rows::with_native_photo(
+                        room_tile(&info.name, &info.kind, false, TileSize::Profile),
+                        &session,
+                        session.room_avatars_available().then(|| format!("room:{}:{}", rid, details.room.revision)),
+                    );
                     tile.set_halign(gtk::Align::Center);
                     content.append(&tile);
                     content.append(&centered(&info.name, &["details-name"]));

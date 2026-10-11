@@ -38,7 +38,7 @@
 //!                          sends (RV_SMOKE_UPLOAD_HOLD=1: left staged, for a screenshot)
 //!   RV_SMOKE_SPOTLIGHT=<query>  finds a channel, joins it and opens it
 //!   RV_SMOKE_REPORT, RV_SMOKE_ADMIN  members' reports and the administration: see `admin`
-//!   RV_SMOKE_DETAILS=profile:<user> | room | search:<text> | settings | emoji:<code> | marked
+//!   RV_SMOKE_DETAILS=profile:<user> | room | room-avatar | search:<text> | settings | emoji:<code> | marked
 //!                          | threads | jump:<message id> | permissions:<expected, comma-separated>
 //!                          | local_search | also_in_room | invite | discussion | preview
 //!                          | members: see `rocket_chat`
@@ -1466,6 +1466,22 @@ fn details_checks(
             let p = crate::on_tokio(async move { s.profile(&u, false).await }).await;
             check("profile read", p.as_ref().is_ok_and(|p| p.username == user), p.as_ref().map(|p| &p.username));
             chat.show_profile(user, false);
+        } else if what == "room-avatar" {
+            let (s, r) = (session.clone(), rid.clone());
+            let uploaded = crate::on_tokio(async move {
+                s.set_room_avatar(
+                    &r,
+                    std::path::Path::new("data/icons/hicolor/64x64/apps/com.rocketvibe.app.png"),
+                    "image/png",
+                )
+                .await
+            })
+            .await;
+            check("channel image uploaded", uploaded.is_ok(), uploaded.is_ok());
+            chat.show_room_info();
+            glib::timeout_future(Duration::from_millis(2500)).await;
+            let change = chat.widget().root().and_then(|root| find_by_class(root.upcast_ref(), "room-avatar-change"));
+            check("channel image picker offered to owner", change.is_some_and(|w| w.is_visible()), rid);
         } else if what == "room" {
             let (s, r) = (session.clone(), rid.clone());
             let info = crate::on_tokio(async move { s.room_info(&r).await }).await;
@@ -2367,6 +2383,27 @@ async fn navigation_checks(window: adw::ApplicationWindow, chat: Rc<crate::chat:
     avatar.emit_clicked();
     glib::timeout_future(Duration::from_millis(200)).await;
     let menu = find_by_class(root, "action-menu").expect("presence menu");
+    for status in rv_core::account::STATUSES {
+        let mut row = menu.first_child();
+        let mut found = false;
+        while let Some(widget) = row {
+            if find_by_class(&widget, "presence").is_some_and(|dot| dot.has_css_class(status)) {
+                found = true;
+            }
+            row = widget.next_sibling();
+        }
+        check("activity menu has colored circle", found, status);
+    }
+    if let Ok(path) = std::env::var("RV_SMOKE_MENU_SHOT") {
+        let popover = menu.ancestor(gtk::Popover::static_type()).expect("activity popover");
+        let snapshot = gtk::Snapshot::new();
+        gtk::WidgetPaintable::new(Some(&popover)).snapshot(&snapshot, popover.width() as f64, popover.height() as f64);
+        let saved = snapshot
+            .to_node()
+            .zip(popover.native().and_then(|n| n.renderer()))
+            .is_some_and(|(node, renderer)| renderer.render_texture(&node, None).save_to_png(&path).is_ok());
+        check("activity menu screenshot saved", saved, &path);
+    }
     let mut child = menu.first_child();
     let mut clicked = false;
     while let Some(row) = child {

@@ -35,6 +35,7 @@ mod quotes;
 mod reactions;
 mod reauthentication;
 pub mod recovery;
+mod room_avatars;
 mod room_details;
 mod room_reads;
 pub mod scheduled;

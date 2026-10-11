@@ -650,6 +650,7 @@ impl NativeSession {
                 server.supported_features(&rv_protocol::Capabilities {
                     room_discovery: true,
                     room_info: true,
+                    room_avatars: true,
                     room_settings: true,
                     room_roles: true,
                     room_leave: true,

@@ -66,23 +66,34 @@ enum RoomItem {
 
 /// A row of an action menu: its icon, its words, what it does.
 pub(crate) type MenuItem = (&'static str, String, Rc<dyn Fn()>);
+type WidgetMenuItem = (gtk::Widget, String, Rc<dyn Fn()>);
 /// A section's "+": its tooltip, what it does.
 type SectionAdd = (&'static str, Rc<dyn Fn()>);
 
 /// A menu of rows in a popover, each closing it before it runs: the account
 /// menu and the "+" menu of the room list.
 pub(crate) fn action_popover(items: Vec<MenuItem>) -> gtk::Popover {
+    widget_action_popover(
+        items.into_iter().map(|(icon, text, run)| (gtk::Image::from_icon_name(icon).upcast(), text, run)).collect(),
+    )
+}
+
+fn widget_action_popover(items: Vec<WidgetMenuItem>) -> gtk::Popover {
     let list = gtk::Box::builder().orientation(gtk::Orientation::Vertical).css_classes(["action-menu"]).build();
     let popover = gtk::Popover::builder().child(&list).has_arrow(false).build();
     for item in items {
-        list.append(&menu_row(&popover, item));
+        list.append(&widget_menu_row(&popover, item));
     }
     popover
 }
 
 fn menu_row(popover: &gtk::Popover, (icon, text, run): MenuItem) -> gtk::Button {
+    widget_menu_row(popover, (gtk::Image::from_icon_name(icon).upcast(), text, run))
+}
+
+fn widget_menu_row(popover: &gtk::Popover, (icon, text, run): WidgetMenuItem) -> gtk::Button {
     let content = gtk::Box::new(gtk::Orientation::Horizontal, 10);
-    content.append(&gtk::Image::from_icon_name(icon));
+    content.append(&icon);
     content.append(&gtk::Label::builder().label(&text).xalign(0.0).build());
     let button = gtk::Button::builder().child(&content).css_classes(["flat", "action-menu-row"]).build();
     let weak = popover.downgrade();
@@ -2112,10 +2123,15 @@ impl ChatPage {
                         }
                     });
                 });
-                ("avatar-default-symbolic", t(&format!("presence.{status}")).to_owned(), run)
+                let dot = crate::rows::presence_dot(rv_core::live::Presence::parse(status).unwrap(), &[]);
+                dot.set_halign(gtk::Align::Center);
+                dot.set_valign(gtk::Align::Center);
+                let slot = gtk::Box::builder().width_request(16).height_request(16).build();
+                slot.append(&dot);
+                (slot.upcast(), t(&format!("presence.{status}")).to_owned(), run)
             })
             .collect();
-        let popover = action_popover(items);
+        let popover = widget_action_popover(items);
         popover.set_parent(anchor);
         popover.set_position(gtk::PositionType::Top);
         self.menu_open.set(true);

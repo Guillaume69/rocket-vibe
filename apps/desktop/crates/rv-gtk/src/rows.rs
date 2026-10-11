@@ -138,8 +138,20 @@ pub fn with_native_photo(
         glib::spawn_future_local(async move {
             let key = id.clone();
             let reader = s.clone();
-            let bytes = crate::on_tokio(async move { reader.profile_avatar(&key).await }).await;
-            if !s.avatar_current(&id).unwrap_or(false) {
+            let bytes = crate::on_tokio(async move {
+                if let Some((room, revision)) = key.strip_prefix("room:").and_then(|v| v.split_once(':')) {
+                    reader.room_avatar(room, revision).await
+                } else {
+                    reader.profile_avatar(&key).await
+                }
+            })
+            .await;
+            let current = if let Some((room, revision)) = id.strip_prefix("room:").and_then(|v| v.split_once(':')) {
+                s.room_avatar_current(room, revision)
+            } else {
+                s.avatar_current(&id).unwrap_or(false)
+            };
+            if !current {
                 return;
             }
             if let (Some(tile), Ok(bytes)) = (weak.upgrade(), bytes)

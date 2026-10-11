@@ -11,7 +11,7 @@
     "server_version": "0.1.0",
     "protocol_versions": [1],
     "api_path": "/api/v1",
-    "capabilities": {
+    "capabilities": { "room_avatars": false,
       "text_messages": true, "private_rooms": true, "direct_messages": true,
       "durable_sync": true, "threads": false, "reactions": false,
       "uploads": false, "push": false, "e2ee": false, "calls": false

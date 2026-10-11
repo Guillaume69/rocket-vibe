@@ -58,6 +58,9 @@ pub struct Capabilities {
     pub profile_avatars: bool,
     #[serde(default)]
     pub room_info: bool,
+    /// Versioned channel images; absent on older servers.
+    #[serde(default)]
+    pub room_avatars: bool,
     #[serde(default)]
     pub room_settings: bool,
     #[serde(default)]
@@ -178,6 +181,7 @@ impl Default for Capabilities {
             profiles: false,
             profile_avatars: false,
             room_info: false,
+            room_avatars: false,
             room_settings: false,
             room_roles: false,
             room_leave: false,
@@ -254,6 +258,7 @@ impl Capabilities {
             profiles,
             profile_avatars,
             room_info,
+            room_avatars,
             room_settings,
             room_roles,
             room_leave,

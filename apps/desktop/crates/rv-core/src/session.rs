@@ -1026,6 +1026,30 @@ impl Session {
         self.rest.upload(&path, "image", bytes, &name, mime, Vec::new(), |_, _| {}).await.map(|_| ())
     }
 
+    /// Rocket.Chat expects a complete data URI, not a multipart upload or bare base64.
+    pub async fn set_room_avatar(&self, rid: &str, file: &Path, mime: &str) -> Result<String, RestError> {
+        use base64::{Engine, engine::general_purpose::STANDARD};
+        self.member_room(rid)?;
+        if !matches!(mime, "image/png" | "image/jpeg") {
+            return Err(RestError::incomplete("invalid avatar type"));
+        }
+        let size = tokio::fs::metadata(file).await.map_err(|e| RestError::incomplete(&e.to_string()))?.len();
+        if size == 0 || size > 2 * 1024 * 1024 {
+            return Err(RestError::incomplete("avatar too large"));
+        }
+        let bytes = tokio::fs::read(file).await.map_err(|e| RestError::incomplete(&e.to_string()))?;
+        let data = format!("data:{mime};base64,{}", STANDARD.encode(bytes));
+        let mut fields = serde_json::Map::new();
+        fields.insert("roomAvatar".into(), json!(data));
+        rocketchat::actions::save_room_settings(&self.rest, rid, fields).await?;
+        // The server publishes its etag 500 ms later. Refresh locally now; its
+        // updateAvatar event will replace this cache-busting nonce afterwards.
+        let etag = format!("rv-local-{:032x}", fastrand::u128(..));
+        self.store.write(|w| w.set_room_avatar(rid, &etag));
+        let _ = self.events.send(SessionEvent::Avatar);
+        Ok(media::avatar_path(media::AvatarTarget::Room(rid), Some(&etag)))
+    }
+
     pub async fn reset_avatar(&self) -> Result<(), RestError> {
         match self.backend() {
             Backend::Mattermost(_) => {

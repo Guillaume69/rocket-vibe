@@ -79,6 +79,11 @@ impl NativeSession {
             .into_iter()
             .map(|room| {
                 let peer = self.store.direct_peer(&room.id)?;
+                let avatar = if room.kind != rv_protocol::RoomKind::Direct && self.room_avatars_available() {
+                    Some(format!("room:{}:{}", room.id, room.revision))
+                } else {
+                    peer.as_ref().and_then(|p| p.avatar_file_id.clone())
+                };
                 let (unread, mentions, alert) =
                     if reads { super::read_presentation::badges(room.read_state.as_deref()) } else { (0, 0, false) };
                 let read_only = !self.room_send_permitted(&room.id);
@@ -102,7 +107,7 @@ impl NativeSession {
                         })
                         .unwrap_or(room.name),
                     dm_other_uid: peer.as_ref().map(|p| p.user.id.clone()),
-                    avatar_etag: peer.and_then(|p| p.avatar_file_id),
+                    avatar_etag: avatar,
                     last_message: last.as_ref().map(|m| m.text.clone()),
                     last_ts: last.as_ref().map_or(0, |m| m.ts),
                     last_type: last.as_ref().and_then(|m| m.system_type.clone()),

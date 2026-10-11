@@ -350,7 +350,15 @@ impl NativeChat {
     }
     pub async fn profile_avatar(&self, id: String) -> Result<MediaData, RvError> {
         let s = self.session.clone();
-        let bytes = on_tokio(async move { s.profile_avatar(&id).await }).await.map_err(error)?;
+        let bytes = on_tokio(async move {
+            if let Some((room, revision)) = id.strip_prefix("room:").and_then(|v| v.split_once(':')) {
+                s.room_avatar(room, revision).await
+            } else {
+                s.profile_avatar(&id).await
+            }
+        })
+        .await
+        .map_err(error)?;
         Ok(MediaData { bytes, content_type: "image/png".into(), placeholder: false })
     }
 }

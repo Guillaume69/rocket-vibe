@@ -272,6 +272,14 @@ fn additive_capabilities_default_to_unavailable_on_an_older_server() {
     assert!(!contract.discovery.capabilities.room_discovery);
     assert!(!contract.discovery.capabilities.second_factors);
     assert!(!contract.discovery.capabilities.scheduled_messages);
+    assert!(!contract.discovery.capabilities.room_avatars);
+    let mut old = serde_json::to_value(&contract.discovery.capabilities).unwrap();
+    old.as_object_mut().unwrap().remove("room_avatars");
+    assert!(
+        !serde_json::from_value::<rv_protocol::Capabilities>(old)
+            .unwrap()
+            .room_avatars
+    );
 }
 
 #[test]

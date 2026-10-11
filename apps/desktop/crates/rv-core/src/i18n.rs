@@ -1316,6 +1316,12 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("update.dmg", "Glisse rocket-vibe dans Applications", "Drag rocket-vibe into Applications"),
     ("settings.photo", "Photo", "Photo"),
     ("settings.photo_change", "Changer…", "Change…"),
+    ("room_avatar.change", "Changer l’image du canal…", "Change channel image…"),
+    (
+        "room_avatar.failed",
+        "Impossible de changer l’image. Vérifiez la connexion, vos permissions et la taille de l’image (PNG ou JPEG, 2 Mo maximum).",
+        "Could not change the image. Check your connection, permissions and image size (PNG or JPEG, up to 2 MB).",
+    ),
     ("settings.photo_remove", "Retirer", "Remove"),
     ("settings.name", "Nom", "Name"),
     ("settings.username", "Nom d'utilisateur", "Username"),

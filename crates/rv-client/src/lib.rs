@@ -1224,10 +1224,54 @@ impl NativeClient {
         Ok(response.json().await?)
     }
     pub async fn avatar_bytes(&self, id: &str) -> Result<Vec<u8>, Error> {
+        self.avatar_image_bytes(&format!("/api/v1/avatars/{}", encode(id)))
+            .await
+    }
+    pub async fn room_avatar_bytes(&self, room: &str, revision: &str) -> Result<Vec<u8>, Error> {
+        self.avatar_image_bytes(&format!(
+            "/api/v1/rooms/{}/avatar?revision={}",
+            encode(room),
+            encode(revision)
+        ))
+        .await
+    }
+    pub async fn set_room_avatar(
+        &self,
+        room: &str,
+        input: &rv_protocol::profiles::AvatarCommand,
+        mime: &str,
+        bytes: Vec<u8>,
+    ) -> Result<rv_protocol::parity::RoomCommandReceipt, Error> {
+        if bytes.is_empty() || bytes.len() > rv_protocol::bots::AVATAR_BYTES {
+            return Err(Error::InvalidAvatar);
+        }
+        self.check_cooldown(None)?;
+        let sent = self.saved_token().ok_or(Error::SessionMissing)?;
+        let path = format!(
+            "/api/v1/rooms/{}/avatar?operation_id={}&expected_revision={}",
+            encode(room),
+            encode(&input.operation_id),
+            encode(&input.expected_revision)
+        );
+        let response = self
+            .http
+            .put(format!("{}{path}", self.base))
+            .bearer_auth(&sent)
+            .header(reqwest::header::CONTENT_TYPE, mime)
+            .body(bytes)
+            .send()
+            .await?;
+        Ok(self
+            .accepted(response, None, Some(sent))
+            .await?
+            .json()
+            .await?)
+    }
+    async fn avatar_image_bytes(&self, path: &str) -> Result<Vec<u8>, Error> {
         let sent = self.saved_token().ok_or(Error::SessionMissing)?;
         let response = self
             .http
-            .get(format!("{}/api/v1/avatars/{}", self.base, encode(id)))
+            .get(format!("{}{path}", self.base))
             .bearer_auth(&sent)
             .send()
             .await?;

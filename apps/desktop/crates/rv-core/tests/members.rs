@@ -68,6 +68,9 @@ fn server(request: &Request) -> Response {
             400,
             r#"{"success":false,"error":"Not allowed [error-not-allowed]","errorType":"error-not-allowed"}"#,
         ),
+        "rooms.saveRoomSettings" if request.body.contains("roomAvatar") && request.body.contains("c1") => {
+            respond(403, r#"{"success":false,"error":"Not allowed","errorType":"error-not-allowed"}"#)
+        }
         _ => respond(200, r#"{"success":true}"#),
     }
 }
@@ -225,5 +228,28 @@ async fn settings_send_only_what_changed() {
     let sent = b.calls(from, "rooms.saveRoomSettings");
     assert_eq!(sent.len(), 1);
     assert_eq!(sent[0].1, json!({"rid": "p1", "roomTopic": "New", "roomAnnouncement": "", "readOnly": true}));
+    b.close();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn channel_images_send_a_data_uri_and_refresh_without_a_stream_event() {
+    let b = bench().await;
+    let image = b._dir.path().join("channel.png");
+    std::fs::write(&image, b"image bytes").unwrap();
+    let from = b.server.requests().len();
+    let path = b.session.set_room_avatar("p1", &image, "image/png").await.unwrap();
+    assert_eq!(
+        b.calls(from, "rooms.saveRoomSettings")[0].1,
+        json!({"rid":"p1", "roomAvatar":"data:image/png;base64,aW1hZ2UgYnl0ZXM="})
+    );
+    let room = b.session.store.rooms().into_iter().find(|r| r.rid == "p1").unwrap();
+    assert!(room.avatar_etag.as_deref().unwrap().starts_with("rv-local-"));
+    assert_eq!(rv_core::media::room_avatar_path(&room), Some(path));
+    assert!(b.session.set_room_avatar("c1", &image, "image/png").await.is_err());
+    assert!(b.session.store.rooms().iter().find(|r| r.rid == "c1").unwrap().avatar_etag.is_none());
+    let from = b.server.requests().len();
+    assert!(b.session.set_room_avatar("d1", &image, "image/png").await.is_err());
+    assert!(b.session.set_room_avatar("p1", &image, "text/plain").await.is_err());
+    assert!(b.calls(from, "rooms.saveRoomSettings").is_empty());
     b.close();
 }

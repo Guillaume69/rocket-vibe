@@ -125,6 +125,12 @@ fn role_name(role: RoomRole) -> &'static str {
     }
 }
 pub enum Command {
+    Avatar {
+        input: rv_protocol::profiles::AvatarCommand,
+        mime: String,
+        content_hash: String,
+        png: Vec<u8>,
+    },
     Settings(UpdateRoom),
     Role {
         target: String,
@@ -135,6 +141,16 @@ pub enum Command {
 impl Command {
     fn parts(&self, room: &str) -> Result<(&str, &str, String)> {
         let (operation, expected, fields) = match self {
+            Self::Avatar {
+                input,
+                mime,
+                content_hash,
+                ..
+            } => (
+                &input.operation_id,
+                &input.expected_revision,
+                serde_json::json!(["avatar", room, input.expected_revision, mime, content_hash]),
+            ),
             Self::Settings(i) => {
                 let name = i.name.trim();
                 if name.is_empty()
@@ -256,10 +272,22 @@ pub async fn apply(
     if used {
         return Err(Error::conflict());
     }
-    admission(&mut tx, &actor.id).await?;
+    if !matches!(command, Command::Avatar { .. }) {
+        admission(&mut tx, &actor.id).await?;
+    }
     let mut activities = Vec::new();
     let leaving = matches!(command, Command::Leave(_));
     let changed = match &command {
+        Command::Avatar { png, .. } => {
+            let objects = app.objects.as_ref().ok_or_else(Error::missing)?;
+            let id = objects.put(png.clone()).await?;
+            sqlx::query("UPDATE rooms SET avatar_object_id=$2 WHERE id=$1")
+                .bind(room)
+                .bind(id)
+                .execute(&mut *tx)
+                .await?;
+            true
+        }
         Command::Settings(input) => {
             let kind = if input.private { "private" } else { "public" };
             let voice = input.voice.unwrap_or(current.room.voice);

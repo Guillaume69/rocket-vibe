@@ -1,5 +1,11 @@
 # Room information, members and settings (P04)
 
+## Channel images
+
+Servers with object storage announce the additive `room_avatars` capability. Older servers omit it and clients hide image editing. `PUT /api/v1/rooms/{room}/avatar?operation_id=<id>&expected_revision=<details revision>` accepts raw `image/png` or `image/jpeg` bytes, at most 2 MiB, from a non-direct room's owner. The server decodes within its bounded image pool and stores a normalized PNG; the original MIME and bytes enter the command fingerprint. Replaying the same command returns its `RoomCommandReceipt`, while changed content under that nonce conflicts. Clients persist the image and nonce before submission and resolve `/rooms/{room}/commands/{operation}` before retrying.
+
+`GET /api/v1/rooms/{room}/avatar?revision=<room journal revision>` returns `image/png` with `Cache-Control: no-store` and `nosniff` only to a current room member. An absent image or retired revision returns 404. Delivery retains the room/account authorization proof and rechecks the revision and object before submitting bytes. An image edit rotates the details revision and publishes `RoomUpsert`, so connected clients reload it through normal durable sync. Image objects remain referenced by `rooms.avatar_object_id` for collection. No image editing or image read is available for direct conversations.
+
 The server and the Rust / TypeScript transports expose these v1 routes. The existing
 mobile, GTK and SwiftUI room sheets read their information from the chosen
 provider. The Rust and mobile controllers save commands before HTTP and

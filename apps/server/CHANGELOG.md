@@ -10,6 +10,8 @@ everything before it is under that section.
 
 ### Added
 
+- Owner-managed channel images: authenticated, versioned PNG reads, bounded PNG/JPEG uploads, idempotent room-command receipts and the additive room_avatars capability. Private room images remain restricted to current members.
+
 - Quick polls and game-night RSVP cards with durable, idempotent answers, optional poll expiry and author closure.
 - Private sticker shelves, typed image messages and transient, connected-only voice reactions.
 - Optional server-side GIPHY search, configured with a private RV_GIPHY_CONFIG_FILE; keys never travel to apps.

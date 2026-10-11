@@ -230,6 +230,7 @@ impl NativeChat {
         Ok(Some(NativeRoomIntention {
             key: saved.command.id().into(),
             kind: match &saved.command {
+                RoomOperation::Avatar { .. } => "avatar",
                 RoomOperation::Settings { .. } => "settings",
                 RoomOperation::Role { .. } => "role",
                 RoomOperation::Leave { .. } => "leave",

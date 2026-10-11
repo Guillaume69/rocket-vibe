@@ -89,6 +89,18 @@ pub(super) fn controls(
     content.append(&status);
     let saved = session.store.room_operation(&rid).ok().flatten();
     let occupied = saved.is_some();
+    if !occupied
+        && details.permissions.role == RoomRole::Owner
+        && details.room.kind != RoomKind::Direct
+        && session.room_avatars_available()
+    {
+        content.append(&super::room_avatar::controls(
+            parent,
+            rv_core::provider::Chat::Native(session.clone()),
+            rid.clone(),
+            Rc::new(|_| {}),
+        ));
+    }
     if let Some(saved) = saved {
         content.append(&centered(t(if saved.failed { "rooms.rejected" } else { "rooms.pending" }), &["details-sub"]));
         if let Some(error) = &saved.error {

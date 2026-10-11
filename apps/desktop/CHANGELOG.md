@@ -9,8 +9,14 @@ section here.
 
 ### Added
 
+- Change a channel's image from its information dialog on Rocket.Chat (edit-room permission) and RocketVibe (room owner). PNG and JPEG images refresh the channel tiles without restarting; RocketVibe uploads survive a disconnect or app restart and require a server announcing room_avatars.
+
 - Quick polls, game-night RSVP cards, private sticker shelves and ephemeral voice reactions on RocketVibe servers in unencrypted rooms.
 - A GIF search and selection picker for /giphy, preserving the draft on cancel and supporting thread replies. RocketVibe needs server GIPHY configuration; installed clients also support Rocket.Chat commands.preview.
+
+### Fixed
+
+- Use green, yellow, red and gray presence circles in the account activity menu instead of identical person icons.
 
 ## [0.15.1] - 2026-10-11
 

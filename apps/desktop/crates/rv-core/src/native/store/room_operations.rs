@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum RoomOperation {
+    Avatar { input: rv_protocol::profiles::AvatarCommand, upload: super::AvatarUpload },
     Settings { input: UpdateRoom },
     Role { target: String, input: ChangeRoomRole },
     Leave { input: LeaveRoom },
@@ -15,6 +16,7 @@ pub enum RoomOperation {
 impl RoomOperation {
     pub fn id(&self) -> &str {
         match self {
+            Self::Avatar { input, .. } => &input.operation_id,
             Self::Settings { input } => &input.operation_id,
             Self::Role { input, .. } => &input.operation_id,
             Self::Leave { input } => &input.operation_id,
@@ -22,6 +24,7 @@ impl RoomOperation {
     }
     pub fn revision(&self) -> &str {
         match self {
+            Self::Avatar { input, .. } => &input.expected_revision,
             Self::Settings { input } => &input.expected_revision,
             Self::Role { input, .. } => &input.expected_revision,
             Self::Leave { input } => &input.expected_revision,
@@ -42,6 +45,7 @@ impl RoomOperation {
                     && [&input.topic, &input.description, &input.announcement].iter().all(|s| !s.contains('\0'))
             }
             Self::Role { target, .. } => identifier(target),
+            Self::Avatar { upload, .. } => upload.bytes().is_some(),
             Self::Leave { .. } => true,
         }
     }
@@ -235,6 +239,31 @@ mod tests {
                 voice: None,
             },
         }
+    }
+    #[test]
+    fn channel_image_bytes_and_nonce_survive_reopening_the_store() {
+        let path = std::env::temp_dir().join(format!("rv-room-avatar-{:032x}.sqlite", fastrand::u128(..)));
+        let store = NativeStore::open(&path, identity("epoch")).unwrap();
+        store.snapshot(&snapshot()).unwrap();
+        let command = RoomOperation::Avatar {
+            input: rv_protocol::profiles::AvatarCommand {
+                operation_id: "photo".into(),
+                expected_revision: "original".into(),
+            },
+            upload: super::super::AvatarUpload::from_bytes("image/png".into(), b"original-image"),
+        };
+        store.stage_room_operation("room", command).unwrap().unwrap();
+        drop(store);
+        let store = NativeStore::open(&path, identity("epoch")).unwrap();
+        let saved = store.room_operation("room").unwrap().unwrap();
+        assert_eq!(saved.command.id(), "photo");
+        assert_eq!(saved.command.revision(), "original");
+        let RoomOperation::Avatar { upload, .. } = saved.command else {
+            panic!("lost channel image");
+        };
+        assert_eq!(upload.bytes().unwrap(), b"original-image");
+        drop(store);
+        std::fs::remove_file(path).unwrap();
     }
     #[test]
     fn original_operation_survives_disk_reopen_live_revision_changes_and_receipt_replay() {

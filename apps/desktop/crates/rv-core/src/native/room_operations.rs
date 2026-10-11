@@ -12,6 +12,53 @@ pub fn room_operation_id() -> String {
 }
 
 impl NativeSession {
+    pub fn room_avatars_available(&self) -> bool {
+        !self.is_closed() && self.capabilities.lock().unwrap().as_ref().is_some_and(|c| c.room_avatars)
+    }
+    pub async fn set_room_avatar(
+        &self,
+        room: &str,
+        input: rv_protocol::profiles::AvatarCommand,
+        upload: super::store::AvatarUpload,
+    ) -> Result<(), Error> {
+        self.submit_room_operation(room, RoomOperation::Avatar { input, upload }).await
+    }
+    pub fn room_avatar_current(&self, room: &str, revision: &str) -> bool {
+        self.room_avatars_available()
+            && self.store.rooms().is_ok_and(|rooms| {
+                rooms.iter().any(|r| r.id == room && r.revision == revision && r.kind != super::RoomKind::Direct)
+            })
+    }
+    pub async fn room_avatar(&self, room: &str, revision: &str) -> Result<Vec<u8>, Error> {
+        self.ready()?;
+        let generation = self.security_generation.load(Ordering::SeqCst);
+        if !self.room_avatar_current(room, revision) {
+            return Err(Error::Protocol("avatar_retired"));
+        }
+        self.identity().await?;
+        self.room_operation_generation(generation)?;
+        let _permit = self.avatar_slots.acquire().await.map_err(|_| Error::Protocol("session_closed"))?;
+        self.room_operation_generation(generation)?;
+        if !self.room_avatar_current(room, revision) {
+            return Err(Error::Protocol("avatar_retired"));
+        }
+        let key = format!("room:{room}:{revision}");
+        if let Some(bytes) = self.avatars.lock().unwrap().get(&key) {
+            return Ok(bytes);
+        }
+        let bytes = match self.client.room_avatar_bytes(room, revision).await {
+            Ok(bytes) => bytes,
+            Err(rv_client::Error::Server { status: 404, code, .. }) if code == "not_found" => Vec::new(),
+            Err(error) => return Err(error.into()),
+        };
+        self.identity().await?;
+        self.room_operation_generation(generation)?;
+        if !self.room_avatar_current(room, revision) {
+            return Err(Error::Protocol("avatar_retired"));
+        }
+        self.avatars.lock().unwrap().put(&key, bytes.clone());
+        Ok(bytes)
+    }
     pub async fn room_members(
         &self,
         room: &str,
@@ -84,6 +131,7 @@ impl NativeSession {
     }
     fn room_command_supported(&self, command: &RoomOperation) -> bool {
         self.capabilities.lock().unwrap().as_ref().is_some_and(|c| match command {
+            RoomOperation::Avatar { .. } => c.room_avatars,
             RoomOperation::Settings { .. } => c.room_settings,
             RoomOperation::Role { .. } => c.room_roles,
             RoomOperation::Leave { .. } => c.room_leave,
@@ -125,6 +173,16 @@ impl NativeSession {
                     return Err(Error::Protocol("unsupported_feature"));
                 }
                 match &saved.command {
+                    RoomOperation::Avatar { input, upload } => {
+                        self.client
+                            .set_room_avatar(
+                                &saved.room,
+                                input,
+                                &upload.mime,
+                                upload.bytes().ok_or(Error::Protocol("invalid_avatar"))?,
+                            )
+                            .await?
+                    }
                     RoomOperation::Settings { input } => self.client.update_room(&saved.room, input).await?,
                     RoomOperation::Role { target, input } => {
                         self.client.change_room_role(&saved.room, target, input).await?

@@ -248,6 +248,12 @@ pub fn router(app: App) -> Router {
                 .layer(DefaultBodyLimit::max(crate::profiles::AVATAR_BYTES)),
         )
         .route("/api/v1/avatars/{id}", get(avatar))
+        .route(
+            "/api/v1/rooms/{room}/avatar",
+            get(room_avatar)
+                .put(set_room_avatar)
+                .layer(DefaultBodyLimit::max(crate::profiles::AVATAR_BYTES)),
+        )
         .route("/api/v1/me/permissions", get(account_permissions))
         .route("/api/v1/admin/overview", get(admin_overview))
         .route("/api/v1/admin/users", get(admin_users))
@@ -519,6 +525,7 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
             idempotent_room_creation: true,
             room_discovery: true,
             room_info: true,
+            room_avatars: app.objects.is_some(),
             room_settings: true,
             room_roles: true,
             room_leave: true,
@@ -1544,6 +1551,39 @@ async fn avatar(
 ) -> Result<Response> {
     let (_, hash, proof) = read_access(&app, &headers, Scope::None).await?;
     crate::profiles::avatar_response(&app, &hash, &proof, &id).await
+}
+
+#[derive(Deserialize)]
+struct RoomAvatarQuery {
+    revision: String,
+}
+async fn room_avatar(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(room): Path<String>,
+    Query(input): Query<RoomAvatarQuery>,
+) -> Result<Response> {
+    let (_, hash, proof) = read_access(&app, &headers, Scope::Room(&room)).await?;
+    crate::room_avatars::image(&app, &hash, &proof, &room, &input.revision).await
+}
+async fn set_room_avatar(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(room): Path<String>,
+    Query(input): Query<rv_protocol::profiles::AvatarCommand>,
+    bytes: std::result::Result<axum::body::Bytes, axum::extract::rejection::BytesRejection>,
+) -> Result<Response> {
+    let hash = auth::bearer(&headers)?;
+    let account = auth::authenticate(&app, &hash).await?;
+    let mime = headers
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .ok_or_else(Error::invalid)?
+        .to_owned();
+    let bytes = bytes.map_err(|_| Error::new(StatusCode::PAYLOAD_TOO_LARGE, "avatar_too_large"))?;
+    Ok(secret_session(
+        crate::room_avatars::set(&app, &account, &room, input, mime, bytes).await?,
+    ))
 }
 
 async fn emoji_catalog(State(app): State<App>, headers: HeaderMap) -> Result<Response> {

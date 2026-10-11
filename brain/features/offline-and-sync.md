@@ -70,6 +70,10 @@ Reconciliation ignores an empty list (an active account always has subscriptions
 
 **Session death.** A rejected token on the current session emits `SessionEvent::Expired`; the GTK window and the SwiftUI app (through `rv-ffi`) go back to login.
 
+## Web
+
+The browser client keeps its model in memory (`Model` in `apps/web/src/store.ts`) and persists it as one `cache` snapshot per account in IndexedDB ([web-client architecture](../architecture/web-client.md)). **Retention**: once per session (`App.retentionDue`, set by `activate`), after the catch-up of `App.reconnect` (snapshot or `sync/changes` pages, then the withdrawn rooms forgotten) and before the snapshot is written, `Model.retain(MESSAGES_KEPT_PER_ROOM)` keeps each room's 500 newest messages (by `created_at`, then position and id, replies counted as on desktop) in memory and so in the cache. Like the native apps it spares a thread root still answered by a kept reply; it also spares every message of the room on screen, since the web timeline reads the model directly. Pinned and starred lists are read from the server (`/pins`, `/stars`), and unsent messages live in the `outbox` store, so neither depends on the model. Older messages come back when the history is paged. Unit tests `tests/retention.test.ts`. **Interrupted sign-out**: kept in the `logouts` store and replayed at the next start, on the `online` event or when the socket opens ([login-and-servers](login-and-servers.md#web)).
+
 ## Parity and known differences
 
 | Aspect | Mobile | Desktop |
@@ -86,6 +90,9 @@ Two consequences worth knowing on desktop: a room created between the reconcilia
 
 ## Sources
 
+- apps/web/src/store.ts
+- apps/web/src/app.ts
+- apps/web/tests/retention.test.ts
 - apps/mobile/lib/sync.ts
 - apps/mobile/lib/catchUp.ts
 - apps/mobile/lib/connectionSetup.ts

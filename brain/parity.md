@@ -37,7 +37,7 @@ beta does.
 | Hide the server rail (header toggle or Settings > Accounts, off by default), switching and adding staying in that page | done | done | done | n/a | Device-wide: SecureStore on mobile, one config file GTK and SwiftUI share. SwiftUI checked by the macOS CI build only. Web: One account on the serving origin, explicit user decision. |
 | Several accounts on the same server | missing | done | done | n/a | Mobile holds one account per server. Web: One account on the serving origin, explicit user decision. |
 | Sign out: `logout` sent, keychain item and local data removed | done | done | done | done | Mobile keeps the account's SQLite file on purpose; GTK and SwiftUI close the store, then delete `.sqlite`, `-wal` and `-shm` (`Store::close`, `Store::remove_files`). Web: Native provider: see [web-client](features/web-client.md). |
-| Replay of a sign-out that failed offline | done | done | done | missing | Mobile retries it at the next start. Desktop (Rocket.Chat and Mattermost accounts; it has no push token to remove) keeps the session marked in the keychain and replays `logout` at the next start (`Session::replay_logout`); a native RocketVibe sign-out that fails keeps the account signed in instead. Web: No browser implementation yet. |
+| Replay of a sign-out that failed offline | done | done | done | done | Mobile retries it at the next start. Desktop (Rocket.Chat and Mattermost accounts; it has no push token to remove) keeps the session marked in the keychain and replays `logout` at the next start (`Session::replay_logout`); a native RocketVibe sign-out that fails keeps the account signed in instead. Web: the account is forgotten at once; an unreached server leaves only the session's token (and a rotation's possible successor) in the IndexedDB `logouts` store until its expiry, replayed at the next start, on the `online` event and when the socket opens, forgotten once revoked or refused (`src/logouts.ts`, [login-and-servers](features/login-and-servers.md#web)). |
 
 ## 2. Room list - [room-list](features/room-list.md)
 
@@ -163,7 +163,7 @@ beta does.
 |---|---|---|---|---|---|
 | Search messages in the room (`chat.search`) | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | Open a result at its message | done | done | done | done | SwiftUI does not open a thread reply in its thread. Web: Native provider: see [web-client](features/web-client.md). |
-| Search across rooms (on the device: the messages already synced, any server kind) | done | done | done | missing | Mobile: local SQLite (`SEARCH_MESSAGES`), 500 newest per room plus opened history; private RocketVibe conversations stay searched per room. Desktop: `Store::search_messages` over the same 500 newest per room plus opened history, the sealed rows decrypted while unlocked (Ctrl+Shift+F, Cmd+Shift+F), Rocket.Chat and Mattermost, not native RocketVibe sessions; SwiftUI's view checked by the macOS CI build only. Web: No browser implementation yet. |
+| Search across rooms (on the device: the messages already synced, any server kind) | done | done | done | done | Mobile: local SQLite (`SEARCH_MESSAGES`), 500 newest per room plus opened history; private RocketVibe conversations stay searched per room. Desktop: `Store::search_messages` over the same 500 newest per room plus opened history, the sealed rows decrypted while unlocked (Ctrl+Shift+F, Cmd+Shift+F), Rocket.Chat and Mattermost, not native RocketVibe sessions; SwiftUI's view checked by the macOS CI build only. Web: the model this browser holds (snapshot, opened history, live messages, 500 per room after retention), from the sidebar's search button or Ctrl+Shift+F, hits under their room, opened through `jumpTo` (`src/local-search.ts`); encrypted (MLS) rooms are left out, their clear text never entering the model, and stay searched per room, as mobile's private conversations. |
 
 ## 8. Room info and profiles - [room-info-and-profiles](features/room-info-and-profiles.md)
 
@@ -192,7 +192,7 @@ beta does.
 | Accounts list in settings | n/a | done | done | n/a | Mobile: one account per server. Web: One account on the serving origin, explicit user decision. |
 | Notification check | mapped | done | partial | partial | Mobile: FCM diagnostic; GTK: backend description and test notification; SwiftUI: test notification and a link to the system settings, no backend description. Web: Implemented native browser equivalent requires row-specific GTK qualification; see docs/WEB_CLIENT_EXECUTION.md. |
 | App version in settings | done | done | done | done | The App category (mobile `expoConfig.version`, GTK `CARGO_PKG_VERSION`, SwiftUI the bundle's short version). Web: Native provider: see [web-client](features/web-client.md). |
-| Logs folder | missing | done | missing | missing | Web: No browser implementation yet. |
+| Logs folder | missing | done | missing | mapped | Web: a browser has no folder to open; Settings > App > Diagnostics downloads a text log of the tab's recent client-side events (reported and uncaught errors, connection changes, sign-out replays, version, user agent) kept in a 200-entry memory ring, never tokens, message text or names (`src/diagnostics.ts`, [settings](features/settings.md#web)). |
 | New versions | done | done | missing | mapped | Android: GitHub APK checks, verified download and user-confirmed installation ([mobile-updates](features/mobile-updates.md)); iOS APK installation is n/a. GTK: platform updater ([desktop-updates](features/desktop-updates.md)). SwiftUI owes an updater. Web: server-delivered assets refreshed in the browser. |
 
 ## 10. Notifications - [notifications](features/notifications.md)
@@ -283,7 +283,7 @@ beta does.
 | Reconnection with back-off, dead-socket probe, catch-up after the subscriptions are armed | done | done | done | partial | Web: Implemented native browser equivalent requires row-specific GTK qualification; see docs/WEB_CLIENT_EXECUTION.md. |
 | Rooms deleted server-side purged locally | done | partial | partial | partial | Desktop purges without mobile's snapshot taken before the request: a room created meanwhile can be purged until the next catch-up. Web: Implemented native browser equivalent requires row-specific GTK qualification; see docs/WEB_CLIENT_EXECUTION.md. |
 | `chat.syncMessages` catch-up of edits and deletions | done | partial | partial | mapped | Desktop catches a room up once per session: a deletion in a room already caught up while another was open stays visible until it is caught up again. Web: Native browser storage/HTTP/socket, HTTPS links, downloads and live-tab alerts; see web-client.md. |
-| Message retention (500 newest per room) | done | done | done | missing | Desktop: `Writer::apply_retention` once per session after the catch-up, Rocket.Chat and Mattermost accounts (`Session::retain`, shared by GTK and SwiftUI). Web: No browser implementation yet. |
+| Message retention (500 newest per room) | done | done | done | done | Desktop: `Writer::apply_retention` once per session after the catch-up, Rocket.Chat and Mattermost accounts (`Session::retain`, shared by GTK and SwiftUI). Web: `Model.retain` once per session after the catch-up, in memory and so in the persisted `cache` snapshot, sparing thread roots of kept replies like the native apps and the room on screen (`src/store.ts`, [offline-and-sync](features/offline-and-sync.md#web)). |
 
 ## 15. Server administration - [administration](features/administration.md)
 
@@ -339,9 +339,8 @@ are product gaps, listed last.
   formatting toolbar; notification backend description; logs
   folder; new versions; running with the window closed and starting at login;
   the notification's photo, picture, quick reactions, mark as read and own sound.
-- **Web**: missing: replay of an offline sign-out, video reduction, the thread
-  list, following and "also send to the room", search across rooms, the logs
-  folder, reply from a notification, message retention, the notification's
+- **Web**: missing: video reduction, the thread
+  list, following and "also send to the room", reply from a notification, the notification's
   photo, picture, quick reactions, mark as read and own sound. Partial, mostly pending row-by-row
   qualification against GTK (`docs/WEB_CLIENT_EXECUTION.md`): link previews,
   embeds, quote cards, system messages, reactions, the thread chip, profiles,

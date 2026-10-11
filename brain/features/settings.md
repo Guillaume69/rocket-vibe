@@ -61,9 +61,13 @@ The settings are an overlay of the main window, not a `Settings` scene (removed)
 
 - **My account**: `MyProfileSection` where the provider supports profiles; for a RocketVibe account, `PrivacySection`, the read receipts switch ([read-receipts.md](read-receipts.md)). **Notifications**: `NotificationPreference` for `desktopNotifications`, a test notification, a link to the system settings; for a RocketVibe account, `DoNotDisturbSection` ([do-not-disturb.md](do-not-disturb.md)). **Language**: the same config dir `language` file (or the RocketVibe preference). **Voice**: `VoiceSettings`. **Encryption**: Rocket.Chat state with Lock or Unlock (`UnlockSheet`, a modal overlay), RocketVibe `CryptoSection`. **Security**, **Devices**, **Bots**: `SecuritySection`, `DevicesSection`, `BotsSection`. **Accounts**: resume another, add one, the "Hide the server bar" `Toggle` (`AppModel.railHidden` / `setRailHidden`), the server. **App**: the version. No update checks, logs folder or background mode yet.
 
+## Web
+
+The settings dialog (`settings` in `apps/web/src/panels.ts`) follows GTK's categories ([web-client](web-client.md)). **App** shows the version (`package.json`) and **Diagnostics**, the browser's mapping of GTK's logs folder: a browser has no folder to open, so `src/diagnostics.ts` keeps a ring of the 200 latest client-side events in memory (errors the app reported through `toast`, uncaught errors and rejections from `installDiagnostics` in `main.ts`, connection state changes from `App.setConnection`, sign-out deferrals and replays, retention counts) and the row downloads them as `rocketvibe-web-diagnostics-<time>.txt` with the version, user agent, language and connection state. Never recorded: tokens, message text, names. An API error keeps only its status and code, any other error its type and a message passed through `scrub` (quoted text, email addresses, URL queries and opaque runs of 20 or more characters removed, 200 characters at most); strings shown to the user are not recorded. The ring lives as long as the tab. Unit tests `tests/diagnostics.test.ts`; `tests/logout-replay.mjs` downloads it and checks no token or name is in it.
+
 ## Parity
 
-[parity](../parity.md) §9: the categories, profile card, notification preference, language, encryption, accounts and the version exist in all three; the Voice category in GTK and SwiftUI, mobile having no voice settings. Mobile only: FCM diagnostic. GTK only: backend description, background and login start, update checks, logs folder. Mobile holds one account per server, so its Accounts page shows only the open one. The language changes live on mobile and after a restart on desktop.
+[parity](../parity.md) §9: the categories, profile card, notification preference, language, encryption, accounts and the version exist in all three; the Voice category in GTK and SwiftUI, mobile having no voice settings. Mobile only: FCM diagnostic. GTK only: backend description, background and login start, update checks, logs folder (the web maps it with its Diagnostics download). Mobile holds one account per server, so its Accounts page shows only the open one. The language changes live on mobile and after a restart on desktop.
 
 ## Sources
 
@@ -103,3 +107,6 @@ The settings are an overlay of the main window, not a `Settings` scene (removed)
 - apps/mobile/ui/serverRailSetting.ts
 - apps/mobile/ui/doNotDisturb.tsx
 - apps/desktop/crates/rv-gtk/src/rail.rs
+- apps/web/src/panels.ts
+- apps/web/src/diagnostics.ts
+- apps/web/tests/diagnostics.test.ts

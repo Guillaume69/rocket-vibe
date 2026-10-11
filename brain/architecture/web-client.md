@@ -18,7 +18,7 @@ The native RocketVibe server embeds the browser application in its binary. Node 
 
 ## State and transport
 
-`api.ts` restricts REST paths to the serving origin, validates snapshot pagination and scopes session rejection to the token that made the request. `store.ts` applies revision/position order and membership lifetimes. IndexedDB stores the account, model snapshot, drafts, staged files, text/upload outboxes, operation intents and private media. Web Locks serialize session renewal and queue replay; BroadcastChannel informs other tabs. Rotation saves its successor intent before sending and its receipt before removing the intent.
+`api.ts` restricts REST paths to the serving origin, validates snapshot pagination and scopes session rejection to the token that made the request. `store.ts` applies revision/position order and membership lifetimes. IndexedDB (`rocket-vibe-web`, version 6) stores the account, model snapshot, drafts, staged files, text/upload outboxes, operation intents, private media, reminders and, outside the account purge, the tokens of sign-outs the server did not hear (`logouts`, replayed by `logouts.ts`). The model keeps 500 messages per room once per session after the catch-up (`Model.retain`). `diagnostics.ts` keeps a memory ring of recent client-side events for Settings > App > Diagnostics, with no token, message text or name. Web Locks serialize session renewal and queue replay; BroadcastChannel informs other tabs. Rotation saves its successor intent before sending and its receipt before removing the intent.
 
 `ui/state.ts` is the controller's `ViewState` store (`subscribe`, `getSnapshot`); `ui/application.tsx` and `ui/profile.tsx` read it through `useSyncExternalStore`, and `ui/portals.tsx` its secondary views. Keyed conversation components preserve connected media and edit state. Shared portal/dialog/sidebar components own secondary views; account-scoped legacy page builders and bounded editor/SDK hosts are explicit adapters, documented in [React architecture](../../docs/WEB_REACT.md). `app.ts` drives transport and model state, serializes socket frames and catches up before replay. Withdrawn rooms and changed membership lifetimes purge pending work and private media. Protected blobs are verified by SHA-256 and kept in IndexedDB, with a 250 MiB media budget. Object URLs are released on access loss and logout.
 
@@ -52,6 +52,8 @@ The SFU's WebSocket origin being reachable does not prove its ICE candidates are
 - apps/web/tests/reads.mjs
 - apps/web/src/api.ts
 - apps/web/src/store.ts
+- apps/web/src/logouts.ts
+- apps/web/src/diagnostics.ts
 - apps/web/src/session.ts
 - apps/web/src/app.ts
 - apps/web/src/media.ts

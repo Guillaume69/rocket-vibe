@@ -14,7 +14,8 @@ Current state: real application implemented and embedded in the server. One serv
 - [x] Brain, changelog and continuous browser build/test workflow.
 - [ ] Full GTK visual-state comparison and all remaining per-row qualifications.
 - [x] Browser DOM composer with GTK inline draft styling, selection, undo/redo and cursor-line markers.
-- [ ] Offline signout replay and closed-tab Web Push.
+- [x] Offline signout replay.
+- [ ] Closed-tab Web Push.
 
 The inherited inventory below retains the GTK feature descriptions. A native browser equivalent uses the native protocol, not the endpoint named for Rocket.Chat. "done" is implementation status; qualified scenarios are listed separately. This branch does not claim all GTK parity is complete.
 
@@ -30,7 +31,7 @@ The final 85-case continuous browser gate passes on `f9e2ec5f`, along with the 2
 
 The actual connected GTK settings and root-window audio menu are captured against the same server. A GTK session built from the latest master receives the browser's real screen stream and publishes a microphone stream back; its stage and the browser's are captured. This proves native/browser interoperability, not physical-device audibility. The voice gate qualifies actual microphone/camera/screen RTP, capture and encoder cadence at 720p/30 fps, native tile/mini presentation, quiet PCM speaking halos, real gains/local mute/deafen, ring/decline/accept, the two-second direct-call grace, takeover while fullscreen, capture-ended cleanup, delayed screen claims and microphone processor failure/retry. The native Voice preferences expose styled device rows and switches, with no invented display options.
 
-Shared sound rejects an unconfirmed own-audio exclusion before publication. The native opt-in call mix is qualified through actual shared-sound RTP and deafen. A controlled program-sound fixture marks its exclusion explicitly and qualifies processing and cleanup; it does not prove browser operating-system loopback exclusion. Browser-native noise suppression differs from GTK RNNoise. Remaining voice debt includes platform program-sound capture, physical-device switching and noise qualification. Full GTK visual-state comparison, closed-tab Web Push and offline signout replay remain separate debt; implemented code does not establish complete GTK parity.
+Shared sound rejects an unconfirmed own-audio exclusion before publication. The native opt-in call mix is qualified through actual shared-sound RTP and deafen. A controlled program-sound fixture marks its exclusion explicitly and qualifies processing and cleanup; it does not prove browser operating-system loopback exclusion. Browser-native noise suppression differs from GTK RNNoise. Remaining voice debt includes platform program-sound capture, physical-device switching and noise qualification. Full GTK visual-state comparison and closed-tab Web Push remain separate debt; implemented code does not establish complete GTK parity.
 
 The media fixture is a real browser-recorded protected clip, uploaded through the file chooser and played in both Chromium and actual GTK. The four browser cases qualify the 16:9 poster, play/pause/seek/volume/fullscreen, connected-player retention through live reactions, canonical three-card video-site detection and membership withdrawal while fullscreen. Provider responses are intercepted to qualify origin-only referrer identity and iframe-document retention; vendor streaming itself remains unqualified. The native and web controls captures are compared on the same file.
 
@@ -97,7 +98,7 @@ GTK baseline is inherited, not a new verification claim. Web status refers to th
 | Server rail: a button per account, "+" to add one, a dot on another account with unread | done | n/a | One account on the serving origin, explicit user decision. |
 | Several accounts on the same server | done | n/a | One account on the serving origin, explicit user decision. |
 | Sign out: `logout` sent, keychain item and local data removed | done | done | Native provider: see [web implementation](../apps/web/README.md). |
-| Replay of a sign-out that failed offline | missing | missing | No browser implementation yet. |
+| Replay of a sign-out that failed offline | done | done | src/logouts.ts: an unreached server leaves only the token in the `logouts` store, replayed at start, online and on socket open. tests/logouts.test.ts, tests/session.test.ts, tests/logout-replay.mjs (request blocked by routing, then allowed). |
 | Rooms sorted by last activity, live (`rooms.get`/`subscriptions.get` deltas, `rooms-changed`/`subscriptions-changed`) | done | mapped | Native browser storage/HTTP/socket, HTTPS links, downloads and live-tab alerts; see web-client.md. |
 | Avatar, name, preview, unread badge | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Time of the last message and an `@n` badge on mentions | done | done | Native provider: see [web implementation](../apps/web/README.md). |
@@ -175,7 +176,7 @@ GTK baseline is inherited, not a new verification claim. Web status refers to th
 | List of a room's threads, following a thread, "also send to the room" | missing | missing | No browser implementation yet. |
 | Search messages in the room (`chat.search`) | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Open a result at its message | done | done | Native provider: see [web implementation](../apps/web/README.md). |
-| Search across rooms | missing | missing | No browser implementation yet. |
+| Search across rooms | done | done | src/local-search.ts over the browser model, sidebar button and Ctrl+Shift+F, hits opened by jumpTo; encrypted rooms searched per room only. tests/local-search.test.ts, tests/global-search.mjs. |
 | Room info (`rooms.info`) | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Favourite a room | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | User profile (`users.info`), Message and Call buttons | done | partial | Avatar/name/menu access, native facts/live presence, GTK card geometry, Message/Call/Report and own-card rules are qualified in tests/profiles.mjs. Bio markdown remains debt. |
@@ -191,7 +192,7 @@ GTK baseline is inherited, not a new verification claim. Web status refers to th
 | Accounts list in settings | done | n/a | One account on the serving origin, explicit user decision. |
 | Notification check | done | partial | Implemented native browser equivalent requires row-specific GTK qualification; see docs/WEB_CLIENT_EXECUTION.md. |
 | App version in settings | done | done | Native provider: see [web implementation](../apps/web/README.md). |
-| Logs folder | done | missing | No browser implementation yet. |
+| Logs folder | done | mapped | Settings > App > Diagnostics downloads the tab's recent client-side events (src/diagnostics.ts), never tokens, message text or names. tests/diagnostics.test.ts, tests/logout-replay.mjs. |
 | New versions | done | mapped | Native browser storage/HTTP/socket, HTTPS links, downloads and live-tab alerts; see web-client.md. |
 | DMs and mentions notified, click opens the room | done | mapped | Native browser storage/HTTP/socket, HTTPS links, downloads and live-tab alerts; see web-client.md. |
 | Reply from the notification | done | missing | No browser implementation yet. |
@@ -242,7 +243,7 @@ GTK baseline is inherited, not a new verification claim. Web status refers to th
 | Reconnection with back-off, dead-socket probe, catch-up after the subscriptions are armed | done | partial | Implemented native browser equivalent requires row-specific GTK qualification; see docs/WEB_CLIENT_EXECUTION.md. |
 | Rooms deleted server-side purged locally | partial | partial | Implemented native browser equivalent requires row-specific GTK qualification; see docs/WEB_CLIENT_EXECUTION.md. |
 | `chat.syncMessages` catch-up of edits and deletions | partial | mapped | Native browser storage/HTTP/socket, HTTPS links, downloads and live-tab alerts; see web-client.md. |
-| Message retention (500 newest per room) | missing | missing | No browser implementation yet. |
+| Message retention (500 newest per room) | done | done | Model.retain once per session after the catch-up (src/store.ts), sparing kept replies' roots and the room on screen. tests/retention.test.ts. |
 | Server administration for an administrator only: Dashboard (deployment, latest published version, users, rooms, messages, uploads, open reports; on Rocket.Chat the dated cached figures, refreshed on demand) | done | done | Actual English/French GTK native dashboard captures and browser wide/narrow captures on the same server; complete native overview fields, refresh/navigation, controlled release filtering and policy refusal in tests/visual.mjs. |
 | Moderation: reported messages and accounts, reasons, dismiss, delete the message, deactivate the author or account | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Rooms list: every room, direct conversations, discussions and teams included, searched by the server | done | done | Native provider: see [web implementation](../apps/web/README.md). |

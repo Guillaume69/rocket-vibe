@@ -38,6 +38,16 @@ struct Card {
     reply_button: gtk::Button,
 }
 
+impl Card {
+    fn retire(&self) {
+        // Release the focused text field while its root still exists. GTK's
+        // Windows IME otherwise retains a message filter for the freed context
+        // when a reply card is replaced or dismissed.
+        gtk::prelude::RootExt::set_focus(&self.window, None::<&gtk::Widget>);
+        self.window.destroy();
+    }
+}
+
 impl Backend {
     pub(super) fn new(app: &gio::Application, action: Rc<dyn Fn(rv_native::Event)>) -> Rc<Self> {
         Self::with_quiet(app, action, Rc::new(rv_native::quiet))
@@ -84,7 +94,7 @@ impl Backend {
     pub(super) fn clear(&self) {
         let cards = self.cards.take();
         for card in cards {
-            card.window.destroy();
+            card.retire();
         }
     }
 
@@ -97,7 +107,7 @@ impl Backend {
 
     fn dismiss(&self, card: &Rc<Card>) {
         self.cards.borrow_mut().retain(|c| !Rc::ptr_eq(c, card));
-        card.window.destroy();
+        card.retire();
         self.arrange();
     }
 
@@ -160,7 +170,7 @@ impl Backend {
         {
             gtk::prelude::WidgetExt::realize(&card.window);
             if !rv_native::notification_prepare(handle(&card.window)) {
-                card.window.destroy();
+                card.retire();
                 if let Some(previous) = previous {
                     self.cards.borrow_mut().push(previous);
                 }
@@ -179,7 +189,7 @@ impl Backend {
             return false;
         }
         if let Some(previous) = previous {
-            previous.window.destroy();
+            previous.retire();
         }
         if restore_focus && card.editing.get() {
             #[cfg(windows)]
@@ -529,6 +539,7 @@ pub(super) fn smoke(app: &adw::Application) -> bool {
     check("reply field expands", old.editing.get() && old.reply.reveals_child());
     old.entry.set_text("A draft worth keeping");
     check("replacement mapped", backend.show(&sample("d", "m2"), &pictures));
+    check("retired reply drops focus", gtk::prelude::RootExt::focus(&old.window).is_none());
     let replacement = backend.cards.borrow()[2].clone();
     check("replacement keeps draft", replacement.editing.get() && replacement.entry.text() == "A draft worth keeping");
     replacement.entry.set_text("  ");

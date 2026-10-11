@@ -65,6 +65,13 @@ import {
   UPSERT_ROOM,
   UPSERT_USER,
   CLEAR_CUSTOM_EMOJIS,
+  UPSERT_REMINDER,
+  LIST_REMINDERS,
+  MARK_REMINDER_SCHEDULED,
+  DELETE_DUE_REMINDER,
+  DELETE_REMINDER,
+  CLEAR_REMINDERS,
+  reminderParams,
   subscriptionParams,
   customEmojiParams,
   identityParams,
@@ -1527,5 +1534,52 @@ describe('attachments of an encrypted file', () => {
     db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', attachments, updatedAt: 1 }));
     db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', attachments: null, updatedAt: 2 }));
     assert.deepEqual(row(db.prepare(read).get('m1')), { text: 'hello', attachments: null });
+  });
+});
+
+describe('reminders (0030)', () => {
+  let db: DatabaseSync;
+  beforeEach(() => {
+    db = migratedDb();
+  });
+  const list = () => (db.prepare(LIST_REMINDERS).all() as Record<string, unknown>[]).map(row);
+  const reminder = (messageId: string, dueAt: number, threadId: string | null = null) =>
+    reminderParams({ messageId, rid: 'r1', roomName: 'general', threadId, author: 'alice', excerpt: 'hello', dueAt, createdAt: 10 });
+
+  test('listed soonest first, as stored, not yet handed to the system', () => {
+    db.prepare(UPSERT_REMINDER).run(...reminder('m2', 2000, 'root'));
+    db.prepare(UPSERT_REMINDER).run(...reminder('m1', 1000));
+    assert.deepEqual(list(), [
+      { messageId: 'm1', rid: 'r1', roomName: 'general', threadId: null, author: 'alice', excerpt: 'hello', dueAt: 1000, createdAt: 10, scheduled: 0 },
+      { messageId: 'm2', rid: 'r1', roomName: 'general', threadId: 'root', author: 'alice', excerpt: 'hello', dueAt: 2000, createdAt: 10, scheduled: 0 },
+    ]);
+  });
+
+  test('setting it again replaces the time and clears the hand-over', () => {
+    db.prepare(UPSERT_REMINDER).run(...reminder('m1', 1000));
+    db.prepare(MARK_REMINDER_SCHEDULED).run('m1', 1000);
+    assert.equal(list()[0]?.scheduled, 1);
+    db.prepare(UPSERT_REMINDER).run(...reminder('m1', 5000));
+    assert.equal(list().length, 1);
+    assert.deepEqual([list()[0]?.dueAt, list()[0]?.scheduled], [5000, 0]);
+  });
+
+  test('marking and removing act only on the time they name', () => {
+    db.prepare(UPSERT_REMINDER).run(...reminder('m1', 5000));
+    // A stale schedule, or the fired notification of the earlier time.
+    db.prepare(MARK_REMINDER_SCHEDULED).run('m1', 1000);
+    db.prepare(DELETE_DUE_REMINDER).run('m1', 1000);
+    assert.deepEqual([list()[0]?.dueAt, list()[0]?.scheduled], [5000, 0]);
+    db.prepare(DELETE_DUE_REMINDER).run('m1', 5000);
+    assert.deepEqual(list(), []);
+  });
+
+  test('cancel removes whatever is set; sign-out clears them all', () => {
+    db.prepare(UPSERT_REMINDER).run(...reminder('m1', 1000));
+    db.prepare(UPSERT_REMINDER).run(...reminder('m2', 2000));
+    db.prepare(DELETE_REMINDER).run('m1');
+    assert.deepEqual(list().map((r) => r.messageId), ['m2']);
+    db.prepare(CLEAR_REMINDERS).run();
+    assert.deepEqual(list(), []);
   });
 });

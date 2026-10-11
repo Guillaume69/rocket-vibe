@@ -493,6 +493,51 @@ DELETE FROM emoji_usage WHERE code <> ? AND code NOT IN (
 export const LIST_EMOJI_USAGE = `SELECT code, count, last_used AS lastUsed FROM emoji_usage`;
 
 /**
+ * Sets a message's reminder (`lib/reminders.ts`), `reminderParams`. One per
+ * message: setting it again replaces everything and clears `scheduled`, the
+ * new time not being handed to the system yet.
+ */
+export const UPSERT_REMINDER = `
+INSERT INTO reminders (message_id, rid, room_name, thread_id, author, excerpt, due_at, created_at, scheduled)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+ON CONFLICT(message_id) DO UPDATE SET
+  rid = excluded.rid,
+  room_name = excluded.room_name,
+  thread_id = excluded.thread_id,
+  author = excluded.author,
+  excerpt = excluded.excerpt,
+  due_at = excluded.due_at,
+  created_at = excluded.created_at,
+  scheduled = 0
+`;
+export function reminderParams(r: {
+  messageId: string;
+  rid: string;
+  roomName: string;
+  threadId: string | null;
+  author: string;
+  excerpt: string;
+  dueAt: number;
+  createdAt: number;
+}): (string | number | null)[] {
+  return [r.messageId, r.rid, r.roomName, r.threadId, r.author, r.excerpt, r.dueAt, r.createdAt];
+}
+/** Soonest first. */
+export const LIST_REMINDERS = `
+SELECT message_id AS messageId, rid, room_name AS roomName, thread_id AS threadId, author, excerpt,
+  due_at AS dueAt, created_at AS createdAt, scheduled
+FROM reminders ORDER BY due_at, message_id
+`;
+/** `[messageId, dueAt]`: only the time handed to the system, never one set again meanwhile. */
+export const MARK_REMINDER_SCHEDULED = `UPDATE reminders SET scheduled = 1 WHERE message_id = ? AND due_at = ?`;
+/** `[messageId, dueAt]`: a fired one, unless set again meanwhile. */
+export const DELETE_DUE_REMINDER = `DELETE FROM reminders WHERE message_id = ? AND due_at = ?`;
+/** `[messageId]`: "Cancel reminder". */
+export const DELETE_REMINDER = `DELETE FROM reminders WHERE message_id = ?`;
+/** Sign-out: the account's reminders go with it. */
+export const CLEAR_REMINDERS = `DELETE FROM reminders`;
+
+/**
  * The largest `_updatedAt` already ingested for a room: used to RE-ANCHOR the
  * catch-up cursor when `chat.syncMessages` fails on too large a backlog (the
  * 8.5 server does not bound the query, it times out), so as not to keep

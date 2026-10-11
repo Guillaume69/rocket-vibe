@@ -17,6 +17,7 @@ import type { OutboxStore, OutboxRow } from '../lib/outbox.ts';
 import type { UploadStore, UploadRow } from '../lib/uploadQueue.ts';
 import type { Store, StoreWrites } from '../lib/sync.ts';
 import { KEPT_CODES, canonicalEmojiCode, type EmojiUse } from '../lib/emojiUsage.ts';
+import type { Reminder, ReminderRows } from '../lib/reminders.ts';
 import type { WriteQueue } from './writeQueue.ts';
 import {
   APPLY_RETENTION,
@@ -91,6 +92,13 @@ import {
   RECORD_EMOJI_USE,
   PRUNE_EMOJI_USAGE,
   LIST_EMOJI_USAGE,
+  UPSERT_REMINDER,
+  reminderParams,
+  LIST_REMINDERS,
+  MARK_REMINDER_SCHEDULED,
+  DELETE_DUE_REMINDER,
+  DELETE_REMINDER,
+  CLEAR_REMINDERS,
 } from './upserts.ts';
 
 /** The retention quota, per room. See `APPLY_RETENTION`. */
@@ -540,6 +548,32 @@ export type EmojiUsageStore = {
   read: () => Promise<EmojiUse[]>;
   record: (code: string) => Promise<void>;
 };
+
+/**
+ * The account's "Remind me" reminders (`lib/reminders.ts`): device data in
+ * the account's database, written through the queue. `remove(id, dueAt)`
+ * removes only the reminder still due at that time (a fired one), `cancel`
+ * whatever is set.
+ */
+export type ReminderStore = ReminderRows & {
+  save: (reminder: Omit<Reminder, 'scheduled'>) => Promise<void>;
+  cancel: (messageId: string) => Promise<void>;
+  clear: () => Promise<void>;
+};
+
+export function createReminderStore(raw: SQLiteDatabase, serially: WriteQueue): ReminderStore {
+  return {
+    async list() {
+      const rows = await raw.getAllAsync<Omit<Reminder, 'scheduled'> & { scheduled: number }>(LIST_REMINDERS);
+      return rows.map((r) => ({ ...r, scheduled: r.scheduled !== 0 }));
+    },
+    save: (reminder) => serially(async () => void (await raw.runAsync(UPSERT_REMINDER, reminderParams(reminder)))),
+    markScheduled: (messageId, dueAt) => serially(async () => void (await raw.runAsync(MARK_REMINDER_SCHEDULED, [messageId, dueAt]))),
+    remove: (messageId, dueAt) => serially(async () => void (await raw.runAsync(DELETE_DUE_REMINDER, [messageId, dueAt]))),
+    cancel: (messageId) => serially(async () => void (await raw.runAsync(DELETE_REMINDER, [messageId]))),
+    clear: () => serially(async () => void (await raw.runAsync(CLEAR_REMINDERS))),
+  };
+}
 
 /** Ids of the messages containing `term`, newest first. */
 export type LocalSearch = { search(term: string, limit: number): Promise<string[]> };

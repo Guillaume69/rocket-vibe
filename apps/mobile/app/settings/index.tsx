@@ -89,6 +89,16 @@ function Settings({ c, account }: { c: Colors; account: SettingsAccount }) {
         ))}
       </View>
 
+      {/* "Remind me" reminders of this account, kept on the device: every server kind. */}
+      <View style={[styles.list, { backgroundColor: c.deepCard, borderColor: c.border }]}>
+        <CategoryRow
+          c={c}
+          category={{ icon: 'preferences-system-notifications', label: 'reminders.title', hint: 'reminders.hint' }}
+          first
+          onPress={() => router.push('/reminders')}
+        />
+      </View>
+
       {admin !== null && (
         <View style={[styles.list, { backgroundColor: c.deepCard, borderColor: c.border }]}>
           <CategoryRow

@@ -44,6 +44,7 @@ import {
   createEmojiUsageStore,
   createLocalSearch,
   createOutboxStore,
+  createReminderStore,
   createUploadStore,
   type DraftStore,
 } from '../db/store.ts';
@@ -99,6 +100,7 @@ import { NativeStore } from '../providers/rocketvibe/store.ts';
 import {createNativeFilesIO,mountNativeFiles} from './nativeFiles.ts';
 import { notify } from './toast.tsx';
 import { mountEmojiUsage } from './emojiUsage.ts';
+import { mountReminders } from './reminders.ts';
 import { mountLocalSearch } from './localSearch.ts';
 
 export type SyncState =
@@ -208,7 +210,8 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         if (!alive) return;
         unmountUsage = mountEmojiUsage(createEmojiUsageStore(raw,writeQueue));
         const unmountEmoji = unmountUsage, unmountSearch = mountLocalSearch(createLocalSearch(raw));
-        unmountUsage = () => { unmountEmoji(); unmountSearch(); };
+        const unmountReminders = mountReminders(createReminderStore(raw,writeQueue),session);
+        unmountUsage = () => { unmountEmoji(); unmountSearch(); unmountReminders(); };
         const provider = createProvider(session,client,() => idFromBytes(Crypto.getRandomBytes(12)),store,{
           pushAndroid:Platform.OS==='android',
           voice:VoiceNative!==null,
@@ -326,7 +329,9 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       // Device data of this account (quick reactions), taken back at session end.
       unmountUsage = mountEmojiUsage(createEmojiUsageStore(raw, writeQueue));
       const unmountEmoji = unmountUsage, unmountSearch = mountLocalSearch(createLocalSearch(raw));
-      unmountUsage = () => { unmountEmoji(); unmountSearch(); };
+      // "Remind me" reminders (device data), reconciled with the system's notifications on mount.
+      const unmountReminders = mountReminders(createReminderStore(raw, writeQueue), session);
+      unmountUsage = () => { unmountEmoji(); unmountSearch(); unmountReminders(); };
       // E2EE engine (read side): decrypts during ingestion as soon as a room key
       // is available. The private key is stored in the Keystore per
       // (SERVER, ACCOUNT), like the SQLite database just above, and for the same

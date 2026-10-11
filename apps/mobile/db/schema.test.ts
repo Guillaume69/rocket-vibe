@@ -127,6 +127,7 @@ describe('migrations', () => {
       'native_thread_states',
       'native_upload_intents',
       'outbox',
+      'reminders',
       'rooms',
       'subscriptions',
       'uploads',
@@ -155,6 +156,7 @@ describe('migrations', () => {
       'idx_native_room_operation_room',
       'idx_native_star_room',
       'idx_outbox_status',
+      'idx_reminders_due',
       'idx_rooms_activity',
       'idx_uploads_status',
     ]);

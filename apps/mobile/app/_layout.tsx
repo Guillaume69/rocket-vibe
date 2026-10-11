@@ -145,6 +145,20 @@ export default function RootLayout() {
                         contentStyle: { backgroundColor: darkColors.deepCard },
                       }}
                     />
+                    {/* "Remind me" (the times offered), opened from the
+                        message sheet; reminders live on the device. */}
+                    <Stack.Screen
+                      name="remind-me"
+                      options={{
+                        presentation: 'formSheet',
+                        headerShown: false,
+                        sheetAllowedDetents: 'fitToContents',
+                        sheetGrabberVisible: true,
+                        sheetCornerRadius: 24,
+                        sheetElevation: 24,
+                        contentStyle: { backgroundColor: darkColors.deepCard },
+                      }}
+                    />
                     {/* E2EE unlock: encryption password. */}
                     <Stack.Screen
                       name="unlock-e2e"

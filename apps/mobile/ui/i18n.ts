@@ -25,6 +25,7 @@ import {
   type TranslateFn,
   timeFormatter,
   scheduleFormatter,
+  reminderFormatter,
   dayFormatter,
   listTimeFormatter,
   deviceLanguage,
@@ -124,6 +125,15 @@ export function useTimeFormatter(): (ms: number) => string {
 export function useScheduleFormatter(): (ms: number) => string {
   const language = useLanguage();
   return useMemo(() => scheduleFormatter(language), [language]);
+}
+
+/** When a reminder fires (`reminderFormatter`): the year only when it is not this one. */
+export function useReminderFormatter(): (ms: number) => string {
+  const language = useLanguage();
+  return useMemo(() => {
+    const format = reminderFormatter(language);
+    return (ms: number) => format(ms);
+  }, [language]);
 }
 
 /** The time beside a room in the list (`listTimeFormatter`). */

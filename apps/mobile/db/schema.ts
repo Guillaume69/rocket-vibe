@@ -277,6 +277,31 @@ export const emojiUsage = sqliteTable('emoji_usage', {
 });
 
 /**
+ * "Remind me" reminders (`lib/reminders.ts`, brain/features/reminders.md):
+ * one per message of this account, kept on the device only. DEVICE data like
+ * `emoji_usage`: the room purges leave it alone; `NativeStore.prepare()`
+ * empties it with the projection, since a new data epoch's messages are not
+ * the ones reminded of. `scheduled` = the system holds (or held, then fired)
+ * the notification.
+ */
+export const reminders = sqliteTable(
+  'reminders',
+  {
+    messageId: text('message_id').primaryKey(),
+    rid: text('rid').notNull(),
+    roomName: text('room_name').notNull(),
+    threadId: text('thread_id'),
+    author: text('author').notNull(),
+    excerpt: text('excerpt').notNull(),
+    /** Milliseconds. */
+    dueAt: integer('due_at').notNull(),
+    createdAt: integer('created_at').notNull(),
+    scheduled: integer('scheduled', { mode: 'boolean' }).notNull().default(false),
+  },
+  (t) => [index('idx_reminders_due').on(t.dueAt)],
+);
+
+/**
  * The server's custom emojis (`emoji-custom.list`). A REFERENCE table, not a
  * stream: `msg.md` only delivers the shortcode (`:party_parrot:`), this table
  * gives the FILE name to show. Persisted for offline-first (step 8): at

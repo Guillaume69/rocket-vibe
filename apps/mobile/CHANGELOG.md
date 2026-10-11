@@ -10,6 +10,7 @@ release, and its notes are that version's section here.
 ### Added
 
 - Android can check GitHub for a newer mobile APK from Settings > App, show an optional update notice, download with progress and SHA-256 verification, and install through Android confirmation while retaining app data. Update checks and installation recovery work independently of chat accounts.
+- "Remind me" in a message's actions, on every server: in 1 hour, in 3 hours, tomorrow at 09:00, or a day and time you pick, up to a year ahead. At that time a notification shows the room, the author and the start of the message, even with the app closed, and opens the message (its thread for a reply). The reminder is kept on the phone only; "Cancel reminder" on the message, or the Reminders list in Settings, removes it, and signing out removes the account's reminders.
 - A Read-only switch in the room settings of a Rocket.Chat room (with the right to edit it), saved only when switched; the composer follows the new state. On a RocketVibe server, the room information's member list can now remove a member (confirmed) and add one by username, a member's name opens their profile, and the list reloads after a role change or a membership change.
 
 ### Fixed

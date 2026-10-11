@@ -34,6 +34,7 @@ Dates are stored as integer milliseconds. Most tables carry `updated_at` (the se
 | `uploads` | Pending file sends: local `uri`, `name`, `type`, `caption`, `status` (`pending`, `sending` = taken by this process, `failed` = refused, only a manual retry re-arms it; `idx_uploads_status`), and `file_id`, the dedup key returned by `rooms.media`. See [../features/uploads.md](../features/uploads.md). |
 | `drafts` | Composer drafts (`key`, `text`, `updated_at`) keyed by `rid` or `rid:tmid`. In SQLite rather than MMKV to avoid one more native dependency and rebuild. |
 | `emoji_usage` | The emoji I react with, counted on the device for the quick reactions: `code` (the canonical shortcode of the emoji, without colons, so aliases share one row; primary key), `count`, `last_used` (ms). Device data, not server data: no catch-up can rebuild it, so neither the purges nor `NativeStore.prepare()` touch it. At most `KEPT_CODES` (64) rows. Migration 0020. See [../features/emoji.md](../features/emoji.md#quick-reactions-and-reacting-with-any-emoji). |
+| `reminders` | "Remind me" reminders: `message_id` (primary key: one per message), `rid`, `room_name`, `thread_id`, `author`, `excerpt`, `due_at` (ms, `idx_reminders_due`), `created_at`, `scheduled` (the system's notification was handed over). Device data: the purges leave it alone; `NativeStore.prepare()` empties it with the projection. Migration 0030. See [../features/reminders.md](../features/reminders.md#mobile). |
 | `custom_emojis` | Server custom emoji (`emoji-custom.list`): name, extension, aliases JSON. Reference data, replaced wholesale, loaded into memory for synchronous rendering. |
 | `users` | `uid -> current username`, `avatar_etag` and `name`, the real name (migration 0025, null when unknown; shown only under Rocket.Chat's `UI_Use_Real_Name`, [room-list](../features/room-list.md)). Usernames are mutable, so this table, fed by every ingested message, gives the name to display even on old messages. |
 | `cursors` | Catch-up cursors keyed by `(scope, stream)` with `updated_since`: `scope` is a `rid` or `*` for global cursors; `stream` is `rooms`, `subscriptions` or `messages-deleted`. |
@@ -47,6 +48,7 @@ Optimistic messages are `messages` rows with `updated_at = 0`: only a local copy
 - `migrations.js` imports the `.sql` files as strings. That works because Metro gets `sql` added to `sourceExts` (`metro.config.js`) and Babel runs `babel-plugin-inline-import` for `.sql` (`babel.config.js`). `db/migrations.d.ts` types the generated module.
 - `db/migrate.ts#migrateDatabase` runs drizzle's expo migrator on one database. It is memoized per file name by promise, so two callers in the same tick share one run; a failure is not memoized, so the next call retries. The body is async so that even a synchronous throw from opening a corrupt file becomes a rejection the caller can catch.
 - Migration is done by whoever opens the database (`SyncProvider` for the session's), never globally at app start.
+- **Migration 0030 (`db/migrations/0030_reminders.sql`)** adds `reminders` and its due-time index ([../features/reminders.md](../features/reminders.md#mobile)).
 - **Migration 0021 (`db/migrations/0021_author_bot.sql`)** adds `messages.author_bot` (default false), written only by the RocketVibe store after the shared upsert, for the bot badge ([../features/bots.md](../features/bots.md)).
 - **Migration 0022 (`db/migrations/0022_message_form.sql`)** adds `messages.form`, the JSON of a workflow's form (`Message.form`), written only by the RocketVibe store, read by the form card and the answer sheet ([../features/workflows.md](../features/workflows.md)).
 - **Migration 0025 (`db/migrations/0025_user_names.sql`)** adds `users.name`, the person's real name (a message's `u.name`, `me`, `users.info`, a two-person DM subscription's `fname`). Rows written before it have none until a source names them; the reconciliation's full subscription list backfills the DM peers.
@@ -75,7 +77,7 @@ Notable column rules:
 
 ## Stores (`db/store.ts`)
 
-Factories over one connection and its queue: `createStore` (the sync engine's `Store`, from `lib/sync.ts`), `createOutboxStore`, `createUploadStore`, `createDraftStore`, `createEmojiStore`, `createEmojiUsageStore` (`read`, and `record`, which stores `canonicalEmojiCode` of the code (aliases merged at write time), ignores anything that is not a shortcode and prunes in the same queued job; mounted per session through `ui/emojiUsage.ts`). Each write goes through the queue; reads (`readCursor`, `lastMessageUpdatedAt`) skip it. `transaction(fn)` wraps a batch in one queued `withTransactionAsync`: one commit means one change event for live queries instead of one per row.
+Factories over one connection and its queue: `createStore` (the sync engine's `Store`, from `lib/sync.ts`), `createOutboxStore`, `createUploadStore`, `createDraftStore`, `createEmojiStore`, `createEmojiUsageStore` (`read`, and `record`, which stores `canonicalEmojiCode` of the code (aliases merged at write time), ignores anything that is not a shortcode and prunes in the same queued job; mounted per session through `ui/emojiUsage.ts`), `createReminderStore` (`list` soonest first, `save`, `markScheduled` and `remove` for one due time, `cancel`, `clear`; mounted per session through `ui/reminders.ts`). Each write goes through the queue; reads (`readCursor`, `lastMessageUpdatedAt`) skip it. `transaction(fn)` wraps a batch in one queued `withTransactionAsync`: one commit means one change event for live queries instead of one per row.
 
 Side effects baked into writes:
 
@@ -109,6 +111,8 @@ Side effects baked into writes:
 - apps/mobile/db/migrations/0021_author_bot.sql
 - apps/mobile/db/migrations/0022_message_form.sql
 - apps/mobile/db/migrations/0025_user_names.sql
+- apps/mobile/db/migrations/0030_reminders.sql
+- apps/mobile/ui/reminders.ts
 - apps/mobile/lib/catchUp.ts
 - apps/mobile/providers/rocketvibe/store.ts
 - apps/mobile/lib/emojiUsage.ts

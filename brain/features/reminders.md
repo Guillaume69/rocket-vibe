@@ -14,7 +14,7 @@ A message can be turned into a personal reminder: at the chosen time the app not
 
 ## Web
 
-Not offered yet.
+`apps/web/src/reminders.ts` holds the reminder record, the offered times (`inHours`, `tomorrowNine`), the bounds (`acceptable`), the excerpt and which are due (`due`: fire, or drop when more than 7 days late). Reminders live in the browser's IndexedDB, store `reminders` (`apps/web/src/store.ts`, database version 5), keyed `<account>:<message>`, removed with the account by `purge`. `App` (`apps/web/src/app.ts`): `loadReminders` when an account activates (then `checkReminders` every 15 seconds while the tab is open, the timer cleared by `stop`), `checkReminders` (a due one is fired only by the tab that removes it from the store, so two tabs never fire it twice), `fireReminder` (a system notification when the page holds the permission, else a "Reminder" dialog with Open), `openReminder` (`GET /api/v1/messages/{id}` then `jumpTo`, the room when the message is gone), `setReminder` (replaces the message's earlier one), `cancelReminder`, `remindMenu` (the `actionMenu` from the message's menu button), `pickReminderTime` (a `datetime-local` dialog), `showReminders` (the list, from the account menu). The message menu shows "Remind me" or "Cancel reminder (<time>)". A tab that is closed at the due time fires the reminder when the page next opens. Tests: `apps/web/tests/reminders.test.ts`; browser `apps/web/tests/reminders.mjs` (set from the menu, the menu then offers to cancel, the list shows and cancels it, a reminder already due when the page opens fires a dialog whose Open leads to the message and leaves the store).
 
 ## Mobile
 
@@ -27,3 +27,7 @@ Not offered yet (GTK, SwiftUI).
 ## Sources
 
 - brain/decisions.md
+- apps/web/src/reminders.ts
+- apps/web/src/app.ts
+- apps/web/src/store.ts
+- apps/web/tests/reminders.mjs

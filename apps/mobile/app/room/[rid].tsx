@@ -328,6 +328,15 @@ function Room({
     }).catch(()=>{if(!canceled){consumedLink.current=linkTarget;notify(t('room.linkUnavailable'));}});
     return()=>{canceled=true;};
   },[linkTarget,online,nativeChat,rid,router,t,membership]);
+  // Rocket.Chat and Mattermost: a link naming a message (a "Remind me"
+  // reminder's, `ui/reminders.ts`) opens its thread for a reply, else jumps to
+  // it in the room, like a search result.
+  useEffect(()=>{
+    if(!linkTarget||nativeChat||consumedLink.current===linkTarget)return;
+    consumedLink.current=linkTarget;
+    if(linkTarget.root)router.push({pathname:'/thread/[id]',params:{id:linkTarget.root,...(linkTarget.message?{message:linkTarget.message}:{})}});
+    else if(linkTarget.message)requestJump(rid,{id:linkTarget.message});
+  },[linkTarget,nativeChat,rid,router]);
   type ListRow = MessageRowData | BarRow | DayRow;
   const list = useRef<FlashListRef<ListRow>>(null);
   const readVisible=useRef(()=>{});

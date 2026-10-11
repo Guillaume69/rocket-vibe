@@ -7,6 +7,13 @@ section here.
 
 ## [Unreleased]
 
+## [0.15.1] - 2026-10-11
+
+### Fixed
+
+- macOS: accepting a ringing call opens the call window again, and the call and Infomaniak
+  sign-in windows ask for the camera and microphone instead of being refused them silently.
+
 ## [0.15.0] - 2026-10-11
 
 ### Added
@@ -1152,7 +1159,8 @@ the mobile app (see `docs/PARITY.md`).
   `rocketvibe://` links) and zip; a macOS app in a DMG, signed with a Developer ID and
   notarized by Apple.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.15.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.15.1...HEAD
+[0.15.1]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.15.0...desktop-v0.15.1
 [0.15.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.14.0...desktop-v0.15.0
 [0.14.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.13.0...desktop-v0.14.0
 [0.13.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.12.2...desktop-v0.13.0

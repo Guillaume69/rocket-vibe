@@ -6,7 +6,7 @@ exclude = ["voice"]
 
 [workspace.package]
 edition = "2024"
-version = "0.15.0"
+version = "0.15.1"
 license = "MIT"
 
 [workspace.lints.rust]

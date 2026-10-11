@@ -8,7 +8,7 @@ The field at the bottom of a room or thread: the text, its persisted draft, `@` 
 - **Staged files** go to the upload queue one by one, in order, and the typed text becomes the caption of the **first** file only (repeated on each, it would show as many times). See [uploads](uploads.md).
 - **A draft that starts with `/name`** where `name` is a command the server lists goes to `commands.run`. See [slash commands](slash-commands.md).
 - In an encrypted room the outbox encrypts when the message leaves, never before; a locked room shows an "unlock" composer on mobile (`LockedComposer`). See [E2EE](e2ee.md).
-- A read-only room shows a note instead of the composer (mobile), or hides it (desktop). On Rocket.Chat, mobile keeps the composer for whoever holds `post-readonly` (owners and moderators by default), as the server lets them post (`apps/mobile/ui/postReadonly.ts`).
+- A read-only room shows a note instead of the composer (mobile), or hides it (desktop). On Rocket.Chat every native app keeps the composer (the room's and a thread's on the desktop) when my global or room roles grant `post-readonly` (owners and moderators by default), whom the server lets post: mobile `apps/mobile/ui/postReadonly.ts` (asked when the room is read-only); desktop `Session::may_post_read_only` (from `Session::permissions`, read once per session), GTK `OpenRoom::locked` in `rv-gtk/src/chat.rs` (asked when the room opens, so a room made read-only while open keeps them), SwiftUI `RoomModel.writingLocked` (`RoomView`, `ThreadView`). Message actions, files dropped and "Also send to the room" follow the same rule.
 
 Neither app **emits** the typing indicator: emitting needs a DDP method call, and the DDP client has no `call` by design (`lib/typing.ts`). Both only listen.
 
@@ -107,4 +107,6 @@ The native serving-origin client uses the GTK toolbar/draft styling with a real 
 - apps/desktop/crates/rv-core/src/store.rs
 - apps/desktop/crates/rv-core/src/session.rs
 - apps/desktop/macos/Sources/RocketVibe/Composer.swift
+- apps/desktop/macos/Sources/RocketVibe/RoomView.swift
+- apps/desktop/macos/Sources/RocketVibe/ThreadView.swift
 - apps/desktop/macos/Sources/RocketVibeKit/RoomModel.swift

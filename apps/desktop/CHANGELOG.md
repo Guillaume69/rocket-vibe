@@ -7,6 +7,15 @@ section here.
 
 ## [Unreleased]
 
+### Added
+
+- A room's members (GTK and macOS, Rocket.Chat channels and private groups): "N members" in the room information opens the list, owners and moderators first, with photos, presence and room roles; a search asks the server, more load as you scroll, and a row opens the person's profile. Its menu (or a right click) makes or removes a moderator or an owner and removes someone from the room (after a confirmation), as your roles allow.
+- Edit a room's topic, description and announcement, and switch it to read-only, from its information (GTK and macOS, Rocket.Chat), for those whose roles allow editing the room. Only what changed is sent.
+
+### Changed
+
+- In a read-only Rocket.Chat room, those whose roles let them post there anyway (owners and moderators by default) keep the composer, in the room and in its threads. The macOS app also hides a thread's composer in a read-only room for everyone else, as GTK does.
+
 ## [0.14.0] - 2026-10-11
 
 ### Added

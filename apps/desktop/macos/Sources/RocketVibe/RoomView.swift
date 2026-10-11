@@ -26,7 +26,7 @@ struct RoomView: View {
             UploadsView(model: model)
             if model.room.encrypted && !app.e2eUnlocked && !model.privateReady {
                 LockedBanner()
-            } else if model.room.readOnly {
+            } else if model.writingLocked {
                 Text(L("room.read_only"))
                     .foregroundStyle(.secondary)
                     .padding(12)
@@ -77,6 +77,7 @@ struct RoomView: View {
                     .disabled(!model.supportsRoomInfo)
             }
         }
+        .task(id: model.rid) { await model.refreshPostReadOnly() }
         .task(id: model.rid) {
             callable = false
             let expected = app.account?.key

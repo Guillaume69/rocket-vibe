@@ -11,6 +11,13 @@
 //!                         I am not in: its card joins it
 //!   preview:<room>        forwards the last message to <room>, whose list row
 //!                         then reads "↪ Quoted message"
+//!   members:<username>    the members list from the information dialog, owners
+//!                         first, searched for <username>, made moderator and
+//!                         back through the row's menu; then the topic edited
+//!                         and put back, then read-only set and lifted with my
+//!                         composer kept (needs `set-moderator`, `edit-room` and
+//!                         `post-readonly`); RV_SMOKE_MEMBERS_HOLD=1: the list
+//!                         left open on <username>'s menu, for a screenshot
 
 use std::rc::Rc;
 use std::sync::Arc;
@@ -412,4 +419,199 @@ pub(super) async fn preview_checks(session: Arc<Session>, rid: String, target: S
     let preview = find_by_class(&widget, "room-preview").and_downcast::<gtk::Label>().map(|l| l.label().to_string());
     let expected = crate::i18n::t("rooms.quoted_message");
     check("the list reads it as a quoted message", preview.as_deref() == Some(expected), &preview);
+}
+
+/// The member row of `username` in the open members dialog.
+fn member_row(root: &gtk::Widget, username: &str) -> Option<gtk::Widget> {
+    find_named(root, &format!("member-{username}"))
+}
+
+/// Whether the server lists `username` as a moderator of the room.
+async fn moderator_on_server(session: &Arc<Session>, rid: &str, username: &str) -> Option<bool> {
+    let (s, r, u) = (session.clone(), rid.to_owned(), username.to_owned());
+    let page = crate::on_tokio(async move { s.room_members(&r, &u, 0).await }).await.ok()?;
+    let member = page.members.into_iter().find(|m| m.username == username)?;
+    Some(member.has(rv_core::members::Role::Moderator))
+}
+
+/// Clicks the member menu entry `action` (`set-moderator`...) on the row.
+fn click_action(row: &gtk::Widget, action: &str) -> bool {
+    let Some(button) = find_named(row, action).and_downcast::<gtk::Button>() else { return false };
+    button.emit_clicked();
+    true
+}
+
+/// The room's topic as the server has it now.
+async fn topic_on_server(session: &Arc<Session>, rid: &str) -> Option<String> {
+    let (s, r) = (session.clone(), rid.to_owned());
+    crate::on_tokio(async move { s.room_info(&r).await }).await.ok().map(|i| i.topic.unwrap_or_default())
+}
+
+/// Through the editor of the information dialog: sets the topic to `topic`.
+async fn save_topic(root: &gtk::Widget, topic: &str) -> bool {
+    let Some(edit) = waited(|| find_by_class(root, "room-settings-edit").and_downcast::<gtk::Button>(), 6).await else {
+        return false;
+    };
+    edit.emit_clicked();
+    let Some(view) = waited(|| find_by_class(root, "room-topic").and_downcast::<gtk::TextView>(), 6).await else {
+        return false;
+    };
+    view.buffer().set_text(topic);
+    let Some(save) = find_by_class(root, "room-settings-save").and_downcast::<gtk::Button>() else { return false };
+    if !save.is_sensitive() {
+        return false;
+    }
+    save.emit_clicked();
+    // The editor closes once the server took it; the dialog then reads the room again.
+    let closed = waited(|| find_by_class(root, "room-settings-dialog").is_none().then_some(()), 10).await.is_some();
+    glib::timeout_future(Duration::from_millis(2500)).await;
+    closed
+}
+
+/// `members:<username>`: the information dialog's "N members" opens the
+/// list, owners first; the server's search narrows it to <username>, whose
+/// row menu makes them moderator and takes it back (the server agreeing each
+/// time, the row following); then the topic is edited through the dialog's
+/// editor and put back.
+pub(super) async fn member_checks(chat: Rc<ChatPage>, session: Arc<Session>, rid: String, username: String) {
+    check("members offered", session.members_available(&rid), &rid);
+    let (s, r) = (session.clone(), rid.clone());
+    let rights = crate::on_tokio(async move { s.member_rights(&r).await }).await;
+    check("I may name moderators", rights.moderator, rights);
+    let (s, r) = (session.clone(), rid.clone());
+    let editable = crate::on_tokio(async move { s.can_edit_room(&r).await }).await;
+    check("I may edit the room", editable, editable);
+    chat.show_room_info();
+    let Some(root) = chat.widget().root().map(|r| r.upcast::<gtk::Widget>()) else { return };
+    let group = waited(|| find_by_class(&root, "room-members"), 8).await;
+    let Some(row) = group.as_ref().and_then(find_type::<adw::ActionRow>) else {
+        check("the members row", false, ());
+        return;
+    };
+    check("the members row counts", row.title().contains(char::is_numeric), row.title());
+    adw::prelude::ActionRowExt::activate(&row);
+    let listed = waited(|| find_by_class(&root, "members-list"), 6).await;
+    let first = waited(|| listed.as_ref().and_then(|l| l.first_child()), 10).await;
+    check("the list shows members", first.is_some(), ());
+    let owners_first = first.as_ref().is_some_and(|f| {
+        let mut texts = Vec::new();
+        labels(f, &mut texts);
+        texts.iter().any(|t| t == crate::i18n::t("members.owner"))
+    });
+    check("owners come first", owners_first, ());
+    // RV_SMOKE_MEMBERS_HOLD=1: left open on <username>'s menu, for a screenshot.
+    if std::env::var("RV_SMOKE_MEMBERS_HOLD").as_deref() == Ok("1") {
+        if let Some(menu) = member_row(&root, &username).and_then(|r| find_type::<gtk::MenuButton>(&r)) {
+            menu.popup();
+        }
+        return;
+    }
+    if let Some(search) = find_by_class(&root, "members-search").and_downcast::<gtk::SearchEntry>() {
+        search.set_text(&username);
+    }
+    let wanted = format!("member-{username}");
+    let narrowed = waited(
+        || {
+            let list = listed.as_ref()?;
+            let rows: Vec<_> = std::iter::successors(list.first_child(), |w| w.next_sibling()).collect();
+            (rows.len() == 1 && rows[0].widget_name() == wanted).then_some(())
+        },
+        8,
+    )
+    .await;
+    check("the server's search narrows the list", narrowed.is_some(), &username);
+    let Some(was) = moderator_on_server(&session, &rid, &username).await else {
+        check("the member is in the room", false, &username);
+        return;
+    };
+    for (step, put) in [("given", !was), ("taken back", was)] {
+        let Some(member) = member_row(&root, &username) else {
+            check("the member's row", false, &username);
+            return;
+        };
+        let action = if put { "set-moderator" } else { "unset-moderator" };
+        check(&format!("the row offers {action}"), click_action(&member, action), action);
+        let mut on_server = None;
+        for _ in 0..20 {
+            on_server = moderator_on_server(&session, &rid, &username).await;
+            if on_server == Some(put) {
+                break;
+            }
+            glib::timeout_future(Duration::from_millis(300)).await;
+        }
+        check(&format!("moderator role {step} on the server"), on_server == Some(put), on_server);
+        let chip = waited(
+            || {
+                let row = member_row(&root, &username)?;
+                let mut texts = Vec::new();
+                labels(&row, &mut texts);
+                let shows = texts.iter().any(|t| t == crate::i18n::t("members.moderator"));
+                (shows == put && row.is_sensitive()).then_some(())
+            },
+            6,
+        )
+        .await;
+        check(&format!("the row shows the role {step}"), chip.is_some(), put);
+    }
+    // Back to the information dialog: the list closes.
+    if let Some(dialog) = find_by_class(&root, "room-members-dialog").and_downcast::<adw::Dialog>() {
+        dialog.close();
+    }
+    let Some(before) = topic_on_server(&session, &rid).await else {
+        check("the topic read", false, ());
+        return;
+    };
+    let edited = format!("{before} (members smoke)").trim().to_owned();
+    let saved = save_topic(&root, &edited).await;
+    let now = topic_on_server(&session, &rid).await;
+    check("the topic saved through the editor", saved && now.as_deref() == Some(edited.as_str()), &now);
+    let restored = save_topic(&root, &before).await;
+    let now = topic_on_server(&session, &rid).await;
+    check("the topic put back", restored && now.as_deref() == Some(before.as_str()), &now);
+    read_only_checks(&chat, &session, &rid, &root).await;
+}
+
+/// Through the editor: the read-only switch set to `on`, saved.
+async fn save_read_only(root: &gtk::Widget, on: bool) -> bool {
+    let Some(edit) = waited(|| find_by_class(root, "room-settings-edit").and_downcast::<gtk::Button>(), 6).await else {
+        return false;
+    };
+    edit.emit_clicked();
+    let Some(switch) = waited(|| find_by_class(root, "room-read-only").and_downcast::<adw::SwitchRow>(), 6).await
+    else {
+        return false;
+    };
+    switch.set_active(on);
+    let Some(save) = find_by_class(root, "room-settings-save").and_downcast::<gtk::Button>() else { return false };
+    if !save.is_sensitive() {
+        return false;
+    }
+    save.emit_clicked();
+    let closed = waited(|| find_by_class(root, "room-settings-dialog").is_none().then_some(()), 10).await.is_some();
+    glib::timeout_future(Duration::from_millis(2500)).await;
+    closed
+}
+
+/// The room made read-only through the editor: the server says so, the list
+/// learns it, and my composer stays since my roles grant `post-readonly`;
+/// then writable again.
+async fn read_only_checks(chat: &Rc<ChatPage>, session: &Arc<Session>, rid: &str, root: &gtk::Widget) {
+    let (s, r) = (session.clone(), rid.to_owned());
+    let allowed = crate::on_tokio(async move { s.may_post_read_only(&r).await }).await;
+    check("my roles grant post-readonly", allowed, allowed);
+    let flag = |s: &Arc<Session>| s.store.rooms().into_iter().find(|r| r.rid == rid).map(|r| r.read_only);
+    for on in [true, false] {
+        let saved = save_read_only(root, on).await;
+        let (s, r) = (session.clone(), rid.to_owned());
+        let info = crate::on_tokio(async move { s.room_info(&r).await }).await;
+        check(
+            &format!("read-only {on} saved through the editor"),
+            saved && info.as_ref().is_ok_and(|i| i.read_only == on),
+            info.as_ref().map(|i| i.read_only),
+        );
+        let listed = waited(|| (flag(session) == Some(on)).then_some(()), 10).await;
+        check(&format!("the room list learns read-only {on}"), listed.is_some(), flag(session));
+        let shown = chat.composer().root.is_visible();
+        check(&format!("my composer stays (read-only {on})"), shown, shown);
+    }
 }

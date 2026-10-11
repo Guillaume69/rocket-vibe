@@ -42,7 +42,8 @@ pub(crate) async fn personalize(
         .collect();
     let rows: Vec<(String,bool,i64)> = sqlx::query_as("SELECT message_id,present,revision FROM message_stars WHERE user_id=$1 AND message_id=ANY($2)")
         .bind(user).bind(&ids).fetch_all(&mut *conn).await?;
-    personalize_mentions(conn, user, messages).await?;
+    personalize_mentions(&mut *conn, user, messages).await?;
+    crate::threads::personalize(conn, user, messages).await?;
     for message in messages {
         message.personal_star = Some(Box::new(
             rows.iter()

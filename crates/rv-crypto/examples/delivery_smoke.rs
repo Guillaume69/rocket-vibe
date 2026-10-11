@@ -360,6 +360,7 @@ async fn exchange(
     after: &str,
 ) -> Result<String> {
     let root = rv_protocol::SendMessage {
+        also_in_room: false,
         operation_id: HEXLOWER.encode(&random::<32>()),
         text: format!("protected-worker-private-payload-phase-{phase}: **Bonjour** 🐾"),
         quotes: vec![rv_protocol::parity::QuoteReference {
@@ -404,6 +405,7 @@ async fn exchange(
         "message position was rounded or sequencer was not seeded"
     );
     let reply = rv_protocol::SendMessage {
+        also_in_room: false,
         operation_id: HEXLOWER.encode(&random::<32>()),
         text: format!("protected-worker-private-payload-phase-{phase}: réponse chiffrée"),
         quotes: vec![],
@@ -573,6 +575,7 @@ async fn run(input: Input) -> Result<()> {
     // durable cancellation response, reopen, recover the exact document, then
     // prove the peer can receive the next sender generation normally.
     let abandoned = rv_protocol::SendMessage {
+        also_in_room: false,
         operation_id: HEXLOWER.encode(&random::<32>()),
         text: "protected-worker-abandoned-private-body".into(),
         quotes: vec![],

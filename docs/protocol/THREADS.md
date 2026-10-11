@@ -62,6 +62,52 @@ membership: positions initialized at the room maximum with no historical backlog
 Removal, change of generation or of membership duration: deletion of the
 drafts, intents and private messages of the thread, then refusal of old callbacks.
 
+## List, following and "also send to the room"
+
+Three additive capabilities, each `false` on an older server
+(`apps/server/src/threads.rs`, migration `0058_thread_follows.sql`).
+
+**`thread_list`**: `GET /api/v1/rooms/{room}/threads?filter=all|following&before=…&limit=…`
+returns `ThreadList`: `threads`, each a `ThreadEntry` (`root` with its `thread`
+summary and the reader's `personal_follow`, `last_reply_position`, `following`,
+and `unread`, the replies by others after the reader's thread read position),
+and `next`, the following page's `before`, absent on the last page. A thread is
+a non-deleted root with at least one non-deleted reply; the list is ordered by
+its latest such reply's position, newest first, and pages by that position.
+`filter` defaults to `all`; anything else answers `400`. The limit is 50 by
+default, between 1 and 100. Members of the room only (`404` otherwise). Only
+plaintext threads: an encrypted room's roots are opaque `e2ee_application_messages`
+routing the server cannot summarize, so its list carries at most the plaintext
+roots from before encryption, and clients do not offer it there.
+
+**`thread_follow`**: `PUT /api/v1/messages/{id}/follow` takes `SetMark`
+(`operation_id`, `present`), like stars and pins, and answers the root as the
+caller reads it. A reply's id acts on its root, like Rocket.Chat's
+`chat.followMessage`. The operation receipt lives in `message_actions`:
+replaying the same operation answers again without a change, another body
+under it is `409`. A deleted root answers `410 message_deleted`, a system
+message `403`. The root's author (once, at the first reply, unless they already
+chose) and every replier (each time, even after an unfollow) follow
+automatically; an explicit unfollow is kept as a row, so other people's replies
+do not bring it back. Each change writes a private `message_upsert` of the root
+for that account only, carrying `personal_follow {present, revision}` (an
+instance-sequence revision of its own, like `personal_star`): the account's
+other sessions see it live, and a client keeps the newer revision over an older
+copy. Every account-scoped read of a root with replies (history, snapshot,
+thread page, list, message) carries `personal_follow`; no row reads as
+`{present: false, revision: "0"}`.
+
+**`thread_also_in_room`**: `SendMessage.also_in_room` (with `reply_to` only,
+else `400`) marks a reply its author also posted to the room's timeline, like
+Rocket.Chat's `tshow`. It stays a reply: `Message.reply_to` is unchanged and
+`Message.also_in_room` is `true`. It is part of the send fingerprint only when
+set, so earlier receipts replay unchanged and the same operation with the other
+value is `409`. `GET /api/v1/rooms/{room}/messages` returns such replies among
+the roots only with `also_in_room=true`: an older client keeps a history of
+roots only, so its keyset paging never lands on rows it hides. Snapshots and
+the sync journal already carried every reply; they now also carry the flag,
+which older clients ignore.
+
 ## Composers and qualification
 
 Each thread has its own draft, distinct from the room's. GTK and SwiftUI

@@ -102,6 +102,7 @@ pub async fn run(app: &App, actor: &Account, input: RunCommand) -> Result<()> {
             let user = profiles::lookup(app, name).await?.user;
             let direct = store::direct(app, actor, &user.id).await?;
             let message = SendMessage {
+                also_in_room: false,
                 operation_id: operation(),
                 text: text.into(),
                 reply_to: None,

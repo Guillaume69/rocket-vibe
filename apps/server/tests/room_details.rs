@@ -328,6 +328,7 @@ async fn settings_enforce_privacy_authority_readonly_and_closed_inputs(pool: PgP
             .send(
                 &room,
                 &SendMessage {
+                    also_in_room: false,
                     cards: Vec::new(),
                     reply_to: None,
                     quotes: vec![],
@@ -356,6 +357,7 @@ async fn settings_enforce_privacy_authority_readonly_and_closed_inputs(pool: PgP
         .send(
             &room,
             &SendMessage {
+                also_in_room: false,
                 cards: Vec::new(),
                 reply_to: None,
                 quotes: vec![],
@@ -704,6 +706,7 @@ async fn mutation_budget_preserves_receipt_reads_and_global_operation_namespace(
         .send(
             &room,
             &SendMessage {
+                also_in_room: false,
                 cards: Vec::new(),
                 reply_to: None,
                 quotes: vec![],
@@ -733,6 +736,7 @@ async fn mutation_budget_preserves_receipt_reads_and_global_operation_namespace(
             .send(
                 &room,
                 &SendMessage {
+                    also_in_room: false,
                     cards: Vec::new(),
                     reply_to: None,
                     quotes: vec![],

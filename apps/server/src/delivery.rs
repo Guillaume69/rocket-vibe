@@ -448,6 +448,7 @@ mod tests {
             &f.owner,
             &f.room.id,
             SendMessage {
+                also_in_room: false,
                 cards: Vec::new(),
                 reply_to: None,
                 operation_id: "quote-lease-source".into(),
@@ -463,6 +464,7 @@ mod tests {
             &f.reader,
             &destination.id,
             SendMessage {
+                also_in_room: false,
                 cards: Vec::new(),
                 reply_to: None,
                 operation_id: "quote-lease-reply".into(),
@@ -650,6 +652,7 @@ mod tests {
             &f.reader,
             &middle.room_id,
             SendMessage {
+                also_in_room: false,
                 cards: Vec::new(),
                 reply_to: None,
                 operation_id: "nested-quote-lease".into(),
@@ -828,6 +831,7 @@ mod tests {
                 &f.owner,
                 &f.room.id,
                 SendMessage {
+                    also_in_room: false,
                     cards: Vec::new(),
                     reply_to: None,
                     quotes: vec![],
@@ -1174,6 +1178,7 @@ mod tests {
             &f.owner,
             &f.room.id,
             SendMessage {
+                also_in_room: false,
                 cards: Vec::new(),
                 reply_to: None,
                 quotes: vec![],
@@ -1274,6 +1279,7 @@ mod tests {
             &f.owner,
             &f.room.id,
             SendMessage {
+                also_in_room: false,
                 cards: Vec::new(),
                 reply_to: None,
                 quotes: vec![],
@@ -1454,6 +1460,7 @@ mod tests {
                     &f.reader,
                     &f.room.id,
                     SendMessage {
+                        also_in_room: false,
                         cards: Vec::new(),
                         reply_to: None,
                         quotes: vec![],
@@ -1509,6 +1516,7 @@ mod tests {
                         &f.reader,
                         &f.room.id,
                         SendMessage {
+                            also_in_room: false,
                             cards: Vec::new(),
                             reply_to: None,
                             quotes: vec![],

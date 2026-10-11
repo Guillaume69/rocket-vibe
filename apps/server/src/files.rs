@@ -364,6 +364,7 @@ pub async fn complete(
         actor,
         &row.room_id,
         SendMessage {
+            also_in_room: false,
             cards: Vec::new(),
             operation_id: input.operation_id,
             text: markdown,

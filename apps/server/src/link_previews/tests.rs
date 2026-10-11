@@ -60,6 +60,7 @@ async fn send(f: &Fixture, id: &str, text: &str) -> rv_protocol::Message {
         &f.owner,
         &f.room,
         SendMessage {
+            also_in_room: false,
             cards: Vec::new(),
             operation_id: id.into(),
             text: text.into(),

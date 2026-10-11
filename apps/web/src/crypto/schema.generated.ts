@@ -1469,6 +1469,24 @@ export const nativeSchema = {
         text_messages: {
           type: "boolean",
         },
+        thread_also_in_room: {
+          default: false,
+          description:
+            "`SendMessage.also_in_room`: a reply also shown in the room's timeline.",
+          type: "boolean",
+        },
+        thread_follow: {
+          default: false,
+          description:
+            "`PUT /api/v1/messages/{id}/follow` and `Message.personal_follow`.",
+          type: "boolean",
+        },
+        thread_list: {
+          default: false,
+          description:
+            "`GET /api/v1/rooms/{id}/threads`: a room's threads, latest reply first.",
+          type: "boolean",
+        },
         threads: {
           type: "boolean",
         },
@@ -3533,6 +3551,11 @@ export const nativeSchema = {
     },
     Message: {
       properties: {
+        also_in_room: {
+          description:
+            "A reply its author also posted to the room's timeline. It stays a reply.",
+          type: "boolean",
+        },
         author: {
           $ref: "#/$defs/User",
         },
@@ -3594,6 +3617,18 @@ export const nativeSchema = {
         },
         id: {
           type: "string",
+        },
+        personal_follow: {
+          anyOf: [
+            {
+              $ref: "#/$defs/PersonalFollow",
+            },
+            {
+              type: "null",
+            },
+          ],
+          description:
+            "Whether this reader follows the thread of this root. Account-scoped\nlike `personal_star`, never in a shared journal payload.",
         },
         personal_mention: {
           description:
@@ -5015,6 +5050,20 @@ export const nativeSchema = {
         "key_backup",
         "room_key_envelope",
       ],
+      type: "object",
+    },
+    PersonalFollow: {
+      description:
+        "Whether the reader follows a thread root. Like `PersonalStar`, private and\nversioned on its own: the newer revision wins over an older copy.",
+      properties: {
+        present: {
+          type: "boolean",
+        },
+        revision: {
+          type: "string",
+        },
+      },
+      required: ["present", "revision"],
       type: "object",
     },
     PersonalStar: {
@@ -6501,6 +6550,11 @@ export const nativeSchema = {
     SendMessage: {
       additionalProperties: false,
       properties: {
+        also_in_room: {
+          description:
+            "With `reply_to` only, to a server announcing `thread_also_in_room`.",
+          type: "boolean",
+        },
         cards: {
           items: {
             $ref: "#/$defs/IntegrationCard",
@@ -7053,6 +7107,50 @@ export const nativeSchema = {
           type: "object",
         },
       ],
+    },
+    ThreadEntry: {
+      description: "One thread of a room in `ThreadList`.",
+      properties: {
+        following: {
+          type: "boolean",
+        },
+        last_reply_position: {
+          description:
+            "Highest non-deleted reply position: the list's order and its cursor.",
+          type: "string",
+        },
+        root: {
+          $ref: "#/$defs/Message",
+          description:
+            "The root, with its `thread` summary and the reader's `personal_follow`.",
+        },
+        unread: {
+          description:
+            "Replies by others after the reader's thread read position.",
+          type: "string",
+        },
+      },
+      required: ["root", "last_reply_position", "following", "unread"],
+      type: "object",
+    },
+    ThreadList: {
+      description:
+        "`GET /api/v1/rooms/{id}/threads?filter=all|following&before=&limit=`.",
+      properties: {
+        next: {
+          description: "The next page's `before`, absent on the last page.",
+          type: ["string", "null"],
+        },
+        threads: {
+          description: "Latest reply first.",
+          items: {
+            $ref: "#/$defs/ThreadEntry",
+          },
+          type: "array",
+        },
+      },
+      required: ["threads"],
+      type: "object",
     },
     ThreadPage: {
       properties: {
@@ -8148,6 +8246,9 @@ export const nativeSchema = {
     sync_batch: {
       $ref: "#/$defs/SyncBatch",
     },
+    thread_list: {
+      $ref: "#/$defs/ThreadList",
+    },
     thread_page: {
       $ref: "#/$defs/ThreadPage",
     },
@@ -8199,6 +8300,7 @@ export const nativeSchema = {
     "message",
     "message_page",
     "thread_page",
+    "thread_list",
     "mark_thread_read",
     "snapshot",
     "snapshot_page",

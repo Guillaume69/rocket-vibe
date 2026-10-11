@@ -24,6 +24,7 @@ async fn ordinary_quotes_require_private_delivery_access_and_expose_only_referen
         .await
         .unwrap();
     let input = SendMessage {
+        also_in_room: false,
         operation_id: "ordinary-private-quote".into(),
         text: String::new(),
         reply_to: None,
@@ -1183,6 +1184,7 @@ async fn only_the_authors_own_messages_of_the_room_are_amended_in_their_thread(p
         .unwrap()
         .message_id;
     let amendment = |text: &str, reply_to: Option<String>| SendMessage {
+        also_in_room: false,
         operation_id: auth::random_token(),
         text: text.into(),
         quotes: vec![],
@@ -1288,6 +1290,7 @@ async fn any_member_reacts_to_a_message_but_only_its_author_edits_it(pool: PgPoo
         .unwrap()
         .message_id;
     let amendment = |text: &str| SendMessage {
+        also_in_room: false,
         operation_id: auth::random_token(),
         text: text.into(),
         quotes: vec![],

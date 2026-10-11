@@ -931,6 +931,7 @@ async fn owners_edit_administrators_oversee_and_disabling_cancels_runs(pool: PgP
 
 fn said(text: &str, operation: &str) -> SendMessage {
     SendMessage {
+        also_in_room: false,
         operation_id: operation.into(),
         text: text.into(),
         reply_to: None,

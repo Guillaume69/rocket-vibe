@@ -587,6 +587,7 @@ fn accounts() -> (Account, Account) {
 }
 fn private_message(operation: &str) -> rv_protocol::SendMessage {
     rv_protocol::SendMessage {
+        also_in_room: false,
         operation_id: operation.into(),
         text: "Message HTTP **privé** 🐾".into(),
         quotes: vec![rv_protocol::parity::QuoteReference {

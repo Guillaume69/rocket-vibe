@@ -148,6 +148,7 @@ impl ChatPage {
                 access
                     .send_selected(
                         messages::SendMessage {
+                            also_in_room: false,
                             operation_id: rv_core::native::room_operation_id(),
                             text,
                             reply_to: None,

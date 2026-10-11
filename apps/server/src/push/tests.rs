@@ -116,6 +116,7 @@ async fn setup(pool: PgPool) -> (App, Account, Account, String, String) {
 }
 fn input(text: &str) -> SendMessage {
     SendMessage {
+        also_in_room: false,
         operation_id: auth::random_token(),
         text: text.into(),
         reply_to: None,
@@ -538,6 +539,7 @@ async fn push_thread_reads_and_direct_mentions_preferences_use_original_message_
         &owner,
         &room,
         SendMessage {
+            also_in_room: false,
             reply_to: Some(root.id.clone()),
             ..input("thread reply")
         },

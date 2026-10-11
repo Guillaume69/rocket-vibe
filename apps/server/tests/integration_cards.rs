@@ -58,6 +58,7 @@ async fn cards_use_normal_permissions_receipts_sync_search_edit_and_erasure(pool
         .unwrap();
     let card=serde_json::from_value(serde_json::json!({"author":"CI","title":"Release ready","url":"https://example.org/build","text":"Build completed","color":"#1177aa","fields":[{"title":"Artifact","value":"abcdef","short":true}]})).unwrap();
     let input = SendMessage {
+        also_in_room: false,
         operation_id: auth::random_token(),
         text: String::new(),
         reply_to: None,

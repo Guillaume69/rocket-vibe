@@ -359,6 +359,7 @@ mod tests {
             &alice,
             &room.id,
             SendMessage {
+                also_in_room: false,
                 operation_id: auth::random_token(),
                 text: "did you read this?".into(),
                 reply_to: None,

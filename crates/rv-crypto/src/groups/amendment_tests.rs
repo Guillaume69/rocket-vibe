@@ -178,6 +178,7 @@ fn an_amendment_by_another_author_is_ignored_and_payload_shapes_are_checked() {
         .prepare_document(
             &messages::observation(&bob),
             &rv_protocol::SendMessage {
+                also_in_room: false,
                 operation_id: "bob-forged".into(),
                 text: String::new(),
                 reply_to: None,

@@ -53,6 +53,7 @@ fn fixture() -> (LocalDevice, Receipt, Member, SendMessage, Records) {
         activation_version: "9007199254740997".into(),
     };
     let document = SendMessage {
+        also_in_room: false,
         operation_id: origin.header.operation.clone(),
         text: "private archive document".into(),
         reply_to: origin.header.thread.clone(),

@@ -135,6 +135,15 @@ pub struct Capabilities {
     /// Messages sent later by the server (`scheduled`).
     #[serde(default)]
     pub scheduled_messages: bool,
+    /// `GET /api/v1/rooms/{id}/threads`: a room's threads, latest reply first.
+    #[serde(default)]
+    pub thread_list: bool,
+    /// `PUT /api/v1/messages/{id}/follow` and `Message.personal_follow`.
+    #[serde(default)]
+    pub thread_follow: bool,
+    /// `SendMessage.also_in_room`: a reply also shown in the room's timeline.
+    #[serde(default)]
+    pub thread_also_in_room: bool,
 }
 
 impl Default for Capabilities {
@@ -194,6 +203,9 @@ impl Default for Capabilities {
             custom_emoji_admin: false,
             instance_icon: false,
             scheduled_messages: false,
+            thread_list: false,
+            thread_follow: false,
+            thread_also_in_room: false,
         }
     }
 }
@@ -259,7 +271,10 @@ impl Capabilities {
             workflows,
             custom_emoji_admin,
             instance_icon,
-            scheduled_messages
+            scheduled_messages,
+            thread_list,
+            thread_follow,
+            thread_also_in_room
         );
         features
     }
@@ -380,6 +395,14 @@ pub struct PersonalStar {
     pub revision: String,
 }
 
+/// Whether the reader follows a thread root. Like `PersonalStar`, private and
+/// versioned on its own: the newer revision wins over an older copy.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct PersonalFollow {
+    pub present: bool,
+    pub revision: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct Message {
     pub id: String,
@@ -391,6 +414,9 @@ pub struct Message {
     pub reply_to: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread: Option<Box<ThreadSummary>>,
+    /// A reply its author also posted to the room's timeline. It stays a reply.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub also_in_room: bool,
     /// Server-authored, structured room activity. Never accepted by SendMessage.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub system: Option<Box<system::SystemMessage>>,
@@ -422,6 +448,10 @@ pub struct Message {
     /// Present only in account-scoped reads or a journal event for its owner.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub personal_star: Option<Box<PersonalStar>>,
+    /// Whether this reader follows the thread of this root. Account-scoped
+    /// like `personal_star`, never in a shared journal payload.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub personal_follow: Option<Box<PersonalFollow>>,
     /// Captured mention eligibility for this reader, including the original
     /// recipients of @here. Never persisted in a shared journal payload.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -445,6 +475,9 @@ pub struct SendMessage {
     pub text: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reply_to: Option<String>,
+    /// With `reply_to` only, to a server announcing `thread_also_in_room`.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub also_in_room: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub quotes: Vec<parity::QuoteReference>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -527,6 +560,27 @@ pub struct ThreadPage {
     pub messages: Vec<Message>,
     pub has_more: bool,
     pub read_state: ThreadReadState,
+}
+
+/// One thread of a room in `ThreadList`.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ThreadEntry {
+    /// The root, with its `thread` summary and the reader's `personal_follow`.
+    pub root: Message,
+    /// Highest non-deleted reply position: the list's order and its cursor.
+    pub last_reply_position: String,
+    pub following: bool,
+    /// Replies by others after the reader's thread read position.
+    pub unread: String,
+}
+
+/// `GET /api/v1/rooms/{id}/threads?filter=all|following&before=&limit=`.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ThreadList {
+    /// Latest reply first.
+    pub threads: Vec<ThreadEntry>,
+    /// The next page's `before`, absent on the last page.
+    pub next: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
@@ -615,6 +669,7 @@ pub struct Contract {
     pub message: Message,
     pub message_page: MessagePage,
     pub thread_page: ThreadPage,
+    pub thread_list: ThreadList,
     pub mark_thread_read: MarkThreadRead,
     pub snapshot: Snapshot,
     pub snapshot_page: SnapshotPage,

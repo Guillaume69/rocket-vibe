@@ -256,6 +256,8 @@ pub enum Event {
     InputLevel {
         level: f32,
     },
+    /// Local speech while muted; no microphone samples leave this device.
+    MutedSpeech,
     /// The session ended; `reason` is LiveKit's in snake case (`duplicate_identity`,
     /// `participant_removed`, `room_deleted`, `client_initiated`...), or `connect_failed`.
     Disconnected {
@@ -498,5 +500,66 @@ mod tests {
         .unwrap();
         assert!(matches!(older, Event::Participants { participants }
             if !participants[0].local && !participants[0].camera && !participants[0].screen));
+    }
+}
+
+/// One reminder per speech burst, after 600 ms, at most once every 10 s.
+/// All times come from the caller's monotonic clock in milliseconds.
+#[derive(Debug, Default)]
+pub struct MutedSpeechReminder {
+    began: Option<u64>,
+    warned: bool,
+    last: Option<u64>,
+}
+impl MutedSpeechReminder {
+    pub fn update(&mut self, muted: bool, speaking: bool, now: u64) -> bool {
+        if !muted || !speaking {
+            self.began = None;
+            self.warned = false;
+            return false;
+        }
+        let began = *self.began.get_or_insert(now);
+        if !self.warned
+            && now.saturating_sub(began) >= 600
+            && self.last.is_none_or(|last| now.saturating_sub(last) >= 10_000)
+        {
+            self.warned = true;
+            self.last = Some(now);
+            return true;
+        }
+        false
+    }
+}
+
+#[cfg(test)]
+mod muted_speech_tests {
+    use super::*;
+    #[test]
+    fn speech_must_last_and_reminders_do_not_repeat_during_a_burst() {
+        let mut reminder = MutedSpeechReminder::default();
+        assert!(!reminder.update(true, true, 0));
+        assert!(!reminder.update(true, true, 599));
+        assert!(reminder.update(true, true, 600));
+        assert!(!reminder.update(true, true, 20_000));
+        assert!(!reminder.update(true, false, 20_001));
+        assert!(!reminder.update(true, true, 20_002));
+        assert!(reminder.update(true, true, 20_602));
+    }
+    #[test]
+    fn silence_unmute_and_cooldown_prevent_false_or_repeated_reminders() {
+        let mut reminder = MutedSpeechReminder::default();
+        assert!(!reminder.update(false, true, 0));
+        assert!(!reminder.update(false, true, 1000));
+        assert!(!reminder.update(true, false, 2000));
+        assert!(!reminder.update(true, true, 3000));
+        assert!(reminder.update(true, true, 3600));
+        assert!(!reminder.update(false, true, 4000));
+        assert!(!reminder.update(true, true, 5000));
+        assert!(!reminder.update(true, true, 5600));
+        assert!(reminder.update(true, true, 13_600));
+    }
+    #[test]
+    fn event_is_additive_json() {
+        assert_eq!(Event::MutedSpeech.line(), r#"{"type":"muted_speech"}"#);
     }
 }

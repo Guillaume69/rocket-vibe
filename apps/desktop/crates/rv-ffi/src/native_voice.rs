@@ -67,6 +67,7 @@ pub struct VoiceState {
     pub ended: Option<String>,
     /// The last failure the sidecar reported (`camera_unavailable`...).
     pub error: Option<String>,
+    pub muted_speech: u64,
 }
 
 /// A direct call ringing or just resolved.
@@ -277,6 +278,7 @@ impl NativeChat {
             camera: s.camera,
             sharing: s.sharing,
             error: s.error.clone(),
+            muted_speech: s.muted_speech,
         }
     }
     /// Who is in a room's voice session: the server's 2 s snapshot, or the

@@ -16,6 +16,7 @@ import {
   LOCAL_SPEECH_DB,
   REMOTE_SPEECH_DB,
 } from "./voice-activity";
+import { MutedSpeechReminder, MutedMicrophoneMonitor } from "./muted-speech";
 import { read, write } from "./store";
 import { preferencesGroup, actionRow } from "./sidebar";
 import { sound } from "./sounds";
@@ -71,6 +72,10 @@ export class Voice {
   cards = new Map<string, HTMLElement>();
   speaking = new Set<string>();
   inputActivity = new VoiceActivity();
+  mutedActivity = new VoiceActivity();
+  mutedReminder = new MutedSpeechReminder();
+  mutedMonitor = new MutedMicrophoneMonitor();
+  monitorAvailable = false;
   activityTimer?: ReturnType<typeof setInterval>;
   meters = new Map<
     string,
@@ -626,6 +631,36 @@ export class Voice {
       if (!alive() || this.audioContext?.state !== "running") return;
       const now = performance.now(),
         active = new Set<string>();
+      const device = localStorage.getItem("rv-audioinput") || "default";
+      const monitoring =
+        this.muted &&
+        this.monitorAvailable &&
+        grant.can_publish &&
+        room.state === "connected";
+      if (monitoring) {
+        if (!this.mutedMonitor.uses(device))
+          void this.mutedMonitor.start(
+            audioContext,
+            device,
+            () => alive() && this.muted,
+          );
+        this.mutedActivity.update(
+          this.mutedMonitor.rms(),
+          LOCAL_SPEECH_DB,
+          now,
+        );
+      } else {
+        this.mutedMonitor.stop();
+        this.mutedActivity.quiet();
+      }
+      if (
+        this.mutedReminder.update(
+          monitoring,
+          this.mutedActivity.speaking(now),
+          now,
+        )
+      )
+        toast(nt("voice_session.muted_speech"));
       if (this.muted) this.inputActivity.quiet();
       else this.inputActivity.update(this.gain.rms(), LOCAL_SPEECH_DB, now);
       if (this.inputActivity.speaking(now))
@@ -987,6 +1022,10 @@ export class Voice {
   ): Promise<void> {
     const alive = () => this.room === room && valid();
     if (!alive()) return;
+    if (enabled) {
+      this.mutedMonitor.stop();
+      this.mutedActivity.quiet();
+    }
     const gain = this.gain,
       context = this.audioContext;
     let created: import("livekit-client").LocalAudioTrack | undefined;
@@ -1033,7 +1072,9 @@ export class Voice {
         }
         if (enabled) await this.processMicrophone(room);
       }
+      if (enabled && alive()) this.monitorAvailable = true;
     } catch (error) {
+      if (alive()) this.monitorAvailable = false;
       if (created) {
         created.stop();
         await gain.destroy();
@@ -1654,6 +1695,10 @@ export class Voice {
   }
   async leave(notify = true): Promise<void> {
     this.lifecycle++;
+    this.mutedMonitor.stop();
+    this.monitorAvailable = false;
+    this.mutedActivity.quiet();
+    this.mutedReminder = new MutedSpeechReminder();
     clearInterval(this.encryptionTimer);
     this.encryptionTimer = undefined;
     this.encryption?.close();

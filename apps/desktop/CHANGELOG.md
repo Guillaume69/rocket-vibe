@@ -7,6 +7,10 @@ section here.
 
 ## [Unreleased]
 
+### Added
+
+- A local, throttled reminder toast when speaking while muted in RocketVibe voice calls.
+
 ## [0.14.0] - 2026-10-11
 
 ### Added

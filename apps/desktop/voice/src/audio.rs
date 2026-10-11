@@ -428,9 +428,6 @@ impl Mix {
         let _ = lock(&self.processing).gain.process_stream(&mut pcm, RATE as i32, 1);
         let gain = self.input_volume.get();
         let pcm: Vec<i16> = pcm.iter().map(|&s| (s as f32 * gain).clamp(-32_768.0, 32_767.0) as i16).collect();
-        if !self.sending.load(Ordering::Relaxed) {
-            return None;
-        }
         let db = decibels(pcm.iter().map(|&s| s as f32 / 32_768.0));
         let speech = match voice {
             Some(probability) => probability >= LOCAL_VOICE && db > LOCAL_FLOOR_DB,
@@ -438,9 +435,10 @@ impl Mix {
         };
         let mut local = lock(&self.local);
         local.frame(db, speech);
-        self.input_level.set(local.level);
+        let sending = self.sending.load(Ordering::Relaxed);
+        self.input_level.set(if sending { local.level } else { 0.0 });
         Stats::longest(&self.stats.processing, began);
-        Some(pcm)
+        sending.then_some(pcm)
     }
 }
 
@@ -882,6 +880,23 @@ mod tests {
         let mut frame = [1000f32; FRAME];
         gate.apply(0.1, &mut frame);
         assert!(frame.iter().all(|&s| s == 0.0));
+    }
+
+    #[test]
+    fn muted_capture_detects_speech_but_returns_no_outgoing_samples() {
+        let mix = Mix::new();
+        mix.set_denoise(false);
+        mix.set_sending(false);
+        let mut denoiser = DenoiseState::new();
+        let mut gate = Gate::default();
+        for frame in 0..100 {
+            let samples: Vec<f32> = (0..FRAME)
+                .map(|i| ((frame * FRAME + i) as f32 * 440.0 * std::f32::consts::TAU / RATE as f32).sin() * 0.2)
+                .collect();
+            assert!(mix.capture(&samples, &mut denoiser, &mut gate).is_none());
+        }
+        assert!(mix.activity("", true).0, "the unpublished input still detects speech");
+        assert_eq!(mix.input_level(), 0.0, "the published microphone meter remains silent");
     }
 
     #[test]

@@ -190,6 +190,8 @@ struct Voice {
     /// The room's audio tracks this side plays, by track.
     heard: HashMap<TrackSid, tokio::task::JoinHandle<()>>,
     input_level: f32,
+    muted_reminder: rv_voice_protocol::MutedSpeechReminder,
+    activity_started: Instant,
     ticks: u64,
     /// When the devices were last reopened after a stream died.
     recovered: Option<Instant>,
@@ -236,6 +238,8 @@ impl Voice {
             audio: None,
             heard: HashMap::new(),
             input_level: 0.0,
+            muted_reminder: Default::default(),
+            activity_started: Instant::now(),
             ticks: 0,
             recovered: None,
             track: None,
@@ -555,6 +559,16 @@ impl Voice {
         if level != self.input_level {
             self.input_level = level;
             emit(Event::InputLevel { level });
+        }
+        let muted = self.room.as_ref().is_some_and(|r| r.connection_state() == ConnectionState::Connected)
+            && self.track.is_some()
+            && (!self.microphone || self.deafened);
+        if self.muted_reminder.update(
+            muted,
+            self.mix.activity("", true).0,
+            self.activity_started.elapsed().as_millis() as u64,
+        ) {
+            emit(Event::MutedSpeech);
         }
         self.publish_participants();
     }

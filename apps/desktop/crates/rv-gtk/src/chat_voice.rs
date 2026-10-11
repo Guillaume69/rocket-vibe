@@ -934,6 +934,9 @@ impl ChatPage {
                 sounds::play(if now.deafened { Sound::Mute } else { Sound::Unmute });
             }
         }
+        if connected(now) && before.room == now.room && now.muted_speech > before.muted_speech {
+            self.toast(t("voice_session.muted_speech").to_owned());
+        }
         // A capture the sidecar could not start or keep; a closed picker says nothing.
         if now.error != before.error
             && let Some(key) = match now.error.as_deref() {

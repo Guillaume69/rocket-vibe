@@ -106,6 +106,9 @@ public final class VoiceModel {
             if before.microphone != state.microphone { onCue?(state.microphone ? .unmute : .mute) }
             else if before.deafened != state.deafened { onCue?(state.deafened ? .mute : .unmute) }
         }
+        if connected(state) && state.room == before.room && state.mutedSpeech > before.mutedSpeech {
+            onNotice?(L("voice_session.muted_speech"))
+        }
         if state.error != before.error, let error = state.error {
             switch error {
             case "camera_unavailable": onNotice?(L("voice_session.camera_unavailable"))

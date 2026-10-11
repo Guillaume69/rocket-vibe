@@ -8,6 +8,7 @@ import type {
 } from "./protocol";
 import { purge, read, write, type Account } from "./store.ts";
 import { Api, ApiError, operation, secret } from "./api.ts";
+import { logoutOutcome, rememberLogout } from "./logouts.ts";
 async function sessionLock<T>(
   account: string,
   run: () => Promise<T>,
@@ -122,29 +123,56 @@ async function renewLocked(
   await write("operations", key);
   app.channel.postMessage({ rotated: account });
 }
-export async function logoutSession(app: App): Promise<boolean> {
+/**
+ * How a sign-out ended on the server: `revoked` (or already dead), `deferred`
+ * when the server was not reached and the session's tokens wait in the
+ * `logouts` store for a replay (`logouts.ts`), `refused` otherwise. The
+ * account is forgotten in this browser in every case.
+ */
+export type LogoutResult = "revoked" | "deferred" | "refused";
+export async function logoutSession(app: App): Promise<LogoutResult> {
   const account = app.account?.key;
-  if (!account) return true;
+  if (!account) return "revoked";
   return sessionLock(account, async () => {
     const active = () => account === app.account?.key;
-    if (!active()) return true;
-    let confirmed = false;
+    if (!active()) return "revoked";
+    let result: LogoutResult = "revoked";
     try {
       await renewLocked(app, account, active, true);
-      if (!active()) return true;
+      if (!active()) return "revoked";
       const transport = new Api();
       transport.token = app.account!.session.token;
       await transport.request("/api/v1/auth/logout", "POST");
-      confirmed = true;
     } catch (error) {
-      confirmed =
+      const session = active() ? app.account!.session : undefined;
+      if (
         error instanceof ApiError &&
         error.status === 401 &&
-        error.code === "session_rejected";
+        error.code === "session_rejected"
+      )
+        result = "revoked";
+      else if (session && logoutOutcome(error) === "retry") {
+        // Read before the purge removes it: a renewal that may have
+        // committed left a successor token alive on the server.
+        try {
+          const intent = await read<RenewSession>(
+            "operations",
+            account + ":renew",
+          );
+          await rememberLogout(
+            session.token,
+            session.expires_at,
+            intent?.next_token,
+          );
+          result = "deferred";
+        } catch {
+          result = "refused";
+        }
+      } else result = "refused";
     }
     if (active()) await app.stop(true);
     await purge(account);
     app.channel.postMessage({ purged: account });
-    return confirmed;
+    return result;
   });
 }

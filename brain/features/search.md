@@ -38,6 +38,10 @@ A search button in the room list's header opens `app/search-messages.tsx`. `ui/l
 - GTK: a search button in the sidebar header, or Ctrl+Shift+F (`chat.rs`), opens `rv-gtk/src/local_search.rs`: the hits under their room's name; a click opens the room at the message, or the thread for a reply.
 - SwiftUI: `LocalSearchSheet` (`macos/Sources/RocketVibe/LocalSearch.swift`), from a sidebar button, Cmd+Shift+F.
 
+## Messages across rooms (web, in the browser)
+
+The sidebar header's search button (beside "+") or Ctrl+Shift+F, as on GTK, opens `localSearch` (`apps/web/src/panels.ts`): a dialog with the entry, a line saying it covers the messages already in this browser and that encrypted conversations are searched from inside each one, then the hits as you type (300 ms pause, Enter at once). `searchLocal` (`apps/web/src/local-search.ts`) reads the in-memory model (`Model.messages`, persisted as the `cache` snapshot): the server snapshot's 50 newest roots and 50 newest replies per room, the history and live messages since, at most 500 per room after the session's retention. Substring match, letter case ignored with `toLocaleLowerCase`, accents counted; deleted and system messages, rooms no longer in the model and encrypted rooms left out; newest first, 60 at most. Each hit shows `#room` (a DM's name without `#`), the message row and "Open message", which closes the dialog and calls `App.jumpTo` (the room around the message, or its thread for a reply). Encrypted (MLS) rooms are excluded because their decrypted text never enters the model: it lives in the open `PrivateChat` only and is searched per room through the crypto worker (`crypto/chat.ts#search`), as mobile's private conversations. Unit tests `tests/local-search.test.ts`, browser test `tests/global-search.mjs`.
+
 ## Parity
 
 All apps: spotlight for new conversations, `chat.search` in a room, jumping from a result to the message whatever its age, search across rooms on the device. The joined rooms are filtered by name in the [room switcher](room-switcher.md) (mobile: the room list's filter).
@@ -47,6 +51,9 @@ All apps: spotlight for new conversations, `chat.search` in a room, jumping from
 - apps/desktop/crates/rv-core/src/store.rs
 - apps/desktop/crates/rv-gtk/src/local_search.rs
 - apps/desktop/macos/Sources/RocketVibe/LocalSearch.swift
+- apps/web/src/local-search.ts
+- apps/web/src/panels.ts
+- apps/web/tests/global-search.mjs
 
 - apps/mobile/ui/debouncedSearch.ts
 - apps/mobile/app/search.tsx

@@ -82,7 +82,7 @@ try {
   await page.evaluate(
     async ({ account, message, room, roomName }) => {
       const db = await new Promise((resolve, reject) => {
-        const request = indexedDB.open("rocket-vibe-web", 5);
+        const request = indexedDB.open("rocket-vibe-web");
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error);
       });
@@ -117,7 +117,7 @@ try {
   const left = await page.evaluate(
     async (key) =>
       new Promise((resolve) => {
-        const request = indexedDB.open("rocket-vibe-web", 5);
+        const request = indexedDB.open("rocket-vibe-web");
         request.onsuccess = () => {
           const get = request.result
             .transaction("reminders")

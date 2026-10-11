@@ -8,7 +8,10 @@ import { ViewState } from "./ui/state";
 import { nt } from "./native-i18n";
 import { PrivateChat } from "./crypto/chat";
 import { Api, ApiError, operation, secret, segment } from "./api";
+import { finishPendingLogouts } from "./logouts";
+import { note } from "./diagnostics";
 import {
+  MESSAGES_KEPT_PER_ROOM,
   Model,
   all,
   read,
@@ -65,7 +68,7 @@ import { composer } from "./composer";
 import { cached, cacheMedia } from "./media";
 import { previewText, decorate } from "./presentation";
 import { canonical, categories, glyphs, emojiGlyph } from "./emoji";
-import { settings, roomSwitcher, profile } from "./panel-actions";
+import { settings, roomSwitcher, profile, localSearch } from "./panel-actions";
 import { quietNow } from "./quiet";
 import { seen, seenText } from "./receipts";
 import {
@@ -190,6 +193,8 @@ export class App implements RowActions {
   status = el("span", "status-dot offline");
   comet = el("div", "comet");
   hasOlder = new Map<string, boolean>();
+  /** The session's retention has not run yet (`Model.retain`). */
+  retentionDue = false;
   loading = false;
   voice = new Voice(this);
   channel = new BroadcastChannel("rocket-vibe-web");
@@ -230,9 +235,14 @@ export class App implements RowActions {
       )
         void this.reconnect();
     }, 60000);
-    window.addEventListener("online", () => void this.reconnect(), {
-      signal: this.lifetime.signal,
-    });
+    window.addEventListener(
+      "online",
+      () => {
+        void this.finishLogouts();
+        void this.reconnect();
+      },
+      { signal: this.lifetime.signal },
+    );
     window.addEventListener("offline", () => this.setConnection("offline"), {
       signal: this.lifetime.signal,
     });
@@ -277,6 +287,16 @@ export class App implements RowActions {
             this.switching = false;
           });
         }
+        // Search across rooms, as GTK's Ctrl+Shift+F.
+        if (
+          (event.ctrlKey || event.metaKey) &&
+          event.shiftKey &&
+          event.key.toLowerCase() === "f" &&
+          !document.querySelector("dialog[open]")
+        ) {
+          event.preventDefault();
+          void localSearch(this).catch(toast);
+        }
         if (event.key === "Escape" && this.root) {
           this.closeThread();
         }
@@ -291,8 +311,13 @@ export class App implements RowActions {
     await this.stop();
     this.voice.dispose();
   }
+  /** Replays the sign-outs the server did not hear (`logouts.ts`). */
+  async finishLogouts(): Promise<void> {
+    await finishPendingLogouts();
+  }
   async init(): Promise<void> {
     setLanguage(language);
+    void this.finishLogouts();
     const accounts = await all<Account>("accounts");
     const active = localStorage.getItem("rv-active");
     const account = accounts.find((item) => item.key === active) || accounts[0];
@@ -398,6 +423,7 @@ export class App implements RowActions {
       account.key,
     );
     if (cache) this.model.replace(cache);
+    this.retentionDue = true;
     this.build();
     await this.loadPending();
     await this.loadUploads();
@@ -565,9 +591,17 @@ export class App implements RowActions {
       .catch(() => {});
   }
   async logout(): Promise<void> {
-    if (!(await logoutSession(this))) toast(t("offline"));
+    const result = await logoutSession(this);
+    if (result === "deferred") {
+      note("event", "sign-out kept for replay: server not reached");
+      toast(t("logoutDeferred"));
+    } else if (result === "refused") {
+      note("event", "sign-out refused by the server");
+      toast(t("offline"));
+    }
   }
   setConnection(value: string): void {
+    if (value !== this.connection) note("connection", value);
     this.connection = value;
     this.status.className = "status-dot " + value;
     this.status.title =
@@ -653,6 +687,17 @@ export class App implements RowActions {
         )
           await this.forgetRoom(id);
       if (!active()) return;
+      // Once per session, after the catch-up (trimming first would fetch the
+      // trimmed messages again), as the native apps: the room on screen keeps
+      // the history it shows.
+      if (this.retentionDue) {
+        this.retentionDue = false;
+        const gone = this.model.retain(
+          MESSAGES_KEPT_PER_ROOM,
+          this.room ? [this.room] : [],
+        );
+        if (gone) note("event", "retention dropped " + gone + " messages");
+      }
       await this.loadPending();
       if (!active()) return;
       await this.loadUploads();
@@ -686,6 +731,8 @@ export class App implements RowActions {
         if (generation === this.generation) {
           this.setConnection("online");
           this.startPresence(generation, socket);
+          // The server answers again: a sign-out it missed can finish now.
+          void this.finishLogouts();
           void this.flush();
           void flushUploads(this);
         }

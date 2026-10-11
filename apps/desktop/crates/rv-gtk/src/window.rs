@@ -350,6 +350,13 @@ impl AppWindow {
                 this.pending_link.take();
             }
         });
+        let weak = Rc::downgrade(&this);
+        notifier.set_call_handler(move |accept| {
+            if let Some(this) = weak.upgrade() {
+                this.window.present();
+                this.chat.answer_call_ring(accept);
+            }
+        });
         this.notifier.replace(Some(notifier.clone()));
         // Missed reminders fire now, the others at their time.
         crate::reminders::start(notifier);
@@ -926,6 +933,7 @@ impl AppWindow {
             ChatEvent::Session(SessionEvent::Avatar) => self.chat.on_avatar(),
             ChatEvent::Session(SessionEvent::Incoming(incoming)) => self.notify(&incoming),
             ChatEvent::Session(SessionEvent::Private { rid, text }) => self.chat.on_private(&rid, &text),
+            ChatEvent::Session(SessionEvent::CallRing) => self.on_call_ring(),
             ChatEvent::Session(SessionEvent::E2e) => {
                 self.chat.on_e2e();
                 if let Some(s) = self.session.borrow().clone() {
@@ -1022,6 +1030,23 @@ impl AppWindow {
         });
     }
 
+    /// A call from the other member of a direct room rings, or stopped: the
+    /// prompt, and a notification while the window is not in front.
+    fn on_call_ring(self: &Rc<Self>) {
+        let Some(session) = self.session.borrow().clone() else { return };
+        let call = session.incoming_call();
+        self.chat.call_ring(&session, call.as_ref());
+        let Some(notifier) = self.notifier.borrow().clone() else { return };
+        match call {
+            Some(call) if !self.window.is_active() => {
+                let room = session.store.rooms().into_iter().find(|r| r.rid == call.rid).map(|r| r.name);
+                let caller = call.caller_name.or(room).unwrap_or_default();
+                notifier.show_call(&call.rid, &call.message_id, &caller);
+            }
+            _ => notifier.withdraw_call(),
+        }
+    }
+
     /// Unless I am looking at that very room.
     fn notify(&self, incoming: &rv_core::notify::Incoming) {
         let watching = |window: &adw::ApplicationWindow, chat: &ChatPage, rid: &str| {
@@ -1067,6 +1092,10 @@ impl AppWindow {
         }
         if let Some(forward) = self.forward.take() {
             forward.abort();
+        }
+        self.chat.end_call_ring();
+        if let Some(notifier) = self.notifier.borrow().as_ref() {
+            notifier.withdraw_call();
         }
         self.chat.set_session(None);
         crate::media::clear();

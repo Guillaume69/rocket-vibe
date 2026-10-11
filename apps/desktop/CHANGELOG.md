@@ -17,6 +17,11 @@ section here.
 - kChat sign-in with Infomaniak (GTK and SwiftUI): a "Sign in with Infomaniak" button opens
   Infomaniak's own sign-in page, two-factor step included, in a window of the app, and signs
   in with the account it hands back, as on mobile. The API token stays available.
+- A call started in a direct conversation on Rocket.Chat or kChat rings (GTK and
+  SwiftUI): the incoming call prompt with the ringtone, Accept opens the call window,
+  Decline tells the server, Escape or a click outside only silences it. Behind other
+  windows a notification rings it too, with Accept and Decline where the system offers
+  them, and the dock bounces on macOS.
 
 ### Changed
 

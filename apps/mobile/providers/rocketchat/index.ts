@@ -7,6 +7,7 @@
  */
 
 import type { Session } from '../../lib/auth.ts';
+import { callSignalOfMessage, liveCallSignal } from '../../lib/callRing.ts';
 import { PRIVATE_MESSAGE_EVENT, privateMessage } from '../../lib/commands.ts';
 import { describeProviderError } from '../../lib/providerError.ts';
 import { ClientDdp } from '../../lib/ddp.ts';
@@ -77,6 +78,17 @@ export function createRcProvider(
       const key = `${session.userId}/${PRIVATE_MESSAGE_EVENT}`;
       if (event.collection !== STREAM_NOTIFY_USER || event.eventKey !== key) return null;
       return privateMessage(event.args);
+    },
+    // The rooms the user is not looking at are not streamed: a call started
+    // there arrives as the room's new `lastMessage`.
+    callSignal(event) {
+      if (event.collection !== STREAM_NOTIFY_USER || event.eventKey !== `${session.userId}/rooms-changed`) {
+        return liveCallSignal(translator, event);
+      }
+      const last = (event.args[1] as { lastMessage?: unknown } | undefined)?.lastMessage;
+      if (event.args[0] === 'removed' || typeof last !== 'object' || last === null) return null;
+      const message = toMessage(last as Record<string, unknown>);
+      return message === null ? null : callSignalOfMessage(message);
     },
     roomSubscriptions(rid: string): readonly (readonly [string, string])[] {
       // The "rid" / "rid/topic" format is Rocket.Chat's: built here, parsed by

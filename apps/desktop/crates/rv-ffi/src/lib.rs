@@ -76,6 +76,15 @@ pub struct Incoming {
     pub mentions_me: bool,
 }
 
+/// A call started by the other member of a direct room, ringing here.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct RingingCall {
+    pub rid: String,
+    pub call_id: String,
+    pub caller_id: String,
+    pub caller_name: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
 pub enum Event {
     /// What the store holds changed: the room list, and those rooms' messages.
@@ -109,6 +118,8 @@ pub enum Event {
     },
     /// The voice session, the rings or the listening choices moved (RocketVibe).
     Voice,
+    /// The call ringing here changed: `Chat::incoming_call`.
+    CallRing,
 }
 
 #[uniffi::export(with_foreign)]
@@ -362,6 +373,7 @@ fn event(e: SessionEvent) -> Event {
             },
         },
         SessionEvent::Private { rid, text } => Event::PrivateNote { rid, text },
+        SessionEvent::CallRing => Event::CallRing,
     }
 }
 
@@ -659,6 +671,27 @@ impl Chat {
     pub async fn join_call(&self, call_id: String) -> Result<String, RvError> {
         let s = self.session.clone();
         Ok(on_tokio(async move { s.join_call(&call_id).await }).await?)
+    }
+
+    /// The call ringing here, started by the other member of a direct room.
+    pub fn incoming_call(&self) -> Option<RingingCall> {
+        self.session.incoming_call().map(|c| RingingCall {
+            rid: c.rid,
+            call_id: c.call_id,
+            caller_id: c.caller_id,
+            caller_name: c.caller_name,
+        })
+    }
+
+    /// Answered or ignored here: it rings no more.
+    pub fn dismiss_call(&self) {
+        self.session.dismiss_call();
+    }
+
+    /// Declines the ringing call; a refusal from the server is ignored.
+    pub async fn decline_call(&self, call_id: String) {
+        let s = self.session.clone();
+        let _ = on_tokio(async move { s.decline_call(&call_id).await }).await;
     }
 
     /// The meeting's link to share, without anyone's token.

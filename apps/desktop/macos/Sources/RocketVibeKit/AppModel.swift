@@ -88,6 +88,10 @@ public final class AppModel {
     @ObservationIgnored private var notificationRequest: String?
 
     public var onIncoming: ((Incoming) -> Void)?
+    /// A call started by the other member of a direct room, ringing (rv-core's `call_ring`).
+    public private(set) var ringingCall: RingingCall?
+    /// The ringing call changed: the window's ringtone, dock and notification follow.
+    public var onCallRing: ((RingingCall?) -> Void)?
     public var onWithdraw: ((String) -> Void)?
     /// The dock badge: mentions and direct messages.
     public var onAttention: ((Int64) -> Void)?
@@ -274,6 +278,10 @@ public final class AppModel {
         provider?.shutdown()
         if voice != nil { onVoiceTone?(nil) }
         voice = nil
+        if ringingCall != nil {
+            ringingCall = nil
+            onCallRing?(nil)
+        }
         flush?.cancel()
         flush = nil
         pending = Pending()
@@ -301,6 +309,28 @@ public final class AppModel {
         accounts = await client.accounts()
         if let next = accounts.first, await resume(next) { return }
         showLogin(error: nil)
+    }
+
+    /// Accept: the ring stops; the call's link to open, None when the server refused.
+    public func answerCall(_ call: RingingCall) async -> String? {
+        guard let chat else { return nil }
+        chat.dismissCall()
+        return try? await chat.joinCall(callId: call.callId)
+    }
+
+    /// Who calls: the server's name for them, else the direct room's.
+    public func callerName(_ call: RingingCall) -> String {
+        call.callerName ?? rooms.first { $0.rid == call.rid }?.name ?? ""
+    }
+
+    public func declineCall(_ call: RingingCall) {
+        guard let chat else { return }
+        Task { await chat.declineCall(callId: call.callId) }
+    }
+
+    /// A click outside or Escape: the ring stops here, nothing is declined.
+    public func ignoreCall() {
+        chat?.dismissCall()
     }
 
     func handle(_ event: Event) {
@@ -354,6 +384,9 @@ public final class AppModel {
             later(everything: true)
         case let .incoming(incoming):
             onIncoming?(incoming)
+        case .callRing:
+            ringingCall = chat?.incomingCall()
+            onCallRing?(ringingCall)
         case let .privateNote(rid, text):
             if thread?.rid == rid {
                 thread?.note = text

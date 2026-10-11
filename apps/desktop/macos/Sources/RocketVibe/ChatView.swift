@@ -62,6 +62,7 @@ struct ChatView: View {
             .background(Vibe.night)
         }
         .modifier(IncomingCall())
+        .modifier(RingingCallPrompt())
         .navigationTitle(title)
         .toolbarBackground(Vibe.night, for: .windowToolbar)
         .toolbar {

@@ -10,7 +10,9 @@ Video calls use the conference provider configured on the Rocket.Chat server (Ji
 - `POST video-conference.start {roomId}` creates the conference **and** posts the call message (`t: 'videoconf'`) in the room, returning `data.callId`. That message is how the other members learn of the call: mobile ringing (`VideoConf_Mobile_Ringing`) is off on the target server.
 - `POST video-conference.join {callId[, state: {cam, mic}]}` returns the provider URL to open, with the Jitsi JWT in it when the server requires one.
 - `GET video-conference.capabilities` is the availability probe: `400 no-videoconf-provider-app` when no provider is installed (the local Docker server), and the call buttons stay hidden.
-- `GET video-conference.info {callId}` (GTK and mobile) gives the call's own URL, used for the shareable link, cut before its query and fragment so the joiner's `jwt` never leaves (GTK `call::meeting_link`, mobile `withoutToken` in `lib/call.ts`).
+- `GET video-conference.info {callId}` (GTK and mobile) gives the call's own URL, used for the shareable link, cut before its query and fragment so the joiner's `jwt` never leaves (GTK `call::meeting_link`, mobile `withoutToken` in `lib/call.ts`). Its record (`rid`, `status` 0 calling, 1 started, 2 expired, 3 ended, 4 declined, `endedAt`, `createdBy`, `users` who joined) is what ringing reads (below). An unknown call answers 400 `invalid-params` (probed on 8.5.1, 2026-10-10).
+- `POST video-conference.cancel {callId}` declines a direct call still calling. On the bench without a provider it marks the call declined, then answers 400 `video-conf-provider-unavailable` (probed 2026-10-10): the answer does not say whether it worked.
+- **Any member can post a `videoconf` message**: `chat.sendMessage` accepts `t: 'videoconf'` with any `video_conf` block and `callId` (probed on 8.5.1, 2026-10-10). The message proves nothing; the call's record does.
 - No DDP method is involved: REST to act, as everywhere ([../architecture/rocket-chat.md](../architecture/rocket-chat.md)).
 
 **Availability probe caching.** Both apps remember the answer per server for the session: a definite "no" (a 4xx other than 401) sticks, a network failure (`status 0`) or a refused token (401) is not remembered, so a later room opening retries. When unsure the button is hidden: a missing button beats one that fails on tap. Mobile: `probeCallAvailable` / `memoizedCallAvailable` in `lib/call.ts`, cleared by `forgetCallAvailability` at session end (the store is module-level, so it was per process before). Desktop: `Session::call_available`.
@@ -47,13 +49,29 @@ The desktop applies the same exception with the same bounds (2026-09-30), and th
 
 kChat calls are kMeet meetings its server opens (`docs/MATTERMOST.md` §6.5): `POST /conferences {channel_id}` starts one and posts its `custom_call`, `POST /conferences/<id>/answer` joins one, both answering the meeting's `url` and a `jwt`. Both apps work as on Rocket.Chat: the room header's call button starts, the call card's Join answers the post's `conference_id`, and the call view opens `url?jwt=`. Since any member can post a `custom_call` with any URL, only an answer's URL on `https://kmeet.infomaniak.com` is opened, so the view's origin lock holds kMeet's origin. Mobile: `Provider.calls` (`providers/mattermost/kmeet.ts`), bound by `lib/providerCalls.ts`; desktop: `Session::start_call`, `join_call`, `call_link` (`mattermost::actions::start_conference`, `answer_conference`). An ended call is "📞 Call · duration".
 
+## Ringing
+
+A call someone starts in a two-person direct room rings on Rocket.Chat and kChat, done by the client from the call message ([decisions](../decisions.md)): Rocket.Chat's own ringing is a licensed direct-call type driven by a DDP method, kChat's lives in its own apps.
+
+- **Trigger.** A `videoconf` message (kChat: a `custom_call` post still `calling`) seen live, not from a catch-up, younger than 40 s (`RING_MS`, Rocket.Chat's direct-call timeout), in a room whose other member is the caller. Each message rings once; a second call while one rings is not shown.
+- **The record decides.** On Rocket.Chat, `video-conference.info` names the caller (`createdBy`: an unlicensed server posts the message as its provider's app user, not the caller), must be in the same room, not over, not joined by me; it is read again every 5 s (`RING_CHECK_MS`) and the ring stops when the call is over or I joined it from another device. My own call, from any of my devices, never rings. kChat's post is the record: its edit to ended or missed stops the ring.
+- **Answers.** Accept stops the ring and opens the call as the call card's Join does. Decline sends `video-conference.cancel` (Rocket.Chat; its refusal is ignored) or `POST /conferences/<id>/decline` (kChat). A tap or click outside, Escape or Back only silences it here, as for a voice ring ([voice](voice.md)).
+- **Mobile.** `lib/callRing.ts` (`CallRinger`, Node-pure, `lib/callRing.test.ts`), fed by `Provider.callSignal`: Rocket.Chat reads the room's new `lastMessage` in `rooms-changed` (the rooms not open are not streamed) and the open room's stream, Mattermost/kChat the translated `posted` and `post_edited`. `ui/callRing.tsx` (`CallRingHost` in `_layout`) shows `IncomingCallPrompt` (`ui/voice.tsx`) with the voice module's ringtone; on Rocket.Chat only while the app is in front, since the push rings it otherwise. `conferenceCheck` and `declineConference` are in `lib/call.ts`.
+- **Mobile push.** Android: the FCM service rings a `videoconf` push of a direct room over the lock screen with the voice ring's `VoiceRinging` (ring id `call:<callId>`), after `chat.getMessage` (the block's `callId`), `rooms.info` (two members) and `video-conference.info`; Accept opens `rocketvibe://call-ring/<callId>?rid=&host=` (`app/call-ring/[callId].tsx`), Decline goes through `NativeCallReceiver` and a WorkManager job. iOS: the Notification Service Extension only makes it a time-sensitive "Incoming call" alert (no CallKit, no Accept or Decline), never built yet. kChat sends no push to this app: it rings while the app runs. See [notifications](notifications.md).
+- **Desktop.** `rv-core/src/call_ring.rs` (`Rings`, tested there) and `Session::ring` / `incoming_call` / `dismiss_call` / `decline_call`, fed by `stream-room-messages` (`__my_messages__`) and Mattermost's `posted` / `post_edited` (`MmSync::call_signal`), announced by `SessionEvent::CallRing`. GTK: `chat_call_ring.rs` shows the voice dialog (`close_response` "ignore") over the ringtone, and `window.rs::on_call_ring` adds, while the window is not active, a notification (`Notifier::show_call`: Accept and Decline on `org.freedesktop.Notifications`, a click opening the call card elsewhere). SwiftUI: `RingingCallPrompt` (`Voice.swift`) over `AppModel.ringingCall`, the ringtone and the dock bouncing, and a `call` notification category with Accept and Decline (`Notifier.showCall`).
+
 ## Parity
 
-Start, join, call card with Join, profile Call: both apps ([parity](../parity.md) §12). Meeting info with the token-free link: GTK (dialog), mobile (the call card's "Meeting information", an alert with Copy and Open in the browser) and SwiftUI (the call card's info button). The origin lock is the same rule on Android, Windows and macOS; Linux delegates to a browser.
+Start, join, call card with Join, profile Call: both apps ([parity](../parity.md) §12). Meeting info with the token-free link: GTK (dialog), mobile (the call card's "Meeting information", an alert with Copy and Open in the browser) and SwiftUI (the call card's info button). Ringing in a direct room in all three; delivery while the app is closed only on mobile, by the Rocket.Chat push. The origin lock is the same rule on Android, Windows and macOS; Linux delegates to a browser.
 
 ## Sources
 
 - apps/mobile/lib/call.ts
+- apps/mobile/lib/callRing.ts
+- apps/mobile/ui/callRing.tsx
+- apps/mobile/app/call-ring/[callId].tsx
+- apps/mobile/plugins/with-fcm-deeplink.js
+- apps/mobile/plugins/ios-notification-service/NotificationService.swift
 - apps/mobile/lib/origin.ts
 - apps/mobile/lib/normalize.ts
 - apps/mobile/app/call/[callId].tsx
@@ -64,6 +82,11 @@ Start, join, call card with Join, profile Call: both apps ([parity](../parity.md
 - apps/desktop/crates/rv-core/src/call.rs
 - apps/desktop/crates/rv-core/src/actions.rs
 - apps/desktop/crates/rv-core/src/session.rs
+- apps/desktop/crates/rv-core/src/call_ring.rs
+- apps/desktop/crates/rv-gtk/src/chat_call_ring.rs
+- apps/desktop/crates/rv-gtk/src/notifier.rs
+- apps/desktop/macos/Sources/RocketVibe/Voice.swift
+- apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift
 - apps/desktop/crates/rv-gtk/src/call_window.rs
 - apps/desktop/crates/rv-gtk/src/chat.rs
 - apps/desktop/crates/rv-gtk/src/rows.rs

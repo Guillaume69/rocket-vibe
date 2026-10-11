@@ -718,7 +718,7 @@ impl VoiceUi {
         });
     }
 
-    fn set_tone(&self, wanted: Option<Sound>) {
+    pub(super) fn set_tone(&self, wanted: Option<Sound>) {
         if self.tone.borrow().as_ref().map(|(s, _)| *s) == wanted {
             return;
         }

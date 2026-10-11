@@ -100,7 +100,7 @@ Each feature doc covers mobile and desktop, and says where they differ.
 | [e2ee-private-files.md](features/e2ee-private-files.md) | RocketVibe server: files of private rooms sealed on the device, opaque to the server. |
 | [e2ee-private-actions.md](features/e2ee-private-actions.md) | RocketVibe server: encrypted edits, deletions and reactions of private messages, and private search on the device. |
 | [voice.md](features/voice.md) | RocketVibe server: voice channels, calls in every room and ringing DMs over LiveKit. |
-| [calls.md](features/calls.md) | Rocket.Chat servers: Jitsi calls, the mobile WebView exception, desktop call windows. |
+| [calls.md](features/calls.md) | Rocket.Chat servers: Jitsi calls, the mobile WebView exception, desktop call windows, ringing in direct rooms (Rocket.Chat and kChat). |
 | [sharing-and-links.md](features/sharing-and-links.md) | `rocketvibe://` deep links, the incoming share screen, outgoing-link guard, drag and paste. |
 | [mobile-updates.md](features/mobile-updates.md) | Android GitHub APK updates: release checks, verified download, native installer and recovery. |
 | [desktop-updates.md](features/desktop-updates.md) | The desktop self-update from GitHub releases, per platform. |

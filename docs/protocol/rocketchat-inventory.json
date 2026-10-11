@@ -550,6 +550,7 @@
     "apps/mobile/ui/openRooms.ts",
     "apps/mobile/ui/openingIndicator.tsx",
     "apps/mobile/ui/pickAvatar.ts",
+    "apps/mobile/ui/postReadonly.ts",
     "apps/mobile/ui/prepareAttachment.ts",
     "apps/mobile/ui/presence.ts",
     "apps/mobile/ui/privateNotes.tsx",

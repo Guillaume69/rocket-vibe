@@ -14,6 +14,7 @@ release, and its notes are that version's section here.
 
 ### Fixed
 
+- On Rocket.Chat, owners and moderators can still write in a read-only room: the composer stays open for whoever the server lets post there.
 - Native Android builds explicitly compile Expo's generated package list so a clean or cached build cannot launch with its modules missing.
 
 ## [0.11.0] - 2026-10-11

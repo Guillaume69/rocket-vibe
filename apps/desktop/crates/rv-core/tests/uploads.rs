@@ -217,3 +217,213 @@ async fn locked_encrypted_room_holds_the_file() {
     assert!(calls(&f.server, "rooms.media").is_empty());
     assert_eq!(f.store.uploads("r").len(), 1);
 }
+
+fn room(store: &Store) {
+    store.write(|w| {
+        w.upsert_room(&rv_core::normalize::Room { rid: "r".into(), kind: "c".into(), ..Default::default() })
+    });
+}
+
+fn history_with_file() -> Response {
+    respond(
+        200,
+        &json!({"success": true, "messages": [
+            serde_json::from_str::<serde_json::Value>(&confirmed()).unwrap()["message"]
+        ]})
+        .to_string(),
+    )
+}
+
+#[tokio::test]
+async fn lost_confirm_and_stale_or_failed_history_never_post_twice() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let reads = AtomicUsize::new(0);
+    let f = fixture(move |r| {
+        if r.path().contains("channels.history") {
+            match reads.fetch_add(1, Ordering::SeqCst) {
+                0 => respond(200, r#"{"success":true,"messages":[]}"#),
+                1 => respond(502, "proxy timeout"),
+                _ => history_with_file(),
+            }
+        } else if r.path().contains("rooms.mediaConfirm/") {
+            dropped() // Accepted by Rocket.Chat, but the response was lost.
+        } else {
+            media_then_confirm(r)
+        }
+    })
+    .await;
+    room(&f.store);
+    f.uploads.enqueue("r", &f.path, "screenshot.png", "image/png", None, true, None);
+    f.uploads.process().await;
+    // Empty and failed reads both leave delivery uncertain, never authorize POST.
+    f.uploads.process().await;
+    f.uploads.process().await;
+    assert_eq!(calls(&f.server, "rooms.mediaConfirm/").len(), 1);
+    assert_eq!(calls(&f.server, "rooms.media/").len(), 1);
+    assert!(std::path::Path::new(&f.path).exists());
+    assert_eq!(f.store.uploads("r")[0].status, "pending");
+    f.uploads.process().await;
+    assert!(f.store.uploads("r").is_empty());
+    assert!(!std::path::Path::new(&f.path).exists());
+    assert_eq!(calls(&f.server, "rooms.mediaConfirm/").len(), 1);
+}
+
+#[tokio::test]
+async fn confirm_timeout_while_server_is_still_working_never_replays() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
+    let visible = Arc::new(AtomicBool::new(false));
+    let seen = visible.clone();
+    let f = fixture(move |r| {
+        if r.path().contains("rooms.mediaConfirm/") {
+            let visible = seen.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_secs(17)).await;
+                visible.store(true, Ordering::SeqCst);
+            });
+            Response { delay: Duration::from_secs(17), ..respond(200, &confirmed()) }
+        } else if r.path().contains("channels.history") {
+            if seen.load(Ordering::SeqCst) {
+                history_with_file()
+            } else {
+                respond(200, r#"{"success":true,"messages":[]}"#)
+            }
+        } else {
+            media_then_confirm(r)
+        }
+    })
+    .await;
+    room(&f.store);
+    f.uploads.enqueue("r", &f.path, "screenshot.png", "image/png", None, false, None);
+    f.uploads.process().await; // Real HTTP timeout at 15 seconds, server still active.
+    assert!(!visible.load(Ordering::SeqCst));
+    f.uploads.process().await;
+    assert!(!f.store.uploads("r").is_empty());
+    assert_eq!(calls(&f.server, "rooms.mediaConfirm/").len(), 1);
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    f.uploads.process().await;
+    assert!(f.store.uploads("r").is_empty());
+    assert_eq!(calls(&f.server, "rooms.mediaConfirm/").len(), 1);
+}
+
+#[tokio::test]
+async fn proxy_or_unreadable_confirm_reconciles_after_engine_restart() {
+    for (status, body) in [(502, "proxy timeout"), (200, "truncated json")] {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let visible = Arc::new(AtomicBool::new(false));
+        let seen = visible.clone();
+        let f = fixture(move |r| {
+            if r.path().contains("rooms.mediaConfirm/") {
+                respond(status, body)
+            } else if r.path().contains("channels.history") {
+                if seen.load(Ordering::SeqCst) {
+                    history_with_file()
+                } else {
+                    respond(200, r#"{"success":true,"messages":[]}"#)
+                }
+            } else {
+                media_then_confirm(r)
+            }
+        })
+        .await;
+        room(&f.store);
+        f.uploads.enqueue("r", &f.path, "screenshot.png", "image/png", None, false, None);
+        f.uploads.process().await;
+        let row = f.store.uploads("r")[0].clone();
+        assert!(row.confirm_started);
+        // Simulate a kill with a sending row, then a newly constructed engine.
+        f.store.write(|w| w.set_upload_status(&row.id, "sending"));
+        let rest = RestClient::new(f.server.url.clone());
+        let sync = Arc::new(SyncEngine::new(f.store.clone(), rest.clone(), "me", "me"));
+        let resumed = Arc::new(Uploads::new(f.store.clone(), rest, sync));
+        resumed.process().await;
+        assert_eq!(calls(&f.server, "rooms.mediaConfirm/").len(), 1);
+        visible.store(true, Ordering::SeqCst);
+        resumed.process().await;
+        assert!(f.store.uploads("r").is_empty());
+        assert_eq!(calls(&f.server, "rooms.mediaConfirm/").len(), 1);
+    }
+}
+
+#[tokio::test]
+async fn encrypted_confirm_is_not_replayed_with_or_without_its_in_memory_key() {
+    let f = fixture(|r| {
+        if r.path().contains("rooms.mediaConfirm/") {
+            dropped()
+        } else if r.path().contains("groups.history") {
+            respond(200, r#"{"success":true,"messages":[]}"#)
+        } else {
+            media_then_confirm(r)
+        }
+    })
+    .await;
+    encrypted_room(&f.store);
+    f.uploads.set_encryptor(|_, _| Some(json!({"sealed":true})));
+    f.uploads.enqueue("r", &f.path, "a.txt", "text/plain", None, false, None);
+    f.uploads.process().await;
+    f.uploads.process().await;
+    let rest = RestClient::new(f.server.url.clone());
+    let sync = Arc::new(SyncEngine::new(f.store.clone(), rest.clone(), "me", "me"));
+    let resumed = Arc::new(Uploads::new(f.store.clone(), rest, sync));
+    resumed.set_encryptor(|_, _| Some(json!({"new_key":true})));
+    resumed.process().await;
+    assert_eq!(
+        calls(&f.server, "rooms.media/").len(),
+        1,
+        "restart must not re-encrypt and re-upload an uncertain send"
+    );
+    assert_eq!(calls(&f.server, "rooms.mediaConfirm/").len(), 1);
+}
+
+#[tokio::test]
+async fn a_definitive_confirm_refusal_can_be_explicitly_retried() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let refused = AtomicBool::new(false);
+    let f = fixture(move |r| {
+        if r.path().contains("rooms.mediaConfirm/") && !refused.swap(true, Ordering::SeqCst) {
+            respond(400, r#"{"success":false,"error":"error-not-allowed"}"#)
+        } else if r.path().contains("channels.history") {
+            respond(200, r#"{"success":true,"messages":[]}"#)
+        } else {
+            media_then_confirm(r)
+        }
+    })
+    .await;
+    room(&f.store);
+    f.uploads.enqueue("r", &f.path, "a.txt", "text/plain", None, false, None);
+    f.uploads.process().await;
+    let row = f.store.uploads("r")[0].clone();
+    assert_eq!(row.status, "failed");
+    assert!(!row.confirm_started);
+    f.uploads.process().await;
+    assert_eq!(calls(&f.server, "rooms.mediaConfirm/").len(), 1);
+    f.uploads.retry(&row.id).await;
+    assert!(f.store.uploads("r").is_empty());
+    assert_eq!(calls(&f.server, "rooms.mediaConfirm/").len(), 2);
+    assert_eq!(calls(&f.server, "rooms.media/").len(), 1);
+}
+
+#[tokio::test]
+async fn an_uncertain_confirm_does_not_block_other_uploads() {
+    let f = fixture(|r| {
+        if r.path().contains("channels.history") {
+            respond(200, r#"{"success":true,"messages":[]}"#)
+        } else {
+            media_then_confirm(r)
+        }
+    })
+    .await;
+    room(&f.store);
+    f.uploads.enqueue("r", &f.path, "a.txt", "text/plain", None, false, None);
+    let first = f.store.uploads("r")[0].id.clone();
+    f.store.write(|w| {
+        w.set_upload_file_id(&first, "uncertain-file");
+        w.set_upload_confirm_started(&first, true);
+    });
+    f.uploads.enqueue("r", &f.path, "next.txt", "text/plain", None, false, None);
+    f.uploads.process().await;
+    assert_eq!(f.store.uploads("r").len(), 1);
+    assert_eq!(f.store.uploads("r")[0].id, first);
+    assert_eq!(calls(&f.server, "rooms.mediaConfirm/").len(), 1);
+    assert!(f.store.file_posted("r", FILE_ID));
+}

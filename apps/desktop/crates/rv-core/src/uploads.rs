@@ -3,8 +3,9 @@
 //! between the two, because the server cannot say whether a confirm already
 //! happened: replayed at once, it posts a second message yet answers with the
 //! first; replayed later, it refuses with `invalid-file` although the file was
-//! delivered. Only the local database can tell, so it is asked (after a
-//! refresh of the room when it knows nothing) before any replay.
+//! delivered. The confirm attempt is persisted BEFORE it leaves. An uncertain
+//! result is reconciled from the local database and room history, never replayed:
+//! an empty or failed history read cannot prove a slow confirm was not accepted.
 //!
 //! In an encrypted room the file goes up encrypted under a key of its own and
 //! the SHA-256 of its name; its real name, type, key and the caption travel
@@ -60,6 +61,8 @@ enum Outcome {
     Offline,
     /// No room key (locked): this row waits, the others go on.
     Waiting,
+    /// A confirm may still be completing: check later, without blocking other files.
+    Checking,
 }
 
 type Encryptor = dyn Fn(&str, &Value) -> Option<Value> + Send + Sync;
@@ -73,7 +76,8 @@ struct Upload {
 }
 
 /// A file encrypted and uploaded, waiting for its confirm. In memory only:
-/// a process killed in between loses its key, and the file goes up again.
+/// a process killed before the confirm attempt loses its key and re-uploads.
+/// After a confirm attempt, recovery only checks delivery.
 struct Sealed {
     key: Value,
     iv: String,
@@ -183,6 +187,7 @@ impl Uploads {
             mime: mime.to_owned(),
             caption: caption.map(str::trim).filter(|c| !c.is_empty()).map(str::to_owned),
             file_id: None,
+            confirm_started: false,
             status: "pending".to_owned(),
             temporary,
             tmid: tmid.map(str::to_owned),
@@ -253,11 +258,14 @@ impl Uploads {
     }
 
     async fn pass(self: &Arc<Self>) -> bool {
+        let mut checking = false;
         for row in self.store.pending_uploads() {
             if !self.store.write(|w| w.claim_upload(&row.id)) {
                 continue;
             }
-            self.set_progress(&row, 0.0);
+            if !row.confirm_started || self.rest.api() != crate::rest::Api::RocketChat {
+                self.set_progress(&row, 0.0);
+            }
             let result = self.post(&row).await;
             self.progress.lock().unwrap().remove(&row.id);
             self.tasks.lock().unwrap().remove(&row.id);
@@ -273,11 +281,15 @@ impl Uploads {
                     self.store.write(|w| w.set_upload_status(&row.id, "pending"));
                     return false;
                 }
+                Ok(Outcome::Checking) => {
+                    self.store.write(|w| w.set_upload_status(&row.id, "pending"));
+                    checking = true;
+                }
                 Ok(Outcome::Waiting) => self.store.write(|w| w.set_upload_status(&row.id, "pending")),
                 Err(_) => self.store.write(|w| w.set_upload_status(&row.id, "failed")),
             }
         }
-        true
+        !checking
     }
 
     fn set_progress(&self, row: &UploadRow, fraction: f64) {
@@ -296,6 +308,15 @@ impl Uploads {
     }
 
     async fn post_rocket_chat(self: &Arc<Self>, row: &UploadRow) -> Result<Outcome, RestError> {
+        if row.confirm_started {
+            if let Some(file_id) = &row.file_id
+                && self.already_posted(&row.rid, file_id).await
+            {
+                self.settle(row);
+                return Ok(Outcome::Done);
+            }
+            return Ok(Outcome::Checking);
+        }
         if self.store.room_encrypted(&row.rid) {
             return self.post_encrypted(row).await;
         }
@@ -328,12 +349,10 @@ impl Uploads {
         if let Some(tmid) = &row.tmid {
             body["tmid"] = json!(tmid);
         }
-        let confirmed =
-            match self.rest.post(&format!("rooms.mediaConfirm/{}/{file_id}", row.rid), CallOptions::body(body)).await {
-                Ok(v) => v,
-                Err(e) if e.status == 0 => return Ok(Outcome::Offline),
-                Err(e) => return Err(e),
-            };
+        let confirmed = match self.confirm(row, &file_id, body).await? {
+            Some(value) => value,
+            None => return Ok(Outcome::Checking),
+        };
         self.settle(row);
         if let Some(message) = confirmed.get("message").filter(|m| m.is_object())
             && !self.abandoned.lock().unwrap().contains(&row.id)
@@ -455,12 +474,10 @@ impl Uploads {
             }
             body
         };
-        let confirmed =
-            match self.rest.post(&format!("rooms.mediaConfirm/{}/{file_id}", row.rid), CallOptions::body(body)).await {
-                Ok(v) => v,
-                Err(e) if e.status == 0 => return Ok(Outcome::Offline),
-                Err(e) => return Err(e),
-            };
+        let confirmed = match self.confirm(row, &file_id, body).await? {
+            Some(value) => value,
+            None => return Ok(Outcome::Checking),
+        };
         self.sealed.lock().unwrap().remove(&row.id);
         self.settle(row);
         if let Some(message) = confirmed.get("message").filter(|m| m.is_object())
@@ -469,6 +486,24 @@ impl Uploads {
             self.sync.ingest_messages(std::slice::from_ref(message));
         }
         Ok(Outcome::Done)
+    }
+
+    /// Rocket.Chat has no idempotent confirm. Persist the attempt before sending
+    /// it; a timeout, proxy failure or unreadable success must never replay it.
+    async fn confirm(&self, row: &UploadRow, file_id: &str, body: Value) -> Result<Option<Value>, RestError> {
+        self.store.write(|w| w.set_upload_confirm_started(&row.id, true));
+        if !self.store.upload(&row.id).is_some_and(|u| u.confirm_started && u.file_id.as_deref() == Some(file_id)) {
+            return Err(RestError::incomplete("upload confirmation state was not persisted"));
+        }
+        match self.rest.post(&format!("rooms.mediaConfirm/{}/{file_id}", row.rid), CallOptions::body(body)).await {
+            Ok(value) => Ok(Some(value)),
+            Err(error) if error.understood && (400..500).contains(&error.status) => {
+                // A provider refusal is definitive. Explicit Retry may try again.
+                self.store.write(|w| w.set_upload_confirm_started(&row.id, false));
+                Err(error)
+            }
+            Err(_) => Ok(None),
+        }
     }
 
     /// The bytes, in a task of their own so that Discard can cut them off.
@@ -521,6 +556,7 @@ impl Uploads {
     }
 
     fn settle(&self, row: &UploadRow) {
+        self.sealed.lock().unwrap().remove(&row.id);
         self.store.write(|w| w.delete_upload(&row.id));
         self.remove_temporary(row);
     }

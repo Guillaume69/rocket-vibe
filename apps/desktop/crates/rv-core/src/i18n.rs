@@ -1152,6 +1152,7 @@ const CATALOG: &[(&str, &str, &str)] = &[
         "The server refuses {type} files ({name})",
     ),
     ("upload.waiting", "En attente", "Waiting"),
+    ("upload.checking", "Vérification de la livraison…", "Checking delivery…"),
     ("text.open_link", "Ouvrir le lien", "Open link"),
     ("player.stop", "Arrêter la vidéo", "Stop the video"),
     ("text.copy_link", "Copier l'adresse du lien", "Copy link address"),

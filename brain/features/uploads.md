@@ -1,6 +1,6 @@
 # Uploads and downloads
 
-Sending a file is a two-step server exchange (`rooms.media`, then `rooms.mediaConfirm`) behind a persisted queue that survives a kill, retries on reconnection and never posts the same file twice. Downloading a protected file keeps the auth token inside the process and writes through a partial file. Both apps implement the same mechanism: mobile in `lib/uploadQueue.ts` (`UploadEngine`, the upload engine), desktop in `rv-core/src/uploads.rs` (`Uploads`).
+Sending a file is a two-step server exchange (`rooms.media`, then `rooms.mediaConfirm`) behind a persisted queue that survives a kill and retries on reconnection. Desktop Rocket.Chat confirmations use a persisted attempt guard to prevent posting the same file twice; mobile still owes that guard. Downloading a protected file keeps the auth token inside the process and writes through a partial file. Both apps implement the same mechanism: mobile in `lib/uploadQueue.ts` (`UploadEngine`, the upload engine), desktop in `rv-core/src/uploads.rs` (`Uploads`).
 
 ## The server contract
 
@@ -16,7 +16,7 @@ Replaying `rooms.mediaConfirm` on the same `fileId` has no usable answer (probed
 Each file is a row persisted **before** any byte leaves:
 
 - Mobile: SQLite table `uploads` (`db/schema.ts`): `id`, `rid`, `uri`, `name`, `type` (MIME), `caption`, `status` (`pending` / `sending` / `failed`), `last_error` (diagnostic only, never shown), `file_id`, `created_at`.
-- Desktop: table `uploads` in `rv-core/src/store.rs`: `id`, `rid`, `path`, `name`, `mime`, `caption`, `file_id`, `status` (`pending` / `sending` / `failed`), `temporary`, `created_at`.
+- Desktop: table `uploads` in `rv-core/src/store.rs`: `id`, `rid`, `path`, `name`, `mime`, `caption`, `file_id`, `status` (`pending` / `sending` / `failed`), `temporary`, `created_at`, `confirm_started` (persisted before a Rocket.Chat confirmation leaves).
 
 A pass processes rows in creation order, one pass at a time (a request during a pass is noted and run after it). For each row:
 
@@ -26,7 +26,11 @@ A pass processes rows in creation order, one pass at a time (a request during a 
 4. When the database knows nothing (typical after a kill: no room screen was open, so no stream delivered the message), refresh **that room once** and ask again. Mobile calls `provider.catchUpRoom` (the per-room catch-up, wired in `ui/sync.tsx` with the session's abandon predicate so it stops at logout); desktop calls `SyncEngine::load_history`. This targeted REST call is paid only on that rare path.
 5. Confirm, settle the row (delete it, delete its temporary file), ingest the returned message.
 
-If the refresh itself fails, the engine confirms anyway: a possible duplicate is preferred to a lost file.
+On desktop Rocket.Chat, `confirm_started` changes steps 3 to 5: the first confirm is durably marked before sending. An uncertain response (timeout, dropped connection, proxy/5xx error or unreadable success) leaves the row pending in "Checking delivery". Subsequent passes only look for its message, even if history is empty, fails or the room kind is unknown. A slow confirm can still be running when history answers, so absence is never proof that it is safe to post again. The same guard covers encrypted files, both while their key is in memory and after a restart; it is checked before any new encryption/upload. A recognized Rocket.Chat 4xx refusal clears the guard and requires explicit Retry. Checking rows do not block unrelated uploads; the existing 2/5/15/30 s scheduler checks them again. Discard stays available and does not retract a message already accepted by the server.
+
+This deliberately prefers an unresolved delivery over an automatic duplicate: if the request never reached the server, or the message is outside both local retention and the latest history page, the row remains checking. The user can check the conversation, discard the uncertain row and stage the file again. The append-only desktop migration conservatively marks existing file ids as potentially confirmed, since older rows cannot tell whether their confirm was sent. The flag is ignored on Mattermost/kChat, whose existing post recovery remains unchanged.
+
+Mobile still confirms when its local/room lookup finds nothing, including a failed refresh; it owes the persisted attempt guard (see [parity](../parity.md)).
 
 **Recovery after a kill.** A row still in `sending` can only come from a run that died mid-upload. Desktop re-arms all of them when `Uploads::new` runs (one process owns the database). Mobile re-arms them on the first pass of the process, but **excludes the ids this JS runtime has in flight** (`IN_FLIGHT_HERE`, module level): `SyncProvider` can build a second engine over the same SQLite connection without stopping the first, and a blind re-arm would upload and confirm the same file twice (`REARM_IN_FLIGHT_UPLOADS`).
 
@@ -47,7 +51,7 @@ If the refresh itself fails, the engine confirms anyway: a possible duplicate is
 The fraction lives only in memory, never in SQLite. Both engines publish a change only when the whole percentage changes (per-chunk re-renders would cost more than the upload).
 
 - Mobile: `UploadEngine.progress` plus `subscribe`, read by `ui/fileProgress.ts`; the room screen (`app/room/[rid].tsx`) shows one line per row: waiting, "sending N %", or failed with Retry, and Discard on every line. The transport is `expo-file-system` `createUploadTask` (`ui/transportUpload.ts`).
-- Desktop: `Uploads::progress` and a broadcast of the rid, forwarded as `SessionEvent::Upload`. GTK's upload strip (`Chat::refresh_uploads` in `rv-gtk/src/chat.rs`) shows a progress bar, or waiting / retrying / failed with Retry, and a discard button. `RestClient::upload` streams the bytes in 64 KiB chunks with a timeout of 60 s plus 1 s per 32 KiB. The whole file is read into memory first.
+- Desktop: `Uploads::progress` and a broadcast of the rid, forwarded as `SessionEvent::Upload`. GTK's upload strip (`Chat::refresh_uploads` in `rv-gtk/src/chat.rs`) shows a progress bar, or waiting / retrying / checking delivery / failed with Retry, and a discard button. `RestClient::upload` streams the bytes in 64 KiB chunks with a timeout of 60 s plus 1 s per 32 KiB. The whole file is read into memory first.
 
 ## Footguns
 
@@ -57,7 +61,7 @@ The fraction lives only in memory, never in SQLite. Both engines publish a chang
 
 ## Encrypted rooms
 
-The file goes up encrypted under its own AES-CTR key, named by the SHA-256 of its real name, with the file metadata encrypted under the room key in a `content` form field. The confirm carries `t: 'e2e'`, an encrypted `content` (caption, attachment with key and hash, file) and `fileContent`. The per-file key lives in memory only between the two steps: a process killed in between re-encrypts and re-uploads under a new key. Details in [E2EE](../architecture/e2ee.md).
+The file goes up encrypted under its own AES-CTR key, named by the SHA-256 of its real name, with the file metadata encrypted under the room key in a `content` form field. The confirm carries `t: 'e2e'`, an encrypted `content` (caption, attachment with key and hash, file) and `fileContent`. The per-file key lives in memory only between the two steps: a process killed in between re-encrypts and re-uploads under a new key on mobile, and on desktop only when no confirm attempt has started. A desktop row with `confirm_started` only checks delivery; loss of its in-memory key never triggers a second send. Details in [E2EE](../architecture/e2ee.md).
 
 ## Downloads
 
@@ -87,7 +91,7 @@ Videos are reduced too, with mobile's figures: H.264 MP4, short side capped at 7
 
 ## Parity
 
-Same queue, dedup, retry and validation in both apps. Desktop adds drag-and-drop and paste in place of the Android share sheet, and automatic timed retries. Reduction differs: mobile reduces photos over 500 KB to JPEG 1920 px and transcodes videos to H.264 720p (`modules/video-compressor`), as does the web where the browser has an H.264 encoder; desktop reduces still images only (JPEG 1920 px, quality 82, skipped when within 1920 px and below 1 MiB). Each queued row keeps the thread it answers (`uploads.tmid`, mobile migration 0018 and desktop migration 9), sent as `tmid` with the confirm, or as the native intent's `complete.reply_to` (see [threads](threads.md)). Picking files and the pre-send strip are in [the composer](composer.md); sharing into the app is in [sharing and links](sharing-and-links.md).
+Both apps have persisted queues, local file lookup, retries and validation. Desktop additionally prevents uncertain Rocket.Chat confirm replay and displays "Checking delivery" on GTK and SwiftUI; mobile owes that behavior. Desktop adds drag-and-drop and paste in place of the Android share sheet, and automatic timed retries. Reduction differs: mobile reduces photos over 500 KB to JPEG 1920 px and transcodes videos to H.264 720p (`modules/video-compressor`), as does the web where the browser has an H.264 encoder; desktop reduces still images only (JPEG 1920 px, quality 82, skipped when within 1920 px and below 1 MiB). Each queued row keeps the thread it answers (`uploads.tmid`, mobile migration 0018 and desktop migration 9), sent as `tmid` with the confirm, or as the native intent's `complete.reply_to` (see [threads](threads.md)). Picking files and the pre-send strip are in [the composer](composer.md); sharing into the app is in [sharing and links](sharing-and-links.md).
 
 ## Sources
 
@@ -124,6 +128,7 @@ Same queue, dedup, retry and validation in both apps. Desktop adds drag-and-drop
 - apps/mobile/ui/transfers.ts
 - apps/mobile/modules/downloads/index.ts
 - apps/mobile/app/room/[rid].tsx
+- apps/desktop/crates/rv-core/tests/uploads.rs
 - apps/desktop/crates/rv-core/src/uploads.rs
 - apps/desktop/crates/rv-core/src/store.rs
 - apps/desktop/crates/rv-core/src/rest.rs

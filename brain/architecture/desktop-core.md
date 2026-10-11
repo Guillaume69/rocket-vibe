@@ -30,7 +30,7 @@ Context: [desktop-app.md](desktop-app.md) for the crate layout, [rocket-chat.md]
 | `sync` | Stream events and REST pages into the store: global catch-up, per-room catch-up, history paging |
 | `context` | A window of old history around one message, read from the server and never stored, paged both ways without a hole; see [../features/room-view.md](../features/room-view.md) |
 | `outbox` | Optimistic send with a client `_id`, replay-safe delivery check |
-| `uploads` | Two-step upload queue with persisted `fileId`, offline retry, discard |
+| `uploads` | Two-step upload queue with persisted `fileId` and Rocket.Chat confirm-attempt guard, delivery checks, offline retry, discard |
 | `normalize` | Rocket.Chat documents to local rows; every document-shape quirk lives here |
 | `live` | What is only streamed: typing, presence, private notes |
 | `e2e` | Encrypted rooms (`rc.v1`/`rc.v2`): key unlock, room keys, message and file crypto; see [e2ee.md](e2ee.md) |
@@ -131,14 +131,14 @@ In an encrypted room the text is encrypted at send time through an encryptor clo
 
 ## uploads
 
-`Uploads` persists each file in the `uploads` table (`pending`, `sending`, `failed`) and sends it in two steps, `rooms.media/<rid>` then `rooms.mediaConfirm/<rid>/<fileId>`. The `fileId` is saved **between** the steps. Before replaying a confirm, `already_posted` checks the store for a message carrying that file, and if the store knows nothing it reloads the room's newest page and asks again, since the server's answer to a replayed confirm cannot be trusted ([rocket-chat.md](rocket-chat.md)). Other rules:
+`Uploads` persists each file in the `uploads` table (`pending`, `sending`, `failed`) and sends it in two steps, `rooms.media/<rid>` then `rooms.mediaConfirm/<rid>/<fileId>`. The `fileId` is saved **between** the steps. `confirm_started` is persisted before a Rocket.Chat confirm leaves. An uncertain response leaves the row pending; `already_posted` checks the store and the room's newest history page until the message is found, without replaying the confirm even when history is empty or fails. GTK and SwiftUI show "Checking delivery". A recognized Rocket.Chat 4xx clears the guard for explicit Retry. Older rows with a file id are conservatively marked during migration. The flag is ignored for Mattermost/kChat. Rocket.Chat's answer to a replayed confirm cannot be trusted ([rocket-chat.md](rocket-chat.md)). Other rules:
 
 - `validate` applies `FileUpload_MaxFileSize`, `FileUpload_MediaTypeWhiteList` (`image/*` patterns) and refuses files in encrypted rooms when encrypted files are off.
-- A 5xx answer to any step puts the row back to `pending` and stops the pass, like an unreachable server; a confirm the server did post is found again through the persisted `fileId`.
+- A 5xx during the byte transfer puts the row back to `pending` and stops the pass, like an unreachable server. An uncertain Rocket.Chat confirm instead keeps checking its persisted `fileId` while other uploads proceed.
 - `claim_upload` makes a row `sending` atomically; at construction every `sending` row is rearmed to `pending` (only a dead run can leave one).
 - Offline: the pass stops and schedules itself again after 2, 5, 15, 30 s, without waiting for the socket.
 - `discard` removes the row and aborts the byte transfer; after the confirm nothing can take the message back. Temporary files (reduced images, pasted pictures) are deleted once settled.
-- Encrypted rooms: the file is encrypted under its own key and uploaded under the SHA-256 of its name; the key lives in memory only between the two steps, so a crash in between uploads it again.
+- Encrypted rooms: the file is encrypted under its own key and uploaded under the SHA-256 of its name; the key lives in memory only between the two steps, so a crash before the confirm attempt uploads it again. Once confirmation has started, recovery only checks delivery, including after that in-memory key is lost.
 
 Feature-level detail: [../features/uploads.md](../features/uploads.md).
 

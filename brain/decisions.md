@@ -62,7 +62,7 @@ The non-obvious choices behind rocket-vibe and why they were made, grouped by ar
 - **Connection setup reads twice on purpose.** `setUpConnection` reads before and after arming subscriptions; the second read guarantees nothing falls between the read and the subscription. Making it conditional was rejected ("À ne pas toucher" in `WORKSTREAMS.md`).
 - **Mobile: no `__my_messages__`, a hot-room LRU instead.** Subscribing to the all-rooms key would replace `apps/mobile/ui/hotRooms.ts`, but at the cost of receiving all 25 rooms' traffic continuously (battery, data). The mobile keeps up to 3 recently left rooms subscribed so re-entering skips a 3-4 s `syncMessages`. **The desktop chose the other way:** `rv-core` subscribes to `__my_messages__` at session start and keeps deletions per open room. See [offline-and-sync](features/offline-and-sync.md), [desktop-core](architecture/desktop-core.md).
 - **Text outbox with a client-side `_id`.** 24 hex chars generated before display; the server refuses a second message with the same `_id`. A replay answers 400, not success, so the client confirms with `chat.getMessage` before declaring failure (`apps/mobile/lib/outbox.ts`).
-- **Upload dedup is entirely local.** Replaying `rooms.mediaConfirm` either posts a duplicate while answering 200 with the first message, or answers `[invalid-file]` for a delivered file: no server answer is usable. The `file_id` from `rooms.media` is persisted (`uploads.file_id`); before confirming again, the client asks SQLite, and when SQLite is silent, refreshes that one room (`refreshRoom`). A client `_id` cannot be passed: the schema is `additionalProperties: false`. Failed uploads are not retried automatically. See [uploads](features/uploads.md).
+- **Upload dedup is entirely local.** Replaying `rooms.mediaConfirm` either posts a duplicate while answering 200 with the first message, or answers `[invalid-file]` for a delivered file: no server answer is usable. The `file_id` from `rooms.media` is persisted (`uploads.file_id`); mobile asks SQLite before confirming again, and when SQLite is silent, refreshes that one room (`refreshRoom`). Desktop additionally persists `confirm_started` before sending and never repeats an uncertain confirmation, because even a successful empty history read cannot rule out a slow request still running. A client `_id` cannot be passed: the schema is `additionalProperties: false`. Failed uploads are not retried automatically. See [uploads](features/uploads.md).
 - **Only a 401 signs out, and only a trusted one.** On 8.5, 401 means "not authenticated" and nothing else (403 permissions, 400 kicked, 400 `totp-invalid`). The hook also requires a Rocket.Chat envelope marker (`success`, `status`, `errorType`), because a reverse proxy answers 401 too, and skips anonymous calls, because `/api/v1/login` maps every failure to 401. No whitelist on the error text: a server rewording would silently bring back the zombie state. See [mobile-transport](architecture/mobile-transport.md), [login-and-servers](features/login-and-servers.md).
 - **Optimistic session resume.** The stored session is trusted at start and validated in the background; an unreachable server is not a reason to drop a session.
 - **Reconnection: jittered backoff, suspended in background, reset on foreground.** No socket is reopened in the background; coming back resets the backoff (measured 59 ms instead of a 22.7 s armed timer). 429s get a dispersed sleep but no per-route queue: the window is per minute, so only not emitting calls helps.
@@ -258,6 +258,12 @@ Sources: brain/features/uploads.md, apps/web/src/video-reduce.worker.ts.
 Use an additive optional Message.social field for polls, game nights and public image posts. Existing IntegrationCard forbids unknown fields, so extending it would reject these messages in older clients. Keep readable text fallbacks and capability-gated controls. Store GIPHY credentials only on the server; Rocket.Chat clients use the installed app's preview/selection REST contract. Keep structured social content out of encrypted rooms until the encrypted protocol carries it.
 
 
+## Rocket.Chat attachment confirmations after an uncertain response
+
+Desktop persists `uploads.confirm_started` before sending `rooms.mediaConfirm`. Once delivery is uncertain, automatic and explicit queue passes reconcile the existing file from local messages and targeted room history; they never replay that confirm or re-encrypt/re-upload it after a restart. Rocket.Chat has no idempotent confirmation key, and neither an empty history response nor a failed read proves the first request did not or will not create a message. A recognized provider 4xx is a definitive refusal and restores the normal explicit Retry path.
+
+The tradeoff is visible: a request that never reached the server can stay in "Checking delivery", with Discard available after the user checks the conversation. This prevents automatic duplicates instead of guessing that a missing message is safe to resend. Existing persisted file ids are treated conservatively during migration. Mobile owes this guard; Mattermost/kChat keep their own recovery contract. See [uploads](features/uploads.md) and [parity](parity.md).
+
 ## Sources
 
 - `apps/desktop/crates/rv-gtk/src/notifier/custom.rs`
@@ -293,6 +299,9 @@ Use an additive optional Message.social field for polls, game nights and public 
 - `apps/mobile/lib/ddp.ts`
 - `apps/mobile/lib/connectionSetup.ts`
 - `apps/mobile/lib/outbox.ts`
+- `apps/desktop/crates/rv-core/src/uploads.rs`
+- `apps/desktop/crates/rv-core/src/store.rs`
+- `apps/desktop/crates/rv-core/tests/uploads.rs`
 - `apps/mobile/lib/uploadQueue.ts`
 - `apps/mobile/lib/e2e/crypto.ts`
 - `apps/mobile/ui/hotRooms.ts`

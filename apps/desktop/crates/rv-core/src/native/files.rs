@@ -422,6 +422,7 @@ impl NativeSession {
                     _ => None,
                 },
                 file_id: None,
+                confirm_started: false,
                 status: if u.failed { "failed" } else { "pending" }.into(),
                 temporary: true,
                 tmid: u.complete.reply_to,

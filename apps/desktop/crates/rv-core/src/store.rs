@@ -40,6 +40,8 @@ pub struct UploadRow {
     /// Set once the bytes are on the server, BEFORE the confirm: a confirm
     /// replayed on the same file posts a second message (see uploads.rs).
     pub file_id: Option<String>,
+    /// Rocket.Chat confirm may have reached the server: reconcile, never replay.
+    pub confirm_started: bool,
     /// `pending`, `sending` or `failed`.
     pub status: String,
     /// The file is our own copy (a reduced image, a pasted picture): deleted once settled.
@@ -257,6 +259,9 @@ const MIGRATIONS: &[&str] = &[
      ALTER TABLE messages ADD COLUMN discussion_count INTEGER NOT NULL DEFAULT 0;
      ALTER TABLE messages ADD COLUMN discussion_last INTEGER",
     "CREATE TABLE sticker_shelf(id TEXT PRIMARY KEY,name TEXT NOT NULL,url TEXT NOT NULL UNIQUE)",
+    // Existing file ids may already have been confirmed by the old client.
+    "ALTER TABLE uploads ADD COLUMN confirm_started INTEGER NOT NULL DEFAULT 0;
+     UPDATE uploads SET confirm_started = 1 WHERE file_id IS NOT NULL",
 ];
 
 /// How many messages a search across rooms answers at most.
@@ -441,7 +446,7 @@ impl Store {
 
     fn upload_rows(&self, filter: &str, key: &str) -> Vec<UploadRow> {
         let sql = format!(
-            "SELECT id, rid, path, name, mime, caption, file_id, status, temporary, tmid FROM uploads
+            "SELECT id, rid, path, name, mime, caption, file_id, status, temporary, tmid, confirm_started FROM uploads
              WHERE {filter} ORDER BY created_at, id"
         );
         self.read(|c| {
@@ -458,6 +463,7 @@ impl Store {
                     status: r.get(7)?,
                     temporary: r.get(8)?,
                     tmid: r.get(9)?,
+                    confirm_started: r.get(10)?,
                 })
             })?
             .collect()
@@ -1076,9 +1082,9 @@ impl Writer<'_> {
     pub fn insert_upload(&mut self, u: &UploadRow, now: i64) {
         self.conn
             .execute(
-                "INSERT INTO uploads (id, rid, path, name, mime, caption, file_id, status, temporary, created_at, tmid)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-                params![u.id, u.rid, u.path, u.name, u.mime, u.caption, u.file_id, u.status, u.temporary, now, u.tmid],
+                "INSERT INTO uploads (id, rid, path, name, mime, caption, file_id, status, temporary, created_at, tmid, confirm_started)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                params![u.id, u.rid, u.path, u.name, u.mime, u.caption, u.file_id, u.status, u.temporary, now, u.tmid, u.confirm_started],
             )
             .or_note(&mut self.failed, "insert upload");
         self.touch_messages(&u.rid);
@@ -1190,6 +1196,13 @@ impl Writer<'_> {
             .or_note(&mut self.failed, "upload file id");
     }
 
+    pub fn set_upload_confirm_started(&mut self, id: &str, started: bool) {
+        self.conn
+            .execute("UPDATE uploads SET confirm_started = ?2 WHERE id = ?1", params![id, started])
+            .or_note(&mut self.failed, "upload confirm started");
+        self.touch_upload(id);
+    }
+
     pub fn delete_upload(&mut self, id: &str) {
         self.touch_upload(id);
         self.conn.execute("DELETE FROM uploads WHERE id = ?1", [id]).or_note(&mut self.failed, "delete upload");
@@ -1290,6 +1303,44 @@ mod tests {
         drop(store);
         assert!(Store::open(&path).is_ok(), "reopening must not rerun the steps");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn upload_confirm_guard_upgrades_legacy_rows_and_survives_reopen() {
+        let dir = std::env::temp_dir().join(format!("rv-upload-migrate-{:x}", fastrand::u64(..)));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("old.sqlite");
+        {
+            let old = Connection::open(&path).unwrap();
+            old.execute_batch(SCHEMA).unwrap();
+            for step in &MIGRATIONS[..MIGRATIONS.len() - 1] {
+                old.execute_batch(step).unwrap();
+            }
+            old.pragma_update(None, "user_version", (MIGRATIONS.len() - 1) as i64).unwrap();
+            old.execute_batch(
+                "INSERT INTO uploads(id,rid,path,name,mime,status,created_at,file_id)
+                VALUES ('known','r','/tmp/a','a','text/plain','sending',1,'file1'),
+                       ('new','r','/tmp/b','b','text/plain','pending',2,NULL)",
+            )
+            .unwrap();
+        }
+        {
+            let store = Store::open(&path).unwrap();
+            assert!(store.upload("known").unwrap().confirm_started, "a legacy file id might already have posted");
+            assert!(!store.upload("new").unwrap().confirm_started);
+            store.write(|w| {
+                w.set_upload_file_id("new", "file2");
+                w.set_upload_confirm_started("new", true);
+                w.rearm_sending_uploads();
+            });
+        }
+        {
+            let reopened = Store::open(&path).unwrap();
+            assert!(reopened.upload("new").unwrap().confirm_started);
+            assert!(reopened.upload("known").unwrap().confirm_started);
+            assert_eq!(reopened.upload("known").unwrap().status, "pending");
+        }
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
@@ -1716,6 +1767,7 @@ mod tests {
             mime: "text/plain".into(),
             caption: None,
             file_id: None,
+            confirm_started: false,
             status: "pending".into(),
             temporary: false,
             tmid: None,

@@ -2457,10 +2457,17 @@ impl ChatPage {
                 Some(fraction) => column.append(&gtk::ProgressBar::builder().fraction(fraction).build()),
                 None => {
                     let reconnecting = legacy.as_ref().is_some_and(|s| s.uploads.reconnecting());
-                    let state = match (failed, reconnecting) {
-                        (true, _) => "upload.failed",
-                        (false, true) => "upload.retrying",
-                        (false, false) => "upload.waiting",
+                    let state = if !failed
+                        && upload.confirm_started
+                        && legacy.as_ref().is_some_and(|s| s.rest.api() == rv_core::rest::Api::RocketChat)
+                    {
+                        "upload.checking"
+                    } else {
+                        match (failed, reconnecting) {
+                            (true, _) => "upload.failed",
+                            (false, true) => "upload.retrying",
+                            (false, false) => "upload.waiting",
+                        }
                     };
                     column.append(&label(t(state), &["file-detail"]))
                 }

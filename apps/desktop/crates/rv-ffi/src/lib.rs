@@ -312,6 +312,8 @@ pub struct Upload {
     pub progress: Option<f64>,
     /// Waiting for the connection, retried by itself.
     pub retrying: bool,
+    /// A Rocket.Chat confirmation may have succeeded; only delivery is checked.
+    pub checking: bool,
     /// The thread the file answers; `None` in the room.
     pub thread: Option<String>,
 }
@@ -782,6 +784,7 @@ impl Chat {
             .map(|u| Upload {
                 progress: self.session.uploads.progress(&u.id),
                 retrying: self.session.uploads.reconnecting(),
+                checking: u.confirm_started && self.session.rest.api() == rv_core::rest::Api::RocketChat,
                 failed: u.status == "failed",
                 id: u.id,
                 name: u.name,

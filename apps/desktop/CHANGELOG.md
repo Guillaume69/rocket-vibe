@@ -7,6 +7,8 @@ section here.
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-10-11
+
 ### Added
 
 - Windows notification style choice in Settings > Notifications: System or RocketVibe. RocketVibe shows branded floating cards with avatars, image previews, inline reply, quick reactions and mark read where supported. Cards group by room, preserve a reply draft when replaced, pause dismissal while hovered or replying, respect Windows quiet mode, and clear when switching accounts. System remains the default; custom cards have no Windows Notification Center history.
@@ -1150,7 +1152,8 @@ the mobile app (see `docs/PARITY.md`).
   `rocketvibe://` links) and zip; a macOS app in a DMG, signed with a Developer ID and
   notarized by Apple.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.14.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.15.0...HEAD
+[0.15.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.14.0...desktop-v0.15.0
 [0.14.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.13.0...desktop-v0.14.0
 [0.13.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.12.2...desktop-v0.13.0
 [0.12.2]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.12.1...desktop-v0.12.2

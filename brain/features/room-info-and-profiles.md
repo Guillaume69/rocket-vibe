@@ -11,6 +11,8 @@ Three read-on-demand views and one editor: a room's information sheet, a person'
 - `POST users.updateOwnBasicInfo {data}`: only the changed fields among `name`, `username`, `email`, `bio`. Changing `username` or `email` requires `currentPassword` (the SHA-256 of the password) and often triggers 2FA (`totp-required`), replayed with the code through the same mechanism as login ([login-and-servers.md](login-and-servers.md)). Re-sending an unchanged email would restart a verification, hence the diff.
 - `POST users.setAvatar` (multipart field `image`), `POST users.resetAvatar`. Avatar versions and cache busting: [avatars.md](avatars.md).
 - `POST rooms.favorite {roomId, favorite}` toggles the favourite flag.
+- `POST rooms.saveRoomSettings {rid, roomTopic?, roomDescription?, roomAnnouncement?, readOnly?}`: the changed keys only, `edit-room` checked by the server, any unknown key refused.
+- RocketVibe: `GET /rooms/{id}` (`RoomDetails`: texts, `read_only`, `voice`, details `revision`, my `permissions`), `GET /rooms/{id}/members?after=&revision=` (pages of 50, `next`), the versioned commands `PATCH /rooms/{id}`, `PUT /rooms/{id}/members/{user}/role`, `POST /rooms/{id}/leave` (each with `operation_id` and `expected_revision`, receipt at `GET /rooms/{id}/commands/{operation}`), and the owner's unversioned `POST` / `DELETE /rooms/{room}/members/{user}` (no body, `204`, removal idempotent, never oneself): `docs/protocol/ROOMS.md`, `docs/protocol/README.md`.
 
 ## Mobile
 
@@ -20,7 +22,8 @@ Three read-on-demand views and one editor: a room's information sheet, a person'
 - **My profile** `app/my-profile.tsx`, a full page (it has a keyboard), reached from the profile card of the My account settings category. One Save button calls only the endpoints of what changed (`lib/myProfile.ts`: `diffInfos`, `requiresPassword`, `saveStatus`, `saveBasicInfo`): presence among online/away/busy/offline plus status text, name, bio, email, username, and a new photo picked with `ui/pickAvatar.ts` (`setAvatar`, `lib/upload.ts`). "Remove photo", shown while my avatar version is not the no-photo marker, acts at once after a confirmation, like the desktop: Rocket.Chat `users.resetAvatar` then the local `AVATAR_NO_PHOTO` marker (the `updateAvatar` event confirms it without an etag), RocketVibe the avatar command without an image; with a photo picked but not saved, it only drops the pick. The current password field appears when email or username changes; a 2FA challenge is answered with `prepareTwoFactorCode`.
 
 - **Members** (Rocket.Chat channel or group, `ProviderActions.listMembers`): "N members" (the `system-users` icon) in the room information sheet opens `app/room-members.tsx`, read from the server (`rooms.membersOrderedByRole`: owners, then moderators, then the rest; `filter` searched by the server, debounced; pages of 50 on scroll, a page with nothing new ending the list), not stored, since the local database knows who wrote, not the roster. A row shows the photo, a presence dot from the answer's `status`, name, `@username` and the room roles (owner, moderator, leader), and opens the profile. A DM has no list (`error-room-type-not-supported`). A long press on someone else unfolds a row of actions (an Android alert holds three buttons, too few): make or remove moderator, make or remove owner, remove from the room (confirmed), each shown only when my global and room roles grant `set-moderator`, `set-owner` or `remove-user` (`lib/permissions.ts`); `channels.*` or `groups.*` by the room's type (`setMemberRole`, `removeMember`), the row updated on success since the list is not live.
-- **Room texts** (Rocket.Chat, `ui/roomSettingsEditor.tsx`): with `edit-room` granted, "Edit topic, description, announcement" turns the three sections into fields; Save sends only what changed (`ProviderActions.saveRoomSettings`, `rooms.saveRoomSettings` with `roomTopic`, `roomDescription`, `roomAnnouncement`, which refuses any other key), then the sheet reads `rooms.info` again. Renaming is left out on purpose: it moves the room's address, links included.
+- **Room settings** (Rocket.Chat, `ui/roomSettingsEditor.tsx`): with `edit-room` granted, "Edit room settings" turns topic, description and announcement into fields and adds a native "Read-only" switch; Save sends only what changed (`lib/roomSettings.ts`: `roomSettingsDraft`, `roomSettingsChanges`; `ProviderActions.saveRoomSettings`, `rooms.saveRoomSettings` with `roomTopic`, `roomDescription`, `roomAnnouncement`, `readOnly`), then the sheet reads `rooms.info` again and writes its `ro` into the local room row when it differs (`app/room-info.tsx`), so the composer's read-only note (`app/room/[rid].tsx` reads `room.readOnly` on Rocket.Chat) follows without waiting for `rooms-changed`. Renaming is left out on purpose: it moves the room's address, links included.
+- **RocketVibe room management** (`ui/roomManagement.tsx`, `providers/rocketvibe/index.ts` `roomManagement`, `providers/rocketvibe/chat.ts`), inside the same sheet and driven by `RoomDetails.permissions` and the server's capabilities (`room_settings`, `room_roles`, `room_leave`), never in a DM. **Edit room** (`change_settings`): name, private, topic, description, announcement, read-only and, for an owner on a server announcing `voice`, voice channel, sent as one `UpdateRoom` with the details revision; **roles** (owner): member, moderator or owner per member, `ChangeRoomRole` with the member page's revision; **Leave**, confirmed. These three are saved before HTTP and resumable (`nativeRoomOperations`: Resume, Review, Clear; last-owner and conflict explanations). **Show members** lists `RoomMemberPage`s (name, `@username`, role, deactivated, bot badge), "More members" following `next` with the same `revision`; the list follows the details revision: a role change, a removal or an addition rereads the details and reloads the first page at the new revision, and a `409 revision_conflict` rereads them too. **Remove from the room** (`remove_member`, not me, not a deactivated account) after a dismissible confirmation, and **Add** by username (`invite`, the account found in `GET /users`, `NativeChat.invite`): the owner's unversioned routes (`NativeChat.removeMember`, `NativeTransport.removeMember` / `addMember`), so no saved operation, their failures worded on their own (unknown username, offline, refused). A member's name opens their profile (`openProfileCard({uid})`, the sheet closing first).
 - **Invite link** (Rocket.Chat channel or group, `ui/roomInvite.tsx`): shown when my global and room roles grant `create-invite-links` (`lib/permissions.ts`, as the message actions do); `inviteLink` (`lib/invites.ts`) asks `findOrCreateInvite {rid, days: 7, maxUses: 0}`, which answers the same invite for the same settings, and shares `<Site_Url>/invite/<id>` with the system share sheet, never the `go.rocket.chat` redirector the answer's `url` may name.
 
 ## Desktop
@@ -40,7 +43,7 @@ Live profile revisions reload the open card. A valid, complete live observation 
 
 ## Parity
 
-Room info, profile with Message and Call, my profile with password and 2FA, live avatar changes: both apps ([parity](../parity.md) §8). Differences: mobile toggles the favourite from room info, desktop from the room list; mobile prefetches the profile so the sheet never jumps. Report this user is in all three apps. Mobile lists a room's members, changes their roles and edits the room's texts (Rocket.Chat); the desktop does none of these on Rocket.Chat.
+Room info, profile with Message and Call, my profile with password and 2FA, live avatar changes: both apps ([parity](../parity.md) §8). Differences: mobile toggles the favourite from room info, desktop from the room list; mobile prefetches the profile so the sheet never jumps. Report this user is in all three apps. Mobile lists a room's members, changes their roles, removes them and edits the room's texts and read-only switch on Rocket.Chat, and on RocketVibe edits the room's settings, lists, adds and removes members and changes their roles, as the web does; Mattermost and kChat have none of it on mobile. The desktop does none of these on Rocket.Chat.
 
 ## Quick activity change
 
@@ -54,6 +57,16 @@ The bottom avatar opens the four activity choices on GTK, SwiftUI, mobile and we
 - apps/web/src/extra.css
 - apps/web/tests/profiles.mjs
 - apps/mobile/app/room-info.tsx
+- apps/mobile/app/room-members.tsx
+- apps/mobile/ui/roomSettingsEditor.tsx
+- apps/mobile/lib/roomSettings.ts
+- apps/mobile/ui/roomManagement.tsx
+- apps/mobile/lib/permissions.ts
+- apps/mobile/providers/rocketchat/actions.ts
+- apps/mobile/providers/rocketvibe/index.ts
+- apps/mobile/providers/rocketvibe/chat.ts
+- apps/mobile/providers/rocketvibe/transport.ts
+- docs/protocol/ROOMS.md
 - apps/mobile/app/profile.tsx
 - apps/mobile/app/my-profile.tsx
 - apps/mobile/app/presence.tsx

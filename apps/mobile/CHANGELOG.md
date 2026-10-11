@@ -10,6 +10,7 @@ release, and its notes are that version's section here.
 ### Added
 
 - Android can check GitHub for a newer mobile APK from Settings > App, show an optional update notice, download with progress and SHA-256 verification, and install through Android confirmation while retaining app data. Update checks and installation recovery work independently of chat accounts.
+- A Read-only switch in the room settings of a Rocket.Chat room (with the right to edit it), saved only when switched; the composer follows the new state. On a RocketVibe server, the room information's member list can now remove a member (confirmed) and add one by username, a member's name opens their profile, and the list reloads after a role change or a membership change.
 
 ### Fixed
 

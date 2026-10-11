@@ -9,6 +9,7 @@ release, and its notes are that version's section here.
 
 ### Fixed
 
+- Scope Mattermost and kChat searches to the current channel, direct conversation or group before the server's result limit, so busy teams no longer hide older room matches.
 - Mattermost and kChat protected media now belongs to its account and live session. Logout and account switching remove media credentials and cached copies, and late downloads cannot restore them.
 - Isolate account databases with a SHA-256 identity, preserve unambiguous legacy drafts and pending sends during upgrade, and reconcile existing reminders with the new identity.
 - Commit optimistic messages and their outbox entries together, so a failed queue write leaves no orphaned message.

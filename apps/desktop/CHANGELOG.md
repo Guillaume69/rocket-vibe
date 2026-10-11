@@ -9,6 +9,7 @@ section here.
 
 ### Fixed
 
+- Scope Mattermost and kChat searches to the current channel, direct conversation or group before the server's result limit, on GTK and SwiftUI.
 - Recover Mattermost and kChat sends by a persistent operation marker; keep ambiguous legacy matches visible for manual retry.
 - Scope GTK attachment and image caches by account, clear local attachment copies on sign-out, and reject late downloads from closed sessions.
 - Give SwiftUI attachment copies a private session directory and delete them when the session ends.

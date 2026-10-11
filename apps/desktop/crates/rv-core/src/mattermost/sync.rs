@@ -813,11 +813,8 @@ impl MmSync {
         text(live.channels.get(rid)?, "team_id").map(str::to_owned)
     }
 
-    /// A public or private channel's name, the one `in:` search terms take; none for a conversation.
-    pub fn channel_name(&self, rid: &str) -> Option<String> {
-        let live = self.live.lock().unwrap();
-        let channel = live.channels.get(rid)?;
-        matches!(text(channel, "type"), Some("O" | "P")).then(|| text(channel, "name").map(str::to_owned)).flatten()
+    pub fn my_id(&self) -> &str {
+        &self.me
     }
 
     pub fn remember_channel(&self, channel: Value) {

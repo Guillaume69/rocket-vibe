@@ -198,31 +198,58 @@ async fn first_team(rest: &RestClient) -> Result<String, RestError> {
         .ok_or_else(|| RestError::incomplete("users/me/teams: no team"))
 }
 
-/// The room's team; a DM belongs to none, any team of mine searches it.
-async fn team_of(rest: &RestClient, mm: &MmSync, rid: &str) -> Result<String, RestError> {
-    match mm.team_of(rid) {
-        Some(team) => Ok(team),
-        None => first_team(rest).await,
-    }
-}
-
 /// Matches in the room, newest first.
 pub async fn search(rest: &RestClient, mm: &MmSync, rid: &str, terms: &str) -> Result<Vec<Message>, RestError> {
-    let team = team_of(rest, mm, rid).await?;
-    // A channel narrows on the server (`in:<name>`, Mattermost's search syntax):
-    // asking the whole team for 60 hits and keeping the room's could leave
-    // nothing in a busy team. A DM's `in:` form is not probed: it keeps the
-    // team-wide ask. The room filter below stays either way.
-    let terms = match mm.channel_name(rid) {
-        Some(name) => format!("{terms} in:{name}"),
-        None => terms.to_owned(),
-    };
+    let (team, scope) = search_target(rest, mm, rid).await?;
+    let terms = format!("{terms} in:{scope}");
     let body = json!({"terms": terms, "is_or_search": false, "page": 0, "per_page": 60});
     let found = rest.post(&format!("teams/{team}/posts/search"), CallOptions::body(body)).await?;
     let posts: Vec<Value> =
         ordered(&found).into_iter().filter(|p| p.get("channel_id").and_then(Value::as_str) == Some(rid)).collect();
     mm.ensure_authors(&posts).await;
     Ok(posts.iter().filter_map(|p| mm.translate(p)).collect())
+}
+
+fn safe_search_scope(value: Option<String>) -> Result<String, RestError> {
+    value
+        .filter(|value| !value.is_empty() && !value.chars().any(|c| c.is_whitespace() || ",:@\"\\".contains(c)))
+        .ok_or_else(|| RestError::incomplete("search: room identity unavailable"))
+}
+
+async fn search_target(rest: &RestClient, mm: &MmSync, rid: &str) -> Result<(String, String), RestError> {
+    let room = rest.get(&format!("channels/{rid}"), CallOptions::default()).await?;
+    let scope = match room.get("type").and_then(Value::as_str) {
+        Some("O" | "P") => safe_search_scope(text(&room, "name"))?,
+        Some(kind @ ("D" | "G")) => {
+            let members = super::pages(rest, &format!("channels/{rid}/members")).await?;
+            let mut ids: Vec<String> = members.iter().filter_map(|member| text(member, "user_id")).collect();
+            ids.sort();
+            ids.dedup();
+            if !ids.iter().any(|id| id == mm.my_id()) {
+                return Err(RestError::incomplete("search: room membership unavailable"));
+            }
+            if kind == "D" {
+                ids.retain(|id| id != mm.my_id());
+                if ids.is_empty() {
+                    ids.push(mm.my_id().to_owned());
+                }
+                if ids.len() != 1 {
+                    return Err(RestError::incomplete("search: DM identity unavailable"));
+                }
+            }
+            mm.directory.ensure(rest, ids.clone()).await;
+            let mut names =
+                ids.iter().map(|id| safe_search_scope(mm.directory.username(id))).collect::<Result<Vec<_>, _>>()?;
+            names.sort();
+            format!("@{}", names.join(","))
+        }
+        _ => return Err(RestError::incomplete("search: room type unavailable")),
+    };
+    let team = match text(&room, "team_id") {
+        Some(team) => team,
+        None => first_team(rest).await?,
+    };
+    Ok((team, scope))
 }
 
 pub async fn room_info(rest: &RestClient, rid: &str) -> Result<RoomInfo, RestError> {

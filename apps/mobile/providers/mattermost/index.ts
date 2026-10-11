@@ -7,6 +7,7 @@
 
 import type { Session } from '../../lib/auth.ts';
 import { setMediaBearer } from '../../lib/mediaAuth.ts';
+import { roomSearchTarget } from './search.ts';
 import { liveCallSignal } from '../../lib/callRing.ts';
 import type { CustomEmoji } from '../../lib/customEmojis.ts';
 import type { DdpEvent } from '../../lib/ddp.ts';
@@ -97,16 +98,10 @@ export function createMattermostProvider(
     translator,
     actions,
     async searchMessages(rid: string, text: string): Promise<LocalMessage[]> {
-      const teamId = await teamOf(client, live, rid);
+      const { teamId, scope } = await roomSearchTarget(client, directory, rid, session.userId);
       if (teamId === null) return [];
-      // A channel narrows on the server (`in:<name>`, Mattermost's search syntax):
-      // asking the whole team for 60 hits and keeping the room's could leave
-      // nothing in a busy team. A DM's `in:` form is not probed: it keeps the
-      // team-wide ask. The room filter below stays either way.
-      const channel = live.channels.get(rid);
-      const name = typeof channel?.name === 'string' && (channel.type === 'O' || channel.type === 'P') ? channel.name : null;
       const list = await client.post<Record<string, unknown>>(`/teams/${teamId}/posts/search`, {
-        body: { terms: name === null ? text : `${text} in:${name}`, is_or_search: false, page: 0, per_page: 60 },
+        body: { terms: `${text} in:${scope}`, is_or_search: false, page: 0, per_page: 60 },
       });
       const posts = ordered(list as Parameters<typeof ordered>[0]).filter((p) => p.channel_id === rid);
       await live.ensureAuthors(posts);
@@ -201,13 +196,4 @@ export function describeMmError(error: unknown, authenticated: boolean): Provide
     };
   }
   return { code: 'connection_failed', status: 0, requestId: null, retryAfter: null, rejectsSession: false, twoFactorChallenge: false };
-}
-
-/** A DM has no team: any team of mine searches it. */
-async function teamOf(client: MmClient, live: MmLive, rid: string): Promise<string | null> {
-  const known = live.channels.get(rid)?.team_id;
-  if (typeof known === 'string' && known !== '') return known;
-  const teams = await client.get<Record<string, unknown>[]>('/users/me/teams');
-  const first = Array.isArray(teams) ? teams[0]?.id : undefined;
-  return typeof first === 'string' ? first : null;
 }

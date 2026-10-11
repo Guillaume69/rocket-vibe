@@ -55,6 +55,50 @@ fn sync(server: &FakeHttp) -> (Arc<Store>, MmSync) {
 }
 
 #[tokio::test]
+async fn search_scopes_channels_and_conversations_before_the_result_limit() {
+    for (kind, ids, expected) in [
+        ("O", vec![], "needle in:dev"),
+        ("P", vec![], "needle in:dev"),
+        ("D", vec!["u-me", "u-bob"], "needle in:@bob"),
+        ("G", vec!["u-me", "u-bob", "u-carol"], "needle in:@bob,carol,me"),
+        ("D", vec!["u-me"], "needle in:@me"),
+    ] {
+        let server = FakeHttp::start(move |r| match r.path() {
+            "/api/v4/channels/room" => respond(200, &json!({"id":"room", "type":kind, "name":"dev", "team_id":if matches!(kind, "O" | "P") { "team" } else { "" }}).to_string()),
+            "/api/v4/channels/room/members" => respond(200, &json!(ids.iter().map(|id| json!({"user_id":id})).collect::<Vec<_>>()).to_string()),
+            "/api/v4/users/ids" => {
+                let ids: Vec<String> = serde_json::from_str(&r.body).unwrap();
+                respond(200, &json!(ids.iter().map(|id| json!({"id":id,"username":id.trim_start_matches("u-")})).collect::<Vec<_>>()).to_string())
+            }
+            "/api/v4/users/me/teams" => respond(200, r#"[{"id":"team"}]"#),
+            "/api/v4/teams/team/posts/search" => {
+                let body: Value = serde_json::from_str(&r.body).unwrap();
+                assert_eq!(body["terms"], expected);
+                respond(200, r#"{"order":["own","foreign"],"posts":{"own":{"id":"own","channel_id":"room","user_id":"u-me","message":"needle","create_at":1,"update_at":1},"foreign":{"id":"foreign","channel_id":"other","user_id":"u-me","message":"needle","create_at":1,"update_at":1}}}"#)
+            }
+            _ => respond(404, r#"{"message":"Unexpected route"}"#),
+        }).await;
+        let (_, mm) = sync(&server);
+        let found = actions::search(&RestClient::mattermost(server.url.clone()), &mm, "room", "needle").await.unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].id, "own");
+    }
+}
+
+#[tokio::test]
+async fn search_never_falls_back_to_the_team_when_membership_is_unavailable() {
+    let server = FakeHttp::start(|r| match r.path() {
+        "/api/v4/channels/room" => respond(200, r#"{"id":"room","type":"D"}"#),
+        "/api/v4/channels/room/members" => respond(200, "[]"),
+        _ => respond(500, r#"{"message":"Search must not run"}"#),
+    })
+    .await;
+    let (_, mm) = sync(&server);
+    assert!(actions::search(&RestClient::mattermost(server.url.clone()), &mm, "room", "needle").await.is_err());
+    assert!(server.requests().iter().all(|request| !request.path().ends_with("/search")));
+}
+
+#[tokio::test]
 async fn a_list_is_read_until_a_short_page() {
     let server =
         FakeHttp::start(|r| respond(200, &members(if page_of(&r.target) == 0 { 200 } else { 50 }).to_string())).await;

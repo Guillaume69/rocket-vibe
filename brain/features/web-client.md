@@ -12,7 +12,7 @@ GTK is the requested visual reference. Its fonts, palette, icons, sounds and lay
 
 A real browser application served by the native server, with one account on that origin. It provides ordinary rooms/DMs, paging, live messages/actions, threads, quotes, search, drafts, durable offline text and upload queues, protected media, recording, room/profile/member controls, administration, factors, sessions, preferences and LiveKit calls.
 
-User decisions on 2026-10-08 explicitly exclude account/server switching. On 2026-10-09 the user superseded the temporary encryption exclusion and requested usable browser E2EE. Native encrypted rooms now use the shared Rust MLS engine in WebAssembly, with identity/device reviews, peer pins, group admission, private conversations/files and recovery/history controls; full state-by-state qualification remains tracked in parity. Browser vault protection differs from the native keyring; see [browser E2EE](../../docs/WEB_E2EE.md). Browser notifications map foreground desktop alerts while the tab lives; closed-tab delivery is missing. HTTPS room URLs replace the native custom scheme. Browser installation/public-shell updates replace binary updates; OS tray, autostart and native keyring are absent.
+User decisions on 2026-10-08 explicitly exclude account/server switching. On 2026-10-09 the user superseded the temporary encryption exclusion and requested usable browser E2EE. Native encrypted rooms now use the shared Rust MLS engine in WebAssembly, with identity/device reviews, peer pins, group admission, private conversations/files and recovery/history controls; full state-by-state qualification remains tracked in parity. Browser vault protection differs from the native keyring; see [browser E2EE](../../docs/WEB_E2EE.md). Browser notifications map foreground desktop alerts while the tab lives, shown by the service worker with the author's photo, the message's picture, Mark as read and Like buttons acted on by a live tab, and the app's own sound ([notifications](notifications.md#web)); closed-tab delivery is missing. HTTPS room URLs replace the native custom scheme. Browser installation/public-shell updates replace binary updates; OS tray, autostart and native keyring are absent.
 
 The merged master bots and workflows are exposed in browser settings, with the bot-creation policy in administration. Message forms run through the same server engine, with room-scoped slash completion and guarded one-time secrets. Labels and refusal wording are generated from the desktop catalog.
 
@@ -44,6 +44,7 @@ Media uses GTK-style inline controls, protected video posters and native human-r
 
 - apps/web/README.md
 - apps/web/src/app.ts
+- apps/web/src/notifications.ts
 - apps/web/src/panels.ts
 - apps/web/src/voice.ts
 - apps/web/src/voice-grid.ts

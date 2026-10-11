@@ -112,12 +112,16 @@ jobs:
           target/debug/rv-server create-user webreminders
           target/debug/rv-server create-user webglobalsearch
           target/debug/rv-server create-user weblogoutreplay
+          target/debug/rv-server create-user webnotify
+          target/debug/rv-server create-user webnotifypeer
           target/debug/rv-server create-user webvisual --admin
           target/debug/rv-server create-user webworkflows --admin
           target/debug/rv-server create-user webmedia --admin
           target/debug/rv-server create-user webmediapeer --admin
           target/debug/rv-server create-user webimage --admin
           target/debug/rv-server create-user webimagepeer --admin
+          target/debug/rv-server create-user webvideo --admin
+          target/debug/rv-server create-user webvideopeer --admin
           target/debug/rv-server serve --bind 127.0.0.1:3417 > .cache/web-server.log 2>&1 &
           for i in {1..60}; do
             if curl --fail --silent "$RV_WEB_TEST_URL/.well-known/rocketvibe" > /dev/null; then break; fi
@@ -129,7 +133,7 @@ jobs:
         run: |
           # Closed browser contexts leave five-minute snapshot leases. Release them
           # between suites on this disposable server, keeping each suite's limits real.
-          for suite in e2ee browser features media images voice voice-connection voice-lifecycle sessions locked composer quiet receipts scheduled reminders global-search logout-replay security visual workflows reads profiles navigation; do
+          for suite in e2ee browser features media images video-reduce voice voice-connection voice-lifecycle sessions locked composer quiet receipts scheduled reminders global-search logout-replay notifications security visual workflows reads profiles navigation; do
             npm run "test:$suite"
             docker exec "${{ job.services.postgres.id }}" psql -U web -d web --set ON_ERROR_STOP=1 --command 'DELETE FROM snapshot_heads'
           done

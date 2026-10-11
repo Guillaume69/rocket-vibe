@@ -51,6 +51,8 @@ import { audioControls } from "./audio";
 import { attachVideo } from "./video-attachment";
 import { attachImage, inlineImage, openImage } from "./image-attachment";
 import { stagedChip, reducedImage } from "./staged";
+import { videoReducible } from "./video-plan";
+import { reduceVideo, videoReductionSupported } from "./video-reduce";
 import { humanSize } from "./media-format";
 import type { RowActions } from "./render";
 import { t, language, setLanguage } from "./i18n";
@@ -70,6 +72,22 @@ import { previewText, decorate } from "./presentation";
 import { canonical, categories, glyphs, emojiGlyph } from "./emoji";
 import { settings, roomSwitcher, profile, localSearch } from "./panel-actions";
 import { quietNow } from "./quiet";
+import {
+  LIKE,
+  PICTURE_MAX_SOURCE,
+  announceReady,
+  maxActions,
+  noteActions,
+  noteWorker,
+  ownSound,
+  parseClick,
+  pictureData,
+  showNote,
+  within,
+  type NoteClick,
+  type NoteHandle,
+} from "./notifications";
+import { sound } from "./sounds";
 import { seen, seenText } from "./receipts";
 import {
   acceptable,
@@ -144,6 +162,15 @@ export class App implements RowActions {
   pending: Pending[] = [];
   staged: File[] = [];
   stagedOriginal = false;
+  /** The staged batch being reduced at send time, cancellable from the strip. */
+  reduction?: {
+    controller: AbortController;
+    room: string;
+    name: string;
+    fraction: number;
+  };
+  /** Whether this browser reduces videos, once known. */
+  videoReduction?: boolean;
   stagedWidgets = new WeakMap<File, HTMLElement>();
   stagedURLs = new WeakMap<File, string>();
   jobs: UploadJob[] = [];
@@ -167,7 +194,9 @@ export class App implements RowActions {
   roomPermissions = new Map<string, import("./protocol").RoomPermissions>();
   uploadProgress = new Map<string, number>();
   typingAt = 0;
-  notifications = new Map<string, Notification>();
+  notifications = new Map<string, NoteHandle>();
+  /** Bumped when a room's notification is withdrawn, so one still fetching its pictures is dropped. */
+  noteSequence = new Map<string, number>();
   completion = el("div", "completion");
   urls = new Set<string>();
   connection = "offline";
@@ -249,6 +278,16 @@ export class App implements RowActions {
     window.addEventListener("focus", () => this.scheduleRead(), {
       signal: this.lifetime.signal,
     });
+    // Clicks on notifications and their buttons, handed over by `sw.js`.
+    if ("serviceWorker" in navigator)
+      navigator.serviceWorker.addEventListener(
+        "message",
+        (event) => {
+          const click = parseClick(event.data);
+          if (click) void this.noteClick(click).catch(toast);
+        },
+        { signal: this.lifetime.signal },
+      );
     document.addEventListener("focusin", () => this.scheduleRead(), {
       signal: this.lifetime.signal,
     });
@@ -467,6 +506,7 @@ export class App implements RowActions {
     this.recorder = undefined;
     for (const note of this.notifications.values()) note.close();
     this.notifications.clear();
+    this.noteSequence.clear();
     document.querySelectorAll(".actions-menu").forEach((node) => node.remove());
     for (const url of this.urls) URL.revokeObjectURL(url);
     this.urls.clear();
@@ -484,6 +524,7 @@ export class App implements RowActions {
     this.ownStatus = undefined;
     this.ownProfileRevision = undefined;
     this.pending = [];
+    this.cancelReduction();
     this.staged = [];
     this.stagedOriginal = false;
     this.stagedWidgets = new WeakMap();
@@ -733,6 +774,7 @@ export class App implements RowActions {
           this.startPresence(generation, socket);
           // The server answers again: a sign-out it missed can finish now.
           void this.finishLogouts();
+          announceReady();
           void this.flush();
           void flushUploads(this);
         }
@@ -800,7 +842,7 @@ export class App implements RowActions {
             this.notify(incoming);
             for (const change of frame.changes)
               if (change.type === "room_removed") {
-                this.notifications.get(change.data.room_id)?.close();
+                this.closeNote(change.data.room_id);
                 await this.forgetRoom(change.data.room_id);
                 if (!active()) return;
                 if (this.room === change.data.room_id) {
@@ -1193,6 +1235,7 @@ export class App implements RowActions {
     clearTimeout(this.readTimer);
     this.readTimer = undefined;
     this.draftReady = false;
+    this.cancelReduction();
     this.room = id;
     this.composer.value = "";
     this.firstUnread = undefined;
@@ -1821,13 +1864,15 @@ export class App implements RowActions {
         editor === (root ? this.threadComposer : this.composer) &&
         (!root || root === this.root);
     if (this.staged.length) {
+      // A batch already being reduced: a second Enter must not send it twice.
+      if (this.reduction) return;
       const batch = [...this.staged];
       const membership =
         this.model.rooms.get(room)?.read_state?.membership_version;
       const files = this.stagedOriginal
         ? batch
-        : await Promise.all(batch.map(reducedImage));
-      if (!sameComposer()) return;
+        : await this.reduceStaged(batch, room);
+      if (!files || !sameComposer()) return;
       const active = () =>
         current() &&
         membership ===
@@ -2125,30 +2170,36 @@ export class App implements RowActions {
           reply_position: room.read_state?.reply_position || "0",
         },
       );
-      const current = this.model.rooms.get(id!);
-      if (
-        generation === this.generation &&
-        account === this.account?.key &&
-        current &&
-        current.read_state?.membership_version === membership &&
-        state.membership_version === membership
-      ) {
-        if (
-          BigInt(state.revision) >= BigInt(current.read_state?.revision || "0")
-        )
-          current.read_state = state;
-        if (
-          current.read_state?.unread_roots === "0" &&
-          current.read_state.unread_replies === "0"
-        ) {
-          this.notifications.get(id!)?.close();
-          this.notifications.delete(id!);
-        }
-        this.renderRooms();
-        return true;
-      }
+      return this.applyRead(id!, account, generation, membership, state);
     } catch {}
     return false;
+  }
+  /** Keeps a read state the server answered, unless the account, session or membership moved meanwhile. */
+  applyRead(
+    id: string,
+    account: string | undefined,
+    generation: number,
+    membership: string | null | undefined,
+    state: ReadState,
+  ): boolean {
+    const current = this.model.rooms.get(id);
+    if (
+      generation !== this.generation ||
+      account !== this.account?.key ||
+      !current ||
+      current.read_state?.membership_version !== membership ||
+      state.membership_version !== membership
+    )
+      return false;
+    if (BigInt(state.revision) >= BigInt(current.read_state?.revision || "0"))
+      current.read_state = state;
+    if (
+      current.read_state?.unread_roots === "0" &&
+      current.read_state.unread_replies === "0"
+    )
+      this.closeNote(id);
+    this.renderRooms();
+    return true;
   }
   async favorite(room: Room): Promise<void> {
     await this.api.request(
@@ -2542,18 +2593,210 @@ export class App implements RowActions {
       )
         continue;
       if (message.room_id === this.room && this.viewingRoom()) continue;
-      this.notifications.get(room.id)?.close();
-      const note = new Notification(room.name, {
+      void this.showMessageNote(room, message).catch(() => {});
+    }
+  }
+  /** Withdraws a room's notification, and drops one still being prepared. */
+  closeNote(room: string): void {
+    this.noteSequence.set(room, (this.noteSequence.get(room) || 0) + 1);
+    this.notifications.get(room)?.close();
+    this.notifications.delete(room);
+  }
+  async showMessageNote(room: Room, message: Message): Promise<void> {
+    const account = this.account!.key,
+      generation = this.generation,
+      sequence = (this.noteSequence.get(room.id) || 0) + 1;
+    this.noteSequence.set(room.id, sequence);
+    const live = () =>
+      generation === this.generation &&
+      account === this.account?.key &&
+      this.noteSequence.get(room.id) === sequence &&
+      this.model.rooms.has(room.id);
+    // The author's photo and the message's picture, each given 2 s at most
+    // (the desktop's limit): the notification then shows without it.
+    const [worker, icon, image] = await Promise.all([
+      noteWorker(),
+      within(this.notePhoto(message), 2000),
+      within(this.notePicture(message), 2000),
+    ]);
+    if (!live()) return;
+    // The app's sound only where the page may play it: before any click on
+    // the page, autoplay would refuse it, so the system's sound stays.
+    const own =
+      ownSound() &&
+      (navigator as { userActivation?: { hasBeenActive: boolean } })
+        .userActivation?.hasBeenActive !== false;
+    const handle = await showNote(
+      room.name,
+      {
         body: previewText(message),
         tag: "rv:" + room.id,
-      });
-      this.notifications.set(room.id, note);
-      note.onclick = () => {
+        data: {
+          rv: "message",
+          account,
+          room: room.id,
+          message: message.id,
+          position: message.position,
+        },
+        icon,
+        image,
+        silent: own,
+      },
+      worker,
+      worker
+        ? noteActions(maxActions(), worker, {
+            read: t("markRead"),
+            like: t("notifyLike"),
+            reply: t("notifyReply"),
+            placeholder: t("notifyReplyPlaceholder"),
+          })
+        : [],
+      this.notifications.get(room.id),
+      () => {
         window.focus();
-        void this.openRoom(room.id);
-        note.close();
-      };
+        void this.noteClick({
+          type: "rv-notification",
+          action: "open",
+          reply: null,
+          account,
+          room: room.id,
+          message: message.id,
+        }).catch(toast);
+      },
+    );
+    if (!live()) {
+      handle.close();
+      return;
     }
+    this.notifications.set(room.id, handle);
+    if (own) sound("message");
+  }
+  /** The author's photo as a data URL, or undefined (no photo, too slow, refused). */
+  async notePhoto(message: Message): Promise<string | undefined> {
+    let profile = this.profiles.get(message.author.id);
+    if (!profile) {
+      profile = this.api.request<import("./protocol").UserProfile>(
+        "/api/v1/users/" + segment(message.author.id),
+      );
+      this.profiles.set(message.author.id, profile);
+      profile.catch(() => this.profiles.delete(message.author.id));
+    }
+    const file = (await profile).avatar_file_id;
+    if (!file) return undefined;
+    return pictureData(
+      await this.asset("/api/v1/avatars/" + segment(file)),
+      true,
+    );
+  }
+  /** The message's first inline picture (never encrypted, at most 10 MB) as a data URL. */
+  async notePicture(message: Message): Promise<string | undefined> {
+    const file = message.files?.find(
+      (file) => inlineImage(file) && Number(file.bytes) <= PICTURE_MAX_SOURCE,
+    );
+    if (!file) return undefined;
+    return pictureData(
+      await this.asset(
+        "/api/v1/files/" + segment(file.id),
+        file.sha256,
+        file.room_id,
+      ),
+      false,
+    );
+  }
+  /**
+   * A click on a notification or one of its buttons, from `sw.js` or from a
+   * constructed notification. Buttons act in the background with this tab's
+   * session; a click, or a Reply the platform showed as a plain button,
+   * opens the room with the composer focused.
+   */
+  async noteClick(click: NoteClick): Promise<void> {
+    if (!this.account || click.account !== this.account.key) return;
+    if (!this.model.rooms.has(click.room)) return;
+    if (click.action === "read")
+      return this.markRoomRead(click.room, click.message);
+    if (click.action === "like") return this.likeFromNote(click.message);
+    if (click.action === "reply" && click.reply?.trim())
+      return this.replyFromNote(click.room, click.message, click.reply);
+    if (this.room !== click.room) await this.openRoom(click.room);
+    if (this.room === click.room) this.composer.focus();
+  }
+  /** The notified message, from the model or the server. */
+  async noteMessage(id: string): Promise<Message> {
+    return (
+      this.model.messages.get(id) ||
+      (await this.api.request<Message>("/api/v1/messages/" + segment(id)))
+    );
+  }
+  /** "Mark as read" from a notification: the whole room, threads included, up to the newest message known. */
+  async markRoomRead(id: string, messageId: string): Promise<void> {
+    const account = this.account?.key,
+      generation = this.generation,
+      membership = this.model.rooms.get(id)?.read_state?.membership_version;
+    let position = BigInt((await this.noteMessage(messageId)).position);
+    for (const message of this.model.messages.values())
+      if (message.room_id === id && BigInt(message.position) > position)
+        position = BigInt(message.position);
+    const read = this.model.rooms.get(id)?.read_state;
+    const higher = (value: string | undefined) =>
+      String(BigInt(value || "0") > position ? BigInt(value!) : position);
+    const state = await this.api.request<ReadState>(
+      "/api/v1/rooms/" + segment(id) + "/read",
+      "POST",
+      {
+        root_position: higher(read?.root_position),
+        reply_position: higher(read?.reply_position),
+      },
+    );
+    this.applyRead(id, account, generation, membership, state);
+    if (generation === this.generation) this.closeNote(id);
+  }
+  /** The notification's 👍: added, never toggled off. */
+  async likeFromNote(messageId: string): Promise<void> {
+    const message = await this.noteMessage(messageId);
+    const current = this.roomFence(message.room_id);
+    if (!current() || this.model.rooms.get(message.room_id)?.encrypted) return;
+    const receipt = await this.api.request<Message>(
+      "/api/v1/messages/" + segment(message.id) + "/reactions",
+      "PUT",
+      { operation_id: operation(), emoji: canonical(LIKE), present: true },
+    );
+    if (!current()) return;
+    this.model.put(receipt);
+    this.refresh();
+  }
+  /** An inline reply typed in the notification, sent through the outbox (into the thread for a thread message). */
+  async replyFromNote(
+    room: string,
+    messageId: string,
+    text: string,
+  ): Promise<void> {
+    const account = this.account!,
+      message = await this.noteMessage(messageId),
+      current = this.roomFence(room);
+    if (!current() || this.model.rooms.get(room)?.encrypted) return;
+    const id = operation(),
+      payload: import("./protocol").SendMessage = { operation_id: id, text };
+    if (message.reply_to) payload.reply_to = message.reply_to;
+    const pending: Pending = {
+      id,
+      account: account.key,
+      room,
+      payload,
+      membership: this.model.rooms.get(room)?.read_state?.membership_version,
+      created: new Date(
+        (this.pendingCreated = Math.max(Date.now(), this.pendingCreated + 1)),
+      ).toISOString(),
+    };
+    if (
+      !(await writeBatch(
+        [{ store: "outbox", key: account.key + ":" + id, value: pending }],
+        current,
+      ))
+    )
+      return;
+    await this.loadPending();
+    this.channel.postMessage({ outbox: true });
+    await this.flush();
   }
   async answerForm(message: Message): Promise<void> {
     await (await import("./workflow-forms")).answerForm(this, message);
@@ -3110,6 +3353,55 @@ export class App implements RowActions {
     });
     picker.click();
   }
+  /**
+   * The "Reduced" side of the quality choice, at send time as on mobile:
+   * images to JPEG 1920, videos to H.264 720p in a worker, one after the
+   * other with their progress in the strip. Undefined when cancelled (the
+   * strip's Cancel, a removed file, leaving the room): the files stay staged.
+   */
+  async reduceStaged(batch: File[], room: string): Promise<File[] | undefined> {
+    const controller = new AbortController();
+    const reduction = { controller, room, name: "", fraction: 0 };
+    this.reduction = reduction;
+    const current = () => this.reduction === reduction;
+    try {
+      const files: File[] = [];
+      for (const file of batch) {
+        if (controller.signal.aborted) return undefined;
+        if (!videoReducible(file)) {
+          files.push(await reducedImage(file));
+          continue;
+        }
+        reduction.name = file.name;
+        reduction.fraction = 0;
+        this.renderUploads();
+        files.push(
+          await reduceVideo(file, controller.signal, (fraction) => {
+            if (!current()) return;
+            reduction.fraction = fraction;
+            const bar = this.strip.querySelector<HTMLProgressElement>(
+              ".video-reduce progress",
+            );
+            if (bar) bar.value = fraction;
+          }),
+        );
+      }
+      return controller.signal.aborted ? undefined : files;
+    } catch (error) {
+      if (controller.signal.aborted) return undefined;
+      throw error;
+    } finally {
+      if (current()) this.reduction = undefined;
+      this.renderUploads();
+    }
+  }
+  /** Stops a reduction in progress; its files stay staged, nothing is sent. */
+  cancelReduction(): void {
+    const reduction = this.reduction;
+    if (!reduction) return;
+    this.reduction = undefined;
+    reduction.controller.abort();
+  }
   async stage(files: File[]): Promise<void> {
     if (this.model.rooms.get(this.room ?? "")?.encrypted) {
       this.privateChat?.addFiles(files);
@@ -3160,6 +3452,7 @@ export class App implements RowActions {
           url,
           () => this.previewFile(file),
           async () => {
+            this.cancelReduction();
             this.staged = this.staged.filter((item) => item !== file);
             stopMedia(this.stagedWidgets.get(file)!);
             URL.revokeObjectURL(url);
@@ -3184,12 +3477,24 @@ export class App implements RowActions {
       chips.append(chip);
     }
     prepared.append(chips);
-    if (this.staged.some((file) => file.type.startsWith("image/"))) {
+    const images = this.staged.some((file) => file.type.startsWith("image/")),
+      videos = this.staged.some(videoReducible);
+    if (images || videos) {
       const quality = el("label", "staged-quality");
       const original = el("input");
       original.type = "checkbox";
       original.checked = this.stagedOriginal;
-      quality.append(original, document.createTextNode(nt("attach.original")));
+      original.disabled = this.reduction !== undefined;
+      quality.append(
+        original,
+        document.createTextNode(
+          !videos
+            ? nt("attach.original")
+            : images
+              ? t("originalMedia")
+              : t("originalVideos"),
+        ),
+      );
       const account = this.account?.key,
         room = this.room;
       original.addEventListener("change", () => {
@@ -3202,6 +3507,27 @@ export class App implements RowActions {
           ).catch(toast);
       });
       prepared.append(quality);
+    }
+    if (videos && this.videoReduction === undefined)
+      void videoReductionSupported().then((supported) => {
+        this.videoReduction = supported;
+        if (!supported) this.renderUploads();
+      });
+    if (videos && this.videoReduction === false)
+      prepared.append(el("div", "staged-note", t("videoNoReduction")));
+    const reduction = this.reduction;
+    if (reduction && reduction.room === this.room && reduction.name) {
+      const row = el("div", "upload-row video-reduce");
+      const progress = el("progress");
+      progress.max = 1;
+      progress.value = reduction.fraction;
+      progress.setAttribute("aria-label", reduction.name);
+      row.append(
+        el("span", "", t("reducingVideo").replace("{name}", reduction.name)),
+        progress,
+        button(t("cancel"), () => this.cancelReduction()),
+      );
+      prepared.append(row);
     }
     if (this.staged.length) this.strip.append(prepared);
     for (const job of this.jobs.filter((job) => job.room === this.room)) {

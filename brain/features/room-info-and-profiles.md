@@ -28,9 +28,13 @@ Three read-on-demand views and one editor: a room's information sheet, a person'
 - **Room info** (`rv-gtk/src/details.rs::room_info`): an `adw::Dialog` from the room title (tooltip `info.room`). For a DM, `show_room_info` opens the partner's profile by id instead. Facts line: public/private, members, read-only, encrypted, archived, default; then topic, announcement and description as markdown sections, or "nothing to show". Parsed by `rv-core/src/info.rs::room_info`.
 - **Profile** (`details.rs::profile`): by username or by id. Avatar, name, `@username`, presence (live presence from the session first, then `users.info`'s) with status text, role chips, local time (`info::local_time`), bio. Message and Call buttons for anyone but me (`ProfileActions`), and below them **Report this user** (Rocket.Chat always, RocketVibe when `reports_supported`), which closes the profile and asks the reason in `admin::report` ([administration.md](administration.md)). Opened from avatars and names (`RowEvent::Profile`), mentions, and DM headers.
 - **Invite link** (Rocket.Chat, a channel or group, when my global and room roles grant `create-invite-links`, `Session::permissions`): an "Invite link" group in the room information dialog; `Session::invite_link` (`rocketchat::actions::find_or_create_invite`, 7 days, unlimited uses) builds `<Site_Url>/invite/<id>`, never the server's `url` field, copies it and shows a toast. SwiftUI: `InviteSection` (`Discussions.swift`) in `RoomInfoView`.
+- **Members** (Rocket.Chat, a channel or group, `Session::members_available`): an "N members" row (`system-users-symbolic`) in the room information dialog opens `rv-gtk/src/details/members.rs`, an `adw::Dialog` over it, read from the server and never stored: `Session::room_members` (`rocketchat::actions::members`, `rooms.membersOrderedByRole`, 50 a page, owners then moderators first), a `gtk::SearchEntry` whose server-side search waits `members::SEARCH_DELAY_MS` (300 ms) and drops an older search's late page (a generation counter), the next page when the scroll reaches the bottom, the list's end when a page brings nothing new (`rv-core/src/members.rs::MemberList`). A row: photo with the presence dot (live presence first, else the answer's `status`), name, `@username`, room role chips (owner, moderator, leader, `Member::role_keys`); activating it opens the profile dialog. A DM has none.
+- **Role actions**: someone else's row carries a menu button (`view-more-horizontal-symbolic`), also opened by a right click: make or remove moderator, make or remove owner, remove from the room, each only when my global and room roles grant `set-moderator`, `set-owner`, `remove-user` (`Session::member_rights`, over `Session::permissions`; `members::member_actions`). `Session::set_member_role` / `remove_member` take `channels.*` or `groups.*` by the stored room kind (no `rooms.*` route); the routes are not idempotent, so `members::already_done` takes `error-user-already-moderator`/`-owner`, `error-user-not-owner` and `error-user-not-in-room` as done, while `error-remove-last-owner` gets its own sentence (`members::error_key`), shown in a toast. Removal is confirmed by an `adw::AlertDialog`. On success the row is rebuilt (or dropped, the count lowered): the list is not live.
+- **Room settings** (Rocket.Chat, with `edit-room`, `Session::can_edit_room`): "Edit topic, description, announcement" opens `details/room_settings.rs`: three text fields and a **Read-only** switch; Save (sensitive only once something moved) sends only what changed (`members::settings_changes`: `roomTopic`, `roomDescription`, `roomAnnouncement`, `readOnly`; an empty text clears it) through `Session::save_room_settings` (`rooms.saveRoomSettings`), then the information dialog reads `rooms.info` again (facts, texts and member count). A moderator without `set-readonly` may set `readOnly` (probed on 8.5.1, 2026-10-11), so `edit-room` alone gates the switch. Renaming is left out on purpose. Read-only rooms keep the composers of those whose roles grant `post-readonly` ([composer](composer.md)).
+- **RocketVibe** rooms have their own roster, role selector and settings form (`details/native_rooms.rs`, SwiftUI `NativeRoomControls.swift`), over the native room commands, not these.
 - **Favourite**: toggled from the room list's context menu (`chat.rs`, `actions::favorite`), not from the info dialog.
 - **My profile** (`rv-gtk/src/settings.rs`): the My account category shows a profile card, a status group (presence combo and a status text entry, saved on change through `Session` with both fields) and an "Edit profile" subpage: photo change (file dialog, `users.setAvatar`) or removal (`users.resetAvatar`), name, username, email, bio, with the current password and 2FA code rows revealed only when needed (`rv-core/src/account.rs`: `basic_info_changes`, `needs_password`; `two_factor_code`).
-- **SwiftUI**: `RoomInfoView` and `ProfileView` in `macos/Sources/RocketVibe/Details.swift`; `MyProfileSection` in `SettingsView.swift` (My account category) edits photo, presence and the basic fields. `ProfileView` offers **Report this user** (not mine, when reports are supported): the profile closes and `ReportSheet` opens in its place, a modal overlay of the window (`modalOverlay`, `Modals.swift`) like the profile itself, which a click outside or Escape closes. A deleted RocketVibe account's profile reads "Deleted user" with no `@username`, presence or buttons.
+- **SwiftUI**: `RoomInfoView` and `ProfileView` in `macos/Sources/RocketVibe/Details.swift`; `MyProfileSection` in `SettingsView.swift` (My account category) edits photo, presence and the basic fields. `MembersSection` (`Members.swift`) in `RoomInfoView` holds "N members", which opens `MembersView` (a `modalOverlay` sheet: search field with the same 300 ms pause, a `List` paged on the last row's appearance, rows opening `ProfileView`, a `Menu` and a context menu of rv-core's `member_actions`, removal behind a `confirmOverlay`), and with `edit-room` `RoomSettingsEditor` (a card overlay with the three texts and the read-only toggle, Save disabled until something changed). The paging, the rights, the menu and the refusals' wording come from rv-ffi `room_members.rs` (`Chat::members`, `member_rights`, `member_actions`, `run_member_action`, `save_room_settings`, which carry the list and answer catalog keys). `ProfileView` offers **Report this user** (not mine, when reports are supported): the profile closes and `ReportSheet` opens in its place, a modal overlay of the window (`modalOverlay`, `Modals.swift`) like the profile itself, which a click outside or Escape closes. A deleted RocketVibe account's profile reads "Deleted user" with no `@username`, presence or buttons.
 
 ## Web
 
@@ -40,7 +44,7 @@ Live profile revisions reload the open card. A valid, complete live observation 
 
 ## Parity
 
-Room info, profile with Message and Call, my profile with password and 2FA, live avatar changes: both apps ([parity](../parity.md) §8). Differences: mobile toggles the favourite from room info, desktop from the room list; mobile prefetches the profile so the sheet never jumps. Report this user is in all three apps. Mobile lists a room's members, changes their roles and edits the room's texts (Rocket.Chat); the desktop does none of these on Rocket.Chat.
+Room info, profile with Message and Call, my profile with password and 2FA, live avatar changes: both apps ([parity](../parity.md) §8). Differences: mobile toggles the favourite from room info, desktop from the room list; mobile prefetches the profile so the sheet never jumps. Report this user is in all three apps. All three native apps list a Rocket.Chat room's members, change their roles and edit the room's texts; the desktop also has the read-only switch. Mattermost and kChat have none of it yet, on any app.
 
 ## Quick activity change
 
@@ -68,10 +72,20 @@ The bottom avatar opens the four activity choices on GTK, SwiftUI, mobile and we
 - apps/mobile/ui/markdown.tsx
 - apps/mobile/ui/openingIndicator.tsx
 - apps/desktop/crates/rv-core/src/info.rs
+- apps/desktop/crates/rv-core/src/members.rs
+- apps/desktop/crates/rv-core/src/rocketchat/actions.rs
+- apps/desktop/crates/rv-core/tests/members.rs
 - apps/desktop/crates/rv-core/src/account.rs
 - apps/desktop/crates/rv-core/src/actions.rs
 - apps/desktop/crates/rv-core/src/session.rs
 - apps/desktop/crates/rv-gtk/src/details.rs
+- apps/desktop/crates/rv-gtk/src/details/members.rs
+- apps/desktop/crates/rv-gtk/src/details/room_settings.rs
+- apps/desktop/crates/rv-gtk/src/details/native_rooms.rs
+- apps/desktop/crates/rv-gtk/src/smoke/rocket_chat.rs
+- apps/desktop/crates/rv-ffi/src/room_members.rs
+- apps/desktop/macos/Sources/RocketVibe/Members.swift
+- apps/desktop/macos/Sources/RocketVibe/NativeRoomControls.swift
 - apps/desktop/crates/rv-gtk/src/settings.rs
 - apps/desktop/crates/rv-gtk/src/chat.rs
 - apps/desktop/crates/rv-gtk/src/admin.rs

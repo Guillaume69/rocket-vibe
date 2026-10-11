@@ -32,7 +32,7 @@ Replies are ordinary message rows with a thread column (mobile `messages.thread_
 
 ## Desktop (GTK)
 
-- `ThreadPage` (`rv-gtk/src/thread.rs`) is pushed onto the room's navigation view, a message list over `Store::thread_messages` with its own composer (hidden in a read-only room). Opening the thread already open does nothing.
+- `ThreadPage` (`rv-gtk/src/thread.rs`) is pushed onto the room's navigation view, a message list over `Store::thread_messages` with its own composer (hidden in a read-only room, unless my roles grant `post-readonly` on Rocket.Chat, see [composer](composer.md); SwiftUI's `ThreadView` follows the same rule). Opening the thread already open does nothing.
 - `Session::load_thread` fetches the root and the pages exactly as mobile does; replies arrive live through the store.
 - The composer is bound with the root (`Composer::bind(rid, Some(root))`): draft key `rid:tmid`, commands and replies sent with `tmid` through `send_or_run`, Up edits my last message in the thread, a slash command's private answer for this room shows in the thread's composer. Its attach, drop, paste and microphone go through `ChatPage::wire_thread_files`: files and voice messages answer the thread (`Session::attach_in`, `NativeSession::attach_file_in`, or the thread's private `Access` in an encrypted room); the room's upload strip shows them.
 - The root's chip in the room opens the thread (`RowEvent::OpenThread`); a search hit that is a reply opens its thread (`details::search`).

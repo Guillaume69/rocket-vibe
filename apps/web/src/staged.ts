@@ -17,7 +17,13 @@ export function stagedChip(
     image.alt = "";
     thumb.append(image);
   } else {
-    const symbol = icon(audio ? "audio-file" : "text-file");
+    const symbol = icon(
+      audio
+        ? "audio-file"
+        : file.type.startsWith("video/")
+          ? "video"
+          : "text-file",
+    );
     symbol.classList.add("staged-icon");
     thumb.append(symbol);
   }

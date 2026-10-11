@@ -15,6 +15,7 @@ All notable changes are documented here in English.
 - Signing out while the server cannot be reached still signs out of this browser, and now tells the server later: the session is closed on the server at the next start or as soon as the browser is back online.
 - The browser keeps at most the 500 newest messages per room, trimmed once per session after catching up, as the desktop and mobile apps do; older ones come back when scrolling up.
 - Richer message notifications: the author's photo, the message's picture (Chromium), and Mark as read and Like buttons that act without opening the tab. A reply field appears where the browser allows a third button; otherwise a click opens the room with the composer ready. Notifications play the app's own sound, and Settings > Notifications has a "rocket-vibe sound" switch to get the system's sound back.
+- Videos are reduced before sending, like on the phone: H.264 MP4 at 720p and 2 Mbps, the sound kept, with a progress bar and Cancel above the composer. "Original quality" now covers videos too. A browser that cannot encode H.264 sends the original and says so before you send.
 
 ## [0.4.0] - 2026-10-11
 

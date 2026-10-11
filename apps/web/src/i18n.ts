@@ -196,6 +196,16 @@ const phrases = {
     "A little sparkle instead of the system's sound",
     "Un petit scintillement à la place du son du système",
   ],
+  originalVideos: ["Videos in original quality", "Vidéos en qualité d’origine"],
+  originalMedia: [
+    "Images and videos in original quality",
+    "Images et vidéos en qualité d’origine",
+  ],
+  videoNoReduction: [
+    "This browser cannot reduce videos: they will be sent in original quality.",
+    "Ce navigateur ne sait pas réduire les vidéos : elles partiront en qualité d’origine.",
+  ],
+  reducingVideo: ["Reducing {name}", "Réduction de {name}"],
   today: ["Today", "Aujourd’hui"],
   yesterday: ["Yesterday", "Hier"],
   newMessages: ["New messages", "Nouveaux messages"],

@@ -62,11 +62,11 @@ Desktop: the file chooser, drag-and-drop on the page and paste (files, or a pict
 
 ## Parity
 
-Both apps: outbox send with retry, drafts per room and thread, `@`/`:` completion, picker, quote reply, attachments with captions and quality, voice, slash commands. Formatting toolbar: GTK and mobile; live styling: GTK only. Desktop only: spell check, Up-to-edit. List continuation: all three (SwiftUI on Shift+Return through rv-ffi's `list_break`). Mobile only: video reduction. All clients can replay a staged voice message before sending.
+Both apps: outbox send with retry, drafts per room and thread, `@`/`:` completion, picker, quote reply, attachments with captions and quality, voice, slash commands. Formatting toolbar: GTK and mobile; live styling: GTK only. Desktop only: spell check, Up-to-edit. List continuation: all three (SwiftUI on Shift+Return through rv-ffi's `list_break`). Video reduction: mobile and web (where the browser encodes H.264), not the desktop. All clients can replay a staged voice message before sending.
 
 ## Web
 
-The native serving-origin client uses the GTK toolbar/draft styling with a real DOM editor and ordinary native-protocol room/thread outboxes. Prepared files have GTK's 40-pixel thumbnail, name/type/size, remove and inline sound replay. Image preview opens the full-size viewer without invented caption or per-image size controls. The Original-quality checkbox is parked per room, defaults to reduction and applies JPEG 1920/82 when the batch leaves; [uploads](uploads.md) describes its atomic queue handoff, ordering and first-file caption. The native recording bar supplies elapsed time, Cancel and stop-to-listen; [voice messages](voice-messages.md) describes capture and replay. Browser tests qualify these flows on actual files.
+The native serving-origin client uses the GTK toolbar/draft styling with a real DOM editor and ordinary native-protocol room/thread outboxes. Prepared files have GTK's 40-pixel thumbnail, name/type/size, remove and inline sound replay. Image preview opens the full-size viewer without invented caption or per-image size controls. The Original-quality checkbox is parked per room, defaults to reduction and applies JPEG 1920/82 and, for videos, H.264 720p with a progress row and Cancel when the batch leaves (its label names videos when some are staged; a browser without an H.264 encoder is told its videos go out as they are); [uploads](uploads.md) describes its atomic queue handoff, ordering and first-file caption. The native recording bar supplies elapsed time, Cancel and stop-to-listen; [voice messages](voice-messages.md) describes capture and replay. Browser tests qualify these flows on actual files.
 
 ## Sources
 
@@ -77,7 +77,9 @@ The native serving-origin client uses the GTK toolbar/draft styling with a real 
 - apps/web/src/app.ts
 - apps/web/src/staged.ts
 - apps/web/src/uploads.ts
+- apps/web/src/video-reduce.ts
 - apps/web/tests/images.mjs
+- apps/web/tests/video-reduce.mjs
 - apps/web/tests/features.mjs
 
 - apps/mobile/ui/composer.tsx

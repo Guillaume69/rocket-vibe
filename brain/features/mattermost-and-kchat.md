@@ -59,6 +59,8 @@ Rocket.Chat call fails cleanly instead of hitting the wrong server.
   is `POST /users/logout` on Mattermost, nothing on kChat (the token is the
   account's).
 
+Mobile session exit removes media bearers, username mappings and session-owned protected copies, with late download fencing (`lib/mediaAuth.ts`, `lib/authorizedMediaCache.ts`). Infomaniak's official mobile app calls `POST /users/logout` with a device id on all stored teams; that is not evidence that the account-wide OAuth token is revoked. Automatic token revocation remains unqualified. Personal tokens can be revoked in Infomaniak Manager. See `docs/MATTERMOST.md` section 3.4.
+
 ### Real time
 
 - Mattermost: `MmSocket` on `/api/v4/websocket` (`providers/mattermost/socket.ts`),

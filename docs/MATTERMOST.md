@@ -123,6 +123,10 @@ Stored per server: base URL, token, user id, username, kind (`mattermost` or
 best effort `POST /users/logout` on Mattermost and nothing on kChat (the token is
 the Infomaniak account's).
 
+Logout qualification (2026-10-11): the [official mobile session code](https://github.com/Infomaniak/mobile-kchat/blob/master/app/actions/remote/session.ts) loops over all stored server credentials, and its [REST client](https://github.com/Infomaniak/mobile-kchat/blob/master/app/client/rest/users.ts) posts `{device_id}` to `/users/logout`. No authenticated probe here establishes whether that invalidates the account-wide OAuth token; do not equate this device logout with OAuth revocation or revoke a pasted personal token as a side effect of leaving one team. Infomaniak documents [manual token revocation in Manager](https://www.infomaniak.com/en/support/faq/2582/add-and-manage-infomaniak-api-tokens). Automatic revocation of an app-issued OAuth token remains open until its route, ownership and effect across teams are qualified.
+
+Mobile local cleanup is complete: leaving a session removes its in-memory media bearer and username mappings, deletes its session-owned protected copies, and prevents in-flight downloads from publishing bytes after exit. First use purges unowned legacy protected caches. Explicit gallery/Downloads exports are retained.
+
 ## 4. Reading
 
 ### 4.1 Rooms and memberships

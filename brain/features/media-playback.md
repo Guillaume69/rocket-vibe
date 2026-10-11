@@ -13,6 +13,8 @@ How images, video and audio attachments, and YouTube, Dailymotion and Vimeo link
 
 ## Mobile
 
+**Mattermost and kChat copies.** `lib/mediaAuth.ts` registers an account/token lease per origin. `ui/authorizedMedia.ts` uses native SHA-256 account and full-URL keys under a unique live-session directory, shared by `ui/authorizedImage.ts` and attachment exports. Only a current lease can download, publish or reuse bytes. Session cleanup removes its bearer and username map synchronously, deletes its directory and fences late downloads and renames. A stale cleanup cannot revoke a replacement account. First use removes the old unowned `authorized-media/` and `jointes/` caches and copies left by earlier processes. Files explicitly saved to Downloads or the gallery remain user-owned.
+
 - **Images.** `AttachedImage` in `ui/messageRow.tsx`. A tap opens `ui/imageViewer.tsx`, a full-screen viewer in a native `Modal` with its own `GestureHandlerRootView` (a `Modal` is a separate native window the root gesture handler does not cover): pinch to zoom, pan once zoomed, double tap to zoom in or out, swipe down to close, and a save button (`saveInBackground` in `ui/attachmentActions.ts`). The protected URL is kept in context state and **never passed as an expo-router route parameter**, which would put a secret in a serialisable URL. Animated GIFs play through Fresco's animated-GIF support.
 - **Video attachments.** `ui/videoPlayer.tsx` (`expo-video`). The message shows a themed card (aurora banner, play button, download progress overlay `TransferBar`); a tap opens a full-screen `Modal` with native controls. The player is created only when the modal mounts and released when it closes: `useVideoPlayer` is a costly native instance and a room can hold several videos. Video attachments must be tested before the generic file branch, since they also carry `title_link`.
 - **Audio attachments and voice messages.** `ui/audioPlayer.tsx` (`expo-audio`) plays in place: play/pause, a tappable progress bar and a "rainbow comet" visualiser fed by `useAudioSampleListener`, a Hann-windowed FFT over log-spaced bands with high-band lift, automatic gain and per-bar smoothing. On Android the sample tap needs `RECORD_AUDIO` (already granted for recording); without it playback still works with idle bars. The player exists only once "play" is pressed (`ActiveAudioPlayer`): created per visible message, it buffered every voice note on screen (about 20 MB for twenty notes heard zero seconds). One player at a time, coordinated at module level. See [voice-messages.md](voice-messages.md).
@@ -47,6 +49,11 @@ OS clipboard permission integration and external-provider streaming remain separ
 [parity](../parity.md) §3 marks images, video, audio and video-site cards done on both. The one designed difference is the video-site card: played inline on desktop, opened externally on mobile. Desktop's web engine therefore serves two uses, calls and these video cards (ROADMAP section 4.2).
 
 ## Sources
+
+- apps/mobile/lib/mediaAuth.ts
+- apps/mobile/lib/authorizedMediaCache.ts
+- apps/mobile/lib/authorizedMediaCache.test.ts
+- apps/mobile/ui/authorizedMedia.ts
 
 - apps/desktop/macos/Tests/RocketVibeKitTests/MediaFileCacheTests.swift
 - apps/desktop/crates/rv-core/src/session.rs

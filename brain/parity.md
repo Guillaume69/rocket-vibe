@@ -339,6 +339,8 @@ beta does.
 
 ## Open debt
 
+Mattermost/kChat protected-copy isolation and logout cleanup are implemented on mobile, GTK and SwiftUI. Automatic revocation of kChat's account-wide Infomaniak OAuth token remains unqualified on all three; local sign-out does not claim that token is invalidated.
+
 What each app owes, from the tables above. Rows missing in all three native apps
 are product gaps, listed last.
 

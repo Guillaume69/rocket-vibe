@@ -10,7 +10,7 @@
  * and expo-notifications.
  */
 
-import { databaseFileName } from '../db/fileName.ts';
+import { databaseFileName, databaseIdentity } from '../db/fileName.ts';
 
 /** One reminder of the account, as stored (`db/schema.ts#reminders`). */
 export type Reminder = {
@@ -128,7 +128,7 @@ export function hasAttachments(attachments: string | null): boolean {
 // ---------------------------------------------------------------------------
 // The notification: identifier, content, route
 
-/** An account's key in notification identifiers: the database file's (server, account) slug, never a ':'. */
+/** An account's key in notification identifiers: the database identity digest, never a ':'. */
 export function reminderAccountKey(baseUrl: string, userId: string): string {
   return databaseFileName(baseUrl, userId).replace(/^rocket-vibe-/, '').replace(/\.db$/, '');
 }
@@ -245,6 +245,12 @@ export interface ReminderRows {
 /** A reminder notification the system still holds. */
 export type PendingReminder = { identifier: string; dueAt: number | null; baseUrl: string | null; userId: string | null };
 
+/** Payload ownership stays verifiable when the database/notification key upgrades. */
+export function reminderBelongsTo(pending: Pick<PendingReminder, 'baseUrl' | 'userId'>, account: { baseUrl: string; userId: string }): boolean {
+  return pending.baseUrl !== null && pending.userId !== null &&
+    databaseIdentity(pending.baseUrl, pending.userId) === databaseIdentity(account.baseUrl, account.userId);
+}
+
 /** The system's notifications, as reconciliation needs them. */
 export interface ReminderNotifier {
   /** Every scheduled notification whose identifier is a reminder's, any account. */
@@ -287,6 +293,7 @@ export function planReconcile(input: {
   rows: readonly Reminder[];
   pending: readonly PendingReminder[];
   accountKey: string;
+  account?: { baseUrl: string; userId: string };
   now: number;
   accountGone: (pending: PendingReminder) => boolean;
 }): ReconcilePlan {
@@ -296,17 +303,19 @@ export function planReconcile(input: {
   for (const row of input.rows) {
     const identifier = reminderIdentifier(input.accountKey, row.messageId);
     known.add(identifier);
-    const pending = held.get(identifier);
+    const pending = held.get(identifier) ?? (input.account && input.pending.find(p =>
+      reminderBelongsTo(p, input.account!) && parseReminderIdentifier(p.identifier)?.messageId === row.messageId));
+    if (pending !== undefined) known.add(pending.identifier);
     if (row.dueAt > input.now) {
-      if (pending !== undefined && pending.dueAt === row.dueAt) {
+      if (pending !== undefined && pending.dueAt === row.dueAt && pending.identifier === identifier) {
         if (!row.scheduled) plan.mark.push(row);
       } else {
-        if (pending !== undefined) plan.cancel.push(identifier);
+        if (pending !== undefined) plan.cancel.push(pending.identifier);
         plan.schedule.push(row);
       }
       continue;
     }
-    if (pending !== undefined) plan.cancel.push(identifier);
+    if (pending !== undefined) plan.cancel.push(pending.identifier);
     else if (row.scheduled) {
       plan.remove.push(row);
       continue;
@@ -318,7 +327,7 @@ export function planReconcile(input: {
     if (known.has(pending.identifier)) continue;
     const parsed = parseReminderIdentifier(pending.identifier);
     if (parsed === null) continue;
-    if (parsed.accountKey === input.accountKey || input.accountGone(pending)) plan.cancel.push(pending.identifier);
+    if (parsed.accountKey === input.accountKey || (input.account && reminderBelongsTo(pending, input.account)) || input.accountGone(pending)) plan.cancel.push(pending.identifier);
   }
   return plan;
 }
@@ -334,6 +343,7 @@ export async function reconcileReminders(input: {
   rows: ReminderRows;
   notifier: ReminderNotifier;
   accountKey: string;
+  account?: { baseUrl: string; userId: string };
   now: number;
   accountGone: (pending: PendingReminder) => boolean | Promise<boolean>;
   content: (reminder: Reminder) => ReminderContent | null;
@@ -344,7 +354,7 @@ export async function reconcileReminders(input: {
     const parsed = parseReminderIdentifier(p.identifier);
     if (parsed !== null && parsed.accountKey !== input.accountKey && (await input.accountGone(p))) gone.add(p.identifier);
   }
-  const plan = planReconcile({ rows, pending, accountKey: input.accountKey, now: input.now, accountGone: (p) => gone.has(p.identifier) });
+  const plan = planReconcile({ rows, pending, accountKey: input.accountKey, account: input.account, now: input.now, accountGone: (p) => gone.has(p.identifier) });
   const quietly = (work: Promise<unknown>) => work.then(() => true, () => false);
   for (const identifier of plan.cancel) await quietly(input.notifier.cancel(identifier));
   for (const row of plan.mark) await quietly(input.rows.markScheduled(row.messageId, row.dueAt));

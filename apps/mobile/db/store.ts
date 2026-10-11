@@ -384,10 +384,11 @@ export function createOutboxStore(raw: SQLiteDatabase, serially: WriteQueue): Ou
   // during an open batch, they would join its transaction, and a rollback of
   // the batch would then take away the message the user just sent.
   return {
-    insertOutbox(id, rid, text, threadId, shown = false) {
-      return serially(() =>
-        raw.runAsync(INSERT_OUTBOX, [id, rid, text, threadId, shown ? 1 : 0, Date.now()]).then(() => {}),
-      );
+    enqueueMessage(m) {
+      return serially(() => raw.withTransactionAsync(async () => {
+        await raw.runAsync(UPSERT_MESSAGE, messageParams(m));
+        await raw.runAsync(INSERT_OUTBOX, [m.id, m.rid, m.text, m.threadId, m.threadShown ? 1 : 0, m.ts]);
+      }));
     },
     async listToSend(): Promise<OutboxRow[]> {
       const rows = await raw.getAllAsync<RawOutbox>(LIST_OUTBOX_TO_SEND);

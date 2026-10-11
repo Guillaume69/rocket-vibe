@@ -3,6 +3,7 @@ use rv_core::{
     native::{Identity, NativeSession, store::NativeStore},
     session::{Connection, SessionInfo},
 };
+use sha2::{Digest, Sha256};
 use std::{
     sync::{
         Mutex,

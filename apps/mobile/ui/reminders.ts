@@ -33,6 +33,7 @@ import {
   plainReminderLink,
   reconcileReminders,
   reminderAccountKey,
+  reminderBelongsTo,
   reminderContent,
   reminderIdentifier,
   reminderPayload,
@@ -164,6 +165,7 @@ function reconcile(mounted: Mounted): Promise<unknown> {
       rows: mounted.store,
       notifier,
       accountKey: mounted.key,
+      account: mounted.session,
       now: Date.now(),
       accountGone,
       content: (reminder) => contentFor(mounted, reminder),
@@ -353,13 +355,16 @@ export function reminderShown(payload: ReminderPayload): void {
  */
 export async function forgetReminders(session: Pick<Session, 'baseUrl' | 'userId'>): Promise<void> {
   const key = reminderAccountKey(session.baseUrl, session.userId);
-  const ours = (identifier: string) => parseReminderIdentifier(identifier)?.accountKey === key;
+  const ours = (identifier: string, data: unknown) => {
+    const payload = reminderPayload(data);
+    return payload !== null ? reminderBelongsTo(payload, session) : parseReminderIdentifier(identifier)?.accountKey === key;
+  };
   await Promise.all([
     Notifications.getAllScheduledNotificationsAsync()
-      .then((all) => Promise.all(all.filter((n) => ours(n.identifier)).map((n) => Notifications.cancelScheduledNotificationAsync(n.identifier))))
+      .then((all) => Promise.all(all.filter((n) => ours(n.identifier, n.content.data)).map((n) => Notifications.cancelScheduledNotificationAsync(n.identifier))))
       .catch(() => {}),
     Notifications.getPresentedNotificationsAsync()
-      .then((shown) => Promise.all(shown.filter((n) => ours(n.request.identifier)).map((n) => Notifications.dismissNotificationAsync(n.request.identifier))))
+      .then((shown) => Promise.all(shown.filter((n) => ours(n.request.identifier, n.request.content.data)).map((n) => Notifications.dismissNotificationAsync(n.request.identifier))))
       .catch(() => {}),
     (async () => {
       if (current?.key === key) {
@@ -368,8 +373,8 @@ export async function forgetReminders(session: Pick<Session, 'baseUrl' | 'userId
       }
       // Usually already unmounted (the session left the screen first): the
       // connection is still cached, opening it again is free.
-      const { raw, writeQueue } = openDatabase(session.baseUrl, session.userId);
       await migrateDatabase(session.baseUrl, session.userId);
+      const { raw, writeQueue } = openDatabase(session.baseUrl, session.userId);
       await createReminderStore(raw, writeQueue).clear();
     })().catch(() => {}),
   ]);

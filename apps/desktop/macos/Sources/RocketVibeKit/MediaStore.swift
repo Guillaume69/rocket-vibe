@@ -10,6 +10,8 @@ public final class MediaStore {
     var generation=0
     var done: [String: MediaData] = [:]
     var coming: [String: Task<MediaData?, Never>] = [:]
+    private let localFiles = MediaFileCache()
+    private var closed = false
 
     init(chat: Chat) {
         self.chat = chat
@@ -25,6 +27,7 @@ public final class MediaStore {
     public func scope(_ path:String)->String?{path.hasPrefix("rv-preview:") ? native?.previewScope(path:path) : nil}
 
     public func load(_ path: String) async -> MediaData? {
+        guard !closed else { return nil }
         let authority=scope(path)
         guard current(path) else{return nil}
         if let hit = done[path], native == nil || (!path.hasPrefix("rv-file:") && !path.hasPrefix("rv-emoji:") && !path.hasPrefix("rv-preview:")) { return hit }
@@ -61,6 +64,12 @@ public final class MediaStore {
         generation+=1
         done.removeAll()
         for task in coming.values{task.cancel()};coming.removeAll()
+        localFiles.clear()
+    }
+
+    func close() {
+        closed = true
+        forget()
     }
 
     public func avatar(user: String) -> String {
@@ -77,9 +86,37 @@ public final class MediaStore {
         else{throw RvError.Local(message:"unsupported_feature")}
     }
     public func localCopy(_ path:String,name:String) async throws -> URL {
+        guard !closed else { throw RvError.Local(message:"session_closed") }
         if let native{return URL(fileURLWithPath:try await native.localFile(path:path))}
-        let local=FileManager.default.temporaryDirectory.appendingPathComponent("rv-\(abs(path.hashValue))-\(name)")
-        if !FileManager.default.fileExists(atPath:local.path){try await download(path,to:local.path)}
-        return local
+        let version = generation
+        if let cached = localFiles.cached(path) { return cached }
+        guard let media = await load(path), !closed, generation == version else {
+            throw RvError.Local(message:"session_closed")
+        }
+        return try localFiles.save(path, name: name, bytes: Data(media.bytes))
     }
+}
+
+/// A unique directory belongs to one MediaStore lifetime. Unscoped legacy
+/// temporary files are never adopted by another sign-in.
+final class MediaFileCache {
+    private let directory = FileManager.default.temporaryDirectory.appendingPathComponent("rv-media-\(UUID().uuidString)", isDirectory: true)
+    private var files: [String: URL] = [:]
+    func cached(_ path: String) -> URL? {
+        guard let file = files[path], FileManager.default.fileExists(atPath: file.path) else { return nil }
+        return file
+    }
+    func save(_ path: String, name: String, bytes: Data) throws -> URL {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let safe = String(name.map { "/\\\0".contains($0) ? "_" : $0 }.suffix(64))
+        let file = directory.appendingPathComponent("\(UUID().uuidString)-\(safe)")
+        try bytes.write(to: file, options: .atomic)
+        files[path] = file
+        return file
+    }
+    func clear() {
+        files.removeAll()
+        try? FileManager.default.removeItem(at: directory)
+    }
+    deinit { try? FileManager.default.removeItem(at: directory) }
 }

@@ -16,6 +16,7 @@ import { openDatabase } from './client.ts';
 // and the `sql` extension added to Metro's `sourceExts`.
 import migrations from './migrations/migrations.js';
 import { databaseFileName } from './fileName.ts';
+import { prepareDatabase } from './legacyDatabase.ts';
 
 /**
  * The server offered by default on the login screen, and the one whose
@@ -37,6 +38,7 @@ export function migrateDatabase(baseUrl: string, userId?: string): Promise<void>
   if (existing !== undefined) return existing;
 
   const promise = (async () => {
+    await prepareDatabase(baseUrl, userId);
     await migrate(openDatabase(baseUrl, userId).base, migrations);
   })();
   inProgress.set(name, promise);

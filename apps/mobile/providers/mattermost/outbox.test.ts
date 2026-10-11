@@ -11,7 +11,10 @@ function outboxStore() {
   const rows = new Map<string, OutboxRow>();
   const messages = new Map<string, LocalMessage>();
   const store: OutboxStore = {
-    insertOutbox: async (id, rid, text, threadId) => void rows.set(id, { id, rid, text, threadId, status: 'pending', attempts: 0, createdAt: Date.now() }),
+    enqueueMessage: async (m) => {
+      rows.set(m.id, { id: m.id, rid: m.rid, text: m.text, threadId: m.threadId, status: 'pending', attempts: 0, createdAt: m.ts });
+      messages.set(m.id, m);
+    },
     listToSend: async () => [...rows.values()].filter((r) => r.status === 'pending'),
     markFailed: async (id) => {
       const row = rows.get(id);
@@ -74,10 +77,10 @@ describe('MmOutbox', () => {
     assert.equal(local.messages.has('local1'), true);
   });
 
-  test('a refusal is checked against the room: a post of mine with the same text means delivered', async () => {
+  test('a refusal is checked against the durable operation marker', async () => {
     const { outbox, ingested, rows } = setup((call) => {
       if (call.method === 'POST') return { status: 500, body: { id: 'app.post.save.app_error', message: 'boom' } };
-      return { body: postList([post('real1', { user_id: 'u-me', message: 'hi', create_at: Date.now() })]) };
+      return { body: postList([post('real1', { user_id: 'u-me', message: 'hi', create_at: Date.now(), props: { rocket_vibe_client_id: 'local1' } })]) };
     });
     await outbox.send('ch1', 'hi');
     assert.equal(ingested[0]?.id, 'real1');
@@ -102,7 +105,7 @@ describe('MmOutbox replays', () => {
         created = true;
         return { status: 201, body: post('real1', { user_id: 'u-me', message: 'hi', create_at: Date.now() }) };
       }
-      return { body: postList(created ? [post('real1', { user_id: 'u-me', message: 'hi', create_at: Date.now() })] : []) };
+      return { body: postList(created ? [post('real1', { user_id: 'u-me', message: 'hi', create_at: Date.now(), props: { rocket_vibe_client_id: 'local1' } })] : []) };
     });
     // The server saved the post, the answer never came back.
     const lossy = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -146,7 +149,7 @@ describe('MmOutbox while the first POST is being saved', () => {
     let saved = false;
     const server = fakeServer((call) => {
       if (call.method === 'POST') return { status: 500, body: { id: 'api.post.deduplicate_create_post.pending', message: 'pending' } };
-      return { body: postList(saved ? [post('real1', { user_id: 'u-me', message: 'hi', create_at: Date.now() })] : []) };
+      return { body: postList(saved ? [post('real1', { user_id: 'u-me', message: 'hi', create_at: Date.now(), props: { rocket_vibe_client_id: 'local1' } })] : []) };
     });
     const local = outboxStore();
     const ingested: Record<string, unknown>[] = [];
@@ -181,4 +184,39 @@ describe('MmOutbox after a refusal', () => {
     assert.equal(ingested.length, 0);
     assert.equal([...rows.values()][0]?.status, 'failed');
   });
+});
+
+test('a repeated message queued offline before restart is sent despite the earlier identical post', async () => {
+  const { outbox, server, rows } = setup(call => call.method === 'POST'
+    ? { body: post('new-real', { user_id: 'u-me', message: 'OK' }) }
+    : { body: postList([post('old-real', { user_id: 'u-me', message: 'OK', create_at: Date.now() - 10_000, props: { rocket_vibe_client_id: 'previous-operation' } })]) });
+  rows.set('new-operation', { id: 'new-operation', rid: 'ch1', text: 'OK', threadId: null, status: 'pending', attempts: 0, createdAt: Date.now() - 5000 });
+  await outbox.process();
+  assert.deepEqual(server.calls.map(call => call.method), ['GET', 'POST']);
+  assert.deepEqual((server.calls[1].body as { props: unknown }).props, { rocket_vibe_client_id: 'new-operation' });
+  assert.equal(rows.size, 0);
+});
+
+test('a legacy text match is kept as a visible failure and only an explicit retry resends', async () => {
+  const { outbox, server, rows } = setup(call => call.method === 'POST'
+    ? { body: post('new-real', { user_id: 'u-me', message: 'OK' }) }
+    : { body: postList([post('old-real', { user_id: 'u-me', message: 'OK', create_at: Date.now() - 10_000 })]) });
+  rows.set('legacy', { id: 'legacy', rid: 'ch1', text: 'OK', threadId: null, status: 'pending', attempts: 0, createdAt: Date.now() - 5000 });
+  await outbox.process();
+  assert.equal(rows.get('legacy')?.status, 'failed');
+  assert.equal(server.calls.filter(call => call.method === 'POST').length, 0);
+  await outbox.process();
+  assert.equal(rows.size, 1, 'automatic replay leaves the uncertain row alone');
+  await outbox.retry('legacy');
+  assert.equal(server.calls.filter(call => call.method === 'POST').length, 1);
+  assert.equal(rows.size, 0);
+});
+
+test('a full history page newer than the send cannot authorize an automatic replay', async () => {
+  const { outbox, server, rows } = setup(() => ({ body: postList(Array.from({ length: 30 }, (_, i) =>
+    post(`newer-${i}`, { create_at: Date.now(), message: 'unrelated' }))) }));
+  rows.set('old', { id: 'old', rid: 'ch1', text: 'hello', threadId: null, status: 'pending', attempts: 0, createdAt: Date.now() - 3_600_000 });
+  await outbox.process();
+  assert.equal(rows.get('old')?.status, 'failed');
+  assert.equal(server.calls.filter(call => call.method === 'POST').length, 0);
 });

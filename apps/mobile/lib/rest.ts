@@ -158,6 +158,7 @@ export type Dependencies = {
   now: () => number;
   /** Retry spread. Injected so the delays stay testable. */
   random: () => number;
+  timeoutMs: number;
 };
 
 const TIMEOUT_MS = 15_000;
@@ -233,6 +234,7 @@ export class RestClient {
       sleep: dep?.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms))),
       now: dep?.now ?? (() => Date.now()),
       random: dep?.random ?? Math.random,
+      timeoutMs: dep?.timeoutMs ?? TIMEOUT_MS,
     };
   }
 
@@ -335,11 +337,12 @@ export class RestClient {
     const timer = setTimeout(() => {
       expire = true;
       controller.abort();
-    }, TIMEOUT_MS);
+    }, this.dep.timeoutMs);
     const relay = () => controller.abort();
     options.signal?.addEventListener('abort', relay);
 
-    let response: Response;
+    let response: Response | undefined;
+    let text = '';
     try {
       response = await this.dep.fetch(this.buildUrl(path, options), {
         method,
@@ -347,10 +350,17 @@ export class RestClient {
         body: options.body === undefined ? undefined : JSON.stringify(options.body),
         signal: controller.signal,
       });
+      if (response.status === 429 && attempt < ATTEMPTS_429) {
+        await response.body?.cancel();
+      } else {
+        // fetch resolves at the headers. Keep cancellation and the deadline
+        // alive until the complete body has arrived too.
+        text = await response.text();
+      }
     } catch (e) {
       if (e instanceof Error && e.name === 'AbortError') {
         if (!expire) throw e; // Cancellation requested by the caller.
-        throw new RestError(`${path}: no response within ${TIMEOUT_MS / 1000} s.`, 0);
+        throw new RestError(`${path}: no response within ${this.dep.timeoutMs / 1000} s.`, 0);
       }
       // Network failure: the `fetch` rejected without an HTTP response. On
       // Android/OkHttp, the FIRST request after an idle period (here: the time
@@ -359,7 +369,7 @@ export class RestClient {
       // the classic "works the 2nd time". Nothing having been received from
       // the server, the request was (almost) never delivered: replaying it
       // doubles no effect, but we only do it if the caller asked.
-      if (options.networkReplay && networkAttempt < NETWORK_ATTEMPTS) {
+      if (response === undefined && options.networkReplay && networkAttempt < NETWORK_ATTEMPTS) {
         // The `finally` clears timer and listener when the `return` is
         // evaluated; the recursion arms fresh ones. The 400 ms wait stays well
         // under the 15 s timeout, so the old timer does not fire meanwhile.
@@ -374,15 +384,12 @@ export class RestClient {
 
     if (response.status === 429 && attempt < ATTEMPTS_429) {
       const delay = this.delayAfter429(response, attempt);
-      await response.body?.cancel();
       await this.cancelableSleep(delay, options.signal);
       return this.call<T>(method, path, options, attempt + 1, networkAttempt);
     }
 
     // Read the text before parsing: a reverse proxy can return HTML with a
     // 200, and "invalid JSON" is not "server unreachable".
-    const text = await response.text();
-
     // `POST /api/v1/logout` answers 200 with an EMPTY body, checked against an
     // 8.5 server. A success without content is not a format error.
     if (text.trim() === '' && response.ok) return {} as T;

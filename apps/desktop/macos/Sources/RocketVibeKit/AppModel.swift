@@ -306,6 +306,7 @@ public final class AppModel {
         account = nil
         e2eUnlocked = false
         connection = .offline
+        media?.close()
         media = nil
         groups = []
         history = []

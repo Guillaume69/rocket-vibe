@@ -1,9 +1,24 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { databaseFileName } from './fileName.ts';
+import { canAdoptLegacy, databaseFileName, databaseIdentity, legacyDatabaseFileName } from './fileName.ts';
 
 describe('databaseFileName', () => {
+  test('punctuation in server and account identities never aliases another cache', () => {
+    assert.equal(legacyDatabaseFileName('https://chat-a.example', 'u1'), legacyDatabaseFileName('https://chat.a.example', 'u1'));
+    assert.notEqual(databaseFileName('https://chat-a.example', 'u1'), databaseFileName('https://chat.a.example', 'u1'));
+    assert.notEqual(databaseFileName('https://chat.example', 'u-a'), databaseFileName('https://chat.example', 'u_a'));
+    assert.notEqual(databaseFileName('https://chat.example/u', 'a'), databaseFileName('https://chat.example', 'u-a'));
+  });
+
+  test('legacy caches migrate only to one unambiguous owner', () => {
+    const a = databaseIdentity('https://chat-a.example', 'u1');
+    const b = databaseIdentity('https://chat.a.example', 'u1');
+    assert.equal(canAdoptLegacy(null, a, [a]), true);
+    assert.equal(canAdoptLegacy(null, a, [a, b]), false);
+    assert.equal(canAdoptLegacy(a, a, [a, b]), true);
+    assert.equal(canAdoptLegacy(a, b, [b]), false);
+  });
   test('two distinct servers give two distinct databases', () => {
     assert.notEqual(databaseFileName('https://chat.barrut.me'), databaseFileName('http://192.168.1.106:3000'));
   });

@@ -7,12 +7,14 @@
  * response, then the optimistic row is dropped.
  *
  * The echo is only a short-lived server cache, not stored: a replay much later
- * cannot rely on it. Before declaring a refusal, the newest posts of the room
- * are read for one of mine with the same text and thread; and before REPLAYING
+ * cannot rely on it. A persisted `props.rocket_vibe_client_id` identifies the
+ * operation. Before declaring a refusal, the newest posts of the room
+ * are read for that marker; and before REPLAYING
  * a row that may already have gone out (sent once in this session whose answer
  * was lost, or queued before this outbox started, so before a restart), the
  * same look comes first, or the replay would post a duplicate once the cache
- * has forgotten the id. A replay that races the first POST still being saved
+ * has forgotten the id. An unmarked legacy text match is uncertain, retained
+ * as failed until the user explicitly retries. A replay that races the first POST still being saved
  * answers `api.post.deduplicate_create_post.pending`: the post is coming, the
  * row stays pending and is looked for again a moment later.
  */
@@ -24,6 +26,8 @@ import { MmError, type MmClient } from './client.ts';
 import { ordered } from './history.ts';
 
 const UNKNOWN = Symbol('delivery unknown');
+const AMBIGUOUS = Symbol('legacy delivery ambiguous');
+const DELIVERY_UNCERTAIN = 'Delivery could not be confirmed. Check the conversation before retrying.';
 
 /**
  * `<my user id>:<digits>`, the web client's format: kChat refuses any other with
@@ -51,6 +55,7 @@ export class MmOutbox implements Outbox {
   private rerun = false;
   /** Rows a POST went out for in this session, answered or not. */
   private readonly attempted = new Set<string>();
+  private readonly explicitRetries = new Set<string>();
   private readonly startedAt: number;
   private readonly later: (run: () => void) => void;
 
@@ -76,7 +81,7 @@ export class MmOutbox implements Outbox {
 
   async send(rid: string, text: string, threadId: string | null = null, localAttachments: string | null = null): Promise<string> {
     const id = this.generateId();
-    const optimistic: LocalMessage = {
+    const optimistic: LocalMessage & { text: string } = {
       id,
       rid,
       text,
@@ -99,8 +104,7 @@ export class MmOutbox implements Outbox {
       starred: null,
       updatedAt: 0,
     };
-    await this.store.upsertMessage(optimistic);
-    await this.store.insertOutbox(id, rid, text, threadId);
+    await this.store.enqueueMessage(optimistic);
     await this.process();
     return id;
   }
@@ -129,14 +133,20 @@ export class MmOutbox implements Outbox {
   /** The explicit "Retry": the automatic replay leaves failed rows alone. */
   async retry(id: string): Promise<void> {
     await this.store.rearm(id);
+    this.explicitRetries.add(id);
     await this.process();
   }
 
   private async runPass(): Promise<boolean> {
     for (const row of await this.store.listToSend()) {
-      if (this.attempted.has(row.id) || row.createdAt < this.startedAt) {
+      const explicit = this.explicitRetries.delete(row.id);
+      if (!explicit && (this.attempted.has(row.id) || row.createdAt < this.startedAt)) {
         const found = await this.findMine(row);
         if (found === UNKNOWN) return false;
+        if (found === AMBIGUOUS) {
+          await this.store.markFailed(row.id, DELIVERY_UNCERTAIN);
+          continue;
+        }
         if (found !== null) {
           await this.delivered(row.id, found);
           continue;
@@ -145,7 +155,7 @@ export class MmOutbox implements Outbox {
       this.attempted.add(row.id);
       try {
         const post = await this.client.post<Record<string, unknown>>('/posts', {
-          body: { channel_id: row.rid, message: row.text, root_id: row.threadId ?? '', pending_post_id: pendingPostId(this.me.id, row.id) },
+          body: { channel_id: row.rid, message: row.text, root_id: row.threadId ?? '', pending_post_id: pendingPostId(this.me.id, row.id), props: { rocket_vibe_client_id: row.id } },
         });
         await this.delivered(row.id, post);
       } catch (e) {
@@ -158,6 +168,10 @@ export class MmOutbox implements Outbox {
         }
         const found = await this.findMine(row);
         if (found === UNKNOWN) return false;
+        if (found === AMBIGUOUS) {
+          await this.store.markFailed(row.id, DELIVERY_UNCERTAIN);
+          continue;
+        }
         if (found !== null) {
           await this.delivered(row.id, found);
           continue;
@@ -175,26 +189,32 @@ export class MmOutbox implements Outbox {
     this.attempted.delete(localId);
   }
 
-  /** A post of mine with the same text, made since this row was queued: an older identical one is not it. */
-  private async findMine(row: OutboxRow): Promise<Record<string, unknown> | typeof UNKNOWN | null> {
+  /** Only a durable operation marker proves delivery. Text alone is ambiguous. */
+  private async findMine(row: OutboxRow): Promise<Record<string, unknown> | typeof UNKNOWN | typeof AMBIGUOUS | null> {
     try {
       const list = await this.client.get<{ order?: string[]; posts?: Record<string, Record<string, unknown>> }>(
         `/channels/${row.rid}/posts`,
         { query: { per_page: CHECK_DEPTH } },
       );
       const since = row.createdAt - CLOCK_SKEW_MS;
-      return (
-        ordered(list).find(
+      const posts = ordered(list);
+      const exact = posts.find(p => p.user_id === this.me.id && p.channel_id === row.rid &&
+        (p.props as { rocket_vibe_client_id?: unknown } | undefined)?.rocket_vibe_client_id === row.id);
+      if (exact) return exact;
+      // A full page entirely newer than this send cannot prove its absence.
+      // Keep the row visible rather than replaying past the lookup window.
+      if (posts.length >= CHECK_DEPTH && !posts.some(p => typeof p.create_at === 'number' && p.create_at < since)) return AMBIGUOUS;
+      return posts.some(
           (p) =>
             p.user_id === this.me.id &&
+            !(p.props as { rocket_vibe_client_id?: unknown } | undefined)?.rocket_vibe_client_id &&
             p.message === row.text &&
             (p.root_id || null) === (row.threadId ?? null) &&
             typeof p.create_at === 'number' &&
             p.create_at >= since,
-        ) ?? null
-      );
+        ) ? AMBIGUOUS : null;
     } catch (e) {
-      if (e instanceof MmError && (e.status === 0 || e.status === 429)) return UNKNOWN;
+      if (e instanceof MmError && (e.status === 0 || e.status === 429 || e.status >= 500)) return UNKNOWN;
       return null;
     }
   }

@@ -268,7 +268,11 @@ pub fn card_provider(session: crate::media::Provider, f: &FileAttachment) -> gtk
         });
     });
     LAST.with_borrow_mut(|last| *last = Rc::downgrade(&player));
-    if f.size.is_some_and(|size| size <= POSTER_MAX_BYTES) || cache_path(f).exists() {
+    let cached = match &session {
+        crate::media::Provider::RocketChat(s) => !s.is_closed() && cache_path(s, f).exists(),
+        crate::media::Provider::RocketVibe(_) => false,
+    };
+    if f.size.is_some_and(|size| size <= POSTER_MAX_BYTES) || cached {
         let p = player.clone();
         glib::spawn_future_local(async move {
             p.stream().await;

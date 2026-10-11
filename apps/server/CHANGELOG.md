@@ -8,6 +8,10 @@ everything before it is under that section.
 
 ## [Unreleased]
 
+### Fixed
+
+- Convert IPv4-mapped trusted proxy prefixes to their IPv4 width, preserving exact address boundaries and rejecting broader ambiguous mappings.
+
 ## [0.4.0] - 2026-10-11
 
 ### Added

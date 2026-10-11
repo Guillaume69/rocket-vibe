@@ -1104,6 +1104,7 @@ impl AppWindow {
             // Tasks still running hold the store: release the file itself, or
             // Windows refuses the deletion below and the messages stay on disk.
             if delete_cache {
+                crate::cards::clear_file_cache(&session);
                 session.store.close();
             }
         }

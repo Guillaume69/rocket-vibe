@@ -451,6 +451,13 @@ The **7 refuted findings** (including two "DDP zombies" demolished by digging al
 What the audit had not seen, found by running things. `docs/AUDIT.md` is frozen: later
 findings are added here.
 
+Repository reliability audit (2026-10-11):
+
+- [x] Account database slugs collapsed punctuation and could share private caches. Digest identities now separate them; guarded SQLite backup preserves unambiguous legacy drafts, sends and reminders, retaining ambiguous sources for recovery.
+- [x] An optimistic message and its outbox row could commit separately. One transaction now commits or rolls back both.
+- [x] Rocket.Chat and Mattermost/kChat deadlines ended at response headers. Cancellation and timeouts now cover response bodies, including form authentication.
+- [x] Mattermost/kChat could confirm a new identical send against an earlier message after restart. Persistent operation markers prove delivery; ambiguous legacy matches and insufficient history coverage remain visible for explicit retry in mobile and the shared desktop core.
+
 Found by the Mattermost/kChat branch review (2026-10-09), kept for later:
 
 - [x] 🟡 (fixed 2026-10-10 in both apps: a full `since=` answer clears the room's cache, optimistic rows kept, and reloads the newest page, `MmCatchUp.roomPass` / `Store.clearRoomMessages` on mobile, `catch_up_room` / `Writer::clear_room_messages` on desktop) **A Mattermost room catch-up after a gap of more than 1000 changes in one room misses the rest.** `GET /channels/<id>/posts?since=` is capped at 1000 rows in no promised order (read in the 11.11 server); `MmCatchUp.roomPass` ingests them and the cursor moves past what never came. Fix: when the answer is full, drop the room's cache and reload its first page.

@@ -107,7 +107,7 @@ describe('the notification', () => {
   };
 
   test('identifiers are per (account, message) and parse back', () => {
-    assert.equal(key, 'chat_example-u1');
+    assert.match(key, /^v2-[0-9a-f]{64}$/);
     assert.equal(reminderAccountKey('chat.example', 'u1'), key);
     const id = reminderIdentifier(key, 'msg:with:colons');
     assert.deepEqual(parseReminderIdentifier(id), { accountKey: key, messageId: 'msg:with:colons' });
@@ -144,6 +144,24 @@ describe('the notification', () => {
 });
 
 describe('reconciliation', () => {
+  test('a filename upgrade replaces held reminders without stealing another account\'s alarm', () => {
+    const account = { baseUrl: 'https://chat-a.example', userId: 'u1' };
+    const accountKey = reminderAccountKey(account.baseUrl, account.userId);
+    const pending: PendingReminder[] = [
+      { identifier: 'reminder:chat_a_example-u1:soon', dueAt: 2000, ...account },
+      { identifier: 'reminder:chat_a_example-u1:late', dueAt: 900, ...account },
+      { identifier: 'reminder:chat_a_example-u1:other', dueAt: 2000, baseUrl: 'https://chat.a.example', userId: 'u1' },
+    ];
+    const rows: Reminder[] = ['soon', 'late'].map((messageId, i) => ({
+      messageId, rid: 'r', roomName: 'general', threadId: null, author: 'me', excerpt: 'Hello',
+      dueAt: i === 0 ? 2000 : 900, createdAt: 1, scheduled: true,
+    }));
+    const plan = planReconcile({ rows, pending, account, accountKey, now: 1000, accountGone: () => false });
+    assert.deepEqual(plan.cancel, pending.slice(0, 2).map(p => p.identifier));
+    assert.deepEqual(plan.schedule.map(r => r.messageId), ['soon']);
+    assert.deepEqual(plan.present.map(r => r.messageId), ['late']);
+    assert.deepEqual(plan.remove, []);
+  });
   const key = 'chat_example-u1';
   const now = 1_000_000_000;
   const row = (messageId: string, dueAt: number, scheduled: boolean): Reminder => ({

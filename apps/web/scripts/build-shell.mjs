@@ -1,6 +1,10 @@
 import { readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { createHash } from "node:crypto";
+// The video reduction worker (Mediabunny, about 100 KB gzipped) is fetched
+// only when a video is reduced, never precached for everyone; offline, the
+// video goes out in original quality.
 const assets = readdirSync("dist/assets")
+  .filter((name) => !name.startsWith("video-reduce.worker-"))
   .sort()
   .map((name) => "/assets/" + name);
 const icon = readFileSync(

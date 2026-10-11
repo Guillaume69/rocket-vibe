@@ -4,6 +4,10 @@ All notable changes are documented here in English.
 
 ## [Unreleased]
 
+### Added
+
+- Videos are reduced before sending, like on the phone: H.264 MP4 at 720p and 2 Mbps, the sound kept, with a progress bar and Cancel above the composer. "Original quality" now covers videos too. A browser that cannot encode H.264 sends the original and says so before you send.
+
 ## [0.4.0] - 2026-10-11
 
 ### Added

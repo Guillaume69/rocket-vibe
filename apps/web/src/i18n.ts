@@ -165,6 +165,16 @@ const phrases = {
   totp: ["Authenticator", "Application d’authentification"],
   recovery_code: ["Recovery code", "Code de récupération"],
   markRead: ["Mark as read", "Marquer comme lu"],
+  originalVideos: ["Videos in original quality", "Vidéos en qualité d’origine"],
+  originalMedia: [
+    "Images and videos in original quality",
+    "Images et vidéos en qualité d’origine",
+  ],
+  videoNoReduction: [
+    "This browser cannot reduce videos: they will be sent in original quality.",
+    "Ce navigateur ne sait pas réduire les vidéos : elles partiront en qualité d’origine.",
+  ],
+  reducingVideo: ["Reducing {name}", "Réduction de {name}"],
   today: ["Today", "Aujourd’hui"],
   yesterday: ["Yesterday", "Hier"],
   newMessages: ["New messages", "Nouveaux messages"],

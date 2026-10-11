@@ -48,6 +48,8 @@ import { audioControls } from "./audio";
 import { attachVideo } from "./video-attachment";
 import { attachImage, inlineImage, openImage } from "./image-attachment";
 import { stagedChip, reducedImage } from "./staged";
+import { videoReducible } from "./video-plan";
+import { reduceVideo, videoReductionSupported } from "./video-reduce";
 import { humanSize } from "./media-format";
 import type { RowActions } from "./render";
 import { t, language, setLanguage } from "./i18n";
@@ -141,6 +143,15 @@ export class App implements RowActions {
   pending: Pending[] = [];
   staged: File[] = [];
   stagedOriginal = false;
+  /** The staged batch being reduced at send time, cancellable from the strip. */
+  reduction?: {
+    controller: AbortController;
+    room: string;
+    name: string;
+    fraction: number;
+  };
+  /** Whether this browser reduces videos, once known. */
+  videoReduction?: boolean;
   stagedWidgets = new WeakMap<File, HTMLElement>();
   stagedURLs = new WeakMap<File, string>();
   jobs: UploadJob[] = [];
@@ -458,6 +469,7 @@ export class App implements RowActions {
     this.ownStatus = undefined;
     this.ownProfileRevision = undefined;
     this.pending = [];
+    this.cancelReduction();
     this.staged = [];
     this.stagedOriginal = false;
     this.stagedWidgets = new WeakMap();
@@ -1146,6 +1158,7 @@ export class App implements RowActions {
     clearTimeout(this.readTimer);
     this.readTimer = undefined;
     this.draftReady = false;
+    this.cancelReduction();
     this.room = id;
     this.composer.value = "";
     this.firstUnread = undefined;
@@ -1774,13 +1787,15 @@ export class App implements RowActions {
         editor === (root ? this.threadComposer : this.composer) &&
         (!root || root === this.root);
     if (this.staged.length) {
+      // A batch already being reduced: a second Enter must not send it twice.
+      if (this.reduction) return;
       const batch = [...this.staged];
       const membership =
         this.model.rooms.get(room)?.read_state?.membership_version;
       const files = this.stagedOriginal
         ? batch
-        : await Promise.all(batch.map(reducedImage));
-      if (!sameComposer()) return;
+        : await this.reduceStaged(batch, room);
+      if (!files || !sameComposer()) return;
       const active = () =>
         current() &&
         membership ===
@@ -3063,6 +3078,55 @@ export class App implements RowActions {
     });
     picker.click();
   }
+  /**
+   * The "Reduced" side of the quality choice, at send time as on mobile:
+   * images to JPEG 1920, videos to H.264 720p in a worker, one after the
+   * other with their progress in the strip. Undefined when cancelled (the
+   * strip's Cancel, a removed file, leaving the room): the files stay staged.
+   */
+  async reduceStaged(batch: File[], room: string): Promise<File[] | undefined> {
+    const controller = new AbortController();
+    const reduction = { controller, room, name: "", fraction: 0 };
+    this.reduction = reduction;
+    const current = () => this.reduction === reduction;
+    try {
+      const files: File[] = [];
+      for (const file of batch) {
+        if (controller.signal.aborted) return undefined;
+        if (!videoReducible(file)) {
+          files.push(await reducedImage(file));
+          continue;
+        }
+        reduction.name = file.name;
+        reduction.fraction = 0;
+        this.renderUploads();
+        files.push(
+          await reduceVideo(file, controller.signal, (fraction) => {
+            if (!current()) return;
+            reduction.fraction = fraction;
+            const bar = this.strip.querySelector<HTMLProgressElement>(
+              ".video-reduce progress",
+            );
+            if (bar) bar.value = fraction;
+          }),
+        );
+      }
+      return controller.signal.aborted ? undefined : files;
+    } catch (error) {
+      if (controller.signal.aborted) return undefined;
+      throw error;
+    } finally {
+      if (current()) this.reduction = undefined;
+      this.renderUploads();
+    }
+  }
+  /** Stops a reduction in progress; its files stay staged, nothing is sent. */
+  cancelReduction(): void {
+    const reduction = this.reduction;
+    if (!reduction) return;
+    this.reduction = undefined;
+    reduction.controller.abort();
+  }
   async stage(files: File[]): Promise<void> {
     if (this.model.rooms.get(this.room ?? "")?.encrypted) {
       this.privateChat?.addFiles(files);
@@ -3113,6 +3177,7 @@ export class App implements RowActions {
           url,
           () => this.previewFile(file),
           async () => {
+            this.cancelReduction();
             this.staged = this.staged.filter((item) => item !== file);
             stopMedia(this.stagedWidgets.get(file)!);
             URL.revokeObjectURL(url);
@@ -3137,12 +3202,24 @@ export class App implements RowActions {
       chips.append(chip);
     }
     prepared.append(chips);
-    if (this.staged.some((file) => file.type.startsWith("image/"))) {
+    const images = this.staged.some((file) => file.type.startsWith("image/")),
+      videos = this.staged.some(videoReducible);
+    if (images || videos) {
       const quality = el("label", "staged-quality");
       const original = el("input");
       original.type = "checkbox";
       original.checked = this.stagedOriginal;
-      quality.append(original, document.createTextNode(nt("attach.original")));
+      original.disabled = this.reduction !== undefined;
+      quality.append(
+        original,
+        document.createTextNode(
+          !videos
+            ? nt("attach.original")
+            : images
+              ? t("originalMedia")
+              : t("originalVideos"),
+        ),
+      );
       const account = this.account?.key,
         room = this.room;
       original.addEventListener("change", () => {
@@ -3155,6 +3232,27 @@ export class App implements RowActions {
           ).catch(toast);
       });
       prepared.append(quality);
+    }
+    if (videos && this.videoReduction === undefined)
+      void videoReductionSupported().then((supported) => {
+        this.videoReduction = supported;
+        if (!supported) this.renderUploads();
+      });
+    if (videos && this.videoReduction === false)
+      prepared.append(el("div", "staged-note", t("videoNoReduction")));
+    const reduction = this.reduction;
+    if (reduction && reduction.room === this.room && reduction.name) {
+      const row = el("div", "upload-row video-reduce");
+      const progress = el("progress");
+      progress.max = 1;
+      progress.value = reduction.fraction;
+      progress.setAttribute("aria-label", reduction.name);
+      row.append(
+        el("span", "", t("reducingVideo").replace("{name}", reduction.name)),
+        progress,
+        button(t("cancel"), () => this.cancelReduction()),
+      );
+      prepared.append(row);
     }
     if (this.staged.length) this.strip.append(prepared);
     for (const job of this.jobs.filter((job) => job.room === this.room)) {

@@ -24,6 +24,7 @@
     "test:features": "node tests/features.mjs",
     "test:media": "node tests/media.mjs",
     "test:images": "node tests/images.mjs",
+    "test:video-reduce": "node tests/video-reduce.mjs",
     "test:sessions": "node tests/sessions.mjs",
     "test:locked": "node tests/locked.mjs",
     "test:composer": "node tests/composer.mjs",
@@ -46,6 +47,7 @@
   },
   "dependencies": {
     "livekit-client": "^2.22.3",
+    "mediabunny": "1.60.0",
     "react": "19.3.0",
     "react-dom": "19.3.0"
   }

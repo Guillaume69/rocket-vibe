@@ -231,6 +231,12 @@ The user chose to keep "Remind me" reminders on the device rather than on a Rock
 
 Sources: brain/features/reminders.md.
 
+## Web notification buttons act through a tab, 2026-10-11
+
+The web's notification buttons (Mark as read, Like, an inline reply) are handled by the service worker, which outlives the tab, but the worker holds no session: it hands each click to a live tab, or opens one and waits for it to sign in, and the tab calls the API with its own token. Giving the worker the token (IndexedDB or a message) would let a click act with no tab at all, but would put the bearer token in a second, long-lived context the sign-out and token rotation do not reach. The pictures follow the same rule: the system fetches a notification's `icon` and `image` without the session, so they are data URLs drawn in the page, never a URL carrying the token. Buttons come in the order Mark as read, Like, Reply because browsers show two (`Notification.maxActions`), and a plain click already opens the composer.
+
+Sources: apps/web/src/notifications.ts; apps/web/scripts/build-shell.mjs.
+
 ## Sources
 
 - `docs/protocol/E2EE_AMENDMENTS.md`

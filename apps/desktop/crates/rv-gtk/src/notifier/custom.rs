@@ -142,7 +142,7 @@ impl Backend {
         }
         #[cfg(windows)]
         {
-            card.window.realize();
+            gtk::prelude::WidgetExt::realize(&card.window);
             if !rv_native::notification_prepare(handle(&card.window)) {
                 card.window.destroy();
                 if let Some(previous) = previous {

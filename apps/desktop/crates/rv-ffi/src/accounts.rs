@@ -183,6 +183,8 @@ pub fn remove(dirs: &Dirs, info: &SessionInfo) {
     if let Ok(e) = entry(&k) {
         let _ = e.delete_credential();
     }
+    // A removed account's reminders go with it (signing out, an expired session).
+    crate::reminders::forget(dirs, info);
     let index = dirs.file("accounts");
     let mut all = lines(&index);
     all.retain(|l| *l != k);

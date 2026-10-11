@@ -583,7 +583,7 @@ struct AccountAvatar: View {
 }
 
 /// Me and the connection; the block opens the account menu: settings, the
-/// server administration for an administrator, sign out.
+/// reminders, the server administration for an administrator, sign out.
 struct AccountBar: View {
     @Environment(AppModel.self) var app
 
@@ -592,6 +592,7 @@ struct AccountBar: View {
             AccountAvatar()
             Menu {
                 Button { app.openSettings() } label: { Label(L("settings.title"), systemImage: "gearshape") }
+                Button { app.remindersShown = true } label: { Label(L("reminders.title"), systemImage: "alarm") }
                 if app.administrator {
                     Button { app.openAdmin() } label: { Label(L("admin.title"), systemImage: "server.rack") }
                 }

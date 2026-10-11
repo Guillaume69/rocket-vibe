@@ -108,18 +108,39 @@ struct ScheduledList: View {
     }
 }
 
-/// "Pick a time": a date and a time, at least a minute and at most 30 days
-/// ahead. Cancel, Escape and a click outside schedule nothing.
+/// "Pick a time": a date and a time, at least a minute ahead and at most
+/// 30 days (a scheduled message) or a year (a reminder). Cancel, Escape and a
+/// click outside choose nothing.
 struct PickTimeCard: View {
     @Environment(\.closeModal) private var close
+    let heading: String
+    let hint: String
+    let cancel: String
+    let confirm: String
     let latest: Date
     let chosen: (Int64) -> Void
     @State private var date: Date
 
     init(times: ScheduleTimes, chosen: @escaping (Int64) -> Void) {
-        latest = Date(timeIntervalSince1970: TimeInterval(times.latest))
+        self.init(heading: L("scheduled.pick"), hint: L("scheduled.pick_hint"), cancel: L("scheduled.cancel"),
+                  confirm: L("scheduled.schedule"), initial: times.inOneHour, latest: times.latest, chosen: chosen)
+    }
+
+    /// A reminder's.
+    init(reminder times: ReminderTimes, chosen: @escaping (Int64) -> Void) {
+        self.init(heading: L("reminders.pick"), hint: L("reminders.pick_hint"), cancel: L("reminders.cancel"),
+                  confirm: L("reminders.remind_me"), initial: times.inOneHour, latest: times.latest, chosen: chosen)
+    }
+
+    init(heading: String, hint: String, cancel: String, confirm: String, initial: Int64, latest: Int64,
+         chosen: @escaping (Int64) -> Void) {
+        self.heading = heading
+        self.hint = hint
+        self.cancel = cancel
+        self.confirm = confirm
+        self.latest = Date(timeIntervalSince1970: TimeInterval(latest))
         self.chosen = chosen
-        _date = State(initialValue: Date(timeIntervalSince1970: TimeInterval(times.inOneHour)))
+        _date = State(initialValue: Date(timeIntervalSince1970: TimeInterval(initial)))
     }
 
     /// The minute chosen, its seconds dropped.
@@ -131,15 +152,15 @@ struct PickTimeCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(L("scheduled.pick")).font(.headline)
-            Text(L("scheduled.pick_hint")).foregroundStyle(Vibe.muted)
+            Text(heading).font(.headline)
+            Text(hint).foregroundStyle(Vibe.muted)
             DatePicker(L("scheduled.date"), selection: $date, in: Date()...latest, displayedComponents: [.date])
                 .datePickerStyle(.graphical)
             DatePicker(L("scheduled.time"), selection: $date, displayedComponents: [.hourAndMinute])
             HStack {
                 Spacer()
-                Button(L("scheduled.cancel")) { close() }
-                Button(L("scheduled.schedule")) {
+                Button(cancel) { close() }
+                Button(confirm) {
                     chosen(instant)
                     close()
                 }

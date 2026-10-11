@@ -1329,6 +1329,10 @@ fn schedule_checks(chat: std::rc::Rc<crate::chat::ChatPage>, rid: String, tag: S
             glib::timeout_add_local_once(Duration::from_millis(2000), move || {
                 println!("smoke: schedule: chip after cancel: {:?}", composer.schedule_state().1);
             });
+        });
+    });
+}
+
 fn infomaniak_sign_in(window: &Rc<AppWindow>) {
     let weak = Rc::downgrade(window);
     window.connect_login_shown(move || {

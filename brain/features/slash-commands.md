@@ -52,7 +52,7 @@ Mobile only treats a draft as a command when no quote reply is armed (`ui/compos
 
 ## GIF selection
 
-`/giphy` opens the native image picker in unencrypted rooms, with the draft retained until a successful selection. Rocket.Chat uses GET and POST `commands.preview`, including `tmid` for a thread reply; RocketVibe uses its configured server-side GIPHY search and normal image sends. See [social.md](social.md) for configuration, provider limits and the shelf.
+Typing `/giphy` opens the GIF picker in unencrypted rooms and threads. Its search refreshes automatically as the text changes; a click selects and highlights an image without sending. Enter or the shared Send button submits the selected GIF. Cancellation retains the draft, and only a successful send clears the unchanged command draft. The sharing menu opens the same picker. Rocket.Chat uses GET and POST `commands.preview`, including `tmid` for a thread reply; RocketVibe uses its configured server-side GIPHY search and normal image sends. See [social.md](social.md) for configuration, provider limits and the shelf.
 
 ## The private answer
 

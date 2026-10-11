@@ -22,6 +22,8 @@ GET `/api/v1/gifs?q=...` searches or lists trending GIFs; `stickers=true` select
 
 Rocket.Chat uses its own installed GIPHY app and key. The clients GET `commands.preview` with command, roomId and params, then POST the selected image's id/type/value with triggerId and optional tmid to that endpoint. They no longer rely on `commands.run` alone. Cancellation preserves the draft; successful selection clears only the unchanged draft. The client does not receive the Rocket.Chat app's key. A missing or disabled server app produces an unavailable/search error.
 
+Typing `/giphy` opens the same GIF picker as the sharing menu, in rooms and threads. Its search field refreshes automatically after 300 ms without another keystroke. Changing the query immediately clears the selected image and invalidates earlier responses. The picker uses a compact, scrollable thumbnail grid with a highlighted selection and fixed search/actions; one Save-to-shelf and one Send action concern the selected GIF. Choosing an image alone sends nothing. Enter or Send submits it, with duplicate submissions blocked while the request is in flight. No image-link field appears in a GIF search. Cancel keeps the composer draft, and a successful command send clears only the draft captured when the picker opened.
+
 ## Mobile
 
 `app/social.tsx` is a native form sheet opened from the composer. Poll options use one line each; closing presets keep the same timestamp on retry. Game nights use local date choices and HH:MM. Card votes, RSVPs, local reminders and the voice page are accessible from the timeline. Voice bursts use native Animated text. Encrypted-room controls are hidden.
@@ -40,7 +42,7 @@ The composer menu opens poll, event, shelf and GIF dialogs. Cards show votes, pr
 
 ## Verification
 
-Server integration tests exercise create replay, answer changes, stale retries, unauthorized votes and closure, private shelves, credential-bearing URL refusal, thread image sends, connected-only bursts, expiry, stale epochs and key-free discovery. Mobile tests exercise the Rocket.Chat preview/selection request contract, thread forwarding and cancel resolution, and social-card retention through snapshot quote refresh, voting and projection restart. Android launches against the disposable server and renders the typed social cards. GTK passes the full Fedora build gate and a native login/room-render smoke with an isolated keyring. The web browser test uses real server writes and journal delivery, with controlled GIPHY/media fixtures instead of a live API key. Live GIPHY-provider validation awaits an operator key; Mac GUI qualification is not supplied by Linux Swift tests.
+Server integration tests exercise create replay, answer changes, stale retries, unauthorized votes and closure, private shelves, credential-bearing URL refusal, thread image sends, connected-only bursts, expiry, stale epochs and key-free discovery. Mobile tests exercise the Rocket.Chat preview/selection request contract, thread forwarding and cancel resolution, and social-card retention through snapshot quote refresh, voting and projection restart. Android launches against the disposable server and renders the typed social cards. GTK passes the full Fedora build gate and a native login/room-render smoke with an isolated keyring. The web browser test uses real server writes and journal delivery, with controlled GIPHY/media fixtures instead of a live API key. It covers command and menu opening, live search, debounce, out-of-order responses, empty results, selection without sending, repeated Enter while a send is pending, the Send button, and cancellation. `RV_SMOKE_GIPHY` drives the real GTK controls against a local Rocket.Chat preview fixture; `hold` retains a selection for a gallery screenshot. Live GIPHY-provider validation awaits an operator key; Mac GUI qualification is not supplied by Linux Swift tests.
 
 ## Sources
 
@@ -65,3 +67,4 @@ Server integration tests exercise create replay, answer changes, stale retries, 
 - apps/desktop/macos/Sources/RocketVibeKit/SocialModel.swift
 - apps/web/src/social.tsx
 - apps/web/tests/social.mjs
+- apps/desktop/crates/rv-gtk/src/smoke/giphy.rs

@@ -308,6 +308,32 @@ pub enum Choice {
 /// "Pick a time": a date and a time, at least a minute and at most 30 days
 /// ahead. A click outside closes it with nothing scheduled.
 pub fn pick(parent: &gtk::Widget, chosen: impl Fn(DateTime<Utc>) + 'static) {
+    let words = PickWords {
+        heading: t("scheduled.pick"),
+        hint: t("scheduled.pick_hint"),
+        cancel: t("scheduled.cancel"),
+        confirm: t("scheduled.schedule"),
+    };
+    pick_time(parent, words, scheduled::accepted, chosen);
+}
+
+/// The words of a "Pick a time" dialog.
+pub struct PickWords {
+    pub heading: &'static str,
+    pub hint: &'static str,
+    pub cancel: &'static str,
+    pub confirm: &'static str,
+}
+
+/// A date and a time, the confirming button enabled while `accepted(at, now)`
+/// holds; also the reminders' (`crate::reminders`). A click outside closes it
+/// with nothing chosen.
+pub fn pick_time(
+    parent: &gtk::Widget,
+    words: PickWords,
+    accepted: fn(DateTime<Utc>, DateTime<Utc>) -> bool,
+    chosen: impl Fn(DateTime<Utc>) + 'static,
+) {
     // An hour from now, on the next quarter.
     let start = Local::now() + chrono::Duration::hours(1);
     let start = start + chrono::Duration::minutes(i64::from((15 - start.minute() % 15) % 15));
@@ -326,14 +352,14 @@ pub fn pick(parent: &gtk::Widget, chosen: impl Fn(DateTime<Utc>) + 'static) {
     content.append(&calendar);
     content.append(&clock);
     let alert = adw::AlertDialog::builder()
-        .heading(t("scheduled.pick"))
-        .body(t("scheduled.pick_hint"))
+        .heading(words.heading)
+        .body(words.hint)
         .extra_child(&content)
         .default_response("schedule")
         .close_response("cancel")
         .css_classes(["alert", "scheduled-pick"])
         .build();
-    alert.add_responses(&[("cancel", t("scheduled.cancel")), ("schedule", t("scheduled.schedule"))]);
+    alert.add_responses(&[("cancel", words.cancel), ("schedule", words.confirm)]);
     alert.set_response_appearance("schedule", adw::ResponseAppearance::Suggested);
     let instant = {
         let (calendar, hour, minute) = (calendar.clone(), hour.clone(), minute.clone());
@@ -349,7 +375,7 @@ pub fn pick(parent: &gtk::Widget, chosen: impl Fn(DateTime<Utc>) + 'static) {
         let (alert, instant) = (alert.downgrade(), instant.clone());
         Rc::new(move || {
             if let Some(alert) = alert.upgrade() {
-                let valid = instant().is_some_and(|at| scheduled::accepted(at, Utc::now()));
+                let valid = instant().is_some_and(|at| accepted(at, Utc::now()));
                 alert.set_response_enabled("schedule", valid);
             }
         })

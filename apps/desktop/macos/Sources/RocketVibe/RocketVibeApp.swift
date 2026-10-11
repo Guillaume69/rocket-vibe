@@ -51,6 +51,11 @@ struct RocketVibeApp: App {
             if !watching { notifier.show(incoming, scope: app.native?.notificationKey(rid: incoming.rid)) }
         }
         app.onWithdraw = { key in notifier.withdraw(scope: key) }
+        notifier.onOpenLink = { [app] link in
+            NSApp.activate()
+            Task { await app.openLink(link) }
+        }
+        app.onReminder = { notifier.showReminder($0) }
         app.onAttention = { count in
             NSApp.dockTile.badgeLabel = count > 0 ? String(count) : nil
         }
@@ -61,6 +66,8 @@ struct RocketVibeApp: App {
             if tone == .ringtone && !NSApp.isActive { NSApp.requestUserAttention(.criticalRequest) }
         }
         notifier.start()
+        // Missed reminders fire now, the others at their time.
+        if !SmokeGallery.requested { app.startReminders() }
         if app.screen == .starting && !SmokeGallery.requested { await app.start() }
     }
 
@@ -98,6 +105,10 @@ struct RootView: View {
                     .animation(.easeOut(duration: 0.16), value: app.admin != nil)
                     .modalOverlay(item: Binding(get: { app.reporting }, set: { if $0 == nil { app.cancelReport() } })) { draft in
                         ReportSheet(draft: draft)
+                    }
+                    // The account's reminders (account menu): a click outside closes the list.
+                    .modalOverlay(isPresented: Binding(get: { app.remindersShown }, set: { app.remindersShown = $0 })) {
+                        RemindersList()
                     }
                     // A new bot key, shown once, whether the settings are still open or not.
                     .modalOverlay(

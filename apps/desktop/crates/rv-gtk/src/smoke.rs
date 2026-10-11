@@ -63,6 +63,11 @@
 //!                          it "In 1 hour": the field clears and the chip shows; cancels it from
 //!                          the list's data, then the list read again no longer has it
 //!                          (RV_SMOKE_SCHEDULE_HOLD=1: left scheduled, the list open, for a screenshot)
+//!   RV_SMOKE_REMINDERS=<other room>  "Remind me" on the open room's last message: In 1 hour
+//!                          from its menu, then Cancel reminder; one a few seconds ahead must
+//!                          fire as a notification (served by the smoke) and leave the store, one
+//!                          8 days late must be dropped, a click on the notification (from <other
+//!                          room>) opens the message; the Reminders list cancels; see `reminders`
 //!   RV_SMOKE_REENTER=1     after opening the room: back to the list, tap the same room, expect it open
 //!   RV_SMOKE_EDIT=<tag>    sends "<tag> before", presses Up, types "<tag> after" in the row
 //!                          and saves after RV_SMOKE_EDIT_SAVE_MS (default 3000)
@@ -114,6 +119,7 @@ mod native_files;
 mod native_quotes;
 mod native_reads;
 mod native_reload;
+mod reminders;
 mod rocket_chat;
 mod room_management;
 mod security;
@@ -147,6 +153,7 @@ pub fn autostart() -> Option<glib::ExitCode> {
 }
 
 pub fn install_early() {
+    reminders::install_early();
     if let Ok(reply) = std::env::var("RV_SMOKE_NOTIFY")
         && !reply.is_empty()
     {
@@ -166,6 +173,7 @@ pub fn install(window: &Rc<AppWindow>) {
     native_crypto::install(window);
     email_factor::install(window);
     email_settings::install(window);
+    reminders::install(window);
     let login = std::env::var("RV_SMOKE_LOGIN").unwrap_or_default();
     let room = std::env::var("RV_SMOKE_ROOM").unwrap_or_default();
     let text = std::env::var("RV_SMOKE_SEND").unwrap_or_default();

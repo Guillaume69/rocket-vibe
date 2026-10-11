@@ -439,6 +439,8 @@ struct MessageRow: View, Equatable {
     @State private var discussing = false
     /// The emoji picker, to react with any emoji.
     @State private var reacting = false
+    /// "Pick a time" for a reminder about this message.
+    @State private var pickingReminder = false
 
     nonisolated static func == (a: MessageRow, b: MessageRow) -> Bool {
         a.message == b.message && a.editing == b.editing && a.revealed == b.revealed && a.model === b.model
@@ -502,6 +504,9 @@ struct MessageRow: View, Equatable {
         }
         .modalOverlay(isPresented: $discussing) {
             NewDiscussionSheet(model: model, source: message)
+        }
+        .modalOverlay(isPresented: $pickingReminder) {
+            PickTimeCard(reminder: reminderTimes()) { remind($0) }
         }
     }
 
@@ -684,6 +689,20 @@ struct MessageRow: View, Equatable {
                 NSPasteboard.general.setString(link, forType: .string)
             }
         }
+        if model?.canRemind(message) == true {
+            if let pending = app.reminder(for: message.id) {
+                Button { app.cancelReminder(message.id) } label: { Label(pending.cancelLabel, systemImage: "alarm") }
+            } else {
+                Menu {
+                    Button(L("reminders.in_hour")) { remind(reminderTimes().inOneHour) }
+                    Button(L("reminders.in_three_hours")) { remind(reminderTimes().inThreeHours) }
+                    Button(L("reminders.tomorrow")) { remind(reminderTimes().tomorrowMorning) }
+                    Button(L("reminders.pick") + "…") { pickingReminder = true }
+                } label: {
+                    Label(L("reminders.remind_me"), systemImage: "alarm")
+                }
+            }
+        }
         if model?.canReport(message) == true {
             Button(L("report.action")) { app.startReport(.message(message.id)) }
         }
@@ -693,6 +712,11 @@ struct MessageRow: View, Equatable {
         } else if message.delivery == .failed, model?.canAbandon == true {
             Button(L("native.abandon")) { model?.abandon(message.id) }
         }
+    }
+
+    /// A reminder about this message at `due` (Unix seconds), on the device.
+    func remind(_ due: Int64) {
+        app.remind(message, roomName: model?.room.name ?? "", due: due)
     }
 
     func title(_ action: MessageAction) -> String {

@@ -66,6 +66,14 @@ public final class AppModel {
     /// A workflow's new webhook URL (`WorkflowsModel.generateWebhook`), for
     /// the window's sheet: shown once, in memory only, like `botKey`.
     public internal(set) var workflowWebhook: String?
+    /// The Reminders list over the window, from the account menu.
+    public var remindersShown = false
+    /// Moves when a reminder is set, cancelled or fired: the message menus
+    /// and the list read the device's reminders again.
+    public internal(set) var remindersRevision = 0
+    /// A reminder whose time came, for the app's notifications (`Reminders.swift`).
+    public var onReminder: ((DueReminder) -> Void)?
+    @ObservationIgnored var reminderTimer: Task<Void, Never>?
 
     /// Room ids opened, for back and forward.
     var history: [String] = []

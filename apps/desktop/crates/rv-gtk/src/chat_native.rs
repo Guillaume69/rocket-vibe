@@ -715,6 +715,18 @@ impl ChatPage {
                     });
                     list.append(&button);
                 }
+                if crate::reminders::offered(&row)
+                    && let Some(s) = self.native_session()
+                {
+                    let weak = Rc::downgrade(self);
+                    let toast: Rc<dyn Fn(String)> = Rc::new(move |text| {
+                        if let Some(this) = weak.upgrade() {
+                            this.toast(text);
+                        }
+                    });
+                    let draft = crate::reminders::Draft::of(&row, &self.current_name());
+                    list.append(&crate::reminders::menu_item(&popover, &s.info, draft, toast));
+                }
                 if row.outbox_status.as_deref() == Some("failed") {
                     for (key, abandon) in [("native.retry", false), ("native.abandon", true)] {
                         let button = gtk::Button::builder().label(t(key)).css_classes(["flat"]).build();

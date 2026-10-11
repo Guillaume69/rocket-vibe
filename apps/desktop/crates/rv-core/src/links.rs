@@ -97,7 +97,8 @@ pub fn parse(link: &str) -> Option<RoomLink> {
         }
     }
     let native = match (instance, epoch) {
-        (None, None) if user_id.is_none() => None,
+        // A local reminder pins its account by server and user (rv-core `reminders`).
+        (None, None) if user_id.is_none() || host.is_some() => None,
         (Some(instance_id), Some(data_epoch)) if host.is_some() && id(&instance_id) && id(&data_epoch) => {
             Some(Identity { instance_id, data_epoch })
         }
@@ -194,6 +195,10 @@ mod tests {
         assert!(fits(&old, &account("alice", false)));
         assert!(!fits(&old, &account("alice", true)));
         assert!(fits(&parse("rocketvibe://salon/room").unwrap(), &account("alice", false)));
+        let pinned =
+            parse("rocketvibe://room/room?host=https%3A%2F%2Fchat.example.org%2Fnative&userId=alice&msg=m1").unwrap();
+        assert!(fits(&pinned, &account("alice", false)) && !fits(&pinned, &account("bob", false)));
+        assert!(!fits(&pinned, &account("alice", true)));
         let accounts = [account("alice", true), account("bob", true)];
         let public = parse(&native_permalink(&accounts[0], "room", None, None).unwrap()).unwrap();
         assert_eq!(select(&public, &accounts, None), None);

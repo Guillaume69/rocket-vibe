@@ -1,5 +1,5 @@
-const CACHE='rv-shell-82c6bb41f43fb70c';
-const ASSETS=["/","/assets/Baloo2_600SemiBold-BdWXeuOC.ttf","/assets/Baloo2_700Bold-Cjbtejvw.ttf","/assets/Baloo2_800ExtraBold-qOkBzYl0.ttf","/assets/Noto-COLRv1-BcXdrMyF.ttf","/assets/Nunito_400Regular-BaWrjX0c.ttf","/assets/Nunito_600SemiBold-B4qcAUfD.ttf","/assets/Nunito_700Bold-LWqDuPdh.ttf","/assets/Nunito_800ExtraBold-De0aZuyy.ttf","/assets/admin-CoXHoVQ6.js","/assets/bots-lqFxl5Yu.js","/assets/cue-join-xgNC4jwo.ogg","/assets/cue-leave-DVXW9D-K.ogg","/assets/cue-missed-CTnauKK-.ogg","/assets/cue-mute-4QEtROfH.ogg","/assets/cue-unmute-BWSe_5VY.ogg","/assets/emblem-system-symbolic-Sry63SBf.svg","/assets/favicon-Cmjb6sZ-.png","/assets/index-Cdpt7skf.js","/assets/index-Dsdg4o7I.css","/assets/livekit-client.e2ee.worker-CHfIzpN8.mjs","/assets/livekit-client.esm-Bl9Ber4A.js","/assets/panels-CNLaRCTH.js","/assets/preferences-controls-YzdGmKUe.js","/assets/ringback-B5tbZIZJ.ogg","/assets/ringtone-BJS6bYjD.ogg","/assets/rv_crypto_web_bg-NKiVFROv.wasm","/assets/system-run-symbolic-CybRJGJG.svg","/assets/worker-8oQdPBMR.js","/assets/workflow-forms-Dd2sCIT5.js","/assets/icon-b56deead0816.png","/manifest.webmanifest"];
+const CACHE='rv-shell-891e434de4cf252c';
+const ASSETS=["/","/assets/Baloo2_600SemiBold-BdWXeuOC.ttf","/assets/Baloo2_700Bold-Cjbtejvw.ttf","/assets/Baloo2_800ExtraBold-qOkBzYl0.ttf","/assets/Noto-COLRv1-BcXdrMyF.ttf","/assets/Nunito_400Regular-BaWrjX0c.ttf","/assets/Nunito_600SemiBold-B4qcAUfD.ttf","/assets/Nunito_700Bold-LWqDuPdh.ttf","/assets/Nunito_800ExtraBold-De0aZuyy.ttf","/assets/admin-XiaYyMCv.js","/assets/bots-DiZ_CHhT.js","/assets/cue-join-xgNC4jwo.ogg","/assets/cue-leave-DVXW9D-K.ogg","/assets/cue-message-69heR_nf.ogg","/assets/cue-missed-CTnauKK-.ogg","/assets/cue-mute-4QEtROfH.ogg","/assets/cue-unmute-BWSe_5VY.ogg","/assets/emblem-system-symbolic-Sry63SBf.svg","/assets/favicon-Cmjb6sZ-.png","/assets/index-Bx3dHEBF.css","/assets/index-g4nFg2Fk.js","/assets/livekit-client.e2ee.worker-CHfIzpN8.mjs","/assets/livekit-client.esm-Bl9Ber4A.js","/assets/panels-BW5mn-TA.js","/assets/preferences-controls-CmzelegO.js","/assets/ringback-B5tbZIZJ.ogg","/assets/ringtone-BJS6bYjD.ogg","/assets/rv_crypto_web_bg-NKiVFROv.wasm","/assets/system-run-symbolic-CybRJGJG.svg","/assets/worker-8oQdPBMR.js","/assets/workflow-forms-BfVCrQpm.js","/assets/icon-b56deead0816.png","/manifest.webmanifest"];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(ASSETS)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(names=>Promise.all(names.filter(name=>name.startsWith('rv-shell-')&&name!==CACHE).slice(0,-1).map(name=>caches.delete(name)))).then(()=>self.clients.claim())));
 self.addEventListener('fetch',event=>{
@@ -9,3 +9,35 @@ if(event.request.mode==='navigate'&&(url.pathname==='/'||url.pathname.startsWith
 event.respondWith(fetch(event.request).catch(()=>caches.open(CACHE).then(cache=>cache.match('/'))));return;}
 if(ASSETS.includes(url.pathname)||/^\/assets\/[a-zA-Z0-9_.-]+$/.test(url.pathname))event.respondWith(caches.match(event.request).then(response=>response||fetch(event.request)));
 });
+const waiting=[];
+self.addEventListener('message',event=>{
+const data=event.data;
+if(!data||typeof data!=='object')return;
+if(data.type==='rv-notification-hello'&&event.ports[0]){
+event.ports[0].postMessage({version:1,inlineReply:typeof NotificationEvent!=='undefined'&&'reply' in NotificationEvent.prototype});return;}
+if(data.type==='rv-notification-ready'&&event.source)
+for(const item of waiting.splice(0)){event.source.postMessage(item.click);item.done();}
+});
+self.addEventListener('notificationclick',event=>{
+const data=event.notification.data;
+if(!data||data.rv!=='message')return;
+event.notification.close();
+const click={type:'rv-notification',action:['read','like','reply'].includes(event.action)?event.action:'open',reply:typeof event.reply==='string'?event.reply:null,account:data.account,room:data.room,message:data.message};
+const work=hand(click).catch(()=>{});
+// A synthetic event (tests) cannot extend its lifetime; the work still runs.
+try{event.waitUntil(work)}catch{}
+});
+async function hand(click){
+const background=click.action==='read'||click.action==='like'||(click.action==='reply'&&!!click.reply&&!!click.reply.trim());
+const tabs=await self.clients.matchAll({type:'window',includeUncontrolled:true});
+const tab=tabs.find(c=>c.focused)||tabs.find(c=>c.visibilityState==='visible')||tabs[0];
+if(tab){
+if(!background)try{await tab.focus()}catch{}
+tab.postMessage(click);return;}
+await new Promise(done=>{
+const item={click,done};
+waiting.push(item);
+setTimeout(()=>{const at=waiting.indexOf(item);if(at>=0)waiting.splice(at,1);done();},60000);
+self.clients.openWindow('/room/'+encodeURIComponent(click.room)).catch(()=>{});
+});
+}

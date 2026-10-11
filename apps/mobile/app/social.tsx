@@ -381,7 +381,7 @@ export default function SocialScreen() {
         accessibilityLabel={translate(language, "social.search_gifs")}
         placeholder={translate(language, "social.search_gifs")}
         placeholderTextColor={c.dimmed}
-        value={query} maxLength={128} autoFocus
+        value={query} maxLength={128} autoFocus autoCorrect={false} autoCapitalize="none"
         onChangeText={value => { request.current++; setSelected(null); setItems([]); setSearching(true); setQuery(value); }}
         onSubmitEditing={() => { if (selected && !searching) void send(selected); }}
         returnKeyType={selected ? "send" : "search"} blurOnSubmit={false} editable={!busy}

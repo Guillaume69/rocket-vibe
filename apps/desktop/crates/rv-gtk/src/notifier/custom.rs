@@ -18,6 +18,7 @@ pub(super) struct Backend {
     app: gio::Application,
     cards: RefCell<Vec<Rc<Card>>>,
     action: Rc<dyn Fn(rv_native::Event)>,
+    polling: Cell<bool>,
 }
 
 struct Card {
@@ -38,12 +39,19 @@ struct Card {
 
 impl Backend {
     pub(super) fn new(app: &gio::Application, action: Rc<dyn Fn(rv_native::Event)>) -> Rc<Self> {
-        let this = Rc::new(Self { app: app.clone(), cards: RefCell::default(), action });
-        let weak = Rc::downgrade(&this);
+        Rc::new(Self { app: app.clone(), cards: RefCell::default(), action, polling: Cell::new(false) })
+    }
+
+    fn start_poll(self: &Rc<Self>) {
+        if self.polling.replace(true) {
+            return;
+        }
+        let weak = Rc::downgrade(self);
         glib::timeout_add_local(Duration::from_millis(200), move || {
             let Some(this) = weak.upgrade() else { return glib::ControlFlow::Break };
             if this.cards.borrow().is_empty() {
-                return glib::ControlFlow::Continue;
+                this.polling.set(false);
+                return glib::ControlFlow::Break;
             }
             if rv_native::quiet() {
                 this.clear();
@@ -62,7 +70,6 @@ impl Backend {
             this.fit(None);
             glib::ControlFlow::Continue
         });
-        this
     }
 
     pub(super) fn clear(&self) {
@@ -170,6 +177,7 @@ impl Backend {
             rv_native::notification_focus(handle(&card.window));
             card.entry.grab_focus();
         }
+        self.start_poll();
         if gtk::Settings::default().is_some_and(|s| s.is_gtk_enable_animations()) {
             card.window.set_opacity(0.0);
             let window = card.window.downgrade();

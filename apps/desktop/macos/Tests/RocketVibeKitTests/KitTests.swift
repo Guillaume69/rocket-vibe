@@ -210,7 +210,7 @@ final class BotsTests: XCTestCase {
 
 final class ServerRailOrderTests: XCTestCase {
     @MainActor
-    func testSwitchingChangesSelectionWithoutMovingTiles() {
+    func testSwitchingChangesSelectionWithoutMovingTiles() async {
         func account(_ user: String) -> Account {
             Account(genre: "rocketchat", key: "https://chat.example.com|" + user,
                     baseUrl: "https://chat.example.com", userId: user, username: user)

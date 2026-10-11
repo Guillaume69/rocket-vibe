@@ -27,10 +27,10 @@ func sample(_ id: String, _ minutesAgo: Int64, _ author: String, _ body: [BodyBl
     return MessageItem(
         id: id, rid: "gallery", ts: ts, author: author, authorId: author, avatar: "", mine: author == "alice",
         showHeader: header, showDay: day, gutterTime: !header, newMarker: marker, system: system, param: param,
-        callId: nil, locked: false, body: body, text: nil, quotes: [], images: [], files: [], cards: [], social: nil,
+        callId: nil, locked: false, body: body, text: nil, quotes: [], images: [], files: [], cards: [],
         reactions: reactions, edited: edited, delivery: delivery, threadCount: replies, threadId: nil,
         pinned: false, starred: false, authorBot: false, form: nil, authorLabel: author, discussion: nil,
-        seen: nil)
+        seen: nil, social: nil)
 }
 
 let gallerySamples: [MessageItem] = [

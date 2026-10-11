@@ -116,6 +116,7 @@ beta does.
 | Reduce videos before sending (H.264 720p) | done | missing | missing | partial | Web: WebCodecs and Mediabunny in a worker, mobile's 720p/2 Mbps, progress and Cancel in the strip, the Original choice shared with photos (`src/video-reduce.ts`, `tests/video-reduce.mjs`). Partial by browser: without an H.264 encoder (some Firefox builds, Linux Chromium) or for a WebM with an alpha plane, the original goes out, the strip saying so for the former. |
 | Checks against `FileUpload_MaxFileSize` and `FileUpload_MediaTypeWhiteList` | done | done | done | partial | Web: Implemented native browser equivalent requires row-specific GTK qualification; see docs/WEB_CLIENT_EXECUTION.md. |
 | Two-step upload (`rooms.media`, `rooms.mediaConfirm`) with progress | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
+| Rocket.Chat uncertain attachment confirmation: persist the attempt and check delivery without posting twice | missing | done | done | n/a | GTK and SwiftUI share rv-core's confirm guard (plain/encrypted, restart recovery), and show "Checking delivery". A recognized provider 4xx still permits explicit Retry. Mobile's file-id/history lookup can still replay an uncertain confirmation; it owes this guard. Web speaks only the native RocketVibe contract. SwiftUI status label awaits Mac GUI qualification. |
 | Voice recording | done | done | done | done | Mobile and SwiftUI send AAC `.m4a`, GTK Ogg/Opus. Web: Browser MediaRecorder codec, GTK bar/clock/cancel/stop and inline staged replay; actual capture cancellation and constructor/start failures qualified in tests/features.mjs. |
 | Replay and caption a voice message before sending | done | done | done | done | SwiftUI checked by the macOS CI build only. Web: Native provider: see [web-client](features/web-client.md). |
 | Slash commands (`commands.list`, `commands.run`) and their private answers | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
@@ -344,7 +345,7 @@ Mattermost/kChat protected-copy isolation and logout cleanup are implemented on 
 What each app owes, from the tables above. Rows missing in all three native apps
 are product gaps, listed last.
 
-- **Mobile**: the local speaking-while-muted voice reminder (native monitor and device qualification); kChat "Sign in with Infomaniak" run on a real account; several accounts per server;
+- **Mobile**: Rocket.Chat attachment confirmation attempt guard and "Checking delivery" status; the local speaking-while-muted voice reminder (native monitor and device qualification); kChat "Sign in with Infomaniak" run on a real account; several accounts per server;
   live styling of the draft; logs folder; in notifications the author's photo,
   the message's picture, quick reactions and mark as read, the app's own sound,
   custom notification cards; on RocketVibe accounts the thread list, following

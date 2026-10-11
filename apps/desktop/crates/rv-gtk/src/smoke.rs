@@ -289,10 +289,15 @@ pub fn install(window: &Rc<AppWindow>) {
             let Some(rid) = w.chat.room_named(&room) else { return };
             opened.set(true);
             w.chat.open_room(&rid);
-            if std::env::var("RV_SMOKE_NAVIGATION").as_deref() == Ok("1") {
+            if matches!(std::env::var("RV_SMOKE_NAVIGATION").as_deref(), Ok("1" | "activity")) {
+                let activity = std::env::var("RV_SMOKE_NAVIGATION").as_deref() == Ok("activity");
                 let (window, chat) = (w.window.clone(), w.chat.clone());
                 glib::timeout_add_local_once(Duration::from_millis(2000), move || {
-                    glib::spawn_future_local(navigation_checks(window, chat));
+                    if activity {
+                        glib::spawn_future_local(activity_checks(window, chat));
+                    } else {
+                        glib::spawn_future_local(navigation_checks(window, chat));
+                    }
                 });
             }
             if std::env::var("RV_SMOKE_DEVICES").as_deref() == Ok("1") {
@@ -1482,6 +1487,23 @@ fn details_checks(
             glib::timeout_future(Duration::from_millis(2500)).await;
             let change = chat.widget().root().and_then(|root| find_by_class(root.upcast_ref(), "room-avatar-change"));
             check("channel image picker offered to owner", change.is_some_and(|w| w.is_visible()), rid);
+            let tile = chat
+                .widget()
+                .root()
+                .and_then(|root| find_by_class(root.upcast_ref(), "room-info-photo"))
+                .and_then(|photo| photo.first_child())
+                .and_downcast::<gtk::Overlay>();
+            let rendered = tile.is_some_and(|tile| {
+                let mut child = tile.first_child();
+                while let Some(widget) = child {
+                    if widget.is::<gtk::Picture>() {
+                        return true;
+                    }
+                    child = widget.next_sibling();
+                }
+                false
+            });
+            check("channel image rendered in the open dialog", rendered, rendered);
         } else if what == "room" {
             let (s, r) = (session.clone(), rid.clone());
             let info = crate::on_tokio(async move { s.room_info(&r).await }).await;
@@ -2369,6 +2391,11 @@ async fn navigation_checks(window: adw::ApplicationWindow, chat: Rc<crate::chat:
     check("rail toggle changes actual visibility", rail.is_visible() == before, rail.is_visible());
     toggle.emit_clicked();
     check("rail toggle restores visibility", rail.is_visible() != before, rail.is_visible());
+    activity_checks(window, chat).await;
+}
+
+async fn activity_checks(window: adw::ApplicationWindow, chat: Rc<crate::chat::ChatPage>) {
+    let root: &gtk::Widget = window.upcast_ref();
     let connection = find_by_class(root, "connection-button").expect("connection control");
     check(
         "connection dot lives in account footer",

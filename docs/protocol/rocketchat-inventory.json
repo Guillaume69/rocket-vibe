@@ -2810,49 +2810,55 @@
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 105,
+      "line": 104,
       "kind": "endpoint",
       "surface": "rooms.pending"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 105,
+      "line": 104,
       "kind": "endpoint",
       "surface": "rooms.rejected"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 109,
+      "line": 108,
       "kind": "endpoint",
       "surface": "rooms.clear"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 109,
+      "line": 108,
       "kind": "endpoint",
       "surface": "rooms.resume"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 137,
+      "line": 136,
       "kind": "endpoint",
       "surface": "rooms.review"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 181,
+      "line": 180,
       "kind": "endpoint",
       "surface": "rooms.edit"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 195,
+      "line": 194,
       "kind": "endpoint",
       "surface": "rooms.members"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 212,
+      "line": 211,
+      "kind": "endpoint",
+      "surface": "rooms.leave"
+    },
+    {
+      "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
+      "line": 225,
       "kind": "endpoint",
       "surface": "rooms.leave"
     },
@@ -2860,83 +2866,77 @@
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
       "line": 226,
       "kind": "endpoint",
-      "surface": "rooms.leave"
-    },
-    {
-      "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 227,
-      "kind": "endpoint",
       "surface": "rooms.leave_body"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 231,
+      "line": 230,
       "kind": "endpoint",
       "surface": "rooms.leave"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 239,
+      "line": 238,
       "kind": "endpoint",
       "surface": "rooms.leave"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 283,
+      "line": 282,
       "kind": "endpoint",
       "surface": "rooms.revision"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 316,
+      "line": 315,
       "kind": "endpoint",
       "surface": "rooms.edit"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 356,
+      "line": 355,
       "kind": "endpoint",
       "surface": "rooms.more"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 359,
+      "line": 358,
       "kind": "endpoint",
       "surface": "rooms.members"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 432,
+      "line": 431,
       "kind": "endpoint",
       "surface": "rooms.member"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 432,
+      "line": 431,
       "kind": "endpoint",
       "surface": "rooms.moderator"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 432,
+      "line": 431,
       "kind": "endpoint",
       "surface": "rooms.owner"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 439,
+      "line": 438,
       "kind": "endpoint",
       "surface": "rooms.disabled"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 439,
+      "line": 438,
       "kind": "endpoint",
       "surface": "rooms.role"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 447,
+      "line": 446,
       "kind": "endpoint",
       "surface": "rooms.apply_role"
     },
@@ -3032,31 +3032,31 @@
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/smoke.rs",
-      "line": 985,
+      "line": 990,
       "kind": "call:GET",
       "surface": "\"subscriptions.getOne\", options).await.ok()?;"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/smoke.rs",
-      "line": 985,
+      "line": 990,
       "kind": "endpoint",
       "surface": "subscriptions.getOne"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/smoke.rs",
-      "line": 1079,
+      "line": 1084,
       "kind": "endpoint",
       "surface": "chat.postMessage"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/smoke.rs",
-      "line": 1118,
+      "line": 1123,
       "kind": "call:GET",
       "surface": "\"subscriptions.getOne\", options).await.ok()?;"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/smoke.rs",
-      "line": 1118,
+      "line": 1123,
       "kind": "endpoint",
       "surface": "subscriptions.getOne"
     },

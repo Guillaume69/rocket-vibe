@@ -98,7 +98,6 @@ pub(super) fn controls(
             parent,
             rv_core::provider::Chat::Native(session.clone()),
             rid.clone(),
-            Rc::new(|_| {}),
         ));
     }
     if let Some(saved) = saved {

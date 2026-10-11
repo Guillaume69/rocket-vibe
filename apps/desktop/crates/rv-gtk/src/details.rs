@@ -92,7 +92,7 @@ pub fn room_info(
     let content = column();
     let tile = with_photo(room_tile(room.name, room.kind, false, TileSize::Profile), Some(&session), room.avatar);
     tile.set_halign(gtk::Align::Center);
-    let photo = gtk::Box::builder().halign(gtk::Align::Center).build();
+    let photo = gtk::Box::builder().halign(gtk::Align::Center).css_classes(["room-info-photo"]).build();
     photo.append(&tile);
     content.append(&photo);
     content.append(&centered(room.name, &["details-name"]));
@@ -103,6 +103,21 @@ pub fn room_info(
     let dialog = dialog(t("info.room"), content.upcast_ref(), 460);
     crate::widgets::present(&dialog, Some(parent));
     let rid = room.rid.to_owned();
+    let (s, photo, name, kind) = (session.clone(), photo.clone(), room.name.to_owned(), room.kind.to_owned());
+    let last_photo = std::cell::RefCell::new(None::<String>);
+    let show_photo: Rc<dyn Fn(String)> = Rc::new(move |path| {
+        if last_photo.borrow().as_ref() == Some(&path) {
+            return;
+        }
+        last_photo.replace(Some(path.clone()));
+        while let Some(child) = photo.first_child() {
+            photo.remove(&child);
+        }
+        photo.append(&with_photo(room_tile(&name, &kind, false, TileSize::Profile), Some(&s), Some(path)));
+    });
+    if session.members_available(&rid) {
+        room_avatar::follow(&dialog, session.clone(), rid.clone(), show_photo.clone());
+    }
     let me = session.info.username.clone();
     let notifications = crate::room_notifications::group(&session, &rid);
     let weak = dialog.downgrade();
@@ -129,15 +144,8 @@ pub fn room_info(
             let shown = Rc::new(std::cell::RefCell::new(info.clone()));
             let members = members_group(&dialog, session.clone(), &rid, info.as_ref().and_then(|i| i.members), profile);
             content.append(&members.0);
-            if edit && let Some(info) = info.as_ref() {
-                let (s, photo, name, kind) = (session.clone(), photo.clone(), info.name.clone(), info.kind.clone());
-                let saved = Rc::new(move |path: String| {
-                    while let Some(child) = photo.first_child() {
-                        photo.remove(&child);
-                    }
-                    photo.append(&with_photo(room_tile(&name, &kind, false, TileSize::Profile), Some(&s), Some(path)));
-                });
-                content.append(&room_avatar::controls(&dialog, Chat::Legacy(session.clone()), rid.clone(), saved));
+            if edit && info.is_some() {
+                content.append(&room_avatar::controls(&dialog, Chat::Legacy(session.clone()), rid.clone()));
                 let button = gtk::Button::builder()
                     .label(t("room_settings.edit"))
                     .halign(gtk::Align::Center)

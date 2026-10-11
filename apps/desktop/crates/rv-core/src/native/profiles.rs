@@ -79,11 +79,12 @@ impl NativeSession {
             .into_iter()
             .map(|room| {
                 let peer = self.store.direct_peer(&room.id)?;
-                let avatar = if room.kind != rv_protocol::RoomKind::Direct && self.room_avatars_available() {
-                    Some(format!("room:{}:{}", room.id, room.revision))
-                } else {
-                    peer.as_ref().and_then(|p| p.avatar_file_id.clone())
-                };
+                let avatar =
+                    if room.kind != rv_protocol::RoomKind::Direct && !room.encrypted && self.room_avatars_available() {
+                        Some(format!("room:{}:{}", room.id, room.revision))
+                    } else {
+                        peer.as_ref().and_then(|p| p.avatar_file_id.clone())
+                    };
                 let (unread, mentions, alert) =
                     if reads { super::read_presentation::badges(room.read_state.as_deref()) } else { (0, 0, false) };
                 let read_only = !self.room_send_permitted(&room.id);

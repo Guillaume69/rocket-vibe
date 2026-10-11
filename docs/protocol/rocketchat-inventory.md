@@ -371,28 +371,28 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:16](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L16) | endpoint | rooms.unavailable |
 | [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:17](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L17) | endpoint | rooms.command_offline |
 | [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:19](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L19) | endpoint | rooms.failed |
-| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:105](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L105) | endpoint | rooms.pending |
-| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:105](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L105) | endpoint | rooms.rejected |
-| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:109](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L109) | endpoint | rooms.clear |
-| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:109](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L109) | endpoint | rooms.resume |
-| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:137](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L137) | endpoint | rooms.review |
-| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:181](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L181) | endpoint | rooms.edit |
-| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:195](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L195) | endpoint | rooms.members |
-| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:212](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L212) | endpoint | rooms.leave |
-| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:226](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L226) | endpoint | rooms.leave |
-| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:227](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L227) | endpoint | rooms.leave_body |
-| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:231](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L231) | endpoint | rooms.leave |
-| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:239](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L239) | endpoint | rooms.leave |
-| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:283](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L283) | endpoint | rooms.revision |
-| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:316](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L316) | endpoint | rooms.edit |
-| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:356](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L356) | endpoint | rooms.more |
-| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:359](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L359) | endpoint | rooms.members |
-| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:432](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L432) | endpoint | rooms.member |
-| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:432](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L432) | endpoint | rooms.moderator |
-| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:432](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L432) | endpoint | rooms.owner |
-| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:439](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L439) | endpoint | rooms.disabled |
-| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:439](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L439) | endpoint | rooms.role |
-| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:447](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L447) | endpoint | rooms.apply_role |
+| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:104](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L104) | endpoint | rooms.pending |
+| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:104](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L104) | endpoint | rooms.rejected |
+| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:108](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L108) | endpoint | rooms.clear |
+| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:108](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L108) | endpoint | rooms.resume |
+| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:136](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L136) | endpoint | rooms.review |
+| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:180](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L180) | endpoint | rooms.edit |
+| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:194](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L194) | endpoint | rooms.members |
+| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:211](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L211) | endpoint | rooms.leave |
+| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:225](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L225) | endpoint | rooms.leave |
+| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:226](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L226) | endpoint | rooms.leave_body |
+| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:230](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L230) | endpoint | rooms.leave |
+| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:238](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L238) | endpoint | rooms.leave |
+| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:282](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L282) | endpoint | rooms.revision |
+| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:315](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L315) | endpoint | rooms.edit |
+| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:355](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L355) | endpoint | rooms.more |
+| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:358](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L358) | endpoint | rooms.members |
+| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:431](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L431) | endpoint | rooms.member |
+| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:431](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L431) | endpoint | rooms.moderator |
+| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:431](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L431) | endpoint | rooms.owner |
+| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:438](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L438) | endpoint | rooms.disabled |
+| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:438](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L438) | endpoint | rooms.role |
+| [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:446](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L446) | endpoint | rooms.apply_role |
 | [apps/desktop/crates/rv-gtk/src/login.rs:130](../../apps/desktop/crates/rv-gtk/src/login.rs#L130) | endpoint | chat.example.com |
 | [apps/desktop/crates/rv-gtk/src/notifier.rs:324](../../apps/desktop/crates/rv-gtk/src/notifier.rs#L324) | endpoint | im.received |
 | [apps/desktop/crates/rv-gtk/src/notifier.rs:426](../../apps/desktop/crates/rv-gtk/src/notifier.rs#L426) | endpoint | im.received |
@@ -408,11 +408,11 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-gtk/src/settings.rs:391](../../apps/desktop/crates/rv-gtk/src/settings.rs#L391) | endpoint | e2e.lock |
 | [apps/desktop/crates/rv-gtk/src/settings.rs:391](../../apps/desktop/crates/rv-gtk/src/settings.rs#L391) | endpoint | e2e.unlock |
 | [apps/desktop/crates/rv-gtk/src/settings.rs:405](../../apps/desktop/crates/rv-gtk/src/settings.rs#L405) | endpoint | e2e.locked |
-| [apps/desktop/crates/rv-gtk/src/smoke.rs:985](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L985) | call:GET | "subscriptions.getOne", options).await.ok()?; |
-| [apps/desktop/crates/rv-gtk/src/smoke.rs:985](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L985) | endpoint | subscriptions.getOne |
-| [apps/desktop/crates/rv-gtk/src/smoke.rs:1079](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L1079) | endpoint | chat.postMessage |
-| [apps/desktop/crates/rv-gtk/src/smoke.rs:1118](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L1118) | call:GET | "subscriptions.getOne", options).await.ok()?; |
-| [apps/desktop/crates/rv-gtk/src/smoke.rs:1118](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L1118) | endpoint | subscriptions.getOne |
+| [apps/desktop/crates/rv-gtk/src/smoke.rs:990](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L990) | call:GET | "subscriptions.getOne", options).await.ok()?; |
+| [apps/desktop/crates/rv-gtk/src/smoke.rs:990](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L990) | endpoint | subscriptions.getOne |
+| [apps/desktop/crates/rv-gtk/src/smoke.rs:1084](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L1084) | endpoint | chat.postMessage |
+| [apps/desktop/crates/rv-gtk/src/smoke.rs:1123](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L1123) | call:GET | "subscriptions.getOne", options).await.ok()?; |
+| [apps/desktop/crates/rv-gtk/src/smoke.rs:1123](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L1123) | endpoint | subscriptions.getOne |
 | [apps/desktop/crates/rv-gtk/src/smoke/rocket_chat.rs:196](../../apps/desktop/crates/rv-gtk/src/smoke/rocket_chat.rs#L196) | call:GET | "chat.getMessage", rv_core::rest::CallOptions::params([("msgId", id.as_str())])).await |
 | [apps/desktop/crates/rv-gtk/src/smoke/rocket_chat.rs:196](../../apps/desktop/crates/rv-gtk/src/smoke/rocket_chat.rs#L196) | endpoint | chat.getMessage |
 | [apps/desktop/crates/rv-gtk/src/smoke/rocket_chat.rs:420](../../apps/desktop/crates/rv-gtk/src/smoke/rocket_chat.rs#L420) | endpoint | rooms.quoted_message |

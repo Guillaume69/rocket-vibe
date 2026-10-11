@@ -11,6 +11,8 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     static let replyAction = "reply"
 
     var onOpen: ((String, String, String?) -> Void)?
+    /// A reminder's notification: its link opens the account, the room and the message.
+    var onOpenLink: ((String) -> Void)?
     var onReply: ((String, String, String?, String) -> Void)?
 
     /// Unbundled (a bare `swift run`), there is no notification center to ask.
@@ -44,6 +46,19 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         center.add(UNNotificationRequest(identifier: (scope.map { $0 + ":" } ?? "") + incoming.id, content: content, trigger: nil))
     }
 
+    /// A reminder whose time came: "Reminder", the room, then the author and the excerpt.
+    func showReminder(_ reminder: DueReminder) {
+        guard let center else { return }
+        let content = UNMutableNotificationContent()
+        content.title = reminder.title
+        content.subtitle = reminder.roomName
+        content.body = replaceShortcodes(text: reminder.line)
+        content.sound = .default
+        content.threadIdentifier = "reminders"
+        if let link = reminder.link { content.userInfo = ["reminderLink": link] }
+        center.add(UNNotificationRequest(identifier: reminder.key, content: content, trigger: nil))
+    }
+
     func test() {
         guard let center else { return }
         let content = UNMutableNotificationContent()
@@ -73,6 +88,10 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         _ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse
     ) async {
         let info = response.notification.request.content.userInfo
+        if let link = info["reminderLink"] as? String {
+            await MainActor.run { onOpenLink?(link) }
+            return
+        }
         guard let rid = info["rid"] as? String, let id = info["id"] as? String else { return }
         let reply = (response as? UNTextInputNotificationResponse)?.userText
         let scope = info["scope"] as? String

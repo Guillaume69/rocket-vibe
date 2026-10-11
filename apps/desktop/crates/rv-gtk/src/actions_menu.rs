@@ -17,6 +17,8 @@ use crate::on_tokio;
 
 pub struct RoomContext {
     pub rid: String,
+    /// The room's name as the list shows it, for a reminder about one of its messages.
+    pub name: String,
     pub read_only: bool,
     pub encrypted: bool,
     pub in_thread: bool,
@@ -251,6 +253,13 @@ fn menu(
             }
         };
         column.append(&button);
+    }
+    // A reminder about any sent message, on the device (`crate::reminders`).
+    if crate::reminders::offered(row) {
+        let h = handlers.clone();
+        let toast: Rc<dyn Fn(String)> = Rc::new(move |text| (h.toast)(text));
+        let draft = crate::reminders::Draft::of(row, &room.name);
+        column.append(&crate::reminders::menu_item(popover, &session.info, draft, toast));
     }
     // Anyone may report someone else's message; not a system line.
     if row.author_id != session.info.user_id && row.system_type.is_none() && row.outbox_status.is_none() {

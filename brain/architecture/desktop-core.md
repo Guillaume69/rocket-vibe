@@ -45,7 +45,9 @@ Context: [desktop-app.md](desktop-app.md) for the crate layout, [rocket-chat.md]
 | `emoji_usage` | The emoji I react with most, per account, in a small file on the device (`EmojiUsage::for_account`, one shared instance per file; `record`, which reads the file again before each write and writes through a temporary file of its own name so GTK and SwiftUI merge; `top`, `top_filtered`; `canonical`, `same`); see [../features/emoji.md](../features/emoji.md#quick-reactions-and-reacting-with-any-emoji) |
 | `server_icon` | The server's own icon for the rail, read without signing in: Rocket.Chat's `favicon_192` asset (`settings.public?_id=Assets_favicon_192`), RocketVibe's instance icon at `Discovery.icon_revision`, none for Mattermost and kChat. `fetch` answers `enum Icon { Image, Absent, Unknown }`: at most 2 MiB read, only PNG or JPEG magic bytes accepted, and `Unknown` (unreachable, refused, not an image) keeps the shown icon; see [../features/login-and-servers.md](../features/login-and-servers.md) |
 | `admin` | Server administration and reports for both providers: the shared model, the Rocket.Chat calls (`rc`), `enum Admin { RocketChat, Native }` with the methods both UIs call, `AdminError` (the server's code, plus the rooms of a Rocket.Chat last owner or the count of a bulk delete), `error_key` (one sentence per code for both UIs), the latest-version check; see [../features/administration.md](../features/administration.md) |
+| `reminders` | "Remind me": the device's reminders, one JSON file per account under `<config>/reminders/` that GTK and SwiftUI share (`Reminders`: `set`, `get`, `pending`, `cancel`, `remove_account`, `take_due`, `wait`), the excerpt, the times and bounds, and the link a fired one opens; see [../features/reminders.md](../features/reminders.md) |
 | `native` | The RocketVibe provider (`NativeSession` over `rv-client`, its own store `native/store.rs`); `native/admin.rs` adds the administration and report methods (`administrator`, `admin_*`, `report_*`) and the bots switch, `native/scheduled.rs` scheduled messages (schedule with a kept operation id, the room's list, cancel, and the times and words both UIs show, see [../features/scheduled-messages.md](../features/scheduled-messages.md)), `native/bots.rs` the bot calls and their shared wording (`error_key`, `scope_key`, `routes`, `example`, see [../features/bots.md](../features/bots.md)), and `native.rs` the deleted-account helpers (`deleted_username`, `shown_username`, `deleted_user`) |
+| `members` | A Rocket.Chat room's members (`MemberList`: pages merged, a page with nothing new ending it), my rights on them and each row's menu, the role and kick routes per room kind, refusals already in place taken as done, the room settings and the diff `rooms.saveRoomSettings` gets; the REST calls in `rocketchat::actions`, the entry points `Session::room_members`, `member_rights`, `set_member_role`, `remove_member`, `can_edit_room`, `save_room_settings`; see [../features/room-info-and-profiles.md](../features/room-info-and-profiles.md#desktop) |
 | `notify`, `links`, `call`, `player`, `info`, `account`, `server`, `update`, `i18n`, `animation` | Notification rules, `rocketvibe://` links, call-origin rule, video embed page, on-demand details, my account, server probe, self-update, the shared catalog (see [i18n.md](i18n.md)), GIF frames |
 
 ## session
@@ -180,6 +182,7 @@ Unit tests sit next to the code; integration tests in `crates/rv-core/tests/` (`
 - apps/desktop/crates/rv-core/src/context.rs
 - apps/desktop/crates/rv-core/src/diff.rs
 - apps/desktop/crates/rv-core/src/rooms.rs
+- apps/desktop/crates/rv-core/src/members.rs
 - apps/desktop/crates/rv-core/src/server.rs
 - apps/desktop/crates/rv-core/src/e2e.rs
 - apps/desktop/crates/rv-core/src/update.rs
@@ -189,6 +192,7 @@ Unit tests sit next to the code; integration tests in `crates/rv-core/tests/` (`
 - apps/desktop/crates/rv-core/src/i18n.rs
 - apps/desktop/crates/rv-voice-protocol/src/lib.rs
 - apps/desktop/crates/rv-core/src/emoji_usage.rs
+- apps/desktop/crates/rv-core/src/reminders.rs
 - apps/desktop/crates/rv-core/src/emoji.rs
 - apps/desktop/crates/rv-core/data/emojis.tsv
 - apps/desktop/scripts/generate-emojis.mjs

@@ -55,7 +55,10 @@ import { readEmojiUsage, recordReaction } from '../ui/emojiUsage.ts';
 import { useHardwareBack } from '../ui/hardwareBack.ts';
 import { ReportForm } from '../ui/reportForm.tsx';
 import { notify } from '../ui/toast.tsx';
-import { useT } from '../ui/i18n.ts';
+import { useReminderFormatter, useT } from '../ui/i18n.ts';
+import { roomTitle, useDisplayNames, useIdentities } from '../ui/identities.tsx';
+import { armReminder, cancelReminder, currentReminderAccount, pendingReminder } from '../ui/reminders.ts';
+import { hasAttachments, reminderExcerpt, type Reminder } from '../lib/reminders.ts';
 import { requestReply } from '../ui/reply.ts';
 import { useSession } from '../ui/session.tsx';
 import { useSync } from '../ui/sync.tsx';
@@ -162,6 +165,12 @@ export default function MessageActionsScreen() {
   // "Report" swapped the actions for the reason field.
   const [reporting, setReporting] = useState(false);
   const [usage, setUsage] = useState<EmojiUse[]>([]);
+  // The message's reminder still to come ("Cancel reminder (…)"), read once:
+  // nothing else changes it while the sheet is open.
+  const [reminder, setReminderState] = useState<Reminder | null>(null);
+  const reminderWhen = useReminderFormatter();
+  const displayNames = useDisplayNames();
+  const identities = useIdentities();
 
   const ready = sync.phase === 'ready' && state.phase === 'connected' && typeof id === 'string';
   const base = sync.phase === 'ready' ? sync.base : null;
@@ -356,6 +365,16 @@ export default function MessageActionsScreen() {
         (unicodeOfShortcode(code) !== null && reactable(code)) || (!standardOnly && customs.includes(code))),
     [usage, standardOnly, customs, reactable],
   );
+  useEffect(() => {
+    if (!ready || typeof id !== 'string') return;
+    let alive = true;
+    void pendingReminder(id).then((found) => {
+      if (alive) setReminderState(found);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [ready, id]);
   const closePicker = useCallback(() => setPicking(false), []);
   useHardwareBack(picking, closePicker);
 
@@ -437,6 +456,35 @@ export default function MessageActionsScreen() {
     const link = messagePermalink({ baseUrl: client.baseUrl, siteUrl, type: room.type, name: room.name, rid: message.rid, msgId: message.id });
     router.back();
     router.push({ pathname: '/forward', params: { link, mid: message.id, from: message.rid } });
+  };
+
+  // "Remind me" (brain/features/reminders.md): any message with an id, mine
+  // or not, in a room or a thread, every server kind; an encrypted one once
+  // its text is readable. Not a deleted one nor a system event. Stored on the
+  // device only (`ui/reminders.ts`).
+  const remindable = currentReminderAccount() !== null && message.deleted !== true
+    && (message.systemType === null || (message.systemType === ENCRYPTED_TYPE && (message.text ?? '').trim() !== ''));
+  const remindMe = async () => {
+    const account = currentReminderAccount();
+    if (account === null || base === null) return;
+    void Haptics.selectionAsync();
+    const roomRow = (await base.select().from(rooms).where(eq(rooms.rid, message.rid)).limit(1))[0];
+    const shownAuthor = message.authorId === undefined ? undefined : (displayNames.get(message.authorId) ?? identities.get(message.authorId));
+    armReminder({
+      account,
+      messageId: message.id,
+      rid: message.rid,
+      roomName: roomRow === undefined ? message.rid : roomTitle(roomRow, displayNames),
+      threadId: message.threadId,
+      author: shownAuthor ?? message.authorName ?? '',
+      excerpt: reminderExcerpt(message.text, hasAttachments(message.attachments), {
+        attachment: t('reminders.attachment'),
+        message: t('reminders.message'),
+      }),
+    });
+    if (!sheetOpen.current) return;
+    router.back();
+    router.push('/remind-me');
   };
 
   // Adding counts one use of the emoji at the tap, before the server
@@ -850,6 +898,24 @@ export default function MessageActionsScreen() {
               icon="non-starred"
               label={t('messageActions.unstar')}
               onPress={() => void act(() => star(false))}
+            />
+          )}
+          {remindable && reminder === null && (
+            <ActionRow
+              c={c}
+              disabled={busy}
+              icon="preferences-system-notifications"
+              label={t('reminders.remindMe')}
+              onPress={() => void remindMe().catch(() => setError(t('reminders.failed')))}
+            />
+          )}
+          {remindable && reminder !== null && (
+            <ActionRow
+              c={c}
+              disabled={busy}
+              icon="notifications-disabled"
+              label={t('reminders.cancelAt', { when: reminderWhen(reminder.dueAt) })}
+              onPress={() => void act(() => cancelReminder(reminder.messageId))}
             />
           )}
           {reportable && (

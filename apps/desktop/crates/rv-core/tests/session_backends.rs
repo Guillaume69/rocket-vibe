@@ -192,6 +192,17 @@ async fn mattermost_has_no_invites_or_discussions() {
                 assert!(s.create_discussion("r1", "plans", None, None).await.is_err());
                 assert!(s.open_discussion("d1").await.is_err());
                 assert!(!s.can_invite("r1").await);
+                // Nor the room members, roles and settings of Rocket.Chat.
+                assert!(!s.members_available("r1"));
+                assert!(s.room_members("r1", "", 0).await.is_err());
+                let role = rv_core::members::Role::Moderator;
+                assert!(s.set_member_role("r1", "u1", role, true).await.is_err());
+                assert!(s.remove_member("r1", "u1").await.is_err());
+                assert!(!s.can_edit_room("r1").await);
+                assert!(!s.may_post_read_only("r1").await);
+                let settings = rv_core::members::RoomSettings::default();
+                let changed = rv_core::members::RoomSettings { read_only: true, ..Default::default() };
+                assert!(s.save_room_settings("r1", &settings, &changed).await.is_err());
             })
             .await;
         assert!(calls.iter().all(|(_, p)| p.ends_with("/websocket") || !p.contains("invite")), "{calls:?}");

@@ -12,6 +12,7 @@ All notable changes are documented here in English.
 
 ### Added
 
+- Remind me: from a message's menu, a reminder in an hour, three hours, tomorrow at 09:00 or a time you pick. It is kept in this browser and fires as a notification (or a dialog) that opens the message; Reminders in the account menu lists and cancels them.
 - Send later: the arrow beside Send schedules the message for in an hour, tomorrow at 08:00 or a time you pick (up to 30 days), and the server sends it then even with the tab closed. A "N scheduled" chip above the composer lists them, to cancel. Not in end-to-end encrypted rooms.
 - During do not disturb, an incoming call shows in the tab without ringing.
 - Read receipts: under your latest message, "Seen" in a direct conversation and "Seen by" with names in a group, live. Settings > My account turns them off, both ways.

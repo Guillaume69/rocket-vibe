@@ -790,6 +790,15 @@ dialog::backdrop {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.reminder-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.reminder-room {
+  font-weight: 700;
+}
 .seen-receipt {
   margin: 2px 16px 6px auto;
   padding-right: 8px;

@@ -22,7 +22,9 @@ mod native_voice;
 mod native_workflows;
 pub mod people;
 mod reactions;
+mod reminders;
 pub mod rocket_chat;
+pub mod room_members;
 pub mod writing;
 
 use std::path::PathBuf;

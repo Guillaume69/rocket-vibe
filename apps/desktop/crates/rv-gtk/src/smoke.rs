@@ -37,7 +37,8 @@
 //!   RV_SMOKE_REPORT, RV_SMOKE_ADMIN  members' reports and the administration: see `admin`
 //!   RV_SMOKE_DETAILS=profile:<user> | room | search:<text> | settings | emoji:<code> | marked
 //!                          | threads | jump:<message id> | permissions:<expected, comma-separated>
-//!                          | local_search | also_in_room | invite | discussion | preview: see `rocket_chat`
+//!                          | local_search | also_in_room | invite | discussion | preview
+//!                          | members: see `rocket_chat`
 //!                          checks the read and opens the dialog; emoji: a custom one completes;
 //!                          threads: follows the newest thread and back, then opens it;
 //!                          unread: marks the open room read, then unread (it is left and
@@ -62,6 +63,11 @@
 //!                          it "In 1 hour": the field clears and the chip shows; cancels it from
 //!                          the list's data, then the list read again no longer has it
 //!                          (RV_SMOKE_SCHEDULE_HOLD=1: left scheduled, the list open, for a screenshot)
+//!   RV_SMOKE_REMINDERS=<other room>  "Remind me" on the open room's last message: In 1 hour
+//!                          from its menu, then Cancel reminder; one a few seconds ahead must
+//!                          fire as a notification (served by the smoke) and leave the store, one
+//!                          8 days late must be dropped, a click on the notification (from <other
+//!                          room>) opens the message; the Reminders list cancels; see `reminders`
 //!   RV_SMOKE_REENTER=1     after opening the room: back to the list, tap the same room, expect it open
 //!   RV_SMOKE_EDIT=<tag>    sends "<tag> before", presses Up, types "<tag> after" in the row
 //!                          and saves after RV_SMOKE_EDIT_SAVE_MS (default 3000)
@@ -113,6 +119,7 @@ mod native_files;
 mod native_quotes;
 mod native_reads;
 mod native_reload;
+mod reminders;
 mod rocket_chat;
 mod room_management;
 mod security;
@@ -146,6 +153,7 @@ pub fn autostart() -> Option<glib::ExitCode> {
 }
 
 pub fn install_early() {
+    reminders::install_early();
     if let Ok(reply) = std::env::var("RV_SMOKE_NOTIFY")
         && !reply.is_empty()
     {
@@ -165,6 +173,7 @@ pub fn install(window: &Rc<AppWindow>) {
     native_crypto::install(window);
     email_factor::install(window);
     email_settings::install(window);
+    reminders::install(window);
     let login = std::env::var("RV_SMOKE_LOGIN").unwrap_or_default();
     let room = std::env::var("RV_SMOKE_ROOM").unwrap_or_default();
     let text = std::env::var("RV_SMOKE_SEND").unwrap_or_default();
@@ -1490,6 +1499,8 @@ fn details_checks(
             rocket_chat::also_in_room_checks(chat, session, rid, tag.to_owned()).await;
         } else if let Some(expected) = what.strip_prefix("invite:") {
             rocket_chat::invite_checks(chat, session, rid, expected == "yes").await;
+        } else if let Some(user) = what.strip_prefix("members:") {
+            rocket_chat::member_checks(chat, session, rid, user.to_owned()).await;
         } else if let Some(tag) = what.strip_prefix("discussion:") {
             rocket_chat::discussion_checks(chat, session, rid, tag.to_owned()).await;
         } else if let Some(target) = what.strip_prefix("preview:") {

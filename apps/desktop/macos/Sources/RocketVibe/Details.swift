@@ -70,6 +70,8 @@ struct RoomInfoView: View {
     @State var failed = false
     /// "New discussion" (Rocket.Chat), over this sheet.
     @State var discussing = false
+    /// Moves once the room's settings are saved here: its information is read again.
+    @State var saves = 0
 
     var body: some View {
         SheetFrame(title: L("info.room")) {
@@ -94,6 +96,7 @@ struct RoomInfoView: View {
                 } else {
                     ProgressView()
                 }
+                if model.supportsMembers { MembersSection(model: model, details: details, saved: { saves += 1 }) }
                 if model.supportsRoomNotifications { RoomNotificationPicker(model: model) }
                 if model.supportsDiscussions { InviteSection(model: model) }
                 if model.canCreateDiscussion {
@@ -105,7 +108,7 @@ struct RoomInfoView: View {
             .formStyle(.grouped)
         }
         .modalOverlay(isPresented: $discussing) { NewDiscussionSheet(model: model, source: nil) }
-        .task(id: "\(model.roomInformationRevision):\(app.connection)") {
+        .task(id: "\(model.roomInformationRevision):\(app.connection):\(saves)") {
             guard model.supportsRoomInfo else { dismiss(); return }
             details = nil; management = nil; failed = false
             do {

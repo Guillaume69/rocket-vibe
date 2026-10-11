@@ -19,7 +19,7 @@ use crate::live;
 use crate::mattermost::socket::{self as live_socket, LiveEvent, LiveHandle};
 use crate::mattermost::{self, Flavor};
 use crate::rocketchat;
-use crate::{info, media};
+use crate::{info, media, members};
 
 const UPDATE_AVATAR: &str = "updateAvatar";
 use crate::media::MediaCache;
@@ -1851,6 +1851,93 @@ impl Session {
         };
         let base = self.settings().await.site_url.clone().unwrap_or_else(|| self.info.base_url.clone());
         Ok(actions::invite_link(&base, &id))
+    }
+
+    /// Whether I may still write in the room while it is read-only: my
+    /// global and room roles grant `post-readonly` (Rocket.Chat; the server
+    /// lets those post). False when that could not be asked.
+    pub async fn may_post_read_only(&self, rid: &str) -> bool {
+        match self.backend() {
+            Backend::RocketChat => {}
+            Backend::Mattermost(_) => return false,
+        }
+        self.permissions(rid).await.is_some_and(|g| g.iter().any(|p| p == actions::POST_READONLY_PERMISSION))
+    }
+
+    /// Whether a room's members, their roles and its settings can be
+    /// managed from here (Rocket.Chat, a channel or private group).
+    pub fn members_available(&self, rid: &str) -> bool {
+        match self.backend() {
+            Backend::RocketChat => matches!(self.store.room_kind(rid).as_deref(), Some("c" | "p")),
+            Backend::Mattermost(_) => false,
+        }
+    }
+
+    /// The room's kind when its members can be managed here.
+    fn member_room(&self, rid: &str) -> Result<String, RestError> {
+        match self.backend() {
+            Backend::RocketChat => {}
+            Backend::Mattermost(_) => return Err(RestError::incomplete("members: not on this server")),
+        }
+        self.store
+            .room_kind(rid)
+            .filter(|k| k == "c" || k == "p")
+            .ok_or_else(|| RestError::incomplete("members: not a channel or group"))
+    }
+
+    /// A page of the room's members, owners and moderators first, `filter`
+    /// searched by the server; read each time, never stored.
+    pub async fn room_members(&self, rid: &str, filter: &str, offset: u32) -> Result<members::MemberPage, RestError> {
+        self.member_room(rid)?;
+        rocketchat::actions::members(&self.rest, rid, filter, offset).await
+    }
+
+    /// What my global and room roles let me do on others in the room
+    /// (`set-moderator`, `set-owner`, `remove-user`); nothing when that
+    /// could not be asked.
+    pub async fn member_rights(&self, rid: &str) -> members::MemberRights {
+        if !self.members_available(rid) {
+            return members::MemberRights::default();
+        }
+        self.permissions(rid).await.map(|g| members::MemberRights::from_granted(&g)).unwrap_or_default()
+    }
+
+    /// Whether my roles grant `edit-room`: the room's texts and read-only flag.
+    pub async fn can_edit_room(&self, rid: &str) -> bool {
+        self.members_available(rid)
+            && self.permissions(rid).await.is_some_and(|g| g.iter().any(|p| p == members::EDIT_ROOM))
+    }
+
+    /// Gives (`put`) or takes a room role from `user_id`.
+    pub async fn set_member_role(
+        &self,
+        rid: &str,
+        user_id: &str,
+        role: members::Role,
+        put: bool,
+    ) -> Result<(), RestError> {
+        let kind = self.member_room(rid)?;
+        rocketchat::actions::set_member_role(&self.rest, &kind, rid, user_id, role, put).await
+    }
+
+    /// Removes `user_id` from the room.
+    pub async fn remove_member(&self, rid: &str, user_id: &str) -> Result<(), RestError> {
+        let kind = self.member_room(rid)?;
+        rocketchat::actions::remove_member(&self.rest, &kind, rid, user_id).await
+    }
+
+    /// Saves what changed between `before` and `after`; false when nothing
+    /// did, and nothing was sent.
+    pub async fn save_room_settings(
+        &self,
+        rid: &str,
+        before: &members::RoomSettings,
+        after: &members::RoomSettings,
+    ) -> Result<bool, RestError> {
+        self.member_room(rid)?;
+        let Some(fields) = members::settings_changes(before, after) else { return Ok(false) };
+        rocketchat::actions::save_room_settings(&self.rest, rid, fields).await?;
+        Ok(true)
     }
 
     /// Creates a discussion of `prid` named `name`, from the message `pmid`

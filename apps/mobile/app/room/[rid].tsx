@@ -44,6 +44,7 @@ import {usePrivateQuotes} from '../../ui/privateQuotes.ts';
 import {CryptoNative} from '../../modules/crypto-native/index.ts';
 import {RoomMembershipBound} from '../../ui/roomMembership.tsx';
 import { UploadBands } from '../../ui/uploadBands.tsx';
+import { useMayPostReadonly } from '../../ui/postReadonly.ts';
 import { KeyboardAvoidingContainer } from '../../ui/keyboard.tsx';
 import { useMentionCandidates } from '../../ui/mentionCompletion.tsx';
 import { Composer } from '../../ui/composer.tsx';
@@ -309,6 +310,7 @@ function Room({
   );
   const room = roomRows?.[0];
   const protectedRoom=native && room?.encrypted===true;
+  const mayPostReadonly=useMayPostReadonly(base,client,rid,room?.readOnly===true);
   const router=useRouter();
   const nativeChat=provider.native?.chat;
   const cryptoAvailable=!!CryptoNative && nativeChat?.capabilities?.e2ee===true && nativeChat.capabilities.device_sessions===true;
@@ -326,6 +328,15 @@ function Room({
     }).catch(()=>{if(!canceled){consumedLink.current=linkTarget;notify(t('room.linkUnavailable'));}});
     return()=>{canceled=true;};
   },[linkTarget,online,nativeChat,rid,router,t,membership]);
+  // Rocket.Chat and Mattermost: a link naming a message (a "Remind me"
+  // reminder's, `ui/reminders.ts`) opens its thread for a reply, else jumps to
+  // it in the room, like a search result.
+  useEffect(()=>{
+    if(!linkTarget||nativeChat||consumedLink.current===linkTarget)return;
+    consumedLink.current=linkTarget;
+    if(linkTarget.root)router.push({pathname:'/thread/[id]',params:{id:linkTarget.root,...(linkTarget.message?{message:linkTarget.message}:{})}});
+    else if(linkTarget.message)requestJump(rid,{id:linkTarget.message});
+  },[linkTarget,nativeChat,rid,router]);
   type ListRow = MessageRowData | BarRow | DayRow;
   const list = useRef<FlashListRef<ListRow>>(null);
   const readVisible=useRef(()=>{});
@@ -1305,7 +1316,7 @@ function Room({
             files={provider.capabilities.files === false ? null : protectedRoom ? conversation.files : files}
             client={client}
             mentionCandidates={mentionCandidates}
-            readOnly={protectedRoom ? canWrite!==true || conversation.view?.can_send!==true || conversation.view.catching_up : provider.native && provider.capabilities.roomInfo ? canWrite!==true : room.readOnly}
+            readOnly={protectedRoom ? canWrite!==true || conversation.view?.can_send!==true || conversation.view.catching_up : provider.native && provider.capabilities.roomInfo ? canWrite!==true : room.readOnly && !mayPostReadonly}
             encrypted={room.encrypted}
             nativeEncryptedReady={protectedRoom && conversation.view!==null}
             catchingUp={protectedRoom && conversation.view?.catching_up===true}

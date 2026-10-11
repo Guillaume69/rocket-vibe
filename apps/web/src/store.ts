@@ -182,7 +182,7 @@ export class Model {
 let database: Promise<IDBDatabase> | undefined;
 function open(): Promise<IDBDatabase> {
   return (database ??= new Promise((resolve, reject) => {
-    const request = indexedDB.open("rocket-vibe-web", 4);
+    const request = indexedDB.open("rocket-vibe-web", 5);
     request.onupgradeneeded = () => {
       for (const name of [
         "accounts",
@@ -193,6 +193,7 @@ function open(): Promise<IDBDatabase> {
         "uploads",
         "staged",
         "media",
+        "reminders",
       ])
         if (!request.result.objectStoreNames.contains(name))
           request.result.createObjectStore(name);
@@ -298,6 +299,7 @@ export async function purge(account: string): Promise<void> {
         "uploads",
         "staged",
         "media",
+        "reminders",
       ],
       "readwrite",
     );
@@ -310,6 +312,7 @@ export async function purge(account: string): Promise<void> {
       "uploads",
       "staged",
       "media",
+      "reminders",
     ]) {
       const request = tx.objectStore(name).openCursor();
       request.onsuccess = () => {

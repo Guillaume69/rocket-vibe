@@ -171,6 +171,7 @@ impl ChatPage {
             kind: room.kind,
             name: room.name.clone(),
             read_only: room.read_only,
+            post_read_only: false,
             encrypted: room.encrypted,
             avatar: room.avatar_etag.map(|id| format!("rv-avatar:{id}")),
             slug: None,
@@ -713,6 +714,18 @@ impl ChatPage {
                         p.popdown();
                     });
                     list.append(&button);
+                }
+                if crate::reminders::offered(&row)
+                    && let Some(s) = self.native_session()
+                {
+                    let weak = Rc::downgrade(self);
+                    let toast: Rc<dyn Fn(String)> = Rc::new(move |text| {
+                        if let Some(this) = weak.upgrade() {
+                            this.toast(text);
+                        }
+                    });
+                    let draft = crate::reminders::Draft::of(&row, &self.current_name());
+                    list.append(&crate::reminders::menu_item(&popover, &s.info, draft, toast));
                 }
                 if row.outbox_status.as_deref() == Some("failed") {
                     for (key, abandon) in [("native.retry", false), ("native.abandon", true)] {

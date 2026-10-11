@@ -10,7 +10,7 @@
  * are only used here) and arrive later.
  */
 
-import { eq } from 'drizzle-orm';
+import { and, eq, ne } from 'drizzle-orm';
 import { useCoalescedLiveQuery } from '../ui/liveQuery.ts';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
@@ -20,6 +20,7 @@ import type { LocalDatabase } from '../db/client.ts';
 import { subscriptions, rooms } from '../db/schema.ts';
 import type { E2EEngine } from '../lib/e2e/engine.ts';
 import type { RestClient } from '../lib/rest.ts';
+import { openProfileCard } from '../lib/profilePreload.ts';
 import type { ProviderActions, RoomInformation } from '../lib/provider.ts';
 import { useE2EUnlocked } from '../ui/e2e.ts';
 import { translateCurrent, useT } from '../ui/i18n.ts';
@@ -91,6 +92,7 @@ function RoomInfoContent({
   const router = useRouter();
   const { state } = useSession();
   const siteUrl = state.phase === 'connected' ? state.session.siteUrl : null;
+  const me = state.phase === 'connected' ? state.session.userId : '';
   const { data: rows } = useCoalescedLiveQuery(
     base.select().from(rooms).where(eq(rooms.rid, rid)),
     [rid],
@@ -132,6 +134,12 @@ function RoomInfoContent({
       .then((r) => {
         if (!alive) return;
         setDetails({version,value:r});
+        // Rocket.Chat: the server's read-only flag, after a save from this sheet
+        // above all, reaches the room row the composer reads without waiting
+        // for the rooms stream. RocketVibe's store owns its rows.
+        if (!native && client.kind === 'rocketchat') {
+          void base.update(rooms).set({ readOnly: r.readOnly }).where(and(eq(rooms.rid, rid), ne(rooms.readOnly, r.readOnly))).catch(() => {});
+        }
       })
       .catch((e: unknown) => {
         // The local database already filled in the essentials: failure only costs
@@ -141,7 +149,7 @@ function RoomInfoContent({
     return () => {
       alive = false;
     };
-  }, [actions, rid, native, roomPresent, version,refreshing]);
+  }, [actions, base, client, rid, native, roomPresent, version,refreshing]);
 
   const shownNames = useDisplayNames();
   const name = extras?.name || (room ? roomTitle(room, shownNames) : '') || '?';
@@ -250,7 +258,7 @@ function RoomInfoContent({
         <RoomSettingsEditor c={c} client={client} actions={actions} rid={rid} roles={subscription.roles} info={extras} onSaved={() => setRefreshing((value) => value + 1)} />
       )}
 
-      {extras?.management && actions.roomManagement && <RoomCommands rid={rid} base={base} details={extras.management} actions={actions.roomManagement} c={c} refresh={()=>setRefreshing(value=>value+1)} />}
+      {extras?.management && actions.roomManagement && <RoomCommands rid={rid} base={base} details={extras.management} actions={actions.roomManagement} c={c} refresh={()=>setRefreshing(value=>value+1)} me={me} openProfile={(uid)=>{router.back();void openProfileCard({uid});}} />}
       {native && membership && <EncryptedGroupSection c={c} room={rid} membership={membership}/>}
 
       {extras?.announcement !== null && extras !== null && (

@@ -278,6 +278,11 @@ impl AppWindow {
             app,
             move |rid, message| {
                 if let Some(this) = w1.upgrade() {
+                    if rid.starts_with(rv_core::reminders::NOTIFICATION_PREFIX) {
+                        this.window.present();
+                        this.open_reminder_link(&message);
+                        return;
+                    }
                     if rid.starts_with("rv-native:") {
                         this.window.present();
                         this.notification_action(NotificationAction { key: rid, message, text: None });
@@ -345,7 +350,9 @@ impl AppWindow {
                 this.pending_link.take();
             }
         });
-        this.notifier.replace(Some(notifier));
+        this.notifier.replace(Some(notifier.clone()));
+        // Missed reminders fire now, the others at their time.
+        crate::reminders::start(notifier);
         let weak = Rc::downgrade(&this);
         this.chat.connect_rooms_loaded(move || {
             if let Some(this) = weak.upgrade() {
@@ -932,6 +939,7 @@ impl AppWindow {
                 let this = self.clone();
                 glib::spawn_future_local(async move {
                     if let Some(info) = expired {
+                        crate::reminders::forget(&info);
                         on_tokio(async move { secrets::remove(&info).await }).await;
                     }
                     this.previous.replace(on_tokio(secrets::load_all()).await.into_iter().next());
@@ -1091,6 +1099,7 @@ impl AppWindow {
                     return;
                 }
                 this.stop_session(true);
+                crate::reminders::forget(&info);
                 on_tokio(async move { secrets::remove(&info).await }).await;
                 match on_tokio(secrets::load_all()).await.into_iter().next() {
                     Some(next) => this.switch_to(next),
@@ -1104,6 +1113,7 @@ impl AppWindow {
         let this = self.clone();
         glib::spawn_future_local(async move {
             let info = session.info.clone();
+            crate::reminders::forget(&info);
             on_tokio(async move {
                 secrets::remove(&info).await;
                 if !session.logout().await {
@@ -1153,10 +1163,20 @@ impl AppWindow {
     }
 
     pub fn open_notification(self: &Rc<Self>, key: String, message: String) {
-        if key.starts_with("rv-native:") {
+        if key.starts_with(rv_core::reminders::NOTIFICATION_PREFIX) {
+            self.open_reminder_link(&message);
+        } else if key.starts_with("rv-native:") {
             self.notification_action(NotificationAction { key, message, text: None });
         } else if self.chat.native_session().is_none() {
             self.chat.open_message(&key, &message);
+        }
+    }
+
+    /// A fired reminder's notification: its link opens the account, the room
+    /// and the message; one without a link (an id no link can carry) opens nothing.
+    fn open_reminder_link(self: &Rc<Self>, link: &str) {
+        if !link.is_empty() {
+            self.open_link(link);
         }
     }
 

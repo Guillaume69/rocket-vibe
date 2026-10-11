@@ -83,6 +83,37 @@ const fr = {
   'scheduled.reason.invalid_request': 'moment ou texte refusé',
   'scheduled.reason.other': 'erreur du serveur ({code})',
   'scheduled.reason.network': 'serveur injoignable',
+  'reminders.remindMe': 'Me le rappeler',
+  'reminders.inOneHour': 'Dans 1 heure',
+  'reminders.inThreeHours': 'Dans 3 heures',
+  'reminders.tomorrow': 'Demain à 09:00',
+  'reminders.pickTime': 'Choisir l’heure',
+  'reminders.day': 'Jour',
+  'reminders.time': 'Heure (HH:MM)',
+  'reminders.previousDay': 'Jour précédent',
+  'reminders.nextDay': 'Jour suivant',
+  'reminders.previousMonth': 'Mois précédent',
+  'reminders.nextMonth': 'Mois suivant',
+  'reminders.confirm': 'Programmer le rappel',
+  'reminders.outOfRange': 'Choisissez un moment entre dans une minute et dans un an.',
+  'reminders.set': 'Rappel prévu pour {when}',
+  'reminders.notificationsOff': 'Rappel prévu, mais les notifications sont désactivées pour l’application.',
+  'reminders.failed': 'Impossible d’enregistrer le rappel.',
+  'reminders.cancel': 'Annuler le rappel',
+  'reminders.cancelAt': 'Annuler le rappel ({when})',
+  'reminders.title': 'Rappels',
+  'reminders.hint': 'Les messages à vous rappeler',
+  'reminders.notificationTitle': 'Rappel',
+  'reminders.empty': 'Aucun rappel',
+  'reminders.attachment': 'Pièce jointe',
+  'reminders.message': 'Message',
+  'reminders.threadReply': 'Réponse dans un fil',
+  'reminders.exactTitle': 'Rappels à l’heure',
+  'reminders.exactBody': 'Android peut retarder vos rappels de plusieurs minutes, voire davantage. Autorisez « Alarmes et rappels » pour qu’ils arrivent à l’heure.',
+  'reminders.exactLater': 'Plus tard',
+  'reminders.exactOpen': 'Ouvrir les réglages',
+  'reminders.exactLate': 'Les rappels peuvent arriver en retard : « Alarmes et rappels » n’est pas autorisé.',
+  'reminders.exactAllow': 'Autoriser',
   'group.title': 'Groupe chiffré',
   'group.empty': 'Aucun groupe chiffré créé pour ce salon.',
   'group.notAdmitted': 'Cet appareil doit encore rejoindre le groupe.',
@@ -257,6 +288,10 @@ const fr = {
   'roomManagement.refresh': 'Les informations doivent être actualisées. La demande conservée reste en attente.',
   'roomManagement.unavailable': 'Cette action est indisponible sur ce serveur.',
   'roomManagement.failed': 'L’action n’a pas pu être confirmée. Vérifiez la demande conservée avant de réessayer.',
+  'roomManagement.addMember': 'Ajouter',
+  'roomManagement.addMemberField': 'Nom d’utilisateur à ajouter',
+  'roomManagement.userNotFound': 'Aucun compte actif ne porte ce nom d’utilisateur.',
+  'roomManagement.memberOffline': 'La connexion est indisponible. Réessayez une fois reconnecté.',
   'native.title': 'Serveur RocketVibe',
   'native.message': 'Message',
   'native.online': 'Connecté',
@@ -1027,7 +1062,9 @@ const fr = {
   'discussion.kind': 'Discussion',
   'discussion.messages': '{n} message | {n} messages',
   'discussion.open': 'Ouvrir',
-  'roomSettings.edit': 'Modifier le sujet, la description, l’annonce',
+  'roomSettings.edit': 'Modifier les réglages du salon',
+  'roomSettings.readOnly': 'Lecture seule',
+  'roomSettings.readOnlyHint': 'Seuls ceux qui en ont le droit, propriétaires et modérateurs par défaut, peuvent écrire.',
   'roomSettings.failed': 'Le serveur a refusé la modification.',
   'members.title': 'Membres',
   'members.count': '{n} membre | {n} membres',
@@ -1600,6 +1637,37 @@ const en: Record<TranslationKey, string> = {
   'scheduled.reason.invalid_request': 'time or text refused',
   'scheduled.reason.other': 'server error ({code})',
   'scheduled.reason.network': 'server unreachable',
+  'reminders.remindMe': 'Remind me',
+  'reminders.inOneHour': 'In 1 hour',
+  'reminders.inThreeHours': 'In 3 hours',
+  'reminders.tomorrow': 'Tomorrow at 09:00',
+  'reminders.pickTime': 'Pick a time',
+  'reminders.day': 'Day',
+  'reminders.time': 'Time (HH:MM)',
+  'reminders.previousDay': 'Previous day',
+  'reminders.nextDay': 'Next day',
+  'reminders.previousMonth': 'Previous month',
+  'reminders.nextMonth': 'Next month',
+  'reminders.confirm': 'Set reminder',
+  'reminders.outOfRange': 'Pick a time between one minute and one year from now.',
+  'reminders.set': 'Reminder set for {when}',
+  'reminders.notificationsOff': 'Reminder set, but notifications are off for the app.',
+  'reminders.failed': 'Could not save the reminder.',
+  'reminders.cancel': 'Cancel reminder',
+  'reminders.cancelAt': 'Cancel reminder ({when})',
+  'reminders.title': 'Reminders',
+  'reminders.hint': 'Messages to be reminded of',
+  'reminders.notificationTitle': 'Reminder',
+  'reminders.empty': 'No reminders',
+  'reminders.attachment': 'Attachment',
+  'reminders.message': 'Message',
+  'reminders.threadReply': 'Thread reply',
+  'reminders.exactTitle': 'Reminders on time',
+  'reminders.exactBody': 'Android may deliver your reminders minutes late, or more. Allow "Alarms and reminders" so they arrive on time.',
+  'reminders.exactLater': 'Not now',
+  'reminders.exactOpen': 'Open settings',
+  'reminders.exactLate': 'Reminders may arrive late: "Alarms and reminders" is not allowed.',
+  'reminders.exactAllow': 'Allow',
   'group.title': 'Encrypted group',
   'group.empty': 'No encrypted group has been created for this room.',
   'group.notAdmitted': 'This device still needs to join the group.',
@@ -1774,6 +1842,10 @@ const en: Record<TranslationKey, string> = {
   'roomManagement.refresh': 'Information needs refreshing. The saved request remains pending.',
   'roomManagement.unavailable': 'This action is unavailable on this server.',
   'roomManagement.failed': 'The action could not be confirmed. Check the saved request before retrying.',
+  'roomManagement.addMember': 'Add',
+  'roomManagement.addMemberField': 'Username to add',
+  'roomManagement.userNotFound': 'No active account has this username.',
+  'roomManagement.memberOffline': 'The connection is unavailable. Try again once reconnected.',
   'native.title': 'RocketVibe server',
   'native.message': 'Message',
   'native.online': 'Connected',
@@ -2531,7 +2603,9 @@ const en: Record<TranslationKey, string> = {
   'discussion.kind': 'Discussion',
   'discussion.messages': '{n} message | {n} messages',
   'discussion.open': 'Open',
-  'roomSettings.edit': 'Edit topic, description, announcement',
+  'roomSettings.edit': 'Edit room settings',
+  'roomSettings.readOnly': 'Read-only',
+  'roomSettings.readOnlyHint': 'Only those allowed to, owners and moderators by default, can write.',
   'roomSettings.failed': 'The server refused the change.',
   'members.title': 'Members',
   'members.count': '{n} member | {n} members',
@@ -3055,6 +3129,22 @@ export function scheduleFormatter(language: Language): (ms: number) => string {
     minute: '2-digit',
   });
   return (ms) => format.format(new Date(ms));
+}
+
+/**
+ * When a reminder fires ("Reminder set for …", the reminders list, "Cancel
+ * reminder (…)"): like `scheduleFormatter`, with the year when it is not the
+ * current one (a reminder may be up to a year ahead). `nowMs` injectable.
+ */
+export function reminderFormatter(language: Language): (ms: number, nowMs?: number) => string {
+  const locale = language === 'fr' ? 'fr-FR' : 'en-US';
+  const hour = language === 'fr' ? '2-digit' : 'numeric';
+  const thisYear = new Intl.DateTimeFormat(locale, { weekday: 'short', day: 'numeric', month: 'short', hour, minute: '2-digit' });
+  const otherYear = new Intl.DateTimeFormat(locale, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour, minute: '2-digit' });
+  return (ms, nowMs = Date.now()) => {
+    const at = new Date(ms);
+    return (at.getFullYear() === new Date(nowMs).getFullYear() ? thisYear : otherYear).format(at);
+  };
 }
 
 /**

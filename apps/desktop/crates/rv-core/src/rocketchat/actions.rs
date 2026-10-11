@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 use crate::account::Me;
 use crate::info::{self, Profile, RoomInfo};
 use crate::live::{self, Presence};
+use crate::members;
 use crate::normalize::Message;
 use crate::rest::{CallOptions, RestClient, RestError, TwoFactorCode};
 use crate::rooms::Found;
@@ -113,6 +114,65 @@ pub async fn find_or_create_invite(rest: &RestClient, rid: &str) -> Result<Strin
         .filter(|id| !id.is_empty())
         .map(str::to_owned)
         .ok_or_else(|| RestError::incomplete("findOrCreateInvite: no invite id"))
+}
+
+/// A page of the room's members (`rooms.membersOrderedByRole`): owners,
+/// then moderators, then the rest; `filter` is searched by the server. A DM
+/// answers `error-room-type-not-supported`.
+pub async fn members(
+    rest: &RestClient,
+    rid: &str,
+    filter: &str,
+    offset: u32,
+) -> Result<members::MemberPage, RestError> {
+    let (offset_text, count) = (offset.to_string(), members::PAGE.to_string());
+    let mut params = vec![("roomId", rid), ("count", count.as_str()), ("offset", offset_text.as_str())];
+    let filter = filter.trim();
+    if !filter.is_empty() {
+        params.push(("filter", filter));
+    }
+    let response = rest.get("rooms.membersOrderedByRole", CallOptions::params(params)).await?;
+    Ok(members::member_page(&response, offset))
+}
+
+/// Gives or takes a room role, through `channels.*` or `groups.*` by the
+/// room's `kind`. A refusal saying it is already so counts as done.
+pub async fn set_member_role(
+    rest: &RestClient,
+    kind: &str,
+    rid: &str,
+    user_id: &str,
+    role: members::Role,
+    put: bool,
+) -> Result<(), RestError> {
+    let route = members::role_route(kind, role, put).ok_or_else(|| RestError::incomplete("roles: not in this room"))?;
+    member_call(rest, &route, rid, user_id).await
+}
+
+/// Removes someone from the room (`channels.kick` / `groups.kick`).
+pub async fn remove_member(rest: &RestClient, kind: &str, rid: &str, user_id: &str) -> Result<(), RestError> {
+    let route = members::kick_route(kind).ok_or_else(|| RestError::incomplete("kick: not in this room"))?;
+    member_call(rest, &route, rid, user_id).await
+}
+
+async fn member_call(rest: &RestClient, route: &str, rid: &str, user_id: &str) -> Result<(), RestError> {
+    match rest.post(route, CallOptions::body(json!({"roomId": rid, "userId": user_id}))).await {
+        Ok(_) => Ok(()),
+        Err(e) if members::already_done(&e) => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
+/// `rooms.saveRoomSettings` with `fields` (`settings_changes`): it refuses
+/// any unknown key, and checks `edit-room` itself.
+pub async fn save_room_settings(
+    rest: &RestClient,
+    rid: &str,
+    fields: serde_json::Map<String, Value>,
+) -> Result<(), RestError> {
+    let mut body = fields;
+    body.insert("rid".into(), json!(rid));
+    rest.post("rooms.saveRoomSettings", CallOptions::body(Value::Object(body))).await.map(|_| ())
 }
 
 /// Creates a discussion of the room `prid` (`rooms.createDiscussion`), from

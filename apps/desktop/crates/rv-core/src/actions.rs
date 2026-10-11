@@ -244,6 +244,8 @@ pub const INVITE_DAYS: u32 = 7;
 /// The permission that lets someone create a room's invite links (admins,
 /// owners and moderators by default).
 pub const INVITE_PERMISSION: &str = "create-invite-links";
+/// Writing in a read-only room (owners and moderators by default).
+pub const POST_READONLY_PERMISSION: &str = "post-readonly";
 
 /// The direct invite link, served by the server itself: never the answer's
 /// `url`, which goes through `go.rocket.chat` unless the workspace says otherwise.

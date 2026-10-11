@@ -16,8 +16,10 @@ use crate::i18n::{t, tf, tn};
 use crate::rows::{label, local, presence_dot, room_tile, with_photo};
 use crate::widgets::{self, TileSize};
 use crate::{markdown_view, on_tokio};
+mod members;
 mod native_favorites;
 mod native_rooms;
+mod room_settings;
 pub(crate) use native_favorites::menu as native_favorite_menu;
 
 fn dialog(title: &str, content: &gtk::Widget, height: i32) -> adw::Dialog {
@@ -65,22 +67,36 @@ pub struct RoomInfoTarget<'a> {
     pub avatar: Option<String>,
 }
 
+/// What a Rocket.Chat information dialog can open besides itself.
+pub struct RoomInfoActions {
+    /// Starts a discussion of the room, when it can host one.
+    pub new_discussion: Option<Rc<dyn Fn()>>,
+    /// Tells what happened.
+    pub toast: Rc<dyn Fn(String)>,
+    /// Opens a person's profile, by username (from the members list).
+    pub profile: Rc<dyn Fn(String)>,
+}
+
 /// Channel or group: its name, flags, members and texts from `rooms.info`,
-/// its own notifications, an invite link for those who may create one, and
-/// `new_discussion` when the room can host one. `toast` tells what happened.
+/// the members list and the texts' editor as my roles allow, its own
+/// notifications, an invite link for those who may create one, and a new
+/// discussion when the room can host one.
 pub fn room_info(
     parent: &impl IsA<gtk::Widget>,
     session: Arc<Session>,
     room: RoomInfoTarget,
-    new_discussion: Option<Rc<dyn Fn()>>,
-    toast: Rc<dyn Fn(String)>,
+    actions: RoomInfoActions,
 ) -> adw::Dialog {
+    let RoomInfoActions { new_discussion, toast, profile } = actions;
     let content = column();
     let tile = with_photo(room_tile(room.name, room.kind, false, TileSize::Profile), Some(&session), room.avatar);
     tile.set_halign(gtk::Align::Center);
     content.append(&tile);
     content.append(&centered(room.name, &["details-name"]));
-    let spinner = loading(&content);
+    // Read again after the texts are saved.
+    let facts = column();
+    content.append(&facts);
+    let spinner = loading(&facts);
     let dialog = dialog(t("info.room"), content.upcast_ref(), 460);
     crate::widgets::present(&dialog, Some(parent));
     let rid = room.rid.to_owned();
@@ -89,15 +105,51 @@ pub fn room_info(
     let weak = dialog.downgrade();
     glib::spawn_future_local(async move {
         let (s, r) = (session.clone(), rid.clone());
-        let (info, invite) = on_tokio(async move {
+        let (info, invite, manage, edit) = on_tokio(async move {
             let info = s.room_info(&r).await;
-            (info, s.can_invite(&r).await)
+            let manage = s.members_available(&r);
+            (info, s.can_invite(&r).await, manage, s.can_edit_room(&r).await)
         })
         .await;
         spinner.set_visible(false);
-        match info {
-            Ok(info) => fill_room(&content, &info, &me),
-            Err(_) => content.append(&centered(t("info.failed"), &["details-sub"])),
+        let info = match info {
+            Ok(info) => {
+                fill_room(&facts, &info, &me);
+                Some(info)
+            }
+            Err(_) => {
+                facts.append(&centered(t("info.failed"), &["details-sub"]));
+                None
+            }
+        };
+        if manage && let Some(dialog) = weak.upgrade() {
+            let shown = Rc::new(std::cell::RefCell::new(info.clone()));
+            let members = members_group(&dialog, session.clone(), &rid, info.as_ref().and_then(|i| i.members), profile);
+            content.append(&members.0);
+            if edit && info.is_some() {
+                let button = gtk::Button::builder()
+                    .label(t("room_settings.edit"))
+                    .halign(gtk::Align::Center)
+                    .margin_top(8)
+                    .css_classes(["room-settings-edit"])
+                    .build();
+                let (s, r, me, facts, count, weak) =
+                    (session.clone(), rid.clone(), me.clone(), facts.clone(), members.1.clone(), weak.clone());
+                button.connect_clicked(move |_| {
+                    let (Some(dialog), Some(before)) =
+                        (weak.upgrade(), shown.borrow().as_ref().map(rv_core::members::RoomSettings::of))
+                    else {
+                        return;
+                    };
+                    let (s2, r2, me, facts, count, shown) =
+                        (s.clone(), r.clone(), me.clone(), facts.clone(), count.clone(), shown.clone());
+                    let saved: Rc<dyn Fn()> = Rc::new(move || {
+                        refill_room(s2.clone(), r2.clone(), me.clone(), facts.clone(), count.clone(), shown.clone())
+                    });
+                    room_settings::edit(&dialog, s.clone(), r.clone(), before, saved);
+                });
+                content.append(&button);
+            }
         }
         if let Some(choice) = notifications {
             content.append(&choice);
@@ -180,6 +232,54 @@ fn invite_group(session: Arc<Session>, rid: String, toast: Rc<dyn Fn(String)>) -
         });
     });
     group.upcast()
+}
+
+fn members_title(count: Option<i64>) -> String {
+    count.map_or_else(|| t("members.title").to_owned(), |n| tn("members.count", n))
+}
+
+/// "N members", which opens the list read from the server; its row, so the
+/// count follows a new read of the room.
+fn members_group(
+    dialog: &adw::Dialog,
+    session: Arc<Session>,
+    rid: &str,
+    count: Option<i64>,
+    profile: Rc<dyn Fn(String)>,
+) -> (gtk::Widget, adw::ActionRow) {
+    let group = adw::PreferencesGroup::builder().css_classes(["room-members"]).margin_top(8).build();
+    let row = adw::ActionRow::builder().title(members_title(count)).activatable(true).build();
+    row.add_prefix(&gtk::Image::from_icon_name("system-users-symbolic"));
+    row.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));
+    group.add(&row);
+    let (weak, rid) = (dialog.downgrade(), rid.to_owned());
+    row.connect_activated(move |_| {
+        if let Some(dialog) = weak.upgrade() {
+            members::open(&dialog, session.clone(), rid.clone(), profile.clone());
+        }
+    });
+    (group.upcast(), row)
+}
+
+/// The room read again after its texts changed: facts, texts and count.
+fn refill_room(
+    session: Arc<Session>,
+    rid: String,
+    me: String,
+    facts: gtk::Box,
+    count: adw::ActionRow,
+    shown: Rc<std::cell::RefCell<Option<RoomInfo>>>,
+) {
+    glib::spawn_future_local(async move {
+        let info = on_tokio(async move { session.room_info(&rid).await }).await;
+        let Ok(info) = info else { return };
+        while let Some(child) = facts.first_child() {
+            facts.remove(&child);
+        }
+        fill_room(&facts, &info, &me);
+        count.set_title(&members_title(info.members));
+        shown.replace(Some(info));
+    });
 }
 
 fn fill_room(content: &gtk::Box, info: &RoomInfo, me: &str) {

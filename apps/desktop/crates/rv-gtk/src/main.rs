@@ -38,6 +38,7 @@ mod player;
 mod rail;
 mod reactions;
 mod recorder;
+mod reminders;
 mod room_notifications;
 mod rows;
 mod scheduled;

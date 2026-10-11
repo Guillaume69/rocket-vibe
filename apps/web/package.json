@@ -15,6 +15,7 @@
     "test:browser": "node tests/browser.mjs",
     "test:visual": "node tests/visual.mjs",
     "test:workflows": "node tests/workflows.mjs",
+    "test:social": "node tests/social.mjs",
     "test:reads": "node tests/reads.mjs",
     "test:profiles": "node tests/profiles.mjs",
     "test:voice": "node tests/voice.mjs",

@@ -7,6 +7,10 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Typing /giphy opens a compact GIF grid immediately. Search updates as you type in both the command and sharing-menu pickers; choosing a GIF highlights it, and Enter or the shared Send button sends it. Search changes discard old selections and stale responses, and cancellation preserves the draft.
+
 ## [0.13.0] - 2026-10-11
 
 ### Added

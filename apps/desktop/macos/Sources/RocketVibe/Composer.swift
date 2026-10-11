@@ -60,6 +60,7 @@ struct Composer: View {
     @State var socialMode = "menu"
     @State var socialQuery = ""
     @State var socialDraft: String?
+    @State var gifDraft: String?
 
     var body: some View {
         @Bindable var model = model
@@ -177,6 +178,10 @@ struct Composer: View {
                 if let socialDraft, model.draft == socialDraft { model.draft = "" }
             }
         }
+        .onChange(of: model.draft) { _, value in
+            if !value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix("/giphy") { gifDraft = nil }
+            if value != gifDraft { _ = openGifs() }
+        }
         .modalOverlay(isPresented: $pickingTime) {
             if let times = model.scheduleTimes() { PickTimeCard(times: times, chosen: scheduleDraft) }
         }
@@ -220,11 +225,18 @@ struct Composer: View {
         return true
     }
 
-    func send() {
+    func openGifs() -> Bool {
         if staged.isEmpty, model.pendingQuote == nil, model.supportsGiphy {
             let parts = model.draft.trimmingCharacters(in: .whitespacesAndNewlines).split(maxSplits: 1, whereSeparator: { $0.isWhitespace })
-            if parts.first == "/giphy" { socialMode = "giphy"; socialQuery = parts.count > 1 ? String(parts[1]) : ""; socialDraft = model.draft; showingSocial = true; return }
+            if parts.first?.lowercased() == "/giphy" {
+                if showingSocial { return true }
+                suggestions = nil; gifDraft = model.draft; socialMode = "giphy"; socialQuery = parts.count > 1 ? String(parts[1]) : ""; socialDraft = model.draft; showingSocial = true; return true
+            }
         }
+        return false
+    }
+    func send() {
+        if openGifs() { return }
         let files = staged
         staged = []
         suggestions = nil

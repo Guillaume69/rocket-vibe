@@ -132,6 +132,7 @@ function app() {
     roomURLs: new Map<string, Set<string>>(),
     urls: new Set<string>(),
     roomFence: method("roomFence"),
+    openGifPicker: method("openGifPicker"),
     api: {
       request: async (
         _path: string,

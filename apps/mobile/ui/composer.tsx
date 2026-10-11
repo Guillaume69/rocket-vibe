@@ -285,6 +285,22 @@ export function Composer({
   // a word, fast typing), and the `draft` of this callback's closure is then
   // older than the field (seen on the emulator: "-" against "- un\n").
   const lastTyped = useRef<{ base: string; text: string } | null>(null);
+  const gifOpen = useRef(false);
+  const openGifs = useCallback((text: string) => {
+    const caption = text.trim();
+    if (response !== null || pending.length || encrypted || !/^\/giphy(?:\s|$)/i.test(caption) || !['rocketchat', 'rocketvibe'].includes(client.kind)) return false;
+    if (gifOpen.current) return true;
+    gifOpen.current = true;
+    const request = requestGifSelection();
+    void request.result.then(sent => {
+      gifOpen.current = false;
+      if (sent && !unmounted.current && draftRef.current === text) {
+        setDraft(''); reset(); clearDraft(); onInput?.(false);
+      }
+    });
+    router.push({ pathname: '/social', params: { rid, request: request.id, mode: 'giphy', q: caption.replace(/^\/giphy\s*/i, ''), ...(threadId ? { root: threadId } : {}) } });
+    return true;
+  }, [response, pending.length, encrypted, client.kind, rid, threadId, reset, clearDraft, onInput, router]);
   const changeDraft = useCallback(
     (typed: string) => {
       // Nothing else rewrote the draft since (send, emoji, formatting): the field's
@@ -304,13 +320,14 @@ export function Composer({
       // letter typed before the space).
       if (continued !== null) requestAnimationFrame(() => placeCursor(continued.cursor));
       onInput?.(text.trim().length>0);
+      openGifs(text);
     },
-    [saveDraft,onInput,draft,cursor,placeCursor],
+    [saveDraft,onInput,draft,cursor,placeCursor,openGifs],
   );
 
   const send = useCallback(() => {
     const caption = draft.trim();
-    if (response===null && pending.length===0 && !encrypted && /^\/giphy(?:\s|$)/i.test(caption) && (client.kind==='rocketchat'||client.kind==='rocketvibe')) { const request=requestGifSelection(); void request.result.then(sent=>{if(sent&&!unmounted.current&&draftRef.current===draft){setDraft('');reset();clearDraft();}}); router.push({pathname:'/social',params:{rid,request:request.id,mode:'giphy',q:caption.replace(/^\/giphy\s*/i,''),...(threadId?{root:threadId}:{})}}); return; }
+    if (openGifs(draft)) return;
     // An armed quote prefixes the text with its permalink `[ ](…)`: the server
     // will turn it into the quote attachment (lib/quote.ts).
     let textToSend = response === null || response.native ? caption : quote(response.permalink, caption);
@@ -462,7 +479,6 @@ export function Composer({
       .catch((e: unknown) => console.warn('send: local failure', e));
   }, [
     draft,
-    client.kind,
     nativeSend,
     pending,
     quality,
@@ -482,6 +498,7 @@ export function Composer({
     t,
     commands,
     sync,
+    openGifs,
   ]);
 
   // Scheduled messages (RocketVibe, brain/features/scheduled-messages.md): the
@@ -812,7 +829,7 @@ export function Composer({
           commands={commands}
           granted={granted}
           c={c}
-          onPick={pickEmoji}
+          onPick={(text, start) => { pickEmoji(text, start); if (/^\/giphy(?:\s|$)/i.test(text)) openGifs(text); }}
         />
       )}
       {!emoji.open && (

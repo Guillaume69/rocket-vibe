@@ -22,6 +22,8 @@
 //!                          other room and comes back: the draft must be restored
 //!   RV_SMOKE_COMMANDS=<tag>  completes `/shr`, runs `/join` on a missing channel (the
 //!                          server's private answer must show), then sends `/shrug <tag>`
+//!   RV_SMOKE_GIPHY=1      types /giphy, selects, searches live, cancels and sends;
+//!                          `hold` leaves the refreshed selection for a screenshot
 //!   RV_SMOKE_FILES=1       fetches every file attached in the room to the local cache
 //!   RV_SMOKE_JOIN_VOICE=<n>  RocketVibe: joins the room's voice session as the header's call
 //!                          button does (ringing in a direct room), then checks it connected
@@ -117,6 +119,7 @@ use crate::window::AppWindow;
 mod admin;
 mod email_factor;
 mod email_settings;
+mod giphy;
 mod native_crypto;
 mod native_files;
 mod native_quotes;
@@ -326,6 +329,12 @@ pub fn install(window: &Rc<AppWindow>) {
             {
                 let chat = w.chat.clone();
                 glib::timeout_add_local_once(Duration::from_millis(3000), move || command_checks(chat, tag));
+            }
+            if std::env::var("RV_SMOKE_GIPHY").is_ok() {
+                let chat = w.chat.clone();
+                glib::timeout_add_local_once(Duration::from_millis(2000), move || {
+                    glib::spawn_future_local(giphy::run(chat));
+                });
             }
             if let Ok(expected) = std::env::var("RV_SMOKE_JOIN_VOICE")
                 && let Ok(expected) = expected.parse::<usize>()

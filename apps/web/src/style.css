@@ -1242,6 +1242,48 @@ dialog::backdrop {
   object-fit: contain;
   border-radius: 12px;
 }
+.gif-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  border: 2px solid transparent;
+  border-radius: 12px;
+}
+.gif-choice[aria-pressed="true"] {
+  border-color: var(--accent-bg-color, #a695ff);
+  background: var(--accent-bg-color, #a695ff);
+  color: var(--accent-fg-color, #fff);
+}
+dialog.gif-picker {
+  width: min(720px, calc(100vw - 32px));
+}
+.gif-picker .social-media-grid {
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  min-height: 280px;
+  max-height: min(430px, 50vh);
+  align-content: start;
+  padding: 2px;
+}
+.gif-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.gif-footer > span {
+  flex: 1;
+}
+@media (max-width: 520px) {
+  .gif-picker .social-media-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .gif-footer {
+    flex-wrap: wrap;
+  }
+  .gif-footer > span {
+    flex-basis: 100%;
+  }
+}
 .social-image {
   margin: 8px 0;
   max-width: 320px;

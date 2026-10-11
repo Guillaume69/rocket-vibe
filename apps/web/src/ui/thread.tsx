@@ -50,9 +50,16 @@ function ThreadView({ app, options }: { app: App; options: ThreadOptions }) {
       },
       { signal: abort.signal },
     );
-    input.addEventListener("input", () => options.save(input.value), {
-      signal: abort.signal,
-    });
+    input.addEventListener(
+      "input",
+      () => {
+        options.save(input.value);
+        app.openGifPicker(input.value, options.root);
+      },
+      {
+        signal: abort.signal,
+      },
+    );
     return () => {
       abort.abort();
       input.dispose();

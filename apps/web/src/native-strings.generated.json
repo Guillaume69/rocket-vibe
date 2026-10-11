@@ -71,6 +71,7 @@
   ],
   "social.choose_a_date": ["Choisissez une date.", "Choose a date."],
   "social.searching": ["Recherche…", "Searching…"],
+  "social.select": ["Sélectionner", "Select"],
   "social.no_gifs_found": ["Aucun GIF trouvé.", "No GIFs found."],
   "social.gif_search_is_not_enabled_on_this_server": [
     "La recherche de GIF n’est pas activée sur ce serveur.",

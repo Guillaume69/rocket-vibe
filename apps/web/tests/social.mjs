@@ -50,22 +50,45 @@ await page.route("**/.well-known/rocketvibe", async (route) => {
   value.capabilities.giphy = true;
   await route.fulfill({ response, json: value });
 });
-await page.route("**/api/v1/gifs?*", (route) =>
-  route.fulfill({
+const searches = [];
+let releaseSlow;
+const slowGate = new Promise((resolve) => {
+  releaseSlow = resolve;
+});
+await page.route("**/api/v1/gifs?*", async (route) => {
+  const query = new URL(route.request().url()).searchParams.get("q");
+  searches.push(query);
+  if (query === "slow") await slowGate;
+  await route.fulfill({
     json: {
-      items: [
-        {
-          id: "wave-gif",
-          title: "Wave GIF",
-          url: "https://media.giphy.com/social-test.gif",
-          width: 1,
-          height: 1,
-          source: null,
-        },
-      ],
+      items:
+        query === "empty"
+          ? []
+          : [
+              {
+                id: query + "-gif",
+                title: query === "cat" ? "Cat GIF" : "Wave GIF",
+                url: "https://media.giphy.com/social-test.gif",
+                width: 1,
+                height: 1,
+                source: null,
+              },
+            ],
     },
-  }),
-);
+  });
+});
+let imagePosts = 0,
+  releaseSend;
+const sendGate = new Promise((resolve) => {
+  releaseSend = resolve;
+});
+await page.route("**/api/v1/rooms/*/images", async (route) => {
+  if (route.request().method() !== "POST") return route.continue();
+  imagePosts++;
+  const response = await route.fetch();
+  if (imagePosts === 1) await sendGate;
+  await route.fulfill({ response });
+});
 await page.route("https://media.giphy.com/social-test.gif", (route) =>
   route.fulfill({
     contentType: "image/gif",
@@ -152,18 +175,82 @@ try {
   console.log("PASS event local date/time and RSVP");
   const input = page.locator(".room-content .rich-composer");
   await input.fill("/giphy wave");
-  await input.press("Enter");
   dialog = page.locator("dialog[open]");
   await dialog.locator("img").waitFor();
+  assert.equal(
+    await dialog
+      .getByRole("button", { name: "Send", exact: true })
+      .isDisabled(),
+    true,
+  );
   await page.keyboard.press("Escape");
   assert.equal(await input.evaluate((n) => n.value), "/giphy wave");
   await input.press("Enter");
   dialog = page.locator("dialog[open]");
+  await dialog.getByRole("button", { name: "Wave GIF", exact: true }).click();
+  assert.equal(imagePosts, 0, "selection must not send a GIF");
+  assert.equal(
+    await dialog.locator('.gif-choice[aria-pressed="true"]').count(),
+    1,
+  );
+  const query = dialog.getByLabel("Search GIFs", { exact: true });
+  await query.fill("slow");
+  assert.equal(
+    await dialog
+      .getByRole("button", { name: "Send", exact: true })
+      .isDisabled(),
+    true,
+  );
+  await page.waitForRequest(
+    (r) => new URL(r.url()).searchParams.get("q") === "slow",
+  );
+  await query.fill("cat");
+  await dialog.getByRole("button", { name: "Cat GIF", exact: true }).waitFor();
+  const oldResponse = page.waitForResponse(
+    (r) => new URL(r.url()).searchParams.get("q") === "slow",
+  );
+  releaseSlow();
+  await oldResponse;
+  assert.equal(
+    await dialog.getByRole("button", { name: "Wave GIF", exact: true }).count(),
+    0,
+  );
+  await query.fill("empty");
+  await dialog.getByText("No GIFs found.", { exact: true }).waitFor();
+  await query.fill("c");
+  await query.fill("ca");
+  await query.fill("cat");
+  await dialog.getByRole("button", { name: "Cat GIF", exact: true }).waitFor();
+  assert.ok(
+    !searches.includes("c") && !searches.includes("ca"),
+    "intermediate keystrokes must be debounced",
+  );
+  await dialog.getByRole("button", { name: "Cat GIF", exact: true }).click();
   await dialog
     .getByRole("button", { name: "Save to sticker shelf", exact: true })
     .click();
   await dialog.getByRole("button", { name: "Saved", exact: true }).waitFor();
-  await dialog.getByRole("button", { name: "Send", exact: true }).click();
+  assert.equal(
+    (await history()).filter((m) => m.social?.kind === "image").length,
+    0,
+  );
+  await page.screenshot({
+    path:
+      process.env.RV_GIPHY_SCREENSHOT || join(tmpdir(), "rv-giphy-picker.png"),
+    fullPage: true,
+  });
+  const sentRequest = page.waitForRequest(
+    (r) => r.method() === "POST" && r.url().endsWith("/images"),
+  );
+  await query.press("Enter");
+  await sentRequest;
+  await query.press("Enter");
+  assert.equal(
+    imagePosts,
+    1,
+    "repeated Enter must not duplicate a send in flight",
+  );
+  releaseSend();
   await dialog.waitFor({ state: "detached" });
   assert.equal(await input.evaluate((n) => n.value), "");
   await page.locator(".social-image img").waitFor();
@@ -171,8 +258,29 @@ try {
     (await history()).filter((m) => m.social?.kind === "image").length,
     1,
   );
+  assert.equal(
+    (await history()).find((m) => m.social?.kind === "image").social.title,
+    "Cat GIF",
+  );
+  await input.fill("a draft to keep");
+  await social().click();
+  await page
+    .getByRole("menuitem", { name: "GIF · Powered By GIPHY", exact: true })
+    .click();
+  dialog = page.locator("dialog[open]");
+  await dialog.getByLabel("Search GIFs", { exact: true }).fill("wave");
+  await dialog.getByRole("button", { name: "Wave GIF", exact: true }).click();
+  await dialog.getByRole("button", { name: "Send", exact: true }).click();
+  await dialog.waitFor({ state: "detached" });
+  assert.equal(imagePosts, 2);
+  assert.equal(await input.evaluate((n) => n.value), "a draft to keep");
+  await input.fill("");
+  assert.equal(
+    (await history()).filter((m) => m.social?.kind === "image").length,
+    2,
+  );
   console.log(
-    "PASS /giphy picker, cancel, send, animation media element and save",
+    "PASS auto /giphy opening, live/debounced search, stale response, selection, cancel, Enter/Send, duplicate suppression and actual messages",
   );
   await social().click();
   await page
@@ -217,6 +325,17 @@ try {
   console.log(
     "PASS sticker persistence/removal, responsive layout and no browser exceptions",
   );
+} catch (error) {
+  console.error(
+    "GIF test state",
+    await page.locator("dialog[open]").allTextContents(),
+    searches,
+  );
+  await page.screenshot({
+    path: join(tmpdir(), "rv-giphy-failure.png"),
+    fullPage: true,
+  });
+  throw error;
 } finally {
   await browser.close();
 }

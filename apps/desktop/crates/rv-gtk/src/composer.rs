@@ -5,7 +5,7 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::Arc;
 
-use gtk::prelude::*;
+use adw::prelude::*;
 use gtk::{gdk, gio, glib};
 use rv_core::session::Session;
 
@@ -55,6 +55,8 @@ pub struct Composer {
     attach: gtk::Button,
     social: gtk::Button,
     social_target: Rc<RefCell<Option<crate::social::Target>>>,
+    gif_dialog: RefCell<Option<glib::WeakRef<adw::Dialog>>>,
+    gif_draft: RefCell<Option<String>>,
     mic: gtk::Button,
     on_send_files: Handler<Outgoing>,
     commands: RefCell<Commands>,
@@ -393,6 +395,8 @@ impl Composer {
             attach: attach.clone(),
             social: social.clone(),
             social_target: Rc::default(),
+            gif_dialog: RefCell::default(),
+            gif_draft: RefCell::default(),
             mic: mic.clone(),
             on_send_files: RefCell::default(),
             commands: RefCell::default(),
@@ -496,6 +500,19 @@ impl Composer {
             }
             this.update_completion();
             this.update_later();
+            if rv_core::commands::split(&this.text()).is_some_and(|(name, _)| name.eq_ignore_ascii_case("giphy")) {
+                let weak = Rc::downgrade(&this);
+                glib::idle_add_local_once(move || {
+                    if let Some(this) = weak.upgrade()
+                        && this.text.has_focus()
+                        && this.gif_draft.borrow().as_deref() != Some(this.text().as_str())
+                    {
+                        this.open_gifs();
+                    }
+                });
+            } else {
+                this.gif_draft.replace(None);
+            }
         });
         let weak = Rc::downgrade(&this);
         this.choices.connect_row_activated(move |_, row| {
@@ -763,6 +780,10 @@ impl Composer {
         });
     }
     pub fn unbind_native(&self) {
+        if let Some(d) = self.gif_dialog.take().and_then(|d| d.upgrade()) {
+            d.close();
+        }
+        self.gif_draft.replace(None);
         self.social_target.replace(None);
         self.social.set_visible(false);
         self.schedule_target.replace(None);
@@ -1226,6 +1247,48 @@ impl Composer {
         self.submit();
     }
 
+    pub fn gif_picker(&self) -> Option<adw::Dialog> {
+        self.gif_dialog.borrow().as_ref().and_then(|d| d.upgrade()).filter(|d| d.is_mapped())
+    }
+
+    fn open_gifs(&self) -> bool {
+        let text = self.text();
+        if !self.text.is_editable()
+            || !self.staged.is_empty()
+            || self.reply_link.borrow().is_some()
+            || self.native_reply.borrow().is_some()
+        {
+            return false;
+        }
+        let Some((name, query)) = rv_core::commands::split(&text) else { return false };
+        if !name.eq_ignore_ascii_case("giphy") {
+            return false;
+        }
+        let Some(target) = self.social_target.borrow().clone() else { return false };
+        if !target.supports_gifs() {
+            return false;
+        }
+        if self.gif_dialog.borrow().as_ref().and_then(|d| d.upgrade()).is_some_and(|d| d.is_mapped()) {
+            return true;
+        }
+        self.gif_draft.replace(Some(text.clone()));
+        self.completion.popdown();
+        let buffer = self.text.buffer();
+        let expected = text.clone();
+        let key = target.room().to_owned();
+        let current_target = self.social_target.clone();
+        let sent: Rc<dyn Fn()> = Rc::new(move || {
+            if current_target.borrow().as_ref().is_some_and(|t| t.room() == key)
+                && buffer.text(&buffer.start_iter(), &buffer.end_iter(), false).as_str() == expected
+            {
+                buffer.set_text("");
+            }
+        });
+        let d = crate::social::gif_gallery(self.text.upcast_ref(), target, query, Some(sent));
+        self.gif_dialog.replace(Some(d.downgrade()));
+        true
+    }
+
     fn submit(&self) {
         if self.quote_author.sending.get()
             || (self.quote_author.busy.get() && self.quote_author.actor.borrow().is_none())
@@ -1234,24 +1297,7 @@ impl Composer {
         }
         let mut text = self.text();
         let files = !self.staged.is_empty();
-        if !files
-            && self.reply_link.borrow().is_none()
-            && self.native_reply.borrow().is_none()
-            && let Some(("giphy", query)) = rv_core::commands::split(&text)
-            && let Some(target) = self.social_target.borrow().clone()
-        {
-            let buffer = self.text.buffer();
-            let expected = text.clone();
-            let key = target.room().to_owned();
-            let current_target = self.social_target.clone();
-            let sent: Rc<dyn Fn()> = Rc::new(move || {
-                if current_target.borrow().as_ref().is_some_and(|t| t.room() == key)
-                    && buffer.text(&buffer.start_iter(), &buffer.end_iter(), false).as_str() == expected
-                {
-                    buffer.set_text("");
-                }
-            });
-            crate::social::gallery(self.text.upcast_ref(), target, true, query, Some(sent));
+        if self.open_gifs() {
             return;
         }
         if text.trim().is_empty()

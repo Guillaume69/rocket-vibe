@@ -3,7 +3,8 @@ name: server-image
 # On demand only: builds the RocketVibe server image of an existing
 # `server-vX.Y.Z` tag (apps/server/Dockerfile, the same build the release
 # archive comes from) and pushes it to ghcr.io as `X.Y.Z` and `latest`.
-# The release flow (server-release.yml) does not push images.
+# server-release.yml already pushes it on each tag: this one backfills or
+# republishes a version.
 on:
   workflow_dispatch:
     inputs:

@@ -63,7 +63,7 @@ Rooms, DMs and the directory (`src/store.rs`, `src/room_details.rs`), permission
 
 - About 50 plain tests and 150 `#[sqlx::test]` inside `src/`, and 166 more `#[sqlx::test]` in `tests/` driving real HTTP and WebSockets, through `rv-client` and the mobile TypeScript transport. `#[sqlx::test]` needs `DATABASE_URL` and creates a database per test: `cargo test` without PostgreSQL fails on all of them.
 - `apps/server/scripts/check.sh` is the gate: fmt, clippy `-D warnings` and the tests of the root workspace, the crypto vectors re-verified with Node, `rv-crypto`'s tests, the protocol schema diff, the generated protocol, emoji and Rocket.Chat inventory checks, and the mobile RocketVibe provider tests. Locally it runs in the Compose `check` profile; in CI in `native-server.yml` (`verify`, with `postgres:18-alpine`) and `server-release.yml`. `web-client.yml` also runs the server's clippy and unit tests.
-- A `server-vX.Y.Z` tag runs `server-release.yml`: the gate, a Docker build (Debian bookworm, so glibc 2.36 or newer), the binary as `rocketvibe-server-X.Y.Z-linux-x86_64.tar.gz` with `SHA256SUMS`, and the release with its changelog section. The release pushes no image: `server-image.yml`, dispatched with a tag, publishes that version to `ghcr.io/guillaume69/rocketvibe-server`.
+- A `server-vX.Y.Z` tag runs `server-release.yml`: the gate, a Docker build (Debian bookworm, so glibc 2.36 or newer), the binary as `rocketvibe-server-X.Y.Z-linux-x86_64.tar.gz` with `SHA256SUMS`, the same build's image pushed to `ghcr.io/guillaume69/rocketvibe-server` (`X.Y.Z` and `latest`), and the release with its changelog section. `server-image.yml`, dispatched with a tag, republishes an older version.
 
 ## Footguns
 

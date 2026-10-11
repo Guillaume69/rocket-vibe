@@ -1,8 +1,9 @@
 name: server-release
 
 # A `server-vX.Y.Z` tag publishes the RocketVibe server: the server gate, then
-# one Docker build whose binary becomes the Linux archive (the image itself is
-# not published), then the GitHub Release with that version's changelog section.
+# one Docker build whose image goes to ghcr.io (`X.Y.Z` and `latest`) and whose
+# binary becomes the Linux archive, then the GitHub Release with that version's
+# changelog section.
 # A release branch or a dispatch runs the same gate and packaging without
 # publishing anything: the tag only lands on a flow already seen green.
 on:
@@ -72,6 +73,9 @@ jobs:
   package:
     needs: verify
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
     env:
       VERSION: ${{ needs.verify.outputs.version }}
     steps:
@@ -93,6 +97,17 @@ jobs:
           name: server-package
           path: dist
           if-no-files-found: error
+      - name: Push the image to ghcr.io
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/rocketvibe-server"
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker tag "rocketvibe-server:$VERSION" "$image:$VERSION"
+          docker tag "rocketvibe-server:$VERSION" "$image:latest"
+          docker push "$image:$VERSION"
+          docker push "$image:latest"
 
   release:
     if: github.ref_type == 'tag'
@@ -113,5 +128,7 @@ jobs:
         run: |
           (cd dist && sha256sum -c SHA256SUMS)
           node scripts/changelog.mjs server "$VERSION" > "$RUNNER_TEMP/notes.md"
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/rocketvibe-server:$VERSION"
+          printf '\n\nDocker image: `%s`\n' "$image" >> "$RUNNER_TEMP/notes.md"
           gh release create "$GITHUB_REF_NAME" dist/*.tar.gz dist/SHA256SUMS --verify-tag \
             --title "RocketVibe server $VERSION" --notes-file "$RUNNER_TEMP/notes.md"

@@ -518,6 +518,7 @@ on a live reply (`thread_updated` is quiet), and follow stars changed elsewhere
   post with a mention notification, send without duplicate, reaction, edit, pin,
   star, thread, search, upload and download, avatar, DM and the unread badge.
   It prints `ALL OK`.
+- **Qualification note (2026-10-12):** the broad desktop example received Bob's post live on the disposable 11.11.1 bench but timed out at the mention-notification assertion before its search stage. This needs a separate notification reproduction. The exact room-search backend and actual mobile provider pass `scripts/probe-mattermost-search.mjs`, and the GTK room launch passes `scripts/smoke.sh`.
 - **GTK:** `apps/desktop/scripts/smoke.sh http://localhost:8065 rvadmin <password> Dev out.png`.
 - **Unit tests:** mobile `node --test providers/mattermost/*.test.ts` (fake server
   in `testing.ts`), desktop `cargo test -p rv-core mattermost`.

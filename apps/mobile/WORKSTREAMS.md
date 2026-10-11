@@ -453,6 +453,8 @@ findings are added here.
 
 Repository reliability audit (2026-10-11):
 
+- [ ] Mattermost mention-notification qualification (2026-10-12): the broader desktop `mattermost-smoke` example on the disposable 11.11.1 bench received Bob's post live, then timed out waiting for its mention notification. It stopped before its search check. Reproduce notification delivery separately before attributing this to client code; exact room search has its own successful live probe below.
+
 - [x] Account database slugs collapsed punctuation and could share private caches. Digest identities now separate them; guarded SQLite backup preserves unambiguous legacy drafts, sends and reminders, retaining ambiguous sources for recovery.
 - [x] An optimistic message and its outbox row could commit separately. One transaction now commits or rolls back both.
 - [x] Rocket.Chat and Mattermost/kChat deadlines ended at response headers. Cancellation and timeouts now cover response bodies, including form authentication.

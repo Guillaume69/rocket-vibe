@@ -19,6 +19,7 @@ pub(super) struct Backend {
     cards: RefCell<Vec<Rc<Card>>>,
     action: Rc<dyn Fn(rv_native::Event)>,
     polling: Cell<bool>,
+    quiet: Rc<dyn Fn() -> bool>,
 }
 
 struct Card {
@@ -39,7 +40,15 @@ struct Card {
 
 impl Backend {
     pub(super) fn new(app: &gio::Application, action: Rc<dyn Fn(rv_native::Event)>) -> Rc<Self> {
-        Rc::new(Self { app: app.clone(), cards: RefCell::default(), action, polling: Cell::new(false) })
+        Self::with_quiet(app, action, Rc::new(rv_native::quiet))
+    }
+
+    fn with_quiet(
+        app: &gio::Application,
+        action: Rc<dyn Fn(rv_native::Event)>,
+        quiet: Rc<dyn Fn() -> bool>,
+    ) -> Rc<Self> {
+        Rc::new(Self { app: app.clone(), cards: RefCell::default(), action, polling: Cell::new(false), quiet })
     }
 
     fn start_poll(self: &Rc<Self>) {
@@ -53,7 +62,7 @@ impl Backend {
                 this.polling.set(false);
                 return glib::ControlFlow::Break;
             }
-            if rv_native::quiet() {
+            if (this.quiet)() {
                 this.clear();
                 return glib::ControlFlow::Continue;
             }
@@ -455,11 +464,18 @@ fn texture(uri: Option<&str>) -> Option<gtk::gdk::Texture> {
 /// Server-free launch test of the actual widgets, timers and action routing.
 pub(super) fn smoke(app: &adw::Application) -> bool {
     let Ok(shot) = std::env::var("RV_SMOKE_CUSTOM_NOTIFICATIONS") else { return false };
+    let hold = app.hold();
     #[cfg(windows)]
     rv_native::init(crate::APP_ID, "rocket-vibe", Box::new(|_| {}));
     let events = Rc::new(RefCell::new(Vec::new()));
     let sent = events.clone();
-    let backend = Backend::new(app.upcast_ref(), Rc::new(move |e| sent.borrow_mut().push(e)));
+    let quiet = Rc::new(Cell::new(false));
+    let quiet_state = quiet.clone();
+    let backend = Backend::with_quiet(
+        app.upcast_ref(),
+        Rc::new(move |e| sent.borrow_mut().push(e)),
+        Rc::new(move || quiet_state.get()),
+    );
     let sample = |room: &str, id: &str| Incoming {
         rid: room.into(),
         id: id.into(),
@@ -480,8 +496,16 @@ pub(super) fn smoke(app: &adw::Application) -> bool {
         let notifier = super::Notifier::new(app, |_, _| {}, |_, _, _| {}, |_, _, _| {});
         notifier.set_custom(true).expect("save custom style");
         check("custom style persists", super::custom_enabled());
+        let suppressed = rv_native::quiet();
         notifier.test();
-        check("test uses selected backend", notifier.custom.cards.borrow().len() == 1);
+        check(
+            "test obeys real OS quiet state",
+            if suppressed {
+                notifier.custom.cards.borrow().is_empty()
+            } else {
+                notifier.custom.cards.borrow().len() == 1
+            },
+        );
         notifier.set_custom(false).expect("save system style");
         check("style switch clears cards", !super::custom_enabled() && notifier.custom.cards.borrow().is_empty());
     }
@@ -553,34 +577,40 @@ pub(super) fn smoke(app: &adw::Application) -> bool {
         check("timeout respects hover", backend.cards.borrow().len() == 1 && backend.cards.borrow()[0].room == "hover");
         backend.clear();
         check("account switch clears cards", backend.cards.borrow().is_empty());
+        backend.show(&sample("quiet", "mq"), &Pictures::default());
+        quiet.set(true);
         let incoming = Incoming {
             direct: true,
             author: "Camille".into(),
             body: Some("Hey! These notifications feel like RocketVibe now ✨".into()),
             ..sample("preview", "m7")
         };
-        let photo = gio::File::for_path("data/icons/hicolor/64x64/apps/com.rocketvibe.app.png").uri().to_string();
-        let image = gio::File::for_path("data/windows/installer/wizard-202x386.png").uri().to_string();
-        backend.show(&incoming, &Pictures { avatar: Some(photo), image: Some(image) });
-        let card = backend.cards.borrow()[0].clone();
-        card.hover.set(true);
-        let app = app.clone();
         glib::timeout_add_local_once(Duration::from_millis(500), move || {
-            check("image preview stays within card width", card.window.width() <= 400);
-            let snapshot = gtk::Snapshot::new();
-            gtk::WidgetPaintable::new(Some(&card.window)).snapshot(
-                &snapshot,
-                card.window.width() as f64,
-                card.window.height() as f64,
-            );
-            let saved = snapshot
-                .to_node()
-                .zip(card.window.renderer())
-                .is_some_and(|(node, renderer)| renderer.render_texture(&node, None).save_to_png(&shot).is_ok());
-            check("rendered PNG saved", saved);
-            backend.clear();
-            println!("custom notifications: all checks passed");
-            app.quit();
+            check("quiet state dismisses visible cards", backend.cards.borrow().is_empty());
+            quiet.set(false);
+            let photo = gio::File::for_path("data/icons/hicolor/64x64/apps/com.rocketvibe.app.png").uri().to_string();
+            let image = gio::File::for_path("data/windows/installer/wizard-202x386.png").uri().to_string();
+            backend.show(&incoming, &Pictures { avatar: Some(photo), image: Some(image) });
+            let card = backend.cards.borrow()[0].clone();
+            card.hover.set(true);
+            glib::timeout_add_local_once(Duration::from_millis(500), move || {
+                check("image preview stays within card width", card.window.width() <= 400);
+                let snapshot = gtk::Snapshot::new();
+                gtk::WidgetPaintable::new(Some(&card.window)).snapshot(
+                    &snapshot,
+                    card.window.width() as f64,
+                    card.window.height() as f64,
+                );
+                let saved = snapshot
+                    .to_node()
+                    .zip(card.window.renderer())
+                    .is_some_and(|(node, renderer)| renderer.render_texture(&node, None).save_to_png(&shot).is_ok());
+                check("rendered PNG saved", saved);
+                backend.clear();
+                println!("custom notifications: all checks passed");
+                drop(hold);
+                app.quit();
+            });
         });
     });
     true

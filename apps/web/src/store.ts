@@ -178,11 +178,51 @@ export class Model {
             : a.id.localeCompare(b.id),
       );
   }
+  /**
+   * Keeps each room's `kept` newest messages (by creation time, then position
+   * and id), as the native apps do once per session after the catch-up
+   * (desktop `Writer::apply_retention`, mobile `APPLY_RETENTION`): older ones
+   * come back from the server when the history is paged again. A thread root
+   * still answered by a kept reply stays, and so does every message of the
+   * `spared` rooms (the room on screen). Answers how many went.
+   */
+  retain(kept: number, spared: Iterable<string> = []): number {
+    const skip = new Set(spared),
+      byRoom = new Map<string, Message[]>();
+    for (const message of this.messages.values()) {
+      if (skip.has(message.room_id)) continue;
+      const list = byRoom.get(message.room_id);
+      if (list) list.push(message);
+      else byRoom.set(message.room_id, [message]);
+    }
+    const dropped = new Set<string>();
+    for (const list of byRoom.values()) {
+      if (list.length <= kept) continue;
+      list.sort(newestFirst);
+      for (const message of list.slice(kept)) dropped.add(message.id);
+    }
+    if (!dropped.size) return 0;
+    for (const message of this.messages.values())
+      if (message.reply_to && !dropped.has(message.id))
+        dropped.delete(message.reply_to);
+    for (const id of dropped) this.messages.delete(id);
+    return dropped.size;
+  }
+}
+/** The messages kept per room once per session (the native apps' quota). */
+export const MESSAGES_KEPT_PER_ROOM = 500;
+function newestFirst(a: Message, b: Message): number {
+  const time =
+    (Date.parse(b.created_at) || 0) - (Date.parse(a.created_at) || 0);
+  if (time) return time;
+  const left = BigInt(a.position),
+    right = BigInt(b.position);
+  return left < right ? 1 : left > right ? -1 : b.id.localeCompare(a.id);
 }
 let database: Promise<IDBDatabase> | undefined;
 function open(): Promise<IDBDatabase> {
   return (database ??= new Promise((resolve, reject) => {
-    const request = indexedDB.open("rocket-vibe-web", 5);
+    const request = indexedDB.open("rocket-vibe-web", 6);
     request.onupgradeneeded = () => {
       for (const name of [
         "accounts",
@@ -194,6 +234,8 @@ function open(): Promise<IDBDatabase> {
         "staged",
         "media",
         "reminders",
+        // Sign-outs the server did not hear: never purged with the account.
+        "logouts",
       ])
         if (!request.result.objectStoreNames.contains(name))
           request.result.createObjectStore(name);

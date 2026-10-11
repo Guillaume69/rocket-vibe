@@ -161,6 +161,29 @@ const phrases = {
   recovery: ["Recover my account", "Récupérer mon compte"],
   recoveryCode: ["Recovery code", "Code de récupération"],
   noResults: ["No results", "Aucun résultat"],
+  localSearchTitle: ["Search messages", "Rechercher dans les messages"],
+  localSearchPlaceholder: [
+    "Words, in every room",
+    "Des mots, dans tous les salons",
+  ],
+  localSearchScope: [
+    "Among the messages already in this browser. Encrypted conversations are searched from inside each one.",
+    "Parmi les messages déjà dans ce navigateur. Les conversations chiffrées se cherchent depuis chacune d’elles.",
+  ],
+  localSearchNone: [
+    "No message contains these words.",
+    "Aucun message ne contient ces mots.",
+  ],
+  openMessage: ["Open message", "Ouvrir le message"],
+  logoutDeferred: [
+    "Signed out of this browser. The server will be told when it can be reached.",
+    "Déconnecté de ce navigateur. Le serveur en sera informé dès qu’il sera joignable.",
+  ],
+  diagnostics: ["Diagnostics", "Diagnostic"],
+  diagnosticsHint: [
+    "Download this browser’s recent app events, without messages or keys",
+    "Télécharger les derniers événements de l’app dans ce navigateur, sans messages ni clés",
+  ],
   email: ["Email", "Email"],
   totp: ["Authenticator", "Application d’authentification"],
   recovery_code: ["Recovery code", "Code de récupération"],

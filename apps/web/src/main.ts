@@ -6,6 +6,8 @@ import { createRoot } from "react-dom/client";
 import { Application } from "./ui/application";
 import { App } from "./app";
 import { toast } from "./dom";
+import { installDiagnostics } from "./diagnostics";
+installDiagnostics();
 localStorage.removeItem("rv-text-size");
 const app = new App();
 const root = createRoot(document.querySelector<HTMLDivElement>("#app")!);

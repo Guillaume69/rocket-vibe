@@ -185,6 +185,10 @@ pub fn delivered() -> Option<usize> {
 }
 
 static WINDOW: AtomicIsize = AtomicIsize::new(0);
+
+pub(crate) fn main_window() -> HWND {
+    HWND(WINDOW.load(Ordering::SeqCst) as *mut std::ffi::c_void)
+}
 static BADGE: AtomicI64 = AtomicI64::new(0);
 static DOT: AtomicBool = AtomicBool::new(false);
 

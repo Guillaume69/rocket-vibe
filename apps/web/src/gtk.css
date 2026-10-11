@@ -29,6 +29,19 @@ window, label, entry, textview, button { font-family: "Nunito", "Noto Color Emoj
 .unicorn-hero { font-size: 46px; }
 .unicorn-header { font-size: 21px; }
 .slogan { color: #8F89AB; font-size: 13px; }
+window.rv-notification { background: transparent; border-radius: 20px; }
+.rv-notification-card {
+  background-image: linear-gradient(145deg, #201B36, #100F1F);
+  border: 1px solid #514064;
+  border-top: 3px solid #FF5FA2;
+  border-radius: 20px;
+  padding: 14px;
+  color: #F3F0FF;
+}
+.rv-notification-brand { color: #FF9BC6; font-size: 16px; }
+.rv-notification-room { color: #AFA8C8; font-size: 12px; }
+button.rv-notification-open { padding: 4px 0; border-radius: 12px; }
+.rv-notification-image { border-radius: 12px; }
 .rainbow-bar { min-width: 26px; min-height: 5px; border-radius: 3px; }
 .rainbow-pink { background: #FF5FA2; }
 .rainbow-yellow { background: #FFD34E; }

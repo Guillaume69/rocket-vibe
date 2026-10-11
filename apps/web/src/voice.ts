@@ -1023,6 +1023,7 @@ export class Voice {
     const alive = () => this.room === room && valid();
     if (!alive()) return;
     if (enabled) {
+      this.monitorAvailable = false;
       this.mutedMonitor.stop();
       this.mutedActivity.quiet();
     }

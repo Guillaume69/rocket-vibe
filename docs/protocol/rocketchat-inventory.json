@@ -124,6 +124,7 @@
     "apps/desktop/crates/rv-core/src/runs.rs",
     "apps/desktop/crates/rv-core/src/server.rs",
     "apps/desktop/crates/rv-core/src/server_icon.rs",
+    "apps/desktop/crates/rv-core/src/server_rail.rs",
     "apps/desktop/crates/rv-core/src/session.rs",
     "apps/desktop/crates/rv-core/src/store.rs",
     "apps/desktop/crates/rv-core/src/sync.rs",
@@ -3512,37 +3513,37 @@
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift",
-      "line": 696,
+      "line": 711,
       "kind": "endpoint",
       "surface": "rooms.nothing_unread"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift",
-      "line": 698,
+      "line": 713,
       "kind": "endpoint",
       "surface": "rooms.mark_failed"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift",
-      "line": 724,
+      "line": 739,
       "kind": "endpoint",
       "surface": "e2e.wrong"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift",
-      "line": 725,
+      "line": 740,
       "kind": "endpoint",
       "surface": "e2e.no_keys"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift",
-      "line": 726,
+      "line": 741,
       "kind": "endpoint",
       "surface": "e2e.failed"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift",
-      "line": 729,
+      "line": 744,
       "kind": "endpoint",
       "surface": "e2e.failed"
     },

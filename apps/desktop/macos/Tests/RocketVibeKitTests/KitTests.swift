@@ -207,3 +207,22 @@ final class BotsTests: XCTestCase {
         XCTAssertEqual(cryptoFailure(blocked), L("bots.error_crypto_member"))
     }
 }
+
+final class ServerRailOrderTests: XCTestCase {
+    @MainActor
+    func testSwitchingChangesSelectionWithoutMovingTiles() async {
+        func account(_ user: String) -> Account {
+            Account(genre: "rocketchat", key: "https://chat.example.com|" + user,
+                    baseUrl: "https://chat.example.com", userId: user, username: user)
+        }
+        let original = [account("alice"), account("bob"), account("carol")]
+        let keys = original.map(\.key)
+        for selected in original {
+            let activeFirst = [selected] + original.filter { $0.key != selected.key }
+            XCTAssertEqual(AppModel.orderForRail(activeFirst, keys: keys).map(\.key), keys)
+        }
+        let added = account("dave")
+        XCTAssertEqual(AppModel.orderForRail([added, original[2], original[0]], keys: keys).map(\.userId),
+                       ["alice", "carol", "dave"])
+    }
+}

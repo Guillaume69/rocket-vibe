@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-612 production files scanned; 717 occurrences.
+613 production files scanned; 717 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -490,12 +490,12 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:248](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L248) | endpoint | e2e.unlocked |
 | [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:251](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L251) | endpoint | e2e.lock |
 | [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:253](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L253) | endpoint | e2e.unlock |
-| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:696](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L696) | endpoint | rooms.nothing_unread |
-| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:698](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L698) | endpoint | rooms.mark_failed |
-| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:724](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L724) | endpoint | e2e.wrong |
-| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:725](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L725) | endpoint | e2e.no_keys |
-| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:726](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L726) | endpoint | e2e.failed |
-| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:729](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L729) | endpoint | e2e.failed |
+| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:711](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L711) | endpoint | rooms.nothing_unread |
+| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:713](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L713) | endpoint | rooms.mark_failed |
+| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:739](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L739) | endpoint | e2e.wrong |
+| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:740](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L740) | endpoint | e2e.no_keys |
+| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:741](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L741) | endpoint | e2e.failed |
+| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:744](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L744) | endpoint | e2e.failed |
 | [apps/mobile/app/login.tsx:470](../../apps/mobile/app/login.tsx#L470) | endpoint | chat.example.org |
 | [apps/mobile/app/message-actions.tsx:101](../../apps/mobile/app/message-actions.tsx#L101) | call:GET | 'settings.public' |
 | [apps/mobile/app/message-actions.tsx:102](../../apps/mobile/app/message-actions.tsx#L102) | endpoint | settings.public |

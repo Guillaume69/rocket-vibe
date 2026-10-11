@@ -1025,7 +1025,7 @@ impl AppWindow {
         let current = self.open_account();
         let this = self.clone();
         glib::spawn_future_local(async move {
-            let accounts = on_tokio(secrets::load_all()).await;
+            let accounts = on_tokio(secrets::load_for_rail()).await;
             this.rail.set_accounts(accounts, current.as_ref());
         });
     }

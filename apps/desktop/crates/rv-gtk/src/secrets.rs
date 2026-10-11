@@ -70,8 +70,17 @@ pub async fn replay_logouts() {
     }
 }
 
-/// Every account signed in on this machine, the active one first.
+/// Every account signed in on this machine, the active one first for startup.
 pub async fn load_all() -> Vec<SessionInfo> {
+    let mut found = load_for_rail().await;
+    if let Some(active) = active() {
+        found.sort_by_key(|info| account_key(info) != active);
+    }
+    found
+}
+
+/// The rail keeps its saved order regardless of the active account.
+pub async fn load_for_rail() -> Vec<SessionInfo> {
     let mut found: Vec<SessionInfo> = Vec::new();
     match tokio::time::timeout(TIMEOUT, keychain::all()).await {
         Ok(secrets) => {
@@ -83,9 +92,7 @@ pub async fn load_all() -> Vec<SessionInfo> {
         }
         Err(_) => eprintln!("Keychain did not answer, starting signed out."),
     }
-    if let Some(active) = active() {
-        found.sort_by_key(|info| account_key(info) != active);
-    }
+    rv_core::server_rail::order(&mut found, &glib::user_config_dir().join("rocket-vibe-rs"));
     found
 }
 

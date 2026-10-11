@@ -19,7 +19,22 @@ public final class AppModel {
     public var native: NativeChat? { provider?.native }
     public var signedIn: Bool { provider != nil }
     public private(set) var account: Account?
-    public private(set) var accounts: [Account] = []
+    public private(set) var accounts: [Account] = [] {
+        didSet {
+            let saved = (try? String(contentsOfFile: client.configDir() + "/server-rail-order", encoding: .utf8)) ?? ""
+            railAccounts = Self.orderForRail(accounts, keys: saved.split(separator: "\n").map(String.init))
+        }
+    }
+    /// Tile positions are independent of the active-first list used at startup.
+    public private(set) var railAccounts: [Account] = []
+
+    static func orderForRail(_ accounts: [Account], keys: [String]) -> [Account] {
+        accounts.enumerated().sorted { left, right in
+            let a = keys.firstIndex(of: left.element.key) ?? keys.count
+            let b = keys.firstIndex(of: right.element.key) ?? keys.count
+            return a == b ? left.offset < right.offset : a < b
+        }.map(\.element)
+    }
     /// Accounts other than the open one with unread messages: the dots of the
     /// server rail. Only the open account is connected; `pollAccounts` checks
     /// the others with one read each.

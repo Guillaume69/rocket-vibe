@@ -1743,9 +1743,10 @@ fn second_account(window: &Rc<AppWindow>, server: String, user: String, password
             1 if session.info.username == user => {
                 step.set(2);
                 check("second account signed in", true, &session.info.username);
-                let (w, first) = (w.clone(), first.borrow().clone());
+                let (w, first, user) = (w.clone(), first.borrow().clone(), user.clone());
                 glib::timeout_add_local_once(Duration::from_millis(1000), move || {
                     if let Some(first) = first {
+                        check_rail_positions(&w, &[&first.username, &user], &user);
                         w.switch_to(first);
                     }
                 });
@@ -1753,10 +1754,33 @@ fn second_account(window: &Rc<AppWindow>, server: String, user: String, password
             2 if Some(&session.info.username) == first.borrow().as_ref().map(|f| &f.username) => {
                 step.set(3);
                 check("switched back", w.chat.room_count() > 0, &session.info.username);
+                let (w, original, user) = (w.clone(), session.info.username.clone(), user.clone());
+                glib::timeout_add_local_once(Duration::from_millis(1000), move || {
+                    check_rail_positions(&w, &[&original, &user], &original);
+                });
             }
             _ => {}
         }
     });
+}
+
+/// Check the rendered tile order and selection after each account switch.
+fn check_rail_positions(window: &AppWindow, users: &[&str], active: &str) {
+    let rail = find_by_class(window.window.upcast_ref(), "server-rail").expect("server rail");
+    let buttons = rail.first_child().expect("server rail buttons");
+    let mut found = Vec::new();
+    let mut selected = Vec::new();
+    let mut child = buttons.first_child();
+    while let Some(button) = child {
+        let username = button.tooltip_text().unwrap_or_default().rsplit(" · @").next().unwrap_or_default().to_owned();
+        if button.has_css_class("rail-active") {
+            selected.push(username.clone());
+        }
+        found.push(username);
+        child = button.next_sibling();
+    }
+    check("server rail keeps original tile positions", found == users, &found);
+    check("server rail marks the selected tile in place", selected == [active], &selected);
 }
 
 fn nav_checks(chat: Rc<crate::chat::ChatPage>, first: String, other: String) {

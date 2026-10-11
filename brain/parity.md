@@ -112,7 +112,7 @@ beta does.
 | Attach files | done | done | done | done | Desktop: file chooser, drag-and-drop and paste, in place of the Android share sheet. Web: Native provider: see [web-client](features/web-client.md). |
 | Pre-send preview with captions and quality | done | done | done | done | Web: GTK 40-pixel thumbnail/type/size, full-size preview and parked Original choice; actual JPEG 1920/82 reduction, atomic ordered batch and first-file caption qualified in tests/images.mjs. |
 | Reduce photos before sending | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
-| Reduce videos before sending (H.264 720p) | done | missing | missing | missing | Web: No browser implementation yet. |
+| Reduce videos before sending (H.264 720p) | done | missing | missing | partial | Web: WebCodecs and Mediabunny in a worker, mobile's 720p/2 Mbps, progress and Cancel in the strip, the Original choice shared with photos (`src/video-reduce.ts`, `tests/video-reduce.mjs`). Partial by browser: without an H.264 encoder (some Firefox builds, Linux Chromium) or for a WebM with an alpha plane, the original goes out, the strip saying so for the former. |
 | Checks against `FileUpload_MaxFileSize` and `FileUpload_MediaTypeWhiteList` | done | done | done | partial | Web: Implemented native browser equivalent requires row-specific GTK qualification; see docs/WEB_CLIENT_EXECUTION.md. |
 | Two-step upload (`rooms.media`, `rooms.mediaConfirm`) with progress | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | Voice recording | done | done | done | done | Mobile and SwiftUI send AAC `.m4a`, GTK Ogg/Opus. Web: Browser MediaRecorder codec, GTK bar/clock/cancel/stop and inline staged replay; actual capture cancellation and constructor/start failures qualified in tests/features.mjs. |
@@ -339,13 +339,14 @@ are product gaps, listed last.
   formatting toolbar; notification backend description; logs
   folder; new versions; running with the window closed and starting at login;
   the notification's photo, picture, quick reactions, mark as read and own sound.
-- **Web**: missing: replay of an offline sign-out, video reduction, the thread
+- **Web**: missing: replay of an offline sign-out, the thread
   list, following and "also send to the room", search across rooms, the logs
   folder, reply from a notification, message retention, the notification's
   photo, picture, quick reactions, mark as read and own sound. Partial, mostly pending row-by-row
   qualification against GTK (`docs/WEB_CLIENT_EXECUTION.md`): link previews,
   embeds, quote cards, system messages, reactions, the thread chip, profiles,
-  the notification check, running with the tab closed; most native E2EE rows
+  the notification check, running with the tab closed; video reduction
+  where the browser has no H.264 encoder; most native E2EE rows
   (encrypted rooms, history share and backup, private edits, reactions, search
   and files, storage keys, delegation, recovered history); most voice rows; the
   outbox, reconnection and purge rows; "Deleted user"; bots and workflows.

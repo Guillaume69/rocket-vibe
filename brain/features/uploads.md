@@ -83,9 +83,11 @@ The serving-origin client uses the native prepare/bytes/complete contract in `sr
 
 GTK's Original-quality checkbox is parked per room in browser storage. `src/staged.ts` prepares JPEG with longest side 1920 and quality 82 at send, leaving an image within 1920 and below 1 MiB unchanged. Browser decode failure keeps the original. The image suite verifies unchanged PNG originals and a real reduced 1920x960 JPEG from a 2400x1200 source. Browser codec and encoder implementations differ from GdkPixbuf, so this verifies the policy and resulting dimensions rather than identical JPEG bytes.
 
+Videos are reduced too, with mobile's figures: H.264 MP4, short side capped at 720 with the aspect kept and both sides even, 2 Mbps. The pure decision is `src/video-plan.ts` (`tests/video-plan.test.ts`): every video is a candidate, but a source already within 720p whose average bitrate is at most 2.2 Mbps is sent as is, the bitrate never exceeds the source's own average (floor 500 kbps), and a result that is not lighter is thrown away, as on mobile. The work runs at send, in a worker per video (`src/video-reduce.worker.ts`) built on Mediabunny (MPL-2.0, unmodified, in that worker's chunk only and left out of the service worker's precache by `scripts/build-shell.mjs`): it demuxes MP4, QuickTime, WebM and Matroska, decodes and encodes through WebCodecs, copies the sound when MP4 can carry it (AAC, Opus, MP3...) or re-encodes it to AAC where the browser has an encoder, and muxes a fast-start MP4 named after the original. Any failure (no video track, undecodable codec, a track that would be dropped, the worker failing to load) sends the original, never fails the send; the reason goes to the console. `src/video-reduce.ts` probes `VideoEncoder.isConfigSupported` for High-profile H.264 at 720p (the profile Mediabunny asks for); without it (some Firefox builds, Linux Chromium without a platform encoder) the strip says videos will go out in original quality. While reducing, the strip shows "Reducing <name>" with a progress bar and Cancel, the quality checkbox is disabled and a second Enter is ignored; Cancel, removing a staged file or leaving the room terminates the worker and keeps the files staged. Known limit: a WebM carrying an alpha plane (a canvas recording) needs Mediabunny's `blob:` merge workers, which the server's CSP (`worker-src 'self'`) refuses, so it goes out in original quality. `tests/video-reduce.mjs` stages a generated 1600x900 VP8/Opus WebM, cancels, then checks the stored file is a 1280x720 H.264 MP4 with its sound that plays back, the original choice, and the fallback with the encoder probe forced off; on a Chromium without an H.264 encoder it checks the fallback only.
+
 ## Parity
 
-Same queue, dedup, retry and validation in both apps. Desktop adds drag-and-drop and paste in place of the Android share sheet, and automatic timed retries. Reduction differs: mobile reduces photos over 500 KB to JPEG 1920 px and transcodes videos to H.264 720p (`modules/video-compressor`); desktop reduces still images only (JPEG 1920 px, quality 82, skipped when within 1920 px and below 1 MiB). Each queued row keeps the thread it answers (`uploads.tmid`, mobile migration 0018 and desktop migration 9), sent as `tmid` with the confirm, or as the native intent's `complete.reply_to` (see [threads](threads.md)). Picking files and the pre-send strip are in [the composer](composer.md); sharing into the app is in [sharing and links](sharing-and-links.md).
+Same queue, dedup, retry and validation in both apps. Desktop adds drag-and-drop and paste in place of the Android share sheet, and automatic timed retries. Reduction differs: mobile reduces photos over 500 KB to JPEG 1920 px and transcodes videos to H.264 720p (`modules/video-compressor`), as does the web where the browser has an H.264 encoder; desktop reduces still images only (JPEG 1920 px, quality 82, skipped when within 1920 px and below 1 MiB). Each queued row keeps the thread it answers (`uploads.tmid`, mobile migration 0018 and desktop migration 9), sent as `tmid` with the confirm, or as the native intent's `complete.reply_to` (see [threads](threads.md)). Picking files and the pre-send strip are in [the composer](composer.md); sharing into the app is in [sharing and links](sharing-and-links.md).
 
 ## Sources
 
@@ -93,7 +95,13 @@ Same queue, dedup, retry and validation in both apps. Desktop adds drag-and-drop
 - apps/web/src/staged.ts
 - apps/web/src/uploads.ts
 - apps/web/src/store.ts
+- apps/web/src/video-plan.ts
+- apps/web/src/video-reduce.ts
+- apps/web/src/video-reduce.worker.ts
+- apps/web/scripts/build-shell.mjs
 - apps/web/tests/images.mjs
+- apps/web/tests/video-plan.test.ts
+- apps/web/tests/video-reduce.mjs
 - apps/web/tests/features.mjs
 
 - apps/mobile/lib/uploadQueue.ts

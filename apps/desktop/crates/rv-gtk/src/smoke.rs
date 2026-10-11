@@ -330,7 +330,7 @@ pub fn install(window: &Rc<AppWindow>) {
                 let chat = w.chat.clone();
                 glib::timeout_add_local_once(Duration::from_millis(3000), move || command_checks(chat, tag));
             }
-            if std::env::var("RV_SMOKE_GIPHY").is_ok() {
+            if matches!(std::env::var("RV_SMOKE_GIPHY").as_deref(), Ok("1" | "hold")) {
                 let chat = w.chat.clone();
                 glib::timeout_add_local_once(Duration::from_millis(2000), move || {
                     glib::spawn_future_local(giphy::run(chat));

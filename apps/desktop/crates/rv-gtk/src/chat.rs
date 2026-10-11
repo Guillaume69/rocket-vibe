@@ -45,9 +45,12 @@ struct OpenRoom {
 type Callback<T> = RefCell<Vec<Box<dyn Fn(T)>>>;
 
 /// A row of the room list: a section title, or a room.
+/// A RocketVibe room carries its peer's presence, read when its row is
+/// bound, so that a change of it replaces the row.
+#[derive(PartialEq)]
 enum RoomItem {
     Header { section: Section, title: String, collapsed: bool, count: usize },
-    Room(Box<RoomRow>),
+    Room(Box<RoomRow>, Option<rv_core::live::Presence>),
 }
 
 /// A row of an action menu: its icon, its words, what it does.
@@ -302,7 +305,7 @@ impl ChatPage {
                     header.add_controller(click);
                     item.set_child(Some(&header));
                 }
-                RoomItem::Room(room) => {
+                RoomItem::Room(room, _) => {
                     item.set_selectable(true);
                     item.set_activatable(true);
                     let widget = match native_shared.borrow().as_ref() {
@@ -857,7 +860,7 @@ impl ChatPage {
             let object = this.rooms_store.item(position).and_downcast::<glib::BoxedAnyObject>();
             let section = object.and_then(|o| match &*o.borrow::<RoomItem>() {
                 RoomItem::Header { section, .. } => Some(section.clone()),
-                RoomItem::Room(_) => None,
+                RoomItem::Room(..) => None,
             });
             if let Some(section) = section {
                 this.toggle_section(section);
@@ -2480,63 +2483,97 @@ impl ChatPage {
     }
 
     /// `force` builds every row again even when the data did not change:
-    /// what they show also depends on presence, photos and the E2E lock.
+    /// what they show also depends on Rocket.Chat presence, photos and the
+    /// E2E lock. Otherwise only the rows between the unchanged head and tail
+    /// of the list are replaced, so a message moving one room up rebuilds a
+    /// few rows, not all; a RocketVibe row's presence counts as a change.
     fn load_rooms(&self, force: bool) {
-        let rows = if self.native_session().is_some() {
+        let started = std::time::Instant::now();
+        let native = self.native_session();
+        let rows = if native.is_some() {
             self.native_rooms()
         } else {
             self.session.borrow().as_ref().map(|s| s.store.rooms()).unwrap_or_default()
         };
-        if force || *self.rooms.borrow() != rows {
-            let sections = rv_core::rooms::sections(&rows);
-            let titled = sections.len() > 1;
-            let mut objects = Vec::new();
-            let mut slots = Vec::new();
-            for (section, members) in sections {
-                let collapsed = titled && self.collapsed.borrow().contains(&section.key());
-                if titled {
-                    let title = match &section {
-                        Section::Unread => t("rooms.section_unread").to_owned(),
-                        Section::Favorites => t("rooms.section_favorites").to_owned(),
-                        Section::Group { name, .. } => name.clone(),
-                        Section::Channels => t("rooms.section_channels").to_owned(),
-                        Section::Direct => t("rooms.section_direct").to_owned(),
-                    };
-                    let count = members.len();
-                    objects.push(glib::BoxedAnyObject::new(RoomItem::Header { section, title, collapsed, count }));
-                    slots.push(None);
-                }
-                if collapsed {
-                    continue;
-                }
-                for room in members {
-                    slots.push(Some(room.rid.clone()));
-                    objects.push(glib::BoxedAnyObject::new(RoomItem::Room(Box::new(room))));
-                }
+        let read = started.elapsed();
+        let rows_changed = force || *self.rooms.borrow() != rows;
+        let sections = rv_core::rooms::sections(&rows);
+        let titled = sections.len() > 1;
+        let mut items = Vec::new();
+        let mut slots = Vec::new();
+        for (section, members) in sections {
+            let collapsed = titled && self.collapsed.borrow().contains(&section.key());
+            if titled {
+                let title = match &section {
+                    Section::Unread => t("rooms.section_unread").to_owned(),
+                    Section::Favorites => t("rooms.section_favorites").to_owned(),
+                    Section::Group { name, .. } => name.clone(),
+                    Section::Channels => t("rooms.section_channels").to_owned(),
+                    Section::Direct => t("rooms.section_direct").to_owned(),
+                };
+                let count = members.len();
+                items.push(RoomItem::Header { section, title, collapsed, count });
+                slots.push(None);
             }
+            if collapsed {
+                continue;
+            }
+            for room in members {
+                slots.push(Some(room.rid.clone()));
+                let presence = native.as_ref().and_then(|s| s.room_presence(&room.rid));
+                items.push(RoomItem::Room(Box::new(room), presence));
+            }
+        }
+        let (old, new) = (self.rooms_store.n_items() as usize, items.len());
+        let same = |at: usize, item: &RoomItem| {
+            self.rooms_store
+                .item(at as u32)
+                .and_downcast::<glib::BoxedAnyObject>()
+                .is_some_and(|object| *object.borrow::<RoomItem>() == *item)
+        };
+        let (mut head, mut tail) = (0, 0);
+        if !force {
+            while head < old.min(new) && same(head, &items[head]) {
+                head += 1;
+            }
+            while tail < old.min(new) - head && same(old - 1 - tail, &items[new - 1 - tail]) {
+                tail += 1;
+            }
+        }
+        let list_changed = force || head + tail < old.max(new);
+        if list_changed {
             self.slots.replace(slots);
+        }
+        if rows_changed {
             crate::badge::set(rv_core::rooms::badge(&rows));
             let unread = rv_core::rooms::unread_rooms(&rows);
             for f in self.on_unread.borrow().iter() {
                 f(unread);
             }
+        }
+        if list_changed {
+            let objects =
+                items.into_iter().skip(head).take(new - head - tail).map(glib::BoxedAnyObject::new).collect::<Vec<_>>();
             self.suppress_selection.set(true);
-            self.rooms_store.splice(0, self.rooms_store.n_items(), &objects);
+            self.rooms_store.splice(head as u32, (old - head - tail) as u32, &objects);
             self.suppress_selection.set(false);
-
+        }
+        if rows_changed {
             if let Some(open) = self.current.borrow_mut().as_mut()
                 && let Some(r) = rows.iter().find(|r| r.rid == open.rid)
             {
                 open.name = r.name.clone();
                 open.read_only = r.read_only;
                 open.dm_other_uid = r.dm_other_uid.clone();
-                open.avatar = if self.native_session().is_some() {
+                open.avatar = if native.is_some() {
                     r.avatar_etag.as_ref().map(|id| format!("rv-avatar:{id}"))
                 } else {
                     room_avatar_path(r)
                 };
             }
             self.rooms.replace(rows);
+        }
+        if rows_changed || list_changed {
             self.select_current(!(self.split.is_collapsed() && !self.split.shows_content()));
             self.refresh_room_header();
         }
@@ -2544,6 +2581,18 @@ impl ChatPage {
             for f in self.on_rooms_loaded.borrow().iter() {
                 f(());
             }
+        }
+        if native.is_some() {
+            // Numbered: the log collapses identical lines back to back.
+            static SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let n = SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+            glib::g_info!(
+                "rocket-vibe-reload",
+                "room list #{n}: rows read in {:.1} ms, list {} (and its listeners) in {:.1} ms",
+                read.as_secs_f64() * 1000.0,
+                if list_changed { "rebuilt" } else { "unchanged" },
+                (started.elapsed() - read).as_secs_f64() * 1000.0
+            );
         }
     }
 

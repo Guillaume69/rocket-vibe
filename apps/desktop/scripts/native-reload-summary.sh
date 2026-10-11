@@ -26,3 +26,20 @@ for kind in reload rooms; do
       printf "| %s | %d | %d | %.1f ms | %.1f ms | %.1f ms | %.0f ms |\n", label, n, changes, ms[int((n + 1) / 2)], ms[p95], ms[n], total
     }'
 done
+# "room list #N: rows read in <ms> ms, list <rebuilt|unchanged> (and its listeners) in <ms> ms"
+split=$(grep -oE 'room list #[0-9]+: rows read in [0-9.]+ ms, list [a-z]+ \(and its listeners\) in [0-9.]+ ms' "$log" || true)
+if [ -n "$split" ]; then
+  echo
+  echo "| room list | count | rows read (median) | rows read (max) | list (median) | list (max) |"
+  echo "|---|---|---|---|---|---|"
+  # The median and the max of a column of numbers, one per line.
+  stats() { sort -n | awk '{ v[NR] = $1 } END { printf "%.1f ms | %.1f ms", v[int((NR + 1) / 2)], v[NR] }'; }
+  for state in rebuilt unchanged; do
+    rows=$(echo "$split" | awk -v state="$state" '$10 == state {print $7, $(NF-1)}')
+    if [ -z "$rows" ]; then
+      echo "| $state | 0 | | | | |"
+      continue
+    fi
+    echo "| $state | $(echo "$rows" | wc -l) | $(echo "$rows" | cut -d' ' -f1 | stats) | $(echo "$rows" | cut -d' ' -f2 | stats) |"
+  done
+fi

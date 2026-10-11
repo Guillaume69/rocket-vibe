@@ -15,6 +15,7 @@ section here.
 
 ### Changed
 
+- Keep server bar tiles in their original positions when switching accounts (GTK and macOS), including after restarting the app. New accounts append to the bar.
 - In a read-only Rocket.Chat room, those whose roles let them post there anyway (owners and moderators by default) keep the composer, in the room and in its threads. The macOS app also hides a thread's composer in a read-only room for everyone else, as GTK does.
 
 ## [0.14.0] - 2026-10-11

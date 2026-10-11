@@ -27,7 +27,9 @@ async function upgrade(baseUrl: string, userId?: string): Promise<void> {
       return;
     }
     const legacyName = legacyDatabaseFileName(baseUrl, userId);
-    if (new File(defaultDatabaseDirectory, legacyName).exists) {
+    // expo-sqlite exposes a native path, while expo-file-system needs a URI.
+    const directory = defaultDatabaseDirectory.startsWith('file:') ? defaultDatabaseDirectory : `file://${defaultDatabaseDirectory}`;
+    if (new File(directory, legacyName).exists) {
       const known = await Promise.all((await listKnownServers()).map(url => readSession(url)));
       const candidates = known.flatMap(session => session && legacyDatabaseFileName(session.baseUrl, session.userId) === legacyName
         ? [databaseIdentity(session.baseUrl, session.userId)] : []);

@@ -47,8 +47,8 @@ final class CallWindow: NSObject, WKUIDelegate, WKNavigationDelegate, NSWindowDe
 
     func webView(
         _ webView: WKWebView,
-        requestMediaCapturePermissionFor origin: WKSecurityOrigin,
-        initiatedByFrame frame: WKFrameInfo,
+        decideMediaCapturePermissionsFor origin: WKSecurityOrigin,
+        initiatedBy frame: WKFrameInfo,
         type: WKMediaCaptureType
     ) async -> WKPermissionDecision {
         let address = origin.port > 0

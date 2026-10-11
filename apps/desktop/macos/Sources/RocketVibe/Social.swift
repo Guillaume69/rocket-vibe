@@ -113,7 +113,7 @@ struct SocialPanel: View {
     func load() async {
         searchVersion += 1; let version = searchVersion; let heldQuery = query
         do { let found = try await model.socialMedia(gifs: mode == "giphy", query: heldQuery); guard version == searchVersion else { return }; items = found; searched = heldQuery; error = nil }
-        catch { if version == searchVersion { error = L("social.failed") } }
+        catch { if version == searchVersion { self.error = L("social.failed") } }
     }
     func create() async throws {
         let key = "create:" + mode + title + details + String(multiple) + String(closes) + String(date.timeIntervalSince1970)

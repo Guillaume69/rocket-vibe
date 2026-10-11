@@ -171,6 +171,7 @@ impl ChatPage {
             kind: room.kind,
             name: room.name.clone(),
             read_only: room.read_only,
+            post_read_only: false,
             encrypted: room.encrypted,
             avatar: room.avatar_etag.map(|id| format!("rv-avatar:{id}")),
             slug: None,

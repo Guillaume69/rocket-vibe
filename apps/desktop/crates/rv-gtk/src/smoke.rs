@@ -37,7 +37,8 @@
 //!   RV_SMOKE_REPORT, RV_SMOKE_ADMIN  members' reports and the administration: see `admin`
 //!   RV_SMOKE_DETAILS=profile:<user> | room | search:<text> | settings | emoji:<code> | marked
 //!                          | threads | jump:<message id> | permissions:<expected, comma-separated>
-//!                          | local_search | also_in_room | invite | discussion | preview: see `rocket_chat`
+//!                          | local_search | also_in_room | invite | discussion | preview
+//!                          | members: see `rocket_chat`
 //!                          checks the read and opens the dialog; emoji: a custom one completes;
 //!                          threads: follows the newest thread and back, then opens it;
 //!                          unread: marks the open room read, then unread (it is left and
@@ -1490,6 +1491,8 @@ fn details_checks(
             rocket_chat::also_in_room_checks(chat, session, rid, tag.to_owned()).await;
         } else if let Some(expected) = what.strip_prefix("invite:") {
             rocket_chat::invite_checks(chat, session, rid, expected == "yes").await;
+        } else if let Some(user) = what.strip_prefix("members:") {
+            rocket_chat::member_checks(chat, session, rid, user.to_owned()).await;
         } else if let Some(tag) = what.strip_prefix("discussion:") {
             rocket_chat::discussion_checks(chat, session, rid, tag.to_owned()).await;
         } else if let Some(target) = what.strip_prefix("preview:") {

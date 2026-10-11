@@ -165,7 +165,7 @@ public final class RoomModel {
     /// "Start a discussion" from a message: where it could be forwarded (quoted, on the server).
     public func canStartDiscussion(_ message: MessageItem) -> Bool { supportsDiscussions && forwardable(message) }
     /// "New discussion" in the room's information: not in an encrypted or read-only room.
-    public var canCreateDiscussion: Bool { supportsDiscussions && threadId == nil && !room.encrypted && !room.readOnly }
+    public var canCreateDiscussion: Bool { supportsDiscussions && threadId == nil && !room.encrypted && !writingLocked }
     /// Whether I may share the room's invite link (my roles grant `create-invite-links`).
     public func canInvite() async -> Bool {
         guard supportsDiscussions, let chat else { return false }
@@ -175,6 +175,50 @@ public final class RoomModel {
     public func inviteLink() async throws -> String {
         guard active, let chat else { throw CancellationError() }
         return try await chat.inviteLink(rid: room.rid)
+    }
+    /// My roles grant `post-readonly` in the room (Rocket.Chat): read-only does not stop me.
+    public private(set) var mayPostReadOnly = false
+    /// Read-only for me: the composers give way to a note.
+    public var writingLocked: Bool { room.readOnly && !mayPostReadOnly }
+    /// Asks once per room whether I may write while it is read-only.
+    public func refreshPostReadOnly() async {
+        guard active, let chat else { return }
+        let allowed = await chat.mayPostReadOnly(rid: room.rid)
+        if active, !Task.isCancelled { mayPostReadOnly = allowed }
+    }
+    /// The room's members, their roles and its settings (Rocket.Chat, a
+    /// channel or private group), from the room's information.
+    public var supportsMembers: Bool { active && threadId == nil && !privateMode && chat?.membersAvailable(rid: room.rid) == true }
+    /// The first page of the members matching `filter`, or the next one added to `list`.
+    public func members(filter: String, list: MemberList?) async throws -> MemberList {
+        guard active, let chat else { throw CancellationError() }
+        let result = try await chat.members(rid: room.rid, filter: filter, list: list)
+        guard active, !Task.isCancelled else { throw CancellationError() }
+        return result
+    }
+    /// What my roles let me do on the others (`set-moderator`, `set-owner`, `remove-user`).
+    public func memberRights() async -> MemberRights {
+        guard supportsMembers, let chat else { return MemberRights(moderator: false, owner: false, remove: false) }
+        return await chat.memberRights(rid: room.rid)
+    }
+    /// A member row's menu, in order; none on my own row.
+    public func memberActions(_ rights: MemberRights, _ member: RoomMember) -> [MemberAction] {
+        chat?.memberActions(rights: rights, member: member) ?? []
+    }
+    /// Runs `action` on `member`: the list with the change, or why it was refused.
+    public func runMemberAction(_ action: MemberAction, on member: RoomMember, in list: MemberList) async -> MemberActionResult {
+        guard active, let chat else { return MemberActionResult(list: list, error: "members.action_failed") }
+        return await chat.runMemberAction(rid: room.rid, list: list, userId: member.id, action: action)
+    }
+    /// Whether my roles grant `edit-room`: the room's texts and read-only switch.
+    public func canEditRoom() async -> Bool {
+        guard supportsMembers, let chat else { return false }
+        return await chat.canEditRoom(rid: room.rid)
+    }
+    /// Saves what changed; nil once saved, else the catalog key of the refusal.
+    public func saveRoomSettings(before: RoomSettings, after: RoomSettings) async -> String? {
+        guard active, let chat else { return "room_settings.failed" }
+        return await chat.saveRoomSettings(rid: room.rid, before: before, after: after)
     }
     /// A room's own notifications (Rocket.Chat): `default`, `all`, `mentions` or `nothing`.
     public var supportsRoomNotifications: Bool { active && threadId == nil && chat?.roomNotificationsAvailable() == true }

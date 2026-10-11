@@ -35,15 +35,23 @@ struct ThreadView: View {
             // This thread's files waiting to go, with Retry when refused.
             UploadsView(model: model)
             // For the next reply only: the model unchecks it once sent.
-            if model.supportsAlsoInRoom && !model.room.readOnly {
-                Toggle(L("thread.also_in_room"), isOn: Binding(get: { model.alsoInRoom }, set: { model.alsoInRoom = $0 }))
-                    .toggleStyle(.checkbox)
-                    .padding(.horizontal, 14)
-                    .padding(.top, 6)
+            if model.writingLocked {
+                // As the room: read-only, unless my roles grant `post-readonly`.
+                Text(L("room.read_only"))
+                    .foregroundStyle(.secondary)
+                    .padding(12)
+            } else {
+                if model.supportsAlsoInRoom {
+                    Toggle(L("thread.also_in_room"), isOn: Binding(get: { model.alsoInRoom }, set: { model.alsoInRoom = $0 }))
+                        .toggleStyle(.checkbox)
+                        .padding(.horizontal, 14)
+                        .padding(.top, 6)
+                }
+                Composer(model: model, staged: $staged)
             }
-            Composer(model: model, staged: $staged)
         }
         .background(Vibe.night)
+        .task(id: model.threadId) { await model.refreshPostReadOnly() }
     }
 
     /// Follows the thread or stops, by what the bell shows.

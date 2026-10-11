@@ -24,6 +24,7 @@ pub mod live;
 pub mod markdown;
 pub mod mattermost;
 pub mod media;
+pub mod members;
 pub mod native;
 pub mod normalize;
 pub mod notify;

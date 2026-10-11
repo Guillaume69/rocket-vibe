@@ -36,10 +36,19 @@ struct OpenRoom {
     kind: String,
     name: String,
     read_only: bool,
+    /// My roles grant `post-readonly` here (Rocket.Chat): read-only does not stop me.
+    post_read_only: bool,
     encrypted: bool,
     avatar: Option<String>,
     slug: Option<String>,
     dm_other_uid: Option<String>,
+}
+
+impl OpenRoom {
+    /// Read-only for me: the composers hide, writing actions go.
+    fn locked(&self) -> bool {
+        self.read_only && !self.post_read_only
+    }
 }
 
 type Callback<T> = RefCell<Vec<Box<dyn Fn(T)>>>;
@@ -841,7 +850,7 @@ impl ChatPage {
             } else {
                 Vec::new()
             };
-            let droppable = !picked.is_empty() && this.current.borrow().as_ref().is_some_and(|o| !o.read_only);
+            let droppable = !picked.is_empty() && this.current.borrow().as_ref().is_some_and(|o| !o.locked());
             if droppable {
                 this.attach_files(picked);
             }
@@ -1207,7 +1216,7 @@ impl ChatPage {
                 let Some(open) = self.current.borrow().clone() else { return };
                 let room = actions_menu::RoomContext {
                     rid: open.rid.clone(),
-                    read_only: open.read_only,
+                    read_only: open.locked(),
                     encrypted: open.encrypted,
                     in_thread,
                 };
@@ -1290,12 +1299,8 @@ impl ChatPage {
         }
         let (Some(session), Some(open)) = (self.session(), self.current.borrow().clone()) else { return };
         let Some(row) = self.list_of(in_thread).last_mine(&session.info.user_id) else { return };
-        let room = actions_menu::RoomContext {
-            rid: open.rid,
-            read_only: open.read_only,
-            encrypted: open.encrypted,
-            in_thread,
-        };
+        let room =
+            actions_menu::RoomContext { read_only: open.locked(), rid: open.rid, encrypted: open.encrypted, in_thread };
         let weak = Rc::downgrade(self);
         glib::spawn_future_local(async move {
             let allowed = actions_menu::allowed(&session, &row, &room).await;
@@ -1467,7 +1472,7 @@ impl ChatPage {
             return;
         }
         self.room_nav.pop_to_tag("room");
-        let thread = ThreadPage::new(self.session.clone(), &open.rid, root_id, open.read_only);
+        let thread = ThreadPage::new(self.session.clone(), &open.rid, root_id, open.locked());
         let weak = Rc::downgrade(self);
         thread.list.connect_event(move |event| {
             if let Some(this) = weak.upgrade() {
@@ -1477,7 +1482,7 @@ impl ChatPage {
         let (weak, rid, root) = (Rc::downgrade(self), open.rid.clone(), root_id.to_owned());
         let composer = Rc::downgrade(&thread.composer);
         // "Also send to the room": one reply at a time, unchecked once it goes.
-        thread.also.set_visible(session.also_in_room_available() && !open.read_only);
+        thread.also.set_visible(session.also_in_room_available() && !open.locked());
         let also = thread.also.downgrade();
         thread.composer.connect_submit(move |text| {
             if let (Some(this), Some(composer)) = (weak.upgrade(), composer.upgrade()) {
@@ -1767,7 +1772,7 @@ impl ChatPage {
                 // A discussion of this room, from the information dialog: not in an encrypted one.
                 let weak = Rc::downgrade(self);
                 let new_discussion: Option<Rc<dyn Fn()>> =
-                    (session.discussions_available() && !open.encrypted && !open.read_only).then(|| {
+                    (session.discussions_available() && !open.encrypted && !open.locked()).then(|| {
                         Rc::new(move || {
                             if let Some(this) = weak.upgrade() {
                                 this.start_discussion(None);
@@ -1786,7 +1791,14 @@ impl ChatPage {
                     kind: &open.kind,
                     avatar: open.avatar.clone(),
                 };
-                crate::details::room_info(&self.split, session, room, new_discussion, toast);
+                let weak = Rc::downgrade(self);
+                let profile: Rc<dyn Fn(String)> = Rc::new(move |username| {
+                    if let Some(this) = weak.upgrade() {
+                        this.show_profile(&username, false);
+                    }
+                });
+                let actions = crate::details::RoomInfoActions { new_discussion, toast, profile };
+                crate::details::room_info(&self.split, session, room, actions);
             }
         }
     }
@@ -2663,7 +2675,7 @@ impl ChatPage {
         self.e2e_banner.set_visible(open.encrypted && !unlocked);
         self.e2e_unlock.set_visible(self.session.borrow().is_some());
         // Locked, nothing can leave an encrypted room: the server refuses clear text in it.
-        let writable = !open.read_only && (!open.encrypted || unlocked);
+        let writable = !open.locked() && (!open.encrypted || unlocked);
         self.composer.root.set_visible(writable);
         self.read_only_label.set_label(t(if open.encrypted { "e2e.read_only" } else { "room.read_only" }));
         self.read_only_label.set_visible(!writable);
@@ -2800,6 +2812,7 @@ impl ChatPage {
             kind: room.kind.clone(),
             name: room.name.clone(),
             read_only: room.read_only,
+            post_read_only: false,
             encrypted: room.encrypted,
             avatar: room_avatar_path(&room),
             slug: room.slug.clone(),
@@ -2813,6 +2826,31 @@ impl ChatPage {
         self.threads_button.set_visible(session.threads_available());
         self.call_button.set_icon_name("camera-video-symbolic");
         self.call_button.set_tooltip_text(Some(t("room.call")));
+        // Read-only, or made so while open: those my roles let write (`post-readonly`)
+        // keep the composers. The permissions are read once per session.
+        {
+            let (weak, s, rid) = (Rc::downgrade(self), session.clone(), rid.to_owned());
+            let expected = session.clone();
+            glib::spawn_future_local(async move {
+                let r = rid.clone();
+                let allowed = on_tokio(async move { s.may_post_read_only(&r).await }).await;
+                let Some(this) = weak.upgrade() else { return };
+                if !allowed || this.session().is_none_or(|s| !Arc::ptr_eq(&s, &expected)) {
+                    return;
+                }
+                let locked = {
+                    let mut current = this.current.borrow_mut();
+                    let Some(open) = current.as_mut().filter(|o| o.rid == rid) else { return };
+                    open.post_read_only = true;
+                    open.locked()
+                };
+                this.refresh_room_header();
+                if let Some(thread) = this.thread.borrow().as_ref() {
+                    thread.composer.root.set_visible(!locked);
+                    thread.also.set_visible(expected.also_in_room_available() && !locked);
+                }
+            });
+        }
         if !room.read_only {
             let (weak, s, rid) = (Rc::downgrade(self), session.clone(), rid.to_owned());
             let expected = session.clone();

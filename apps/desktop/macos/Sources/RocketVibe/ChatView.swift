@@ -93,7 +93,7 @@ struct ServerRail: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            ForEach(app.accounts, id: \.key) { account in
+            ForEach(app.railAccounts, id: \.key) { account in
                 let open = account.key == app.account?.key
                 let host = Self.host(account)
                 // The open account's tile offers its server administration to

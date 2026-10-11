@@ -129,6 +129,7 @@ pub fn load_all(dirs: &Dirs) -> Vec<SessionInfo> {
             found.push(info);
         }
     }
+    rv_core::server_rail::order(&mut found, &dirs.config);
     if let Some(active) = lines(&dirs.file("active-account")).into_iter().next() {
         found.sort_by_key(|info| key(info) != active);
     }

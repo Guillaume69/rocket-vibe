@@ -3,10 +3,14 @@
 Notable changes to the RocketVibe server. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The version lives
 in `apps/server/Cargo.toml`; a `server-vX.Y.Z` tag publishes the release (a Linux x86_64
-binary), whose notes are the version's section here. 0.2.0 is the first release:
+binary and the `ghcr.io/guillaume69/rocketvibe-server` image), whose notes are the version's section here. 0.2.0 is the first release:
 everything before it is under that section.
 
 ## [Unreleased]
+
+### Added
+
+- The Docker image is published to `ghcr.io/guillaume69/rocketvibe-server` on each release and carries a title, a description and its source repository (OCI labels).
 
 ### Fixed
 

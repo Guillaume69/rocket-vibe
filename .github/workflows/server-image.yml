@@ -2,7 +2,8 @@ name: server-image
 
 # On demand only: builds the RocketVibe server image of an existing
 # `server-vX.Y.Z` tag (apps/server/Dockerfile, the same build the release
-# archive comes from) and pushes it to ghcr.io as `X.Y.Z` and `latest`.
+# archive comes from, with the current Dockerfile's labels) and pushes it to
+# ghcr.io as `X.Y.Z` and `latest`.
 # server-release.yml already pushes it on each tag: this one backfills or
 # republishes a version.
 on:
@@ -31,6 +32,12 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: refs/tags/${{ inputs.tag }}
+      - name: The current Dockerfile, for its labels
+        uses: actions/checkout@v5
+        with:
+          path: current
+          sparse-checkout: apps/server/Dockerfile
+          sparse-checkout-cone-mode: false
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -41,6 +48,11 @@ jobs:
           version=$(node scripts/version.mjs server --tag "$TAG")
           echo "VERSION=$version" >> "$GITHUB_ENV"
           docker build -f apps/server/Dockerfile -t "rocketvibe-server:$version" .
+          # An older tag's Dockerfile may predate the labels: layer today's on top.
+          { echo "FROM rocketvibe-server:$version"; grep '^LABEL ' current/apps/server/Dockerfile; } \
+            | docker build -t "rocketvibe-server:$version" -
+          docker image inspect "rocketvibe-server:$version" \
+            --format '{{ index .Config.Labels "org.opencontainers.image.description" }}' | grep .
       - name: Push to ghcr.io
         env:
           GH_TOKEN: ${{ github.token }}

@@ -81,7 +81,7 @@ pub async fn run(chat: Rc<crate::chat::ChatPage>) {
     send.emit_clicked();
     send.emit_clicked();
     for _ in 0..100 {
-        if composer.text().is_empty() {
+        if composer.text().is_empty() && !d.is_mapped() {
             break;
         }
         glib::timeout_future(Duration::from_millis(100)).await;

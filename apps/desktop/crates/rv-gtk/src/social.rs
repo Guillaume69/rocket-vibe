@@ -165,6 +165,9 @@ fn clear(body: &gtk::Box) {
     }
 }
 fn image(url: &str) -> gtk::Picture {
+    image_preview(url, 512)
+}
+fn image_preview(url: &str, max_edge: i32) -> gtk::Picture {
     let picture = gtk::Picture::builder()
         .content_fit(gtk::ContentFit::Contain)
         .width_request(180)
@@ -177,8 +180,8 @@ fn image(url: &str) -> gtk::Picture {
         let bytes = on_tokio(async move { rv_core::social::image_bytes(&url).await }).await;
         let (Some(picture), Ok(bytes)) = (weak.upgrade(), bytes) else { return };
         let loader = gtk::gdk_pixbuf::PixbufLoader::new();
-        loader.connect_size_prepared(|loader, width, height| {
-            let scale = 512.0 / f64::from(width.max(height).max(512));
+        loader.connect_size_prepared(move |loader, width, height| {
+            let scale = f64::from(max_edge) / f64::from(width.max(height).max(max_edge));
             loader.set_size((f64::from(width) * scale) as i32, (f64::from(height) * scale) as i32);
         });
         if loader.write(&bytes).is_err() || loader.close().is_err() {
@@ -433,7 +436,7 @@ pub fn gif_gallery(anchor: &gtk::Widget, target: Target, query: &str, on_sent: O
                                 first = Some(choose.clone());
                             }
                             let content = gtk::Box::new(gtk::Orientation::Vertical, 6);
-                            content.append(&image(&item.url));
+                            content.append(&image_preview(&item.url, 180));
                             choose.set_child(Some(&content));
                             let (selected, send, save, choice, query, id, save_id, sequence) = (
                                 selected.clone(),

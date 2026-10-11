@@ -28,6 +28,43 @@ writeFileSync(
     icons: [{ src: iconName, sizes: "256x256", type: "image/png" }],
   }),
 );
+// Message notifications (src/notifications.ts): the worker holds no session.
+// A click or a button goes to a live tab, which acts with its own session;
+// with no tab, one is opened on the room and gets the click once it says it
+// is ready. A click only focuses; the buttons act in the background.
+const notificationWorker = `const waiting=[];
+self.addEventListener('message',event=>{
+const data=event.data;
+if(!data||typeof data!=='object')return;
+if(data.type==='rv-notification-hello'&&event.ports[0]){
+event.ports[0].postMessage({version:1,inlineReply:typeof NotificationEvent!=='undefined'&&'reply' in NotificationEvent.prototype});return;}
+if(data.type==='rv-notification-ready'&&event.source)
+for(const item of waiting.splice(0)){event.source.postMessage(item.click);item.done();}
+});
+self.addEventListener('notificationclick',event=>{
+const data=event.notification.data;
+if(!data||data.rv!=='message')return;
+event.notification.close();
+const click={type:'rv-notification',action:['read','like','reply'].includes(event.action)?event.action:'open',reply:typeof event.reply==='string'?event.reply:null,account:data.account,room:data.room,message:data.message};
+const work=hand(click).catch(()=>{});
+// A synthetic event (tests) cannot extend its lifetime; the work still runs.
+try{event.waitUntil(work)}catch{}
+});
+async function hand(click){
+const background=click.action==='read'||click.action==='like'||(click.action==='reply'&&!!click.reply&&!!click.reply.trim());
+const tabs=await self.clients.matchAll({type:'window',includeUncontrolled:true});
+const tab=tabs.find(c=>c.focused)||tabs.find(c=>c.visibilityState==='visible')||tabs[0];
+if(tab){
+if(!background)try{await tab.focus()}catch{}
+tab.postMessage(click);return;}
+await new Promise(done=>{
+const item={click,done};
+waiting.push(item);
+setTimeout(()=>{const at=waiting.indexOf(item);if(at>=0)waiting.splice(at,1);done();},60000);
+self.clients.openWindow('/room/'+encodeURIComponent(click.room)).catch(()=>{});
+});
+}
+`;
 writeFileSync(
   "dist/sw.js",
   `const CACHE='rv-shell-${version}';
@@ -41,5 +78,5 @@ if(event.request.mode==='navigate'&&(url.pathname==='/'||url.pathname.startsWith
 event.respondWith(fetch(event.request).catch(()=>caches.open(CACHE).then(cache=>cache.match('/'))));return;}
 if(ASSETS.includes(url.pathname)||/^\\/assets\\/[a-zA-Z0-9_.-]+$/.test(url.pathname))event.respondWith(caches.match(event.request).then(response=>response||fetch(event.request)));
 });
-`,
+${notificationWorker}`,
 );

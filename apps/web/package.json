@@ -31,6 +31,7 @@
     "test:receipts": "node tests/receipts.mjs",
     "test:scheduled": "node tests/scheduled.mjs",
     "test:reminders": "node tests/reminders.mjs",
+    "test:notifications": "node tests/notifications.mjs",
     "format": "prettier --write src scripts tests *.js *.json index.html",
     "format:check": "prettier --check src scripts tests *.js *.json index.html",
     "test:navigation": "node tests/navigation.mjs"

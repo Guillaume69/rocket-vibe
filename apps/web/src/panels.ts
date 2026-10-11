@@ -18,6 +18,7 @@ import { operation, segment } from "./api";
 import { el, button, field, tile, dialog, toast } from "./dom";
 import { matchRooms } from "./room-match";
 import { clock, minuteOf, nextMorning } from "./quiet";
+import { ownSound, setOwnSound } from "./notifications";
 import { t, language } from "./i18n";
 import { messageRow } from "./render";
 import { securitySettings, recentProof } from "./security";
@@ -888,11 +889,20 @@ export async function settings(
         .finally(() => (select.disabled = false));
     });
     row.append(select);
+    // This browser only, like GTK's switch: the app's sound or the system's.
+    const soundRow = actionRow(t("notifySound"), t("notifySoundHint"));
+    const sound = el("input");
+    sound.type = "checkbox";
+    sound.checked = ownSound();
+    sound.setAttribute("aria-label", t("notifySound"));
+    sound.addEventListener("change", () => setOwnSound(sound.checked));
+    soundRow.append(sound);
     rows.append(
       row,
       actionRow(t("notificationsEnable"), "", async () => {
         if ("Notification" in window) await Notification.requestPermission();
       }),
+      soundRow,
     );
     page.append(group);
     // Do not disturb: the server holds push and call rings back, and this

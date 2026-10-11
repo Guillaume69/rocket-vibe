@@ -4,6 +4,10 @@ All notable changes are documented here in English.
 
 ## [Unreleased]
 
+### Added
+
+- Richer message notifications: the author's photo, the message's picture (Chromium), and Mark as read and Like buttons that act without opening the tab. A reply field appears where the browser allows a third button; otherwise a click opens the room with the composer ready. Notifications play the app's own sound, and Settings > Notifications has a "rocket-vibe sound" switch to get the system's sound back.
+
 ## [0.4.0] - 2026-10-11
 
 ### Added

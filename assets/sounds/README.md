@@ -11,4 +11,4 @@ by `scripts/sounds/encode.sh`. Regenerate them rather than editing the files.
 | `cue-join.ogg`, `cue-leave.ogg` | Someone joins or leaves the voice session you are in. |
 | `cue-mute.ogg`, `cue-unmute.ogg` | Your microphone or sound is cut or restored. |
 | `cue-missed.ogg` | A call was missed or declined. |
-| `cue-message.ogg` | A desktop notification for a new message (Windows), in place of the system sound. |
+| `cue-message.ogg` | A notification for a new message, in place of the system sound: the desktop on Windows, the web app in the page. |

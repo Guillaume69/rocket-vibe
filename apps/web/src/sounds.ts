@@ -5,7 +5,17 @@ import leave from "../../../assets/sounds/cue-leave.ogg";
 import mute from "../../../assets/sounds/cue-mute.ogg";
 import unmute from "../../../assets/sounds/cue-unmute.ogg";
 import missed from "../../../assets/sounds/cue-missed.ogg";
-const sources = { ringtone, ringback, join, leave, mute, unmute, missed };
+import message from "../../../assets/sounds/cue-message.ogg";
+const sources = {
+  ringtone,
+  ringback,
+  join,
+  leave,
+  mute,
+  unmute,
+  missed,
+  message,
+};
 export function sound(
   name: keyof typeof sources,
   loop = false,

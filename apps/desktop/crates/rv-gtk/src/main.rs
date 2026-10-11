@@ -40,6 +40,7 @@ mod reactions;
 mod recorder;
 mod room_notifications;
 mod rows;
+mod scheduled;
 mod secrets;
 mod settings;
 mod sidebar_dialog;
@@ -162,6 +163,23 @@ fn main() -> glib::ExitCode {
             }
         });
         app.add_action(&reply);
+        #[cfg(target_os = "linux")]
+        if let Some(settings) = gtk::Settings::default()
+            && let Some(layout) = settings.gtk_decoration_layout()
+        {
+            // Preserve the desktop's chosen window controls, omit the app icon.
+            let clean = layout
+                .split(':')
+                .map(|side| {
+                    side.split(',')
+                        .filter(|item| !matches!(*item, "icon" | "menu" | "appmenu"))
+                        .collect::<Vec<_>>()
+                        .join(",")
+                })
+                .collect::<Vec<_>>()
+                .join(":");
+            settings.set_gtk_decoration_layout(Some(&clean));
+        }
         style::load();
         if let Some(display) = gtk::gdk::Display::default() {
             icon::register(&display);

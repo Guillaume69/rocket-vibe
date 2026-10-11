@@ -876,6 +876,25 @@ impl NativeStore {
         rows.reverse();
         Ok(rows)
     }
+    /// The room list's last message: `messages(rid, 1)` without its
+    /// attachments, its id found first so that only that row is presented
+    /// (the full select runs its joins on every message of the room).
+    pub fn last_message(&self, rid: &str) -> rusqlite::Result<Option<MessageRow>> {
+        let conn = self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !self.same(&conn)? {
+            return Ok(None);
+        }
+        let Some(id) = conn
+            .prepare_cached("SELECT m.id FROM native_messages m LEFT JOIN native_outbox o ON o.id=m.id WHERE m.rid=?1 AND m.reply_to IS NULL AND NOT m.deleted ORDER BY m.position IS NULL DESC,o.created DESC,length(m.position) DESC,m.position DESC,m.id DESC LIMIT 1")?
+            .query_row([rid], |r| r.get::<_, String>(0))
+            .optional()?
+        else {
+            return Ok(None);
+        };
+        conn.prepare_cached(&format!("{} WHERE m.id=?1", threads::MESSAGE_SELECT))?
+            .query_row([id], threads::message_row)
+            .optional()
+    }
     /// The form a stored message carries (RFC 0004), as last received.
     pub fn message_form(&self, id: &str) -> rusqlite::Result<Option<rv_protocol::workflows::WorkflowForm>> {
         let conn = self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -1193,6 +1212,22 @@ mod tests {
         assert_eq!(store.cursor().unwrap().as_deref(), Some("initial"));
         assert_eq!(store.pending().unwrap().len(), 1);
         assert_eq!(store.messages("room-id", 100).unwrap().last().unwrap().text, "queued");
+    }
+
+    #[test]
+    fn the_last_message_is_the_page_s_last_pending_sends_included() {
+        let store = store();
+        let snapshot = snapshot();
+        store.snapshot(&snapshot).unwrap();
+        let rid = snapshot.messages[0].room_id.clone();
+        let last = |s: &NativeStore| s.last_message(&rid).unwrap().map(|m| (m.id, m.text, m.ts));
+        let page = |s: &NativeStore| s.messages(&rid, 1).unwrap().pop().map(|m| (m.id, m.text, m.ts));
+        assert!(last(&store).is_some());
+        assert_eq!(last(&store), page(&store));
+        store.enqueue("queued", &rid, "pending text", "alice").unwrap();
+        assert_eq!(last(&store).map(|m| m.0), Some("queued".to_owned()));
+        assert_eq!(last(&store), page(&store));
+        assert!(store.last_message("no-such-room").unwrap().is_none());
     }
 
     #[test]

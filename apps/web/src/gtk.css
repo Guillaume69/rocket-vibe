@@ -141,6 +141,8 @@ button.cta:active, button.cta:disabled { opacity: 0.75; }
 .room-time { font-size: 11.5px; font-weight: 600; color: #7C76A0; font-feature-settings: "tnum"; }
 .room-time.unread { color: #FFD34E; font-weight: 700; }
 .account { border-top: 1px solid #1E1B33; padding: 10px 14px; }
+.account-avatar { padding: 0; min-width: 0; min-height: 0; }
+.rail-visible { color: #34E1D0; }
 .account-name { font-weight: 800; font-size: 13.5px; }
 .account-host { color: #6E6890; font-size: 11.5px; }
 .staged { background: #171529; border: 1.5px solid #2C2946; border-radius: 16px; padding: 8px; }
@@ -292,6 +294,15 @@ button.edit-button { min-height: 0; padding: 3px 12px; font-weight: 700; font-si
 button.edit-button.save { background: linear-gradient(135deg, #FF5FA2, #A78BFA); color: #0D0B1A; }
 .reply-bar { background: #171529; border-left: 3px solid #A78BFA; border-radius: 10px; padding: 6px 10px; }
 .reply-title { color: #A78BFA; font-weight: 700; font-size: 12.5px; }
+button.scheduled-chip { background: #171529; color: #C9C3E0; border: 1px solid #2C2946; border-radius: 999px; padding: 2px 12px; min-height: 0; font-size: 12.5px; font-weight: 700; }
+button.scheduled-chip:hover { color: #F3F0FF; background: #1E1B33; }
+menubutton.send-later > button { min-width: 28px; min-height: 28px; padding: 0; color: #8F89AB; margin-bottom: 8px; }
+menubutton.send-later > button:hover, menubutton.send-later > button:checked { color: #F3F0FF; }
+.scheduled-list contents { padding: 10px 12px; }
+.scheduled-row { padding: 4px 0; }
+.scheduled-when { color: #A78BFA; font-weight: 700; font-size: 12.5px; }
+.scheduled-when.error { color: #FF7A8A; }
+.scheduled-text { color: #F3F0FF; font-size: 13.5px; }
 .reply-preview { color: #8F89AB; font-size: 12.5px; }
 .mention-card { padding: 4px 2px; }
 .marked { padding: 6px 14px 14px 14px; }

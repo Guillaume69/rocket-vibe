@@ -109,6 +109,8 @@ export type Capabilities = {
   administration?: boolean;
   /** Members can report a message or an account (`Provider.reports`). */
   reports?: boolean;
+  /** Text the server sends later for its author (`Provider.scheduled`, RocketVibe). */
+  scheduledMessages?: boolean;
   typing: boolean;
   presence: boolean;
   push: boolean;
@@ -380,6 +382,10 @@ export interface Provider {
   readonly capabilities: Capabilities;
   /** Temporary results, normalised for the existing renderer. */
   searchMessages?(rid:string,text:string):Promise<LocalMessage[]>;
+  ownActivity?: {
+    read(): Promise<import('./presence.ts').PresenceStatus>;
+    set(status: import('./presence.ts').PresenceStatus): Promise<import('./presence.ts').PresenceStatus>;
+  };
   /** Everyone's presence at once, when the protocol reads it its own way (`capabilities.presence`). */
   loadPresence?(): Promise<ReadonlyArray<{ user: { id: string }; status: import('./presence.ts').PresenceStatus }>>;
   /** Presentation data of the existing info sheet, supplied by each protocol. */
@@ -399,6 +405,8 @@ export interface Provider {
   readonly admin?: import('./admin.ts').ProviderAdmin;
   /** Reporting a message or an account, when `capabilities.reports`. */
   readonly reports?: import('./admin.ts').ProviderReports;
+  /** Messages the server sends later, when `capabilities.scheduledMessages` (`lib/scheduled.ts`). */
+  readonly scheduled?: import('./scheduled.ts').ProviderScheduled;
   /** Real-time transport (RC: DDP; MM: JSON WebSocket). */
   readonly listener: Listener;
   /** Decoder from raw `DdpEvent`s/documents to neutral shapes. */

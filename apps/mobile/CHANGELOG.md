@@ -11,8 +11,19 @@ release, and its notes are that version's section here.
 
 - Android can check GitHub for a newer mobile APK from Settings > App, show an optional update notice, download with progress and SHA-256 verification, and install through Android confirmation while retaining app data. Update checks and installation recovery work independently of chat accounts.
 
+### Fixed
+
+- Native Android builds explicitly compile Expo's generated package list so a clean or cached build cannot launch with its modules missing.
+
+## [0.11.0] - 2026-10-11
+
+### Added
+
+- On RocketVibe servers, "Send later" (the chevron beside send, or a long press on send) schedules the typed text: in 1 hour, tomorrow at 08:00, or a day and time you pick, up to 30 days ahead; in a thread it schedules a reply. The server sends it even if the app is closed. A "N scheduled" chip above the composer lists the room's scheduled messages, to cancel one, or to remove one that could not be sent and see why. Not offered in end-to-end encrypted rooms.
 - On a RocketVibe account in do not disturb, an incoming call shows in the open app without ringing.
 - On RocketVibe servers, read receipts: under your latest message, "Seen" in a direct conversation, "Seen by" and up to three names (then how many others) in a group, updated live. Settings > My account has a "Share read receipts" switch under Privacy; turned off, others no longer see how far you read and you no longer see how far they did.
+- The home header can hide or show the server bar directly. A bottom account bar offers my activity from the avatar through a compact native sheet, shows its presence badge and keeps Settings within reach.
+
 - On RocketVibe servers, Settings > Notifications offers "Do not disturb": mute notifications for 1 hour or until 08:00, or set daily quiet hours (22:00 to 08:00 by default, in the phone's time zone). Messages still arrive; push notifications and call rings stop meanwhile.
 - A filter field at the top of the room list narrows it to the rooms whose name matches, accents and case aside, best matches first, as the desktop's Ctrl+K switcher ranks them.
 - On Rocket.Chat servers, a button in the room header lists the room's threads, all of them or only the ones you follow, latest reply first; a bell on each thread and in the thread's header follows or unfollows it.
@@ -40,8 +51,6 @@ release, and its notes are that version's section here.
 - The composer is laid out like the desktop's: a single outlined field holding attach, emoji and microphone, lit cyan while typing, and a round send button that stays in place, dimmed while there is nothing to send, and turns into stop while recording.
 
 ### Fixed
-
-- Native Android builds explicitly compile Expo's generated package list so a clean or cached build cannot launch with its modules missing.
 
 - On Mattermost and kChat, a thread's "N replies" moves as soon as someone answers, not at the next catch-up.
 - On Mattermost and kChat, search in a channel asks the server for that channel's matches only, so a busy team no longer leaves it empty.
@@ -714,7 +723,8 @@ First published version: Android, for Rocket.Chat 8 or later.
 - Profiles, room info, my profile (status, photo, information).
 - Interface in French and English.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.10.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.11.0...HEAD
+[0.11.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.10.0...mobile-v0.11.0
 [0.10.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.9.1...mobile-v0.10.0
 [0.9.1]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.9.0...mobile-v0.9.1
 [0.9.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.8.0...mobile-v0.9.0

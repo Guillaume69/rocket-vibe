@@ -16,6 +16,7 @@ mod native_files;
 mod native_profiles;
 mod native_recovery;
 mod native_rooms;
+mod native_scheduled;
 mod native_security;
 mod native_voice;
 mod native_workflows;
@@ -790,6 +791,11 @@ impl Chat {
     pub async fn set_status(&self, status: String, message: String) -> Result<(), RvError> {
         let s = self.session.clone();
         Ok(on_tokio(async move { s.set_status(&status, &message).await }).await?)
+    }
+
+    pub async fn set_activity(&self, status: String) -> Result<String, RvError> {
+        let s = self.session.clone();
+        Ok(on_tokio(async move { s.set_activity(&status).await }).await?)
     }
 
     /// Signs out on the server and forgets the account and its cache; a

@@ -53,6 +53,52 @@ impl Presence {
     }
 }
 
+#[derive(Default)]
+pub struct PresenceState {
+    known: Option<HashMap<String, Presence>>,
+    sequences: HashMap<String, u64>,
+    counter: u64,
+}
+
+impl PresenceState {
+    pub fn status(&self, uid: &str) -> Option<Presence> {
+        self.known.as_ref().map(|known| known.get(uid).copied().unwrap_or(Presence::Offline))
+    }
+
+    pub fn revision(&self) -> u64 {
+        self.counter
+    }
+
+    pub fn update(&mut self, uid: String, status: Presence) {
+        self.counter += 1;
+        self.known.get_or_insert_default().insert(uid.clone(), status);
+        self.sequences.insert(uid, self.counter);
+    }
+
+    pub fn confirm(&mut self, started: u64, uid: String, status: Presence) -> Presence {
+        if self.sequences.get(&uid).is_some_and(|sequence| *sequence > started) {
+            return self.status(&uid).unwrap_or(status);
+        }
+        self.update(uid, status);
+        status
+    }
+
+    pub fn snapshot(&mut self, started: u64, list: Vec<(String, Presence)>, partial: bool) {
+        let mut next = if partial { self.known.clone().unwrap_or_default() } else { HashMap::new() };
+        next.extend(list);
+        if let Some(known) = &self.known {
+            for (uid, sequence) in &self.sequences {
+                if *sequence > started
+                    && let Some(status) = known.get(uid)
+                {
+                    next.insert(uid.clone(), *status);
+                }
+            }
+        }
+        self.known = Some(next);
+    }
+}
+
 /// `user-status` args: `[[uid, username, statusCode, statusText]]`.
 pub fn presence_event(args: &[Value]) -> Option<(String, Presence)> {
     let entry = args.first()?.as_array()?;
@@ -151,6 +197,22 @@ mod tests {
         assert_eq!(t.who("r", "me", now), ["bob"]);
         assert!(t.who("r", "me", now + TYPING_EXPIRY).is_empty());
         assert!(t.who("other", "me", now).is_empty());
+    }
+
+    #[test]
+    fn late_confirmation_keeps_newer_stream_activity() {
+        let mut state = PresenceState::default();
+        state.update("me".into(), Presence::Online);
+        let started = state.revision();
+        state.update("me".into(), Presence::Away);
+        assert_eq!(state.confirm(started, "me".into(), Presence::Busy), Presence::Away);
+        assert_eq!(state.status("me"), Some(Presence::Away));
+        let started = state.revision();
+        assert_eq!(state.confirm(started, "me".into(), Presence::Busy), Presence::Busy);
+        state.snapshot(started, vec![("me".into(), Presence::Online)], false);
+        assert_eq!(state.status("me"), Some(Presence::Busy));
+        state.snapshot(state.revision(), vec![("peer".into(), Presence::Away)], true);
+        assert_eq!(state.status("me"), Some(Presence::Busy));
     }
 
     #[test]

@@ -8,11 +8,17 @@ everything before it is under that section.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-11
+
 ### Added
 
 - Scheduled messages: a member schedules a text message (a thread reply too) between one minute and 30 days ahead; the server sends it at that time as its author, once, even if no app runs, and keeps the ones it could not send for their author to see. Not in end-to-end encrypted rooms.
 - Read receipts: the live frame carries how far the other members of a small room (50 members at most) read it. An account preference turns them off both ways: its reads are hidden and it sees no one's.
 - Do not disturb: an account's preferences take quiet hours (a daily window in its time zone) and a mute until an instant (at most seven days). While either holds, no push is sent and no device rings for a call; messages still arrive. A client that does not know the new fields keeps them unchanged.
+
+### Changed
+
+- The embedded web client supports native MLS encrypted conversations through WebAssembly and uses React rendering, with room switching, read receipts, quick activity choices, scheduled messages and do-not-disturb controls.
 
 ### Fixed
 
@@ -32,5 +38,6 @@ everything before it is under that section.
 
 - Preserve bot identity in live profile observations so author refreshes keep the BOT badge on bot and workflow messages.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/server-v0.2.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/server-v0.3.0...HEAD
+[0.3.0]: https://github.com/Guillaume69/rocket-vibe/compare/server-v0.2.0...server-v0.3.0
 [0.2.0]: https://github.com/Guillaume69/rocket-vibe/releases/tag/server-v0.2.0

@@ -58,6 +58,31 @@ const fr = {
   'conversation.observed': 'Historique conservé sur cet appareil · heures de réception locales.',
   'conversation.rootMissing': 'La racine de ce fil n’est plus conservée sur cet appareil. Les réponses disponibles restent lisibles ; un nouvel envoi nécessite la racine.',
   'conversation.retainedReplies': '{n} réponse conservée | {n} réponses conservées',
+  'scheduled.sendLater': 'Envoyer plus tard',
+  'scheduled.inOneHour': 'Dans 1 heure',
+  'scheduled.tomorrow': 'Demain à 08:00',
+  'scheduled.pickTime': 'Choisir l’heure',
+  'scheduled.day': 'Jour',
+  'scheduled.time': 'Heure (HH:MM)',
+  'scheduled.confirm': 'Programmer',
+  'scheduled.outOfRange': 'Choisissez un moment entre dans une minute et dans 30 jours.',
+  'scheduled.done': 'Programmé pour {when}',
+  'scheduled.count': '{n} programmé | {n} programmés',
+  'scheduled.title': 'Messages programmés',
+  'scheduled.threadReply': 'Réponse dans un fil',
+  'scheduled.failed': 'N’a pas pu être envoyé',
+  'scheduled.remove': 'Retirer',
+  'scheduled.sending': 'Déjà en cours d’envoi',
+  'scheduled.refused': 'Message non programmé : {reason}',
+  'scheduled.cancelFailed': 'Impossible de l’annuler. Vérifiez la connexion.',
+  'scheduled.reason.encrypted_room': 'le salon est chiffré',
+  'scheduled.reason.permission_denied': 'envoi non autorisé',
+  'scheduled.reason.not_found': 'salon ou fil introuvable',
+  'scheduled.reason.no_session': 'aucune session active',
+  'scheduled.reason.scheduled_limit': 'trop de messages programmés',
+  'scheduled.reason.invalid_request': 'moment ou texte refusé',
+  'scheduled.reason.other': 'erreur du serveur ({code})',
+  'scheduled.reason.network': 'serveur injoignable',
   'group.title': 'Groupe chiffré',
   'group.empty': 'Aucun groupe chiffré créé pour ce salon.',
   'group.notAdmitted': 'Cet appareil doit encore rejoindre le groupe.',
@@ -1158,6 +1183,9 @@ const fr = {
 
   // ── Home (conversation list)
   'home.settings': 'Paramètres',
+  'home.showServers': 'Afficher les serveurs',
+  'home.hideServers': 'Masquer les serveurs',
+  'home.changeStatus': 'Changer mon statut',
   'rail.add': 'Ajouter un serveur',
   'home.sectionUnread': 'Non lus',
   'home.sectionFavorites': 'Favoris',
@@ -1547,6 +1575,31 @@ const en: Record<TranslationKey, string> = {
   'conversation.observed': 'History retained on this device · local receipt times.',
   'conversation.rootMissing': 'This thread’s root is no longer retained on this device. Available replies remain readable; sending requires the root.',
   'conversation.retainedReplies': '{n} retained reply | {n} retained replies',
+  'scheduled.sendLater': 'Send later',
+  'scheduled.inOneHour': 'In 1 hour',
+  'scheduled.tomorrow': 'Tomorrow at 08:00',
+  'scheduled.pickTime': 'Pick a time',
+  'scheduled.day': 'Day',
+  'scheduled.time': 'Time (HH:MM)',
+  'scheduled.confirm': 'Schedule',
+  'scheduled.outOfRange': 'Pick a time between one minute and 30 days from now.',
+  'scheduled.done': 'Scheduled for {when}',
+  'scheduled.count': '{n} scheduled | {n} scheduled',
+  'scheduled.title': 'Scheduled messages',
+  'scheduled.threadReply': 'Thread reply',
+  'scheduled.failed': 'Could not be sent',
+  'scheduled.remove': 'Remove',
+  'scheduled.sending': 'Already being sent',
+  'scheduled.refused': 'Not scheduled: {reason}',
+  'scheduled.cancelFailed': 'Could not cancel it. Check your connection.',
+  'scheduled.reason.encrypted_room': 'the room is encrypted',
+  'scheduled.reason.permission_denied': 'not allowed to post',
+  'scheduled.reason.not_found': 'room or thread not found',
+  'scheduled.reason.no_session': 'no active session',
+  'scheduled.reason.scheduled_limit': 'too many scheduled messages',
+  'scheduled.reason.invalid_request': 'time or text refused',
+  'scheduled.reason.other': 'server error ({code})',
+  'scheduled.reason.network': 'server unreachable',
   'group.title': 'Encrypted group',
   'group.empty': 'No encrypted group has been created for this room.',
   'group.notAdmitted': 'This device still needs to join the group.',
@@ -2624,6 +2677,9 @@ const en: Record<TranslationKey, string> = {
   'sys.unknownWithParam': '(system action “{type}”: {p})',
 
   'home.settings': 'Settings',
+  'home.showServers': 'Show servers',
+  'home.hideServers': 'Hide servers',
+  'home.changeStatus': 'Change my status',
   'rail.add': 'Add a server',
   'home.sectionUnread': 'Unread',
   'home.sectionFavorites': 'Favorites',
@@ -2980,6 +3036,21 @@ export function deviceLanguage(): Language {
  */
 export function timeFormatter(language: Language): (ms: number) => string {
   const format = new Intl.DateTimeFormat(language === 'fr' ? 'fr-FR' : 'en-US', {
+    hour: language === 'fr' ? '2-digit' : 'numeric',
+    minute: '2-digit',
+  });
+  return (ms) => format.format(new Date(ms));
+}
+
+/**
+ * When a scheduled message leaves ("Scheduled for …", the scheduled list):
+ * the short weekday, the date and the time, in the chosen language.
+ */
+export function scheduleFormatter(language: Language): (ms: number) => string {
+  const format = new Intl.DateTimeFormat(language === 'fr' ? 'fr-FR' : 'en-US', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
     hour: language === 'fr' ? '2-digit' : 'numeric',
     minute: '2-digit',
   });

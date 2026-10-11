@@ -45,9 +45,12 @@ struct OpenRoom {
 type Callback<T> = RefCell<Vec<Box<dyn Fn(T)>>>;
 
 /// A row of the room list: a section title, or a room.
+/// A RocketVibe room carries its peer's presence, read when its row is
+/// bound, so that a change of it replaces the row.
+#[derive(PartialEq)]
 enum RoomItem {
     Header { section: Section, title: String, collapsed: bool, count: usize },
-    Room(Box<RoomRow>),
+    Room(Box<RoomRow>, Option<rv_core::live::Presence>),
 }
 
 /// A row of an action menu: its icon, its words, what it does.
@@ -190,7 +193,11 @@ pub struct ChatPage {
     account_name: gtk::Label,
     account_host: gtk::Label,
     account_tile: gtk::Box,
+    account_presence: gtk::Box,
+    own_profile_revision: RefCell<String>,
     status_dot: gtk::Box,
+    rail_button: gtk::Button,
+    presence_busy: Cell<bool>,
     comet: gtk::Box,
     connection: Cell<Connection>,
     room_title: gtk::Box,
@@ -298,7 +305,7 @@ impl ChatPage {
                     header.add_controller(click);
                     item.set_child(Some(&header));
                 }
-                RoomItem::Room(room) => {
+                RoomItem::Room(room, _) => {
                     item.set_selectable(true);
                     item.set_activatable(true);
                     let widget = match native_shared.borrow().as_ref() {
@@ -338,7 +345,10 @@ impl ChatPage {
             .visible(false)
             .build();
         sidebar_header.pack_start(&forward_button);
-        sidebar_header.pack_start(&status_button);
+        let rail_button = gtk::Button::builder().icon_name("sidebar-show-symbolic").css_classes(["flat"]).build();
+        rail_button.add_css_class("rail-toggle");
+        status_button.add_css_class("connection-button");
+        sidebar_header.pack_start(&rail_button);
         // Sign out lives in the account menu, away from "+".
         let new_conversation = gtk::MenuButton::builder()
             .icon_name("list-add-symbolic")
@@ -362,16 +372,33 @@ impl ChatPage {
         account_text.append(&account_name);
         account_text.append(&account_host);
         let account = gtk::Box::builder().spacing(10).css_classes(["account"]).build();
-        account.append(&account_tile);
+        let avatar = gtk::Overlay::builder().child(&account_tile).build();
+        let account_presence = gtk::Box::builder()
+            .css_classes(["presence", "presence-badge"])
+            .halign(gtk::Align::End)
+            .valign(gtk::Align::End)
+            .visible(false)
+            .build();
+        account_presence.add_css_class("own-presence");
+        avatar.add_overlay(&account_presence);
+        let avatar_button = gtk::Button::builder()
+            .child(&avatar)
+            .css_classes(["flat", "account-avatar"])
+            .tooltip_text(t("settings.presence"))
+            .build();
+        account.append(&avatar_button);
+        let account_controls = gtk::Box::builder().spacing(10).hexpand(true).build();
         account_text.set_hexpand(true);
-        account.append(&account_text);
+        account_controls.append(&account_text);
         // Says the block opens something: the account menu.
-        account
+        account_controls
             .append(&gtk::Image::builder().icon_name("emblem-system-symbolic").css_classes(["account-gear"]).build());
-        account.set_cursor(gdk::Cursor::from_name("pointer", None).as_ref());
-        account.set_tooltip_text(Some(t("rooms.account_menu")));
+        account_controls.set_cursor(gdk::Cursor::from_name("pointer", None).as_ref());
+        account_controls.set_tooltip_text(Some(t("rooms.account_menu")));
         let account_click = gtk::GestureClick::new();
-        account.add_controller(account_click.clone());
+        account_controls.add_controller(account_click.clone());
+        account.append(&account_controls);
+        account.append(&status_button);
 
         let sidebar_toolbar = adw::ToolbarView::new();
         sidebar_toolbar.add_top_bar(&sidebar_header);
@@ -524,7 +551,11 @@ impl ChatPage {
             account_name,
             account_host,
             account_tile,
+            account_presence,
+            own_profile_revision: RefCell::new(String::new()),
             status_dot,
+            rail_button,
+            presence_busy: Cell::new(false),
             comet,
             connection: Cell::new(Connection::Offline),
             room_title,
@@ -577,6 +608,21 @@ impl ChatPage {
             }
         })));
         this.wire(&status_button);
+        this.refresh_rail_button();
+        let weak = Rc::downgrade(&this);
+        this.rail_button.connect_clicked(move |_| {
+            if let Some(this) = weak.upgrade()
+                && let Some(actions) = this.account_actions.borrow().as_ref()
+            {
+                (actions.hide_rail)(!crate::rail::hidden());
+            }
+        });
+        let weak = Rc::downgrade(&this);
+        avatar_button.connect_clicked(move |button| {
+            if let Some(this) = weak.upgrade() {
+                this.presence_menu(button);
+            }
+        });
         this.wire_voice();
         let weak = Rc::downgrade(&this);
         unlock_button.connect_clicked(move |_| {
@@ -587,7 +633,7 @@ impl ChatPage {
             }
         });
         let weak = Rc::downgrade(&this);
-        let anchor = account.downgrade();
+        let anchor = account_controls.downgrade();
         account_click.connect_released(move |_, _, _, _| {
             if let (Some(this), Some(anchor)) = (weak.upgrade(), anchor.upgrade()) {
                 this.account_menu(&anchor);
@@ -814,7 +860,7 @@ impl ChatPage {
             let object = this.rooms_store.item(position).and_downcast::<glib::BoxedAnyObject>();
             let section = object.and_then(|o| match &*o.borrow::<RoomItem>() {
                 RoomItem::Header { section, .. } => Some(section.clone()),
-                RoomItem::Room(_) => None,
+                RoomItem::Room(..) => None,
             });
             if let Some(section) = section {
                 this.toggle_section(section);
@@ -1513,6 +1559,9 @@ impl ChatPage {
         self.administrator.set(None);
         self.close_native_crypto();
         self.voice.reset();
+        self.presence_busy.set(false);
+        self.own_profile_revision.borrow_mut().clear();
+        self.account_presence.set_visible(false);
         self.read_generation.set(self.read_generation.get().wrapping_add(1));
         self.native_read_pending.set(false);
         self.native_read_last.replace(None);
@@ -1906,6 +1955,156 @@ impl ChatPage {
         self.refresh_room_header();
     }
 
+    fn show_own_presence(&self, status: &str) {
+        if !rv_core::account::STATUSES.contains(&status) {
+            return;
+        }
+        self.account_presence.set_css_classes(&["presence", "presence-badge", "own-presence", status]);
+        self.account_presence.set_tooltip_text(Some(t(&format!("presence.{status}"))));
+        self.account_presence.set_visible(true);
+    }
+
+    pub(super) fn refresh_own_presence(self: &Rc<Self>) {
+        if let Some(session) = self.session() {
+            if let Some(presence) = session.presence(&session.info.user_id) {
+                let status = match presence {
+                    rv_core::live::Presence::Online => "online",
+                    rv_core::live::Presence::Away => "away",
+                    rv_core::live::Presence::Busy => "busy",
+                    rv_core::live::Presence::Offline => "offline",
+                };
+                self.show_own_presence(status);
+            }
+            return;
+        }
+        let Some(session) = self.native_session().filter(|s| s.profiles_available()) else { return };
+        let revision = session
+            .store
+            .profile_identity(&session.info.user_id)
+            .ok()
+            .flatten()
+            .map(|p| p.revision)
+            .unwrap_or_else(|| "initial".into());
+        if *self.own_profile_revision.borrow() == revision {
+            return;
+        }
+        self.own_profile_revision.replace(revision.clone());
+        let weak = Rc::downgrade(self);
+        glib::spawn_future_local(async move {
+            let s = session.clone();
+            let result = on_tokio(async move { s.own_profile().await }).await;
+            let Some(this) = weak.upgrade().filter(|p| p.native_session().is_some_and(|s| Arc::ptr_eq(&s, &session)))
+            else {
+                return;
+            };
+            if *this.own_profile_revision.borrow() != revision {
+                return;
+            }
+            if let Ok(own) = result {
+                let status = serde_json::to_value(own.profile.status).unwrap();
+                this.show_own_presence(status.as_str().unwrap());
+                this.own_profile_revision.replace(own.profile.revision);
+            } else {
+                this.own_profile_revision.borrow_mut().clear();
+            }
+        });
+    }
+
+    pub(crate) fn refresh_rail_button(&self) {
+        self.rail_button.set_tooltip_text(Some(t(if crate::rail::hidden() { "rail.show" } else { "rail.hide" })));
+        if crate::rail::hidden() {
+            self.rail_button.remove_css_class("rail-visible");
+        } else {
+            self.rail_button.add_css_class("rail-visible");
+        }
+    }
+
+    fn presence_menu(self: &Rc<Self>, anchor: &gtk::Button) {
+        if self.presence_busy.get() || self.menu_open.get() {
+            return;
+        }
+        let session = self.session();
+        let native = self.native_session();
+        if session.is_none() && native.as_ref().is_none_or(|s| !s.profiles_available()) {
+            return;
+        }
+        let items = rv_core::account::STATUSES
+            .into_iter()
+            .map(|status| {
+                let (session, native, weak) = (session.clone(), native.clone(), Rc::downgrade(self));
+                let run: Rc<dyn Fn()> = Rc::new(move || {
+                    let Some(this) = weak.upgrade() else { return };
+                    let current = match (&native, &session) {
+                        (Some(old), _) => this.native_session().is_some_and(|s| Arc::ptr_eq(&s, old)),
+                        (_, Some(old)) => this.session().is_some_and(|s| Arc::ptr_eq(&s, old)),
+                        _ => false,
+                    };
+                    if !current || this.presence_busy.replace(true) {
+                        return;
+                    }
+                    let (session, native) = (session.clone(), native.clone());
+                    let weak = Rc::downgrade(&this);
+                    glib::spawn_future_local(async move {
+                        let result = if let Some(native) = native.clone() {
+                            let s = native.clone();
+                            on_tokio(async move {
+                                let own = s.own_profile().await?;
+                                s.change_profile(rv_core::native::store::ProfileOperation::Profile {
+                                    input: rv_core::native::profiles::UpdateProfile {
+                                        operation_id: rv_core::native::room_operation_id(),
+                                        expected_revision: own.profile.revision,
+                                        username: own.profile.user.username,
+                                        display_name: own.profile.user.display_name,
+                                        bio: own.profile.bio,
+                                        status: serde_json::from_value(serde_json::json!(status)).unwrap(),
+                                        status_text: own.profile.status_text,
+                                    },
+                                })
+                                .await
+                                .map(|own| {
+                                    serde_json::to_value(own.profile.status).unwrap().as_str().unwrap().to_owned()
+                                })
+                            })
+                            .await
+                            .map_err(|e| e.to_string())
+                        } else if let Some(session) = session.clone() {
+                            on_tokio(async move { session.set_activity(status).await }).await.map_err(|e| e.to_string())
+                        } else {
+                            return;
+                        };
+                        let Some(this) = weak.upgrade() else { return };
+                        let current = match (native, session) {
+                            (Some(old), _) => this.native_session().is_some_and(|s| Arc::ptr_eq(&s, &old)),
+                            (_, Some(old)) => this.session().is_some_and(|s| Arc::ptr_eq(&s, &old)),
+                            _ => false,
+                        };
+                        if current {
+                            this.presence_busy.set(false);
+                            if let Ok(status) = &result {
+                                this.show_own_presence(status);
+                            }
+                            this.toast(
+                                t(if result.is_ok() { "settings.saved" } else { "settings.save_failed" }).to_owned(),
+                            );
+                        }
+                    });
+                });
+                ("avatar-default-symbolic", t(&format!("presence.{status}")).to_owned(), run)
+            })
+            .collect();
+        let popover = action_popover(items);
+        popover.set_parent(anchor);
+        popover.set_position(gtk::PositionType::Top);
+        self.menu_open.set(true);
+        let open = self.menu_open.clone();
+        popover.connect_closed(move |popover| {
+            open.set(false);
+            let popover = popover.clone();
+            glib::idle_add_local_once(move || popover.unparent());
+        });
+        popover.popup();
+    }
+
     /// The account block's menu, shown at once: settings, the server
     /// administration for an administrator, sign out. Whether I administer
     /// is asked once per account (never on Mattermost, which has no
@@ -2268,7 +2467,8 @@ impl ChatPage {
         self.typing_label.set_label(&text);
     }
 
-    pub fn on_presence(&self) {
+    pub fn on_presence(self: &Rc<Self>) {
+        self.refresh_own_presence();
         self.load_rooms(true);
         self.refresh_room_header();
     }
@@ -2283,63 +2483,97 @@ impl ChatPage {
     }
 
     /// `force` builds every row again even when the data did not change:
-    /// what they show also depends on presence, photos and the E2E lock.
+    /// what they show also depends on Rocket.Chat presence, photos and the
+    /// E2E lock. Otherwise only the rows between the unchanged head and tail
+    /// of the list are replaced, so a message moving one room up rebuilds a
+    /// few rows, not all; a RocketVibe row's presence counts as a change.
     fn load_rooms(&self, force: bool) {
-        let rows = if self.native_session().is_some() {
+        let started = std::time::Instant::now();
+        let native = self.native_session();
+        let rows = if native.is_some() {
             self.native_rooms()
         } else {
             self.session.borrow().as_ref().map(|s| s.store.rooms()).unwrap_or_default()
         };
-        if force || *self.rooms.borrow() != rows {
-            let sections = rv_core::rooms::sections(&rows);
-            let titled = sections.len() > 1;
-            let mut objects = Vec::new();
-            let mut slots = Vec::new();
-            for (section, members) in sections {
-                let collapsed = titled && self.collapsed.borrow().contains(&section.key());
-                if titled {
-                    let title = match &section {
-                        Section::Unread => t("rooms.section_unread").to_owned(),
-                        Section::Favorites => t("rooms.section_favorites").to_owned(),
-                        Section::Group { name, .. } => name.clone(),
-                        Section::Channels => t("rooms.section_channels").to_owned(),
-                        Section::Direct => t("rooms.section_direct").to_owned(),
-                    };
-                    let count = members.len();
-                    objects.push(glib::BoxedAnyObject::new(RoomItem::Header { section, title, collapsed, count }));
-                    slots.push(None);
-                }
-                if collapsed {
-                    continue;
-                }
-                for room in members {
-                    slots.push(Some(room.rid.clone()));
-                    objects.push(glib::BoxedAnyObject::new(RoomItem::Room(Box::new(room))));
-                }
+        let read = started.elapsed();
+        let rows_changed = force || *self.rooms.borrow() != rows;
+        let sections = rv_core::rooms::sections(&rows);
+        let titled = sections.len() > 1;
+        let mut items = Vec::new();
+        let mut slots = Vec::new();
+        for (section, members) in sections {
+            let collapsed = titled && self.collapsed.borrow().contains(&section.key());
+            if titled {
+                let title = match &section {
+                    Section::Unread => t("rooms.section_unread").to_owned(),
+                    Section::Favorites => t("rooms.section_favorites").to_owned(),
+                    Section::Group { name, .. } => name.clone(),
+                    Section::Channels => t("rooms.section_channels").to_owned(),
+                    Section::Direct => t("rooms.section_direct").to_owned(),
+                };
+                let count = members.len();
+                items.push(RoomItem::Header { section, title, collapsed, count });
+                slots.push(None);
             }
+            if collapsed {
+                continue;
+            }
+            for room in members {
+                slots.push(Some(room.rid.clone()));
+                let presence = native.as_ref().and_then(|s| s.room_presence(&room.rid));
+                items.push(RoomItem::Room(Box::new(room), presence));
+            }
+        }
+        let (old, new) = (self.rooms_store.n_items() as usize, items.len());
+        let same = |at: usize, item: &RoomItem| {
+            self.rooms_store
+                .item(at as u32)
+                .and_downcast::<glib::BoxedAnyObject>()
+                .is_some_and(|object| *object.borrow::<RoomItem>() == *item)
+        };
+        let (mut head, mut tail) = (0, 0);
+        if !force {
+            while head < old.min(new) && same(head, &items[head]) {
+                head += 1;
+            }
+            while tail < old.min(new) - head && same(old - 1 - tail, &items[new - 1 - tail]) {
+                tail += 1;
+            }
+        }
+        let list_changed = force || head + tail < old.max(new);
+        if list_changed {
             self.slots.replace(slots);
+        }
+        if rows_changed {
             crate::badge::set(rv_core::rooms::badge(&rows));
             let unread = rv_core::rooms::unread_rooms(&rows);
             for f in self.on_unread.borrow().iter() {
                 f(unread);
             }
+        }
+        if list_changed {
+            let objects =
+                items.into_iter().skip(head).take(new - head - tail).map(glib::BoxedAnyObject::new).collect::<Vec<_>>();
             self.suppress_selection.set(true);
-            self.rooms_store.splice(0, self.rooms_store.n_items(), &objects);
+            self.rooms_store.splice(head as u32, (old - head - tail) as u32, &objects);
             self.suppress_selection.set(false);
-
+        }
+        if rows_changed {
             if let Some(open) = self.current.borrow_mut().as_mut()
                 && let Some(r) = rows.iter().find(|r| r.rid == open.rid)
             {
                 open.name = r.name.clone();
                 open.read_only = r.read_only;
                 open.dm_other_uid = r.dm_other_uid.clone();
-                open.avatar = if self.native_session().is_some() {
+                open.avatar = if native.is_some() {
                     r.avatar_etag.as_ref().map(|id| format!("rv-avatar:{id}"))
                 } else {
                     room_avatar_path(r)
                 };
             }
             self.rooms.replace(rows);
+        }
+        if rows_changed || list_changed {
             self.select_current(!(self.split.is_collapsed() && !self.split.shows_content()));
             self.refresh_room_header();
         }
@@ -2347,6 +2581,18 @@ impl ChatPage {
             for f in self.on_rooms_loaded.borrow().iter() {
                 f(());
             }
+        }
+        if native.is_some() {
+            // Numbered: the log collapses identical lines back to back.
+            static SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let n = SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+            glib::g_info!(
+                "rocket-vibe-reload",
+                "room list #{n}: rows read in {:.1} ms, list {} (and its listeners) in {:.1} ms",
+                read.as_secs_f64() * 1000.0,
+                if list_changed { "rebuilt" } else { "unchanged" },
+                (started.elapsed() - read).as_secs_f64() * 1000.0
+            );
         }
     }
 

@@ -28,6 +28,8 @@
   "public_room_page": { "rooms": [{ "room": { "id": "public-room-id", "name": "Public room", "kind": "public", "revision": "9007199254740993" }, "joined": false }], "next": null },
   "direct_message": { "user_id": "bob-id" },
   "send_message": { "operation_id": "message-id", "text": "Bonjour 🚀" },
+  "schedule_message": { "operation_id": "scheduled-operation", "text": "Later message", "send_at": "2026-10-11T12:00:00Z" },
+  "scheduled_messages": { "messages": [{ "id": "scheduled-operation", "room_id": "room-id", "text": "Later message", "send_at": "2026-10-11T12:00:00Z", "state": "pending" }] },
   "message": {
     "id": "message-id", "room_id": "room-id",
     "author": { "id": "alice-id", "username": "alice", "display_name": "Alice" },

@@ -5,6 +5,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import type { App } from "../app";
+import { nt } from "../native-i18n";
 import { t, language } from "../i18n";
 import { actionMenu, stopMedia, toast } from "../dom";
 import { composer } from "../composer";
@@ -77,21 +78,6 @@ function Shell({ app }: { app: App }) {
         }}
       >
         <header className="sidebar-header headerbar">
-          <ActionButton action={() => app.reconnect()}>
-            <span
-              className={"status-dot " + app.connection}
-              title={t(
-                app.connection === "online"
-                  ? "online"
-                  : app.connection === "connecting"
-                    ? "connecting"
-                    : "offline",
-              )}
-              ref={(node) => {
-                if (node) app.status = node;
-              }}
-            />
-          </ActionButton>
           <div className="brand-wrap">
             <span className="unicorn-header">🦄</span>
             <Brand />
@@ -110,27 +96,73 @@ function Shell({ app }: { app: App }) {
           />
         </header>
         <RoomList app={app} />
-        <ActionButton
-          className="account"
-          aria-label={t("accountMenu")}
-          aria-haspopup="menu"
-          title={t("accountMenu")}
-          action={(node) => app.accountMenu(node)}
-        >
-          <Avatar
-            app={app}
-            name={account.session.user.username}
-            user={account.session.user}
-          />
-          <div>
-            <div className="account-name">
-              {account.session.user.display_name ||
-                account.session.user.username}
+        <div className="account">
+          <ActionButton
+            className="flat account-avatar"
+            aria-label={nt("settings.presence")}
+            aria-haspopup="menu"
+            action={(node) => app.activityMenu(node)}
+          >
+            <Avatar
+              app={app}
+              name={account.session.user.username}
+              user={account.session.user}
+            />
+            {app.ownStatus && (
+              <span
+                className={"own-presence " + app.ownStatus}
+                title={nt("presence." + app.ownStatus)}
+              />
+            )}
+          </ActionButton>
+          <ActionButton
+            className="flat account-controls"
+            aria-label={t("accountMenu")}
+            aria-haspopup="menu"
+            title={t("accountMenu")}
+            action={(node) => app.accountMenu(node)}
+          >
+            <div>
+              <div className="account-name">
+                {account.session.user.display_name ||
+                  account.session.user.username}
+              </div>
+              <div className="account-host">{location.host}</div>
             </div>
-            <div className="account-host">{location.host}</div>
-          </div>
-          <Symbol name="app" />
-        </ActionButton>
+            <Symbol name="app" />
+          </ActionButton>
+          <ActionButton
+            aria-label={t(
+              app.connection === "online"
+                ? "online"
+                : app.connection === "connecting"
+                  ? "connecting"
+                  : "offline",
+            )}
+            title={t(
+              app.connection === "online"
+                ? "online"
+                : app.connection === "connecting"
+                  ? "connecting"
+                  : "offline",
+            )}
+            action={() => app.reconnect()}
+          >
+            <span
+              className={"status-dot " + app.connection}
+              title={t(
+                app.connection === "online"
+                  ? "online"
+                  : app.connection === "connecting"
+                    ? "connecting"
+                    : "offline",
+              )}
+              ref={(node) => {
+                if (node) app.status = node;
+              }}
+            />
+          </ActionButton>
+        </div>
       </aside>
       <section
         className={"room-content" + (app.voice.visible ? " voice-open" : "")}

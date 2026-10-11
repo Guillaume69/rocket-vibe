@@ -271,6 +271,7 @@ fn additive_capabilities_default_to_unavailable_on_an_older_server() {
     assert!(!contract.discovery.capabilities.typing);
     assert!(!contract.discovery.capabilities.room_discovery);
     assert!(!contract.discovery.capabilities.second_factors);
+    assert!(!contract.discovery.capabilities.scheduled_messages);
 }
 
 #[test]

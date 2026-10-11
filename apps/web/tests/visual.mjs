@@ -302,14 +302,21 @@ try {
   await page.locator(".settings-dialog").waitFor({ state: "detached" });
   assert.equal(await page.locator(".settings-dialog").count(), 0);
   console.log("PASS narrow settings can close from the category pane");
+  const discovery = await fetch(base + "/.well-known/rocketvibe").then((r) =>
+    r.json(),
+  );
+  const currentMajor = Number(discovery.server_version.split(".")[0]);
+  assert.ok(Number.isSafeInteger(currentMajor) && currentMajor >= 0);
+  const nextMajor = currentMajor + 1;
+  const expectedUpdate = `${nextMajor}.3.0`;
   releaseFixture = [
-    { tag_name: "desktop-v99.0.0" },
-    { tag_name: "server-v0.1.5" },
-    { tag_name: "server-v0.3.0" },
-    { tag_name: "server-v0.1.9" },
-    { tag_name: "server-v9.0.0", draft: true },
-    { tag_name: "server-v8.0.0", prerelease: true },
-    { tag_name: "server-v7.0.0-rc.1" },
+    { tag_name: `desktop-v${nextMajor + 99}.0.0` },
+    { tag_name: `server-v${nextMajor}.1.5` },
+    { tag_name: `server-v${expectedUpdate}` },
+    { tag_name: `server-v${nextMajor}.1.9` },
+    { tag_name: `server-v${nextMajor + 9}.0.0`, draft: true },
+    { tag_name: `server-v${nextMajor + 8}.0.0`, prerelease: true },
+    { tag_name: `server-v${nextMajor + 7}.0.0-rc.1` },
   ];
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.evaluate(() => localStorage.setItem("rv-language", "fr"));
@@ -328,9 +335,10 @@ try {
     .getByRole("button", { name: "Administration du serveur", exact: true })
     .click();
   await admin.locator(".admin-update.available").waitFor();
-  assert.match(
-    await admin.locator(".admin-update.available").textContent(),
-    /0\.3\.0$/,
+  assert.ok(
+    (await admin.locator(".admin-update.available").textContent()).endsWith(
+      expectedUpdate,
+    ),
   );
   assert.equal(
     await admin.locator(".preferences-sidebar h2").textContent(),

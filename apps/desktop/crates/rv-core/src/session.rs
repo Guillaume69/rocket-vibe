@@ -220,7 +220,7 @@ pub struct Session {
     /// `desktopNotifications` from `me`, kept current by set_preference.
     notification_preference: Mutex<String>,
     /// None until `users.presence` answered once; it only lists who is not offline.
-    presence: Mutex<Option<HashMap<String, live::Presence>>>,
+    presence: Mutex<live::PresenceState>,
     /// My private key once unlocked, and the room keys unwrapped with it (by key id).
     e2e: Mutex<Option<E2eUnlocked>>,
     /// Custom emoji: shortcode (name or alias) → image path.
@@ -559,7 +559,7 @@ impl Session {
             "status_change" => {
                 let presence = field(data, "status").as_deref().and_then(mattermost::actions::presence);
                 if let (Some(uid), Some(presence)) = (field(data, "user_id"), presence) {
-                    self.presence.lock().unwrap().get_or_insert_default().insert(uid, presence);
+                    self.presence.lock().unwrap().update(uid, presence);
                     let _ = self.events.send(SessionEvent::Presence);
                 }
             }
@@ -576,7 +576,7 @@ impl Session {
     fn apply_live(self: &Arc<Self>, collection: &str, key: &str, args: &[Value]) {
         if collection == live::STREAM_NOTIFY_LOGGED && key == live::USER_STATUS {
             if let Some((uid, presence)) = live::presence_event(args) {
-                self.presence.lock().unwrap().get_or_insert_default().insert(uid, presence);
+                self.presence.lock().unwrap().update(uid, presence);
                 let _ = self.events.send(SessionEvent::Presence);
             }
             return;
@@ -681,24 +681,26 @@ impl Session {
     }
 
     pub fn presence(&self, uid: &str) -> Option<live::Presence> {
-        let presence = self.presence.lock().unwrap();
-        presence.as_ref().map(|known| known.get(uid).copied().unwrap_or(live::Presence::Offline))
+        self.presence.lock().unwrap().status(uid)
     }
 
-    /// Everyone's presence at once; the stream then keeps it current.
     async fn load_presence(&self) {
-        match self.backend() {
-            // Mattermost answers for the DM peers asked; the others stay as known.
+        let started = self.presence.lock().unwrap().revision();
+        let (list, partial) = match self.backend() {
             Backend::Mattermost(_) => {
-                let ids: Vec<String> = self.store.rooms().into_iter().filter_map(|r| r.dm_other_uid).collect();
+                let mut ids: Vec<String> = self.store.rooms().into_iter().filter_map(|r| r.dm_other_uid).collect();
+                ids.push(self.info.user_id.clone());
+                ids.sort();
+                ids.dedup();
                 let Ok(list) = mattermost::actions::statuses(&self.rest, &ids).await else { return };
-                self.presence.lock().unwrap().get_or_insert_default().extend(list);
+                (list, true)
             }
             Backend::RocketChat => {
                 let Ok(list) = rocketchat::actions::presence(&self.rest).await else { return };
-                self.presence.lock().unwrap().replace(list.into_iter().collect());
+                (list, false)
             }
-        }
+        };
+        self.presence.lock().unwrap().snapshot(started, list, partial);
         let _ = self.events.send(SessionEvent::Presence);
     }
 
@@ -946,12 +948,41 @@ impl Session {
 
     /// Both at once: `users.setStatus` clears whichever one is left out.
     pub async fn set_status(&self, status: &str, message: &str) -> Result<(), RestError> {
+        let started = self.presence.lock().unwrap().revision();
         match self.backend() {
             Backend::Mattermost(_) => {
-                mattermost::actions::set_status(&self.rest, &self.info.user_id, status, message).await
+                mattermost::actions::set_status(&self.rest, &self.info.user_id, status, message).await?
             }
-            Backend::RocketChat => rocketchat::actions::set_status(&self.rest, status, message).await,
+            Backend::RocketChat => rocketchat::actions::set_status(&self.rest, status, message).await?,
         }
+        if let Some(status) = live::Presence::parse(status) {
+            self.confirm_activity(started, status);
+        }
+        Ok(())
+    }
+
+    pub async fn set_activity(&self, status: &str) -> Result<String, RestError> {
+        let chosen = live::Presence::parse(status).ok_or_else(|| RestError::incomplete("Invalid activity."))?;
+        let started = self.presence.lock().unwrap().revision();
+        let confirmed = match self.backend() {
+            Backend::Mattermost(_) => mattermost::actions::set_activity(&self.rest, &self.info.user_id, chosen).await?,
+            Backend::RocketChat => {
+                let before = self.me().await?;
+                if self.closed.load(Ordering::Acquire) {
+                    return Err(RestError::incomplete("Session closed."));
+                }
+                rocketchat::actions::set_status(&self.rest, status, &before.status_text).await?;
+                chosen
+            }
+        };
+        let retained = self.confirm_activity(started, confirmed);
+        Ok(retained.as_str().to_owned())
+    }
+
+    fn confirm_activity(&self, started: u64, status: live::Presence) -> live::Presence {
+        let retained = self.presence.lock().unwrap().confirm(started, self.info.user_id.clone(), status);
+        let _ = self.events.send(SessionEvent::Presence);
+        retained
     }
 
     /// `password` is the plain current password (hashed here) when username

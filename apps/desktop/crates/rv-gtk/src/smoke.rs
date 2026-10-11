@@ -58,6 +58,10 @@
 //!                          then switches back to the first
 //!   RV_SMOKE_E2E=<password>  unlocks encrypted rooms (a wrong one first must be refused)
 //!   RV_SMOKE_VOICE=1       records two seconds (RV_AUDIO_SOURCE picks the source) and sends them
+//!   RV_SMOKE_SCHEDULE=<tag>  RocketVibe: types "scheduled <tag>", "Send later" must show; schedules
+//!                          it "In 1 hour": the field clears and the chip shows; cancels it from
+//!                          the list's data, then the list read again no longer has it
+//!                          (RV_SMOKE_SCHEDULE_HOLD=1: left scheduled, the list open, for a screenshot)
 //!   RV_SMOKE_REENTER=1     after opening the room: back to the list, tap the same room, expect it open
 //!   RV_SMOKE_EDIT=<tag>    sends "<tag> before", presses Up, types "<tag> after" in the row
 //!                          and saves after RV_SMOKE_EDIT_SAVE_MS (default 3000)
@@ -269,6 +273,12 @@ pub fn install(window: &Rc<AppWindow>) {
             let Some(rid) = w.chat.room_named(&room) else { return };
             opened.set(true);
             w.chat.open_room(&rid);
+            if std::env::var("RV_SMOKE_NAVIGATION").as_deref() == Ok("1") {
+                let (window, chat) = (w.window.clone(), w.chat.clone());
+                glib::timeout_add_local_once(Duration::from_millis(2000), move || {
+                    glib::spawn_future_local(navigation_checks(window, chat));
+                });
+            }
             if std::env::var("RV_SMOKE_DEVICES").as_deref() == Ok("1") {
                 let w = w.clone();
                 glib::timeout_add_local_once(Duration::from_millis(1500), move || native_devices_checks(w));
@@ -348,6 +358,12 @@ pub fn install(window: &Rc<AppWindow>) {
                         }
                     });
                 });
+            }
+            if let Ok(tag) = std::env::var("RV_SMOKE_SCHEDULE")
+                && !tag.is_empty()
+            {
+                let (chat, rid) = (w.chat.clone(), rid.clone());
+                glib::timeout_add_local_once(Duration::from_millis(2500), move || schedule_checks(chat, rid, tag));
             }
             if std::env::var("RV_SMOKE_FILES").as_deref() == Ok("1") {
                 let chat = w.chat.clone();
@@ -1255,6 +1271,50 @@ async fn switcher_checks(
     search.emit_activate();
     glib::timeout_future(Duration::from_millis(500)).await;
     check("Enter opens it", chat.current_rid().as_deref() == Some(to.rid.as_str()), chat.current_rid());
+}
+
+/// "Send later" in a RocketVibe room: offered with text, scheduling clears the
+/// field and shows the chip; cancelled, the server's list no longer has it.
+fn schedule_checks(chat: std::rc::Rc<crate::chat::ChatPage>, rid: String, tag: String) {
+    let Some(session) = chat.native_session() else {
+        check("schedule: a RocketVibe session", false, "none");
+        return;
+    };
+    let composer = chat.composer_rc();
+    check("schedule: hidden with an empty field", !composer.schedule_state().0, composer.schedule_state());
+    let text = format!("scheduled {tag}");
+    composer.set_text(&text);
+    let (offered, _) = composer.schedule_state();
+    check("schedule: send later offered", offered, offered);
+    composer.schedule_preset(true);
+    glib::timeout_add_local_once(Duration::from_millis(4000), move || {
+        check("schedule: the field cleared", composer.text().is_empty(), composer.text());
+        let (_, chip) = composer.schedule_state();
+        check("schedule: the chip shows", chip.is_some(), &chip);
+        if std::env::var("RV_SMOKE_SCHEDULE_HOLD").as_deref() == Ok("1") {
+            // Left scheduled, the list open over a new draft: for a screenshot.
+            composer.set_text("another draft");
+            composer.open_scheduled_list();
+            return;
+        }
+        glib::spawn_future_local(async move {
+            let (s, r, t) = (session.clone(), rid.clone(), text.clone());
+            let cancelled = crate::on_tokio(async move {
+                let list = s.scheduled_messages(&r).await?;
+                let Some(made) = list.into_iter().find(|m| m.text == t) else {
+                    return Ok::<_, rv_core::native::Error>(false);
+                };
+                s.cancel_scheduled(&made.id).await?;
+                Ok(!s.scheduled_messages(&r).await?.iter().any(|m| m.text == t))
+            })
+            .await;
+            check("schedule: listed, then cancelled", matches!(cancelled, Ok(true)), &cancelled);
+            composer.refresh_scheduled();
+            glib::timeout_add_local_once(Duration::from_millis(2000), move || {
+                println!("smoke: schedule: chip after cancel: {:?}", composer.schedule_state().1);
+            });
+        });
+    });
 }
 
 fn check(label: &str, ok: bool, detail: impl std::fmt::Debug) {
@@ -2200,4 +2260,91 @@ fn update_checks(chat: Rc<crate::chat::ChatPage>, install: bool) {
         }
         glib::ControlFlow::Continue
     });
+}
+
+/// Exercise the real rail/avatar widgets and verify the server-side status.
+async fn navigation_checks(window: adw::ApplicationWindow, chat: Rc<crate::chat::ChatPage>) {
+    let root: &gtk::Widget = window.upcast_ref();
+    if let Some(settings) = gtk::Settings::default() {
+        let layout = settings.gtk_decoration_layout().unwrap_or_default();
+        check("Linux title bar omits app icon", !layout.contains("icon"), &layout);
+        check(
+            "Linux title bar keeps window controls",
+            ["minimize", "maximize", "close"].iter().all(|c| layout.contains(c)),
+            &layout,
+        );
+    }
+    let toggle = find_by_class(root, "rail-toggle").and_downcast::<gtk::Button>().expect("rail toggle");
+    let theme = gtk::IconTheme::for_display(&gtk::prelude::WidgetExt::display(&window));
+    check("rail toggle icon exists", toggle.icon_name().is_some_and(|name| theme.has_icon(&name)), toggle.icon_name());
+    let before = crate::rail::hidden();
+    toggle.emit_clicked();
+    check("rail toggle persists hidden choice", crate::rail::hidden() != before, crate::rail::hidden());
+    let rail = find_by_class(root, "server-rail").expect("server rail");
+    check("rail toggle changes actual visibility", rail.is_visible() == before, rail.is_visible());
+    toggle.emit_clicked();
+    check("rail toggle restores visibility", rail.is_visible() != before, rail.is_visible());
+    let connection = find_by_class(root, "connection-button").expect("connection control");
+    check(
+        "connection dot lives in account footer",
+        connection.parent().is_some_and(|p| p.has_css_class("account")),
+        connection.parent().map(|p| p.css_classes()),
+    );
+    let Some(session) = chat.session() else { return };
+    let s = session.clone();
+    let original = crate::on_tokio(async move { s.me().await }).await.expect("own profile");
+    let chosen = if original.status == "away" { "busy" } else { "away" };
+    let avatar = find_by_class(root, "account-avatar").and_downcast::<gtk::Button>().expect("avatar button");
+    avatar.emit_clicked();
+    glib::timeout_future(Duration::from_millis(200)).await;
+    let menu = find_by_class(root, "action-menu").expect("presence menu");
+    let mut child = menu.first_child();
+    let mut clicked = false;
+    while let Some(row) = child {
+        if let Some(button) = row.downcast_ref::<gtk::Button>()
+            && button
+                .child()
+                .and_downcast::<gtk::Box>()
+                .and_then(|c| c.last_child())
+                .and_downcast::<gtk::Label>()
+                .is_some_and(|l| l.text() == crate::i18n::t(&format!("presence.{chosen}")))
+        {
+            button.emit_clicked();
+            clicked = true;
+            break;
+        }
+        child = row.next_sibling();
+    }
+    check("avatar menu selects status", clicked, chosen);
+    let mut saved = None;
+    for _ in 0..30 {
+        let s = session.clone();
+        saved = crate::on_tokio(async move { s.me().await }).await.ok();
+        if saved.as_ref().is_some_and(|m| m.status == chosen) {
+            break;
+        }
+        glib::timeout_future(Duration::from_millis(200)).await;
+    }
+    check(
+        "avatar status saved on server",
+        saved.as_ref().is_some_and(|m| m.status == chosen),
+        saved.as_ref().map(|m| &m.status),
+    );
+    check(
+        "avatar keeps existing status text",
+        saved.as_ref().is_some_and(|m| m.status_text == original.status_text),
+        saved.as_ref().map(|m| &m.status_text),
+    );
+    let dot = find_by_class(root, "own-presence").expect("own presence dot");
+    for _ in 0..20 {
+        if dot.is_visible() && dot.has_css_class(chosen) {
+            break;
+        }
+        glib::timeout_future(Duration::from_millis(100)).await;
+    }
+    check("avatar dot reflects saved activity", dot.is_visible() && dot.has_css_class(chosen), dot.css_classes());
+    let s = session.clone();
+    crate::on_tokio(async move { s.set_status(&original.status, &original.status_text).await })
+        .await
+        .expect("restore fixture status");
 }

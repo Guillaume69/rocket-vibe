@@ -1,6 +1,6 @@
 {
   "name": "rocket-vibe-web",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -31,7 +31,8 @@
     "test:receipts": "node tests/receipts.mjs",
     "test:scheduled": "node tests/scheduled.mjs",
     "format": "prettier --write src scripts tests *.js *.json index.html",
-    "format:check": "prettier --check src scripts tests *.js *.json index.html"
+    "format:check": "prettier --check src scripts tests *.js *.json index.html",
+    "test:navigation": "node tests/navigation.mjs"
   },
   "devDependencies": {
     "@types/react": "19.3.0",

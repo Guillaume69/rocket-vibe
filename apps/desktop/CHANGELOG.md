@@ -7,10 +7,15 @@ section here.
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-10-11
+
 ### Added
 
+- Scheduled messages (GTK and macOS, RocketVibe servers): a chevron beside the send button offers "Send later": in 1 hour, tomorrow at 08:00, or a date and time you pick (from one minute to 30 days ahead). The server sends the message at that time, even if the app is closed; in a thread it goes out as a reply. A "N scheduled" chip above the composer lists what waits in the room, with Cancel, and says when one could not be sent (with Remove). Not offered in encrypted rooms, with a file staged or a quote.
 - On a RocketVibe account in do not disturb, an incoming call shows without ringing (GTK and macOS).
 - Read receipts (GTK and macOS, RocketVibe servers): under my latest message in a room (not an encrypted one), a small line says "Seen" in a direct conversation, or "Seen by" and up to three names in a group, then "and N others", updated live as people read. Settings > My account, Privacy: "Share read receipts" turns them off both ways (others no longer see how far I read, and I no longer see theirs).
+- The room-list header toggles the server bar directly. The connection dot moves to the account footer, while clicking the bottom avatar offers Online, Away, Busy and Offline and its badge reflects my activity. Linux title bars omit the extra application icon while preserving window controls.
+
 - Do not disturb (GTK and macOS, RocketVibe servers): Settings > Notifications mutes notifications for an hour or until 08:00, or sets quiet hours every day (22:00 to 08:00 by default, in this computer's time zone). Messages still arrive and count as unread; the app shows no notification meanwhile, and the server holds back push and call rings on every device.
 - Ctrl+K (Cmd+K on macOS) opens a room switcher: type part of a room's name, the arrows pick, Enter opens it. The composer's link shortcut moves to Ctrl+Shift+K.
 - A room's threads (GTK and macOS, Rocket.Chat servers): a header button lists them, all or the ones I follow, with their reply count and last reply time, and a bell on each thread, in the list and in the open thread, follows or unfollows it.
@@ -27,7 +32,7 @@ section here.
 
 ### Changed
 
-- GTK, RocketVibe servers: a message arriving in a room that is not open refreshes only the room list, no longer the whole window, so traffic elsewhere stops redrawing (and, in an encrypted room, decrypting again) the conversation on screen.
+- GTK, RocketVibe servers: a message arriving in a room that is not open refreshes only the room list, no longer the whole window, so traffic elsewhere stops redrawing (and, in an encrypted room, decrypting again) the conversation on screen. On every account, the GTK room list now replaces only the rows that changed instead of rebuilding them all.
 - Rocket.Chat and Mattermost accounts keep each room's 500 newest messages on disk, as the Android app does; older ones come back from the server when you scroll to them, so the local database no longer grows forever.
 - The last colour emoji used as interface markers are monochrome icons, like every other icon of the app: a locked room's tile, the encryption banner and unlock card, the lock of an encrypted voice session, the two-factor shield, a thread's replies, file kinds in cards and staged files, the call card, and room kinds in the administration (GTK: Adwaita symbolic icons; SwiftUI: SF Symbols, with a "React" submenu instead of a smiley).
 - The Windows installer wears the app's night sky: a borderless dark wizard with a starry background, pill buttons, a rocket trailing a rainbow as its progress bar, the rocket on the welcome and finish pages, and livelier words (English and French), also during an update.
@@ -35,6 +40,8 @@ section here.
 
 ### Fixed
 
+- A notification waiting for its pictures no longer appears after its conversation has been opened.
+- GTK, RocketVibe servers: a contact's presence dot in the room list follows its changes, instead of waiting for some other room to change.
 - Signing out of a Rocket.Chat or Mattermost account while offline no longer leaves the session open on the server: the sign-out is kept and sent again at the next start.
 - On Mattermost and kChat, a message whose send answer was lost is looked for before it goes out again, instead of posting it twice once the server has forgotten it; one sent again while the server still saves the first attempt stays "sending" instead of "not sent".
 - On Mattermost and kChat, a room that changed more than a thousand times while the app was away reloads its newest messages instead of keeping a history with holes.
@@ -1118,7 +1125,8 @@ the mobile app (see `docs/PARITY.md`).
   `rocketvibe://` links) and zip; a macOS app in a DMG, signed with a Developer ID and
   notarized by Apple.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.13.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.14.0...HEAD
+[0.14.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.13.0...desktop-v0.14.0
 [0.13.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.12.2...desktop-v0.13.0
 [0.12.2]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.12.1...desktop-v0.12.2
 [0.12.1]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.12.0...desktop-v0.12.1

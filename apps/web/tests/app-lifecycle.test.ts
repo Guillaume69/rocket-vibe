@@ -347,7 +347,10 @@ test("superseded initial and recovery snapshots cannot replace newer model state
         if (path === "/.well-known/rocketvibe")
           return { instance_id: "instance", data_epoch: "epoch" };
         if (path.startsWith("/api/v1/sync/changes")) throw new ApiError(409);
-        return { preferences: { desktop_notifications: "all" } };
+        return {
+          profile: { revision: "own-revision", status: "online" },
+          preferences: { desktop_notifications: "all" },
+        };
       },
       snapshot: async () => {
         started.resolve(undefined);
@@ -396,9 +399,17 @@ test("a delayed profile response from another generation cannot change preferenc
   const work = reconnect.call(target);
   await started.promise;
   target.generation++;
-  profile.resolve({ preferences: { desktop_notifications: "all" } });
+  profile.resolve({
+    profile: { revision: "late-own-revision", status: "busy" },
+    preferences: { desktop_notifications: "all" },
+  });
   await work;
   assert.equal(target.preferences.desktop_notifications, "nothing");
+  assert.equal(
+    target.ownStatus,
+    undefined,
+    "a stale own profile cannot change the avatar activity badge",
+  );
 });
 test("private assets register in-flight access and discard late cache writes without creating a URL", async () => {
   for (const lateCache of [false, true]) {
@@ -536,5 +547,186 @@ test("new message and HTTP workflow steps expose their result name editor", () =
       ...Object.values(dependencies),
     );
     assert.ok(labels.includes("workflows.save_as"), kind);
+  }
+});
+
+test("an older failed profile refresh cannot discard the newer revision", async () => {
+  const target = Object.assign(app(), {
+    ownStatus: "online",
+    ownProfileRevision: undefined as string | undefined,
+    profiles: new Map(),
+    main: { querySelectorAll: () => [] },
+    view: { changed() {} },
+    renderTimeline() {},
+  });
+  let rejectOld!: (error: Error) => void;
+  const old = new Promise((_resolve, reject) => {
+    rejectOld = reject;
+  });
+  const newer = deferred<unknown>();
+  let reads = 0;
+  target.api.request = () => (++reads === 1 ? old : newer.promise);
+  const observe = method("observeProfiles", {
+    window: { dispatchEvent() {} },
+    Event: class {},
+  });
+  observe.call(target, { profiles: [{ user, revision: "R1" }] });
+  observe.call(target, { profiles: [{ user, revision: "R2" }] });
+  rejectOld(new Error("old read failed"));
+  await new Promise((resolve) => setImmediate(resolve));
+  newer.resolve({ profile: { user, revision: "R2", status: "busy" } });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(target.ownProfileRevision, "R2");
+  assert.equal(target.ownStatus, "busy");
+});
+
+test("stopping clears private scheduled state before asynchronous teardown", async () => {
+  const target = Object.assign(app(), {
+    scheduled: [{ text: "private account A text" }],
+    scheduling: { key: "account A retry", operation: "operation" },
+    scheduledReading: 0,
+    scheduledTimer: "fixture-timer" as string | undefined,
+    voice: {
+      leave: async () => {
+        throw new Error("fixture teardown failure");
+      },
+    },
+  });
+  const timers: unknown[] = [];
+  const stop = method("stop", {
+    clearInterval: (timer: unknown) => timers.push(timer),
+  });
+  await assert.rejects(stop.call(target), /fixture teardown failure/);
+  assert.deepEqual(target.scheduled, []);
+  assert.equal(target.scheduling, undefined);
+  assert.equal(target.scheduledTimer, undefined);
+  assert.deepEqual(timers, ["fixture-timer"]);
+});
+
+test("scheduled lists reject older reads and a replacement session of the same account", async () => {
+  const target = Object.assign(app(), {
+    info: { capabilities: { scheduled_messages: true } },
+    scheduled: [] as { text: string }[],
+    scheduledReading: 0,
+    view: { changed() {} },
+  });
+  const reads = [deferred<unknown>(), deferred<unknown>(), deferred<unknown>()];
+  let index = 0;
+  target.api.request = () => reads[index++].promise;
+  const refresh = method("refreshScheduled");
+  const old = refresh.call(target),
+    newer = refresh.call(target);
+  reads[1].resolve({ messages: [{ text: "new list" }] });
+  await newer;
+  reads[0].resolve({ messages: [{ text: "old list" }] });
+  await old;
+  assert.deepEqual(target.scheduled, [{ text: "new list" }]);
+  const replaced = refresh.call(target);
+  target.generation++;
+  target.account = { ...target.account };
+  target.scheduled = [];
+  reads[2].resolve({ messages: [{ text: "previous session private text" }] });
+  await replaced;
+  assert.deepEqual(target.scheduled, []);
+});
+
+test("late scheduled acknowledgements preserve a new room, thread or account draft", async () => {
+  for (const change of ["room", "thread", "account", "logout"] as const) {
+    const target = Object.assign(app(), {
+      scheduling: undefined as { key: string; operation: string } | undefined,
+      refreshScheduled: async () => {
+        throw new Error("stale refresh");
+      },
+    });
+    target.composer.value = "same text";
+    target.threadComposer.value = "same text";
+    target.root = "thread-A";
+    const receipt = deferred();
+    target.api.request = () => receipt.promise;
+    const writes: unknown[] = [];
+    const notices: unknown[] = [];
+    const schedule = method("schedule", {
+      acceptable: () => true,
+      operation: () => "schedule-operation",
+      segment: (id: string) => id,
+      writeBatch: async (items: unknown[], current: () => boolean) => {
+        if (current()) writes.push(...items);
+      },
+      toast: (notice: unknown) => notices.push(notice),
+      t: (key: string) => key,
+      when: () => "later",
+      language: "en",
+    });
+    const work = schedule.call(
+      target,
+      new Date(Date.now() + 3_600_000),
+      change === "thread" ? "thread-A" : undefined,
+    );
+    if (change === "room") {
+      target.room = "B";
+      target.roomOpening++;
+    }
+    if (change === "thread") {
+      target.root = "thread-B";
+      target.threadOpening++;
+    }
+    if (change === "account") {
+      target.account = { ...target.account, key: "account-B" };
+      target.generation++;
+    }
+    if (change === "logout") {
+      Object.assign(target, { account: undefined });
+      target.generation++;
+    }
+    receipt.resolve();
+    await work;
+    assert.equal(target.composer.value, "same text", change);
+    assert.equal(target.threadComposer.value, "same text", change);
+    assert.deepEqual(writes, [], change);
+    assert.deepEqual(notices, [], change);
+  }
+});
+
+test("current room and thread schedules clear only their own draft after acknowledgement", async () => {
+  for (const root of [undefined, "thread-A"]) {
+    let refreshed = 0;
+    const target = Object.assign(app(), {
+      scheduling: undefined as { key: string; operation: string } | undefined,
+      refreshScheduled: async () => {
+        refreshed++;
+      },
+    });
+    target.root = root;
+    target.composer.value = "room draft";
+    target.threadComposer.value = "thread draft";
+    const writes: unknown[] = [];
+    const notices: unknown[] = [];
+    const schedule = method("schedule", {
+      acceptable: () => true,
+      operation: () => "schedule-operation",
+      segment: (id: string) => id,
+      writeBatch: async (items: unknown[], current: () => boolean) => {
+        assert.ok(current());
+        writes.push(...items);
+        return true;
+      },
+      toast: (notice: unknown) => notices.push(notice),
+      t: (key: string) => key,
+      when: () => "later",
+      language: "en",
+    });
+    await schedule.call(target, new Date(Date.now() + 3_600_000), root);
+    assert.equal(target.composer.value, root ? "room draft" : "");
+    assert.equal(target.threadComposer.value, root ? "" : "thread draft");
+    assert.deepEqual(writes, [
+      {
+        store: "drafts",
+        key: "fixture:A" + (root ? ":thread:" + root : ""),
+        value: "",
+      },
+    ]);
+    assert.equal(notices.length, 1);
+    assert.equal(refreshed, 1);
+    assert.equal(target.scheduling, undefined);
   }
 });

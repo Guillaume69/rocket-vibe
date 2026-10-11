@@ -82,7 +82,7 @@ impl NativeSession {
                 let (unread, mentions, alert) =
                     if reads { super::read_presentation::badges(room.read_state.as_deref()) } else { (0, 0, false) };
                 let read_only = !self.room_send_permitted(&room.id);
-                let last = self.store.messages(&room.id, 1)?.pop();
+                let last = self.store.last_message(&room.id)?;
                 Ok(crate::store::RoomRow {
                     rid: room.id,
                     kind: match room.kind {

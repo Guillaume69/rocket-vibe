@@ -39,6 +39,7 @@ The Node tests cover model ordering/access withdrawal and authenticated error ha
 ```sh
 npx playwright install chromium
 RV_WEB_TEST_URL=http://127.0.0.1:3417 npm run test:browser
+RV_WEB_TEST_URL=http://127.0.0.1:3417 npm run test:navigation
 RV_WEB_TEST_URL=http://127.0.0.1:3417 npm run test:features
 RV_WEB_TEST_URL=http://127.0.0.1:3417 npm run test:media
 RV_WEB_TEST_URL=http://127.0.0.1:3417 npm run test:images
@@ -53,6 +54,8 @@ RV_WEB_VISUAL_USER=webvisual npm run test:visual
 RV_WEB_WORKFLOWS_USER=webworkflows npm run test:workflows
 RV_WEB_READ_USER=webread RV_WEB_READ_PEER=webreadpeer RV_WEB_READ_OWNER=webreadowner npm run test:reads
 ```
+
+The navigation suite uses a separate disposable `webrail` account with the same fixture password. It checks the four avatar statuses, preservation of status text, remote activity updates, menu placement and narrow screens.
 
 Voice requires the server's isolated LiveKit configuration. Security requires the TLS SMTP fixture (`node apps/web/tests/smtp.mjs` from repository root), the server's SMTP configuration pointing to localhost:14653 and its fixture certificate, plus a fresh `websec*` account. The editor suite uses `RV_WEB_COMPOSER_USER` when set and creates its own room; CI seeds a separate `webcomposer` account to keep combined login scenarios within the native ten-per-minute account budget. Fixture captures are in ignored `.cache/smtp-mails.json`; screenshots in `.cache/web-shots`.
 

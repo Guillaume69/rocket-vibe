@@ -44,7 +44,7 @@ type PresenceResponse = {
 export class PresenceEngine {
   private statuses = new Map<string, PresenceStatus>();
   private listeners = new Set<() => void>();
-  /** Number of the last STREAM event per uid, to settle REST vs stream. */
+  /** Last stream event or confirmed save per uid, to settle snapshot races. */
   private sequences = new Map<string, number>();
   private counter = 0;
   private inFlight = false;
@@ -100,6 +100,14 @@ export class PresenceEngine {
     this.statuses=next;this.sequences.clear();this.notify();
   }
 
+  /** A successful own-status save is fresh knowledge, even without broadcasts. */
+  confirm(uid: string, status: PresenceStatus): void {
+    if (uid === '') return;
+    this.statuses.set(uid, status);
+    this.sequences.set(uid, ++this.counter);
+    this.notify();
+  }
+
   /** Routes a DDP event. Anything that is not presence is ignored. */
   apply(event: DdpEvent): void {
     if (
@@ -116,9 +124,7 @@ export class PresenceEngine {
     if (typeof uid !== 'string' || uid === '') return;
     const status = typeof code === 'number' ? SINCE_NUMBER.get(code) : undefined;
     if (status === undefined) return;
-    this.statuses.set(uid, status);
-    this.sequences.set(uid, ++this.counter);
-    this.notify();
+    this.confirm(uid, status);
   }
 
   /**

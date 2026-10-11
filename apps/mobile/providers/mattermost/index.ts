@@ -16,6 +16,7 @@ import type { OutboxStore } from '../../lib/outbox.ts';
 import type { UploadStore } from '../../lib/uploadQueue.ts';
 import type { TransportUpload } from '../../lib/upload.ts';
 import { MmActions } from './actions.ts';
+import { mattermostActivity } from './activity.ts';
 import { MmCategories } from './categories.ts';
 import { kmeetCalls } from './kmeet.ts';
 import { mattermostSidebarSettings } from './sidebarSettings.ts';
@@ -90,6 +91,7 @@ export function createMattermostProvider(
     capabilities: kchat ? { ...MATTERMOST_CAPABILITIES, videoCall: true } : MATTERMOST_CAPABILITIES,
     calls: kchat ? kmeetCalls(client) : undefined,
     sidebarSettings: mattermostSidebarSettings(client, session.userId),
+    ownActivity: mattermostActivity(client, session.userId),
     listener,
     translator,
     actions,

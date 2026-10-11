@@ -17,6 +17,7 @@ impl ChatPage {
             thread.composer.rearm_schedule();
         }
         self.reload_rooms();
+        self.refresh_own_presence();
         if let Some(open) = self.current.borrow_mut().as_mut()
             && let Some(room) = self.rooms.borrow().iter().find(|room| room.rid == open.rid)
         {
@@ -84,6 +85,7 @@ impl ChatPage {
         self.list.set_native_provider(session.clone());
         self.native_features(&session);
         self.follow_voice(&session);
+        self.refresh_own_presence();
         self.account_name.set_label(&session.info.username);
         let host = url::Url::parse(&session.info.base_url)
             .ok()

@@ -63,6 +63,7 @@ export class NativeChat {
   private commands: Promise<void> = Promise.resolve();
   private roomAccessReads = new Map<string,Promise<void>>();
   private profileHeads=new Map<string,string>();
+  private ownProfileHead='unread';
   private livePeers=new Map<string,string>();
   private profileChanges=0;
   private profileReads:Promise<void>=Promise.resolve();
@@ -163,7 +164,7 @@ export class NativeChat {
     const generation=this.generation,version=this.emojiChanges,catalog=await this.store.emojiCatalog();
     if(!this.stopped&&generation===this.generation&&version===this.emojiChanges&&catalog){this.emojiState=catalog;this.emojiChanges++;this.notify();}
   }
-  profileVersionFor(id:string|null):string {return `${this.generation}:${this.store.projectionToken()}:${id?this.profileHeads.get(id)??'unobserved':this.profileChanges}`;}
+  profileVersionFor(id:string|null):string {return `${this.generation}:${this.verified}:${this.store.projectionToken()}:${id?`${this.profileHeads.get(id)??'unobserved'}:${id===this.session.userId?this.ownProfileHead:''}`:this.profileChanges}`;}
   private notify(): void { for (const listener of this.listeners) listener(); }
   start(): void { this.reconnect.trigger(); }
   private disconnect(): void {
@@ -172,7 +173,7 @@ export class NativeChat {
     if(this.verified && this.capabilities?.presence)this.emitPresence('offline');
     if(this.presenceTimer!==null)clearInterval(this.presenceTimer);
     this.presenceTimer=null;this.typingDesired=null;this.typingLast=null;this.live.clear();
-    this.profileHeads.clear();this.livePeers.clear();
+    this.profileHeads.clear();this.ownProfileHead='unread';this.livePeers.clear();
     this.generation++;
     this.verified = false;
     if (this.retryTimer!==null) clearTimeout(this.retryTimer);
@@ -886,13 +887,19 @@ export class NativeChat {
   async ownProfile():Promise<import('./protocol.generated.ts').OwnProfile> {
     this.ready();if(!this.capabilities?.profiles)throw new NativeError(501,'unsupported_feature');
     const generation=this.generation,projection=this.store.projectionToken();
+    const observed=this.profileHeads.get(this.session.userId),confirmed=this.ownProfileHead;
     checkIdentity(this.session,await this.transport.discover());this.roomOperationGeneration(generation);
     const own=await this.transport.ownProfile();
     checkIdentity(this.session,await this.transport.discover());this.roomOperationGeneration(generation);
     if(own.profile.user.id!==this.session.userId)throw new NativeError(401,'session_rejected');
-    if(projection!==this.store.projectionToken())throw new NativeError(409,'delivery_revalidate');
-    await this.store.profileIdentities([own.profile],()=>generation===this.generation&&!this.stopped&&projection===this.store.projectionToken());
-    this.roomOperationGeneration(generation);return own;
+    const current=()=>projection===this.store.projectionToken()
+      && (observed===this.profileHeads.get(this.session.userId)||own.profile.revision===this.profileHeads.get(this.session.userId))
+      && (confirmed===this.ownProfileHead||own.profile.revision===this.ownProfileHead);
+    if(!current())throw new NativeError(409,'delivery_revalidate');
+    await this.store.profileIdentities([own.profile],()=>generation===this.generation&&!this.stopped&&current());
+    this.roomOperationGeneration(generation);
+    if(!current())throw new NativeError(409,'delivery_revalidate');
+    return own;
   }
   async changeProfile(command:ProfileOperation):Promise<import('./protocol.generated.ts').OwnProfile> {
     if(this.stopped)throw new NativeError(0,'session_closed');
@@ -934,6 +941,8 @@ export class NativeChat {
       this.roomOperationGeneration(generation);
       const own=await this.ownProfile();this.roomOperationGeneration(generation);
       await this.store.profileOperations.confirm(saved,receipt,()=>generation===this.generation&&!this.stopped);
+      this.roomOperationGeneration(generation);
+      this.ownProfileHead=own.profile.revision;
       this.retryAttempt=0;this.retryAt=0;this.notify();return own;
     });
     this.commands=operation.then(()=>{},()=>{});return operation;

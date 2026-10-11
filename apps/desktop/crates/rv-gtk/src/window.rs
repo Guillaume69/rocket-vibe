@@ -374,6 +374,7 @@ impl AppWindow {
             hide_rail: Box::new(move |hide| {
                 if let Some(this) = w3.upgrade() {
                     this.rail.set_hidden(hide);
+                    this.chat.refresh_rail_button();
                 }
             }),
         });

@@ -1,8 +1,7 @@
 # rocket-vibe
 
 Third-party **Rocket.Chat** clients, faster and more reliable than the official ones, for
-self-hosted servers running Rocket.Chat **8** or later. The `feature/rocketvibe-server`
-branch adds a **RocketVibe** server in Rust; both providers use the existing interfaces.
+self-hosted servers running Rocket.Chat **8** or later. The monorepo includes a **RocketVibe** server in Rust; both providers use the existing interfaces.
 The apps also sign in to **Mattermost** servers and to Infomaniak's **kChat**, a Mattermost
 fork (`docs/MATTERMOST.md`).
 
@@ -15,7 +14,7 @@ fork (`docs/MATTERMOST.md`).
 Each app has its own version number and its own builds; the desktop's feature parity with
 mobile is tracked in [`brain/parity.md`](brain/parity.md).
 
-The native server also delivers a real [web client](apps/web/README.md), with the GTK design, one account on the serving origin, and encrypted rooms currently unsupported. Its dedicated browser CI checks build, conversations, files, security and WebRTC.
+The native server also delivers a real [web client](apps/web/README.md), with the GTK design, one account on the serving origin, and native MLS encrypted conversations through WebAssembly. [Encryption qualification](docs/WEB_E2EE.md) records the remaining limits. Its dedicated browser CI checks build, conversations, files, security and WebRTC.
 
 ## Shared
 

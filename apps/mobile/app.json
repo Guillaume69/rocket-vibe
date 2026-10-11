@@ -51,6 +51,7 @@
       "./plugins/with-ios-push",
       "./plugins/with-target-architectures",
       "./plugins/with-signature-release",
+      "./plugins/with-expo-package-list",
       "./plugins/with-incoming-share",
       "expo-audio",
       [

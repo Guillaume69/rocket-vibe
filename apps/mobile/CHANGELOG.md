@@ -7,6 +7,14 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+### Added
+
+- Android can check GitHub for a newer mobile APK from Settings > App, show an optional update notice, download with progress and SHA-256 verification, and install through Android confirmation while retaining app data. Update checks and installation recovery work independently of chat accounts.
+
+### Fixed
+
+- Native Android builds explicitly compile Expo's generated package list so a clean or cached build cannot launch with its modules missing.
+
 ## [0.11.0] - 2026-10-11
 
 ### Added

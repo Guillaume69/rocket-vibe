@@ -340,6 +340,7 @@
     "apps/mobile/app/admin/rooms.tsx",
     "apps/mobile/app/admin/users.tsx",
     "apps/mobile/app/answer-form.tsx",
+    "apps/mobile/app/app-update.tsx",
     "apps/mobile/app/attach.tsx",
     "apps/mobile/app/call/[callId].tsx",
     "apps/mobile/app/forward.tsx",
@@ -374,6 +375,7 @@
     "apps/mobile/lib/accountUnread.ts",
     "apps/mobile/lib/activity.ts",
     "apps/mobile/lib/admin.ts",
+    "apps/mobile/lib/appUpdates.ts",
     "apps/mobile/lib/attachment.ts",
     "apps/mobile/lib/auth.ts",
     "apps/mobile/lib/call.ts",
@@ -456,6 +458,7 @@
     "apps/mobile/lib/voiceGrid.ts",
     "apps/mobile/plugins/ios-notification-service/NotificationService.swift",
     "apps/mobile/plugins/native-push-source.js",
+    "apps/mobile/plugins/with-expo-package-list.js",
     "apps/mobile/plugins/with-fcm-deeplink.js",
     "apps/mobile/plugins/with-incoming-share.js",
     "apps/mobile/plugins/with-ios-push.js",
@@ -471,6 +474,7 @@
     "apps/mobile/ui/adminIcon.tsx",
     "apps/mobile/ui/adminKit.tsx",
     "apps/mobile/ui/alerts.ts",
+    "apps/mobile/ui/appUpdates.tsx",
     "apps/mobile/ui/attachment.ts",
     "apps/mobile/ui/attachmentActions.ts",
     "apps/mobile/ui/attachmentPreview.tsx",
@@ -4675,73 +4679,73 @@
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1047,
+      "line": 1084,
       "kind": "endpoint",
       "surface": "e2e.title"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1048,
+      "line": 1085,
       "kind": "endpoint",
       "surface": "e2e.explanation"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1050,
+      "line": 1087,
       "kind": "endpoint",
       "surface": "e2e.field"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1051,
+      "line": 1088,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1052,
+      "line": 1089,
       "kind": "endpoint",
       "surface": "e2e.wrongPassword"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1053,
+      "line": 1090,
       "kind": "endpoint",
       "surface": "e2e.genericError"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2512,
+      "line": 2586,
       "kind": "endpoint",
       "surface": "e2e.title"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2513,
+      "line": 2587,
       "kind": "endpoint",
       "surface": "e2e.explanation"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2515,
+      "line": 2589,
       "kind": "endpoint",
       "surface": "e2e.field"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2516,
+      "line": 2590,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2517,
+      "line": 2591,
       "kind": "endpoint",
       "surface": "e2e.wrongPassword"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2518,
+      "line": 2592,
       "kind": "endpoint",
       "surface": "e2e.genericError"
     },
@@ -4765,19 +4769,19 @@
     },
     {
       "file": "apps/mobile/ui/settingsSections.tsx",
-      "line": 376,
+      "line": 377,
       "kind": "call:GET",
       "surface": "'me'"
     },
     {
       "file": "apps/mobile/ui/settingsSections.tsx",
-      "line": 405,
+      "line": 406,
       "kind": "call:POST",
       "surface": "'users.setPreferences'"
     },
     {
       "file": "apps/mobile/ui/settingsSections.tsx",
-      "line": 405,
+      "line": 406,
       "kind": "endpoint",
       "surface": "users.setPreferences"
     }

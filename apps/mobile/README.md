@@ -59,6 +59,11 @@ Jitsi call screen (`app/call/[callId].tsx`, the only exception), Android builds
 
 ---
 
+## Updating an installed Android app
+
+Open **Settings > App > Check for updates**. A newer published mobile release can be downloaded inside the app, checked against its SHA-256 digest and installed after Android confirmation. If requested, allow installations from rocket-vibe in Android Settings, return to the app and tap Install. Automatic checks show a dismissible notice and can be turned off; they never start a download or installation. Normal compatible updates retain the app's accounts and local data.
+
+The APK must use the same signing key as the installed app and have a higher Android versionCode. GitHub currently publishes arm64 APKs; incompatible devices get the release page instead. Debug builds signed with the template key cannot update to a release-key APK. The first APK with this feature still needs the usual manual installation. Native implementation and recovery: [Android updates](../../brain/features/mobile-updates.md).
 ## Prerequisites
 
 | Tool | Version | Note |

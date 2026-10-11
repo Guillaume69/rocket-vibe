@@ -1,0 +1,12 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+group = 'com.rocketvibe.updater'
+version = '1.0.0'
+android {
+  namespace 'com.rocketvibe.updater'
+  defaultConfig { versionCode 1; versionName '1.0.0' }
+}
+
+dependencies { testImplementation 'junit:junit:4.13.2' }

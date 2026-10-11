@@ -1,6 +1,6 @@
 # Desktop updates
 
-The GTK desktop app updates itself from the repository's GitHub releases: it checks at startup (at most every 6 hours) or on demand, offers a newer version in a card, then replaces itself in place on Linux, runs the installer on Windows, or opens the disk image on macOS. The mobile app has no equivalent (APKs are installed by hand or from the release page), and the SwiftUI app has no updater yet.
+The GTK desktop app updates itself from the repository's GitHub releases: it checks at startup (at most every 6 hours) or on demand, offers a newer version in a card, then replaces itself in place on Linux, runs the installer on Windows, or opens the disk image on macOS. Android has [its own APK updater](mobile-updates.md), and the SwiftUI app has no updater yet.
 
 ## Where releases come from
 
@@ -41,7 +41,7 @@ Install (`updater::install`) downloads with progress through `update::download`,
 
 ## Parity
 
-Desktop only ([parity](../parity.md) §9, "the desktop equivalent of the store"); the SwiftUI app: not yet. For a first install on Linux, `scripts/install.sh` fetches the newest `desktop-v*` AppImage into `~/.local/bin/rocket-vibe.AppImage`, which the card then updates in place ([../operations.md](../operations.md)).
+GTK and Android each update themselves ([parity](../parity.md) §9, "the desktop equivalent of the store"); the SwiftUI app: not yet. For a first install on Linux, `scripts/install.sh` fetches the newest `desktop-v*` AppImage into `~/.local/bin/rocket-vibe.AppImage`, which the card then updates in place ([../operations.md](../operations.md)).
 
 ## Sources
 

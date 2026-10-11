@@ -16,6 +16,7 @@
  */
 
 import Constants from 'expo-constants';
+import { AppUpdatesCard } from './appUpdates.tsx';
 import { Link, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Switch, Text, View } from 'react-native';
@@ -511,7 +512,7 @@ function AccountsCategory({ c, account }: { c: Colors; account: SettingsAccount 
   );
 }
 
-/** App: the version, and the push diagnostics on Rocket.Chat. */
+/** App: the version, Android updates, and push diagnostics. */
 function AppCategory({ c, client }: { c: Colors; client: RestClient }) {
   const t = useT();
   return (
@@ -519,6 +520,7 @@ function AppCategory({ c, client }: { c: Colors; client: RestClient }) {
       <View style={[styles.card, { backgroundColor: c.deepCard, borderColor: c.border }]}>
         <Pair c={c} label={t('settings.version')} value={Constants.expoConfig?.version ?? '?'} />
       </View>
+      <AppUpdatesCard c={c} />
       {client.kind !== 'rocketvibe' && <>
         <Text style={[styles.sectionTitle, { color: c.dimmed }]}>{t('settings.sectionDiagnostics')}</Text>
         <FcmTokenSection c={c} t={t} />

@@ -192,7 +192,7 @@ beta does.
 | Notification check | mapped | done | partial | partial | Mobile: FCM diagnostic; GTK: backend description and test notification; SwiftUI: test notification and a link to the system settings, no backend description. Web: Implemented native browser equivalent requires row-specific GTK qualification; see docs/WEB_CLIENT_EXECUTION.md. |
 | App version in settings | done | done | done | done | The App category (mobile `expoConfig.version`, GTK `CARGO_PKG_VERSION`, SwiftUI the bundle's short version). Web: Native provider: see [web-client](features/web-client.md). |
 | Logs folder | missing | done | missing | missing | Web: No browser implementation yet. |
-| New versions | n/a | done | missing | mapped | Mobile goes through the store or the APK; GTK checks GitHub releases ([desktop-updates](features/desktop-updates.md)). Web: Native browser storage/HTTP/socket, HTTPS links, downloads and live-tab alerts; see web-client.md. |
+| New versions | done | done | missing | mapped | Android: GitHub APK checks, verified download and user-confirmed installation ([mobile-updates](features/mobile-updates.md)); iOS APK installation is n/a. GTK: platform updater ([desktop-updates](features/desktop-updates.md)). SwiftUI owes an updater. Web: server-delivered assets refreshed in the browser. |
 
 ## 10. Notifications - [notifications](features/notifications.md)
 

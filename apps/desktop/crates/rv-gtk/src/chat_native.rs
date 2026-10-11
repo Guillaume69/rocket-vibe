@@ -11,6 +11,11 @@ impl ChatPage {
         let changed = self.connection.get() != status.connection;
         self.set_connection(status.connection);
         self.native_features(&session);
+        // "Send later" follows the server's capability and the room's encryption.
+        self.composer.rearm_schedule();
+        if let Some(thread) = self.thread.borrow().clone() {
+            thread.composer.rearm_schedule();
+        }
         self.reload_rooms();
         self.refresh_own_presence();
         if let Some(open) = self.current.borrow_mut().as_mut()

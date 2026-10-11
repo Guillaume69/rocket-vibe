@@ -16,6 +16,7 @@ mod native_files;
 mod native_profiles;
 mod native_recovery;
 mod native_rooms;
+mod native_scheduled;
 mod native_security;
 mod native_voice;
 mod native_workflows;

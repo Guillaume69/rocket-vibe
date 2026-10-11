@@ -1949,6 +1949,34 @@ impl NativeClient {
             .await?;
         Ok(response.json().await?)
     }
+    /// Keeps a text message for the server to send at `input.send_at`
+    /// (`scheduled_messages`). Replaying `input.operation_id` answers the
+    /// scheduled message it made.
+    pub async fn schedule_message(
+        &self,
+        room: &str,
+        input: &rv_protocol::scheduled::ScheduleMessage,
+    ) -> Result<rv_protocol::scheduled::ScheduledMessage, Error> {
+        if !path_segment(room) {
+            return Err(Error::InvalidUrl);
+        }
+        self.post(&format!("/api/v1/rooms/{room}/scheduled"), input)
+            .await
+    }
+    /// The account's pending and failed scheduled messages, every room.
+    pub async fn scheduled_messages(
+        &self,
+    ) -> Result<rv_protocol::scheduled::ScheduledMessages, Error> {
+        self.get("/api/v1/scheduled").await
+    }
+    /// Cancels a pending scheduled message, or dismisses a failed one.
+    pub async fn cancel_scheduled(&self, id: &str) -> Result<(), Error> {
+        if !path_segment(id) {
+            return Err(Error::InvalidUrl);
+        }
+        self.empty(Method::DELETE, &format!("/api/v1/scheduled/{id}"), false)
+            .await
+    }
     /// The server's icon, public, at the revision its discovery announced.
     pub async fn instance_icon(&self, revision: &str) -> Result<Vec<u8>, Error> {
         let mut response = self

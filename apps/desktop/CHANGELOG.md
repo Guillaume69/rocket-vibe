@@ -11,6 +11,7 @@ section here.
 
 ### Added
 
+- Scheduled messages (GTK and macOS, RocketVibe servers): a chevron beside the send button offers "Send later": in 1 hour, tomorrow at 08:00, or a date and time you pick (from one minute to 30 days ahead). The server sends the message at that time, even if the app is closed; in a thread it goes out as a reply. A "N scheduled" chip above the composer lists what waits in the room, with Cancel, and says when one could not be sent (with Remove). Not offered in encrypted rooms, with a file staged or a quote.
 - On a RocketVibe account in do not disturb, an incoming call shows without ringing (GTK and macOS).
 - Read receipts (GTK and macOS, RocketVibe servers): under my latest message in a room (not an encrypted one), a small line says "Seen" in a direct conversation, or "Seen by" and up to three names in a group, then "and N others", updated live as people read. Settings > My account, Privacy: "Share read receipts" turns them off both ways (others no longer see how far I read, and I no longer see theirs).
 - The room-list header toggles the server bar directly. The connection dot moves to the account footer, while clicking the bottom avatar offers Online, Away, Busy and Offline and its badge reflects my activity. Linux title bars omit the extra application icon while preserving window controls.

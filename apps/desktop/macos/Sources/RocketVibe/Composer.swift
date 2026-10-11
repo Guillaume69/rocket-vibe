@@ -52,10 +52,17 @@ struct Composer: View {
     @State var previewing: URL?
     @State var caption = ""
     @State var original = false
+    /// The room's scheduled messages, while the server offers them here.
+    @State var scheduled: ScheduledModel?
+    @State var showingScheduled = false
+    @State var pickingTime = false
 
     var body: some View {
         @Bindable var model = model
         VStack(alignment: .leading, spacing: 6) {
+            if let scheduled, !scheduled.items.isEmpty {
+                ScheduledChip(count: scheduled.items.count) { showingScheduled = true }
+            }
             if let note = model.note {
                 PrivateNote(text: note) { model.note = nil }
             }
@@ -133,6 +140,11 @@ struct Composer: View {
                         .help(L("voice.stop"))
                         .transition(.scale.combined(with: .opacity))
                 } else {
+                    if model.supportsScheduling && staged.isEmpty && model.pendingQuote == nil
+                        && !model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    {
+                        SendLaterMenu(model: model, schedule: scheduleDraft) { pickingTime = true }
+                    }
                     Button(action: send) { Image(systemName: "arrow.up") }
                         .buttonStyle(SendButtonStyle())
                         .help(L("composer.send"))
@@ -144,6 +156,17 @@ struct Composer: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
+        .task(id: ScheduleKey(model: ObjectIdentifier(model), supported: model.supportsScheduling)) {
+            let fresh = model.scheduledModel()
+            scheduled = fresh
+            await fresh?.run()
+        }
+        .modalOverlay(isPresented: $showingScheduled) {
+            if let scheduled { ScheduledList(model: scheduled) }
+        }
+        .modalOverlay(isPresented: $pickingTime) {
+            if let times = model.scheduleTimes() { PickTimeCard(times: times, chosen: scheduleDraft) }
+        }
         .modalOverlay(item: Binding(get: { editingLast.map(EditingLast.init) }, set: { editingLast = $0?.message })) { e in
             EditLastSheet(model: model, message: e.message)
         }
@@ -214,6 +237,15 @@ struct Composer: View {
                     app.notice = refusal
                 }
             }
+        }
+    }
+
+    /// Schedules the draft for `sendAt`; the notice or the refusal shows.
+    func scheduleDraft(_ sendAt: Int64) {
+        suggestions = nil
+        Task {
+            if let notice = await model.scheduleDraft(at: sendAt) { app.notice = notice }
+            await scheduled?.refresh()
         }
     }
 

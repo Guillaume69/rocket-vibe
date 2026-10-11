@@ -8,7 +8,7 @@ The field at the bottom of a room or thread: the text, its persisted draft, `@` 
 - **Staged files** go to the upload queue one by one, in order, and the typed text becomes the caption of the **first** file only (repeated on each, it would show as many times). See [uploads](uploads.md).
 - **A draft that starts with `/name`** where `name` is a command the server lists goes to `commands.run`. See [slash commands](slash-commands.md).
 - In an encrypted room the outbox encrypts when the message leaves, never before; a locked room shows an "unlock" composer on mobile (`LockedComposer`). See [E2EE](e2ee.md).
-- A read-only room shows a note instead of the composer (mobile), or hides it (desktop).
+- A read-only room shows a note instead of the composer (mobile), or hides it (desktop). On Rocket.Chat, mobile keeps the composer for whoever holds `post-readonly` (owners and moderators by default), as the server lets them post (`apps/mobile/ui/postReadonly.ts`).
 
 Neither app **emits** the typing indicator: emitting needs a DDP method call, and the DDP client has no `call` by design (`lib/typing.ts`). Both only listen.
 
@@ -70,6 +70,7 @@ The native serving-origin client uses the GTK toolbar/draft styling with a real 
 
 ## Sources
 
+- apps/mobile/ui/postReadonly.ts
 - apps/mobile/ui/icon.tsx
 - apps/mobile/ui/kit.tsx
 - apps/desktop/crates/rv-gtk/src/style.rs

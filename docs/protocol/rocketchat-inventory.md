@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-571 production files scanned; 697 occurrences.
+575 production files scanned; 697 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -688,21 +688,21 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/ui/discussion.tsx:34](../../apps/mobile/ui/discussion.tsx#L34) | endpoint | rooms.info |
 | [apps/mobile/ui/discussion.tsx:36](../../apps/mobile/ui/discussion.tsx#L36) | call:POST | 'channels.join' |
 | [apps/mobile/ui/discussion.tsx:36](../../apps/mobile/ui/discussion.tsx#L36) | endpoint | channels.join |
-| [apps/mobile/ui/messages.ts:1022](../../apps/mobile/ui/messages.ts#L1022) | endpoint | e2e.title |
-| [apps/mobile/ui/messages.ts:1023](../../apps/mobile/ui/messages.ts#L1023) | endpoint | e2e.explanation |
-| [apps/mobile/ui/messages.ts:1025](../../apps/mobile/ui/messages.ts#L1025) | endpoint | e2e.field |
-| [apps/mobile/ui/messages.ts:1026](../../apps/mobile/ui/messages.ts#L1026) | endpoint | e2e.unlock |
-| [apps/mobile/ui/messages.ts:1027](../../apps/mobile/ui/messages.ts#L1027) | endpoint | e2e.wrongPassword |
-| [apps/mobile/ui/messages.ts:1028](../../apps/mobile/ui/messages.ts#L1028) | endpoint | e2e.genericError |
-| [apps/mobile/ui/messages.ts:2459](../../apps/mobile/ui/messages.ts#L2459) | endpoint | e2e.title |
-| [apps/mobile/ui/messages.ts:2460](../../apps/mobile/ui/messages.ts#L2460) | endpoint | e2e.explanation |
-| [apps/mobile/ui/messages.ts:2462](../../apps/mobile/ui/messages.ts#L2462) | endpoint | e2e.field |
-| [apps/mobile/ui/messages.ts:2463](../../apps/mobile/ui/messages.ts#L2463) | endpoint | e2e.unlock |
-| [apps/mobile/ui/messages.ts:2464](../../apps/mobile/ui/messages.ts#L2464) | endpoint | e2e.wrongPassword |
-| [apps/mobile/ui/messages.ts:2465](../../apps/mobile/ui/messages.ts#L2465) | endpoint | e2e.genericError |
+| [apps/mobile/ui/messages.ts:1059](../../apps/mobile/ui/messages.ts#L1059) | endpoint | e2e.title |
+| [apps/mobile/ui/messages.ts:1060](../../apps/mobile/ui/messages.ts#L1060) | endpoint | e2e.explanation |
+| [apps/mobile/ui/messages.ts:1062](../../apps/mobile/ui/messages.ts#L1062) | endpoint | e2e.field |
+| [apps/mobile/ui/messages.ts:1063](../../apps/mobile/ui/messages.ts#L1063) | endpoint | e2e.unlock |
+| [apps/mobile/ui/messages.ts:1064](../../apps/mobile/ui/messages.ts#L1064) | endpoint | e2e.wrongPassword |
+| [apps/mobile/ui/messages.ts:1065](../../apps/mobile/ui/messages.ts#L1065) | endpoint | e2e.genericError |
+| [apps/mobile/ui/messages.ts:2533](../../apps/mobile/ui/messages.ts#L2533) | endpoint | e2e.title |
+| [apps/mobile/ui/messages.ts:2534](../../apps/mobile/ui/messages.ts#L2534) | endpoint | e2e.explanation |
+| [apps/mobile/ui/messages.ts:2536](../../apps/mobile/ui/messages.ts#L2536) | endpoint | e2e.field |
+| [apps/mobile/ui/messages.ts:2537](../../apps/mobile/ui/messages.ts#L2537) | endpoint | e2e.unlock |
+| [apps/mobile/ui/messages.ts:2538](../../apps/mobile/ui/messages.ts#L2538) | endpoint | e2e.wrongPassword |
+| [apps/mobile/ui/messages.ts:2539](../../apps/mobile/ui/messages.ts#L2539) | endpoint | e2e.genericError |
 | [apps/mobile/ui/realNames.ts:47](../../apps/mobile/ui/realNames.ts#L47) | call:GET | 'settings.public' |
 | [apps/mobile/ui/realNames.ts:47](../../apps/mobile/ui/realNames.ts#L47) | endpoint | settings.public |
 | [apps/mobile/ui/serverRail.tsx:41](../../apps/mobile/ui/serverRail.tsx#L41) | endpoint | subscriptions.get |
-| [apps/mobile/ui/settingsSections.tsx:376](../../apps/mobile/ui/settingsSections.tsx#L376) | call:GET | 'me' |
-| [apps/mobile/ui/settingsSections.tsx:405](../../apps/mobile/ui/settingsSections.tsx#L405) | call:POST | 'users.setPreferences' |
-| [apps/mobile/ui/settingsSections.tsx:405](../../apps/mobile/ui/settingsSections.tsx#L405) | endpoint | users.setPreferences |
+| [apps/mobile/ui/settingsSections.tsx:377](../../apps/mobile/ui/settingsSections.tsx#L377) | call:GET | 'me' |
+| [apps/mobile/ui/settingsSections.tsx:406](../../apps/mobile/ui/settingsSections.tsx#L406) | call:POST | 'users.setPreferences' |
+| [apps/mobile/ui/settingsSections.tsx:406](../../apps/mobile/ui/settingsSections.tsx#L406) | endpoint | users.setPreferences |

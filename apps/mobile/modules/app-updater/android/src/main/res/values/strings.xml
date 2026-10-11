@@ -1,0 +1,5 @@
+<resources>
+  <string name="rv_update_channel">App updates</string>
+  <string name="rv_update_title">Finish updating rocket-vibe</string>
+  <string name="rv_update_confirmation">Tap to confirm the update in Android.</string>
+</resources>

@@ -1,3 +1,4 @@
+import { AppUpdateHost } from '../ui/appUpdates.tsx';
 import { VoiceRingHost } from '../ui/voice.tsx';
 import { setAudioModeAsync } from 'expo-audio';
 import { ShareIntentProvider, useShareIntentContext } from 'expo-share-intent';
@@ -232,6 +233,7 @@ export default function RootLayout() {
                       stack, only shows if opening drags on (>threshold). */}
                   <ProfileOpeningIndicator />
                   <ToastHost />
+                  <AppUpdateHost />
                   {/* Rings of direct calls and the end of a voice session (RocketVibe). */}
                   <VoiceRingHost />
                   {/* Redirects to the share screen as soon as an intent arrives. */}

@@ -9,6 +9,8 @@ release, and its notes are that version's section here.
 
 ### Added
 
+- Android can check GitHub for a newer mobile APK from Settings > App, show an optional update notice, download with progress and SHA-256 verification, and install through Android confirmation while retaining app data. Update checks and installation recovery work independently of chat accounts.
+
 - On a RocketVibe account in do not disturb, an incoming call shows in the open app without ringing.
 - On RocketVibe servers, read receipts: under your latest message, "Seen" in a direct conversation, "Seen by" and up to three names (then how many others) in a group, updated live. Settings > My account has a "Share read receipts" switch under Privacy; turned off, others no longer see how far you read and you no longer see how far they did.
 - On RocketVibe servers, Settings > Notifications offers "Do not disturb": mute notifications for 1 hour or until 08:00, or set daily quiet hours (22:00 to 08:00 by default, in the phone's time zone). Messages still arrive; push notifications and call rings stop meanwhile.
@@ -38,6 +40,8 @@ release, and its notes are that version's section here.
 - The composer is laid out like the desktop's: a single outlined field holding attach, emoji and microphone, lit cyan while typing, and a round send button that stays in place, dimmed while there is nothing to send, and turns into stop while recording.
 
 ### Fixed
+
+- Native Android builds explicitly compile Expo's generated package list so a clean or cached build cannot launch with its modules missing.
 
 - On Mattermost and kChat, a thread's "N replies" moves as soon as someone answers, not at the next catch-up.
 - On Mattermost and kChat, search in a channel asks the server for that channel's matches only, so a busy team no longer leaves it empty.

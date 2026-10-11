@@ -1,0 +1,8 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+  <application>
+    <receiver android:name="com.rocketvibe.updater.UpdateResultReceiver" android:exported="false" />
+    <activity android:name="com.rocketvibe.updater.UpdateConfirmationActivity" android:exported="false"
+      android:excludeFromRecents="true" android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+  </application>
+</manifest>

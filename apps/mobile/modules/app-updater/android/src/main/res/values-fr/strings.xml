@@ -1,0 +1,5 @@
+<resources>
+  <string name="rv_update_channel">Mises à jour de l’application</string>
+  <string name="rv_update_title">Terminer la mise à jour de rocket-vibe</string>
+  <string name="rv_update_confirmation">Touchez pour confirmer la mise à jour dans Android.</string>
+</resources>

@@ -46,20 +46,24 @@ jobs:
         shell: pwsh
         run: |
           $env:PATH = "$env:RV_CARD_DLL_PATH;$env:PATH"
-          $env:RV_INSTANCE = "notification-cards-ci"
           $env:RV_SMOKE_CUSTOM_NOTIFICATIONS = "$env:RUNNER_TEMP\notification-card.png"
           $env:XDG_CONFIG_HOME = "$env:RUNNER_TEMP\notification-card-config"
           $env:XDG_DATA_HOME = "$env:RUNNER_TEMP\notification-card-data"
           $env:XDG_CACHE_HOME = "$env:RUNNER_TEMP\notification-card-cache"
-          $run = Start-Process -WindowStyle Hidden target/debug/rocket-vibe-gtk.exe -PassThru `
-            -RedirectStandardOutput "$env:RUNNER_TEMP\notification-card.log" `
-            -RedirectStandardError "$env:RUNNER_TEMP\notification-card-errors.log"
-          if (-not $run.WaitForExit(30000)) { Stop-Process -Id $run.Id; throw "Card test did not finish" }
-          Get-Content "$env:RUNNER_TEMP\notification-card.log"
-          Get-Content "$env:RUNNER_TEMP\notification-card-errors.log"
-          if ($run.ExitCode -ne 0) { throw "Card test exited with $($run.ExitCode)" }
-          if (-not (Select-String -Path "$env:RUNNER_TEMP\notification-card.log" -Pattern 'all checks passed' -Quiet)) {
-            throw "Card test did not exercise its assertions"
+          # Exercise focus/IME retirement repeatedly on fresh GTK processes.
+          foreach ($attempt in 1..3) {
+            $env:RV_INSTANCE = "notification-cards-ci-$attempt"
+            $log = "$env:RUNNER_TEMP\notification-card-$attempt.log"
+            $errors = "$env:RUNNER_TEMP\notification-card-$attempt-errors.log"
+            $run = Start-Process -WindowStyle Hidden target/debug/rocket-vibe-gtk.exe -PassThru `
+              -RedirectStandardOutput $log -RedirectStandardError $errors
+            if (-not $run.WaitForExit(30000)) { Stop-Process -Id $run.Id; throw "Card test did not finish" }
+            Get-Content $log
+            Get-Content $errors
+            if ($run.ExitCode -ne 0) { throw "Card test exited with $($run.ExitCode)" }
+            if (-not (Select-String -Path $log -Pattern 'all checks passed' -Quiet)) {
+              throw "Card test did not exercise its assertions"
+            }
           }
           if (-not (Test-Path $env:RV_SMOKE_CUSTOM_NOTIFICATIONS)) { throw "No rendered card" }
       - uses: actions/upload-artifact@v4

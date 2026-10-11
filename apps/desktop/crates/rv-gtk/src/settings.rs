@@ -472,6 +472,30 @@ fn notifier_group() -> Option<adw::PreferencesGroup> {
         let row = shown_by.clone();
         notifier.describe(move |text| row.set_subtitle(&text));
         group.add(&shown_by);
+        if cfg!(windows) {
+            let style = combo(
+                t("notify.style"),
+                &[t("notify.style_system"), "RocketVibe"],
+                usize::from(crate::notifier::custom_enabled()),
+            );
+            style.set_subtitle(t("notify.style_hint"));
+            let (n, shown) = (notifier.clone(), shown_by.clone());
+            style.connect_selected_notify(move |row| {
+                let enabled = row.selected() == 1;
+                if enabled == crate::notifier::custom_enabled() {
+                    return;
+                }
+                if n.set_custom(enabled).is_err() {
+                    row.set_subtitle(t("settings.save_failed"));
+                    row.set_selected(u32::from(crate::notifier::custom_enabled()));
+                    return;
+                }
+                row.set_subtitle(t("notify.style_hint"));
+                let shown = shown.clone();
+                n.describe(move |text| shown.set_subtitle(&text));
+            });
+            group.add(&style);
+        }
         let test = adw::ActionRow::builder().title(t("notify.test")).subtitle(t("notify.test_hint")).build();
         let send = gtk::Button::builder()
             .icon_name("preferences-system-notifications-symbolic")

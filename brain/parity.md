@@ -208,6 +208,7 @@ beta does.
 | The message's picture in the notification | missing | partial | missing | partial | GTK: Windows toasts only, Rocket.Chat and Mattermost accounts. Others show the "🖼️ title" line. Web: `image`, a data URL of the first inline picture, shown by Chromium outside macOS only; Firefox does not implement it. |
 | React (👍 ❤️ 😂) and mark as read from the notification | missing | partial | missing | partial | GTK: Windows toasts only, Rocket.Chat and Mattermost accounts. Mobile and SwiftUI: reply only. Web: Mark as read and 👍 only (`Notification.maxActions` is 2 in Chromium), performed by a live tab with its session, or by the next tab opened; no buttons where the browser has none. |
 | The app's own notification sound | missing | partial | missing | done | GTK: Windows (silent toast, `cue-message.ogg`, quiet when Windows holds notifications back, a switch gives the system's sound back). Elsewhere the system's sound. Web: a silent notification and `cue-message.ogg` played by the page, the same switch in Settings > Notifications; the system's sound before the tab's first user activation, when autoplay would refuse it. |
+| Choice of System or RocketVibe custom notification cards | missing | partial | missing | missing | GTK on Windows: persisted style choice, immediate switch, floating themed cards, one per room, at most three, reply drafts preserved, hover/reply pauses dismissal, avatars and image previews, existing actions, OS quiet-mode suppression, account cleanup and system fallback. No Notification Center history. Linux and macOS GTK still owe custom cards; mobile, SwiftUI and web use system notifications. |
 | Running with the window closed, starting at login | mapped | done | missing | partial | Mobile: push arrives with the app closed. GTK: Windows tray, macOS Dock; Linux quits on close. Web: Installable public shell; closed-tab Web Push and OS autostart absent. |
 
 ## 11. End-to-end encryption - [e2ee](features/e2ee.md)
@@ -329,21 +330,23 @@ are product gaps, listed last.
 
 - **Mobile**: the local speaking-while-muted voice reminder (native monitor and device qualification); kChat "Sign in with Infomaniak" run on a real account; several accounts per server;
   live styling of the draft; logs folder; in notifications the author's photo,
-  the message's picture, quick reactions and mark as read, the app's own sound;
-  on RocketVibe accounts the thread list, following and "also send to the room"
-  (the server has the routes, section 6).
+  the message's picture, quick reactions and mark as read, the app's own sound,
+  custom notification cards; on RocketVibe accounts the thread list, following
+  and "also send to the room" (the server has the routes, section 6).
 - **GTK**: kChat "Sign in with Infomaniak"; email 2FA resend; padlock tile once
   unlocked; DM avatar versions in the list; video reduction; reconciliation snapshot; catch-up of
   deletions in rooms already caught up; outside Windows
   toasts, the notification's picture, quick reactions, mark as read and own sound
-  (Linux has the photo), and none of them for RocketVibe accounts; on RocketVibe
-  accounts the thread list, following and "also send to the room" (section 6).
+  (Linux has the photo), and none of them for RocketVibe accounts; custom
+  notification cards on Linux and macOS; on RocketVibe accounts the thread list,
+  following and "also send to the room" (section 6).
 - **SwiftUI**: everything GTK owes, plus
   workflow variables inserted at the cursor in a one-line URL;
   formatting toolbar; notification backend description; logs
   folder; new versions; running with the window closed and starting at login;
-  the notification's photo, picture, quick reactions, mark as read and own sound.
-- **Web**: nothing missing. Partial, mostly pending row-by-row
+  the notification's photo, picture, quick reactions, mark as read and own sound;
+  custom notification cards.
+- **Web**: missing: custom notification cards. Partial, mostly pending row-by-row
   qualification against GTK (`docs/WEB_CLIENT_EXECUTION.md`): link previews,
   embeds, quote cards, system messages, reactions, the thread chip, profiles,
   the notification check, running with the tab closed; reply from a notification

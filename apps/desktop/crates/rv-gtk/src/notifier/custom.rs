@@ -465,6 +465,16 @@ pub(super) fn smoke(app: &adw::Application) -> bool {
         println!("custom notifications: {name}: {okay}");
         assert!(okay, "custom notifications: {name}");
     };
+    #[cfg(windows)]
+    {
+        let notifier = super::Notifier::new(app, |_, _| {}, |_, _, _| {}, |_, _, _| {});
+        notifier.set_custom(true).expect("save custom style");
+        check("custom style persists", super::custom_enabled());
+        notifier.test();
+        check("test uses selected backend", notifier.custom.cards.borrow().len() == 1);
+        notifier.set_custom(false).expect("save system style");
+        check("style switch clears cards", !super::custom_enabled() && notifier.custom.cards.borrow().is_empty());
+    }
     for room in ["a", "b", "c", "d"] {
         check("card mapped", backend.show(&sample(room, "m1"), &pictures));
     }
@@ -539,11 +549,14 @@ pub(super) fn smoke(app: &adw::Application) -> bool {
             body: Some("Hey! These notifications feel like RocketVibe now ✨".into()),
             ..sample("preview", "m7")
         };
-        backend.show(&incoming, &Pictures::default());
+        let photo = gio::File::for_path("data/icons/hicolor/64x64/apps/com.rocketvibe.app.png").uri().to_string();
+        let image = gio::File::for_path("data/windows/installer/wizard-202x386.png").uri().to_string();
+        backend.show(&incoming, &Pictures { avatar: Some(photo), image: Some(image) });
         let card = backend.cards.borrow()[0].clone();
         card.hover.set(true);
         let app = app.clone();
         glib::timeout_add_local_once(Duration::from_millis(500), move || {
+            check("image preview stays within card width", card.window.width() <= 400);
             let snapshot = gtk::Snapshot::new();
             gtk::WidgetPaintable::new(Some(&card.window)).snapshot(
                 &snapshot,

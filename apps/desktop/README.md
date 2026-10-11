@@ -32,6 +32,12 @@ available: discovery selects Rocket.Chat or RocketVibe per account in the same
 GTK and SwiftUI chat interfaces, with isolated native caches, durable outboxes and drafts.
 The Rust engine is exposed to SwiftUI through an explicit UniFFI API.
 
+GTK's Room information dialog offers **Change channel image** on Rocket.Chat
+with `edit-room` permission and on RocketVibe for room owners when the server
+announces `room_avatars`. Pick a PNG or JPEG up to 2 MiB; channel photos refresh
+without restarting. RocketVibe keeps interrupted uploads available to resume.
+SwiftUI displays native channel photos but does not yet offer the image editor.
+
 ## Desktop integration
 
 Calls open in a window of the app, locked on the meeting's origin: WebView2 on

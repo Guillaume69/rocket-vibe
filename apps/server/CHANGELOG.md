@@ -8,6 +8,8 @@ everything before it is under that section.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-11
+
 ### Added
 
 - Owner-managed channel images: authenticated, versioned PNG reads, bounded PNG/JPEG uploads, idempotent room-command receipts and the additive room_avatars capability. Private room images remain restricted to current members.
@@ -49,6 +51,7 @@ everything before it is under that section.
 
 - Preserve bot identity in live profile observations so author refreshes keep the BOT badge on bot and workflow messages.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/server-v0.3.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/server-v0.4.0...HEAD
+[0.4.0]: https://github.com/Guillaume69/rocket-vibe/compare/server-v0.3.0...server-v0.4.0
 [0.3.0]: https://github.com/Guillaume69/rocket-vibe/compare/server-v0.2.0...server-v0.3.0
 [0.2.0]: https://github.com/Guillaume69/rocket-vibe/releases/tag/server-v0.2.0

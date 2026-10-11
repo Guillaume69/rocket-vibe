@@ -1435,6 +1435,11 @@ export const nativeSchema = {
             "Members can report a message or an account to the administrators.",
           type: "boolean",
         },
+        room_avatars: {
+          default: false,
+          description: "Versioned channel images; absent on older servers.",
+          type: "boolean",
+        },
         room_discovery: {
           default: false,
           type: "boolean",

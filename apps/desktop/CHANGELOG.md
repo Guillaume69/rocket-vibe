@@ -7,6 +7,8 @@ section here.
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-10-11
+
 ### Added
 
 - Change a channel's image from its information dialog on Rocket.Chat (edit-room permission) and RocketVibe (room owner). PNG and JPEG images refresh the channel tiles without restarting; RocketVibe uploads survive a disconnect or app restart and require a server announcing room_avatars.
@@ -1170,7 +1172,8 @@ the mobile app (see `docs/PARITY.md`).
   `rocketvibe://` links) and zip; a macOS app in a DMG, signed with a Developer ID and
   notarized by Apple.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.15.1...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.16.0...HEAD
+[0.16.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.15.1...desktop-v0.16.0
 [0.15.1]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.15.0...desktop-v0.15.1
 [0.15.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.14.0...desktop-v0.15.0
 [0.14.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.13.0...desktop-v0.14.0

@@ -33,27 +33,35 @@ jobs:
             mingw-w64-ucrt-x86_64-nasm mingw-w64-ucrt-x86_64-gtk4
             mingw-w64-ucrt-x86_64-libadwaita mingw-w64-ucrt-x86_64-gstreamer
             mingw-w64-ucrt-x86_64-gst-plugins-base
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
+        id: cache
         with:
           path: apps/desktop/target
           key: notification-cards-windows-${{ hashFiles('apps/desktop/Cargo.lock') }}
           restore-keys: desktop-windows-
       - run: cargo build --locked -p rocket-vibe-gtk
+      - name: Record native DLL directory
+        run: printf 'RV_CARD_DLL_PATH=%s\n' "$(cygpath -w /ucrt64/bin)" >> "$GITHUB_ENV"
       - name: Real Windows card launch and actions
+        shell: pwsh
         run: |
-          set -euo pipefail
-          card_tmp=$(cygpath -w "$RUNNER_TEMP")
-          export RV_INSTANCE=notification-cards-ci
-          export RV_SMOKE_CUSTOM_NOTIFICATIONS="$card_tmp/notification-card.png"
-          export XDG_CONFIG_HOME="$card_tmp/notification-card-config"
-          export XDG_DATA_HOME="$card_tmp/notification-card-data"
-          export XDG_CACHE_HOME="$card_tmp/notification-card-cache"
-          status=0
-          timeout 30s target/debug/rocket-vibe-gtk.exe > "$RUNNER_TEMP/notification-card.log" 2> "$RUNNER_TEMP/notification-card-errors.log" || status=$?
-          cat "$RUNNER_TEMP/notification-card.log" "$RUNNER_TEMP/notification-card-errors.log"
-          test "$status" = 0
-          grep -q 'all checks passed' "$RUNNER_TEMP/notification-card.log"
-          test -s "$RUNNER_TEMP/notification-card.png"
+          $env:PATH = "$env:RV_CARD_DLL_PATH;$env:PATH"
+          $env:RV_INSTANCE = "notification-cards-ci"
+          $env:RV_SMOKE_CUSTOM_NOTIFICATIONS = "$env:RUNNER_TEMP\notification-card.png"
+          $env:XDG_CONFIG_HOME = "$env:RUNNER_TEMP\notification-card-config"
+          $env:XDG_DATA_HOME = "$env:RUNNER_TEMP\notification-card-data"
+          $env:XDG_CACHE_HOME = "$env:RUNNER_TEMP\notification-card-cache"
+          $run = Start-Process -WindowStyle Hidden target/debug/rocket-vibe-gtk.exe -PassThru `
+            -RedirectStandardOutput "$env:RUNNER_TEMP\notification-card.log" `
+            -RedirectStandardError "$env:RUNNER_TEMP\notification-card-errors.log"
+          if (-not $run.WaitForExit(30000)) { Stop-Process -Id $run.Id; throw "Card test did not finish" }
+          Get-Content "$env:RUNNER_TEMP\notification-card.log"
+          Get-Content "$env:RUNNER_TEMP\notification-card-errors.log"
+          if ($run.ExitCode -ne 0) { throw "Card test exited with $($run.ExitCode)" }
+          if (-not (Select-String -Path "$env:RUNNER_TEMP\notification-card.log" -Pattern 'all checks passed' -Quiet)) {
+            throw "Card test did not exercise its assertions"
+          }
+          if (-not (Test-Path $env:RV_SMOKE_CUSTOM_NOTIFICATIONS)) { throw "No rendered card" }
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -61,3 +69,8 @@ jobs:
           path: |
             ${{ runner.temp }}/notification-card.png
             ${{ runner.temp }}/notification-card*.log
+      - uses: actions/cache/save@v4
+        if: always() && steps.cache.outputs.cache-hit != 'true'
+        with:
+          path: apps/desktop/target
+          key: notification-cards-windows-${{ hashFiles('apps/desktop/Cargo.lock') }}

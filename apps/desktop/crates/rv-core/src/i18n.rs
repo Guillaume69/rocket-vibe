@@ -1210,6 +1210,16 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("profile.resume", "Reprendre", "Resume"),
     ("profile.discard", "Abandonner la modification", "Discard change"),
     ("notify.open", "Ouvrir", "Open"),
+    ("notify.dismiss", "Fermer la notification", "Dismiss notification"),
+    ("notify.direct", "Message privé", "Direct message"),
+    ("notify.style", "Style des notifications", "Notification style"),
+    ("notify.style_system", "Système", "System"),
+    (
+        "notify.style_hint",
+        "RocketVibe : cartes flottantes, sans historique dans le centre de notifications Windows.",
+        "RocketVibe: floating cards, without Windows Notification Center history.",
+    ),
+    ("notify.backend_custom", "RocketVibe · cartes flottantes avec réponse", "RocketVibe · floating cards with reply"),
     ("notify.test_body", "Les notifications fonctionnent ✨", "Notifications work ✨"),
     ("notify.test", "Envoyer une notification de test", "Send a test notification"),
     (
@@ -1243,8 +1253,8 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("notify.sound", "Son de rocket-vibe", "rocket-vibe sound"),
     (
         "notify.sound_hint",
-        "Un petit scintillement à la place du son du système",
-        "A little sparkle instead of the system's sound",
+        "Un petit scintillement. Désactivé : son du système, ou silence pour les cartes RocketVibe.",
+        "A little sparkle. When off: system sound, or silence for RocketVibe cards.",
     ),
     ("login.probe_failed", "Pas de Rocket.Chat joignable à cette adresse", "No Rocket.Chat reachable at this address"),
     ("login.not_rocketvibe", "Pas de serveur RocketVibe à cette adresse", "No RocketVibe server at this address"),

@@ -6,7 +6,7 @@
 //! available, GLib's: a click still opens the room, there is no reply.
 
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use gtk::prelude::*;
@@ -14,6 +14,7 @@ use gtk::{gio, glib};
 use rv_core::notify::Incoming;
 
 use crate::i18n::{t, tf};
+mod custom;
 pub mod pictures;
 mod portal;
 
@@ -24,6 +25,8 @@ const PATH: &str = "/org/freedesktop/Notifications";
 
 pub struct Notifier {
     app: gio::Application,
+    custom: Rc<custom::Backend>,
+    active_rooms: RefCell<HashSet<String>>,
     connection: Option<gio::DBusConnection>,
     inline_reply: Cell<bool>,
     portal_reply: Cell<bool>,
@@ -46,7 +49,6 @@ fn session_bus() -> Option<gio::DBusConnection> {
 /// A notification's button that acts by itself (Windows): a reaction to
 /// its message, or its room marked read.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
 pub enum Quick {
     React(String),
     MarkRead,
@@ -54,7 +56,6 @@ pub enum Quick {
 
 type OnOpen = Rc<dyn Fn(String, String)>;
 type OnReply = Rc<dyn Fn(String, String, String)>;
-#[cfg(any(windows, target_os = "macos"))]
 type OnQuick = Rc<dyn Fn(String, String, Quick)>;
 
 thread_local! {
@@ -80,6 +81,18 @@ fn native_event(event: rv_native::Event) {
 
 fn sound_off_file() -> std::path::PathBuf {
     glib::user_config_dir().join("rocket-vibe-rs").join("notification-sound-off")
+}
+
+fn custom_file() -> std::path::PathBuf {
+    glib::user_config_dir().join("rocket-vibe-rs").join("notification-style")
+}
+
+pub fn custom_enabled() -> bool {
+    cfg!(windows) && std::fs::read_to_string(custom_file()).is_ok_and(|s| s.trim() == "rocketvibe")
+}
+
+pub fn custom_smoke(app: &adw::Application) -> bool {
+    custom::smoke(app)
 }
 
 /// Whether notifications play the app's own sound rather than the
@@ -121,10 +134,22 @@ impl Notifier {
         quick: impl Fn(String, String, Quick) + 'static,
     ) -> Rc<Self> {
         let (open, reply): (OnOpen, OnReply) = (Rc::new(open), Rc::new(reply));
+        let quick: OnQuick = Rc::new(quick);
         let app = app.clone().upcast::<gio::Application>();
+        let (card_open, card_reply, card_quick) = (open.clone(), reply.clone(), quick.clone());
+        let custom = custom::Backend::new(
+            &app,
+            Rc::new(move |event| match event {
+                rv_native::Event::Open { room, message } => card_open(room, message),
+                rv_native::Event::Reply { room, message, text } => card_reply(room, message, text),
+                rv_native::Event::React { room, message, shortcode } => {
+                    card_quick(room, message, Quick::React(shortcode))
+                }
+                rv_native::Event::MarkRead { room, message } => card_quick(room, message, Quick::MarkRead),
+            }),
+        );
         #[cfg(any(windows, target_os = "macos"))]
         if session_bus().is_none() {
-            let quick: OnQuick = Rc::new(quick);
             NATIVE.with_borrow_mut(|n| *n = Some((open.clone(), reply.clone(), quick)));
             rv_native::init(
                 crate::APP_ID,
@@ -132,12 +157,11 @@ impl Notifier {
                 Box::new(|event| glib::MainContext::default().invoke(move || native_event(event))),
             );
         }
-        // Only the system's own notifications have quick buttons.
-        #[cfg(not(any(windows, target_os = "macos")))]
-        let _ = quick;
         let Some(connection) = session_bus() else {
             let this = Rc::new(Notifier {
                 app,
+                custom,
+                active_rooms: RefCell::default(),
                 connection: None,
                 inline_reply: Cell::new(false),
                 portal_reply: Cell::new(false),
@@ -151,6 +175,8 @@ impl Notifier {
         };
         let this = Rc::new(Notifier {
             app,
+            custom,
+            active_rooms: RefCell::default(),
             connection: Some(connection.clone()),
             inline_reply: Cell::new(false),
             portal_reply: Cell::new(false),
@@ -248,6 +274,10 @@ impl Notifier {
 
     /// What shows our notifications, in words.
     pub fn describe(self: &Rc<Self>, done: impl FnOnce(String) + 'static) {
+        if custom_enabled() {
+            done(t("notify.backend_custom").to_owned());
+            return;
+        }
         if self.portal_reply.get() {
             done(tf(
                 "notify.backend_server",
@@ -278,6 +308,19 @@ impl Notifier {
     }
 
     pub fn show(self: &Rc<Self>, incoming: &Incoming, pictures: &Pictures) {
+        self.active_rooms.borrow_mut().insert(incoming.rid.clone());
+        if custom_enabled() {
+            // Respect both OS quiet mode and disabled app notifications.
+            if rv_native::quiet() {
+                return;
+            }
+            if self.custom.show(incoming, pictures) {
+                if own_sound() {
+                    crate::sounds::play(crate::sounds::Sound::Message);
+                }
+                return;
+            }
+        }
         let summary = if incoming.direct {
             incoming.author.clone()
         } else {
@@ -345,6 +388,8 @@ impl Notifier {
 
     /// Opening a room clears what it had on screen.
     pub fn withdraw(&self, rid: &str) {
+        self.custom.withdraw(rid);
+        self.active_rooms.borrow_mut().remove(rid);
         if rid.starts_with("rv-native:") {
             self.app.withdraw_notification(rid);
             if let Some(portal) = &self.portal {
@@ -375,6 +420,26 @@ impl Notifier {
                 )
                 .await;
         });
+    }
+
+    /// Retire old account notifications and actions before switching sessions.
+    pub fn clear(&self) {
+        self.custom.clear();
+        let rooms = self.active_rooms.take();
+        for room in rooms {
+            self.withdraw(&room);
+        }
+    }
+
+    /// Persist first: a failed save leaves the current backend in use.
+    pub fn set_custom(&self, enabled: bool) -> std::io::Result<()> {
+        let file = custom_file();
+        if let Some(dir) = file.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        std::fs::write(file, if enabled { "rocketvibe" } else { "system" })?;
+        self.clear();
+        Ok(())
     }
 
     /// The system's own notification (Windows, macOS). On Windows: the

@@ -9,6 +9,7 @@ section here.
 
 ### Added
 
+- Windows notification style choice in Settings > Notifications: System or RocketVibe. RocketVibe shows branded floating cards with avatars, image previews, inline reply, quick reactions and mark read where supported. Cards group by room, preserve a reply draft when replaced, pause dismissal while hovered or replying, respect Windows quiet mode, and clear when switching accounts. System remains the default; custom cards have no Windows Notification Center history.
 - A room's members (GTK and macOS, Rocket.Chat channels and private groups): "N members" in the room information opens the list, owners and moderators first, with photos, presence and room roles; a search asks the server, more load as you scroll, and a row opens the person's profile. Its menu (or a right click) makes or removes a moderator or an owner and removes someone from the room (after a confirmation), as your roles allow.
 - Edit a room's topic, description and announcement, and switch it to read-only, from its information (GTK and macOS, Rocket.Chat), for those whose roles allow editing the room. Only what changed is sent.
 

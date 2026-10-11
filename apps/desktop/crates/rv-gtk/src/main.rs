@@ -186,6 +186,9 @@ fn main() -> glib::ExitCode {
         }
     });
     app.connect_activate(|app| {
+        if notifier::custom_smoke(app) {
+            return;
+        }
         if smoke::gallery(app) {
             return;
         }

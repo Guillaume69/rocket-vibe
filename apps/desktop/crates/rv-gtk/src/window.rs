@@ -1023,6 +1023,7 @@ impl AppWindow {
             && let Some(notifier) = self.notifier.borrow().clone()
         {
             let (window, chat, rid) = (self.window.clone(), self.chat.clone(), incoming.rid.clone());
+            let source = chat.chat();
             let native = self.chat.native_session();
             let scoped = native
                 .as_ref()
@@ -1037,7 +1038,9 @@ impl AppWindow {
                     None => crate::notifier::Pictures::default(),
                 };
                 // The room may have been opened while they came.
-                if !watching(&window, &chat, &rid) {
+                let same_account = source.as_ref().zip(chat.chat().as_ref()).is_some_and(|(a, b)| a.same(b));
+                let quiet = chat.native_session().is_some_and(|s| s.quiet_now());
+                if same_account && !quiet && !watching(&window, &chat, &rid) {
                     notifier.show(&incoming, &pictures);
                 }
             });
@@ -1045,6 +1048,9 @@ impl AppWindow {
     }
 
     fn stop_session(&self, delete_cache: bool) {
+        if let Some(notifier) = self.notifier.borrow().as_ref() {
+            notifier.clear();
+        }
         if let Some(session) = self.chat.native_session() {
             session.shutdown();
             if delete_cache {

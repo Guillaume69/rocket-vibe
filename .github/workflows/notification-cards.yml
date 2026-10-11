@@ -1,0 +1,63 @@
+name: notification cards
+
+on:
+  push:
+    branches: ['**']
+    paths:
+      - 'apps/desktop/crates/rv-gtk/src/notifier/**'
+      - 'apps/desktop/crates/rv-gtk/src/notifier.rs'
+      - 'apps/desktop/crates/rv-native/**'
+      - '.github/workflows/notification-cards.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: notification-cards-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-2025
+    defaults:
+      run:
+        shell: msys2 {0}
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@v5
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            git mingw-w64-ucrt-x86_64-rust mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-pkgconf mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-nasm mingw-w64-ucrt-x86_64-gtk4
+            mingw-w64-ucrt-x86_64-libadwaita mingw-w64-ucrt-x86_64-gstreamer
+            mingw-w64-ucrt-x86_64-gst-plugins-base
+      - uses: actions/cache@v4
+        with:
+          path: apps/desktop/target
+          key: notification-cards-windows-${{ hashFiles('apps/desktop/Cargo.lock') }}
+          restore-keys: desktop-windows-
+      - run: cargo build --locked -p rocket-vibe-gtk
+      - name: Real Windows card launch and actions
+        run: |
+          set -euo pipefail
+          card_tmp=$(cygpath -w "$RUNNER_TEMP")
+          export RV_INSTANCE=notification-cards-ci
+          export RV_SMOKE_CUSTOM_NOTIFICATIONS="$card_tmp/notification-card.png"
+          export XDG_CONFIG_HOME="$card_tmp/notification-card-config"
+          export XDG_DATA_HOME="$card_tmp/notification-card-data"
+          export XDG_CACHE_HOME="$card_tmp/notification-card-cache"
+          status=0
+          timeout 30s target/debug/rocket-vibe-gtk.exe > "$RUNNER_TEMP/notification-card.log" 2> "$RUNNER_TEMP/notification-card-errors.log" || status=$?
+          cat "$RUNNER_TEMP/notification-card.log" "$RUNNER_TEMP/notification-card-errors.log"
+          test "$status" = 0
+          grep -q 'all checks passed' "$RUNNER_TEMP/notification-card.log"
+          test -s "$RUNNER_TEMP/notification-card.png"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-notification-card
+          path: |
+            ${{ runner.temp }}/notification-card.png
+            ${{ runner.temp }}/notification-card*.log

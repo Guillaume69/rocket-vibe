@@ -112,6 +112,8 @@ mod windows_call;
 #[cfg(windows)]
 mod windows_impl;
 #[cfg(windows)]
+mod windows_notification;
+#[cfg(windows)]
 mod windows_player;
 #[cfg(windows)]
 mod windows_shell;
@@ -121,6 +123,10 @@ mod windows_toast;
 pub use windows_call::call_window;
 #[cfg(windows)]
 pub use windows_impl::{available, badge, delivered, init, set_window, show, withdraw};
+#[cfg(windows)]
+pub use windows_notification::{
+    notification_focus, notification_foreground, notification_passive, notification_place, notification_prepare,
+};
 #[cfg(windows)]
 pub use windows_player::{Player, player};
 #[cfg(windows)]

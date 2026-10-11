@@ -63,7 +63,7 @@ desktop): packages are only built on a release tag, or by hand through
   **back them up**: the certificate's private key cannot be recovered.
 - **`desktop-swiftui`**: the SwiftUI app for macOS (`apps/desktop/macos`, on `rv-ffi`), a
   reusable workflow: `desktop` calls it on a tag or a `workflow_dispatch`, and its release
-  takes the DMG from it; it runs on its own on branches other than `master` that touch the
+  takes the DMG from it; it runs on its own on all branches, including `master`, that touch the
   app.
 
 `node scripts/version.mjs mobile|desktop|web|server` prints an app's version and checks its

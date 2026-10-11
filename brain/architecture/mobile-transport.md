@@ -37,7 +37,7 @@ States (`DdpState`): `closed`, `connecting` (negotiating), `connected` (handshak
 
 `RestClient` imports nothing from React Native. Headers: `X-Auth-Token` / `X-User-Id` unless the call is `anonymous`, plus `x-2fa-code` / `x-2fa-method` when a 2FA code is supplied.
 
-- **Timeout 15 s** for every call, `/api/info` included (`outsideApiV1` drops the `api/v1/` prefix without escaping the timeout).
+- **Timeout 15 s** for every call, including response-body consumption and caller cancellation after headers. `/api/info` is included (`outsideApiV1` drops the `api/v1/` prefix without escaping the timeout). Mattermost/kChat's client applies the same lifetime to JSON and multipart responses. Once headers have arrived, a body failure is never a transport replay, including when `networkReplay` was requested.
 - **429**: up to three retries, sleeping until `x-ratelimit-reset` plus 250 ms (exponential otherwise) plus up to 500 ms jitter, capped at 30 s. The sleep listens to the caller's `AbortSignal`, so cancelling does not wait out the backoff.
 - **Network failure** (no HTTP response): `RestError` with `status: 0`. Only callers that set `networkReplay` (idempotent writes: profile, status) get one replay after 400 ms; it covers OkHttp reusing a dead keep-alive connection after idle time. `chat.sendMessage` never sets it, its dedup lives in the outbox.
 - **Body**: read as text first, so an HTML page with a 200 is "non-JSON", not "unreachable". An empty 200 body is success (`logout`). 2FA is detected in both forms (`error` or `errorType` = `totp-required`) and raised as `TwoFactorError`.
@@ -88,6 +88,8 @@ Logging out is two server calls: `DELETE push.token` then `POST logout`, in that
 
 ## Sources
 
+- apps/mobile/lib/requestDeadline.test.ts
+- apps/mobile/providers/mattermost/client.ts
 - apps/mobile/lib/ddp.ts
 - apps/mobile/lib/rest.ts
 - apps/mobile/lib/reconnect.ts

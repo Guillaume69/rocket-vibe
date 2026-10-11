@@ -54,6 +54,8 @@ Reconciliation ignores an empty list (an active account always has subscriptions
 
 ## Desktop
 
+Mobile's optimistic message and outbox entry commit together through `enqueueMessage`; a failed queue write rolls back both. Mattermost/kChat on mobile and desktop persist `props.rocket_vibe_client_id` for text sends. Only its exact marker with the account/channel confirms delivery. Unmarked legacy text matches and a history page that does not cover the send's time remain visible as failed until explicit retry.
+
 **Store** (`apps/desktop/crates/rv-core/src/store.rs`). One SQLite file per (server, account), WAL mode, one connection behind a mutex. Every write goes through `Store::write`, one transaction that broadcasts a single `Change` (rooms touched, rids touched) after commit, or rolls back whole without panicking when a statement fails; the GTK and SwiftUI views refresh from it. Tables: `rooms`, `subscriptions`, `messages`, `outbox`, `cursors`, plus `drafts` and `uploads` from the append-only migration list. Upserts use the same `updated_at >=` guard and the same `COALESCE` care for fields partial documents omit.
 
 **Engine** (`apps/desktop/crates/rv-core/src/sync.rs`). `SyncEngine::apply_event` routes stream events; `catch_up_global`, `load_history`, `catch_up_room` and `reconcile_rooms` mirror the mobile layers, with the same page sizes and cursor rules.

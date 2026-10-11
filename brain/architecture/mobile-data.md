@@ -4,7 +4,9 @@ The mobile app keeps everything in SQLite (expo-sqlite, schema and migrations by
 
 ## One database per (server, account)
 
-`db/fileName.ts#databaseFileName(baseUrl, userId)` gives `rocket-vibe-<host slug>-<uid slug>.db`. Scheme and trailing slash are ignored, so the same server written two ways maps to one file. Two accounts on one server get two files: rooms, previews and unread counts belong to the account, and sharing them would show one account the other's DMs. Nothing in the schema is multi-server; isolation is the file name. The E2EE private key in the Keystore is keyed by the same (server, account) pair for the same reason (see [e2ee.md](e2ee.md)).
+`db/fileName.ts#databaseFileName(baseUrl, userId)` gives `rocket-vibe-v2-<SHA-256>.db`, hashing a JSON tuple through the native crypto module. Scheme and trailing slash are ignored, preserving existing server equivalence, while punctuation and tuple boundaries are retained. Rooms, previews and unread counts belong to the account; isolation is the filename. The E2EE private key in the Keystore is keyed by the same (server, account) pair (see [e2ee.md](e2ee.md)).
+
+Before the shared connection opens, `db/legacyDatabase.ts` serializes upgrades sharing the old slug. `db/databaseUpgrade.ts` claims a source in `rv_database_identity` before SQLite backup, so interruption can retry safely. Unclaimed legacy files are adopted only when every known saved account sharing that filename has the expected identity. A collision starts fresh isolated caches and retains the old file for recovery. An owned destination is never overwritten. Existing reminders are reconciled by their payload's account identity, including old notification identifiers.
 
 ## The connection (`db/client.ts`)
 
@@ -41,6 +43,8 @@ Dates are stored as integer milliseconds. Most tables carry `updated_at` (the se
 | `native_*` | The RocketVibe provider's own state (migration 0017): sync state and positions, read and thread states, pending intents and commands (room, profile, upload, favourite, read; the meeting intents table is gone with the voice channels), room access, quote references and sources, the emoji catalog. Emptied, with the shared tables, by `NativeStore.prepare()` when the stored generation is not the current one (`providers/rocketvibe/store.ts`). |
 
 Optimistic messages are `messages` rows with `updated_at = 0`: only a local copy exists. That value is how retention and "abandon send" (`DELETE_OPTIMISTIC_MESSAGE`) recognise them.
+
+`createOutboxStore.enqueueMessage` writes the optimistic row and its outbox entry in one transaction through the shared write queue. Both commit or both roll back, for Rocket.Chat and Mattermost/kChat.
 
 ## Migrations
 
@@ -95,6 +99,10 @@ Side effects baked into writes:
 
 ## Sources
 
+- apps/mobile/db/databaseUpgrade.ts
+- apps/mobile/db/databaseUpgrade.test.ts
+- apps/mobile/db/legacyDatabase.ts
+- apps/mobile/db/outboxStore.test.ts
 - apps/mobile/db/schema.ts
 - apps/mobile/db/client.ts
 - apps/mobile/db/writeQueue.ts

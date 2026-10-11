@@ -24,6 +24,8 @@ How user and room photos are fetched, how a gradient tile stands in when there i
 
 ## Desktop
 
+- **Channel images.** GTK room information offers "Change channel image" for Rocket.Chat users with `edit-room` and RocketVibe room owners when `room_avatars` is announced (`details/room_avatar.rs`). The system picker accepts PNG/JPEG up to 2 MB. Rocket.Chat sends `rooms.saveRoomSettings {rid, roomAvatar: "data:<mime>;base64,..."}`. A local nonce immediately refreshes the dialog and room list; the server's delayed `updateAvatar` subsequently installs its authoritative etag. RocketVibe persists the original bytes and command nonce in `RoomOperation::Avatar`, checks the private receipt before retries, and refreshes through the room journal. Its `room:<rid>:<revision>` media key is tied to the room's journal revision; reads are authenticated and retired on revision change or loss of membership. Empty image results are cached per revision. GTK and SwiftUI's media bridge display these images; SwiftUI, Android and web still owe the channel-image editor.
+
 - **URL builder.** `media::avatar_path` (`rv-core/src/media.rs`, with `AvatarTarget::User`, `Uid`, `Room`) percent-encodes like `encodeURIComponent` (a `+` in a username is literal in a path) and appends `?etag=`. `media::room_avatar_path` decides a room tile's photo: a DM shows the other participant by uid (with no version), a channel or group the room photo with the room's `avatar_etag`, and an encrypted room always keeps its grey padlock, locked or not.
 - **Versions.** User versions live in memory only: `Session.avatars` (username to etag), filled by `updateAvatar` and by profiles read with `users.info`, read by `Session::user_avatar`. Room versions are stored (`rooms.avatar_etag`, written by `Store::set_room_avatar` on the stream, kept by `COALESCE` on upserts). Each change emits `SessionEvent::Avatar`; the GTK window then rebuilds the room list and rebinds the message rows (`ChatPage::on_avatar` in `rv-gtk/src/chat.rs`).
 - **Fetching.** `MediaCache` in rv-core fetches with the token and is simply emptied past 400 entries. `rv-gtk/src/media.rs` keeps one decoded texture per path for the session, remembers "no usable image" (`Media::is_placeholder`: an SVG content type or a body starting with `<`), and shares one request among every widget waiting. `rows::with_photo` lays the texture over the tile (`widgets::set_photo`). The texture cache is cleared at session stop, so a fresh launch refetches everything.
@@ -35,6 +37,13 @@ How user and room photos are fetched, how a gradient tile stands in when there i
 [parity](../parity.md) §3 "Photo avatars over gradient tiles" holds on both. Gaps found in code: on desktop a DM's tile uses `/avatar/uid/<uid>` without a version, so a DM partner's new photo shows in the room list only once the texture cache is rebuilt (next session), while their message rows, keyed by username, update live; desktop keeps user versions in memory, so after a restart message rows use unversioned URLs until a stream event or profile read (harmless there because the cache starts empty). Mobile cannot remove a photo; desktop can.
 
 ## Sources
+
+- apps/desktop/crates/rv-gtk/src/details/room_avatar.rs
+- apps/desktop/crates/rv-core/src/native/room_operations.rs
+- apps/desktop/crates/rv-core/src/native/store/room_operations.rs
+- apps/desktop/crates/rv-ffi/src/native_profiles.rs
+- apps/server/src/room_avatars.rs
+- apps/server/migrations/0060_room_avatars.sql
 
 - apps/mobile/lib/upload.ts
 - apps/mobile/lib/myProfile.ts

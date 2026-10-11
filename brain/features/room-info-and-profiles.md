@@ -12,6 +12,7 @@ Three read-on-demand views and one editor: a room's information sheet, a person'
 - `POST users.setAvatar` (multipart field `image`), `POST users.resetAvatar`. Avatar versions and cache busting: [avatars.md](avatars.md).
 - `POST rooms.favorite {roomId, favorite}` toggles the favourite flag.
 - `POST rooms.saveRoomSettings {rid, roomTopic?, roomDescription?, roomAnnouncement?, readOnly?}`: the changed keys only, `edit-room` checked by the server, any unknown key refused.
+- GTK channel images use the same endpoint with `roomAvatar` as a full PNG/JPEG data URI. RocketVibe uses `PUT /rooms/{id}/avatar?operation_id=&expected_revision=` with raw image bytes and a `RoomCommandReceipt`; versioned image reads are `GET /rooms/{id}/avatar?revision=<room journal revision>`. See [avatars.md](avatars.md).
 - RocketVibe: `GET /rooms/{id}` (`RoomDetails`: texts, `read_only`, `voice`, details `revision`, my `permissions`), `GET /rooms/{id}/members?after=&revision=` (pages of 50, `next`), the versioned commands `PATCH /rooms/{id}`, `PUT /rooms/{id}/members/{user}/role`, `POST /rooms/{id}/leave` (each with `operation_id` and `expected_revision`, receipt at `GET /rooms/{id}/commands/{operation}`), and the owner's unversioned `POST` / `DELETE /rooms/{room}/members/{user}` (no body, `204`, removal idempotent, never oneself): `docs/protocol/ROOMS.md`, `docs/protocol/README.md`.
 
 ## Mobile

@@ -89,7 +89,7 @@ Fixtures for media playback live in `apps/desktop/tests/media/` (`voice.ogg`, `v
 |---|---|
 | Mobile | version consistency, `tsc --noEmit`, ESLint, `npm test` |
 | Desktop | version, `cargo fmt --check`, `clippy -D warnings`, `cargo test --workspace` (Fedora 44) |
-| SwiftUI | build, `swift test`, `rv-rooms`, packaging and launch, on non-`master` pushes touching `macos/` or `rv-ffi` |
+| SwiftUI | build, `swift test`, `rv-rooms`, packaging and launch, on every branch including `master` when `macos/` or `rv-ffi` changes |
 | Web | version, format, build and committed assets, `npm test`, the server's clippy and unit tests, the browser suites |
 | Server | `check.sh`, the native pilots, `rv-core` and `rv-native` on Windows, the Swift models against the server |
 | Crypto | `rv-crypto` on three OSes, the delivery worker, the Android bridge |

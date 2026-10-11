@@ -12,7 +12,6 @@ use gtk::{gdk, gio, glib, pango};
 use rv_core::content::{CardAttachment, FileAttachment, FileKind, LinkPreview, Quote, VideoLink, human_size};
 use rv_core::markdown;
 use rv_core::session::Session;
-use sha2::{Digest, Sha256};
 
 use crate::i18n::{t, tf};
 use crate::rows::{OnRowEvent, RowEvent, image_provider};
@@ -84,12 +83,26 @@ pub fn quote(provider: Option<&media::Provider>, q: &Quote, me: &str) -> gtk::Wi
 }
 
 /// Where a server file is kept once fetched, so it opens again without a download.
-pub fn cache_path(file: &FileAttachment) -> PathBuf {
-    let dir = glib::user_cache_dir().join("rocket-vibe-rs").join("files");
+fn cache_directory(session: &Session) -> PathBuf {
+    static LEGACY_CLEANUP: std::sync::Once = std::sync::Once::new();
+    LEGACY_CLEANUP.call_once(|| {
+        // Old files have no provable owner and must never enter a new account.
+        let _ = std::fs::remove_dir_all(glib::user_cache_dir().join("rocket-vibe-rs").join("files"));
+    });
+    glib::user_cache_dir()
+        .join("rocket-vibe-rs")
+        .join("files-v2")
+        .join(rv_core::media::account_cache_key(&session.info.base_url, &session.info.user_id))
+}
+
+pub fn clear_file_cache(session: &Session) {
+    let _ = std::fs::remove_dir_all(cache_directory(session));
+}
+
+pub fn cache_path(session: &Session, file: &FileAttachment) -> PathBuf {
+    let dir = cache_directory(session);
     let _ = std::fs::create_dir_all(&dir);
-    let digest: String = Sha256::digest(file.url.as_bytes()).iter().take(8).map(|b| format!("{b:02x}")).collect();
-    let safe: String = file.title.chars().map(|c| if c == '/' || c == '\0' { '_' } else { c }).collect();
-    dir.join(format!("{digest}-{safe}"))
+    dir.join(rv_core::media::attachment_cache_name(&file.url, &file.title))
 }
 
 /// The file on disk, fetched the first time.
@@ -105,7 +118,10 @@ pub async fn legacy_local_copy_with(
     progress: impl Fn(u64) + 'static,
 ) -> Option<PathBuf> {
     const STEP: u64 = 256 * 1024;
-    let path = cache_path(&file);
+    if session.is_closed() {
+        return None;
+    }
+    let path = cache_path(&session, &file);
     if path.exists() {
         return Some(path);
     }
@@ -123,7 +139,12 @@ pub async fn legacy_local_copy_with(
             let _ = sender.try_send(received);
         }
     };
-    on_tokio(async move { session.download_with_progress(&file.url, &dest, report).await.ok() }).await?;
+    let downloading = session.clone();
+    on_tokio(async move { downloading.download_with_progress(&file.url, &dest, report).await.ok() }).await?;
+    if session.is_closed() {
+        let _ = std::fs::remove_file(&path);
+        return None;
+    }
     Some(path)
 }
 pub async fn local_copy(session: impl Into<media::Provider>, file: FileAttachment) -> Option<PathBuf> {

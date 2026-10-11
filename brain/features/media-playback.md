@@ -21,6 +21,8 @@ How images, video and audio attachments, and YouTube, Dailymotion and Vimeo link
 
 ## Desktop
 
+- **Account isolation.** GTK legacy attachment copies live in `rocket-vibe-rs/files-v2/<SHA-256 account tuple>`, with full URL digests and sanitized names. Old unscoped copies are removed on first use. Sign-out removes the account directory; closed sessions cannot return cached or late downloads. Decoded legacy textures also include the account identity in their key. SwiftUI `MediaStore` owns a unique temporary directory per session, clears it on `forget`/`close`, and rejects late results after close. Native providers keep their existing membership-fenced cache paths.
+
 - **Images.** `rows::image_widget` (`rv-gtk/src/rows.rs`) loads the texture through `rv-gtk/src/media.rs`, which fetches each path once, shares the request among every widget waiting for it, and keeps decoded textures for the session (`TEXTURES`, cleared at session stop). Animated GIFs are decoded by `rv-core/src/animation.rs` into composited RGBA frames (a 0 or 10 ms delay plays at 100 ms, like browsers), within a 48 MB budget, the frames of the last 8 GIFs kept. A click opens `open_viewer`: an `adw::Dialog` that closes on a backdrop click (the dimmed backdrop otherwise acted as a window drag handle) with a right-click menu to copy, save as PNG, or open elsewhere. The image's alt text (8.5 stores the upload's caption in `image_alt`) is its tooltip.
 - **Video attachments.** `rv-gtk/src/video.rs`: a 16:9 frame with the first image and a play badge, playing in the same frame with a controls bar, fullscreen on demand. The file is downloaded to a local copy first (protected files need the token, and the player reads a file), with progress on the card; a click during the download plays once it lands. The first image is not fetched for files over 25 MB (`POSTER_MAX_BYTES`).
 - **Audio.** `cards::file` shows name, size and type with Play and Download; Play downloads then appends `gtk::MediaControls` (`audio_player`). Other files open in the default application.
@@ -46,6 +48,8 @@ OS clipboard permission integration and external-provider streaming remain separ
 
 ## Sources
 
+- apps/desktop/macos/Tests/RocketVibeKitTests/MediaFileCacheTests.swift
+- apps/desktop/crates/rv-core/src/session.rs
 - apps/mobile/ui/messageRow.tsx
 - apps/mobile/ui/imageViewer.tsx
 - apps/mobile/ui/videoPlayer.tsx

@@ -117,17 +117,17 @@ export class MmClient {
     options: MmRequest = {},
   ): Promise<{ body: T; headers: Headers }> {
     for (let attempt = 1; ; attempt++) {
-      const response = await this.send(method, path, options);
+      const sentToken = this.token;
+      const { response, text } = await this.send(method, path, options, attempt < RATE_LIMIT_ATTEMPTS);
       if (response.status === 429 && attempt < RATE_LIMIT_ATTEMPTS) {
         await this.sleep(rateLimitWait(response.headers));
         continue;
       }
-      const text = await response.text().catch(() => '');
       const parsed = parseJson(text);
       if (response.ok) return { body: parsed as T, headers: response.headers };
       const error = this.failure(response.status, parsed);
-      if (error.rejectsToken && !options.anonymous && !options.quiet && this.token !== null) {
-        this.onTokenRejected?.(this.token);
+      if (error.rejectsToken && !options.anonymous && !options.quiet && sentToken !== null && sentToken === this.token) {
+        this.onTokenRejected?.(sentToken);
       }
       throw error;
     }
@@ -135,24 +135,20 @@ export class MmClient {
 
   /** A form POST outside `/api/v4` (kChat's `/broadcasting/auth`). */
   async postForm<T>(absoluteUrl: string, fields: Record<string, string>): Promise<T> {
-    let response: Response;
-    try {
-      response = await this.fetcher(absoluteUrl, {
+    const sentToken = this.token;
+    const { response, text } = await this.read(absoluteUrl, {
         method: 'POST',
         headers: {
           Accept: 'application/json',
           'Content-Type': 'application/x-www-form-urlencoded',
-          ...(this.token !== null ? { Authorization: `Bearer ${this.token}` } : {}),
+          ...(sentToken !== null ? { Authorization: `Bearer ${sentToken}` } : {}),
         },
         body: new URLSearchParams(fields).toString(),
       });
-    } catch (e) {
-      throw new MmError(0, null, e instanceof Error ? e.message : 'Network unreachable');
-    }
-    const parsed = parseJson(await response.text().catch(() => ''));
+    const parsed = parseJson(text);
     if (!response.ok) {
       const error = this.failure(response.status, parsed);
-      if (error.rejectsToken && this.token !== null) this.onTokenRejected?.(this.token);
+      if (error.rejectsToken && sentToken !== null && sentToken === this.token) this.onTokenRejected?.(sentToken);
       throw error;
     }
     return parsed as T;
@@ -171,23 +167,35 @@ export class MmClient {
     return (await this.requestWithHeaders<T>(method, path, options)).body;
   }
 
-  private async send(method: string, path: string, options: MmRequest): Promise<Response> {
+  private send(method: string, path: string, options: MmRequest, retryRateLimit: boolean): Promise<{ response: Response; text: string }> {
+    return this.read(this.url(path, options.query), {
+      method,
+      headers: {
+        Accept: 'application/json',
+        ...(options.body === undefined ? {} : { 'Content-Type': 'application/json' }),
+        ...(this.token !== null && !options.anonymous ? { Authorization: `Bearer ${this.token}` } : {}),
+        ...options.headers,
+      },
+      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    }, options, retryRateLimit);
+  }
+
+  private async read(url: string, init: RequestInit, options: Pick<MmRequest, 'signal'> = {}, retryRateLimit = false): Promise<{ response: Response; text: string }> {
+    if (options.signal?.aborted) throw new MmError(0, null, 'Request canceled');
     const controller = new AbortController();
     const relay = () => controller.abort();
     options.signal?.addEventListener('abort', relay);
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
-      return await this.fetcher(this.url(path, options.query), {
-        method,
+      const response = await this.fetcher(url, {
+        ...init,
         signal: controller.signal,
-        headers: {
-          Accept: 'application/json',
-          ...(options.body === undefined ? {} : { 'Content-Type': 'application/json' }),
-          ...(this.token !== null && !options.anonymous ? { Authorization: `Bearer ${this.token}` } : {}),
-          ...options.headers,
-        },
-        body: options.body === undefined ? undefined : JSON.stringify(options.body),
       });
+      if (response.status === 429 && retryRateLimit) {
+        await response.body?.cancel();
+        return { response, text: '' };
+      }
+      return { response, text: await response.text() };
     } catch (e) {
       throw new MmError(0, null, e instanceof Error ? e.message : 'Network unreachable');
     } finally {

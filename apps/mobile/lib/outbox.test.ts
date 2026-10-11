@@ -9,8 +9,10 @@ function fakeStore(encrypted: ReadonlySet<string> = new Set()) {
   const outbox = new Map<string, OutboxRow>();
   const messages: LocalMessage[] = [];
   const store: OutboxStore = {
-    insertOutbox: async (id, rid, text, threadId, shown) =>
-      void outbox.set(id, { id, rid, text, threadId, shown, status: 'pending', attempts: 0, createdAt: Date.now() }),
+    enqueueMessage: async (m) => {
+      outbox.set(m.id, { id: m.id, rid: m.rid, text: m.text, threadId: m.threadId, shown: m.threadShown, status: 'pending', attempts: 0, createdAt: m.ts });
+      messages.push(m);
+    },
     listToSend: async () => [...outbox.values()].filter((l) => l.status === 'pending'),
     markFailed: async (id, error) => {
       const l = outbox.get(id);

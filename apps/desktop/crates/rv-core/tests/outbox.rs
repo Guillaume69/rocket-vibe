@@ -226,7 +226,7 @@ async fn mattermost_fixture(handler: impl Fn(&Request) -> Response + Send + Sync
 
 fn mm_post(id: &str) -> serde_json::Value {
     let now = chrono::Utc::now().timestamp_millis();
-    json!({"id": id, "channel_id": "ch1", "user_id": "u-me", "message": "hello", "create_at": now, "update_at": now, "root_id": ""})
+    json!({"id": id, "channel_id": "ch1", "user_id": "u-me", "message": "hello", "create_at": now, "update_at": now, "root_id": "", "props": {"rocket_vibe_client_id": ID}})
 }
 
 fn mm_posts(server: &FakeHttp) -> usize {
@@ -274,4 +274,67 @@ async fn a_mattermost_replay_racing_the_first_save_stays_pending() {
     f.outbox.enqueue("ch1", "hello", None);
     f.outbox.process().await;
     assert_eq!(scalar(&f.store, "SELECT status FROM outbox").as_deref(), Some("pending"));
+}
+
+#[tokio::test]
+async fn an_earlier_identical_mattermost_post_never_confirms_a_new_send() {
+    let f = mattermost_fixture(|r| {
+        let mut old = mm_post("old-real");
+        old["props"]["rocket_vibe_client_id"] = json!("previous-operation");
+        old["create_at"] = json!(chrono::Utc::now().timestamp_millis() - 10_000);
+        if r.method == "POST" {
+            return respond(201, &mm_post("new-real").to_string());
+        }
+        respond(200, &json!({"order":["old-real"], "posts":{"old-real":old}}).to_string())
+    })
+    .await;
+    f.outbox.enqueue("ch1", "hello", None);
+    f.store.read(|c| c.execute("UPDATE outbox SET created_at = created_at - 5000", [])).unwrap();
+    f.outbox.process().await;
+    assert_eq!(mm_posts(&f.server), 1);
+    assert_eq!(count(&f.store, "SELECT COUNT(*) FROM outbox"), 0);
+    let sent = f.server.requests().into_iter().find(|r| r.method == "POST").unwrap();
+    let body: serde_json::Value = serde_json::from_str(&sent.body).unwrap();
+    assert_eq!(body["props"]["rocket_vibe_client_id"], ID);
+}
+
+#[tokio::test]
+async fn an_ambiguous_legacy_mattermost_send_requires_explicit_retry() {
+    let f = mattermost_fixture(|r| {
+        let mut old = mm_post("old-real");
+        old.as_object_mut().unwrap().remove("props");
+        if r.method == "POST" {
+            return respond(201, &mm_post("new-real").to_string());
+        }
+        respond(200, &json!({"order":["old-real"], "posts":{"old-real":old}}).to_string())
+    })
+    .await;
+    f.outbox.enqueue("ch1", "hello", None);
+    f.store.read(|c| c.execute("UPDATE outbox SET created_at = created_at - 5000", [])).unwrap();
+    f.outbox.process().await;
+    assert_eq!(mm_posts(&f.server), 0);
+    assert_eq!(scalar(&f.store, "SELECT status FROM outbox").as_deref(), Some("failed"));
+    assert_eq!(count(&f.store, "SELECT COUNT(*) FROM messages WHERE updated_at = 0"), 1);
+    f.outbox.retry(ID);
+    f.outbox.process().await;
+    assert_eq!(mm_posts(&f.server), 1);
+}
+
+#[tokio::test]
+async fn a_full_newer_mattermost_page_does_not_authorize_replay() {
+    let f = mattermost_fixture(|_| {
+        let posts: Vec<_> = (0..30).map(|i| {
+            let mut post = mm_post(&format!("newer-{i}"));
+            post["props"] = json!({"rocket_vibe_client_id": "another-send"});
+            post
+        }).collect();
+        respond(200, &json!({"order": posts.iter().map(|p| p["id"].clone()).collect::<Vec<_>>(),
+            "posts": posts.iter().map(|p| (p["id"].as_str().unwrap().to_owned(), p.clone())).collect::<serde_json::Map<_, _>>()
+        }).to_string())
+    }).await;
+    f.outbox.enqueue("ch1", "hello", None);
+    f.store.read(|c| c.execute("UPDATE outbox SET created_at = created_at - 3600000", [])).unwrap();
+    f.outbox.process().await;
+    assert_eq!(scalar(&f.store, "SELECT status FROM outbox").as_deref(), Some("failed"));
+    assert_eq!(mm_posts(&f.server), 0);
 }

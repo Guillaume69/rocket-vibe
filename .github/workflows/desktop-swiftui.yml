@@ -1,8 +1,7 @@
 name: desktop-swiftui
 
 # The SwiftUI app for macOS (apps/desktop/macos over rv-ffi). A Mac runner
-# costs ten Linux ones: manual runs, feature branches that touch the app
-# (master is checked through them), and desktop.yml's tags and manual runs,
+# costs ten Linux ones: changes to the app on every branch, and desktop.yml's tags and manual runs,
 # whose release takes its DMG.
 on:
   workflow_call:
@@ -12,7 +11,7 @@ on:
         type: boolean
         default: false
   push:
-    branches-ignore: [master]
+    branches: ['**']
     paths:
       - 'apps/desktop/macos/**'
       - 'apps/desktop/crates/rv-ffi/**'

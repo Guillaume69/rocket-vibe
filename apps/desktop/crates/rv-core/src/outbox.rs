@@ -10,6 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 const CLOCK_SKEW_MS: i64 = 120_000;
+const DELIVERY_UNCERTAIN: &str = "Delivery could not be confirmed. Check the conversation before retrying.";
 
 use serde_json::{Value, json};
 
@@ -31,6 +32,7 @@ enum Delivered {
     Yes(Value),
     No,
     Unknown,
+    Ambiguous,
 }
 
 pub struct Outbox {
@@ -45,6 +47,7 @@ pub struct Outbox {
     again: AtomicBool,
     /// Mattermost rows a POST went out for in this session, answered or not.
     attempted: Mutex<HashSet<String>>,
+    explicit_retries: Mutex<HashSet<String>>,
     started_at: i64,
 }
 
@@ -61,6 +64,7 @@ impl Outbox {
             running: AtomicBool::new(false),
             again: AtomicBool::new(false),
             attempted: Mutex::new(HashSet::new()),
+            explicit_retries: Mutex::new(HashSet::new()),
             started_at: chrono::Utc::now().timestamp_millis(),
         }
     }
@@ -106,6 +110,7 @@ impl Outbox {
 
     pub fn retry(&self, id: &str) {
         self.store.write(|w| w.mark_outbox_pending(id));
+        self.explicit_retries.lock().unwrap().insert(id.to_owned());
     }
 
     /// Flushes pending rows in order. Re-entrant: a pass requested while one
@@ -148,7 +153,7 @@ impl Outbox {
                 // the answer cannot tell "already delivered" from "refused". Ask.
                 Err(e) => match self.delivered(&entry.id).await {
                     // Could not ask. The next rows would burn the same quota for the same verdict.
-                    Delivered::Unknown => return false,
+                    Delivered::Unknown | Delivered::Ambiguous => return false,
                     Delivered::Yes(doc) => {
                         self.sync.ingest_messages(&[doc]);
                         self.store.write(|w| w.delete_outbox(&entry.id));
@@ -190,10 +195,16 @@ impl Outbox {
     /// would post a duplicate once the server has forgotten the id.
     async fn pass_mattermost(&self, mm: &MmSync) -> bool {
         for entry in self.store.pending_outbox() {
-            let replay = self.attempted.lock().unwrap().contains(&entry.id) || entry.created_at < self.started_at;
+            let explicit = self.explicit_retries.lock().unwrap().remove(&entry.id);
+            let replay =
+                !explicit && (self.attempted.lock().unwrap().contains(&entry.id) || entry.created_at < self.started_at);
             if replay {
                 match self.mine_on_server(&entry).await {
                     Delivered::Unknown => return false,
+                    Delivered::Ambiguous => {
+                        self.store.write(|w| w.mark_outbox_failed(&entry.id, DELIVERY_UNCERTAIN));
+                        continue;
+                    }
                     Delivered::Yes(post) => {
                         self.mm_delivered(mm, &entry.id, post);
                         continue;
@@ -204,7 +215,8 @@ impl Outbox {
             self.attempted.lock().unwrap().insert(entry.id.clone());
             let body = json!({"channel_id": entry.rid, "message": entry.text,
                 "root_id": entry.thread_id.clone().unwrap_or_default(),
-                "pending_post_id": crate::mattermost::pending_post_id(&self.me_id, &entry.id)});
+                "pending_post_id": crate::mattermost::pending_post_id(&self.me_id, &entry.id),
+                "props": {"rocket_vibe_client_id": entry.id}});
             let post = match self.rest.post("posts", CallOptions::body(body)).await {
                 Ok(post) => post,
                 Err(e) if e.status == 0 => return false,
@@ -213,6 +225,10 @@ impl Outbox {
                 Err(e) if e.error.as_deref() == Some(STILL_SAVING) => return false,
                 Err(e) => match self.mine_on_server(&entry).await {
                     Delivered::Unknown => return false,
+                    Delivered::Ambiguous => {
+                        self.store.write(|w| w.mark_outbox_failed(&entry.id, DELIVERY_UNCERTAIN));
+                        continue;
+                    }
                     Delivered::Yes(post) => post,
                     Delivered::No => {
                         self.store.write(|w| w.mark_outbox_failed(&entry.id, &e.message));
@@ -234,22 +250,45 @@ impl Outbox {
         self.attempted.lock().unwrap().remove(id);
     }
 
-    /// A post of mine with the same text, made since this row was queued: an older identical one is not it.
+    /// Only a durable operation marker proves delivery. Legacy text matches
+    /// remain visible as failed sends, awaiting the user's explicit retry.
     async fn mine_on_server(&self, entry: &crate::store::OutboxEntry) -> Delivered {
         let options = CallOptions::params([("per_page", "30")]);
         match self.rest.get(&format!("channels/{}/posts", entry.rid), options).await {
-            Ok(list) => crate::mattermost::sync::ordered(&list)
-                .into_iter()
-                .find(|p| {
+            Ok(list) => {
+                let posts = crate::mattermost::sync::ordered(&list);
+                if let Some(post) = posts.iter().find(|p| {
+                    p.get("user_id").and_then(Value::as_str) == Some(self.me_id.as_str())
+                        && p.get("channel_id").and_then(Value::as_str) == Some(entry.rid.as_str())
+                        && p.pointer("/props/rocket_vibe_client_id").and_then(Value::as_str) == Some(entry.id.as_str())
+                }) {
+                    return Delivered::Yes(post.clone());
+                }
+                // A page containing only newer posts cannot prove absence.
+                if posts.len() >= 30
+                    && !posts.iter().any(|p| {
+                        p.get("create_at")
+                            .and_then(Value::as_i64)
+                            .is_some_and(|at| at < entry.created_at - CLOCK_SKEW_MS)
+                    })
+                {
+                    return Delivered::Ambiguous;
+                }
+                if posts.iter().any(|p| {
                     let field = |key: &str| p.get(key).and_then(Value::as_str).filter(|s| !s.is_empty());
                     field("user_id") == Some(self.me_id.as_str())
+                        && p.pointer("/props/rocket_vibe_client_id").and_then(Value::as_str).is_none()
                         && field("message") == Some(entry.text.as_str())
                         && field("root_id") == entry.thread_id.as_deref()
                         && p.get("create_at")
                             .and_then(Value::as_i64)
                             .is_some_and(|at| at >= entry.created_at - CLOCK_SKEW_MS)
-                })
-                .map_or(Delivered::No, Delivered::Yes),
+                }) {
+                    Delivered::Ambiguous
+                } else {
+                    Delivered::No
+                }
+            }
             Err(e) if unanswered(&e) => Delivered::Unknown,
             Err(_) => Delivered::No,
         }

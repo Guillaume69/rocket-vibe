@@ -6,7 +6,7 @@ Read [overview.md](overview.md) first for where the desktop sits in the monorepo
 
 ## The workspace
 
-`apps/desktop/Cargo.toml` declares a resolver-3 workspace with `crates/rv-core`, `crates/rv-ffi`, `crates/rv-gtk` and `crates/rv-native`. Shared package settings: edition 2024, one version for every crate (`version = "0.7.0"` at the time of writing, read by `node scripts/version.mjs desktop`), MIT licence. Workspace lints:
+`apps/desktop/Cargo.toml` declares a resolver-3 workspace with `crates/rv-core`, `crates/rv-ffi`, `crates/rv-gtk`, `crates/rv-native` and `crates/rv-voice-protocol`. Shared package settings: edition 2024, one version for every crate (read by `node scripts/version.mjs desktop`), MIT licence. Workspace lints:
 
 - `unsafe_code = "deny"`. The few files that need FFI opt out with a file-level `#![allow(unsafe_code)]`: the Windows and macOS modules of `rv-native`, plus `rv-gtk/src/macos.rs` (environment set before threads start), `rv-gtk/src/windows.rs` (standard streams) and `rv-gtk/src/focus.rs`. `rv-core` and `rv-ffi` hold no unsafe code.
 - `clippy::all` at warn, turned into errors by `-D warnings` in `scripts/build.sh` and CI. `result_large_err` is allowed (`RestError` is a fat struct on purpose).

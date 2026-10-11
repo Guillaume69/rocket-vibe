@@ -40,6 +40,17 @@ impl TrustedProxies {
                     .ok_or_else(|| format!("invalid trusted proxy prefix: {item}"))?,
                 None => width,
             };
+            // A mapped IPv6 range becomes IPv4, including its prefix. Broad
+            // IPv6 ranges cannot be represented by an IPv4 mask.
+            let (address, prefix) = match address {
+                IpAddr::V6(v6) if v6.to_ipv4_mapped().is_some() => {
+                    let prefix = prefix
+                        .checked_sub(96)
+                        .ok_or_else(|| format!("invalid mapped trusted proxy prefix: {item}"))?;
+                    (canonical(address), prefix)
+                }
+                _ => (address, prefix),
+            };
             ranges.push((address, prefix));
         }
         Ok(Self(ranges))
@@ -185,5 +196,24 @@ mod tests {
             TrustedProxies::parse(" , ").unwrap(),
             TrustedProxies::default()
         );
+    }
+
+    #[test]
+    fn mapped_proxy_ranges_keep_their_ipv4_boundary() {
+        for config in ["::ffff:127.0.0.1", "::ffff:127.0.0.1/128"] {
+            let proxies = TrustedProxies::parse(config).unwrap();
+            assert!(proxies.contains(ip("127.0.0.1")));
+            assert!(proxies.contains(ip("::ffff:127.0.0.1")));
+            assert!(!proxies.contains(ip("127.0.0.2")));
+            assert_eq!(
+                proxies.client(ip("198.51.100.1"), &["2001:4860::1"]),
+                ip("198.51.100.1")
+            );
+        }
+        let proxies = TrustedProxies::parse("::ffff:127.0.0.0/120").unwrap();
+        assert!(proxies.contains(ip("127.0.0.255")));
+        assert!(!proxies.contains(ip("127.0.1.1")));
+        assert!(!proxies.contains(ip("203.0.113.7")));
+        assert!(TrustedProxies::parse("::ffff:127.0.0.1/95").is_err());
     }
 }

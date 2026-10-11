@@ -202,8 +202,8 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         afterSystemPicker(() => setTimeout(() => { if (AppState.currentState !== 'active') runner?.suspend(); }, 1000));
       });
       void (async () => {
-        const {base,raw,writeQueue} = openDatabase(session.baseUrl,session.userId);
         await migrateDatabase(session.baseUrl,session.userId);
+        const {base,raw,writeQueue} = openDatabase(session.baseUrl,session.userId);
         if (!alive) return;
         const store = new NativeStore(raw,writeQueue,session);
         await store.prepare();
@@ -323,8 +323,8 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       // effect replays on a mere rename (new `session` object for the same
       // account); creating it here made a second one, and the two engines
       // interleaved (see db/writeQueue.ts).
-      const { base, raw, writeQueue } = openDatabase(session.baseUrl, session.userId);
       await migrateDatabase(session.baseUrl, session.userId);
+      const { base, raw, writeQueue } = openDatabase(session.baseUrl, session.userId);
       if (discarded) return;
       // Device data of this account (quick reactions), taken back at session end.
       unmountUsage = mountEmojiUsage(createEmojiUsageStore(raw, writeQueue));

@@ -11,6 +11,22 @@ use url::Url;
 use crate::rest::{Credentials, RestClient, RestError};
 use crate::store::RoomRow;
 
+/// Account-scoped disk/media keys. Tuple serialization avoids delimiter
+/// collisions; credentials never appear in a path.
+pub fn account_cache_key(base_url: &str, user_id: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let identity = serde_json::to_vec(&(base_url.trim_end_matches('/'), user_id)).unwrap();
+    Sha256::digest(identity).iter().map(|b| format!("{b:02x}")).collect()
+}
+
+pub fn attachment_cache_name(url: &str, title: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let digest: String = Sha256::digest(url.as_bytes()).iter().map(|b| format!("{b:02x}")).collect();
+    let safe: String = title.chars().map(|c| if matches!(c, '/' | '\\' | '\0') { '_' } else { c }).collect();
+    let tail: String = safe.chars().rev().take(64).collect::<Vec<_>>().into_iter().rev().collect();
+    format!("{digest}-{tail}")
+}
+
 /// Beyond this, the cache is simply emptied: photos are small and refetched on demand.
 const CACHE_LIMIT: usize = 400;
 
@@ -227,6 +243,27 @@ impl MediaCache {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn protected_disk_cache_keys_separate_accounts_servers_and_punctuation() {
+        assert_ne!(
+            account_cache_key("https://chat.example", "alice"),
+            account_cache_key("https://chat.example", "bob")
+        );
+        assert_ne!(
+            account_cache_key("https://chat-a.example", "alice"),
+            account_cache_key("https://chat.a.example", "alice")
+        );
+        assert_eq!(
+            account_cache_key("https://chat.example/", "alice"),
+            account_cache_key("https://chat.example", "alice")
+        );
+        let filename = attachment_cache_name("/file-upload/same", "../..\\secret.pdf");
+        assert!(!filename.contains('/'));
+        assert!(!filename.contains('\\'));
+        assert!(filename.ends_with(".pdf"));
+        assert_ne!(filename, attachment_cache_name("/file-upload/other", "../..\\secret.pdf"));
+    }
 
     fn creds() -> Credentials {
         Credentials { auth_token: "tok".into(), user_id: "uid".into() }

@@ -49,7 +49,9 @@ impl Provider {
     }
     fn key(&self, path: &str) -> String {
         match self {
-            Self::RocketChat(_) => path.into(),
+            Self::RocketChat(s) => {
+                format!("{}:{path}", rv_core::media::account_cache_key(&s.info.base_url, &s.info.user_id))
+            }
             Self::RocketVibe(s) if path.starts_with("rv-preview:") => {
                 format!("{}:{}:{}:{path}", s.info.base_url, s.info.user_id, s.preview_scope(path).unwrap_or_default())
             }
@@ -66,7 +68,7 @@ impl Provider {
     }
     pub fn current(&self, path: &str) -> bool {
         match self {
-            Self::RocketChat(_) => true,
+            Self::RocketChat(s) => !s.is_closed(),
             Self::RocketVibe(s) => {
                 if path.starts_with("rv-preview:") {
                     s.preview_current(path)

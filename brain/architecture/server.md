@@ -18,7 +18,7 @@ One binary, one CLI (`src/main.rs`). `serve` (`--bind`, `RV_BIND`, default `127.
 | `RV_OBJECTS_DIR` | Where files live (`data/objects`, `/var/lib/rocketvibe/objects` in the image). Without it, no uploads, avatars, emoji or previews. |
 | `RV_WORKFLOW_PRIVATE_HTTP` | Let workflow HTTP steps reach private addresses: tests and development only. |
 
-**Every subcommand, not only `serve`, migrates the database and runs the cleanup** (`App::from_pool_with_auth_key`, `src/lib.rs`): 54 migrations in `migrations/`, applied by `sqlx::migrate!`. The first boot also draws the instance's `instance_id` and `data_epoch`.
+**Every subcommand, not only `serve`, migrates the database and runs the cleanup** (`App::from_pool_with_auth_key`, `src/lib.rs`): all numbered migrations in `migrations/`, applied by `sqlx::migrate!`. The first boot also draws the instance's `instance_id` and `data_epoch`.
 
 `serve` then starts the background loops (`src/main.rs`): email delivery (every second, `src/email_delivery.rs`), push (`src/push.rs`), workflows (`src/workflows/engine.rs`), link previews (`src/link_previews.rs`), voice reconciliation with LiveKit every 2 s under a PostgreSQL advisory lock so one process polls (`src/voice.rs`), and the cleanup every 60 s, which deletes expired rows by batches of 1000 and collects unreferenced files. Work queues are tables with leases, so a restart resumes them.
 
@@ -51,7 +51,7 @@ The server keeps one ordered **journal** of changes (`journal`, `src/store.rs`):
 
 ## Data
 
-- **PostgreSQL** holds everything but file bytes: about a hundred tables across the 54 migrations. Message ids are the client's `operation_id`: replaying a send with the same content returns the existing message, with different content 409. Operation ids share one namespace per user across messages, uploads, room commands and encryption (`src/store.rs`).
+- **PostgreSQL** holds everything but file bytes: about a hundred tables across the all numbered migrations. Message ids are the client's `operation_id`: replaying a send with the same content returns the existing message, with different content 409. Operation ids share one namespace per user across messages, uploads, room commands and encryption (`src/store.rs`).
 - **Files** are flat objects named by 64 hex digits in `RV_OBJECTS_DIR`, written to a temporary name, fsynced and renamed (`src/objects.rs`). Uploads go prepared, ready, completed (or cancelled, expired after 24 h); the server checks the SHA-256 and the type's magic bytes, and completion posts the message in the same transaction (`src/files.rs`). Downloads support ranges. The garbage collector removes files older than an hour that nothing references.
 - **`data_epoch`** identifies the dataset in discovery, cursors and leases; a client seeing it change starts over. Nothing in the server changes it today: a restore from backup is supposed to (`docs/rfcs/0001-rocketvibe-rust-server.md`).
 
@@ -71,6 +71,7 @@ Rooms, DMs and the directory (`src/store.rs`, `src/room_details.rs`), permission
 - **The server does not compile without `apps/web/dist`**: rebuild the web client first when the front end changes.
 - **Any CLI subcommand migrates**: a newer binary's `list-users` against production upgrades production.
 - **Behind a proxy, set `RV_TRUSTED_PROXIES`**, or every client shares the proxy's login budget of 30 attempts a minute.
+  IPv4-mapped IPv6 addresses are canonicalized with their prefix: `::ffff:127.0.0.1/128` becomes one IPv4 address, `/120` becomes an IPv4 `/24`, and prefixes below 96 are rejected. Untrusted peers cannot supply the client address through forwarded headers.
 - **Real time is polling**: 250 ms per socket, no pub/sub, and every journaled write serialises on the one `instance.position` row. Fine for a pilot, the first thing to change for a large instance.
 - **Bot keys and workflow sessions** expire after a century (`src/bots.rs`, `src/workflows/engine.rs`): revoke them, they do not lapse.
 

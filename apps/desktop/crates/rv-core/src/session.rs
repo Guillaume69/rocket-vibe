@@ -2122,6 +2122,10 @@ impl Session {
         Ok(DiscussionAccess::Joined)
     }
 
+    pub fn is_closed(&self) -> bool {
+        self.closed.load(Ordering::SeqCst)
+    }
+
     pub fn shutdown(&self) {
         let mut tasks = self.tasks.lock().unwrap();
         self.closed.store(true, Ordering::SeqCst);

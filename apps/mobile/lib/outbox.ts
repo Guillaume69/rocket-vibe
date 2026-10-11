@@ -40,7 +40,8 @@ export type OutboxRow = {
 };
 
 export interface OutboxStore {
-  insertOutbox(id: string, rid: string, text: string, threadId: string | null, shown?: boolean): Promise<void>;
+  /** One transaction: an optimistic row never exists without its durable send intent. */
+  enqueueMessage(message: LocalMessage & { text: string }): Promise<void>;
   listToSend(): Promise<OutboxRow[]>;
   markFailed(id: string, error: string): Promise<void>;
   /** A failed row back to `pending`: the explicit "Retry". */
@@ -116,7 +117,7 @@ export class OutboxEngine {
     const shown = threadId !== null && alsoInRoom;
     const id = this.generateId();
     const when = this.now();
-    await this.store.upsertMessage({
+    const optimistic: LocalMessage & { text: string } = {
       id,
       rid,
       text,
@@ -140,8 +141,8 @@ export class OutboxEngine {
       // 0: the server version, whatever it is, overwrites the optimistic one,
       // and the optimistic one never overwrites a real state.
       updatedAt: 0,
-    });
-    await this.store.insertOutbox(id, rid, text, threadId, shown);
+    };
+    await this.store.enqueueMessage(optimistic);
     await this.process();
     return id;
   }

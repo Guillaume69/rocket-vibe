@@ -398,10 +398,18 @@ ids, `[{user_id, status}]`.
   as a decimal number>`, so a replay of the same row sends the same value.
 - That memory is a **short-lived cache, not stored**: a replay much later may
   create a duplicate, and a stored post does not keep `pending_post_id`
-  [probed]. Before declaring a refusal, the apps read the room's 30 newest
-  posts for one of mine with the same text and thread **created since the row
-  was queued** (two minutes of clock skew allowed): an older identical message
-  is not this one.
+  [probed]. Text sends now also persist `props.rocket_vibe_client_id` with the
+  client operation id. Before declaring a refusal or automatically replaying
+  a potentially delivered send, the apps read the room's 30 newest posts for
+  that exact marker and author/channel. An unmarked legacy match on text/thread
+  within two minutes of the queued time is ambiguous, not proof of delivery:
+  retain it as failed and ask the user to check the conversation before retrying.
+  A full page entirely newer than the lookup boundary is ambiguous too, since
+  absence from that page cannot rule out an older delivered post.
+- On the disposable Mattermost 11.11.1 bench (2026-10-11), the operation marker
+  survived the creation response, `GET /posts/:id` and channel history. kChat's
+  marker persistence still needs live qualification; an unmarked match takes
+  the conservative manual-retry path.
 - On success the optimistic row (client id) is replaced by the server's post
   (server id).
 

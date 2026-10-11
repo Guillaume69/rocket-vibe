@@ -10,6 +10,9 @@ section here.
 ### Fixed
 
 - Typing /giphy opens a compact GIF grid immediately. Search updates as you type in both the command and sharing-menu pickers; choosing a GIF highlights it, and Enter or the shared Send button sends it. Search changes discard old selections and stale responses, and cancellation preserves the draft.
+- Recover Mattermost and kChat sends by a persistent operation marker; keep ambiguous legacy matches visible for manual retry.
+- Scope GTK attachment and image caches by account, clear local attachment copies on sign-out, and reject late downloads from closed sessions.
+- Give SwiftUI attachment copies a private session directory and delete them when the session ends.
 
 ## [0.16.0] - 2026-10-11
 

@@ -1,0 +1,56 @@
+name: server-image
+
+# On demand only: builds the RocketVibe server image of an existing
+# `server-vX.Y.Z` tag (apps/server/Dockerfile, the same build the release
+# archive comes from) and pushes it to ghcr.io as `X.Y.Z` and `latest`.
+# The release flow (server-release.yml) does not push images.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Server tag to publish (server-vX.Y.Z)
+        required: true
+      latest:
+        description: Also move the latest tag
+        type: boolean
+        default: true
+
+concurrency:
+  group: server-image
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  image:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Build the image
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          version=$(node scripts/version.mjs server --tag "$TAG")
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          docker build -f apps/server/Dockerfile -t "rocketvibe-server:$version" .
+      - name: Push to ghcr.io
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LATEST: ${{ inputs.latest }}
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/rocketvibe-server"
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker tag "rocketvibe-server:$VERSION" "$image:$VERSION"
+          docker push "$image:$VERSION"
+          if [ "$LATEST" = true ]; then
+            docker tag "rocketvibe-server:$VERSION" "$image:latest"
+            docker push "$image:latest"
+          fi
+          echo "Pushed \`$image:$VERSION\`" >> "$GITHUB_STEP_SUMMARY"

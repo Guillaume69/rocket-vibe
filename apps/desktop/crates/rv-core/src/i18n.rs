@@ -1302,9 +1302,10 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ),
     (
         "login.kchat_help",
-        "Collez un jeton d'API Infomaniak (manager.infomaniak.com, Jetons d'API)",
-        "Paste an Infomaniak API token (manager.infomaniak.com, API tokens)",
+        "Connectez-vous avec Infomaniak, ou collez un jeton d'API (manager.infomaniak.com, Jetons d'API)",
+        "Sign in with Infomaniak, or paste an API token (manager.infomaniak.com, API tokens)",
     ),
+    ("login.infomaniak", "Se connecter avec Infomaniak", "Sign in with Infomaniak"),
     (
         "login.probe_no_password",
         "Ce serveur n'accepte pas la connexion par mot de passe",

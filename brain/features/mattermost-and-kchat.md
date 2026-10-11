@@ -232,13 +232,23 @@ Rocket.Chat probe (`server::probe_as`, `session::login_as`).
   `X-Requested-With`. A missing MFA code comes back as a `totp` 2FA challenge, so
   both UIs ask it with the step they already have for Rocket.Chat.
 - kChat: choosing it hides the address and user fields; the password field
-  becomes the Infomaniak API token. Sign-in starts at
+  becomes the Infomaniak API token, and "Sign in with Infomaniak" runs the same
+  PKCE flow as mobile (`mattermost::oauth`: `Pkce`, `authorize_url`,
+  `code_from_redirect`, `exchange`). No desktop browser hands a custom-scheme
+  redirect back, so Infomaniak's page opens in a sign-in window of the app that
+  shows only `https://*.infomaniak.com`, grants no camera or microphone and
+  cancels the navigation to `com.infomaniak.chat://`, which it hands back and
+  closes: an `adw::Dialog` with an ephemeral WebKitGTK view on Linux
+  (`rv-gtk/src/sign_in_window.rs`, closed by Escape or a backdrop click like any
+  dialog), `rv_native::sign_in_window` (WebView2, WKWebView, the call window's
+  code with a `SignIn` mode) on Windows and macOS, `SignInWindow.swift` with
+  `KchatSignIn` from rv-ffi in SwiftUI. Closing it is a cancel. The bearer then
+  takes the API token's path. Sign-in starts at
   `mattermost::KCHAT_DIRECTORY`: `mattermost::login_kchat` takes the account's
   only server, and with several answers `KCHAT_SEVERAL_SERVERS`; the UIs then
   list them (`mattermost::kchat_servers`, `Client.kchat_servers` in rv-ffi) in a
   picker and sign in on the one chosen. A team host typed in automatic mode signs
-  in there directly. No OAuth: the redirect is a custom scheme a desktop would
-  have to register.
+  in there directly.
 - The account persists with `genre` `mattermost` or `kchat`
   (`SessionInfo.mattermost`, `native.rs#from_secret`); the server rail's unread dot
   reads channels and memberships (`mattermost::unread`).
@@ -315,7 +325,10 @@ Unit tests in `mattermost/*.rs` (all but `directory.rs`) and
 once, `badge_updated`, sidebar categories, custom emoji, the 401 rule, kMeet,
 kept previews); `examples/mattermost-smoke.rs` drives a
 real `Session` against the bench (`cargo run -p rv-core --example
-mattermost-smoke`), and `scripts/smoke.sh` the GTK app.
+mattermost-smoke`), and `scripts/smoke.sh` the GTK app. `mattermost::oauth`
+tests the PKCE flow (RFC 7636 vector, state, token answer); `RV_SMOKE_INFOMANIAK=1`
+opens Infomaniak's real page in the GTK sign-in window and forges a redirect for
+another request, which must be caught, refused and close the window.
 
 ## Sources
 
@@ -323,8 +336,9 @@ mattermost-smoke`), and `scripts/smoke.sh` the GTK app.
 
 - `apps/desktop/crates/rv-core/src/mattermost/`
 - `apps/desktop/crates/rv-core/src/session.rs`, `sync.rs`, `outbox.rs`, `uploads.rs`, `media.rs`, `server.rs`, `native.rs`, `account_unread.rs`
-- `apps/desktop/crates/rv-gtk/src/login.rs`, `apps/desktop/crates/rv-ffi/src/model.rs`
-- `apps/desktop/macos/Sources/RocketVibe/LoginView.swift`, `apps/desktop/macos/Sources/RocketVibeKit/LoginModel.swift`
+- `apps/desktop/crates/rv-gtk/src/login.rs`, `apps/desktop/crates/rv-gtk/src/sign_in_window.rs`, `apps/desktop/crates/rv-ffi/src/model.rs`, `apps/desktop/crates/rv-ffi/src/lib.rs`
+- `apps/desktop/crates/rv-native/src/windows_call.rs`, `apps/desktop/crates/rv-native/src/macos_call.rs`
+- `apps/desktop/macos/Sources/RocketVibe/LoginView.swift`, `apps/desktop/macos/Sources/RocketVibe/SignInWindow.swift`, `apps/desktop/macos/Sources/RocketVibeKit/LoginModel.swift`
 - `apps/desktop/crates/rv-core/examples/mattermost-smoke.rs`
 - `apps/mobile/providers/mattermost/`
 - `apps/mobile/lib/provider.ts`, `apps/mobile/providers/index.ts`

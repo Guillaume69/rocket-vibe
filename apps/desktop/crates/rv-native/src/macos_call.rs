@@ -1,5 +1,5 @@
-//! The call window on macOS: the meeting page in WKWebView, in a window of
-//! its own on the main thread, which GTK's run loop shares with AppKit.
+//! The call and sign-in windows on macOS: the page in WKWebView, in a window
+//! of its own on the main thread, which GTK's run loop shares with AppKit.
 
 #![allow(unsafe_code)]
 
@@ -15,13 +15,18 @@ use objc2_web_kit::{
     WKPermissionDecision, WKSecurityOrigin, WKUIDelegate, WKWebView, WKWebViewConfiguration, WKWindowFeatures,
 };
 
-use crate::call_event;
+use crate::{SignIn, call_event};
 
 type Allowed = fn(&str, &str) -> bool;
 
+enum Mode {
+    Call(Allowed),
+    SignIn(SignIn),
+}
+
 pub struct Ivars {
     call_url: String,
-    allowed: Allowed,
+    mode: Mode,
 }
 
 define_class!(
@@ -44,7 +49,7 @@ define_class!(
             handler: &block2::DynBlock<dyn Fn(WKPermissionDecision)>,
         ) {
             let address = origin_address(origin);
-            let grant = (self.ivars().allowed)(&address, &self.ivars().call_url);
+            let grant = matches!(self.ivars().mode, Mode::Call(allowed) if allowed(&address, &self.ivars().call_url));
             let what = match kind {
                 WKMediaCaptureType::Camera => "camera",
                 WKMediaCaptureType::Microphone => "microphone",
@@ -81,12 +86,25 @@ define_class!(
         #[unsafe(method(webView:decidePolicyForNavigationAction:decisionHandler:))]
         fn decide(
             &self,
-            _web: &WKWebView,
+            web: &WKWebView,
             action: &WKNavigationAction,
             handler: &block2::DynBlock<dyn Fn(WKNavigationActionPolicy)>,
         ) {
             let target = target_of(action).unwrap_or_default();
-            if (self.ivars().allowed)(&target, &self.ivars().call_url) {
+            let allowed = match &self.ivars().mode {
+                Mode::Call(allowed) => allowed(&target, &self.ivars().call_url),
+                Mode::SignIn(sign_in) if (sign_in.redirect)(&target) => {
+                    handler.call((WKNavigationActionPolicy::Cancel,));
+                    call_event("sign-in", "redirect caught");
+                    (sign_in.caught)(target);
+                    if let Some(window) = web.window() {
+                        window.close();
+                    }
+                    return;
+                }
+                Mode::SignIn(sign_in) => (sign_in.page)(&target) || !is_main_frame(action),
+            };
+            if allowed {
                 handler.call((WKNavigationActionPolicy::Allow,));
                 return;
             }
@@ -107,8 +125,8 @@ define_class!(
 );
 
 impl CallDelegate {
-    fn new(mtm: MainThreadMarker, call_url: &str, allowed: Allowed) -> Retained<Self> {
-        let this = Self::alloc(mtm).set_ivars(Ivars { call_url: call_url.to_owned(), allowed });
+    fn new(mtm: MainThreadMarker, call_url: &str, mode: Mode) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(Ivars { call_url: call_url.to_owned(), mode });
         // SAFETY: NSObject's init on a freshly allocated instance.
         unsafe { msg_send![super(this), init] }
     }
@@ -126,6 +144,13 @@ fn target_of(action: &WKNavigationAction) -> Option<String> {
     request.URL().and_then(|u| u.absoluteString()).map(|s| s.to_string())
 }
 
+/// The page's own frames (Infomaniak's reCAPTCHA) load where they are; only
+/// the page itself leaving goes to the browser.
+fn is_main_frame(action: &WKNavigationAction) -> bool {
+    // SAFETY: reading the target frame of the action WebKit hands us.
+    unsafe { action.targetFrame() }.is_none_or(|frame| unsafe { frame.isMainFrame() })
+}
+
 fn open_in_browser(target: &str) {
     if let Some(url) = NSURL::URLWithString(&NSString::from_str(target)) {
         NSWorkspace::sharedWorkspace().openURL(&url);
@@ -141,6 +166,15 @@ thread_local! {
 /// The call at `url` in a window titled `title`; `allowed(address, url)` says
 /// where it may go and which origin gets the camera and the microphone.
 pub fn call_window(url: &str, title: &str, allowed: Allowed) -> Result<(), String> {
+    open(url, title, Mode::Call(allowed))
+}
+
+/// The sign-in page at `url` in a window titled `title`, see [`SignIn`].
+pub fn sign_in_window(url: &str, title: &str, sign_in: SignIn) -> Result<(), String> {
+    open(url, title, Mode::SignIn(sign_in))
+}
+
+fn open(url: &str, title: &str, mode: Mode) -> Result<(), String> {
     let mtm = MainThreadMarker::new().ok_or("not on the main thread")?;
     let address = NSURL::URLWithString(&NSString::from_str(url)).ok_or("not a URL")?;
     OPEN.with_borrow_mut(|open| open.retain(|(window, _, _)| window.isVisible()));
@@ -167,7 +201,7 @@ pub fn call_window(url: &str, title: &str, allowed: Allowed) -> Result<(), Strin
         let configuration = WKWebViewConfiguration::new(mtm);
         WKWebView::initWithFrame_configuration(WKWebView::alloc(mtm), frame, &configuration)
     };
-    let delegate = CallDelegate::new(mtm, url, allowed);
+    let delegate = CallDelegate::new(mtm, url, mode);
     // SAFETY: the delegate outlives the view: both are kept in OPEN.
     unsafe {
         web.setUIDelegate(Some(ProtocolObject::from_ref(&*delegate)));

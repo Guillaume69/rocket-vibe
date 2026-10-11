@@ -45,6 +45,7 @@ mod scheduled;
 mod secrets;
 mod settings;
 mod sidebar_dialog;
+mod sign_in_window;
 mod sizer;
 mod smoke;
 mod sounds;

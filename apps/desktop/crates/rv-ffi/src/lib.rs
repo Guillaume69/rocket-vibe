@@ -930,6 +930,42 @@ pub fn call_allowed(url: String, call_url: String) -> bool {
     rv_core::call::allowed(&url, &call_url)
 }
 
+/// One Infomaniak sign-in for kChat, from its page to the bearer it yields.
+#[derive(uniffi::Object)]
+pub struct KchatSignIn {
+    pkce: rv_core::mattermost::oauth::Pkce,
+}
+
+#[uniffi::export]
+impl KchatSignIn {
+    #[uniffi::constructor]
+    pub fn new() -> Result<Arc<Self>, RvError> {
+        let pkce = rv_core::mattermost::oauth::Pkce::new().map_err(RvError::local)?;
+        Ok(Arc::new(KchatSignIn { pkce }))
+    }
+
+    pub fn authorize_url(&self) -> String {
+        self.pkce.authorize_url()
+    }
+
+    /// The Infomaniak bearer the redirect caught by the sign-in window trades for.
+    pub async fn finish(&self, redirect: String) -> Result<String, RvError> {
+        let code = self.pkce.code_from_redirect(&redirect).map_err(RvError::local)?;
+        let pkce = self.pkce.clone();
+        on_tokio(async move { pkce.exchange(&code).await }).await.map_err(RvError::local)
+    }
+}
+
+#[uniffi::export]
+pub fn kchat_is_redirect(url: String) -> bool {
+    rv_core::mattermost::oauth::is_redirect(&url)
+}
+
+#[uniffi::export]
+pub fn kchat_is_sign_in_page(url: String) -> bool {
+    rv_core::mattermost::oauth::is_sign_in_page(&url)
+}
+
 #[uniffi::export]
 pub fn replace_shortcodes(text: String) -> String {
     rv_core::emoji::replace_shortcodes(&text)

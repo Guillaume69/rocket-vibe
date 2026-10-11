@@ -177,6 +177,11 @@ public final class AppModel {
         }
     }
 
+    /// Signs in with the bearer of a finished Infomaniak sign-in (kChat).
+    public func submitInfomaniak(_ signIn: KchatSignIn, redirect: String) async {
+        if await login.finishInfomaniak(signIn, redirect: redirect) { await submitLogin() }
+    }
+
     /// The signed-in accounts again, for the server rail, and their icons.
     public func refreshAccounts() async {
         accounts = await client.accounts()

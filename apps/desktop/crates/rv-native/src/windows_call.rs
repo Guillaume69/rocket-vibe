@@ -1,4 +1,4 @@
-//! The call window on Windows: the meeting page in WebView2, the Edge
+//! The call and sign-in windows on Windows: the page in WebView2, the Edge
 //! engine Windows 10 and 11 carry, in a window of its own. WebView2 answers
 //! on this thread through window messages, which GTK's loop dispatches.
 
@@ -28,9 +28,15 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::{PCWSTR, PWSTR, w};
 
-use crate::call_event;
+use crate::{SignIn, call_event};
 
 type Allowed = fn(&str, &str) -> bool;
+
+#[derive(Clone)]
+enum Mode {
+    Call(Allowed),
+    SignIn(SignIn),
+}
 
 /// Posted to a call window once its engine is ready: the page is made from
 /// the window's own message, not from inside the engine's creation, which
@@ -40,7 +46,7 @@ const WM_ENGINE_READY: u32 = WM_APP + 1;
 struct Pending {
     environment: ICoreWebView2Environment,
     url: String,
-    allowed: Allowed,
+    mode: Mode,
 }
 
 thread_local! {
@@ -50,12 +56,12 @@ thread_local! {
 
 fn make_page(hwnd: HWND) {
     let Some(pending) = PENDING.with_borrow_mut(|p| p.remove(&(hwnd.0 as isize))) else { return };
-    let Pending { environment, url, allowed } = pending;
+    let Pending { environment, url, mode } = pending;
     let controller_ready = CreateCoreWebView2ControllerCompletedHandler::create(Box::new(move |error, controller| {
         error?;
         let Some(controller) = controller else { return Ok(()) };
         // SAFETY: the controller and its page answer on this thread.
-        unsafe { attach(hwnd, &controller, &url, allowed) }
+        unsafe { attach(hwnd, &controller, &url, mode.clone()) }
     }));
     // SAFETY: the window outlives the request, which answers on this thread.
     if let Err(e) = unsafe { environment.CreateCoreWebView2Controller(hwnd, &controller_ready) } {
@@ -155,6 +161,15 @@ fn permission_kind(kind: COREWEBVIEW2_PERMISSION_KIND) -> Option<&'static str> {
 /// The call at `url` in a window titled `title`; `allowed(address, url)` says
 /// where it may go. Err when the WebView2 runtime is missing.
 pub fn call_window(url: &str, title: &str, allowed: Allowed) -> Result<(), String> {
+    open(url, title, Mode::Call(allowed))
+}
+
+/// The sign-in page at `url` in a window titled `title`, see [`SignIn`].
+pub fn sign_in_window(url: &str, title: &str, sign_in: SignIn) -> Result<(), String> {
+    open(url, title, Mode::SignIn(sign_in))
+}
+
+fn open(url: &str, title: &str, mode: Mode) -> Result<(), String> {
     let mut version = PWSTR::null();
     // SAFETY: WebView2's own lookup of an installed runtime.
     unsafe { GetAvailableCoreWebView2BrowserVersionString(PCWSTR::null(), &mut version) }
@@ -193,7 +208,7 @@ pub fn call_window(url: &str, title: &str, allowed: Allowed) -> Result<(), Strin
             error?;
             call_event("engine", "ready");
             let Some(environment) = environment else { return Ok(()) };
-            let pending = Pending { environment, url: call_url.clone(), allowed };
+            let pending = Pending { environment, url: call_url.clone(), mode: mode.clone() };
             PENDING.with_borrow_mut(|p| p.insert(hwnd.0 as isize, pending));
             // SAFETY: a message to our own window, handled by its procedure.
             unsafe { PostMessageW(Some(hwnd), WM_ENGINE_READY, WPARAM(0), LPARAM(0)) }
@@ -215,7 +230,7 @@ unsafe fn attach(
     hwnd: HWND,
     controller: &ICoreWebView2Controller,
     call_url: &str,
-    allowed: Allowed,
+    mode: Mode,
 ) -> windows::core::Result<()> {
     // SAFETY: called on the controller's thread, as its creation handler.
     unsafe {
@@ -225,7 +240,7 @@ unsafe fn attach(
         let page = controller.CoreWebView2()?;
         let mut token = 0;
 
-        let origin = call_url.to_owned();
+        let (origin, kept) = (call_url.to_owned(), mode.clone());
         page.add_PermissionRequested(
             &PermissionRequestedEventHandler::create(Box::new(move |_, args| {
                 let Some(args) = args else { return Ok(()) };
@@ -235,7 +250,8 @@ unsafe fn attach(
                 let mut kind = COREWEBVIEW2_PERMISSION_KIND::default();
                 args.PermissionKind(&mut kind)?;
                 let media = permission_kind(kind);
-                let grant = media.is_some() && allowed(&uri, &origin) && !uri.starts_with("about:");
+                let call = matches!(kept, Mode::Call(allowed) if allowed(&uri, &origin));
+                let grant = media.is_some() && call && !uri.starts_with("about:");
                 args.SetState(if grant {
                     COREWEBVIEW2_PERMISSION_STATE_ALLOW
                 } else {
@@ -257,7 +273,23 @@ unsafe fn attach(
                 let mut uri = PWSTR::null();
                 args.Uri(&mut uri)?;
                 let uri = take_pwstr(uri);
-                if !allowed(&uri, &origin) {
+                let allowed = match &mode {
+                    Mode::Call(allowed) => allowed(&uri, &origin),
+                    Mode::SignIn(sign_in) if (sign_in.redirect)(&uri) => {
+                        args.SetCancel(true)?;
+                        call_event("sign-in", "redirect caught");
+                        (sign_in.caught)(uri);
+                        windows::Win32::UI::WindowsAndMessaging::PostMessageW(
+                            Some(hwnd),
+                            WM_CLOSE,
+                            WPARAM(0),
+                            LPARAM(0),
+                        )?;
+                        return Ok(());
+                    }
+                    Mode::SignIn(sign_in) => (sign_in.page)(&uri),
+                };
+                if !allowed {
                     args.SetCancel(true)?;
                     let mut user = Default::default();
                     args.IsUserInitiated(&mut user)?;

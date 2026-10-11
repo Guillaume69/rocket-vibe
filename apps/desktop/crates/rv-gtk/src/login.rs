@@ -31,6 +31,7 @@ pub struct LoginPage {
     kchat_row: gtk::Box,
     kchat_servers: gtk::DropDown,
     kchat_urls: std::rc::Rc<std::cell::RefCell<Vec<String>>>,
+    infomaniak: gtk::Button,
     user: gtk::Entry,
     password: gtk::Entry,
     signup: gtk::CheckButton,
@@ -164,6 +165,8 @@ impl LoginPage {
             .build();
         credentials.append(&known);
         credentials.append(&user_group);
+        let infomaniak = gtk::Button::builder().label(t("login.infomaniak")).visible(false).build();
+        credentials.append(&infomaniak);
         credentials.append(&password_group);
         let signup = gtk::CheckButton::builder().label(t("login.create_account")).visible(false).build();
         credentials.append(&signup);
@@ -343,11 +346,14 @@ impl LoginPage {
             user_group,
             #[weak]
             kchat_row,
+            #[weak]
+            infomaniak,
             move |kind| {
                 let kchat = server_kind(kind) == rv_core::native::ServerKind::Kchat;
                 server_group.set_visible(!kchat);
                 user_group.set_visible(!kchat);
                 kchat_row.set_visible(false);
+                infomaniak.set_visible(false);
                 server.emit_by_name::<()>("changed", &[])
             }
         ));
@@ -364,6 +370,8 @@ impl LoginPage {
             signup,
             #[weak]
             recovery,
+            #[weak]
+            infomaniak,
             move |entry| {
                 signup.set_active(false);
                 signup.set_visible(false);
@@ -396,6 +404,7 @@ impl LoginPage {
                         probe.remove_css_class("bad");
                         let token = matches!(&found, Ok(p) if p.genre == "kchat");
                         password_caption.set_label(t(if token { "login.kchat_token" } else { "login.password" }));
+                        infomaniak.set_visible(token);
                         match found {
                             Ok(p) if !p.password_login => {
                                 probe.add_css_class("bad");
@@ -432,6 +441,29 @@ impl LoginPage {
             }
         ));
 
+        // The bearer the page hands back signs in like a pasted API token.
+        infomaniak.connect_clicked(glib::clone!(
+            #[weak]
+            password,
+            #[weak]
+            submit,
+            #[weak]
+            error,
+            move |button| {
+                error.set_visible(false);
+                crate::sign_in_window::open(button, move |token| match token {
+                    Ok(token) => {
+                        password.set_text(&token);
+                        submit.emit_clicked();
+                    }
+                    Err(e) => {
+                        error.set_label(&e);
+                        error.set_visible(true);
+                    }
+                });
+            }
+        ));
+
         LoginPage {
             widget: starry(page.upcast_ref()),
             credentials,
@@ -440,6 +472,7 @@ impl LoginPage {
             kchat_row,
             kchat_servers,
             kchat_urls: std::rc::Rc::default(),
+            infomaniak,
             user,
             password,
             signup,
@@ -558,6 +591,15 @@ impl LoginPage {
     }
 
     /// The kind of server chosen under the address.
+    /// Opens Infomaniak's sign-in, as a click would; false while the button is hidden.
+    pub fn open_infomaniak(&self) -> bool {
+        let shown = self.infomaniak.is_visible();
+        if shown {
+            self.infomaniak.emit_clicked();
+        }
+        shown
+    }
+
     pub fn server_kind(&self) -> rv_core::native::ServerKind {
         server_kind(&self.kind)
     }

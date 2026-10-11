@@ -84,6 +84,9 @@ struct LoginView: View {
                             .focused($focus, equals: .user)
                             .textContentType(.username)
                     }
+                    if login.tokenLogin {
+                        Button(L("login.infomaniak"), action: signInWithInfomaniak)
+                    }
                     SecureField(L(login.recovering ? "login.new_password" : login.tokenLogin ? "login.kchat_token" : "login.password"), text: $login.password)
                         .focused($focus, equals: .password)
                         .textContentType(.password)
@@ -180,6 +183,14 @@ struct LoginView: View {
 
     func submit() {
         Task { await app.submitLogin() }
+    }
+
+    func signInWithInfomaniak() {
+        let signIn: KchatSignIn
+        do { signIn = try KchatSignIn() } catch { return }
+        SignInWindow.show(signIn.authorizeUrl(), title: L("login.infomaniak")) { redirect in
+            Task { await app.submitInfomaniak(signIn, redirect: redirect) }
+        }
     }
 }
 

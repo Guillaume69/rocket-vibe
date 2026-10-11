@@ -10,14 +10,14 @@
 import { asc } from 'drizzle-orm';
 import { Redirect, Stack, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, AppState, FlatList, StyleSheet, Text, View } from 'react-native';
 
 import type { LocalDatabase } from '../db/client.ts';
 import { reminders } from '../db/schema.ts';
 import { useReminderFormatter, useT } from '../ui/i18n.ts';
 import { useCoalescedLiveQuery } from '../ui/liveQuery.ts';
 import { requestJump } from '../ui/messageJump.ts';
-import { cancelReminder } from '../ui/reminders.ts';
+import { cancelReminder, exactAlarmsAllowed, openExactAlarmSettings } from '../ui/reminders.ts';
 import { useSession } from '../ui/session.tsx';
 import { useSync } from '../ui/sync.tsx';
 import { Tappable } from '../ui/tappable.tsx';
@@ -55,6 +55,14 @@ function Reminders({ c, base }: { c: Colors; base: LocalDatabase }) {
     return () => clearInterval(timer);
   }, []);
   const pending = data.filter((r) => r.dueAt > now);
+  // Re-read on return from the system's "Alarms and reminders" screen.
+  const [exact, setExact] = useState(exactAlarmsAllowed);
+  useEffect(() => {
+    const state = AppState.addEventListener('change', (next) => {
+      if (next === 'active') setExact(exactAlarmsAllowed());
+    });
+    return () => state.remove();
+  }, []);
   const [busy, setBusy] = useState<string | null>(null);
 
   const open = (r: (typeof data)[number]) => {
@@ -76,6 +84,18 @@ function Reminders({ c, base }: { c: Colors; base: LocalDatabase }) {
   return (
     <View style={[styles.screen, { backgroundColor: c.background }]}>
       <Stack.Screen options={{ title: t('reminders.title') }} />
+      {!exact && (
+        <View style={[styles.late, { backgroundColor: c.deepCard, borderColor: c.border }]}>
+          <Text style={[styles.lateText, { color: c.text }]}>{t('reminders.exactLate')}</Text>
+          <Tappable
+            onPress={() => void openExactAlarmSettings()}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.action, { borderColor: c.border, opacity: pressed ? 0.7 : 1 }]}
+          >
+            <Text style={[styles.actionText, { color: c.accent }]}>{t('reminders.exactAllow')}</Text>
+          </Tappable>
+        </View>
+      )}
       {loaded && pending.length === 0 ? (
         <Text style={[styles.empty, { color: c.dimmed }]}>{t('reminders.empty')}</Text>
       ) : (
@@ -136,4 +156,6 @@ const styles = StyleSheet.create({
   action: { minWidth: 84, alignItems: 'center', borderWidth: 1, borderRadius: 12, paddingVertical: 8, paddingHorizontal: 10 },
   actionText: { fontFamily: FONTS.bodySemi, fontSize: 14 },
   inactive: { opacity: 0.4 },
+  late: { flexDirection: 'row', alignItems: 'center', gap: 12, margin: 16, marginBottom: 0, padding: 12, borderWidth: StyleSheet.hairlineWidth, borderRadius: 14 },
+  lateText: { flex: 1, fontFamily: FONTS.body, fontSize: 14 },
 });

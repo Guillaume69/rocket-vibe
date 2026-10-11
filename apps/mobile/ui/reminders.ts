@@ -21,7 +21,8 @@
  */
 
 import * as Notifications from 'expo-notifications';
-import { AppState, Platform } from 'react-native';
+import * as SecureStore from 'expo-secure-store';
+import { Alert, AppState, Platform } from 'react-native';
 
 import { openDatabase } from '../db/client.ts';
 import { migrateDatabase } from '../db/migrate.ts';
@@ -43,6 +44,7 @@ import {
 } from '../lib/reminders.ts';
 import { nativeRoomPermalink, serviceUrl } from '../lib/roomLinks.ts';
 import { readSession } from '../lib/sessionStore.ts';
+import { ExactAlarms } from '../modules/exact-alarms/index.ts';
 import { translateCurrent } from './i18n.ts';
 
 /** The Android channel reminders post on, apart from the `default` one of messages (`lib/push.ts`). */
@@ -170,13 +172,87 @@ function reconcile(mounted: Mounted): Promise<unknown> {
   return reconciling;
 }
 
+/**
+ * Whether the system lets reminders use exact alarms. Without them
+ * expo-notifications falls back to an inexact alarm, which Android 16 held
+ * with a window of 45 minutes for a reminder an hour ahead. True on iOS, before
+ * Android 12, and in a dev client built before the module existed.
+ */
+export function exactAlarmsAllowed(): boolean {
+  if (Platform.OS !== 'android' || ExactAlarms === null) return true;
+  try {
+    return ExactAlarms.canSchedule();
+  } catch {
+    return true;
+  }
+}
+
+/** Opens the system's "Alarms and reminders" screen for this app. */
+export function openExactAlarmSettings(): boolean {
+  try {
+    return ExactAlarms?.openSettings() ?? false;
+  } catch {
+    return false;
+  }
+}
+
+const EXACT_ASKED_KEY = 'reminders-exact-alarms-asked';
+
+/**
+ * After a reminder is set: when the system would deliver it late, explains why
+ * once per install and offers its settings screen. A tap outside closes it
+ * with nothing opened; the Reminders list keeps offering it afterwards.
+ */
+export async function askExactAlarmsOnce(): Promise<void> {
+  if (exactAlarmsAllowed()) return;
+  try {
+    if ((await SecureStore.getItemAsync(EXACT_ASKED_KEY)) !== null) return;
+    await SecureStore.setItemAsync(EXACT_ASKED_KEY, '1');
+  } catch {
+    return;
+  }
+  Alert.alert(
+    translateCurrent('reminders.exactTitle'),
+    translateCurrent('reminders.exactBody'),
+    [
+      { text: translateCurrent('reminders.exactLater'), style: 'cancel' },
+      { text: translateCurrent('reminders.exactOpen'), onPress: () => void openExactAlarmSettings() },
+    ],
+    { cancelable: true },
+  );
+}
+
+/**
+ * Hands every future reminder to the system again: an alarm set while exact
+ * alarms were refused stays inexact until it is replaced (same identifier).
+ */
+function rescheduleExact(mounted: Mounted): Promise<unknown> {
+  reconciling = reconciling.then(async () => {
+    if (current !== mounted) return;
+    const now = Date.now();
+    for (const reminder of await mounted.store.list()) {
+      if (reminder.dueAt <= now) continue;
+      const content = contentFor(mounted, reminder);
+      if (content === null) continue;
+      await notifier.schedule(reminderIdentifier(mounted.key, reminder.messageId), content, reminder.dueAt).catch(() => {});
+    }
+  }).catch(() => {});
+  return reconciling;
+}
+
 /** Gives the session's store; reconciles now and at each return to the front. The returned function takes it back. */
 export function mountReminders(store: ReminderStore, session: Session): () => void {
   const mounted: Mounted = { store, session, key: reminderAccountKey(session.baseUrl, session.userId) };
   current = mounted;
   void reconcile(mounted);
+  let exact = exactAlarmsAllowed();
   const state = AppState.addEventListener('change', (next) => {
-    if (next === 'active') void reconcile(mounted);
+    if (next !== 'active') return;
+    void reconcile(mounted);
+    // Back from "Alarms and reminders" with the permission granted.
+    const now = exactAlarmsAllowed();
+    if (now && !exact) void rescheduleExact(mounted);
+    exact = now;
   });
   return () => {
     state.remove();

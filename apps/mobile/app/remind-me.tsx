@@ -18,7 +18,7 @@ import { clock, minuteOf } from '../lib/quiet.ts';
 import { atMinute } from '../lib/scheduled.ts';
 import { addDays, addMonths, clampDay, inHours, remindable, startOfDay, tomorrowAt } from '../lib/reminders.ts';
 import { useLanguage, useReminderFormatter, useT, useTimeFormatter } from '../ui/i18n.ts';
-import { armedReminder, setReminder, type ReminderDraft } from '../ui/reminders.ts';
+import { armedReminder, askExactAlarmsOnce, setReminder, type ReminderDraft } from '../ui/reminders.ts';
 import { useSheetBottomMargin } from '../ui/sheetMargin.ts';
 import { Tappable } from '../ui/tappable.tsx';
 import { notify } from '../ui/toast.tsx';
@@ -71,6 +71,7 @@ export default function RemindMeScreen() {
       ({ notifies }) => {
         notify(notifies ? t('reminders.set', { when: when(at.getTime()) }) : t('reminders.notificationsOff'));
         if (open.current) router.back();
+        if (notifies) void askExactAlarmsOnce();
       },
       () => {
         notify(t('reminders.failed'));

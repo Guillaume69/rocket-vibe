@@ -9,6 +9,8 @@ section here.
 
 ### Fixed
 
+- Prevent duplicate screenshots and other Rocket.Chat attachments after a slow or lost confirmation response, including encrypted files and app restarts. Uncertain confirmations show "Checking delivery" and reconcile without posting again.
+
 - Scope Mattermost and kChat searches to the current channel, direct conversation or group before the server's result limit, on GTK and SwiftUI.
 - Typing /giphy opens a compact GIF grid immediately. Search updates as you type in both the command and sharing-menu pickers; choosing a GIF highlights it, and Enter or the shared Send button sends it. Search changes discard old selections and stale responses, and cancellation preserves the draft.
 - Recover Mattermost and kChat sends by a persistent operation marker; keep ambiguous legacy matches visible for manual retry.

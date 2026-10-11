@@ -25,6 +25,8 @@ impl Request {
 #[derive(Debug, Clone, Default)]
 pub struct Response {
     pub status: u16,
+    /// Delay an answer after the request has reached the server.
+    pub delay: std::time::Duration,
     pub body: String,
     pub binary: Option<Vec<u8>>,
     pub headers: Vec<(String, String)>,
@@ -146,6 +148,7 @@ impl FakeHttp {
                             Request { method: method.to_owned(), target: target.to_owned(), headers, body, raw };
                         log.lock().unwrap().push(request.clone());
                         let response = handler(&request);
+                        tokio::time::sleep(response.delay).await;
                         if response.drop {
                             return;
                         }

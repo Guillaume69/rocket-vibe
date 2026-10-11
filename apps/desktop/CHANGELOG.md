@@ -1182,8 +1182,8 @@ the mobile app (see `docs/PARITY.md`).
 
 [Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.16.0...HEAD
 [0.16.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.15.1...desktop-v0.16.0
-[0.15.1]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.15.0...desktop-v0.15.1
-[0.15.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.14.0...desktop-v0.15.0
+[0.15.1]: https://github.com/Guillaume69/rocket-vibe/compare/24e6175c...desktop-v0.15.1
+[0.15.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.14.0...24e6175c
 [0.14.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.13.0...desktop-v0.14.0
 [0.13.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.12.2...desktop-v0.13.0
 [0.12.2]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.12.1...desktop-v0.12.2

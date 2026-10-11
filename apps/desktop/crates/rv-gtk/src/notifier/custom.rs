@@ -212,7 +212,9 @@ impl Backend {
             .xalign(0.0)
             .css_classes(["brand", "rv-notification-brand"])
             .build();
-        heading.append(&gtk::Image::from_icon_name(crate::APP_ID));
+        let icon = gtk::Image::from_icon_name(crate::APP_ID);
+        icon.set_pixel_size(22);
+        heading.append(&icon);
         heading.append(&brand);
         let close = gtk::Button::builder()
             .icon_name("window-close-symbolic")
@@ -292,7 +294,7 @@ impl Backend {
             })
             .collect();
         let read = gtk::Button::builder()
-            .label(t("notify.mark_read"))
+            .label(t("notify.read"))
             .focusable(false)
             .hexpand(true)
             .halign(gtk::Align::End)

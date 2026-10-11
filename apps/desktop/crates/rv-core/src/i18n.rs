@@ -1250,6 +1250,7 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("notify.reply", "Répondre", "Reply"),
     ("notify.reply_placeholder", "Répondre…", "Reply…"),
     ("notify.mark_read", "✓ Lu", "✓ Read"),
+    ("notify.read", "Lu", "Read"),
     ("notify.sound", "Son de rocket-vibe", "rocket-vibe sound"),
     (
         "notify.sound_hint",

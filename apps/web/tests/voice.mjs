@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { mkdir } from "node:fs/promises";
 import { chromium } from "playwright";
 const base = process.env.RV_WEB_TEST_URL || "http://127.0.0.1:3417";
 assert.ok(["localhost", "127.0.0.1"].includes(new URL(base).hostname));
@@ -68,6 +69,7 @@ try {
       window.__displaySoundTracks = [];
       window.__voiceSenders = [];
       window.__toneGains = [];
+      window.__microphoneCaptures = [];
       const microphone = navigator.mediaDevices.getUserMedia.bind(
         navigator.mediaDevices,
       );
@@ -89,6 +91,8 @@ try {
           for (const track of output.stream.getAudioTracks())
             stream.addTrack(track);
         }
+        if (options.audio)
+          window.__microphoneCaptures.push(...stream.getAudioTracks());
         return stream;
       };
       const display = navigator.mediaDevices.getDisplayMedia.bind(
@@ -716,12 +720,92 @@ try {
       '.voice-controls [aria-label="Microphone"][aria-pressed="true"]',
     ),
   );
-  console.log("PASS microphone mute control");
+  await a
+    .getByText("You're muted. Unmute your microphone to speak.", {
+      exact: true,
+    })
+    .waitFor();
+  await a.waitForFunction(
+    () => window.__microphoneCaptures.at(-1)?.readyState === "live",
+  );
+  await a.evaluate(() => {
+    window.__mutedMonitorTrack = window.__microphoneCaptures.at(-1);
+  });
+  await mkdir("../../.cache/web-shots", { recursive: true });
+  await a.screenshot({ path: "../../.cache/web-shots/muted-speech.png" });
+  // LiveKit's processor output can stay enabled while its input is disabled.
+  // Check the captured input and ensure the monitor never becomes an RTP sender.
+  assert.equal(
+    await a.evaluate(
+      () =>
+        window.__microphoneCaptures
+          .filter((track) => track !== window.__mutedMonitorTrack)
+          .every((track) => !track.enabled || track.readyState === "ended") &&
+        window.__voiceSenders.every(
+          (sender) => sender.track !== window.__mutedMonitorTrack,
+        ),
+    ),
+    true,
+  );
+  const remoteRms = await b.evaluate(async () => {
+    const media = document.querySelector(
+      'audio[data-voice-source="microphone"]',
+    );
+    const context = new AudioContext();
+    const source = context.createMediaStreamSource(media.srcObject);
+    const analyser = context.createAnalyser();
+    source.connect(analyser);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const samples = new Float32Array(analyser.fftSize);
+    analyser.getFloatTimeDomainData(samples);
+    const rms = Math.sqrt(
+      samples.reduce((sum, sample) => sum + sample * sample, 0) /
+        samples.length,
+    );
+    source.disconnect();
+    analyser.disconnect();
+    await context.close();
+    return rms;
+  });
+  assert.ok(
+    remoteRms < 0.00001,
+    "the other participant hears silence while the local reminder captures speech",
+  );
+  await a
+    .locator(".voice-controls")
+    .getByRole("button", { name: "Microphone", exact: true })
+    .click();
+  await a.waitForFunction(
+    () => window.__mutedMonitorTrack?.readyState === "ended",
+  );
+  assert.equal(
+    await a
+      .getByText("You're muted. Unmute your microphone to speak.", {
+        exact: true,
+      })
+      .count(),
+    1,
+  );
+  await a
+    .locator(".voice-controls")
+    .getByRole("button", { name: "Microphone", exact: true })
+    .click();
+  await a.waitForFunction(
+    () => window.__microphoneCaptures.at(-1)?.readyState === "live",
+  );
+  console.log(
+    "PASS muted speech shows a local toast without enabling outgoing audio, and unmute stops its monitor",
+  );
   await a
     .locator(".voice-bar")
     .getByRole("button", { name: "Close", exact: true })
     .click();
   await a.locator(".voice-bar").waitFor({ state: "detached" });
+  assert.equal(
+    await a.evaluate(() => window.__microphoneCaptures.at(-1)?.readyState),
+    "ended",
+    "leave stops the local muted monitor",
+  );
   await a.getByRole("button", { name: "Join call", exact: true }).click();
   await a.locator(".voice-page").waitFor();
   await a

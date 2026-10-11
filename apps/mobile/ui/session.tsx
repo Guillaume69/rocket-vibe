@@ -17,6 +17,7 @@ import { setProfileClient } from '../lib/profilePreload.ts';
 import { unregisterToken } from '../lib/pushToken.ts';
 import { RestClient } from '../lib/rest.ts';
 import { clientForSession, resumeSession, logoutSession, sessionRejected } from '../lib/sessionTransport.ts';
+import { forgetReminders } from './reminders.ts';
 import {
   addPendingLogout,
   clearE2EPrivateKey,
@@ -77,7 +78,7 @@ function clientFor(session: Session, onTokenRejected: (token: string) => void): 
  *
  * Kept here rather than inline at the four exits (logout, revocation, and the
  * two validation 401s) because forgetting one of them does not show: the E2EE
- * private key survived logout, and it is a **decrypted** RSA JWK. The three
+ * private key survived logout, and it is a **decrypted** RSA JWK. The
  * deletions are independent, hence in parallel.
  */
 async function clearTraces(session: Session): Promise<void> {
@@ -87,6 +88,9 @@ async function clearTraces(session: Session): Promise<void> {
     // The old-format entry, if the startup sweep has not taken it yet: without
     // it, this function would lie about its contract.
     purgeLegacyE2EKey(session.baseUrl),
+    // "Remind me" reminders leave with the account, scheduled notifications
+    // included (brain/features/reminders.md). Never throws.
+    forgetReminders(session),
   ]);
 }
 

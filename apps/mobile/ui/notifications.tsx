@@ -24,6 +24,7 @@ import { rooms, subscriptions } from '../db/schema.ts';
 import { isRoomEncrypted, setEncryptedRooms } from './notificationState.ts';
 import { markServerUnread } from './serverDots.ts';
 import { roomNotificationId } from '../lib/notificationId.ts';
+import { reminderOf, reminderShown } from './reminders.ts';
 import { translateCurrent } from './i18n.ts';
 import {useSession} from './session.tsx';
 import { useSync } from './sync.tsx';
@@ -45,6 +46,13 @@ function notificationTarget(content: Notifications.NotificationContent): Notific
 
 Notifications.setNotificationHandler({
   handleNotification: async (notification) => {
+    // A "Remind me" reminder (`ui/reminders.ts`) firing while the app is in
+    // front: shown, with its sound, and it leaves the reminder store now.
+    const reminder = reminderOf(notification.request.content);
+    if (reminder !== null) {
+      reminderShown(reminder);
+      return { shouldShowBanner: true, shouldShowList: true, shouldPlaySound: true, shouldSetBadge: false };
+    }
     const target = notificationTarget(notification.request.content);
     // Another server's push lights its dot in the rail; the open one ignores it.
     if (target?.host != null) markServerUnread(target.host);
@@ -97,6 +105,15 @@ export function NotificationHandler() {
       const id = response.notification.request.identifier;
       if (id === alreadyRouted) return;
       alreadyRouted = id;
+      // A reminder opens its account, room and message (the thread for a
+      // reply) through the same room link as a push or a permalink: another
+      // server's asks to switch first (`app/room/[rid].tsx`).
+      const reminder = reminderOf(response.notification.request.content);
+      if (reminder !== null) {
+        reminderShown(reminder);
+        router.push({ pathname: '/room/[rid]', params: { rid: reminder.rid, roomLink: reminder.link } });
+        return;
+      }
       const target = notificationTarget(response.notification.request.content);
       if (target === null) return;
       // The `host` travels with the rid, as in the native deep link: several

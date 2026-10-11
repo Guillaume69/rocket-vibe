@@ -178,6 +178,8 @@ pub struct Snapshot {
     pub ended: Option<Ended>,
     /// The last command failure the sidecar reported (`device_not_found`...).
     pub error: Option<String>,
+    /// Monotonic reminder count for this call; presentation consumes changes.
+    pub muted_speech: u64,
 }
 impl Default for Snapshot {
     fn default() -> Self {
@@ -193,6 +195,7 @@ impl Default for Snapshot {
             sharing: false,
             ended: None,
             error: None,
+            muted_speech: 0,
         }
     }
 }
@@ -702,6 +705,14 @@ impl Inner {
             match event {
                 Event::State { state } => s.snapshot.state = state,
                 Event::Participants { participants } => s.snapshot.participants = participants,
+                Event::MutedSpeech => {
+                    if s.snapshot.state == ConnectionState::Connected
+                        && s.snapshot.can_publish
+                        && (!s.snapshot.microphone || s.snapshot.deafened)
+                    {
+                        s.snapshot.muted_speech = s.snapshot.muted_speech.saturating_add(1);
+                    }
+                }
                 Event::Disconnected { reason } => s.snapshot.end(Ended::from_reason(&reason)),
                 Event::Error { code } => {
                     // The sidecar gave up on a capture: the wish follows.
@@ -816,6 +827,36 @@ async fn stop(mut sidecar: Sidecar) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn muted_speech_ignores_stale_unmuted_and_disconnected_sidecars() {
+        let voice = VoiceController::with_sidecar(PathBuf::from("unused"), vec![]);
+        voice.inner.update(|s| {
+            s.snapshot.room = Some("r1".into());
+            s.snapshot.state = ConnectionState::Connected;
+            s.snapshot.can_publish = true;
+            s.snapshot.microphone = false;
+        });
+        voice.inner.apply(0, Event::MutedSpeech);
+        assert_eq!(voice.snapshot().muted_speech, 1);
+        voice.inner.apply(1, Event::MutedSpeech);
+        assert_eq!(voice.snapshot().muted_speech, 1);
+        voice.inner.update(|s| s.snapshot.microphone = true);
+        voice.inner.apply(0, Event::MutedSpeech);
+        assert_eq!(voice.snapshot().muted_speech, 1);
+        voice.inner.update(|s| {
+            s.snapshot.microphone = false;
+            s.snapshot.can_publish = false;
+        });
+        voice.inner.apply(0, Event::MutedSpeech);
+        assert_eq!(voice.snapshot().muted_speech, 1);
+        voice.inner.update(|s| {
+            s.snapshot.can_publish = true;
+            s.snapshot.end(Ended::Left);
+        });
+        voice.inner.apply(0, Event::MutedSpeech);
+        assert_eq!(voice.snapshot().muted_speech, 1);
+    }
 
     #[test]
     fn reasons_map_to_what_the_ui_says() {

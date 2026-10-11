@@ -586,6 +586,8 @@ test("stopping clears private scheduled state before asynchronous teardown", asy
     scheduling: { key: "account A retry", operation: "operation" },
     scheduledReading: 0,
     scheduledTimer: "fixture-timer" as string | undefined,
+    reminders: [{ excerpt: "private account A reminder" }],
+    reminderTimer: "reminder-timer" as string | undefined,
     voice: {
       leave: async () => {
         throw new Error("fixture teardown failure");
@@ -600,7 +602,9 @@ test("stopping clears private scheduled state before asynchronous teardown", asy
   assert.deepEqual(target.scheduled, []);
   assert.equal(target.scheduling, undefined);
   assert.equal(target.scheduledTimer, undefined);
-  assert.deepEqual(timers, ["fixture-timer"]);
+  assert.deepEqual(target.reminders, []);
+  assert.equal(target.reminderTimer, undefined);
+  assert.deepEqual(timers, ["fixture-timer", "reminder-timer"]);
 });
 
 test("scheduled lists reject older reads and a replacement session of the same account", async () => {

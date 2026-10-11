@@ -223,11 +223,13 @@ export class NativeStore {
     return state?.instance_id === this.session.nativeInstanceId && state?.data_epoch === this.session.nativeDataEpoch;
   }
   /** Shared UI queries must never see a predecessor generation's cache.
-   * `emoji_usage` is left out on purpose: device data, not server data. */
+   * `emoji_usage` is left out on purpose: device data, not server data.
+   * `reminders` goes: device data too, but they name the predecessor's
+   * messages, which no link of this generation reaches. */
   prepare(): Promise<void> {
     return this.atomic(async () => {
       if (await this.sameGeneration()) return;
-      for (const table of ['rooms','subscriptions','messages','outbox','uploads','drafts','native_positions','native_sync_state','cursors','users','native_room_creations','native_commands','native_star_states','native_room_operations','native_profile_operations','native_emoji_catalog','native_upload_intents','native_room_access','native_read_states','native_read_intents','native_favorite_intents','native_quote_references','native_quote_sources','native_outbox_quotes','native_thread_states','native_thread_read_intents']) await this.db.runAsync(`DELETE FROM ${table}`, []);
+      for (const table of ['reminders','rooms','subscriptions','messages','outbox','uploads','drafts','native_positions','native_sync_state','cursors','users','native_room_creations','native_commands','native_star_states','native_room_operations','native_profile_operations','native_emoji_catalog','native_upload_intents','native_room_access','native_read_states','native_read_intents','native_favorite_intents','native_quote_references','native_quote_sources','native_outbox_quotes','native_thread_states','native_thread_read_intents']) await this.db.runAsync(`DELETE FROM ${table}`, []);
     });
   }
   private async membershipMatches(rid:string,membership:string|null):Promise<boolean> {

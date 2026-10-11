@@ -272,6 +272,62 @@ impl Notifier {
         self.show(&incoming, &Pictures::default());
     }
 
+    /// A reminder whose time came: "Reminder", the room, "<author>: <excerpt>".
+    /// Its key (`rv_core::reminders::NOTIFICATION_PREFIX`) and its link travel
+    /// as the (room, message) pair of every other notification, so a click
+    /// reaches `open` with them, which follows the link: the account, the
+    /// room, the message.
+    pub fn remind(self: &Rc<Self>, fired: &rv_core::reminders::Fired) {
+        let reminder = &fired.reminder;
+        let title = rv_core::reminders::title();
+        let body = format!("{}\n{}", reminder.room_name, reminder.line());
+        let link = fired.link.clone().unwrap_or_default();
+        let Some(connection) = self.connection.clone() else {
+            if rv_native::available() {
+                rv_native::show(&rv_native::Toast {
+                    room: &fired.key,
+                    message: &link,
+                    title,
+                    body: &body,
+                    // A protocol activation reaches the running app as a link (Windows).
+                    activation_link: (cfg!(windows) && !link.is_empty()).then_some(link.as_str()),
+                    silent: own_sound(),
+                    ..Default::default()
+                });
+                if own_sound() && !rv_native::quiet() {
+                    crate::sounds::play(crate::sounds::Sound::Message);
+                }
+                return;
+            }
+            self.show_reminder_gio(fired, title, &body, &link);
+            return;
+        };
+        let actions = vec!["default".to_owned(), t("notify.open").to_owned()];
+        let mut hints: HashMap<String, glib::Variant> = HashMap::new();
+        hints.insert("category".into(), "im.received".to_variant());
+        hints.insert("desktop-entry".into(), crate::APP_ID.to_variant());
+        let parameters =
+            ("rocket-vibe", 0u32, "", title, glib::markup_escape_text(&body).as_str(), actions, hints, -1i32)
+                .to_variant();
+        let (weak, key) = (Rc::downgrade(self), fired.key.clone());
+        glib::spawn_future_local(async move {
+            let sent = connection
+                .call_future(Some(BUS), PATH, BUS, "Notify", Some(&parameters), None, gio::DBusCallFlags::NONE, 5000)
+                .await;
+            if let (Some(this), Some((id,))) = (weak.upgrade(), sent.ok().and_then(|v| v.get::<(u32,)>())) {
+                this.shown.borrow_mut().insert(id, (key, link));
+            }
+        });
+    }
+
+    fn show_reminder_gio(&self, fired: &rv_core::reminders::Fired, title: &str, body: &str, link: &str) {
+        let notification = gio::Notification::new(title);
+        notification.set_body(Some(body));
+        let target = (fired.key.as_str(), link).to_variant();
+        notification.set_default_action_and_target_value("app.open-message", Some(&target));
+        self.app.send_notification(Some(&fired.key), &notification);
+    }
+
     /// What shows our notifications, in words.
     pub fn describe(self: &Rc<Self>, done: impl FnOnce(String) + 'static) {
         if custom_enabled() {

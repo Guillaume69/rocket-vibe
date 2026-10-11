@@ -1,6 +1,6 @@
 # Notifications
 
-The mobile app gets FCM push from Rocket.Chat even when killed, fetches the hidden content itself (`push.get`), and shows one grouped conversation notification per room with an inline reply. The desktop app has no push: while it runs it watches the live message stream and raises system notifications, and it shows an unread badge on the app icon. Neither ever shows ciphertext from an encrypted room.
+The mobile app gets FCM push from Rocket.Chat even when killed, fetches the hidden content itself (`push.get`), and shows one grouped conversation notification per room with an inline reply. The desktop app has no push: while it runs it watches the live message stream and raises system notifications or opt-in RocketVibe cards on Windows, and it shows an unread badge on the app icon. Neither ever shows ciphertext from an encrypted room.
 
 ## Mobile
 
@@ -40,6 +40,7 @@ Same route: FCM token as `gcm`, FCM relays to APNs with the `.p8` key set in the
 - **Badge**: the sum of `unread` over subscriptions, via `setBadgeCountAsync`.
 - **Read means dismissed**: when a room's unread count drops to 0 (read here or on another device), its notification is removed. On Android this uses `roomNotificationId(rid)` (`lib/notificationId.ts`): `expo-notifications://foreign_notifications?id=<hash>`, where `hashCodeJava` reproduces `java.lang.String.hashCode` in 32-bit signed arithmetic, the only bridge from JS to a notification posted by Kotlin. On iOS it matches presented notifications by their `ejson.rid`.
 - `forgetNotificationState` clears the encrypted-room set and the badge at sign-out.
+- **Reminders** ("Remind me", local, not push): scheduled on their own Android channel `reminders`; the handler shows one with sound and its tap follows the reminder's room link (message and thread included), see [reminders.md](reminders.md#mobile).
 - **Preference**: Settings writes `pushNotifications` (`all`, `mention`, `nothing`) with `users.setPreferences`, a per-account server setting; see [settings.md](settings.md). A diagnostic button shows the FCM token.
 - **Per room** (Rocket.Chat): the room information sheet, or for a direct message the other person's profile opened from its header (the `dm` parameter of `openProfileCard`, `RoomNotificationChoiceFor`), (`ui/roomNotifications.tsx`) chooses Default, All messages, Mentions or Nothing with `rooms.saveNotification`, writing `desktopNotifications` and `mobilePushNotifications` together; the server then filters the push itself. The choice is read back from the subscription (`subscriptions.push_preference`, migration `0027`) only when `mobilePrefOrigin` is `subscription`, because "default" either removes the field or copies the account's preference with the origin `user`.
 

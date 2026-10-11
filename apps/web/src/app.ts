@@ -76,6 +76,16 @@ import {
   tomorrowMorning,
   when,
 } from "./scheduled";
+import {
+  acceptable as reminderAcceptable,
+  due as dueReminders,
+  excerpt as reminderExcerpt,
+  inHours,
+  pending as pendingReminders,
+  reminderKey,
+  tomorrowNine,
+  type Reminder,
+} from "./reminders";
 
 export class App implements RowActions {
   readonly view = new ViewState();
@@ -145,6 +155,9 @@ export class App implements RowActions {
   /** The account's scheduled messages, every room (`GET /api/v1/scheduled`). */
   scheduled: import("./protocol").ScheduledMessage[] = [];
   private scheduledTimer?: ReturnType<typeof setInterval>;
+  /** This account's pending reminders, kept in this browser (`reminders` store). */
+  reminders: Reminder[] = [];
+  private reminderTimer?: ReturnType<typeof setInterval>;
   private scheduledReading = 0;
   /** The operation of a schedule still unanswered, replayed by a retry. */
   private scheduling?: { key: string; operation: string };
@@ -388,6 +401,7 @@ export class App implements RowActions {
     this.build();
     await this.loadPending();
     await this.loadUploads();
+    await this.loadReminders();
     void this.reconnect();
   }
   async stop(login = false): Promise<void> {
@@ -399,6 +413,9 @@ export class App implements RowActions {
     this.generation++;
     clearInterval(this.scheduledTimer);
     this.scheduledTimer = undefined;
+    clearInterval(this.reminderTimer);
+    this.reminderTimer = undefined;
+    this.reminders = [];
     this.scheduledReading++;
     this.scheduled = [];
     this.scheduling = undefined;
@@ -523,6 +540,7 @@ export class App implements RowActions {
       this.administrator?.key === key ? this.administrator?.value : undefined;
     const items: [string, () => void | Promise<void>][] = [
       [t("settings"), () => settings(this)],
+      [t("reminders"), () => this.showReminders()],
     ];
     if (known) items.push([t("administration"), () => administration(this)]);
     items.push([t("logout"), () => this.logout()]);
@@ -1440,6 +1458,198 @@ export class App implements RowActions {
     };
     render();
   }
+  /** Reads this account's reminders, fires the due ones, then checks every 15 seconds. */
+  async loadReminders(): Promise<void> {
+    const account = this.account?.key;
+    if (!account) return;
+    const list = await all<Reminder>("reminders");
+    if (account !== this.account?.key) return;
+    this.reminders = pendingReminders(list, account);
+    clearInterval(this.reminderTimer);
+    this.reminderTimer = setInterval(
+      () => void this.checkReminders().catch(() => {}),
+      15_000,
+    );
+    await this.checkReminders();
+  }
+  async checkReminders(): Promise<void> {
+    const account = this.account?.key;
+    if (!account) return;
+    const { fire, drop } = dueReminders(this.reminders, new Date());
+    if (!fire.length && !drop.length) return;
+    for (const reminder of [...fire, ...drop]) {
+      const key = reminderKey(account, reminder.message);
+      // Another tab may have fired it already: only the one that removes it fires.
+      if (!(await read<Reminder>("reminders", key))) continue;
+      await write("reminders", key);
+      if (account !== this.account?.key) return;
+      if (fire.includes(reminder)) this.fireReminder(reminder);
+    }
+    this.reminders = this.reminders.filter(
+      (r) => !fire.includes(r) && !drop.includes(r),
+    );
+    this.view.changed();
+  }
+  fireReminder(reminder: Reminder): void {
+    const line = reminder.author + ": " + reminder.excerpt;
+    if ("Notification" in window && Notification.permission === "granted") {
+      const note = new Notification(t("reminder"), {
+        body: reminder.room_name + "\n" + line,
+        tag: "rv-reminder:" + reminder.message,
+      });
+      note.onclick = () => {
+        window.focus();
+        void this.openReminder(reminder);
+        note.close();
+      };
+      return;
+    }
+    const [node, body] = dialog(t("reminder"));
+    body.append(
+      el("p", "reminder-room", reminder.room_name),
+      el("p", "", line),
+      button(
+        t("openReminder"),
+        () => {
+          node.close();
+          return this.openReminder(reminder);
+        },
+        "suggested",
+      ),
+    );
+  }
+  async openReminder(reminder: Reminder): Promise<void> {
+    if (this.account?.key !== reminder.account) return;
+    try {
+      await this.jumpTo(
+        await this.api.request<Message>(
+          "/api/v1/messages/" + segment(reminder.message),
+        ),
+      );
+    } catch {
+      await this.openRoom(reminder.room);
+    }
+  }
+  async setReminder(message: Message, at: Date): Promise<void> {
+    const account = this.account?.key;
+    if (!account) return;
+    if (!reminderAcceptable(at, new Date())) {
+      toast(t("reminderTime"));
+      return;
+    }
+    const reminder: Reminder = {
+      account,
+      message: message.id,
+      room: message.room_id,
+      room_name: this.model.rooms.get(message.room_id)?.name || "",
+      ...(message.reply_to ? { root: message.reply_to } : {}),
+      author: message.author.display_name || message.author.username,
+      excerpt: reminderExcerpt(previewText(message), !!message.files?.length, {
+        attachment: t("attachmentLabel"),
+        message: t("messageLabel"),
+      }),
+      due: at.toISOString(),
+      created: new Date().toISOString(),
+    };
+    await write("reminders", reminderKey(account, message.id), reminder);
+    if (account !== this.account?.key) return;
+    this.reminders = pendingReminders(
+      [...this.reminders.filter((r) => r.message !== message.id), reminder],
+      account,
+    );
+    toast(t("reminderSet").replace("{at}", when(at, language)));
+    this.view.changed();
+  }
+  async cancelReminder(message: string): Promise<void> {
+    const account = this.account?.key;
+    if (!account) return;
+    await write("reminders", reminderKey(account, message));
+    this.reminders = this.reminders.filter((r) => r.message !== message);
+    this.view.changed();
+  }
+  /** "Remind me": the times offered, by the message's menu button. */
+  remindMenu(message: Message, anchor: HTMLElement): void {
+    const target = anchor.isConnected
+      ? anchor
+      : this.main.querySelector<HTMLElement>(
+          '[data-id="' + message.id + '"] .row-more',
+        );
+    if (!target) return;
+    actionMenu(target, [
+      [t("inOneHour"), () => this.setReminder(message, inHours(new Date(), 1))],
+      [
+        t("inThreeHours"),
+        () => this.setReminder(message, inHours(new Date(), 3)),
+      ],
+      [
+        t("tomorrowNine"),
+        () => this.setReminder(message, tomorrowNine(new Date())),
+      ],
+      [t("pickTime"), () => this.pickReminderTime(message)],
+    ]);
+  }
+  pickReminderTime(message: Message): void {
+    const [node, body] = dialog(t("remindMe"));
+    const [wrap, input] = field(
+      t("pickTime"),
+      localInput(inHours(new Date(), 1)),
+      "datetime-local",
+    );
+    body.append(
+      wrap,
+      button(
+        t("remindMe"),
+        async () => {
+          await this.setReminder(message, new Date(input.value));
+          node.close();
+        },
+        "suggested",
+      ),
+    );
+  }
+  /** The Reminders list: pending ones, soonest first, each to open or cancel. */
+  showReminders(): void {
+    const [node, body] = dialog(t("reminders"));
+    const render = () => {
+      if (!this.reminders.length) {
+        body.replaceChildren(el("p", "dim", t("noReminders")));
+        return;
+      }
+      body.replaceChildren(
+        ...this.reminders.map((reminder) => {
+          const row = el("div", "scheduled-row reminder-row");
+          const text = el("div", "reminder-body");
+          text.append(
+            el(
+              "span",
+              "scheduled-time",
+              when(new Date(reminder.due), language) +
+                " · " +
+                reminder.room_name,
+            ),
+            el(
+              "span",
+              "scheduled-text",
+              reminder.author + ": " + reminder.excerpt,
+            ),
+          );
+          row.append(
+            text,
+            button(t("openReminder"), () => {
+              node.close();
+              return this.openReminder(reminder);
+            }),
+            button(t("cancel"), async () => {
+              await this.cancelReminder(reminder.message);
+              render();
+            }),
+          );
+          return row;
+        }),
+      );
+    };
+    render();
+  }
   async jumpTo(message: Message): Promise<void> {
     const account = this.account?.key,
       generation = this.generation;
@@ -2148,6 +2358,16 @@ export class App implements RowActions {
     )
       action(t("reports"), () => report(this, "messages", message.id));
     action(t("copy"), () => navigator.clipboard.writeText(message.text));
+    const reminder = this.reminders.find((r) => r.message === message.id);
+    if (reminder)
+      action(
+        t("cancelReminder") +
+          " (" +
+          when(new Date(reminder.due), language) +
+          ")",
+        () => this.cancelReminder(reminder.message),
+      );
+    else action(t("remindMe"), () => this.remindMenu(message, anchor));
     action(t("profile"), () => profile(this, message.author.id));
     if (permissions.star)
       action(

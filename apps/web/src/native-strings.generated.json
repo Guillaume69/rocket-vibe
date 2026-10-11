@@ -476,6 +476,10 @@
   "voice_session.start_call": ["Démarrer un appel", "Start a call"],
   "voice_session.mute": ["Couper le micro", "Mute"],
   "voice_session.unmute": ["Réactiver le micro", "Unmute"],
+  "voice_session.muted_speech": [
+    "Votre micro est coupé. Réactivez-le pour parler.",
+    "You're muted. Unmute your microphone to speak."
+  ],
   "voice_session.deafen": ["Couper le son", "Deafen"],
   "voice_session.undeafen": ["Réactiver le son", "Undeafen"],
   "voice_session.listening": ["Écoute seulement", "Listening only"],

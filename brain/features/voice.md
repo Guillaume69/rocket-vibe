@@ -16,6 +16,23 @@ call that ends for both when one leaves. The microphone goes through **RNNoise**
 apps, and who speaks is told from the sound itself, a whisper included. In an encrypted
 room the frames are end-to-end encrypted under a key from the room's MLS group.
 
+## Speaking while muted
+
+GTK, SwiftUI and Web show a localized "You're muted. Unmute your microphone to speak."
+toast after 600 ms of local speech while muted in a connected RocketVibe call, once per
+speech burst and at most once every 10 seconds. No reminder is sent to the server or
+other participants. Jitsi calls are outside this feature. The desktop sidecar detects
+speech before the outgoing-audio gate and emits an additive `MutedSpeech` event; rv-core
+ignores stale, disconnected, unmuted and listen-only events and increments a per-call
+counter consumed by both UIs. Muted participants keep their speaking halo off.
+
+Web uses a separate unpublished, noise-suppressed microphone capture while muted,
+connected only to an analyser. It follows the selected input, stops on unmute and leave,
+and stops a permission request that completes after teardown. Capture failure leaves
+the call muted without repeatedly asking for permission. Android is missing this
+reminder: its LiveKit mute disables microphone capture; a native local-only monitor and
+device qualification remain debt.
+
 ## Server contract
 
 The wire contract is `docs/protocol/VOICE.md`; the essentials:
@@ -329,6 +346,12 @@ Real two-browser calls qualify microphone/camera/screen RTP, quiet-speech halos,
 The browser uses the room's verified MLS voice exporter with LiveKit's encoded-transform worker. `apps/web/src/crypto/voice.ts` prepares the key before joining and passes its padded base64 string as the native-compatible PBKDF2 passphrase. `Voice` requires an encrypted server grant and enables E2EE before connection or microphone capture. Unsupported transforms, missing/currently unaccepted group keys and encryption errors leave the call without a plaintext fallback. Approved epoch changes replace the frame key; account/membership scope loss terminates its worker.
 
 ## Sources
+
+- apps/web/src/muted-speech.ts
+- apps/web/tests/muted-speech.test.ts
+- apps/web/tests/voice.mjs
+- apps/desktop/crates/rv-ffi/src/native_voice.rs
+- apps/desktop/macos/Sources/RocketVibeKit/VoiceModel.swift
 
 - docs/protocol/VOICE.md
 - apps/web/src/voice.ts

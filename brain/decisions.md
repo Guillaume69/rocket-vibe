@@ -233,6 +233,12 @@ placement and explicit reply focus. This permits RocketVibe's theme and actions
 without a WebView or a UI kit. System is the default because it retains the
 Windows Notification Center history; custom cards still obey the OS quiet state.
 
+## Reminders on the device, 2026-10-11
+
+The user chose to keep "Remind me" reminders on the device rather than on a RocketVibe server: it works on every server kind (Rocket.Chat, the target server, has no such feature), needs no protocol, and tells no server what one wants to be reminded of. The cost, accepted: reminders are not shared between devices, and the desktop and the web, which cannot wake up on their own, fire a missed one when they next start. Mobile hands each one to the system so it fires with the app closed.
+
+Sources: brain/features/reminders.md.
+
 ## Sources
 
 - `apps/desktop/crates/rv-gtk/src/notifier/custom.rs`

@@ -1216,6 +1216,7 @@ impl ChatPage {
                 let Some(open) = self.current.borrow().clone() else { return };
                 let room = actions_menu::RoomContext {
                     rid: open.rid.clone(),
+                    name: open.name.clone(),
                     read_only: open.locked(),
                     encrypted: open.encrypted,
                     in_thread,
@@ -1299,8 +1300,13 @@ impl ChatPage {
         }
         let (Some(session), Some(open)) = (self.session(), self.current.borrow().clone()) else { return };
         let Some(row) = self.list_of(in_thread).last_mine(&session.info.user_id) else { return };
-        let room =
-            actions_menu::RoomContext { read_only: open.locked(), rid: open.rid, encrypted: open.encrypted, in_thread };
+        let room = actions_menu::RoomContext {
+            read_only: open.locked(),
+            name: open.name.clone(),
+            rid: open.rid,
+            encrypted: open.encrypted,
+            in_thread,
+        };
         let weak = Rc::downgrade(self);
         glib::spawn_future_local(async move {
             let allowed = actions_menu::allowed(&session, &row, &room).await;
@@ -2135,6 +2141,16 @@ impl ChatPage {
                 }
             }),
         )];
+        let w = Rc::downgrade(self);
+        items.push((
+            "alarm-symbolic",
+            t("reminders.title").to_owned(),
+            Rc::new(move || {
+                if let Some(this) = w.upgrade() {
+                    this.open_reminders();
+                }
+            }),
+        ));
         if self.administrator.get() == Some(true) {
             items.push(self.admin_item());
         }
@@ -2170,9 +2186,10 @@ impl ChatPage {
             this.administrator.set(Some(administrator));
             if let Some(menu) = menu.upgrade().filter(|m| administrator && m.is_visible())
                 && let Some(list) = menu.child().and_downcast::<gtk::Box>()
-                && let Some(first) = list.first_child()
+                && let Some(reminders) = list.first_child().and_then(|settings| settings.next_sibling())
             {
-                list.insert_child_after(&menu_row(&menu, this.admin_item()), Some(&first));
+                // After Settings and Reminders, where it stands when known at once.
+                list.insert_child_after(&menu_row(&menu, this.admin_item()), Some(&reminders));
             }
         });
     }
@@ -2188,6 +2205,20 @@ impl ChatPage {
                 }
             }),
         )
+    }
+
+    /// The account's pending reminders; a row opens its message the way its
+    /// notification would (`AppWindow::open_link`).
+    pub fn open_reminders(self: &Rc<Self>) -> Option<adw::Dialog> {
+        let info = self.chat()?.info().clone();
+        let owner = rv_core::reminders::Owner::of(&info);
+        let open: Rc<dyn Fn(rv_core::reminders::Reminder)> = Rc::new(move |reminder| {
+            let Some(link) = rv_core::reminders::link(&owner, &reminder) else { return };
+            if let Some(app) = gtk::gio::Application::default().and_downcast::<adw::Application>() {
+                crate::window_of(&app).open_link(&link);
+            }
+        });
+        Some(crate::reminders::list(&self.split, info, open))
     }
 
     fn sign_out(&self) {
@@ -3302,7 +3333,7 @@ impl ChatPage {
         self.native_session().map(Into::into).or_else(|| self.session().map(Into::into))
     }
 
-    fn current_name(&self) -> String {
+    pub(crate) fn current_name(&self) -> String {
         self.current.borrow().as_ref().map(|o| o.name.clone()).unwrap_or_default()
     }
 

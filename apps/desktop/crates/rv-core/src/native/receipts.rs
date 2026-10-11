@@ -314,6 +314,7 @@ mod tests {
             ..Default::default()
         };
         let mut frame = rv_protocol::live::LiveState {
+            voice_reactions: vec![],
             emoji_catalog_revision: None,
             profiles: vec![rv_protocol::profiles::ProfileStamp {
                 user: user("carol-id", "Carol"),

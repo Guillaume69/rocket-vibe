@@ -32,6 +32,9 @@ pub(super) fn present(page: SearchPage, room: &str, membership: &str) -> Result<
         super::files::validate_descriptors(&m.files, room)?;
         let mut files = super::files::attachments(&m.files)?;
         files.extend(super::cards::attachments(&m.cards)?);
+        if let Some(social) = &m.social {
+            files.push(serde_json::json!({"native_social":social}));
+        }
         hits.push(crate::normalize::Message {
             id: m.id,
             rid: m.room_id,

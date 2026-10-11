@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 #[derive(Default)]
 pub(super) struct LiveCache {
     pub state: Option<LiveState>,
-    until: Option<Instant>,
+    pub(super) until: Option<Instant>,
 }
 impl LiveCache {
     pub fn apply(&mut self, state: LiveState, now: Instant) -> bool {
@@ -106,6 +106,7 @@ mod tests {
         let user =
             User { id: "other".into(), username: "bob".into(), display_name: "Bob".into(), ..Default::default() };
         let mut state = LiveState {
+            voice_reactions: vec![],
             emoji_catalog_revision: None,
             profiles: vec![],
             ttl_ms: 8000,

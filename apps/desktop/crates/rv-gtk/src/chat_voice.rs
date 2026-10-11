@@ -38,6 +38,7 @@ struct Controls {
     camera: gtk::Button,
     screen: gtk::Button,
     leave: gtk::Button,
+    reaction: gtk::Button,
 }
 
 fn controls(classes: &[&str]) -> Controls {
@@ -67,8 +68,10 @@ fn controls(classes: &[&str]) -> Controls {
     row.append(&deafen);
     row.append(&camera);
     row.append(&screen);
+    let reaction = button("face-smile-symbolic", "React");
+    row.append(&reaction);
     row.append(&leave);
-    Controls { row, mic, menu, deafen, camera, screen, leave }
+    Controls { row, mic, menu, deafen, camera, screen, leave, reaction }
 }
 
 impl Controls {
@@ -495,6 +498,7 @@ pub(super) struct VoiceUi {
     /// The lock before an encrypted session's status.
     page_lock: gtk::Image,
     page_controls: Controls,
+    reaction_strip: gtk::Label,
     open_chat: gtk::Button,
     /// The people, as tiles sharing all the page's room.
     cards: TileGrid,
@@ -607,6 +611,8 @@ impl VoiceUi {
         column.append(&share_row);
         column.append(&cards);
         column.append(&join);
+        let reaction_strip = gtk::Label::builder().css_classes(["voice-reaction-strip"]).build();
+        column.append(&reaction_strip);
         column.append(&page_controls.row);
         let page = adw::ToolbarView::new();
         page.add_top_bar(&header);
@@ -622,6 +628,7 @@ impl VoiceUi {
             page_status,
             page_lock,
             page_controls,
+            reaction_strip,
             open_chat,
             cards,
             share_row,
@@ -767,6 +774,12 @@ impl ChatPage {
     pub(super) fn wire_voice(self: &Rc<Self>) {
         let voice = self.voice.clone();
         for set in [&voice.bar_controls, &voice.page_controls] {
+            let weak = Rc::downgrade(self);
+            set.reaction.connect_clicked(move |b| {
+                let Some(session) = weak.upgrade().and_then(|c| c.native_session()) else { return };
+                let Some(room) = session.voice().snapshot().room else { return };
+                crate::social::reaction_menu(b.upcast_ref(), session, &room);
+            });
             let weak = Rc::downgrade(self);
             set.mic.connect_clicked(move |_| {
                 let Some(session) = weak.upgrade().and_then(|this| this.native_session()) else { return };
@@ -991,6 +1004,9 @@ impl ChatPage {
                 voice.bar_status.set_css_classes(&["voice-bar-status", class]);
                 voice.bar_room.set_label(&self.room_name(room));
                 voice.bar_controls.sync(&snapshot);
+                voice.bar_controls.reaction.set_visible(
+                    session.social_supported("voice_reactions") && session.store.room_encrypted(room).is_ok_and(|e| !e),
+                );
                 voice.bar.set_visible(true);
             }
             None => voice.bar.set_visible(false),
@@ -1045,8 +1061,14 @@ impl ChatPage {
             voice.page_status.remove_css_class("connected");
         }
         voice.join.set_visible(!mine && !joining && session.voice_supported());
+        voice
+            .reaction_strip
+            .set_label(&session.voice_reactions(&rid).iter().map(|r| r.emoji.as_str()).collect::<Vec<_>>().join("  "));
         voice.page_controls.row.set_visible(mine);
         voice.page_controls.sync(snapshot);
+        voice.page_controls.reaction.set_visible(
+            session.social_supported("voice_reactions") && session.store.room_encrypted(&rid).is_ok_and(|e| !e),
+        );
         voice.empty.set_visible(people.is_empty());
         // The room's one shared screen takes most of the page; the people go
         // in a narrow column at its right, cameras as thumbnails.

@@ -18,6 +18,7 @@ pub mod profiles;
 pub mod push;
 pub mod scheduled;
 pub mod search;
+pub mod social;
 pub mod system;
 pub mod voice;
 pub mod workflows;
@@ -144,6 +145,14 @@ pub struct Capabilities {
     /// `SendMessage.also_in_room`: a reply also shown in the room's timeline.
     #[serde(default)]
     pub thread_also_in_room: bool,
+    #[serde(default)]
+    pub social_cards: bool,
+    #[serde(default)]
+    pub sticker_shelf: bool,
+    #[serde(default)]
+    pub giphy: bool,
+    #[serde(default)]
+    pub voice_reactions: bool,
 }
 
 impl Default for Capabilities {
@@ -206,6 +215,10 @@ impl Default for Capabilities {
             thread_list: false,
             thread_follow: false,
             thread_also_in_room: false,
+            social_cards: false,
+            sticker_shelf: false,
+            giphy: false,
+            voice_reactions: false,
         }
     }
 }
@@ -274,7 +287,11 @@ impl Capabilities {
             scheduled_messages,
             thread_list,
             thread_follow,
-            thread_also_in_room
+            thread_also_in_room,
+            social_cards,
+            sticker_shelf,
+            giphy,
+            voice_reactions
         );
         features
     }
@@ -405,6 +422,9 @@ pub struct PersonalFollow {
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct Message {
+    /// Server-managed social state; older clients retain the ordinary text fallback.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub social: Option<Box<social::SocialCard>>,
     pub id: String,
     pub room_id: String,
     pub author: Box<User>,
@@ -682,6 +702,7 @@ pub struct Contract {
     pub bots: bots::BotsContract,
     pub workflows: workflows::WorkflowsContract,
     pub parity: parity::ParityContract,
+    pub social: social::SocialContract,
 }
 
 pub fn schema() -> serde_json::Value {

@@ -10,6 +10,11 @@ everything before it is under that section.
 
 ### Added
 
+- Quick polls and game-night RSVP cards with durable, idempotent answers, optional poll expiry and author closure.
+- Private sticker shelves, typed image messages and transient, connected-only voice reactions.
+- Optional server-side GIPHY search, configured with a private RV_GIPHY_CONFIG_FILE; keys never travel to apps.
+
+
 - Thread list and following: `GET /api/v1/rooms/{id}/threads` lists a room's threads, all or the ones I follow, latest reply first, paged, with my unread replies; `PUT /api/v1/messages/{id}/follow` follows or unfollows one, and my other sessions see it live. The root's author and every replier follow automatically. "Also send to the room": a thread reply sent with `also_in_room` also shows in the room's history for the clients that ask for it (`?also_in_room=true`). New capabilities `thread_list`, `thread_follow` and `thread_also_in_room`; older clients see nothing change.
 
 ## [0.3.0] - 2026-10-11

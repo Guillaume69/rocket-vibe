@@ -1,4 +1,145 @@
 {
+  "social.could_not_complete_check_the_fields_or_try_again": [
+    "Impossible de terminer. Vérifiez les champs ou réessayez.",
+    "Could not complete. Check the fields or try again."
+  ],
+  "social.giphy_is_unavailable_on_this_server": [
+    "GIPHY est indisponible sur ce serveur.",
+    "GIPHY is unavailable on this server."
+  ],
+  "social.could_not_load_the_shelf": [
+    "La collection n’a pas pu être chargée.",
+    "Could not load the shelf."
+  ],
+  "social.share_something": ["À partager", "Share something"],
+  "social.back": ["Retour", "Back"],
+  "social.question": ["Question", "Question"],
+  "social.title_more": ["Titre", "Title"],
+  "social.multiple_choices": ["Plusieurs choix", "Multiple choices"],
+  "social.closing_time": ["Clôture", "Closing time"],
+  "social.no_deadline": ["Sans limite", "No deadline"],
+  "social.in_1_hour": ["Dans 1 heure", "In 1 hour"],
+  "social.in_1_day": ["Dans 1 jour", "In 1 day"],
+  "social.in_1_week": ["Dans 1 semaine", "In 1 week"],
+  "social.details_more": ["Détails", "Details"],
+  "social.date_in_your_timezone": ["Date chez vous", "Date in your timezone"],
+  "social.time_hh_mm": ["Heure (HH:MM)", "Time (HH:MM)"],
+  "social.search_gifs": ["Rechercher un GIF", "Search GIFs"],
+  "social.send": ["Envoyer", "Send"],
+  "social.save_a_gif_or_add_your_images": [
+    "Gardez un GIF ou ajoutez vos images.",
+    "Save a GIF or add your images."
+  ],
+  "social.name": ["Nom", "Name"],
+  "social.image_link": ["Lien de l’image", "Image link"],
+  "social.your_answer_was_not_saved_try_again": [
+    "Votre réponse n’a pas été enregistrée. Réessayez.",
+    "Your answer was not saved. Try again."
+  ],
+  "social.save_to_sticker_shelf": [
+    "Garder dans mes stickers",
+    "Save to sticker shelf"
+  ],
+  "social.saved": ["Enregistré", "Saved"],
+  "social.could_not_save": ["Enregistrement impossible", "Could not save"],
+  "social.one_choice": ["Un seul choix", "One choice"],
+  "social.could_not_close_poll": [
+    "Impossible de clore",
+    "Could not close poll"
+  ],
+  "social.remind_me_beforehand": ["Me rappeler avant", "Remind me beforehand"],
+  "social.reminder_added": ["Rappel ajouté", "Reminder added"],
+  "social.could_not_set_reminder": [
+    "Impossible de créer le rappel",
+    "Could not set reminder"
+  ],
+  "social.closing_time_optional": [
+    "Clôture (facultative)",
+    "Closing time (optional)"
+  ],
+  "social.date_and_time_in_your_timezone": [
+    "Date et heure chez vous",
+    "Date and time in your timezone"
+  ],
+  "social.check_the_title_and_date": [
+    "Vérifiez le titre et la date.",
+    "Check the title and date."
+  ],
+  "social.add_2_10_distinct_options": [
+    "Ajoutez 2 à 10 options différentes.",
+    "Add 2–10 distinct options."
+  ],
+  "social.choose_a_date": ["Choisissez une date.", "Choose a date."],
+  "social.searching": ["Recherche…", "Searching…"],
+  "social.no_gifs_found": ["Aucun GIF trouvé.", "No GIFs found."],
+  "social.gif_search_is_not_enabled_on_this_server": [
+    "La recherche de GIF n’est pas activée sur ce serveur.",
+    "GIF search is not enabled on this server."
+  ],
+  "social.search_failed_try_again": [
+    "La recherche a échoué. Réessayez.",
+    "Search failed. Try again."
+  ],
+  "social.add_your_images_or_save_a_gif_from_search": [
+    "Ajoutez vos images ou gardez un GIF depuis la recherche.",
+    "Add your images or save a GIF from search."
+  ],
+  "social.participants": ["participants", "participants"],
+  "social.join_voice": ["Rejoindre l’appel", "Join voice"],
+  "social.search_name": ["Recherche / nom", "Search / name"],
+  "social.search_refresh": ["Rechercher / actualiser", "Search / refresh"],
+  "social.done": ["Terminé", "Done"],
+  "social.title_question": ["Titre / question", "Title / question"],
+  "social.options_separated_by": [
+    "Options séparées par |",
+    "Options separated by |"
+  ],
+  "social.date_in_your_timezone_yyyy_mm_dd_hh_mm": [
+    "Date chez vous (AAAA-MM-JJ HH:MM)",
+    "Date in your timezone (YYYY-MM-DD HH:MM)"
+  ],
+  "social.optional_closing_time_yyyy_mm_dd_hh_mm": [
+    "Clôture facultative (AAAA-MM-JJ HH:MM)",
+    "Optional closing time (YYYY-MM-DD HH:MM)"
+  ],
+  "social.check_the_date_and_time": [
+    "Vérifiez la date et l’heure.",
+    "Check the date and time."
+  ],
+  "social.react_more": ["Réagir", "React"],
+  "social.poll": ["Sondage rapide", "Quick poll"],
+  "social.game": ["Soirée jeux", "Game night"],
+  "social.shelf": ["Mes stickers", "Sticker shelf"],
+  "social.title": ["Titre ou question", "Title or question"],
+  "social.options": [
+    "Une option par ligne (2 à 10)",
+    "One option per line (2–10)"
+  ],
+  "social.multiple": ["Plusieurs choix autorisés", "Allow multiple choices"],
+  "social.closes": ["Clôturer à une date", "Close at a set time"],
+  "social.date": ["Date et heure locales", "Local date and time"],
+  "social.details": ["Jeu, serveur, détails…", "Game, server, details…"],
+  "social.post": ["Publier", "Post"],
+  "social.search": ["Rechercher", "Search"],
+  "social.save": ["Garder", "Save"],
+  "social.remove": ["Retirer", "Remove"],
+  "social.empty": [
+    "Aucune image. Recherchez ou ajoutez un lien.",
+    "No images. Search or add a link."
+  ],
+  "social.add": ["Ajouter", "Add"],
+  "social.failed": [
+    "Action impossible. Vérifiez les champs et réessayez.",
+    "Could not complete this action. Check the fields and try again."
+  ],
+  "social.closed": ["Sondage clos", "Poll closed"],
+  "social.vote": ["Voter", "Vote"],
+  "social.clear": ["Retirer mon vote", "Clear my vote"],
+  "social.close": ["Clore", "Close poll"],
+  "social.going": ["Partant", "Going"],
+  "social.maybe": ["Peut-être", "Maybe"],
+  "social.declined": ["Absent", "Can’t make it"],
+  "social.react": ["Réagir au vocal", "React in voice"],
   "crypto.observed_time": [
     "Heure locale de préparation ou de lecture de ce message chiffré",
     "Local preparation or observation time for this encrypted message"

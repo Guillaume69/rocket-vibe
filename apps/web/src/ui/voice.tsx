@@ -1,3 +1,4 @@
+import { reactVoice } from "../social";
 import type { Voice } from "../voice";
 import { nt } from "../native-i18n";
 import { t, language } from "../i18n";
@@ -85,6 +86,14 @@ function Controls({
           />
         </>
       )}
+      {voice.app.info?.capabilities.voice_reactions &&
+        !voice.app.model.rooms.get(voice.current ?? "")?.encrypted && (
+          <IconButton
+            name="smile"
+            label={language === "fr" ? "Réagir" : "React"}
+            action={(node) => reactVoice(voice.app, node)}
+          />
+        )}
       <IconButton
         name="leave-call"
         label={sidebar ? t("close") : nt("voice_session.leave")}

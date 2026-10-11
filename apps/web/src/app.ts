@@ -1,3 +1,4 @@
+import { gifs } from "./social";
 import { messageMenu, type MenuAction } from "./ui/menu";
 import { showThread } from "./ui/thread";
 import { emptyTimeline, timelineBanner } from "./ui/banners";
@@ -1870,6 +1871,27 @@ export class App implements RowActions {
       this.roomPermissions.get(this.room)?.send === false
     )
       return;
+    if (
+      !this.quote &&
+      !this.staged.length &&
+      /^\/giphy(?:\s|$)/i.test(text.trim()) &&
+      this.info?.capabilities.giphy
+    ) {
+      gifs(this, text.trim().replace(/^\/giphy\s*/i, ""), root, () => {
+        const editor = root ? this.threadComposer : this.composer;
+        if (editor?.value === text) {
+          editor.value = "";
+          if (root && this.account && this.room)
+            void write(
+              "drafts",
+              this.account.key + ":" + this.room + ":thread:" + root,
+              "",
+            );
+          else void this.saveDraft();
+        }
+      });
+      return;
+    }
     const account = this.account,
       room = this.room,
       opening = this.roomOpening,

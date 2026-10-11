@@ -69,6 +69,8 @@ pub struct ReadMark {
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct LiveState {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub voice_reactions: Vec<crate::social::VoiceReaction>,
     /// A refresh hint; the authenticated catalogue remains authoritative.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub emoji_catalog_revision: Option<String>,

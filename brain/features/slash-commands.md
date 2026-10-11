@@ -50,6 +50,10 @@ On a RocketVibe server the composer knows the list already (loaded when the room
 
 Mobile only treats a draft as a command when no quote reply is armed (`ui/composer.tsx`); on desktop the quote link put in front of the text makes it no longer start with `/`, which has the same effect.
 
+## GIF selection
+
+`/giphy` opens the native image picker in unencrypted rooms, with the draft retained until a successful selection. Rocket.Chat uses GET and POST `commands.preview`, including `tmid` for a thread reply; RocketVibe uses its configured server-side GIPHY search and normal image sends. See [social.md](social.md) for configuration, provider limits and the shelf.
+
 ## The private answer
 
 The private message is shown above the composer of the page it concerns, rendered as markdown, under a "only you" title, until closed. A newer note replaces the previous one. It is volatile: memory only, no database row.

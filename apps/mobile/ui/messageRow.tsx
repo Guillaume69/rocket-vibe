@@ -50,6 +50,7 @@ import { avatarUrl, protectedFileUrl } from '../lib/upload.ts';
 import { EmbedLinks } from './embedCard.tsx';
 import { LinkPreviews } from './linkCard.tsx';
 import {integrationCard} from '../lib/integrationCards.ts';
+import {SocialMessage,socialValue} from './social.tsx';
 import {IntegrationCard} from './integrationCard.tsx';
 import { offerDownloadOrShare } from './attachmentActions.ts';
 import { TransferBar } from './transferBar.tsx';
@@ -289,10 +290,11 @@ export const MessageRow = memo(function MessageRow({
         {!textIsFormTitle && (
           <MessageLongPress.Provider value={longPress}>
             <MentionSelf.Provider value={me}>
-              <MessageContent c={c} message={message} />
+              {!attachments.some(a=>socialValue(a)) && <MessageContent c={c} message={message} />}
             </MentionSelf.Provider>
           </MessageLongPress.Provider>
         )}
+        {client.kind==='rocketvibe' && attachments.map((a,i)=>{const value=socialValue(a);return value?<SocialMessage key={i} value={value} id={message.id} room={message.rid} author={message.authorId} c={c}/>:null;})}
         {message.form != null && client.kind === 'rocketvibe' && <FormCard c={c} id={message.id} json={message.form} />}
         {message.systemType === null && (
             <EmbedLinks c={c} client={client} text={message.text} urls={message.urls} onLongPress={longPress} />
@@ -906,6 +908,7 @@ function Attachments({
   return (
     <View style={styles.attachments}>
       {attachments.map((attachment, i) => {
+        if(socialValue(attachment))return null;
         const card=integrationCard(attachment);
         if(card)return <IntegrationCard key={i} c={c} card={card} onLongPress={onLongPress}/>;
         const encryption = attachmentEncryption(attachment);

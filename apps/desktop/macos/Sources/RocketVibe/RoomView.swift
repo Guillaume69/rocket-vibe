@@ -543,7 +543,7 @@ struct MessageRow: View, Equatable {
         }
         if editing {
             editor
-        } else if !message.body.isEmpty {
+        } else if message.social == nil && !message.body.isEmpty {
             BodyView(blocks: message.body, dimmed: message.delivery != .sent)
         }
         ForEach(Array(message.images.enumerated()), id: \.offset) { _, image in
@@ -557,6 +557,7 @@ struct MessageRow: View, Equatable {
         ForEach(Array(message.files.enumerated()), id: \.offset) { _, file in
             FileCard(file: file)
         }
+        if let social = message.social, let model { SocialCardView(social: social, message: message, model: model) }
         ForEach(Array(message.cards.enumerated()), id: \.offset) { _, card in
             if let page = card.player {
                 VideoCard(card: card, page: page)

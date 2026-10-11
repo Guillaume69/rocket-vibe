@@ -18,7 +18,7 @@ struct Avatar: View {
                 .font(.vibeTitle(size * 0.5))
                 .foregroundStyle(Vibe.ink.opacity(0.85))
             if let shown {
-                Image(nsImage: shown).resizable().scaledToFill()
+                AnimatedImage(image: shown)
             }
         }
         .frame(width: size, height: size)
@@ -117,4 +117,11 @@ struct ImageViewer: View {
         }
         .onChange(of:app.imagesVersion){if app.media?.current(path)==false{dismiss()}}
     }
+}
+
+/// Native image view preserves GIF animation in Rocket.Chat image attachments.
+struct AnimatedImage: NSViewRepresentable {
+    let image: NSImage
+    func makeNSView(context: Context) -> NSImageView { let view=NSImageView(); view.animates=true; view.imageScaling = .scaleProportionallyUpOrDown; return view }
+    func updateNSView(_ view: NSImageView, context: Context) { if view.image !== image { view.image=image } }
 }

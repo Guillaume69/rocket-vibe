@@ -146,6 +146,7 @@ pub(crate) async fn state(app: &App, actor: &Account) -> Result<LiveState> {
     .fetch_all(&mut *tx)
     .await?;
     let mut state = LiveState {
+        voice_reactions: vec![],
         emoji_catalog_revision: Some(
             sqlx::query_scalar::<_, i64>("SELECT revision FROM emoji_catalog WHERE singleton")
                 .fetch_one(&mut *tx)
@@ -163,7 +164,7 @@ pub(crate) async fn state(app: &App, actor: &Account) -> Result<LiveState> {
         state.limited = true;
         return Ok(state);
     }
-    let ids: Vec<_> = grants.iter().map(|g| &g.room_id).collect();
+    let ids: Vec<_> = grants.iter().map(|g| g.room_id.clone()).collect();
     #[allow(clippy::type_complexity)]
     let profiles:Vec<(String,String,String,String,Option<String>,String,bool)>=sqlx::query_as("SELECT id,username,display_name,profile_version,avatar_file_id,status_text,bot FROM users WHERE NOT disabled AND (id=$2 OR id IN (SELECT DISTINCT user_id FROM members WHERE room_id=ANY($1))) ORDER BY id LIMIT 513")
         .bind(&ids).bind(&actor.id).fetch_all(&mut *tx).await?;
@@ -271,6 +272,7 @@ pub(crate) async fn state(app: &App, actor: &Account) -> Result<LiveState> {
             });
         }
     }
+    state.voice_reactions = sqlx::query_as::<_,(String,String,String,String)>("SELECT v.id,v.room_id,v.user_id,v.emoji FROM voice_reactions v JOIN members m ON m.room_id=v.room_id AND m.user_id=v.user_id WHERE v.room_id=ANY($1) AND v.expires_at>clock_timestamp() AND EXISTS(SELECT 1 FROM voice_sessions s WHERE s.room_id=v.room_id AND s.user_id=v.user_id AND s.expires_at>clock_timestamp() AND s.state='connected' AND s.data_epoch=(SELECT data_epoch FROM instance WHERE singleton)) AND EXISTS(SELECT 1 FROM voice_sessions s WHERE s.room_id=v.room_id AND s.user_id=$2 AND s.expires_at>clock_timestamp() AND s.state='connected' AND s.data_epoch=(SELECT data_epoch FROM instance WHERE singleton)) ORDER BY v.expires_at,v.id LIMIT 100").bind(&ids).bind(&actor.id).fetch_all(&mut *tx).await?.into_iter().map(|(id,room_id,user_id,emoji)|rv_protocol::social::VoiceReaction{id,room_id,user_id,emoji}).collect();
     state.rings = crate::voice::live_rings(&mut tx, &actor.id).await?;
     for (room, root, id, username, display_name) in typists {
         if let Some(room) = state.rooms.iter_mut().find(|r| r.room_id == room) {

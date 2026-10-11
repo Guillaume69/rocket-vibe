@@ -56,6 +56,10 @@ struct Composer: View {
     @State var scheduled: ScheduledModel?
     @State var showingScheduled = false
     @State var pickingTime = false
+    @State var showingSocial = false
+    @State var socialMode = "menu"
+    @State var socialQuery = ""
+    @State var socialDraft: String?
 
     var body: some View {
         @Bindable var model = model
@@ -94,6 +98,10 @@ struct Composer: View {
                         .help(L("attach.choose"))
                         .disabled(!model.supportsFiles)
                         .padding(.bottom, 5)
+                    if model.supportsSocialMedia {
+                        Button { socialMode = "menu"; socialDraft = nil; showingSocial = true } label: { Image(systemName: "square.grid.2x2").foregroundStyle(Vibe.muted) }
+                            .buttonStyle(.borderless).help(L("social.shelf")).padding(.bottom, 5)
+                    }
                     ComposerField(
                         text: $model.draft,
                         placeholder: L("composer.placeholder"),
@@ -164,6 +172,11 @@ struct Composer: View {
         .modalOverlay(isPresented: $showingScheduled) {
             if let scheduled { ScheduledList(model: scheduled) }
         }
+        .modalOverlay(isPresented: $showingSocial) {
+            SocialPanel(model: model, initialMode: socialMode, initialQuery: socialQuery) {
+                if let socialDraft, model.draft == socialDraft { model.draft = "" }
+            }
+        }
         .modalOverlay(isPresented: $pickingTime) {
             if let times = model.scheduleTimes() { PickTimeCard(times: times, chosen: scheduleDraft) }
         }
@@ -208,6 +221,10 @@ struct Composer: View {
     }
 
     func send() {
+        if staged.isEmpty, model.pendingQuote == nil, model.supportsGiphy {
+            let parts = model.draft.trimmingCharacters(in: .whitespacesAndNewlines).split(maxSplits: 1, whereSeparator: { $0.isWhitespace })
+            if parts.first == "/giphy" { socialMode = "giphy"; socialQuery = parts.count > 1 ? String(parts[1]) : ""; socialDraft = model.draft; showingSocial = true; return }
+        }
         let files = staged
         staged = []
         suggestions = nil

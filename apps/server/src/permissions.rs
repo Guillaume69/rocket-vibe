@@ -61,7 +61,7 @@ pub(crate) fn room_grant(
 }
 
 pub async fn message(app: &App, actor: &Account, id: &str) -> Result<(String, MessagePermissions)> {
-    let row: MessageGrant = sqlx::query_as("SELECT m.room_id,m.revision,m.author_id,m.created_at,g.role,r.read_only,m.deleted,(m.system IS NOT NULL) AS system FROM messages m JOIN members g ON g.room_id=m.room_id AND g.user_id=$1 JOIN rooms r ON r.id=m.room_id WHERE m.id=$2")
+    let row: MessageGrant = sqlx::query_as("SELECT m.room_id,m.revision,m.author_id,m.created_at,g.role,r.read_only,m.deleted,(m.system IS NOT NULL) AS system,(m.social IS NOT NULL) AS social FROM messages m JOIN members g ON g.room_id=m.room_id AND g.user_id=$1 JOIN rooms r ON r.id=m.room_id WHERE m.id=$2")
         .bind(&actor.id).bind(id).fetch_optional(&app.pool).await?.ok_or_else(Error::missing)?;
     let deadline = row.created_at + Duration::minutes(15);
     let elevated = row.role == "owner" || row.role == "moderator";
@@ -73,7 +73,7 @@ pub async fn message(app: &App, actor: &Account, id: &str) -> Result<(String, Me
         MessagePermissions {
             message_id: id.into(),
             revision: row.revision.to_string(),
-            edit: ordinary && own && send,
+            edit: ordinary && own && send && !row.social,
             delete: ordinary && (own || elevated),
             react: ordinary && send,
             pin: ordinary && elevated,
@@ -93,6 +93,7 @@ struct MessageGrant {
     read_only: bool,
     deleted: bool,
     system: bool,
+    social: bool,
 }
 
 pub(crate) async fn require_send(

@@ -324,6 +324,18 @@ beta does.
 | Answering a form: text, long text, number, choice, person (a list or the room's members), one answer or several (checkboxes) | done | done | done | partial | Mobile: a native sheet; GTK: an `adw::Dialog`; SwiftUI: an overlay; all three close on a backdrop click. Web: Implemented in apps/web/src/bots.ts, workflows.ts and workflow-forms.ts; full GTK state qualification remains. |
 | Workflows on Rocket.Chat | n/a | n/a | n/a | n/a | Rocket.Chat has its own integrations. Web: Native-origin client; browser encryption and Rocket.Chat provider explicitly excluded. |
 
+## 18. Social features - [social](features/social.md)
+
+| Feature | Mobile | GTK | SwiftUI | Web | Notes |
+|---|---|---|---|---|---|
+| RocketVibe quick polls: single/multiple choices, withdrawal, expiry, author closure | done | done | done | done | Unencrypted rooms and thread replies. Mac GUI qualification still pending. |
+| RocketVibe game-night cards: local time, details, Going/Maybe/Can't make it, voice join | done | done | done | done | Unencrypted rooms. Mac GUI qualification still pending. |
+| Game-night pre-event reminder shortcut | done | partial | done | done | GTK uses the ordinary message reminder and owes the dedicated shortcut. |
+| Private sticker shelf: save, send, remove, custom HTTPS image links | done | done | done | done | RocketVibe syncs the shelf; Rocket.Chat stores it locally per account. Web is native-provider only. |
+| /giphy preview, selected image, thread reply and cancel-preserved draft | done | done | done | done | Rocket.Chat requires its installed GIPHY app; RocketVibe requires RV_GIPHY_CONFIG_FILE. Live provider qualification awaits a key. |
+| Ephemeral voice reactions on RocketVibe | done | done | done | done | Connected voice participants only, six emoji, rate-limited and expiring; unencrypted rooms. |
+| Social cards and voice reactions in encrypted rooms | missing | missing | missing | missing | No plaintext fallback send in encrypted rooms. |
+
 ## Open debt
 
 What each app owes, from the tables above. Rows missing in all three native apps
@@ -334,7 +346,7 @@ are product gaps, listed last.
   the message's picture, quick reactions and mark as read, the app's own sound,
   custom notification cards; on RocketVibe accounts the thread list, following
   and "also send to the room" (the server has the routes, section 6).
-- **GTK**: kChat "Sign in with Infomaniak" run on Windows and macOS; email 2FA resend; padlock tile once
+- **GTK**: the game-night pre-event reminder shortcut; kChat "Sign in with Infomaniak" run on Windows and macOS; email 2FA resend; padlock tile once
   unlocked; DM avatar versions in the list; video reduction; reconciliation snapshot; catch-up of
   deletions in rooms already caught up; outside Windows
   toasts, the notification's picture, quick reactions, mark as read and own sound
@@ -357,6 +369,7 @@ are product gaps, listed last.
   (encrypted rooms, history share and backup, private edits, reactions, search
   and files, storage keys, delegation, recovered history); most voice rows; the
   outbox, reconnection and purge rows; "Deleted user"; bots and workflows.
+- **All four**: social cards and voice reactions in encrypted rooms.
 - **All three**: the thread list and following on Mattermost, kChat and RocketVibe servers; room members, roles and settings on Mattermost and kChat; creating an encrypted room; creating a
   channel or private group on Rocket.Chat; "Deleted
   user" on messages ingested before the deletion, on server-computed names and in

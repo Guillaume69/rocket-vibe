@@ -6,6 +6,10 @@ All notable changes are documented here in English.
 
 ### Added
 
+- Quick polls, game-night RSVP cards, private sticker shelves and ephemeral voice reactions on RocketVibe servers in unencrypted rooms.
+- A GIF search and selection picker for /giphy, preserving the draft on cancel and supporting thread replies. GIF search uses the RocketVibe server GIPHY configuration.
+
+
 - A local, throttled reminder toast when speaking while muted in RocketVibe voice calls.
 - Search messages across rooms, in this browser: the sidebar's search button or Ctrl+Shift+F finds words in the messages the browser already holds in every room, newest first under their room's name, and opens the one you pick. Encrypted conversations keep their own search, inside each one.
 - Settings > App > Diagnostics downloads a short log of the app's recent events in this tab (errors, connection changes, version, browser) to send to a developer, without tokens, messages or names.

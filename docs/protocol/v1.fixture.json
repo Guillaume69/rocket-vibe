@@ -196,4 +196,77 @@
   "register_push": {"token":"fixture-fcm-registration-token"},
   "push_registration": {"device_id":"fixture-device","instance_id":"fixture-instance","data_epoch":"fixture-epoch"},
   "push_content": {"notification_id":"fixture-notification","device_id":"fixture-device","instance_id":"fixture-instance","data_epoch":"fixture-epoch","room":{"id":"room-id","name":"A room","kind":"private","revision":"9007199254740993"},"message":{"id":"message-id","room_id":"room-id","author":{"id":"alice-id","username":"alice","display_name":"Alice"},"text":"Bonjour 🚀","created_at":"2026-09-30T12:00:00+00:00","position":"9007199254740993","revision":"9007199254740993"}}
+,
+  "social": {
+    "gif_list": {
+      "items": [
+        {
+          "id": "gif-1",
+          "title": "Hello",
+          "url": "https://media.giphy.com/hello.gif",
+          "width": 240,
+          "height": 180,
+          "source": "https://giphy.com/gifs/hello"
+        }
+      ]
+    },
+    "sticker_list": {
+      "stickers": [
+        {
+          "id": "sticker-1",
+          "name": "Wave",
+          "url": "https://media.giphy.com/hello.gif"
+        }
+      ]
+    },
+    "create": {
+      "kind": "poll",
+      "operation_id": "poll-1",
+      "question": "What game?",
+      "options": [
+        "Co-op",
+        "Racing"
+      ],
+      "multiple": false,
+      "closes_at": null,
+      "reply_to": null
+    },
+    "answer": {
+      "operation_id": "vote-1",
+      "choices": [
+        0
+      ]
+    },
+    "close": {
+      "operation_id": "close-1"
+    },
+    "save_sticker": {
+      "operation_id": "save-1",
+      "name": "Wave",
+      "url": "https://media.giphy.com/hello.gif"
+    },
+    "send_image": {
+      "operation_id": "send-1",
+      "title": "Wave",
+      "url": "https://media.giphy.com/hello.gif",
+      "reply_to": null
+    },
+    "react_voice": {
+      "operation_id": "react-1",
+      "emoji": "👏"
+    },
+    "sticker": {
+      "id": "sticker-1",
+      "name": "Wave",
+      "url": "https://media.giphy.com/hello.gif"
+    },
+    "gif": {
+      "id": "gif-1",
+      "title": "Hello",
+      "url": "https://media.giphy.com/hello.gif",
+      "width": 240,
+      "height": 180,
+      "source": "https://giphy.com/gifs/hello"
+    }
+  }
 }

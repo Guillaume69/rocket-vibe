@@ -46,6 +46,15 @@ pub(super) fn attachments(conn: &Connection, id: &str) -> rusqlite::Result<Optio
             serde_json::from_str(&quotes).map_err(|_| rusqlite::Error::InvalidQuery)?;
         cards.extend(quotes);
     }
+    let social: Option<String> = conn
+        .query_row("SELECT social FROM native_messages WHERE id=?1 AND NOT deleted", [id], |r| r.get(0))
+        .optional()?
+        .flatten();
+    if let Some(value) = social {
+        let value: rv_protocol::social::SocialCard =
+            serde_json::from_str(&value).map_err(|_| rusqlite::Error::InvalidQuery)?;
+        cards.push(serde_json::json!({"native_social":value}));
+    }
     if cards.is_empty() { Ok(None) } else { json(&cards).map(Some) }
 }
 impl NativeStore {

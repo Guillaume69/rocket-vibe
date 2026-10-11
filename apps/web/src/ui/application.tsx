@@ -1,3 +1,4 @@
+import { socialMenu } from "../social";
 import {
   useLayoutEffect,
   useEffect,
@@ -290,6 +291,20 @@ function Shell({ app }: { app: App }) {
               className="attach-button"
               action={() => app.pickFile()}
             />
+            {!app.model.rooms.get(app.room ?? "")?.encrypted &&
+              (app.info?.capabilities.social_cards ||
+                app.info?.capabilities.sticker_shelf ||
+                app.info?.capabilities.giphy) && (
+                <IconButton
+                  name="more"
+                  label={
+                    language === "fr"
+                      ? "Sondage, soirée, stickers et GIF"
+                      : "Polls, game nights, stickers and GIFs"
+                  }
+                  action={(node) => socialMenu(app, node)}
+                />
+              )}
             <NativeEditor app={app} />
             <IconButton
               name="smile"

@@ -254,6 +254,10 @@ Ne garder que les lignes des options utilisées, puis `rv up -d`.
 
 > **La clé des facteurs se sauvegarde à part.** Si `auth.key` est perdue, les seconds facteurs deviennent inutilisables, et une réinitialisation de mot de passe ne les retire pas. Garder la même clé lors d'une restauration.
 
+### GIFs avec GIPHY (facultatif)
+
+Créer un fichier privé hors du dépôt à partir de `apps/server/giphy.example.json`, remplacer la clé et appliquer `chmod 600`. Le champ `rating` accepte `g`, `pg` (par défaut), `pg-13` ou `r`. Monter le fichier en lecture seule dans le conteneur du serveur et ajouter `RV_GIPHY_CONFIG_FILE` avec son chemin dans le conteneur, puis redémarrer le serveur. Ne pas placer la clé dans les applications ou dans le dépôt. Sans ce fichier, la recherche de GIF reste désactivée. Sur Rocket.Chat, installer/configurer son application GIPHY avec sa propre clé.
+
 ## 9. Sauvegardes et mises à jour
 
 ### Ce qu'il faut sauvegarder

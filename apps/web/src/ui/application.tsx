@@ -10,7 +10,13 @@ import { t, language } from "../i18n";
 import { actionMenu, stopMedia, toast } from "../dom";
 import { composer } from "../composer";
 import { write } from "../store";
-import { roomInfo, marked, search, newConversation } from "../panel-actions";
+import {
+  roomInfo,
+  marked,
+  search,
+  newConversation,
+  threads,
+} from "../panel-actions";
 import { ActionButton, Avatar, Brand, IconButton, Symbol } from "./controls";
 import { forRoom } from "../scheduled";
 import { LoginScreen } from "./login";
@@ -195,7 +201,9 @@ function Shell({ app }: { app: App }) {
         >
           {app.pending
             .filter(
-              (value) => value.room === app.room && !value.payload.reply_to,
+              (value) =>
+                value.room === app.room &&
+                (!value.payload.reply_to || value.payload.also_in_room),
             )
             .map((pending) => (
               <div key={pending.id} className="pending-row">
@@ -388,6 +396,13 @@ function RoomHeader({ app }: { app: App }) {
             <span className="room-title">{room.name}</span>
           </ActionButton>
           <IconButton name="pin" label={t("pins")} action={() => marked(app)} />
+          {app.info?.capabilities.thread_list && !room.encrypted && (
+            <IconButton
+              name="threads"
+              label={t("threads")}
+              action={() => threads(app)}
+            />
+          )}
           <IconButton
             name="search"
             label={t("search")}

@@ -8,6 +8,9 @@ export const search = (...args: Parameters<typeof import("./panels").search>) =>
   import("./panels").then((panel) => panel.search(...args));
 export const marked = (...args: Parameters<typeof import("./panels").marked>) =>
   import("./panels").then((panel) => panel.marked(...args));
+export const threads = (
+  ...args: Parameters<typeof import("./panels").threads>
+) => import("./panels").then((panel) => panel.threads(...args));
 export const profile = (
   ...args: Parameters<typeof import("./panels").profile>
 ) => import("./panels").then((panel) => panel.profile(...args));

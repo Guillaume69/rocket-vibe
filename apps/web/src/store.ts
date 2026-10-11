@@ -36,26 +36,35 @@ export class Model {
   }
   put(message: Message): void {
     const old = this.messages.get(message.id);
-    const previousStar = old?.personal_star,
-      incomingStar = message.personal_star;
-    const star =
-      previousStar &&
-      (!incomingStar || !newer(incomingStar.revision, previousStar.revision))
-        ? previousStar
-        : incomingStar;
+    // Personal marks (star, follow) carry their own revision: the newer copy
+    // wins, whatever the message's own revision.
+    const pick = <T extends { revision: string }>(
+      previous: T | null | undefined,
+      incoming: T | null | undefined,
+    ) =>
+      previous && (!incoming || !newer(incoming.revision, previous.revision))
+        ? previous
+        : incoming;
+    const star = pick(old?.personal_star, message.personal_star),
+      follow = pick(old?.personal_follow, message.personal_follow);
     if (!old || newer(message.revision, old.revision)) {
       this.messages.set(
         message.id,
-        message.deleted ? message : { ...message, personal_star: star },
+        message.deleted
+          ? message
+          : { ...message, personal_star: star, personal_follow: follow },
       );
       if (old && (message.deleted || message.revision !== old.revision))
         this.invalidateQuote(message.id);
     } else if (
       !old.deleted &&
-      incomingStar &&
-      (!previousStar || newer(incomingStar.revision, previousStar.revision))
+      (star !== old.personal_star || follow !== old.personal_follow)
     ) {
-      this.messages.set(message.id, { ...old, personal_star: incomingStar });
+      this.messages.set(message.id, {
+        ...old,
+        personal_star: star,
+        personal_follow: follow,
+      });
     }
   }
   batch(batch: SyncBatch): void {
@@ -163,21 +172,41 @@ export class Model {
     };
   }
   timeline(room: string, root?: string): Message[] {
-    return [...this.messages.values()]
-      .filter(
+    const live = [...this.messages.values()].filter(
+      (message) => message.room_id === room && !message.deleted,
+    );
+    if (root)
+      return sorted(live.filter((message) => message.reply_to === root));
+    const roots = live.filter((message) => !message.reply_to);
+    // A reply also sent to the room shows among the roots, but only within the
+    // loaded window: an older one (from an opened thread) would make history
+    // paging skip what lies between.
+    const oldest = roots.reduce<bigint | undefined>(
+      (low, message) =>
+        low === undefined || BigInt(message.position) < low
+          ? BigInt(message.position)
+          : low,
+      undefined,
+    );
+    return sorted([
+      ...roots,
+      ...live.filter(
         (message) =>
-          message.room_id === room &&
-          !message.deleted &&
-          (root ? message.reply_to === root : !message.reply_to),
-      )
-      .sort((a, b) =>
-        BigInt(a.position) < BigInt(b.position)
-          ? -1
-          : BigInt(a.position) > BigInt(b.position)
-            ? 1
-            : a.id.localeCompare(b.id),
-      );
+          !!message.reply_to &&
+          message.also_in_room &&
+          (oldest === undefined || BigInt(message.position) >= oldest),
+      ),
+    ]);
   }
+}
+function sorted(messages: Message[]): Message[] {
+  return messages.sort((a, b) =>
+    BigInt(a.position) < BigInt(b.position)
+      ? -1
+      : BigInt(a.position) > BigInt(b.position)
+        ? 1
+        : a.id.localeCompare(b.id),
+  );
 }
 let database: Promise<IDBDatabase> | undefined;
 function open(): Promise<IDBDatabase> {

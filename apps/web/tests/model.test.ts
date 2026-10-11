@@ -100,6 +100,50 @@ test("a newer private star applies without rolling back a newer public edit", ()
     revision: "10",
   });
 });
+test("a private follow keeps its own revision, like the star", () => {
+  const model = new Model();
+  model.put({
+    ...message("a", "1"),
+    personal_follow: { present: true, revision: "9" },
+  });
+  // A public refresh of the root (a new reply) carries no personal state.
+  model.put({ ...message("a", "1", "room", "5") });
+  assert.deepEqual(model.messages.get("a")?.personal_follow, {
+    present: true,
+    revision: "9",
+  });
+  // An older personalized read never rolls it back; a newer one applies.
+  model.put({
+    ...message("a", "1", "room", "5"),
+    personal_follow: { present: false, revision: "0" },
+  });
+  assert.equal(model.messages.get("a")?.personal_follow?.present, true);
+  model.put({
+    ...message("a", "1", "room", "5"),
+    personal_follow: { present: false, revision: "12" },
+  });
+  assert.equal(model.messages.get("a")?.personal_follow?.present, false);
+});
+test("a reply also sent to the room shows among the roots of the loaded window", () => {
+  const model = new Model();
+  model.put(message("root", "10"));
+  model.put({ ...message("hidden", "11"), reply_to: "root" });
+  model.put({
+    ...message("shown", "12"),
+    reply_to: "root",
+    also_in_room: true,
+  });
+  // Older than every loaded root: paging would skip what lies between.
+  model.put({ ...message("old", "2"), reply_to: "x", also_in_room: true });
+  assert.deepEqual(
+    model.timeline("room").map((item) => item.id),
+    ["root", "shown"],
+  );
+  assert.deepEqual(
+    model.timeline("room", "root").map((item) => item.id),
+    ["hidden", "shown"],
+  );
+});
 test("room removal purges its history and quoted private text in other rooms", () => {
   const model = new Model();
   model.rooms.set("secret", room("secret"));

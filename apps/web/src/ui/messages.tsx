@@ -795,6 +795,14 @@ export function MessageView({
             {message.thread.replies + " " + t("thread")}
           </ActionButton>
         )}
+        {message.reply_to && message.also_in_room && (
+          <ActionButton
+            className="thread-chip"
+            action={() => actions.thread(message)}
+          >
+            {t("inThread")}
+          </ActionButton>
+        )}
       </div>
       <ActionButton
         className="row-more"

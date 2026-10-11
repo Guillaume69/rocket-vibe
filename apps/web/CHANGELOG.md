@@ -4,6 +4,10 @@ All notable changes are documented here in English.
 
 ## [Unreleased]
 
+### Added
+
+- Threads: a Threads button in the room header lists the room's threads (All or Following, latest reply first, more as you scroll), each with Follow / Unfollow and Open thread; the open thread has its own follow bell, kept in step with your other sessions. Replying follows a thread. In a thread, "Also send to the room" shows that one reply in the room's timeline too.
+
 ## [0.4.0] - 2026-10-11
 
 ### Added

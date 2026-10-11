@@ -13,7 +13,10 @@ import type {
   RoomDetails,
   RoomMemberPage,
   DeviceSession,
+  ThreadEntry,
+  ThreadList,
 } from "./protocol";
+import { when } from "./scheduled";
 import { operation, segment } from "./api";
 import { el, button, field, tile, dialog, toast } from "./dom";
 import { matchRooms } from "./room-match";
@@ -337,6 +340,140 @@ export async function marked(app: App): Promise<void> {
     }),
   );
   await load();
+}
+/**
+ * The room's threads, All or Following, latest reply first, a page more as the
+ * list scrolls to its end. Follow buttons follow the model live.
+ */
+export async function threads(app: App): Promise<void> {
+  if (!app.room || !app.account) return;
+  const room = app.room,
+    account = app.account.key,
+    generation = app.generation,
+    mine = app.account.session.user.id;
+  const [node, body] = dialog(t("threads"));
+  node.classList.add("threads-dialog");
+  const tabs = el("div", "tabs"),
+    list = el("div", "thread-list"),
+    more = button(t("loadMore"), () => load(true));
+  more.hidden = true;
+  body.append(tabs, list, more);
+  const active = () =>
+    node.open &&
+    account === app.account?.key &&
+    generation === app.generation &&
+    room === app.room;
+  let filter: "all" | "following" = "all",
+    next: string | null | undefined,
+    loading = false,
+    epoch = 0;
+  const shown = new Map<string, { entry: ThreadEntry; paint: () => void }>();
+  const row = (entry: ThreadEntry) => {
+    const item = el("div", "thread-entry");
+    item.dataset.thread = entry.root.id;
+    item.append(messageRow(entry.root, mine, app));
+    const meta = el("div", "thread-meta"),
+      summary = el("span", "dim"),
+      unread = el("span", "thread-unread"),
+      follow = button("", async () => {
+        const root = await app.followThread(
+          entry.root.id,
+          !app.following(entry.root),
+        );
+        entry.root = { ...entry.root, personal_follow: root.personal_follow };
+        paint();
+      });
+    follow.classList.add("thread-follow");
+    const paint = () => {
+      const following = app.following(entry.root);
+      follow.textContent = t(following ? "unfollow" : "follow");
+      follow.setAttribute("aria-pressed", String(following));
+    };
+    const last = entry.root.thread?.last_reply_at;
+    summary.textContent = t("threadSummary")
+      .replace("{n}", entry.root.thread?.replies || "0")
+      .replace("{at}", last ? when(new Date(last), language) : "");
+    unread.textContent =
+      entry.unread !== "0"
+        ? t("threadUnread").replace("{n}", entry.unread)
+        : "";
+    unread.hidden = entry.unread === "0";
+    meta.append(
+      summary,
+      unread,
+      follow,
+      button(t("openThread"), async () => {
+        node.close();
+        await app.thread(entry.root);
+      }),
+    );
+    item.append(meta);
+    paint();
+    shown.set(entry.root.id, { entry, paint });
+    return item;
+  };
+  const load = async (append: boolean) => {
+    if (append && (loading || !next)) return;
+    const current = ++epoch;
+    loading = true;
+    try {
+      const page = await app.api.request<ThreadList>(
+        "/api/v1/rooms/" +
+          segment(room) +
+          "/threads?filter=" +
+          filter +
+          (append && next ? "&before=" + segment(next) : ""),
+      );
+      if (!active() || current !== epoch) return;
+      if (!append) {
+        list.replaceChildren();
+        shown.clear();
+      }
+      for (const entry of page.threads)
+        if (!shown.has(entry.root.id)) list.append(row(entry));
+      next = page.next;
+      more.hidden = !next;
+      if (!shown.size) list.append(el("p", "dim", t("noThreads")));
+    } finally {
+      if (current === epoch) loading = false;
+    }
+    // A first page shorter than the dialog cannot scroll: fetch on.
+    if (active() && next && body.scrollHeight <= body.clientHeight)
+      await load(true);
+  };
+  body.addEventListener("scroll", () => {
+    if (body.scrollHeight - body.scrollTop - body.clientHeight < 120)
+      void load(true).catch(toast);
+  });
+  const repaint = () => {
+    if (!node.isConnected) {
+      window.removeEventListener("rv-model-update", repaint);
+      return;
+    }
+    for (const { paint } of shown.values()) paint();
+  };
+  window.addEventListener("rv-model-update", repaint);
+  node.addEventListener("close", () =>
+    window.removeEventListener("rv-model-update", repaint),
+  );
+  const tab = (label: string, value: "all" | "following") => {
+    const node = button(label, () => {
+      filter = value;
+      for (const other of tabs.children)
+        other.setAttribute("aria-selected", String(other === node));
+      next = undefined;
+      return load(false);
+    });
+    node.setAttribute("role", "tab");
+    node.setAttribute("aria-selected", String(value === filter));
+    return node;
+  };
+  tabs.setAttribute("role", "tablist");
+  tabs.append(
+    tab(t("threadsAll"), "all"),
+    tab(t("threadsFollowing"), "following"),
+  );
+  await load(false);
 }
 export async function profile(
   app: App,

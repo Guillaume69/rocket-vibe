@@ -269,6 +269,12 @@ pub fn install(window: &Rc<AppWindow>) {
             let Some(rid) = w.chat.room_named(&room) else { return };
             opened.set(true);
             w.chat.open_room(&rid);
+            if std::env::var("RV_SMOKE_NAVIGATION").as_deref() == Ok("1") {
+                let (window, chat) = (w.window.clone(), w.chat.clone());
+                glib::timeout_add_local_once(Duration::from_millis(2000), move || {
+                    glib::spawn_future_local(navigation_checks(window, chat));
+                });
+            }
             if std::env::var("RV_SMOKE_DEVICES").as_deref() == Ok("1") {
                 let w = w.clone();
                 glib::timeout_add_local_once(Duration::from_millis(1500), move || native_devices_checks(w));
@@ -2200,4 +2206,91 @@ fn update_checks(chat: Rc<crate::chat::ChatPage>, install: bool) {
         }
         glib::ControlFlow::Continue
     });
+}
+
+/// Exercise the real rail/avatar widgets and verify the server-side status.
+async fn navigation_checks(window: adw::ApplicationWindow, chat: Rc<crate::chat::ChatPage>) {
+    let root: &gtk::Widget = window.upcast_ref();
+    if let Some(settings) = gtk::Settings::default() {
+        let layout = settings.gtk_decoration_layout().unwrap_or_default();
+        check("Linux title bar omits app icon", !layout.contains("icon"), &layout);
+        check(
+            "Linux title bar keeps window controls",
+            ["minimize", "maximize", "close"].iter().all(|c| layout.contains(c)),
+            &layout,
+        );
+    }
+    let toggle = find_by_class(root, "rail-toggle").and_downcast::<gtk::Button>().expect("rail toggle");
+    let theme = gtk::IconTheme::for_display(&gtk::prelude::WidgetExt::display(&window));
+    check("rail toggle icon exists", toggle.icon_name().is_some_and(|name| theme.has_icon(&name)), toggle.icon_name());
+    let before = crate::rail::hidden();
+    toggle.emit_clicked();
+    check("rail toggle persists hidden choice", crate::rail::hidden() != before, crate::rail::hidden());
+    let rail = find_by_class(root, "server-rail").expect("server rail");
+    check("rail toggle changes actual visibility", rail.is_visible() == before, rail.is_visible());
+    toggle.emit_clicked();
+    check("rail toggle restores visibility", rail.is_visible() != before, rail.is_visible());
+    let connection = find_by_class(root, "connection-button").expect("connection control");
+    check(
+        "connection dot lives in account footer",
+        connection.parent().is_some_and(|p| p.has_css_class("account")),
+        connection.parent().map(|p| p.css_classes()),
+    );
+    let Some(session) = chat.session() else { return };
+    let s = session.clone();
+    let original = crate::on_tokio(async move { s.me().await }).await.expect("own profile");
+    let chosen = if original.status == "away" { "busy" } else { "away" };
+    let avatar = find_by_class(root, "account-avatar").and_downcast::<gtk::Button>().expect("avatar button");
+    avatar.emit_clicked();
+    glib::timeout_future(Duration::from_millis(200)).await;
+    let menu = find_by_class(root, "action-menu").expect("presence menu");
+    let mut child = menu.first_child();
+    let mut clicked = false;
+    while let Some(row) = child {
+        if let Some(button) = row.downcast_ref::<gtk::Button>()
+            && button
+                .child()
+                .and_downcast::<gtk::Box>()
+                .and_then(|c| c.last_child())
+                .and_downcast::<gtk::Label>()
+                .is_some_and(|l| l.text() == crate::i18n::t(&format!("presence.{chosen}")))
+        {
+            button.emit_clicked();
+            clicked = true;
+            break;
+        }
+        child = row.next_sibling();
+    }
+    check("avatar menu selects status", clicked, chosen);
+    let mut saved = None;
+    for _ in 0..30 {
+        let s = session.clone();
+        saved = crate::on_tokio(async move { s.me().await }).await.ok();
+        if saved.as_ref().is_some_and(|m| m.status == chosen) {
+            break;
+        }
+        glib::timeout_future(Duration::from_millis(200)).await;
+    }
+    check(
+        "avatar status saved on server",
+        saved.as_ref().is_some_and(|m| m.status == chosen),
+        saved.as_ref().map(|m| &m.status),
+    );
+    check(
+        "avatar keeps existing status text",
+        saved.as_ref().is_some_and(|m| m.status_text == original.status_text),
+        saved.as_ref().map(|m| &m.status_text),
+    );
+    let dot = find_by_class(root, "own-presence").expect("own presence dot");
+    for _ in 0..20 {
+        if dot.is_visible() && dot.has_css_class(chosen) {
+            break;
+        }
+        glib::timeout_future(Duration::from_millis(100)).await;
+    }
+    check("avatar dot reflects saved activity", dot.is_visible() && dot.has_css_class(chosen), dot.css_classes());
+    let s = session.clone();
+    crate::on_tokio(async move { s.set_status(&original.status, &original.status_text).await })
+        .await
+        .expect("restore fixture status");
 }

@@ -80,7 +80,7 @@ Reconciliation ignores an empty list (an active account always has subscriptions
 | Retention | 500 per room, once per session | 500 per room, once per session |
 | Reconciliation snapshot before the request | yes | no (`purge_rooms_except` reads the known rids at write time) |
 | Background | socket closed, driver suspended, push | socket kept |
-| Logout interrupted offline | queued and replayed at next start | best effort, not replayed |
+| Logout interrupted offline | queued and replayed at next start | Rocket.Chat, Mattermost and kChat replay at next start through a keychain marker; failed native revocation keeps the account signed in |
 
 Two consequences worth knowing on desktop: a room created between the reconciliation request and its write could be purged until the next global catch-up brings it back, and a message deleted in a room that is already in `synced` while another room is open stays visible until that room is caught up again (a reconnection while it is open, or the next session). [Parity](../parity.md) §14 tracks these as desktop debt.
 

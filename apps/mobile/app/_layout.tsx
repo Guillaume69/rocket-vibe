@@ -86,6 +86,12 @@ export default function RootLayout() {
                         so a tap outside it closes it like Back, with no action
                         (react-native-screens' default; project rule, CLAUDE.md). */}
                     <Stack.Screen
+                      name="presence"
+                      options={{ presentation: 'formSheet', headerShown: false, sheetAllowedDetents: 'fitToContents',
+                        sheetGrabberVisible: true, sheetCornerRadius: 24,
+                        contentStyle: { backgroundColor: darkColors.deepCard } }}
+                    />
+                    <Stack.Screen
                       name="message-actions"
                       options={{
                         presentation: 'formSheet',

@@ -290,6 +290,48 @@ body {
   background: #0f0e1c;
   flex-shrink: 0;
 }
+.account-avatar {
+  position: relative;
+  padding: 0;
+  flex-shrink: 0;
+}
+.own-presence {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid #0f0e1c;
+}
+.own-presence.online {
+  background: #3ed67f;
+}
+.own-presence.away {
+  background: #ffc24b;
+}
+.own-presence.busy {
+  background: #ff5f6d;
+}
+.own-presence.offline {
+  background: #5a5573;
+}
+.account-controls {
+  display: flex;
+  align-items: center;
+  text-align: left;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+.account-controls > div {
+  flex: 1;
+  min-width: 0;
+}
+.account-controls .account-host {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .account > div:nth-child(2) {
   flex: 1;
 }

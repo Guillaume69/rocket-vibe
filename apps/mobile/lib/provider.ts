@@ -382,6 +382,10 @@ export interface Provider {
   readonly capabilities: Capabilities;
   /** Temporary results, normalised for the existing renderer. */
   searchMessages?(rid:string,text:string):Promise<LocalMessage[]>;
+  ownActivity?: {
+    read(): Promise<import('./presence.ts').PresenceStatus>;
+    set(status: import('./presence.ts').PresenceStatus): Promise<import('./presence.ts').PresenceStatus>;
+  };
   /** Everyone's presence at once, when the protocol reads it its own way (`capabilities.presence`). */
   loadPresence?(): Promise<ReadonlyArray<{ user: { id: string }; status: import('./presence.ts').PresenceStatus }>>;
   /** Presentation data of the existing info sheet, supplied by each protocol. */

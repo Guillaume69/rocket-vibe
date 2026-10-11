@@ -14,6 +14,10 @@ everything before it is under that section.
 - Read receipts: the live frame carries how far the other members of a small room (50 members at most) read it. An account preference turns them off both ways: its reads are hidden and it sees no one's.
 - Do not disturb: an account's preferences take quiet hours (a daily window in its time zone) and a mute until an instant (at most seven days). While either holds, no push is sent and no device rings for a call; messages still arrive. A client that does not know the new fields keeps them unchanged.
 
+### Changed
+
+- The embedded web client supports native MLS encrypted conversations through WebAssembly and uses React rendering, with room switching, read receipts, quick activity choices and do-not-disturb controls.
+
 ### Fixed
 
 - Behind a reverse proxy, the login, invitation, recovery and email limits count each client separately: `RV_TRUSTED_PROXIES` lists the proxies whose `X-Forwarded-For` names the client, and the Compose file sets it. Before, every client shared the proxy's address, and about thirty failed logins a minute locked everyone out.

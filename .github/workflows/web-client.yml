@@ -104,6 +104,7 @@ jobs:
           target/debug/rv-server create-user webbob
           target/debug/rv-server create-user websecurity
           target/debug/rv-server create-user webcomposer --admin
+          target/debug/rv-server create-user webrail
           target/debug/rv-server create-user webquiet
           target/debug/rv-server create-user webreceipts
           target/debug/rv-server create-user webreceiptspeer
@@ -123,25 +124,12 @@ jobs:
       - name: Exercise real browser conversations and devices
         working-directory: apps/web
         run: |
-          npm run test:e2ee
-          npm run test:browser
-          npm run test:features
-          npm run test:media
-          npm run test:images
-          npm run test:voice
-          npm run test:voice-connection
-          npm run test:voice-lifecycle
-          npm run test:sessions
-          npm run test:locked
-          npm run test:composer
-          npm run test:quiet
-          npm run test:receipts
-          npm run test:scheduled
-          npm run test:security
-          npm run test:visual
-          npm run test:workflows
-          npm run test:reads
-          npm run test:profiles
+          # Closed browser contexts leave five-minute snapshot leases. Release them
+          # between suites on this disposable server, keeping each suite's limits real.
+          for suite in e2ee browser features media images voice voice-connection voice-lifecycle sessions locked composer quiet receipts scheduled security visual workflows reads profiles navigation; do
+            npm run "test:$suite"
+            docker exec "${{ job.services.postgres.id }}" psql -U web -d web --set ON_ERROR_STOP=1 --command 'DELETE FROM snapshot_heads'
+          done
       - name: Exercise authenticated browser vault and concurrent workers
         working-directory: apps/web
         run: |
@@ -169,6 +157,7 @@ jobs:
           name: web-browser-evidence
           path: |
             .cache/web-shots
+            artifacts/rail-presence
             .cache/web-server.log
           if-no-files-found: ignore
 

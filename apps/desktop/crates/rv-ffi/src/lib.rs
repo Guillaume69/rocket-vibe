@@ -792,6 +792,11 @@ impl Chat {
         Ok(on_tokio(async move { s.set_status(&status, &message).await }).await?)
     }
 
+    pub async fn set_activity(&self, status: String) -> Result<String, RvError> {
+        let s = self.session.clone();
+        Ok(on_tokio(async move { s.set_activity(&status).await }).await?)
+    }
+
     /// Signs out on the server and forgets the account and its cache; a
     /// sign-out the server did not hear (offline) is kept for the next start.
     pub async fn sign_out(&self) {

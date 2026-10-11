@@ -45,6 +45,7 @@ Same route: FCM token as `gcm`, FCM relays to APNs with the `.p8` key set in the
 
 ## Desktop
 
+- **Notification style (Windows GTK).** Settings > Notifications chooses System (default) or RocketVibe, persisted in `<config>/rocket-vibe-rs/notification-style`; the choice takes effect immediately and retires notifications of the previous backend. `notifier/custom.rs` draws GTK cards in the app's theme, one per room, at most three visible. `rv-native/src/windows_notification.rs` makes them tool windows without a taskbar entry or automatic activation and stacks them in the app monitor's work area, with DPI-scaled gaps. If a card cannot be placed, the notifier uses a system toast. Cards dismiss after eight seconds, paused while hovered or replying; a replacement preserves the draft and targets the new message. Escape and the close button dismiss; Open, Reply, React and Read reuse the notifier's existing callbacks. Explicitly choosing Reply activates the field. Encrypted messages show the encrypted placeholder and no reply, reactions or image. Cards obey `rv_native::quiet`, are removed on a room withdrawal or account switch, and offer no Windows Notification Center history. Turning off the app sound makes custom cards silent. Linux GTK, macOS GTK, SwiftUI, mobile and web retain their system notifications; custom appearance is parity debt. `RV_SMOKE_CUSTOM_NOTIFICATIONS=<png>` launches actual cards without a server, checks replacement, bounded stacking, drafts, action routing, timeout/hover, privacy and cleanup, and saves a rendered card. The Windows CI workflow `notification-cards.yml` runs it on a real Windows runner.
 - **Source.** `Session::incoming` (`rv-core/src/session.rs`) inspects each `stream-room-messages` event: skipped if it is mine, an edit, a system message other than `e2e`, or already in the store. `rv-core/src/notify.rs` builds an `Incoming` (author, room, DM or not, `mentions_me` from the parsed `md` or the text, body without ciphertext) and filters it with the account's `desktopNotifications` preference: `all`, `nothing`, otherwise DMs and mentions (`@me`, `@all`, `@here`).
 - **Suppression.** No notification when the window is active and already showing that room (`window.rs::notify`; the SwiftUI app checks `NSApp.isActive` and the open room). A RocketVibe account in do not disturb (muted, or inside its quiet hours read in their own zone) gets no new notification at all: `NativeSession::publish_notifications` drops them while `quiet_now` holds ([do-not-disturb.md](do-not-disturb.md)).
 - **Body.** `body_of` strips the quote permalink prefix, resolves emoji shortcodes, or names the file (📎) or image (🖼️). Encrypted: the `message.encrypted` string.
@@ -98,6 +99,7 @@ The desktop equivalent of push only works while the app runs. Both apps: DMs and
 - apps/desktop/crates/rv-core/src/session.rs
 - apps/desktop/crates/rv-core/src/rooms.rs
 - apps/desktop/crates/rv-gtk/src/notifier.rs
+- apps/desktop/crates/rv-gtk/src/notifier/custom.rs
 - apps/desktop/crates/rv-gtk/src/notifier/pictures.rs
 - apps/desktop/crates/rv-gtk/src/sounds.rs
 - apps/desktop/crates/rv-gtk/src/badge.rs
@@ -107,6 +109,8 @@ The desktop equivalent of push only works while the app runs. Both apps: DMs and
 - apps/desktop/crates/rv-native/src/lib.rs
 - apps/desktop/crates/rv-native/src/windows_impl.rs
 - apps/desktop/crates/rv-native/src/windows_toast.rs
+- apps/desktop/crates/rv-native/src/windows_notification.rs
+- .github/workflows/notification-cards.yml
 - assets/sounds/README.md
 - scripts/sounds/generate.mjs
 - apps/desktop/crates/rv-native/src/macos_impl.rs

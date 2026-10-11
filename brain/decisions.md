@@ -225,7 +225,18 @@ The user chose to measure before giving the RocketVibe store finer changes. The 
 
 Sources: apps/desktop/crates/rv-core/src/native/store.rs; apps/desktop/crates/rv-gtk/src/window.rs.
 
+## Windows notification appearance
+
+Windows custom notification cards stay opt-in alongside system notifications.
+GTK renders the same native widgets as the app, and Win32 handles tool-window
+placement and explicit reply focus. This permits RocketVibe's theme and actions
+without a WebView or a UI kit. System is the default because it retains the
+Windows Notification Center history; custom cards still obey the OS quiet state.
+
 ## Sources
+
+- `apps/desktop/crates/rv-gtk/src/notifier/custom.rs`
+- `apps/desktop/crates/rv-native/src/windows_notification.rs`
 
 - `docs/protocol/E2EE_AMENDMENTS.md`
 - `docs/protocol/E2EE_FILES.md`

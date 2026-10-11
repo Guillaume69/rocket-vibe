@@ -207,6 +207,7 @@ beta does.
 | The message's picture in the notification | missing | partial | missing | missing | GTK: Windows toasts only, Rocket.Chat and Mattermost accounts. Others show the "🖼️ title" line. |
 | React (👍 ❤️ 😂) and mark as read from the notification | missing | partial | missing | missing | GTK: Windows toasts only, Rocket.Chat and Mattermost accounts. Mobile and SwiftUI: reply only; Web: click only. |
 | The app's own notification sound | missing | partial | missing | missing | GTK: Windows (silent toast, `cue-message.ogg`, quiet when Windows holds notifications back, a switch gives the system's sound back). Elsewhere the system's sound. |
+| Choice of System or RocketVibe custom notification cards | missing | partial | missing | missing | GTK on Windows: persisted style choice, immediate switch, floating themed cards, one per room, at most three, reply drafts preserved, hover/reply pauses dismissal, avatars and image previews, existing actions, OS quiet-mode suppression, account cleanup and system fallback. No Notification Center history. Linux and macOS GTK still owe custom cards; mobile, SwiftUI and web use system notifications. |
 | Running with the window closed, starting at login | mapped | done | missing | partial | Mobile: push arrives with the app closed. GTK: Windows tray, macOS Dock; Linux quits on close. Web: Installable public shell; closed-tab Web Push and OS autostart absent. |
 
 ## 11. End-to-end encryption - [e2ee](features/e2ee.md)
@@ -327,21 +328,25 @@ are product gaps, listed last.
 
 - **Mobile**: kChat "Sign in with Infomaniak" run on a real account; several accounts per server;
   live styling of the draft; logs folder; in notifications the author's photo,
-  the message's picture, quick reactions and mark as read, the app's own sound.
+  the message's picture, quick reactions and mark as read, the app's own sound,
+  custom notification cards.
 - **GTK**: kChat "Sign in with Infomaniak"; email 2FA resend; padlock tile once
   unlocked; DM avatar versions in the list; video reduction; reconciliation snapshot; catch-up of
   deletions in rooms already caught up; outside Windows
   toasts, the notification's picture, quick reactions, mark as read and own sound
-  (Linux has the photo), and none of them for RocketVibe accounts.
+  (Linux has the photo), and none of them for RocketVibe accounts; custom
+  notification cards on Linux and macOS.
 - **SwiftUI**: everything GTK owes, plus
   workflow variables inserted at the cursor in a one-line URL;
   formatting toolbar; notification backend description; logs
   folder; new versions; running with the window closed and starting at login;
-  the notification's photo, picture, quick reactions, mark as read and own sound.
+  the notification's photo, picture, quick reactions, mark as read and own sound;
+  custom notification cards.
 - **Web**: missing: replay of an offline sign-out, video reduction, the thread
   list, following and "also send to the room", search across rooms, the logs
   folder, reply from a notification, message retention, the notification's
-  photo, picture, quick reactions, mark as read and own sound. Partial, mostly pending row-by-row
+  photo, picture, quick reactions, mark as read, own sound and custom notification
+  cards. Partial, mostly pending row-by-row
   qualification against GTK (`docs/WEB_CLIENT_EXECUTION.md`): link previews,
   embeds, quote cards, system messages, reactions, the thread chip, profiles,
   the notification check, running with the tab closed; most native E2EE rows

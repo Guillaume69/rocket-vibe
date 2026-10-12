@@ -771,6 +771,7 @@ struct AdminIconCard: View {
 private struct AdminInvitations: View {
     let model: AdminModel
     @State private var items: [AdminInvitation] = []
+    @State private var invitationReads = 0
     @State private var code = ""
     @State private var busy = false
     @State private var error: String?
@@ -808,7 +809,7 @@ private struct AdminInvitations: View {
         }
         .formStyle(.grouped).scrollContentBackground(.hidden)
         .task { alive = true; await load() }
-        .onDisappear { alive = false; code = "" }
+        .onDisappear { alive = false; code = ""; invitationReads += 1 }
         .confirmOverlay(isPresented: Binding(get: { revoking != nil }, set: { if !$0 { revoking = nil } }),
             title: L("admin.invitation_revoke"), message: L("admin.invitation_revoke_body"),
             actions: revoking.map { item in [ModalAction(title: L("admin.invitation_revoke"), role: .destructive) { Task { await revoke(item) } }] } ?? [])
@@ -822,8 +823,10 @@ private struct AdminInvitations: View {
     func active(_ item: AdminInvitation) -> Bool { item.revokedAt == nil && item.consumedAt == nil && !expired(item) }
     func status(_ item: AdminInvitation) -> String { L(item.revokedAt != nil ? "admin.invitation_revoked" : item.consumedAt != nil ? "admin.invitation_used" : expired(item) ? "admin.invitation_expired" : "admin.invitation_active") }
     func load() async {
-        do { let found = try await model.source.invitations(); if alive { items = found; error = nil } }
-        catch { if alive { self.error = AdminText.error(error) } }
+        invitationReads += 1
+        let expected = invitationReads
+        do { let found = try await model.source.invitations(); if alive && expected == invitationReads { items = found; error = nil } }
+        catch { if alive && expected == invitationReads { self.error = AdminText.error(error) } }
     }
     func create() async {
         guard !busy else { return }; busy = true; defer { busy = false }

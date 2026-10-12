@@ -26,6 +26,7 @@ function Invitations({ c, admin, server }: { c: Colors; admin: ProviderAdmin; se
     { busy, error, run } = useAdminRun();
   const [items, setItems] = useState<AccountInvitation[] | null>(null),
     [issued, setIssued] = useState<IssuedAccountInvitation | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   const alive = useRef(true),
     [version, setVersion] = useState(0),
     [loadError, setLoadError] = useState<import('../../ui/messages.ts').TranslationKey | null>(null);
@@ -41,6 +42,7 @@ function Invitations({ c, admin, server }: { c: Colors; admin: ProviderAdmin; se
       (rows) => {
         if (active) {
           setItems(rows);
+          setNow(Date.now());
           setLoadError(null);
         }
       },
@@ -92,7 +94,7 @@ function Invitations({ c, admin, server }: { c: Colors; admin: ProviderAdmin; se
           ? 'admin.invitationRevoked'
           : item.consumed_at
             ? 'admin.invitationUsed'
-            : Date.parse(item.expires_at) <= Date.now()
+            : Date.parse(item.expires_at) <= now
               ? 'admin.invitationExpired'
               : 'admin.invitationActive';
         return (

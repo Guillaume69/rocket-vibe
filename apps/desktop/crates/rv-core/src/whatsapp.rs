@@ -56,7 +56,7 @@ impl WireMessage {
             ts: self.ts,
             text: Some(self.text.clone()),
             author: Some(if self.mine {
-                String::new()
+                crate::i18n::t("wa.me").to_owned()
             } else if self.author.is_empty() {
                 self.name.clone()
             } else {

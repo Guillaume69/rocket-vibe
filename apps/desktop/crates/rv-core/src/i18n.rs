@@ -39,6 +39,7 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ),
     ("wa.demo", "Démonstration avec des conversations fictives", "Demo with synthetic conversations"),
     ("wa.choose", "Choisis une conversation", "Choose a conversation"),
+    ("wa.me", "Moi", "Me"),
     ("wa.connecting", "Connexion à WhatsApp…", "Connecting to WhatsApp…"),
     ("wa.loaded", "Conversations locales chargées", "Local conversations loaded"),
     ("wa.paired", "Appareil associé, connexion en cours…", "Device linked, connecting…"),

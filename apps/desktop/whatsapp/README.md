@@ -36,7 +36,7 @@ On Linux, an unlocked Secret Service is necessary for real linking. On Windows/m
 - Checkpoints run once per second, when the database changed, and before an outbound request. Atomic replacement protects the previous file, but the last second of received protocol state can be lost in a crash.
 - The text cache keeps the newest 20,000 messages; unsettled sends stay until settled.
 - A send intent is persisted before calling WhatsApp. An uncertain send stays uncertain across a restart and is **never automatically replayed**.
-- View-once, disappearing messages, media, edits and unsupported payloads are excluded from this text pilot. Do not represent its cache as a complete WhatsApp history.
+- View-once and disappearing messages are never kept; media and unsupported payloads are not there yet. Edits and revocations are applied. Do not represent the cache as a complete WhatsApp history (newest 20,000 messages).
 
 ## Tests
 

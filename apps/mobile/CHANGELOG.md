@@ -7,6 +7,8 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-10-13
+
 ### Added
 
 - Experimental WhatsApp accounts on Android: choose WhatsApp among the server types to link a personal account with a code typed in WhatsApp (or a QR for another phone). Its chats, names, profile photos, messages, reactions, edits, deletions and unread counts appear like any account; photos, videos, voice notes and documents show in the timeline and can be sent, voice notes recorded in the app arriving as real WhatsApp voice notes; you can reply quoting a message, react, edit, delete and read, and see who is typing (and be seen); New conversation finds your contacts, groups or any WhatsApp number; files show while they send. Settings > App lists the open-source licences of the WhatsApp engine. New messages notify with Reply and Mark as read, and "Receive in the background" (notification settings) keeps the account connected with the app closed, under a permanent notification.
@@ -771,7 +773,8 @@ First published version: Android, for Rocket.Chat 8 or later.
 - Profiles, room info, my profile (status, photo, information).
 - Interface in French and English.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.14.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.15.0...HEAD
+[0.15.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.14.0...mobile-v0.15.0
 [0.14.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.13.0...mobile-v0.14.0
 [0.13.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.12.0...mobile-v0.13.0
 [0.12.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.11.0...mobile-v0.12.0

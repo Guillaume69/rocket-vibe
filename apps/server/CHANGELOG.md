@@ -10,6 +10,8 @@ everything before it is under that section.
 
 ### Added
 
+- Admin-only, retry-safe account invitation creation, listing and revocation; secrets remain hashed in storage.
+
 - The Docker image is published to `ghcr.io/guillaume69/rocketvibe-server` on each release and carries a title, a description and its source repository (OCI labels).
 
 ### Fixed

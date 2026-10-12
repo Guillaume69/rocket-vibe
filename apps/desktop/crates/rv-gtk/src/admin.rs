@@ -49,6 +49,12 @@ pub fn open(parent: &impl IsA<gtk::Widget>, admin: Admin) -> SidebarDialog {
         let screen = screen.clone();
         dialog.add_lazy(id, icon, t(title), move |_| build(&screen));
     }
+    if screen.admin.invitations_supported() {
+        let s = screen.clone();
+        dialog.add_lazy("invitations", "system-users-symbolic", t("admin.cat.invitations"), move |_| {
+            crate::admin_invitations::page(&s.admin, &s.host)
+        });
+    }
     if screen.admin.emoji_supported() {
         let (id, icon, title) = EMOJI;
         dialog.add_lazy(id, icon, t(title), move |_| crate::admin_emoji::page(&screen.admin, &screen.host));

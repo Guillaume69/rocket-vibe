@@ -15,6 +15,21 @@
 import { dayKey } from './daySeparator.ts';
 
 const fr = {
+  "admin.invitations": "Invitations",
+  "admin.invitationHint": "Invitez une personne à créer son compte. Chaque code fonctionne une seule fois et expire après 7 jours. Aucun e-mail automatique.",
+  "admin.invitationCreate": "Créer une invitation",
+  "admin.invitationSecret": "Copiez ce code maintenant. Il ne sera plus affiché après fermeture.",
+  "admin.invitationCopy": "Copier le code",
+  "admin.invitationShare": "Partager",
+  "admin.invitationShareText": "Sur ce serveur, choisissez Créer un compte et saisissez ce code :",
+  "admin.invitationEmpty": "Aucune invitation",
+  "admin.invitationActive": "Disponible",
+  "admin.invitationUsed": "Utilisée",
+  "admin.invitationExpired": "Expirée",
+  "admin.invitationRevoked": "Révoquée",
+  "admin.invitationRevoke": "Révoquer",
+  "admin.invitationRevokeBody": "Ce code ne permettra plus de créer un compte. Les comptes déjà créés restent actifs.",
+  "admin.invitationLimit": "Trop d’invitations actives. Révoquez une invitation ou attendez son expiration.",
   "social.poll": "Sondage rapide",
   "social.game": "Soirée jeux",
   "social.shelf": "Mes stickers",
@@ -1644,6 +1659,21 @@ export type TranslationKey = keyof typeof fr;
  * breaks compilation. Keeping the SAME order as `fr` eases review.
  */
 const en: Record<TranslationKey, string> = {
+  "admin.invitations": "Invitations",
+  "admin.invitationHint": "Invite someone to create their account. Each code creates one account and expires after 7 days. No automatic email.",
+  "admin.invitationCreate": "Create invitation",
+  "admin.invitationSecret": "Copy this code now. It will not be shown again after closing.",
+  "admin.invitationCopy": "Copy code",
+  "admin.invitationShare": "Share",
+  "admin.invitationShareText": "On this server, choose Create account and enter this code:",
+  "admin.invitationEmpty": "No invitations",
+  "admin.invitationActive": "Available",
+  "admin.invitationUsed": "Used",
+  "admin.invitationExpired": "Expired",
+  "admin.invitationRevoked": "Revoked",
+  "admin.invitationRevoke": "Revoke",
+  "admin.invitationRevokeBody": "This code will no longer allow account creation. Accounts already created remain active.",
+  "admin.invitationLimit": "Too many active invitations. Revoke one or wait for it to expire.",
   "social.poll": "Quick poll",
   "social.game": "Game night",
   "social.shelf": "Sticker shelf",

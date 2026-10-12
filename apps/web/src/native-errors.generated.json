@@ -58,6 +58,7 @@
     "session_closed": "native.offline"
   },
   "admin": {
+    "invitation_limit": "admin.invitation_limit",
     "self_administration": "admin.error_self",
     "self_report": "report.error_self",
     "last_administrator": "admin.error_last_admin",

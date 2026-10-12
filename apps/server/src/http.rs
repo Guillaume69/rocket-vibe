@@ -256,6 +256,14 @@ pub fn router(app: App) -> Router {
         )
         .route("/api/v1/me/permissions", get(account_permissions))
         .route("/api/v1/admin/overview", get(admin_overview))
+        .route(
+            "/api/v1/admin/invitations",
+            get(admin_invitations).post(admin_create_invitation),
+        )
+        .route(
+            "/api/v1/admin/invitations/{id}/revoke",
+            post(admin_revoke_invitation),
+        )
         .route("/api/v1/admin/users", get(admin_users))
         .route(
             "/api/v1/admin/users/{id}",
@@ -558,6 +566,7 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
             session_rotation: true,
             device_sessions: true,
             account_invitations: true,
+            admin_invitations: true,
             account_recovery: true,
             second_factors: app.auth_key.is_some(),
             reauthentication: true,
@@ -1632,6 +1641,36 @@ async fn admin_account(app: &App, headers: &HeaderMap) -> Result<auth::Account> 
     crate::admin::require_admin(&actor)?;
     Ok(actor)
 }
+async fn admin_invitations(State(app): State<App>, headers: HeaderMap) -> Result<Response> {
+    let (hash, proof) = admin_read(&app, &headers).await?;
+    let value: Vec<_> = crate::invitations::list(&app)
+        .await?
+        .into_iter()
+        .map(crate::admin_invitations::wire)
+        .collect();
+    proof.json(&app, &hash, &value, &[], None).await
+}
+async fn admin_create_invitation(
+    State(app): State<App>,
+    headers: HeaderMap,
+    input: Input<rv_protocol::admin::CreateAccountInvitation>,
+) -> Result<Response> {
+    let actor = admin_account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::admin_invitations::create(&app, &actor, body(input)?).await?,
+    ))
+}
+async fn admin_revoke_invitation(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    input: Input<rv_protocol::admin::AdminOperation>,
+) -> Result<StatusCode> {
+    let actor = admin_account(&app, &headers).await?;
+    crate::admin_invitations::revoke(&app, &actor, &id, body(input)?).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 async fn admin_overview(State(app): State<App>, headers: HeaderMap) -> Result<Response> {
     let (hash, proof) = admin_read(&app, &headers).await?;
     let value = crate::admin::overview(&app).await?;

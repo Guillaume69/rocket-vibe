@@ -2,6 +2,7 @@
 mod actions_menu;
 mod admin;
 mod admin_emoji;
+mod admin_invitations;
 mod attach;
 mod background;
 mod badge;

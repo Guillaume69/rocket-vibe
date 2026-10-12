@@ -109,6 +109,9 @@ function Dashboard({ c, admin, client }: { c: Colors; admin: ProviderAdmin; clie
         <NavRow c={c} icon="dialog-warning" label={t('admin.moderation')} hint={t('admin.moderationHint')} count={reports} first onPress={() => router.push('/admin/moderation')} />
         <NavRow c={c} icon="chat-message-new" label={t('admin.rooms')} hint={t('admin.roomsHint')} onPress={() => router.push('/admin/rooms')} />
         <NavRow c={c} icon="system-users" label={t('admin.users')} hint={t('admin.usersHint')} onPress={() => router.push('/admin/users')} />
+        {admin.canInviteAccounts?.() === true && (
+          <NavRow c={c} icon="system-users" label={t('admin.invitations')} hint={t('admin.invitationHint')} onPress={() => router.push('/admin/invitations')} />
+        )}
         {admin.canManageEmojis?.() === true && (
           <NavRow c={c} icon="face-smile" label={t('admin.emoji')} hint={t('admin.emojiHint')} onPress={() => router.push('/admin/emoji')} />
         )}

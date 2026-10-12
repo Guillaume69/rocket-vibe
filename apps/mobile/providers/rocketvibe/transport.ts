@@ -376,6 +376,18 @@ export class NativeTransport {
     return bytes;
   }
   // Administration (`administration` capability, `users.admin` account) and member reports (`reports`).
+  async adminInvitations():Promise<NativeTypes['AccountInvitation'][]> {
+    const value=await this.value('/api/v1/admin/invitations',undefined,false,undefined,'GET');
+    if(!Array.isArray(value))throw new NativeError(0,'network_or_protocol_error');
+    return value.map(v=>decodeNative('AccountInvitation',v));
+  }
+  createAccountInvitation(input:NativeTypes['CreateAccountInvitation']):Promise<NativeTypes['IssuedAccountInvitation']> {
+    return this.request('IssuedAccountInvitation','/api/v1/admin/invitations',input);
+  }
+  async revokeAccountInvitation(id:string,input:NativeTypes['AdminOperation']):Promise<void> {
+    await this.value('/api/v1/admin/invitations/'+encodeURIComponent(id)+'/revoke',input);
+  }
+
   adminOverview():Promise<NativeTypes['AdminOverview']> { return this.request('AdminOverview','/api/v1/admin/overview'); }
   adminUsers(page:AdminPage={}):Promise<NativeTypes['AdminUserPage']> { return this.request('AdminUserPage',adminPage('/api/v1/admin/users',page)); }
   updateAdminUser(id:string,input:NativeTypes['UpdateAdminUser']):Promise<NativeTypes['AdminUser']> { return this.request('AdminUser',`/api/v1/admin/users/${encodeURIComponent(id)}`,input,false,undefined,'PATCH'); }

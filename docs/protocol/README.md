@@ -121,7 +121,7 @@ presence does not declare the corresponding endpoints available.
 | POST | `/sync/ticket` | Single-use WebSocket ticket, valid for 30 seconds |
 | GET / upgrade | `/sync/socket?ticket=…&cursor=…` | Same `SyncBatch` format, replay then follow |
 
-Account creation is a local command, not a public HTTP registration.
+Account creation is invitation-only, through an operator code or an administrator-created code; there is no open registration.
 The [`threads`](THREADS.md) capability is enabled; `uploads`, `push`, `e2ee`, `calls` stay false. `e2ee` is true by default since 6 October 2026 ([RFC 0002, Activation](../rfcs/0002-e2ee-native.md#activation-6-october-2026)); an operator turns it off with `RV_E2EE=false`.
 `reactions` advertises explicit additions / removals, available in the three clients.
 `room_discovery` advertises the directory and joining; `idempotent_room_creation`
@@ -154,7 +154,7 @@ SDK foundation does not yet mean that the screens of the three clients are wired
 
 The additive capability `account_invitations` authorises the form of the native
 clients. Older servers that omit it and Rocket.Chat keep their login
-flow. The operator CLI issues a CSPRNG code of 32 bytes, valid 1-168 h
+flow. The operator CLI or the admin-only API (`admin_invitations`, see [administration](ADMINISTRATION.md#account-invitations)) issues a CSPRNG code of 32 bytes, valid 1-168 h
 (7 days by default). PostgreSQL keeps its SHA-256 and the data
 generation. No public registration path and no admin right entered by the client.
 

@@ -16,6 +16,14 @@ use crate::model::Presence;
 use crate::native::NativeChat;
 use crate::{Chat, on_tokio};
 
+#[derive(Clone, uniffi::Record)]
+pub struct AdminInvitation {
+    pub id: String,
+    pub expires_at: String,
+    pub consumed_at: Option<String>,
+    pub revoked_at: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
 pub enum AdminProduct {
     RocketChat,
@@ -488,6 +496,9 @@ impl ServerAdmin {
         }
     }
     /// My account: the lists offer no action on it.
+    pub fn server_url(&self) -> String {
+        self.admin.info().base_url.clone()
+    }
     pub fn my_id(&self) -> String {
         self.admin.my_id().to_owned()
     }
@@ -623,6 +634,31 @@ impl ServerAdmin {
         on_tokio(async move { a.set_icon(png).await }).await.map_err(refused)
     }
     /// The server lets this administrator add and remove custom emoji.
+    pub fn invitations_supported(&self) -> bool {
+        self.admin.invitations_supported()
+    }
+    pub async fn invitations(&self) -> Result<Vec<AdminInvitation>, AdminFailure> {
+        let a = self.admin.clone();
+        let rows = on_tokio(async move { a.invitations().await }).await.map_err(refused)?;
+        Ok(rows
+            .into_iter()
+            .map(|r| AdminInvitation {
+                id: r.id,
+                expires_at: r.expires_at,
+                consumed_at: r.consumed_at,
+                revoked_at: r.revoked_at,
+            })
+            .collect())
+    }
+    pub async fn create_invitation(&self, hours: u32) -> Result<String, AdminFailure> {
+        let a = self.admin.clone();
+        on_tokio(async move { a.create_invitation(hours).await.map(|r| r.token) }).await.map_err(refused)
+    }
+    pub async fn revoke_invitation(&self, id: String) -> Result<(), AdminFailure> {
+        let a = self.admin.clone();
+        on_tokio(async move { a.revoke_invitation(&id).await }).await.map_err(refused)
+    }
+
     pub fn emoji_supported(&self) -> bool {
         self.admin.emoji_supported()
     }

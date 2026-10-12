@@ -93,6 +93,9 @@ pub struct Capabilities {
     pub device_sessions: bool,
     #[serde(default)]
     pub account_invitations: bool,
+    /// Administrators can create, list and revoke account invitations.
+    #[serde(default)]
+    pub admin_invitations: bool,
     #[serde(default)]
     pub account_recovery: bool,
     #[serde(default)]
@@ -198,6 +201,7 @@ impl Default for Capabilities {
             session_rotation: false,
             device_sessions: false,
             account_invitations: false,
+            admin_invitations: false,
             account_recovery: false,
             second_factors: false,
             reauthentication: false,
@@ -272,6 +276,7 @@ impl Capabilities {
             session_rotation,
             device_sessions,
             account_invitations,
+            admin_invitations,
             account_recovery,
             second_factors,
             reauthentication,

@@ -141,7 +141,14 @@ export const ADMIN_PAGE = 50;
  * account sees it. Every method rejects with the driver's usual errors (read
  * through `provider.describeError`).
  */
+export type AccountInvitation = import('../providers/rocketvibe/protocol.generated.ts').AccountInvitation;
+export type IssuedAccountInvitation = import('../providers/rocketvibe/protocol.generated.ts').IssuedAccountInvitation;
+
 export interface ProviderAdmin {
+  canInviteAccounts?(): boolean;
+  invitations?(): Promise<AccountInvitation[]>;
+  createInvitation?(hours: number): Promise<IssuedAccountInvitation>;
+  revokeInvitation?(id: string): Promise<void>;
   readonly product: AdminProduct;
   isAdmin(): Promise<boolean>;
   /**

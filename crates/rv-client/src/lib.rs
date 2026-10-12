@@ -1056,6 +1056,33 @@ impl NativeClient {
         self.empty(Method::DELETE, &format!("/api/v1/me/sessions/{id}"), false)
             .await
     }
+    pub async fn admin_invitations(
+        &self,
+    ) -> Result<Vec<rv_protocol::admin::AccountInvitation>, Error> {
+        self.get("/api/v1/admin/invitations").await
+    }
+    pub async fn create_account_invitation(
+        &self,
+        input: &rv_protocol::admin::CreateAccountInvitation,
+    ) -> Result<rv_protocol::admin::IssuedAccountInvitation, Error> {
+        self.post("/api/v1/admin/invitations", input).await
+    }
+    pub async fn revoke_account_invitation(
+        &self,
+        id: &str,
+        input: &rv_protocol::admin::AdminOperation,
+    ) -> Result<(), Error> {
+        if !path_segment(id) {
+            return Err(Error::InvalidUrl);
+        }
+        self.empty_input(
+            Method::POST,
+            &format!("/api/v1/admin/invitations/{id}/revoke"),
+            Some(input),
+        )
+        .await
+    }
+
     pub async fn accept_invitation(
         &self,
         input: &rv_protocol::parity::AcceptInvitation,

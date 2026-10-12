@@ -121,7 +121,9 @@ The administrator flag is stored for the rest of the workstream; it does not all
 reading private rooms or bypassing their rights. The CLI requires operator access
 to the database. No public registration is open.
 
-To let the person choose their own credentials in the app, issue an invitation:
+Administrators can also create, copy and revoke invitation codes in Server administration > Invitations in every app. No automatic email is sent.
+
+To issue a code through the operator CLI:
 
 ```sh
 docker compose --env-file docker/.env.native -f docker/compose.rocketvibe.yml run --rm server invite --hours 168

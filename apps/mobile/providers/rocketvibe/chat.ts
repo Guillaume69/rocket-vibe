@@ -777,7 +777,7 @@ export class NativeChat {
    * on a verified session, against the server signed in, with the capability
    * it announces now, and answered only to the session generation that asked.
    * `operation` gives a fresh `operation_id` per command. */
-  async administration<T>(capability:'administration'|'reports'|'bots'|'workflows',call:(transport:NativeTransport,operation:()=>string)=>Promise<T>):Promise<T> {
+  async administration<T>(capability:'administration'|'admin_invitations'|'reports'|'bots'|'workflows',call:(transport:NativeTransport,operation:()=>string)=>Promise<T>):Promise<T> {
     await this.verifiedReady();
     const generation=this.generation,discovery=await this.transport.discover();
     checkIdentity(this.session,discovery);this.roomOperationGeneration(generation);

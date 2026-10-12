@@ -25,6 +25,7 @@ extension AdminCategory {
         case .moderation: return "exclamationmark.bubble"
         case .rooms: return "number"
         case .users: return "person.2"
+        case .invitations: return "person.badge.plus"
         case .emoji: return "face.smiling"
         }
     }
@@ -145,6 +146,8 @@ struct AdminView: View {
                         Button { model.open(.user(user)) } label: { AdminUserRow(user: user) }
                             .buttonStyle(.plain)
                     }
+                case .invitations:
+                    AdminInvitations(model: model)
                 case .emoji:
                     Form { AdminEmojiSections(model: model) { item in
                         confirming = AdminConfirm(
@@ -761,5 +764,75 @@ struct AdminIconCard: View {
         NSImage(cgImage: square, size: NSSize(width: side, height: side)).draw(in: NSRect(x: 0, y: 0, width: side, height: side))
         NSGraphicsContext.restoreGraphicsState()
         return rep.representation(using: .png, properties: [:])
+    }
+}
+
+@MainActor
+private struct AdminInvitations: View {
+    let model: AdminModel
+    @State private var items: [AdminInvitation] = []
+    @State private var code = ""
+    @State private var busy = false
+    @State private var error: String?
+    @State private var alive = true
+    @State private var revoking: AdminInvitation?
+    var body: some View {
+        Form {
+            Section {
+                Text(L("admin.invitation_hint")).foregroundStyle(.secondary)
+                Button(L("admin.invitation_create")) { Task { await create() } }.disabled(busy)
+                if !code.isEmpty {
+                    Text(L("admin.invitation_secret")).foregroundStyle(.secondary)
+                    Text(code).textSelection(.enabled)
+                    HStack {
+                        Button(L("admin.invitation_copy")) { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(code, forType: .string) }
+                        ShareLink(item: model.source.serverUrl() + "\n" + L("admin.invitation_share_text") + "\n" + code) { Text(L("admin.invitation_share")) }
+                    }
+                }
+                if let error { Text(error).foregroundStyle(.red) }
+            }
+            Section(L("admin.cat.invitations")) {
+                Button(L("admin.invitation_refresh")) { Task { await load() } }.disabled(busy)
+                if items.isEmpty { Text(L("admin.invitation_empty")).foregroundStyle(.secondary) }
+                ForEach(items, id: \.id) { item in
+                    HStack {
+                        VStack(alignment: .leading) {
+                            Text(item.id).textSelection(.enabled)
+                            Text(status(item) + " · " + AdminText.date(item.expiresAt)).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if active(item) { Button(L("admin.invitation_revoke"), role: .destructive) { revoking = item }.disabled(busy) }
+                    }
+                }
+            }
+        }
+        .formStyle(.grouped).scrollContentBackground(.hidden)
+        .task { alive = true; await load() }
+        .onDisappear { alive = false; code = "" }
+        .confirmOverlay(isPresented: Binding(get: { revoking != nil }, set: { if !$0 { revoking = nil } }),
+            title: L("admin.invitation_revoke"), message: L("admin.invitation_revoke_body"),
+            actions: revoking.map { item in [ModalAction(title: L("admin.invitation_revoke"), role: .destructive) { Task { await revoke(item) } }] } ?? [])
+    }
+    func expired(_ item: AdminInvitation) -> Bool {
+        let parser = ISO8601DateFormatter(); parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let precise = parser.date(from: item.expiresAt)
+        parser.formatOptions = [.withInternetDateTime]
+        return (precise ?? parser.date(from: item.expiresAt) ?? .distantPast) <= Date()
+    }
+    func active(_ item: AdminInvitation) -> Bool { item.revokedAt == nil && item.consumedAt == nil && !expired(item) }
+    func status(_ item: AdminInvitation) -> String { L(item.revokedAt != nil ? "admin.invitation_revoked" : item.consumedAt != nil ? "admin.invitation_used" : expired(item) ? "admin.invitation_expired" : "admin.invitation_active") }
+    func load() async {
+        do { let found = try await model.source.invitations(); if alive { items = found; error = nil } }
+        catch { if alive { self.error = AdminText.error(error) } }
+    }
+    func create() async {
+        guard !busy else { return }; busy = true; defer { busy = false }
+        do { let found = try await model.source.createInvitation(hours: 168); if alive { code = found; await load() } }
+        catch { if alive { self.error = AdminText.error(error) } }
+    }
+    func revoke(_ item: AdminInvitation) async {
+        guard !busy else { return }; busy = true; defer { busy = false }
+        do { try await model.source.revokeInvitation(id: item.id); if alive { code = ""; await load() } }
+        catch { if alive { self.error = AdminText.error(error) } }
     }
 }

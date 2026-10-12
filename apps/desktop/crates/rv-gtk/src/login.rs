@@ -55,6 +55,7 @@ pub struct LoginPage {
     back: gtk::Button,
     known: gtk::FlowBox,
     cancel: gtk::Button,
+    whatsapp: gtk::Button,
 }
 
 fn hero() -> gtk::Box {
@@ -134,20 +135,13 @@ impl LoginPage {
         let password_caption = password_group.first_child().and_downcast::<gtk::Label>().expect("password caption");
         let credentials = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(14).build();
         credentials.append(&hero());
-        if rv_core::whatsapp::locate().is_some() {
-            let whatsapp = gtk::Button::builder().label(t("wa.link_title")).css_classes(["suggested-action"]).build();
-            whatsapp.connect_clicked(|button| {
-                if let Some(app) = button
-                    .root()
-                    .and_downcast::<gtk::Window>()
-                    .and_then(|w| w.application())
-                    .and_downcast::<adw::Application>()
-                {
-                    crate::whatsapp_pilot::show(&app);
-                }
-            });
-            credentials.append(&whatsapp);
-        }
+        // Shown when the WhatsApp helper is installed beside the app.
+        let whatsapp = gtk::Button::builder()
+            .label(t("wa.link_title"))
+            .css_classes(["pill", "whatsapp-link"])
+            .visible(crate::window::whatsapp_helper().is_some())
+            .build();
+        credentials.append(&whatsapp);
         credentials.append(&server_group);
         // Found by probing; forced when the probe gets it wrong behind an
         // unusual proxy.
@@ -525,6 +519,7 @@ impl LoginPage {
             back,
             known,
             cancel,
+            whatsapp,
         }
     }
 
@@ -552,6 +547,16 @@ impl LoginPage {
     /// Shown while another account is still signed in: back to it.
     pub fn set_cancel(&self, visible: bool) {
         self.cancel.set_visible(visible);
+    }
+
+    /// The smoke's click on Connect WhatsApp.
+    pub fn press_whatsapp(&self) {
+        self.whatsapp.emit_clicked();
+    }
+
+    /// Connect WhatsApp: the window opens the linking dialog.
+    pub fn connect_whatsapp(&self, f: impl Fn() + 'static) {
+        self.whatsapp.connect_clicked(move |_| f());
     }
 
     pub fn connect_cancel(&self, f: impl Fn() + 'static) {

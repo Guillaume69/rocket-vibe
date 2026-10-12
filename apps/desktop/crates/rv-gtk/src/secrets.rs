@@ -535,6 +535,22 @@ pub fn remember_server(base_url: &str) {
     let _ = std::fs::write(file, servers.join("\n"));
 }
 
+/// How a WhatsApp account reaches its wrapping keys.
+pub fn whatsapp_keys() -> rv_core::whatsapp_session::KeySource {
+    std::sync::Arc::new(|entry: String, has_state: bool| Box::pin(async move { whatsapp_key(&entry, has_state).await }))
+}
+
+/// Forgets an unlinked WhatsApp account: its wrapping key and sealed state.
+pub async fn forget_whatsapp(info: &SessionInfo) {
+    let Some(state) = rv_core::whatsapp::state_id(&info.base_url) else { return };
+    let data = gtk::glib::user_data_dir().join("rocket-vibe-rs");
+    let (path, entry) = rv_core::whatsapp::state_location(&data, state);
+    let _ = tokio::time::timeout(TIMEOUT, keychain::private_remove(&entry)).await;
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}
+
 /// The key that wraps a WhatsApp state, under its own keychain entry
 /// (`whatsapp::state_location`), separate from chat accounts. Made on first
 /// use; a state already on disk without its key fails closed.

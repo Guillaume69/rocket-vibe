@@ -34,6 +34,8 @@ mod native_navigation_tests;
 mod quotes;
 #[path = "chat_voice.rs"]
 mod voice;
+#[path = "chat_whatsapp.rs"]
+mod whatsapp;
 
 #[derive(Debug, Clone)]
 struct OpenRoom {
@@ -191,6 +193,15 @@ fn room_menu(widget: &gtk::Widget, session: Arc<Session>, room: &RoomRow, mark: 
 
 pub struct ChatPage {
     native: Rc<RefCell<Option<Arc<rv_core::native::NativeSession>>>>,
+    /// A WhatsApp account, its decoded photos and the table they came from.
+    whatsapp: Rc<RefCell<Option<Arc<rv_core::whatsapp_session::WaSession>>>>,
+    wa_photos: whatsapp::WaPhotos,
+    wa_photo_table: RefCell<Option<whatsapp::WaPhotoTable>>,
+    wa_photo_version: Cell<u64>,
+    /// The helper's last refusal already told, so a reload does not repeat it.
+    wa_error: RefCell<Option<String>>,
+    /// The sidebar's "+": no new conversations from a WhatsApp account.
+    new_conversation: gtk::MenuButton,
     /// Accepted room creation/join waits for its authoritative live membership.
     native_pending_room: RefCell<Option<(String, std::sync::Weak<rv_core::native::NativeSession>, u64)>>,
     navigation_generation: Cell<u64>,
@@ -291,6 +302,10 @@ impl ChatPage {
         let room_factory = gtk::SignalListItemFactory::new();
         let shared = session.clone();
         let native_shared = native_session.clone();
+        let whatsapp_session: Rc<RefCell<Option<Arc<rv_core::whatsapp_session::WaSession>>>> = Rc::default();
+        let whatsapp_shared = whatsapp_session.clone();
+        let wa_photos: whatsapp::WaPhotos = Rc::default();
+        let wa_photos_shared = wa_photos.clone();
         let toggle_section: Rc<Handler<Section>> = Rc::default();
         let toggler = toggle_section.clone();
         // The "+" of a section header: set once the page exists.
@@ -311,7 +326,7 @@ impl ChatPage {
                     item.set_activatable(true);
                     let add = match section {
                         Section::Channels if native_shared.borrow().is_some() => Some(t("rooms.new_channel")),
-                        Section::Direct => Some(t("rooms.new_message")),
+                        Section::Direct if whatsapp_shared.borrow().is_none() => Some(t("rooms.new_message")),
                         _ => None,
                     }
                     .map(|tooltip| {
@@ -340,6 +355,10 @@ impl ChatPage {
                     let widget = match native_shared.borrow().as_ref() {
                         Some(session) => {
                             binder.bind_room(crate::rows::native_room_widget(room, session), session, &room.rid)
+                        }
+                        None if whatsapp_shared.borrow().is_some() => {
+                            let photos = wa_photos_shared.borrow();
+                            crate::rows::whatsapp_room_widget(room, photos.get(&room.rid).map(|(_, texture)| texture))
                         }
                         None => crate::rows::room_widget_with_presence(room, shared.borrow().as_ref(), None),
                     };
@@ -558,6 +577,12 @@ impl ChatPage {
 
         let this = Rc::new(ChatPage {
             native: native_session,
+            whatsapp: whatsapp_session,
+            wa_photos,
+            wa_photo_table: RefCell::default(),
+            wa_photo_version: Cell::default(),
+            wa_error: RefCell::default(),
+            new_conversation: new_conversation.clone(),
             native_pending_room: RefCell::default(),
             navigation_generation: Cell::new(0),
             native_edit: RefCell::default(),
@@ -1161,6 +1186,10 @@ impl ChatPage {
             self.native_row_event(event, in_thread);
             return;
         }
+        if self.whatsapp_session().is_some() {
+            self.whatsapp_row_event(event);
+            return;
+        }
         let Some(session) = self.session.borrow().clone() else { return };
         match event {
             RowEvent::Retry(id) => self.retry(id),
@@ -1311,6 +1340,10 @@ impl ChatPage {
 
     /// Up in an empty composer: my last message, edited in place if the server still allows it.
     fn edit_last(self: &Rc<Self>, in_thread: bool) {
+        if self.whatsapp_session().is_some() {
+            self.edit_last_whatsapp();
+            return;
+        }
         if let Some(session) = self.native_session() {
             if let Some(row) = self.list_of(in_thread).last_mine(&session.info.user_id) {
                 if self.current.borrow().as_ref().is_some_and(|r| r.encrypted) {
@@ -1605,6 +1638,11 @@ impl ChatPage {
         self.native_edit.replace(None);
         self.native_membership.replace(None);
         self.native.take();
+        self.whatsapp.take();
+        self.wa_error.replace(None);
+        self.new_conversation.set_visible(true);
+        self.search_button.set_visible(true);
+        self.marked_button.set_visible(true);
         self.search_button.set_sensitive(true);
         self.marked_button.set_sensitive(true);
         self.local_search_button.set_visible(session.is_some());
@@ -1687,6 +1725,10 @@ impl ChatPage {
             self.schedule_native_read();
             return;
         }
+        if self.whatsapp_session().is_some() {
+            self.schedule_whatsapp_read();
+            return;
+        }
         let generation = self.read_generation.get() + 1;
         self.read_generation.set(generation);
         let (counter, list, split) = (self.read_generation.clone(), self.list.clone(), self.split.clone());
@@ -1766,6 +1808,10 @@ impl ChatPage {
     }
 
     pub fn show_room_info(self: &Rc<Self>) {
+        // A WhatsApp chat has no details to show here yet.
+        if self.whatsapp_session().is_some() {
+            return;
+        }
         if let Some(session) = self.native_session() {
             let Some(rid) = self.current_rid() else { return };
             if session.profiles_available()
@@ -1837,7 +1883,7 @@ impl ChatPage {
     /// message, or the thread of a reply. Not on RocketVibe servers, whose
     /// private conversations keep their own search per room.
     pub fn open_local_search(self: &Rc<Self>) -> Option<adw::Dialog> {
-        if self.native_session().is_some() {
+        if self.native_session().is_some() || self.whatsapp_session().is_some() {
             return None;
         }
         let session = self.session()?;
@@ -2158,6 +2204,24 @@ impl ChatPage {
     /// administration here); the row joins an open menu when the answer comes.
     fn account_menu(self: &Rc<Self>, anchor: &gtk::Box) {
         if self.menu_open.get() {
+            return;
+        }
+        let w = Rc::downgrade(self);
+        // A WhatsApp account: unlinking is all it has here.
+        if self.whatsapp_session().is_some() {
+            let popover = action_popover(vec![(
+                "system-log-out-symbolic",
+                t("wa.logout").to_owned(),
+                Rc::new(move || {
+                    if let Some(this) = w.upgrade() {
+                        this.sign_out();
+                    }
+                }),
+            )]);
+            popover.set_parent(anchor);
+            popover.set_position(gtk::PositionType::Top);
+            popover.connect_closed(|popover| popover.unparent());
+            popover.popup();
             return;
         }
         let w = Rc::downgrade(self);
@@ -2574,6 +2638,8 @@ impl ChatPage {
         let native = self.native_session();
         let rows = if native.is_some() {
             self.native_rooms()
+        } else if let Some(session) = self.whatsapp_session() {
+            session.room_rows().as_ref().clone()
         } else {
             self.session.borrow().as_ref().map(|s| s.store.rooms()).unwrap_or_default()
         };
@@ -2682,6 +2748,7 @@ impl ChatPage {
         let account = self
             .native_session()
             .map(|s| s.info.clone())
+            .or_else(|| self.whatsapp_session().map(|s| s.info.clone()))
             .or_else(|| self.session.borrow().as_ref().map(|s| s.info.clone()));
         let Some(info) = account else { return };
         let folded = rv_core::collapsed_sections::toggle(
@@ -2714,6 +2781,12 @@ impl ChatPage {
                 &session,
                 open.avatar.as_deref().and_then(|path| path.strip_prefix("rv-avatar:")).map(str::to_owned),
             ),
+            None if self.whatsapp_session().is_some() => {
+                if let Some(photo) = self.whatsapp_photo(&open.rid) {
+                    widgets::set_photo(&tile, &photo);
+                }
+                tile
+            }
             None => with_photo(tile, self.session.borrow().as_ref(), open.avatar.clone()),
         };
         self.room_title.append(&tile);
@@ -2749,6 +2822,10 @@ impl ChatPage {
 
     fn reload_messages(&self) {
         let Some(open) = self.current.borrow().clone() else { return };
+        if let Some(session) = self.whatsapp_session() {
+            self.list.set_native_rows(session.timeline(&open.rid), "me");
+            return;
+        }
         if let Some(session) = self.native_session() {
             if open.encrypted {
                 self.list.set_native_rows(
@@ -2861,6 +2938,10 @@ impl ChatPage {
     pub fn open_room(self: &Rc<Self>, rid: &str) {
         if self.native_session().is_some() {
             self.open_native_room(rid);
+            return;
+        }
+        if self.whatsapp_session().is_some() {
+            self.open_whatsapp_room(rid);
             return;
         }
         let Some(session) = self.session.borrow().clone() else { return };
@@ -3014,6 +3095,10 @@ impl ChatPage {
         if self.native_session().is_some() {
             return self.native_history(true).await;
         }
+        // The helper keeps what it has; there is no server history to page back.
+        if self.whatsapp_session().is_some() {
+            return false;
+        }
         if self.loading.get() || !self.has_older.get() {
             return false;
         }
@@ -3099,6 +3184,10 @@ impl ChatPage {
 
     pub fn send_text(self: &Rc<Self>, text: &str) {
         let Some(open) = self.current.borrow().clone() else { return };
+        if self.whatsapp_session().is_some() {
+            self.send_whatsapp(text);
+            return;
+        }
         let Some(text) = self.native_command(&self.composer, &open.rid, text.to_owned()) else { return };
         let text = text.as_str();
         if open.encrypted && self.native_session().is_some() {
@@ -3188,6 +3277,11 @@ impl ChatPage {
     }
 
     fn retry(&self, id: String) {
+        // An unconfirmed WhatsApp send is never sent again: it may have arrived.
+        if self.whatsapp_session().is_some() {
+            self.toast(t("wa.send_uncertain").to_owned());
+            return;
+        }
         if let Some(session) = self.native_session() {
             if let Err(error) = session.retry(&id) {
                 self.toast(error.to_string());
@@ -3366,8 +3460,20 @@ impl ChatPage {
         (self.current.borrow().as_ref().is_some_and(|o| o.encrypted), self.rooms.borrow().len())
     }
 
+    /// The main timeline, for the smoke checks.
+    pub(crate) fn message_list(&self) -> Rc<MessageList> {
+        self.list.clone()
+    }
+
+    pub(crate) fn composer_tools_shown(&self) -> bool {
+        self.composer.tools_shown()
+    }
+
     pub fn chat(&self) -> Option<rv_core::provider::Chat> {
-        self.native_session().map(Into::into).or_else(|| self.session().map(Into::into))
+        self.native_session()
+            .map(Into::into)
+            .or_else(|| self.whatsapp_session().map(Into::into))
+            .or_else(|| self.session().map(Into::into))
     }
 
     pub(crate) fn current_name(&self) -> String {

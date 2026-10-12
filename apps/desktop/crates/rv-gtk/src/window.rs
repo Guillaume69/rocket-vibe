@@ -66,6 +66,8 @@ pub struct AppWindow {
     notifier: RefCell<Option<Rc<crate::notifier::Notifier>>>,
     /// The account to go back to while another one is being added.
     previous: RefCell<Option<SessionInfo>>,
+    /// A WhatsApp unlink in flight: its own end is not an expiry.
+    unlinking: Cell<bool>,
     /// A room link waiting for its account's rooms to be loaded.
     pending_link: RefCell<Option<rv_core::links::RoomLink>>,
     link_generation: Cell<u64>,
@@ -93,6 +95,10 @@ fn navigation_queue() -> rv_core::native::notification_navigation::NavigationQue
 }
 
 fn database_path(info: &SessionInfo) -> PathBuf {
+    // A WhatsApp account keeps its own sealed state (`whatsapp::state_location`).
+    if let Some(state) = rv_core::whatsapp::state_id(&info.base_url) {
+        return rv_core::whatsapp::state_location(&data_dir(), state).0;
+    }
     if info.native.is_some() {
         return data_dir().join(rv_core::native::database_name(info));
     }
@@ -107,6 +113,16 @@ fn database_path(info: &SessionInfo) -> PathBuf {
 /// An account's session, on the runtime: Rocket.Chat, Mattermost and kChat
 /// unlock their encrypted rooms with the key the keychain kept.
 fn start_chat(info: &SessionInfo) -> Result<Chat, String> {
+    if rv_core::whatsapp::is_whatsapp(info) {
+        let helper = whatsapp_helper().ok_or("whatsapp_helper_missing")?;
+        let session = rv_core::whatsapp_session::WaSession::start(
+            info.clone(),
+            helper,
+            data_dir(),
+            crate::secrets::whatsapp_keys(),
+        );
+        return Ok(session.into());
+    }
     let path = database_path(info);
     if info.native.is_some() {
         return rv_core::native::NativeSession::start_with_credentials(
@@ -125,6 +141,12 @@ fn start_chat(info: &SessionInfo) -> Result<Chat, String> {
         }
     });
     Ok(session.into())
+}
+
+/// The WhatsApp helper beside the app, or the one `RV_WHATSAPP_HELPER` names
+/// (the synthetic peer of the smoke tests).
+pub(crate) fn whatsapp_helper() -> Option<PathBuf> {
+    std::env::var_os("RV_WHATSAPP_HELPER").map(PathBuf::from).filter(|p| p.is_file()).or_else(rv_core::whatsapp::locate)
 }
 
 fn describe(e: &RestError, asking_code: bool, recovering: bool) -> String {
@@ -234,6 +256,7 @@ impl AppWindow {
             login_shown: RefCell::default(),
             notifier: RefCell::default(),
             previous: RefCell::default(),
+            unlinking: Cell::new(false),
             pending_link: RefCell::default(),
             link_generation: Cell::new(0),
             pending_notification: RefCell::default(),
@@ -262,6 +285,17 @@ impl AppWindow {
             }
         });
         let weak = Rc::downgrade(&this);
+        let w = Rc::downgrade(&this);
+        this.login.connect_whatsapp(move || {
+            let Some(this) = w.upgrade() else { return };
+            let done = Rc::downgrade(&this);
+            crate::whatsapp_link::open(&this.stack, move |info| {
+                if let Some(this) = done.upgrade() {
+                    this.previous.replace(None);
+                    this.switch_to(info);
+                }
+            });
+        });
         this.login.connect_back(move || {
             if let Some(this) = weak.upgrade() {
                 if this.login.is_busy() {
@@ -585,7 +619,12 @@ impl AppWindow {
         glib::spawn_future_local(on_tokio(secrets::replay_logouts()));
         let this = self.clone();
         glib::spawn_future_local(async move {
-            let accounts = on_tokio(secrets::load_all()).await;
+            let mut accounts = on_tokio(secrets::load_all()).await;
+            // The device the earlier WhatsApp window linked becomes an account, once.
+            if let Some(adopted) = crate::whatsapp_link::adopt_pilot(&accounts).await {
+                accounts.push(adopted);
+                this.refresh_rail();
+            }
             // A callback or permalink received while loading the keyring owns
             // startup. The default account must not overwrite its selection.
             if this.chat.chat().is_some() {
@@ -1003,7 +1042,11 @@ impl AppWindow {
                 }
             }
             Some(Chat::Legacy(_)) => self.chat.reload_all(),
-            Some(Chat::WhatsApp(_)) | None => {}
+            Some(Chat::WhatsApp(_)) => {
+                self.chat.on_whatsapp_change();
+                self.follow_notification(false);
+            }
+            None => {}
         }
     }
 
@@ -1032,13 +1075,21 @@ impl AppWindow {
                 }
             }
             ChatEvent::Session(SessionEvent::Expired) => {
-                let expired = self.session.borrow().as_ref().map(|s| s.info.clone());
+                // A WhatsApp account being unlinked here ends through `logout`.
+                if self.unlinking.get() {
+                    return true;
+                }
+                let expired = self.open_account();
                 self.stop_session(true);
                 let this = self.clone();
                 glib::spawn_future_local(async move {
                     if let Some(info) = expired {
                         crate::reminders::forget(&info);
-                        on_tokio(async move { secrets::remove(&info).await }).await;
+                        on_tokio(async move {
+                            secrets::remove(&info).await;
+                            secrets::forget_whatsapp(&info).await;
+                        })
+                        .await;
                     }
                     this.previous.replace(on_tokio(secrets::load_all()).await.into_iter().next());
                     this.show_login(Some(t("login.expired")));
@@ -1068,7 +1119,10 @@ impl AppWindow {
                 crate::badge::set_open(Some(key));
                 self.start_legacy(session, path);
             }
-            Ok(Chat::WhatsApp(_)) => self.show_login(None),
+            Ok(Chat::WhatsApp(session)) => {
+                crate::badge::set_open(Some(key));
+                self.start_whatsapp(session);
+            }
             Err(error) if info.native.is_some() => self.show_login(Some(&error)),
             Err(error) => self.show_login(Some(&tf("login.no_database", &[("error", &error)]))),
         }
@@ -1078,6 +1132,15 @@ impl AppWindow {
     fn start_native(self: &Rc<Self>, session: Arc<rv_core::native::NativeSession>, path: PathBuf) {
         self.db_path.replace(Some(path));
         self.chat.set_native_session(session.clone());
+        self.listen(session.into());
+        self.stack.set_visible_child_name("chat");
+        self.refresh_rail();
+    }
+
+    /// A linked WhatsApp device.
+    fn start_whatsapp(self: &Rc<Self>, session: Arc<rv_core::whatsapp_session::WaSession>) {
+        self.db_path.replace(None);
+        self.chat.set_whatsapp_session(session.clone());
         self.listen(session.into());
         self.stack.set_visible_child_name("chat");
         self.refresh_rail();
@@ -1180,7 +1243,11 @@ impl AppWindow {
                     }
                 });
             }
-            Chat::WhatsApp(_) => {}
+            Chat::WhatsApp(_) => {
+                let incoming =
+                    rv_core::notify::Incoming { rid: supervisor::notification_key(info, &incoming.rid), ..incoming };
+                notifier.show(&incoming, &crate::notifier::Pictures::default());
+            }
         }
     }
 
@@ -1199,6 +1266,16 @@ impl AppWindow {
             self.chat.toast(t("links.unavailable").to_owned());
             return;
         };
+        // No link to follow: the account opens, its rows are there at once.
+        if rv_core::whatsapp::is_whatsapp(&info) {
+            self.cancel_navigation();
+            self.switch_to(info);
+            match message {
+                Some(message) => self.chat.open_message(&rid, &message),
+                None => self.chat.open_room(&rid),
+            }
+            return;
+        }
         self.cancel_navigation();
         self.pending_link.replace(Some(rv_core::links::RoomLink {
             rid,
@@ -1403,6 +1480,37 @@ impl AppWindow {
     fn logout(self: &Rc<Self>) {
         self.cancel_navigation();
         self.pending_link.take();
+        // WhatsApp: the phone forgets this device first; a failure keeps the account.
+        if let Some(session) = self.chat.whatsapp_session() {
+            if self.unlinking.replace(true) {
+                return;
+            }
+            let this = self.clone();
+            glib::spawn_future_local(async move {
+                let saved = session.clone();
+                let result = on_tokio(async move { session.unlink().await }).await;
+                this.unlinking.set(false);
+                if this.chat.whatsapp_session().is_none_or(|s| !Arc::ptr_eq(&s, &saved)) {
+                    return;
+                }
+                if result.is_err() {
+                    this.chat.toast(t("wa.logout_failed").to_owned());
+                    return;
+                }
+                let info = saved.info.clone();
+                this.stop_session(true);
+                on_tokio(async move {
+                    secrets::remove(&info).await;
+                    secrets::forget_whatsapp(&info).await;
+                })
+                .await;
+                match on_tokio(secrets::load_all()).await.into_iter().next() {
+                    Some(next) => this.switch_to(next),
+                    None => this.show_login(None),
+                }
+            });
+            return;
+        }
         if let Some(session) = self.chat.native_session() {
             let this = self.clone();
             glib::spawn_future_local(async move {

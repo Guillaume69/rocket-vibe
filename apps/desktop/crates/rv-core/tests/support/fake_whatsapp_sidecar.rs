@@ -73,6 +73,13 @@ fn main() {
         linked();
     } else {
         println!("{}", json!({"type":"qr","code":"RV-WHATSAPP-TEST-NOT-A-LOGIN","expires_ms":60000}));
+        // The GTK smoke's stand-in for a phone scanning the QR.
+        if let Some(delay) = std::env::var("RV_FAKE_WHATSAPP_SCAN_MS").ok().and_then(|v| v.parse().ok()) {
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(delay));
+                linked();
+            });
+        }
     }
     for line in input {
         let command: Value = serde_json::from_str(&line.expect("line")).expect("command");

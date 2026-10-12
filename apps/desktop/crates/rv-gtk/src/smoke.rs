@@ -133,6 +133,7 @@ mod reminders;
 mod rocket_chat;
 mod room_management;
 mod security;
+mod whatsapp;
 
 static FAILED: AtomicBool = AtomicBool::new(false);
 
@@ -184,6 +185,7 @@ pub fn install(window: &Rc<AppWindow>) {
     email_factor::install(window);
     email_settings::install(window);
     reminders::install(window);
+    whatsapp::install(window);
     let login = std::env::var("RV_SMOKE_LOGIN").unwrap_or_default();
     let room = std::env::var("RV_SMOKE_ROOM").unwrap_or_default();
     let text = std::env::var("RV_SMOKE_SEND").unwrap_or_default();

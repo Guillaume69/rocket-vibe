@@ -100,10 +100,7 @@ pub(crate) fn icon_image(texture: Option<&gtk::gdk::Texture>) -> gtk::Image {
 
 /// What the rail shows of a server: its host, without `www.`.
 fn host(info: &SessionInfo) -> String {
-    url::Url::parse(&info.base_url)
-        .ok()
-        .and_then(|u| u.host_str().map(|h| h.trim_start_matches("www.").to_owned()))
-        .unwrap_or_else(|| info.base_url.clone())
+    rv_core::supervisor::server_label(info)
 }
 
 impl Rail {

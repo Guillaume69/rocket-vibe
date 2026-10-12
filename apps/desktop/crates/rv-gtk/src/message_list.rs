@@ -243,7 +243,9 @@ pub struct MessageList {
 pub type Photos = Rc<dyn Fn(&str) -> Option<gtk::gdk::Texture>>;
 
 impl MessageList {
+    /// Photos by author id for a provider with no session; replaces a native provider.
     pub fn set_photos(&self, photos: Photos) {
+        self.native_provider.replace(None);
         self.photos.replace(Some(photos));
     }
     /// The next `set_native_rows` rebuilds its rows' photos.
@@ -251,6 +253,7 @@ impl MessageList {
         self.photo_version.set(version);
     }
     pub fn set_native_provider(&self, session: Arc<rv_core::native::NativeSession>) {
+        self.photos.replace(None);
         self.native_provider.replace(Some(session));
     }
     /// The existing renderer, preserving native server sequence order.

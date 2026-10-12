@@ -92,14 +92,40 @@ pub struct Outgoing {
 }
 
 impl Composer {
-    /// A provider pilot may expose only text while keeping the native field.
-    pub fn text_only(&self) {
-        self.attach.set_visible(false);
-        self.attach.set_sensitive(false);
-        self.mic.set_visible(false);
-        self.mic.set_sensitive(false);
-        self.social.set_visible(false);
-        self.social.set_sensitive(false);
+    /// Files, voice notes and social cards, shown or not: a WhatsApp chat is
+    /// text only, every other binding shows them again.
+    pub fn show_tools(&self, shown: bool) {
+        self.attach.set_visible(shown);
+        self.attach.set_sensitive(shown);
+        self.mic.set_visible(shown);
+        self.mic.set_sensitive(shown);
+        if !shown {
+            self.social.set_visible(false);
+        }
+    }
+
+    pub fn tools_shown(&self) -> bool {
+        self.attach.is_visible() || self.mic.is_visible()
+    }
+
+    /// A WhatsApp chat: text, replies, its own draft; no files, commands,
+    /// mentions or custom emoji.
+    pub fn bind_whatsapp(self: &Rc<Self>, session: &Arc<rv_core::whatsapp_session::WaSession>, rid: &str) {
+        self.unbind_native();
+        self.show_tools(false);
+        self.staged.switch(rid);
+        self.on_changed.replace(None);
+        self.set_text(&session.draft(rid));
+        self.completion.popdown();
+        self.mentions.replace(None);
+        self.custom_emoji.replace(None);
+        self.custom_names.replace(None);
+        let (session, rid) = (Arc::downgrade(session), rid.to_owned());
+        self.connect_changed(move |text| {
+            if let Some(session) = session.upgrade() {
+                session.set_draft(&rid, &text);
+            }
+        });
     }
     pub fn new() -> Rc<Self> {
         let text = gtk::TextView::builder()
@@ -704,6 +730,7 @@ impl Composer {
     /// draft, saves it as it changes, and offers the room's authors after `@`.
     pub fn bind(self: &Rc<Self>, session: &Arc<Session>, rid: &str, thread: Option<&str>) {
         self.unbind_native();
+        self.show_tools(true);
         let supported = session.info.mattermost.is_none() && !session.store.room_encrypted(rid);
         self.social.set_visible(supported);
         if supported {
@@ -749,6 +776,7 @@ impl Composer {
 
     pub fn bind_native(self: &Rc<Self>, session: &Arc<rv_core::native::NativeSession>, rid: &str) {
         self.unbind_native();
+        self.show_tools(true);
         let supported = session.store.room_encrypted(rid).is_ok_and(|e| !e)
             && (session.social_supported("social_cards")
                 || session.social_supported("sticker_shelf")

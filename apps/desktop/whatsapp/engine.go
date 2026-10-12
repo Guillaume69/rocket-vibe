@@ -40,6 +40,8 @@ type command struct {
 	ID   string `json:"id,omitempty"`
 	Chat string `json:"chat,omitempty"`
 	Text string `json:"text,omitempty"`
+	// For a send: the scoped id of the message it answers.
+	Reply string `json:"reply,omitempty"`
 }
 type message struct {
 	ID      string `json:"id"`
@@ -54,9 +56,14 @@ type message struct {
 	Edited  bool   `json:"edited,omitempty"`
 	Deleted bool   `json:"deleted,omitempty"`
 	// How far my message went: delivered, read or played.
-	Receipt   string `json:"receipt,omitempty"`
-	RawChat   string `json:"-"`
-	RawSender string `json:"-"`
+	Receipt string `json:"receipt,omitempty"`
+	// A reply: the quoted message's id, its sender ("me" for mine) and its
+	// text as quoted (the client prefers the cached message's current text).
+	ReplyTo     string `json:"reply_to,omitempty"`
+	QuoteSender string `json:"quote_sender,omitempty"`
+	QuoteText   string `json:"quote_text,omitempty"`
+	RawChat     string `json:"-"`
+	RawSender   string `json:"-"`
 }
 type reaction struct {
 	Message string `json:"message"`
@@ -154,12 +161,33 @@ func (c *connector) receive(evt *events.Message, name string) bool {
 	}
 	id := chat.String() + ":" + evt.Info.ID
 	_, known := c.load(id)
-	c.remember(message{ID: id, Chat: chat.String(), Name: chat.User,
+	m := message{ID: id, Chat: chat.String(), Name: chat.User,
 		Sender: c.senderKey(evt.Info.IsFromMe, evt.Info.Sender), Author: evt.Info.PushName, Text: text,
 		TS: evt.Info.Timestamp.UnixMilli(), Mine: evt.Info.IsFromMe,
-		RawChat: raw.String(), RawSender: evt.Info.Sender.ToNonAD().String()})
+		RawChat: raw.String(), RawSender: evt.Info.Sender.ToNonAD().String()}
+	c.quoted(&m, chat, evt.Message.GetExtendedTextMessage().GetContextInfo())
+	c.remember(m)
 	c.namesDirty.Store(true)
 	return !known && !evt.Info.IsFromMe
+}
+
+// The message a reply answers, as WhatsApp quoted it.
+func (c *connector) quoted(m *message, chat types.JID, info *waE2E.ContextInfo) {
+	if info.GetStanzaID() == "" {
+		return
+	}
+	m.ReplyTo = chat.String() + ":" + info.GetStanzaID()
+	m.QuoteText = textOf(info.GetQuotedMessage())
+	if participant, err := types.ParseJID(info.GetParticipant()); err == nil && info.GetParticipant() != "" {
+		sender := c.canonical(participant)
+		if c.client != nil && c.client.Store.ID != nil && sender.User == c.canonical(*c.client.Store.ID).User {
+			m.QuoteSender = "me"
+		} else {
+			m.QuoteSender = sender.String()
+		}
+	} else if chat.Server != types.GroupServer {
+		m.QuoteSender = chat.String()
+	}
 }
 
 // An edit or a revocation, accepted from the author only; in a group an
@@ -384,9 +412,26 @@ func (c *connector) send(cmd command) {
 	// Persist the send intent before the network request. Reopening never replays it.
 	m := message{ID: cmd.Chat + ":" + cmd.ID, Chat: cmd.Chat, Name: chat.User, Sender: "me", Text: cmd.Text,
 		TS: now(), Mine: true, Status: "sending", RawChat: raw.String()}
+	content := &waE2E.Message{Conversation: proto.String(cmd.Text)}
+	if cmd.Reply != "" {
+		quoted, quotedChat, waid, ok := c.target(cmd.Reply)
+		if !ok || quoted.Chat != cmd.Chat || quoted.Deleted {
+			c.refuse(cmd.ID, "invalid_send")
+			return
+		}
+		m.ReplyTo, m.QuoteSender, m.QuoteText = quoted.ID, quoted.Sender, quoted.Text
+		info := &waE2E.ContextInfo{
+			StanzaID:      proto.String(string(waid)),
+			Participant:   proto.String(c.keySender(quoted, quotedChat).String()),
+			QuotedMessage: &waE2E.Message{Conversation: proto.String(quoted.Text)},
+		}
+		if quotedChat.Server == types.GroupServer {
+			info.RemoteJID = proto.String(quotedChat.String())
+		}
+		content = &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{Text: proto.String(cmd.Text), ContextInfo: info}}
+	}
 	result, err := c.vault.db.ExecContext(c.ctx, `INSERT INTO rv_messages(`+messageColumns+`)
- VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING`,
-		m.ID, m.Chat, m.Name, m.Sender, m.Author, m.Text, m.TS, m.Mine, m.Status, m.Edited, m.Deleted, m.RawChat, m.RawSender, m.Receipt)
+ VALUES(`+messageValues+`) ON CONFLICT(id) DO NOTHING`, m.values()...)
 	if err != nil {
 		c.refuse(cmd.ID, "local_storage_failed")
 		return
@@ -403,7 +448,7 @@ func (c *connector) send(cmd command) {
 	c.emit(wire{Type: "message", Message: &m})
 	ctx, cancel := context.WithTimeout(c.ctx, 45*time.Second)
 	defer cancel()
-	response, err := c.client.SendMessage(ctx, raw, &waE2E.Message{Conversation: proto.String(cmd.Text)}, whatsmeow.SendRequestExtra{ID: types.MessageID(cmd.ID)})
+	response, err := c.client.SendMessage(ctx, raw, content, whatsmeow.SendRequestExtra{ID: types.MessageID(cmd.ID)})
 	if err != nil {
 		m.Status = "uncertain"
 	} else {

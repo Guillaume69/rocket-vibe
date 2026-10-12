@@ -27,7 +27,7 @@ async fn native_connector_links_sends_and_revokes_without_a_server() {
     c.reconnect().unwrap();
     until(&c, |s| s.state == "connected").await;
     assert!(c.snapshot().qr.is_none());
-    assert_eq!(c.snapshot().messages.len(), 2);
+    assert_eq!(c.snapshot().messages.len(), 3);
     until(&c, |s| s.name_of("alice@s.whatsapp.net") == Some("Alice Martin") && !s.avatars.is_empty()).await;
     c.react("alice@s.whatsapp.net:fake-received".into(), "👍".into()).unwrap();
     until(&c, |s| {
@@ -35,7 +35,7 @@ async fn native_connector_links_sends_and_revokes_without_a_server() {
             == Some("👍")
     })
     .await;
-    let id = c.send("alice@s.whatsapp.net".into(), "Native IPC test".into()).unwrap();
+    let id = c.send("alice@s.whatsapp.net".into(), "Native IPC test".into(), None).unwrap();
     until(&c, |s| s.messages.values().any(|m| m.id.ends_with(&id) && m.text == "Native IPC test" && m.mine)).await;
     c.logout().unwrap();
     until(&c, |s| s.state == "logged_out").await;
@@ -54,7 +54,7 @@ async fn stopping_reaps_the_child() {
     c.stop();
     until(&c, |s| s.state == "stopped" && s.exited).await;
     assert!(c.snapshot().qr.is_none());
-    assert!(c.send("alice@s.whatsapp.net".into(), "must not send".into()).is_err());
+    assert!(c.send("alice@s.whatsapp.net".into(), "must not send".into(), None).is_err());
 }
 #[tokio::test]
 async fn a_refused_send_names_its_id_and_keeps_the_connection() {
@@ -68,7 +68,7 @@ async fn a_refused_send_names_its_id_and_keeps_the_connection() {
     until(&c, |s| s.loaded && s.qr.is_some()).await;
     c.reconnect().unwrap();
     until(&c, |s| s.state == "connected").await;
-    let id = c.send("refused@s.whatsapp.net".into(), "Never leaves".into()).unwrap();
+    let id = c.send("refused@s.whatsapp.net".into(), "Never leaves".into(), None).unwrap();
     until(&c, |s| s.refused.as_deref() == Some(id.as_str())).await;
     let s = c.snapshot();
     assert_eq!(s.state, "connected");

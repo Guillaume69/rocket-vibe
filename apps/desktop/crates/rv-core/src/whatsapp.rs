@@ -62,7 +62,48 @@ impl Snapshot {
             );
         }
         row.reactions = self.reactions.get(&m.id).and_then(reactions_json);
+        row.attachments = self.quote(m);
         row
+    }
+    /// The quoted message as the timeline's quote card: its current text when
+    /// cached (edited or deleted since), else the text the reply carried.
+    fn quote(&self, m: &WireMessage) -> Option<String> {
+        if m.reply_to.is_empty() {
+            return None;
+        }
+        let cached = self.messages.get(&m.reply_to);
+        let sender = cached.map_or(m.quote_sender.as_str(), |q| if q.mine { "me" } else { q.sender.as_str() });
+        let author = if sender == "me" {
+            crate::i18n::t("wa.me").to_owned()
+        } else if sender.is_empty() {
+            String::new()
+        } else {
+            self.name_of(sender).map(str::to_owned).unwrap_or_else(|| fallback_name(sender))
+        };
+        let text = match cached {
+            Some(q) if q.deleted => crate::i18n::t("wa.deleted").to_owned(),
+            Some(q) => q.text.clone(),
+            None => m.quote_text.clone(),
+        };
+        Some(
+            json!([{"message_link": format!("{REPLY_LINK}{}", m.reply_to), "author_name": author, "text": text}])
+                .to_string(),
+        )
+    }
+}
+
+/// The composer's reply link for a WhatsApp message: `wa-reply:<id>`.
+pub const REPLY_LINK: &str = "wa-reply:";
+
+/// The text a composer submits with a reply armed (`[ ](wa-reply:<id>) text`),
+/// split into the quoted message's id and the text.
+pub fn split_reply(text: &str) -> (Option<String>, String) {
+    let Some(rest) = text.strip_prefix("[ ](").and_then(|r| r.strip_prefix(REPLY_LINK)) else {
+        return (None, text.to_owned());
+    };
+    match rest.split_once(')') {
+        Some((id, body)) if !id.is_empty() => (Some(id.to_owned()), body.trim_start().to_owned()),
+        _ => (None, text.to_owned()),
     }
 }
 
@@ -111,6 +152,13 @@ pub struct WireMessage {
     /// How far my message went: `delivered`, `read` or `played`.
     #[serde(default)]
     pub receipt: String,
+    /// A reply: the quoted message's id, sender ("me" for mine) and quoted text.
+    #[serde(default)]
+    pub reply_to: String,
+    #[serde(default)]
+    pub quote_sender: String,
+    #[serde(default)]
+    pub quote_text: String,
 }
 impl WireMessage {
     pub fn presentation(&self) -> MessageRow {
@@ -148,7 +196,7 @@ enum Event {
         state: String,
     },
     Message {
-        message: WireMessage,
+        message: Box<WireMessage>,
     },
     Error {
         code: String,
@@ -189,7 +237,7 @@ struct WireReaction {
     emoji: String,
 }
 enum Request {
-    Send { id: String, chat: String, text: String },
+    Send { id: String, chat: String, text: String, reply: Option<String> },
     Act { kind: &'static str, id: String, text: String },
     Read { chat: String },
     Connect,
@@ -238,7 +286,7 @@ impl Snapshot {
                 self.error = None;
             }
             Event::Message { message } => {
-                self.messages.insert(message.id.clone(), message);
+                self.messages.insert(message.id.clone(), *message);
                 if self.messages.len() > CACHE_MESSAGES
                     && let Some(id) = self.messages.values().min_by_key(|m| (m.ts, &m.id)).map(|m| m.id.clone())
                 {
@@ -365,14 +413,15 @@ impl Connector {
     pub fn stop(&self) {
         let _ = self.requests.try_send(Request::Stop);
     }
-    pub fn send(&self, chat: String, text: String) -> Result<String, String> {
+    /// Sends a text, answering `reply` (a message id) when set.
+    pub fn send(&self, chat: String, text: String, reply: Option<String>) -> Result<String, String> {
         if text.trim().is_empty() || text.len() > 20_000 || self.state() != "connected" {
             return Err("not_connected".into());
         }
         let mut random = [0_u8; 16];
         getrandom::fill(&mut random).map_err(|_| failure())?;
         let id: String = random.iter().map(|b| format!("{b:02X}")).collect();
-        self.request(Request::Send { id: id.clone(), chat, text })?;
+        self.request(Request::Send { id: id.clone(), chat, text, reply })?;
         Ok(id)
     }
     /// Reacts to a message with a glyph; an empty one takes my reaction back.
@@ -420,7 +469,9 @@ async fn worker(
                 let Some(request) = request else { break };
                 let stopping = matches!(request, Request::Stop);
                 let value = match request {
-                    Request::Send { id, chat, text } => json!({"type":"send","id":id,"chat":chat,"text":text}),
+                    Request::Send { id, chat, text, reply } => {
+                        json!({"type":"send","id":id,"chat":chat,"text":text,"reply":reply.unwrap_or_default()})
+                    }
                     Request::Act { kind, id, text } => json!({"type":kind,"id":id,"text":text}),
                     Request::Read { chat } => json!({"type":"read","chat":chat}),
                     Request::Connect => json!({"type":"connect"}),
@@ -528,6 +579,28 @@ mod tests {
         }))
         .unwrap();
         assert!(m.presentation().edited);
+    }
+    #[test]
+    fn a_reply_quotes_the_cached_message_and_the_composer_link_splits() {
+        let mut s = Snapshot::default();
+        let wire = |value: serde_json::Value| serde_json::from_value::<Event>(value).unwrap();
+        s.apply(wire(json!({"type":"message","message":{
+            "id":"a@s.whatsapp.net:1","chat":"a@s.whatsapp.net","name":"a","sender":"a@s.whatsapp.net",
+            "author":"","text":"question","ts":1,"mine":false
+        }})));
+        s.apply(wire(json!({"type":"message","message":{
+            "id":"a@s.whatsapp.net:2","chat":"a@s.whatsapp.net","name":"a","sender":"me","author":"",
+            "text":"answer","ts":2,"mine":true,"reply_to":"a@s.whatsapp.net:1",
+            "quote_sender":"a@s.whatsapp.net","quote_text":"old question"
+        }})));
+        let reply = s.messages["a@s.whatsapp.net:2"].clone();
+        let quotes = crate::content::quotes(s.presentation(&reply).attachments.as_deref());
+        assert_eq!(quotes.len(), 1);
+        assert_eq!(quotes[0].text, "question");
+        assert_eq!(quotes[0].author.as_deref(), Some("+a"));
+        let text = crate::actions::quote(&format!("{REPLY_LINK}a@s.whatsapp.net:1"), "answer");
+        assert_eq!(split_reply(&text), (Some("a@s.whatsapp.net:1".into()), "answer".into()));
+        assert_eq!(split_reply("plain"), (None, "plain".into()));
     }
     #[test]
     fn the_replayed_cache_marks_the_snapshot_loaded() {

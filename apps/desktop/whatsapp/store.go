@@ -35,6 +35,9 @@ func migrate(db *sql.DB) error {
 		{"raw_chat", "TEXT NOT NULL DEFAULT ''"},
 		{"raw_sender", "TEXT NOT NULL DEFAULT ''"},
 		{"receipt", "TEXT NOT NULL DEFAULT ''"},
+		{"reply_to", "TEXT NOT NULL DEFAULT ''"},
+		{"quote_sender", "TEXT NOT NULL DEFAULT ''"},
+		{"quote_text", "TEXT NOT NULL DEFAULT ''"},
 	} {
 		var present int
 		if err := db.QueryRow(`SELECT count(*) FROM pragma_table_info('rv_messages') WHERE name = ?`, column.name).Scan(&present); err != nil {
@@ -50,11 +53,21 @@ func migrate(db *sql.DB) error {
 	return err
 }
 
-const messageColumns = `id,chat,name,sender,author,text,ts,mine,status,edited,deleted,raw_chat,raw_sender,receipt`
+const messageColumns = `id,chat,name,sender,author,text,ts,mine,status,edited,deleted,raw_chat,raw_sender,receipt,
+reply_to,quote_sender,quote_text`
+
+// The values of messageColumns, in order.
+const messageValues = `?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?`
+
+func (m *message) values() []any {
+	return []any{m.ID, m.Chat, m.Name, m.Sender, m.Author, m.Text, m.TS, m.Mine, m.Status, m.Edited, m.Deleted,
+		m.RawChat, m.RawSender, m.Receipt, m.ReplyTo, m.QuoteSender, m.QuoteText}
+}
 
 func scanMessage(row interface{ Scan(...any) error }) (message, error) {
 	var m message
-	err := row.Scan(&m.ID, &m.Chat, &m.Name, &m.Sender, &m.Author, &m.Text, &m.TS, &m.Mine, &m.Status, &m.Edited, &m.Deleted, &m.RawChat, &m.RawSender, &m.Receipt)
+	err := row.Scan(&m.ID, &m.Chat, &m.Name, &m.Sender, &m.Author, &m.Text, &m.TS, &m.Mine, &m.Status, &m.Edited, &m.Deleted, &m.RawChat, &m.RawSender, &m.Receipt,
+		&m.ReplyTo, &m.QuoteSender, &m.QuoteText)
 	return m, err
 }
 
@@ -77,9 +90,8 @@ func (c *connector) remember(m message) {
 		return
 	}
 	_, err := c.vault.db.ExecContext(c.ctx, `INSERT INTO rv_messages(`+messageColumns+`)
- VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status,ts=excluded.ts
- WHERE rv_messages.status != ''`,
-		m.ID, m.Chat, m.Name, m.Sender, m.Author, m.Text, m.TS, m.Mine, m.Status, m.Edited, m.Deleted, m.RawChat, m.RawSender, m.Receipt)
+ VALUES(`+messageValues+`) ON CONFLICT(id) DO UPDATE SET status=excluded.status,ts=excluded.ts
+ WHERE rv_messages.status != ''`, m.values()...)
 	if err != nil {
 		c.fail("local_storage_failed")
 		return

@@ -236,15 +236,19 @@ impl Pilot {
             }
         });
         let weak = Rc::downgrade(self);
-        self.composer.connect_submit(move |text| {
+        self.composer.connect_submit(move |submitted| {
             let Some(this) = weak.upgrade() else { return };
             let chat = this.selected.borrow().clone();
+            let (reply, text) = rv_core::whatsapp::split_reply(&submitted);
+            if text.trim().is_empty() {
+                return;
+            }
             let result = this
                 .connector
                 .borrow()
                 .as_ref()
                 .ok_or("connector_unavailable".to_owned())
-                .and_then(|c| c.send(chat.clone(), text.clone()));
+                .and_then(|c| c.send(chat.clone(), text.clone(), reply.clone()));
             match result {
                 Ok(id) => {
                     this.pending.replace(Some((chat, id, text)));
@@ -707,6 +711,20 @@ impl Pilot {
             column.append(&quick);
         }
         let item = |label: &str| gtk::Button::builder().label(label).css_classes(["flat"]).build();
+        if !message.deleted && message.status.is_empty() && connected {
+            let reply = item(t("actions.reply"));
+            let author = row.author.clone().unwrap_or_default();
+            let (weak, popover_c, id, text) =
+                (Rc::downgrade(self), popover.clone(), message.id.clone(), message.text.clone());
+            reply.connect_clicked(move |_| {
+                popover_c.popdown();
+                if let Some(this) = weak.upgrade() {
+                    let preview: String = text.chars().take(120).collect();
+                    this.composer.set_reply(&author, &preview, format!("{}{id}", rv_core::whatsapp::REPLY_LINK));
+                }
+            });
+            column.append(&reply);
+        }
         if !message.deleted {
             let copy = item(t("actions.copy"));
             let (text, popover_c) = (message.text.clone(), popover.clone());

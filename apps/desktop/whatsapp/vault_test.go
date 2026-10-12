@@ -328,3 +328,18 @@ func TestUnreadCountsAndReceipts(t *testing.T) {
 		t.Fatalf("a delivery moved a read message back: %q", got)
 	}
 }
+
+func TestAReplyKeepsItsQuote(t *testing.T) {
+	c := engineWithCache(t)
+	alice := types.NewJID("33600000001", types.DefaultUserServer)
+	received(c, alice, alice, "X1", &waE2E.Message{Conversation: proto.String("question")})
+	received(c, alice, alice, "X2", &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{
+		Text: proto.String("answer"),
+		ContextInfo: &waE2E.ContextInfo{StanzaID: proto.String("X1"), Participant: proto.String(alice.String()),
+			QuotedMessage: &waE2E.Message{Conversation: proto.String("question")}},
+	}})
+	m, _ := c.load(alice.String() + ":X2")
+	if m.ReplyTo != alice.String()+":X1" || m.QuoteSender != alice.String() || m.QuoteText != "question" {
+		t.Fatalf("quote lost: %+v", m)
+	}
+}

@@ -48,6 +48,15 @@ fn main() {
                         "message":"alice@s.whatsapp.net:fake-received","sender":"alice@s.whatsapp.net","emoji":"❤️","ts":1
                     }})
                 );
+                println!(
+                    "{}",
+                    json!({"type":"message","message":{
+                        "id":"alice@s.whatsapp.net:fake-reply","chat":"alice@s.whatsapp.net","name":"Alice",
+                        "sender":"alice@s.whatsapp.net","author":"Alice","text":"Vers 20 h ?",
+                        "ts":1791810610000_i64,"mine":false,"reply_to":"alice@s.whatsapp.net:fake-received",
+                        "quote_sender":"alice@s.whatsapp.net","quote_text":"Bonjour ! On se retrouve ce soir ?"
+                    }})
+                );
                 println!("{}", json!({"type":"chat","jid":"friends@g.us","unread":2}));
                 println!("{}", json!({"type":"status","state":"connected"}));
             }

@@ -8,6 +8,10 @@ import {
   writeCollapsedSections,
   readCollapsedSections,
   collapseSections,
+  foldAccount,
+  readFoldsByAccount,
+  seedFolds,
+  writeFoldsByAccount,
 } from './homeSections.ts';
 
 const TITLES = {
@@ -152,6 +156,46 @@ describe('collapsed sections', () => {
   test('keys stored before the English rename are still read', () => {
     const raw = '["nonLus","favoris","salons","messagesPrives"]';
     assert.deepEqual([...readCollapsedSections(raw)], ['unread', 'favorites', 'rooms', 'directMessages']);
+  });
+});
+
+describe('collapsed sections per account', () => {
+  const a = foldAccount('https://chat.example.com/', 'u1');
+  const b = foldAccount('https://chat.example.com', 'u2');
+
+  test('an account is its server and its user, trailing slash or not', () => {
+    assert.equal(a, 'https://chat.example.com|u1');
+    assert.equal(foldAccount('https://chat.example.com', 'u1'), a);
+    assert.notEqual(a, b);
+  });
+
+  test('round trip through storage keeps each account apart', () => {
+    const raw = writeFoldsByAccount(
+      new Map<string, ReadonlySet<SectionKey>>([
+        [a, new Set(['directMessages', 'unread'])],
+        [b, new Set(['group:work'])],
+      ]),
+    );
+    assert.equal(raw, '{"https://chat.example.com|u1":["unread","directMessages"],"https://chat.example.com|u2":["group:work"]}');
+    const read = readFoldsByAccount(raw);
+    assert.deepEqual([...(read.get(a) ?? [])], ['unread', 'directMessages']);
+    assert.deepEqual([...(read.get(b) ?? [])], ['group:work']);
+  });
+
+  test('storage missing, corrupt or in the old device-wide shape: no account has folds', () => {
+    assert.equal(readFoldsByAccount(null).size, 0);
+    assert.equal(readFoldsByAccount('{not json').size, 0);
+    assert.equal(readFoldsByAccount('["rooms"]').size, 0);
+    assert.deepEqual([...(readFoldsByAccount('{"x":["rooms","archives"],"y":3}').get('x') ?? [])], ['rooms']);
+    assert.equal(readFoldsByAccount('{"y":3}').get('y')?.size, 0);
+  });
+
+  test('the device-wide folds seed only the accounts without folds of their own', () => {
+    const own = new Map<string, ReadonlySet<SectionKey>>([[a, new Set(['rooms'])]]);
+    const seeded = seedFolds(own, [a, b], new Set(['favorites']));
+    assert.deepEqual([...(seeded.get(a) ?? [])], ['rooms']);
+    assert.deepEqual([...(seeded.get(b) ?? [])], ['favorites']);
+    assert.equal(own.has(b), false);
   });
 });
 

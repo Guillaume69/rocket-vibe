@@ -58,6 +58,7 @@ fn main() {
                     }})
                 );
                 println!("{}", json!({"type":"chat","jid":"friends@g.us","unread":2}));
+                println!("{}", json!({"type":"account","jid":"33600000000@s.whatsapp.net","name":"Moi-même"}));
                 println!("{}", json!({"type":"status","state":"connected"}));
             }
             Some("read") => {

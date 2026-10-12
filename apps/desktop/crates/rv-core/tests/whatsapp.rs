@@ -51,8 +51,17 @@ async fn stopping_reaps_the_child() {
     .await
     .unwrap();
     until(&c, |s| s.qr.is_some()).await;
+    let mut changes = c.subscribe();
     c.stop();
     until(&c, |s| s.state == "stopped" && s.exited).await;
+    // The exit is announced to watchers too.
+    tokio::time::timeout(Duration::from_secs(4), async {
+        while !c.snapshot().exited || *changes.borrow_and_update() != c.revision() {
+            changes.changed().await.ok();
+        }
+    })
+    .await
+    .expect("the exit reaches watchers");
     assert!(c.snapshot().qr.is_none());
     assert!(c.send("alice@s.whatsapp.net".into(), "must not send".into(), None).is_err());
 }

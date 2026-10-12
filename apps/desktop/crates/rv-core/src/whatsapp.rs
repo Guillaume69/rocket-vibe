@@ -11,7 +11,7 @@ use serde::Deserialize;
 use serde_json::json;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use zeroize::Zeroize;
 
 use crate::store::MessageRow;
@@ -42,6 +42,8 @@ pub struct Snapshot {
     pub reactions: Arc<BTreeMap<String, BTreeMap<String, String>>>,
     /// Unread messages by chat, as WhatsApp counts them (shared with the phone).
     pub unread: BTreeMap<String, u32>,
+    /// The linked account: its JID and the name it shows, once paired.
+    pub account: Option<(String, String)>,
 }
 impl Snapshot {
     /// The name shown for a chat or a person, falling back on what the
@@ -228,6 +230,11 @@ enum Event {
         #[serde(default)]
         unread: u32,
     },
+    Account {
+        jid: String,
+        #[serde(default)]
+        name: String,
+    },
 }
 #[derive(Deserialize)]
 struct WireReaction {
@@ -247,6 +254,8 @@ enum Request {
 pub struct Connector {
     snapshot: Mutex<Snapshot>,
     requests: mpsc::Sender<Request>,
+    /// The snapshot's revision after each change: a watcher folds bursts by itself.
+    revisions: watch::Sender<u64>,
 }
 fn failure() -> String {
     "connector_unavailable".into()
@@ -340,6 +349,7 @@ impl Snapshot {
                 self.reactions = Arc::default();
                 self.unread.clear();
             }
+            Event::Account { jid, name } => self.account = Some((jid, name)),
             Event::Chat { jid, unread } => {
                 if unread == 0 {
                     self.unread.remove(&jid);
@@ -385,6 +395,7 @@ impl Connector {
         let connector = Arc::new(Self {
             snapshot: Mutex::new(Snapshot { state: "connecting".into(), ..Default::default() }),
             requests,
+            revisions: watch::Sender::new(0),
         });
         tokio::spawn(worker(Arc::downgrade(&connector), child, stdin, BufReader::new(stdout), receiver));
         Ok(connector)
@@ -394,6 +405,10 @@ impl Connector {
     }
     pub fn revision(&self) -> u64 {
         self.snapshot.lock().unwrap_or_else(|p| p.into_inner()).revision
+    }
+    /// Changes of the snapshot, as revisions; the last one stays when it exits.
+    pub fn subscribe(&self) -> watch::Receiver<u64> {
+        self.revisions.subscribe()
     }
     pub fn state(&self) -> String {
         self.snapshot.lock().unwrap_or_else(|p| p.into_inner()).state.clone()
@@ -461,7 +476,12 @@ async fn worker(
                 let Ok(value) = serde_json::from_slice::<serde_json::Value>(&line) else { break };
                 let Some(connector) = weak.upgrade() else { break };
                 if let Ok(event) = serde_json::from_value::<Event>(value) {
-                    connector.snapshot.lock().unwrap_or_else(|p| p.into_inner()).apply(event);
+                    let revision = {
+                        let mut snapshot = connector.snapshot.lock().unwrap_or_else(|p| p.into_inner());
+                        snapshot.apply(event);
+                        snapshot.revision
+                    };
+                    connector.revisions.send_replace(revision);
                 }
                 line.clear();
             }
@@ -497,6 +517,7 @@ async fn worker(
         snapshot.qr = None;
         snapshot.exited = true;
         snapshot.revision += 1;
+        connector.revisions.send_replace(snapshot.revision);
     }
 }
 
@@ -560,6 +581,8 @@ mod tests {
         assert_eq!(s.avatars.get("g@g.us").map(|a| a.len()), Some(3));
         s.apply(wire(json!({"type":"avatar","jid":"g@g.us","data":""})));
         assert!(s.avatars.is_empty());
+        s.apply(wire(json!({"type":"account","jid":"33600000000@s.whatsapp.net","name":"Thomas"})));
+        assert_eq!(s.account, Some(("33600000000@s.whatsapp.net".into(), "Thomas".into())));
         s.apply(wire(json!({"type":"chat","jid":"g@g.us","unread":3})));
         assert_eq!(s.unread.get("g@g.us"), Some(&3));
         s.apply(wire(json!({"type":"chat","jid":"g@g.us","unread":0})));

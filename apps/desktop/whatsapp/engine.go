@@ -85,6 +85,8 @@ type wire struct {
 	Data     *string   `json:"data,omitempty"`
 	Reaction *reaction `json:"reaction,omitempty"`
 	Unread   *int64    `json:"unread,omitempty"`
+	// The linked account's display name (an `account` frame).
+	Name string `json:"name,omitempty"`
 }
 type connector struct {
 	client     *whatsmeow.Client
@@ -313,6 +315,7 @@ func (c *connector) event(raw any) {
 			return
 		}
 		c.emit(wire{Type: "status", State: "paired"})
+		c.emitAccount()
 	case *events.LoggedOut:
 		c.stopped.Store(true)
 		if c.vault.revoke() != nil {
@@ -342,6 +345,14 @@ func (c *connector) event(raw any) {
 	case *events.Picture:
 		c.invalidateAvatar(c.canonical(evt.JID))
 	}
+}
+
+// Which WhatsApp account this device is linked to, once it is.
+func (c *connector) emitAccount() {
+	if c.client.Store.ID == nil {
+		return
+	}
+	c.emit(wire{Type: "account", JID: c.client.Store.ID.ToNonAD().String(), Name: c.client.Store.PushName})
 }
 func (c *connector) stopOnStorageFailure() {
 	if c.stopped.Swap(true) {
@@ -594,6 +605,7 @@ func open(path string, key []byte, sink func(wire)) (*connector, func(), error) 
 	if err := c.replay(); err != nil {
 		return fail(err)
 	}
+	c.emitAccount()
 	c.emit(wire{Type: "status", State: "loaded"})
 	done := make(chan struct{})
 	go c.avatarWorker()

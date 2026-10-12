@@ -23,6 +23,7 @@
     "test:voice-connection": "node tests/voice-connection.mjs",
     "test:voice-lifecycle": "node tests/voice-lifecycle.mjs",
     "test:security": "node tests/security.mjs",
+    "test:security-pending": "node tests/security-pending.mjs",
     "test:features": "node tests/features.mjs",
     "test:media": "node tests/media.mjs",
     "test:images": "node tests/images.mjs",

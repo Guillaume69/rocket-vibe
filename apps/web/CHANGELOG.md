@@ -13,7 +13,8 @@ All notable changes are documented here in English.
 
 ### Fixed
 
-- The RocketVibe Security page shows an unfinished email address removal from this browser, with Continue (asking for the password only if the server needs it) and Cancel, instead of silently keeping it.
+- Keep unfinished authenticator, backup-code and email changes visible in Security with Continue and Cancel. Recover accepted answers using their original operation, retain recovery codes until acknowledgement, and protect pending secrets in account-scoped encrypted browser storage.
+- Confirm identity with the original proof operation and correct recovery-code labels, so expired-proof sensitive changes can continue after two-factor verification.
 - Confirming an email address already linked to another account says so instead of showing a raw error code.
 - The sign-up and recovery-code forms label their username field "Username", since they do not take an email address.
 - The profile page and the add-member field label the username field "Username", not the sign-in label "Username or email".

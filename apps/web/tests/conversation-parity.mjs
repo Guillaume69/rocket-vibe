@@ -361,14 +361,21 @@ try {
     .first()
     .waitFor();
   let lostAvatar;
+  const lostAvatarReceipt = Promise.withResolvers();
   const avatarRoute = "**/api/v1/rooms/" + room.id + "/avatar?*";
   await page.route(avatarRoute, async (route) => {
     if (route.request().method() !== "PUT" || lostAvatar)
       return route.continue();
     lostAvatar = new URL(route.request().url());
-    const response = await route.fetch();
-    assert.ok(response.ok());
-    await route.abort("connectionreset");
+    try {
+      const response = await route.fetch();
+      assert.ok(response.ok());
+      const receipt = await response.json();
+      await route.abort("connectionreset");
+      lostAvatarReceipt.resolve(receipt);
+    } catch (error) {
+      lostAvatarReceipt.reject(error);
+    }
   });
   await info
     .getByLabel("Change channel image…", { exact: true })
@@ -377,10 +384,25 @@ try {
       mimeType: "image/png",
       buffer: Buffer.from(png, "base64"),
     });
+  // The pending control appears when staged, before the intercepted PUT commits.
+  const acceptedAvatar = await lostAvatarReceipt.promise;
+  assert.equal(
+    acceptedAvatar.operation_id,
+    lostAvatar.searchParams.get("operation_id"),
+  );
+  await info
+    .locator(".room-avatar-status")
+    .filter({ hasText: "Could not change the image." })
+    .waitFor();
   await info
     .getByRole("button", { name: "Resume saved request", exact: true })
     .waitFor();
   const committedImage = await api("/api/v1/rooms/" + room.id, me.token);
+  assert.equal(
+    committedImage.revision,
+    acceptedAvatar.applied_revision,
+    "the committed snapshot matches the intercepted successful photo receipt",
+  );
   await page.reload();
   await page.locator(".status-dot.online").waitFor();
   await page.locator(".room-heading").click();

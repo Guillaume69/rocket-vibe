@@ -33,6 +33,8 @@ jobs:
       DATABASE_URL: postgres://web:web-disposable-test-password@127.0.0.1:55435/web
       RV_WEB_TEST_URL: http://127.0.0.1:3417
       RV_WEB_SECURITY_USER: websecurity
+      RV_WEB_PENDING_USER: websecpendingci
+      RV_WEB_PENDING_EMAIL_USER: websecpendingemailci
       RV_WEB_COMPOSER_USER: webcomposer
       RV_USER_PASSWORD: web-client-disposable-password
       RV_WEB_CRYPTO_ALICE: webcryptoalice
@@ -105,6 +107,8 @@ jobs:
           target/debug/rv-server create-user webreadowner --admin
           target/debug/rv-server create-user webbob
           target/debug/rv-server create-user websecurity
+          target/debug/rv-server create-user websecpendingci
+          target/debug/rv-server create-user websecpendingemailci
           target/debug/rv-server create-user webcomposer --admin
           target/debug/rv-server create-user webrail
           target/debug/rv-server create-user webquiet
@@ -135,12 +139,14 @@ jobs:
           curl --fail --silent "$RV_WEB_TEST_URL/.well-known/rocketvibe" > /dev/null
       - name: Exercise real browser conversations and devices
         working-directory: apps/web
+        env:
+          RV_WEB_PENDING_PG_CONTAINER: ${{ job.services.postgres.id }}
         run: |
           # Closed browser contexts leave five-minute snapshot leases. Release them
           # between suites on this disposable server. All suites also share localhost's
           # login budget; release that IP window only at the closed-suite boundary,
           # keeping every limit within each suite real.
-          for suite in e2ee browser features media images video-reduce voice voice-connection voice-lifecycle sessions locked composer conversation-parity shell-parity quiet receipts scheduled reminders threads global-search logout-replay notifications security visual workflows reads profiles navigation social; do
+          for suite in e2ee browser features media images video-reduce voice voice-connection voice-lifecycle sessions locked composer conversation-parity shell-parity quiet receipts scheduled reminders threads global-search logout-replay notifications security security-pending visual workflows reads profiles navigation social; do
             npm run "test:$suite"
             docker exec "${{ job.services.postgres.id }}" psql -U web -d web --set ON_ERROR_STOP=1 --command "DELETE FROM snapshot_heads; DELETE FROM login_windows WHERE key LIKE 'ip:%'"
           done

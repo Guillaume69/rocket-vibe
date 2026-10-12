@@ -1,12 +1,11 @@
 import type { App } from "./app";
 import type {
   FactorStatus,
-  FactorSetup,
   FactorBackupCodes,
   ReauthenticationStatus,
   ReauthenticationStep,
 } from "./protocol";
-import { operation, secret } from "./api";
+import { Api, operation, secret } from "./api";
 import { button, dialog, el, field } from "./dom";
 import { t, language } from "./i18n";
 import { emailSettings } from "./email";
@@ -14,6 +13,16 @@ import { qrPath, totpQr } from "./totp-qr";
 import { actionRow, preferencesGroup, buttonRow } from "./sidebar";
 import { nt } from "./native-i18n";
 import { accountFence, confirmAction } from "./preferences-controls";
+import { securityVault } from "./security-vault";
+import { read, writeBatch } from "./store";
+import {
+  enableFactor,
+  recoverFactor,
+  factorOperation,
+  type FactorIntent,
+  type FactorRemote,
+  type FactorView,
+} from "./security-intents";
 
 const phrase = (en: string, fr: string) => (language === "fr" ? fr : en);
 const proofs = new WeakMap<App, { target: HTMLElement; work: Promise<void> }>();
@@ -60,9 +69,18 @@ export async function recentProof(
 ): Promise<void> {
   const pending = proofs.get(app);
   if (pending?.target.isConnected) return pending.work;
-  const valid = accountFence(app);
-  const status =
-    await app.api.request<ReauthenticationStatus>("/api/v1/me/reauth");
+  const fence = accountFence(app),
+    generation = app.generation,
+    token = app.api.token,
+    valid = () =>
+      fence() && app.generation === generation && app.api.token === token,
+    api = new Api();
+  api.token = token;
+  api.expired = () => {
+    if (valid()) app.api.expired();
+  };
+  const status = await api.request<ReauthenticationStatus>("/api/v1/me/reauth");
+  if (!valid()) throw Error("security_view_closed");
   if (status.recent) return;
   const work = new Promise<void>((resolve, reject) => {
     const [node, body] = target
@@ -87,7 +105,8 @@ export async function recentProof(
       submit(
         label,
         async () => {
-          const step = await app.api.request<ReauthenticationStep>(
+          if (!valid()) throw Error("security_view_closed");
+          const step = await api.request<ReauthenticationStep>(
             "/api/v1/me/reauth/start",
             "POST",
             { ...intent, password: password.value },
@@ -107,13 +126,20 @@ export async function recentProof(
           methodsRow.append(methods);
           methodsRow.hidden = step.challenge.methods.length < 2;
           for (const method of step.challenge.methods) {
-            const option = el("option", "", nt("login.factor_" + method));
+            const option = el(
+              "option",
+              "",
+              nt(
+                "login.factor_" +
+                  (method === "recovery_code" ? "backup" : method),
+              ),
+            );
             option.value = method;
             methods.append(option);
           }
           const codeLabel = () =>
             nt(
-              methods.value === "backup"
+              methods.value === "recovery_code"
                 ? "login.code_recovery_code"
                 : methods.value === "email"
                   ? "email.code"
@@ -125,15 +151,15 @@ export async function recentProof(
             code.value = "";
             codeWrap.querySelector(".pill-caption")!.textContent = codeLabel();
           });
-          const finish = operation();
           body.replaceChildren(
             methodsRow,
             codeWrap,
             submit(
               label,
               async () => {
-                await app.api.request("/api/v1/me/reauth/finish", "POST", {
-                  operation_id: finish,
+                if (!valid()) throw Error("security_view_closed");
+                await api.request("/api/v1/me/reauth/finish", "POST", {
+                  operation_id: intent.operation_id,
                   challenge_id: step.challenge.challenge_id,
                   method: methods.value,
                   code: code.value,
@@ -150,7 +176,7 @@ export async function recentProof(
           if (step.challenge.methods.includes("email"))
             body.append(
               submit(nt("email.send_code"), () =>
-                app.api
+                api
                   .request("/api/v1/me/reauth/email/start", "POST", {
                     challenge_id: step.challenge.challenge_id,
                     operation_id: operation(),
@@ -181,7 +207,7 @@ export async function recentProof(
 }
 export function backupCodes(
   value: FactorBackupCodes,
-  inline?: { app: App; page: HTMLElement },
+  inline?: { app: App; page: HTMLElement; acknowledge?: () => Promise<void> },
 ): void {
   if (inline) {
     const { app, page } = inline;
@@ -201,8 +227,10 @@ export function backupCodes(
         navigator.clipboard.writeText(value.codes.join("\n")),
       ),
       buttonRow(nt("security.saved"), async () => {
-        codes.textContent = "";
         if (!valid()) return;
+        await inline.acknowledge?.();
+        if (!valid()) return;
+        codes.textContent = "";
         page.replaceChildren();
         await securitySettings(app, page);
       }),
@@ -261,17 +289,54 @@ export async function securitySettings(
   app: App,
   page: HTMLElement,
 ): Promise<void> {
-  const valid = accountFence(app);
-  const factors = await app.api.request<FactorStatus>("/api/v1/me/factors");
+  const fence = accountFence(app),
+    generation = app.generation;
+  const valid = () => fence() && app.generation === generation;
+  let factors = await app.api.request<FactorStatus>("/api/v1/me/factors");
   const proof =
     await app.api.request<ReauthenticationStatus>("/api/v1/me/reauth");
   if (!valid()) return;
   const status = accountStatus(factors, proof);
   page.append(status);
+  const vault = securityVault<FactorIntent>(app, proof, "factor"),
+    api = new Api();
+  api.token = app.api.token;
+  api.expired = () => {
+    if (valid()) app.api.expired();
+  };
+  const legacyKey = app.account!.key + ":email-factor",
+    legacy = await read<import("./protocol").ChangeEmailFactor>(
+      "operations",
+      legacyKey,
+    );
+  if (legacy) {
+    await vault.locked(async () => {
+      if (!(await vault.read()))
+        await vault.save({ kind: "legacy-email", input: legacy });
+    });
+    await writeBatch([{ store: "operations", key: legacyKey }], vault.valid);
+  }
+  const remote: FactorRemote = {
+    status: () => api.request<FactorStatus>("/api/v1/me/factors"),
+    request: (path, input) => {
+      if (!vault.valid()) throw Error("security_view_closed");
+      return api.request(path, "POST", input);
+    },
+    save: (intent) => vault.save(intent),
+  };
+  let refreshing: Promise<void> | undefined;
   const refresh = async () => {
     if (!valid()) return;
-    page.replaceChildren();
-    await securitySettings(app, page);
+    if (refreshing) return refreshing;
+    refreshing = (async () => {
+      page.replaceChildren();
+      await securitySettings(app, page);
+    })();
+    try {
+      await refreshing;
+    } finally {
+      refreshing = undefined;
+    }
   };
   if (!proof.recent) {
     const [group, rows] = preferencesGroup(nt("security.required"));
@@ -282,67 +347,172 @@ export async function securitySettings(
   }
   const [actions, actionRows] = preferencesGroup();
   page.append(actions);
+  const start = async (intent: FactorIntent) => {
+    try {
+      await vault.locked(async () => {
+        if (!(await vault.read())) await vault.save(intent);
+      });
+      await refresh();
+    } catch (error) {
+      if (valid()) throw error;
+    }
+  };
+  let view: FactorView = { kind: "idle" },
+    failure = false;
+  try {
+    view = await vault.locked(async () =>
+      recoverFactor(await vault.read(), remote),
+    );
+  } catch (error) {
+    if (!valid()) return;
+    const intent = await vault.read();
+    if (!intent) throw error;
+    view = { kind: "pending", intent };
+    failure = true;
+  }
+  if (!valid()) return;
+  if (view.kind === "idle") {
+    // Recovery may just have committed a disable; draw the successor status/actions.
+    factors = await remote.status();
+    const currentProof =
+      await api.request<ReauthenticationStatus>("/api/v1/me/reauth");
+    if (!valid()) return;
+    status.replaceWith(accountStatus(factors, currentProof));
+  }
+  if (view.kind === "pending" || view.kind === "stale") {
+    actions.hidden = true;
+    const intent = view.intent;
+    const title =
+      intent.kind === "setup"
+        ? "security.setup"
+        : intent.kind === "regenerate"
+          ? "security.regenerate"
+          : intent.kind === "disable"
+            ? "security.disable"
+            : intent.kind === "email"
+              ? intent.enabled
+                ? "email.factor_enable"
+                : "email.factor_disable"
+              : intent.kind === "legacy-email"
+                ? "email.title"
+                : "security.codes";
+    const [group, rows] = preferencesGroup(
+      nt(title),
+      nt(
+        view.kind === "stale"
+          ? "security.stale"
+          : failure
+            ? "security.failed"
+            : "security.pending_body",
+      ),
+    );
+    group.classList.add("security-pending");
+    if (view.kind !== "stale")
+      rows.append(
+        buttonRow(
+          nt(failure ? "security.retry" : "security.continue"),
+          async () => {
+            if (!valid()) return;
+            await recentProof(app);
+            if (valid()) await refresh();
+          },
+        ),
+      );
+    rows.append(
+      buttonRow(nt("security.cancel_pending"), async () => {
+        await vault.locked(async () => {
+          const saved = await vault.read();
+          if (saved && factorOperation(saved) === factorOperation(intent))
+            await vault.save();
+        });
+        await refresh();
+      }),
+    );
+    page.append(group);
+  } else if (view.kind === "codes") {
+    const saved = view.intent;
+    backupCodes(saved.codes, {
+      app,
+      page,
+      acknowledge: () =>
+        vault.locked(async () => {
+          const current = await vault.read();
+          if (current && factorOperation(current) === saved.operation_id)
+            await vault.save();
+        }),
+    });
+    return;
+  } else if (view.kind === "setup") {
+    const { setup, intent } = view;
+    const [group, body] = preferencesGroup(
+      nt("security.setup"),
+      nt("security.setup_body"),
+    );
+    const key = el("code", "totp-secret security-secret", setup.secret);
+    key.dataset.secret = setup.secret;
+    const qr = qrCode(setup.provisioning_uri),
+      [wrap, code] = field(nt("login.code_totp"));
+    code.autocomplete = "one-time-code";
+    if (qr) body.append(qr);
+    body.append(
+      key,
+      buttonRow(nt("security.copy_secret"), () =>
+        navigator.clipboard.writeText(setup.secret),
+      ),
+      buttonRow(nt("security.copy_uri"), () =>
+        navigator.clipboard.writeText(setup.provisioning_uri),
+      ),
+      wrap,
+      buttonRow(nt("security.enable"), async () => {
+        try {
+          await vault.locked(async () => {
+            const current = await vault.read();
+            if (
+              current?.kind !== "setup" ||
+              current.operation_id !== intent.operation_id
+            )
+              throw Error("credentials_changed");
+            await enableFactor(current, code.value, operation(), remote);
+          });
+          code.value = "";
+          if (valid()) await refresh();
+        } catch (error) {
+          if (valid()) throw error;
+        }
+      }),
+      buttonRow(nt("security.cancel_pending"), async () => {
+        await vault.locked(async () => {
+          const current = await vault.read();
+          if (current && factorOperation(current) === intent.operation_id)
+            await vault.save();
+        });
+        await refresh();
+      }),
+    );
+    page.replaceChildren(status, group);
+    page.closest("dialog")?.addEventListener(
+      "close",
+      () => {
+        key.textContent = "";
+        delete key.dataset.secret;
+        qr?.replaceChildren();
+        code.value = "";
+      },
+      { once: true },
+    );
+    return;
+  }
+  if (view.kind !== "idle") {
+    await emailSettings(app, page, true);
+    const [group, rows] = preferencesGroup();
+    rows.append(buttonRow(nt("security.refresh"), refresh));
+    page.append(group);
+    return;
+  }
   if (app.info?.capabilities.second_factors && !factors.totp)
     actionRows.append(
       buttonRow(nt("security.setup"), async () => {
-        await recentProof(app);
-        const setup = await app.api.request<FactorSetup>(
-          "/api/v1/me/factors/totp/setup",
-          "POST",
-          { operation_id: operation() },
-        );
-        if (!valid()) return;
-        const [group, body] = preferencesGroup(
-          nt("security.setup"),
-          nt("security.setup_body"),
-        );
-        const key = el("code", "totp-secret security-secret", setup.secret);
-        key.dataset.secret = setup.secret;
-        const [wrap, code] = field(nt("login.code_totp"));
-        code.autocomplete = "one-time-code";
-        const id = operation();
-        const qr = qrCode(setup.provisioning_uri);
-        if (qr) body.append(qr);
-        body.append(
-          key,
-          buttonRow(nt("security.copy_secret"), () =>
-            navigator.clipboard.writeText(setup.secret),
-          ),
-          buttonRow(nt("security.copy_uri"), () =>
-            navigator.clipboard.writeText(setup.provisioning_uri),
-          ),
-          wrap,
-          buttonRow(
-            nt("security.enable"),
-            async () => {
-              const receipt = await app.api.request<FactorBackupCodes>(
-                "/api/v1/me/factors/totp/enable",
-                "POST",
-                {
-                  operation_id: id,
-                  setup_id: setup.setup_id,
-                  code: code.value,
-                },
-              );
-              code.value = "";
-              key.textContent = "";
-              delete key.dataset.secret;
-              qr?.replaceChildren();
-              if (valid()) backupCodes(receipt, { app, page });
-            },
-            "",
-          ),
-        );
-        page.replaceChildren(status, group);
-        page.closest("dialog")?.addEventListener(
-          "close",
-          () => {
-            key.textContent = "";
-            delete key.dataset.secret;
-            qr?.replaceChildren();
-          },
-          { once: true },
-        );
+        await start({ kind: "setup", operation_id: operation() });
       }),
     );
   else if (app.info?.capabilities.second_factors)
@@ -354,11 +524,12 @@ export async function securitySettings(
             nt("security.disable"),
             nt("security.disable_body"),
             async () => {
-              await recentProof(app);
-              await app.api.request("/api/v1/me/factors/totp/disable", "POST", {
-                factor_version: factors.factor_version,
-              });
-              await refresh();
+              if (factors.factor_version)
+                await start({
+                  kind: "disable",
+                  operation_id: operation(),
+                  factor_version: factors.factor_version,
+                });
             },
           ),
         "destructive",
@@ -371,16 +542,12 @@ export async function securitySettings(
           nt("security.regenerate"),
           nt("security.regenerate_body"),
           async () => {
-            await recentProof(app);
-            const value = await app.api.request<FactorBackupCodes>(
-              "/api/v1/me/factors/recovery/regenerate",
-              "POST",
-              {
+            if (factors.factor_version)
+              await start({
+                kind: "regenerate",
                 operation_id: operation(),
                 factor_version: factors.factor_version,
-              },
-            );
-            if (valid()) backupCodes(value, { app, page });
+              });
           },
         ),
       ),
@@ -389,4 +556,21 @@ export async function securitySettings(
   const [refreshGroup, refreshRows] = preferencesGroup();
   refreshRows.append(buttonRow(nt("security.refresh"), refresh));
   page.append(refreshGroup);
+}
+
+export async function changeEmailFactor(
+  app: App,
+  page: HTMLElement,
+  input: import("./protocol").ChangeEmailFactor,
+  enabled: boolean,
+): Promise<void> {
+  const vault = securityVault<FactorIntent>(app, input.context, "factor");
+  await vault.locked(async () => {
+    if (!(await vault.read()))
+      await vault.save({ kind: "email", enabled, input });
+  });
+  if (vault.valid()) {
+    page.replaceChildren();
+    await securitySettings(app, page);
+  }
 }

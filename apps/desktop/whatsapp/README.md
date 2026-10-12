@@ -21,7 +21,7 @@ The Go script builds a **Linux** sidecar in Docker. It pins whatsmeow and its de
 
 The app locates `rv-whatsapp` (`rv-whatsapp.exe` on Windows) beside itself, or the path in `RV_WHATSAPP_HELPER`. If it is there, the sign-in page offers **Connect WhatsApp**, which shows the QR; each linked account gets its own helper process and state.
 
-Release packages do not ship the helper yet; macOS SwiftUI and Android embedding are not there.
+Packages ship it: `.github/workflows/desktop-whatsapp.yml` builds it (Linux in Ubuntu 22.04, Windows cross-built with mingw-w64, macOS on its runner) with `rv-whatsapp-licenses.txt` (`licenses.sh`, every module's licence, whatsmeow's MPL-2.0 first), and `desktop.yml` puts both beside the app in the Linux archive, the Windows zip and installer, and the macOS bundle (signed like `rv-voice`); the AppImage carries the helper but not yet the notice. `rv-whatsapp --version` names the helper and whatsmeow's version. macOS SwiftUI and Android embedding are not there.
 
 On Linux, an unlocked Secret Service is necessary for real linking. On Windows/macOS the GTK implementation uses the corresponding system keychain. Unavailable secure storage fails closed. Do not replace that with a plaintext key file or an environment variable.
 

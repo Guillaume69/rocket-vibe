@@ -58,12 +58,18 @@ jobs:
     if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
     uses: ./.github/workflows/desktop-voice.yml
 
+  # The rv-whatsapp helper every package carries next to the app's executable,
+  # with its licence notice (whatsmeow is MPL-2.0): whatsapp::locate() finds it.
+  whatsapp:
+    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/desktop-whatsapp.yml
+
   # The same Fedora as scripts/build.sh: GTK 4 and libadwaita recent enough
   # for the features the app asks for, which Ubuntu 24.04 does not ship.
   # Waits for the sidecar only when packaging (skipped otherwise).
   linux:
-    needs: [version, voice]
-    if: ${{ !cancelled() && needs.version.result == 'success' && (needs.voice.result == 'success' || needs.voice.result == 'skipped') }}
+    needs: [version, voice, whatsapp]
+    if: ${{ !cancelled() && needs.version.result == 'success' && (needs.voice.result == 'success' || needs.voice.result == 'skipped') && (needs.whatsapp.result == 'success' || needs.whatsapp.result == 'skipped') }}
     runs-on: ubuntu-24.04
     container: fedora:44
     defaults:
@@ -99,6 +105,11 @@ jobs:
         with:
           name: rv-screen-audio-linux-x86_64
           path: apps/desktop/dist/voice
+      - uses: actions/download-artifact@v4
+        if: env.PACKAGE == 'true'
+        with:
+          name: rv-whatsapp-linux-x86_64
+          path: apps/desktop/dist/whatsapp
       - name: Package
         if: env.PACKAGE == 'true'
         run: |
@@ -109,6 +120,9 @@ jobs:
           install -m755 dist/voice/rv-voice "dist/$name/rv-voice"
           install -m755 dist/voice/rv-screen-audio "dist/$name/rv-screen-audio"
           "dist/$name/rv-voice" --version
+          install -m755 dist/whatsapp/rv-whatsapp "dist/$name/rv-whatsapp"
+          cp dist/whatsapp/rv-whatsapp-licenses.txt "dist/$name/"
+          "dist/$name/rv-whatsapp" --version
           cp -R data/icons "dist/$name/"
           tar -C dist -czf "dist/$name.tar.gz" "$name"
       - uses: actions/upload-artifact@v4
@@ -120,7 +134,7 @@ jobs:
   # Built on Arch against Arch's libraries, glibc included, so it runs on any
   # distribution: see scripts/appimage-build.sh.
   appimage:
-    needs: [version, voice]
+    needs: [version, voice, whatsapp]
     if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     container: ghcr.io/pkgforge-dev/archlinux:latest
@@ -144,9 +158,14 @@ jobs:
         with:
           name: rv-screen-audio-linux-x86_64
           path: apps/desktop/dist/voice
+      - uses: actions/download-artifact@v4
+        with:
+          name: rv-whatsapp-linux-x86_64
+          path: apps/desktop/dist/whatsapp
       - run: sh scripts/appimage-build.sh "${{ needs.version.outputs.version }}" dist
         env:
           RV_VOICE_REQUIRED: 1
+          RV_WHATSAPP_REQUIRED: 1
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-appimage
@@ -201,7 +220,7 @@ jobs:
 
   windows:
     if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
-    needs: [version, voice]
+    needs: [version, voice, whatsapp]
     runs-on: windows-2025
     defaults:
       run:
@@ -237,9 +256,14 @@ jobs:
         with:
           name: rv-voice-windows-x86_64
           path: apps/desktop/dist/voice
+      - uses: actions/download-artifact@v4
+        with:
+          name: rv-whatsapp-windows-x86_64
+          path: apps/desktop/dist/whatsapp
       - run: scripts/package-windows.sh "${{ needs.version.outputs.version }}"
         env:
           RV_VOICE_REQUIRED: 1
+          RV_WHATSAPP_REQUIRED: 1
       - name: Installer
         shell: pwsh
         run: |
@@ -269,6 +293,9 @@ jobs:
           # The voice sidecar beside the exe, where voice::available() looks.
           & "$app\bin\rv-voice.exe" --version
           if ($LASTEXITCODE -ne 0) { throw "rv-voice.exe does not run from the install" }
+          # The WhatsApp helper beside it, where whatsapp::locate() looks.
+          & "$app\bin\rv-whatsapp.exe" --version
+          if ($LASTEXITCODE -ne 0) { throw "rv-whatsapp.exe does not run from the install" }
           if (-not (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\rocket-vibe\rocket-vibe.lnk")) { throw "no Start menu shortcut" }
           $command = (Get-ItemProperty "HKCU:\Software\Classes\rocketvibe\shell\open\command").'(default)'
           if ($command -notlike "*rocket-vibe-gtk.exe*%1*") { throw "rocketvibe:// is not registered: $command" }
@@ -445,7 +472,7 @@ jobs:
 
   macos:
     if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
-    needs: [version, voice]
+    needs: [version, voice, whatsapp]
     runs-on: macos-15
     defaults:
       run:
@@ -491,9 +518,14 @@ jobs:
         with:
           name: rv-voice-macos-arm64
           path: apps/desktop/dist/voice
+      - uses: actions/download-artifact@v4
+        with:
+          name: rv-whatsapp-macos-arm64
+          path: apps/desktop/dist/whatsapp
       - run: scripts/package-macos.sh "${{ needs.version.outputs.version }}"
         env:
           RV_VOICE_REQUIRED: 1
+          RV_WHATSAPP_REQUIRED: 1
       # Apple's notary checks the signed DMG; the ticket stapled to it lets
       # the app open offline without any prompt.
       - name: Notarization
@@ -539,6 +571,7 @@ jobs:
           sudo mv /opt/homebrew /opt/homebrew-aside
           app="$PWD/dist/rocket-vibe.app"
           "$app/Contents/MacOS/rv-voice" --version
+          "$app/Contents/MacOS/rv-whatsapp" --version
           "$app/Contents/MacOS/rocket-vibe-gtk" rocketvibe://room/smoke > "$RUNNER_TEMP/app.log" 2>&1 &
           pid=$!
           sleep 10

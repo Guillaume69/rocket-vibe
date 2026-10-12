@@ -471,9 +471,17 @@ pub fn storage_key() -> Result<String, String> {
     bytes.zeroize();
     Ok(value)
 }
+/// The helper beside the app's executable, or in an AppImage's root (whose
+/// executable is its loader; the root is in `SHARUN_DIR`), like `rv-voice`.
 pub fn locate() -> Option<PathBuf> {
     let name = if cfg!(windows) { "rv-whatsapp.exe" } else { "rv-whatsapp" };
-    std::env::current_exe().ok()?.parent().map(|p| p.join(name)).filter(|p| p.is_file())
+    let beside = std::env::current_exe().ok().and_then(|exe| exe.parent().map(|dir| dir.join(name)));
+    let bundled = ["SHARUN_DIR", "APPDIR"]
+        .into_iter()
+        .filter_map(std::env::var_os)
+        .filter(|root| !root.is_empty())
+        .map(|root| PathBuf::from(root).join("bin").join(name));
+    beside.into_iter().chain(bundled).find(|path| path.is_file())
 }
 impl Snapshot {
     fn apply(&mut self, event: Event) {

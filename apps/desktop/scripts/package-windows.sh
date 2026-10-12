@@ -18,6 +18,19 @@ if [ ! -f "$voice" ]; then
   echo "warning: no voice sidecar at $voice, the package will not offer voice" >&2
   voice=
 fi
+# The WhatsApp helper comes prebuilt (whatsapp/README.md, desktop-whatsapp.yml):
+# $RV_WHATSAPP, else dist/whatsapp/rv-whatsapp.exe, with its licence notice beside
+# it; without it the package offers no WhatsApp, a failure when
+# RV_WHATSAPP_REQUIRED=1 (CI).
+whatsapp=${RV_WHATSAPP:-dist/whatsapp/rv-whatsapp.exe}
+if [ ! -f "$whatsapp" ]; then
+  if [ "${RV_WHATSAPP_REQUIRED:-}" = 1 ]; then
+    echo "no WhatsApp helper at $whatsapp" >&2
+    exit 1
+  fi
+  echo "warning: no WhatsApp helper at $whatsapp, the package will not offer WhatsApp" >&2
+  whatsapp=
+fi
 name="rocket-vibe-desktop-$version-windows-x86_64"
 out="dist/$name"
 prefix=/ucrt64
@@ -29,6 +42,10 @@ loader=$(find target/release/build -path "*webview2-com-sys-*/out/x64/WebView2Lo
 cp "$loader" "$out/bin/"
 # Static C runtime, no DLL of its own: rv-core looks for it beside the exe.
 if [ -n "$voice" ]; then cp "$voice" "$out/bin/rv-voice.exe"; fi
+if [ -n "$whatsapp" ]; then
+  cp "$whatsapp" "$out/bin/rv-whatsapp.exe"
+  cp "$(dirname "$whatsapp")/rv-whatsapp-licenses.txt" "$out/bin/" 2>/dev/null || true
+fi
 
 # GStreamer finds its plugins in ../lib/gstreamer-1.0 next to its DLL.
 # GTK reads the file through gio's giostreamsrc; Media Foundation decodes H.264 and AAC

@@ -1,0 +1,93 @@
+# Builds the rv-whatsapp helper (apps/desktop/whatsapp) on the three desktop
+# platforms and uploads it with its licence notice: rv-whatsapp-linux-x86_64,
+# rv-whatsapp-windows-x86_64, rv-whatsapp-macos-arm64. On its own when the
+# helper changes (gofmt, vet, race tests); called by desktop.yml when it
+# packages, whose jobs put rv-whatsapp next to the app's executable.
+name: desktop-whatsapp
+
+on:
+  workflow_call:
+  push:
+    branches: ['**']
+    paths:
+      - 'apps/desktop/whatsapp/**'
+      - '.github/workflows/desktop-whatsapp.yml'
+  pull_request:
+    paths:
+      - 'apps/desktop/whatsapp/**'
+      - '.github/workflows/desktop-whatsapp.yml'
+  workflow_dispatch:
+
+# Called, github.workflow is the caller's: its own group, never cancelled by
+# (nor cancelling) a standalone run of this workflow.
+concurrency:
+  group: whatsapp-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+jobs:
+  # ubuntu:22.04 (glibc 2.35) so the binary runs on older distributions; the
+  # Windows helper is cross-built there with mingw-w64 (it needs only
+  # KERNEL32 and msvcrt). SQLite is go-sqlite3's (CGO), with unlock notify.
+  linux-windows:
+    runs-on: ubuntu-24.04
+    container: ubuntu:22.04
+    defaults:
+      run:
+        working-directory: apps/desktop/whatsapp
+    steps:
+      - name: Toolchain
+        working-directory: /
+        run: |
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends ca-certificates git build-essential gcc-mingw-w64-x86-64
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/desktop/whatsapp/go.mod
+          cache-dependency-path: apps/desktop/whatsapp/go.sum
+      - name: Format, vet, tests
+        run: |
+          test -z "$(gofmt -l *.go)"
+          go vet -tags sqlite_unlock_notify ./...
+          go test -race -tags sqlite_unlock_notify ./...
+      - name: Build
+        run: |
+          mkdir -p out/linux out/windows
+          CGO_ENABLED=1 go build -tags sqlite_unlock_notify -trimpath -o out/linux/rv-whatsapp .
+          CGO_ENABLED=1 GOOS=windows GOARCH=amd64 CC=x86_64-w64-mingw32-gcc \
+            go build -tags sqlite_unlock_notify -trimpath -o out/windows/rv-whatsapp.exe .
+          out/linux/rv-whatsapp --version
+          ./licenses.sh > out/rv-whatsapp-licenses.txt
+          cp out/rv-whatsapp-licenses.txt out/linux/
+          cp out/rv-whatsapp-licenses.txt out/windows/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rv-whatsapp-linux-x86_64
+          path: apps/desktop/whatsapp/out/linux/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rv-whatsapp-windows-x86_64
+          path: apps/desktop/whatsapp/out/windows/*
+
+  macos:
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: apps/desktop/whatsapp
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/desktop/whatsapp/go.mod
+          cache-dependency-path: apps/desktop/whatsapp/go.sum
+      - name: Build
+        run: |
+          mkdir -p out
+          CGO_ENABLED=1 go build -tags sqlite_unlock_notify -trimpath -o out/rv-whatsapp .
+          out/rv-whatsapp --version
+          ./licenses.sh > out/rv-whatsapp-licenses.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rv-whatsapp-macos-arm64
+          path: apps/desktop/whatsapp/out/*

@@ -18,7 +18,7 @@ Sending files goes through the composer's attach and microphone buttons (`attach
 
 **Hidden** because WhatsApp has no equivalent here yet: search, pins and stars, threads, placing calls, room details and settings, reminders. Typing, presence and complete history are not there yet; view-once and disappearing content is never kept.
 
-**Not packaged**: release builds do not ship the helper (`TARGET_OS=windows apps/desktop/scripts/build-whatsapp.sh` builds it for Windows by hand).
+**Packaged**: `desktop-whatsapp.yml` builds the helper on the three platforms with its licence notice, and every desktop package carries it beside the app (`scripts/package-*.sh`, `appimage-build.sh`); `whatsapp::locate()` also looks under an AppImage's root, like `rv-voice`.
 
 SwiftUI: missing (the FFI filters WhatsApp accounts out of the shared keychain index).
 
@@ -60,5 +60,7 @@ Missing. The Go engine is meant to be embedded on Android through a `gomobile` b
 - apps/desktop/crates/rv-gtk/src/smoke/whatsapp.rs
 - apps/desktop/crates/rv-ffi/src/accounts.rs
 - apps/desktop/scripts/build-whatsapp.sh
+- .github/workflows/desktop-whatsapp.yml
+- apps/desktop/whatsapp/licenses.sh
 - apps/desktop/scripts/smoke-whatsapp.sh
 - docs/WHATSAPP_HANDOFF.md

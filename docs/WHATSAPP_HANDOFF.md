@@ -116,7 +116,7 @@ Update this record with actual commands and evidence, never with intended result
 1. Live-check the integrated account on Windows: adoption of the pilot's device, notifications in the background, unlink from the menu and from the phone, a restart with the phone offline, an interrupted send.
 2. Media: receiving (`media.go`, `download`, `media::Provider::WhatsApp`) and sending (`upload.go`, `upload`, `attach::send_all_whatsapp`) are done; videos other than MP4 go as documents (no transcoding), and outgoing GIFs too. Thumbnails are kept but not yet shown while the full file downloads; a caption shows above its image.
 3. Typing and presence (`SendPresence`, `SubscribePresence`, chat presence events), and the rail tile's photo for the account.
-4. Ship the helper in `desktop.yml` packages (Windows mingw cross-build or MSYS2, Linux, macOS), with whatsmeow's MPL-2.0 notice.
+4. Packaging is done (`desktop-whatsapp.yml`, called by `desktop.yml`; `RV_WHATSAPP_REQUIRED=1` in CI); the AppImage still lacks the licence notice beside its helper.
 5. The pilot excludes view-once and disappearing message content; outgoing behaviour in a disappearing chat is not handled.
 6. Qualify snapshot durability during a crash and keychain loss. The encrypted-file limit is 128 MiB; exceeding it stops the connection instead of silently discarding state. The in-memory database lives on database/sql's single pooled connection: a driver returning `ErrBadConn` would drop it (not observed).
 7. A send blocks the helper's command loop for up to 45 s; a Stop during it is answered after the send, and the adapter kills the helper after 5 s, leaving the send `uncertain` at the next start.

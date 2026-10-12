@@ -1044,6 +1044,7 @@ impl AppWindow {
             Some(Chat::Legacy(_)) => self.chat.reload_all(),
             Some(Chat::WhatsApp(_)) => {
                 self.chat.on_whatsapp_change();
+                self.whatsapp_rail_photos();
                 self.follow_notification(false);
             }
             None => {}
@@ -1169,7 +1170,20 @@ impl AppWindow {
             let accounts = on_tokio(secrets::load_for_rail()).await;
             this.accounts.sync(&accounts);
             this.rail.set_accounts(accounts, current.as_ref());
+            this.whatsapp_rail_photos();
         });
+    }
+
+    /// The photos of the WhatsApp accounts running, on their rail tiles.
+    fn whatsapp_rail_photos(&self) {
+        for info in self.accounts.running() {
+            let key = supervisor::key(&info);
+            if let Some(Chat::WhatsApp(session)) = self.accounts.chat(&key)
+                && let Some(photo) = session.photo(&info.user_id)
+            {
+                self.rail.set_photo(&key, &photo);
+            }
+        }
     }
 
     /// What an account in the background has to say.

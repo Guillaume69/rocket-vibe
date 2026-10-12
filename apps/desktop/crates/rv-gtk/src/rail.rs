@@ -32,6 +32,8 @@ pub struct Rail {
     /// Each server's own icon once read (`rv_core::server_icon`), shown at
     /// once on the next rebuild while it is read again.
     icons: RefCell<HashMap<String, gtk::gdk::Texture>>,
+    /// The photo bytes each account's tile was last drawn from.
+    photo_sources: RefCell<std::collections::HashMap<String, usize>>,
     /// Each button's account, key, overlay and initial tile, to read the icons again.
     slots: RefCell<Vec<Slot>>,
     unread: RefCell<HashMap<String, bool>>,
@@ -135,6 +137,7 @@ impl Rail {
             active: RefCell::default(),
             dots: RefCell::default(),
             icons: RefCell::default(),
+            photo_sources: RefCell::default(),
             slots: RefCell::default(),
             unread: RefCell::default(),
             generation: Cell::new(0),
@@ -191,7 +194,10 @@ impl Rail {
             if let Some(texture) = self.icons.borrow().get(&key) {
                 overlay.set_child(Some(&icon_image(Some(texture))));
             }
-            self.load_icon(info, &key, &overlay, &tile);
+            // A WhatsApp account has no server icon: its photo comes from `set_photo`.
+            if !rv_core::whatsapp::is_whatsapp(info) {
+                self.load_icon(info, &key, &overlay, &tile);
+            }
             self.slots.borrow_mut().push((info.clone(), key.clone(), overlay.downgrade(), tile.clone()));
             let button = gtk::Button::builder()
                 .child(&overlay)
@@ -283,6 +289,25 @@ impl Rail {
                 Icon::Unknown => {}
             }
         });
+    }
+
+    /// An account's own photo in place of its initial (a WhatsApp account).
+    pub fn set_photo(&self, key: &str, bytes: &std::sync::Arc<[u8]>) {
+        let source = bytes.as_ptr() as usize;
+        if self.photo_sources.borrow().get(key) == Some(&source) {
+            return;
+        }
+        let Some(texture) = icon_texture(bytes) else { return };
+        self.photo_sources.borrow_mut().insert(key.to_owned(), source);
+        let slots = self.slots.borrow().clone();
+        for (_, slot, overlay, _) in slots {
+            if slot == key
+                && let Some(overlay) = overlay.upgrade()
+            {
+                overlay.set_child(Some(&icon_image(Some(&texture))));
+            }
+        }
+        self.icons.borrow_mut().insert(key.to_owned(), texture);
     }
 
     /// Reads every icon again (an administrator just changed one).

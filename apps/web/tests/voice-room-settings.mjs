@@ -42,7 +42,12 @@ export async function voiceRoomSettings(page) {
   await create.waitFor({ state: "detached" });
   const row = page.locator('[data-room="' + room.id + '"]');
   await row.locator(".room-top .symbolic-icon").waitFor();
-  await page.locator(".room-heading").click();
+  const voicePage = page.locator(".voice-page");
+  await voicePage.locator(".voice-status.connected").waitFor();
+  await voicePage
+    .getByRole("button", { name: "Open the chat", exact: true })
+    .click();
+  await page.locator(".room-heading").filter({ hasText: name }).click();
   const info = page.locator(".room-info-dialog"),
     editor = page.locator(".room-settings-dialog"),
     updates = [];
@@ -100,8 +105,13 @@ export async function voiceRoomSettings(page) {
     }
     assert.deepEqual(updates, [false, true]);
     await info.locator(".dialog-header button").click();
-    const leave = page.locator('.voice-page button[aria-label="Leave voice"]');
-    if (await leave.isVisible()) await leave.click();
+    const leave = page
+      .locator(".voice-bar")
+      .getByRole("button", { name: "Close", exact: true });
+    if (await leave.isVisible()) {
+      await leave.click();
+      await page.locator(".voice-bar").waitFor({ state: "detached" });
+    }
     console.log(
       "PASS native voice-room creation, cancelled settings and revisioned voice disable/enable",
     );

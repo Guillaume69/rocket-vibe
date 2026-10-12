@@ -7,6 +7,8 @@ section here.
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-10-13
+
 ### Added
 
 - Experimental WhatsApp accounts on GTK: link a personal account by scanning a QR or with a code typed on the phone (WhatsApp among the server types of the sign-in page) and use it like any other account, in the rail, room list and timeline, with notifications in the background. Contact and group names, profile photos, reactions, quoted replies, editing or deleting your own messages for everyone, unread counts shared with the phone, delivered/read state, new conversations from your contacts or a number, photos, voice notes, videos and documents, received and sent, typing, reactions and replies from the notification, link previews and video cards, received and sent, and incoming calls that ring here (decline, or answer on the phone); the WhatsApp helper ships beside the app in the release packages.
@@ -1212,7 +1214,8 @@ the mobile app (see `docs/PARITY.md`).
   `rocketvibe://` links) and zip; a macOS app in a DMG, signed with a Developer ID and
   notarized by Apple.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.17.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.18.0...HEAD
+[0.18.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.17.0...desktop-v0.18.0
 [0.17.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.16.0...desktop-v0.17.0
 [0.16.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.15.1...desktop-v0.16.0
 [0.15.1]: https://github.com/Guillaume69/rocket-vibe/compare/24e6175c...desktop-v0.15.1

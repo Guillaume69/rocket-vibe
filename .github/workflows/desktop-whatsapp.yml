@@ -48,7 +48,7 @@ jobs:
           cache-dependency-path: apps/desktop/whatsapp/go.sum
       - name: Format, vet, tests
         run: |
-          test -z "$(gofmt -l *.go)"
+          test -z "$(gofmt -l .)"
           go vet -tags sqlite_unlock_notify ./...
           go test -race -tags sqlite_unlock_notify ./...
       - name: Build

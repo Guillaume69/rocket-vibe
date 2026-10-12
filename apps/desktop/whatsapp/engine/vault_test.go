@@ -1,14 +1,16 @@
-package main
+package engine
 
 import (
 	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -538,4 +540,61 @@ func TestACallRingsThenEnds(t *testing.T) {
 	if _, ok := c.calls.take("CALL1"); ok {
 		t.Fatal("an ended call stays declinable")
 	}
+}
+
+type frames struct {
+	mu   sync.Mutex
+	seen []string
+}
+
+func (f *frames) Frame(frame string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.seen = append(f.seen, frame)
+}
+
+func (f *frames) types() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var types []string
+	for _, frame := range f.seen {
+		var w struct {
+			Type string `json:"type"`
+		}
+		_ = json.Unmarshal([]byte(frame), &w)
+		types = append(types, w.Type)
+	}
+	return types
+}
+
+func TestDeviceOpensReplaysAndRefusesASecondHolder(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.bin")
+	key := make([]byte, 32)
+	sink := &frames{}
+	d, err := Open(path, key, sink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if _, err := Open(path, key, &frames{}); err == nil {
+		t.Fatal("a second engine opened a state already held")
+	}
+	if got := sink.types(); len(got) == 0 || got[len(got)-1] != "status" {
+		t.Fatalf("open frames: %v", got)
+	}
+	sink.mu.Lock()
+	sink.seen = nil
+	sink.mu.Unlock()
+	if !d.Handle(`{"type":"replay"}`) || !d.Handle(`not json`) {
+		t.Fatal("the engine ended on a replay or an invalid command")
+	}
+	got := sink.types()
+	if len(got) < 2 || got[0] != "reload" || got[len(got)-1] != "error" {
+		t.Fatalf("replay frames: %v", got)
+	}
+	if d.Handle(`{"type":"stop"}`) {
+		t.Fatal("stop did not end the engine")
+	}
+	d.Close()
+	d.Close()
 }

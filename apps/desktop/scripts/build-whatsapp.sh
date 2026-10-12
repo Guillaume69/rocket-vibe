@@ -11,7 +11,7 @@ case "$profile" in dev) output=debug ;; release) output=release ;; *) echo "Unsu
 case "${TARGET_OS:-linux}" in linux | windows) ;; *) echo "Unsupported TARGET_OS" >&2; exit 2 ;; esac
 docker run --rm -e GOTOOLCHAIN=auto -v rv-whatsapp-go:/go -v "$repo:/src" -w /src/apps/desktop/whatsapp \
   -e OUTPUT="$output" -e TARGET_OS="${TARGET_OS:-linux}" golang:1.25-bookworm bash -ec '
-    test -z "$(gofmt -l *.go)"
+    test -z "$(gofmt -l .)"
     go vet -tags sqlite_unlock_notify ./...
     go test -race -tags sqlite_unlock_notify ./...
     mkdir -p "../target/$OUTPUT"

@@ -1,8 +1,8 @@
 // The WhatsApp engine: one linked device, its sealed state and the events
-// the client projects. It knows no transport: main.go speaks JSON lines over
-// pipes, a mobile binding can drive the same methods. Never log QR payloads,
-// keys or message bodies.
-package main
+// the client projects. It knows no transport (api.go): the desktop helper
+// speaks JSON lines over pipes, the Android binding calls it through
+// gomobile. Never log QR payloads, keys or message bodies.
+package engine
 
 import (
 	"context"
@@ -741,6 +741,11 @@ func (c *connector) handle(cmd command) bool {
 		go c.pairPhone(cmd)
 	case "typing":
 		go c.typing(cmd)
+	case "replay":
+		// A client attaching to an engine already running (Android's UI
+		// process after the service kept it): everything again, from a reload.
+		c.reload()
+		c.emitAccount()
 	case "logout":
 		if err := c.client.Logout(c.ctx); err != nil {
 			c.fail("logout_failed")

@@ -10,6 +10,9 @@ import (
 	"fmt"
 	"os"
 	"runtime/debug"
+	"sync/atomic"
+
+	"rocketvibe.local/whatsapp/engine"
 )
 
 // "rv-whatsapp, whatsmeow <version>", for the packages' checks.
@@ -28,11 +31,27 @@ func versions() string {
 	return "rv-whatsapp, whatsmeow " + whatsmeow
 }
 
+// Frames to stdout, one per line; a closed pipe ends the engine's work.
+type stdout struct {
+	device atomic.Pointer[engine.Device]
+}
+
+func (s *stdout) Frame(frame string) {
+	if _, err := fmt.Fprintln(os.Stdout, frame); err != nil {
+		if d := s.device.Load(); d != nil {
+			d.Cancel()
+		}
+	}
+}
+
 func run(path string, scan *bufio.Scanner) error {
 	if !scan.Scan() {
 		return fmt.Errorf("missing initialization")
 	}
-	var init command
+	var init struct {
+		Type string `json:"type"`
+		Key  string `json:"key"`
+	}
 	if json.Unmarshal(scan.Bytes(), &init) != nil || init.Type != "start" {
 		return fmt.Errorf("invalid initialization")
 	}
@@ -42,26 +61,16 @@ func run(path string, scan *bufio.Scanner) error {
 		return err
 	}
 	defer clear(key)
-	encoder := json.NewEncoder(os.Stdout)
-	var c *connector
-	sink := func(event wire) {
-		if encoder.Encode(event) != nil && c != nil {
-			c.cancel()
-		}
-	}
-	c, closer, err := open(path, key, sink)
+	out := &stdout{}
+	device, err := engine.Open(path, key, out)
 	if err != nil {
 		return err
 	}
-	defer closer()
-	go c.connect()
+	out.device.Store(device)
+	defer device.Close()
+	device.Connect()
 	for scan.Scan() {
-		var cmd command
-		if json.Unmarshal(scan.Bytes(), &cmd) != nil {
-			c.fail("invalid_command")
-			continue
-		}
-		if !c.handle(cmd) {
+		if !device.Handle(scan.Text()) {
 			return nil
 		}
 	}
@@ -84,7 +93,7 @@ func main() {
 	}
 	if err := run(*state, scan); err != nil {
 		// Errors from the network or database may contain sensitive material.
-		_ = json.NewEncoder(os.Stdout).Encode(wire{Type: "error", Code: "connector_start_failed"})
+		fmt.Println(`{"type":"error","code":"connector_start_failed"}`)
 		os.Exit(1)
 	}
 }

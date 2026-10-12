@@ -1,4 +1,4 @@
-package main
+package engine
 
 import (
 	"go.mau.fi/whatsmeow/types"

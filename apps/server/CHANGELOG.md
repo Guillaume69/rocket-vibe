@@ -11,8 +11,13 @@ everything before it is under that section.
 ### Added
 
 - Admin-only, retry-safe account invitation creation, listing and revocation; secrets remain hashed in storage.
+- Sign in with the verified email address of an account instead of its username, on `/auth/login` and `/auth/start`; a pending or unknown address fails like a wrong password.
 
 - The Docker image is published to `ghcr.io/guillaume69/rocketvibe-server` on each release and carries a title, a description and its source repository (OCI labels).
+
+### Changed
+
+- A verified email address belongs to one account: confirming an address another account already holds answers `409 email_address_taken`. Migration 0062 keeps addresses two accounts already shared as contacts but not as sign-in identifiers.
 
 ### Fixed
 

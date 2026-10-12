@@ -121,6 +121,10 @@ The administrator flag is stored for the rest of the workstream; it does not all
 reading private rooms or bypassing their rights. The CLI requires operator access
 to the database. No public registration is open.
 
+A person signs in with their username or with the email address verified on
+their account ([identifier](../../docs/protocol/AUTHENTICATION.md#identifier)).
+An address verified by one account cannot be verified by another.
+
 Administrators can also create, copy and revoke invitation codes in Server administration > Invitations in every app. No automatic email is sent.
 
 To issue a code through the operator CLI:

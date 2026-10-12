@@ -28,6 +28,9 @@ fn rejected() -> Error {
         "email_verification_rejected",
     )
 }
+fn taken() -> Error {
+    Error::new(axum::http::StatusCode::CONFLICT, "email_address_taken")
+}
 fn intent(candidate: &str, operation: &str, context: &ReauthenticationContext) -> Result<()> {
     if !factors::bearer_candidate(candidate) || !auth::identifier(operation) {
         return Err(Error::invalid());
@@ -396,7 +399,22 @@ pub(crate) async fn confirm(
     if saved.expires_at <= now {
         return Err(rejected());
     }
-    sqlx::query("INSERT INTO account_emails(user_id,address,verified_at) VALUES($1,$2,$3) ON CONFLICT(user_id) DO UPDATE SET address=excluded.address,verified_at=excluded.verified_at").bind(&account.id).bind(&saved.address).bind(now).execute(&mut *tx).await?;
+    let held: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM account_emails WHERE address=$1 AND user_id<>$2)",
+    )
+    .bind(&saved.address)
+    .bind(&account.id)
+    .fetch_one(&mut *tx)
+    .await?;
+    if held {
+        return Err(taken());
+    }
+    match sqlx::query("INSERT INTO account_emails(user_id,address,verified_at,sign_in) VALUES($1,$2,$3,true) ON CONFLICT(user_id) DO UPDATE SET address=excluded.address,verified_at=excluded.verified_at,sign_in=true").bind(&account.id).bind(&saved.address).bind(now).execute(&mut *tx).await {
+        Err(sqlx::Error::Database(e)) if e.is_unique_violation() => return Err(taken()),
+        result => {
+            result?;
+        }
+    }
     sqlx::query("UPDATE users SET email_version=$2 WHERE id=$1")
         .bind(&account.id)
         .bind(&version)

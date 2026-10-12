@@ -79,16 +79,26 @@ export async function emailSettings(
         t("verify"),
         async () => {
           await recentProof(app);
-          await app.api.request(
-            "/api/v1/me/email/verification/confirm",
-            "POST",
-            {
+          await app.api
+            .request("/api/v1/me/email/verification/confirm", "POST", {
               context: intent.context,
               operation_id: confirm,
               verification_id: intent.verification_id,
               code: code.value,
-            },
-          );
+            })
+            .catch((error: unknown) => {
+              if (
+                error instanceof ApiError &&
+                error.code === "email_address_taken"
+              )
+                throw new Error(
+                  phrase(
+                    "This address is already linked to another account.",
+                    "Cette adresse est déjà liée à un autre compte.",
+                  ),
+                );
+              throw error;
+            });
           code.value = "";
           await write("operations", key);
           node.close();

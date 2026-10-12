@@ -1061,6 +1061,8 @@ impl Controller {
                             "email.invalid"
                         } else if error.code() == "email_verification_rejected" {
                             "email.rejected"
+                        } else if error.code() == "email_address_taken" {
+                            "email.taken"
                         } else if error.code() == "email_removal_rejected" {
                             "email.removal_stale"
                         } else if matches!(

@@ -544,7 +544,7 @@ export default function LoginScreen() {
             )}
             <PillField
               c={c}
-              label={t('login.usernameOrEmail')}
+              label={t(recovery || registration ? 'login.username' : 'login.usernameOrEmail')}
               value={user}
               editable={!busy}
               onChangeText={value => { generation.current++; setUser(value); }}

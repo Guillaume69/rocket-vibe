@@ -273,6 +273,10 @@ Desktop persists `uploads.confirm_started` before sending `rooms.mediaConfirm`. 
 
 The tradeoff is visible: a request that never reached the server can stay in "Checking delivery", with Discard available after the user checks the conversation. This prevents automatic duplicates instead of guessing that a missing message is safe to resend. Existing persisted file ids are treated conservatively during migration. Mobile owes this guard; Mattermost/kChat keep their own recovery contract. See [uploads](features/uploads.md) and [parity](parity.md).
 
+## Signing in with a verified email address (2026-10-12)
+
+On a RocketVibe server the sign-in identifier is the username or, when it contains `@`, the account's verified address, normalized as every contact is (domain in lower case, local part as typed). Unknown, pending and ambiguous addresses fail exactly like a wrong password, after the same dummy Argon2 hash, so the route reveals no account. One address must name one account, so `account_emails` gained a `sign_in` flag under a partial unique index (migration 0062): the migration could not drop either side of an existing duplicate (an email factor may hang on the row), so it keeps both as contacts and takes sign-in away from both rather than pick a winner. A second account is refused at confirmation, after the code matched, so only the mailbox's reader learns the address is taken; refusing at start would let any signed-in account probe addresses. The login quota keys on the normalized address rather than the resolved account, so a 429 never tells which account an address belongs to; an account thus has two per-identifier windows (username and address) under the per-client and instance windows. Password recovery, the email recovery request and invitations keep taking the username: their durable client vaults are keyed on it.
+
 ## Sources
 
 - `apps/desktop/crates/rv-gtk/src/notifier/custom.rs`
@@ -330,3 +334,5 @@ The tradeoff is visible: a request that never reached the server can stay in "Ch
 - `crates/rv-protocol/src/social.rs`
 - `apps/server/src/giphy.rs`
 - `brain/features/social.md`
+- `apps/server/src/auth.rs`
+- `apps/server/migrations/0062_email_sign_in.sql`

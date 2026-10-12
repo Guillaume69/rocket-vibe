@@ -130,6 +130,15 @@ test('accepted verification remains recoverable after its server receipt is prun
   await h.vault().confirm(scope,h.remote,pending.receipt,code);h.prune();assert.equal((await h.vault().resume(scope,h.remote)).kind,'verified');
   h.changeContact();const view=await h.vault().resume(scope,h.remote);assert.equal(view.kind,'stale');assert.equal(view.status.address,'other@example.org');
 });
+test('an address held by another account keeps the pending intent cancellable',async()=>{
+  const h=harness(),pending=await h.vault().start(scope,h.remote,'taken@example.org',await h.remote.status());if(pending.kind!=='pending')throw new Error();
+  h.remote.confirm=async()=>{throw new NativeError(409,'email_address_taken');};
+  await assert.rejects(h.vault().confirm(scope,h.remote,pending.receipt,code),(e:unknown)=>e instanceof NativeError && e.status===409 && e.code==='email_address_taken');
+  const kept=await h.vault().resume(scope,h.remote);assert.equal(kept.kind,'pending');if(kept.kind!=='pending')throw new Error();
+  assert.equal(kept.receipt,pending.receipt);
+  const closed=await h.vault().cancel(scope,h.remote,kept.receipt);
+  assert.equal(closed.kind,'idle');assert.equal(closed.status.address,null);assert.equal(h.values.size,0);
+});
 test('a hidden completion keeps the original intent for a later visible resume',async()=>{
   const h=harness(),pending=await h.vault().start(scope,h.remote,'first@example.org',await h.remote.status());if(pending.kind!=='pending')throw new Error();
   let alive=true;h.afterConfirm=()=>{alive=false;};

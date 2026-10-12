@@ -80,7 +80,7 @@ struct LoginView: View {
                         .labelsHidden()
                     }
                     if login.kind != .kchat {
-                        TextField(L("login.user"), text: $login.user)
+                        TextField(L(login.registering || login.recovering ? "login.username" : "login.user"), text: $login.user)
                             .focused($focus, equals: .user)
                             .textContentType(.username)
                     }

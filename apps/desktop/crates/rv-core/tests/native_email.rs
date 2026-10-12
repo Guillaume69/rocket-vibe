@@ -114,6 +114,7 @@ struct Server {
     confirms: Arc<AtomicUsize>,
     lose_start: Arc<AtomicBool>,
     lose_confirm: Arc<AtomicBool>,
+    taken: Arc<AtomicBool>,
     before_start: Arc<AtomicBool>,
     cancel: Arc<Mutex<Option<Guard>>>,
     removes: Arc<AtomicUsize>,
@@ -143,6 +144,7 @@ impl Server {
             confirms: Arc::default(),
             lose_start: Arc::default(),
             lose_confirm: Arc::default(),
+            taken: Arc::default(),
             before_start: Arc::default(),
             cancel: Arc::default(),
             removes: Arc::default(),
@@ -241,6 +243,9 @@ impl Remote for Server {
                 }
                 if input.code != CODE {
                     return Err(error(400, "email_verification_rejected"));
+                }
+                if s.taken.load(Ordering::SeqCst) {
+                    return Err(error(409, "email_address_taken"));
                 }
                 let EmailVerificationStep::Pending { address, .. } = found else { unreachable!() };
                 let count = s.confirms.fetch_add(1, Ordering::SeqCst) + 1;
@@ -886,4 +891,21 @@ async fn aborted_removal_caller_keeps_os_lease_until_private_platform_write_fini
     assert!(matches!(result.state, State::Removed { .. }));
     assert_eq!(server.removes.load(Ordering::SeqCst), 1);
     assert_eq!(server.starts.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn an_address_held_elsewhere_keeps_the_verification_pending_and_cancellable() {
+    let (_temp, memory, server, vault) = fixture();
+    let guard = Guard::new();
+    let pending =
+        vault.email_start(&scope(), &server, "owner@example.org", &server.status_value(), &guard).await.unwrap();
+    server.taken.store(true, Ordering::SeqCst);
+    let refused = vault.email_confirm(&scope(), &server, &receipt(&pending.state), CODE, &guard).await;
+    assert!(refused.is_err_and(|e| e.code() == "email_address_taken"));
+    let resumed = vault.email_resume(&scope(), &server, &guard).await.unwrap();
+    assert!(matches!(resumed.state, State::Pending { .. }));
+    assert!(server.status_value().address.is_none());
+    let cancelled = vault.email_cancel(&scope(), &server, &receipt(&resumed.state), &guard).await.unwrap();
+    assert!(matches!(cancelled.state, State::Idle));
+    assert!(memory.values.lock().unwrap().is_empty());
 }

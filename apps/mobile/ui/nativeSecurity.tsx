@@ -65,6 +65,7 @@ function NativeSecurity({c,chat,reauthOnly=false,onConfirmed}:{c:Colors;chat:Nat
         if(e instanceof NativeError && e.code==='reauthentication_required'){setProof({kind:'password'});setError('security.required');}
         else if(e instanceof NativeError && e.code==='invalid_email_address')setError('email.invalid');
         else if(e instanceof NativeError && e.code==='email_verification_rejected')setError('email.rejected');
+        else if(e instanceof NativeError && e.code==='email_address_taken')setError('email.taken');
         else if(e instanceof NativeError && e.code==='email_removal_rejected')setError('email.removalRejected');
         else if(e instanceof NativeError && ['email_delivery_limit','email_queue_limit','email_resend_cooldown','email_challenge_delivery_limit'].includes(e.code))setError('email.limited');
         else if(e instanceof NativeError && ['factor_rejected','reauthentication_rejected'].includes(e.code))setError('security.rejected');

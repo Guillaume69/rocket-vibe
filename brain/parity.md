@@ -22,6 +22,7 @@ beta does.
 | Feature | Mobile | GTK | SwiftUI | Web | Notes |
 |---|---|---|---|---|---|
 | Server + username/email + password login (`POST login`) | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
+| RocketVibe server: sign in with the account's verified email address in place of the username | done | done | done | done | The server resolves the address (`apps/server/src/auth.rs`); every app sends the field as typed and keys the account on the session's username. Recovery-code and invitation forms take a username and say "Username". SwiftUI checked by the macOS CI build only. |
 | 2FA: TOTP, password (SHA-256) | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | 2FA by email: send and resend the code | done | partial | partial | done | Desktop requests the code automatically when the server has not sent one, with no resend control. Web: Native provider: see [web-client](features/web-client.md). |
 | Session in the system keychain, resumed at launch; a 401 on an authenticated call signs out | done | done | done | mapped | Web: Native browser storage/HTTP/socket, HTTPS links, downloads and live-tab alerts; see web-client.md. |
@@ -177,6 +178,7 @@ beta does.
 | User profile (`users.info`), Message and Call buttons | done | done | done | partial | Web: Avatar/name/menu access, native facts/live presence, GTK card geometry, Message/Call/Report and own-card rules are qualified in tests/profiles.mjs. Bio markdown remains debt. |
 | Bottom avatar: quick Online/Away/Busy/Offline choices, my presence badge, server connection kept separate | done | done | done | done | Mobile: compact native form sheet; GTK and web: dismissible popover; SwiftUI: platform menu. Status text is preserved. SwiftUI UI requires macOS qualification. |
 | My profile: avatar, status, name, bio, email and username (with password and 2FA) | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
+| RocketVibe server: verifying an address another account already holds says so (`409 email_address_taken`) | done | done | done | done | The refused verification stays pending until cancelled. SwiftUI checked by the macOS CI build only. |
 | Remove my photo (`users.resetAvatar`) | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | Live avatar changes (`updateAvatar`) | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | Report a user from the profile (`moderation.reportUser`, RocketVibe `reports`) | done | done | done | done | Not on my own profile ([administration](features/administration.md)). SwiftUI checked by the Linux build of RocketVibeKit and the macOS CI build only. Web: Native provider: see [web-client](features/web-client.md). |

@@ -797,7 +797,7 @@ export async function roomInfo(app: App): Promise<void> {
   };
   await load();
   if (details.permissions.invite) {
-    const [wrap, input] = field(t("username"));
+    const [wrap, input] = field(t("handle"));
     body.append(
       wrap,
       button(t("add"), async () => {
@@ -940,7 +940,7 @@ export async function settings(
     const [details, rows] = preferencesGroup(phrase("Profile", "Profil"));
     const fields = new Map<string, HTMLInputElement>();
     for (const [key, label, value] of [
-      ["username", t("username"), own.profile.user.username],
+      ["username", t("handle"), own.profile.user.username],
       ["display_name", t("name"), own.profile.user.display_name],
       ["bio", t("bio"), own.profile.bio],
     ]) {

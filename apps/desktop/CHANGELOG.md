@@ -10,10 +10,13 @@ section here.
 ### Added
 
 - RocketVibe administrators can create, copy, list and revoke account invitation codes in GTK and SwiftUI.
+- Sign in to a RocketVibe server with a verified email address in place of the username, in GTK and SwiftUI.
 
 ### Fixed
 
 - The RocketVibe Security settings no longer stay stuck on "Loading security…" after a change that needed a fresh identity confirmation (adding or removing an email address, setting up or disabling the authenticator, replacing backup codes, email codes). The page always shows the account's status; the unfinished change appears with Continue and Cancel, and Continue asks for the password (or second factor) before completing it. "Try again" only appears after a failure, on GTK and SwiftUI.
+- Verifying an email address already linked to another RocketVibe account says so instead of a generic failure, and the verification stays cancellable.
+- The sign-in field reads "Username" while creating an account or recovering a password, which take a username only.
 - Prevent duplicate screenshots and other Rocket.Chat attachments after a slow or lost confirmation response, including encrypted files and app restarts. Uncertain confirmations show "Checking delivery" and reconcile without posting again.
 
 - Scope Mattermost and kChat searches to the current channel, direct conversation or group before the server's result limit, on GTK and SwiftUI.

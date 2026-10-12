@@ -27,7 +27,13 @@ impl Drop for Bench {
 }
 impl Bench {
     async fn start(pool: PgPool) -> Self {
-        let app = App::from_pool(pool).await.unwrap();
+        Self::start_with_livekit(pool, None).await
+    }
+    async fn start_with_livekit(
+        pool: PgPool,
+        livekit: Option<rv_server::livekit::LiveKit>,
+    ) -> Self {
+        let app = App::from_pool(pool).await.unwrap().with_livekit(livekit);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
         let router = app.clone().router();
@@ -115,6 +121,72 @@ fn settings(details: &RoomDetails, operation: &str) -> UpdateRoom {
 }
 fn code<T>(result: Result<T, rv_client::Error>, expected: &str) {
     assert!(matches!(result, Err(rv_client::Error::Server { code, .. }) if code == expected));
+}
+
+#[sqlx::test]
+async fn metadata_and_voice_edits_preserve_authority_but_policy_changes_rotate_it(pool: PgPool) {
+    // Enabling the voice flag only needs a configured SFU. This test never
+    // joins or starts its worker, so no media or service fixture is required.
+    let livekit = rv_server::livekit::LiveKit::parse(
+        &serde_json::to_vec(&json!({
+            "url": "ws://127.0.0.1:7880",
+            "api_url": "http://127.0.0.1:7880",
+            "api_key": "authority-test",
+            "api_secret": "room-authority-disposable-test-secret-2026"
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let bench = Bench::start_with_livekit(pool, Some(livekit)).await;
+    let (owner, _, _) = bench.user("authority-owner", false).await;
+    let room = bench.room(&owner).await;
+    let authority = || {
+        sqlx::query_scalar::<_, String>("SELECT authority_version FROM rooms WHERE id=$1")
+            .bind(&room)
+            .fetch_one(&bench.app.pool)
+    };
+    let original = authority().await.unwrap();
+    let before = owner.room_details(&room).await.unwrap();
+    let mut metadata = settings(&before, "metadata-only");
+    metadata.name = "Renamed".into();
+    metadata.topic = "Topic".into();
+    metadata.description = "Description".into();
+    metadata.announcement = "Announcement".into();
+    let receipt = owner.update_room(&room, &metadata).await.unwrap();
+    assert_eq!(authority().await.unwrap(), original);
+    assert_ne!(receipt.applied_revision, before.revision);
+    assert_eq!(owner.update_room(&room, &metadata).await.unwrap(), receipt);
+    assert_eq!(authority().await.unwrap(), original);
+
+    for (operation, enabled) in [("voice-on", true), ("voice-off", false)] {
+        let before = owner.room_details(&room).await.unwrap();
+        let mut voice = settings(&before, operation);
+        voice.voice = Some(enabled);
+        owner.update_room(&room, &voice).await.unwrap();
+        assert_eq!(authority().await.unwrap(), original);
+        let after = owner.room_details(&room).await.unwrap();
+        assert_eq!(after.room.voice, enabled);
+        assert_ne!(after.revision, before.revision);
+        assert_ne!(after.room.revision, before.room.revision);
+    }
+
+    let mut policies = std::collections::HashSet::from([original]);
+    for (operation, private, read_only) in [
+        ("read-only", true, true),
+        ("write-again", true, false),
+        ("public", false, false),
+        ("private-again", true, false),
+    ] {
+        let mut policy = settings(&owner.room_details(&room).await.unwrap(), operation);
+        policy.private = private;
+        policy.read_only = read_only;
+        owner.update_room(&room, &policy).await.unwrap();
+        let changed = authority().await.unwrap();
+        assert!(
+            policies.insert(changed),
+            "{operation} must invalidate every earlier policy, including its restored value"
+        );
+    }
 }
 
 #[sqlx::test]

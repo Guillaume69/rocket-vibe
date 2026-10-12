@@ -1,6 +1,6 @@
 import tls from "node:tls";
 import { createPrivateKey } from "node:crypto";
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
 // PUBLIC synthetic certificate/key already used by server tests. Loopback only.
 const key = createPrivateKey({
   key: readFileSync("apps/server/tests/fixtures/mail-key.der"),
@@ -9,7 +9,13 @@ const key = createPrivateKey({
 }).export({ format: "pem", type: "pkcs8" });
 mkdirSync(".cache", { recursive: true });
 const messages = [];
-writeFileSync(".cache/smtp-mails.json", JSON.stringify(messages));
+const mailbox = ".cache/smtp-mails.json";
+const pendingMailbox = mailbox + "." + process.pid + ".tmp";
+function saveMailbox() {
+  writeFileSync(pendingMailbox, JSON.stringify(messages));
+  renameSync(pendingMailbox, mailbox);
+}
+saveMailbox();
 const server = tls.createServer(
   { key, cert: readFileSync("apps/server/tests/fixtures/mail-cert.pem") },
   (socket) => {
@@ -29,7 +35,7 @@ const server = tls.createServer(
           if (line === ".") {
             data = false;
             messages.push(content);
-            writeFileSync(".cache/smtp-mails.json", JSON.stringify(messages));
+            saveMailbox();
             content = "";
             socket.write("250 queued\r\n");
           } else content += line + "\n";

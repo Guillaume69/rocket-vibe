@@ -1,0 +1,490 @@
+/* Browser adapters for GTK's message list, composer and compact dialogs. */
+.actions-menu:has(.quick-reactions) {
+  width: 280px;
+}
+.time-picker-dialog {
+  width: 380px;
+  max-width: calc(100vw - 24px);
+}
+.time-picker-dialog .details-sub {
+  text-align: center;
+  color: #8f89ab;
+}
+.time-calendar {
+  border: 1px solid #2c2946;
+  border-radius: 12px;
+  padding: 8px;
+  background: #242138;
+}
+.calendar-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 2px;
+}
+.calendar-weekday {
+  text-align: center;
+  color: #8f89ab;
+  font-size: 11px;
+  padding: 6px 0;
+}
+.calendar-day {
+  min-height: 32px;
+  padding: 4px;
+  border-radius: 8px;
+}
+.calendar-day[aria-pressed="true"] {
+  background: #34e1d0;
+  color: #171529;
+  font-weight: 800;
+}
+.time-clock {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 12px 0;
+}
+.time-clock .time-spin {
+  max-width: 70px;
+  margin: 0;
+  text-align: center;
+  font-feature-settings: "tnum";
+}
+.time-picker-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.scheduled-list[popover] {
+  width: 350px;
+  max-width: calc(100vw - 16px);
+  padding: 12px;
+  border: 1px solid #2c2946;
+  border-radius: 14px;
+  color: #f3f0ff;
+  background: #171529;
+  box-shadow: 0 8px 30px #0006;
+}
+.scheduled-list .scheduled-title {
+  display: block;
+  margin-bottom: 8px;
+}
+.scheduled-list .scheduled-items {
+  max-height: 360px;
+  overflow: auto;
+}
+.scheduled-list .scheduled-row {
+  margin: 0 0 4px;
+}
+.emoji-picker[popover] {
+  width: 384px;
+  max-width: calc(100vw - 16px);
+  padding: 12px;
+  border: 1px solid #2c2946;
+  border-radius: 14px;
+  background: #171529;
+  color: #f3f0ff;
+  box-shadow: 0 8px 30px #0006;
+}
+.emoji-picker .emoji-search {
+  width: 100%;
+  margin: 0 0 6px;
+}
+.emoji-picker .picker-tabs {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 6px;
+}
+.emoji-picker .picker-tab {
+  flex: 1;
+  min-width: 0;
+  padding: 4px;
+  font-size: 20px;
+  border-radius: 6px;
+}
+.emoji-picker .emoji-scroll {
+  height: 280px;
+  overflow: auto;
+}
+.emoji-picker .emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  gap: 2px;
+}
+.emoji-picker .picker-emoji {
+  min-width: 0;
+  width: 100%;
+  height: 36px;
+  padding: 0;
+  font-size: 26px;
+  border-radius: 6px;
+}
+.actions-menu .quick-reactions {
+  gap: 4px;
+}
+.actions-menu .quick-reaction {
+  min-width: 40px;
+  min-height: 40px;
+}
+.reminders-dialog {
+  width: 440px;
+  max-width: calc(100vw - 32px);
+}
+.reminders-dialog .reminder-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.reminders-dialog .reminder-open {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  text-align: left;
+}
+.reminders-dialog .reminder-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.reminders-dialog .reminder-body .scheduled-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.message .gutter-time {
+  visibility: visible;
+  color: #6e6890;
+  font-size: 10px;
+  line-height: 20px;
+}
+.message .message-heading {
+  gap: 7px;
+}
+.message .message-column {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.message .message-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.message .message-footer .thread-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.message .message-footer .thread-chip .symbolic-icon {
+  width: 14px;
+  height: 14px;
+}
+.message .row-more svg {
+  width: 16px;
+  height: 16px;
+}
+.format-bar .format-separator {
+  width: 1px;
+  height: 16px;
+  align-self: center;
+  margin: 0 4px;
+  background: #2c2946;
+}
+.format-bar button.format-button {
+  min-width: 26px;
+  min-height: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 6px;
+  padding: 0 5px;
+}
+.format-bar button.format-button svg,
+.format-bar button.format-button .symbolic-icon {
+  width: 16px;
+  height: 16px;
+}
+.thread-pane .thread-header {
+  position: relative;
+}
+.thread-pane .thread-header > .room-title {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  font-weight: 700;
+}
+.thread-pane .thread-header .thread-back {
+  margin-right: auto;
+}
+.thread-pane .thread-header > button:last-child {
+  display: none;
+}
+.thread-pane .composer .composer-pill {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: flex-end;
+}
+.thread-pane .composer .composer-input {
+  flex: 1;
+  min-width: 0;
+  min-height: 22px;
+}
+.thread-pane .composer {
+  flex-shrink: 0;
+  gap: 10px;
+}
+.thread-pane .format-bar {
+  flex-shrink: 0;
+}
+.thread-pane .also-in-room {
+  margin: 4px 16px 0;
+  padding: 0;
+}
+.conversation-preview {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  text-align: left;
+  padding: 8px 6px;
+  border: 0;
+  border-radius: 6px;
+}
+.conversation-preview .message-heading {
+  gap: 7px;
+}
+.conversation-preview .message-body {
+  margin-top: 2px;
+  font-weight: 400;
+}
+.conversation-preview .message-body p {
+  margin: 0;
+}
+.conversation-preview .message-body img {
+  max-width: 100%;
+}
+.conversation-preview:hover {
+  background: #242138;
+}
+.conversation-preview:focus-visible {
+  outline: 2px solid #34e1d0;
+  outline-offset: -2px;
+}
+.marked-dialog,
+.room-search-dialog,
+.local-search-dialog,
+.threads-dialog {
+  width: 440px;
+  max-width: calc(100vw - 32px);
+}
+.marked-dialog .dialog-body,
+.room-search-dialog .dialog-body,
+.threads-dialog .dialog-body {
+  padding: 12px;
+}
+.marked-dialog .conversation-preview {
+  padding: 8px 10px;
+  border-radius: 0;
+}
+.marked-dialog .boxed-list {
+  overflow: hidden;
+  border: 1px solid #2c2946;
+  border-radius: 12px;
+}
+.marked-dialog .conversation-preview + .conversation-preview {
+  border-top: 1px solid #2c2946;
+}
+.marked-dialog .tabs button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.threads-dialog .thread-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+}
+.threads-dialog .thread-preview {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+}
+.threads-dialog .thread-preview .message-body {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.threads-dialog .thread-meta {
+  padding: 0;
+  margin-top: 2px;
+  color: #6e6890;
+  font-size: 11px;
+}
+.threads-dialog .thread-follow {
+  min-width: 34px;
+  min-height: 34px;
+  margin-right: 8px;
+  padding: 8px;
+  border-radius: 50%;
+}
+.room-info-dialog,
+.room-settings-dialog,
+.room-members-dialog {
+  width: 420px;
+  max-width: calc(100vw - 32px);
+  background: var(--window-bg-color);
+  border-radius: 16px;
+}
+.room-info-dialog,
+.room-settings-dialog {
+  height: min(600px, calc(100dvh - 40px));
+}
+.room-members-dialog {
+  height: min(540px, calc(100dvh - 40px));
+}
+.room-info-dialog .dialog-body,
+.room-settings-dialog .dialog-body,
+.room-members-dialog .dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 22px 22px;
+  max-height: calc(100% - 44px);
+}
+.room-info-dialog .tile-profile {
+  align-self: center;
+  flex: none;
+}
+.room-info-dialog .details-name,
+.room-info-dialog .details-facts {
+  text-align: center;
+  margin: 0;
+}
+.room-info-dialog .details-name {
+  font-size: 24px;
+}
+.room-info-dialog .details-sub {
+  color: #8f89ab;
+  font-weight: 400;
+}
+.room-info-dialog .details-section {
+  margin: 8px 0 0;
+  color: #8f89ab;
+  font-size: 11.5px;
+  font-weight: 800;
+}
+.room-info-dialog .details-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.room-info-dialog .dialog-body > button,
+.room-info-dialog .room-avatar-controls > button,
+.room-info-dialog .room-avatar-pending > button,
+.room-settings-dialog .details-form > button,
+.room-members-dialog .preferences-box > button {
+  width: 100%;
+  min-height: 34px;
+  border-radius: 8px;
+  padding: 6px 12px;
+  background: #ffffff1a;
+  flex: none;
+  font-weight: 400;
+}
+.room-native-gap {
+  display: block;
+  min-height: 18px;
+}
+.room-avatar-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.room-avatar-pending:empty {
+  display: none;
+}
+.room-avatar-pending {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.room-avatar-status {
+  min-height: 18px;
+  text-align: center;
+  margin: 0;
+}
+.room-settings-dialog .details-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.room-settings-dialog .room-text-field textarea {
+  resize: vertical;
+  min-height: 80px;
+  padding: 8px;
+  border-radius: 8px;
+}
+.room-settings-dialog .room-toggle {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #242138;
+  flex-wrap: wrap;
+}
+.room-settings-dialog .room-toggle .action-row-subtitle {
+  width: 100%;
+}
+.room-invite-dialog {
+  width: min(600px, calc(100vw - 32px));
+}
+.room-invite-dialog .dialog-body {
+  padding: 24px;
+}
+.room-invite-form > .entry-row {
+  border-bottom: 1px solid #ffffff12;
+}
+.room-settings-dialog .room-toggle input {
+  flex-shrink: 0;
+}
+.room-settings-dialog .details-sub {
+  text-align: center;
+  color: #8f89ab;
+}
+.room-members-dialog .members {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.room-members-dialog .preferences-group-title {
+  margin-bottom: 6px;
+}
+.room-members-dialog .action-row .pill-entry {
+  max-width: 150px;
+  margin: 0;
+}
+.room-members-dialog .preferences-box > button {
+  width: 100%;
+  border-radius: 0;
+  min-height: 38px;
+}
+.room-members-dialog .preferences-box > button:last-child {
+  border-radius: 0 0 12px 12px;
+}
+.room-invite-dialog .room-invite-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}

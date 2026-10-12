@@ -6,7 +6,7 @@ import {
   type ReactNode,
 } from "react";
 import type { App } from "../app";
-import type { User } from "../protocol";
+import type { Room, User } from "../protocol";
 import { iconSource } from "../icons";
 import { toast, initials } from "../dom";
 import { segment } from "../api";
@@ -109,6 +109,7 @@ export function Avatar({
   app,
   name,
   user,
+  room,
   size = "message",
   glyph,
   icon,
@@ -117,18 +118,67 @@ export function Avatar({
   app: App;
   name: string;
   user?: User | null;
+  room?: Room | null;
   size?: string;
   glyph?: string;
   /** A symbolic icon in the glyph's place (a locked room), never an emoji. */
   icon?: string;
   children?: ReactNode;
 }) {
-  const [image, setImage] = useState<string>();
+  const [image, setImage] = useState<{ scope: string; url: string }>();
   const work = user ? app.profiles.get(user.id) : undefined;
-  const generation = app.generation;
+  const generation = app.generation,
+    account = app.account?.key,
+    membership = room
+      ? app.model.rooms.get(room.id)?.read_state?.membership_version
+      : undefined,
+    roomImage =
+      room?.kind !== "direct" &&
+      !!room &&
+      !!app.info?.capabilities.room_avatars &&
+      // GTK's list/header projection retains the lock; room information shows
+      // its own profile-size image independently of encryption.
+      (!room.encrypted || size === "profile"),
+    scope = JSON.stringify([
+      account,
+      generation,
+      user?.id,
+      room?.id,
+      room?.revision,
+      membership,
+      roomImage,
+    ]);
   useEffect(() => {
     let active = true;
     setImage(undefined);
+    const valid = () =>
+      active &&
+      generation === app.generation &&
+      account === app.account?.key &&
+      (!room ||
+        (app.model.rooms.get(room.id)?.revision === room.revision &&
+          app.model.rooms.get(room.id)?.read_state?.membership_version ===
+            membership));
+    if (roomImage && room) {
+      void app
+        .asset(
+          "/api/v1/rooms/" +
+            segment(room.id) +
+            "/avatar?revision=" +
+            segment(room.revision),
+          undefined,
+          room.id,
+        )
+        .then((url) => {
+          if (valid()) setImage({ scope, url });
+        })
+        .catch(() => {});
+      // App.asset owns this shared URL and revokes it on membership/account
+      // withdrawal. Revoking it here would break the other room tiles.
+      return () => {
+        active = false;
+      };
+    }
     if (!user || (!work && app.connection !== "online")) return;
     const request =
       work ||
@@ -147,13 +197,26 @@ export function Avatar({
         const url = await app.asset(
           "/api/v1/avatars/" + segment(profile.avatar_file_id),
         );
-        if (active && generation === app.generation) setImage(url);
+        if (valid()) setImage({ scope, url });
       })
       .catch(() => {});
     return () => {
       active = false;
     };
-  }, [app, user?.id, work, generation, app.connection]);
+  }, [
+    app,
+    user?.id,
+    work,
+    generation,
+    account,
+    app.connection,
+    room?.id,
+    room?.revision,
+    membership,
+    roomImage,
+    scope,
+  ]);
+  const photo = image?.scope === scope ? image.url : undefined;
   return (
     <div
       className={
@@ -163,13 +226,14 @@ export function Avatar({
         (icon ? " tile-neutral" : " tile-g" + gradient(name))
       }
       data-avatar-user={user?.id}
+      data-avatar-room={room?.id}
       data-react-avatar="true"
       title={user?.display_name || user?.username}
     >
-      {image ? (
+      {photo ? (
         <img
           className="avatar-image"
-          src={image}
+          src={photo}
           alt={user?.display_name || user?.username || name}
         />
       ) : icon ? (

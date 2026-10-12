@@ -185,7 +185,7 @@ try {
         ".voice-controls .voice-control,.voice-controls .voice-menu-button",
       )
       .count(),
-    6,
+    discovery.capabilities.voice_reactions ? 7 : 6,
   );
   await a.waitForFunction(() => {
     const cards = [...document.querySelectorAll(".voice-card")].map((card) =>
@@ -221,7 +221,7 @@ try {
     "voice bar restores the actual call room",
   );
   console.log(
-    "PASS GTK call header, six controls and centered 16:9 tiles with chat navigation",
+    "PASS GTK call header, circular controls and centered 16:9 tiles with chat navigation",
   );
   await a
     .locator(".voice-controls")
@@ -421,8 +421,8 @@ try {
     .locator(".voice-bar")
     .getByRole("button", { name: "Close", exact: true })
     .click();
-  await a.locator(".voice-page").waitFor({ state: "detached" });
-  await a.getByRole("button", { name: "Join call", exact: true }).click();
+  await a.getByRole("button", { name: "Join voice", exact: true }).waitFor();
+  await a.getByRole("button", { name: "Join voice", exact: true }).click();
   await releaseClaim();
   await a.locator(".voice-page").waitFor();
   await a.locator(".voice-status.connected").waitFor();
@@ -806,7 +806,12 @@ try {
     "ended",
     "leave stops the local muted monitor",
   );
-  await a.getByRole("button", { name: "Join call", exact: true }).click();
+  await a.locator(".voice-page").waitFor();
+  await a.locator(".voice-controls").waitFor({ state: "hidden" });
+  await a.getByRole("button", { name: "Join voice", exact: true }).waitFor();
+  await a.locator('[data-participant="' + bob.user.id + '"]').waitFor();
+  await a.screenshot({ path: "../../.cache/web-shots/voice-preview.png" });
+  await a.getByRole("button", { name: "Join voice", exact: true }).click();
   await a.locator(".voice-page").waitFor();
   await a
     .locator('[data-participant="' + bob.user.id + '"]')
@@ -839,7 +844,7 @@ try {
       .locator('[data-room="' + direct.id + '"]')
       .first()
       .click();
-  await a.getByRole("button", { name: "Join call", exact: true }).click();
+  await a.getByRole("button", { name: "Start a call", exact: true }).click();
   const incoming = b.locator("dialog").filter({
     has: b.getByRole("heading", { name: "Incoming call", exact: true }),
   });
@@ -860,7 +865,7 @@ try {
     .getByRole("button", { name: "Close", exact: true })
     .click();
   await a.locator(".voice-bar").waitFor({ state: "detached" });
-  await a.getByRole("button", { name: "Join call", exact: true }).click();
+  await a.getByRole("button", { name: "Join voice", exact: true }).click();
   await a.locator(".voice-status.connected").waitFor();
   await a.waitForFunction(() =>
     [...document.querySelectorAll(".voice-stage audio")].some((audio) =>
@@ -882,7 +887,7 @@ try {
   console.log(
     "PASS the remaining direct-call participant hangs up automatically",
   );
-  await a.getByRole("button", { name: "Join call", exact: true }).click();
+  await a.getByRole("button", { name: "Join voice", exact: true }).click();
   await incoming.waitFor();
   await incoming.getByRole("button", { name: "Decline", exact: true }).click();
   await a.locator(".voice-bar").waitFor({ state: "detached" });
@@ -913,7 +918,7 @@ try {
       completed();
     }
   });
-  await a.getByRole("button", { name: "Join call", exact: true }).click();
+  await a.getByRole("button", { name: "Start a call", exact: true }).click();
   await incoming.waitFor();
   await incoming.getByRole("button", { name: "Accept", exact: true }).click();
   await committed;

@@ -10,7 +10,12 @@ import type {
 } from "./protocol";
 import { operation, segment } from "./api";
 import { el, tile, button, toast } from "./dom";
-import { preferencesGroup, actionRow, type SidebarHost } from "./sidebar";
+import {
+  preferencesGroup,
+  actionRow,
+  buttonRow,
+  type SidebarHost,
+} from "./sidebar";
 import {
   accountFence,
   entryRow,
@@ -36,9 +41,19 @@ export function scopesGroup(
   reference: BotReference | undefined,
   chosen: BotScope[],
 ): HTMLElement {
-  const [group, rows] = preferencesGroup(nt("bots.scopes"));
+  const [group, rows] = preferencesGroup(
+    nt("bots.scopes"),
+    nt("bots.closed_routes") +
+      " " +
+      (reference
+        ? nt("bots.budgets", {
+            sends: reference.sends_per_minute,
+            direct: reference.direct_per_minute,
+          })
+        : ""),
+  );
   for (const scope of [...scopes, null]) {
-    const details = el("details", "scope-row");
+    const details = el("details", "scope-row preferences-expander");
     const summary = el("summary", "action-row");
     if (scope) {
       const check = el("input");
@@ -85,20 +100,6 @@ export function scopesGroup(
       );
     rows.append(details);
   }
-  group.append(
-    el(
-      "p",
-      "dim",
-      nt("bots.closed_routes") +
-        " " +
-        (reference
-          ? nt("bots.budgets", {
-              sends: reference.sends_per_minute,
-              direct: reference.direct_per_minute,
-            })
-          : ""),
-    ),
-  );
   return group;
 }
 export async function botsPage(
@@ -114,9 +115,11 @@ export async function botsPage(
     app.api.request<AccountPermissions>("/api/v1/me/permissions"),
     app.api.request<BotReference>("/api/v1/bots/reference"),
   ]);
-  if (!valid() || !page.isConnected) return;
-  const [group, rows] = preferencesGroup(nt(all ? "admin.bots" : "bots.title"));
-  group.append(el("p", "dim", nt("bots.intro")));
+  if (!valid() || !host.node.open) return;
+  const [group, rows] = preferencesGroup(
+    nt(all ? "admin.bots" : "bots.title"),
+    nt("bots.intro"),
+  );
   group.querySelector("h3")?.append(
     iconButton("refresh", nt("security.refresh"), () => {
       page.replaceChildren();
@@ -147,9 +150,7 @@ export async function botsPage(
   }
   if (!all && permission.create_bot)
     rows.append(
-      actionRow(nt("bots.create"), "", () =>
-        host.push(nt("bots.create"), create),
-      ),
+      buttonRow(nt("bots.create"), () => host.push(nt("bots.create"), create)),
     );
   else if (!all) rows.append(actionRow(nt("bots.closed")));
   page.append(group);
@@ -170,7 +171,7 @@ export async function botsPage(
     );
     const [actions, buttons] = preferencesGroup();
     buttons.append(
-      actionRow(nt("bots.create"), "", async () => {
+      buttonRow(nt("bots.create"), async () => {
         if (!valid()) return;
         const bot = await app.api.request<Bot>("/api/v1/bots", "POST", {
           operation_id: operation(),
@@ -222,6 +223,7 @@ async function botDetail(
         file ? "PUT" : "DELETE",
         file,
       );
+      host.invalidate("bots");
       if (valid() && page.isConnected) {
         app.profiles.delete(bot.user.id);
         page.replaceChildren();
@@ -240,7 +242,10 @@ async function botDetail(
     const selected = [...bot.scopes];
     let display_name = bot.user.display_name,
       description = bot.description;
-    const [fields, values] = preferencesGroup();
+    const [fields, values] = preferencesGroup(
+      "",
+      nt("bots.owner", { owner: bot.owner.username }),
+    );
     values.append(
       entryRow(
         nt("bots.display_name"),
@@ -251,7 +256,7 @@ async function botDetail(
     );
     const [actions, buttons] = preferencesGroup();
     buttons.append(
-      actionRow(t("save"), "", async () => {
+      buttonRow(t("save"), async () => {
         if (!valid()) return;
         bot = await app.api.request<Bot>(path, "PATCH", {
           operation_id: operation(),
@@ -260,6 +265,7 @@ async function botDetail(
           scopes: selected,
         });
         if (valid()) {
+          host.invalidate("bots");
           app.profiles.delete(bot.user.id);
           page.replaceChildren();
           await botDetail(app, host, page, bot, reference, all);
@@ -283,8 +289,15 @@ async function botDetail(
     values.replaceChildren();
     if (!list.keys.length) values.append(actionRow(nt("bots.no_keys")));
     for (const key of list.keys) {
-      const detail = el("details", "bot-key-row");
-      detail.append(el("summary", "action-row", key.label + " · …" + key.hint));
+      const detail = el("details", "bot-key-row preferences-expander");
+      const summary = el("summary", "action-row");
+      const title = el("div", "action-row-text");
+      title.append(
+        el("span", "action-row-title", key.label),
+        el("span", "action-row-subtitle", "…" + key.hint),
+      );
+      summary.append(title);
+      detail.append(summary);
       for (const [label, value] of [
         ["bots.key_created", key.created_at],
         ["bots.key_expires", key.expires_at],
@@ -303,7 +316,7 @@ async function botDetail(
           ),
         );
       detail.append(
-        actionRow(nt("bots.key_revoke"), "", () =>
+        buttonRow(nt("bots.key_revoke"), () =>
           confirmAction(
             nt("bots.key_revoke_confirm"),
             nt("bots.key_revoke_body"),
@@ -332,7 +345,7 @@ async function botDetail(
       entryRow(nt("bots.key_days"), days, (v) => (days = v)),
     );
     form.append(
-      actionRow(nt("bots.key_create"), "", async () => {
+      buttonRow(nt("bots.key_create"), async () => {
         await recentProof(app);
         if (!valid()) return;
         const expiry = Number(days);
@@ -355,17 +368,27 @@ async function botDetail(
         if (page.isConnected) await reload();
       }),
     );
+    const expires = form.querySelectorAll<HTMLInputElement>("input")[1];
+    if (expires) {
+      expires.type = "number";
+      expires.min = "0";
+      expires.max = "3650";
+      expires.step = "1";
+    }
+    form.append(
+      buttonRow(nt("security.verify"), () => host.select("security", true)),
+    );
     page.append(create);
   }
   const [danger, actions] = preferencesGroup();
-  const remove = actionRow(nt("bots.delete"), "", () =>
+  const remove = buttonRow(nt("bots.delete"), () =>
     confirmAction(
       nt("bots.delete_confirm", { name: bot.user.display_name }),
       nt("bots.delete_body"),
       async () => {
         if (!valid()) return;
         await app.api.request(path, "DELETE");
-        if (valid()) host.select("bots");
+        if (valid()) host.select("bots", true);
       },
     ),
   );

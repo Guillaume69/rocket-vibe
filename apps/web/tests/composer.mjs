@@ -55,18 +55,22 @@ try {
   console.log("PASS GTK inline draft styles with original text preserved");
   await input.fill("hello 🦄");
   await input.press("Control+a");
-  await page.getByRole("button", { name: "Bold", exact: true }).click();
-  assert.equal(await input.evaluate((node) => node.value), "**hello 🦄**");
+  await page
+    .getByRole("button", { name: "Bold (Ctrl+B)", exact: true })
+    .click();
+  assert.equal(await input.evaluate((node) => node.value), "*hello 🦄*");
   assert.equal(
     await input.evaluate((node) =>
       node.value.slice(node.selectionStart, node.selectionEnd),
     ),
     "hello 🦄",
   );
-  await page.getByRole("button", { name: "Bold", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Bold (Ctrl+B)", exact: true })
+    .click();
   assert.equal(await input.evaluate((node) => node.value), "hello 🦄");
   await input.press("Control+z");
-  assert.equal(await input.evaluate((node) => node.value), "**hello 🦄**");
+  assert.equal(await input.evaluate((node) => node.value), "*hello 🦄*");
   await input.press("Control+Shift+z");
   assert.equal(await input.evaluate((node) => node.value), "hello 🦄");
   console.log("PASS format toggle, unicode selection, undo and redo");
@@ -80,12 +84,17 @@ try {
   await input.fill("site");
   await input.press("Control+a");
   await input.press("Control+Shift+k");
-  const link = page.locator("dialog").filter({ hasText: "URL" });
-  await link.waitFor();
-  await page.keyboard.press("Escape");
-  await link.waitFor({ state: "detached" });
-  assert.equal(await input.evaluate((node) => node.value), "site");
-  console.log("PASS Ctrl+Shift+K is the composer's link");
+  assert.equal(await input.evaluate((node) => node.value), "[site](https://)");
+  assert.equal(
+    await input.evaluate((node) =>
+      node.value.slice(node.selectionStart, node.selectionEnd),
+    ),
+    "https://",
+  );
+  assert.equal(await page.locator("dialog").count(), 0);
+  console.log(
+    "PASS GTK Ctrl+Shift+K creates a link with its address selected in place",
+  );
   await input.fill("");
   await input.press("Control+k");
   const switcher = page.locator("dialog.switcher-dialog");

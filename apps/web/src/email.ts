@@ -10,10 +10,12 @@ import type {
 import { ApiError, operation, secret } from "./api";
 import { read, write } from "./store";
 import { el, button, field, dialog } from "./dom";
-import { t, language } from "./i18n";
+import { t } from "./i18n";
 import { recentProof, backupCodes, securitySettings } from "./security";
+import { actionRow, buttonRow, preferencesGroup } from "./sidebar";
+import { nt } from "./native-i18n";
+import { confirmAction } from "./preferences-controls";
 
-const phrase = (en: string, fr: string) => (language === "fr" ? fr : en);
 export async function emailSettings(
   app: App,
   page: HTMLElement,
@@ -22,12 +24,36 @@ export async function emailSettings(
   const account = app.account.key,
     key = account + ":email-verify";
   const status = await app.api.request<EmailStatus>("/api/v1/me/email");
-  const [wrap, address] = field(t("email"), status.address || "", "email");
-  page.append(el("h3", "", t("email")), wrap);
+  if (account !== app.account?.key) return;
+  const [group, rows] = preferencesGroup(
+    nt("email.title"),
+    nt("email.private"),
+  );
+  rows.append(
+    actionRow(
+      nt(status.address ? "email.current" : "email.none"),
+      status.address || "",
+    ),
+  );
+  const [wrap, address] = field(nt("email.address"), "", "email");
+  address.setAttribute("aria-label", nt("email.address"));
+  rows.append(wrap);
+  page.append(group);
   const refresh = async () => {
     if (account !== app.account?.key) return;
-    page.replaceChildren(el("h2", "", t("security")));
+    page.replaceChildren();
     await securitySettings(app, page);
+  };
+  const showReceipt = (message: string, address: string) => {
+    if (account !== app.account?.key) return;
+    rows.replaceChildren(
+      actionRow(nt(address ? "email.current" : "email.none"), address),
+      actionRow(message),
+      buttonRow(nt("email.done"), async () => {
+        await write("operations", key);
+        await refresh();
+      }),
+    );
   };
   async function retire(): Promise<void> {
     const latest = await app.api.request<EmailStatus>("/api/v1/me/email");
@@ -54,85 +80,64 @@ export async function emailSettings(
           },
     );
     if (response.state === "verified") {
-      await write("operations", key);
-      await refresh();
+      showReceipt(nt("email.verified"), response.address);
       return;
     }
-    const [node, body] = dialog(t("email"));
-    body.append(
-      el("p", "", response.address),
-      el(
-        "p",
-        "dim",
-        phrase(
-          "Enter the code in your email.",
-          "Saisissez le code reçu par email.",
-        ),
+    const body = rows;
+    body.replaceChildren(
+      actionRow(
+        nt(status.address ? "email.current" : "email.none"),
+        status.address || "",
       ),
+      actionRow(nt("email.pending"), response.address),
     );
-    const [codeWrap, code] = field(t("code"));
+    const [codeWrap, code] = field(nt("email.code"), "", "password");
     code.autocomplete = "one-time-code";
     const confirm = intent.operation_id;
     body.append(
       codeWrap,
-      button(
-        t("verify"),
-        async () => {
-          await recentProof(app);
-          await app.api
-            .request("/api/v1/me/email/verification/confirm", "POST", {
-              context: intent.context,
-              operation_id: confirm,
-              verification_id: intent.verification_id,
-              code: code.value,
-            })
-            .catch((error: unknown) => {
-              if (
-                error instanceof ApiError &&
-                error.code === "email_address_taken"
-              )
-                throw new Error(
-                  phrase(
-                    "This address is already linked to another account.",
-                    "Cette adresse est déjà liée à un autre compte.",
-                  ),
-                );
-              throw error;
-            });
-          code.value = "";
-          await write("operations", key);
-          node.close();
-          await refresh();
-        },
-        "cta",
-      ),
-      button(t("retry"), async () => {
-        node.close();
-        await resume(intent);
+      button(nt("email.confirm"), async () => {
+        await recentProof(app);
+        await app.api
+          .request("/api/v1/me/email/verification/confirm", "POST", {
+            context: intent.context,
+            operation_id: confirm,
+            verification_id: intent.verification_id,
+            code: code.value,
+          })
+          .catch((error: unknown) => {
+            if (
+              error instanceof ApiError &&
+              error.code === "email_address_taken"
+            )
+              throw new Error(nt("email.taken"));
+            throw error;
+          });
+        code.value = "";
+        showReceipt(nt("email.verified"), intent.address);
       }),
-      button(t("cancel"), async () => {
+      buttonRow(t("retry"), () => resume(intent)),
+      button(nt("email.cancel"), async () => {
         await retire();
-        node.close();
         await refresh();
       }),
     );
+    for (const action of rows.querySelectorAll(":scope > button"))
+      action.classList.add("action-row", "button-row");
   }
   const removalKey = account + ":email-remove";
   const sameContext = (value: { context: unknown } | undefined) =>
     !!value && JSON.stringify(value.context) === JSON.stringify(status.context);
   const removal = await read<RemoveVerifiedEmail>("operations", removalKey);
-  if (removal && sameContext(removal))
-    page.append(
-      el(
-        "p",
-        "dim",
-        phrase(
-          "Removing the email address is not finished.",
-          "Le retrait de l’adresse email n’est pas terminé.",
-        ),
+  if (removal && sameContext(removal)) {
+    rows.replaceChildren(
+      actionRow(
+        nt(status.address ? "email.current" : "email.none"),
+        status.address || "",
       ),
-      button(
-        phrase("Continue removing", "Poursuivre le retrait"),
+      actionRow(nt("email.removal_pending")),
+      buttonRow(
+        nt("security.continue"),
         async () => {
           try {
             await app.api.request("/api/v1/me/email/removal/resume", "POST", {
@@ -154,11 +159,11 @@ export async function emailSettings(
           }
           await write("operations", removalKey);
           await write("operations", key);
-          await refresh();
+          showReceipt(nt("email.removed"), "");
         },
         "destructive",
       ),
-      button(t("cancel"), async () => {
+      buttonRow(nt("email.cancel_removal"), async () => {
         await app.api.request("/api/v1/me/email/removal/retire", "POST", {
           context: removal.context,
           expected_version: removal.expected_version,
@@ -168,24 +173,12 @@ export async function emailSettings(
         await refresh();
       }),
     );
+    return;
+  }
   const pending = await read<BeginEmailVerification>("operations", key);
-  if (pending && sameContext(pending))
-    page.append(
-      button(
-        phrase(
-          "Continue email verification",
-          "Continuer la vérification de l’email",
-        ),
-        () => resume(pending),
-      ),
-      button(t("cancel"), async () => {
-        await retire();
-        await refresh();
-      }),
-    );
   if (app.info?.capabilities.email_verification)
-    page.append(
-      button(t("save"), async () => {
+    rows.append(
+      button(nt("email.start"), async () => {
         await recentProof(app);
         if (pending) {
           await resume(pending);
@@ -204,15 +197,18 @@ export async function emailSettings(
       }),
     );
   if (status.address && app.info?.capabilities.email_removal)
-    page.append(
+    rows.append(
       button(
-        phrase("Remove email address", "Supprimer l’adresse email"),
+        nt("email.remove"),
         () => {
-          const [node, body] = dialog(t("email"));
+          const [node, body] = dialog(nt("email.remove"));
+          node.classList.add("alert-dialog");
           body.append(
             el("p", "", status.address!),
+            el("p", "", nt("email.remove_body")),
+            button(t("cancel"), () => node.close()),
             button(
-              t("delete"),
+              nt("email.remove"),
               async () => {
                 await recentProof(app);
                 let intent = await read<RemoveVerifiedEmail>(
@@ -236,7 +232,7 @@ export async function emailSettings(
                 await write("operations", removalKey);
                 await write("operations", key);
                 node.close();
-                await refresh();
+                showReceipt(nt("email.removed"), "");
               },
               "destructive",
             ),
@@ -250,41 +246,77 @@ export async function emailSettings(
       await app.api.request<import("./protocol").FactorStatus>(
         "/api/v1/me/factors",
       );
-    page.append(
-      button(
-        factors.email
-          ? phrase(
-              "Disable email authentication",
-              "Désactiver l’authentification par email",
-            )
-          : phrase(
-              "Enable email authentication",
-              "Activer l’authentification par email",
-            ),
-        async () => {
-          await recentProof(app);
-          const factorKey = account + ":email-factor";
-          let intent = await read<ChangeEmailFactor>("operations", factorKey);
-          if (!intent) {
-            intent = {
-              context: status.context,
-              email_version: status.version,
-              factor_version: factors.factor_version,
-              operation_id: operation(),
-            };
-            await write("operations", factorKey, intent);
-          }
-          const value = await app.api.request<EmailFactorChange>(
-            "/api/v1/me/factors/email/" +
-              (factors.email ? "disable" : "enable"),
-            "POST",
-            intent,
-          );
-          await write("operations", factorKey);
-          if (value.codes.length) backupCodes(value);
-          await refresh();
-        },
-      ),
+    const factorStatus = actionRow(
+      nt(factors.email ? "email.factor_enabled" : "email.factor_disabled"),
+      factors.email ? nt("email.factor_contact") : "",
     );
+    rows.insertBefore(factorStatus, wrap);
+    wrap.hidden = factors.email;
+    if (factors.email)
+      for (const control of rows.querySelectorAll<HTMLButtonElement>(
+        ":scope > button",
+      )) {
+        if (
+          [nt("email.start"), nt("email.remove")].includes(
+            control.textContent || "",
+          )
+        )
+          control.hidden = true;
+      }
+    rows.insertBefore(
+      button(
+        nt(factors.email ? "email.factor_disable" : "email.factor_enable"),
+        () =>
+          confirmAction(
+            nt(factors.email ? "email.factor_disable" : "email.factor_enable"),
+            nt(
+              factors.email
+                ? "email.factor_disable_body"
+                : "email.factor_enable_body",
+            ),
+            async () => {
+              await recentProof(app);
+              const factorKey = account + ":email-factor";
+              let intent = await read<ChangeEmailFactor>(
+                "operations",
+                factorKey,
+              );
+              if (!intent) {
+                intent = {
+                  context: status.context,
+                  email_version: status.version,
+                  factor_version: factors.factor_version,
+                  operation_id: operation(),
+                };
+                await write("operations", factorKey, intent);
+              }
+              const value = await app.api.request<EmailFactorChange>(
+                "/api/v1/me/factors/email/" +
+                  (factors.email ? "disable" : "enable"),
+                "POST",
+                intent,
+              );
+              await write("operations", factorKey);
+              if (value.codes.length) backupCodes(value, { app, page });
+              else await refresh();
+            },
+          ),
+      ),
+      wrap,
+    );
+  }
+  for (const action of rows.querySelectorAll(":scope > button"))
+    action.classList.add("action-row", "button-row");
+  if (pending) {
+    if (JSON.stringify(pending.context) === JSON.stringify(status.context))
+      await resume(pending);
+    else
+      rows.replaceChildren(
+        actionRow(nt("email.stale")),
+        buttonRow(nt("email.restart"), async () => {
+          await retire();
+          await refresh();
+        }),
+      );
   }
 }

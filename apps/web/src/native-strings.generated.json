@@ -632,10 +632,68 @@
     "L’opération n’a pas abouti. Actualisez pour reprendre ; le coffre existant est conservé.",
     "The operation did not finish. Refresh to resume; the existing vault is retained."
   ],
+  "actions.copy_link": ["Copier le lien du message", "Copy message link"],
+  "rooms.edit": ["Modifier le salon", "Edit room"],
+  "rooms.members": ["Afficher les membres", "Show members"],
+  "rooms.more": ["Membres suivants", "More members"],
+  "rooms.member": ["Membre", "Member"],
+  "rooms.moderator": ["Modérateur", "Moderator"],
+  "rooms.owner": ["Propriétaire", "Owner"],
+  "rooms.role": ["Rôle", "Role"],
+  "rooms.disabled": ["Compte désactivé", "Disabled account"],
+  "rooms.apply_role": ["Appliquer le rôle", "Apply role"],
+  "rooms.leave": ["Quitter le salon", "Leave room"],
+  "rooms.leave_body": [
+    "Vous perdrez l’accès à ce salon et à son historique local.",
+    "You will lose access to this room and its local history."
+  ],
+  "rooms.resume": ["Reprendre la demande conservée", "Resume saved request"],
+  "rooms.review": [
+    "Revoir et modifier les champs conservés",
+    "Review and edit saved fields"
+  ],
+  "rooms.clear": ["Effacer la demande refusée", "Clear rejected request"],
+  "rooms.revision": [
+    "Les changements intervenus pendant la modification devront être relus avant de réessayer.",
+    "Changes made while editing must be reviewed before retrying."
+  ],
+  "rooms.pending": [
+    "Une demande est conservée en attente de confirmation.",
+    "A request is saved while awaiting confirmation."
+  ],
+  "rooms.rejected": [
+    "La demande a été refusée. Ses champs restent conservés.",
+    "The request was rejected. Its fields remain saved."
+  ],
+  "rooms.conflict": [
+    "Le salon a changé. Relisez ses informations avant de modifier à nouveau.",
+    "The room has changed. Review its information before editing again."
+  ],
+  "rooms.last_owner": [
+    "Promouvez un autre propriétaire avant de quitter le salon ou de retirer votre rôle.",
+    "Promote another owner before leaving or removing your own role."
+  ],
+  "rooms.failed": [
+    "L’action n’a pas pu être confirmée. Vérifiez la demande conservée avant de réessayer.",
+    "The action could not be confirmed. Check the saved request before retrying."
+  ],
+  "rooms.unavailable": [
+    "Cette action est indisponible sur ce serveur.",
+    "This action is unavailable on this server."
+  ],
+  "rooms.command_offline": [
+    "La connexion est indisponible. La demande conservée reste en attente.",
+    "The connection is unavailable. The saved request remains pending."
+  ],
+  "native.title": ["RocketVibe · pilote natif", "RocketVibe · native pilot"],
+  "native.online": ["En ligne", "Online"],
   "native.offline": [
     "Hors ligne · les envois restent en attente",
     "Offline · sends remain queued"
   ],
+  "native.room_name": ["Nom du salon", "Room name"],
+  "native.private": ["Salon privé", "Private room"],
+  "native.create": ["Créer le salon", "Create room"],
   "voice_session.channel": ["Canal vocal", "Voice channel"],
   "voice_session.channel_hint": [
     "Le sélectionner connecte au vocal ; on peut aussi y écrire.",
@@ -795,7 +853,299 @@
     "Quitter le plein écran",
     "Exit full screen"
   ],
+  "native.username": ["Pseudo exact", "Exact username"],
+  "native.user_missing": ["Utilisateur introuvable.", "User not found."],
+  "native.direct": ["Ouvrir un DM", "Open a DM"],
+  "native.invite": ["Inviter dans ce salon", "Invite to this room"],
+  "native.change_server": [
+    "Changer de compte / serveur",
+    "Change account / server"
+  ],
+  "native.reconnect": ["Reconnecter", "Reconnect"],
+  "native.older": ["Messages plus anciens", "Older messages"],
+  "native.send": ["Envoyer", "Send"],
+  "native.retry": ["Réessayer", "Retry"],
+  "native.message_changed": [
+    "Ce message a changé. Rouvre l'éditeur pour revoir ton texte.",
+    "This message changed. Reopen the editor to review your text."
+  ],
+  "native.action_pending": [
+    "Une modification est déjà en attente. Ton texte a été conservé.",
+    "A change is already queued. Your text has been saved."
+  ],
+  "native.action_retry": [
+    "La connexion a été interrompue. L'action enregistrée sera reprise.",
+    "The connection was interrupted. The saved action will be retried."
+  ],
+  "native.abandon": ["Abandonner cet envoi", "Abandon this send"],
+  "native.pending": ["En attente", "Pending"],
+  "native.failed": ["Non envoyé", "Not sent"],
+  "quote.unavailable": ["Citation indisponible", "Quote unavailable"],
+  "quote.elsewhere": [
+    "Citer dans une autre conversation",
+    "Quote in another conversation"
+  ],
+  "quote.destination": ["Choisir la conversation", "Choose conversation"],
+  "quote.destination_empty": [
+    "Aucune conversation disponible",
+    "No conversation available"
+  ],
+  "native.identity_changed": [
+    "L'identité du serveur a changé. Déconnecte-toi puis reconnecte-toi.",
+    "Server identity changed. Sign out, then sign in again."
+  ],
+  "native.owner_only": [
+    "Seul le propriétaire du salon peut inviter des membres.",
+    "Only the room owner can invite members."
+  ],
+  "native.error": [
+    "Cette action a échoué. Vérifie la connexion et les droits du compte.",
+    "Action failed. Check connectivity and account permissions."
+  ],
+  "login.slogan": [
+    "Ton coin de chat magique ✨",
+    "Your magical little chat corner ✨"
+  ],
+  "login.server": ["Adresse du serveur", "Server address"],
+  "login.user": ["Identifiant ou email", "Username or email"],
+  "login.password": ["Mot de passe", "Password"],
+  "login.sign_in": ["Se connecter", "Sign in"],
+  "login.signing_in": ["Connexion…", "Signing in…"],
+  "login.confirm": ["Valider", "Confirm"],
+  "login.magic": ["Vérification magique", "Magic verification"],
+  "login.code_totp": [
+    "Code de l'application d'authentification",
+    "Authenticator app code"
+  ],
+  "login.code_email": ["Code reçu par email", "Code received by email"],
+  "login.code_password": ["Confirme ton mot de passe", "Confirm your password"],
+  "login.code_recovery_code": ["Code de secours", "Backup code"],
+  "login.intro_recovery_code": [
+    "Utilise un code de secours conservé lors de l'activation. Chaque code ne sert qu'une fois.",
+    "Use a backup code saved when you enabled two-factor authentication. Each code can only be used once."
+  ],
+  "login.factor_totp": ["Application d'authentification", "Authenticator app"],
+  "login.factor_backup": ["Code de secours", "Backup code"],
+  "login.factor_email": ["Code reçu par e-mail", "Email code"],
+  "email.send_code": ["Envoyer le code", "Send code"],
+  "email.resend_code": ["Renvoyer le code", "Resend code"],
+  "email.resume_delivery": ["Reprendre la livraison", "Resume delivery"],
+  "email.request_code": [
+    "Demandez un code pour ce défi de connexion.",
+    "Request a code for this challenge."
+  ],
+  "email.delivery_unknown": [
+    "Livraison non confirmée. Reprenez cette demande avant de renvoyer un code.",
+    "Delivery is unconfirmed. Resume this request before resending."
+  ],
+  "login.factor_resume": [
+    "Tu peux valider sans code pour reprendre une connexion déjà acceptée.",
+    "You can confirm without a code to resume a sign-in that was already accepted."
+  ],
+  "login.factor_expired": [
+    "Cette vérification a expiré. Reviens à la connexion et saisis à nouveau tes identifiants.",
+    "This verification has expired. Go back to sign-in and enter your credentials again."
+  ],
+  "login.factor_unavailable": [
+    "La double authentification est indisponible sur ce serveur. Contacte l'administrateur.",
+    "Two-factor authentication is unavailable on this server. Contact the administrator."
+  ],
+  "login.secure_storage": [
+    "Le trousseau est indisponible. Déverrouille-le et réessaie pour confirmer la connexion.",
+    "Secure storage is unavailable. Unlock it and try again to confirm sign-in."
+  ],
+  "login.intro_totp": [
+    "Entre le code de ton application\nd'authentification ✨",
+    "Enter the code from your\nauthenticator app ✨"
+  ],
+  "login.intro_email": [
+    "Ce compte est protégé par un code envoyé par email.",
+    "This account is protected by a code sent via email."
+  ],
+  "login.intro_password": [
+    "Ressaisis ton mot de passe pour confirmer.",
+    "Re-enter your password to confirm."
+  ],
+  "login.unreachable": [
+    "Serveur injoignable. Vérifie l'adresse et ta connexion.",
+    "Server unreachable. Check the address and your connection."
+  ],
+  "login.bad_code": ["Code refusé. Réessaie.", "Code rejected. Try again."],
+  "login.rejected": [
+    "Identifiant ou mot de passe refusé.",
+    "Username or password rejected."
+  ],
+  "login.create_account": [
+    "Créer un compte sur invitation",
+    "Create an account with an invitation"
+  ],
+  "login.recover_account": ["Mot de passe oublié", "Forgot password"],
+  "login.reset_password": [
+    "Réinitialiser et me connecter",
+    "Reset password and sign in"
+  ],
+  "login.new_password": ["Nouveau mot de passe", "New password"],
+  "login.recovery_code": ["Code de récupération", "Recovery code"],
+  "login.recovery_help": [
+    "Saisis un code de récupération et choisis un mot de passe d'au moins 12 caractères. Tes autres appareils seront déconnectés. Ce parcours ne récupère pas tes clés de chiffrement.",
+    "Enter a recovery code and choose a password of at least 12 characters. Other devices will be signed out. This does not recover encryption keys."
+  ],
+  "login.recovery_rejected": [
+    "Code refusé ou expiré. Vérifie identifiant et code. Si le mot de passe a déjà été changé, connecte-toi avec le nouveau.",
+    "Code rejected or expired. Check username and code. If the password was already changed, sign in with the new one."
+  ],
+  "login.invitation": ["Code d'invitation", "Invitation code"],
+  "login.invitation_help": [
+    "Utilise le code fourni par l'administrateur. Identifiant : lettres, chiffres, tirets ou _. Mot de passe : au moins 12 caractères.",
+    "Use the administrator's invitation code. Username: letters, digits, hyphens or _. Password: at least 12 characters."
+  ],
+  "login.invitation_rejected": [
+    "Invitation refusée : vérifie le code, sa validité et les identifiants saisis. Si le compte a déjà été créé, connecte-toi normalement.",
+    "Invitation rejected: check the code, its validity and your credentials. If the account already exists, sign in normally."
+  ],
+  "login.too_many": [
+    "Trop d'essais. Attends une minute et réessaie.",
+    "Too many attempts. Wait a minute and try again."
+  ],
+  "login.bad_server": [
+    "Adresse de serveur invalide.",
+    "Invalid server address."
+  ],
+  "login.expired": [
+    "Ta session a expiré. Reconnecte-toi.",
+    "Your session has expired. Please sign in again."
+  ],
+  "login.no_database": [
+    "Impossible d'ouvrir la base locale : {error}",
+    "Cannot open the local database: {error}"
+  ],
+  "rooms.encrypted": ["Message chiffré", "Encrypted message"],
+  "rooms.call": ["Appel vidéo", "Video call"],
+  "rooms.offline": [
+    "Hors ligne, clique pour te reconnecter",
+    "Offline, click to reconnect"
+  ],
+  "rooms.connecting": ["Connexion…", "Connecting…"],
+  "rooms.online": ["Connecté", "Connected"],
+  "rooms.sign_out": ["Se déconnecter", "Sign out"],
+  "room.pick": ["Choisis une conversation", "Pick a conversation"],
+  "room.synced": [
+    "Tout est synchronisé et scintille ✨",
+    "Everything is synced and sparkling ✨"
+  ],
+  "room.read_only": [
+    "Ce salon est en lecture seule.",
+    "This channel is read-only."
+  ],
+  "composer.placeholder": ["Message", "Message"],
+  "composer.send": ["Envoyer", "Send"],
+  "composer.emoji": ["Émojis", "Emoji"],
+  "reminders.remind_me": ["Me le rappeler", "Remind me"],
+  "reminders.in_hour": ["Dans 1 heure", "In 1 hour"],
+  "reminders.in_three_hours": ["Dans 3 heures", "In 3 hours"],
+  "reminders.tomorrow": ["Demain à 09:00", "Tomorrow at 09:00"],
+  "reminders.pick": ["Choisir l'heure", "Pick a time"],
+  "reminders.pick_hint": [
+    "Entre une minute et un an à partir de maintenant.",
+    "Between one minute and one year from now."
+  ],
+  "reminders.set_for": ["Rappel prévu pour {when}", "Reminder set for {when}"],
+  "reminders.cancel_reminder": ["Annuler le rappel", "Cancel reminder"],
+  "reminders.cancel_at": [
+    "Annuler le rappel ({when})",
+    "Cancel reminder ({when})"
+  ],
+  "reminders.cancelled": ["Rappel annulé", "Reminder cancelled"],
+  "reminders.not_saved": [
+    "Le rappel n'a pas pu être enregistré",
+    "The reminder could not be saved"
+  ],
+  "reminders.title": ["Rappels", "Reminders"],
+  "reminders.notification": ["Rappel", "Reminder"],
+  "reminders.empty": ["Aucun rappel", "No reminders"],
+  "reminders.cancel": ["Annuler", "Cancel"],
+  "reminders.attachment": ["Pièce jointe", "Attachment"],
+  "reminders.message": ["Message", "Message"],
+  "scheduled.send_later": ["Envoyer plus tard", "Send later"],
+  "scheduled.in_hour": ["Dans 1 heure", "In 1 hour"],
+  "scheduled.tomorrow_morning": ["Demain à 08:00", "Tomorrow at 08:00"],
+  "scheduled.pick": ["Choisir l'heure", "Pick a time"],
+  "scheduled.pick_hint": [
+    "Entre une minute et 30 jours à partir de maintenant.",
+    "Between one minute and 30 days from now."
+  ],
+  "scheduled.date": ["Date", "Date"],
+  "scheduled.time": ["Heure", "Time"],
+  "scheduled.schedule": ["Programmer", "Schedule"],
+  "scheduled.done": ["Programmé pour {when}", "Scheduled for {when}"],
+  "scheduled.at": ["{day} à {time}", "{day} at {time}"],
+  "scheduled.today": ["aujourd'hui", "today"],
+  "scheduled.tomorrow": ["demain", "tomorrow"],
+  "scheduled.chip": [
+    "{n} programmé | {n} programmés",
+    "{n} scheduled | {n} scheduled"
+  ],
+  "scheduled.title": ["Messages programmés", "Scheduled messages"],
+  "scheduled.cancel": ["Annuler", "Cancel"],
+  "scheduled.failed": ["N'a pas pu être envoyé", "Could not be sent"],
+  "scheduled.remove": ["Retirer", "Remove"],
+  "scheduled.thread": ["Réponse dans un fil", "Thread reply"],
+  "scheduled.empty": [
+    "Plus rien n'attend d'être envoyé ici.",
+    "Nothing is waiting to be sent here."
+  ],
+  "scheduled.reason_encrypted": [
+    "le salon est chiffré",
+    "the room is encrypted"
+  ],
+  "scheduled.reason_session": [
+    "aucune session ouverte",
+    "no signed-in session was left"
+  ],
+  "scheduled.reason_access": [
+    "tu ne peux plus écrire ici",
+    "you can no longer write here"
+  ],
+  "scheduled.error_time": [
+    "Choisis un moment entre une minute et 30 jours à partir de maintenant.",
+    "Pick a time between one minute and 30 days from now."
+  ],
+  "scheduled.error_limit": [
+    "Trop de messages programmés (100 au plus).",
+    "Too many scheduled messages (100 at most)."
+  ],
+  "scheduled.error_encrypted": [
+    "Un salon chiffré ne peut pas avoir de messages programmés.",
+    "An encrypted room cannot have scheduled messages."
+  ],
+  "scheduled.error_access": [
+    "Tu ne peux pas écrire dans ce salon.",
+    "You cannot write in this room."
+  ],
+  "scheduled.error_sending": [
+    "Il part en ce moment.",
+    "It is being sent right now."
+  ],
+  "scheduled.error_gone": [
+    "Déjà envoyé ou retiré.",
+    "Already sent or removed."
+  ],
+  "message.edited": ["(modifié)", "(edited)"],
+  "message.sending": ["⏳ envoi…", "⏳ sending…"],
+  "message.failed": ["⚠️ Échec, réessayer", "⚠️ Failed, retry"],
+  "message.replies": ["{n} réponse | {n} réponses", "{n} reply | {n} replies"],
+  "message.encrypted": [
+    "🔒 Message chiffré, non pris en charge",
+    "🔒 Encrypted message, not supported"
+  ],
   "message.image": ["Image", "Image"],
+  "room.new_messages": ["Nouveaux messages", "New messages"],
+  "room.new_since": [
+    "{n} nouveau message depuis {time} | {n} nouveaux messages depuis {time}",
+    "{n} new message since {time} | {n} new messages since {time}"
+  ],
+  "room.latest": ["Aller aux derniers messages", "Jump to the latest messages"],
+  "room.call": ["Lancer un appel vidéo", "Start a video call"],
   "presence.online": ["En ligne", "Online"],
   "presence.away": ["Absent", "Away"],
   "presence.busy": ["Occupé", "Busy"],
@@ -1054,10 +1404,30 @@
   ],
   "attach.choose": ["Joindre des fichiers", "Attach files"],
   "attach.pasted_name": ["image-collee", "pasted-image"],
+  "format.bold": ["Gras (Ctrl+B)", "Bold (Ctrl+B)"],
+  "format.italic": ["Italique (Ctrl+I)", "Italic (Ctrl+I)"],
+  "format.strike": ["Barré (Ctrl+Maj+X)", "Strikethrough (Ctrl+Shift+X)"],
+  "format.heading": ["Titre", "Heading"],
+  "format.link": ["Lien (Ctrl+Maj+K)", "Link (Ctrl+Shift+K)"],
+  "format.code": ["Code (Ctrl+E)", "Code (Ctrl+E)"],
+  "format.code_block": [
+    "Bloc de code (Ctrl+Maj+E)",
+    "Code block (Ctrl+Shift+E)"
+  ],
+  "format.quote": ["Citation (Ctrl+Maj+9)", "Quote (Ctrl+Shift+9)"],
+  "format.bullets": [
+    "Liste à puces (Ctrl+Maj+8)",
+    "Bulleted list (Ctrl+Shift+8)"
+  ],
+  "format.numbers": [
+    "Liste numérotée (Ctrl+Maj+7)",
+    "Numbered list (Ctrl+Shift+7)"
+  ],
   "attach.original": [
     "Images en qualité d'origine",
     "Images in original quality"
   ],
+  "emoji.server": ["Émojis du serveur", "Server emoji"],
   "attach.preview": ["Aperçu", "Preview"],
   "attach.remove": ["Retirer", "Remove"],
   "attach.too_large": ["{name} dépasse {max} Mo", "{name} is over {max} MB"],
@@ -1070,6 +1440,33 @@
     "The server refuses {type} files ({name})"
   ],
   "player.stop": ["Arrêter la vidéo", "Stop the video"],
+  "rooms.section_unread": ["Non lus", "Unread"],
+  "rooms.section_favorites": ["Favoris", "Favorites"],
+  "rooms.favorite_add": ["Ajouter aux favoris", "Add to favorites"],
+  "rooms.favorite_remove": ["Retirer des favoris", "Remove from favorites"],
+  "rooms.mark_unread": ["Marquer comme non lu", "Mark as unread"],
+  "rooms.mark_read": ["Marquer comme lu", "Mark as read"],
+  "rooms.mark_failed": [
+    "Impossible de changer l'état de lecture de ce salon.",
+    "Couldn't change this room's read state."
+  ],
+  "rooms.nothing_unread": [
+    "Ce salon n'a aucun message à marquer non lu.",
+    "This room has no message to mark unread."
+  ],
+  "rooms.section_channels": ["Salons", "Channels"],
+  "rooms.section_direct": ["Messages privés", "Direct messages"],
+  "rooms.new": ["Nouvelle conversation", "New conversation"],
+  "rooms.new_message": ["Nouveau message", "New message"],
+  "rooms.new_channel": ["Créer un canal", "Create a channel"],
+  "rooms.account_menu": [
+    "Mon compte, réglages et déconnexion",
+    "My account, settings and sign out"
+  ],
+  "rooms.back_to_room": [
+    "Retour à la conversation",
+    "Back to the conversation"
+  ],
   "info.room": ["Informations du salon", "Room information"],
   "info.profile": ["Profil", "Profile"],
   "info.failed": ["Informations indisponibles", "Information unavailable"],
@@ -1089,8 +1486,290 @@
   "info.bio": ["Bio", "Bio"],
   "info.message": ["Message", "Message"],
   "info.call": ["Appeler", "Call"],
+  "search.title": ["Rechercher dans le salon", "Search in room"],
+  "search.placeholder": ["Chercher des messages", "Search messages"],
+  "search.none": ["Aucun message trouvé", "No messages found"],
+  "search.failed": ["Recherche impossible", "Search failed"],
+  "search.changed": [
+    "Le salon a changé. Relancez la recherche.",
+    "The room changed. Search again."
+  ],
+  "settings.title": ["Paramètres", "Settings"],
+  "settings.edit_profile": ["Mon profil", "My profile"],
+  "settings.status": ["Statut", "Status"],
+  "settings.sidebar": ["Liste des conversations", "Conversation list"],
+  "settings.sidebar_help": [
+    "Les réglages de votre compte, partagés avec les autres applications.",
+    "Your account's settings, shared with the other apps."
+  ],
+  "settings.name_format": ["Afficher les noms", "Show names as"],
+  "settings.name_full": ["Prénom et nom", "First and last name"],
+  "settings.name_nickname_full": [
+    "Surnom, sinon prénom et nom",
+    "Nickname, else first and last name"
+  ],
+  "settings.name_username": ["Nom d'utilisateur", "Username"],
+  "settings.name_locked": [
+    "Fixé par l'administrateur du serveur.",
+    "Set by the server administrator."
+  ],
+  "settings.dm_limit": [
+    "Messages personnels affichés",
+    "Direct messages shown"
+  ],
+  "settings.dm_all": ["Tous", "All"],
+  "settings.presence": ["Présence", "Presence"],
+  "settings.status_text": ["Message de statut", "Status message"],
+  "settings.notifications": ["Notifications", "Notifications"],
+  "settings.desktop_notifications": [
+    "Notifications de bureau",
+    "Desktop notifications"
+  ],
+  "settings.notify_default": ["Réglage du serveur", "Server default"],
+  "settings.notify_all": ["Tous les messages", "All messages"],
+  "settings.notify_mention": [
+    "Mentions et messages privés",
+    "Mentions and direct messages"
+  ],
+  "settings.notify_nothing": ["Aucune", "None"],
+  "dnd.title": ["Ne pas déranger", "Do not disturb"],
+  "dnd.description": [
+    "Les messages arrivent toujours ; seules les alertes s’arrêtent, sur tous vos appareils.",
+    "Messages still arrive; only alerts stop, on all your devices."
+  ],
+  "dnd.mute": ["Couper les notifications", "Mute notifications"],
+  "dnd.off": ["Désactivé", "Off"],
+  "dnd.muted": ["Coupées", "Muted"],
+  "dnd.hour": ["Pendant 1 heure", "For 1 hour"],
+  "dnd.morning": ["Jusqu’à 08:00", "Until 08:00"],
+  "dnd.unmute": ["Réactiver", "Unmute"],
+  "dnd.until": ["Jusqu’à {time}", "Until {time}"],
+  "dnd.quiet_hours": ["Heures calmes", "Quiet hours"],
+  "dnd.every_day": ["Chaque jour, {zone}", "Every day, {zone}"],
+  "dnd.from": ["De", "From"],
+  "dnd.to": ["À", "To"],
+  "dnd.invalid_time": [
+    "Deux heures différentes, au format HH:MM",
+    "Two different times, as HH:MM"
+  ],
+  "settings.language": ["Langue", "Language"],
+  "settings.lang_auto": ["Automatique", "Automatic"],
+  "settings.lang_fr": ["Français", "Français"],
+  "settings.lang_en": ["English", "English"],
+  "settings.language_restart": [
+    "Prend effet au prochain lancement",
+    "Takes effect on next launch"
+  ],
+  "settings.account": ["Compte", "Account"],
+  "settings.privacy": ["Confidentialité", "Privacy"],
+  "settings.read_receipts": [
+    "Partager les confirmations de lecture",
+    "Share read receipts"
+  ],
+  "settings.read_receipts_hint": [
+    "Les autres voient jusqu’où vous avez lu, et vous voyez jusqu’où ils ont lu",
+    "Others see how far you read, and you see how far they did"
+  ],
+  "settings.server": ["Serveur", "Server"],
+  "settings.about": ["À propos", "About"],
+  "settings.version": ["Version", "Version"],
+  "settings.logs": [
+    "Journaux (à joindre à un signalement)",
+    "Logs (attach them to a report)"
+  ],
+  "settings.logs_open": ["Ouvrir le dossier", "Open the folder"],
+  "settings.updates_auto": ["Chercher les mises à jour", "Check for updates"],
+  "settings.updates_auto_hint": [
+    "Au démarrage, toutes les 6 heures au plus",
+    "At startup, every 6 hours at most"
+  ],
+  "settings.updates_check": ["Chercher maintenant", "Check now"],
+  "settings.updates_none": [
+    "Tu as la dernière version ✨",
+    "You have the latest version ✨"
+  ],
+  "settings.background": [
+    "Démarrage et arrière-plan",
+    "Startup and background"
+  ],
+  "settings.keep_running": [
+    "Rester lancée à la fermeture de la fenêtre",
+    "Keep running when the window is closed"
+  ],
+  "settings.keep_running_tray": [
+    "Dans la zone de notification ; les notifications continuent d'arriver",
+    "In the notification area; notifications keep coming"
+  ],
+  "settings.keep_running_dock": [
+    "Dans le Dock ; les notifications continuent d'arriver",
+    "In the Dock; notifications keep coming"
+  ],
+  "settings.start_at_login": [
+    "Lancer à l'ouverture de session",
+    "Start at login"
+  ],
+  "settings.start_at_login_hint": [
+    "Sans ouvrir la fenêtre",
+    "Without opening the window"
+  ],
+  "settings.start_at_login_failed": [
+    "Impossible de changer le lancement à l'ouverture de session",
+    "Couldn't change starting at login"
+  ],
+  "settings.updates_failed": [
+    "Impossible de chercher les mises à jour",
+    "Couldn't check for updates"
+  ],
+  "settings.photo": ["Photo", "Photo"],
   "settings.photo_change": ["Changer…", "Change…"],
+  "room_avatar.change": ["Changer l’image du canal…", "Change channel image…"],
+  "room_avatar.failed": [
+    "Impossible de changer l’image. Vérifiez la connexion, vos permissions et la taille de l’image (PNG ou JPEG, 2 Mo maximum).",
+    "Could not change the image. Check your connection, permissions and image size (PNG or JPEG, up to 2 MB)."
+  ],
   "settings.photo_remove": ["Retirer", "Remove"],
+  "settings.name": ["Nom", "Name"],
+  "settings.username": ["Nom d'utilisateur", "Username"],
+  "settings.email": ["E-mail", "Email"],
+  "settings.current_password": ["Mot de passe actuel", "Current password"],
+  "settings.code": ["Code de vérification", "Verification code"],
+  "settings.code_needed": [
+    "Le serveur demande un code de vérification",
+    "The server asks for a verification code"
+  ],
+  "settings.save": ["Enregistrer", "Save"],
+  "settings.saved": ["Enregistré", "Saved"],
+  "settings.save_failed": ["Échec de l'enregistrement", "Couldn't save"],
+  "profile.email_verified": [
+    "Adresse vérifiée ; modification dans Sécurité",
+    "Verified address; change it in Security"
+  ],
+  "profile.conflict": [
+    "Le profil a changé. Rechargez-le avant de réessayer.",
+    "The profile changed. Reload it before trying again."
+  ],
+  "profile.pending": ["Modification en attente", "Change pending"],
+  "profile.pending_profile": [
+    "Profil : modification en attente",
+    "Profile change pending"
+  ],
+  "profile.pending_preferences": [
+    "Réglages : modification en attente",
+    "Settings change pending"
+  ],
+  "profile.pending_avatar": [
+    "Photo : modification en attente",
+    "Photo change pending"
+  ],
+  "profile.resume": ["Reprendre", "Resume"],
+  "profile.discard": ["Abandonner la modification", "Discard change"],
+  "notify.open": ["Ouvrir", "Open"],
+  "notify.dismiss": ["Fermer la notification", "Dismiss notification"],
+  "notify.direct": ["Message privé", "Direct message"],
+  "notify.style": ["Style des notifications", "Notification style"],
+  "notify.style_system": ["Système", "System"],
+  "notify.style_hint": [
+    "RocketVibe : cartes flottantes, sans historique dans le centre de notifications Windows.",
+    "RocketVibe: floating cards, without Windows Notification Center history."
+  ],
+  "notify.backend_custom": [
+    "RocketVibe · cartes flottantes avec réponse",
+    "RocketVibe · floating cards with reply"
+  ],
+  "notify.test_body": [
+    "Les notifications fonctionnent ✨",
+    "Notifications work ✨"
+  ],
+  "notify.test": [
+    "Envoyer une notification de test",
+    "Send a test notification"
+  ],
+  "notify.test_hint": [
+    "Rien ne s'affiche ? Vérifie les réglages du système.",
+    "Nothing shows? Check the system's settings."
+  ],
+  "notify.system_settings": [
+    "Réglages des notifications du système",
+    "System notification settings"
+  ],
+  "notify.shown_by": ["Affichées par", "Shown by"],
+  "notify.backend_server": [
+    "{name} {version} · réponse depuis la notification : {reply}",
+    "{name} {version} · reply from the notification: {reply}"
+  ],
+  "notify.reply_yes": ["oui", "yes"],
+  "notify.reply_no": ["non", "no"],
+  "notify.backend_none": [
+    "Aucun serveur de notifications ne répond",
+    "No notification server answers"
+  ],
+  "notify.backend_windows": [
+    "Notifications de Windows · réponse depuis la notification : oui",
+    "Windows notifications · reply from the notification: yes"
+  ],
+  "notify.backend_macos": [
+    "Centre de notifications de macOS · réponse depuis la notification : oui",
+    "macOS Notification Center · reply from the notification: yes"
+  ],
+  "notify.reply": ["Répondre", "Reply"],
+  "notify.reply_placeholder": ["Répondre…", "Reply…"],
+  "notify.mark_read": ["✓ Lu", "✓ Read"],
+  "notify.read": ["Lu", "Read"],
+  "notify.sound": ["Son de rocket-vibe", "rocket-vibe sound"],
+  "notify.sound_hint": [
+    "Un petit scintillement. Désactivé : son du système, ou silence pour les cartes RocketVibe.",
+    "A little sparkle. When off: system sound, or silence for RocketVibe cards."
+  ],
+  "login.probe_failed": [
+    "Pas de Rocket.Chat joignable à cette adresse",
+    "No Rocket.Chat reachable at this address"
+  ],
+  "login.not_rocketvibe": [
+    "Pas de serveur RocketVibe à cette adresse",
+    "No RocketVibe server at this address"
+  ],
+  "login.kind": ["Type de serveur", "Server type"],
+  "login.kind_auto": ["Automatique", "Automatic"],
+  "login.kind_rocketchat": ["Rocket.Chat", "Rocket.Chat"],
+  "login.kind_rocketvibe": ["RocketVibe", "RocketVibe"],
+  "login.kind_mattermost": ["Mattermost", "Mattermost"],
+  "login.kind_kchat": ["kChat", "kChat"],
+  "login.kchat_token": ["Jeton d'API Infomaniak", "Infomaniak API token"],
+  "login.kchat_server": ["Serveur kChat", "kChat server"],
+  "login.kchat_token_rejected": [
+    "Jeton refusé par kChat",
+    "Token rejected by kChat"
+  ],
+  "login.kchat_pick_server": [
+    "Ce compte a plusieurs serveurs kChat : choisissez-en un",
+    "This account has several kChat servers: pick one"
+  ],
+  "login.kchat_help": [
+    "Connectez-vous avec Infomaniak, ou collez un jeton d'API (manager.infomaniak.com, Jetons d'API)",
+    "Sign in with Infomaniak, or paste an API token (manager.infomaniak.com, API tokens)"
+  ],
+  "login.infomaniak": [
+    "Se connecter avec Infomaniak",
+    "Sign in with Infomaniak"
+  ],
+  "login.probe_no_password": [
+    "Ce serveur n'accepte pas la connexion par mot de passe",
+    "This server does not accept password sign-in"
+  ],
+  "login.probe_2fa": ["double authentification", "two-factor"],
+  "login.probe_e2e": ["chiffrement de bout en bout", "end-to-end encryption"],
+  "login.cancel_add": ["Revenir à mon compte", "Back to my account"],
+  "settings.accounts": ["Comptes", "Accounts"],
+  "settings.add_account": ["Ajouter un compte", "Add an account"],
+  "settings.hide_rail": [
+    "Masquer la barre des serveurs",
+    "Hide the server bar"
+  ],
+  "settings.hide_rail_hint": [
+    "Changer ou ajouter un compte reste possible ici",
+    "Switching or adding an account stays possible here"
+  ],
+  "settings.current": ["Compte actuel", "Current account"],
   "settings.cat.account": ["Mon compte", "My account"],
   "settings.cat.notifications": ["Notifications", "Notifications"],
   "settings.cat.language": ["Langue", "Language"],
@@ -1100,7 +1779,185 @@
   "settings.cat.devices": ["Appareils", "Devices"],
   "settings.cat.accounts": ["Comptes", "Accounts"],
   "settings.cat.app": ["Application", "App"],
+  "security.title": ["Sécurité", "Security"],
+  "security.loading": ["Chargement de la sécurité…", "Loading security…"],
+  "security.enabled": [
+    "Double authentification activée",
+    "Two-factor authentication enabled"
+  ],
+  "security.disabled": [
+    "Double authentification désactivée",
+    "Two-factor authentication disabled"
+  ],
+  "security.remaining": [
+    "{n} code de secours disponible | {n} codes de secours disponibles",
+    "{n} backup code remaining | {n} backup codes remaining"
+  ],
+  "security.required": [
+    "Confirmez votre identité avant une action sensible.",
+    "Confirm your identity before a sensitive action."
+  ],
+  "security.ready": [
+    "Identité confirmée récemment sur cet appareil.",
+    "Identity recently confirmed on this device."
+  ],
+  "security.verify": ["Confirmer mon identité", "Confirm my identity"],
+  "security.method": ["Méthode de confirmation", "Confirmation method"],
+  "security.setup": [
+    "Configurer une application d’authentification",
+    "Set up an authenticator app"
+  ],
+  "security.setup_body": [
+    "Ajoutez cette clé dans votre application d’authentification, puis saisissez son code à six chiffres.",
+    "Add this key to your authenticator app, then enter its six-digit code."
+  ],
+  "security.copy_secret": ["Copier la clé de configuration", "Copy setup key"],
+  "security.copy_uri": ["Copier le lien de configuration", "Copy setup link"],
+  "security.enable": [
+    "Activer la double authentification",
+    "Enable two-factor authentication"
+  ],
+  "security.codes": ["Codes de secours", "Backup codes"],
+  "security.codes_body": [
+    "Conservez ces dix codes dans un endroit sûr. Chaque code ne sert qu’une fois. Ils restent disponibles ici jusqu’à votre confirmation.",
+    "Keep these ten codes somewhere safe. Each code works once. They remain available here until you acknowledge them."
+  ],
+  "security.copy_codes": ["Copier les codes de secours", "Copy backup codes"],
+  "security.copied": ["Copié", "Copied"],
+  "security.saved": ["J’ai enregistré mes codes", "I have saved my codes"],
+  "security.regenerate": [
+    "Remplacer les codes de secours",
+    "Replace backup codes"
+  ],
+  "security.regenerate_body": [
+    "Les anciens codes cesseront de fonctionner et les autres appareils seront déconnectés. Conservez les nouveaux codes.",
+    "Old codes will stop working and other devices will be signed out. Keep the new codes."
+  ],
+  "security.disable": [
+    "Désactiver l’application d’authentification",
+    "Disable authenticator app"
+  ],
+  "security.disable_body": [
+    "Les codes de l’application cesseront de fonctionner. Les codes par e-mail et les secours sont conservés si ce profil reste actif ; sinon, la connexion utilisera uniquement votre mot de passe. Les autres appareils seront déconnectés.",
+    "Authenticator codes will stop working. Email codes and backups remain if that profile is active; otherwise sign-in will use only your password. Other devices will be signed out."
+  ],
   "security.refresh": ["Reprendre ou actualiser", "Resume or refresh"],
+  "security.rejected": [
+    "Vérification refusée ou expirée. Actualisez pour reprendre la tentative.",
+    "Verification rejected or expired. Refresh to resume the attempt."
+  ],
+  "security.failed": [
+    "Action non confirmée. Actualisez pour reprendre après une coupure réseau.",
+    "Action unconfirmed. Refresh to resume after a network interruption."
+  ],
+  "security.stale": [
+    "Cette opération a expiré ou la protection du compte a changé. Ce reçu ne contient plus de codes utilisables.",
+    "This operation expired or account protection changed. This receipt no longer contains usable codes."
+  ],
+  "security.discard": ["Fermer le reçu périmé", "Close expired receipt"],
+  "email.title": ["Adresse e-mail", "Email address"],
+  "email.factor_enabled": ["Codes par e-mail activés", "Email codes enabled"],
+  "email.factor_disabled": [
+    "Codes par e-mail désactivés",
+    "Email codes disabled"
+  ],
+  "email.factor_enable": ["Activer les codes par e-mail", "Enable email codes"],
+  "email.factor_disable": [
+    "Désactiver les codes par e-mail",
+    "Disable email codes"
+  ],
+  "email.factor_enable_body": [
+    "Utiliser cette adresse pour les codes de connexion et de confirmation d’identité ? Les autres appareils seront déconnectés et les anciens secours remplacés. Conservez les dix nouveaux codes.",
+    "Use this address for sign-in and identity-confirmation codes? Other devices will be signed out and old backups replaced. Keep the ten new codes."
+  ],
+  "email.factor_disable_body": [
+    "Les codes par e-mail cesseront de fonctionner. L’adresse reste vérifiée. L’application d’authentification et ses secours sont conservés si elle est active ; sinon, la connexion utilisera uniquement votre mot de passe. Les autres appareils seront déconnectés.",
+    "Email codes will stop working. The address stays verified. An active authenticator app and its backups remain; otherwise sign-in will use only your password. Other devices will be signed out."
+  ],
+  "email.factor_contact": [
+    "Désactivez les codes par e-mail avant de remplacer ou retirer cette adresse.",
+    "Disable email codes before replacing or removing this address."
+  ],
+  "email.private": [
+    "Votre adresse reste privée et ne figure pas dans l’annuaire.",
+    "Your address stays private and does not appear in the directory."
+  ],
+  "email.current": ["Adresse vérifiée", "Verified address"],
+  "email.none": ["Aucune adresse vérifiée.", "No verified address."],
+  "email.address": ["Nouvelle adresse e-mail", "New email address"],
+  "email.start": [
+    "Envoyer un code de vérification",
+    "Send a verification code"
+  ],
+  "email.pending": [
+    "Adresse en cours de vérification",
+    "Address being verified"
+  ],
+  "email.code": ["Code reçu par e-mail (8 chiffres)", "Email code (8 digits)"],
+  "email.confirm": ["Vérifier cette adresse", "Verify this address"],
+  "email.cancel": ["Annuler cette vérification", "Cancel this verification"],
+  "email.verified": [
+    "L’adresse a été vérifiée.",
+    "The address has been verified."
+  ],
+  "email.done": ["Terminer", "Done"],
+  "email.remove": ["Retirer cette adresse e-mail", "Remove this email address"],
+  "email.remove_body": [
+    "Cette adresse ne pourra plus recevoir de codes ni servir à récupérer le compte. Le retrait ne désactive pas l’authentification à deux facteurs.",
+    "This address will no longer receive codes or recover the account. Removing it does not disable two-factor authentication."
+  ],
+  "email.removed": [
+    "L’adresse e-mail a été retirée.",
+    "The email address has been removed."
+  ],
+  "email.removal_pending": [
+    "Le retrait n’est pas encore confirmé. Actualisez pour reprendre ou annulez cette demande.",
+    "Removal is not confirmed yet. Refresh to resume or cancel this request."
+  ],
+  "email.cancel_removal": [
+    "Annuler cette demande de retrait",
+    "Cancel this removal request"
+  ],
+  "email.removal_stale": [
+    "Ce retrait ne peut plus être confirmé. Fermez la demande puis vérifiez l’adresse actuelle.",
+    "This removal can no longer be confirmed. Close the request and check the current address."
+  ],
+  "email.close_removal": [
+    "Fermer cette demande de retrait",
+    "Close this removal request"
+  ],
+  "email.stale": [
+    "Cette vérification n’est plus disponible. Fermez-la avant de vérifier une adresse à nouveau.",
+    "This verification is unavailable. Close it before verifying an address again."
+  ],
+  "email.restart": ["Fermer cette vérification", "Close this verification"],
+  "email.queued": ["Envoi en attente.", "Waiting to send."],
+  "email.sending": ["Transmission du mail en cours.", "Sending the email."],
+  "email.deferred": [
+    "Envoi non confirmé, nouvelle tentative prévue. Si le code est arrivé, vous pouvez le valider.",
+    "Sending is unconfirmed; another attempt is scheduled. You can verify a code that already arrived."
+  ],
+  "email.accepted": [
+    "Le mail a été transmis au relais. Saisissez le code reçu.",
+    "The email was accepted by the relay. Enter the code you receive."
+  ],
+  "email.exhausted": [
+    "Envoi non confirmé. Si le code est arrivé, vous pouvez encore le valider avant son expiration.",
+    "Sending is unconfirmed. You can still verify a code that already arrived before it expires."
+  ],
+  "email.invalid": [
+    "Saisissez une adresse e-mail valide.",
+    "Enter a valid email address."
+  ],
+  "email.rejected": [
+    "Code refusé ou vérification expirée. Actualisez pour reprendre.",
+    "Code rejected or verification expired. Refresh to resume."
+  ],
+  "email.limited": [
+    "La limite d’envoi est atteinte. Attendez avant une nouvelle vérification ; vous pouvez reprendre celle en cours.",
+    "The sending limit was reached. Wait before a new verification; you can resume the current one."
+  ],
+  "message.encrypted_locked": ["🔒 Message chiffré", "🔒 Encrypted message"],
   "voice.record": ["Enregistrer un message vocal", "Record a voice message"],
   "voice.cancel": ["Annuler", "Cancel"],
   "voice.send": ["Envoyer", "Send"],
@@ -1119,6 +1976,8 @@
     "The server refuses voice messages"
   ],
   "voice.file_name": ["message-vocal", "voice-message"],
+  "message.call": ["Appel vidéo", "Video call"],
+  "message.join": ["Rejoindre", "Join"],
   "file.open": ["Ouvrir", "Open"],
   "viewer.copy": ["Copier l'image", "Copy image"],
   "viewer.save": ["Enregistrer sous…", "Save as…"],
@@ -1150,7 +2009,56 @@
     "Enregistré dans Téléchargements : {name}",
     "Saved to Downloads: {name}"
   ],
+  "actions.more": ["Actions", "Actions"],
+  "actions.reply": ["Répondre", "Reply"],
+  "actions.reply_thread": ["Répondre dans un fil", "Reply in thread"],
+  "actions.forward": ["Transférer", "Forward"],
   "actions.copy": ["Copier", "Copy"],
+  "actions.download": ["Télécharger", "Download"],
+  "actions.edit": ["Modifier", "Edit"],
+  "actions.delete": ["Supprimer", "Delete"],
+  "actions.delete_title": ["Supprimer ce message ?", "Delete this message?"],
+  "actions.delete_body": [
+    "Il disparaîtra pour tout le monde.",
+    "It will be gone for everyone."
+  ],
+  "actions.pin": ["Épingler", "Pin"],
+  "actions.save": ["Enregistrer", "Save"],
+  "actions.cancel": ["Annuler", "Cancel"],
+  "actions.refused": ["Action refusée.", "Action refused."],
+  "actions.react": ["Réagir", "React"],
+  "actions.react_more": [
+    "Réagir avec un autre émoji",
+    "React with another emoji"
+  ],
+  "actions.copied": ["Copié", "Copied"],
+  "actions.pinned": ["Message épinglé", "Message pinned"],
+  "actions.unpin": ["Désépingler", "Unpin"],
+  "marked.title": ["Épinglés et favoris", "Pinned and starred"],
+  "marked.pinned": ["Épinglés", "Pinned"],
+  "marked.starred": ["Mes favoris", "My starred"],
+  "marked.no_pinned": ["Aucun message épinglé ici", "No pinned messages here"],
+  "marked.no_starred": [
+    "Aucun favori dans ce salon",
+    "No starred messages in this room"
+  ],
+  "marked.attachment": ["Pièce jointe", "Attachment"],
+  "marked.not_loaded": [
+    "Ce message n'a pas pu être chargé",
+    "This message could not be loaded"
+  ],
+  "actions.unpinned": ["Message désépinglé", "Message unpinned"],
+  "actions.star": ["Ajouter aux favoris", "Star"],
+  "actions.starred": ["Message ajouté aux favoris", "Message starred"],
+  "actions.unstar": ["Retirer des favoris", "Unstar"],
+  "actions.unstarred": ["Message retiré des favoris", "Message unstarred"],
+  "actions.saved": ["Enregistré dans Téléchargements", "Saved to Downloads"],
+  "actions.save_failed": [
+    "Impossible d'enregistrer ce fichier.",
+    "Couldn't save this file."
+  ],
+  "composer.replying": ["Réponse à {name}", "Replying to {name}"],
+  "composer.cancel_reply": ["Annuler la citation", "Cancel quote"],
   "command.title": ["COMMANDES", "COMMANDS"],
   "command.keys": ["Tab ou Entrée pour compléter", "Tab or Enter to complete"],
   "command.only_you": ["Visible par toi uniquement", "Only you can see this"],
@@ -1171,6 +2079,31 @@
     "impossible dans une conversation chiffrée",
     "not possible in an encrypted conversation"
   ],
+  "thread.title": ["Fil", "Thread"],
+  "thread.also_in_room": [
+    "Envoyer aussi dans le salon",
+    "Also send to the room"
+  ],
+  "rooms.quoted_message": ["↪ Message cité", "↪ Quoted message"],
+  "thread.not_found": ["Fil introuvable.", "Thread not found."],
+  "thread.follow": ["Suivre ce fil", "Follow this thread"],
+  "thread.unfollow": ["Ne plus suivre ce fil", "Unfollow this thread"],
+  "thread.followed": ["Fil suivi", "Following this thread"],
+  "thread.unfollowed": ["Fil plus suivi", "No longer following this thread"],
+  "thread.follow_failed": [
+    "Impossible de changer le suivi de ce fil.",
+    "Couldn't change following this thread."
+  ],
+  "threads.title": ["Fils", "Threads"],
+  "threads.all": ["Tous", "All"],
+  "threads.following": ["Suivis", "Following"],
+  "threads.none": ["Aucun fil dans ce salon", "No threads in this room"],
+  "threads.none_following": [
+    "Tu ne suis aucun fil ici",
+    "You follow no thread here"
+  ],
+  "threads.more": ["Afficher plus", "Load more"],
+  "threads.summary": ["{replies} · dernière {time}", "{replies} · last {time}"],
   "settings.cat.bots": ["Bots", "Bots"],
   "bots.title": ["Mes bots", "My bots"],
   "bots.intro": [

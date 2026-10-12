@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { mkdir } from "node:fs/promises";
 export const base = process.env.RV_WEB_TEST_URL || "http://127.0.0.1:3418";
 assert.ok(["127.0.0.1", "localhost"].includes(new URL(base).hostname));
 export async function fixture(target, path, method = "GET", input) {
@@ -101,11 +102,28 @@ export async function groupDialog(target, room) {
     throw Error(await target.locator(".crypto-group-dialog").innerText());
 }
 export async function pin(target, name, expected) {
-  await target.locator(".room-heading").click();
+  const room = await target
+    .locator(".room-row.selected")
+    .getAttribute("data-room");
   await target
-    .locator(".member-row")
-    .getByRole("button", { name, exact: true })
+    .getByRole("button", { name: "New conversation", exact: true })
     .click();
+  await target
+    .getByRole("menuitem", { name: "New message", exact: true })
+    .click();
+  await target
+    .locator(".new-conversation-dialog")
+    .getByLabel("Exact username", { exact: true })
+    .fill(name);
+  await target.getByRole("button", { name: "Open a DM", exact: true }).click();
+  await target
+    .locator(".new-conversation-dialog")
+    .waitFor({ state: "detached" });
+  await target
+    .locator(".room-heading .room-title")
+    .filter({ hasText: name })
+    .waitFor();
+  await target.locator(".room-heading").click();
   await target
     .getByRole("button", { name: "Verify encryption identity", exact: true })
     .click();
@@ -125,6 +143,15 @@ export async function pin(target, name, expected) {
       exact: true,
     })
     .click();
+  const fingerprint =
+    expected ||
+    (await target
+      .locator(".crypto-peer-dialog .crypto-fingerprint .action-row-subtitle")
+      .first()
+      .innerText());
+  await target
+    .getByLabel("Fingerprint confirmed by this person", { exact: true })
+    .fill(fingerprint);
   await target
     .getByRole("button", {
       name: "Mark the compared fingerprint verified",
@@ -134,8 +161,7 @@ export async function pin(target, name, expected) {
   await target
     .locator("dialog[open]")
     .last()
-    .getByRole("button")
-    .filter({ hasText: "Certificate unapproved or expired" })
+    .getByRole("button", { name: "Review this device", exact: true })
     .click();
   await target
     .getByRole("button", {
@@ -144,5 +170,10 @@ export async function pin(target, name, expected) {
     })
     .click();
   await target.getByText("Certificate approved", { exact: false }).waitFor();
-  for (let i = 0; i < 3; i++) await closeDialog(target);
+  await mkdir("../../.cache/web-shots", { recursive: true });
+  await target.screenshot({
+    path: "../../.cache/web-shots/web-crypto-peer-reference.png",
+  });
+  for (let i = 0; i < 2; i++) await closeDialog(target);
+  if (room) await target.locator('[data-room="' + room + '"]').click();
 }

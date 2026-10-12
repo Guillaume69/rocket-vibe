@@ -1,5 +1,5 @@
 import { el, button, field, dialog } from "../dom";
-import { preferencesGroup, actionRow } from "../sidebar";
+import { preferencesGroup, actionRow, buttonRow } from "../sidebar";
 import { nt } from "../native-i18n";
 import { t } from "../i18n";
 import type { CryptoAccess } from "./access";
@@ -36,6 +36,7 @@ export class EncryptionControls {
   private readonly storageKey: CryptoStorageKeyAccess;
   private backup?: BackupStatus;
   private devices?: WithdrawalStatus;
+  private offers?: HistoryOffers;
   private historyStatus?: HistoryBackupStatus;
   private storageStatus?: StorageKeyStatus;
   private identity?: CryptoIdentityStatus;
@@ -108,10 +109,13 @@ export class EncryptionControls {
     this.storageStatus = undefined;
     if (identity.phase === "ready") {
       this.backup = await this.recovery.view();
-      this.devices = await this.withdrawals.view();
       this.historyStatus = await this.historyBackup.view();
       this.storageStatus = await this.storageKey.renewIfDue();
     }
+    this.render();
+  }
+  async showWithdrawals(): Promise<void> {
+    this.devices = await this.withdrawals.view();
     this.render();
   }
   private async run(work: () => Promise<void>, reload = false): Promise<void> {
@@ -134,7 +138,9 @@ export class EncryptionControls {
     work: () => Promise<void>,
     visible = true,
   ): void {
-    if (visible) rows.append(actionRow(nt(key), "", () => this.run(work)));
+    const row = buttonRow(nt(key), () => this.run(work));
+    row.disabled = !visible || this.busy;
+    rows.append(row);
   }
   private review(
     title: string,
@@ -145,9 +151,11 @@ export class EncryptionControls {
   ): void {
     if (!this.alive()) return;
     const [node, body] = dialog(nt(title));
+    node.classList.add("alert-dialog");
     body.append(
       el("p", "dim", nt(explanation)),
       ...rows,
+      button(t("cancel"), () => node.close()),
       button(
         nt(confirm),
         () =>
@@ -181,11 +189,11 @@ export class EncryptionControls {
     const restore =
       this.identity.phase === "missing" && !!this.identity.remoteFingerprint;
     if (restore) {
-      const [group, rows] = preferencesGroup(nt("crypto.restore_title"));
-      rows.append(
-        el("p", "dim", nt("crypto.restore_explanation")),
-        this.restoreField[0],
+      const [group, rows] = preferencesGroup(
+        nt("crypto.restore_title"),
+        nt("crypto.restore_explanation"),
       );
+      rows.append(this.restoreField[0]);
       this.action(rows, "crypto.restore_review", async () => {
         const preview = await this.recovery.previewRestore(
           this.restoreField[1].value.trim(),
@@ -206,9 +214,11 @@ export class EncryptionControls {
       parts.push(group);
     } else if (this.backup) {
       const state = this.backup,
-        [group, rows] = preferencesGroup(nt("crypto.backup_title"));
+        [group, rows] = preferencesGroup(
+          nt("crypto.backup_title"),
+          nt("crypto.backup_explanation"),
+        );
       rows.append(
-        el("p", "dim", nt("crypto.backup_explanation")),
         actionRow(
           nt("crypto.backup_version"),
           state.receipt?.backup_revision ?? nt("crypto.backup_none"),
@@ -279,18 +289,14 @@ export class EncryptionControls {
     if (this.identity.phase === "ready") {
       if (this.devices) {
         const state = this.devices,
-          [group, rows] = preferencesGroup(nt("crypto.withdrawals"));
-        rows.append(
-          el(
-            "p",
-            "dim",
+          [group, rows] = preferencesGroup(
+            nt("crypto.withdrawals"),
             nt(
               state.controls_root
                 ? "crypto.withdrawal_body"
                 : "crypto.withdrawal_root_only",
             ),
-          ),
-        );
+          );
         for (const device of state.devices) {
           rows.append(actionRow(device.device, device.fingerprint));
           this.action(
@@ -329,11 +335,11 @@ export class EncryptionControls {
         );
         parts.push(group);
       }
-      const [history, rows] = preferencesGroup(nt("crypto.history_title"));
-      rows.append(
-        el("p", "dim", nt("crypto.history_explanation")),
-        this.progress,
+      const [history, rows] = preferencesGroup(
+        nt("crypto.history_title"),
+        nt("crypto.history_explanation"),
       );
+      rows.append(this.progress);
       this.action(rows, "crypto.history_request", async () => {
         this.progress.textContent =
           nt("crypto.history_requested") +
@@ -354,14 +360,33 @@ export class EncryptionControls {
             : "crypto.history_nothing",
         );
       });
+      if (this.offers) {
+        if (!this.offers.offers.length)
+          rows.append(actionRow(nt("crypto.history_no_offers")));
+        for (const offer of this.offers.offers)
+          rows.append(
+            actionRow(
+              nt("crypto.history_offer", { device: offer.device }),
+              offer.fingerprint,
+              () =>
+                this.run(async () => {
+                  const preview = await this.history.preview(
+                    this.offers!.id,
+                    offer.fingerprint,
+                  );
+                  this.showShare(preview);
+                }),
+            ),
+          );
+      }
       parts.push(history);
       if (this.historyStatus) {
         const state = this.historyStatus,
           [group, actions] = preferencesGroup(
             nt("crypto.history_backup_title"),
+            nt("crypto.history_backup_explanation"),
           );
         actions.append(
-          el("p", "dim", nt("crypto.history_backup_explanation")),
           actionRow(
             nt(
               state.pending
@@ -475,9 +500,11 @@ export class EncryptionControls {
       }
       if (this.storageStatus) {
         const state = this.storageStatus,
-          [group, actions] = preferencesGroup(nt("crypto.storage_title"));
+          [group, actions] = preferencesGroup(
+            nt("crypto.storage_title"),
+            t("browserVault"),
+          );
         actions.append(
-          el("p", "dim", t("browserVault")),
           actionRow(
             nt(
               state.rotated_at
@@ -502,31 +529,15 @@ export class EncryptionControls {
       }
     }
     this.node.replaceChildren(...parts);
-    this.node
-      .querySelectorAll<HTMLButtonElement>("button")
-      .forEach((b) => (b.disabled = this.busy));
+    if (this.busy)
+      this.node
+        .querySelectorAll<HTMLButtonElement>("button")
+        .forEach((b) => (b.disabled = true));
   }
   private showOffers(offers: HistoryOffers): void {
     if (!this.alive()) return;
-    const [node, body] = dialog(nt("crypto.history_offers"));
-    if (!offers.offers.length)
-      body.append(el("p", "dim", nt("crypto.history_no_offers")));
-    for (const offer of offers.offers)
-      body.append(
-        actionRow(
-          nt("crypto.history_offer", { device: offer.device }),
-          offer.fingerprint,
-          () =>
-            this.run(async () => {
-              const preview = await this.history.preview(
-                offers.id,
-                offer.fingerprint,
-              );
-              node.close();
-              this.showShare(preview);
-            }),
-        ),
-      );
+    this.offers = offers;
+    this.render();
   }
   private showShare(preview: HistoryPreview): void {
     const rows = [

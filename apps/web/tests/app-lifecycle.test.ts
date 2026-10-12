@@ -534,6 +534,12 @@ test("new message and HTTP workflow steps expose their result name editor", () =
       roomRow: () => node(),
       hasThread: () => false,
       actionRow: () => node(),
+      buttonRow: (title: string, activate: () => void) =>
+        Object.assign(node(), {
+          type: "button",
+          textContent: title,
+          click: activate,
+        }),
       switchRow: () => node(),
       selectRow: () => node(),
       entryRow: (title: string) => {

@@ -77,10 +77,10 @@ const order = () =>
     .locator("dialog.threads-dialog .thread-entry")
     .evaluateAll((rows) => rows.map((row) => row.dataset.thread));
 const openList = async () => {
-  await page
-    .locator(".room-header")
-    .getByRole("button", { name: "Threads", exact: true })
-    .click();
+  if (await page.locator(".thread-pane").isVisible())
+    await page.locator(".thread-pane .thread-back").click();
+  await page.locator(".room-heading").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Threads", exact: true }).click();
   await page.locator("dialog.threads-dialog").waitFor();
 };
 try {
@@ -121,19 +121,42 @@ try {
     .click();
   const pane = page.locator(".thread-pane");
   await pane.locator(".rich-composer").waitFor();
+  assert.equal(
+    await page.locator(".room-content").isVisible(),
+    false,
+    "GTK thread replaces the room view",
+  );
+  assert.equal(await pane.locator(".composer-pill").count(), 1);
+  assert.equal(await pane.locator(".format-bar button").count(), 10);
+  await pane.locator(".rich-composer").fill("Thread draft");
+  await pane.locator(".rich-composer").press("Control+a");
+  await pane
+    .getByRole("button", { name: "Bold (Ctrl+B)", exact: true })
+    .click();
+  assert.equal(
+    await pane.locator(".rich-composer").evaluate((node) => node.value),
+    "*Thread draft*",
+  );
   const shown = pane.getByRole("checkbox", { name: "Also send to the room" });
   await shown.check();
   await pane.locator(".rich-composer").fill("My reply, also in the room");
   await pane.locator(".rich-composer").press("Enter");
   await page
-    .locator(".room-content .timeline")
+    .locator(".thread-pane .timeline")
     .getByText("My reply, also in the room")
     .waitFor({ timeout: 15000 });
+  await page.waitForFunction(
+    () => !document.querySelector(".thread-pane .also-in-room input")?.checked,
+  );
   assert.equal(await shown.isChecked(), false, "the box is for one reply");
   await page
     .locator(".room-content .timeline")
-    .getByRole("button", { name: "Replied in a thread", exact: true })
-    .waitFor();
+    .getByRole("button", {
+      name: "Replied in a thread",
+      exact: true,
+      includeHidden: true,
+    })
+    .waitFor({ state: "attached" });
   const history = await call(
     "/api/v1/rooms/" + room.id + "/messages?also_in_room=true",
     me.token,
@@ -199,6 +222,9 @@ try {
   assert.deepEqual(await following(), [], "unfollowed on the server");
   await page.screenshot({ path: "../../.cache/web-shots/threads.png" });
   await page.keyboard.press("Escape");
+  await page
+    .locator('.room-content [data-id="' + first.id + '"] .thread-chip')
+    .click();
   await page.waitForFunction(
     () =>
       document

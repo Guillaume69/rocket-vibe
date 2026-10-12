@@ -14,7 +14,12 @@ import { operation, segment } from "./api";
 import { button, el, toast } from "./dom";
 import { t } from "./i18n";
 import { nt } from "./native-i18n";
-import { actionRow, preferencesGroup, type SidebarHost } from "./sidebar";
+import {
+  actionRow,
+  buttonRow,
+  preferencesGroup,
+  type SidebarHost,
+} from "./sidebar";
 import {
   accountFence,
   entryRow,
@@ -51,12 +56,12 @@ export async function workflowsPage(
     app.api.request<BotList>("/api/v1/bots"),
     app.api.request<AccountPermissions>("/api/v1/me/permissions"),
   ]);
-  if (!valid() || !page.isConnected) return;
+  if (!valid() || !host.node.open) return;
   page.classList.add("native-workflows");
   const [group, rows] = preferencesGroup(
     nt(all ? "settings.cat.workflows" : "workflows.title"),
+    nt("workflows.intro"),
   );
-  group.append(el("p", "dim", nt("workflows.intro")));
   group.querySelector("h3")?.append(
     iconButton("refresh", nt("security.refresh"), () => {
       page.replaceChildren();
@@ -86,7 +91,7 @@ export async function workflowsPage(
   if (!all) {
     if (!permissions.create_bot) rows.append(actionRow(nt("workflows.closed")));
     else if (!active.length) rows.append(actionRow(nt("workflows.no_bot")));
-    else rows.append(actionRow(nt("workflows.create"), "", () => open()));
+    else rows.append(buttonRow(nt("workflows.create"), () => open()));
   }
   page.append(group);
   function open(workflow?: Workflow) {
@@ -248,7 +253,7 @@ async function editor(
       stepKinds.map((k) => [k, nt("workflows.step." + k)]),
       (v) => (kind = v as Step["kind"]),
     ),
-    actionRow(nt("workflows.add_step"), "", () => {
+    buttonRow(nt("workflows.add_step"), () => {
       if (draft.steps.length >= 20) return;
       draft.steps.push(newStep(kind, draft.trigger, draft.steps));
       drawSteps();
@@ -259,7 +264,7 @@ async function editor(
   const note = el("p", "dim");
   page.append(actions, note);
   actionRows.append(
-    actionRow(t("save"), "", async () => {
+    buttonRow(t("save"), async () => {
       if (!valid()) return;
       const current = normalized(draft);
       if (!current.name || !current.steps.length)
@@ -274,6 +279,7 @@ async function editor(
         },
       );
       if (!valid()) return;
+      host.invalidate("workflows");
       if (!workflow) {
         host.pop();
         host.push(value.name, (p) => editor(app, host, p, bots, value));
@@ -287,7 +293,7 @@ async function editor(
     }),
   );
   const test = workflow
-    ? actionRow(nt("workflows.test"), "", async () => {
+    ? buttonRow(nt("workflows.test"), async () => {
         if (
           !valid() ||
           JSON.stringify(normalized(draft)) !==
@@ -661,7 +667,7 @@ async function editor(
             }
             if ((step.headers?.length ?? 0) < 10)
               entries.append(
-                actionRow(nt("workflows.header_add"), "", () => {
+                buttonRow(nt("workflows.header_add"), () => {
                   (step.headers ??= []).push({ name: "", value: "" });
                   draw();
                 }),
@@ -716,7 +722,7 @@ async function editor(
           for (const f of step.fields) rows.append(formField(step, f));
           if (step.fields.length < 10)
             rows.append(
-              actionRow(nt("workflows.field_add"), "", () => {
+              buttonRow(nt("workflows.field_add"), () => {
                 step.fields.push({
                   id: identifier(
                     "answer",
@@ -879,7 +885,7 @@ async function editor(
         ),
       );
     details.append(
-      actionRow(nt("workflows.field_remove"), "", () => {
+      buttonRow(nt("workflows.field_remove"), () => {
         step.fields = step.fields.filter((field) => field !== f);
         drawSteps();
       }),
@@ -912,7 +918,7 @@ async function editor(
   function danger() {
     if (!workflow) return;
     const [group, rows] = preferencesGroup();
-    const off = actionRow(nt("workflows.disable"), "", async () => {
+    const off = buttonRow(nt("workflows.disable"), async () => {
       if (!valid()) return;
       const value = await app.api.request<Workflow>(path + "/disable", "POST", {
         operation_id: operation(),
@@ -930,14 +936,14 @@ async function editor(
       await runs();
     });
     rows.append(off);
-    const remove = actionRow(nt("workflows.delete"), "", () =>
+    const remove = buttonRow(nt("workflows.delete"), () =>
       confirmAction(
         nt("workflows.delete_confirm", { name: workflow!.name }),
         nt("workflows.delete_body"),
         async () => {
           if (!valid()) return;
           await app.api.request(path, "DELETE");
-          if (valid()) host.select("workflows");
+          if (valid()) host.select("workflows", true);
         },
       ),
     );

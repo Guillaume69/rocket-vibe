@@ -91,6 +91,25 @@ try {
   await page.screenshot({
     path: "../../.cache/web-shots/web-settings-reference.png",
   });
+  const draft = settings.getByLabel("Status message", { exact: true });
+  const previousStatusText = await draft.inputValue();
+  await draft.fill("Unsaved activity draft survives category navigation");
+  await settings.locator("[data-category=notifications]").click();
+  await settings
+    .getByRole("switch", { name: "Quiet hours", exact: true })
+    .waitFor();
+  await page.screenshot({
+    path: "../../.cache/web-shots/web-notifications-reference.png",
+  });
+  await settings.locator("[data-category=account]").click();
+  assert.equal(
+    await draft.inputValue(),
+    "Unsaved activity draft survives category navigation",
+  );
+  await draft.fill(previousStatusText);
+  console.log(
+    "PASS GTK lazy settings categories keep unsaved entries across navigation",
+  );
   await settings.getByRole("button", { name: "Voice", exact: true }).click();
   const noise = settings.getByRole("switch", {
     name: "Noise suppression",
@@ -123,6 +142,28 @@ try {
       .evaluateAll((options) => options.map((option) => option.value)),
     ["auto", "fr", "en"],
   );
+  await settings.locator("[data-category=encryption]").click();
+  const associationCode = settings.getByLabel("Request or approval code", {
+    exact: true,
+  });
+  await associationCode.waitFor();
+  await associationCode.fill("Unsaved association code");
+  await settings.locator("[data-category=language]").click();
+  await settings.locator("[data-category=encryption]").click();
+  assert.equal(await associationCode.inputValue(), "Unsaved association code");
+  await settings.getByRole("button", { name: "Refresh", exact: true }).click();
+  await page.waitForFunction(() =>
+    [...document.querySelectorAll(".settings-dialog button")].some(
+      (button) => button.textContent === "Refresh" && !button.disabled,
+    ),
+  );
+  assert.equal(await associationCode.inputValue(), "Unsaved association code");
+  await page.screenshot({
+    path: "../../.cache/web-shots/web-encryption-reference.png",
+  });
+  console.log(
+    "PASS cached Encryption keeps its draft and working protected session across categories",
+  );
   await settings.getByRole("button", { name: "App", exact: true }).click();
   assert.equal(
     await settings.getByText("Text size", { exact: true }).count(),
@@ -145,8 +186,21 @@ try {
   await settings.getByRole("button", { name: /My profile/ }).click();
   assert.equal(await settings.getByLabel("Profile photo").isVisible(), false);
   await settings
-    .getByRole("button", { name: "Change photo", exact: true })
+    .getByRole("button", { name: "Change…", exact: true })
     .waitFor();
+  assert.equal(
+    await settings
+      .getByLabel("Email", { exact: true })
+      .getAttribute("readonly"),
+    "",
+  );
+  assert.equal(
+    await settings
+      .getByRole("button", { name: "Save", exact: true })
+      .locator(".symbolic-icon")
+      .count(),
+    0,
+  );
   await page.screenshot({
     path: "../../.cache/web-shots/web-profile-reference.png",
   });
@@ -262,6 +316,12 @@ try {
     await admin.locator(".preferences-content h2").textContent(),
     "Moderation",
   );
+  await admin.locator('.admin-reports[data-report-kind="messages"]').waitFor();
+  await admin.locator('.admin-reports[data-report-kind="users"]').waitFor();
+  assert.equal(await admin.locator(".tabs").count(), 0);
+  await page.screenshot({
+    path: "../../.cache/web-shots/web-moderation-reference.png",
+  });
   console.log(
     "PASS the GTK dashboard's actual deployment, four presences, kind counts, refresh and moderation navigation",
   );

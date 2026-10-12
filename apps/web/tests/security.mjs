@@ -69,26 +69,48 @@ try {
   await page.locator(".shell").waitFor();
   await openSecurity();
   await page
-    .getByRole("button", { name: "Set up authenticator", exact: true })
+    .getByRole("button", { name: "Set up an authenticator app", exact: true })
     .click();
   await page.locator(".totp-secret").waitFor();
   await page
-    .getByRole("img", { name: "QR code to scan with your authenticator" })
+    .getByRole("img", { name: "QR code to scan with your authenticator app" })
     .waitFor();
+  assert.equal(
+    await page.locator("dialog").count(),
+    1,
+    "GTK setup stays within Security",
+  );
+  await page.screenshot({
+    path: "../../.cache/web-shots/web-security-setup-reference.png",
+    mask: [page.locator(".totp-secret"), page.locator(".totp-qr")],
+  });
   const secret = await page.locator(".totp-secret").textContent();
   await page
-    .getByLabel("Verification code", { exact: true })
+    .getByLabel("Authenticator app code", { exact: true })
     .fill(totp(secret));
-  await page.getByRole("button", { name: "Verify", exact: true }).click();
+  await page
+    .getByRole("button", {
+      name: "Enable two-factor authentication",
+      exact: true,
+    })
+    .click();
   await page.locator(".backup-codes").waitFor();
+  assert.equal(
+    await page.locator("dialog").count(),
+    1,
+    "GTK backup-code acknowledgement stays within Security",
+  );
+  await page.screenshot({
+    path: "../../.cache/web-shots/web-security-codes-reference.png",
+    mask: [page.locator(".backup-codes")],
+  });
   assert.equal(
     (await page.locator(".backup-codes").textContent()).trim().split("\n")
       .length,
     10,
   );
   await page
-    .getByRole("button", { name: "Close", exact: true })
-    .filter({ hasText: /^Close$/ })
+    .getByRole("button", { name: "I have saved my codes", exact: true })
     .click();
   console.log("PASS TOTP enrollment and recovery codes");
   await page.locator(".sidebar-dialog .preferences-close").click();
@@ -103,15 +125,16 @@ try {
   await page.getByLabel("Username or email").fill(username);
   await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await page.getByLabel("Verification code", { exact: true }).fill("000000");
+  const factor = page.locator(".factor-step");
+  await factor.locator('input[autocomplete="one-time-code"]').fill("000000");
   await page.getByRole("button", { name: "Verify", exact: true }).click();
-  await page.locator("dialog .login-error:not(:empty)").waitFor();
+  await factor.locator(".login-error:not(:empty)").waitFor();
   assert.equal(await page.locator(".shell").count(), 0);
   await new Promise((resolve) =>
     setTimeout(resolve, 30100 - (Date.now() % 30000)),
   );
-  await page
-    .getByLabel("Verification code", { exact: true })
+  await factor
+    .locator('input[autocomplete="one-time-code"]')
     .fill(totp(secret));
   await page.getByRole("button", { name: "Verify", exact: true }).click();
   await page.locator(".shell").waitFor();
@@ -120,39 +143,69 @@ try {
   );
   await openSecurity();
   await page
-    .getByRole("button", { name: "Disable authenticator", exact: true })
+    .getByRole("button", { name: "Disable authenticator app", exact: true })
     .click();
-  await page.getByRole("button", { name: "Verify", exact: true }).click();
   await page
-    .getByRole("button", { name: "Set up authenticator", exact: true })
+    .locator(".alert-dialog")
+    .getByRole("button", { name: "Disable authenticator app", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Set up an authenticator app", exact: true })
     .waitFor();
   console.log("PASS TOTP removal with a recent complete proof");
   const start = (await mailbox()).length;
   await page
-    .getByLabel("Email", { exact: true })
+    .getByLabel("New email address", { exact: true })
     .fill(username + "@example.test");
   await page
     .locator(".preferences-page")
-    .getByRole("button", { name: "Save", exact: true })
+    .getByRole("button", { name: "Send a verification code", exact: true })
     .click();
-  await page.getByLabel("Verification code", { exact: true }).waitFor();
+  await page.getByLabel("Email code (8 digits)", { exact: true }).waitFor();
+  assert.equal(
+    await page.locator("dialog").count(),
+    1,
+    "GTK email verification stays within Security",
+  );
+  await page.screenshot({
+    path: "../../.cache/web-shots/web-security-email-reference.png",
+  });
+  await page.locator(".sidebar-dialog .preferences-close").click();
+  await openSecurity();
+  await page.getByLabel("Email code (8 digits)", { exact: true }).waitFor();
+  assert.equal(
+    await page
+      .getByRole("button", { name: "Continue email verification", exact: true })
+      .count(),
+    0,
+    "GTK resumes the persisted email flow directly in Security",
+  );
   const code = await latestCode(start);
-  await page.getByLabel("Verification code", { exact: true }).fill(code);
-  await page.getByRole("button", { name: "Verify", exact: true }).click();
+  await page.getByLabel("Email code (8 digits)", { exact: true }).fill(code);
   await page
-    .getByRole("button", { name: "Remove email address", exact: true })
+    .getByRole("button", { name: "Verify this address", exact: true })
+    .click();
+  await page
+    .getByText("The address has been verified.", { exact: true })
+    .waitFor();
+  await page.getByRole("button", { name: "Done", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Remove this email address", exact: true })
     .waitFor();
   console.log("PASS verified email delivered through real TLS SMTP");
   await page
-    .getByRole("button", { name: "Enable email authentication", exact: true })
+    .getByRole("button", { name: "Enable email codes", exact: true })
+    .click();
+  await page
+    .locator(".alert-dialog")
+    .getByRole("button", { name: "Enable email codes", exact: true })
     .click();
   await page.locator(".backup-codes").waitFor();
   await page
-    .getByRole("button", { name: "Close", exact: true })
-    .filter({ hasText: /^Close$/ })
+    .getByRole("button", { name: "I have saved my codes", exact: true })
     .click();
   await page
-    .getByRole("button", { name: "Disable email authentication", exact: true })
+    .getByRole("button", { name: "Disable email codes", exact: true })
     .waitFor();
   await page.locator(".sidebar-dialog .preferences-close").click();
   // The account block opens a menu: settings, administration, sign out.
@@ -167,31 +220,41 @@ try {
   await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   const loginStart = (await mailbox()).length;
-  await page.getByRole("button", { name: "Email", exact: true }).click();
-  await page
-    .getByLabel("Verification code", { exact: true })
+  await factor.getByLabel("Confirmation method").selectOption("email");
+  await factor.getByRole("button", { name: "Send code", exact: true }).click();
+  await factor
+    .locator('input[autocomplete="one-time-code"]')
     .fill(await latestCode(loginStart));
   await page.getByRole("button", { name: "Verify", exact: true }).click();
   await page.locator(".shell").waitFor();
   console.log("PASS email second factor authenticates through TLS delivery");
   await openSecurity();
   await page
-    .getByRole("button", { name: "Disable email authentication", exact: true })
+    .getByRole("button", { name: "Disable email codes", exact: true })
     .click();
   await page
-    .getByRole("button", { name: "Enable email authentication", exact: true })
+    .locator(".alert-dialog")
+    .getByRole("button", { name: "Disable email codes", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Enable email codes", exact: true })
     .waitFor();
   await page
-    .getByRole("button", { name: "Remove email address", exact: true })
+    .getByRole("button", { name: "Remove this email address", exact: true })
     .click();
-  await page.getByRole("button", { name: "Delete", exact: true }).click();
   await page
-    .getByRole("button", { name: "Remove email address", exact: true })
+    .locator(".alert-dialog")
+    .getByRole("button", { name: "Remove this email address", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Done", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Remove this email address", exact: true })
     .waitFor({ state: "detached" });
   console.log("PASS email factor and verified contact removal");
   assert.deepEqual(errors, []);
 } catch (error) {
   console.log("Security UI:", await page.locator(".toast").allTextContents());
+  console.log("Security browser errors:", errors);
   await page.screenshot({
     path: "../../.cache/web-shots/security-failure.png",
   });

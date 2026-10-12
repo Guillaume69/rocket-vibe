@@ -1,0 +1,107 @@
+/* Adwaita preference content: the same row hierarchy as rv-gtk settings. */
+.preferences-group-description {
+  margin: -10px 0 12px;
+  color: var(--dimmed-color, #9690ad);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.preferences-box > .button-row {
+  display: block;
+  border-radius: 0;
+  min-height: 54px;
+  text-align: center;
+  font-weight: 700;
+}
+.preferences-box > .button-row.suggested-action {
+  color: var(--accent-color, #b5a4ff);
+}
+.profile-photo-row > button,
+.settings-dialog .own-profile-name ~ button {
+  flex: none;
+  width: auto;
+  padding: 8px;
+}
+.profile-photo-row > .tile {
+  margin-block: 6px;
+}
+.preferences-box > details + details,
+.preferences-box > details + .action-row,
+.preferences-box > .action-row + details {
+  border-top: 1px solid #ffffff08;
+}
+.preferences-expander > summary,
+.device-expander > summary {
+  cursor: pointer;
+  list-style: none;
+}
+.preferences-expander > summary::-webkit-details-marker,
+.device-expander > summary::-webkit-details-marker {
+  display: none;
+}
+.preferences-expander > summary::after,
+.device-expander > summary::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg);
+  margin-inline: 5px;
+}
+.preferences-expander[open] > summary::after,
+.device-expander[open] > summary::after {
+  transform: rotate(225deg);
+}
+.preferences-expander > .field,
+.device-expander > .field,
+.device-expander > .action-row {
+  border-top: 1px solid #ffffff08;
+}
+.preferences-expander .entry-action-row .pill-entry {
+  width: 100%;
+}
+.preferences-box .field:focus-within {
+  box-shadow: inset 0 0 0 2px var(--accent-bg-color, #a695ff);
+}
+.preferences-box input[readonly] {
+  color: var(--dimmed-color, #9690ad);
+}
+.preferences-box > .security-codes,
+.preferences-box > .security-secret,
+.preferences-box > .crypto-code {
+  display: block;
+  padding: 14px;
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.preferences-box > .crypto-code:empty {
+  display: none;
+}
+.preferences-box .notification-backend {
+  overflow-wrap: anywhere;
+}
+.admin-person-avatar {
+  position: relative;
+  overflow: visible;
+}
+.admin-person-avatar > .presence-badge {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  border: 2px solid var(--card-bg-color, #171529);
+}
+.crypto-peer-dialog {
+  width: min(560px, calc(100vw - 32px));
+  height: min(640px, calc(100dvh - 40px));
+}
+.crypto-group-dialog {
+  width: min(640px, calc(100vw - 32px));
+  max-height: calc(100dvh - 40px);
+}
+.crypto-peer-dialog .dialog-body,
+.crypto-group-dialog .dialog-body {
+  padding: 24px;
+}

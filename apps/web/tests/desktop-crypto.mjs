@@ -177,6 +177,10 @@ try {
   const ready = JSON.parse(await marker("ready.json"));
   await pin(page, names[1], ready.fingerprint);
   await groupDialog(page, room.id);
+  for (const check of await page
+    .locator(".crypto-group-select input[type=checkbox]")
+    .all())
+    await check.check();
   await page
     .getByRole("button", { name: "Review device changes", exact: true })
     .click();

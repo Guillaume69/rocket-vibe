@@ -1,0 +1,108 @@
+/* Native voice page's status, Join state and AlertDialog responses. */
+.voice-status-row {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+.voice-status-row .voice-status {
+  margin-top: 0;
+}
+.voice-status-row > .symbolic-icon {
+  width: 16px;
+  height: 16px;
+}
+.voice-status-row > .symbolic-icon[hidden] {
+  display: none;
+}
+.voice-reaction-strip {
+  text-align: center;
+  flex: none;
+}
+.voice-menu.voice-person-menu {
+  width: 272px;
+}
+.voice-bar {
+  gap: 8px;
+}
+.voice-bar-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+.voice-bar-controls > button {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  min-height: 34px;
+  padding: 0;
+  border-radius: 999px;
+}
+.voice-bar-controls > .voice-menu-button {
+  width: 34px;
+  min-width: 34px;
+  border-radius: 10px;
+  background: #24203a;
+}
+.voice-controls > .voice-menu-button {
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: #24203a;
+}
+.voice-empty {
+  text-align: center;
+  margin: 0;
+}
+.voice-page .voice-join {
+  align-self: center;
+  flex: none;
+  width: auto;
+}
+.voice-page
+  :is(
+    .voice-status-row,
+    .voice-empty,
+    .voice-stage,
+    .voice-controls,
+    .voice-join
+  )[hidden] {
+  display: none !important;
+}
+.voice-ring-dialog {
+  width: min(400px, calc(100vw - 40px));
+  padding: 24px;
+  border-radius: 24px;
+  text-align: center;
+}
+.voice-ring-heading {
+  margin: 0 0 12px;
+  font-size: 20px;
+  font-weight: 800;
+}
+.voice-ring-body {
+  margin: 0;
+  font-size: 14px;
+}
+.voice-ring-responses {
+  display: flex;
+  gap: 8px;
+  margin-top: 24px;
+}
+.voice-ring-responses > button {
+  flex: 1;
+  min-height: 40px;
+  font-weight: 700;
+  border-radius: 12px;
+}
+.voice-ring-responses .destructive-action {
+  color: #ff7a8a;
+}
+.voice-ring-responses .suggested-action {
+  background: #ff5fa2;
+  color: #0b0913;
+}

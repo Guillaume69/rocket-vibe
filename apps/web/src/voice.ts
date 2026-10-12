@@ -3,7 +3,7 @@ import { clearView } from "./ui/portals";
 import type { App } from "./app";
 import type { VoiceGrant, VoiceRing, LiveState } from "./protocol";
 import { Api, segment } from "./api";
-import { el, button, dialog, tile, toast, initials } from "./dom";
+import { el, button, createDialog, tile, toast, initials } from "./dom";
 import { icon, iconButton } from "./icons";
 import { nt } from "./native-i18n";
 import { tileLayout } from "./voice-grid";
@@ -21,13 +21,15 @@ import { read, write } from "./store";
 import { preferencesGroup, actionRow } from "./sidebar";
 import { sound } from "./sounds";
 import { quietNow } from "./quiet";
-import { t, language } from "./i18n";
+import { t } from "./i18n";
 import { encryptedVoice, type EncryptedVoice } from "./crypto/voice";
 export class Voice {
   private readonly lifetime = new AbortController();
   private readonly resize = new ResizeObserver(() => this.layout());
   visible = false;
   current?: string;
+  shown?: string;
+  private previewKey = "";
   membership?: string | null;
   room?: import("livekit-client").Room;
   audioContext?: AudioContext;
@@ -96,6 +98,16 @@ export class Voice {
   controls = el("div", "voice-controls");
   heading = el("h2", "voice-title");
   status = el("div", "voice-status");
+  connectionStatus = "voice_session.connecting";
+  statusRow = el("div", "voice-status-row");
+  statusLock = icon("lock");
+  empty = el("div", "empty-hint voice-empty", nt("voice_session.empty"));
+  reactionStrip = el("div", "voice-reaction-strip");
+  joinButton = button(
+    nt("voice_session.join"),
+    () => this.join(this.shown),
+    "cta voice-join",
+  );
   header = el("header", "headerbar voice-header");
   gain = new MicrophoneGain(
     volumeValue(Number(localStorage.getItem("rv-voice-input-volume") ?? 1)),
@@ -125,7 +137,19 @@ export class Voice {
       title,
       button(nt("voice_session.open_chat"), () => this.hide()),
     );
-    this.page.append(this.header, this.status, this.stage, this.controls);
+    this.statusLock.setAttribute("hidden", "");
+    this.statusRow.append(this.statusLock, this.status);
+    this.empty.hidden = true;
+    this.joinButton.hidden = true;
+    this.page.append(
+      this.header,
+      this.statusRow,
+      this.empty,
+      this.stage,
+      this.joinButton,
+      this.reactionStrip,
+      this.controls,
+    );
     this.resize.observe(this.stage);
     this.screenStage.append(this.screenLabel, this.fullscreen);
     this.stage.addEventListener("dblclick", (event) => {
@@ -199,8 +223,7 @@ export class Voice {
         throw new Error(nt("voice_session.join_failed"));
       this.current = id;
       this.membership = member;
-      this.status.textContent = nt("voice_session.connecting");
-      this.status.classList.remove("connected");
+      this.setStatus("voice_session.connecting");
       clearView(this.controls);
       this.show();
       if (room?.encrypted)
@@ -235,6 +258,7 @@ export class Voice {
         this.app.sidebar.lastElementChild,
       );
       if (grant.ring) {
+        this.setStatus("voice_session.ringing");
         this.loop = sound("ringback", true);
         while (
           grant.ring.state === "ringing" &&
@@ -416,14 +440,12 @@ export class Voice {
     });
     room.on(RoomEvent.Reconnecting, () => {
       if (alive()) {
-        this.status.textContent = nt("voice_session.reconnecting");
-        this.status.classList.remove("connected");
+        this.setStatus("voice_session.reconnecting");
       }
     });
     room.on(RoomEvent.Reconnected, () => {
       if (alive()) {
-        this.status.textContent = nt("voice_session.connected");
-        this.status.classList.add("connected");
+        this.setStatus("voice_session.connected");
       }
     });
     room.on(RoomEvent.TrackMuted, () => {
@@ -679,8 +701,7 @@ export class Voice {
       }
       this.light(active);
     }, 50);
-    this.status.textContent = nt("voice_session.connected");
-    this.status.classList.add("connected");
+    this.setStatus("voice_session.connected");
     const bindings: VoiceBindings = {
       canPublish: grant.can_publish,
       mic: async () => {
@@ -898,7 +919,7 @@ export class Voice {
     const person = local
       ? this.app.account?.session.user
       : this.app.live?.rooms
-          .find((item) => item.room_id === this.current)
+          .find((item) => item.room_id === (this.current || this.shown))
           ?.voice?.find((item) => item.user.id === identity)?.user;
     const avatar = el("div", "voice-avatar large"),
       portrait = tile(
@@ -1432,6 +1453,7 @@ export class Voice {
       this.listeningAccount = openingAccount;
     }
     const menu = this.popover(x, y);
+    menu.classList.add("voice-person-menu");
     menu.setAttribute("aria-label", name);
     menu.append(el("div", "voice-menu-title", name));
     const person = this.listening.get(identity) || { volume: 1, muted: false };
@@ -1475,9 +1497,7 @@ export class Voice {
       ),
       lifecycle = this.lifecycle;
     menu.setAttribute("aria-label", nt("voice_menu.open"));
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    if (!menu.isConnected || this.room !== room || lifecycle !== this.lifecycle)
-      return;
+    const devices = navigator.mediaDevices.enumerateDevices();
     for (const kind of ["audioinput", "audiooutput"] as const) {
       const row = el("label", "voice-device"),
         key =
@@ -1489,14 +1509,29 @@ export class Voice {
       const defaultOption = el("option", "", nt("voice_settings.default"));
       defaultOption.value = "default";
       select.append(defaultOption);
-      for (const device of devices.filter(
-        (item) => item.kind === kind && item.deviceId !== "default",
-      )) {
-        const option = el("option", "", device.label || nt(key));
-        option.value = device.deviceId;
-        select.append(option);
-      }
-      select.value = localStorage.getItem("rv-" + kind) || "default";
+      void devices
+        .then((available) => {
+          if (
+            !menu.isConnected ||
+            this.room !== room ||
+            lifecycle !== this.lifecycle
+          )
+            return;
+          for (const device of available.filter(
+            (item) => item.kind === kind && item.deviceId !== "default",
+          )) {
+            const option = el("option", "", device.label || nt(key));
+            option.value = device.deviceId;
+            select.append(option);
+          }
+          const saved = localStorage.getItem("rv-" + kind) || "default";
+          select.value = [...select.options].some(
+            (option) => option.value === saved,
+          )
+            ? saved
+            : "default";
+        })
+        .catch(toast);
       select.addEventListener("change", () => {
         void room
           .switchActiveDevice(kind, select.value)
@@ -1662,16 +1697,60 @@ export class Voice {
     rows.append(shareRow);
     page.append(group);
   }
-  show(): void {
-    if (!this.current) return;
-    if (this.app.room !== this.current) {
-      const id = this.current,
-        lifecycle = this.lifecycle;
+  setStatus(key: string): void {
+    this.connectionStatus = key;
+    const encrypted = !!this.app.model.rooms.get(this.current || "")?.encrypted;
+    this.status.textContent = encrypted
+      ? nt("voice_session.secure", { status: nt(key) })
+      : nt(key);
+    this.status.classList.toggle(
+      "connected",
+      key === "voice_session.connected",
+    );
+    this.statusLock.toggleAttribute("hidden", !encrypted);
+    this.statusRow.hidden = false;
+    this.syncControls();
+  }
+  /** GTK keeps the room's voice page after Leave, with its roster and Join. */
+  private preview(): void {
+    if (!this.shown || this.current) return;
+    const people =
+      this.app.live?.rooms.find((room) => room.room_id === this.shown)?.voice ||
+      [];
+    const key = JSON.stringify(people);
+    if (key !== this.previewKey) {
+      this.previewKey = key;
+      for (const card of this.cards.values()) card.remove();
+      this.cards.clear();
+      for (const person of people) {
+        const card = this.card(
+          person.user.id,
+          person.user.display_name || person.user.username,
+        );
+        const media = card.querySelector(".voice-media")!;
+        if (person.muted) media.append(icon("mic-muted"));
+        if (person.deafened) media.append(icon("volume-muted"));
+        if (person.screen) media.append(icon("screen"));
+        if (person.camera) media.append(icon("camera"));
+      }
+    }
+    this.statusRow.hidden = true;
+    this.controls.hidden = true;
+    this.joinButton.hidden = false;
+    this.empty.hidden = people.length > 0;
+    this.stage.hidden = people.length === 0;
+    this.layout();
+  }
+  show(id = this.current || this.shown): void {
+    if (!id) return;
+    this.shown = id;
+    if (this.app.room !== id) {
+      const lifecycle = this.lifecycle;
       void this.app
         .openRoom(id)
         .then(() => {
           if (
-            this.current === id &&
+            this.shown === id &&
             this.lifecycle === lifecycle &&
             this.app.room === id
           )
@@ -1680,13 +1759,20 @@ export class Voice {
         .catch(toast);
       return;
     }
-    this.heading.textContent =
-      this.app.model.rooms.get(this.current)?.name || t("voice");
+    this.heading.textContent = this.app.model.rooms.get(id)?.name || t("voice");
     this.app.roomPane.append(this.page);
     this.visible = true;
     this.app.roomPane.classList.add("voice-open");
     this.app.view.changed();
     this.app.threadPane.hidden = true;
+    if (this.current) {
+      this.previewKey = "";
+      this.statusRow.hidden = false;
+      this.controls.hidden = false;
+      this.joinButton.hidden = true;
+      this.empty.hidden = true;
+      this.stage.hidden = false;
+    } else this.preview();
   }
   hide(): void {
     this.visible = false;
@@ -1694,8 +1780,14 @@ export class Voice {
     this.app.view.changed();
     this.app.scheduleRead();
   }
-  async leave(notify = true): Promise<void> {
+  async leave(notify = true, keepPage = false): Promise<void> {
+    const previewRoom =
+      keepPage && this.visible && this.app.room === this.current
+        ? this.current
+        : undefined;
+    const previewAccount = this.app.account?.key;
     this.lifecycle++;
+    const previewLifecycle = this.lifecycle;
     this.mutedMonitor.stop();
     this.monitorAvailable = false;
     this.mutedActivity.quiet();
@@ -1732,6 +1824,8 @@ export class Voice {
     this.speaking.clear();
     this.hide();
     this.page.remove();
+    this.shown = undefined;
+    this.previewKey = "";
     const active = this.current || this.room;
     const room = this.room;
     const audioContext = this.audioContext;
@@ -1772,33 +1866,29 @@ export class Voice {
         } catch {}
     })();
     this.leaving = leaving;
+    if (
+      previewRoom &&
+      this.lifecycle === previewLifecycle &&
+      this.app.account?.key === previewAccount &&
+      this.app.room === previewRoom &&
+      this.app.model.rooms.has(previewRoom)
+    )
+      this.show(previewRoom);
     await leaving;
   }
-  private reactionIds = new Set<string>();
   observe(state: LiveState): void {
-    for (const reaction of state.voice_reactions ?? []) {
-      if (
-        this.reactionIds.has(reaction.id) ||
-        reaction.room_id !== this.current
-      )
-        continue;
-      this.reactionIds.add(reaction.id);
-      const tile = this.cards.get(reaction.user_id);
-      if (!tile) continue;
-      const burst = el("span", "voice-reaction-burst", reaction.emoji);
-      burst.setAttribute("aria-label", reaction.emoji);
-      tile.append(burst);
-      setTimeout(() => burst.remove(), 3000);
-    }
-    const observed = new Set((state.voice_reactions ?? []).map((r) => r.id));
-    for (const id of this.reactionIds)
-      if (!observed.has(id)) this.reactionIds.delete(id);
+    this.reactionStrip.textContent = (state.voice_reactions || [])
+      .filter((reaction) => reaction.room_id === (this.shown || this.current))
+      .map((reaction) => reaction.emoji)
+      .join("  ");
     if (
-      this.current &&
-      !this.hasAccess(this.current, this.app.account?.key, this.membership)
+      (this.shown && !this.app.model.rooms.has(this.shown)) ||
+      (this.current &&
+        !this.hasAccess(this.current, this.app.account?.key, this.membership))
     )
       void this.leave(false).catch(toast);
     if (this.current) this.layout();
+    else if (this.visible && this.shown) this.preview();
     for (const [id, node] of this.ringDialogs)
       if (
         !state.rings?.some((ring) => ring.id === id && ring.state === "ringing")
@@ -1813,91 +1903,98 @@ export class Voice {
         this.ringDialogs.has(ring.id)
       )
         continue;
-      const [node, body] = dialog(
-        language === "fr" ? "Appel entrant" : "Incoming call",
+      const node = createDialog();
+      node.classList.add("voice-ring-dialog");
+      node.setAttribute("aria-labelledby", "voice-ring-" + ring.id);
+      const heading = el(
+        "h2",
+        "voice-ring-heading",
+        nt("voice_session.incoming"),
       );
+      heading.id = "voice-ring-" + ring.id;
+      const description = el(
+        "p",
+        "voice-ring-body",
+        nt("voice_session.incoming_from", {
+          name: ring.caller.display_name || ring.caller.username,
+        }),
+      );
+      node.append(heading, description);
       // Do not disturb: the call shows, silently, as the server rings no device.
       const ringtone = quietNow(this.app.preferences, new Date())
         ? undefined
         : sound("ringtone", true);
       node.addEventListener("close", () => ringtone?.pause());
       this.ringDialogs.set(ring.id, node);
-      body.append(
-        tile(ring.caller.username, "profile"),
-        el(
-          "h2",
-          "details-name",
-          ring.caller.display_name || ring.caller.username,
-        ),
-        button(
-          nt("voice_session.accept"),
-          async () => {
-            const member = this.app.model.rooms.get(ring.room_id)?.read_state
-              ?.membership_version;
-            if (!member || !this.app.account) return;
-            const account = this.app.account.key;
-            const leaving = this.leave();
-            const lifecycle = this.lifecycle;
-            await leaving;
-            if (
-              account !== this.app.account?.key ||
-              lifecycle !== this.lifecycle
-            )
-              return;
-            if (!this.hasAccess(ring.room_id, account, member)) return;
-            this.current = ring.room_id;
-            this.membership = member;
-            this.cancelled = false;
-            try {
-              const encrypted = !!this.app.model.rooms.get(ring.room_id)
-                ?.encrypted;
-              if (encrypted)
-                this.encryption = await encryptedVoice(
-                  this.app,
-                  ring.room_id,
-                  () =>
-                    lifecycle === this.lifecycle &&
-                    !this.cancelled &&
-                    this.hasAccess(ring.room_id, account, member),
-                );
-              const grant = await this.app.api.request<VoiceGrant>(
-                "/api/v1/voice/rings/" + segment(ring.id) + "/accept",
-                "POST",
-                {
-                  data_epoch: this.app.account.epoch,
-                  membership_version: member,
-                  e2ee: encrypted,
-                },
+      const accept = button(
+        nt("voice_session.accept"),
+        async () => {
+          const member = this.app.model.rooms.get(ring.room_id)?.read_state
+            ?.membership_version;
+          if (!member || !this.app.account) return;
+          const account = this.app.account.key;
+          const leaving = this.leave();
+          const lifecycle = this.lifecycle;
+          await leaving;
+          if (account !== this.app.account?.key || lifecycle !== this.lifecycle)
+            return;
+          if (!this.hasAccess(ring.room_id, account, member)) return;
+          this.current = ring.room_id;
+          this.membership = member;
+          this.cancelled = false;
+          try {
+            const encrypted = !!this.app.model.rooms.get(ring.room_id)
+              ?.encrypted;
+            if (encrypted)
+              this.encryption = await encryptedVoice(
+                this.app,
+                ring.room_id,
+                () =>
+                  lifecycle === this.lifecycle &&
+                  !this.cancelled &&
+                  this.hasAccess(ring.room_id, account, member),
               );
-              node.close();
-              if (
-                lifecycle !== this.lifecycle ||
-                account !== this.app.account?.key
-              )
-                return;
-              this.cancelled = false;
-              await this.connect(grant, lifecycle, account, member);
-            } catch (error) {
-              if (lifecycle !== this.lifecycle) return;
-              await this.leave();
-              throw error;
-            }
-          },
-          "cta",
-        ),
-        button(
-          nt("voice_session.decline"),
-          async () => {
-            await this.app.api.request(
-              "/api/v1/voice/rings/" + segment(ring.id) + "/decline",
+            const grant = await this.app.api.request<VoiceGrant>(
+              "/api/v1/voice/rings/" + segment(ring.id) + "/accept",
               "POST",
-              null,
+              {
+                data_epoch: this.app.account.epoch,
+                membership_version: member,
+                e2ee: encrypted,
+              },
             );
             node.close();
-          },
-          "destructive",
-        ),
+            if (
+              lifecycle !== this.lifecycle ||
+              account !== this.app.account?.key
+            )
+              return;
+            this.cancelled = false;
+            await this.connect(grant, lifecycle, account, member);
+          } catch (error) {
+            if (lifecycle !== this.lifecycle) return;
+            await this.leave();
+            throw error;
+          }
+        },
+        "suggested-action",
       );
+      const decline = button(
+        nt("voice_session.decline"),
+        async () => {
+          await this.app.api.request(
+            "/api/v1/voice/rings/" + segment(ring.id) + "/decline",
+            "POST",
+            null,
+          );
+          node.close();
+        },
+        "destructive-action",
+      );
+      const responses = el("div", "voice-ring-responses");
+      responses.append(decline, accept);
+      node.append(responses);
+      accept.focus();
     }
   }
 }

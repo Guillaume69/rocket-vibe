@@ -17,11 +17,12 @@ import { safeLink } from "./links";
 import { t, language } from "../i18n";
 import { nt } from "../native-i18n";
 import { systemText } from "../presentation";
+import "../conversation-parity.css";
 import { emojiGlyph } from "../emoji";
 import { humanSize } from "../media-format";
 import { inlineImage } from "../image-attachment";
 import { videoLink, videoLinks } from "../video-links";
-import { stopMedia } from "../dom";
+import { stopMedia, toast } from "../dom";
 import { operation, segment } from "../api";
 import { ActionButton, Avatar, IconButton, Symbol } from "./controls";
 import { SocialMessage } from "../social";
@@ -539,6 +540,12 @@ function InlineEditor({
 }) {
   const [text, setText] = useState(message.text);
   const [id] = useState(operation);
+  const save = async () => {
+    if (!actions.updateMessage || !text.trim()) return;
+    if (text !== message.text)
+      await actions.updateMessage(message, revision, text, id);
+    close();
+  };
   return (
     <div className="edit-field">
       <textarea
@@ -547,17 +554,27 @@ function InlineEditor({
         value={text}
         onChange={(event) => setText(event.target.value)}
         autoFocus
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            close();
+          } else if (
+            event.key === "Enter" &&
+            !event.shiftKey &&
+            !event.nativeEvent.isComposing
+          ) {
+            event.preventDefault();
+            void save().catch(toast);
+          }
+        }}
       />
       <ActionButton className="edit-button" action={close}>
         {t("cancel")}
       </ActionButton>
       <ActionButton
         className="edit-button save"
-        action={async () => {
-          if (!actions.updateMessage) return;
-          await actions.updateMessage(message, revision, text, id);
-          close();
-        }}
+        disabled={!text.trim()}
+        action={save}
       >
         {t("save")}
       </ActionButton>
@@ -570,12 +587,14 @@ export function MessageView({
   mine,
   actions,
   grouped = false,
+  gutterTime = true,
   host,
 }: {
   message: Message;
   mine: string;
   actions: RowActions;
   grouped?: boolean;
+  gutterTime?: boolean;
   host?: HTMLElement;
 }) {
   const app = useApp();
@@ -624,7 +643,7 @@ export function MessageView({
     <>
       <div className="message-gutter">
         {grouped ? (
-          <span className="gutter-time">{time}</span>
+          <span className="gutter-time">{gutterTime ? time : ""}</span>
         ) : (
           <ActionButton
             className="profile-link"
@@ -697,11 +716,6 @@ export function MessageView({
               )}
             </div>
           )
-        )}
-        {message.edited_at && (
-          <span className="message-note">
-            {language === "fr" ? "modifié" : "edited"}
-          </span>
         )}
         {(message.files || []).map((file) => (
           <FileAttachment
@@ -791,13 +805,22 @@ export function MessageView({
             </ActionButton>
           ))}
         </div>
-        {message.thread && Number(message.thread.replies) > 0 && (
-          <ActionButton
-            className="thread-chip"
-            action={() => actions.thread(message)}
-          >
-            {message.thread.replies + " " + t("thread")}
-          </ActionButton>
+        {((message.thread && Number(message.thread.replies) > 0) ||
+          message.edited_at) && (
+          <div className="message-footer">
+            {message.thread && Number(message.thread.replies) > 0 && (
+              <ActionButton
+                className="thread-chip"
+                action={() => actions.thread(message)}
+              >
+                <Symbol name="threads" />
+                {nt("message.replies", { n: Number(message.thread.replies) })}
+              </ActionButton>
+            )}
+            {message.edited_at && (
+              <span className="message-note">{nt("message.edited")}</span>
+            )}
+          </div>
         )}
         {message.reply_to && message.also_in_room && (
           <ActionButton
@@ -813,7 +836,7 @@ export function MessageView({
         aria-label={t("details")}
         action={(node) => actions.menu(message, node)}
       >
-        •••
+        <Symbol name="more" />
       </ActionButton>
       <PrivatePending message={message} actions={actions} />
     </>
@@ -891,9 +914,14 @@ export function Timeline({
     day = date;
     const grouped =
       !!previous &&
+      !message.system &&
       previous.author.id === message.author.id &&
-      stamp.getTime() - new Date(previous.created_at).getTime() < 300000 &&
+      stamp.getTime() - new Date(previous.created_at).getTime() <= 300000 &&
       new Date(previous.created_at).toDateString() === stamp.toDateString();
+    const gutterTime =
+      !previous ||
+      Math.floor(stamp.getTime() / 60000) !==
+        Math.floor(new Date(previous.created_at).getTime() / 60000);
     previous = message.system ? undefined : message;
     return (
       <Fragment key={message.id}>
@@ -906,6 +934,7 @@ export function Timeline({
           mine={mine}
           actions={actions}
           grouped={grouped}
+          gutterTime={gutterTime}
         />
         {seen?.id === message.id && (
           <div className="seen-receipt">{seen.text}</div>

@@ -1,0 +1,239 @@
+/* GTK ToolbarView and NavigationSplitView geometry, including secondary pages. */
+.sidebar-header {
+  background: var(--sidebar-bg-color);
+}
+.sidebar-header .brand-wrap {
+  gap: 8px;
+}
+.account-controls {
+  padding: 0;
+  border-radius: 0;
+}
+.account-controls:hover {
+  background: transparent;
+}
+.account-gear {
+  color: #8f89ab;
+  width: 16px;
+  height: 16px;
+}
+.account-controls:hover .account-gear {
+  color: #34e1d0;
+}
+.room-bottom {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+.room-bottom .room-preview {
+  flex: 1;
+  min-width: 0;
+}
+.room-bottom .badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.section-line .section-header {
+  flex: 1;
+}
+.section-chevron {
+  width: 12px;
+  height: 12px;
+  color: #6e6890;
+}
+.section-count {
+  font-size: 11px;
+  color: #6e6890;
+  margin-left: 4px;
+}
+.section-header:hover .section-title {
+  color: #c9c3e0;
+}
+.room-heading-text {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  min-width: 0;
+}
+.room-subtitle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: #8f89ab;
+}
+.room-subtitle .presence-dot {
+  position: static;
+  width: 8px;
+  height: 8px;
+  border: 0;
+}
+.shell:has(.thread-pane:not([hidden])) > .room-content {
+  display: none;
+}
+.shell > .thread-pane:not([hidden]) {
+  position: relative;
+  inset: auto;
+  flex: 1;
+  width: auto;
+  min-width: 0;
+  border-left: 0;
+}
+.actions-menu.anchored-menu {
+  width: max-content;
+  min-width: 180px;
+  padding: 4px;
+}
+.actions-menu.anchored-menu .menu-action {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 6px 10px;
+}
+.actions-menu.anchored-menu .symbolic-icon,
+.actions-menu.anchored-menu svg {
+  width: 16px;
+  height: 16px;
+}
+.empty-state {
+  flex: 1;
+  min-height: 0;
+}
+.empty-hint {
+  font-size: 14px;
+}
+.empty-state h2,
+.empty-state p {
+  margin: 0;
+}
+.read-only-label {
+  color: #8f89ab;
+  text-align: center;
+  padding: 12px 16px;
+}
+.new-conversation-dialog {
+  width: min(600px, calc(100vw - 32px));
+}
+.new-conversation-dialog .dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 24px;
+}
+dialog:not(.sidebar-dialog):not(.call-ring):not(.user-profile-dialog)
+  > .dialog-header {
+  height: 44px;
+  padding: 8px 14px;
+  background: transparent;
+  border: 0;
+}
+dialog:not(.sidebar-dialog):not(.call-ring):not(.user-profile-dialog)
+  > .dialog-header
+  h2 {
+  font-family: Nunito, sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: center;
+  padding-left: 24px;
+}
+dialog:not(.sidebar-dialog):not(.call-ring):not(.user-profile-dialog)
+  > .dialog-header
+  > button {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 50%;
+  background: #ffffff1a;
+}
+dialog:not(.sidebar-dialog):not(.call-ring):not(.user-profile-dialog)
+  > .dialog-header
+  > button
+  .symbolic-icon {
+  width: 12px;
+  height: 12px;
+}
+.login-form {
+  width: min(348px, calc(100vw - 52px));
+  gap: 14px;
+}
+.login-modes {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.login-modes label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.login-modes input {
+  accent-color: #ff5fa2;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+.login-account-code {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.login-help {
+  font-size: 14px;
+  margin: 0;
+}
+.login-error:empty {
+  display: none;
+}
+.factor-step {
+  gap: 16px;
+}
+.factor-step .back-link {
+  align-self: flex-start;
+  padding: 0;
+}
+.factor-step .chevron {
+  font-size: 26px;
+  color: #a78bfa;
+}
+.factor-step .shield {
+  align-self: center;
+  width: 34px;
+  height: 34px;
+  margin-top: 6px;
+}
+.factor-step .step-title,
+.factor-step .step-intro {
+  text-align: center;
+  margin: 0;
+}
+.factor-step .step-title {
+  font-family: "Baloo 2";
+  font-weight: 700;
+  font-size: 21px;
+}
+.factor-step .step-intro {
+  color: #8f89ab;
+  font-size: 13px;
+}
+.factor-step input:not([type="password"]) {
+  font-family: "Baloo 2";
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: 8px;
+  text-align: center;
+}
+@media (max-width: 640px) {
+  .shell:has(.thread-pane:not([hidden])) > .sidebar {
+    display: none;
+  }
+}

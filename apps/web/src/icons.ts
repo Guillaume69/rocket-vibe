@@ -28,6 +28,7 @@ import volumeIcon from "./icons-native/audio-volume-high-symbolic.svg";
 import headphonesIcon from "./icons-native/audio-headphones-symbolic.svg";
 import screenIcon from "./icons-native/video-display-symbolic.svg";
 import leaveIcon from "./icons-native/call-stop-symbolic.svg";
+import callIcon from "./icons-native/call-start-symbolic.svg";
 import downloadIcon from "./icons-native/folder-download-symbolic.svg";
 import moderationIcon from "./icons-native/dialog-warning-symbolic.svg";
 import roomsIcon from "./icons-native/chat-message-new-symbolic.svg";
@@ -69,6 +70,7 @@ const native: Record<string, string> = {
   headphones: headphonesIcon,
   screen: screenIcon,
   "leave-call": leaveIcon,
+  call: callIcon,
   download: downloadIcon,
   moderation: moderationIcon,
   rooms: roomsIcon,
@@ -105,6 +107,9 @@ const native: Record<string, string> = {
 };
 import { button } from "./dom";
 const paths: Record<string, string> = {
+  link: "m6 10 4-4M5.5 11.5l-1 1a3 3 0 0 1-4-4l3-3a3 3 0 0 1 4 0m1-1 1-1a3 3 0 0 1 4 4l-3 3a3 3 0 0 1-4 0",
+  bullets: "M2 4h.01M2 8h.01M2 12h.01M6 4h8M6 8h8M6 12h8",
+  numbers: "M1 2h1v4M1 6h2M1 9q2-2 2 0l-2 3h2M6 4h8M6 8h8M6 12h8",
   plus: "M8 3v10M3 8h10",
   search: "M10.8 10.8l3.7 3.7M12 7a5 5 0 1 1-10 0 5 5 0 0 1 10 0",
   send: "M8 14.5v-13M2.5 7l5.5-5.5L13.5 7",

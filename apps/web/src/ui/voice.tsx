@@ -23,10 +23,11 @@ function Controls({
   sidebar?: boolean;
 }) {
   const base = sidebar ? "flat" : "voice-control";
+  const muted = voice.muted || !bindings.canPublish;
   return (
     <>
       <IconButton
-        name={voice.muted ? "mic-muted" : "mic"}
+        name={muted ? "mic-muted" : "mic"}
         label="Microphone"
         title={nt(
           !bindings.canPublish
@@ -35,9 +36,9 @@ function Controls({
               ? "voice_session.unmute"
               : "voice_session.mute",
         )}
-        className={base + (voice.muted ? " voice-off" : "")}
+        className={base + (muted ? " voice-off" : "")}
         disabled={!bindings.canPublish}
-        aria-pressed={voice.muted}
+        aria-pressed={muted}
         action={bindings.mic}
       />
       <IconButton
@@ -91,6 +92,7 @@ function Controls({
           <IconButton
             name="smile"
             label={language === "fr" ? "Réagir" : "React"}
+            className={base}
             action={(node) => reactVoice(voice.app, node)}
           />
         )}
@@ -99,7 +101,7 @@ function Controls({
         label={sidebar ? t("close") : nt("voice_session.leave")}
         title={nt("voice_session.leave")}
         className={base + " voice-leave"}
-        action={() => voice.leave()}
+        action={() => voice.leave(true, true)}
       />
       {!sidebar && (
         <ActionButton
@@ -121,14 +123,23 @@ export function paintVoiceControls(
     voice.bar,
     <>
       <ActionButton className="flat voice-bar-info" action={() => voice.show()}>
-        <span className="voice-bar-status connected">
-          {nt("voice_session.connected")}
+        <span
+          className={
+            "voice-bar-status " +
+            (voice.connectionStatus === "voice_session.connected"
+              ? "connected"
+              : "pending")
+          }
+        >
+          {nt(voice.connectionStatus)}
         </span>
         <span className="voice-bar-room">
           {voice.app.model.rooms.get(voice.current || "")?.name || t("voice")}
         </span>
       </ActionButton>
-      <Controls voice={voice} bindings={bindings} sidebar />
+      <div className="voice-bar-controls">
+        <Controls voice={voice} bindings={bindings} sidebar />
+      </div>
     </>,
   );
 }
@@ -136,12 +147,18 @@ export function ringingBar(voice: Voice, name: string): void {
   renderView(
     voice.bar,
     <>
-      <span>{name}</span>
-      <span className="dim">{language === "fr" ? "Appel…" : "Calling…"}</span>
+      <ActionButton className="flat voice-bar-info" action={() => voice.show()}>
+        <span className="voice-bar-status pending">
+          {nt("voice_session.ringing")}
+        </span>
+        <span className="voice-bar-room">{name}</span>
+      </ActionButton>
       <IconButton
-        name="close"
+        name="leave-call"
         label={t("close")}
-        action={() => voice.leave()}
+        title={nt("voice_session.leave")}
+        className="flat voice-leave"
+        action={() => voice.leave(true, true)}
       />
     </>,
   );

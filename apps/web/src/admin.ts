@@ -22,7 +22,6 @@ import { botBadge } from "./bots";
 import { nt } from "./native-i18n";
 import { accountFence } from "./preferences-controls";
 import type { InstanceSettings } from "./protocol";
-import { roomInfo } from "./panel-actions";
 import { icon, iconButton } from "./icons";
 const label = (en: string, fr: string) => (language === "fr" ? fr : en);
 async function latestServerVersion(): Promise<string | undefined> {
@@ -412,12 +411,12 @@ export async function administration(app: App): Promise<void> {
       icon: app.info?.capabilities.instance_icon
         ? iconCard(app, valid)
         : undefined,
-      valid: () => valid() && host.node.open && page.isConnected,
+      valid: () => valid() && host.node.open,
       refresh: async () => {
         const updated = await app.api.request<AdminOverview>(
           "/api/v1/admin/overview",
         );
-        if (valid() && host.node.open && page.isConnected) {
+        if (valid() && host.node.open) {
           overview = updated;
           badge();
         }
@@ -430,8 +429,7 @@ export async function administration(app: App): Promise<void> {
           "PATCH",
           { operation_id: operation(), user_bots: on },
         );
-        if (valid() && host.node.open && page.isConnected)
-          instanceSettings = updated;
+        if (valid() && host.node.open) instanceSettings = updated;
         return updated.user_bots;
       },
       moderation: () => host.select("moderation"),
@@ -469,14 +467,23 @@ export async function administration(app: App): Promise<void> {
     const value = await app.api.request<AdminUserPage>(
       "/api/v1/admin/users?" + params,
     );
-    if (!page.isConnected || requests.get(page) !== version) return;
+    if (!valid() || !host.node.open || requests.get(page) !== version) return;
     const result = page.querySelector<HTMLElement>(".admin-results")!;
     if (!after) result.replaceChildren();
     const [group, rows] = preferencesGroup();
     for (const user of value.items) {
       const row = actionRow(
         user.display_name || user.username,
-        "@" + user.username + " · " + user.status,
+        "@" +
+          user.username +
+          " · " +
+          nt("presence." + user.status) +
+          (user.last_seen_at
+            ? " · " +
+              nt("admin.last_seen", {
+                date: new Date(user.last_seen_at).toLocaleDateString(language),
+              })
+            : ""),
         () =>
           host.push(user.display_name || user.username, (target) =>
             person(target, user),
@@ -489,6 +496,8 @@ export async function administration(app: App): Promise<void> {
       ).toLowerCase();
       const portrait = tile(user.username, "message");
       app.avatar(user, portrait);
+      portrait.classList.add("admin-person-avatar");
+      portrait.append(el("span", "presence presence-badge " + user.status));
       row.prepend(portrait);
       if (user.admin)
         row.insertBefore(
@@ -511,6 +520,8 @@ export async function administration(app: App): Promise<void> {
       if (user.bot) row.insertBefore(botBadge(), row.lastElementChild);
       rows.append(row);
     }
+    if (!value.items.length && !after)
+      rows.append(actionRow(nt("admin.empty")));
     result.append(group);
     if (value.next)
       result.append(
@@ -554,7 +565,7 @@ export async function administration(app: App): Promise<void> {
         "PATCH",
         { operation_id: operation(), revision: user.revision, ...input },
       );
-      host.select("users");
+      host.select("users", true);
     };
     rows.append(
       actionRow(
@@ -583,7 +594,7 @@ export async function administration(app: App): Promise<void> {
           "POST",
           { operation_id: operation(), revision: user.revision },
         );
-        host.select("users");
+        host.select("users", true);
       }),
     );
     remove.classList.add("destructive");
@@ -621,36 +632,24 @@ export async function administration(app: App): Promise<void> {
     const value = await app.api.request<AdminRoomPage>(
       "/api/v1/admin/rooms?" + params,
     );
-    if (!page.isConnected || requests.get(page) !== version) return;
+    if (!valid() || !host.node.open || requests.get(page) !== version) return;
     const result = page.querySelector<HTMLElement>(".admin-results")!;
     if (!after) result.replaceChildren();
     const [group, rows] = preferencesGroup();
     for (const room of value.items) {
       const row = actionRow(
         room.name,
-        room.kind +
-          " · " +
-          room.member_count +
-          " " +
-          label("members", "membres"),
-        () =>
-          host.push(room.name, (target) => {
-            const [details, values] = preferencesGroup();
-            values.append(
-              textValue(t("name"), room.name),
-              textValue(label("Members", "Membres"), room.member_count),
-              textValue("Messages", room.message_count),
-            );
-            target.append(details);
-            if (app.model.rooms.has(room.id))
-              target.append(
-                actionRow(t("roomInfo"), "", async () => {
-                  host.close();
-                  await app.openRoom(room.id);
-                  await roomInfo(app);
+        [
+          nt("admin.members", { n: room.member_count }),
+          nt("admin.message_count", { n: room.message_count }),
+          ...(room.created_at
+            ? [
+                nt("admin.created", {
+                  date: new Date(room.created_at).toLocaleDateString(language),
                 }),
-              );
-          }),
+              ]
+            : []),
+        ].join(" · "),
       );
       row.dataset.adminRoom = room.name.toLowerCase();
       const roomTile = tile(
@@ -666,8 +665,18 @@ export async function administration(app: App): Promise<void> {
         roomTile.append(lock);
       }
       row.prepend(roomTile);
+      if (room.read_only)
+        row.append(
+          el("span", "admin-badge read-only", nt("admin.badge_read_only")),
+        );
+      if (room.encrypted)
+        row.append(
+          el("span", "admin-badge encrypted", nt("admin.badge_encrypted")),
+        );
       rows.append(row);
     }
+    if (!value.items.length && !after)
+      rows.append(actionRow(nt("admin.empty")));
     result.append(group);
     if (value.next)
       result.append(
@@ -683,7 +692,9 @@ export async function administration(app: App): Promise<void> {
     kind: "messages" | "users",
     after = "",
   ): Promise<void> {
-    const list = page.querySelector<HTMLElement>(".admin-reports")!;
+    const list = page.querySelector<HTMLElement>(
+      '.admin-reports[data-report-kind="' + kind + '"]',
+    )!;
     const path = "/api/v1/admin/reports/" + kind;
     if (!after) list.replaceChildren();
     const add = (
@@ -730,7 +741,7 @@ export async function administration(app: App): Promise<void> {
                     "POST",
                     { operation_id: operation() },
                   );
-                  host.select("moderation");
+                  host.select("moderation", true);
                 }),
               ),
             );
@@ -744,7 +755,7 @@ export async function administration(app: App): Promise<void> {
                     author_revision: item.author_revision,
                   },
                 );
-                host.select("moderation");
+                host.select("moderation", true);
               }),
             );
             remove.classList.add("destructive");
@@ -779,7 +790,7 @@ export async function administration(app: App): Promise<void> {
                     "POST",
                     { operation_id: operation() },
                   );
-                  host.select("moderation");
+                  host.select("moderation", true);
                 }),
               ),
             );
@@ -788,29 +799,36 @@ export async function administration(app: App): Promise<void> {
       if (value.next)
         list.append(button(t("older"), () => reports(page, kind, value.next!)));
     }
-    if (!list.children.length) list.append(el("p", "dim", t("noResults")));
+    if (!list.children.length)
+      list.append(actionRow(nt("admin.nothing_reported")));
   }
   host.add("dashboard", nt("admin.cat.dashboard"), "admin", dashboard);
-  host.add("moderation", nt("admin.cat.moderation"), "moderation", (page) => {
-    const tabs = el("div", "tabs"),
-      list = el("div", "admin-reports preferences-box");
-    tabs.append(
-      button(label("Reported messages", "Messages signalés"), () =>
-        reports(page, "messages"),
-      ),
-      button(label("Reported users", "Personnes signalées"), () =>
-        reports(page, "users"),
-      ),
-    );
-    page.append(tabs, list);
-    return reports(page, "messages");
-  });
+  host.add(
+    "moderation",
+    nt("admin.cat.moderation"),
+    "moderation",
+    async (page) => {
+      for (const kind of ["messages", "users"] as const) {
+        const [group, list] = preferencesGroup(
+          nt(
+            kind === "messages"
+              ? "admin.reported_messages"
+              : "admin.reported_users",
+          ),
+        );
+        list.classList.add("admin-reports");
+        list.dataset.reportKind = kind;
+        page.append(group);
+      }
+      await Promise.all([reports(page, "messages"), reports(page, "users")]);
+    },
+  );
+  host.add("rooms", nt("admin.cat.rooms"), "rooms", (page) => rooms(page));
+  host.add("users", nt("admin.cat.users"), "users", (page) => users(page));
   if (app.info?.capabilities.admin_invitations)
     host.add("invitations", nt("admin.cat.invitations"), "users", (page) =>
       invitationPage(app, page, valid),
     );
-  host.add("rooms", nt("admin.cat.rooms"), "rooms", (page) => rooms(page));
-  host.add("users", nt("admin.cat.users"), "users", (page) => users(page));
   if (app.info?.capabilities.custom_emoji_admin)
     host.add("emoji", nt("admin.cat.emoji"), "smile", (page) =>
       emojiPage(app, page, valid),

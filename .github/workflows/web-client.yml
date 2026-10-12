@@ -76,6 +76,7 @@ jobs:
           cargo fmt --all --check
           cargo clippy --locked -p rv-server --all-targets -- -D warnings
           cargo test --locked -p rv-server --lib
+          cargo test --locked -p rv-server --test room_details
           cargo test --locked -p rv-server --test bots a_key_reaches_only_the_routes_of_its_scopes
           cargo build --locked -p rv-server
       - name: Start isolated SMTP, SFU and server
@@ -91,6 +92,7 @@ jobs:
           target/debug/rv-server create-user webcryptoalice --admin
           target/debug/rv-server create-user webcryptobob --admin
           target/debug/rv-server create-user webalice --admin
+          target/debug/rv-server create-user webshell
           target/debug/rv-server create-user webvoicefailure
           target/debug/rv-server create-user webconnection
           target/debug/rv-server create-user webconnectionpeer
@@ -136,7 +138,7 @@ jobs:
         run: |
           # Closed browser contexts leave five-minute snapshot leases. Release them
           # between suites on this disposable server, keeping each suite's limits real.
-          for suite in e2ee browser features media images video-reduce voice voice-connection voice-lifecycle sessions locked composer quiet receipts scheduled reminders threads global-search logout-replay notifications security visual workflows reads profiles navigation social; do
+          for suite in e2ee browser features media images video-reduce voice voice-connection voice-lifecycle sessions locked composer conversation-parity shell-parity quiet receipts scheduled reminders threads global-search logout-replay notifications security visual workflows reads profiles navigation social; do
             npm run "test:$suite"
             docker exec "${{ job.services.postgres.id }}" psql -U web -d web --set ON_ERROR_STOP=1 --command 'DELETE FROM snapshot_heads'
           done

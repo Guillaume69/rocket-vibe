@@ -65,7 +65,7 @@ try {
   assert.ok(prefs.muted_until, "the mute is kept by the schedule's save");
   console.log("PASS quiet hours stored with the browser's zone, mute kept");
   await page.getByLabel("From").fill("21:30");
-  await page.getByLabel("From").dispatchEvent("change");
+  await page.getByLabel("From").press("Enter");
   await page.waitForTimeout(800);
   prefs = (await own()).preferences;
   assert.equal(prefs.quiet_hours.start_minute, 21 * 60 + 30);

@@ -11,8 +11,12 @@ import { button, dialog, el, field } from "./dom";
 import { t, language } from "./i18n";
 import { emailSettings } from "./email";
 import { qrPath, totpQr } from "./totp-qr";
+import { actionRow, preferencesGroup, buttonRow } from "./sidebar";
+import { nt } from "./native-i18n";
+import { accountFence, confirmAction } from "./preferences-controls";
 
 const phrase = (en: string, fr: string) => (language === "fr" ? fr : en);
+const proofs = new WeakMap<App, { target: HTMLElement; work: Promise<void> }>();
 const SVG = "http://www.w3.org/2000/svg";
 function qrCode(uri: string): SVGSVGElement | null {
   const matrix = totpQr(uri);
@@ -22,13 +26,7 @@ function qrCode(uri: string): SVGSVGElement | null {
   svg.setAttribute("viewBox", `0 0 ${matrix.size} ${matrix.size}`);
   svg.setAttribute("shape-rendering", "crispEdges");
   svg.setAttribute("role", "img");
-  svg.setAttribute(
-    "aria-label",
-    phrase(
-      "QR code to scan with your authenticator",
-      "Code QR à scanner avec votre application d’authentification",
-    ),
-  );
+  svg.setAttribute("aria-label", nt("security.qr"));
   const light = document.createElementNS(SVG, "rect");
   light.setAttribute("width", String(matrix.size));
   light.setAttribute("height", String(matrix.size));
@@ -39,12 +37,26 @@ function qrCode(uri: string): SVGSVGElement | null {
   svg.append(light, dark);
   return svg;
 }
-export async function recentProof(app: App): Promise<void> {
+export async function recentProof(
+  app: App,
+  target?: HTMLElement,
+): Promise<void> {
+  const pending = proofs.get(app);
+  if (pending?.target.isConnected) return pending.work;
+  const valid = accountFence(app);
   const status =
     await app.api.request<ReauthenticationStatus>("/api/v1/me/reauth");
   if (status.recent) return;
-  await new Promise<void>((resolve, reject) => {
-    const [node, body] = dialog(t("security"));
+  const work = new Promise<void>((resolve, reject) => {
+    const [node, body] = target
+      ? [target.closest("dialog") as HTMLDialogElement, target]
+      : dialog(t("security"));
+    const finishView = () => {
+      if (target) body.replaceChildren();
+      else node.close();
+    };
+    const submit = target ? buttonRow : button;
+    const label = target ? nt("security.verify") : t("verify");
     const [wrap, password] = field(t("password"), "", "password");
     password.autocomplete = "current-password";
     const intent = {
@@ -55,8 +67,8 @@ export async function recentProof(app: App): Promise<void> {
     let finished = false;
     body.append(
       wrap,
-      button(
-        t("verify"),
+      submit(
+        label,
         async () => {
           const step = await app.api.request<ReauthenticationStep>(
             "/api/v1/me/reauth/start",
@@ -64,26 +76,44 @@ export async function recentProof(app: App): Promise<void> {
             { ...intent, password: password.value },
           );
           password.value = "";
+          if (!valid() || !node.open) return;
           if (step.kind === "granted") {
             finished = true;
-            node.close();
+            finishView();
             resolve();
             return;
           }
           const methods = el("select", "pill-entry");
+          methods.className = "row-select";
+          methods.setAttribute("aria-label", nt("security.method"));
+          const methodsRow = actionRow(nt("security.method"));
+          methodsRow.append(methods);
+          methodsRow.hidden = step.challenge.methods.length < 2;
           for (const method of step.challenge.methods) {
-            const option = el("option", "", t(method));
+            const option = el("option", "", nt("login.factor_" + method));
             option.value = method;
             methods.append(option);
           }
-          const [codeWrap, code] = field(t("code"));
+          const codeLabel = () =>
+            nt(
+              methods.value === "backup"
+                ? "login.code_recovery_code"
+                : methods.value === "email"
+                  ? "email.code"
+                  : "login.code_totp",
+            );
+          const [codeWrap, code] = field(codeLabel());
           code.autocomplete = "one-time-code";
+          methods.addEventListener("change", () => {
+            code.value = "";
+            codeWrap.querySelector(".pill-caption")!.textContent = codeLabel();
+          });
           const finish = operation();
           body.replaceChildren(
-            methods,
+            methodsRow,
             codeWrap,
-            button(
-              t("verify"),
+            submit(
+              label,
               async () => {
                 await app.api.request("/api/v1/me/reauth/finish", "POST", {
                   operation_id: finish,
@@ -92,16 +122,17 @@ export async function recentProof(app: App): Promise<void> {
                   code: code.value,
                 });
                 code.value = "";
+                if (!valid() || !node.open) return;
                 finished = true;
-                node.close();
+                finishView();
                 resolve();
               },
-              "cta",
+              target ? "" : "cta",
             ),
           );
           if (step.challenge.methods.includes("email"))
             body.append(
-              button(t("email"), () =>
+              submit(nt("email.send_code"), () =>
                 app.api
                   .request("/api/v1/me/reauth/email/start", "POST", {
                     challenge_id: step.challenge.challenge_id,
@@ -112,16 +143,63 @@ export async function recentProof(app: App): Promise<void> {
               ),
             );
         },
-        "cta",
+        target ? "" : "cta",
       ),
     );
-    node.addEventListener("close", () => {
-      if (!finished) reject(new Error(t("cancel")));
-    });
+    node.addEventListener(
+      "close",
+      () => {
+        if (!finished) reject(new Error(t("cancel")));
+      },
+      { once: true },
+    );
     password.focus();
   });
+  if (target) proofs.set(app, { target, work });
+  try {
+    await work;
+  } finally {
+    if (proofs.get(app)?.work === work) proofs.delete(app);
+  }
 }
-export function backupCodes(value: FactorBackupCodes): void {
+export function backupCodes(
+  value: FactorBackupCodes,
+  inline?: { app: App; page: HTMLElement },
+): void {
+  if (inline) {
+    const { app, page } = inline;
+    const valid = accountFence(app);
+    const [group, rows] = preferencesGroup(
+      nt("security.codes"),
+      nt("security.codes_body"),
+    );
+    const codes = el(
+      "pre",
+      "backup-codes security-codes",
+      value.codes.join("\n"),
+    );
+    rows.append(
+      codes,
+      buttonRow(nt("security.copy_codes"), () =>
+        navigator.clipboard.writeText(value.codes.join("\n")),
+      ),
+      buttonRow(nt("security.saved"), async () => {
+        codes.textContent = "";
+        if (!valid()) return;
+        page.replaceChildren();
+        await securitySettings(app, page);
+      }),
+    );
+    page.replaceChildren(group);
+    page.closest("dialog")?.addEventListener(
+      "close",
+      () => {
+        codes.textContent = "";
+      },
+      { once: true },
+    );
+    return;
+  }
   const [node, body] = dialog(t("recoveryCode"));
   body.append(
     el(
@@ -156,134 +234,141 @@ export async function securitySettings(
   app: App,
   page: HTMLElement,
 ): Promise<void> {
+  const valid = accountFence(app);
   const factors = await app.api.request<FactorStatus>("/api/v1/me/factors");
-  page.append(
-    el("p", "", t("totp") + ": " + (factors.totp ? "✓" : "—")),
-    el("p", "", t("email") + ": " + (factors.email ? "✓" : "—")),
-    el("p", "", t("recoveryCode") + ": " + factors.backup_codes_remaining),
+  const proof =
+    await app.api.request<ReauthenticationStatus>("/api/v1/me/reauth");
+  if (!valid()) return;
+  const [status, statusRows] = preferencesGroup();
+  const enabled = factors.totp || factors.email;
+  statusRows.append(
+    actionRow(
+      nt(enabled ? "security.enabled" : "security.disabled"),
+      enabled
+        ? nt("security.remaining", { n: factors.backup_codes_remaining })
+        : nt(proof.recent ? "security.ready" : "security.required"),
+    ),
   );
-  await emailSettings(app, page);
-  if (!app.info?.capabilities.second_factors) return;
-  if (!factors.totp)
-    page.append(
-      button(
-        phrase("Set up authenticator", "Configurer l’authentification"),
-        async () => {
-          await recentProof(app);
-          const setup = await app.api.request<FactorSetup>(
-            "/api/v1/me/factors/totp/setup",
-            "POST",
-            { operation_id: operation() },
-          );
-          const [node, body] = dialog(t("totp"));
-          body.append(
-            el(
-              "p",
-              "dim",
-              phrase(
-                "Scan this QR code or add this key to your authenticator, then enter its verification code.",
-                "Scannez ce code QR ou ajoutez cette clé dans votre application d’authentification, puis saisissez son code.",
-              ),
-            ),
-          );
-          const key = el("code", "totp-secret", setup.secret);
-          key.dataset.secret = setup.secret;
-          const uri = el(
-            "a",
+  page.append(status);
+  const refresh = async () => {
+    if (!valid()) return;
+    page.replaceChildren();
+    await securitySettings(app, page);
+  };
+  if (!proof.recent) {
+    const [group, rows] = preferencesGroup(nt("security.required"));
+    page.append(group);
+    void recentProof(app, rows)
+      .then(refresh)
+      .catch(() => {});
+  }
+  const [actions, actionRows] = preferencesGroup();
+  page.append(actions);
+  if (app.info?.capabilities.second_factors && !factors.totp)
+    actionRows.append(
+      buttonRow(nt("security.setup"), async () => {
+        await recentProof(app);
+        const setup = await app.api.request<FactorSetup>(
+          "/api/v1/me/factors/totp/setup",
+          "POST",
+          { operation_id: operation() },
+        );
+        if (!valid()) return;
+        const [group, body] = preferencesGroup(
+          nt("security.setup"),
+          nt("security.setup_body"),
+        );
+        const key = el("code", "totp-secret security-secret", setup.secret);
+        key.dataset.secret = setup.secret;
+        const [wrap, code] = field(nt("login.code_totp"));
+        code.autocomplete = "one-time-code";
+        const id = operation();
+        const qr = qrCode(setup.provisioning_uri);
+        if (qr) body.append(qr);
+        body.append(
+          key,
+          buttonRow(nt("security.copy_secret"), () =>
+            navigator.clipboard.writeText(setup.secret),
+          ),
+          buttonRow(nt("security.copy_uri"), () =>
+            navigator.clipboard.writeText(setup.provisioning_uri),
+          ),
+          wrap,
+          buttonRow(
+            nt("security.enable"),
+            async () => {
+              const receipt = await app.api.request<FactorBackupCodes>(
+                "/api/v1/me/factors/totp/enable",
+                "POST",
+                {
+                  operation_id: id,
+                  setup_id: setup.setup_id,
+                  code: code.value,
+                },
+              );
+              code.value = "";
+              key.textContent = "";
+              delete key.dataset.secret;
+              qr?.replaceChildren();
+              if (valid()) backupCodes(receipt, { app, page });
+            },
             "",
-            phrase(
-              "Open authenticator",
-              "Ouvrir l’application d’authentification",
-            ),
-          );
-          uri.href = setup.provisioning_uri;
-          const [wrap, code] = field(t("code"));
-          code.autocomplete = "one-time-code";
-          const id = operation();
-          const qr = qrCode(setup.provisioning_uri);
-          if (qr) body.append(qr);
-          body.append(
-            key,
-            uri,
-            wrap,
-            button(
-              t("verify"),
-              async () => {
-                const receipt = await app.api.request<FactorBackupCodes>(
-                  "/api/v1/me/factors/totp/enable",
-                  "POST",
-                  {
-                    operation_id: id,
-                    setup_id: setup.setup_id,
-                    code: code.value,
-                  },
-                );
-                code.value = "";
-                node.close();
-                backupCodes(receipt);
-                page.replaceChildren(el("h2", "", t("security")));
-                await securitySettings(app, page);
-              },
-              "cta",
-            ),
-          );
-        },
-        "cta",
-      ),
+          ),
+        );
+        page.replaceChildren(group);
+        page.closest("dialog")?.addEventListener(
+          "close",
+          () => {
+            key.textContent = "";
+            delete key.dataset.secret;
+            qr?.replaceChildren();
+          },
+          { once: true },
+        );
+      }),
     );
-  else
-    page.append(
-      button(
-        phrase("Disable authenticator", "Désactiver l’authentification"),
-        async () => {
-          const [node, body] = dialog(t("security"));
-          body.append(
-            el(
-              "p",
-              "",
-              phrase(
-                "Disable the authenticator for this account?",
-                "Désactiver l’authentification pour ce compte ?",
-              ),
-            ),
-            button(
-              t("verify"),
-              async () => {
-                await recentProof(app);
-                await app.api.request(
-                  "/api/v1/me/factors/totp/disable",
-                  "POST",
-                  { factor_version: factors.factor_version },
-                );
-                node.close();
-                page.replaceChildren(el("h2", "", t("security")));
-                await securitySettings(app, page);
-              },
-              "destructive",
-            ),
-          );
-        },
+  else if (app.info?.capabilities.second_factors)
+    actionRows.append(
+      buttonRow(
+        nt("security.disable"),
+        () =>
+          confirmAction(
+            nt("security.disable"),
+            nt("security.disable_body"),
+            async () => {
+              await recentProof(app);
+              await app.api.request("/api/v1/me/factors/totp/disable", "POST", {
+                factor_version: factors.factor_version,
+              });
+              await refresh();
+            },
+          ),
         "destructive",
       ),
     );
-  if (factors.factor_version)
-    page.append(
-      button(
-        phrase("Replace recovery codes", "Remplacer les codes de récupération"),
-        async () => {
-          await recentProof(app);
-          const value = await app.api.request<FactorBackupCodes>(
-            "/api/v1/me/factors/recovery/regenerate",
-            "POST",
-            {
-              operation_id: operation(),
-              factor_version: factors.factor_version,
-            },
-          );
-          backupCodes(value);
-          page.replaceChildren(el("h2", "", t("security")));
-          await securitySettings(app, page);
-        },
+  if (app.info?.capabilities.second_factors && factors.factor_version)
+    actionRows.append(
+      buttonRow(nt("security.regenerate"), () =>
+        confirmAction(
+          nt("security.regenerate"),
+          nt("security.regenerate_body"),
+          async () => {
+            await recentProof(app);
+            const value = await app.api.request<FactorBackupCodes>(
+              "/api/v1/me/factors/recovery/regenerate",
+              "POST",
+              {
+                operation_id: operation(),
+                factor_version: factors.factor_version,
+              },
+            );
+            if (valid()) backupCodes(value, { app, page });
+          },
+        ),
       ),
     );
+  await emailSettings(app, page);
+  const [refreshGroup, refreshRows] = preferencesGroup();
+  refreshRows.append(buttonRow(nt("security.refresh"), refresh));
+  page.append(refreshGroup);
 }

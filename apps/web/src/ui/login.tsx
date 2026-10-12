@@ -1,12 +1,14 @@
 import { accountCodeLogin } from "../account-code";
 import { useEffect, useRef, useState, type InputHTMLAttributes } from "react";
 import type { App } from "../app";
-import type { AuthenticationStep, Discovery } from "../protocol";
+import type { AuthenticationStep, Discovery, Session } from "../protocol";
 import { t, language, setLanguage } from "../i18n";
-import { operation } from "../api";
+import { operation, secret } from "../api";
+import { read, write } from "../store";
+import { nt } from "../native-i18n";
 import { toast } from "../dom";
 import { STARS } from "../design.generated";
-import { ActionButton, Brand } from "./controls";
+import { ActionButton, Brand, Symbol } from "./controls";
 
 export function Field({
   label,
@@ -71,6 +73,7 @@ export function LoginScreen({ app }: { app: App }) {
       undefined,
       true,
     );
+  if (app.loginChallenge) return <FactorScreen app={app} />;
   const submit = async () => {
     if (submitting.current) return;
     submitting.current = true;
@@ -146,7 +149,7 @@ export function LoginScreen({ app }: { app: App }) {
           disabled={pending}
         />
         <Field
-          label={t("password")}
+          label={mode === "recovery" ? nt("login.new_password") : t("password")}
           type="password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
@@ -154,53 +157,90 @@ export function LoginScreen({ app }: { app: App }) {
           required
           disabled={pending}
         />
-        <div>
-          {mode !== "login" && (
-            <>
-              <Field
-                label={mode === "signup" ? t("invitation") : t("recoveryCode")}
-                value={token}
-                onChange={(event) => setToken(event.target.value)}
-                disabled={pending}
-              />
-              <ActionButton disabled={pending} action={() => setMode("login")}>
-                {t("login")}
-              </ActionButton>
-              {mode === "recovery" && (
-                <ActionButton
-                  disabled={pending}
-                  action={async () => {
-                    const info = await discover();
-                    if (!active.current || !info.capabilities.email_recovery)
-                      return;
-                    await app.api.request(
-                      "/api/v1/auth/recovery/email/start",
-                      "POST",
-                      {
-                        operation_id: operation(),
-                        username,
-                        instance_id: info.instance_id,
-                        data_epoch: info.data_epoch,
-                      },
-                      true,
-                    );
-                    if (active.current)
-                      toast(
-                        language === "fr"
-                          ? "Si une adresse vérifiée est disponible, le code vous sera envoyé."
-                          : "If a verified address is available, a recovery code will be sent.",
-                      );
-                  }}
-                >
-                  {language === "fr"
-                    ? "Recevoir un code par email"
-                    : "Email me a recovery code"}
-                </ActionButton>
-              )}
-            </>
-          )}
+        <div className="login-modes">
+          <label>
+            <input
+              type="checkbox"
+              checked={mode === "signup"}
+              disabled={pending}
+              onChange={(event) => {
+                setMode(event.target.checked ? "signup" : "login");
+                setToken("");
+                setError("");
+              }}
+            />
+            {t("signup")}
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={mode === "recovery"}
+              disabled={pending}
+              onChange={(event) => {
+                setMode(event.target.checked ? "recovery" : "login");
+                setToken("");
+                setError("");
+              }}
+            />
+            {t("recovery")}
+          </label>
         </div>
-        <div className="login-error" role="alert">
+        {mode !== "login" && (
+          <div className="login-account-code">
+            {
+              <>
+                <Field
+                  label={
+                    mode === "signup" ? t("invitation") : t("recoveryCode")
+                  }
+                  value={token}
+                  onChange={(event) => setToken(event.target.value)}
+                  type="password"
+                  disabled={pending}
+                />
+                <p className="login-help">
+                  {nt(
+                    mode === "signup"
+                      ? "login.invitation_help"
+                      : "login.recovery_help",
+                  )}
+                </p>
+                {mode === "recovery" && (
+                  <ActionButton
+                    disabled={pending}
+                    action={async () => {
+                      const info = await discover();
+                      if (!active.current || !info.capabilities.email_recovery)
+                        return;
+                      await app.api.request(
+                        "/api/v1/auth/recovery/email/start",
+                        "POST",
+                        {
+                          operation_id: operation(),
+                          username,
+                          instance_id: info.instance_id,
+                          data_epoch: info.data_epoch,
+                        },
+                        true,
+                      );
+                      if (active.current)
+                        toast(
+                          language === "fr"
+                            ? "Si une adresse vérifiée est disponible, le code vous sera envoyé."
+                            : "If a verified address is available, a recovery code will be sent.",
+                        );
+                    }}
+                  >
+                    {language === "fr"
+                      ? "Recevoir un code par email"
+                      : "Email me a recovery code"}
+                  </ActionButton>
+                )}
+              </>
+            }
+          </div>
+        )}
+        <div className="login-error" role="alert" hidden={!error}>
           {error}
         </div>
         <button className="cta" type="submit" disabled={pending}>
@@ -212,14 +252,6 @@ export function LoginScreen({ app }: { app: App }) {
                 : "login",
           )}
         </button>
-        <div className="login-links">
-          <ActionButton disabled={pending} action={() => setMode("signup")}>
-            {t("signup")}
-          </ActionButton>
-          <ActionButton disabled={pending} action={() => setMode("recovery")}>
-            {t("recovery")}
-          </ActionButton>
-        </div>
         <ActionButton
           disabled={pending}
           action={() => {
@@ -232,6 +264,134 @@ export function LoginScreen({ app }: { app: App }) {
         {app.account && (
           <ActionButton action={() => app.build()}>{t("cancel")}</ActionButton>
         )}
+      </form>
+    </div>
+  );
+}
+
+/** GTK's verification step stays in the login column, with no detached modal. */
+function FactorScreen({ app }: { app: App }) {
+  const state = useRef(app.loginChallenge!).current;
+  const [method, setMethod] = useState(state.challenge.methods[0]);
+  const [code, setCode] = useState("");
+  const [error, setError] = useState("");
+  const [pending, setPending] = useState(false);
+  const [sent, setSent] = useState(false);
+  const running = useRef(false);
+  const current = () => app.loginChallenge === state;
+  const submit = async () => {
+    if (running.current) return;
+    running.current = true;
+    setPending(true);
+    setError("");
+    try {
+      const key = "factor:" + state.challenge.challenge_id;
+      let intent = await read<{ operation_id: string; next_token: string }>(
+        "operations",
+        key,
+      );
+      if (!current()) return;
+      if (!intent) {
+        intent = { operation_id: operation(), next_token: secret() };
+        await write("operations", key, intent);
+      }
+      if (!current()) return;
+      const session = await app.api.request<Session>(
+        "/api/v1/auth/factors/verify",
+        "POST",
+        { ...intent, challenge_id: state.challenge.challenge_id, method, code },
+        true,
+      );
+      if (!current()) return;
+      setCode("");
+      await app.accept(session, state.info);
+      await write("operations", key);
+    } catch (reason) {
+      if (current())
+        setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      running.current = false;
+      if (current()) setPending(false);
+    }
+  };
+  return (
+    <div className="login-page">
+      <Sky />
+      <form
+        className="login-form factor-step"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submit();
+        }}
+      >
+        <ActionButton
+          className="flat back-link"
+          disabled={pending}
+          action={() => app.login()}
+        >
+          <span className="chevron">‹</span>
+          {t("login")}
+        </ActionButton>
+        <Symbol name="security" className="shield" />
+        <div className="step-title">{nt("login.magic")}</div>
+        <p className="step-intro">{nt("login.intro_" + method)}</p>
+        {state.challenge.methods.length > 1 && (
+          <select
+            className="pill-entry"
+            aria-label={nt("security.method")}
+            value={method}
+            disabled={pending}
+            onChange={(event) => {
+              setMethod(event.target.value as typeof method);
+              setCode("");
+              setError("");
+            }}
+          >
+            {state.challenge.methods.map((value) => (
+              <option key={value} value={value}>
+                {t(value)}
+              </option>
+            ))}
+          </select>
+        )}
+        {method === "email" && (
+          <ActionButton
+            disabled={pending}
+            action={async () => {
+              await app.api.request(
+                "/api/v1/auth/factors/email/start",
+                "POST",
+                {
+                  challenge_id: state.challenge.challenge_id,
+                  operation_id: operation(),
+                  delivery_id: secret(),
+                },
+                true,
+              );
+              if (current()) setSent(true);
+            }}
+          >
+            {nt(sent ? "email.resend_code" : "email.send_code")}
+          </ActionButton>
+        )}
+        <Field
+          label={nt("login.code_" + method)}
+          type={method === "recovery_code" ? "password" : "text"}
+          placeholder={method === "recovery_code" ? "" : "123456"}
+          inputMode={method === "recovery_code" ? "text" : "numeric"}
+          autoComplete="one-time-code"
+          autoFocus
+          value={code}
+          disabled={pending}
+          onChange={(event) => setCode(event.target.value)}
+          required
+        />
+        <div className="login-error" role="alert" hidden={!error}>
+          {error}
+        </div>
+        <button className="cta" type="submit" disabled={pending}>
+          {t("verify")}
+        </button>
       </form>
     </div>
   );

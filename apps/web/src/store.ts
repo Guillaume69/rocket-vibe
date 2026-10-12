@@ -27,7 +27,24 @@ export class Model {
   rooms = new Map<string, Room>();
   messages = new Map<string, Message>();
   cursor = "";
+  private withdrawals = new Map<string, number>();
+  roomLifetime(room: string): number {
+    return this.withdrawals.get(room) || 0;
+  }
+  private withdrewRoom(room: string): void {
+    this.withdrawals.set(room, this.roomLifetime(room) + 1);
+  }
   replace(snapshot: Snapshot): void {
+    const incoming = new Map(snapshot.rooms.map((room) => [room.id, room]));
+    for (const [id, previous] of this.rooms) {
+      const room = incoming.get(id),
+        membership = previous.read_state?.membership_version;
+      if (
+        !room ||
+        (membership && room.read_state?.membership_version !== membership)
+      )
+        this.withdrewRoom(id);
+    }
     this.rooms = new Map(snapshot.rooms.map((room) => [room.id, room]));
     this.messages = new Map(
       snapshot.messages.map((message) => [message.id, message]),
@@ -72,11 +89,18 @@ export class Model {
       throw new Error("Invalid sync batch");
     for (const change of batch.changes) {
       if (change.type === "room_removed") {
+        this.withdrewRoom(change.data.room_id);
         this.rooms.delete(change.data.room_id);
         this.invalidateRoom(change.data.room_id);
       } else if (change.type === "room_upsert") {
         const old = this.rooms.get(change.data.id),
           lifetime = change.data.read_state?.membership_version;
+        if (
+          old?.read_state?.membership_version &&
+          lifetime &&
+          old.read_state.membership_version !== lifetime
+        )
+          this.withdrewRoom(old.id);
         if (old && lifetime && old.read_state?.membership_version !== lifetime)
           this.invalidateRoom(old.id);
         const incoming = change.data;
@@ -332,10 +356,17 @@ export async function purgeRoom(account: string, room: string): Promise<void> {
   const db = await open();
   await new Promise<void>((resolve, reject) => {
     const transaction = db.transaction(
-      ["outbox", "uploads", "drafts", "staged", "media"],
+      ["outbox", "uploads", "drafts", "staged", "media", "operations"],
       "readwrite",
     );
-    for (const name of ["outbox", "uploads", "drafts", "staged", "media"]) {
+    for (const name of [
+      "outbox",
+      "uploads",
+      "drafts",
+      "staged",
+      "media",
+      "operations",
+    ]) {
       const request = transaction.objectStore(name).openCursor();
       request.onsuccess = () => {
         const cursor = request.result;

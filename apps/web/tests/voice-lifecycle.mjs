@@ -408,7 +408,7 @@ try {
   await select(a, direct.id, false);
   await select(b, direct.id, false);
   await b.evaluate(() => (window.__forceVoiceRelay = true));
-  await a.getByRole("button", { name: "Join call", exact: true }).click();
+  await a.getByRole("button", { name: "Start a call", exact: true }).click();
   const incoming = b.locator("dialog").filter({
     has: b.getByRole("heading", { name: "Incoming call", exact: true }),
   });
@@ -435,7 +435,7 @@ try {
   assert.equal(await b.locator(".voice-page").count(), 0);
   assert.equal(await b.locator(".voice-bar").count(), 0);
   await b.evaluate(() => (window.__forceVoiceRelay = false));
-  await b.getByRole("button", { name: "Join call", exact: true }).click();
+  await b.getByRole("button", { name: "Start a call", exact: true }).click();
   await b.locator(".voice-status.connected").waitFor();
   await rtp(b);
   await leave(a);
@@ -461,7 +461,7 @@ try {
         resolve();
       });
     });
-    await a.getByRole("button", { name: "Join call", exact: true }).click();
+    await a.getByRole("button", { name: "Join voice", exact: true }).click();
     const prompt = callee.locator("dialog").filter({
       has: callee.getByRole("heading", {
         name: "Incoming call",

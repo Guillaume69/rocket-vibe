@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { chromium, firefox } from "playwright";
 import { execFileSync } from "node:child_process";
+import { mkdir } from "node:fs/promises";
 import {
   base,
   fixture,
@@ -20,6 +21,7 @@ const browser = await chromium.launch({
   context = await browser.newContext({ locale: "en-US" }),
   page = await context.newPage();
 const failures = [];
+await mkdir("../../.cache/web-shots", { recursive: true });
 let recovered;
 page.on("pageerror", (error) => failures.push(error.message));
 const packets = [];
@@ -150,6 +152,16 @@ try {
     .getByRole("button", { name: "Review group creation", exact: true })
     .click();
   await page
+    .locator(".crypto-group-dialog button:enabled")
+    .filter({ hasText: "Confirm this review" })
+    .waitFor();
+  await page.locator(".crypto-group-dialog .dialog-body").evaluate((node) => {
+    node.scrollTop = 0;
+  });
+  await page.screenshot({
+    path: "../../.cache/web-shots/web-crypto-group-review-reference.png",
+  });
+  await page
     .getByRole("button", { name: "Confirm this review", exact: true })
     .click();
   await page
@@ -240,9 +252,23 @@ try {
   await closeDialog(bob);
   await closeDialog(bob);
   await groupDialog(page, room);
+  for (const check of await page
+    .locator(".crypto-group-select input[type=checkbox]")
+    .all())
+    await check.check();
   await page
     .getByRole("button", { name: "Review device changes", exact: true })
     .click();
+  await page
+    .locator(".crypto-group-dialog button:enabled")
+    .filter({ hasText: "Confirm this review" })
+    .waitFor();
+  await page.locator(".crypto-group-dialog .dialog-body").evaluate((node) => {
+    node.scrollTop = 0;
+  });
+  await page.screenshot({
+    path: "../../.cache/web-shots/web-crypto-group-update-reference.png",
+  });
   await page
     .getByRole("button", { name: "Confirm this review", exact: true })
     .click();
@@ -373,10 +399,7 @@ try {
     .filter({ hasText: "Private thread reply" })
     .waitFor();
   console.log("PASS private edits, quotes and threaded replies");
-  await page
-    .locator(".thread-pane")
-    .getByRole("button", { name: "Close", exact: true })
-    .click();
+  await page.locator(".thread-pane .thread-back").click();
   await bob
     .locator(".timeline article")
     .filter({
@@ -399,7 +422,9 @@ try {
     })
     .locator(".reaction")
     .waitFor();
-  await page.getByRole("button", { name: "Search", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Search in room", exact: true })
+    .click();
   await page
     .locator("dialog[open]")
     .last()

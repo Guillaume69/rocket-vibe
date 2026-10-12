@@ -1,7 +1,11 @@
-import { ActionButton } from "./controls";
+import { ActionButton, Symbol } from "./controls";
 import { clearView, renderView } from "./portals";
 
-export type MenuAction = readonly [string, () => void | Promise<void>];
+export type MenuAction = readonly [
+  string,
+  () => void | Promise<void>,
+  { mine?: boolean; icon?: string; label?: string; destructive?: boolean }?,
+];
 export function messageMenu(
   anchor: HTMLElement,
   quick: readonly MenuAction[],
@@ -29,8 +33,9 @@ export function messageMenu(
   const action =
     ([, work]: MenuAction) =>
     async () => {
-      if (valid()) await work();
+      const allowed = valid();
       close();
+      if (allowed) await work();
     };
   renderView(
     node,
@@ -40,16 +45,29 @@ export function messageMenu(
           {quick.map((item) => (
             <ActionButton
               key={item[0]}
-              className="quick-reaction"
+              className={
+                "quick-reaction" +
+                (item[2]?.mine ? " mine" : "") +
+                (item[2]?.icon ? " more-reactions" : "")
+              }
+              title={item[2]?.label || item[0]}
+              aria-label={item[2]?.label || item[0]}
+              aria-pressed={item[2]?.icon ? undefined : !!item[2]?.mine}
               action={action(item)}
             >
-              {item[0]}
+              {item[2]?.icon ? <Symbol name={item[2].icon} /> : item[0]}
             </ActionButton>
           ))}
         </div>
       )}
       {actions.map((item, index) => (
-        <ActionButton key={index} className="menu-action" action={action(item)}>
+        <ActionButton
+          key={index}
+          className={
+            "flat menu-action" + (item[2]?.destructive ? " destructive" : "")
+          }
+          action={action(item)}
+        >
           {item[0]}
         </ActionButton>
       ))}
@@ -59,4 +77,18 @@ export function messageMenu(
     if ((event as ToggleEvent).newState === "closed") close();
   });
   node.showPopover();
+  requestAnimationFrame(() => {
+    if (!node.isConnected) return;
+    const bounds = node.getBoundingClientRect();
+    node.style.left =
+      Math.max(
+        10,
+        Math.min(innerWidth - bounds.width - 10, rect.right - bounds.width),
+      ) + "px";
+    node.style.top =
+      Math.max(
+        10,
+        Math.min(innerHeight - bounds.height - 10, rect.bottom + 4),
+      ) + "px";
+  });
 }

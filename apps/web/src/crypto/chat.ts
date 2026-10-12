@@ -358,6 +358,9 @@ export class PrivateChat {
       this.banner("crypto.group_admission");
       return;
     }
+    this.app.timeline
+      .querySelectorAll(":scope > .crypto-state-warning")
+      .forEach((note) => note.remove());
     this.app.patchRows(
       this.app.timeline,
       [...this.rows.values()].filter((row) => !row.reply_to),
@@ -367,7 +370,7 @@ export class PrivateChat {
       time.setAttribute("title", nt("crypto.observed_time"));
 
     if (!this.view.can_send) {
-      const note = el("div", "e2e-banner");
+      const note = el("div", "e2e-banner crypto-state-warning");
       note.append(
         el("p", "dim", nt("crypto.group_help")),
         button(nt("crypto.group_change"), () =>
@@ -481,7 +484,7 @@ export class PrivateChat {
     const conversation = this.threadConversation;
     showThread(this.app, {
       draft: view.draft,
-      disabled: !this.canSendThread,
+      canSend: () => this.canSendThread,
       send: async (text) => {
         if (this.active && this.app.root === root) await this.send(text, root);
       },

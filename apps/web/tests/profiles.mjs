@@ -45,7 +45,7 @@ async function changePeer(suffix) {
       expected_revision: own.profile.revision,
       username: names[1],
       display_name: "Profile peer " + tag + suffix,
-      bio: "Profile biography " + tag + suffix,
+      bio: "Profile *biography* " + tag + suffix,
       status: suffix ? "away" : "online",
       status_text: "Profile status " + tag + suffix,
     },
@@ -174,6 +174,10 @@ try {
   assert.equal(
     await popup.locator(".profile-bio").textContent(),
     "Profile biography " + tag,
+  );
+  assert.equal(
+    await popup.locator(".profile-bio strong").textContent(),
+    "biography",
   );
   await popup
     .locator(".profile-presence")

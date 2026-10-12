@@ -69,9 +69,7 @@ try {
   await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await page.locator(".status-dot.online").waitFor();
-  await page
-    .getByRole("button", { name: "Search messages", exact: true })
-    .click();
+  await page.keyboard.press("Control+Shift+F");
   const dialog = page.locator(".local-search-dialog");
   await dialog
     .getByText("Among the messages already in this browser")
@@ -116,9 +114,7 @@ try {
   await page.locator('.thread-pane [data-id="' + reply.id + '"]').waitFor();
   console.log("PASS a reply opens in its thread");
   await page.keyboard.press("Escape");
-  await page
-    .getByRole("button", { name: "Search messages", exact: true })
-    .click();
+  await page.keyboard.press("Control+Shift+F");
   await dialog.getByLabel("Words, in every room").fill("zz" + tag + "absent");
   await dialog.getByText("No message contains these words.").waitFor();
   // A click outside closes it with nothing opened.

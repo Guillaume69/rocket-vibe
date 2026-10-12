@@ -5,7 +5,8 @@ import { t, language } from "../i18n";
 import { previewText } from "../presentation";
 import { isFolded, setFolded } from "../folds";
 import { newConversation } from "../panel-actions";
-import { initials, toast } from "../dom";
+import { initials, toast, actionMenu } from "../dom";
+import { nt } from "../native-i18n";
 import { ActionButton, Avatar, IconButton, Symbol } from "./controls";
 
 function unread(room: Room): number {
@@ -22,14 +23,18 @@ export function RoomList({ app }: { app: App }) {
     (latest(b)?.created_at || "").localeCompare(latest(a)?.created_at || ""),
   );
   const groups: [string, Room[], string][] = [
-    [t("unread"), rooms.filter((room) => unread(room) > 0), "unread"],
     [
-      t("favorites"),
+      nt("rooms.section_unread"),
+      rooms.filter((room) => unread(room) > 0),
+      "unread",
+    ],
+    [
+      nt("rooms.section_favorites"),
       rooms.filter((room) => room.read_state?.favorite && unread(room) === 0),
       "favorites",
     ],
     [
-      t("channels"),
+      nt("rooms.section_channels"),
       rooms.filter(
         (room) =>
           room.kind !== "direct" &&
@@ -39,7 +44,7 @@ export function RoomList({ app }: { app: App }) {
       "channels",
     ],
     [
-      t("direct"),
+      nt("rooms.section_direct"),
       rooms.filter(
         (room) =>
           room.kind === "direct" &&
@@ -49,6 +54,7 @@ export function RoomList({ app }: { app: App }) {
       "direct",
     ],
   ];
+  const titled = groups.filter(([, values]) => values.length > 0).length > 1;
   const total = rooms.reduce((sum, room) => sum + unread(room), 0);
   useEffect(() => {
     document.title = (total ? "(" + total + ") " : "") + "rocket-vibe";
@@ -63,7 +69,7 @@ export function RoomList({ app }: { app: App }) {
       {groups.map(([label, values, key]) => {
         if (!values.length) return null;
         const account = app.account?.key ?? "";
-        const collapsed = isFolded(localStorage, account, key);
+        const collapsed = titled && isFolded(localStorage, account, key);
         const tab =
           key === "channels"
             ? "create"
@@ -73,31 +79,38 @@ export function RoomList({ app }: { app: App }) {
         const section = (
           <ActionButton
             className="section-header"
+            aria-expanded={!collapsed}
             action={() => {
               setFolded(localStorage, account, key, !collapsed);
               app.renderRooms();
             }}
           >
-            {(collapsed ? "› " : "⌄ ") +
-              label +
-              (collapsed ? " " + values.length : "")}
+            <Symbol
+              name={collapsed ? "arrow" : "down"}
+              className="section-chevron"
+            />
+            <span className="section-title">{label}</span>
+            {collapsed && (
+              <span className="section-count">{values.length}</span>
+            )}
           </ActionButton>
         );
         return (
           <Fragment key={key}>
-            {tab ? (
-              <div className="section-line">
-                {section}
-                <IconButton
-                  name="plus"
-                  label={t(tab === "create" ? "newChannel" : "newMessage")}
-                  className="flat section-add"
-                  action={() => newConversation(app, tab)}
-                />
-              </div>
-            ) : (
-              section
-            )}
+            {titled &&
+              (tab ? (
+                <div className="section-line">
+                  {section}
+                  <IconButton
+                    name="plus"
+                    label={t(tab === "create" ? "newChannel" : "newMessage")}
+                    className="flat section-add"
+                    action={() => newConversation(app, tab)}
+                  />
+                </div>
+              ) : (
+                section
+              ))}
             {!collapsed &&
               values.map((room) => (
                 <RoomEntry key={room.id} app={app} room={room} />
@@ -122,6 +135,7 @@ function RoomEntry({ app, room }: { app: App; room: Room }) {
         )
       : undefined;
   const message = app.model.timeline(room.id).at(-1);
+  const isUnread = unread(room) > 0;
   const participants = live?.voice || [];
   const selected = room.id === app.room ? " selected" : "";
   return (
@@ -136,13 +150,31 @@ function RoomEntry({ app, room }: { app: App; room: Room }) {
         action={() => app.openRoom(room.id)}
         onContextMenu={(event) => {
           event.preventDefault();
-          void app.favorite(room).catch(toast);
+          const menu = actionMenu(event.currentTarget, [
+            [
+              nt(
+                room.read_state?.favorite
+                  ? "rooms.favorite_remove"
+                  : "rooms.favorite_add",
+              ),
+              () => app.favorite(room),
+              "star",
+            ],
+          ]);
+          if (menu) {
+            menu.style.left =
+              Math.min(event.clientX, innerWidth - menu.offsetWidth - 8) + "px";
+            menu.style.top =
+              Math.min(event.clientY, innerHeight - menu.offsetHeight - 8) +
+              "px";
+          }
         }}
       >
         <Avatar
           app={app}
           name={room.name}
           user={peer}
+          room={room.kind === "direct" ? undefined : room}
           size="room"
           icon={room.encrypted ? "lock" : undefined}
           glyph={room.kind === "direct" ? undefined : "#"}
@@ -161,31 +193,39 @@ function RoomEntry({ app, room }: { app: App; room: Room }) {
               {room.name}
             </span>
             {message && (
-              <span className="room-time">
-                {new Date(message.created_at).toLocaleTimeString(language, {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                  hour12: false,
-                })}
+              <span className={"room-time" + (isUnread ? " unread" : "")}>
+                {roomTime(message.created_at)}
               </span>
             )}
           </div>
-          <div className="room-preview">
-            {room.encrypted
-              ? t("encrypted")
-              : message
-                ? previewText(message)
-                : ""}
+          <div className="room-bottom">
+            <div
+              className={
+                "room-preview" +
+                (isUnread ? " unread" : "") +
+                (room.encrypted ? " encrypted" : "")
+              }
+            >
+              {room.encrypted
+                ? t("encrypted")
+                : message
+                  ? previewText(message)
+                  : ""}
+            </div>
+            {isUnread && (
+              <span
+                className={
+                  "badge " +
+                  (Number(room.read_state?.mentions) > 0
+                    ? "badge-mention"
+                    : "badge-unread")
+                }
+              >
+                {unread(room)}
+              </span>
+            )}
           </div>
         </div>
-        {unread(room) > 0 && (
-          <span className="badge badge-unread">{unread(room)}</span>
-        )}
-        {Number(room.read_state?.mentions) > 0 && (
-          <span className="badge badge-mention">
-            {"@" + room.read_state?.mentions}
-          </span>
-        )}
       </ActionButton>
       {participants.length > 0 && (
         <div
@@ -247,4 +287,25 @@ function RoomEntry({ app, room }: { app: App; room: Room }) {
       )}
     </>
   );
+}
+
+/** Same local-day clock as GTK rows::short_time. */
+function roomTime(value: string): string {
+  const date = new Date(value),
+    today = new Date();
+  const day = (at: Date) =>
+    Date.UTC(at.getFullYear(), at.getMonth(), at.getDate());
+  const days = (day(today) - day(date)) / 86400000;
+  if (days === 0)
+    return date.toLocaleTimeString(language, {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+  if (days < 7) return date.toLocaleDateString(language, { weekday: "short" });
+  return [
+    String(date.getDate()).padStart(2, "0"),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    date.getFullYear(),
+  ].join("/");
 }

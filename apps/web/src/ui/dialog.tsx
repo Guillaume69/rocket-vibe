@@ -1,5 +1,6 @@
 import { renderView } from "./portals";
-import { ActionButton } from "./controls";
+import { IconButton } from "./controls";
+import { t } from "../i18n";
 
 export function dialogContents(
   node: HTMLDialogElement,
@@ -11,7 +12,11 @@ export function dialogContents(
     <>
       <header className="dialog-header">
         <h2>{title}</h2>
-        <ActionButton action={() => node.close()}>×</ActionButton>
+        <IconButton
+          name="close"
+          label={t("close")}
+          action={() => node.close()}
+        />
       </header>
       <div
         className="dialog-body"

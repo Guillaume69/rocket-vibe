@@ -69,6 +69,9 @@ self.clients.openWindow('/room/'+encodeURIComponent(click.room)).catch(()=>{});
 });
 }
 `;
+// Public same-origin assets have identical bytes for every request Origin.
+// Precache requests lack that header while crossorigin module/style requests
+// send it; Vary: Origin on a static host must not bypass the offline shell.
 writeFileSync(
   "dist/sw.js",
   `const CACHE='rv-shell-${version}';
@@ -80,7 +83,7 @@ const url=new URL(event.request.url);
 if(event.request.method!=='GET'||url.origin!==self.location.origin||url.pathname.startsWith('/api/')||url.pathname.startsWith('/.well-known/'))return;
 if(event.request.mode==='navigate'&&(url.pathname==='/'||url.pathname.startsWith('/room/'))){
 event.respondWith(fetch(event.request).catch(()=>caches.open(CACHE).then(cache=>cache.match('/'))));return;}
-if(ASSETS.includes(url.pathname)||/^\\/assets\\/[a-zA-Z0-9_.-]+$/.test(url.pathname))event.respondWith(caches.match(event.request).then(response=>response||fetch(event.request)));
+if(ASSETS.includes(url.pathname)||/^\\/assets\\/[a-zA-Z0-9_.-]+$/.test(url.pathname))event.respondWith(caches.match(event.request,{ignoreVary:true}).then(response=>response||fetch(event.request)));
 });
 ${notificationWorker}`,
 );

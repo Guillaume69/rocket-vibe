@@ -1,14 +1,25 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import type { App } from "../app";
 import { composer } from "../composer";
 import { toast } from "../dom";
 import { t } from "../i18n";
-import { IconButton } from "./controls";
+import { ActionButton, IconButton } from "./controls";
+import { nt } from "../native-i18n";
+import { forRoom } from "../scheduled";
+import { ComposerFormatBar, formatShortcut } from "./format";
 import { renderView } from "./portals";
 
 export interface ThreadOptions {
   draft: string;
   disabled?: boolean;
+  /** Live permission/busy state, without rebuilding the editor or its draft. */
+  canSend?(): boolean;
   /** The root's id, for the follow button. */
   root?: string;
   /** The server can follow threads (`thread_follow`). */
@@ -21,6 +32,11 @@ export interface ThreadOptions {
   files?: (files: File[]) => void;
 }
 function ThreadView({ app, options }: { app: App; options: ThreadOptions }) {
+  useSyncExternalStore(app.view.subscribe, app.view.getSnapshot);
+  const disabled = !!options.disabled || options.canSend?.() === false;
+  const scheduled = forRoom(app.scheduled, app.room).filter(
+    (item) => item.reply_to === options.root,
+  );
   const timeline = useRef<HTMLDivElement>(null);
   const editor = useRef<HTMLDivElement>(null);
   const files = useRef<HTMLInputElement>(null);
@@ -35,14 +51,15 @@ function ThreadView({ app, options }: { app: App; options: ThreadOptions }) {
     app.threadTimeline = timeline.current!;
     const input = composer(editor.current!);
     app.threadComposer = input;
-    input.placeholder = t("message");
+    input.placeholder = nt("composer.placeholder");
     input.setAttribute("aria-label", t("thread"));
     input.value = options.draft;
-    input.disabled = !!options.disabled;
+    input.disabled = disabled;
     const abort = new AbortController();
     input.addEventListener(
       "keydown",
       (event) => {
+        if (formatShortcut(input, event)) return;
         if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
           event.preventDefault();
           void send(input.value).catch(toast);
@@ -65,9 +82,18 @@ function ThreadView({ app, options }: { app: App; options: ThreadOptions }) {
       input.dispose();
     };
   }, [app, options]);
+  useLayoutEffect(() => {
+    app.threadComposer.disabled = disabled;
+  }, [app, disabled]);
   return (
     <>
-      <header className="headerbar">
+      <header className="headerbar thread-header">
+        <IconButton
+          name="back"
+          label={t("close")}
+          className="flat thread-back"
+          action={() => app.closeThread()}
+        />
         <span className="room-title">{t("thread")}</span>
         {options.follow && options.root && (
           <FollowButton app={app} root={options.root} />
@@ -92,7 +118,22 @@ function ThreadView({ app, options }: { app: App; options: ThreadOptions }) {
           <span>{t("alsoInRoom")}</span>
         </label>
       )}
-      <div className="composer">
+      <div
+        className="reply-bar"
+        hidden
+        ref={(node) => {
+          if (node) app.threadReplyBar = node;
+        }}
+      />
+      {scheduled.length > 0 && (
+        <ActionButton
+          className="scheduled-chip"
+          action={() => app.showScheduled(options.root)}
+        >
+          {nt("scheduled.chip", { n: scheduled.length })}
+        </ActionButton>
+      )}
+      <div className="composer" hidden={options.disabled}>
         {options.files && (
           <input
             ref={files}
@@ -105,21 +146,39 @@ function ThreadView({ app, options }: { app: App; options: ThreadOptions }) {
             }}
           />
         )}
-        <IconButton
-          name="attach"
-          label={t("attach")}
-          action={() => {
-            if (options.files) files.current?.click();
-            else app.pickFile();
-          }}
-        />
-        <div ref={editor} className="composer-input rich-composer" />
-        <IconButton name="mic" label={t("voice")} action={() => app.record()} />
+        <div className="composer-pill">
+          <IconButton
+            name="attach"
+            label={t("attach")}
+            className="flat attach-button"
+            disabled={disabled}
+            action={() => {
+              if (options.files) files.current?.click();
+              else app.pickFile();
+            }}
+          />
+          <div ref={editor} className="composer-input rich-composer" />
+          <IconButton
+            name="smile"
+            label={t("react")}
+            className="flat attach-button"
+            disabled={disabled}
+            action={() => app.emojiPicker(undefined, app.threadComposer)}
+          />
+          <IconButton
+            name="mic"
+            label={t("voice")}
+            className="flat attach-button"
+            disabled={disabled}
+            action={() => app.record()}
+          />
+        </div>
         {app.canSchedule() && app.root && (
           <IconButton
             name="up"
             label={t("sendLater")}
             className="send-later"
+            disabled={disabled}
             action={(node) => app.sendLater(node, app.root)}
           />
         )}
@@ -127,9 +186,11 @@ function ThreadView({ app, options }: { app: App; options: ThreadOptions }) {
           name="send"
           label={t("send")}
           className="send"
+          disabled={disabled}
           action={() => send(app.threadComposer.value)}
         />
       </div>
+      <ComposerFormatBar app={app} thread disabled={disabled} />
     </>
   );
 }

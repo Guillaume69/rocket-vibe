@@ -163,7 +163,7 @@ try {
   );
   pass("edit through server permissions");
   await page.locator('[data-id="' + initial.id + '"] .row-more').click();
-  await page.getByRole("button", { name: "👍", exact: true }).click();
+  await page.getByRole("button", { name: ":thumbsup:", exact: true }).click();
   await visible(page.locator('[data-id="' + initial.id + '"] .reaction'));
   pass("live reactions");
   await page.locator('[data-id="' + initial.id + '"] .row-more').click();
@@ -211,7 +211,7 @@ try {
   pass("staged attachment, caption and native upload confirmation");
   await page
     .locator(".room-header")
-    .getByRole("button", { name: "Search", exact: true })
+    .getByRole("button", { name: "Search in room", exact: true })
     .click();
   await page.locator('dialog input[type="search"]').fill("Edited in browser");
   await visible(
@@ -269,10 +269,19 @@ try {
     .locator('[data-room="' + room.id + '"]')
     .first()
     .click({ button: "right" });
-  await page.waitForFunction(() =>
-    Array.from(document.querySelectorAll(".section-header")).some((node) =>
-      node.textContent?.includes("Favourites"),
-    ),
+  const favoriteResponse = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname ===
+        "/api/v1/rooms/" + room.id + "/favorite" &&
+      response.request().method() === "PUT",
+  );
+  await page
+    .getByRole("menuitem", { name: "Add to favorites", exact: true })
+    .click();
+  assert.ok((await favoriteResponse).ok());
+  assert.equal(
+    (await call("/api/v1/rooms/" + room.id + "/read", alice.token)).favorite,
+    true,
   );
   pass("room favourites and independent read state");
   // The account block opens a menu: settings, administration, sign out.

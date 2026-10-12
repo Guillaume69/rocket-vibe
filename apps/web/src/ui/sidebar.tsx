@@ -1,5 +1,7 @@
 import { useLayoutEffect, useRef } from "react";
 import { t } from "../i18n";
+import { nt } from "../native-i18n";
+import "../settings-parity.css";
 import { ActionButton, IconButton, Symbol } from "./controls";
 import { renderView } from "./portals";
 import type { SidebarHost } from "../sidebar";
@@ -12,6 +14,7 @@ interface Entry {
   glyph: string;
   build: Build;
   badge?: string;
+  frame?: Frame;
 }
 interface Frame {
   title: string;
@@ -112,7 +115,7 @@ function SidebarView({
         <header className="dialog-header preferences-header">
           <IconButton
             name="back"
-            label={t("close")}
+            label={nt("social.back")}
             className={
               "flat preferences-back" +
               (model.frames.length > 1 ? " subpage-back" : "")
@@ -180,12 +183,22 @@ export function createSidebar(title: string, className = ""): SidebarHost {
       refresh();
       return item.row!;
     },
-    select(id) {
+    select(id, reload = false) {
       const entry = model.entries.find((entry) => entry.id === id);
       if (!entry) return;
+      const current = model.entries.find(
+        (entry) => entry.id === model.selected,
+      );
+      if (current?.frame && model.frames.length === 1)
+        current.frame.scroll = model.scroll?.scrollTop || 0;
       model.selected = id;
-      model.frames = [make(entry.title, entry.build)];
+      if (reload || !entry.frame) entry.frame = make(entry.title, entry.build);
+      model.frames = [entry.frame];
       refresh();
+    },
+    invalidate(id) {
+      const entry = model.entries.find((entry) => entry.id === id);
+      if (entry) entry.frame = undefined;
     },
     setBadge(id, text) {
       const entry = model.entries.find((entry) => entry.id === id);
@@ -204,6 +217,15 @@ export function createSidebar(title: string, className = ""): SidebarHost {
     pop() {
       if (model.frames.length > 1) {
         model.frames.pop();
+        if (model.frames.length === 1) {
+          const entry = model.entries.find(
+            (entry) => entry.id === model.selected,
+          );
+          if (entry && !entry.frame) {
+            entry.frame = make(entry.title, entry.build);
+            model.frames = [entry.frame];
+          }
+        }
         refresh();
       }
     },

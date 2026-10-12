@@ -147,7 +147,7 @@ try {
   await menu(a, message.id);
   await a
     .locator(".actions-menu")
-    .getByRole("button", { name: "Quote", exact: true })
+    .getByRole("button", { name: "Reply", exact: true })
     .click();
   await a.locator(".reply-bar").waitFor({ state: "visible" });
 
@@ -170,7 +170,7 @@ try {
   );
   console.log("PASS quote references and safe excerpts");
   await menu(a, message.id);
-  await a.getByRole("button", { name: "Reports", exact: true }).click();
+  await a.getByRole("button", { name: "Report", exact: true }).click();
   await a.getByLabel("Reason").fill("Browser moderation " + tag);
   await a
     .locator("dialog")
@@ -201,7 +201,7 @@ try {
     .locator(".alert-dialog")
     .getByRole("button", { name: "Verify", exact: true })
     .click();
-  await a.locator(".admin-reports").waitFor();
+  await a.locator('.admin-reports[data-report-kind="messages"]').waitFor();
   await a.locator(".sidebar-dialog .preferences-close").click();
   console.log("PASS report and moderator dismissal through the application");
   for (const failure of ["constructor", "start"]) {
@@ -318,7 +318,7 @@ try {
     player.dataset.proof = "retained";
   });
   await menu(a, audioMessage.id);
-  await a.getByRole("button", { name: "👍", exact: true }).click();
+  await a.getByRole("button", { name: ":thumbsup:", exact: true }).click();
   assert.equal(
     await card.locator("audio").getAttribute("data-proof"),
     "retained",
@@ -326,9 +326,27 @@ try {
   console.log(
     "PASS staged recording, captions, protected audio and playback widget retained during reactions",
   );
+  await a.evaluate(() => navigator.serviceWorker.ready);
+  await a.waitForFunction(() => !!navigator.serviceWorker.controller);
+  const offlineAssets = [];
+  const recordOfflineAsset = (response) => {
+    if (/\/assets\/index-[^/]+\.(js|css)$/.test(response.url()))
+      offlineAssets.push({
+        url: response.url(),
+        cached: response.fromServiceWorker(),
+        origin: response.request().headers().origin,
+      });
+  };
+  a.on("response", recordOfflineAsset);
   await contexts[0].setOffline(true);
   await a.reload();
   await a.locator(".shell").waitFor();
+  a.off("response", recordOfflineAsset);
+  assert.equal(offlineAssets.length, 2);
+  assert.ok(offlineAssets.every((asset) => asset.cached));
+  assert.ok(
+    offlineAssets.some((asset) => asset.origin === new URL(base).origin),
+  );
   const offlineCard = a.locator(
     '[data-id="' + audioMessage.id + '"] [data-file-id]',
   );

@@ -1,3 +1,5 @@
+import { formatShortcut } from "./ui/format";
+import { pickTimeDialog } from "./time-picker";
 import { gifs } from "./social";
 import { messageMenu, type MenuAction } from "./ui/menu";
 import { showThread } from "./ui/thread";
@@ -8,7 +10,7 @@ import { flushSync } from "react-dom";
 import { ViewState } from "./ui/state";
 import { nt } from "./native-i18n";
 import { PrivateChat } from "./crypto/chat";
-import { Api, ApiError, operation, secret, segment } from "./api";
+import { Api, ApiError, operation, segment } from "./api";
 import { finishPendingLogouts } from "./logouts";
 import { adoptFolds } from "./folds";
 import { note } from "./diagnostics";
@@ -95,7 +97,6 @@ import {
   acceptable,
   forRoom,
   inOneHour,
-  localInput,
   tomorrowMorning,
   when,
 } from "./scheduled";
@@ -205,6 +206,7 @@ export class App implements RowActions {
   ownStatus?: import("./protocol").PresenceStatus;
   ownProfileRevision?: string;
   quote?: Message;
+  quoteRoot?: string;
   recorder?: MediaRecorder;
   fileWork = new WeakMap<HTMLElement, Promise<void>>();
   main = el("main", "shell");
@@ -220,6 +222,7 @@ export class App implements RowActions {
   replyBar = el("div", "reply-bar");
   threadPane = el("aside", "thread-pane");
   threadTimeline = el("div", "timeline");
+  threadReplyBar = el("div", "reply-bar");
   threadComposer = composer();
   status = el("span", "status-dot offline");
   comet = el("div", "comet");
@@ -374,77 +377,13 @@ export class App implements RowActions {
     } else this.login();
   }
   login(): void {
+    this.loginChallenge = undefined;
     this.view.screen("login");
   }
+  loginChallenge?: { challenge: AuthChallenge; info: Discovery };
   challenge(challenge: AuthChallenge, info: Discovery): void {
-    const [node, body] = dialog(t("code"));
-    const form = el("form");
-    const select = el("select", "pill-entry");
-    for (const method of challenge.methods) {
-      const option = el("option", "", t(method));
-      option.value = method;
-      select.append(option);
-    }
-    const [wrap, code] = field(t("code"));
-    code.autocomplete = "one-time-code";
-    const error = el("div", "login-error");
-    const submit = el("button", "cta", t("verify"));
-    submit.type = "submit";
-    form.append(select, wrap, error, submit);
-    body.append(form);
-    node.addEventListener("close", () => {
-      if (!this.account) this.login();
-    });
-    if (challenge.methods.includes("email"))
-      body.append(
-        button("Email", async () => {
-          await this.api.request(
-            "/api/v1/auth/factors/email/start",
-            "POST",
-            {
-              challenge_id: challenge.challenge_id,
-              operation_id: operation(),
-              delivery_id: secret(),
-            },
-            true,
-          );
-        }),
-      );
-    form.addEventListener("submit", (event) => {
-      event.preventDefault();
-      submit.disabled = true;
-      void (async () => {
-        const key = "factor:" + challenge.challenge_id;
-        let pending = await read<{ operation_id: string; next_token: string }>(
-          "operations",
-          key,
-        );
-        if (!pending) {
-          pending = { operation_id: operation(), next_token: secret() };
-          await write("operations", key, pending);
-        }
-        const session = await this.api.request<Session>(
-          "/api/v1/auth/factors/verify",
-          "POST",
-          {
-            ...pending,
-            challenge_id: challenge.challenge_id,
-            method: select.value,
-            code: code.value,
-          },
-          true,
-        );
-        code.value = "";
-        await this.accept(session, info);
-        await write("operations", key);
-        node.close();
-      })().catch((reason) => {
-        error.textContent =
-          reason instanceof Error ? reason.message : String(reason);
-        submit.disabled = false;
-      });
-    });
-    code.focus();
+    this.loginChallenge = { challenge, info };
+    this.view.changed();
   }
   async accept(session: Session, info: Discovery): Promise<void> {
     const account: Account = {
@@ -458,6 +397,7 @@ export class App implements RowActions {
     await write("accounts", account.key, account);
     this.info = info;
     await this.activate(account);
+    this.loginChallenge = undefined;
   }
   async activate(account: Account): Promise<void> {
     await this.stop();
@@ -618,12 +558,13 @@ export class App implements RowActions {
     const key = this.account?.key;
     const known =
       this.administrator?.key === key ? this.administrator?.value : undefined;
-    const items: [string, () => void | Promise<void>][] = [
-      [t("settings"), () => settings(this)],
-      [t("reminders"), () => this.showReminders()],
+    const items: [string, () => void | Promise<void>, string?][] = [
+      [t("settings"), () => settings(this), "settings"],
+      [t("reminders"), () => this.showReminders(), "notifications"],
     ];
-    if (known) items.push([t("administration"), () => administration(this)]);
-    items.push([t("logout"), () => this.logout()]);
+    if (known)
+      items.push([t("administration"), () => administration(this), "admin"]);
+    items.push([t("logout"), () => this.logout(), "logout"]);
     const menu = actionMenu(anchor, items, true);
     if (known !== undefined || !key || !this.info?.capabilities.administration)
       return;
@@ -638,7 +579,12 @@ export class App implements RowActions {
         this.administrator = { key, value };
         if (value && menu?.isConnected)
           menu.insertBefore(
-            menuRow(menu, t("administration"), () => administration(this)),
+            menuRow(
+              menu,
+              t("administration"),
+              () => administration(this),
+              "admin",
+            ),
             menu.lastElementChild,
           );
       })
@@ -1061,22 +1007,8 @@ export class App implements RowActions {
             return;
           }
         }
-        if (
-          (event.ctrlKey || event.metaKey) &&
-          (["b", "i", "e"].includes(event.key.toLowerCase()) ||
-            (event.key.toLowerCase() === "k" && event.shiftKey))
-        ) {
-          event.preventDefault();
+        if (formatShortcut(this.composer, event)) {
           event.stopPropagation();
-          const key = event.key.toLowerCase();
-          if (key === "b") this.format("**", "**");
-          else if (key === "i") this.format("_", "_");
-          else if (key === "k") this.formatLink();
-          else
-            this.format(
-              event.shiftKey ? "\x60\x60\x60\n" : "\x60",
-              event.shiftKey ? "\n\x60\x60\x60" : "\x60",
-            );
           return;
         }
         if (event.key === "ArrowUp" && !this.composer.value && this.room) {
@@ -1200,7 +1132,7 @@ export class App implements RowActions {
     this.composer.placeholder =
       room && this.roomPermissions.get(room.id)?.send === false
         ? t("readOnly")
-        : t("message");
+        : nt("composer.placeholder");
     if (!room && !this.timeline.children.length) emptyTimeline(this.timeline);
     this.view.changed();
   }
@@ -1510,22 +1442,14 @@ export class App implements RowActions {
     );
   }
   pickTime(root?: string): void {
-    const [node, body] = dialog(t("sendLater"));
-    const [wrap, input] = field(
-      t("pickTime"),
-      localInput(inOneHour(new Date())),
-      "datetime-local",
-    );
-    body.append(
-      wrap,
-      button(
-        t("sendLater"),
-        async () => {
-          await this.schedule(new Date(input.value), root);
-          node.close();
-        },
-        "suggested",
-      ),
+    pickTimeDialog(
+      {
+        title: nt("scheduled.pick"),
+        hint: nt("scheduled.pick_hint"),
+        confirm: nt("scheduled.schedule"),
+      },
+      acceptable,
+      (at) => this.schedule(at, root),
     );
   }
   async cancelScheduled(id: string): Promise<void> {
@@ -1533,12 +1457,34 @@ export class App implements RowActions {
     await this.refreshScheduled();
   }
   /** This room's scheduled messages, each with its time and Cancel or Remove. */
-  showScheduled(): void {
-    const [node, body] = dialog(t("scheduledTitle"));
+  showScheduled(root?: string): void {
+    const anchor = (
+      root ? this.threadPane : this.roomPane
+    ).querySelector<HTMLElement>(".scheduled-chip");
+    if (!anchor) return;
+    const node = el("div", "scheduled-list");
+    node.popover = "auto";
+    const body = el("div", "scheduled-items");
+    node.append(el("strong", "scheduled-title", t("scheduledTitle")), body);
+    document.body.append(node);
+    const rect = anchor.getBoundingClientRect();
+    node.style.inset = "auto";
+    node.style.margin = "0";
+    node.style.position = "fixed";
+    node.style.left = Math.max(8, Math.min(innerWidth - 360, rect.left)) + "px";
+    node.style.bottom = Math.max(8, innerHeight - rect.top + 6) + "px";
+    const account = this.account?.key,
+      room = this.room;
     const render = () => {
-      const list = forRoom(this.scheduled, this.room);
+      if (account !== this.account?.key || room !== this.room) {
+        node.hidePopover();
+        return;
+      }
+      const list = forRoom(this.scheduled, room).filter(
+        (item) => !root || item.reply_to === root,
+      );
       if (!list.length) {
-        node.close();
+        node.hidePopover();
         return;
       }
       body.replaceChildren(
@@ -1568,6 +1514,14 @@ export class App implements RowActions {
       );
     };
     render();
+    node.showPopover();
+    const unsubscribe = this.view.subscribe(render);
+    node.addEventListener("toggle", (event) => {
+      if ((event as ToggleEvent).newState === "closed") {
+        unsubscribe();
+        node.remove();
+      }
+    });
   }
   /** Reads this account's reminders, fires the due ones, then checks every 15 seconds. */
   async loadReminders(): Promise<void> {
@@ -1700,27 +1654,20 @@ export class App implements RowActions {
     ]);
   }
   pickReminderTime(message: Message): void {
-    const [node, body] = dialog(t("remindMe"));
-    const [wrap, input] = field(
-      t("pickTime"),
-      localInput(inHours(new Date(), 1)),
-      "datetime-local",
-    );
-    body.append(
-      wrap,
-      button(
-        t("remindMe"),
-        async () => {
-          await this.setReminder(message, new Date(input.value));
-          node.close();
-        },
-        "suggested",
-      ),
+    pickTimeDialog(
+      {
+        title: nt("reminders.pick"),
+        hint: nt("reminders.pick_hint"),
+        confirm: nt("reminders.remind_me"),
+      },
+      reminderAcceptable,
+      (at) => this.setReminder(message, at),
     );
   }
   /** The Reminders list: pending ones, soonest first, each to open or cancel. */
   showReminders(): void {
     const [node, body] = dialog(t("reminders"));
+    node.classList.add("reminders-dialog");
     const render = () => {
       if (!this.reminders.length) {
         body.replaceChildren(el("p", "dim", t("noReminders")));
@@ -1734,22 +1681,23 @@ export class App implements RowActions {
             el(
               "span",
               "scheduled-time",
-              when(new Date(reminder.due), language) +
-                " · " +
-                reminder.room_name,
+              when(new Date(reminder.due), language),
             ),
-            el(
-              "span",
-              "scheduled-text",
-              reminder.author + ": " + reminder.excerpt,
-            ),
+            el("span", "dim", reminder.room_name + " · " + reminder.author),
+            el("span", "scheduled-text", reminder.excerpt),
           );
-          row.append(
-            text,
-            button(t("openReminder"), () => {
+          const open = button(
+            "",
+            () => {
               node.close();
               return this.openReminder(reminder);
-            }),
+            },
+            "flat reminder-open",
+          );
+          open.setAttribute("aria-label", t("openReminder"));
+          open.append(text);
+          row.append(
+            open,
             button(t("cancel"), async () => {
               await this.cancelReminder(reminder.message);
               render();
@@ -1760,6 +1708,8 @@ export class App implements RowActions {
       );
     };
     render();
+    const unsubscribe = this.view.subscribe(render);
+    node.addEventListener("close", unsubscribe, { once: true });
   }
   async jumpTo(message: Message): Promise<void> {
     const account = this.account?.key,
@@ -1929,7 +1879,7 @@ export class App implements RowActions {
       room = this.room,
       opening = this.roomOpening,
       sourceText = text,
-      quote = this.quote,
+      quote = this.quoteRoot === root ? this.quote : undefined,
       editor = root ? this.threadComposer : this.composer,
       current = this.roomFence(room),
       draftKey = account.key + ":" + room + (root ? ":thread:" + root : ""),
@@ -2047,6 +1997,7 @@ export class App implements RowActions {
       if (this.quote === quote) {
         this.quote = undefined;
         this.replyBar.hidden = true;
+        this.threadReplyBar.hidden = true;
       }
     }
     if (!current()) return;
@@ -2530,19 +2481,43 @@ export class App implements RowActions {
       .sort((a, b) => (counts[b] || 0) - (counts[a] || 0))
       .slice(0, 5);
     const quick: MenuAction[] = permissions.react
-      ? quickCodes
-          .map(emojiGlyph)
-          .map((emoji) => [emoji, () => this.reaction(message, emoji)] as const)
+      ? quickCodes.map(
+          (code) =>
+            [
+              emojiGlyph(code),
+              () => this.reaction(message, code),
+              {
+                label: ":" + code + ":",
+                mine: message.reactions?.some(
+                  (reaction) =>
+                    canonical(reaction.emoji) === code &&
+                    reaction.users.some(
+                      (user) => user.id === this.account?.session.user.id,
+                    ),
+                ),
+              },
+            ] as const,
+        )
       : [];
     const actions: MenuAction[] = [];
     const action = (label: string, run: () => Promise<void> | void) => {
       actions.push([label, run]);
     };
-    if (permissions.react) action(t("react"), () => this.emojiPicker(message));
-    action(t("reply"), () => this.thread(message));
-    action(t("quote"), () => {
+    if (permissions.react)
+      quick.push([
+        "+",
+        () => this.emojiPicker(message, this.composer, anchor),
+        { icon: "plus", label: nt("actions.react_more") },
+      ]);
+    if (!this.root && !message.reply_to && this.info?.capabilities.threads)
+      action(nt("actions.reply_thread"), () => this.thread(message));
+    const quote = () => {
       this.quote = message;
-      this.replyBar.replaceChildren(
+      const inThread = !!this.root && !!anchor.closest(".thread-pane");
+      this.quoteRoot = inThread ? this.root : undefined;
+      const replyBar = inThread ? this.threadReplyBar : this.replyBar;
+      const target = inThread ? this.threadComposer : this.composer;
+      replyBar.replaceChildren(
         el(
           "span",
           "reply-title",
@@ -2551,19 +2526,67 @@ export class App implements RowActions {
         el("span", "reply-preview", message.text),
         iconButton("close", t("cancel"), () => {
           this.quote = undefined;
-          this.replyBar.hidden = true;
+          replyBar.hidden = true;
         }),
       );
-      this.replyBar.hidden = false;
-      this.composer.focus();
-    });
+      replyBar.hidden = false;
+      target.focus();
+    };
+    if (this.info?.capabilities.quotes) {
+      action(nt("actions.reply"), quote);
+      action(nt("quote.elsewhere"), () => {
+        const [picker, body] = dialog(nt("quote.elsewhere"));
+        picker.classList.add("quote-room-picker");
+        const [wrap, input] = field(t("searchRooms"));
+        const list = el("div", "spotlight");
+        body.append(wrap, list);
+        const paint = () => {
+          list.replaceChildren();
+          for (const room of this.model.rooms.values()) {
+            if (
+              room.encrypted ||
+              room.id === message.room_id ||
+              !room.name.toLowerCase().includes(input.value.toLowerCase())
+            )
+              continue;
+            list.append(
+              button(
+                room.name,
+                async () => {
+                  if (!current()) return;
+                  picker.close();
+                  this.closeThread();
+                  await this.openRoom(room.id);
+                  if (current() && this.room === room.id) quote();
+                },
+                "flat spotlight-row",
+              ),
+            );
+          }
+        };
+        input.addEventListener("input", paint);
+        paint();
+        input.focus();
+      });
+    }
     if (
       this.info?.capabilities.reports &&
       message.author.id !== this.account?.session.user.id &&
       this.model.rooms.get(message.room_id)?.kind === "public"
     )
-      action(t("reports"), () => report(this, "messages", message.id));
-    action(t("copy"), () => navigator.clipboard.writeText(message.text));
+      action(nt("report.action"), () => report(this, "messages", message.id));
+    action(nt("actions.copy"), () =>
+      navigator.clipboard.writeText(message.text),
+    );
+    action(nt("actions.copy_link"), () => {
+      const link = new URL("rocketvibe://room/" + segment(message.room_id));
+      link.searchParams.set("host", location.origin);
+      link.searchParams.set("instanceId", this.info!.instance_id);
+      link.searchParams.set("dataEpoch", this.info!.data_epoch);
+      link.searchParams.set("msg", message.id);
+      if (message.reply_to) link.searchParams.set("tmid", message.reply_to);
+      return navigator.clipboard.writeText(link.href);
+    });
     const reminder = this.reminders.find((r) => r.message === message.id);
     if (reminder)
       action(
@@ -2574,7 +2597,6 @@ export class App implements RowActions {
         () => this.cancelReminder(reminder.message),
       );
     else action(t("remindMe"), () => this.remindMenu(message, anchor));
-    action(t("profile"), () => profile(this, message.author.id));
     if (permissions.star)
       action(
         message.personal_star?.present ? t("unstar") : t("star"),
@@ -2631,6 +2653,33 @@ export class App implements RowActions {
           ),
         );
       });
+    const order = [
+      nt("actions.copy"),
+      nt("actions.copy_link"),
+      t("remindMe"),
+      nt("actions.reply"),
+      nt("quote.elsewhere"),
+      nt("actions.reply_thread"),
+      t("pin"),
+      t("unpin"),
+      t("star"),
+      t("unstar"),
+      t("edit"),
+      t("delete"),
+      nt("report.action"),
+    ];
+    const rank = (label: string) =>
+      label.startsWith(t("cancelReminder")) ? 2 : order.indexOf(label);
+    actions.sort((a, b) => rank(a[0]) - rank(b[0]));
+    for (const item of actions)
+      if (item[0] === t("delete"))
+        (
+          item as [
+            string,
+            () => void | Promise<void>,
+            { destructive?: boolean }?,
+          ]
+        )[2] = { destructive: true };
     messageMenu(
       anchor,
       quick,
@@ -3929,65 +3978,73 @@ export class App implements RowActions {
     this.composer.setSelectionRange(innerStart, innerEnd);
     void this.saveDraft();
   }
-  emojiPicker(message?: Message): void {
-    const [node, body] = dialog(t("react"));
-    const [wrap, input] = field(t("search"));
+  emojiPicker(
+    message?: Message,
+    target = this.composer,
+    source?: HTMLElement,
+  ): void {
+    const anchor =
+      source ||
+      target.parentElement?.querySelector<HTMLElement>(
+        'button[aria-label="' + t("react") + '"]',
+      ) ||
+      target;
+    if (!anchor.isConnected || !this.account) return;
+    const current = message
+      ? this.roomFence(message.room_id)
+      : this.room
+        ? this.roomFence(this.room)
+        : () => false;
+    document
+      .querySelectorAll<HTMLElement>(".emoji-picker[popover]")
+      .forEach((node) => node.hidePopover());
+    const node = el("div", "emoji-picker");
+    node.popover = "auto";
+    const input = el("input", "pill-entry emoji-search");
     input.type = "search";
-    const tabs = el("select", "pill-entry");
-    for (const category of [
-      "recent",
-      ...categories.keys(),
-      ...(this.emojis.size ? ["custom"] : []),
-    ]) {
-      const option = el("option", "", category);
-      option.value = category;
-      tabs.append(option);
-    }
-    const grid = el("div", "emoji-grid");
-    body.append(wrap, tabs, grid);
+    input.placeholder = ":";
+    input.setAttribute("aria-label", t("search"));
+    const tabs = el("div", "picker-tabs"),
+      scroll = el("div", "emoji-scroll"),
+      grid = el("div", "emoji-grid");
+    scroll.append(grid);
+    node.append(input, tabs, scroll);
+    document.body.append(node);
+    let category = "people";
     const render = () => {
       grid.replaceChildren();
-      const query = input.value.toLowerCase();
+      const query = input.value.toLowerCase().replace(/^:+|:+$/g, "");
       const codes = query
-        ? [...glyphs.keys(), ...this.emojis.keys()].filter((code) =>
-            code.includes(query),
+        ? [...this.emojis.keys(), ...glyphs.keys()].filter((code) =>
+            code.toLowerCase().includes(query),
           )
-        : tabs.value === "recent"
-          ? [
-              "smile",
-              "joy",
-              "heart",
-              "thumbsup",
-              "tada",
-              "rocket",
-              "unicorn",
-              "fire",
-              "eyes",
-              "pray",
-              "sparkles",
-              "wave",
-            ]
-          : tabs.value === "custom"
-            ? [...this.emojis.keys()]
-            : categories.get(tabs.value) || [];
-      for (const code of [...new Set(codes)].slice(0, 240)) {
+        : category === "custom"
+          ? [...this.emojis.keys()]
+          : categories.get(category) || [];
+      for (const code of [...new Set(codes)].slice(0, 180)) {
         const value = button(
           "",
           async () => {
-            if (message) await this.reaction(message, code);
-            else {
-              this.composer.setRangeText(
+            if (!current()) {
+              node.hidePopover();
+              return;
+            }
+            if (message) {
+              node.hidePopover();
+              await this.reaction(message, code);
+            } else {
+              target.setRangeText(
                 this.emojis.has(code)
-                  ? ":" + code + ":"
+                  ? ":" + code + ": "
                   : glyphs.get(code) || ":" + code + ":",
-                this.composer.selectionStart,
-                this.composer.selectionEnd,
+                target.selectionStart,
+                target.selectionEnd,
                 "end",
               );
-              this.composer.focus();
-              await this.saveDraft();
+              target.focus();
+              target.dispatchEvent(new Event("input", { bubbles: true }));
+              if (target === this.composer) await this.saveDraft();
             }
-            node.close();
           },
           "picker-emoji",
         );
@@ -3999,9 +4056,52 @@ export class App implements RowActions {
         this.emoji(code, glyph);
       }
     };
+    const entries: [string, string][] = [
+      ...(this.emojis.size ? [["custom", ""] as [string, string]] : []),
+      ["people", "😀"],
+      ["nature", "🐻"],
+      ["food", "🍔"],
+      ["activity", "⚽"],
+      ["travel", "🚗"],
+      ["objects", "💡"],
+      ["symbols", "❤️"],
+      ["flags", "🏳️"],
+    ];
+    for (const [key, glyph] of entries) {
+      const tab = button(
+        glyph,
+        () => {
+          category = key;
+          input.value = "";
+          render();
+        },
+        "flat picker-tab",
+      );
+      tab.title = key === "custom" ? nt("emoji.server") : key;
+      tab.setAttribute("aria-label", tab.title);
+      if (key === "custom") {
+        const first = this.emojis.keys().next().value;
+        if (first) {
+          const image = el("span", "emoji");
+          tab.append(image);
+          this.emoji(first, image);
+        }
+      }
+      tabs.append(tab);
+    }
     input.addEventListener("input", render);
-    tabs.addEventListener("change", render);
+    node.addEventListener("toggle", (event) => {
+      if ((event as ToggleEvent).newState === "closed") node.remove();
+    });
+    node.style.inset = "auto";
+    node.style.position = "fixed";
+    node.style.margin = "0";
+    const rect = anchor.getBoundingClientRect();
+    node.style.left = Math.max(8, Math.min(innerWidth - 392, rect.left)) + "px";
+    node.style.top =
+      Math.max(8, Math.min(innerHeight - 370, rect.top - 370)) + "px";
     render();
+    node.showPopover();
     input.focus();
   }
 }

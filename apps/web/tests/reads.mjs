@@ -147,7 +147,7 @@ try {
   );
   await readThrough(first);
   await page
-    .locator('[data-room="' + room.id + '"] .badge-unread')
+    .locator('[data-room="' + room.id + '"] .room-bottom .badge')
     .waitFor({ state: "detached" });
   assert.equal(await page.evaluate(() => window.__notes.length), 0);
   console.log(
@@ -238,7 +238,9 @@ try {
   await page.locator('[data-id="' + absent.id + '"]').waitFor();
   await page.waitForTimeout(2000);
   assert.ok(BigInt((await state()).root_position) < BigInt(absent.position));
-  await page.locator('[data-room="' + room.id + '"] .badge-unread').waitFor();
+  await page
+    .locator('[data-room="' + room.id + '"] .room-bottom .badge')
+    .waitFor();
   await page.waitForFunction(() => window.__notes.some((note) => !note.closed));
   await page.bringToFront();
   await page.evaluate(() => window.__setInactive(false));

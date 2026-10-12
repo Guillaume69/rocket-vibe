@@ -68,7 +68,7 @@ try {
   assert.equal(
     await page
       .locator(".room-header")
-      .getByRole("button", { name: "Join call", exact: true })
+      .getByRole("button", { name: "Join voice", exact: true })
       .count(),
     0,
   );

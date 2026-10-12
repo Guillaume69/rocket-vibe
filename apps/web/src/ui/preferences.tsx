@@ -59,6 +59,8 @@ export function switchControl(
       <span className="action-row-title">{title}</span>
       <input
         type="checkbox"
+        role="switch"
+        className="row-switch"
         aria-label={title}
         defaultChecked={value}
         onChange={(event) => change(event.currentTarget.checked)}

@@ -4,6 +4,8 @@ import type { UserProfile } from "../protocol";
 import { nt } from "../native-i18n";
 import { ActionButton, Avatar } from "./controls";
 import { renderView } from "./portals";
+import { metadataMarkdown } from "../markdown-text";
+import { Markdown } from "./messages";
 interface Options {
   app: App;
   profile: UserProfile;
@@ -55,7 +57,9 @@ function Profile({ options }: { options: Options }) {
       {profile.bio && (
         <div className="profile-bio-section">
           <div className="details-section">{nt("info.bio")}</div>
-          <p className="profile-bio">{profile.bio}</p>
+          <div className="profile-bio message-body">
+            <Markdown nodes={metadataMarkdown(profile.bio)} />
+          </div>
         </div>
       )}
       {other && (

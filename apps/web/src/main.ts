@@ -1,6 +1,8 @@
 import "./gtk.css";
 import "./style.css";
 import "./extra.css";
+import "./voice-parity.css";
+import "./shell-parity.css";
 import { createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { Application } from "./ui/application";

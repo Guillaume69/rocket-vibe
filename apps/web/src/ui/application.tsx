@@ -15,13 +15,13 @@ import {
   roomInfo,
   marked,
   search,
-  localSearch,
   newConversation,
   threads,
 } from "../panel-actions";
 import { ActionButton, Avatar, Brand, IconButton, Symbol } from "./controls";
 import { forRoom } from "../scheduled";
 import { LoginScreen } from "./login";
+import { ComposerFormatBar } from "./format";
 import { RoomList } from "./rooms";
 import { AppContext } from "./context";
 import { PortalViews, clearView } from "./portals";
@@ -55,7 +55,7 @@ function NativeEditor({ app }: { app: App }) {
   useLayoutEffect(() => {
     const node = composer(element.current!);
     app.composer = node;
-    node.placeholder = t("message");
+    node.placeholder = nt("composer.placeholder");
     node.setAttribute("aria-label", t("message"));
     return () => node.dispose();
   }, [app]);
@@ -90,12 +90,6 @@ function Shell({ app }: { app: App }) {
             <span className="unicorn-header">🦄</span>
             <Brand />
           </div>
-          <IconButton
-            name="search"
-            label={t("localSearchTitle")}
-            title={t("localSearchTitle") + " (Ctrl+Shift+F)"}
-            action={() => void localSearch(app).catch(toast)}
-          />
           <IconButton
             name="plus"
             label={t("new")}
@@ -143,7 +137,7 @@ function Shell({ app }: { app: App }) {
               </div>
               <div className="account-host">{location.host}</div>
             </div>
-            <Symbol name="app" />
+            <Symbol name="app" className="account-gear" />
           </ActionButton>
           <ActionButton
             aria-label={t(
@@ -297,6 +291,7 @@ function Shell({ app }: { app: App }) {
                 app.info?.capabilities.giphy) && (
                 <IconButton
                   name="more"
+                  className="attach-button"
                   label={
                     language === "fr"
                       ? "Sondage, soirée, stickers et GIF"
@@ -334,7 +329,12 @@ function Shell({ app }: { app: App }) {
             action={() => app.send()}
           />
         </div>
-        <FormatBar app={app} disabled={disabled} />
+        <ComposerFormatBar app={app} disabled={disabled} />
+        {room &&
+          !room.encrypted &&
+          app.roomPermissions.get(room.id)?.send === false && (
+            <div className="read-only-label">{nt("room.read_only")}</div>
+          )}
         <ActionButton
           className="jump-latest"
           aria-label={
@@ -381,6 +381,8 @@ function RoomHeader({ app }: { app: App }) {
   const peer = app.live?.rooms.find(
     (value) => value.room_id === room?.id,
   )?.direct_peer;
+  const presence =
+    peer && app.live?.presence.find((value) => value.user.id === peer.id);
   return (
     <header
       className="headerbar room-header"
@@ -388,9 +390,7 @@ function RoomHeader({ app }: { app: App }) {
         if (node) app.header = node;
       }}
     >
-      {!room ? (
-        <Brand />
-      ) : (
+      {room && (
         <>
           <IconButton
             name="back"
@@ -407,77 +407,58 @@ function RoomHeader({ app }: { app: App }) {
           <ActionButton
             className="room-heading flat"
             action={() => roomInfo(app)}
+            onContextMenu={(event) => {
+              if (!app.info?.capabilities.thread_list || room.encrypted) return;
+              event.preventDefault();
+              actionMenu(event.currentTarget, [
+                [nt("info.room"), () => roomInfo(app), "rooms"],
+                [t("threads"), () => threads(app), "threads"],
+              ]);
+            }}
           >
             <Avatar
               app={app}
               name={room.name}
               user={peer}
+              room={room.kind === "direct" ? undefined : room}
               size="header"
+              icon={room.encrypted ? "lock" : undefined}
               glyph={room.kind === "direct" ? undefined : "#"}
             />
-            <span className="room-title">{room.name}</span>
+            <span className="room-heading-text">
+              <span className="room-title">{room.name}</span>
+              {presence && (
+                <span className="room-subtitle">
+                  <span className={"presence-dot " + presence.status} />
+                  {nt("presence." + presence.status)}
+                </span>
+              )}
+            </span>
           </ActionButton>
-          <IconButton name="pin" label={t("pins")} action={() => marked(app)} />
-          {app.info?.capabilities.thread_list && !room.encrypted && (
-            <IconButton
-              name="threads"
-              label={t("threads")}
-              action={() => threads(app)}
-            />
-          )}
+          <IconButton
+            name="pin"
+            label={nt("marked.title")}
+            action={() => marked(app)}
+          />
           <IconButton
             name="search"
-            label={t("search")}
+            label={nt("search.title")}
             action={() => search(app)}
           />
           {app.info?.capabilities.voice &&
             (!room.encrypted || app.privateChat?.active) && (
               <IconButton
-                name="video"
-                label={language === "fr" ? "Rejoindre l’appel" : "Join call"}
+                name="call"
+                label={nt(
+                  room.kind === "direct"
+                    ? "voice_session.start_call"
+                    : "voice_session.join",
+                )}
                 action={() => app.voice.join()}
               />
             )}
         </>
       )}
     </header>
-  );
-}
-
-function FormatBar({ app, disabled }: { app: App; disabled: boolean }) {
-  const actions: [string, string, () => void, string?][] = [
-    ["B", "Bold", () => app.format("**", "**"), "bold"],
-    ["I", "Italic", () => app.format("_", "_"), "italic"],
-    ["S", "Strike", () => app.format("~", "~"), "strike"],
-    ["H", "Heading", () => app.formatLines("# ")],
-    ["</>", "Inline code", () => app.format("\x60", "\x60")],
-    ["{ }", "Code block", () => app.format("\x60\x60\x60\n", "\n\x60\x60\x60")],
-    ["“", "Quote", () => app.formatLines("> ")],
-    ["☷", "Bullets", () => app.formatLines("- ")],
-    ["≡", "Numbers", () => app.formatLines("numbered")],
-  ];
-  return (
-    <div className="format-bar" hidden={disabled}>
-      {actions.map(([label, title, action, style], index) => (
-        <span key={title} style={{ display: "contents" }}>
-          {index === 4 && (
-            <IconButton
-              name="attach"
-              label="Link"
-              className="format-button"
-              action={() => app.formatLink()}
-            />
-          )}
-          <ActionButton
-            className={"format-button " + (style || "")}
-            title={title}
-            aria-label={title}
-            action={action}
-          >
-            {label}
-          </ActionButton>
-        </span>
-      ))}
-    </div>
   );
 }

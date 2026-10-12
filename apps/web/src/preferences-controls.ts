@@ -3,6 +3,7 @@ import type { App } from "./app";
 import { el, button, dialog } from "./dom";
 import { actionRow } from "./sidebar";
 import { t } from "./i18n";
+import { nt } from "./native-i18n";
 export function accountFence(app: App): () => boolean {
   const key = app.account?.key,
     user = app.account?.session.user.id,
@@ -12,6 +13,29 @@ export function accountFence(app: App): () => boolean {
     app.account?.key === key &&
     app.account.session.user.id === user &&
     app.account.epoch === epoch;
+}
+/** GTK native_profiles::photo_png: upright PNG, 512-pixel longest side, 2 MiB. */
+export async function profilePhoto(file: File): Promise<File> {
+  const image = await createImageBitmap(file, {
+    imageOrientation: "from-image",
+  });
+  try {
+    const scale = Math.min(1, 512 / Math.max(image.width, image.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(image.width * scale));
+    canvas.height = Math.max(1, Math.round(image.height * scale));
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error(nt("settings.save_failed"));
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    const png = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/png"),
+    );
+    if (!png || png.size > 2 * 1024 * 1024)
+      throw new Error(nt("settings.save_failed"));
+    return new File([png], "profile.png", { type: "image/png" });
+  } finally {
+    image.close();
+  }
 }
 export function entryRow(
   title: string,

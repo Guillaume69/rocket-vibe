@@ -9,6 +9,7 @@ All notable changes are documented here in English.
 - RocketVibe administrators can create, copy, list and revoke account invitation codes.
 - Sign in with the verified email address of your account instead of your username.
 - Setting up an authenticator on a RocketVibe account shows a QR code of the setup link to scan, next to the key for manual entry.
+- Room owners can change channel images from room information, with protected, revisioned images in the room header and list.
 
 ### Fixed
 
@@ -16,6 +17,13 @@ All notable changes are documented here in English.
 - Confirming an email address already linked to another account says so instead of showing a raw error code.
 - The sign-up and recovery-code forms label their username field "Username", since they do not take an email address.
 - The profile page and the add-member field label the username field "Username", not the sign-in label "Username or email".
+- Align the RocketVibe web screens with the running GTK client: login and verification steps, room groups and menus, conversation headers, timeline grouping, composers, threads, message actions, emoji, search, room information, members, profiles and scheduling calendars.
+- Restore GTK settings and administration layouts, preserve category drafts and scroll position, use grouped security and encryption ceremonies, and render profile bios and room descriptions with safe markdown.
+- Match voice controls, participant menus, incoming-call alerts and leave/rejoin navigation to GTK, including listen-only mute and connection states.
+- Prevent a blank screen after second-factor login, repeated encryption warnings during refresh, and crypto settings becoming inactive after switching categories. Device reviews require the fingerprint to be typed before confirmation.
+- Keep private-thread composers visible and update their controls after an in-flight send completes, preserving the draft. Retire pending channel-image operations when membership is withdrawn, and use the personal read revision for room-information favourites.
+- Hydrate new DM, room and join receipts with personal membership state before opening them, preserving newer live state and preventing profile/encryption dialogs from closing during initial synchronization.
+- Load the cached public shell offline even when module/style requests carry a different Origin header from their precache requests. Authenticated APIs remain excluded from the service-worker cache.
 - Invitation signup and password recovery authenticate after receiving the account response, including second-factor challenges.
 - Typing /giphy opens a compact GIF grid immediately. Search updates as you type in both the command and sharing-menu pickers; choosing a GIF highlights it, and Enter or the shared Send button sends it. Search changes discard old selections and stale responses, and cancellation preserves the draft.
 - Fold room-list sections per account, keyed by section rather than by its translated title: signing in as someone else no longer inherits the previous account's folds, and changing the language keeps them.

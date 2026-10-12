@@ -1,5 +1,6 @@
 import { dialogContents } from "./ui/dialog";
 import { noteError } from "./diagnostics";
+import { icon as nativeIcon } from "./icons";
 export function stopMedia(node: ParentNode): void {
   for (const player of node.querySelectorAll<HTMLMediaElement>("audio,video"))
     if (
@@ -118,6 +119,7 @@ export function menuRow(
   menu: HTMLElement,
   label: string,
   run: () => void | Promise<void>,
+  icon?: string,
 ): HTMLButtonElement {
   const row = button(
     label,
@@ -128,11 +130,12 @@ export function menuRow(
     "flat menu-action",
   );
   row.setAttribute("role", "menuitem");
+  if (icon) row.prepend(nativeIcon(icon));
   return row;
 }
 export function actionMenu(
   anchor: HTMLElement,
-  items: [string, () => void | Promise<void>][],
+  items: [string, () => void | Promise<void>, string?][],
   above = false,
 ): HTMLElement | undefined {
   const shown = openMenus.get(anchor);
@@ -143,7 +146,8 @@ export function actionMenu(
   const menu = el("div", "actions-menu anchored-menu");
   menu.popover = "auto";
   menu.setAttribute("role", "menu");
-  for (const [label, run] of items) menu.append(menuRow(menu, label, run));
+  for (const [label, run, icon] of items)
+    menu.append(menuRow(menu, label, run, icon));
   openMenus.set(anchor, menu);
   anchor.setAttribute("aria-expanded", "true");
   menu.addEventListener("toggle", (event) => {
@@ -165,6 +169,13 @@ export function actionMenu(
   if (above) menu.style.bottom = window.innerHeight - rect.top + 6 + "px";
   else menu.style.top = rect.bottom + 6 + "px";
   menu.showPopover();
+  const bounds = menu.getBoundingClientRect();
+  menu.style.left =
+    Math.max(8, Math.min(rect.left, innerWidth - bounds.width - 8)) + "px";
+  if (!above)
+    menu.style.top =
+      Math.max(8, Math.min(rect.bottom + 6, innerHeight - bounds.height - 8)) +
+      "px";
   menu.querySelector<HTMLButtonElement>("button")?.focus();
   return menu;
 }

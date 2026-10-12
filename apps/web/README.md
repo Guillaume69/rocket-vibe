@@ -4,6 +4,8 @@ The native RocketVibe server serves this actual browser client at `/`. It uses t
 
 The interface reuses the GTK theme, Nunito/Baloo 2 fonts, Adwaita icons, Noto emoji and project sounds. Chat, threads, actions, search, drafts, offline queues, uploads, recording, profiles, room management, administration, security settings, bots, workflows, their message forms and LiveKit calls are implemented. See [execution and remaining parity](../../docs/WEB_CLIENT_EXECUTION.md).
 
+The [2026-10-12 screen audit](../../docs/WEB_GTK_SCREEN_AUDIT.md) compares the running native-provider GTK screens and records the corresponding browser corrections. Settings retain category drafts and scroll; native room information includes the owner channel-image control, with protected images in the header/list. A DM heading opens the peer profile. Right-click the room heading for the web thread list; Ctrl+Shift+F opens across-room search. Login/factor, composer, preview, security/encryption and voice layouts follow the native reference.
+
 React 19 renders the application screens and keyed conversation components. The existing transport/MLS state machines and bounded native editor/media adapters retain their behavior; see [React architecture and adapter boundaries](../../docs/WEB_REACT.md).
 
 ## Build
@@ -75,7 +77,7 @@ The image suite uses `webimage` and `webimagepeer`. It uploads original landscap
 
 Prepared attachments follow GTK's 40-pixel thumbnail, name/type/size and inline sound replay. One parked Original-quality checkbox replaces per-image size/caption options. Images reduce at send to JPEG 1920/82 when eligible; the batch moves atomically into the durable queue in selection order, caption on its first file. The image suite verifies original preservation and real reduced dimensions. The recording bar keeps the formatting toolbar visible and supplies elapsed time, Cancel and stop-to-listen; advanced cases check actual capture shutdown on cancel and constructor/start failure, staged replay, sending and offline playback.
 
-Rocket.Chat provider support remains outside the accepted scope. Browser encryption supports the native MLS protocol, with browser-storage guarantees that differ from the OS keyring. Run `npm run crypto:build` after changing Rust crypto sources; ordinary builds reject stale WASM assets. Complete GTK visual parity remains under qualification; the DOM editor follows GTK's draft styling, selection and marker visibility.
+Rocket.Chat provider support remains outside the accepted scope. Browser encryption supports the native MLS protocol, with browser-storage guarantees that differ from the OS keyring. Run `npm run crypto:build` after changing Rust crypto sources; ordinary builds reject stale WASM assets. The screen audit records GTK layout and navigation qualification; browser permissions and platform rendering retain their stated boundaries. The DOM editor follows GTK's draft styling, selection and marker visibility.
 
 ## Licences
 

@@ -3,6 +3,7 @@ import type { App } from "../app";
 import type { Room } from "../protocol";
 import { t, language } from "../i18n";
 import { previewText } from "../presentation";
+import { isFolded, setFolded } from "../folds";
 import { newConversation } from "../panel-actions";
 import { initials, toast } from "../dom";
 import { ActionButton, Avatar, IconButton, Symbol } from "./controls";
@@ -61,7 +62,8 @@ export function RoomList({ app }: { app: App }) {
     >
       {groups.map(([label, values, key]) => {
         if (!values.length) return null;
-        const collapsed = localStorage.getItem("rv-fold:" + label) === "true";
+        const account = app.account?.key ?? "";
+        const collapsed = isFolded(localStorage, account, key);
         const tab =
           key === "channels"
             ? "create"
@@ -72,7 +74,7 @@ export function RoomList({ app }: { app: App }) {
           <ActionButton
             className="section-header"
             action={() => {
-              localStorage.setItem("rv-fold:" + label, String(!collapsed));
+              setFolded(localStorage, account, key, !collapsed);
               app.renderRooms();
             }}
           >

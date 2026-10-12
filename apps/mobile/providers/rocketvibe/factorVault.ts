@@ -3,7 +3,7 @@
 import type {BeginFactorSetup,ChangeEmailFactor,DisableFactor,EmailFactorChange,EmailStatus,EnableFactor,FactorBackupCodes,FactorSetup,FactorStatus,RegenerateFactorBackups} from './protocol.generated.ts';
 import {NativeError} from './transport.ts';
 import {decodeNative} from './validation.ts';
-import {statusFor} from './emailVault.ts';
+import {proofNeeded,statusFor} from './emailVault.ts';
 import {checkSecurityScope,securityAlive,securityKey,securityQueue,securityScope,type ReauthenticationRemote,type SecurityDependencies,type SecurityGuard,type SecurityScope} from './reauthenticationVault.ts';
 
 export type FactorRemote={
@@ -21,7 +21,8 @@ type FactorIntent={kind:'setup';operation_id:string;setup:FactorSetup|null;enabl
   |{kind:'email';operation_id:string;email_version:string;factor_version:string|null;enabled:boolean}
   |{kind:'codes';operation_id:string;factor_version:string;codes:FactorBackupCodes};
 type Record={scope:SecurityScope;intent:FactorIntent};
-export type FactorView={kind:'idle'}|{kind:'setup';setup:FactorSetup}|{kind:'codes';receipt:string;codes:FactorBackupCodes}|{kind:'stale';receipt:string};
+export type PendingFactor='setup'|'regenerate'|'disable'|'email_enable'|'email_disable';
+export type FactorView={kind:'idle'}|{kind:'setup';setup:FactorSetup}|{kind:'codes';receipt:string;codes:FactorBackupCodes}|{kind:'stale';receipt:string}|{kind:'pending';receipt:string;action:PendingFactor};
 export type EmailFactorExpectation={contact:EmailStatus;factors:FactorStatus;enabled:boolean};
 export class FactorVault {
   private readonly deps:SecurityDependencies;
@@ -74,7 +75,11 @@ export class FactorVault {
         context:{user_id:scope.user_id,device_id:scope.device_id,instance_id:scope.instance_id,data_epoch:scope.data_epoch}};
       let receipt:EmailFactorChange;
       try{securityAlive(guard);receipt=await remote.emailSettings.change(input,intent.enabled);securityAlive(guard);}
-      catch(e){securityAlive(guard);if(e instanceof NativeError && e.status===409)return {kind:'stale',receipt:intent.operation_id};throw e;}
+      catch(e){
+        securityAlive(guard);if(e instanceof NativeError && e.status===409)return {kind:'stale',receipt:intent.operation_id};
+        if(proofNeeded(e))return {kind:'pending',receipt:intent.operation_id,action:intent.enabled?'email_enable':'email_disable'};
+        throw e;
+      }
       decodeNative('EmailFactorChange',receipt);checkSecurityScope(scope,receipt.context);
       if(receipt.enabled!==intent.enabled || receipt.email_version!==intent.email_version || !/^[A-Za-z0-9_-]{1,128}$/.test(receipt.factor_version)
         || receipt.codes.length!==(intent.enabled?10:0) || receipt.codes.some(code=>!code || code.length>128))throw new NativeError(502,'invalid_native_security');
@@ -86,24 +91,37 @@ export class FactorVault {
     if(intent.kind==='disable'){
       if(status.totp){
         if(status.factor_version!==intent.factor_version)return {kind:'stale',receipt:intent.operation_id};
-        securityAlive(guard);await remote.disable({factor_version:intent.factor_version});securityAlive(guard);
+        securityAlive(guard);
+        try{await remote.disable({factor_version:intent.factor_version});}
+        catch(e){securityAlive(guard);if(proofNeeded(e))return {kind:'pending',receipt:intent.operation_id,action:'disable'};throw e;}
+        securityAlive(guard);
       }
       await this.deps.storage.remove(`${key}-factors`);securityAlive(guard);return {kind:'idle'};
     }
     if(intent.kind==='regenerate'){
       securityAlive(guard);
       try {const codes=await remote.regenerate({operation_id:intent.operation_id,factor_version:intent.factor_version});securityAlive(guard);return this.bag(key,scope,intent.operation_id,codes,remote,guard);}
-      catch(e){securityAlive(guard);if(e instanceof NativeError && e.status===409 && (await this.status(scope,remote,guard)).factor_version!==intent.factor_version)return {kind:'stale',receipt:intent.operation_id};throw e;}
+      catch(e){
+        securityAlive(guard);if(proofNeeded(e))return {kind:'pending',receipt:intent.operation_id,action:'regenerate'};
+        if(e instanceof NativeError && e.status===409 && (await this.status(scope,remote,guard)).factor_version!==intent.factor_version)return {kind:'stale',receipt:intent.operation_id};throw e;
+      }
     }
     if(status.totp && intent.setup && intent.enable_operation_id){
       // Accepted enable replays before code validation. With no active factor,
       // recovery never sends an empty code (and never burns a failed attempt).
       securityAlive(guard);
       try{const codes=await remote.enable({setup_id:intent.setup.setup_id,operation_id:intent.enable_operation_id,code:''});securityAlive(guard);return this.bag(key,scope,intent.enable_operation_id,codes,remote,guard);}
-      catch(e){securityAlive(guard);if(e instanceof NativeError && e.status===400 && e.code==='factor_rejected')return {kind:'stale',receipt:intent.operation_id};throw e;}
+      catch(e){
+        securityAlive(guard);if(e instanceof NativeError && e.status===400 && e.code==='factor_rejected')return {kind:'stale',receipt:intent.operation_id};
+        if(proofNeeded(e))return {kind:'pending',receipt:intent.operation_id,action:'setup'};throw e;
+      }
     }
     if(status.totp)return {kind:'stale',receipt:intent.operation_id};
-    securityAlive(guard);const setup=await remote.setup({operation_id:intent.operation_id});securityAlive(guard);
+    securityAlive(guard);
+    let setup:FactorSetup;
+    try{setup=await remote.setup({operation_id:intent.operation_id});}
+    catch(e){securityAlive(guard);if(proofNeeded(e))return {kind:'pending',receipt:intent.operation_id,action:'setup'};throw e;}
+    securityAlive(guard);
     const same=intent.setup?.setup_id===setup.setup_id;
     await this.save(key,scope,{...intent,setup,enable_operation_id:same?intent.enable_operation_id:null},guard);
     return {kind:'setup',setup:{...setup}};

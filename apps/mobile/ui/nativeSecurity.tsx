@@ -4,7 +4,7 @@ import {dismissible} from './alerts.ts';
 import {useFocusEffect} from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import type {NativeChat} from '../providers/rocketvibe/chat.ts';
-import type {FactorView} from '../providers/rocketvibe/factorVault.ts';
+import type {FactorView,PendingFactor} from '../providers/rocketvibe/factorVault.ts';
 import type {EmailView} from '../providers/rocketvibe/emailVault.ts';
 import type {FactorStatus,SecondFactor} from '../providers/rocketvibe/protocol.generated.ts';
 import type {ReauthenticationView,SecurityGuard} from '../providers/rocketvibe/reauthenticationVault.ts';
@@ -31,6 +31,7 @@ export function ConfirmNativeIdentity({c,chat,onConfirmed}:{c:Colors;chat:Native
   return <NativeSecurity c={c} chat={chat} reauthOnly onConfirmed={onConfirmed}/>;
 }
 type Access=Awaited<ReturnType<NativeChat['security']>>;
+const pendingLabels:Record<PendingFactor,TranslationKey>={setup:'security.setup',regenerate:'security.regenerate',disable:'security.disable',email_enable:'email.factorEnable',email_disable:'email.factorDisable'};
 const deliveryLabels={queued:'email.queued',sending:'email.sending',deferred:'email.deferred',accepted:'email.accepted',exhausted:'email.exhausted'} as const;
 function Action({c,label,onPress,disabled}:{c:Colors;label:TranslationKey;onPress:()=>void;disabled:boolean}) {
   const t=useT();return <Tappable disabled={disabled} accessibilityRole="button" onPress={onPress}><Text style={[styles.action,{color:c.cyan,opacity:disabled?0.5:1}]}>{t(label)}</Text></Tappable>;
@@ -95,14 +96,19 @@ function NativeSecurity({c,chat,reauthOnly=false,onConfirmed}:{c:Colors;chat:Nat
     if(result.kind==='ready' && reauthOnly)confirmed.current?.();
   };
   const updateEmail=async(access:Access,guard:SecurityGuard)=>{if(emailAvailable){const result=await nativeEmailVault.resume(access.scope,access.email,guard);if(guard())publishEmail(result);}};
+  const updatePending=async(access:Access,guard:SecurityGuard)=>{
+    if(factorAvailable){const result=await nativeFactorVault.resume(access.scope,access.remote,guard);if(guard())setView(result);}
+    if(guard())await updateEmail(access,guard);
+  };
+  const resume=()=>{if(proof.kind!=='ready'){setError('security.required');return;}void reload();};
   const startProof=()=>{const entered=password;setPassword('');void run(async(access,guard)=>{
     const result=await nativeReauthenticationVault.prepare(access.scope,access.remote.proof,entered,guard);acceptProof(result,guard);
-    if(result.kind==='ready' && guard())await updateEmail(access,guard);
+    if(result.kind==='ready' && guard())await updatePending(access,guard);
   });};
   const finishProof=()=>{const entered=code;setCode('');const expected=proof;
     if(expected.kind==='challenge')void run(async(access,guard)=>{
       const result=await nativeReauthenticationVault.finish(expected.attempt,access.remote.proof,method,entered,guard);acceptProof(result,guard);
-      if(result.kind==='ready' && guard())await updateEmail(access,guard);
+      if(result.kind==='ready' && guard())await updatePending(access,guard);
     });
   };
   const sendProofEmail=(resend=false)=>{const expected=proof;setCode('');
@@ -145,7 +151,7 @@ function NativeSecurity({c,chat,reauthOnly=false,onConfirmed}:{c:Colors;chat:Nat
     });
   };
   const acknowledge=()=>{const expected=view;
-    if(expected.kind==='codes' || expected.kind==='stale')void run(async(access,guard)=>{
+    if(expected.kind==='codes' || expected.kind==='stale' || expected.kind==='pending')void run(async(access,guard)=>{
       if(await nativeFactorVault.clear(access.scope,expected.receipt,guard)){if(guard())setView({kind:'idle'});}
     });
   };
@@ -223,6 +229,12 @@ function NativeSecurity({c,chat,reauthOnly=false,onConfirmed}:{c:Colors;chat:Nat
         <Action c={c} label="security.copyCodes" onPress={()=>copy('codes')} disabled={busy}/>
         <Action c={c} label="security.saved" onPress={acknowledge} disabled={busy}/>
       </>}
+      {factorAvailable && view.kind==='pending' && <>
+        <Text style={[styles.text,{color:c.text}]}>{t(pendingLabels[view.action])}</Text>
+        <Text style={[styles.text,{color:c.secondaryText}]}>{t('security.pendingBody')}</Text>
+        <Action c={c} label="security.continue" onPress={resume} disabled={busy}/>
+        <Action c={c} label="security.cancelPending" onPress={acknowledge} disabled={busy}/>
+      </>}
       {factorAvailable && view.kind==='stale' && <><Text style={[styles.text,{color:c.secondaryText}]}>{t('security.stale')}</Text><Action c={c} label="security.discard" onPress={acknowledge} disabled={busy}/></>}
       {factorAvailable && view.kind==='idle' && factor && <>
         {chat.capabilities?.second_factors && (factor.totp || factor.email) && <Action c={c} label="security.regenerate" onPress={()=>confirm('regenerate')} disabled={busy}/>}
@@ -249,14 +261,20 @@ function NativeSecurity({c,chat,reauthOnly=false,onConfirmed}:{c:Colors;chat:Nat
           <Action c={c} label="email.confirm" onPress={confirmEmail} disabled={busy || proof.kind!=='ready' || !/^\d{8}$/.test(emailCode)}/>
           <Action c={c} label="email.cancel" onPress={closeEmail} disabled={busy}/>
         </>}
+        {emailView.kind==='awaiting_proof' && <>
+          <Text selectable style={[styles.text,{color:c.secondaryText}]}>{t('email.pending',{address:emailView.address})}</Text>
+          <Text style={[styles.text,{color:c.secondaryText}]}>{t('email.awaitingProof')}</Text>
+          <Action c={c} label="security.continue" onPress={resume} disabled={busy}/>
+          <Action c={c} label="email.cancel" onPress={closeEmail} disabled={busy}/>
+        </>}
         {emailView.kind==='verified' && <><Text style={[styles.text,{color:c.secondaryText}]}>{t('email.verified')}</Text><Action c={c} label="email.done" onPress={closeEmail} disabled={busy}/></>}
         {emailView.kind==='stale' && <><Text style={[styles.text,{color:c.secondaryText}]}>{t('email.stale')}</Text><Action c={c} label="email.restart" onPress={closeEmail} disabled={busy}/></>}
-        {emailView.kind==='removal_pending' && <><Text style={[styles.text,{color:c.secondaryText}]}>{t('email.removalPending')}</Text><Action c={c} label="email.cancelRemoval" onPress={closeEmail} disabled={busy}/></>}
+        {emailView.kind==='removal_pending' && <><Text style={[styles.text,{color:c.secondaryText}]}>{t('email.removalPending')}</Text><Action c={c} label="security.continue" onPress={resume} disabled={busy}/><Action c={c} label="email.cancelRemoval" onPress={closeEmail} disabled={busy}/></>}
         {emailView.kind==='removal_stale' && <><Text style={[styles.text,{color:c.secondaryText}]}>{t('email.removalStale')}</Text><Action c={c} label="email.closeRemoval" onPress={closeEmail} disabled={busy}/></>}
         {emailView.kind==='removed' && <><Text style={[styles.text,{color:c.secondaryText}]}>{t('email.removed')}</Text><Action c={c} label="email.done" onPress={closeEmail} disabled={busy}/></>}
       </>}
       {error && <Text accessibilityRole="alert" style={[styles.text,{color:c.errorText}]}>{t(error)}</Text>}
-      <Action c={c} label="security.refresh" onPress={()=>void reload()} disabled={busy}/>
+      {error && error!=='security.required' && <Action c={c} label="security.refresh" onPress={()=>void reload()} disabled={busy}/>}
     </View>
   </>;
 }

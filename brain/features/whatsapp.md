@@ -4,11 +4,11 @@ A personal WhatsApp account linked by scanning a QR from the official phone app,
 
 ## Desktop
 
-**Helper.** A Go process (`apps/desktop/whatsapp/`) per account, beside the app (`rv-whatsapp`, or `RV_WHATSAPP_HELPER`). Its engine (`engine.go`) is transport-free; `main.go` speaks JSON lines over private pipes. Its SQLite stays in memory and reaches disk only sealed with AES-256-GCM (`vault.go`) under a key from the system keychain, one entry per account; a state without its key fails closed. Restoring goes through SQLite's backup API, since a deserialized image cannot grow.
+**Helper.** A Go process (`apps/desktop/whatsapp/`) per account, beside the app (`rv-whatsapp`, or `RV_WHATSAPP_HELPER`). Its engine (the `engine/` package, exported surface in `engine/api.go`: `Open`, `Device.Connect`, `Handle`, `Close`, a frame `Sink`) is transport-free, so the Android app can bind the same code with gomobile; `main.go` speaks JSON lines over private pipes. A `replay` command re-emits the cached projection from a `reload`, for a client attaching to an engine already running. Its SQLite stays in memory and reaches disk only sealed with AES-256-GCM (`vault.go`) under a key from the system keychain, one entry per account; a state without its key fails closed. Restoring goes through SQLite's backup API, since a deserialized image cannot grow.
 
 **Account.** A `SessionInfo` with `base_url = whatsapp://<state id>`, `user_id` = the account's JID, no token, genre `whatsapp` in the keychain (`rv-core/src/whatsapp.rs`, `native.rs`); older builds and the SwiftUI app skip it. Places that read `base_url` as an http server check `whatsapp::is_whatsapp` first. `WaSession` (`rv-core/src/whatsapp_session.rs`) keeps the helper alive (restarts with back-off once the old one released its state lock), builds `RoomRow`s and the timeline from its snapshot, and is `provider::Chat::WhatsApp`: the supervisor counts its unread chats and keeps it connected in the background like any account.
 
-**Adding.** The login page's Connect WhatsApp (shown when the helper is installed) opens a dialog with the QR on a new state (`rv-gtk/src/whatsapp_link.rs`); closing it abandons and erases that state. Its "Link with a phone number" section is the camera-free way, the one a phone linking itself needs: the number (digits only, international) goes to the helper's `pair_phone`, whatsmeow's `PairPhone` asks WhatsApp for an 8-character code (`whatsapp/pairing.go`, presented as a Chrome on the host's OS), shown as `XXXX-XXXX` to type on the phone under Linked devices, Link with phone number instead. The QR attempt keeps running beside it; a refused number (`phone_invalid`) or no code (`pairing_code_failed`) is an ordinary, non-fatal error that re-enables the button. The device the earlier pilot window linked (`whatsapp-pilot/`) is adopted once at startup as the account `whatsapp://pilot`, its state and key left in place.
+**Adding.** The login page's Connect WhatsApp (shown when the helper is installed) opens a dialog with the QR on a new state (`rv-gtk/src/whatsapp_link.rs`); closing it abandons and erases that state. Its "Link with a phone number" section is the camera-free way, the one a phone linking itself needs: the number (digits only, international) goes to the helper's `pair_phone`, whatsmeow's `PairPhone` asks WhatsApp for an 8-character code (`whatsapp/engine/pairing.go`, presented as a Chrome on the host's OS), shown as `XXXX-XXXX` to type on the phone under Linked devices, Link with phone number instead. The QR attempt keeps running beside it; a refused number (`phone_invalid`) or no code (`pairing_code_failed`) is an ordinary, non-fatal error that re-enables the button. The device the earlier pilot window linked (`whatsapp-pilot/`) is adopted once at startup as the account `whatsapp://pilot`, its state and key left in place.
 
 **Chats** (`rv-gtk/src/chat_whatsapp.rs`). Names resolved when shown, from the name table the helper refreshes as contacts sync (address book, push name, business name, group subject, else the number); a phone number and its LID make one conversation once WhatsApp maps them (`store.go`, `normalize`). Profile photos on tiles, beside messages and for my own account. Reactions (chips, quick reactions in the message menu), quoted replies (native quote card, Reply in the menu), my own messages edited in place (15 minutes) or deleted for everyone (48 hours, confirmation that closes on a backdrop click). Unread counts shared with the phone; the open chat is read while the window has the focus, with read receipts unless my privacy settings send none; Delivered, Read or Played under my latest message. New conversation searches the phone's contacts and groups, or a typed number WhatsApp confirms; the chat opens before its first message. Attachments (images, stickers, GIFs and videos, audio and voice notes, documents) are kept with their caption, size, dimensions and thumbnail; a third media provider (`media::Provider::WhatsApp`, paths `wa-media:<message id>`) has the helper fetch and decrypt one on first use into the account's private folder, gone with the account, and the timeline's own rows draw them (image in place, playable audio card, video card, document with Open and Save). A send is recorded before its network attempt; its text comes back as a draft only when it provably never left, and an unconfirmed one is never sent again. Notifications for new messages (not what was there when the helper connected), whose quick actions work for WhatsApp too: a reaction, mark read, an inline reply (`window.rs`, `whatsapp_notification`). "Alice is typing…" in the open chat and my own typing sent; the account is online only while the window is in front with it open, like WhatsApp Web, since WhatsApp holds the phone's notifications back while a device is online. Unlinking from the account menu asks WhatsApp to forget the device; a failure keeps the account, an unlink from the phone ends it.
 
@@ -32,21 +32,21 @@ Missing; designed in [the Android design](../../docs/WHATSAPP_ANDROID.md). The s
 
 ## Sources
 
-- apps/desktop/whatsapp/engine.go
+- apps/desktop/whatsapp/engine/engine.go
 - apps/desktop/whatsapp/main.go
-- apps/desktop/whatsapp/store.go
-- apps/desktop/whatsapp/identity.go
-- apps/desktop/whatsapp/avatars.go
-- apps/desktop/whatsapp/reads.go
-- apps/desktop/whatsapp/search.go
-- apps/desktop/whatsapp/media.go
-- apps/desktop/whatsapp/upload.go
-- apps/desktop/whatsapp/calls.go
-- apps/desktop/whatsapp/pairing.go
+- apps/desktop/whatsapp/engine/store.go
+- apps/desktop/whatsapp/engine/identity.go
+- apps/desktop/whatsapp/engine/avatars.go
+- apps/desktop/whatsapp/engine/reads.go
+- apps/desktop/whatsapp/engine/search.go
+- apps/desktop/whatsapp/engine/media.go
+- apps/desktop/whatsapp/engine/upload.go
+- apps/desktop/whatsapp/engine/calls.go
+- apps/desktop/whatsapp/engine/pairing.go
 - apps/desktop/crates/rv-gtk/src/attach.rs
 - apps/desktop/crates/rv-gtk/src/media.rs
-- apps/desktop/whatsapp/vault.go
-- apps/desktop/whatsapp/vault_test.go
+- apps/desktop/whatsapp/engine/vault.go
+- apps/desktop/whatsapp/engine/vault_test.go
 - apps/desktop/whatsapp/README.md
 - apps/desktop/crates/rv-core/src/whatsapp.rs
 - apps/desktop/crates/rv-core/src/whatsapp_session.rs

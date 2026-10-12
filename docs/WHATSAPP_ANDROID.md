@@ -10,11 +10,10 @@ A personal WhatsApp account linked to the phone as a WhatsApp linked device, liv
 
 The desktop's Go engine (whatsmeow from the fork `boubou666/whatsmeow`, the sealed in-memory SQLite vault, the event queue, the frame vocabulary) is reused as is. Nothing about WhatsApp is reimplemented in Kotlin or TypeScript.
 
-1. **Go, `gomobile bind`.** The engine is `package main` today (`apps/desktop/whatsapp/engine.go`), with `open` and `handle` unexported. It splits into:
-   - `engine/`: today's files minus `main.go`, exporting `Open(path string, key []byte, sink Sink) (*Engine, error)`, `(*Engine).Handle(command string) bool`, `(*Engine).Close()`, and `Sink interface { Frame(json string) }`;
-   - `cmd/rv-whatsapp/`: the desktop helper, unchanged on the wire (JSON lines over stdin/stdout);
-   - `mobile/`: a gomobile-legal facade over `engine` (strings and `[]byte` only), built into an AAR.
-   The frames stay JSON strings, so the mobile side parses exactly the vocabulary `rv-core/src/whatsapp.rs` parses (`message`, `names`, `avatar`, `reaction`, `reload`, `chat`, `account`, `found`, `file`, `typing`, `qr`, `pairing_code`, `status`, `error`, `sent`) and skips unknown ones. A new `replay` command re-emits the cached projection (`store.go` `replay`, today run once at start) for a JS side that attaches to an engine already running. Once two apps depend on it, the module moves out of `apps/desktop/` to a shared root directory, like `crates/`.
+1. **Go, `gomobile bind`.** The engine is `package main` today (`apps/desktop/whatsapp/engine/engine.go`), with `open` and `handle` unexported. It splits into:
+   - `engine/` (done): everything but the transport, exporting only gomobile-legal types (`engine/api.go`): `Open(path string, key []byte, sink Sink) (*Device, error)`, `(*Device).Connect()`, `Handle(line string) bool`, `Cancel()`, `Close()`, and `Sink interface { Frame(frame string) }`. gomobile binds this package directly into the AAR;
+   - the module root: the desktop helper (`main.go`), unchanged on the wire (JSON lines over stdin/stdout).
+   The frames stay JSON strings, so the mobile side parses exactly the vocabulary `rv-core/src/whatsapp.rs` parses (`message`, `names`, `avatar`, `reaction`, `reload`, `chat`, `account`, `found`, `file`, `typing`, `qr`, `pairing_code`, `status`, `error`, `sent`) and skips unknown ones. The `replay` command (done) re-emits the cached projection after a `reload` frame, for a JS side that attaches to an engine already running. Once two apps depend on it, the module moves out of `apps/desktop/` to a shared root directory, like `crates/`.
 2. **Kotlin, `modules/whatsapp/`** (local Expo module, autolinked like `modules/voice/`):
    - `WhatsAppEngines`, a process singleton holding one engine per state id. The engine takes an exclusive file lock (`engine.go` `flock`), so JS and the service must share this one instance. It outlives JS reloads, account switches and `SyncProvider` cleanup; only unlink, logout and the user's "stop" end it.
    - `WhatsAppService`, a foreground service that keeps the engines alive in the background (see Background).
@@ -35,7 +34,7 @@ The desktop's Go engine (whatsmeow from the fork `boubou666/whatsmeow`, the seal
 On a phone the QR is the wrong default: the primary WhatsApp is usually on the same device, which cannot scan its own screen. The link sheet (`app/whatsapp-link.tsx`, a native `formSheet`, closes on a tap outside and then erases the half-made state like the desktop dialog) therefore opens on **link with a phone number**:
 
 1. the number in international format (a country prefix picker plus the national number, digits only sent);
-2. the engine's `pair_phone` (desktop `whatsapp/pairing.go`, whatsmeow `PairPhone` with the push to the phone) answers a `pairing_code`, shown as `XXXX-XXXX` with a copy button;
+2. the engine's `pair_phone` (desktop `whatsapp/engine/pairing.go`, whatsmeow `PairPhone` with the push to the phone) answers a `pairing_code`, shown as `XXXX-XXXX` with a copy button;
 3. WhatsApp on the phone shows a notification asking for the code; failing that, Linked devices, Link a device, Link with phone number instead;
 4. `account` then `connected` save the session and open the account.
 
@@ -78,7 +77,7 @@ WhatsApp sends no push to a linked device: without a live connection nothing arr
 
 ## Milestones
 
-1. **Engine split** (Go): `engine/`, `cmd/rv-whatsapp/`, `mobile/`, the `replay` command; desktop helper unchanged on the wire, its tests and the desktop CI green.
+1. **Engine split** (Go), done: the `engine/` package and its API, the `replay` command; the desktop helper unchanged on the wire.
 2. **AAR and module, in front only**: the Expo module, the key in AndroidKeyStore, linking by number, the room list and text timeline; the account in the rail.
 3. **Conversation**: send, reactions, replies, edits and deletions, read state, typing, new conversations.
 4. **Media** both ways.
@@ -87,10 +86,10 @@ WhatsApp sends no push to a linked device: without a live connection nothing arr
 
 ## Sources
 
-- apps/desktop/whatsapp/engine.go
-- apps/desktop/whatsapp/pairing.go
-- apps/desktop/whatsapp/store.go
-- apps/desktop/whatsapp/media.go
+- apps/desktop/whatsapp/engine/engine.go
+- apps/desktop/whatsapp/engine/pairing.go
+- apps/desktop/whatsapp/engine/store.go
+- apps/desktop/whatsapp/engine/media.go
 - apps/desktop/crates/rv-core/src/whatsapp.rs
 - apps/desktop/crates/rv-gtk/src/whatsapp_link.rs
 - apps/mobile/lib/provider.ts

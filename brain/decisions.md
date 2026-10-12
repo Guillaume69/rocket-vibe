@@ -343,4 +343,4 @@ whatsmeow is built from the user's fork (`boubou666/whatsmeow`, branch `rocketvi
 - `apps/server/src/auth.rs`
 - `apps/server/migrations/0062_email_sign_in.sql`
 - `apps/desktop/whatsapp/main.go`
-- `apps/desktop/whatsapp/vault.go`
+- `apps/desktop/whatsapp/engine/vault.go`

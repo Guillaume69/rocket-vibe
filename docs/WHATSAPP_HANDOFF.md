@@ -14,15 +14,15 @@ Do not manufacture an account, import a personal database, send messages to cont
 
 | Layer | Source | Responsibility |
 |---|---|---|
-| Go engine | `apps/desktop/whatsapp/engine.go` | whatsmeow association, protocol events, history, sends, reactions, edits and revocations, the command set; transport-free (`open` returns the engine and its closer, `handle` runs one command, frames go to a sink) |
-| Go cache | `apps/desktop/whatsapp/store.go` | The engine's tables (`rv_messages`, `rv_reactions`, `rv_chat_names`, `rv_avatars`, `rv_chats`), migrations, pruning, LID to phone-number re-keying, replay |
-| Go identities | `apps/desktop/whatsapp/identity.go` | Canonical JIDs, the name table, group subjects |
-| Go photos | `apps/desktop/whatsapp/avatars.go` | Profile previews (mine first) fetched one at a time, cached sealed for a week |
-| Go read state | `apps/desktop/whatsapp/reads.go` | Unread counts per chat, receipts on my messages, read receipts when a chat is read |
-| Go search | `apps/desktop/whatsapp/search.go` | Contacts, groups and typed numbers for new conversations |
-| Go media | `apps/desktop/whatsapp/media.go` | Attachments kept with their metadata and thumbnail; `download` decrypts one into the account's private folder |
+| Go engine | `apps/desktop/whatsapp/engine/engine.go` | whatsmeow association, protocol events, history, sends, reactions, edits and revocations, the command set; transport-free (`open` returns the engine and its closer, `handle` runs one command, frames go to a sink) |
+| Go cache | `apps/desktop/whatsapp/engine/store.go` | The engine's tables (`rv_messages`, `rv_reactions`, `rv_chat_names`, `rv_avatars`, `rv_chats`), migrations, pruning, LID to phone-number re-keying, replay |
+| Go identities | `apps/desktop/whatsapp/engine/identity.go` | Canonical JIDs, the name table, group subjects |
+| Go photos | `apps/desktop/whatsapp/engine/avatars.go` | Profile previews (mine first) fetched one at a time, cached sealed for a week |
+| Go read state | `apps/desktop/whatsapp/engine/reads.go` | Unread counts per chat, receipts on my messages, read receipts when a chat is read |
+| Go search | `apps/desktop/whatsapp/engine/search.go` | Contacts, groups and typed numbers for new conversations |
+| Go media | `apps/desktop/whatsapp/engine/media.go` | Attachments kept with their metadata and thumbnail; `download` decrypts one into the account's private folder |
 | Go transport | `apps/desktop/whatsapp/main.go` | stdin/stdout JSON lines for the desktop |
-| Sealed state | `apps/desktop/whatsapp/vault.go` | In-memory SQLite, AES-GCM snapshots, atomic replace, revocation; restore through the backup API (a deserialized image cannot grow) |
+| Sealed state | `apps/desktop/whatsapp/engine/vault.go` | In-memory SQLite, AES-GCM snapshots, atomic replace, revocation; restore through the backup API (a deserialized image cannot grow) |
 | Rust adapter | `apps/desktop/crates/rv-core/src/whatsapp.rs` | Spawn and reap the child, bounded IPC, snapshot, change signal, `whatsapp://` identity, state locations |
 | Account | `apps/desktop/crates/rv-core/src/whatsapp_session.rs` | `WaSession`: helper kept alive, room rows, timeline, sends and drafts, reads, notifications, unlink, expiry, connector handoff |
 | Provider | `apps/desktop/crates/rv-core/src/provider.rs` | `Chat::WhatsApp`: spotlight (search), events |
@@ -33,7 +33,7 @@ Do not manufacture an account, import a personal database, send messages to cont
 | Test helper | `apps/desktop/crates/rv-core/tests/support/fake_whatsapp_sidecar.rs` | Synthetic QR (and its own "scan"), conversations, names, photos, a reaction, a reply, search, send, read, logout |
 | IPC tests | `apps/desktop/crates/rv-core/tests/whatsapp.rs` | Actual subprocess exchange, `WaSession` against the fake helper |
 | GTK smoke | `apps/desktop/crates/rv-gtk/src/smoke/whatsapp.rs`, `apps/desktop/scripts/smoke-whatsapp.sh` | The whole flow in the app under Xvfb |
-| Go tests | `apps/desktop/whatsapp/vault_test.go` | Sealed state, growth after a restore, pruning, author-only edits and revocations, reactions, unread counts and receipts, replies, numbers |
+| Go tests | `apps/desktop/whatsapp/engine/vault_test.go` | Sealed state, growth after a restore, pruning, author-only edits and revocations, reactions, unread counts and receipts, replies, numbers |
 
 ## Local IPC contract (version 1, experimental)
 

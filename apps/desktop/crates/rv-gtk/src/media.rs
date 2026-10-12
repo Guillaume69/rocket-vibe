@@ -21,6 +21,15 @@ type Waiter = Box<dyn FnOnce(&gdk::Texture)>;
 pub enum Provider {
     RocketChat(Arc<Session>),
     RocketVibe(Arc<rv_core::native::NativeSession>),
+    /// Attachments the helper fetches and decrypts on demand (`wa-media:<id>`).
+    WhatsApp(Arc<rv_core::whatsapp_session::WaSession>),
+}
+
+/// A WhatsApp attachment's file, fetched by the helper on first use.
+async fn whatsapp_file(s: &Arc<rv_core::whatsapp_session::WaSession>, path: &str) -> Option<std::path::PathBuf> {
+    let id = path.strip_prefix(rv_core::whatsapp::MEDIA_LINK)?.to_owned();
+    let s = s.clone();
+    on_tokio(async move { s.download(&id).await.ok() }).await
 }
 impl From<Arc<Session>> for Provider {
     fn from(s: Arc<Session>) -> Self {
@@ -55,6 +64,7 @@ impl Provider {
             Self::RocketVibe(s) if path.starts_with("rv-preview:") => {
                 format!("{}:{}:{}:{path}", s.info.base_url, s.info.user_id, s.preview_scope(path).unwrap_or_default())
             }
+            Self::WhatsApp(s) => format!("{}:{}:{path}", s.info.base_url, s.info.user_id),
             Self::RocketVibe(s) => format!(
                 "{}:{}:{:?}:{}:{}:{}:{path}",
                 s.info.base_url,
@@ -69,6 +79,7 @@ impl Provider {
     pub fn current(&self, path: &str) -> bool {
         match self {
             Self::RocketChat(s) => !s.is_closed(),
+            Self::WhatsApp(s) => !s.is_closed(),
             Self::RocketVibe(s) => {
                 if path.starts_with("rv-preview:") {
                     s.preview_current(path)
@@ -83,6 +94,12 @@ impl Provider {
     async fn fetch(&self, path: &str) -> Option<Arc<rv_core::media::Media>> {
         match self {
             Self::RocketChat(s) => s.media.fetch(path).await.ok(),
+            Self::WhatsApp(s) => {
+                let id = path.strip_prefix(rv_core::whatsapp::MEDIA_LINK)?;
+                let file = s.download(id).await.ok()?;
+                let bytes = tokio::fs::read(file).await.ok()?;
+                Some(Arc::new(rv_core::media::Media { bytes, content_type: String::new() }))
+            }
             Self::RocketVibe(s) => {
                 if path.starts_with("rv-preview:") {
                     s.preview_media(path).await.ok().map(Arc::new)
@@ -97,6 +114,13 @@ impl Provider {
     pub async fn download(&self, path: &str, dest: &std::path::Path) -> bool {
         match self {
             Self::RocketChat(s) => s.download_to(path, dest).await.is_ok(),
+            Self::WhatsApp(s) => {
+                let Some(id) = path.strip_prefix(rv_core::whatsapp::MEDIA_LINK) else { return false };
+                match s.download(id).await {
+                    Ok(file) => tokio::fs::copy(file, dest).await.is_ok(),
+                    Err(_) => false,
+                }
+            }
             Self::RocketVibe(s) => {
                 if path.starts_with("rv-preview:") {
                     s.download_preview(path, dest).await.is_ok()
@@ -109,6 +133,7 @@ impl Provider {
     pub async fn local(&self, file: &rv_core::content::FileAttachment) -> Option<std::path::PathBuf> {
         match self {
             Self::RocketChat(s) => crate::cards::legacy_local_copy(s.clone(), file.clone()).await,
+            Self::WhatsApp(s) => whatsapp_file(s, &file.url).await,
             Self::RocketVibe(s) => {
                 let (s, path) = (s.clone(), file.url.clone());
                 on_tokio(async move { s.local_file(&path).await.ok() }).await

@@ -550,18 +550,23 @@ pub fn message_widget(
     editing: Option<&gtk::TextBuffer>,
     on_event: OnRowEvent,
 ) -> gtk::Widget {
-    message_from_provider(d, my_id, session, None, None, editing, on_event)
+    message_from_provider(d, my_id, session, None, Sessionless::default(), editing, on_event)
 }
-/// A message of a provider with no session here (the WhatsApp pilot): its
-/// author's photo comes along as a texture.
+/// What a provider with no session here (WhatsApp) brings to its rows: the
+/// author's photo as a texture, and where attachments come from.
+#[derive(Default)]
+pub struct Sessionless<'a> {
+    pub photo: Option<&'a gdk::Texture>,
+    pub media: Option<media::Provider>,
+}
 pub fn provider_message_widget(
     d: &Display,
     my_id: &str,
-    photo: Option<&gdk::Texture>,
+    sessionless: Sessionless,
     editing: Option<&gtk::TextBuffer>,
     on_event: OnRowEvent,
 ) -> gtk::Widget {
-    message_from_provider(d, my_id, None, None, photo, editing, on_event)
+    message_from_provider(d, my_id, None, None, sessionless, editing, on_event)
 }
 pub fn native_message_widget(
     d: &Display,
@@ -570,17 +575,18 @@ pub fn native_message_widget(
     editing: Option<&gtk::TextBuffer>,
     on_event: OnRowEvent,
 ) -> gtk::Widget {
-    message_from_provider(d, my_id, None, Some(session), None, editing, on_event)
+    message_from_provider(d, my_id, None, Some(session), Sessionless::default(), editing, on_event)
 }
 fn message_from_provider(
     d: &Display,
     my_id: &str,
     session: Option<&Arc<Session>>,
     native: Option<&Arc<rv_core::native::NativeSession>>,
-    photo: Option<&gdk::Texture>,
+    sessionless: Sessionless,
     editing: Option<&gtk::TextBuffer>,
     on_event: OnRowEvent,
 ) -> gtk::Widget {
+    let Sessionless { photo, media: media_provider } = sessionless;
     let row = &d.row;
     let outer = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
@@ -713,7 +719,8 @@ fn message_from_provider(
     };
     let quote_provider = session
         .map(|s| media::Provider::RocketChat(s.clone()))
-        .or_else(|| native.map(|s| media::Provider::RocketVibe(s.clone())));
+        .or_else(|| native.map(|s| media::Provider::RocketVibe(s.clone())))
+        .or_else(|| media_provider.clone());
     for q in content::quotes(row.attachments.as_deref()) {
         column.append(&cards::quote(quote_provider.as_ref(), &q, &me));
     }
@@ -747,6 +754,15 @@ fn message_from_provider(
         }
         for preview in content::link_previews(row.urls.as_deref(), 3) {
             column.append(&cards::link_preview(session, &preview));
+        }
+    }
+    // A provider with no session (WhatsApp): its images and files, fetched on demand.
+    if let Some(provider) = media_provider.filter(|_| session.is_none() && native.is_none()) {
+        for image in image_attachments(row.attachments.as_deref()) {
+            column.append(&image_provider(provider.clone(), &image));
+        }
+        for file in content::files(row.attachments.as_deref()) {
+            column.append(&cards::file_provider(provider.clone(), &file));
         }
     }
     if let Some(native) = native {

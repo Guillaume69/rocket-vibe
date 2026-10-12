@@ -109,12 +109,13 @@ impl Snapshot {
             );
         }
         row.reactions = self.reactions.get(&m.id).and_then(reactions_json);
-        row.attachments = self.quote(m);
+        let attachments: Vec<serde_json::Value> = self.quote(m).into_iter().chain(attachment_json(m)).collect();
+        row.attachments = (!attachments.is_empty()).then(|| serde_json::Value::Array(attachments).to_string());
         row
     }
     /// The quoted message as the timeline's quote card: its current text when
     /// cached (edited or deleted since), else the text the reply carried.
-    fn quote(&self, m: &WireMessage) -> Option<String> {
+    fn quote(&self, m: &WireMessage) -> Option<serde_json::Value> {
         if m.reply_to.is_empty() {
             return None;
         }
@@ -129,13 +130,10 @@ impl Snapshot {
         };
         let text = match cached {
             Some(q) if q.deleted => crate::i18n::t("wa.deleted").to_owned(),
-            Some(q) => q.text.clone(),
+            Some(q) => q.words(),
             None => m.quote_text.clone(),
         };
-        Some(
-            json!([{"message_link": format!("{REPLY_LINK}{}", m.reply_to), "author_name": author, "text": text}])
-                .to_string(),
-        )
+        Some(json!({"message_link": format!("{REPLY_LINK}{}", m.reply_to), "author_name": author, "text": text}))
     }
 }
 
@@ -211,9 +209,53 @@ pub struct WireMessage {
     #[serde(default)]
     pub kind: String,
     #[serde(default)]
+    pub mime: String,
+    #[serde(default)]
     pub file_name: String,
     #[serde(default)]
     pub size: i64,
+    #[serde(default)]
+    pub width: i64,
+    #[serde(default)]
+    pub height: i64,
+    #[serde(default)]
+    pub seconds: i64,
+}
+/// The path a WhatsApp attachment is asked for by: `wa-media:<message id>`.
+pub const MEDIA_LINK: &str = "wa-media:";
+/// The attachment of a message in the shape the timeline draws
+/// (Rocket.Chat's): an image, an audio or video file, or a document.
+fn attachment_json(m: &WireMessage) -> Option<serde_json::Value> {
+    if m.deleted {
+        return None;
+    }
+    let link = format!("{MEDIA_LINK}{}", m.id);
+    // "audio/ogg; codecs=opus" reads as its type alone.
+    let mime = m.mime.split(';').next().unwrap_or_default().trim();
+    let size = (m.size > 0).then_some(m.size);
+    let duration = |label: &str| {
+        if m.seconds > 0 { format!("{label} ({}:{:02})", m.seconds / 60, m.seconds % 60) } else { label.to_owned() }
+    };
+    Some(match m.kind.as_str() {
+        "image" | "sticker" => json!({
+            "image_url": link,
+            "image_dimensions": {"width": m.width, "height": m.height},
+            "image_size": size,
+        }),
+        "voice" | "audio" => json!({
+            "title": duration(crate::i18n::t(&format!("wa.kind.{}", m.kind))),
+            "audio_url": link, "audio_type": mime, "audio_size": size,
+        }),
+        "video" | "gif" => json!({
+            "title": duration(crate::i18n::t(&format!("wa.kind.{}", m.kind))),
+            "video_url": link, "video_type": mime, "video_size": size,
+        }),
+        "document" => json!({
+            "title": if m.file_name.is_empty() { crate::i18n::t("wa.kind.document").to_owned() } else { m.file_name.clone() },
+            "title_link": link, "title_link_download": true, "format": mime, "size": size,
+        }),
+        _ => return None,
+    })
 }
 impl WireMessage {
     /// What the message says in words: an attachment's label, then its caption.
@@ -235,7 +277,8 @@ impl WireMessage {
             id: self.id.clone(),
             rid: self.chat.clone(),
             ts: self.ts,
-            text: Some(self.words()),
+            // An attachment's caption only: the attachment draws itself.
+            text: Some(if self.kind.is_empty() || self.deleted { self.words() } else { self.text.clone() }),
             edited: self.edited && !self.deleted,
             author: Some(if self.mine {
                 crate::i18n::t("wa.me").to_owned()
@@ -302,6 +345,12 @@ enum Event {
         #[serde(default)]
         name: String,
     },
+    /// A downloaded attachment, by its message id; an empty path is a failure.
+    File {
+        id: String,
+        #[serde(default)]
+        path: String,
+    },
     /// The answer to a search, by its id.
     Found {
         id: String,
@@ -327,6 +376,7 @@ enum Request {
     Act { kind: &'static str, id: String, text: String },
     Read { chat: String },
     Search { id: String, text: String },
+    Download { id: String },
     Connect,
     Logout,
     Stop,
@@ -338,6 +388,8 @@ pub struct Connector {
     revisions: watch::Sender<u64>,
     /// Searches waiting for their answer, by id.
     searches: Mutex<HashMap<String, oneshot::Sender<Vec<Person>>>>,
+    /// Downloads waiting for their file, by message id; one request serves them all.
+    downloads: Mutex<HashMap<String, Vec<oneshot::Sender<String>>>>,
 }
 fn failure() -> String {
     "connector_unavailable".into()
@@ -432,8 +484,8 @@ impl Snapshot {
                 self.unread.clear();
             }
             Event::Account { jid, name } => self.account = Some((jid, name)),
-            // Answered to its asker by the reader, never kept.
-            Event::Found { .. } => {}
+            // Answered to their askers by the reader, never kept.
+            Event::Found { .. } | Event::File { .. } => {}
             Event::Chat { jid, unread } => {
                 if unread == 0 {
                     self.unread.remove(&jid);
@@ -481,6 +533,7 @@ impl Connector {
             requests,
             revisions: watch::Sender::new(0),
             searches: Mutex::default(),
+            downloads: Mutex::default(),
         });
         tokio::spawn(worker(Arc::downgrade(&connector), child, stdin, BufReader::new(stdout), receiver));
         Ok(connector)
@@ -539,6 +592,25 @@ impl Connector {
         self.request(Request::Act { kind: "delete", id, text: String::new() })
     }
     /// Reads a chat: its unread messages get their read receipts.
+    /// A message's attachment, fetched and decrypted into the account's
+    /// private folder by the helper: the file's path.
+    pub async fn download(&self, id: String) -> Result<PathBuf, String> {
+        let (tx, rx) = oneshot::channel();
+        let first = {
+            let mut downloads = self.downloads.lock().unwrap_or_else(|p| p.into_inner());
+            let waiters = downloads.entry(id.clone()).or_default();
+            waiters.push(tx);
+            waiters.len() == 1
+        };
+        if first && let Err(e) = self.request(Request::Download { id: id.clone() }) {
+            self.downloads.lock().unwrap_or_else(|p| p.into_inner()).remove(&id);
+            return Err(e);
+        }
+        match tokio::time::timeout(Duration::from_secs(330), rx).await {
+            Ok(Ok(path)) if !path.is_empty() => Ok(PathBuf::from(path)),
+            _ => Err("download_failed".into()),
+        }
+    }
     /// People and groups matching `text`, from the phone's contacts and WhatsApp.
     pub async fn search(&self, text: String) -> Result<Vec<Person>, String> {
         let mut random = [0_u8; 8];
@@ -586,6 +658,15 @@ async fn worker(
                         line.clear();
                         continue;
                     }
+                    if let Event::File { id, path } = event {
+                        let waiters =
+                            connector.downloads.lock().unwrap_or_else(|p| p.into_inner()).remove(&id).unwrap_or_default();
+                        for waiter in waiters {
+                            let _ = waiter.send(path.clone());
+                        }
+                        line.clear();
+                        continue;
+                    }
                     let revision = {
                         let mut snapshot = connector.snapshot.lock().unwrap_or_else(|p| p.into_inner());
                         snapshot.apply(event);
@@ -605,6 +686,7 @@ async fn worker(
                     Request::Act { kind, id, text } => json!({"type":kind,"id":id,"text":text}),
                     Request::Read { chat } => json!({"type":"read","chat":chat}),
                     Request::Search { id, text } => json!({"type":"search","id":id,"text":text}),
+                    Request::Download { id } => json!({"type":"download","id":id}),
                     Request::Connect => json!({"type":"connect"}),
                     Request::Logout => json!({"type":"logout"}),
                     Request::Stop => json!({"type":"stop"}),

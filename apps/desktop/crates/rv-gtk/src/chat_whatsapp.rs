@@ -22,6 +22,7 @@ impl ChatPage {
         self.collapsed.replace(folded_sections(&session.info));
         // My messages are authored by "me": their photo is my account's.
         let (photos, me) = (self.wa_photos.clone(), session.info.user_id.clone());
+        self.list.set_media(Some(crate::media::Provider::WhatsApp(session.clone())));
         self.list.set_photos(Rc::new(move |jid: &str| {
             let jid = if jid == "me" { me.as_str() } else { jid };
             photos.borrow().get(jid).map(|(_, texture)| texture.clone())

@@ -255,6 +255,11 @@ impl WaSession {
         }
         rows
     }
+    /// A message's attachment as a local file, fetched on first use.
+    pub async fn download(&self, id: &str) -> Result<PathBuf, String> {
+        let connector = self.connector().ok_or("not_connected")?;
+        connector.download(id.to_owned()).await
+    }
     /// People and groups to start a conversation with.
     pub async fn search(&self, text: &str) -> Result<Vec<whatsapp::Person>, String> {
         let connector = self.connector().ok_or("not_connected")?;

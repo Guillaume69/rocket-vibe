@@ -7,6 +7,23 @@ use std::io::{self, BufRead};
 /// What a linked device receives once connected: conversations, names, a
 /// photo, a reaction, a reply, an unread count, the account.
 fn linked() {
+    // A photo and a voice note: their files come with `download`.
+    println!(
+        "{}",
+        json!({"type":"message","message":{
+            "id":"alice@s.whatsapp.net:fake-photo","chat":"alice@s.whatsapp.net","name":"Alice",
+            "sender":"alice@s.whatsapp.net","author":"Alice","text":"La vue d'ici",
+            "ts":1791810604000_i64,"mine":false,"kind":"image","mime":"image/png","width":32,"height":32,"size":132
+        }})
+    );
+    println!(
+        "{}",
+        json!({"type":"message","message":{
+            "id":"alice@s.whatsapp.net:fake-voice","chat":"alice@s.whatsapp.net","name":"Alice",
+            "sender":"alice@s.whatsapp.net","author":"Alice","text":"",
+            "ts":1791810606000_i64,"mine":false,"kind":"voice","mime":"audio/ogg; codecs=opus","seconds":7,"size":4000
+        }})
+    );
     println!(
         "{}",
         json!({"type":"message","message":{
@@ -89,6 +106,25 @@ fn main() {
                 linked();
             }
             // Bob in the contacts; any number WhatsApp "knows".
+            // The photo is the PNG above; the voice note only needs to exist.
+            Some("download") => {
+                let id = command["id"].as_str().unwrap_or_default();
+                let bytes = match id {
+                    "alice@s.whatsapp.net:fake-photo" => {
+                        use base64::Engine;
+                        base64::engine::general_purpose::STANDARD.decode(PHOTO).unwrap_or_default()
+                    }
+                    "alice@s.whatsapp.net:fake-voice" => vec![0_u8; 64],
+                    _ => Vec::new(),
+                };
+                let path = std::env::temp_dir().join(format!("rv-fake-whatsapp-{}", id.replace([':', '@'], "_")));
+                let path = if !bytes.is_empty() && std::fs::write(&path, bytes).is_ok() {
+                    path.to_string_lossy().into_owned()
+                } else {
+                    String::new()
+                };
+                println!("{}", json!({"type":"file","id":id,"path":path}));
+            }
             Some("search") => {
                 let text = command["text"].as_str().unwrap_or_default().to_lowercase();
                 let digits: String = text.chars().filter(char::is_ascii_digit).collect();

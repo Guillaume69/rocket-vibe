@@ -238,6 +238,8 @@ pub struct MessageList {
     photos: RefCell<Option<Photos>>,
     /// Moves when those photos change, so rows rebuild with them.
     photo_version: Cell<u64>,
+    /// Where that provider's attachments come from.
+    media: RefCell<Option<crate::media::Provider>>,
 }
 
 pub type Photos = Rc<dyn Fn(&str) -> Option<gtk::gdk::Texture>>;
@@ -247,6 +249,10 @@ impl MessageList {
     pub fn set_photos(&self, photos: Photos) {
         self.native_provider.replace(None);
         self.photos.replace(Some(photos));
+    }
+    /// The attachments of a provider with no session (WhatsApp).
+    pub fn set_media(&self, media: Option<crate::media::Provider>) {
+        self.media.replace(media);
     }
     /// The next `set_native_rows` rebuilds its rows' photos.
     pub fn set_photo_version(&self, version: u64) {
@@ -361,6 +367,7 @@ impl MessageList {
             native_images: RefCell::default(),
             photos: RefCell::default(),
             photo_version: Cell::default(),
+            media: RefCell::default(),
         });
         this.wire_selection();
         this.wire();
@@ -386,7 +393,8 @@ impl MessageList {
             rows::native_message_widget(display, &my_id, &native, editing.as_ref(), on_event)
         } else if let Some(photos) = photos.filter(|_| session.is_none()) {
             let photo = photos(&display.row.author_id);
-            rows::provider_message_widget(display, &my_id, photo.as_ref(), editing.as_ref(), on_event)
+            let sessionless = rows::Sessionless { photo: photo.as_ref(), media: self.media.borrow().clone() };
+            rows::provider_message_widget(display, &my_id, sessionless, editing.as_ref(), on_event)
         } else {
             rows::message_widget(display, &my_id, session.as_ref(), editing.as_ref(), on_event)
         };

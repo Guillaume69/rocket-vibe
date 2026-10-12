@@ -156,6 +156,8 @@ pub fn send_all_provider(
                             "type-not-allowed" => refusal_text(&Refusal::TypeNotAllowed { mime }, &n),
                             _ => t("file.failed").into(),
                         }),
+                    // Files are not sent to WhatsApp yet; its composer hides the button.
+                    crate::media::Provider::WhatsApp(_) => Err(t("file.failed").into()),
                 }
             })
             .await;

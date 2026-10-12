@@ -27,7 +27,10 @@ async fn native_connector_links_sends_and_revokes_without_a_server() {
     c.reconnect().unwrap();
     until(&c, |s| s.state == "connected").await;
     assert!(c.snapshot().qr.is_none());
-    assert_eq!(c.snapshot().messages.len(), 3);
+    assert_eq!(c.snapshot().messages.len(), 5);
+    let photo = c.download("alice@s.whatsapp.net:fake-photo".into()).await.expect("photo file");
+    assert!(std::fs::metadata(&photo).is_ok_and(|m| m.len() > 0));
+    assert!(c.download("alice@s.whatsapp.net:fake-received".into()).await.is_err());
     until(&c, |s| s.name_of("alice@s.whatsapp.net") == Some("Alice Martin") && !s.avatars.is_empty()).await;
     c.react("alice@s.whatsapp.net:fake-received".into(), "👍".into()).unwrap();
     until(&c, |s| {
@@ -124,7 +127,18 @@ mod session {
         assert!(alice.avatar_etag.is_some());
         let friends = rows.iter().find(|r| r.rid == "friends@g.us").unwrap();
         assert_eq!((friends.kind.as_str(), friends.unread), ("p", 2));
-        assert_eq!(s.timeline("alice@s.whatsapp.net").len(), 2);
+        let timeline = s.timeline("alice@s.whatsapp.net");
+        assert_eq!(timeline.len(), 4);
+        let photo = timeline.iter().find(|d| d.row.id.ends_with("fake-photo")).unwrap();
+        let images = rv_core::media::image_attachments(photo.row.attachments.as_deref());
+        assert_eq!(images[0].source, "wa-media:alice@s.whatsapp.net:fake-photo");
+        assert_eq!(photo.row.text.as_deref(), Some("La vue d'ici"));
+        let voice = timeline.iter().find(|d| d.row.id.ends_with("fake-voice")).unwrap();
+        let files = rv_core::content::files(voice.row.attachments.as_deref());
+        assert_eq!(
+            (files[0].kind, files[0].url.as_str()),
+            (rv_core::content::FileKind::Audio, "wa-media:alice@s.whatsapp.net:fake-voice")
+        );
         // Opening the group reads it.
         s.mark_read("friends@g.us");
         until(&s, |s| s.room_rows().iter().all(|r| r.unread == 0)).await;

@@ -83,11 +83,20 @@ fn linked(window: Rc<AppWindow>, out: String) {
                 list.len(),
             );
             check("whatsapp composer is text only", !window.chat.composer_tools_shown(), ());
+            check(
+                "whatsapp photo and voice note rows",
+                list.row_widget("alice@s.whatsapp.net:fake-photo").is_some()
+                    && list.row_widget("alice@s.whatsapp.net:fake-voice").is_some(),
+                (),
+            );
             window.chat.send_text("Smoke WhatsApp");
             let (window, session) = (window.clone(), session.clone());
             glib::timeout_add_local_once(Duration::from_millis(1200), move || {
                 let sent = session.snapshot().messages.values().any(|m| m.mine && m.text == "Smoke WhatsApp");
                 check("whatsapp text sent through the composer", sent, ());
+                // Drawing the photo asked the helper for its file.
+                let fetched = std::env::temp_dir().join("rv-fake-whatsapp-alice_s.whatsapp.net_fake-photo").exists();
+                check("whatsapp photo fetched for the timeline", fetched, ());
                 let own = session.info.user_id.clone();
                 check("whatsapp my photo arrived", session.photo(&own).is_some(), &own);
                 shot(&window, &format!("{out}/chat.png"));

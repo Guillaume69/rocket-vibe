@@ -277,6 +277,10 @@ The tradeoff is visible: a request that never reached the server can stay in "Ch
 
 On a RocketVibe server the sign-in identifier is the username or, when it contains `@`, the account's verified address, normalized as every contact is (domain in lower case, local part as typed). Unknown, pending and ambiguous addresses fail exactly like a wrong password, after the same dummy Argon2 hash, so the route reveals no account. One address must name one account, so `account_emails` gained a `sign_in` flag under a partial unique index (migration 0062): the migration could not drop either side of an existing duplicate (an email factor may hang on the row), so it keeps both as contacts and takes sign-in away from both rather than pick a winner. A second account is refused at confirmation, after the code matched, so only the mailbox's reader learns the address is taken; refusing at start would let any signed-in account probe addresses. The login quota keys on the normalized address rather than the resolved account, so a 429 never tells which account an address belongs to; an account thus has two per-identifier windows (username and address) under the per-client and instance windows. Password recovery, the email recovery request and invitations keep taking the username: their durable client vaults are keyed on it.
 
+## WhatsApp through a local linked-device helper (2026-10-12)
+
+A personal WhatsApp account joins RocketVibe the way WhatsApp Desktop does: the user scans a QR from the phone and the computer becomes a linked device with its own keys. Meta's Business Platform cannot read a personal account's conversations, and the EU interoperability route needs an agreement with Meta and does not import an existing account, so the only path that meets "my WhatsApp in our native interface" is a third-party implementation of the linked-device protocol, whatsmeow (Go, MPL-2.0). It runs as a local child process (`apps/desktop/whatsapp/`) that the GTK app drives over private pipes: no conversation, key or QR passes through a RocketVibe server, a relay being a different privacy boundary that needs its own decision. Its SQLite stays in memory and reaches disk only sealed with AES-256-GCM under a key from the system keychain; without that key an existing state fails closed rather than falling back to a plaintext file. A send is recorded before its network attempt and an ambiguous outcome is shown as unconfirmed, never replayed, the same rule as the outboxes. The cost is ours to carry: an unofficial protocol that WhatsApp may change or refuse (`client_outdated`), live qualification only on an account a person links by hand, and a helper to package per platform. It stays an experimental pilot outside the account rail until a real account qualifies it. See [whatsapp](features/whatsapp.md).
+
 ## Sources
 
 - `apps/desktop/crates/rv-gtk/src/notifier/custom.rs`
@@ -336,3 +340,5 @@ On a RocketVibe server the sign-in identifier is the username or, when it contai
 - `brain/features/social.md`
 - `apps/server/src/auth.rs`
 - `apps/server/migrations/0062_email_sign_in.sql`
+- `apps/desktop/whatsapp/main.go`
+- `apps/desktop/whatsapp/vault.go`

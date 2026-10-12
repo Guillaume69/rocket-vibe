@@ -1,10 +1,8 @@
 # WhatsApp linked-device pilot: agent handoff
 
 Date: 2026-10-12.
-Branch: `codex/whatsapp-feasibility`.
-Worktree: `C:\Users\thoma\.codex\worktrees\whatsapp-feasibility\RocketVibe`.
-Inspected base: `d1b3a3c361744bffa15ab463fc6f8558a28b33c9`.
-Status: implementation and synthetic qualification in progress; the verification record below must be finalized before handoff.
+Branch: `claude/whatsapp-feasibility`, based on `origin/master` at `089df389`. It continues `codex/whatsapp-feasibility`, whose work was left uncommitted in the Codex worktree when that session ended; the first commit imports it unchanged, the following ones fix and qualify it.
+Status: synthetic qualification complete (see the verification record); live WhatsApp qualification pending.
 
 ## Accepted direction and scope
 
@@ -49,11 +47,15 @@ Output types:
 - `status`: `state` among loaded, connecting, paired, connected, offline, qr_expired, replaced and logged_out.
 - `message`: nested `id, chat, name, sender, author, text, ts, mine, status`. Timestamps are epoch milliseconds; ids are scoped as `<chat>:<WhatsApp message id>`.
 - `sent`: `id, state`; empty state is accepted by WhatsApp, `uncertain` is an ambiguous outcome. Acceptance is not a delivery/read receipt.
-- `error`: a stable non-sensitive `code`. Do not log upstream exception bodies.
+- `error`: a stable non-sensitive `code`, plus `id` when it refuses one send before any record or network attempt (`not_connected`, `invalid_send`, `local_storage_failed`, `send_already_recorded`): the client gives that send's text back as a draft. Without `id`, `logout_failed`, `invalid_command` and `local_storage_failed` leave the connection state alone; every other code (`connector_start_failed`, `secure_storage_failed`, `session_ended`, `pairing_failed`, `client_outdated`, `connection_failed`, `state_removal_failed`) ends it (`state: error`) and Refresh starts a new helper. Do not log upstream exception bodies.
 
-The Rust reader limits each frame to 1 MiB and reaps or kills a child that stops responding during shutdown. It retains partial input when a command interrupts an in-progress read. The projection is bounded to 20,000 messages. A stream failure clears the QR and marks the connector stopped.
+QR channel events map as: `code` to `qr`, `timeout` to `qr_expired`, `err-client-outdated` to `client_outdated`, any other error event (a phone without multi-device, unexpected state) to `pairing_failed`.
 
-The Go cache stores send intents before their network attempt. It turns surviving `sending` records into `uncertain` at startup, and never replays them automatically. The GTK window keeps draft text if a command was rejected before a message record appeared; an ambiguous network outcome is shown as unconfirmed rather than restoring a tempting duplicate-send draft.
+The Rust reader limits each frame to 1 MiB and reaps or kills a child that stops responding during shutdown (5 s). It retains partial input when a command interrupts an in-progress read. The projection is bounded to 20,000 messages. A stream failure clears the QR and marks the connector stopped; `Snapshot::exited` then says the child is gone and its state lock free, which a restart waits for (the helper takes an exclusive lock on its state, so a second helper started early fails with `connector_start_failed`). `Snapshot::loaded` turns true once the helper replayed its cache.
+
+The Go helper checkpoints once per second but seals only when SQLite's `total_changes()` moved since the last sealed snapshot, so an idle session does not rewrite the file. Its text cache keeps the newest 20,000 settled messages (pruned at startup and after each history sync); `sending` and `uncertain` rows are kept whatever their age.
+
+The Go cache stores send intents before their network attempt, and emits the record before that attempt. It turns surviving `sending` records into `uncertain` at startup, and never replays them automatically. The GTK window gives the text back as a draft only when the send provably never left: an `error` naming its id, the helper exited with no record of it, or a restarted helper replayed its cache without it. A stale error from another command never counts. An ambiguous network outcome is shown as unconfirmed rather than restoring a tempting duplicate-send draft.
 
 ## Commands and synthetic UI checks
 

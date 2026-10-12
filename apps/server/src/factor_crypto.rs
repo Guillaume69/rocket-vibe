@@ -113,6 +113,28 @@ pub(crate) fn secret() -> Zeroizing<[u8; 20]> {
     secret
 }
 
+/// Key Uri Format: `issuer:account` label, `issuer=` repeated for older apps.
+pub(crate) fn provisioning_uri(issuer: &str, account: &str, secret: &str) -> String {
+    let issuer = uri_component(issuer);
+    format!(
+        "otpauth://totp/{issuer}:{}?secret={secret}&issuer={issuer}&algorithm=SHA1&digits=6&period=30",
+        uri_component(account)
+    )
+}
+
+fn uri_component(value: &str) -> String {
+    value
+        .bytes()
+        .map(|b| {
+            if b.is_ascii_alphanumeric() || b"-._~".contains(&b) {
+                (b as char).to_string()
+            } else {
+                format!("%{b:02X}")
+            }
+        })
+        .collect()
+}
+
 fn hotp(secret: &[u8], counter: u64, digits: u32) -> String {
     let mut mac = <Hmac<Sha1> as Mac>::new_from_slice(secret).expect("HMAC accepts every key size");
     mac.update(&counter.to_be_bytes());

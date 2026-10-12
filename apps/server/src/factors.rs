@@ -387,10 +387,7 @@ pub(crate) async fn begin(
     };
     let secret = data_encoding::BASE32_NOPAD.encode(&secret);
     let issuer = format!("RocketVibe-{}", &instance[..8.min(instance.len())]);
-    let provisioning_uri = format!(
-        "otpauth://totp/{issuer}:{}?secret={secret}&issuer={issuer}&algorithm=SHA1&digits=6&period=30",
-        account.username
-    );
+    let provisioning_uri = factor_crypto::provisioning_uri(&issuer, &account.username, &secret);
     tx.commit().await?;
     Ok(FactorSetup {
         setup_id: id,

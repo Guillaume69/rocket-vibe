@@ -223,18 +223,29 @@ async fn password_login(
     peer: Option<IpAddr>,
     challenges: bool,
 ) -> Result<rv_protocol::parity::AuthenticationStep> {
-    if username.len() > 128 || password.len() > 1024 {
+    if username.len() > 254 || password.len() > 1024 {
         return Err(Error::invalid());
     }
+    let login = if username.contains('@') {
+        crate::mail::normalized_address(&username).unwrap_or(username)
+    } else {
+        username
+    };
     // Limit expensive Argon2 work independently of the HTTP connection count.
     let permit = app
         .password_slots
         .clone()
         .try_acquire_owned()
         .map_err(|_| Error::throttled("auth_busy", 1))?;
-    crate::limits::login_attempt(app, &username, peer).await?;
-    let record: Option<(String,String,String,String)> = sqlx::query_as("SELECT id,username,display_name,password_hash FROM users WHERE username=$1 AND NOT disabled AND NOT bot")
-        .bind(username).fetch_optional(&app.pool).await?;
+    crate::limits::login_attempt(app, &login, peer).await?;
+    let record: Option<(String, String, String, String)> = sqlx::query_as(if login.contains('@') {
+        "SELECT u.id,u.username,u.display_name,u.password_hash FROM account_emails e JOIN users u ON u.id=e.user_id WHERE e.address=$1 AND e.sign_in AND NOT u.disabled AND NOT u.bot"
+    } else {
+        "SELECT id,username,display_name,password_hash FROM users WHERE username=$1 AND NOT disabled AND NOT bot"
+    })
+    .bind(login)
+    .fetch_optional(&app.pool)
+    .await?;
     let hash = record
         .as_ref()
         .map(|r| r.3.clone())

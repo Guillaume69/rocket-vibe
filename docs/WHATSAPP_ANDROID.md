@@ -84,7 +84,7 @@ WhatsApp sends no push to a linked device: without a live connection nothing arr
 2. **Library and module, in front only**: the `.so`, the Expo module and the Keystore key are done (above); left: linking by number, the provider, the room list and text timeline, the account in the rail.
 3. **Conversation**: send, reactions, replies, edits and deletions, read state, typing, new conversations.
 4. **Media** both ways.
-5. **Background**: the service, Kotlin notifications with reply and react, boot restart, mute when the official app is present.
+5. **Background**, done: the service, Kotlin notifications with Reply and Mark as read, boot restart. Left: muting when the official app is present, React from the notification.
 6. **Lifecycle and parity**: unlink, several accounts, the licence notice, `brain/features/whatsapp.md` `## Mobile` and the `brain/parity.md` row.
 
 ## Sources

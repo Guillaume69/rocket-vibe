@@ -9,7 +9,7 @@ release, and its notes are that version's section here.
 
 ### Added
 
-- Experimental WhatsApp accounts on Android: choose WhatsApp among the server types to link a personal account with a code typed in WhatsApp (or a QR for another phone). Its chats, names, profile photos, messages, reactions, edits, deletions and unread counts appear like any account; photos, videos, voice notes and documents show in the timeline and can be sent, voice notes recorded in the app arriving as real WhatsApp voice notes; you can react, edit, delete and read. Notifications and background reception come next.
+- Experimental WhatsApp accounts on Android: choose WhatsApp among the server types to link a personal account with a code typed in WhatsApp (or a QR for another phone). Its chats, names, profile photos, messages, reactions, edits, deletions and unread counts appear like any account; photos, videos, voice notes and documents show in the timeline and can be sent, voice notes recorded in the app arriving as real WhatsApp voice notes; you can react, edit, delete and read. New messages notify with Reply and Mark as read, and "Receive in the background" (notification settings) keeps the account connected with the app closed, under a permanent notification.
 
 ### Fixed
 

@@ -24,7 +24,7 @@ SwiftUI: missing (the FFI filters WhatsApp accounts out of the shared keychain i
 
 ## Mobile
 
-Missing. The Go engine is meant to be embedded on Android through a `gomobile` binding of the same engine; receiving in the background needs the app to keep the connection itself (a foreground service), since WhatsApp sends no push to a linked device, or a relay, which is a separate privacy decision.
+Missing; designed in [the Android design](../../docs/WHATSAPP_ANDROID.md). The same Go engine, split into a library and bound with `gomobile` into an AAR, owned by a Kotlin singleton the JS provider attaches to; linking by phone-number code rather than QR, since the primary WhatsApp usually runs on the same phone; background reception only through an opt-in foreground service, since WhatsApp sends no push to a linked device.
 
 ## Web
 

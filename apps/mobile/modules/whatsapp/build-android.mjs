@@ -57,7 +57,7 @@ for (const abi of abis) {
 // (MPL-2.0, our fork) first, as apps/desktop/whatsapp/licenses.sh writes it
 // for the desktop packages.
 const list = spawnSync('go', ['list', '-m', '-json', 'all'], {cwd: engine, encoding: 'utf8', maxBuffer: 64 << 20,
-  env: {...process.env, GOTOOLCHAIN: process.env.GOTOOLCHAIN ?? 'auto', GOFLAGS: '-mod=mod'}});
+  env: {...process.env, GOTOOLCHAIN: process.env.GOTOOLCHAIN ?? 'auto'}});
 if (list.error || list.status !== 0) throw new Error('Go module list failed for the licence notice');
 // One object per module, each closing on a line of its own.
 const modules = JSON.parse(`[${list.stdout.trim().replace(/\n}\r?\n{/g, '\n},\n{')}]`);

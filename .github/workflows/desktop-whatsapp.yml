@@ -54,11 +54,11 @@ jobs:
       - name: Build
         run: |
           mkdir -p out/linux out/windows
-          CGO_ENABLED=1 go build -tags sqlite_unlock_notify -trimpath -o out/linux/rv-whatsapp .
+          CGO_ENABLED=1 go build -buildvcs=false -tags sqlite_unlock_notify -trimpath -o out/linux/rv-whatsapp .
           CGO_ENABLED=1 GOOS=windows GOARCH=amd64 CC=x86_64-w64-mingw32-gcc \
-            go build -tags sqlite_unlock_notify -trimpath -o out/windows/rv-whatsapp.exe .
+            go build -buildvcs=false -tags sqlite_unlock_notify -trimpath -o out/windows/rv-whatsapp.exe .
           out/linux/rv-whatsapp --version
-          ./licenses.sh > out/rv-whatsapp-licenses.txt
+          bash licenses.sh > out/rv-whatsapp-licenses.txt
           cp out/rv-whatsapp-licenses.txt out/linux/
           cp out/rv-whatsapp-licenses.txt out/windows/
       - uses: actions/upload-artifact@v4
@@ -84,9 +84,9 @@ jobs:
       - name: Build
         run: |
           mkdir -p out
-          CGO_ENABLED=1 go build -tags sqlite_unlock_notify -trimpath -o out/rv-whatsapp .
+          CGO_ENABLED=1 go build -buildvcs=false -tags sqlite_unlock_notify -trimpath -o out/rv-whatsapp .
           out/rv-whatsapp --version
-          ./licenses.sh > out/rv-whatsapp-licenses.txt
+          bash licenses.sh > out/rv-whatsapp-licenses.txt
       - uses: actions/upload-artifact@v4
         with:
           name: rv-whatsapp-macos-arm64

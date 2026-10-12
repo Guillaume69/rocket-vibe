@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import { chromium } from "playwright";
+import { startupStorage } from "./startup-storage.mjs";
 const base = process.env.RV_WEB_TEST_URL || "http://127.0.0.1:3417";
 assert.ok(["localhost", "127.0.0.1"].includes(new URL(base).hostname));
 const password = "web-client-disposable-password",
@@ -14,6 +15,7 @@ const errors = [];
 page.on("pageerror", (error) => errors.push(error.message));
 await mkdir("../../.cache/web-shots", { recursive: true });
 try {
+  await startupStorage(browser, base);
   await page.goto(base);
   await page
     .getByRole("checkbox", { name: "Create an account", exact: true })
@@ -97,9 +99,20 @@ try {
   await page.keyboard.press("Escape");
   assert.equal((await read()).favorite, false, "dismissing the menu is inert");
   await row.click({ button: "right" });
+  const favorite = page.waitForResponse(
+    (response) =>
+      response.request().method() === "PUT" &&
+      response.url().endsWith("/api/v1/rooms/" + roomId + "/favorite"),
+  );
   await page
     .getByRole("menuitem", { name: "Add to favorites", exact: true })
     .click();
+  assert.equal((await favorite).status(), 200);
+  assert.equal(
+    (await read()).favorite,
+    true,
+    "the explicit mutation is acknowledged before reopening its menu",
+  );
   await row.click({ button: "right" });
   await page
     .getByRole("menuitem", { name: "Remove from favorites", exact: true })

@@ -17,6 +17,7 @@ All notable changes are documented here in English.
 - Confirming an email address already linked to another account says so instead of showing a raw error code.
 - The sign-up and recovery-code forms label their username field "Username", since they do not take an email address.
 - The profile page and the add-member field label the username field "Username", not the sign-in label "Username or email".
+- Replace a stalled browser-storage upgrade with an actionable Retry screen, preserve saved drafts and accounts, and release database connections when another tab upgrades them.
 - Align the RocketVibe web screens with the running GTK client: login and verification steps, room groups and menus, conversation headers, timeline grouping, composers, threads, message actions, emoji, search, room information, members, profiles and scheduling calendars.
 - Restore GTK settings and administration layouts, preserve category drafts and scroll position, use grouped security and encryption ceremonies, and render profile bios and room descriptions with safe markdown.
 - Match voice controls, participant menus, incoming-call alerts and leave/rejoin navigation to GTK, including listen-only mute and connection states.

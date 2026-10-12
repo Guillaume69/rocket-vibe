@@ -273,10 +273,41 @@ function sorted(messages: Message[]): Message[] {
   );
 }
 let database: Promise<IDBDatabase> | undefined;
+export class StorageOpenError extends Error {
+  readonly code: "blocked" | "unavailable";
+  constructor(code: "blocked" | "unavailable") {
+    super("browser_storage_" + code);
+    this.name = "StorageOpenError";
+    this.code = code;
+  }
+}
 function open(): Promise<IDBDatabase> {
-  return (database ??= new Promise((resolve, reject) => {
-    const request = indexedDB.open("rocket-vibe-web", 6);
+  if (database) return database;
+  const pending = new Promise<IDBDatabase>((resolve, reject) => {
+    let settled = false;
+    const fail = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(error);
+    };
+    const timer = setTimeout(
+      () => fail(new StorageOpenError("unavailable")),
+      10000,
+    );
+    let request: IDBOpenDBRequest;
+    try {
+      request = indexedDB.open("rocket-vibe-web", 6);
+    } catch (error) {
+      fail(error);
+      return;
+    }
+    request.onblocked = () => fail(new StorageOpenError("blocked"));
     request.onupgradeneeded = () => {
+      if (settled) {
+        request.transaction?.abort();
+        return;
+      }
       for (const name of [
         "accounts",
         "cache",
@@ -293,9 +324,28 @@ function open(): Promise<IDBDatabase> {
         if (!request.result.objectStoreNames.contains(name))
           request.result.createObjectStore(name);
     };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  }));
+    request.onsuccess = () => {
+      const db = request.result;
+      if (settled) {
+        db.close();
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      db.onversionchange = () => {
+        db.close();
+        if (database === pending) database = undefined;
+      };
+      resolve(db);
+    };
+    request.onerror = () =>
+      fail(request.error || new StorageOpenError("unavailable"));
+  });
+  database = pending;
+  void pending.catch(() => {
+    if (database === pending) database = undefined;
+  });
+  return pending;
 }
 export async function read<T>(
   store: string,

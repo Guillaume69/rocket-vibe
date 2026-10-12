@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import { chromium } from "playwright";
+import { voiceRoomSettings } from "./voice-room-settings.mjs";
 const base = process.env.RV_WEB_TEST_URL || "http://127.0.0.1:3417";
 assert.ok(["127.0.0.1", "localhost"].includes(new URL(base).hostname));
 const username = process.env.RV_WEB_ALICE || "webalice";
@@ -87,6 +88,7 @@ try {
   await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await page.locator(".status-dot.online").waitFor();
+  await voiceRoomSettings(page);
   await page
     .locator('[data-room="' + room.id + '"]')
     .first()

@@ -137,10 +137,12 @@ jobs:
         working-directory: apps/web
         run: |
           # Closed browser contexts leave five-minute snapshot leases. Release them
-          # between suites on this disposable server, keeping each suite's limits real.
+          # between suites on this disposable server. All suites also share localhost's
+          # login budget; release that IP window only at the closed-suite boundary,
+          # keeping every limit within each suite real.
           for suite in e2ee browser features media images video-reduce voice voice-connection voice-lifecycle sessions locked composer conversation-parity shell-parity quiet receipts scheduled reminders threads global-search logout-replay notifications security visual workflows reads profiles navigation social; do
             npm run "test:$suite"
-            docker exec "${{ job.services.postgres.id }}" psql -U web -d web --set ON_ERROR_STOP=1 --command 'DELETE FROM snapshot_heads'
+            docker exec "${{ job.services.postgres.id }}" psql -U web -d web --set ON_ERROR_STOP=1 --command "DELETE FROM snapshot_heads; DELETE FROM login_windows WHERE key LIKE 'ip:%'"
           done
       - name: Exercise authenticated browser vault and concurrent workers
         working-directory: apps/web

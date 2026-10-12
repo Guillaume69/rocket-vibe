@@ -104,6 +104,18 @@ const phrases = {
   react: ["React", "Réagir"],
   copy: ["Copy text", "Copier le texte"],
   loading: ["Loading…", "Chargement…"],
+  startupStorageTitle: [
+    "Unable to open RocketVibe",
+    "Impossible d’ouvrir RocketVibe",
+  ],
+  startupStorageBlocked: [
+    "Close other RocketVibe tabs or windows, then retry. Your saved conversations and drafts are kept.",
+    "Fermez les autres onglets ou fenêtres RocketVibe, puis réessayez. Vos conversations et brouillons enregistrés sont conservés.",
+  ],
+  startupStorageUnavailable: [
+    "Browser storage is unavailable. Allow storage for this site, then retry. Your saved data has not been removed.",
+    "Le stockage du navigateur est indisponible. Autorisez le stockage pour ce site, puis réessayez. Vos données enregistrées n’ont pas été supprimées.",
+  ],
   empty: [
     "Your conversations, a little brighter",
     "Vos conversations, un peu plus lumineuses",

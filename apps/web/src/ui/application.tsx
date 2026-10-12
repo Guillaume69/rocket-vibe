@@ -2,6 +2,7 @@ import { socialMenu } from "../social";
 import {
   useLayoutEffect,
   useEffect,
+  useState,
   useRef,
   useSyncExternalStore,
 } from "react";
@@ -10,7 +11,8 @@ import { nt } from "../native-i18n";
 import { t, language } from "../i18n";
 import { actionMenu, stopMedia, toast } from "../dom";
 import { composer } from "../composer";
-import { write } from "../store";
+import { StorageOpenError, write } from "../store";
+import { noteError } from "../diagnostics";
 import {
   roomInfo,
   marked,
@@ -28,15 +30,55 @@ import { PortalViews, clearView } from "./portals";
 
 export function Application({ app }: { app: App }) {
   const view = useSyncExternalStore(app.view.subscribe, app.view.getSnapshot);
+  const [attempt, setAttempt] = useState(0);
+  const [startupError, setStartupError] = useState<"blocked" | "unavailable">();
   useEffect(() => {
-    void app.init().catch(toast);
+    let current = true;
+    void app.init().catch((error) => {
+      if (!current) return;
+      if (app.view.getSnapshot().screen !== "loading") {
+        toast(error);
+        return;
+      }
+      noteError(error);
+      setStartupError(
+        error instanceof StorageOpenError ? error.code : "unavailable",
+      );
+    });
     return () => {
-      void app.dispose();
+      current = false;
     };
-  }, [app]);
+  }, [app, attempt]);
+  useEffect(
+    () => () => {
+      void app.dispose();
+    },
+    [app],
+  );
+  const retry = () => {
+    setStartupError(undefined);
+    setAttempt((value) => value + 1);
+  };
   return (
     <AppContext value={app}>
-      {view.screen === "login" ? (
+      {startupError ? (
+        <div className="login-page">
+          <section className="startup-error" role="alert">
+            <Brand />
+            <h1>{t("startupStorageTitle")}</h1>
+            <p>
+              {t(
+                startupError === "blocked"
+                  ? "startupStorageBlocked"
+                  : "startupStorageUnavailable",
+              )}
+            </p>
+            <ActionButton className="cta" action={retry}>
+              {t("retry")}
+            </ActionButton>
+          </section>
+        </div>
+      ) : view.screen === "login" ? (
         <LoginScreen key={language} app={app} />
       ) : view.screen === "shell" && app.account ? (
         <Shell key={view.mount} app={app} />

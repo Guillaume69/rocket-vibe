@@ -11,7 +11,7 @@ const code='11223344';
 function harness(){
   const values=new Map<string,string>(),rows=new Map<string,EmailVerificationStep>();
   let serial=0,starts=0,confirmations=0,retirements=0,claimed=false;
-  let loseBegin=false,loseConfirm=false,beforeBegin=false,failWrite=false;
+  let loseBegin=false,loseConfirm=false,beforeBegin=false,failWrite=false,unproven=false;
   let afterConfirm:()=>void=()=>{},duringToken:()=>void=()=>{};
   let status:EmailStatus={context:securityContext(scope),version:'contact-1',verification_version:'head-1',address:null,verified_at:null};
   const deps={hash:async(value:string)=>createHash('sha256').update(value).digest('hex'),
@@ -32,6 +32,7 @@ function harness(){
       if(beforeBegin){beforeBegin=false;throw new NativeError(0,'network_or_protocol_error');}
       const found=rows.get(input.verification_id);if(found)return structuredClone(found);
       if(claimed || input.verification_version!==status.verification_version || input.expected_version!==status.version)throw new NativeError(409,'operation_conflict');
+      if(unproven)throw new NativeError(403,'reauthentication_required');
       const pending:EmailVerificationStep={state:'pending',address:input.address,delivery:'queued',
         verification_id:input.verification_id,operation_id:input.operation_id,expected_version:input.expected_version,
         verification_version:input.verification_version,expires_at:new Date(Date.now()+900_000).toISOString()};
@@ -61,7 +62,7 @@ function harness(){
     },
   };
   return {deps,values,rows,remote,vault:()=>new EmailVault(deps),get starts(){return starts;},get confirmations(){return confirmations;},get retirements(){return retirements;},
-    set loseBegin(v:boolean){loseBegin=v;},set loseConfirm(v:boolean){loseConfirm=v;},set beforeBegin(v:boolean){beforeBegin=v;},set failWrite(v:boolean){failWrite=v;},
+    set loseBegin(v:boolean){loseBegin=v;},set loseConfirm(v:boolean){loseConfirm=v;},set beforeBegin(v:boolean){beforeBegin=v;},set failWrite(v:boolean){failWrite=v;},set unproven(v:boolean){unproven=v;},
     set afterConfirm(v:()=>void){afterConfirm=v;},set duringToken(v:()=>void){duringToken=v;},
     prune:()=>rows.clear(),changeContact:()=>{status={...status,version:'other-contact',address:'other@example.org',verified_at:new Date().toISOString()};},
   };
@@ -87,6 +88,20 @@ test('an unreceived start retries only its persisted original body and a pruned 
   h.prune();assert.equal((await h.vault().resume(scope,h.remote)).kind,'stale');assert.equal(h.starts,2);
 });
 
+test('a start refused for want of a recent proof waits for confirmation, then sends the same candidate',async()=>{
+  const h=harness();h.unproven=true;
+  const waiting=await h.vault().start(scope,h.remote,'new@example.org',await h.remote.status());
+  assert.equal(waiting.kind,'awaiting_proof');if(waiting.kind!=='awaiting_proof')throw new Error();assert.equal(waiting.address,'new@example.org');
+  assert.deepEqual(await h.vault().resume(scope,h.remote),waiting);assert.equal(h.rows.size,0);
+  h.unproven=false;
+  const pending=await h.vault().resume(scope,h.remote);if(pending.kind!=='pending')throw new Error();
+  assert.equal(pending.receipt,waiting.receipt);assert.equal(pending.address,'new@example.org');assert.equal(h.rows.size,1);
+});
+test('a verification awaiting proof can be cancelled',async()=>{
+  const h=harness();h.unproven=true;
+  const waiting=await h.vault().start(scope,h.remote,'new@example.org',await h.remote.status());if(waiting.kind!=='awaiting_proof')throw new Error();
+  assert.equal((await h.vault().cancel(scope,h.remote,waiting.receipt)).kind,'idle');assert.equal(h.values.size,0);
+});
 test('an unreceived verification remains closable when SMTP is disabled',async()=>{
   const h=harness();h.changeContact();h.beforeBegin=true;
   await assert.rejects(h.vault().start(scope,h.remote,'later@example.org',await h.remote.status()),/network_or_protocol_error/);

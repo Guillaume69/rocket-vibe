@@ -68,6 +68,8 @@ The settings are an overlay of the main window, not a `Settings` scene (removed)
 
 ## Web
 
+Categories retain their drafts and scroll position until the owning dialog closes. Server-backed mutations invalidate only affected pages. Native profile/photo rows, notification backend/test groups, quiet-hours expansion and inline factor/email ceremonies follow GTK's layouts. Crypto controls remain active when a cached page is temporarily detached; peer device approval requires typed fingerprint confirmation. Workflows and bots retain native grouped/expanded forms. The screen inventory and actual runtime checks are in `docs/WEB_GTK_SCREEN_AUDIT.md`.
+
 The settings dialog (`settings` in `apps/web/src/panels.ts`) follows GTK's categories ([web-client](web-client.md)). **App** shows the version (`package.json`) and **Diagnostics**, the browser's mapping of GTK's logs folder: a browser has no folder to open, so `src/diagnostics.ts` keeps a ring of the 200 latest client-side events in memory (errors the app reported through `toast`, uncaught errors and rejections from `installDiagnostics` in `main.ts`, connection state changes from `App.setConnection`, sign-out deferrals and replays, retention counts) and the row downloads them as `rocketvibe-web-diagnostics-<time>.txt` with the version, user agent, language and connection state. Never recorded: tokens, message text, names. An API error keeps only its status and code, any other error its type and a message passed through `scrub` (quoted text, email addresses, URL queries and opaque runs of 20 or more characters removed, 200 characters at most); strings shown to the user are not recorded. The ring lives as long as the tab. Unit tests `tests/diagnostics.test.ts`; `tests/logout-replay.mjs` downloads it and checks no token or name is in it.
 
 ## Authenticator QR code
@@ -80,6 +82,10 @@ Setting up an authenticator on a RocketVibe account (Security category, `POST /a
 
 ## Sources
 
+- apps/web/src/sidebar.ts
+- apps/web/src/settings-parity.css
+- apps/web/src/crypto/settings-controls.ts
+- docs/WEB_GTK_SCREEN_AUDIT.md
 - apps/desktop/crates/rv-gtk/src/chat.rs
 - apps/desktop/crates/rv-gtk/src/native_security.rs
 - apps/desktop/crates/rv-core/src/native/security.rs

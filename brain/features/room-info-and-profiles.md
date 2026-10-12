@@ -14,6 +14,7 @@ Three read-on-demand views and one editor: a room's information sheet, a person'
 - `POST rooms.saveRoomSettings {rid, roomTopic?, roomDescription?, roomAnnouncement?, readOnly?}`: the changed keys only, `edit-room` checked by the server, any unknown key refused.
 - GTK channel images use the same endpoint with `roomAvatar` as a full PNG/JPEG data URI. RocketVibe uses `PUT /rooms/{id}/avatar?operation_id=&expected_revision=` with raw image bytes and a `RoomCommandReceipt`; versioned image reads are `GET /rooms/{id}/avatar?revision=<room journal revision>`. See [avatars.md](avatars.md).
 - RocketVibe: `GET /rooms/{id}` (`RoomDetails`: texts, `read_only`, `voice`, details `revision`, my `permissions`), `GET /rooms/{id}/members?after=&revision=` (pages of 50, `next`), the versioned commands `PATCH /rooms/{id}`, `PUT /rooms/{id}/members/{user}/role`, `POST /rooms/{id}/leave` (each with `operation_id` and `expected_revision`, receipt at `GET /rooms/{id}/commands/{operation}`), and the owner's unversioned `POST` / `DELETE /rooms/{room}/members/{user}` (no body, `204`, removal idempotent, never oneself): `docs/protocol/ROOMS.md`, `docs/protocol/README.md`.
+- RocketVibe's full settings command preserves the room's encryption policy binding for name, text and voice-only edits. A real privacy or read-only change rotates authority and still needs an explicit MLS review; reverting the setting cannot restore the former binding. Details revisions and `room_upsert` still publish metadata-only edits.
 
 ## Mobile
 
@@ -42,7 +43,11 @@ Three read-on-demand views and one editor: a room's information sheet, a person'
 
 ## Web
 
-Conversation avatars and author names open the same profile as the message menu (`src/render.ts`, `App.profile`). `panels.ts::profile` fetches the native user profile on every open, uses the GTK 420 by 520 dialog with a 96-pixel portrait, centered identity and live presence/status text, then bio and Message/Call/Report actions. BOT ownership is shown; own profiles hide the other-person actions. GTK's encryption identity control is excluded by the browser's agreed E2EE scope. Native profiles supply neither role chips nor a timezone. Bio is currently plain text; GTK's markdown formatting remains browser debt.
+Conversation avatars and author names open the same profile as the message menu (`src/ui/messages.tsx`, `App.profile`). `panels.ts::profile` fetches the native user profile on every open, uses the GTK 420 by 520 dialog with a 96-pixel portrait, centered identity and live presence/status text, then bio and Message/Call/Report actions. BOT ownership is shown; own profiles hide the other-person actions. Native profiles supply neither role chips nor a timezone. Bio and room texts render bounded safe Markdown through `markdown-text.ts` and the React message renderer. The native-origin browser E2EE controls use explicit peer/device reviews; browser storage guarantees are documented separately.
+
+Room information is read-only with separate room settings, members and invitation dialogs. Membership roles use an explicit Apply action. Own-profile editing follows the native photo row suffix controls, name/username/read-only email/bio order and grouped Save. Selected profile photos become 512-pixel PNGs subject to the native size limit. These states are exercised by `tests/conversation-parity.mjs` and `tests/profiles.mjs`.
+
+The native room-information layout is 420 by 600, with filled actions in GTK order; a DM heading opens its peer profile. Owners change the channel image through a PNG/JPEG picker, with original bytes, command revision and nonce persisted in account/membership-scoped operation intents. A lost response resumes the identical command; Clear retires the local intent. Metadata responses preserve the model's personal read state, which also supplies the favourite command's actual revision. The roster uses native role combo rows and a separate Apply action; profile/removal remain available from its context menu.
 
 Live profile revisions reload the open card. A valid, complete live observation without a lease means Offline; expired or limited observations supply no presence. The browser renews its Online lease every 20 seconds while its authenticated socket remains open, respecting the server's chosen Away/Busy/Offline status. Shutdown serializes Offline after any in-flight publication. Profile responses/actions are fenced to the captured account, connection and room membership. Message/Call fetch the DM's personal read/access state before opening it, since creation returns a room without that personal state. Call uses the ordinary direct-call ringing path; Report replaces the card with the reason dialog. `tests/profiles.mjs` exercises these paths with two real fixture accounts, including expiry, signout, narrow layout and ringing/decline.
 
@@ -56,6 +61,9 @@ The bottom avatar opens the four activity choices on GTK, SwiftUI, mobile and we
 
 ## Sources
 
+- apps/web/src/markdown-text.ts
+- apps/web/src/ui/profile.tsx
+- apps/web/tests/conversation-parity.mjs
 - apps/web/src/render.ts
 - apps/web/src/app.ts
 - apps/web/src/panels.ts
@@ -72,6 +80,8 @@ The bottom avatar opens the four activity choices on GTK, SwiftUI, mobile and we
 - apps/mobile/providers/rocketvibe/chat.ts
 - apps/mobile/providers/rocketvibe/transport.ts
 - docs/protocol/ROOMS.md
+- apps/server/migrations/0062_room_authority_changes.sql
+- apps/server/tests/room_details.rs
 - apps/mobile/app/profile.tsx
 - apps/mobile/app/my-profile.tsx
 - apps/mobile/app/presence.tsx

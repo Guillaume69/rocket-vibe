@@ -337,7 +337,7 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
 
 ## Web
 
-The server-delivered client uses the same ordinary-room voice grants, LiveKit SFU, live roster and room screen claim. Selecting a voice channel joins it automatically. Encrypted rooms and frames are outside the accepted browser scope. The page ports GTK's TileGrid, six controls, audio/person popovers and two-second direct-call peer reconnection grace. Returning from the sidebar call panel restores the actual call room.
+The server-delivered client uses the same ordinary-room voice grants, LiveKit SFU, live roster and room screen claim. Selecting a voice channel joins it automatically. The page ports GTK's TileGrid, circular microphone/deafen/camera/share/leave controls, the microphone menu and a reaction button when supported, audio/person popovers and two-second direct-call peer reconnection grace. Returning from the sidebar call panel restores the actual call room. Manual Leave keeps the room's voice page, its live participant preview and Join voice button; session expiry, access loss and failed connections remove it. Incoming calls use GTK's heading and caller sentence with Decline/Accept responses, accepting by default and ignoring on Escape or outside dismissal. Encryption adds the lock and secure connection status. Reactions occupy the same strip above the controls as GTK.
 
 An initial WebRTC failure emits `Disconnected` before the SDK rejects `connect`. The client lets the join's error handler report GTK's "Couldn't join voice" refusal and release the pending call/context; established-call disconnections still tear down immediately. Advancing the lifecycle during the initial event would swallow that error. `voice-connection.mjs` qualifies Firefox and Chromium with real bidirectional audio and a live two-person roster, then forces an ICE timeout and reconnects. Firefox keeps its normal ICE loopback policy. SFU candidates must be reachable from each browser; the Windows test bench uses an explicitly approved local UDP listener and the official Windows SFU binary, while its HTTP APIs remain on loopback.
 
@@ -363,6 +363,8 @@ The browser uses the room's verified MLS voice exporter with LiveKit's encoded-t
 
 - docs/protocol/VOICE.md
 - apps/web/src/voice.ts
+- apps/web/src/ui/voice.tsx
+- apps/web/src/voice-parity.css
 - apps/web/src/voice-audio.ts
 - apps/web/src/voice-activity.ts
 - apps/web/src/voice-grid.ts

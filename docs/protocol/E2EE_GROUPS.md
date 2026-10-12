@@ -68,6 +68,13 @@ A member session can observe it before crypto enrollment / admission;
 this grants no Welcome, no access to the group and no identity approval.
 Administrators without a private membership cannot access it.
 
+`authority_version` changes for a real privacy-kind or read-only policy change,
+including restoring an earlier setting. Updating room texts, its name or its
+voice-channel flag preserves that binding, even though the full settings command
+supplies unchanged policy fields. A real policy change still requires an
+explicit reviewed MLS transition; metadata edits do not create that requirement
+([ROOMS.md](ROOMS.md)).
+
 The list comes from the same query as the plan validation. It is
 complete up to 128 active members; an overflow returns
 `409 crypto_group_limit`, without publishing a partial page. A client can

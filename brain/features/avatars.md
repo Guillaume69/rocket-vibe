@@ -24,7 +24,7 @@ How user and room photos are fetched, how a gradient tile stands in when there i
 
 ## Desktop
 
-- **Channel images.** GTK room information offers "Change channel image" for Rocket.Chat users with `edit-room` and RocketVibe room owners when `room_avatars` is announced (`details/room_avatar.rs`). The system picker accepts PNG/JPEG up to 2 MB. Rocket.Chat sends `rooms.saveRoomSettings {rid, roomAvatar: "data:<mime>;base64,..."}`. A local nonce invalidates the old image; the open dialog follows `SessionEvent::Avatar` so the server's delayed `updateAvatar` replaces an early placeholder with the authoritative etag. The listener stops when the dialog closes. RocketVibe persists the original bytes and command nonce in `RoomOperation::Avatar`, checks the private receipt before retries, and refreshes through the room journal. Its `room:<rid>:<revision>` media key is tied to the room's journal revision; reads are authenticated and retired on revision change or loss of membership. Empty image results are cached per revision. GTK and SwiftUI's media bridge display these images; encrypted channel list tiles retain their padlock. SwiftUI, Android and web still owe the channel-image editor.
+- **Channel images.** GTK room information offers "Change channel image" for Rocket.Chat users with `edit-room` and RocketVibe room owners when `room_avatars` is announced (`details/room_avatar.rs`). The system picker accepts PNG/JPEG up to 2 MB. Rocket.Chat sends `rooms.saveRoomSettings {rid, roomAvatar: "data:<mime>;base64,..."}`. A local nonce invalidates the old image; the open dialog follows `SessionEvent::Avatar` so the server's delayed `updateAvatar` replaces an early placeholder with the authoritative etag. The listener stops when the dialog closes. RocketVibe persists the original bytes and command nonce in `RoomOperation::Avatar`, checks the private receipt before retries, and refreshes through the room journal. Its `room:<rid>:<revision>` media key is tied to the room's journal revision; reads are authenticated and retired on revision change or loss of membership. Empty image results are cached per revision. GTK and SwiftUI's media bridge display these images; encrypted channel list tiles retain their padlock. SwiftUI and Android still owe the channel-image editor.
 
 - **URL builder.** `media::avatar_path` (`rv-core/src/media.rs`, with `AvatarTarget::User`, `Uid`, `Room`) percent-encodes like `encodeURIComponent` (a `+` in a username is literal in a path) and appends `?etag=`. `media::room_avatar_path` decides a room tile's photo: a DM shows the other participant by uid (with no version), a channel or group the room photo with the room's `avatar_etag`, and an encrypted room always keeps its grey padlock, locked or not.
 - **Versions.** User versions live in memory only: `Session.avatars` (username to etag), filled by `updateAvatar` and by profiles read with `users.info`, read by `Session::user_avatar`. Room versions are stored (`rooms.avatar_etag`, written by `Store::set_room_avatar` on the stream, kept by `COALESCE` on upserts). Each change emits `SessionEvent::Avatar`; the GTK window then rebuilds the room list and rebinds the message rows (`ChatPage::on_avatar` in `rv-gtk/src/chat.rs`).
@@ -32,12 +32,20 @@ How user and room photos are fetched, how a gradient tile stands in when there i
 - **My own photo.** `rv-gtk/src/settings.rs` shows my photo from `me`'s `avatarETag`, uploads a new one with `Session::set_avatar` (`users.setAvatar`, multipart field `image`) and removes it with `Session::reset_avatar` (`users.resetAvatar`).
 - **SwiftUI.** `Avatar` in `macos/Sources/RocketVibe/Media.swift` lays the photo over a gradient tile of initials (the Android gradients) and keeps the tile when there is none; photos are fetched through `rv-ffi` by `RocketVibeKit/MediaStore.swift` and decoded off the main thread (`Pictures.swift`).
 
+## Web
+
+Native RocketVibe room owners change channel images from the room-information dialog when `room_avatars` is advertised. The picker accepts PNG/JPEG up to 2 MB, preserves the bytes, and submits a revisioned owner command. The info tile, room header and sidebar use the protected room-avatar route keyed by room revision. `ui/controls.tsx::Avatar` captures account, connection and membership lifetime before publishing a shared App-owned asset URL. Missing images keep the native fallback; encrypted header/list tiles retain the lock, while the information dialog can show the channel photo. Avatar updates refresh through the room journal. `tests/conversation-parity.mjs` verifies an actual owner upload and both visible room images.
+
 ## Parity
 
 [parity](../parity.md) §3 "Photo avatars over gradient tiles" holds on both. Gaps found in code: on desktop a DM's tile uses `/avatar/uid/<uid>` without a version, so a DM partner's new photo shows in the room list only once the texture cache is rebuilt (next session), while their message rows, keyed by username, update live; desktop keeps user versions in memory, so after a restart message rows use unversioned URLs until a stream event or profile read (harmless there because the cache starts empty). Mobile cannot remove a photo; desktop can.
 
 ## Sources
 
+- apps/web/src/ui/controls.tsx
+- apps/web/src/room-avatar.ts
+- apps/web/src/panels.ts
+- apps/web/tests/conversation-parity.mjs
 - apps/desktop/crates/rv-gtk/src/details/room_avatar.rs
 - apps/desktop/crates/rv-core/src/native/room_operations.rs
 - apps/desktop/crates/rv-core/src/native/store/room_operations.rs

@@ -12,7 +12,8 @@ Current state: real application implemented and embedded in the server. One serv
 - [x] Ordinary rooms, threads, actions, search, files, recording, management and settings.
 - [x] Browser LiveKit calls and security flows exercised against local services.
 - [x] Brain, changelog and continuous browser build/test workflow.
-- [ ] Full GTK visual-state comparison and all remaining per-row qualifications.
+- [x] Screen-by-screen GTK layout and interaction audit of the supported browser pages.
+- [ ] Remaining per-row platform, physical-device and MLS state qualifications.
 - [x] Browser DOM composer with GTK inline draft styling, selection, undo/redo and cursor-line markers.
 - [x] Offline signout replay.
 - [ ] Closed-tab Web Push.
@@ -81,9 +82,29 @@ The workflows on `34217cb3` exposed a late native `AudioContext.setSinkId` rejec
 
 All three master workflows pass on corrective commit `e5d51efd`: [web client](https://github.com/Guillaume69/rocket-vibe/actions/runs/38050584637), [native server](https://github.com/Guillaume69/rocket-vibe/actions/runs/38050584630) and [desktop](https://github.com/Guillaume69/rocket-vibe/actions/runs/38050584891). The native-server workflow includes the complete GTK quote smoke and its subsequent security, email and restart scenarios. The later evidence-only documentation commit does not change application code or the embedded assets.
 
+## GTK screen audit, 2026-10-12
+
+The renewed screen audit compares the native RocketVibe-provider branch of the actual GTK client, not its Rocket.Chat toolbar or an approximate colour scheme. [WEB_GTK_SCREEN_AUDIT.md](WEB_GTK_SCREEN_AUDIT.md) records the screen inventory, native source references and corrections. The browser now follows GTK login/challenge steps, sidebar grouping and menus, header controls, timeline grouping, composers, thread navigation, actions, emoji, compact search/marked previews, room/member/profile dialogs, settings categories, security/encryption ceremonies, administration, bots/workflows, scheduling and voice states. Cached settings retain drafts and scroll; live operations invalidate only the affected pages.
+
+Qualification uses a fresh mandatory Fedora GTK build and connected GTK captures, plus the browser's production distribution against disposable PostgreSQL, TLS SMTP and LiveKit services. Formatting, strict TypeScript, build and 119 Node tests pass. Real-server suites pass conversations, composer, threads, shell, profiles, settings, workflows, security, quiet hours, scheduled messages, reminders, search, reads, receipts, sessions, signout replay, notifications, social cards, images, video reduction, media and capture/offline cases. The final conversation-parity checks include real role changes, cancellation, DM profile navigation and channel images. A committed image response is deliberately lost and replayed with its original nonce after reload; a separate actual membership withdrawal purges the pending image intent. Four held-response tests cover receipt hydration with initial membership, withdrawal, removal/rejoin and newer live room/read revisions.
+
+Voice and lifecycle suites verify actual bidirectional RTP, mute/deafen, gains, camera, controlled screen/program-sound capture, ringing, leave/rejoin and resource/access teardown. The independent Chromium and Firefox vault gate passes reload, concurrent workers, non-extractable storage keys and authenticated-corruption refusal. Browser OS permissions, platform capture, physical-device/noise qualification, external applications and closed-tab push retain their explicit mapping or debt; headless success does not establish those properties.
+
+The public-shell service worker now resolves same-origin cached modules/styles despite the Origin-header difference between precaching and module loading. An offline authenticated-view check verifies the cached JavaScript and CSS response, while authenticated API routes remain outside the cache. Personal favourites use their own read revision rather than room metadata, and a private thread keeps its composer/draft while an earlier send temporarily disables its controls.
+
+Browser database opening is bounded and retryable. Real English and French browser checks hold an older database connection, verify the actionable blocked-upgrade screen, retry after releasing it and preserve a saved draft. A subsequent upgrade proves the current app closes its connection on version change. Startup recovery never deletes browser data.
+
+Encrypted-call preparation exposed a server trigger that rotated the room policy on unchanged privacy/read-only values in full settings commands. Additive migration 0062 corrects this without changing historical migration checksums. All ten PostgreSQL room-details cases pass, including unchanged metadata/voice policy and unique authority rotation on genuine changes and reversals. The web CI gate includes that target. The preceding master web run also exposed a mail-fixture JSON read/write race; atomic mailbox publication fixes it, and the fresh six-case TOTP/TLS email suite passes.
+
+The [first audit CI run](https://github.com/Guillaume69/rocket-vibe/actions/runs/38195154381) reached notifications after the preceding suites passed, then hit the shared localhost login limit. Its captured login screen reports `auth_rate_limited`: fast suites had consumed the real 30-admissions-per-minute IP window. The disposable CI fixture now releases only per-IP login windows beside snapshot leases at each closed-suite boundary; global and per-username windows remain intact, as do all limits within each suite. A deliberate local saturation reproduces the 31st attempt's HTTP 429 and `Retry-After`; after that boundary cleanup, all eight notification checks pass on the final embedded app with fresh unprivileged accounts.
+
+The final server gate passes formatting, strict clippy, all 216 enabled library tests and the ten room-details cases; the protected-worker case remains in its dedicated CI job. The full twelve-checkpoint E2EE flow also passes against the embedded app, including backup/key renewal, cross-browser encrypted audio and fresh-profile same-root/new-leaf recovery with separate-code history restoration. Linux Playwright uses a disposable PulseAudio null sink and private bridge SFU while retaining Firefox's default ICE policy. The restarted local server applies migration 0062 and returns HTML/entry bytes identical to the committed distribution.
+
+The committed browser distribution is regenerated with the source changes. Deployed servers must be rebuilt and restarted to embed it; a source update alone does not change an already-running server binary. No web version tag or release is cut for this audit.
+
 ## GTK inventory
 
-GTK baseline is inherited, not a new verification claim. Web status refers to the native provider; mappings and exclusions follow the accepted origin/account/encryption scope.
+The GTK baseline column is inherited; current native-app status is in brain/parity.md. Web status refers to the serving native provider. The current screen audit qualifies the ordinary layouts and interactions below; specific platform and scenario limits remain in each note. Browser MLS is in scope, with its qualification tracked separately.
 
 | Feature | GTK baseline | Web | Evidence or debt |
 |---|---|---|---|
@@ -108,7 +129,7 @@ GTK baseline is inherited, not a new verification claim. Web status refers to th
 | Presence dot on DMs (`users.presence`, `user-status`) | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | System and video-call messages translated in previews | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | New conversation: `spotlight`, open a DM (`im.create`), join a channel (`channels.join`) | done | done | Native provider: see [web implementation](../apps/web/README.md). |
-| Rocket.Chat: create a channel or a private group (`channels.create`, `groups.create`) | missing | partial | Implemented native browser equivalent requires row-specific GTK qualification; see docs/WEB_CLIENT_EXECUTION.md. |
+| Rocket.Chat: create a channel or a private group (`channels.create`, `groups.create`) | missing | n/a | Rocket.Chat is outside the serving-origin browser scope. Native room creation and private defaults are qualified in tests/shell-parity.mjs. |
 | Unread total on the app | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | History with paging on scroll up, live messages and edits, live deletions | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Author grouping (5 min), day separators, time | done | done | Native provider: see [web implementation](../apps/web/README.md). |
@@ -120,21 +141,22 @@ GTK baseline is inherited, not a new verification claim. Web status refers to th
 | `:shortcode:` emoji (6222 codes, same table) and custom emoji images | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Images inline (original), viewer, protected-file token only to our origin | done | done | Actual GTK inline/viewer/menu comparison on the same originals. PNG export, live retention and withdrawal in tests/images.mjs; clipboard payload intercepted, OS clipboard permission unqualified. |
 | Photo avatars over gradient tiles, updated live | partial | done | Native provider: see [web implementation](../apps/web/README.md). |
+| Change a channel image on RocketVibe | done | done | Native owner-only PNG/JPEG picker, 2 MB limit, revisioned receipt/reload and protected header/list images pass tests/conversation-parity.mjs. Encrypted header/list tiles retain their lock; room information may show the photo. |
 | Read-only rooms: no composer | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Header: room info, DM presence, search in room, start a call | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | New-messages bar at the first unread | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Pill over the list jumping to the first unread while it is above the view | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Typing indicator (`user-activity`) | done | done | Native provider: see [web implementation](../apps/web/README.md). |
-| Mentions open the profile | done | partial | Implemented native browser equivalent requires row-specific GTK qualification; see docs/WEB_CLIENT_EXECUTION.md. |
-| Link previews from `message.urls` | done | partial | Implemented native browser equivalent requires row-specific GTK qualification; see docs/WEB_CLIENT_EXECUTION.md. |
+| Mentions open the profile | done | partial | The shared profile card and author/avatar navigation are qualified in tests/profiles.mjs; mention-specific navigation still needs a dedicated case. |
+| Link previews from `message.urls` | done | partial | Native preview rendering and protected media are implemented. Generic link-preview variants still need dedicated cases; vendor cards have their separate qualification below. |
 | YouTube / Dailymotion / Vimeo cards | done | partial | Canonical native-style cards, protected thumbnails, origin-only identification and live retention qualified with intercepted providers. Real vendor streaming remains unqualified. |
 | Video and audio attachments, voice messages (player) | done | done | Real protected clip, native controls, seek/volume/fullscreen, live retention and membership withdrawal in tests/media.mjs; same clip plays in actual GTK. Inline audio in tests/features.mjs. |
 | Other files: download, open | done | mapped | Protected local-copy download maps the native default-application action. Browsers cannot directly launch arbitrary installed applications. |
-| Quotes as cards (nested up to 2) | done | partial | Implemented native browser equivalent requires row-specific GTK qualification; see docs/WEB_CLIENT_EXECUTION.md. |
-| System messages, the full translated set | done | partial | Implemented native browser equivalent requires row-specific GTK qualification; see docs/WEB_CLIENT_EXECUTION.md. |
-| Video-call message card with Join | done | partial | Implemented native browser equivalent requires row-specific GTK qualification; see docs/WEB_CLIENT_EXECUTION.md. |
-| Reactions row, toggle (`chat.react`) | done | partial | Implemented native browser equivalent requires row-specific GTK qualification; see docs/WEB_CLIENT_EXECUTION.md. |
-| Thread chip opens the thread | done | partial | Implemented native browser equivalent requires row-specific GTK qualification; see docs/WEB_CLIENT_EXECUTION.md. |
+| Quotes as cards (nested up to 2) | done | partial | Native quote actions, safe excerpts and cross-room source references are qualified in tests/features.mjs and tests/conversation-parity.mjs. Nested-depth variants remain unqualified. |
+| System messages, the full translated set | done | done | Native system rows use the GTK provider text projection and shared catalog; membership rows are compared in the current GTK room captures. Rocket.Chat-only event variants are outside the browser scope. |
+| Video-call message card with Join | done | partial | Native call rendering is implemented; live ring acceptance/decline is qualified in tests/voice.mjs. Call-card outcome and callback variants need dedicated cases. |
+| Reactions row, toggle (`chat.react`) | done | done | Real live reactions and native quick-action order are qualified in tests/browser.mjs and tests/conversation-parity.mjs; protected player/image retention through reactions is qualified separately. |
+| Thread chip opens the thread | done | done | Native thread affordances and the full-page root/reply view are audited; actual root/reply, following and also-in-room flows pass tests/browser.mjs and tests/threads.mjs. |
 | Upload strip: progress, waiting, failed with retry or discard | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Encrypted rooms: locked state, "Unlock to read" | done | done | Locked metadata; private content is shown only through the verified Rust MLS journal. src/crypto/chat.ts. |
 | Send through the outbox, retry | done | done | Native provider: see [web implementation](../apps/web/README.md). |
@@ -151,13 +173,13 @@ GTK baseline is inherited, not a new verification claim. Web status refers to th
 | Attach files | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Pre-send preview with captions and quality | done | done | GTK thumbnail/type/size, parked Original choice and full-size preview. Real 1920/82 JPEG reduction, atomic ordered batch and one caption; tests/images.mjs. |
 | Reduce photos before sending | done | done | Native provider: see [web implementation](../apps/web/README.md). |
-| Reduce videos before sending (H.264 720p) | missing | missing | No browser implementation yet. |
-| Checks against `FileUpload_MaxFileSize` and `FileUpload_MediaTypeWhiteList` | done | partial | Implemented native browser equivalent requires row-specific GTK qualification; see docs/WEB_CLIENT_EXECUTION.md. |
+| Reduce videos before sending (H.264 720p) | missing | partial | WebCodecs/Mediabunny worker: real 1600x900 WebM becomes playable H.264 MP4 at 1280x720 with sound. Cancel, Original and missing-encoder fallback pass tests/video-reduce.mjs. Encoder availability and alpha WebM still require sending the original. |
+| Checks against `FileUpload_MaxFileSize` and `FileUpload_MediaTypeWhiteList` | done | partial | Native announced upload-size and media-type checks are implemented. Full rejection-state fixtures remain unqualified; Rocket.Chat setting endpoints are outside the browser scope. |
 | Two-step upload (`rooms.media`, `rooms.mediaConfirm`) with progress | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Voice recording | done | done | Actual GTK recording bar capture; elapsed/cancel/stop, inline staged replay, real capture cancellation and constructor/start failure cleanup in tests/features.mjs. |
 | Replay and caption a voice message before sending | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Slash commands (`commands.list`, `commands.run`) and their private answers | done | done | Native provider: see [web implementation](../apps/web/README.md). |
-| Slash commands on a RocketVibe server (`/api/v1/commands`), text commands written by the client so they work in encrypted rooms | done | n/a | Encrypted rooms explicitly excluded by the user, 2026-10-08. |
+| Slash commands on a RocketVibe server (`/api/v1/commands`), text commands written by the client so they work in encrypted rooms | done | n/a | Rocket.Chat password/AES encryption is outside the native serving-origin scope; native MLS qualification is recorded in the RocketVibe rows below. |
 | Every command listed after `/` in a titled panel, narrowed as one types, completed with a tap or Tab/Enter | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Quick reactions and removing mine | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | React with any emoji (picker from the menu, the server's custom emoji included) | done | done | Native provider: see [web implementation](../apps/web/README.md). |
@@ -173,61 +195,61 @@ GTK baseline is inherited, not a new verification claim. Web status refers to th
 | Jump to a message of any age (the history around it) | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Thread view: root and replies, live, composer targeting the thread | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Files and voice messages in a thread | done | done | Native provider: see [web implementation](../apps/web/README.md). |
-| List of a room's threads, following a thread, "also send to the room" | missing | missing | No browser implementation yet. |
+| List of a room's threads, following a thread, "also send to the room" | missing | done | Native-origin All/Following, paging, live follow/unfollow and text-only Also send to the room pass tests/threads.mjs. The server capability gates and GTK full-page layout are retained. |
 | Search messages in the room (`chat.search`) | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Open a result at its message | done | done | Native provider: see [web implementation](../apps/web/README.md). |
-| Search across rooms | done | done | src/local-search.ts over the browser model, sidebar button and Ctrl+Shift+F, hits opened by jumpTo; encrypted rooms searched per room only. tests/local-search.test.ts, tests/global-search.mjs. |
+| Search across rooms | done | done | Local browser-model search opens from Ctrl+Shift+F or Settings > App. Room grouping, newest-first hits, live results and room/thread navigation pass tests/global-search.mjs; encrypted rooms remain searched per room. |
 | Room info (`rooms.info`) | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Favourite a room | done | done | Native provider: see [web implementation](../apps/web/README.md). |
-| User profile (`users.info`), Message and Call buttons | done | partial | Avatar/name/menu access, native facts/live presence, GTK card geometry, Message/Call/Report and own-card rules are qualified in tests/profiles.mjs. Bio markdown remains debt. |
+| User profile (`users.info`), Message and Call buttons | done | done | Native 420x520 card, facts/live presence, safe bio Markdown, Message/Call/Report and own-card rules are qualified in tests/profiles.mjs and the current screen audit. |
 | My profile: avatar, status, name, bio, email and username (with password and 2FA) | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Remove my photo (`users.resetAvatar`) | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Live avatar changes (`updateAvatar`) | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Report a user from the profile (`moderation.reportUser`, RocketVibe `reports`) | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Room members, room settings, roles | missing | done | Native provider: see [web implementation](../apps/web/README.md). |
-| Settings in categories (account, notifications, language, voice, encryption, security, devices, accounts, app), each shown only with content, Sign out under them | done | done | Native category order/icons, conditional content, profile subpages and separate administration are compared with actual GTK. Server provider/account switching and encryption are excluded by scope. |
+| Settings in categories (account, notifications, language, voice, encryption, security, devices, bots, workflows, accounts, app), each shown only with content, Sign out under them | done | done | Native order/icons, lazy pages preserving drafts, profile subpages, device/session actions and separate administration are audited and qualified in tests/visual.mjs, tests/profiles.mjs and security/email flows. One serving account omits Accounts; MLS qualification is recorded separately. |
 | A click or tap outside a modal (dialog, alert, confirmation, sheet, overlay) closes it like Cancel, never running its action | done | done | Native provider: see [web implementation](../apps/web/README.md). |
-| Profile card, notification preference, language, E2EE status, account, server | done | partial | Implemented native browser equivalent requires row-specific GTK qualification; see docs/WEB_CLIENT_EXECUTION.md. |
+| Profile card, notification preference, language, E2EE status, account, server | done | partial | Native account, notification, language, security and device pages are audited and exercised in visual/profiles/quiet/security suites. MLS ceremony/state qualification remains tracked in docs/WEB_E2EE.md; origin/account switching is outside scope. |
 | French and English, automatic by default | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Accounts list in settings | done | n/a | One account on the serving origin, explicit user decision. |
-| Notification check | done | partial | Implemented native browser equivalent requires row-specific GTK qualification; see docs/WEB_CLIENT_EXECUTION.md. |
+| Notification check | done | partial | Native notification settings and permission/test controls are audited; live-tab notification behavior uses controlled browser APIs in tests/notifications.mjs. Actual OS delivery remains unqualified. |
 | App version in settings | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Logs folder | done | mapped | Settings > App > Diagnostics downloads the tab's recent client-side events (src/diagnostics.ts), never tokens, message text or names. tests/diagnostics.test.ts, tests/logout-replay.mjs. |
 | New versions | done | mapped | Native browser storage/HTTP/socket, HTTPS links, downloads and live-tab alerts; see web-client.md. |
 | DMs and mentions notified, click opens the room | done | mapped | Native browser storage/HTTP/socket, HTTPS links, downloads and live-tab alerts; see web-client.md. |
-| Reply from the notification | done | missing | No browser implementation yet. |
+| Reply from the notification | done | partial | Live-tab replies use a bounded in-app text field. Browser action limits and OS delivery remain platform qualification; no closed-tab Web Push or native inline-reply field is claimed. |
 | Nothing of encrypted rooms' content | done | done | Locked metadata; private content is shown only through the verified Rust MLS journal. src/crypto/chat.ts. |
 | Running with the window closed, starting at login | done | partial | Installable public shell; closed-tab Web Push and OS autostart absent. |
-| Unlock with the E2E password, decrypt messages and previews, lock again | done | n/a | Encrypted rooms explicitly excluded by the user, 2026-10-08. |
-| Room keys AES-128 and AES-256 | done | n/a | Encrypted rooms explicitly excluded by the user, 2026-10-08. |
-| Send, edit and answer in a thread, encrypted | done | n/a | Encrypted rooms explicitly excluded by the user, 2026-10-08. |
-| Encrypted files, both directions | done | n/a | Encrypted rooms explicitly excluded by the user, 2026-10-08. |
-| Key kept across launches | done | n/a | Encrypted rooms explicitly excluded by the user, 2026-10-08. |
-| Create an encrypted room | missing | n/a | Encrypted rooms explicitly excluded by the user, 2026-10-08. |
+| Unlock with the E2E password, decrypt messages and previews, lock again | done | n/a | Rocket.Chat password/AES encryption is outside the native serving-origin scope; native MLS qualification is recorded in the RocketVibe rows below. |
+| Room keys AES-128 and AES-256 | done | n/a | Rocket.Chat password/AES encryption is outside the native serving-origin scope; native MLS qualification is recorded in the RocketVibe rows below. |
+| Send, edit and answer in a thread, encrypted | done | n/a | Rocket.Chat password/AES encryption is outside the native serving-origin scope; native MLS qualification is recorded in the RocketVibe rows below. |
+| Encrypted files, both directions | done | n/a | Rocket.Chat password/AES encryption is outside the native serving-origin scope; native MLS qualification is recorded in the RocketVibe rows below. |
+| Key kept across launches | done | n/a | Rocket.Chat password/AES encryption is outside the native serving-origin scope; native MLS qualification is recorded in the RocketVibe rows below. |
+| Create an encrypted room | missing | n/a | Rocket.Chat password/AES encryption is outside the native serving-origin scope; native MLS qualification is recorded in the RocketVibe rows below. |
 | RocketVibe server: create an encrypted room (MLS group): prepare the device for invitations, review and confirm creation, admission and device changes | done | partial | Shared Rust MLS engine with browser ceremonies; see docs/WEB_E2EE.md for qualification and remaining debt. |
 | RocketVibe server: a new device asks for history, another device of the account reviews and shares it, the new device imports it ([e2ee-history](features/e2ee-history.md)) | done | partial | Shared Rust MLS engine with browser ceremonies; see docs/WEB_E2EE.md for qualification and remaining debt. |
 | RocketVibe server: history backup with a separate code (enable, join, continuous upload, restore) | done | partial | Shared Rust MLS engine with browser ceremonies; see docs/WEB_E2EE.md for qualification and remaining debt. |
-| RocketVibe server: edit and delete own private messages, pending on the target until accepted ([e2ee-private-actions](features/e2ee-private-actions.md)) | done | n/a | Encrypted rooms explicitly excluded by the user, 2026-10-08. |
-| RocketVibe server: react to private messages, pending on the target until accepted ([e2ee-private-actions](features/e2ee-private-actions.md)) | done | n/a | Encrypted rooms explicitly excluded by the user, 2026-10-08. |
+| RocketVibe server: edit and delete own private messages, pending on the target until accepted ([e2ee-private-actions](features/e2ee-private-actions.md)) | done | partial | Native MLS browser implementation and ceremonies; qualification and browser-storage limits remain tracked in docs/WEB_E2EE.md. |
+| RocketVibe server: react to private messages, pending on the target until accepted ([e2ee-private-actions](features/e2ee-private-actions.md)) | done | partial | Native MLS browser implementation and ceremonies; qualification and browser-storage limits remain tracked in docs/WEB_E2EE.md. |
 | RocketVibe server: search an encrypted room on the device ([e2ee-private-actions](features/e2ee-private-actions.md)) | done | partial | Shared Rust MLS engine with browser ceremonies; see docs/WEB_E2EE.md for qualification and remaining debt. |
 | RocketVibe server: send and open encrypted files in private rooms ([e2ee-private-files](features/e2ee-private-files.md)) | done | partial | Shared Rust MLS engine with browser ceremonies; see docs/WEB_E2EE.md for qualification and remaining debt. |
-| RocketVibe server: storage key renewed every 30 days and on request, old keys destroyed ([e2ee-storage-keys](features/e2ee-storage-keys.md)) | done | n/a | Encrypted rooms explicitly excluded by the user, 2026-10-08. |
+| RocketVibe server: storage key renewed every 30 days and on request, old keys destroyed ([e2ee-storage-keys](features/e2ee-storage-keys.md)) | done | partial | Native MLS browser implementation and ceremonies; qualification and browser-storage limits remain tracked in docs/WEB_E2EE.md. |
 | RocketVibe server: hand control of the account to another device with a history share ([e2ee-delegation](features/e2ee-delegation.md)) | done | partial | Shared Rust MLS engine with browser ceremonies; see docs/WEB_E2EE.md for qualification and remaining debt. |
 | RocketVibe server: recovered history shown in conversations | done | partial | Shared Rust MLS engine with browser ceremonies; see docs/WEB_E2EE.md for qualification and remaining debt. |
 | Start and join a Jitsi call (`video-conference.start`, `.join`), Rocket.Chat servers | done | n/a | Native RocketVibe origin only; calls use LiveKit. |
 | Meeting information: the link without the token (`video-conference.info`) | done | n/a | Native RocketVibe origin only; calls use LiveKit. |
-| Voice channels: speaker mark, entered on selection, writable | done | partial | LiveKit implementation in src/voice.ts; audio/video/mute/rejoin qualified, exhaustive device/ringing/share qualification remains. |
+| Voice channels: speaker mark, entered on selection, writable | done | done | Selection joins automatically; native header, page and roster states are audited. Actual microphone RTP, chat navigation, manual Leave/Join preview and listen-only cleanup pass tests/voice.mjs; Firefox/Chromium connection/retry has separate evidence. |
 | People connected under each room of the list, ring lit while speaking in your session | done | done | Native identifier-based avatars, room occupants, PCM speaking halos and person menus. Real GTK/browser interop and two-browser voice tests. |
-| Voice screen: a tile per person sharing all the room, glowing while they speak, chat one step away | done | done | GTK TileGrid geometry, connected header, speaking halo and chat navigation are implemented. Compared to actual GTK captures and qualified against a native GTK audio stream. Further camera/share layouts remain separate debt. |
+| Voice screen: a tile per person sharing all the room, glowing while they speak, chat one step away | done | done | GTK TileGrid, status, circular controls, speaking halo and chat/Leave/Join navigation are compared with current GTK. Actual camera/share layouts, takeover, fullscreen and capture-ended teardown pass tests/voice.mjs and tests/voice-lifecycle.mjs. |
 | Who speaks told from the sound itself, a whisper included | done | partial | Local/remote PCM thresholds, normalized meter decay and 350 ms hangover are ported from GTK and qualified with quiet real RTP. Browser noise suppression has no RNNoise voice-probability path. |
 | "Voice connected" panel: mute, deafen, leave | done | done | Native controls and labels, real microphone mute and playback deafen, tested through LiveKit/Web Audio with restored individual gains. |
-| Call from any room's header (joins its voice) | done | partial | LiveKit implementation in src/voice.ts; audio/video/mute/rejoin qualified, exhaustive device/ringing/share qualification remains. |
-| Direct call rings the other member, accept or decline, original ringtone | done | done | Browser tests exchange actual audio after acceptance, verify decline stops the caller, and prevent delayed acceptance from reopening media after signout/signin. Original ring sounds in src/voice.ts. |
-| Call rows show the outcome (missed, declined, duration) and call back | done | partial | Implemented native browser equivalent requires row-specific GTK qualification; see docs/WEB_CLIENT_EXECUTION.md. |
-| Create a voice channel | done | partial | LiveKit implementation in src/voice.ts; audio/video/mute/rejoin qualified, exhaustive device/ringing/share qualification remains. |
-| Turn a room into a voice channel or back (room settings, owners) | done | partial | LiveKit implementation in src/voice.ts; audio/video/mute/rejoin qualified, exhaustive device/ringing/share qualification remains. |
-| Choose the microphone and speakers | done | partial | LiveKit implementation in src/voice.ts; audio/video/mute/rejoin qualified, exhaustive device/ringing/share qualification remains. |
-| Call menu beside the microphone: devices, input and output volume, input level, noise remover, deafen | done | partial | Native menu entries implemented; real input/output gains, meter and deafen qualified. Browser-native suppression differs from GTK RNNoise; the idle menu is compared to a real GTK root capture; physical device switching and noise qualification remain. |
+| Call from any room's header (joins its voice) | done | done | Native phone icon and Start a call/Join voice labels are retained. Real direct-ring and ordinary-room audio flows, failure retry and lifecycle fences pass tests/voice.mjs and tests/voice-lifecycle.mjs. Encrypted voice is qualified separately. |
+| Direct call rings the other member, accept or decline, original ringtone | done | done | GTK incoming-alert heading/body, Decline/Accept responses and default focus are ported; original ring/ringback, real accepted audio, decline and account/membership lifetime fences pass the voice suites. Closing ignores the prompt. |
+| Call rows show the outcome (missed, declined, duration) and call back | done | partial | Native outcome text and callback controls are implemented; actual ring/accept/decline/hangup pass the voice suites. Missed/duration/callback card variants remain unqualified. |
+| Create a voice channel | done | partial | Native creation fields and private defaults are audited; ordinary room creation passes tests/shell-parity.mjs. Voice-switch submission still needs an explicit creation case. |
+| Turn a room into a voice channel or back (room settings, owners) | done | partial | The native owner-only voice switch is audited in the separate room editor; revisioned room editing passes tests/conversation-parity.mjs. Both voice-switch directions still need explicit cases. |
+| Choose the microphone and speakers | done | partial | GTK device rows and call-menu choices are audited; browser enumerateDevices/switchActiveDevice are implemented with account/call cleanup fences. Physical input/output switching remains unqualified. |
+| Call menu beside the microphone: devices, input and output volume, input level, noise remover, deafen | done | partial | Current GTK root-window popover and web menu are compared. Real input/output gains, meter and deafen pass tests/voice.mjs. Physical switching and browser suppression versus GTK RNNoise remain qualification debt. |
 | Someone's volume here (0 to 200 %), or muted for oneself only, kept | done | done | Actual Web Audio gain and local-only mute, retained across rejoin in account-scoped storage; qualified in apps/web/tests/voice.mjs. |
 | Noise remover (RNNoise) on the microphone, on by default | done | partial | Browser-native noiseSuppression is implemented and on by default. GTK uses nnnoiseless/RNNoise; matching the engine and qualifying physical capture remain debt. |
 | Camera and one screen share per room, a new share replacing the current one | partial | done | Actual camera/screen RTP, stage/camera thumbnails and SFU takeover stop previous capture/sound. apps/web/tests/voice.mjs; actual GTK receiving the browser share is captured. |
@@ -239,9 +261,9 @@ GTK baseline is inherited, not a new verification claim. Web status refers to th
 | `rocketvibe://room/<rid>?host=` opens the room | done | mapped | Native browser storage/HTTP/socket, HTTPS links, downloads and live-tab alerts; see web-client.md. |
 | Share files and text into a room from other apps | mapped | mapped | Native browser storage/HTTP/socket, HTTPS links, downloads and live-tab alerts; see web-client.md. |
 | Local SQLite per (server, account), screens read the database | done | mapped | Native browser storage/HTTP/socket, HTTPS links, downloads and live-tab alerts; see web-client.md. |
-| Text outbox surviving restarts, retry on reconnection | done | partial | Implemented native browser equivalent requires row-specific GTK qualification; see docs/WEB_CLIENT_EXECUTION.md. |
-| Reconnection with back-off, dead-socket probe, catch-up after the subscriptions are armed | done | partial | Implemented native browser equivalent requires row-specific GTK qualification; see docs/WEB_CLIENT_EXECUTION.md. |
-| Rooms deleted server-side purged locally | partial | partial | Implemented native browser equivalent requires row-specific GTK qualification; see docs/WEB_CLIENT_EXECUTION.md. |
+| Text outbox surviving restarts, retry on reconnection | done | done | Offline reload retains the durable operation and reconnect sends it once in tests/browser.mjs. Actual withdrawal/rejoin prevents stale replay in tests/features.mjs; deterministic outbox cases cover continuation and lifetime fencing. |
+| Reconnection with back-off, dead-socket probe, catch-up after the subscriptions are armed | done | partial | Actual offline reload/reconnect and durable replay pass tests/browser.mjs; rotation/lost-response/two-tab recovery passes tests/sessions.mjs. A dedicated dead-socket timeout case remains unqualified. |
+| Rooms deleted server-side purged locally | partial | partial | Actual membership withdrawal purges protected views/cache and fences old operations in media/images/features/voice tests. Whole-room deletion needs a separate browser case. |
 | `chat.syncMessages` catch-up of edits and deletions | partial | mapped | Native browser storage/HTTP/socket, HTTPS links, downloads and live-tab alerts; see web-client.md. |
 | Message retention (500 newest per room) | done | done | Model.retain once per session after the catch-up (src/store.ts), sparing kept replies' roots and the room on screen. tests/retention.test.ts. |
 | Server administration for an administrator only: Dashboard (deployment, latest published version, users, rooms, messages, uploads, open reports; on Rocket.Chat the dated cached figures, refreshed on demand) | done | done | Actual English/French GTK native dashboard captures and browser wide/narrow captures on the same server; complete native overview fields, refresh/navigation, controlled release filtering and policy refusal in tests/visual.mjs. |
@@ -256,3 +278,6 @@ GTK baseline is inherited, not a new verification claim. Web status refers to th
 - docs/protocol/PARITY.md
 - apps/desktop/crates/rv-gtk/src
 - apps/desktop/crates/rv-core/src/native
+- apps/server/src/limits.rs
+- apps/web/tests/notifications.mjs
+- .github/workflows/web-client.yml

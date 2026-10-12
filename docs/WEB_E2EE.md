@@ -95,6 +95,26 @@ actual GTK timeline/composer and browser UI. It also checks fingerprint equality
 and pre-admission isolation. The shared native engine and mobile bridge tests
 cover the same wire formats.
 
+On 2026-10-12 the complete production scenario was requalified after the GTK
+screen audit, using fresh unprivileged accounts and the final embedded server
+bundle. All twelve checkpoints passed, including encrypted voice and
+fresh-profile recovery. Peer verification now follows the native DM header to
+the peer profile, requires a typed compared fingerprint, and reviews device
+certificates inline. Group admission requires explicit device selection and
+an inline review before confirmation. The private thread editor follows live
+send availability without losing its existing draft. Authenticated room
+creation and join receipts hydrate personal room state before publishing the
+room; genuine membership changes retain the protected-view lifetime fences.
+
+This run used the official Playwright 1.64 Linux Chromium and Firefox browsers
+with a disposable PulseAudio null sink. Both engines exchanged encrypted
+audio through a private Docker-bridge SFU with Firefox's default loopback ICE
+restriction unchanged. It exercised the server's embedded assets, CSP and
+worker responses directly, rather than a development server. Public peer
+certificate and group-review screenshots are retained in ignored
+`.cache/web-shots`; recovery and history codes remain in memory and are absent
+from the captures.
+
 Remaining qualification debt: installed mobile/browser sessions and cross-app
 desktop files, recovery/history and encrypted voice,
 full visual comparisons of every crypto dialog state, multiple-tab reload and
@@ -129,6 +149,9 @@ markers, public fingerprints and test logs are in ignored `.cache/bench`.
 - apps/web/src/crypto/panels.ts
 - apps/web/src/crypto/settings-controls.ts
 - apps/web/src/crypto/voice.ts
+- apps/web/src/ui/thread.tsx
+- apps/web/src/room-state.ts
+- apps/web/tests/crypto-browser.mjs
 - apps/web/tests/crypto-storage.mjs
 - apps/web/tests/e2ee.mjs
 - apps/web/tests/desktop-crypto.mjs

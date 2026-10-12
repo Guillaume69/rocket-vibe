@@ -66,6 +66,13 @@ A public / private conversion keeps the current members. Read-only
 still lets owners / moderators write. A DM cannot be
 converted, configured, left nor receive a role transfer through these routes.
 
+The room's authorization binding (`authority_version`) rotates only when its
+privacy kind or read-only policy actually changes. A full command that changes
+only its name, topic, description, announcement or voice flag preserves that
+binding, while still rotating the details revision and publishing `room_upsert`.
+Restoring an earlier privacy or read-only setting rotates authority again;
+an old encrypted policy review never becomes valid through a change and reversal.
+
 Several owners are possible. To transfer responsibility,
 promote a member to owner, reread the details, then demote
 the former owner or have them leave. The last ownership cannot be

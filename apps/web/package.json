@@ -54,6 +54,7 @@
     "livekit-client": "^2.22.3",
     "mediabunny": "1.60.0",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "uqr": "0.1.3"
   }
 }

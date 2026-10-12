@@ -117,7 +117,20 @@ impl Chat {
         match self {
             Chat::Legacy(session) => session.spotlight(query).await,
             Chat::Native(session) => session.spotlight(query).await.map_err(native::rest_error),
-            Chat::WhatsApp(_) => Ok(Vec::new()),
+            // The phone's contacts and groups; a person's id and username are their JID.
+            Chat::WhatsApp(session) => Ok(session
+                .search(query)
+                .await
+                .map_err(|e| RestError::incomplete(&e))?
+                .into_iter()
+                .map(|p| {
+                    if p.jid.ends_with("@g.us") {
+                        Found::Room { id: p.jid, name: p.name, kind: "p".into() }
+                    } else {
+                        Found::User { id: p.jid.clone(), username: p.jid, name: Some(p.name) }
+                    }
+                })
+                .collect()),
         }
     }
 

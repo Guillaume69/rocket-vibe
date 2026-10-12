@@ -65,6 +65,8 @@ struct Local {
     rooms: Option<(u64, Arc<Vec<RoomRow>>)>,
     drafts: HashMap<String, String>,
     expired: bool,
+    /// Conversations started here with no message yet: (name, when opened).
+    started: BTreeMap<String, (String, i64)>,
 }
 
 pub struct WaSession {
@@ -189,6 +191,20 @@ impl WaSession {
                 *entry = m;
             }
         }
+        let started: Vec<RoomRow> = self
+            .local()
+            .started
+            .iter()
+            .filter(|(chat, _)| !last.contains_key(chat.as_str()))
+            .map(|(chat, (name, at))| RoomRow {
+                rid: chat.clone(),
+                kind: if chat.ends_with("@g.us") { "p" } else { "d" }.into(),
+                name: s.name_of(chat).map(str::to_owned).unwrap_or_else(|| name.clone()),
+                last_ts: *at,
+                avatar_etag: s.avatars.get(chat).map(|photo| format!("{}:{:p}", photo.len(), photo.as_ptr())),
+                ..Default::default()
+            })
+            .collect();
         let mut rows: Vec<RoomRow> = last
             .into_values()
             .map(|m| {
@@ -213,6 +229,7 @@ impl WaSession {
                 }
             })
             .collect();
+        rows.extend(started);
         rows.sort_by(|a, b| b.last_ts.cmp(&a.last_ts).then(a.rid.cmp(&b.rid)));
         let rows = Arc::new(rows);
         self.local().rooms = Some((s.revision, rows.clone()));
@@ -241,6 +258,21 @@ impl WaSession {
             }
         }
         rows
+    }
+    /// People and groups to start a conversation with.
+    pub async fn search(&self, text: &str) -> Result<Vec<whatsapp::Person>, String> {
+        let connector = self.connector().ok_or("not_connected")?;
+        connector.search(text.to_owned()).await
+    }
+    /// A conversation opened before its first message: listed until it has one.
+    pub fn start_chat(&self, jid: &str, name: &str) {
+        if whatsapp::state_id(jid).is_some() || !jid.contains('@') {
+            return;
+        }
+        let now = chrono::Utc::now().timestamp_millis();
+        self.local().started.entry(jid.to_owned()).or_insert_with(|| (name.to_owned(), now));
+        self.local().rooms = None;
+        self.bump();
     }
     pub fn chat_name(&self, chat: &str) -> String {
         let s = self.snapshot();

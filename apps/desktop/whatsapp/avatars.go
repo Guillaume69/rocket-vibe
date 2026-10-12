@@ -95,6 +95,15 @@ func (c *connector) staleAvatars() []types.JID {
 	}
 	defer rows.Close()
 	var out []types.JID
+	// My own photo first: my messages and the account show it.
+	if c.client.Store.ID != nil {
+		own := c.canonical(*c.client.Store.ID)
+		var checked int64
+		_ = c.vault.db.QueryRowContext(c.ctx, `SELECT checked FROM rv_avatars WHERE jid = ?`, own.String()).Scan(&checked)
+		if checked <= time.Now().Add(-avatarFresh).UnixMilli() {
+			out = append(out, own)
+		}
+	}
 	for rows.Next() {
 		var value string
 		if rows.Scan(&value) != nil {

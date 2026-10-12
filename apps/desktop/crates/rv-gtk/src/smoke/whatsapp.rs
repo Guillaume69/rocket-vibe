@@ -10,8 +10,13 @@
 //! 3. A chat opens with its messages, a reaction and a reply's quote; the
 //!    composer has no file or voice buttons; a text sent through it arrives
 //!    (`<directory>/chat.png`).
+//! 4. "New conversation" finds Bob among the contacts; his chat opens before
+//!    any message and takes one; my photo is shown for my messages.
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::Duration;
+
+use rv_core::whatsapp_session::WaSession;
 
 use adw::prelude::*;
 use gtk::glib;
@@ -83,11 +88,35 @@ fn linked(window: Rc<AppWindow>, out: String) {
             glib::timeout_add_local_once(Duration::from_millis(1200), move || {
                 let sent = session.snapshot().messages.values().any(|m| m.mine && m.text == "Smoke WhatsApp");
                 check("whatsapp text sent through the composer", sent, ());
+                let own = session.info.user_id.clone();
+                check("whatsapp my photo arrived", session.photo(&own).is_some(), &own);
                 shot(&window, &format!("{out}/chat.png"));
-                window.window.close();
+                new_conversation(window.clone(), session.clone());
             });
         });
         glib::ControlFlow::Break
+    });
+}
+
+/// A conversation started from the contacts, before its first message.
+fn new_conversation(window: Rc<AppWindow>, session: Arc<WaSession>) {
+    glib::spawn_future_local(async move {
+        let chat = window.chat.chat().expect("the WhatsApp account");
+        let found = crate::on_tokio(async move { chat.spotlight("bob").await }).await.unwrap_or_default();
+        check("whatsapp new conversation finds a contact", found.len() == 1, found.len());
+        if let Some(bob) = found.into_iter().next() {
+            window.chat.go_to(bob);
+        }
+        check(
+            "whatsapp new conversation opens before its first message",
+            window.chat.current_rid().as_deref() == Some("bob@s.whatsapp.net"),
+            window.chat.current_rid(),
+        );
+        window.chat.send_text("Hello Bob");
+        glib::timeout_future(Duration::from_millis(1200)).await;
+        let sent = session.snapshot().messages.values().any(|m| m.chat == "bob@s.whatsapp.net" && m.mine);
+        check("whatsapp new conversation takes a message", sent, ());
+        window.window.close();
     });
 }
 

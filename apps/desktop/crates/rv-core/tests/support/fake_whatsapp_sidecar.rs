@@ -30,6 +30,7 @@ fn linked() {
         }})
     );
     println!("{}", json!({"type":"avatar","jid":"alice@s.whatsapp.net","data":PHOTO}));
+    println!("{}", json!({"type":"avatar","jid":"33600000000@s.whatsapp.net","data":PHOTO}));
     println!(
         "{}",
         json!({"type":"reaction","reaction":{
@@ -86,6 +87,19 @@ fn main() {
         match command["type"].as_str() {
             Some("connect") => {
                 linked();
+            }
+            // Bob in the contacts; any number WhatsApp "knows".
+            Some("search") => {
+                let text = command["text"].as_str().unwrap_or_default().to_lowercase();
+                let digits: String = text.chars().filter(char::is_ascii_digit).collect();
+                let people = if text.contains("bob") {
+                    json!([{"jid":"bob@s.whatsapp.net","name":"Bob"}])
+                } else if digits.len() >= 6 {
+                    json!([{"jid":format!("{digits}@s.whatsapp.net"),"name":format!("+{digits}")}])
+                } else {
+                    json!([])
+                };
+                println!("{}", json!({"type":"found","id":command["id"],"people":people}));
             }
             Some("read") => {
                 println!("{}", json!({"type":"chat","jid":command["chat"],"unread":0}));

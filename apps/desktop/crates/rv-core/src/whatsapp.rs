@@ -1,6 +1,6 @@
 //! Local WhatsApp desktop pilot. The sidecar owns encrypted state and the wire protocol.
 //! No WhatsApp content or credentials go through a RocketVibe server.
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Arc, Mutex, Weak};
@@ -11,7 +11,7 @@ use serde::Deserialize;
 use serde_json::json;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{mpsc, oneshot, watch};
 use zeroize::Zeroize;
 
 use crate::store::MessageRow;
@@ -280,6 +280,18 @@ enum Event {
         #[serde(default)]
         name: String,
     },
+    /// The answer to a search, by its id.
+    Found {
+        id: String,
+        #[serde(default)]
+        people: Vec<Person>,
+    },
+}
+/// Someone (or a group) a search found: a conversation to start.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+pub struct Person {
+    pub jid: String,
+    pub name: String,
 }
 #[derive(Deserialize)]
 struct WireReaction {
@@ -292,6 +304,7 @@ enum Request {
     Send { id: String, chat: String, text: String, reply: Option<String> },
     Act { kind: &'static str, id: String, text: String },
     Read { chat: String },
+    Search { id: String, text: String },
     Connect,
     Logout,
     Stop,
@@ -301,6 +314,8 @@ pub struct Connector {
     requests: mpsc::Sender<Request>,
     /// The snapshot's revision after each change: a watcher folds bursts by itself.
     revisions: watch::Sender<u64>,
+    /// Searches waiting for their answer, by id.
+    searches: Mutex<HashMap<String, oneshot::Sender<Vec<Person>>>>,
 }
 fn failure() -> String {
     "connector_unavailable".into()
@@ -395,6 +410,8 @@ impl Snapshot {
                 self.unread.clear();
             }
             Event::Account { jid, name } => self.account = Some((jid, name)),
+            // Answered to its asker by the reader, never kept.
+            Event::Found { .. } => {}
             Event::Chat { jid, unread } => {
                 if unread == 0 {
                     self.unread.remove(&jid);
@@ -441,6 +458,7 @@ impl Connector {
             snapshot: Mutex::new(Snapshot { state: "connecting".into(), ..Default::default() }),
             requests,
             revisions: watch::Sender::new(0),
+            searches: Mutex::default(),
         });
         tokio::spawn(worker(Arc::downgrade(&connector), child, stdin, BufReader::new(stdout), receiver));
         Ok(connector)
@@ -499,6 +517,24 @@ impl Connector {
         self.request(Request::Act { kind: "delete", id, text: String::new() })
     }
     /// Reads a chat: its unread messages get their read receipts.
+    /// People and groups matching `text`, from the phone's contacts and WhatsApp.
+    pub async fn search(&self, text: String) -> Result<Vec<Person>, String> {
+        let mut random = [0_u8; 8];
+        getrandom::fill(&mut random).map_err(|_| failure())?;
+        let id: String = random.iter().map(|b| format!("{b:02x}")).collect();
+        let (tx, rx) = oneshot::channel();
+        self.searches.lock().unwrap_or_else(|p| p.into_inner()).insert(id.clone(), tx);
+        if let Err(e) = self.request(Request::Search { id: id.clone(), text }) {
+            self.searches.lock().unwrap_or_else(|p| p.into_inner()).remove(&id);
+            return Err(e);
+        }
+        let answer = tokio::time::timeout(Duration::from_secs(20), rx).await;
+        self.searches.lock().unwrap_or_else(|p| p.into_inner()).remove(&id);
+        match answer {
+            Ok(Ok(people)) => Ok(people),
+            _ => Err(failure()),
+        }
+    }
     pub fn mark_read(&self, chat: String) -> Result<(), String> {
         self.request(Request::Read { chat })
     }
@@ -521,6 +557,13 @@ async fn worker(
                 let Ok(value) = serde_json::from_slice::<serde_json::Value>(&line) else { break };
                 let Some(connector) = weak.upgrade() else { break };
                 if let Ok(event) = serde_json::from_value::<Event>(value) {
+                    if let Event::Found { id, people } = event {
+                        if let Some(asker) = connector.searches.lock().unwrap_or_else(|p| p.into_inner()).remove(&id) {
+                            let _ = asker.send(people);
+                        }
+                        line.clear();
+                        continue;
+                    }
                     let revision = {
                         let mut snapshot = connector.snapshot.lock().unwrap_or_else(|p| p.into_inner());
                         snapshot.apply(event);
@@ -539,6 +582,7 @@ async fn worker(
                     }
                     Request::Act { kind, id, text } => json!({"type":kind,"id":id,"text":text}),
                     Request::Read { chat } => json!({"type":"read","chat":chat}),
+                    Request::Search { id, text } => json!({"type":"search","id":id,"text":text}),
                     Request::Connect => json!({"type":"connect"}),
                     Request::Logout => json!({"type":"logout"}),
                     Request::Stop => json!({"type":"stop"}),

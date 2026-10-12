@@ -20,26 +20,34 @@ impl ChatPage {
         self.wa_photos.borrow_mut().clear();
         self.wa_photo_table.replace(None);
         self.collapsed.replace(folded_sections(&session.info));
-        let photos = self.wa_photos.clone();
-        self.list.set_photos(Rc::new(move |jid: &str| photos.borrow().get(jid).map(|(_, texture)| texture.clone())));
+        // My messages are authored by "me": their photo is my account's.
+        let (photos, me) = (self.wa_photos.clone(), session.info.user_id.clone());
+        self.list.set_photos(Rc::new(move |jid: &str| {
+            let jid = if jid == "me" { me.as_str() } else { jid };
+            photos.borrow().get(jid).map(|(_, texture)| texture.clone())
+        }));
         self.search_button.set_visible(false);
         self.marked_button.set_visible(false);
         self.local_search_button.set_visible(false);
-        self.new_conversation.set_visible(false);
         self.account_name.set_label(&session.info.username);
         self.account_host.set_label("WhatsApp");
+        self.set_connection(session.connection());
+        self.refresh_whatsapp_photos(&session);
+        self.whatsapp_account_tile(&session);
+        self.reload_rooms();
+    }
+
+    /// The account's tile under the room list, with my photo once it came.
+    fn whatsapp_account_tile(&self, session: &WaSession) {
         while let Some(child) = self.account_tile.first_child() {
             self.account_tile.remove(&child);
         }
-        self.account_tile.append(&widgets::tile(
-            &session.info.username,
-            &widgets::initial(&session.info.username),
-            TileSize::Message,
-            false,
-        ));
-        self.set_connection(session.connection());
-        self.refresh_whatsapp_photos(&session);
-        self.reload_rooms();
+        let tile =
+            widgets::tile(&session.info.username, &widgets::initial(&session.info.username), TileSize::Message, false);
+        if let Some(photo) = self.whatsapp_photo(&session.info.user_id) {
+            widgets::set_photo(&tile, &photo);
+        }
+        self.account_tile.append(&tile);
     }
 
     /// The account changed (the window folds bursts): read the page again.
@@ -50,6 +58,7 @@ impl ChatPage {
         self.reload_rooms();
         if photos_moved {
             self.refresh_room_header();
+            self.whatsapp_account_tile(&session);
         }
         self.reload_messages();
         for (chat, text) in session.returned_drafts() {

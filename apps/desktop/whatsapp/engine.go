@@ -87,6 +87,8 @@ type wire struct {
 	Unread   *int64    `json:"unread,omitempty"`
 	// The linked account's display name (an `account` frame).
 	Name string `json:"name,omitempty"`
+	// The answer to a `search` (a `found` frame), never omitted when empty.
+	People []person `json:"people"`
 }
 type connector struct {
 	client     *whatsmeow.Client
@@ -659,6 +661,8 @@ func (c *connector) handle(cmd command) bool {
 		c.revoke(cmd)
 	case "read":
 		c.read(cmd)
+	case "search":
+		go c.search(cmd)
 	case "logout":
 		if err := c.client.Logout(c.ctx); err != nil {
 			c.fail("logout_failed")

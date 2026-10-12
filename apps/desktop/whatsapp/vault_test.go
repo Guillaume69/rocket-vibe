@@ -382,3 +382,16 @@ func TestARestoredStateGrows(t *testing.T) {
 		t.Fatalf("restored %d rows: %v", n, err)
 	}
 }
+
+func TestPhoneNumbersAreRecognised(t *testing.T) {
+	for query, want := range map[string]string{"+33 6 12 34 56 78": "33612345678", "06-12-34-56-78": "0612345678"} {
+		if got, ok := phoneDigits(query); !ok || got != want {
+			t.Fatalf("%q: %q %v", query, got, ok)
+		}
+	}
+	for _, query := range []string{"Alice", "12345", "+33 6 alice"} {
+		if _, ok := phoneDigits(query); ok {
+			t.Fatalf("%q taken for a number", query)
+		}
+	}
+}

@@ -326,7 +326,7 @@ impl ChatPage {
                     item.set_activatable(true);
                     let add = match section {
                         Section::Channels if native_shared.borrow().is_some() => Some(t("rooms.new_channel")),
-                        Section::Direct if whatsapp_shared.borrow().is_none() => Some(t("rooms.new_message")),
+                        Section::Direct => Some(t("rooms.new_message")),
                         _ => None,
                     }
                     .map(|tooltip| {
@@ -2365,6 +2365,17 @@ impl ChatPage {
         self.user_navigation();
         let navigation = self.navigation_generation.get();
         use rv_core::rooms::Found;
+        // WhatsApp: a person's or group's chat opens at once, listed until its first message.
+        if let Some(session) = self.whatsapp_session() {
+            let (jid, name) = match found {
+                Found::User { id, name, .. } => (id, name.unwrap_or_default()),
+                Found::Room { id, name, .. } => (id, name),
+            };
+            session.start_chat(&jid, &name);
+            self.load_rooms(false);
+            self.open_room(&jid);
+            return;
+        }
         if let Some(session) = self.native_session() {
             let weak = Rc::downgrade(self);
             let expected = session.clone();

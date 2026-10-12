@@ -38,6 +38,15 @@ func migrate(db *sql.DB) error {
 		{"reply_to", "TEXT NOT NULL DEFAULT ''"},
 		{"quote_sender", "TEXT NOT NULL DEFAULT ''"},
 		{"quote_text", "TEXT NOT NULL DEFAULT ''"},
+		{"kind", "TEXT NOT NULL DEFAULT ''"},
+		{"mime", "TEXT NOT NULL DEFAULT ''"},
+		{"file_name", "TEXT NOT NULL DEFAULT ''"},
+		{"size", "INTEGER NOT NULL DEFAULT 0"},
+		{"width", "INTEGER NOT NULL DEFAULT 0"},
+		{"height", "INTEGER NOT NULL DEFAULT 0"},
+		{"seconds", "INTEGER NOT NULL DEFAULT 0"},
+		{"thumb", "BLOB"},
+		{"media", "BLOB"},
 	} {
 		var present int
 		if err := db.QueryRow(`SELECT count(*) FROM pragma_table_info('rv_messages') WHERE name = ?`, column.name).Scan(&present); err != nil {
@@ -54,20 +63,22 @@ func migrate(db *sql.DB) error {
 }
 
 const messageColumns = `id,chat,name,sender,author,text,ts,mine,status,edited,deleted,raw_chat,raw_sender,receipt,
-reply_to,quote_sender,quote_text`
+reply_to,quote_sender,quote_text,kind,mime,file_name,size,width,height,seconds,thumb,media`
 
 // The values of messageColumns, in order.
-const messageValues = `?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?`
+const messageValues = `?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?`
 
 func (m *message) values() []any {
 	return []any{m.ID, m.Chat, m.Name, m.Sender, m.Author, m.Text, m.TS, m.Mine, m.Status, m.Edited, m.Deleted,
-		m.RawChat, m.RawSender, m.Receipt, m.ReplyTo, m.QuoteSender, m.QuoteText}
+		m.RawChat, m.RawSender, m.Receipt, m.ReplyTo, m.QuoteSender, m.QuoteText,
+		m.Kind, m.Mime, m.FileName, m.Size, m.Width, m.Height, m.Seconds, m.Thumb, m.MediaProto}
 }
 
 func scanMessage(row interface{ Scan(...any) error }) (message, error) {
 	var m message
 	err := row.Scan(&m.ID, &m.Chat, &m.Name, &m.Sender, &m.Author, &m.Text, &m.TS, &m.Mine, &m.Status, &m.Edited, &m.Deleted, &m.RawChat, &m.RawSender, &m.Receipt,
-		&m.ReplyTo, &m.QuoteSender, &m.QuoteText)
+		&m.ReplyTo, &m.QuoteSender, &m.QuoteText,
+		&m.Kind, &m.Mime, &m.FileName, &m.Size, &m.Width, &m.Height, &m.Seconds, &m.Thumb, &m.MediaProto)
 	return m, err
 }
 

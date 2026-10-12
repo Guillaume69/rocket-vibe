@@ -214,11 +214,7 @@ impl WaSession {
                     rid: m.chat.clone(),
                     kind: if group { "p" } else { "d" }.into(),
                     name: s.chat_name(m),
-                    last_message: Some(if m.deleted {
-                        crate::i18n::t("wa.deleted").to_owned()
-                    } else {
-                        m.text.clone()
-                    }),
+                    last_message: Some(m.words().replace('\n', " ")),
                     last_ts: m.ts,
                     unread,
                     alert: unread > 0,

@@ -395,3 +395,24 @@ func TestPhoneNumbersAreRecognised(t *testing.T) {
 		}
 	}
 }
+
+func TestAnImageIsKeptWithItsCaptionAndThumbnail(t *testing.T) {
+	c := engineWithCache(t)
+	alice := types.NewJID("33600000001", types.DefaultUserServer)
+	received(c, alice, alice, "P1", &waE2E.Message{ImageMessage: &waE2E.ImageMessage{
+		Caption: proto.String("the view"), Mimetype: proto.String("image/jpeg"), FileLength: proto.Uint64(2048),
+		Width: proto.Uint32(640), Height: proto.Uint32(480), JPEGThumbnail: []byte{0xff, 0xd8},
+		DirectPath: proto.String("/v/t62/x"), MediaKey: []byte{1, 2, 3},
+	}})
+	m, ok := c.load(alice.String() + ":P1")
+	if !ok || m.Kind != "image" || m.Text != "the view" || m.Width != 640 || len(m.Thumb) != 2 || len(m.MediaProto) == 0 {
+		t.Fatalf("image lost: %+v", m)
+	}
+	back, err := downloadable(m.Kind, m.MediaProto)
+	if err != nil || back.GetDirectPath() != "/v/t62/x" {
+		t.Fatalf("download source lost: %v", err)
+	}
+	if name := mediaFile(m.ID, m.Kind, m.Mime, ""); !strings.HasSuffix(name, ".jpg") && !strings.HasSuffix(name, ".jpeg") || strings.ContainsAny(name, ":@/") {
+		t.Fatalf("file name %q", name)
+	}
+}

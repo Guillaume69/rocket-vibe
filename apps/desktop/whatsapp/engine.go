@@ -62,8 +62,19 @@ type message struct {
 	ReplyTo     string `json:"reply_to,omitempty"`
 	QuoteSender string `json:"quote_sender,omitempty"`
 	QuoteText   string `json:"quote_text,omitempty"`
-	RawChat     string `json:"-"`
-	RawSender   string `json:"-"`
+	// An attachment: image, gif, video, audio, voice, document or sticker;
+	// the text is then its caption. Fetched with `download`.
+	Kind       string `json:"kind,omitempty"`
+	Mime       string `json:"mime,omitempty"`
+	FileName   string `json:"file_name,omitempty"`
+	Size       int64  `json:"size,omitempty"`
+	Width      int    `json:"width,omitempty"`
+	Height     int    `json:"height,omitempty"`
+	Seconds    int    `json:"seconds,omitempty"`
+	Thumb      []byte `json:"thumb,omitempty"`
+	MediaProto []byte `json:"-"`
+	RawChat    string `json:"-"`
+	RawSender  string `json:"-"`
 }
 type reaction struct {
 	Message string `json:"message"`
@@ -89,6 +100,8 @@ type wire struct {
 	Name string `json:"name,omitempty"`
 	// The answer to a `search` (a `found` frame), never omitted when empty.
 	People []person `json:"people"`
+	// Where a downloaded attachment is (a `file` frame); empty on failure.
+	Path string `json:"path,omitempty"`
 }
 type connector struct {
 	client     *whatsmeow.Client
@@ -138,7 +151,7 @@ func (c *connector) receive(evt *events.Message, name string) bool {
 	if evt.IsEphemeral || evt.IsViewOnce || evt.IsViewOnceV2 || evt.IsViewOnceV2Extension {
 		return false
 	}
-	if evt.Message.GetExtendedTextMessage().GetContextInfo().GetExpiration() != 0 {
+	if contextOf(evt.Message).GetExpiration() != 0 {
 		return false
 	}
 	if r := evt.Message.GetReactionMessage(); r != nil {
@@ -152,8 +165,12 @@ func (c *connector) receive(evt *events.Message, name string) bool {
 		return false
 	}
 	text := textOf(evt.Message)
-	if text == "" {
+	media, caption := attachmentOf(evt.Message)
+	if text == "" && media == nil {
 		return false
+	}
+	if media != nil {
+		text = caption
 	}
 	raw := evt.Info.Chat.ToNonAD()
 	if _, err := validChat(raw.String()); err != nil {
@@ -169,7 +186,11 @@ func (c *connector) receive(evt *events.Message, name string) bool {
 		Sender: c.senderKey(evt.Info.IsFromMe, evt.Info.Sender), Author: evt.Info.PushName, Text: text,
 		TS: evt.Info.Timestamp.UnixMilli(), Mine: evt.Info.IsFromMe,
 		RawChat: raw.String(), RawSender: evt.Info.Sender.ToNonAD().String()}
-	c.quoted(&m, chat, evt.Message.GetExtendedTextMessage().GetContextInfo())
+	if media != nil {
+		m.Kind, m.Mime, m.FileName, m.Size = media.Kind, media.Mime, media.FileName, media.Size
+		m.Width, m.Height, m.Seconds, m.Thumb, m.MediaProto = media.Width, media.Height, media.Seconds, media.Thumb, media.Proto
+	}
+	c.quoted(&m, chat, contextOf(evt.Message))
 	c.remember(m)
 	c.namesDirty.Store(true)
 	return !known && !evt.Info.IsFromMe
@@ -182,6 +203,12 @@ func (c *connector) quoted(m *message, chat types.JID, info *waE2E.ContextInfo) 
 	}
 	m.ReplyTo = chat.String() + ":" + info.GetStanzaID()
 	m.QuoteText = textOf(info.GetQuotedMessage())
+	if quoted, caption := attachmentOf(info.GetQuotedMessage()); m.QuoteText == "" && quoted != nil {
+		m.QuoteText = caption
+		if m.QuoteText == "" {
+			m.QuoteText = quoted.Kind
+		}
+	}
 	if participant, err := types.ParseJID(info.GetParticipant()); err == nil && info.GetParticipant() != "" {
 		sender := c.canonical(participant)
 		if c.client != nil && c.client.Store.ID != nil && sender.User == c.canonical(*c.client.Store.ID).User {
@@ -663,6 +690,8 @@ func (c *connector) handle(cmd command) bool {
 		c.read(cmd)
 	case "search":
 		go c.search(cmd)
+	case "download":
+		go c.download(cmd)
 	case "logout":
 		if err := c.client.Logout(c.ctx); err != nil {
 			c.fail("logout_failed")

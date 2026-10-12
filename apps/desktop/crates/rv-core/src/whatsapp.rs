@@ -206,6 +206,28 @@ pub struct WireMessage {
     pub quote_sender: String,
     #[serde(default)]
     pub quote_text: String,
+    /// An attachment (image, gif, video, audio, voice, document, sticker):
+    /// the text is then its caption.
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub file_name: String,
+    #[serde(default)]
+    pub size: i64,
+}
+impl WireMessage {
+    /// What the message says in words: an attachment's label, then its caption.
+    pub fn words(&self) -> String {
+        if self.deleted {
+            return crate::i18n::t("wa.deleted").to_owned();
+        }
+        let label = match self.kind.as_str() {
+            "" => return self.text.clone(),
+            "document" if !self.file_name.is_empty() => format!("📄 {}", self.file_name),
+            kind => crate::i18n::t(&format!("wa.kind.{kind}")).to_owned(),
+        };
+        if self.text.is_empty() { label } else { format!("{label}\n{}", self.text) }
+    }
 }
 impl WireMessage {
     pub fn presentation(&self) -> MessageRow {
@@ -213,7 +235,7 @@ impl WireMessage {
             id: self.id.clone(),
             rid: self.chat.clone(),
             ts: self.ts,
-            text: Some(if self.deleted { crate::i18n::t("wa.deleted").to_owned() } else { self.text.clone() }),
+            text: Some(self.words()),
             edited: self.edited && !self.deleted,
             author: Some(if self.mine {
                 crate::i18n::t("wa.me").to_owned()

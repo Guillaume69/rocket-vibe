@@ -101,14 +101,14 @@ import { NativeStore } from '../providers/rocketvibe/store.ts';
 import { WhatsApp } from '../modules/whatsapp/index.ts';
 import { createWhatsAppProvider } from '../providers/whatsapp/index.ts';
 import type { TranslationKey } from './messages.ts';
-
-/** The attachment kinds the engine names and `wa.kind.*` labels. */
-const WHATSAPP_KINDS: ReadonlySet<string> = new Set(['image', 'gif', 'video', 'audio', 'voice', 'document', 'sticker']);
 import {createNativeFilesIO,mountNativeFiles} from './nativeFiles.ts';
 import { notify } from './toast.tsx';
 import { mountEmojiUsage } from './emojiUsage.ts';
 import { mountReminders } from './reminders.ts';
 import { mountLocalSearch } from './localSearch.ts';
+
+/** The attachment kinds the engine names and `wa.kind.*` labels. */
+const WHATSAPP_KINDS: ReadonlySet<string> = new Set(['image', 'gif', 'video', 'audio', 'voice', 'document', 'sticker']);
 
 export type SyncState =
   | { phase: 'idle' }
@@ -174,7 +174,7 @@ export type SyncState =
 const Context = createContext<SyncState | null>(null);
 
 export function SyncProvider({ children }: { children: React.ReactNode }) {
-  const { state,adoptRenewedSession } = useSession();
+  const { state,adoptRenewedSession,updateSessionProfile } = useSession();
   const [sync, setSync] = useState<SyncState>({ phase: 'idle' });
 
   useEffect(() => {
@@ -232,6 +232,9 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
             present(AppState.currentState === 'active');
           }
           connected = status.state === 'connected';
+          // The account is shown under its WhatsApp name, which may change on the phone.
+          const name = status.account?.name ?? '';
+          if (name !== '' && name !== session.username) void updateSessionProfile({username:name}).catch(() => {});
           if (status.refused !== null && status.refused !== refused) notify(translateCurrent('wa.refused'));
           refused = status.refused;
         });
@@ -799,7 +802,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       ddp.close();
       ddp.reset();
     };
-  }, [state,adoptRenewedSession]);
+  }, [state,adoptRenewedSession,updateSessionProfile]);
 
   return <Context.Provider value={sync}>{children}</Context.Provider>;
 }

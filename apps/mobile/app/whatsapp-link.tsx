@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WhatsApp } from '../modules/whatsapp/index.ts';
-import { parseFrame } from '../providers/whatsapp/frames.ts';
+import { fallbackName, parseFrame } from '../providers/whatsapp/frames.ts';
 import { INITIAL_STATUS, nextStatus, type WaStatus } from '../providers/whatsapp/projection.ts';
 import { useT } from '../ui/i18n.ts';
 import type { TranslationKey } from '../ui/messages.ts';
@@ -59,7 +59,9 @@ export default function WhatsAppLink() {
     if (state === null || linked.current || status.state !== 'connected' || status.account === null) return;
     linked.current = true;
     const jid = status.account.jid;
-    void connect({ baseUrl: `whatsapp://${state}`, authToken: '', userId: jid, username: jid, kind: 'whatsapp', siteUrl: null })
+    // Shown as its WhatsApp name, else its number; the JID stays the account id.
+    const username = status.account.name || fallbackName(jid);
+    void connect({ baseUrl: `whatsapp://${state}`, authToken: '', userId: jid, username, kind: 'whatsapp', siteUrl: null })
       .then(() => router.replace('/'))
       .catch(() => { linked.current = false; setFailed('wa.link.failed'); });
   }, [state, status, connect, router]);

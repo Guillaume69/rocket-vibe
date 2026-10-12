@@ -194,10 +194,12 @@ fn main() {
                     println!(
                         "{}",
                         json!({"type":"message","message":{
-                            "id":"ping@s.whatsapp.net:pong","chat":"ping@s.whatsapp.net","name":"Ping",
+                            "id":format!("ping@s.whatsapp.net:pong-{}", command["id"].as_str().unwrap()),
+                            "chat":"ping@s.whatsapp.net","name":"Ping",
                             "sender":"ping@s.whatsapp.net","author":"Ping","text":"pong","ts":now(),"mine":false
                         }})
                     );
+                    println!("{}", json!({"type":"chat","jid":"ping@s.whatsapp.net","unread":1}));
                 }
             }
             Some("logout") => {

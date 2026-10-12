@@ -118,7 +118,11 @@ mod session {
         let mut changes = s.subscribe();
         tokio::time::timeout(Duration::from_secs(6), async {
             while !condition(s) {
-                let _ = tokio::time::timeout(Duration::from_millis(50), changes.changed()).await;
+                // A closed or already-seen watch answers at once: yield anyway,
+                // or the test's single thread never runs the helper's worker.
+                if !matches!(tokio::time::timeout(Duration::from_millis(50), changes.changed()).await, Ok(Ok(()))) {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
             }
         })
         .await
@@ -175,6 +179,15 @@ mod session {
         .expect("a notification");
         assert_eq!((notice.rid.as_str(), notice.body.as_deref()), ("ping@s.whatsapp.net", Some("pong")));
         until(&s, |s| !s.sending("ping@s.whatsapp.net")).await;
+        // Read, then a new message brings the same count back: read again.
+        let unread = |s: &WaSession| s.room_rows().iter().find(|r| r.rid == "ping@s.whatsapp.net").map(|r| r.unread);
+        until(&s, |s| unread(s) == Some(1)).await;
+        s.mark_read("ping@s.whatsapp.net");
+        until(&s, |s| unread(s) == Some(0)).await;
+        s.send("ping@s.whatsapp.net", "ping again", None).unwrap();
+        until(&s, |s| unread(s) == Some(1)).await;
+        s.mark_read("ping@s.whatsapp.net");
+        until(&s, |s| unread(s) == Some(0)).await;
         s.unlink().await.expect("unlinked");
         assert!(s.is_closed());
     }

@@ -65,7 +65,10 @@ struct Local {
     returned: Vec<(String, String)>,
     /// Sends whose outcome the helper's exit left unknown.
     uncertain: usize,
-    read_sent: Option<(String, u32)>,
+    /// The last read sent: the chat, its count and its newest message from
+    /// someone else. A new message brings the same count back (1 again) and
+    /// must be read again.
+    read_sent: Option<(String, u32, String)>,
     rooms: Option<(u64, Arc<Vec<RoomRow>>)>,
     drafts: HashMap<String, String>,
     expired: bool,
@@ -377,14 +380,21 @@ impl WaSession {
     pub fn delete(&self, id: &str) -> Result<(), String> {
         self.connector().ok_or("not_connected")?.delete(id.to_owned())
     }
-    /// Reads a chat once per unread count, when the account is connected.
+    /// Reads a chat once per unread state, when the account is connected.
     pub fn mark_read(&self, chat: &str) {
         let s = self.snapshot();
         let count = s.unread.get(chat).copied().unwrap_or(0);
         if count == 0 || s.state != "connected" {
             return;
         }
-        let key = Some((chat.to_owned(), count));
+        let newest = s
+            .messages
+            .values()
+            .filter(|m| m.chat == chat && !m.mine)
+            .max_by(|a, b| (a.ts, &a.id).cmp(&(b.ts, &b.id)))
+            .map(|m| m.id.clone())
+            .unwrap_or_default();
+        let key = Some((chat.to_owned(), count, newest));
         if self.local().read_sent == key {
             return;
         }

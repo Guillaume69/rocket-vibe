@@ -81,6 +81,7 @@ public final class MediaStore {
     }
 
     public func download(_ path: String, to destination: String) async throws {
+        guard !closed else { throw RvError.Local(message:"session_closed") }
         if let chat{try await chat.download(path: path, destination: destination)}
         else if let native{try await native.download(path:path,destination:destination)}
         else{throw RvError.Local(message:"unsupported_feature")}

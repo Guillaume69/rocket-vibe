@@ -29,5 +29,17 @@ final class NativeEmojiTests:XCTestCase {
         XCTAssertEqual(suggestions.items.first?.insert,":vibe_parrot: ")
         XCTAssertEqual(suggestions.items.first?.image,path)
         app.end();XCTAssertFalse(media.current(path));XCTAssertNil(media.cached(path))
+        let afterClose=await media.load(path)
+        XCTAssertNil(afterClose)
+        let closedDestination=home.appendingPathComponent("closed-store-download.png").path
+        do {
+            try await media.download(path,to:closedDestination)
+            XCTFail("A closed media store must reject a new protected download")
+        } catch {
+            guard case let RvError.Local(message)=error else{throw error}
+            XCTAssertEqual(message,"session_closed")
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath:closedDestination))
+        XCTAssertEqual(native.status().state,.online,"Closing the view's media store keeps its background account connected")
     }
 }

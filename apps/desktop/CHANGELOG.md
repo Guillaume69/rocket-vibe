@@ -16,6 +16,7 @@ section here.
 
 ### Fixed
 
+- SwiftUI closes a view's protected media access when switching accounts, including emoji, cached images and new downloads, while the previous account keeps running in the background.
 - Reopening a suspended RocketVibe account resumes its existing session and delivers queued offline messages without restarting healthy background accounts, on GTK and SwiftUI.
 - The RocketVibe Security settings no longer stay stuck on "Loading security…" after a change that needed a fresh identity confirmation (adding or removing an email address, setting up or disabling the authenticator, replacing backup codes, email codes). The page always shows the account's status; the unfinished change appears with Continue and Cancel, and Continue asks for the password (or second factor) before completing it. "Try again" only appears after a failure, on GTK and SwiftUI.
 - Verifying an email address already linked to another RocketVibe account says so instead of a generic failure, and the verification stays cancellable.

@@ -3365,7 +3365,7 @@ impl ChatPage {
         self.current.borrow().as_ref().map(|o| o.name.clone()).unwrap_or_default()
     }
 
-    fn open_call(self: &Rc<Self>, url: &str, room: &str) {
+    pub(crate) fn open_call(self: &Rc<Self>, url: &str, room: &str) {
         let weak = Rc::downgrade(self);
         crate::call_window::open(&self.split, url, room, move |text| {
             if let Some(this) = weak.upgrade() {

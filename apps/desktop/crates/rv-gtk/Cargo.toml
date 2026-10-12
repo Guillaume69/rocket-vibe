@@ -21,6 +21,7 @@ gstreamer = "0.24"
 gstreamer-app = "0.24"
 gstreamer-video = "0.24"
 pango = { version = "0.22", features = ["v1_56"] }
+qrcode = { version = "0.14.1", default-features = false }
 rv-core = { path = "../rv-core" }
 rv-native = { path = "../rv-native" }
 serde_json = "1.0.151"

@@ -23,7 +23,7 @@ How images, video and audio attachments, and YouTube, Dailymotion and Vimeo link
 
 ## Desktop
 
-- **Account isolation.** GTK legacy attachment copies live in `rocket-vibe-rs/files-v2/<SHA-256 account tuple>`, with full URL digests and sanitized names. Old unscoped copies are removed on first use. Sign-out removes the account directory; closed sessions cannot return cached or late downloads. Decoded legacy textures also include the account identity in their key. SwiftUI `MediaStore` owns a unique temporary directory per session, clears it on `forget`/`close`, and rejects late results after close. Native providers keep their existing membership-fenced cache paths.
+- **Account isolation.** GTK legacy attachment copies live in `rocket-vibe-rs/files-v2/<SHA-256 account tuple>`, with full URL digests and sanitized names. Old unscoped copies are removed on first use. Sign-out removes the account directory; closed sessions cannot return cached or late downloads. Decoded legacy textures also include the account identity in their key. SwiftUI `MediaStore` owns a unique temporary directory per view lifetime, clears it on `forget`/`close`, and rejects late results after close. A closed store also rejects current/cached reads, loads, local copies and new downloads independently of the background account's still-running session; new downloads fail with `session_closed` before creating a destination. Native providers keep their existing membership-fenced cache paths.
 
 - **Images.** `rows::image_widget` (`rv-gtk/src/rows.rs`) loads the texture through `rv-gtk/src/media.rs`, which fetches each path once, shares the request among every widget waiting for it, and keeps decoded textures for the session (`TEXTURES`, cleared at session stop). Animated GIFs are decoded by `rv-core/src/animation.rs` into composited RGBA frames (a 0 or 10 ms delay plays at 100 ms, like browsers), within a 48 MB budget, the frames of the last 8 GIFs kept. A click opens `open_viewer`: an `adw::Dialog` that closes on a backdrop click (the dimmed backdrop otherwise acted as a window drag handle) with a right-click menu to copy, save as PNG, or open elsewhere. The image's alt text (8.5 stores the upload's caption in `image_alt`) is its tooltip.
 - **Video attachments.** `rv-gtk/src/video.rs`: a 16:9 frame with the first image and a play badge, playing in the same frame with a controls bar, fullscreen on demand. The file is downloaded to a local copy first (protected files need the token, and the player reads a file), with progress on the card; a click during the download plays once it lands. The first image is not fetched for files over 25 MB (`POSTER_MAX_BYTES`).
@@ -88,6 +88,7 @@ OS clipboard permission integration and external-provider streaming remain separ
 - apps/desktop/macos/Sources/RocketVibe/Composer.swift
 - apps/desktop/macos/Sources/RocketVibe/Pictures.swift
 - apps/desktop/macos/Sources/RocketVibeKit/MediaStore.swift
+- apps/desktop/macos/Tests/RocketVibeKitTests/NativeEmojiTests.swift
 - ROADMAP.md
 - apps/web/src/app.ts
 - apps/web/src/api.ts

@@ -398,6 +398,12 @@ impl AppWindow {
                     this.reply_notification(rid, message, text);
                     return;
                 }
+                if let Some((session, room, _)) = this.whatsapp_notification(&rid) {
+                    if session.send(&room, &text, None).is_err() {
+                        this.chat.toast(t("wa.send_failed").to_owned());
+                    }
+                    return;
+                }
                 if let Some((account, rid)) = supervisor::notification_target(&rid) {
                     if let Some(session) = this.accounts.chat(&account).and_then(|c| c.legacy().cloned()) {
                         runtime().spawn(async move { session.send(&rid, &text).await });
@@ -414,6 +420,23 @@ impl AppWindow {
             move |rid, message, quick| {
                 let Some(this) = w3.upgrade() else { return };
                 if rid.starts_with("rv-native:") {
+                    return;
+                }
+                if let Some((session, room, notification)) = this.whatsapp_notification(&rid) {
+                    match quick {
+                        crate::notifier::Quick::React(shortcode) => {
+                            crate::reactions::record(&session.info.base_url, &session.info.user_id, &shortcode);
+                            if session.react(&message, rv_core::whatsapp::reaction_glyph(&shortcode)).is_err() {
+                                this.chat.toast(t("wa.action_failed").to_owned());
+                            }
+                        }
+                        crate::notifier::Quick::MarkRead => {
+                            if let Some(notifier) = this.notifier.borrow().as_ref() {
+                                notifier.withdraw(&notification);
+                            }
+                            session.mark_read(&room);
+                        }
+                    }
                     return;
                 }
                 let (session, notification, rid) = match supervisor::notification_target(&rid) {
@@ -1620,6 +1643,18 @@ impl AppWindow {
     fn open_reminder_link(self: &Rc<Self>, link: &str) {
         if !link.is_empty() {
             self.open_link(link);
+        }
+    }
+
+    /// The WhatsApp account and chat a notification comes from: a background
+    /// account's (its key names it) or the open one's (the bare chat).
+    fn whatsapp_notification(&self, rid: &str) -> Option<(Arc<rv_core::whatsapp_session::WaSession>, String, String)> {
+        match supervisor::notification_target(rid) {
+            Some((account, room)) => {
+                let session = self.accounts.chat(&account)?.whatsapp()?.clone();
+                Some((session, room, rid.to_owned()))
+            }
+            None => self.chat.whatsapp_session().map(|s| (s, rid.to_owned(), rid.to_owned())),
         }
     }
 

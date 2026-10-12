@@ -7,6 +7,8 @@ section here.
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-10-12
+
 ### Added
 
 - RocketVibe administrators can create, copy, list and revoke account invitation codes in GTK and SwiftUI.
@@ -1194,7 +1196,8 @@ the mobile app (see `docs/PARITY.md`).
   `rocketvibe://` links) and zip; a macOS app in a DMG, signed with a Developer ID and
   notarized by Apple.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.16.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.17.0...HEAD
+[0.17.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.16.0...desktop-v0.17.0
 [0.16.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.15.1...desktop-v0.16.0
 [0.15.1]: https://github.com/Guillaume69/rocket-vibe/compare/24e6175c...desktop-v0.15.1
 [0.15.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.14.0...24e6175c

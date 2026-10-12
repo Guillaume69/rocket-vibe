@@ -44,6 +44,7 @@ pub mod server_rail;
 pub mod session;
 pub mod social;
 pub mod store;
+pub mod supervisor;
 pub mod sync;
 pub mod timeline;
 pub mod tls;

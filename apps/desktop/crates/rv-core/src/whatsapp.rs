@@ -407,9 +407,13 @@ async fn worker(
         tokio::select! {
             read = limited.read_until(b'\n', &mut line) => {
                 if !matches!(read, Ok(n) if n > 0) || line.len() > MAX_FRAME as usize { break; }
-                let Ok(event) = serde_json::from_slice::<Event>(&line) else { break };
+                // Not JSON is a broken helper; a frame of a type this build does
+                // not know is a newer helper, and is skipped.
+                let Ok(value) = serde_json::from_slice::<serde_json::Value>(&line) else { break };
                 let Some(connector) = weak.upgrade() else { break };
-                connector.snapshot.lock().unwrap_or_else(|p| p.into_inner()).apply(event);
+                if let Ok(event) = serde_json::from_value::<Event>(value) {
+                    connector.snapshot.lock().unwrap_or_else(|p| p.into_inner()).apply(event);
+                }
                 line.clear();
             }
             request = receiver.recv() => {

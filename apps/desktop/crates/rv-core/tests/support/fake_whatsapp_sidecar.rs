@@ -11,6 +11,8 @@ fn main() {
     assert_eq!(init["type"], "start");
     // Like the real helper: the replayed cache, then a pairing attempt.
     println!("{}", json!({"type":"status","state":"loaded"}));
+    // A frame of a newer helper: the client skips it.
+    println!("{}", json!({"type":"a_frame_from_a_newer_helper","value":1}));
     println!("{}", json!({"type":"status","state":"connecting"}));
     println!("{}", json!({"type":"qr","code":"RV-WHATSAPP-TEST-NOT-A-LOGIN","expires_ms":60000}));
     for line in input {

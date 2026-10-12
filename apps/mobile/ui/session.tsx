@@ -17,6 +17,7 @@ import { setProfileClient } from '../lib/profilePreload.ts';
 import { unregisterToken } from '../lib/pushToken.ts';
 import { RestClient } from '../lib/rest.ts';
 import { clientForSession, resumeSession, logoutSession, sessionRejected } from '../lib/sessionTransport.ts';
+import { forgetCollapsedSections } from './collapsedSections.ts';
 import { forgetReminders } from './reminders.ts';
 import { forgetAuthorizedMedia } from './authorizedMedia.ts';
 import {
@@ -94,6 +95,7 @@ async function clearTraces(session: Session): Promise<void> {
     // included (brain/features/reminders.md). Never throws.
     forgetReminders(session),
   ]);
+  forgetCollapsedSections(session);
 }
 
 export function SessionProvider({ children }: { children: React.ReactNode }) {

@@ -20,6 +20,8 @@
  *     by each section: no re-sort here.
  */
 
+import { withoutTrailingSlash } from '../lib/storageKeys.ts';
+
 export type HomeEntry<S, A> = { room: S; subscription: A | null };
 
 export type SectionKey = 'unread' | 'favorites' | 'rooms' | 'directMessages' | `group:${string}`;
@@ -95,13 +97,58 @@ export function readCollapsedSections(raw: string | null): ReadonlySet<SectionKe
   } catch {
     return new Set();
   }
+  return sectionKeys(value);
+}
+
+function sectionKeys(value: unknown): ReadonlySet<SectionKey> {
   if (!Array.isArray(value)) return new Set();
   return new Set(value.map((k: unknown) => LEGACY_SECTION_KEYS.get(k) ?? k).filter(isSectionKey));
 }
 
-export function writeCollapsedSections(collapsedKeys: ReadonlySet<SectionKey>): string {
+function orderedSectionKeys(collapsedKeys: ReadonlySet<SectionKey>): SectionKey[] {
   const groups = [...collapsedKeys].filter((key) => isSectionKey(key) && key.startsWith('group:')).sort();
-  return JSON.stringify([...SECTION_KEYS.filter((key) => collapsedKeys.has(key)), ...groups]);
+  return [...SECTION_KEYS.filter((key) => collapsedKeys.has(key)), ...groups];
+}
+
+export function writeCollapsedSections(collapsedKeys: ReadonlySet<SectionKey>): string {
+  return JSON.stringify(orderedSectionKeys(collapsedKeys));
+}
+
+/** Folds are kept per account: the server and the user id, as `e2eStorageKey` reads them. */
+export function foldAccount(baseUrl: string, userId: string): string {
+  return `${withoutTrailingSlash(baseUrl)}|${userId}`;
+}
+
+export type FoldsByAccount = ReadonlyMap<string, ReadonlySet<SectionKey>>;
+
+export function readFoldsByAccount(raw: string | null): FoldsByAccount {
+  if (raw === null) return new Map();
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    return new Map();
+  }
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return new Map();
+  return new Map(Object.entries(value).map(([account, keys]) => [account, sectionKeys(keys)]));
+}
+
+export function writeFoldsByAccount(folds: FoldsByAccount): string {
+  return JSON.stringify(Object.fromEntries([...folds].map(([account, keys]) => [account, orderedSectionKeys(keys)])));
+}
+
+/**
+ * The device-wide folds kept before they were per account: every signed-in
+ * account without folds of its own starts from them.
+ */
+export function seedFolds(
+  folds: FoldsByAccount,
+  accounts: readonly string[],
+  deviceWide: ReadonlySet<SectionKey>,
+): FoldsByAccount {
+  const seeded = new Map(folds);
+  for (const account of accounts) if (!seeded.has(account)) seeded.set(account, deviceWide);
+  return seeded;
 }
 
 export function toggleSection(

@@ -94,6 +94,9 @@ export const STORED_KEYS = {
   preferredLanguage: { key: 'preferred-language', legacy: 'langue-preferee' },
 } as const;
 
+/** The room list's folds of every account, replacing the device-wide `collapsedSections`. */
+export const FOLDS_BY_ACCOUNT_KEY = 'collapsed-sections-by-account';
+
 export type StoredKey = { readonly key: string; readonly legacy: string };
 
 export type AsyncKeyStore = {

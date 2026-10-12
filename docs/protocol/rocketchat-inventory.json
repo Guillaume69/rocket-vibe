@@ -23,6 +23,7 @@
     "apps/desktop/crates/rv-core/src/animation.rs",
     "apps/desktop/crates/rv-core/src/call.rs",
     "apps/desktop/crates/rv-core/src/call_ring.rs",
+    "apps/desktop/crates/rv-core/src/collapsed_sections.rs",
     "apps/desktop/crates/rv-core/src/commands.rs",
     "apps/desktop/crates/rv-core/src/completion.rs",
     "apps/desktop/crates/rv-core/src/compose.rs",

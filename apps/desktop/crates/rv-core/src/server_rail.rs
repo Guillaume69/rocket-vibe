@@ -4,7 +4,7 @@ use std::path::Path;
 
 use crate::session::SessionInfo;
 
-fn key(info: &SessionInfo) -> String {
+pub fn key(info: &SessionInfo) -> String {
     format!("{}|{}", info.base_url, info.user_id)
 }
 

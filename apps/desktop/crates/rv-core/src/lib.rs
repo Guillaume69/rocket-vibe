@@ -8,6 +8,7 @@ pub mod admin;
 pub mod animation;
 pub mod call;
 pub mod call_ring;
+pub mod collapsed_sections;
 pub mod commands;
 pub mod completion;
 pub mod compose;

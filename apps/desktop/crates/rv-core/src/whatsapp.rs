@@ -17,6 +17,51 @@ use zeroize::Zeroize;
 use crate::store::MessageRow;
 
 const MAX_FRAME: u64 = 1 << 20;
+
+/// A WhatsApp account's `base_url`: `whatsapp://<state id>`, the id naming its
+/// sealed state and wrapping key on this computer. Its `user_id` is the
+/// account's JID; it has no token. Not an http server: every place that reads
+/// `base_url` as one checks `is_whatsapp` first.
+pub const SCHEME: &str = "whatsapp://";
+/// The state of the window that came before accounts (`whatsapp-pilot/`),
+/// adopted as an account without a new scan.
+pub const PILOT_STATE: &str = "pilot";
+
+/// The state id of a WhatsApp account, when `base_url` is one.
+pub fn state_id(base_url: &str) -> Option<&str> {
+    let id = base_url.strip_prefix(SCHEME)?;
+    let valid = (1..=64).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit());
+    valid.then_some(id)
+}
+pub fn is_whatsapp(info: &crate::session::SessionInfo) -> bool {
+    state_id(&info.base_url).is_some()
+}
+/// The account a linked device stands for.
+pub fn account_info(state: &str, jid: &str, name: &str) -> crate::session::SessionInfo {
+    crate::session::SessionInfo {
+        base_url: format!("{SCHEME}{state}"),
+        user_id: jid.to_owned(),
+        username: if name.is_empty() { fallback_name(jid) } else { name.to_owned() },
+        auth_token: String::new(),
+        native: None,
+        mattermost: None,
+    }
+}
+/// A new state id: random, lower-case hex.
+pub fn new_state_id() -> Result<String, String> {
+    let mut random = [0_u8; 12];
+    getrandom::fill(&mut random).map_err(|_| failure())?;
+    Ok(random.iter().map(|b| format!("{b:02x}")).collect())
+}
+/// Where an account's sealed state lives under the app's data directory, and
+/// the keychain entry of the key that wraps it. The pilot's state keeps the
+/// places it always had, so adopting it moves nothing.
+pub fn state_location(data_dir: &Path, state: &str) -> (PathBuf, String) {
+    if state == PILOT_STATE {
+        return (data_dir.join("whatsapp-pilot").join("state.bin"), "whatsapp-pilot-storage-v1".into());
+    }
+    (data_dir.join("whatsapp").join(state).join("state.bin"), format!("whatsapp-storage-v1|{state}"))
+}
 const CACHE_MESSAGES: usize = 20_000;
 
 #[derive(Clone, Default)]
@@ -624,6 +669,33 @@ mod tests {
         let text = crate::actions::quote(&format!("{REPLY_LINK}a@s.whatsapp.net:1"), "answer");
         assert_eq!(split_reply(&text), (Some("a@s.whatsapp.net:1".into()), "answer".into()));
         assert_eq!(split_reply("plain"), (None, "plain".into()));
+    }
+    #[test]
+    fn a_whatsapp_account_round_trips_through_its_secret() {
+        let info = account_info("ab12", "33600000000@s.whatsapp.net", "");
+        assert_eq!(info.username, "+33600000000");
+        assert!(is_whatsapp(&info));
+        assert_eq!(info.genre(), "whatsapp");
+        let back = crate::session::SessionInfo::from_secret(&info.secret()).expect("whatsapp secret");
+        assert_eq!((back.base_url.as_str(), back.user_id.as_str()), ("whatsapp://ab12", "33600000000@s.whatsapp.net"));
+        assert!(is_whatsapp(&back) && back.native.is_none() && back.mattermost.is_none());
+        for bad in ["whatsapp://", "whatsapp://AB", "whatsapp://a/b", "https://whatsapp.example"] {
+            assert!(state_id(bad).is_none(), "{bad}");
+        }
+        let mut forged = info.secret();
+        forged["baseUrl"] = json!("https://chat.example");
+        assert!(crate::session::SessionInfo::from_secret(&forged).is_none());
+        assert_eq!(crate::supervisor::server_label(&info), "WhatsApp");
+        let (path, key) = state_location(Path::new("/data"), PILOT_STATE);
+        assert_eq!(
+            (path, key.as_str()),
+            (Path::new("/data/whatsapp-pilot/state.bin").into(), "whatsapp-pilot-storage-v1")
+        );
+        let (path, key) = state_location(Path::new("/data"), "ab12");
+        assert_eq!(
+            (path, key.as_str()),
+            (Path::new("/data/whatsapp/ab12/state.bin").into(), "whatsapp-storage-v1|ab12")
+        );
     }
     #[test]
     fn the_replayed_cache_marks_the_snapshot_loaded() {

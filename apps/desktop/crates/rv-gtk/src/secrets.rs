@@ -535,18 +535,19 @@ pub fn remember_server(base_url: &str) {
     let _ = std::fs::write(file, servers.join("\n"));
 }
 
-/// The WhatsApp pilot's wrapping key, separate from chat accounts.
-pub async fn whatsapp_storage_key(has_state: bool) -> Result<String, String> {
+/// The key that wraps a WhatsApp state, under its own keychain entry
+/// (`whatsapp::state_location`), separate from chat accounts. Made on first
+/// use; a state already on disk without its key fails closed.
+pub async fn whatsapp_key(entry: &str, has_state: bool) -> Result<String, String> {
     tokio::time::timeout(TIMEOUT, async {
-        const KEY: &str = "whatsapp-pilot-storage-v1";
-        if let Some(key) = keychain::private_get(KEY, "authentication").await? {
+        if let Some(key) = keychain::private_get(entry, "authentication").await? {
             return Ok(key);
         }
         if has_state {
             return Err("secure_storage_unavailable".into());
         }
         let key = rv_core::whatsapp::storage_key()?;
-        keychain::private_put(KEY, key.clone()).await?;
+        keychain::private_put(entry, key.clone()).await?;
         Ok(key)
     })
     .await

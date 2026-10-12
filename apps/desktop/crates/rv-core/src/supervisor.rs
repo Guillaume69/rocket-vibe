@@ -64,6 +64,9 @@ pub fn notification_target(notification: &str) -> Option<(String, String)> {
 
 /// The server's host, which names a background account in what it shows.
 pub fn server_label(info: &SessionInfo) -> String {
+    if crate::whatsapp::is_whatsapp(info) {
+        return "WhatsApp".into();
+    }
     url::Url::parse(&info.base_url)
         .ok()
         .and_then(|u| u.host_str().map(|h| h.trim_start_matches("www.").to_owned()))

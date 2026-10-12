@@ -336,6 +336,10 @@ impl Session {
     /// A sign-out the network interrupted, replayed from the session kept
     /// aside: true once settled, so the entry can go.
     pub async fn replay_logout(info: &SessionInfo) -> bool {
+        // A WhatsApp unlink is never deferred: there is no server sign-out to replay.
+        if crate::whatsapp::is_whatsapp(info) {
+            return true;
+        }
         let Ok(base) = info.base_url.parse::<Url>() else { return true };
         let rest = match info.mattermost {
             Some(flavor) => mattermost::client(base, Some(flavor)),
@@ -346,8 +350,8 @@ impl Session {
     }
 
     pub fn start(info: SessionInfo, db_path: &Path) -> rusqlite::Result<Arc<Session>> {
-        // A native account must never enter the Rocket.Chat REST/DDP engine.
-        if info.native.is_some() {
+        // A native or WhatsApp account must never enter the Rocket.Chat REST/DDP engine.
+        if info.native.is_some() || crate::whatsapp::is_whatsapp(&info) {
             return Err(rusqlite::Error::InvalidQuery);
         }
         let base: Url = info.base_url.parse().expect("stored base URL");

@@ -265,6 +265,19 @@ impl SessionInfo {
     pub fn from_secret(value: &Value) -> Option<Self> {
         let field = |key: &str| value[key].as_str().filter(|s| !s.is_empty()).map(str::to_owned);
         let (native, mattermost) = match value.get("genre") {
+            // A linked WhatsApp device: no server, no token (`whatsapp::account_info`).
+            Some(Value::String(kind)) if kind == "whatsapp" => {
+                let base_url = field("baseUrl")?;
+                crate::whatsapp::state_id(&base_url)?;
+                return Some(Self {
+                    base_url,
+                    user_id: field("userId")?,
+                    username: field("username").unwrap_or_default(),
+                    auth_token: String::new(),
+                    native: None,
+                    mattermost: None,
+                });
+            }
             None => (None, None),
             Some(Value::String(kind)) if kind == "rocketchat" => (None, None),
             Some(Value::String(kind)) if kind == "rocketvibe" => (
@@ -276,6 +289,9 @@ impl SessionInfo {
         };
         let base_url = field("baseUrl")?;
         NativeClient::new(&base_url).ok()?;
+        if crate::whatsapp::state_id(&base_url).is_some() {
+            return None;
+        }
         Some(Self {
             base_url,
             user_id: field("userId")?,
@@ -285,8 +301,11 @@ impl SessionInfo {
             mattermost,
         })
     }
-    /// `rocketchat`, `rocketvibe`, `mattermost` or `kchat`.
+    /// `rocketchat`, `rocketvibe`, `mattermost`, `kchat` or `whatsapp`.
     pub fn genre(&self) -> &'static str {
+        if crate::whatsapp::is_whatsapp(self) {
+            return "whatsapp";
+        }
         match (&self.native, self.mattermost) {
             (Some(_), _) => "rocketvibe",
             (None, Some(flavor)) => flavor.genre(),

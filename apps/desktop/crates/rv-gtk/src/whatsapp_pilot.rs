@@ -379,12 +379,13 @@ impl Pilot {
             } else {
                 rv_core::whatsapp::locate()
             };
-            let state = glib::user_data_dir().join("rocket-vibe-rs").join("whatsapp-pilot").join("state.bin");
+            let data = glib::user_data_dir().join("rocket-vibe-rs");
+            let (state, entry) = rv_core::whatsapp::state_location(&data, rv_core::whatsapp::PILOT_STATE);
             let key = if fake.is_some() {
                 rv_core::whatsapp::storage_key()
             } else {
                 let exists = state.exists();
-                crate::on_tokio(crate::secrets::whatsapp_storage_key(exists)).await
+                crate::on_tokio(async move { crate::secrets::whatsapp_key(&entry, exists).await }).await
             };
             let Some(this) = weak.upgrade().filter(|p| !p.closing.get()) else { return };
             let result = match (program, key) {

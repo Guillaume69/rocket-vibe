@@ -164,6 +164,7 @@ pub struct NativeChat {
     /// The voice supervisor (`native_voice.rs`), started with the listener.
     voice: Mutex<Option<tokio::task::JoinHandle<()>>>,
     accounts: rv_core::supervisor::Supervisor,
+    opening: u64,
 }
 impl Drop for NativeChat {
     fn drop(&mut self) {
@@ -303,9 +304,9 @@ pub(crate) fn open_native(
     supervisor: &rv_core::supervisor::Supervisor,
     info: rv_core::session::SessionInfo,
 ) -> Result<Arc<NativeChat>, RvError> {
-    let session = match supervisor.open(&info).map_err(RvError::local)? {
-        rv_core::provider::Chat::Native(session) => session,
-        rv_core::provider::Chat::Legacy(_) => return Err(RvError::local("not a RocketVibe account")),
+    let (session, opening) = match supervisor.open_counted(&info).map_err(RvError::local)? {
+        (rv_core::provider::Chat::Native(session), opening) => (session, opening),
+        (rv_core::provider::Chat::Legacy(_), _) => return Err(RvError::local("not a RocketVibe account")),
     };
     Ok(Arc::new(NativeChat {
         session,
@@ -313,6 +314,7 @@ pub(crate) fn open_native(
         forward: Mutex::default(),
         voice: Mutex::default(),
         accounts: supervisor.clone(),
+        opening,
     }))
 }
 #[uniffi::export]
@@ -837,9 +839,7 @@ impl NativeChat {
                 task.abort();
             }
         }
-        if self.accounts.is_active(&accounts::key(&self.session.info)) {
-            self.accounts.set_active(None);
-        }
+        self.accounts.leave(self.opening);
     }
     pub async fn history(&self, room: String, older: bool) -> Result<bool, RvError> {
         let s = self.session.clone();

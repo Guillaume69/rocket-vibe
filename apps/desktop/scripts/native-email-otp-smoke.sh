@@ -22,7 +22,7 @@ for phase in login-delivery login-proof reauth-finish; do
     export RV_SMOKE_SHOT=/workspace/artifacts/native-desktop-email-otp-login.png
   fi
   dbus-run-session -- bash -ec '
-    printf "\n" | gnome-keyring-daemon --unlock --components=secrets >/dev/null
+    bash scripts/unlock-keyring.sh
     target/debug/rocket-vibe-gtk
   '
 done

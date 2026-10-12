@@ -95,7 +95,11 @@ binary. It verifies exchange, resumption after the file is reopened, draft, DM
 uniqueness, creation / invitation, private removal, revocation and the displayed
 widgets, at full width and at 435 pixels. Screenshots: `artifacts/native-desktop*.png`.
 
-GTK and the Swift models use a real Secret Service in this Linux bench.
+GTK and the Swift models use a real Secret Service in this Linux bench. Each process
+runs in its own D-Bus session, whose daemon `apps/desktop/scripts/unlock-keyring.sh`
+unlocks: it waits for the previous process's daemon to exit and for the new one to own
+`org.freedesktop.secrets` before the app starts, so the app never activates a second,
+locked daemon that would hide the saved accounts.
 The throwaway SQL policy shortens the first token to one day, which triggers its
 renewal in the existing clients. `session-check` requires a rotation for both
 accounts, even if the sessions were signed out afterwards; its counters contain no

@@ -268,9 +268,9 @@ impl Client {
     /// becomes the open account.
     fn start(&self, info: SessionInfo) -> Result<Arc<Chat>, RvError> {
         let path = self.dirs.database(&info);
-        let session = match self.accounts.open(&info).map_err(RvError::local)? {
-            rv_core::provider::Chat::Legacy(session) => session,
-            rv_core::provider::Chat::Native(_) => return Err(RvError::local("not a Rocket.Chat account")),
+        let (session, opening) = match self.accounts.open_counted(&info).map_err(RvError::local)? {
+            (rv_core::provider::Chat::Legacy(session), opening) => (session, opening),
+            (rv_core::provider::Chat::Native(_), _) => return Err(RvError::local("not a Rocket.Chat account")),
         };
         Ok(Arc::new(Chat {
             session,
@@ -280,6 +280,7 @@ impl Client {
             rules: Mutex::default(),
             commands: Mutex::default(),
             accounts: self.accounts.clone(),
+            opening,
         }))
     }
 }
@@ -349,6 +350,7 @@ pub struct Chat {
     /// The server's slash commands, for `suggestions`.
     commands: Mutex<Vec<rv_core::commands::Command>>,
     accounts: rv_core::supervisor::Supervisor,
+    opening: u64,
 }
 
 type ActionRules = (Option<rv_core::actions::ServerSettings>, std::collections::HashMap<String, Vec<String>>);
@@ -402,9 +404,7 @@ impl Chat {
         if let Some(task) = self.forward.lock().unwrap().take() {
             task.abort();
         }
-        if self.accounts.is_active(&accounts::key(&self.session.info)) {
-            self.accounts.set_active(None);
-        }
+        self.accounts.leave(self.opening);
     }
     pub fn account(&self) -> Account {
         account(&self.session.info)

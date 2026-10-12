@@ -23,7 +23,7 @@ public final class MediaStore {
         if native != nil && (path.hasPrefix("rv-file:")||path.hasPrefix("rv-emoji:")||path.hasPrefix("rv-preview:")){return nil}
         return current(path) ? done[path] : nil
     }
-    public func current(_ path:String)->Bool{guard let native else{return true};if path.hasPrefix("rv-preview:"){return native.previewCurrent(path:path)};if path.hasPrefix("rv-file:"){return native.fileCurrent(path:path)};if path.hasPrefix("rv-emoji:"){return native.emojiCurrent(path:path)};guard path.hasPrefix("rv-avatar:")else{return false};return native.profileAvatarCurrent(id:String(path.dropFirst("rv-avatar:".count)))}
+    public func current(_ path:String)->Bool{guard !closed else{return false};guard let native else{return true};if path.hasPrefix("rv-preview:"){return native.previewCurrent(path:path)};if path.hasPrefix("rv-file:"){return native.fileCurrent(path:path)};if path.hasPrefix("rv-emoji:"){return native.emojiCurrent(path:path)};guard path.hasPrefix("rv-avatar:")else{return false};return native.profileAvatarCurrent(id:String(path.dropFirst("rv-avatar:".count)))}
     public func scope(_ path:String)->String?{path.hasPrefix("rv-preview:") ? native?.previewScope(path:path) : nil}
 
     public func load(_ path: String) async -> MediaData? {

@@ -16,6 +16,7 @@
 //! nothing is announced twice.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
@@ -201,6 +202,8 @@ struct Inner {
     starter: Starter,
     entries: Mutex<HashMap<String, Entry>>,
     active: Mutex<Option<String>>,
+    /// Counts `open`: the latest opening owns the screen.
+    openings: AtomicU64,
     /// Refused tokens: not started again until the account is opened.
     expired: Mutex<HashSet<String>>,
     notices: mpsc::UnboundedSender<AccountNotice>,
@@ -219,6 +222,7 @@ impl Supervisor {
             starter,
             entries: Mutex::default(),
             active: Mutex::default(),
+            openings: AtomicU64::new(0),
             expired: Mutex::default(),
             notices,
         };
@@ -228,12 +232,24 @@ impl Supervisor {
     /// The account to show: its running session, else a new one. It becomes
     /// the open account, the previous one goes to the background.
     pub fn open(&self, info: &SessionInfo) -> Result<Chat, String> {
+        self.open_counted(info).map(|(chat, _)| chat)
+    }
+
+    /// `open`, and which opening it was, for `leave`.
+    pub fn open_counted(&self, info: &SessionInfo) -> Result<(Chat, u64), String> {
         let key = key(info);
         self.0.expired.lock().unwrap().remove(&key);
         let chat = {
             let mut entries = self.0.entries.lock().unwrap();
             match entries.get(&key).and_then(|e| e.chat.clone()).filter(|c| !closed(c)) {
-                Some(chat) => chat,
+                Some(chat) => {
+                    if let Chat::Native(session) = &chat
+                        && session.is_suspended()
+                    {
+                        session.reconnect();
+                    }
+                    chat
+                }
                 None => {
                     if let Some(mut stale) = entries.remove(&key) {
                         stale.abort();
@@ -251,14 +267,34 @@ impl Supervisor {
                 }
             }
         };
-        self.set_active(Some(&key));
-        Ok(chat)
+        let mut active = self.0.active.lock().unwrap();
+        let opening = self.0.openings.fetch_add(1, Ordering::SeqCst) + 1;
+        let previous = active.replace(key.clone());
+        drop(active);
+        self.left(previous, Some(&key));
+        Ok((chat, opening))
+    }
+
+    /// The screen that `opening` gave the account closes; nothing changes if
+    /// an account, even the same one, was opened since.
+    pub fn leave(&self, opening: u64) {
+        let mut active = self.0.active.lock().unwrap();
+        if self.0.openings.load(Ordering::SeqCst) != opening {
+            return;
+        }
+        let previous = active.take();
+        drop(active);
+        self.left(previous, None);
     }
 
     /// Which account is on screen; None while none is (the sign-in form).
     /// The one leaving it stops hearing its open room and leaves its voice session.
     pub fn set_active(&self, key: Option<&str>) {
         let previous = std::mem::replace(&mut *self.0.active.lock().unwrap(), key.map(str::to_owned));
+        self.left(previous, key);
+    }
+
+    fn left(&self, previous: Option<String>, key: Option<&str>) {
         let Some(previous) = previous.filter(|p| Some(p.as_str()) != key) else { return };
         let chat = self.0.entries.lock().unwrap().get(&previous).and_then(|e| e.chat.clone());
         match chat {
@@ -540,6 +576,47 @@ mod tests {
         let room = Incoming { author: "Ana".into(), room_name: "general".into(), ..Default::default() };
         let room = from_account(room, &info);
         assert_eq!((room.author.as_str(), room.room_name.as_str()), ("Ana", "general (chat.example)"));
+    }
+
+    fn native_account() -> (Supervisor, SessionInfo) {
+        let info = SessionInfo {
+            base_url: "http://127.0.0.1:9/native".into(),
+            user_id: "u1".into(),
+            username: "me".into(),
+            auth_token: "t".into(),
+            native: Some(crate::native::Identity { instance_id: "i".into(), data_epoch: "e".into() }),
+            mattermost: None,
+        };
+        let path = std::env::temp_dir().join(format!("rv-supervisor-{:032x}.sqlite", fastrand::u128(..)));
+        let starter: Starter = Arc::new(move |info: &SessionInfo| {
+            crate::native::NativeSession::start(info.clone(), &path).map(Chat::from).map_err(|e| e.to_string())
+        });
+        (Supervisor::new(Handle::current(), starter).0, info)
+    }
+
+    #[tokio::test]
+    async fn opening_a_suspended_account_connects_it_again() {
+        let (accounts, info) = native_account();
+        let Ok(Chat::Native(first)) = accounts.open(&info) else { panic!("a native session") };
+        first.suspend();
+        assert!(first.is_suspended());
+        let Ok(Chat::Native(again)) = accounts.open(&info) else { panic!("a native session") };
+        assert!(Arc::ptr_eq(&first, &again), "the running session is reused");
+        assert!(!again.is_suspended());
+        accounts.shutdown();
+        assert!(!first.is_suspended(), "a closed session is not suspended");
+    }
+
+    #[tokio::test]
+    async fn the_screen_left_behind_by_a_reopening_does_not_close_the_account() {
+        let (accounts, info) = native_account();
+        let (_, first) = accounts.open_counted(&info).unwrap();
+        let (_, second) = accounts.open_counted(&info).unwrap();
+        accounts.leave(first);
+        assert!(accounts.is_active(&key(&info)));
+        accounts.leave(second);
+        assert_eq!(accounts.active(), None);
+        accounts.shutdown();
     }
 
     #[test]

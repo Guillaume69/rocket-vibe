@@ -10,7 +10,7 @@ chmod 700 "$XDG_RUNTIME_DIR"
 for phase in login-delivery login-proof reauth-finish; do
   export RV_NATIVE_EMAIL_OTP_PHASE="$phase"
   dbus-run-session -- bash -ec '
-    printf "\n" | gnome-keyring-daemon --unlock --components=secrets >/dev/null
+    bash ../scripts/unlock-keyring.sh
     swift test --skip-build --scratch-path .build/linux --filter NativeEmailFactorTests
   '
 done

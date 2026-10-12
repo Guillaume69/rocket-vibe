@@ -17,7 +17,7 @@ for phase in enable resume-disable resume-disabled; do
     export RV_SMOKE_LOGIN='http://factor-proxy:3401|gtk-email|native-pilot-test-password'
   else unset RV_SMOKE_LOGIN; fi
   dbus-run-session -- bash -ec '
-    printf "\n" | gnome-keyring-daemon --unlock --components=secrets >/dev/null
+    bash scripts/unlock-keyring.sh
     target/debug/rocket-vibe-gtk
   '
 done

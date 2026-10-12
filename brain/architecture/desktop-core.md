@@ -67,7 +67,7 @@ It then opens the socket and immediately spawns a first catch-up, not sequenced 
 
 `open_room(rid, kind)` swaps the per-room subscriptions (`<rid>/deleteMessage`, `<rid>/user-activity`; deletions are not on `__my_messages__`), marks the room read in the background, loads the newest page, and runs `catch_up_room` once per session per room (tracked in `synced`).
 
-Several accounts run at once: the UIs open every one through `supervisor::Supervisor` (`open`, `sync`, `set_active`, `remove`), which keeps a session per signed-in account. A session not on screen has no open room (`close_room`), so it hears only the account-wide subscriptions above, and its catch-up reads no room's history.
+Several accounts run at once: the UIs open every one through `supervisor::Supervisor` (`open`, `sync`, `set_active`, `leave`, `remove`), which keeps a session per signed-in account. A session not on screen has no open room (`close_room`), so it hears only the account-wide subscriptions above, and its catch-up reads no room's history.
 
 Reconnection: on `DdpEvent::Lost` (or `LiveEvent::Lost` for Mattermost) the listener waits `min(1000 << attempt, 30 s) + jitter(0..1 s)` and reopens (`reconnect_after`); `Authenticated` resets the attempt counter. `reconnect_now()` skips the wait. The timer is kept in the session's tasks, so `shutdown` aborts it, and it reopens nothing once `closed` is set: a shutdown during the wait used to reopen the socket with the old token.
 

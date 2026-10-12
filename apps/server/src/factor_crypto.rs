@@ -205,6 +205,18 @@ mod tests {
     }
 
     #[test]
+    fn provisioning_uri_follows_the_key_uri_format() {
+        assert_eq!(
+            provisioning_uri("RocketVibe-0a1b2c3d", "ada_l-1", "JBSWY3DPEHPK3PXP"),
+            "otpauth://totp/RocketVibe-0a1b2c3d:ada_l-1?secret=JBSWY3DPEHPK3PXP&issuer=RocketVibe-0a1b2c3d&algorithm=SHA1&digits=6&period=30"
+        );
+        assert_eq!(
+            provisioning_uri("Rocket Vibe", "a:b@c/é", "S"),
+            "otpauth://totp/Rocket%20Vibe:a%3Ab%40c%2F%C3%A9?secret=S&issuer=Rocket%20Vibe&algorithm=SHA1&digits=6&period=30"
+        );
+    }
+
+    #[test]
     fn rfc6238_sha1_vectors_and_six_digit_window() {
         let secret = b"12345678901234567890";
         // RFC 6238 Appendix B: includes 20 billion seconds (beyond 2038).

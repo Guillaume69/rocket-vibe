@@ -602,6 +602,13 @@ impl NativeSession {
         self.verified.store(false, Ordering::SeqCst);
         self.signal();
     }
+    /// Opening a suspended account resumes its existing replay loop. Merely
+    /// switching to a healthy background account must not reset its transport.
+    pub(crate) fn resume_if_paused(&self) {
+        if self.paused.load(Ordering::SeqCst) {
+            self.reconnect();
+        }
+    }
     pub fn reconnect(&self) {
         self.clear_live();
         self.invalidate_security();

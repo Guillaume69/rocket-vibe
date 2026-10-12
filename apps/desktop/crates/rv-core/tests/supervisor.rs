@@ -3,6 +3,8 @@
 //! the open account's stays with the UI's own listener, a dropped socket
 //! comes back, and switching moves the line between the two.
 
+mod common;
+
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -243,4 +245,105 @@ async fn unread_rooms_reach_the_switcher_and_a_failed_start_is_retried() {
     removed.legacy().unwrap().shutdown();
     supervisor.sync(&[]);
     assert!(supervisor.running().is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reopening_a_paused_native_account_resumes_its_existing_outbox_without_restarting_healthy_sessions() {
+    use common::{FakeHttp, respond};
+    use rv_core::native::{Identity, NativeSession};
+    use rv_core::session::Connection;
+
+    let fixture: Value = serde_json::from_str(include_str!("../../../../../docs/protocol/v1.fixture.json")).unwrap();
+    let responses = fixture.clone();
+    let server = FakeHttp::start(move |request| match request.path() {
+        "/.well-known/rocketvibe" => respond(200, &responses["discovery"].to_string()),
+        "/api/v1/me" => respond(200, &responses["session"]["user"].to_string()),
+        "/api/v1/sync/snapshot" => respond(
+            200,
+            &json!({
+                "protocol_version": 1, "rooms": [responses["room"]], "messages": [], "cursor": "initial"
+            })
+            .to_string(),
+        ),
+        "/api/v1/sync/changes" => respond(
+            200,
+            &json!({
+                "protocol_version": 1, "changes": [], "cursor": "initial", "has_more": false
+            })
+            .to_string(),
+        ),
+        "/api/v1/sync/ticket" => respond(200, &responses["socket_ticket"].to_string()),
+        "/api/v1/sync/socket" => common::Response { websocket: true, ..Default::default() },
+        "/api/v1/rooms/room-id/messages" if request.method == "POST" => {
+            let intention: Value = serde_json::from_str(&request.body).unwrap();
+            let mut message = responses["message"].clone();
+            message["id"] = intention["operation_id"].clone();
+            message["text"] = intention["text"].clone();
+            respond(200, &message.to_string())
+        }
+        _ => respond(404, r#"{"code":"not_found","request_id":"supervisor-test"}"#),
+    })
+    .await;
+    let info = SessionInfo {
+        base_url: server.url.as_str().into(),
+        user_id: "alice-id".into(),
+        username: "alice".into(),
+        auth_token: "fixture-token".into(),
+        native: Some(Identity { instance_id: "fixture-instance".into(), data_epoch: "fixture-epoch".into() }),
+        mattermost: None,
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("native.sqlite");
+    let starts = Arc::new(AtomicUsize::new(0));
+    let record_starts = starts.clone();
+    let starter: supervisor::Starter = Arc::new(move |info| {
+        record_starts.fetch_add(1, Ordering::SeqCst);
+        NativeSession::start(info.clone(), &path).map(Chat::from).map_err(|error| error.to_string())
+    });
+    let (supervisor, _notices) = Supervisor::new(tokio::runtime::Handle::current(), starter);
+    let opened = supervisor.open(&info).unwrap();
+    let native = opened.native().unwrap();
+    let sockets = || server.requests().iter().filter(|request| request.path() == "/api/v1/sync/socket").count();
+    let sends = || {
+        server
+            .requests()
+            .into_iter()
+            .filter(|request| request.method == "POST" && request.path().ends_with("/messages"))
+            .collect::<Vec<_>>()
+    };
+    eventually("native account online", || native.status().connection == Connection::Online).await;
+    assert_eq!(sockets(), 1);
+    let healthy = supervisor.open(&info).unwrap();
+    assert!(healthy.same(&opened));
+    assert_eq!(native.status().connection, Connection::Online);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(sockets(), 1, "opening a healthy background session keeps its socket");
+
+    native.suspend();
+    eventually("native account suspended", || native.status().connection == Connection::Offline).await;
+    let intention = native.send("room-id", "Queued while the native account is suspended").unwrap();
+    assert_eq!(native.store.pending().unwrap()[0].id, intention);
+    native.store.set_draft("room-id", "Draft on the reused session").unwrap();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(sends().is_empty(), "a suspended account keeps its intention local");
+
+    let reopened = supervisor.open(&info).unwrap();
+    assert!(reopened.same(&opened), "resume retains the session and its durable store");
+    assert_eq!(starts.load(Ordering::SeqCst), 1);
+    eventually("reopened native account online and queued intention acknowledged", || {
+        native.status().connection == Connection::Online && native.store.pending().unwrap().is_empty()
+    })
+    .await;
+    assert_eq!(sockets(), 2, "resume opens one fresh authenticated socket");
+    assert_eq!(native.store.draft("room-id").unwrap(), "Draft on the reused session");
+    let delivered = native.store.messages("room-id", 10).unwrap();
+    assert_eq!(delivered.iter().filter(|message| message.id == intention && message.status.is_none()).count(), 1);
+    let sent = sends();
+    assert_eq!(sent.len(), 1, "the queued intention is posted exactly once");
+    assert_eq!(serde_json::from_str::<Value>(&sent[0].body).unwrap()["operation_id"], intention);
+    assert!(supervisor.open(&info).unwrap().same(&opened));
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(sockets(), 2);
+    assert_eq!(sends().len(), 1);
+    supervisor.shutdown();
 }

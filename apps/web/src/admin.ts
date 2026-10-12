@@ -16,11 +16,16 @@ import type {
 } from "./protocol";
 import { operation, segment, secret } from "./api";
 import { button, dialog, el, field, tile, toast } from "./dom";
-import { sidebarDialog, preferencesGroup, actionRow } from "./sidebar";
+import {
+  sidebarDialog,
+  preferencesGroup,
+  actionRow,
+  type SidebarHost,
+} from "./sidebar";
 import { language, t } from "./i18n";
 import { botBadge } from "./bots";
 import { nt } from "./native-i18n";
-import { accountFence } from "./preferences-controls";
+import { accountFence, confirmAction } from "./preferences-controls";
 import type { InstanceSettings } from "./protocol";
 import { icon, iconButton } from "./icons";
 const label = (en: string, fr: string) => (language === "fr" ? fr : en);
@@ -80,22 +85,6 @@ export function report(app: App, kind: "messages" | "users", id: string): void {
     ),
   );
 }
-async function confirm(title: string, run: () => Promise<void>): Promise<void> {
-  const [node, body] = dialog(title);
-  node.classList.add("alert-dialog");
-  body.append(
-    el("p", "", title + "?"),
-    button(t("cancel"), () => node.close()),
-    button(
-      t("verify"),
-      async () => {
-        await run();
-        node.close();
-      },
-      "destructive",
-    ),
-  );
-}
 /**
  * The Dashboard's Server icon card: the icon the apps' server rails and this
  * tab show, Change (a PNG or JPEG the server crops to a square) and Remove.
@@ -138,19 +127,11 @@ function iconCard(app: App, valid: () => boolean): HTMLElement {
   const remove = button(
     nt("admin.icon_remove"),
     () => {
-      const [node, body] = dialog(nt("admin.icon_remove_title"));
-      node.classList.add("alert-dialog");
-      body.append(
-        el("p", "", nt("admin.icon_remove_body")),
-        button(t("cancel"), () => node.close()),
-        button(
-          nt("admin.icon_remove"),
-          async () => {
-            await apply(null);
-            node.close();
-          },
-          "destructive",
-        ),
+      confirmAction(
+        nt("admin.icon_remove_title"),
+        nt("admin.icon_remove_body"),
+        () => apply(null),
+        nt("admin.icon_remove"),
       );
     },
     "destructive",
@@ -176,27 +157,22 @@ async function emojiPage(
   app: App,
   page: HTMLElement,
   valid: () => boolean,
+  host: SidebarHost,
 ): Promise<void> {
-  const [form, formRows] = preferencesGroup(nt("admin.emoji_add"));
-  const [nameField, name] = field(nt("admin.emoji_name"));
-  const [aliasField, aliases] = field(nt("admin.emoji_aliases"));
-  const imageField = el("label", "field");
-  const image = el("input");
-  image.type = "file";
-  image.accept = "image/png,image/jpeg,image/gif";
-  imageField.append(
-    el("span", "pill-caption", nt("admin.emoji_image")),
-    image,
-    el("span", "dim", nt("admin.emoji_image_hint")),
+  page.classList.add("admin-emoji-list");
+  const current = () => valid() && host.node.open;
+  const [list, listRows] = preferencesGroup(
+    nt("admin.cat.emoji"),
+    nt("admin.emoji_hint"),
   );
-  const [list, listRows] = preferencesGroup(nt("admin.cat.emoji"));
   const render = async (catalog?: EmojiCatalog) => {
     catalog ??= await app.api.request<EmojiCatalog>("/api/v1/emoji");
-    if (!valid()) return;
+    if (!current()) return;
     await app.loadEmojis().catch(() => {});
+    if (!current()) return;
     listRows.replaceChildren();
     if (!catalog.items.length)
-      listRows.append(el("p", "dim", nt("admin.emoji_empty")));
+      listRows.append(actionRow(nt("admin.emoji_empty")));
     for (const item of catalog.items) {
       const row = actionRow(
         ":" + item.name + ":",
@@ -208,77 +184,139 @@ async function emojiPage(
       row.prepend(picture);
       row.append(
         iconButton("trash", nt("admin.emoji_delete"), () => {
-          const [node, body] = dialog(nt("admin.emoji_delete_title"));
-          node.classList.add("alert-dialog");
-          body.append(
-            el(
-              "p",
-              "",
-              nt("admin.emoji_delete_body").replace("{name}", item.name),
-            ),
-            button(t("cancel"), () => node.close()),
-            button(
-              nt("admin.emoji_delete"),
-              async () => {
-                const next = await app.api.request<EmojiCatalog>(
-                  "/api/v1/admin/emoji/" +
-                    segment(item.name) +
-                    "?operation_id=" +
-                    operation() +
-                    "&expected_revision=" +
-                    segment(item.revision),
-                  "DELETE",
-                );
-                node.close();
-                await render(next);
-              },
-              "destructive",
-            ),
+          confirmAction(
+            nt("admin.emoji_delete_title"),
+            nt("admin.emoji_delete_body", { name: item.name }),
+            async () => {
+              if (!current()) return;
+              const next = await app.api.request<EmojiCatalog>(
+                "/api/v1/admin/emoji/" +
+                  segment(item.name) +
+                  "?operation_id=" +
+                  operation() +
+                  "&expected_revision=" +
+                  segment(item.revision),
+                "DELETE",
+              );
+              await render(next);
+            },
+            nt("admin.emoji_delete"),
           );
         }),
       );
       listRows.append(row);
     }
   };
-  const add = button(
-    nt("admin.emoji_add"),
-    async () => {
-      const code = name.value.trim().replace(/^:+|:+$/g, "");
-      const extra = aliases.value
-        .split(",")
-        .map((alias) => alias.trim().replace(/^:+|:+$/g, ""))
-        .filter(Boolean);
-      const file = image.files?.[0];
-      const codes = [code, ...extra];
-      // Like the other apps' check; a standard emoji's code is the server's
-      // refusal (`emoji_name_reserved`), worded from the catalog.
-      if (
-        !codes.every((c) => emojiCode.test(c)) ||
-        new Set(codes).size !== codes.length ||
-        extra.length > 8
-      )
-        throw new Error(nt("admin.emoji_error_name"));
-      if (!file) throw new Error(nt("admin.emoji_error_missing"));
-      if (file.size > 1024 * 1024)
-        throw new Error(nt("admin.emoji_error_size"));
-      const next = await app.api.request<EmojiCatalog>(
-        "/api/v1/admin/emoji/" +
-          segment(code) +
-          "?operation_id=" +
-          operation() +
-          "&aliases=" +
-          encodeURIComponent(extra.join(",")),
-        "PUT",
-        file,
+  const addForm = () =>
+    host.push(nt("admin.emoji_add"), (target) => {
+      target.classList.add("admin-emoji-form");
+      const active = () => current() && target.isConnected;
+      const [form, formRows] = preferencesGroup();
+      const [nameField, name] = field(nt("admin.emoji_name"));
+      const [aliasField, aliases] = field(nt("admin.emoji_aliases"));
+      const imageRow = actionRow(
+        nt("admin.emoji_image"),
+        nt("admin.emoji_image_hint"),
       );
-      name.value = aliases.value = image.value = "";
-      toast(nt("admin.emoji_added"));
-      await render(next);
-    },
-    "cta",
+      imageRow.classList.add("admin-emoji-image-row");
+      const preview = el("img", "admin-emoji-image");
+      preview.alt = "";
+      preview.hidden = true;
+      const image = el("input");
+      image.type = "file";
+      image.accept = "image/png,image/jpeg,image/gif";
+      image.hidden = true;
+      image.setAttribute("aria-label", nt("admin.emoji_choose"));
+      const choose = button(
+        nt("admin.emoji_choose"),
+        () => image.click(),
+        "admin-emoji-choose",
+      );
+      imageRow.prepend(preview);
+      imageRow.append(choose, image);
+      let selected: File | undefined;
+      const [actions, actionRows] = preferencesGroup();
+      actions.classList.add("admin-emoji-actions");
+      const submit = button(
+        nt("admin.emoji_add"),
+        async () => {
+          if (!active()) return;
+          const code = name.value.trim().replace(/^:+|:+$/g, "");
+          const extra = aliases.value
+            .split(",")
+            .map((alias) => alias.trim().replace(/^:+|:+$/g, ""))
+            .filter(Boolean);
+          const file = selected;
+          const codes = [code, ...extra];
+          // Like the other apps' check; a standard emoji's code is the server's
+          // refusal (`emoji_name_reserved`), worded from the catalog.
+          if (
+            !codes.every((c) => emojiCode.test(c)) ||
+            new Set(codes).size !== codes.length ||
+            extra.length > 8
+          )
+            throw new Error(nt("admin.emoji_error_name"));
+          if (!file) throw new Error(nt("admin.emoji_error_missing"));
+          if (file.size > 1024 * 1024)
+            throw new Error(nt("admin.emoji_error_size"));
+          const next = await app.api.request<EmojiCatalog>(
+            "/api/v1/admin/emoji/" +
+              segment(code) +
+              "?operation_id=" +
+              operation() +
+              "&aliases=" +
+              encodeURIComponent(extra.join(",")),
+            "PUT",
+            file,
+          );
+          if (!active()) return;
+          toast(nt("admin.emoji_added"));
+          await render(next);
+          if (active()) host.pop();
+        },
+        "suggested-action pill admin-emoji-submit",
+      );
+      const ready = () => {
+        submit.disabled = !name.value.trim() || !selected;
+      };
+      name.addEventListener("input", ready);
+      image.addEventListener("change", () => {
+        const file = image.files?.[0];
+        image.value = "";
+        if (!file || !active()) return;
+        if (file.size > 1024 * 1024) {
+          toast(nt("admin.emoji_error_size"));
+          return;
+        }
+        selected = file;
+        imageRow.querySelector(".action-row-subtitle")!.textContent = file.name;
+        const reader = new FileReader();
+        reader.addEventListener("load", () => {
+          if (
+            !active() ||
+            selected !== file ||
+            typeof reader.result !== "string"
+          )
+            return;
+          preview.src = reader.result;
+          preview.hidden = false;
+        });
+        reader.readAsDataURL(file);
+        ready();
+      });
+      ready();
+      formRows.append(nameField, aliasField, imageRow);
+      actionRows.append(submit);
+      target.append(form, actions);
+    });
+  const header = el("div", "preferences-group-header");
+  header.append(
+    list.querySelector("h3")!,
+    iconButton("plus", nt("admin.emoji_add"), addForm),
   );
-  formRows.append(nameField, aliasField, imageField, add);
-  page.append(el("p", "dim", nt("admin.emoji_hint")), form, list);
+  header.querySelector("button")!.classList.add("admin-emoji-add");
+  list.prepend(header);
+  page.append(list);
   await render();
 }
 async function invitationPage(
@@ -287,9 +325,14 @@ async function invitationPage(
   valid: () => boolean,
 ): Promise<void> {
   const current = () => valid() && page.isConnected;
-  const [form, controls] = preferencesGroup(nt("admin.cat.invitations"));
-  const output = el("div"),
-    list = el("div");
+  page.classList.add("admin-invitations");
+  const [form, controls] = preferencesGroup(
+    nt("admin.cat.invitations"),
+    nt("admin.invitation_hint"),
+  );
+  const [list, listRows] = preferencesGroup();
+  list.classList.add("admin-invitation-list");
+  const output = el("div", "admin-invitation-output");
   let pending: CreateAccountInvitation | undefined,
     reading = 0;
   const reload = async () => {
@@ -298,8 +341,8 @@ async function invitationPage(
       "/api/v1/admin/invitations",
     );
     if (!current() || expected !== reading) return;
-    list.replaceChildren();
-    if (!rows.length) list.append(el("p", "dim", nt("admin.invitation_empty")));
+    listRows.replaceChildren();
+    if (!rows.length) listRows.append(actionRow(nt("admin.invitation_empty")));
     for (const item of rows) {
       const status = item.revoked_at
         ? "revoked"
@@ -314,31 +357,35 @@ async function invitationPage(
           " · " +
           new Date(item.expires_at).toLocaleString(),
       );
+      row.dataset.invitationId = item.id;
       if (status === "active")
         row.append(
           button(
             nt("admin.invitation_revoke"),
             () =>
-              confirm(nt("admin.invitation_revoke"), async () => {
-                if (!current()) return;
-                await app.api.request(
-                  "/api/v1/admin/invitations/" + segment(item.id) + "/revoke",
-                  "POST",
-                  { operation_id: operation() },
-                );
-                if (current()) {
-                  output.replaceChildren();
-                  await reload();
-                }
-              }),
+              confirmAction(
+                nt("admin.invitation_revoke"),
+                nt("admin.invitation_revoke_body"),
+                async () => {
+                  if (!current()) return;
+                  await app.api.request(
+                    "/api/v1/admin/invitations/" + segment(item.id) + "/revoke",
+                    "POST",
+                    { operation_id: operation() },
+                  );
+                  if (current()) {
+                    output.replaceChildren();
+                    await reload();
+                  }
+                },
+              ),
             "destructive",
           ),
         );
-      list.append(row);
+      listRows.append(row);
     }
   };
   controls.append(
-    el("p", "dim", nt("admin.invitation_hint")),
     button(
       nt("admin.invitation_create"),
       async () => {
@@ -351,30 +398,43 @@ async function invitationPage(
         );
         pending = undefined;
         if (!current()) return;
-        const code = el("input");
+        const [codeRow, code] = field(nt("login.invitation"));
         code.value = issued.token;
         code.readOnly = true;
-        code.className = "pill-entry";
+        code.classList.add("admin-invitation-code");
         code.setAttribute("aria-label", nt("admin.invitation_code"));
         output.replaceChildren(
-          el("p", "dim", nt("admin.invitation_secret")),
-          code,
-          button(nt("admin.invitation_copy"), async () => {
-            await navigator.clipboard.writeText(issued.token);
-            toast(nt("actions.copy"));
-          }),
-          el(
-            "p",
-            "dim",
-            new Date(issued.invitation.expires_at).toLocaleString(),
+          actionRow(nt("admin.invitation_secret")),
+          codeRow,
+          button(
+            nt("admin.invitation_copy"),
+            async () => {
+              await navigator.clipboard.writeText(issued.token);
+              toast(nt("actions.copy"));
+            },
+            "admin-invitation-copy",
           ),
         );
         await reload();
       },
-      "cta",
+      "suggested-action admin-invitation-create",
     ),
-    button(nt("admin.invitation_refresh"), reload),
     output,
+  );
+  const header = el("div", "preferences-group-header");
+  header.append(
+    button(nt("admin.invitation_refresh"), reload, "admin-invitation-refresh"),
+  );
+  list.prepend(header);
+  page.closest("dialog")?.addEventListener(
+    "close",
+    () => {
+      const code = output.querySelector<HTMLInputElement>("input");
+      if (code) code.value = "";
+      output.replaceChildren();
+      pending = undefined;
+    },
+    { once: true },
   );
   page.append(form, list);
   await reload();
@@ -560,42 +620,53 @@ export async function administration(app: App): Promise<void> {
     const [actions, rows] = preferencesGroup(label("Actions", "Actions"));
     page.append(actions);
     const change = async (input: { disabled?: boolean; admin?: boolean }) => {
+      if (!valid() || !host.node.open || !page.isConnected) return;
       await app.api.request(
         "/api/v1/admin/users/" + segment(user.id),
         "PATCH",
         { operation_id: operation(), revision: user.revision, ...input },
       );
-      host.select("users", true);
+      if (valid() && host.node.open && page.isConnected)
+        host.select("users", true);
     };
     rows.append(
       actionRow(
-        user.disabled
-          ? label("Activate", "Activer")
-          : label("Deactivate", "Désactiver"),
+        nt(user.disabled ? "admin.activate" : "admin.deactivate"),
         "",
         () =>
-          confirm(user.username, () => change({ disabled: !user.disabled })),
+          user.disabled
+            ? change({ disabled: false })
+            : confirmAction(
+                nt("admin.deactivate"),
+                nt("admin.deactivate_body"),
+                () => change({ disabled: true }),
+              ),
       ),
     );
     if (!user.bot || user.admin)
       rows.append(
         actionRow(
-          user.admin
-            ? label("Remove administrator", "Retirer le rôle administrateur")
-            : label("Make administrator", "Rendre administrateur"),
+          nt(user.admin ? "admin.remove_admin" : "admin.make_admin"),
           "",
-          () => confirm(user.username, () => change({ admin: !user.admin })),
+          () => change({ admin: !user.admin }),
         ),
       );
-    const remove = actionRow(t("delete"), "", () =>
-      confirm(t("delete") + " " + user.username, async () => {
-        await app.api.request(
-          "/api/v1/admin/users/" + segment(user.id) + "/delete",
-          "POST",
-          { operation_id: operation(), revision: user.revision },
-        );
-        host.select("users", true);
-      }),
+    const remove = actionRow(nt("admin.delete_user"), "", () =>
+      confirmAction(
+        nt("admin.delete_user"),
+        nt("admin.delete_user_body_rv"),
+        async () => {
+          if (!valid() || !host.node.open || !page.isConnected) return;
+          await app.api.request(
+            "/api/v1/admin/users/" + segment(user.id) + "/delete",
+            "POST",
+            { operation_id: operation(), revision: user.revision },
+          );
+          if (valid() && host.node.open && page.isConnected)
+            host.select("users", true);
+        },
+        nt("actions.delete"),
+      ),
     );
     remove.classList.add("destructive");
     rows.append(remove);
@@ -734,29 +805,37 @@ export async function administration(app: App): Promise<void> {
             );
             target.append(actions);
             buttons.append(
-              actionRow(label("Dismiss", "Clore"), "", () =>
-                confirm(t("reports"), async () => {
-                  await app.api.request(
-                    path + "/" + segment(item.message_id) + "/dismiss",
-                    "POST",
-                    { operation_id: operation() },
-                  );
-                  host.select("moderation", true);
-                }),
-              ),
-            );
-            const remove = actionRow(t("delete"), "", () =>
-              confirm(t("delete"), async () => {
+              actionRow(nt("admin.dismiss"), "", async () => {
+                if (!valid() || !host.node.open || !target.isConnected) return;
                 await app.api.request(
-                  path + "/" + segment(item.message_id) + "/delete",
+                  path + "/" + segment(item.message_id) + "/dismiss",
                   "POST",
-                  {
-                    operation_id: operation(),
-                    author_revision: item.author_revision,
-                  },
+                  { operation_id: operation() },
                 );
-                host.select("moderation", true);
+                if (valid() && host.node.open && target.isConnected)
+                  host.select("moderation", true);
               }),
+            );
+            const remove = actionRow(nt("admin.delete_message"), "", () =>
+              confirmAction(
+                nt("admin.delete_message"),
+                nt("admin.delete_message_body"),
+                async () => {
+                  if (!valid() || !host.node.open || !target.isConnected)
+                    return;
+                  await app.api.request(
+                    path + "/" + segment(item.message_id) + "/delete",
+                    "POST",
+                    {
+                      operation_id: operation(),
+                      author_revision: item.author_revision,
+                    },
+                  );
+                  if (valid() && host.node.open && target.isConnected)
+                    host.select("moderation", true);
+                },
+                nt("actions.delete"),
+              ),
             );
             remove.classList.add("destructive");
             buttons.append(remove);
@@ -783,16 +862,16 @@ export async function administration(app: App): Promise<void> {
               );
             target.append(
               group,
-              actionRow(label("Dismiss", "Clore"), "", () =>
-                confirm(t("reports"), async () => {
-                  await app.api.request(
-                    path + "/" + segment(item.user.id) + "/dismiss",
-                    "POST",
-                    { operation_id: operation() },
-                  );
+              actionRow(nt("admin.dismiss"), "", async () => {
+                if (!valid() || !host.node.open || !target.isConnected) return;
+                await app.api.request(
+                  path + "/" + segment(item.user.id) + "/dismiss",
+                  "POST",
+                  { operation_id: operation() },
+                );
+                if (valid() && host.node.open && target.isConnected)
                   host.select("moderation", true);
-                }),
-              ),
+              }),
             );
           },
         );
@@ -831,7 +910,7 @@ export async function administration(app: App): Promise<void> {
     );
   if (app.info?.capabilities.custom_emoji_admin)
     host.add("emoji", nt("admin.cat.emoji"), "smile", (page) =>
-      emojiPage(app, page, valid),
+      emojiPage(app, page, valid, host),
     );
   host.select("dashboard");
 }

@@ -6,7 +6,8 @@ import SwiftUI
 /// The window's modals, drawn in the window over a dimmed backdrop instead of
 /// as macOS sheets and alerts, which a click outside cannot close. A click on
 /// the backdrop and Escape cancel the top one, with no action (the project's
-/// rule). Views present through `modalOverlay` and `confirmOverlay`.
+/// rule, with incoming calls as the exception). Views present through
+/// `modalOverlay` and `confirmOverlay`.
 @MainActor @Observable
 final class ModalCenter {
     struct Shown {
@@ -18,11 +19,11 @@ final class ModalCenter {
 
     var isEmpty: Bool { stack.isEmpty }
 
-    func show(_ id: UUID, style: ModalStyle, content: AnyView, cancel: @escaping () -> Void) {
+    func show(_ id: UUID, style: ModalStyle, content: AnyView, dismissible: Bool = true, cancel: @escaping () -> Void) {
         // Keys stop going to what is underneath (the composer); the modal's
         // first field takes them (`firstModalField`).
         if !stack.layers.contains(where: { $0.id == id }) { NSApp.keyWindow?.makeFirstResponder(nil) }
-        stack.show(id, Shown(style: style, content: content), cancel: cancel)
+        stack.show(id, Shown(style: style, content: content), dismissible: dismissible, cancel: cancel)
     }
 
     func hide(_ id: UUID) {
@@ -113,6 +114,7 @@ struct ModalOverlayModifier<Overlay: View>: ViewModifier {
     @Binding var isPresented: Bool
     let key: AnyHashable?
     let style: ModalStyle
+    let dismissible: Bool
     let overlay: () -> Overlay
     @State private var id = UUID()
 
@@ -130,7 +132,7 @@ struct ModalOverlayModifier<Overlay: View>: ViewModifier {
         let (binding, layer) = ($isPresented, self.id)
         // The presenter's link handling (mentions, rooms) follows its modal.
         let view = AnyView(overlay().environment(\.openURL, openURL))
-        center.show(layer, style: style, content: view) { [weak center] in
+        center.show(layer, style: style, content: view, dismissible: dismissible) { [weak center] in
             binding.wrappedValue = false
             center?.hide(layer)
         }
@@ -207,9 +209,9 @@ extension View {
     func windowShortcut(_ shortcut: KeyboardShortcut) -> some View { modifier(WindowShortcut(shortcut: shortcut)) }
 
     /// `.sheet`, drawn in the window: a click outside closes it.
-    func modalOverlay<Overlay: View>(isPresented: Binding<Bool>, key: AnyHashable? = nil, style: ModalStyle = .card,
+    func modalOverlay<Overlay: View>(isPresented: Binding<Bool>, key: AnyHashable? = nil, style: ModalStyle = .card, dismissible: Bool = true,
                                      @ViewBuilder content: @escaping () -> Overlay) -> some View {
-        modifier(ModalOverlayModifier(isPresented: isPresented, key: key, style: style, overlay: content))
+        modifier(ModalOverlayModifier(isPresented: isPresented, key: key, style: style, dismissible: dismissible, overlay: content))
     }
 
     /// `.sheet(item:)`, drawn in the window.

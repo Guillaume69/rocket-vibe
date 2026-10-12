@@ -1,7 +1,7 @@
 import Foundation
 
 /// How an in-window modal sits over the window (the project's rule: a click
-/// outside a modal closes it with no action, as Cancel and Escape do).
+/// outside a modal closes it with no action, except an incoming call).
 public enum ModalStyle: Equatable, Sendable {
     /// A small card that sizes itself: a confirmation, a short form.
     case card
@@ -50,8 +50,8 @@ public struct ModalStack<Payload> {
     public var isEmpty: Bool { layers.isEmpty }
 
     /// Shows a modal over the others; one already shown is refreshed where it is.
-    public mutating func show(_ id: UUID, _ payload: Payload, cancel: @escaping () -> Void) {
-        let layer = Layer(id: id, payload: payload, cancel: cancel)
+    public mutating func show(_ id: UUID, _ payload: Payload, dismissible: Bool = true, cancel: @escaping () -> Void) {
+        let layer = Layer(id: id, payload: payload, cancel: { if dismissible { cancel() } })
         if let index = layers.firstIndex(where: { $0.id == id }) {
             layers[index] = layer
         } else {

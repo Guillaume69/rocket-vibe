@@ -328,7 +328,7 @@ try {
   );
   await info.getByRole("button", { name: "Leave room", exact: true }).click();
   await page
-    .locator(".room-leave-confirm")
+    .getByRole("alertdialog", { name: "Leave room", exact: true })
     .getByRole("button", { name: "Cancel", exact: true })
     .click();
   assert.equal(await info.isVisible(), true);

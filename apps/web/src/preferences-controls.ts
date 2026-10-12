@@ -1,6 +1,6 @@
 import { entryControl, selectControl, switchControl } from "./ui/preferences";
 import type { App } from "./app";
-import { el, button, dialog } from "./dom";
+import { el, button, dialog, confirmationDialog } from "./dom";
 import { actionRow } from "./sidebar";
 import { t } from "./i18n";
 import { nt } from "./native-i18n";
@@ -64,30 +64,36 @@ export function switchRow(
   title: string,
   value: boolean,
   change: (value: boolean) => void,
+  subtitle = "",
 ): HTMLElement {
   const row = el("label", "action-row toggle");
-  switchControl(row, title, value, change);
+  switchControl(row, title, value, change, subtitle);
   return row;
 }
 export function confirmAction(
   title: string,
   body: string,
   run: () => Promise<void>,
+  actionLabel = title,
 ): void {
-  const [node, content] = dialog(title);
-  node.classList.add("alert-dialog");
-  content.append(
-    el("p", "", body),
-    button(t("cancel"), () => node.close()),
+  const [node, responses] = confirmationDialog(title, body);
+  const cancel = button(
+    t("cancel"),
+    () => node.close(),
+    "flat confirmation-cancel",
+  );
+  responses.append(
+    cancel,
     button(
-      title,
+      actionLabel,
       async () => {
         await run();
         node.close();
       },
-      "destructive",
+      "destructive confirmation-action",
     ),
   );
+  cancel.focus({ preventScroll: true });
 }
 export function onceSecret(
   app: App,

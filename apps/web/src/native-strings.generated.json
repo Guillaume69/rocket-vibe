@@ -1780,6 +1780,29 @@
   "settings.cat.devices": ["Appareils", "Devices"],
   "settings.cat.accounts": ["Comptes", "Accounts"],
   "settings.cat.app": ["Application", "App"],
+  "devices.title": ["Appareils connectés", "Signed-in devices"],
+  "devices.loading": ["Chargement des appareils…", "Loading devices…"],
+  "devices.refresh": ["Actualiser les appareils", "Refresh devices"],
+  "devices.name": ["Nom de l’appareil", "Device name"],
+  "devices.unnamed": ["Appareil sans nom", "Unnamed device"],
+  "devices.current": ["Cet appareil", "This device"],
+  "devices.created": ["Connexion initiale", "First signed in"],
+  "devices.seen": ["Dernière activité", "Last active"],
+  "devices.expires": ["Expiration", "Expires"],
+  "devices.revoke": ["Déconnecter l’appareil", "Sign out device"],
+  "devices.confirm": ["Déconnecter cet appareil ?", "Sign out this device?"],
+  "devices.confirm_body": [
+    "Sa session et ses connexions seront révoquées.",
+    "Its session and connections will be revoked."
+  ],
+  "devices.failed": [
+    "Impossible de gérer les appareils. Réessayez une fois connecté.",
+    "Devices could not be managed. Try again when connected."
+  ],
+  "devices.reauth": [
+    "Confirmez votre identité dans Sécurité pour déconnecter un autre appareil.",
+    "Confirm your identity in Security to sign out another device."
+  ],
   "security.title": ["Sécurité", "Security"],
   "security.loading": ["Chargement de la sécurité…", "Loading security…"],
   "security.enabled": [

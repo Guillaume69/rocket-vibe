@@ -18,6 +18,7 @@ import { messageRow } from "../render";
 import { iconButton } from "../icons";
 import { t } from "../i18n";
 import { nt } from "../native-i18n";
+import { confirmAction } from "../preferences-controls";
 import { profile, settings } from "../panel-actions";
 import { encryptedRoom } from "./panels";
 import { cryptoAccess, type CryptoAccess } from "./access";
@@ -650,35 +651,43 @@ export class PrivateChat {
     if (message.author.id === this.app.account?.session.user.id) {
       actions.push(
         action(t("edit"), () => {
+          const target = this.target(message);
+          if (!this.active || !target) return;
           const [edit, content] = dialog(t("edit")),
             [wrap, input] = field(t("message"), message.text);
           content.append(
             wrap,
             button(
-              t("save"),
+              nt("actions.save"),
               async () => {
-                if (!this.active || !edit.open) return;
-                await this.target(message)?.amend(message.id, input.value);
+                if (
+                  !this.active ||
+                  !edit.open ||
+                  this.target(message) !== target
+                )
+                  return;
+                await target.amend(message.id, input.value);
                 edit.close();
-                await this.refresh();
+                if (this.active && this.target(message) === target)
+                  await this.refresh();
               },
-              "cta",
+              "edit-button save",
             ),
           );
         }),
         action(t("delete"), () => {
-          const [confirm, content] = dialog(t("delete"));
-          content.append(
-            button(
-              t("delete"),
-              async () => {
-                if (!this.active || !confirm.open) return;
-                await this.target(message)?.amend(message.id, null);
-                confirm.close();
+          const target = this.target(message);
+          if (!this.active || !target) return;
+          confirmAction(
+            nt("actions.delete_title"),
+            nt("actions.delete_body"),
+            async () => {
+              if (!this.active || this.target(message) !== target) return;
+              await target.amend(message.id, null);
+              if (this.active && this.target(message) === target)
                 await this.refresh();
-              },
-              "destructive",
-            ),
+            },
+            nt("actions.delete"),
           );
         }),
       );

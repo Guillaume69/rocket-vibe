@@ -197,11 +197,8 @@ try {
     .getByText("Browser moderation " + tag, { exact: true })
     .waitFor();
   await a.getByRole("button", { name: "Dismiss", exact: true }).click();
-  await a
-    .locator(".alert-dialog")
-    .getByRole("button", { name: "Verify", exact: true })
-    .click();
   await a.locator('.admin-reports[data-report-kind="messages"]').waitFor();
+  assert.equal(await a.locator(".confirmation-dialog").count(), 0);
   await a.locator(".sidebar-dialog .preferences-close").click();
   console.log("PASS report and moderator dismissal through the application");
   for (const failure of ["constructor", "start"]) {

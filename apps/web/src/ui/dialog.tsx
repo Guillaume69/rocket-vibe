@@ -28,3 +28,32 @@ export function dialogContents(
   );
   return body;
 }
+
+/** Adwaita confirmations have a message area and responses, without a headerbar. */
+export function confirmationContents(
+  node: HTMLDialogElement,
+  title: string,
+  message: string,
+): HTMLDivElement {
+  const id = "confirmation-" + crypto.randomUUID();
+  let responses!: HTMLDivElement;
+  node.setAttribute("role", "alertdialog");
+  node.setAttribute("aria-labelledby", id + "-title");
+  node.setAttribute("aria-describedby", id + "-body");
+  renderView(
+    node,
+    <>
+      <div className="confirmation-message">
+        <h2 id={id + "-title"}>{title}</h2>
+        <p id={id + "-body"}>{message}</p>
+      </div>
+      <div
+        className="confirmation-responses"
+        ref={(value) => {
+          if (value) responses = value;
+        }}
+      />
+    </>,
+  );
+  return responses;
+}

@@ -39,6 +39,7 @@ function ThreadView({ app, options }: { app: App; options: ThreadOptions }) {
   );
   const timeline = useRef<HTMLDivElement>(null);
   const editor = useRef<HTMLDivElement>(null);
+  const completion = useRef<HTMLDivElement>(null);
   const files = useRef<HTMLInputElement>(null);
   const shown = useRef<HTMLInputElement>(null);
   // One reply at a time: the box clears once that reply is queued.
@@ -59,6 +60,34 @@ function ThreadView({ app, options }: { app: App; options: ThreadOptions }) {
     input.addEventListener(
       "keydown",
       (event) => {
+        const options = [
+          ...completion.current!.querySelectorAll<HTMLButtonElement>("button"),
+        ];
+        if (
+          !event.isComposing &&
+          options.length &&
+          ["ArrowDown", "ArrowUp", "Tab", "Enter", "Escape"].includes(event.key)
+        ) {
+          event.preventDefault();
+          if (event.key === "Escape") {
+            completion.current!.replaceChildren();
+            return;
+          }
+          const current = options.findIndex((option) =>
+            option.classList.contains("chosen"),
+          );
+          if (event.key === "Enter" || event.key === "Tab") {
+            options[Math.max(0, current)].click();
+            return;
+          }
+          const index =
+            (current + (event.key === "ArrowDown" ? 1 : -1) + options.length) %
+            options.length;
+          options.forEach((option, i) =>
+            option.classList.toggle("chosen", i === index),
+          );
+          return;
+        }
         if (formatShortcut(input, event)) return;
         if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
           event.preventDefault();
@@ -71,6 +100,9 @@ function ThreadView({ app, options }: { app: App; options: ThreadOptions }) {
       "input",
       () => {
         options.save(input.value);
+        void app
+          .complete(input, completion.current!, () => options.save(input.value))
+          .catch(toast);
         app.openGifPicker(input.value, options.root);
       },
       {
@@ -79,6 +111,7 @@ function ThreadView({ app, options }: { app: App; options: ThreadOptions }) {
     );
     return () => {
       abort.abort();
+      completion.current?.replaceChildren();
       input.dispose();
     };
   }, [app, options]);
@@ -133,6 +166,7 @@ function ThreadView({ app, options }: { app: App; options: ThreadOptions }) {
           {nt("scheduled.chip", { n: scheduled.length })}
         </ActionButton>
       )}
+      <div ref={completion} className="completion" hidden={options.disabled} />
       <div className="composer" hidden={options.disabled}>
         {options.files && (
           <input

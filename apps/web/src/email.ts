@@ -586,11 +586,12 @@ export async function emailSettings(
               nt(
                 factors.email ? "email.factor_disable" : "email.factor_enable",
               ),
-              nt(
-                factors.email
-                  ? "email.factor_disable_body"
-                  : "email.factor_enable_body",
-              ),
+              (status.address ? status.address + "\n\n" : "") +
+                nt(
+                  factors.email
+                    ? "email.factor_disable_body"
+                    : "email.factor_enable_body",
+                ),
               async () => {
                 const intent: ChangeEmailFactor = {
                   context: status.context,

@@ -1936,7 +1936,7 @@ export class Voice {
         this.ringDialogs.has(ring.id)
       )
         continue;
-      const node = createDialog();
+      const node = createDialog({ dismissible: false });
       node.classList.add("voice-ring-dialog");
       node.setAttribute("aria-labelledby", "voice-ring-" + ring.id);
       const heading = el(

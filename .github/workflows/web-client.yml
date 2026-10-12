@@ -123,6 +123,14 @@ jobs:
           target/debug/rv-server create-user webthreads
           target/debug/rv-server create-user webthreadspeer
           target/debug/rv-server create-user webvisual --admin
+          target/debug/rv-server create-user webadminlayout --admin
+          target/debug/rv-server create-user webadminlayoutpeer
+          target/debug/rv-server create-user webgtkforms
+          target/debug/rv-server create-user webgtkformspeer
+          target/debug/rv-server create-user webincoming
+          target/debug/rv-server create-user webincomingpeer
+          target/debug/rv-server create-user webemojipreview
+          target/debug/rv-server create-user webemojipreviewadmin --admin
           target/debug/rv-server create-user webworkflows --admin
           target/debug/rv-server create-user socialweb --admin
           target/debug/rv-server create-user webmedia --admin
@@ -146,7 +154,7 @@ jobs:
           # between suites on this disposable server. All suites also share localhost's
           # login budget; release that IP window only at the closed-suite boundary,
           # keeping every limit within each suite real.
-          for suite in e2ee browser features media images video-reduce voice voice-connection voice-lifecycle sessions locked composer conversation-parity shell-parity quiet receipts scheduled reminders threads global-search logout-replay notifications security security-pending visual workflows reads profiles navigation social; do
+          for suite in e2ee browser features media images video-reduce voice voice-connection voice-lifecycle incoming-call sessions locked composer conversation-parity gtk-forms emoji-completion admin-invitations shell-parity quiet receipts scheduled reminders threads global-search logout-replay notifications security security-pending visual workflows reads profiles navigation social; do
             npm run "test:$suite"
             docker exec "${{ job.services.postgres.id }}" psql -U web -d web --set ON_ERROR_STOP=1 --command "DELETE FROM snapshot_heads; DELETE FROM login_windows WHERE key LIKE 'ip:%'"
           done

@@ -198,13 +198,23 @@
   margin: 0 4px;
   background: #2c2946;
 }
+.format-bar {
+  gap: 2px;
+  min-height: 26px;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
 .format-bar button.format-button {
-  min-width: 26px;
+  width: auto;
+  min-width: 30px;
   min-height: 26px;
   height: 26px;
   border: 0;
   border-radius: 6px;
-  padding: 0 5px;
+  padding: 0 4px;
+  flex: none;
+  white-space: nowrap;
+  line-height: 26px;
 }
 .format-bar button.format-button svg,
 .format-bar button.format-button .symbolic-icon {
@@ -487,4 +497,33 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+.completion-item.completion-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 6px 12px;
+}
+.completion-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  font-family: "Noto Color Emoji", sans-serif;
+  font-size: 24px;
+  line-height: 1;
+}
+.completion-preview img {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+}
+.completion-code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

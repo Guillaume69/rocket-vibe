@@ -17,6 +17,19 @@ await mkdir("../../.cache/web-shots", { recursive: true });
 try {
   await startupStorage(browser, base);
   await page.goto(base);
+  if (process.env.RV_WEB_EXPECT_ENTRY)
+    assert.ok(
+      await page
+        .locator('script[type="module"][src]')
+        .evaluateAll(
+          (nodes, expected) =>
+            nodes.some((node) =>
+              new URL(node.src).pathname.endsWith("/" + expected),
+            ),
+          process.env.RV_WEB_EXPECT_ENTRY,
+        ),
+      "loads the expected production application entry",
+    );
   await page
     .getByRole("checkbox", { name: "Create an account", exact: true })
     .check();
@@ -48,6 +61,75 @@ try {
   await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await page.locator(".status-dot.online").waitFor({ timeout: 45000 });
+  await page.locator(".account-avatar").click();
+  const activity = page.getByRole("menu");
+  await activity.waitFor();
+  assert.deepEqual(await activity.getByRole("menuitem").allTextContents(), [
+    "Online",
+    "Away",
+    "Busy",
+    "Offline",
+  ]);
+  assert.deepEqual(
+    await activity.locator(".presence").evaluateAll((dots) =>
+      dots.map((dot) => {
+        const style = getComputedStyle(dot),
+          rect = dot.getBoundingClientRect(),
+          label = dot.parentElement.parentElement.getBoundingClientRect();
+        return {
+          color: style.backgroundColor,
+          width: rect.width,
+          height: rect.height,
+          circle: style.borderRadius,
+          inside: rect.left >= label.left && rect.right <= label.right,
+          decorative: dot.parentElement.getAttribute("aria-hidden"),
+        };
+      }),
+    ),
+    [
+      "rgb(62, 214, 127)",
+      "rgb(255, 194, 75)",
+      "rgb(255, 95, 109)",
+      "rgb(90, 85, 115)",
+    ].map((color) => ({
+      color,
+      width: 9,
+      height: 9,
+      circle: "999px",
+      inside: true,
+      decorative: "true",
+    })),
+    "all four choices render the GTK green/yellow/red/gray presence circles inside their rows",
+  );
+  await page.screenshot({
+    path: "../../.cache/web-shots/web-presence-menu-parity.png",
+  });
+  await page.keyboard.press("Escape");
+  await activity.waitFor({ state: "detached" });
+  for (const [label, status] of [
+    ["Away", "away"],
+    ["Online", "online"],
+  ]) {
+    await page.locator(".account-avatar").click();
+    const changed = page.waitForResponse(
+      (response) =>
+        response.request().method() === "PATCH" &&
+        new URL(response.url()).pathname === "/api/v1/me",
+    );
+    await page.getByRole("menuitem", { name: label, exact: true }).click();
+    const response = await changed;
+    assert.equal(
+      response.status(),
+      200,
+      "choosing a colored status is accepted by the actual server",
+    );
+    assert.equal(response.request().postDataJSON().status, status);
+    await page.locator(".account-avatar .own-presence." + status).waitFor();
+    await page.locator(".status-dot.online").waitFor();
+  }
+  console.log(
+    "PASS GTK activity menu renders all four native presence circles and saves the chosen status",
+  );
   await page
     .getByRole("button", { name: "New conversation", exact: true })
     .click();

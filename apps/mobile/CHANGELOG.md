@@ -7,6 +7,10 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep incoming calls visible until Accept or Decline. Tapping outside or pressing Back cannot dismiss the call, including the Android lock-screen prompt; remote cancellation, expiry and account teardown still close it.
+
 ## [0.14.0] - 2026-10-12
 
 ### Added

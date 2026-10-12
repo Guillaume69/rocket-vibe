@@ -10,6 +10,10 @@ All notable changes are documented here in English.
 
 ### Fixed
 
+- Use GTK confirmation messages and explicit action labels with Cancel focused, and remove extra confirmation steps from immediate administrator actions.
+- Match GTK invitation and custom emoji administration, grouped field focus and spacing, profile email hints and compact composer formatting controls. Emoji completion shows Unicode and protected custom-image previews in both room and thread composers.
+- Require Accept or Decline for incoming calls. Backdrop clicks and Escape leave them ringing, while caller cancellation and account teardown still remove the prompt.
+- Show GTK's green, yellow, red and gray circles beside the four account presence choices, and keep status changes reflected in the account badge.
 - Keep unfinished authenticator, backup-code and email changes visible in Security with Continue and Cancel. Recover accepted answers using their original operation, retain recovery codes until acknowledgement, and protect pending secrets in account-scoped encrypted browser storage.
 - Confirm identity with the original proof operation and correct recovery-code labels, so expired-proof sensitive changes can continue after two-factor verification.
 - Replace a stalled browser-storage upgrade with an actionable Retry screen, preserve saved drafts and accounts, and release database connections when another tab upgrades them.

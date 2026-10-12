@@ -446,6 +446,30 @@ try {
     .locator(".actions-menu")
     .getByRole("button", { name: "Delete", exact: true })
     .click();
+  const deletion = page.locator("dialog[open]").last();
+  assert.equal(
+    await deletion.getByRole("heading").textContent(),
+    "Delete this message?",
+  );
+  assert.equal(
+    await deletion.locator(".confirmation-message p").textContent(),
+    "It will be gone for everyone.",
+  );
+  assert.equal(await deletion.locator(".dialog-header").count(), 0);
+  assert.equal(
+    await deletion
+      .getByRole("button", { name: "Cancel", exact: true })
+      .evaluate((node) => node === document.activeElement),
+    true,
+    "Native message deletion defaults to Cancel",
+  );
+  await deletion.getByRole("button", { name: "Cancel", exact: true }).click();
+  assert.equal(await removable.isVisible(), true, "Cancel retains the message");
+  await removable.locator(".row-more").click();
+  await page
+    .locator(".actions-menu")
+    .getByRole("button", { name: "Delete", exact: true })
+    .click();
   await page
     .locator("dialog[open]")
     .last()

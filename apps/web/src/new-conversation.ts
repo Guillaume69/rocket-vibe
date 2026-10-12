@@ -60,9 +60,14 @@ export function gtkNewConversation(app: App, createFirst = false): void {
     }),
   );
   if (app.info?.capabilities.voice) {
-    const row = switchRow(nt("voice_session.channel"), voice, (value) => {
-      voice = value;
-    });
+    const row = switchRow(
+      nt("voice_session.channel"),
+      voice,
+      (value) => {
+        voice = value;
+      },
+      nt("voice_session.channel_hint"),
+    );
     row.title = nt("voice_session.channel_hint");
     createRows.append(row);
   }

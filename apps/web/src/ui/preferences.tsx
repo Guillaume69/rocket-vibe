@@ -1,4 +1,5 @@
 import { renderView } from "./portals";
+import { Symbol } from "./controls";
 export function entryControl(
   row: HTMLElement,
   title: string,
@@ -10,6 +11,7 @@ export function entryControl(
     className: "pill-entry",
     "aria-label": title,
     defaultValue: value,
+    placeholder: " ",
     onInput: (event: React.FormEvent<HTMLInputElement | HTMLTextAreaElement>) =>
       change(event.currentTarget.value),
   };
@@ -18,6 +20,7 @@ export function entryControl(
     <>
       <span className="action-row-title">{title}</span>
       {area ? <textarea {...props} /> : <input {...props} />}
+      <Symbol name="edit" className="entry-edit-indicator" />
     </>,
   );
 }
@@ -52,11 +55,19 @@ export function switchControl(
   title: string,
   value: boolean,
   change: (value: boolean) => void,
+  subtitle = "",
 ): void {
   renderView(
     row,
     <>
-      <span className="action-row-title">{title}</span>
+      {subtitle ? (
+        <div className="action-row-text">
+          <span className="action-row-title">{title}</span>
+          <span className="action-row-subtitle">{subtitle}</span>
+        </div>
+      ) : (
+        <span className="action-row-title">{title}</span>
+      )}
       <input
         type="checkbox"
         role="switch"

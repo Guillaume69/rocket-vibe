@@ -27,8 +27,27 @@ final class ModalsTests: XCTestCase {
         XCTAssertTrue(stack.isEmpty)
     }
 
-    /// A click outside the incoming-call prompt sets the ring aside: no
-    /// prompt, no ringtone, and nothing sent (the call is not declined).
+    func testIncomingCallsRequireAResponseAndStillAllowRemoteTeardown() {
+        var stack = ModalStack<String>()
+        let (settings, incoming) = (UUID(), UUID())
+        var cancelled: [String] = []
+        stack.show(settings, "settings", cancel: { cancelled.append("settings") })
+        stack.show(incoming, "ringing", dismissible: false, cancel: { cancelled.append("call") })
+        stack.top?.cancel() // The actual backdrop handler.
+        stack.cancelTop() // Escape.
+        XCTAssertTrue(cancelled.isEmpty)
+        XCTAssertEqual(stack.top?.payload, "ringing")
+        stack.show(incoming, "caller updated", dismissible: false, cancel: { cancelled.append("call") })
+        stack.cancelTop()
+        XCTAssertTrue(cancelled.isEmpty)
+        XCTAssertEqual(stack.layers.count, 2)
+        stack.hide(incoming) // Accept/Decline, caller cancellation or account teardown.
+        XCTAssertEqual(stack.top?.id, settings)
+        stack.cancelTop()
+        XCTAssertEqual(cancelled, ["settings"], "ordinary modals remain dismissible")
+    }
+
+    /// Internal suppression still filters a retired ring without declining it.
     @MainActor
     func testAnIgnoredRingNoLongerPromptsButStaysUndeclined() {
         let ring = VoiceCall(id: "c1", room: "r", callerId: "bob", callerName: "Bob", calleeId: "me", state: "ringing")

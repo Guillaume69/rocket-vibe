@@ -41,7 +41,11 @@ import { icon, iconButton } from "./icons";
 import { botsPage, botBadge } from "./bots";
 import { workflowsPage } from "./workflows";
 import { nt } from "./native-i18n";
-import { accountFence, profilePhoto } from "./preferences-controls";
+import {
+  accountFence,
+  profilePhoto,
+  confirmAction,
+} from "./preferences-controls";
 import { personalizedRoom } from "./room-state";
 import {
   pendingRoomAvatar,
@@ -1059,29 +1063,25 @@ export async function roomInfo(app: App): Promise<void> {
     leaveButton = button(
       nt("rooms.leave"),
       () => {
-        const [confirm, content] = dialog(nt("rooms.leave"));
-        confirm.classList.add("alert-dialog", "room-leave-confirm");
-        content.append(
-          el("p", "", nt("rooms.leave_body")),
-          button(t("cancel"), () => confirm.close()),
-          button(
-            nt("rooms.leave"),
-            async () => {
-              await app.api.request(
-                "/api/v1/rooms/" + segment(id) + "/leave",
-                "POST",
-                {
-                  operation_id: operation(),
-                  expected_revision: details.revision,
-                },
-              );
-              app.model.rooms.delete(id);
-              app.refresh();
-              confirm.close();
-              node.close();
-            },
-            "destructive",
-          ),
+        confirmAction(
+          nt("rooms.leave"),
+          nt("rooms.leave_body"),
+          async () => {
+            if (!current() || !node.open) return;
+            await app.api.request(
+              "/api/v1/rooms/" + segment(id) + "/leave",
+              "POST",
+              {
+                operation_id: operation(),
+                expected_revision: details.revision,
+              },
+            );
+            if (!current()) return;
+            app.model.rooms.delete(id);
+            app.refresh();
+            node.close();
+          },
+          nt("rooms.leave"),
         );
       },
       "room-standard-button",
@@ -1198,6 +1198,8 @@ export async function settings(
       input.setAttribute("aria-label", label);
       if (key === "email") {
         input.readOnly = true;
+        wrap.classList.add("read-only-field");
+        wrap.title = nt("profile.email_verified");
         input.title = nt("profile.email_verified");
       }
       fields.set(key, input);
@@ -1213,7 +1215,7 @@ export async function settings(
       if (page.isConnected && host.node.open) host.pop();
       toast(nt("settings.saved"));
     });
-    save.classList.add("suggested-action", "button-row");
+    save.classList.add("suggested-action", "profile-save");
     saveRows.append(save);
     page.append(details, saveGroup);
   };
@@ -1642,39 +1644,25 @@ export async function settings(
         ])
           expander.append(actionRow(name, value));
         if (!session.current) {
-          const revoke = actionRow(
-            phrase("Revoke access", "Révoquer l’accès"),
-            "",
-            () => {
-              const [confirmation, content] = dialog(
-                phrase("Revoke this device?", "Révoquer cet appareil ?"),
-              );
-              content.append(
-                el(
-                  "p",
-                  "",
-                  phrase(
-                    "This device will need to sign in again.",
-                    "Cet appareil devra se reconnecter.",
-                  ),
-                ),
-                button(t("cancel"), () => confirmation.close()),
-                button(
-                  phrase("Revoke access", "Révoquer l’accès"),
-                  async () => {
-                    await recentProof(app);
-                    await app.api.request(
-                      "/api/v1/me/sessions/" + segment(session.id),
-                      "DELETE",
-                    );
-                    expander.remove();
-                    confirmation.close();
-                  },
-                  "destructive",
-                ),
-              );
-            },
-          );
+          const revoke = actionRow(nt("devices.revoke"), "", () => {
+            confirmAction(
+              nt("devices.confirm"),
+              nt("devices.confirm_body"),
+              async () => {
+                if (!sameAccount() || !host.node.open || !expander.isConnected)
+                  return;
+                await recentProof(app);
+                if (!sameAccount() || !host.node.open || !expander.isConnected)
+                  return;
+                await app.api.request(
+                  "/api/v1/me/sessions/" + segment(session.id),
+                  "DELETE",
+                );
+                if (sameAccount()) expander.remove();
+              },
+              nt("devices.revoke"),
+            );
+          });
           revoke.classList.add("destructive");
           expander.append(revoke);
         }

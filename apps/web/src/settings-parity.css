@@ -15,6 +15,11 @@
 .preferences-box > .button-row.suggested-action {
   color: var(--accent-color, #b5a4ff);
 }
+.preferences-box > .button-row.profile-save {
+  min-height: 52px;
+  background: var(--accent-bg-color);
+  color: var(--accent-fg-color);
+}
 .profile-photo-row > button,
 .settings-dialog .own-profile-name ~ button {
   flex: none;
@@ -61,11 +66,84 @@
 .preferences-expander .entry-action-row .pill-entry {
   width: 100%;
 }
-.preferences-box .field:focus-within {
+.preferences-box .field:focus-within:not(.read-only-field) {
   box-shadow: inset 0 0 0 2px var(--accent-bg-color, #a695ff);
 }
 .preferences-box input[readonly] {
   color: var(--dimmed-color, #9690ad);
+}
+.entry-edit-indicator {
+  display: none;
+  pointer-events: none;
+}
+.preferences-box > :is(.field, .entry-row) {
+  position: relative;
+  align-items: stretch;
+  justify-content: center;
+  gap: 2px;
+  min-height: 54px;
+  padding: 8px 42px 8px 14px;
+  text-align: start;
+  border-radius: 0;
+}
+.preferences-box > :is(.field, .entry-row):first-child {
+  border-top-left-radius: 12px;
+  border-top-right-radius: 12px;
+}
+.preferences-box > :is(.field, .entry-row):last-child {
+  border-bottom-left-radius: 12px;
+  border-bottom-right-radius: 12px;
+}
+.preferences-box > :is(.field, .entry-row) > input {
+  font-size: 14px;
+  font-weight: 400;
+}
+.preferences-box > :is(.field, .entry-row) > .entry-edit-indicator {
+  display: block;
+  position: absolute;
+  top: 50%;
+  right: 14px;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  transform: translateY(-50%);
+  color: #8f89ab;
+}
+.preferences-box
+  > :is(.field, .entry-row):focus-within:not(.read-only-field)
+  > .entry-edit-indicator {
+  display: none;
+}
+.preferences-box
+  > :is(.field, .entry-row):not(:focus-within):has(> input:placeholder-shown)
+  > :is(.pill-caption, .action-row-title) {
+  font-size: 14px;
+  color: var(--dimmed-color, #9690ad);
+  margin: 0;
+}
+.preferences-box
+  > :is(.field, .entry-row):not(:focus-within):has(> input:placeholder-shown)
+  > input {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  min-height: 0;
+  opacity: 0;
+}
+.preferences-box > .toggle {
+  margin: 0;
+  justify-content: space-between;
+}
+.preferences-box > .toggle > input {
+  flex: none;
+  margin: 0;
+}
+.read-only-field input {
+  caret-color: transparent;
+  cursor: default;
+}
+.preferences-box > .read-only-field:focus-within {
+  box-shadow: none;
 }
 .preferences-box > .security-codes,
 .preferences-box > .security-secret,
@@ -104,4 +182,117 @@
 .crypto-peer-dialog .dialog-body,
 .crypto-group-dialog .dialog-body {
   padding: 24px;
+}
+
+/* AlertDialog message and response areas, separate from navigation dialogs. */
+dialog.confirmation-dialog {
+  width: min(372px, calc(100vw - 32px));
+  border-radius: 16px;
+}
+.confirmation-message {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 28px 24px 14px;
+  text-align: center;
+}
+.confirmation-message h2 {
+  font-family: Nunito, sans-serif;
+  font-size: 18px;
+  line-height: 1.25;
+  font-weight: 800;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.confirmation-message p {
+  margin: 0;
+  line-height: 1.45;
+  white-space: pre-line;
+  color: var(--dimmed-color, #9690ad);
+}
+.confirmation-responses {
+  display: flex;
+  gap: 12px;
+  padding: 8px 24px 24px;
+}
+.confirmation-responses > button {
+  flex: 1;
+  min-width: 0;
+  min-height: 40px;
+  border-radius: 12px;
+  padding: 8px 12px;
+  background: #ffffff1a;
+  font-weight: 700;
+}
+.confirmation-responses > button:hover {
+  background: #ffffff26;
+}
+.confirmation-responses > .destructive {
+  background: #ff7a8a22;
+  color: var(--destructive-color);
+}
+.confirmation-responses > .destructive:hover {
+  background: #ff7a8a33;
+}
+.preferences-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 34px;
+  margin-bottom: 12px;
+}
+.preferences-group-header > .preferences-group-title {
+  flex: 1;
+  margin: 0;
+}
+.preferences-group-header:has(> button:only-child) {
+  justify-content: flex-end;
+}
+.admin-invitation-create,
+.admin-invitation-copy,
+.admin-invitation-refresh,
+.admin-emoji-choose {
+  min-height: 34px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  background: #ffffff1a;
+}
+.admin-invitation-create {
+  display: block;
+  width: 100%;
+  background: var(--accent-bg-color);
+  color: var(--accent-fg-color);
+  font-weight: 700;
+}
+.admin-invitation-copy {
+  width: 100%;
+}
+.admin-invitation-output:empty {
+  display: none;
+}
+.admin-emoji-image {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  flex: none;
+}
+.admin-emoji-choose {
+  flex: none;
+}
+.admin-emoji-actions > .preferences-box {
+  display: flex;
+  justify-content: center;
+  background: transparent;
+  overflow: visible;
+}
+.admin-emoji-submit {
+  width: auto;
+  min-height: 34px;
+  padding: 6px 24px;
+  border-radius: 999px;
+  background: var(--accent-bg-color);
+  color: var(--accent-fg-color);
+  font-weight: 700;
 }

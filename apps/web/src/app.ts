@@ -9,6 +9,7 @@ import { clearView } from "./ui/portals";
 import { flushSync } from "react-dom";
 import { ViewState } from "./ui/state";
 import { nt } from "./native-i18n";
+import { confirmAction } from "./preferences-controls";
 import { PrivateChat } from "./crypto/chat";
 import { Api, ApiError, operation, segment } from "./api";
 import { finishPendingLogouts } from "./logouts";
@@ -525,9 +526,10 @@ export class App implements RowActions {
   activityMenu(anchor: HTMLElement): void {
     const account = this.account;
     if (!account || !this.info?.capabilities.profiles) return;
-    actionMenu(
+    const statuses = ["online", "away", "busy", "offline"] as const;
+    const menu = actionMenu(
       anchor,
-      (["online", "away", "busy", "offline"] as const).map((status) => [
+      statuses.map((status) => [
         nt("presence." + status),
         async () => {
           const own =
@@ -552,6 +554,14 @@ export class App implements RowActions {
       ]),
       true,
     );
+    menu
+      ?.querySelectorAll<HTMLButtonElement>(".menu-action")
+      .forEach((row, index) => {
+        const slot = el("span", "activity-presence-icon");
+        slot.setAttribute("aria-hidden", "true");
+        slot.append(el("span", "presence " + statuses[index]));
+        row.prepend(slot);
+      });
   }
 
   accountMenu(anchor: HTMLElement): void {
@@ -2629,28 +2639,24 @@ export class App implements RowActions {
       action(t("edit"), () => this.editMessage(message, permissions.revision));
     if (permissions.delete)
       action(t("delete"), () => {
-        const [confirm, content] = dialog(t("delete"));
-        content.append(
-          el("p", "", message.text),
-          button(
-            t("delete"),
-            async () => {
-              if (!current()) return;
-              const receipt = await this.api.request<Message>(
-                "/api/v1/messages/" + segment(message.id),
-                "DELETE",
-                {
-                  operation_id: operation(),
-                  expected_revision: permissions.revision,
-                },
-              );
-              if (!current()) return;
-              this.model.put(receipt);
-              this.refresh();
-              confirm.close();
-            },
-            "destructive",
-          ),
+        confirmAction(
+          nt("actions.delete_title"),
+          nt("actions.delete_body"),
+          async () => {
+            if (!current()) return;
+            const receipt = await this.api.request<Message>(
+              "/api/v1/messages/" + segment(message.id),
+              "DELETE",
+              {
+                operation_id: operation(),
+                expected_revision: permissions.revision,
+              },
+            );
+            if (!current()) return;
+            this.model.put(receipt);
+            this.refresh();
+          },
+          nt("actions.delete"),
         );
       });
     const order = [
@@ -2958,51 +2964,93 @@ export class App implements RowActions {
   async answerForm(message: Message): Promise<void> {
     await (await import("./workflow-forms")).answerForm(this, message);
   }
-  async complete(): Promise<void> {
-    this.completion.replaceChildren();
-    if (!this.room) return;
-    const text = this.composer.value.slice(0, this.composer.selectionStart);
-    const emojiMatch = /(?:^|\\s):([a-z0-9_+-]*)$/.exec(text);
+  async complete(
+    input = this.composer,
+    list = this.completion,
+    save: () => void | Promise<void> = () => this.saveDraft(),
+  ): Promise<void> {
+    list.replaceChildren();
+    if (!this.room || input.disabled) return;
+    const end = input.selectionStart,
+      text = input.value.slice(0, end);
+    const emojiMatch = /(?:^|\s):([a-z0-9_+-]+)$/.exec(text);
     const command = /^\/([a-z0-9_-]*)$/.exec(text);
     const room = this.room,
-      account = this.account?.key;
+      account = this.account?.key,
+      generation = this.generation,
+      token = this.api.token,
+      root = input === this.threadComposer ? this.root : undefined;
+    const current = () =>
+      !!account &&
+      account === this.account?.key &&
+      generation === this.generation &&
+      token === this.api.token &&
+      room === this.room &&
+      (root === undefined || root === this.root) &&
+      input.isConnected &&
+      list.isConnected &&
+      !input.disabled &&
+      text === input.value.slice(0, input.selectionStart);
     const mention = /(?:^|\s)@([\w.-]*)$/.exec(text);
     if (emojiMatch) {
-      for (const code of [...new Set([...glyphs.keys(), ...this.emojis.keys()])]
-        .filter((code) => code.startsWith(emojiMatch[1]))
-        .slice(0, 8)) {
+      const prefix = emojiMatch[1],
+        custom = [...this.emojis.keys()]
+          .filter((code) => code.startsWith(prefix) && !glyphs.has(code))
+          .sort(),
+        standard = [...glyphs.keys()]
+          .filter((code) => code.startsWith(prefix))
+          .sort((a, b) => a.length - b.length || a.localeCompare(b));
+      for (const code of [...custom, ...standard].slice(0, 8)) {
         const option = button(
-          ":" + code + ":",
+          "",
           () => {
-            const end = this.composer.selectionStart;
-            this.composer.setRangeText(
+            if (!current()) return;
+            input.setRangeText(
               ":" + code + ": ",
               end - emojiMatch[1].length - 1,
               end,
               "end",
             );
-            this.completion.replaceChildren();
-            this.composer.focus();
-            void this.saveDraft();
+            list.replaceChildren();
+            input.focus();
+            void save();
           },
-          "completion-item",
+          "completion-item completion-row",
         );
-        this.completion.append(option);
+        const preview = el("span", "completion-preview", glyphs.get(code));
+        preview.setAttribute("aria-hidden", "true");
+        option.append(preview, el("span", "completion-code", ":" + code + ":"));
+        if (!list.children.length) option.classList.add("chosen");
+        list.append(option);
+        const emoji = this.emojis.get(code);
+        if (!glyphs.has(code) && emoji)
+          void this.asset(
+            "/api/v1/emoji/files/" + segment(emoji.file_id),
+            emoji.sha256,
+          )
+            .then((url) => {
+              if (
+                !current() ||
+                !preview.isConnected ||
+                this.emojis.get(code) !== emoji
+              )
+                return;
+              const image = el("img", "custom-emoji");
+              image.src = url;
+              image.alt = "";
+              preview.replaceChildren(image);
+            })
+            .catch(() => {});
       }
     } else if (command && this.info?.capabilities.slash_commands) {
-      const list = await this.api.request<import("./protocol").CommandList>(
+      const commands = await this.api.request<import("./protocol").CommandList>(
         "/api/v1/commands?room=" + segment(room),
       );
-      if (
-        room !== this.room ||
-        account !== this.account?.key ||
-        text !== this.composer.value.slice(0, this.composer.selectionStart)
-      )
-        return;
-      for (const item of list.commands
+      if (!current()) return;
+      for (const item of commands.commands
         .filter((item) => item.command.startsWith(command[1]))
         .slice(0, 8))
-        this.completion.append(
+        list.append(
           button(
             "/" +
               item.command +
@@ -3013,11 +3061,12 @@ export class App implements RowActions {
                   (item.literal ? item.description : nt(item.description))
                 : ""),
             () => {
-              this.composer.value = "/" + item.command + " ";
-              this.openGifPicker(this.composer.value);
-              this.completion.replaceChildren();
-              this.composer.focus();
-              void this.saveDraft();
+              if (!current()) return;
+              input.value = "/" + item.command + " ";
+              this.openGifPicker(input.value, root);
+              list.replaceChildren();
+              input.focus();
+              void save();
             },
             "completion-item",
           ),
@@ -3025,12 +3074,7 @@ export class App implements RowActions {
     } else if (mention) {
       const users =
         await this.api.request<import("./protocol").User[]>("/api/v1/users");
-      if (
-        room !== this.room ||
-        account !== this.account?.key ||
-        text !== this.composer.value.slice(0, this.composer.selectionStart)
-      )
-        return;
+      if (!current()) return;
       for (const user of [
         { id: "all", username: "all", display_name: "" },
         { id: "here", username: "here", display_name: "" },
@@ -3040,20 +3084,20 @@ export class App implements RowActions {
           user.username.toLowerCase().startsWith(mention[1].toLowerCase()),
         )
         .slice(0, 8))
-        this.completion.append(
+        list.append(
           button(
             "@" + user.username,
             () => {
-              const end = this.composer.selectionStart;
-              this.composer.setRangeText(
+              if (!current()) return;
+              input.setRangeText(
                 "@" + user.username + " ",
                 end - mention[1].length - 1,
                 end,
                 "end",
               );
-              this.completion.replaceChildren();
-              this.composer.focus();
-              void this.saveDraft();
+              list.replaceChildren();
+              input.focus();
+              void save();
             },
             "completion-item",
           ),

@@ -801,10 +801,8 @@ struct VoiceCallButton: View {
     }
 }
 
-/// An incoming call while it rings: Accept, or Decline. A click outside or
-/// Escape sets it aside (`VoiceModel.ignore`): the prompt hides and the
-/// ringtone stops, but the call is not declined; the caller hears it ring
-/// until it times out, as a missed call.
+/// An incoming call stays visible until Accept, Decline or remote teardown.
+/// The backdrop and Escape cannot set an unanswered call aside.
 struct IncomingCall: ViewModifier {
     @Environment(AppModel.self) var app
 
@@ -814,7 +812,7 @@ struct IncomingCall: ViewModifier {
             isPresented: Binding(get: { call != nil }, set: { shown in
                 if !shown, let call, let voice = app.voice { voice.ignore(call) }
             }),
-            key: call?.id
+            key: call?.id, dismissible: false
         ) {
             if let call { IncomingCallCard(call: call) }
         }
@@ -823,7 +821,7 @@ struct IncomingCall: ViewModifier {
 
 /// A call started by the other member of a Rocket.Chat or kChat direct room
 /// (rv-core's `call_ring`), with the same card: Accept opens the call window,
-/// Decline tells the server, a click outside or Escape ignores it.
+/// Decline tells the server; the backdrop and Escape leave it ringing.
 struct RingingCallPrompt: ViewModifier {
     @Environment(AppModel.self) var app
 
@@ -833,7 +831,7 @@ struct RingingCallPrompt: ViewModifier {
             isPresented: Binding(get: { call != nil }, set: { shown in
                 if !shown { app.ignoreCall() }
             }),
-            key: call?.callId
+            key: call?.callId, dismissible: false
         ) {
             if let call { RingingCallCard(call: call) }
         }
@@ -841,7 +839,7 @@ struct RingingCallPrompt: ViewModifier {
 }
 
 /// A call ringing on an account not on screen: the card names its server,
-/// Accept opens that account and joins, a click outside or Escape ignores it.
+/// Accept opens that account and joins; the backdrop and Escape do nothing.
 struct BackgroundCallPrompt: ViewModifier {
     @Environment(AppModel.self) var app
 
@@ -851,7 +849,7 @@ struct BackgroundCallPrompt: ViewModifier {
             isPresented: Binding(get: { call != nil }, set: { shown in
                 if !shown, let call { app.ignoreBackgroundCall(call) }
             }),
-            key: call.map { $0.account + $0.id }
+            key: call.map { $0.account + $0.id }, dismissible: false
         ) {
             if let call { BackgroundCallCard(call: call) }
         }

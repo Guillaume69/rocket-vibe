@@ -24,6 +24,9 @@ import android.widget.TextView
 class IncomingCallActivity : Activity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+      onBackInvokedDispatcher.registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT) {}
+    }
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
       setShowWhenLocked(true)
       setTurnScreenOn(true)
@@ -69,6 +72,11 @@ class IncomingCallActivity : Activity() {
     actions.addView(button("✓", "#3ED67F") { answer(ring, answer) }.apply { contentDescription = getString(R.string.voice_accept) })
     root.addView(actions, LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT))
     setContentView(root)
+  }
+
+  @Suppress("DEPRECATION")
+  override fun onBackPressed() {
+    // Answer, decline or VoiceRinging's remote cancellation closes this screen.
   }
 
   private fun answer(ring: String, link: String) {

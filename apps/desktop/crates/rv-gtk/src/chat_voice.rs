@@ -1274,21 +1274,10 @@ impl ChatPage {
     }
 
     fn ring_dialog(self: &Rc<Self>, id: String, room: String, caller: String) {
-        let dialog = adw::AlertDialog::builder()
-            .heading(t("voice_session.incoming"))
-            .body(tf("voice_session.incoming_from", &[("name", &caller)]))
-            .default_response("accept")
-            // Escape or a click outside ignores the call: the prompt and the
-            // ringtone stop here, the caller hears it ring until it is missed.
-            // Declining stays an explicit button.
-            .close_response("ignore")
-            .build();
-        dialog.add_responses(&[("decline", t("voice_session.decline")), ("accept", t("voice_session.accept"))]);
-        dialog.set_response_appearance("decline", adw::ResponseAppearance::Destructive);
-        dialog.set_response_appearance("accept", adw::ResponseAppearance::Suggested);
+        let dialog = crate::widgets::incoming_call_alert(&tf("voice_session.incoming_from", &[("name", &caller)]));
         let weak = Rc::downgrade(self);
         let ring = id.clone();
-        dialog.connect_response(None, move |_, response| {
+        dialog.connect_response(None, move |dialog, response| {
             let Some(this) = weak.upgrade() else { return };
             // Closed because the ring ended elsewhere: nothing to answer.
             if this.voice.ringing.borrow().as_ref().is_none_or(|(shown, _)| shown != &ring) {
@@ -1297,6 +1286,8 @@ impl ChatPage {
             this.voice.ringing.replace(None);
             this.voice.answered.replace(Some(ring.clone()));
             this.voice.set_tone(None);
+            // The active record is gone before the forced close response can run.
+            dialog.force_close();
             if response == "ignore" {
                 return;
             }

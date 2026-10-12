@@ -355,11 +355,7 @@ export function VoiceRingHost() {
     else if (voice.ended === 'removed') notify(t('voice.removed'));
     else if (voice.ended === 'lost') notify(t('voice.lost'));
   }, [voice.ended, t]);
-  // Ignored rings: a tap outside the prompt or Back hides it and stops the
-  // local ringtone, without declining (the caller sees it ring until it times
-  // out, a missed call). Declining stays the explicit red button.
-  const [ignored, setIgnored] = useState<ReadonlySet<string>>(() => new Set());
-  const incoming = useMemo(() => rings.find(r => r.callee.id === me && r.state === 'ringing' && voice.room !== r.room_id && !ignored.has(r.id)) ?? null, [rings, me, voice.room, ignored]);
+  const incoming = useMemo(() => rings.find(r => r.callee.id === me && r.state === 'ringing' && voice.room !== r.room_id) ?? null, [rings, me, voice.room]);
   useEffect(() => {
     if (!incoming || !VoiceNative) return;
     // The app shows the call: the system ring of the same call stops.
@@ -376,7 +372,6 @@ export function VoiceRingHost() {
   const router = useRouter();
   if (!controller || !incoming) return null;
   const caller = incoming.caller.display_name || incoming.caller.username;
-  const ignore = () => setIgnored((old) => new Set(old).add(incoming.id));
   const answer = async () => {
     router.push({ pathname: '/voice/[rid]', params: { rid: incoming.room_id, title: caller, direct: '1' } });
     const microphone = await microphoneAllowed();
@@ -388,24 +383,23 @@ export function VoiceRingHost() {
   };
   return (
     <IncomingCallPrompt c={c} client={state.phase === 'connected' ? state.client : null} callerId={incoming.caller.id} caller={caller}
-      onAccept={() => void answer()} onDecline={() => void controller.decline(incoming.id).catch(() => {})} onIgnore={ignore} />
+      onAccept={() => void answer()} onDecline={() => void controller.decline(incoming.id).catch(() => {})} />
   );
 }
 
 /**
  * The incoming call card over a scrim, with the caller's avatar, Decline and
- * Accept. A tap on the scrim or Back ignores the call: `onIgnore` hides it
- * and stops the ringtone, nothing is declined.
+ * Accept. The scrim and Back leave it ringing until an explicit response or
+ * remote cancellation, expiry or account teardown removes the active ring.
  */
-export function IncomingCallPrompt({ c, client, callerId, caller, onAccept, onDecline, onIgnore }: {
+export function IncomingCallPrompt({ c, client, callerId, caller, onAccept, onDecline }: {
   c: Colors; client: RestClient | null; callerId: string; caller: string;
-  onAccept: () => void; onDecline: () => void; onIgnore: () => void;
+  onAccept: () => void; onDecline: () => void;
 }) {
   const t = useT();
   return (
-    <Modal transparent animationType="fade" statusBarTranslucent onRequestClose={onIgnore}>
-      <Pressable style={styles.scrim} onPress={onIgnore} accessibilityRole="button" accessibilityLabel={t('voice.ignore')}>
-        {/* Taps on the card stay on it: only the scrim around ignores. */}
+    <Modal transparent animationType="fade" statusBarTranslucent onRequestClose={() => {}}>
+      <View style={styles.scrim}>
         <View style={[styles.incoming, { backgroundColor: c.deepCard, borderColor: c.border }]} onStartShouldSetResponder={() => true}>
           {client !== null && (
             <SpeakingAvatar c={c} client={client} uid={callerId} name={caller} speaking size={84} radius={28} />
@@ -423,7 +417,7 @@ export function IncomingCallPrompt({ c, client, callerId, caller, onAccept, onDe
             </Pressable>
           </View>
         </View>
-      </Pressable>
+      </View>
     </Modal>
   );
 }

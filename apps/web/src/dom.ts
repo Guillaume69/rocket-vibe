@@ -1,4 +1,4 @@
-import { dialogContents } from "./ui/dialog";
+import { confirmationContents, dialogContents } from "./ui/dialog";
 import { noteError } from "./diagnostics";
 import { icon as nativeIcon } from "./icons";
 export function stopMedia(node: ParentNode): void {
@@ -105,7 +105,11 @@ export function field(
   const input = el("input", "pill-entry");
   input.type = type;
   input.value = value;
+  input.placeholder = " ";
   wrap.append(input);
+  const edit = nativeIcon("edit");
+  edit.classList.add("entry-edit-indicator");
+  wrap.append(edit);
   return [wrap, input];
 }
 /**
@@ -186,10 +190,15 @@ export function toast(error: unknown): void {
   document.querySelector("#toasts")?.append(node);
   setTimeout(() => node.remove(), 6000);
 }
-export function createDialog(): HTMLDialogElement {
+export function createDialog({
+  dismissible = true,
+}: { dismissible?: boolean } = {}): HTMLDialogElement {
   const node = el("dialog");
+  node.addEventListener("cancel", (event) => {
+    if (!dismissible) event.preventDefault();
+  });
   node.addEventListener("click", (event) => {
-    if (event.target === node) {
+    if (dismissible && event.target === node) {
       const rect = node.getBoundingClientRect();
       if (
         event.clientX < rect.left ||
@@ -211,6 +220,14 @@ export function createDialog(): HTMLDialogElement {
 export function dialog(title: string): [HTMLDialogElement, HTMLDivElement] {
   const node = createDialog();
   return [node, dialogContents(node, title)];
+}
+export function confirmationDialog(
+  title: string,
+  message: string,
+): [HTMLDialogElement, HTMLDivElement] {
+  const node = createDialog();
+  node.classList.add("alert-dialog", "confirmation-dialog");
+  return [node, confirmationContents(node, title, message)];
 }
 export const initials = (name: string): string =>
   (Array.from(name)[0] || "?").toUpperCase();

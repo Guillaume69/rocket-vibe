@@ -1,8 +1,8 @@
 /**
  * Rings a call started in a direct room of a Rocket.Chat or kChat server
  * (`lib/callRing.ts`), app-wide, with the voice card and ringtone. Accept
- * opens the call screen, Decline tells the server, a tap outside or Back
- * ignores it. On Rocket.Chat the push rings it while the app is not in front
+ * opens the call screen, Decline tells the server; a tap outside or Back
+ * leaves it ringing. On Rocket.Chat the push rings it while the app is not in front
  * (`plugins/with-fcm-deeplink.js`); kChat sends none, so the app rings it
  * itself as long as it runs. Mounted once, in `_layout`.
  */
@@ -79,7 +79,6 @@ export function CallRingHost() {
       onDecline={() => {
         ringer.stop();
         void declineConference(client, shown.callId).catch(() => {});
-      }}
-      onIgnore={() => ringer.stop()} />
+      }} />
   );
 }

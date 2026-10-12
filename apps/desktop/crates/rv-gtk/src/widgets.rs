@@ -311,9 +311,27 @@ pub fn comet() -> gtk::Box {
     gtk::Box::builder().css_classes(["comet"]).height_request(3).valign(gtk::Align::Start).can_target(false).build()
 }
 
-/// Presents a dialog, every one of the app's: a click on the dimmed backdrop
-/// around it closes it like Escape (an alert answers its close response,
-/// never a destructive one).
+/// An incoming call needs an explicit answer. Remote endings and account
+/// teardown still force-close it after removing its active ring record.
+pub fn incoming_call_alert(body: &str) -> adw::AlertDialog {
+    let dialog = adw::AlertDialog::builder()
+        .heading(crate::i18n::t("voice_session.incoming"))
+        .body(body)
+        .default_response("accept")
+        .close_response("ignore")
+        .can_close(false)
+        .build();
+    dialog.add_responses(&[
+        ("decline", crate::i18n::t("voice_session.decline")),
+        ("accept", crate::i18n::t("voice_session.accept")),
+    ]);
+    dialog.set_response_appearance("decline", adw::ResponseAppearance::Destructive);
+    dialog.set_response_appearance("accept", adw::ResponseAppearance::Suggested);
+    dialog
+}
+
+/// Presents every dialog through the same backdrop handling. Dismissible
+/// dialogs close like Escape; incoming calls keep waiting for an answer.
 pub fn present(dialog: &impl IsA<adw::Dialog>, parent: Option<&impl IsA<gtk::Widget>>) {
     dialog.present(parent);
     close_on_backdrop(dialog.upcast_ref());
@@ -328,7 +346,7 @@ fn dimming(widget: &gtk::Widget) -> Option<gtk::Widget> {
 
 /// The dimmed backdrop around a dialog is a window handle: a click there
 /// started a window drag and a double click maximized the window. A click on
-/// it closes the dialog instead. A window resize can switch the dialog
+/// it closes a dismissible dialog instead. A window resize can switch the dialog
 /// between a floating and a bottom sheet, which builds a new backdrop: the
 /// watch is armed again then, until the dialog closes.
 pub fn close_on_backdrop(dialog: &adw::Dialog) {
@@ -378,7 +396,7 @@ fn arm(dialog: &adw::Dialog) {
         });
         let weak = dialog.downgrade();
         click.connect_released(move |_, _, _, _| {
-            if let Some(dialog) = weak.upgrade() {
+            if let Some(dialog) = weak.upgrade().filter(|dialog| dialog.can_close()) {
                 dialog.close();
             }
         });
@@ -390,6 +408,168 @@ fn arm(dialog: &adw::Dialog) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
+
+    fn settle(ms: u64) {
+        let context = glib::MainContext::default();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(ms);
+        while std::time::Instant::now() < deadline {
+            while context.pending() {
+                context.iteration(false);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    }
+
+    fn descendants(widget: &gtk::Widget) -> Vec<gtk::Widget> {
+        let mut widgets = vec![widget.clone()];
+        for child in std::iter::successors(widget.first_child(), |w| w.next_sibling()) {
+            widgets.extend(descendants(&child));
+        }
+        widgets
+    }
+
+    fn click_backdrop(dialog: &adw::Dialog) {
+        let backdrop = dimming(dialog.upcast_ref()).expect("the presented dialog's own backdrop");
+        let controllers = backdrop.observe_controllers();
+        let click = (0..controllers.n_items())
+            .filter_map(|i| controllers.item(i).and_downcast::<gtk::GestureClick>())
+            .find(|c| c.button() == 0 && c.propagation_phase() == gtk::PropagationPhase::Capture)
+            .expect("the app's backdrop click handler");
+        click.emit_by_name::<()>("released", &[&1i32, &5f64, &5f64]);
+        settle(150);
+    }
+
+    /// Activate libadwaita's actual Escape binding, including its can-close
+    /// check, rather than emitting a response or testing only a property.
+    fn escape(window: &adw::Window) {
+        for widget in descendants(window.upcast_ref()) {
+            let controllers = widget.observe_controllers();
+            for controller in
+                (0..controllers.n_items()).filter_map(|i| controllers.item(i).and_downcast::<gtk::ShortcutController>())
+            {
+                for shortcut in
+                    (0..controller.n_items()).filter_map(|i| controller.item(i).and_downcast::<gtk::Shortcut>())
+                {
+                    if shortcut.trigger().and_downcast::<gtk::KeyvalTrigger>().is_some_and(|trigger| {
+                        trigger.keyval() == gtk::gdk::Key::Escape && trigger.modifiers().is_empty()
+                    }) {
+                        shortcut.action().expect("Escape's action").activate(
+                            gtk::ShortcutActionFlags::empty(),
+                            &widget,
+                            shortcut.arguments().as_ref(),
+                        );
+                        settle(150);
+                        return;
+                    }
+                }
+            }
+        }
+        panic!("the presented dialog must expose libadwaita's Escape binding");
+    }
+
+    #[test]
+    #[ignore = "requires a GTK display; run under Xvfb"]
+    fn incoming_calls_require_answers_and_keep_remote_and_account_closure() {
+        adw::init().unwrap();
+        let window = adw::Window::builder().default_width(1280).default_height(900).build();
+        window.set_content(Some(&gtk::Box::new(gtk::Orientation::Vertical, 0)));
+        window.present();
+        settle(200);
+
+        // The same production prompt serves Rocket.Chat, kChat, native voice
+        // and background accounts. Real buttons and notification responses
+        // both retire the active ring before force-closing it.
+        for body in ["Alice is calling", "Alice is calling on another account"] {
+            for (response, notification) in [("accept", false), ("decline", false), ("accept", true), ("decline", true)]
+            {
+                let dialog = incoming_call_alert(body);
+                let active = Rc::new(Cell::new(true));
+                let answers: Rc<RefCell<Vec<String>>> = Rc::default();
+                let (pending, log) = (active.clone(), answers.clone());
+                dialog.connect_response(None, move |dialog, response| {
+                    if !pending.replace(false) {
+                        return;
+                    }
+                    log.borrow_mut().push(response.to_owned());
+                    dialog.force_close();
+                });
+                let attempts = Rc::new(Cell::new(0));
+                let attempts_log = attempts.clone();
+                dialog.connect_close_attempt(move |_| attempts_log.set(attempts_log.get() + 1));
+                present(&dialog, Some(&window));
+                settle(350);
+
+                click_backdrop(dialog.upcast_ref());
+                assert!(dialog.is_mapped() && active.get(), "a backdrop click must keep the ring active");
+                assert!(answers.borrow().is_empty(), "a backdrop click never answers or ignores the ring");
+                escape(&window);
+                assert!(attempts.get() > 0, "the actual Escape close attempt reached the dialog");
+                assert!(dialog.is_mapped() && active.get(), "Escape must keep the ring active");
+                assert!(answers.borrow().is_empty(), "Escape never answers or ignores the ring");
+
+                if notification {
+                    dialog.emit_by_name::<()>("response", &[&response]);
+                } else {
+                    let label = crate::i18n::t(if response == "accept" {
+                        "voice_session.accept"
+                    } else {
+                        "voice_session.decline"
+                    });
+                    let button = descendants(dialog.upcast_ref())
+                        .into_iter()
+                        .filter_map(|widget| widget.downcast::<gtk::Button>().ok())
+                        .find(|button| button.label().as_deref() == Some(label))
+                        .expect("the production response button");
+                    button.emit_clicked();
+                }
+                settle(350);
+                assert!(!dialog.is_mapped() && !active.get(), "the explicit answer closes and retires the prompt");
+                assert_eq!(*answers.borrow(), [response], "the chosen answer is handled exactly once");
+            }
+        }
+
+        // Remote end and account teardown remove the active record first.
+        // The forced close still works without accepting or declining it.
+        for _ in ["remote ended", "account closed"] {
+            let dialog = incoming_call_alert("Alice is calling");
+            let active = Rc::new(Cell::new(true));
+            let answers: Rc<RefCell<Vec<String>>> = Rc::default();
+            let (pending, log) = (active.clone(), answers.clone());
+            dialog.connect_response(None, move |_, response| {
+                if pending.get() {
+                    log.borrow_mut().push(response.to_owned());
+                }
+            });
+            present(&dialog, Some(&window));
+            settle(350);
+            active.set(false);
+            dialog.force_close();
+            settle(350);
+            assert!(!dialog.is_mapped(), "remote and account termination still close the prompt");
+            assert!(answers.borrow().is_empty(), "a withdrawn ring sends no answer");
+        }
+
+        // Ordinary confirmation dialogs retain their Cancel dismissal.
+        for outside in [true, false] {
+            let dialog = adw::AlertDialog::builder().heading("Delete?").close_response("cancel").build();
+            dialog.add_responses(&[("cancel", "Cancel"), ("delete", "Delete")]);
+            let answers: Rc<RefCell<Vec<String>>> = Rc::default();
+            let log = answers.clone();
+            dialog.connect_response(None, move |_, response| log.borrow_mut().push(response.to_owned()));
+            present(&dialog, Some(&window));
+            settle(350);
+            if outside {
+                click_backdrop(dialog.upcast_ref());
+            } else {
+                escape(&window);
+            }
+            settle(350);
+            assert!(!dialog.is_mapped(), "ordinary confirmations remain dismissible");
+            assert_eq!(*answers.borrow(), ["cancel"], "dismissal cancels, never deletes");
+        }
+        window.close();
+    }
 
     #[test]
     fn gradient_index_matches_the_android_hash() {

@@ -487,6 +487,7 @@ async function editor(
                   nt("workflows.webhook_replace"),
                   nt("workflows.webhook_replace_body"),
                   make,
+                  nt("workflows.webhook_regenerate"),
                 );
               else return make();
             },
@@ -531,6 +532,7 @@ async function editor(
               if (at >= 0) draft.steps.splice(at, 1);
               drawSteps();
             },
+            nt("workflows.step_remove"),
           ),
         ),
       );
@@ -945,6 +947,7 @@ async function editor(
           await app.api.request(path, "DELETE");
           if (valid()) host.select("workflows", true);
         },
+        nt("workflows.delete"),
       ),
     );
     remove.classList.add("destructive");

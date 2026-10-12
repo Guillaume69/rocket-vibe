@@ -1,7 +1,7 @@
 //! A call started by the other member of a Rocket.Chat or kChat direct room
 //! (`rv_core::call_ring`) rings with the voice dialog and ringtone: Accept
-//! opens the call window, Decline tells the server, Escape or a click outside
-//! ignores it.
+//! opens the call window and Decline tells the server. Escape and backdrop
+//! clicks keep the prompt ringing until an answer or the remote call ending.
 
 use std::rc::Rc;
 use std::sync::Arc;
@@ -54,19 +54,9 @@ impl ChatPage {
     fn call_dialog(self: &Rc<Self>, session: &Arc<Session>, call: IncomingCall) {
         let room = session.store.rooms().into_iter().find(|r| r.rid == call.rid).map(|r| r.name).unwrap_or_default();
         let caller = call.caller_name.clone().unwrap_or_else(|| room.clone());
-        let dialog = adw::AlertDialog::builder()
-            .heading(t("voice_session.incoming"))
-            .body(tf("voice_session.incoming_from", &[("name", &caller)]))
-            .default_response("accept")
-            // Escape or a click outside ignores the call: the prompt and the
-            // ringtone stop here, nothing is declined.
-            .close_response("ignore")
-            .build();
-        dialog.add_responses(&[("decline", t("voice_session.decline")), ("accept", t("voice_session.accept"))]);
-        dialog.set_response_appearance("decline", adw::ResponseAppearance::Destructive);
-        dialog.set_response_appearance("accept", adw::ResponseAppearance::Suggested);
+        let dialog = crate::widgets::incoming_call_alert(&tf("voice_session.incoming_from", &[("name", &caller)]));
         let (weak, session, id) = (Rc::downgrade(self), session.clone(), call.call_id.clone());
-        dialog.connect_response(None, move |_, response| {
+        dialog.connect_response(None, move |dialog, response| {
             let Some(this) = weak.upgrade() else { return };
             // Closed because the ring ended elsewhere: nothing to answer.
             if this.incoming_call.borrow().as_ref().is_none_or(|(shown, _)| shown != &id) {
@@ -74,6 +64,9 @@ impl ChatPage {
             }
             this.incoming_call.replace(None);
             this.voice.set_tone(None);
+            // Alert response buttons call close(), which can-close forbids.
+            // Retire the ring before forcing closure, including notification answers.
+            dialog.force_close();
             match response {
                 "accept" => {
                     session.dismiss_call();

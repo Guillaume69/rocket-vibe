@@ -328,6 +328,7 @@ async function botDetail(
               );
               await reload();
             },
+            nt("bots.key_revoke"),
           ),
         ),
       );
@@ -383,13 +384,14 @@ async function botDetail(
   const [danger, actions] = preferencesGroup();
   const remove = buttonRow(nt("bots.delete"), () =>
     confirmAction(
-      nt("bots.delete_confirm", { name: bot.user.display_name }),
+      nt("bots.delete_confirm", { name: "@" + bot.user.username }),
       nt("bots.delete_body"),
       async () => {
         if (!valid()) return;
         await app.api.request(path, "DELETE");
         if (valid()) host.select("bots", true);
       },
+      nt("bots.delete"),
     ),
   );
   remove.classList.add("destructive");

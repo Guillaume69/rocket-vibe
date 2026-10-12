@@ -141,8 +141,10 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
   for the matching account only); Decline goes through `NativeVoiceReceiver` and a
   WorkManager job. `IncomingCallActivity.kt` blocks legacy `onBackPressed` and registers
   a no-op predictive Back callback on API 33 or later; remote `VoiceRinging.cancel`
-  still finishes the activity. `voice_ring_end` cancels the ring. The actual Android
-  full-screen launch and Back behavior require device qualification.
+  still finishes the activity. `voice_ring_end` cancels the ring. Current-source API 36
+  emulator instrumentation passes hardware Back, outside taps, explicit Decline and
+  remote cancellation. Physical lock-screen and signed-in React Native screen
+  qualification remain pending.
 - **Camera and screen**: `VoiceVideoView` (native view over LiveKit's renderer, laid out
   at the frame's proportions since the renderer stretches: letterboxed for `contain`,
   clipped for `cover`) shows a camera in the person's card. While someone shares, the

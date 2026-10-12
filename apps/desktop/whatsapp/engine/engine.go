@@ -1,7 +1,7 @@
 // The WhatsApp engine: one linked device, its sealed state and the events
 // the client projects. It knows no transport (api.go): the desktop helper
-// speaks JSON lines over pipes, the Android binding calls it through
-// gomobile. Never log QR payloads, keys or message bodies.
+// speaks JSON lines over pipes, the Android app calls it through the C
+// library of mobile/. Never log QR payloads, keys or message bodies.
 package engine
 
 import (
@@ -678,7 +678,7 @@ func open(path string, key []byte, sink func(wire)) (*connector, func(), error) 
 	lock := flock.New(path + ".lock")
 	ok, err := lock.TryLock()
 	if err != nil || !ok {
-		return nil, nil, fmt.Errorf("session busy")
+		return nil, nil, ErrBusy
 	}
 	v, err := openVault(path, key)
 	if err != nil {

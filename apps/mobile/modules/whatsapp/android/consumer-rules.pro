@@ -1,0 +1,5 @@
+-keep class com.rocketvibe.whatsapp.WhatsAppLibrary { *; }
+-keep class com.rocketvibe.whatsapp.WhatsAppLibrary$* { *; }
+-keep class com.sun.jna.** { *; }
+-keep class * implements com.sun.jna.Library { *; }
+-keep class * implements com.sun.jna.Callback { *; }

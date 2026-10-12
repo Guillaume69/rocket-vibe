@@ -10,6 +10,7 @@ on:
       - 'apps/mobile/**'
       - 'crates/rv-crypto*/**'
       - 'crates/rv-protocol/**'
+      - 'apps/desktop/whatsapp/**'
       - 'scripts/version.mjs'
       - '.github/workflows/mobile.yml'
   pull_request:
@@ -17,6 +18,7 @@ on:
       - 'apps/mobile/**'
       - 'crates/rv-crypto*/**'
       - 'crates/rv-protocol/**'
+      - 'apps/desktop/whatsapp/**'
       - 'scripts/version.mjs'
       - '.github/workflows/mobile.yml'
   workflow_dispatch:
@@ -79,6 +81,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.97.1
         with:
           targets: aarch64-linux-android
+      # The WhatsApp engine (apps/desktop/whatsapp), built into librv_whatsapp.so
+      # by modules/whatsapp/build-android.mjs.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/desktop/whatsapp/go.mod
+          cache-dependency-path: apps/desktop/whatsapp/go.sum
       - uses: actions/cache@v4
         with:
           path: |

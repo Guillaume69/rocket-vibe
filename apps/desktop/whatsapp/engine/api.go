@@ -2,10 +2,14 @@ package engine
 
 import (
 	"encoding/json"
+	"errors"
 	"sync"
 )
 
-// The engine's exported surface, gomobile-legal (strings, bytes, an
+// ErrBusy: the state is held by another engine (another process or device).
+var ErrBusy = errors.New("session busy")
+
+// The engine's exported surface, kept simple (strings, bytes, an
 // interface, a struct pointer): what the desktop helper and the Android
 // binding both drive. Frames and commands are the JSON objects the wire
 // protocol carries, one per call.

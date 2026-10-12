@@ -1,0 +1,44 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+group = 'com.rocketvibe.whatsapp'
+version = '0.1.0'
+
+android {
+  namespace 'com.rocketvibe.whatsapp'
+  ndkVersion rootProject.ext.ndkVersion
+  defaultConfig {
+    versionCode 1
+    versionName '0.1.0'
+    testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+  }
+  sourceSets.main.jniLibs.srcDir layout.buildDirectory.dir('generated/jniLibs')
+  defaultConfig.consumerProguardFiles 'consumer-rules.pro'
+}
+
+dependencies {
+  implementation 'net.java.dev.jna:jna:5.17.0@aar'
+  androidTestImplementation 'androidx.test:runner:1.6.2'
+  androidTestImplementation 'androidx.test.ext:junit:1.2.1'
+}
+
+// The WhatsApp engine (apps/desktop/whatsapp, Go), the desktop helper's own
+// code, built as librv_whatsapp.so per ABI as crypto-native builds its Rust.
+def repository = file('../../../../..')
+def requestedAbis = providers.gradleProperty('reactNativeArchitectures').orElse('arm64-v8a,x86_64')
+def buildWhatsApp = tasks.register('buildWhatsAppNative', Exec) {
+  workingDir repository
+  inputs.files(fileTree(new File(repository, 'apps/desktop/whatsapp')) { include '**/*.go', 'go.mod', 'go.sum' })
+  inputs.file file('../build-android.mjs')
+  inputs.property 'abis', requestedAbis
+  inputs.property 'minApi', android.defaultConfig.minSdkVersion.apiLevel
+  outputs.dir layout.buildDirectory.dir('generated/jniLibs')
+  doFirst {
+    commandLine 'node', file('../build-android.mjs').absolutePath,
+      '--ndk', android.ndkDirectory.absolutePath,
+      '--min-api', android.defaultConfig.minSdkVersion.apiLevel.toString(),
+      '--abis', requestedAbis.get()
+  }
+}
+tasks.named('preBuild').configure { dependsOn buildWhatsApp }

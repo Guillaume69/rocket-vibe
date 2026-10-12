@@ -104,6 +104,8 @@ fn event(accounts: &Supervisor, notice: AccountNotice) -> Option<AccountEvent> {
                     session.notification_key(&i.rid)
                 }
                 Account::Legacy(_) => supervisor::notification_key(&info, &i.rid),
+                // Never started here: the SwiftUI app lists no WhatsApp account.
+                Account::WhatsApp(_) => return None,
             };
             AccountEvent::Incoming { account, scope, incoming: incoming(supervisor::from_account(i, &info)) }
         }
@@ -203,7 +205,7 @@ impl Client {
             Some(Account::Native(session)) => {
                 let _ = on_tokio(async move { session.decline_ring(&call.id).await }).await;
             }
-            None => {}
+            Some(Account::WhatsApp(_)) | None => {}
         }
     }
 

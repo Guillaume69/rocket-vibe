@@ -270,7 +270,9 @@ impl Client {
         let path = self.dirs.database(&info);
         let (session, opening) = match self.accounts.open_counted(&info).map_err(RvError::local)? {
             (rv_core::provider::Chat::Legacy(session), opening) => (session, opening),
-            (rv_core::provider::Chat::Native(_), _) => return Err(RvError::local("not a Rocket.Chat account")),
+            (rv_core::provider::Chat::Native(_) | rv_core::provider::Chat::WhatsApp(_), _) => {
+                return Err(RvError::local("not a Rocket.Chat account"));
+            }
         };
         Ok(Arc::new(Chat {
             session,

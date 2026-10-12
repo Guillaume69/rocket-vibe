@@ -1003,7 +1003,7 @@ impl AppWindow {
                 }
             }
             Some(Chat::Legacy(_)) => self.chat.reload_all(),
-            None => {}
+            Some(Chat::WhatsApp(_)) | None => {}
         }
     }
 
@@ -1068,6 +1068,7 @@ impl AppWindow {
                 crate::badge::set_open(Some(key));
                 self.start_legacy(session, path);
             }
+            Ok(Chat::WhatsApp(_)) => self.show_login(None),
             Err(error) if info.native.is_some() => self.show_login(Some(&error)),
             Err(error) => self.show_login(Some(&tf("login.no_database", &[("error", &error)]))),
         }
@@ -1179,6 +1180,7 @@ impl AppWindow {
                     }
                 });
             }
+            Chat::WhatsApp(_) => {}
         }
     }
 

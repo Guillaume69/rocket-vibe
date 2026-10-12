@@ -2,7 +2,9 @@
 //! operations both sessions offer, behind one type the UIs hold instead of
 //! choosing between `Session` and `NativeSession` at every call. `Legacy` is
 //! Rocket.Chat, Mattermost or kChat (`Session`, which picks among them through
-//! its own `Backend`); `Native` is the RocketVibe server (`NativeSession`).
+//! its own `Backend`); `Native` is the RocketVibe server (`NativeSession`);
+//! `WhatsApp` is a linked WhatsApp device driven by a local helper
+//! (`WaSession`), with no server of ours and far fewer features.
 //!
 //! Errors come back as `RestError`, the native ones through
 //! `native::rest_error`, which is what the UIs already display. What only one
@@ -22,6 +24,7 @@ use crate::rest::RestError;
 use crate::rooms::Found;
 use crate::session::{Session, SessionEvent, SessionInfo};
 use crate::store::{Change, MessageRow};
+use crate::whatsapp_session::{Notice, WaSession};
 
 /// What a UI hears from an account, whichever server it speaks to.
 #[derive(Debug)]
@@ -47,6 +50,13 @@ pub enum ChatEvent {
 pub enum Chat {
     Legacy(Arc<Session>),
     Native(Arc<NativeSession>),
+    WhatsApp(Arc<WaSession>),
+}
+
+impl From<Arc<WaSession>> for Chat {
+    fn from(session: Arc<WaSession>) -> Self {
+        Chat::WhatsApp(session)
+    }
 }
 
 impl From<Arc<Session>> for Chat {
@@ -66,20 +76,28 @@ impl Chat {
         match self {
             Chat::Legacy(session) => &session.info,
             Chat::Native(session) => &session.info,
+            Chat::WhatsApp(session) => &session.info,
         }
     }
 
     pub fn legacy(&self) -> Option<&Arc<Session>> {
         match self {
             Chat::Legacy(session) => Some(session),
-            Chat::Native(_) => None,
+            _ => None,
         }
     }
 
     pub fn native(&self) -> Option<&Arc<NativeSession>> {
         match self {
-            Chat::Legacy(_) => None,
             Chat::Native(session) => Some(session),
+            _ => None,
+        }
+    }
+
+    pub fn whatsapp(&self) -> Option<&Arc<WaSession>> {
+        match self {
+            Chat::WhatsApp(session) => Some(session),
+            _ => None,
         }
     }
 
@@ -89,6 +107,7 @@ impl Chat {
         match (self, other) {
             (Chat::Legacy(a), Chat::Legacy(b)) => Arc::ptr_eq(a, b),
             (Chat::Native(a), Chat::Native(b)) => Arc::ptr_eq(a, b),
+            (Chat::WhatsApp(a), Chat::WhatsApp(b)) => Arc::ptr_eq(a, b),
             _ => false,
         }
     }
@@ -98,6 +117,7 @@ impl Chat {
         match self {
             Chat::Legacy(session) => session.spotlight(query).await,
             Chat::Native(session) => session.spotlight(query).await.map_err(native::rest_error),
+            Chat::WhatsApp(_) => Ok(Vec::new()),
         }
     }
 
@@ -115,6 +135,7 @@ impl Chat {
                     .map_err(|e| RestError::incomplete(&format!("marked messages: {e}")))?;
                 Ok(rows.into_iter().map(|r| r.presentation(rid, &session.info.user_id)).collect())
             }
+            Chat::WhatsApp(_) => Ok(Vec::new()),
         }
     }
 
@@ -125,6 +146,7 @@ impl Chat {
             Chat::Native(session) => {
                 session.profile(key, by_id).await.map(|p| session.profile_presentation(&p)).map_err(native::rest_error)
             }
+            Chat::WhatsApp(_) => Err(RestError::incomplete("unsupported")),
         }
     }
 
@@ -133,6 +155,7 @@ impl Chat {
         match self {
             Chat::Legacy(session) => session.search(rid, text).await,
             Chat::Native(session) => session.search(rid, text).await.map_err(native::rest_error),
+            Chat::WhatsApp(_) => Ok(Vec::new()),
         }
     }
 
@@ -192,6 +215,40 @@ impl Chat {
                             e = events.recv() => match e {
                                 Err(RecvError::Closed) => return,
                                 _ => ChatEvent::Reload,
+                            },
+                        };
+                        if tx.send(event).await.is_err() {
+                            return;
+                        }
+                    }
+                })
+            }
+            Chat::WhatsApp(session) => {
+                let (mut changes, mut notices) = (session.subscribe(), session.notices());
+                let session = Arc::downgrade(session);
+                tokio::spawn(async move {
+                    let mut connection = None;
+                    loop {
+                        let event = tokio::select! {
+                            c = changes.changed() => match c {
+                                Ok(()) => {
+                                    let Some(session) = session.upgrade() else { return };
+                                    let now = session.connection();
+                                    if connection.as_ref() != Some(&now) {
+                                        connection = Some(now);
+                                        if tx.send(ChatEvent::Session(SessionEvent::Connection(now))).await.is_err() {
+                                            return;
+                                        }
+                                    }
+                                    ChatEvent::Reload
+                                }
+                                Err(_) => return,
+                            },
+                            n = notices.recv() => match n {
+                                Ok(Notice::Incoming(incoming)) => ChatEvent::Incoming(*incoming),
+                                Ok(Notice::Expired) => ChatEvent::Session(SessionEvent::Expired),
+                                Err(RecvError::Lagged(_)) => continue,
+                                Err(RecvError::Closed) => return,
                             },
                         };
                         if tx.send(event).await.is_err() {

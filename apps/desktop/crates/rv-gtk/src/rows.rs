@@ -125,6 +125,8 @@ pub fn person_photo(
             with_photo(tile, Some(s), Some(avatar_path(AvatarTarget::User(username), version.as_deref())))
         }
         Chat::Native(s) => with_native_photo(tile, s, version),
+        // Its photos are bytes from the helper, set by the WhatsApp views.
+        Chat::WhatsApp(_) => tile,
     }
 }
 

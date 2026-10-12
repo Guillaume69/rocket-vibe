@@ -80,6 +80,7 @@ pub(super) fn controls(parent: &adw::Dialog, chat: Chat, rid: String) -> gtk::Wi
                         Chat::Legacy(s) => {
                             s.set_room_avatar(&rid, &path, &mime).await.map(|_| ()).map_err(|e| e.to_string())
                         }
+                        Chat::WhatsApp(_) => Err("unsupported".into()),
                         Chat::Native(s) => {
                             let size = tokio::fs::metadata(&path).await.map_err(|e| e.to_string())?.len();
                             if size == 0 || size > 2 * 1024 * 1024 {

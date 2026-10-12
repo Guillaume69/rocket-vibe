@@ -573,7 +573,7 @@ fn fill_profile(content: &gtk::Box, dialog: &adw::Dialog, session: &Chat, p: &Pr
     }
     if let Some(presence) = match session {
         Chat::Legacy(s) => s.presence(&p.id).or(p.presence),
-        Chat::Native(_) => p.presence,
+        Chat::Native(_) | Chat::WhatsApp(_) => p.presence,
     } {
         let line = gtk::Box::builder().spacing(6).halign(gtk::Align::Center).build();
         let dot = presence_dot(presence, &[]);
@@ -640,6 +640,7 @@ fn fill_profile(content: &gtk::Box, dialog: &adw::Dialog, session: &Chat, p: &Pr
         if match session {
             Chat::Legacy(_) => true,
             Chat::Native(session) => session.voice_supported(),
+            Chat::WhatsApp(_) => false,
         } {
             buttons.append(&call);
         }
@@ -647,6 +648,7 @@ fn fill_profile(content: &gtk::Box, dialog: &adw::Dialog, session: &Chat, p: &Pr
         if match session {
             Chat::Legacy(_) => true,
             Chat::Native(session) => session.reports_supported(),
+            Chat::WhatsApp(_) => false,
         } {
             let report = gtk::Button::builder()
                 .label(t("report.user"))

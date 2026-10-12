@@ -306,7 +306,9 @@ pub(crate) fn open_native(
 ) -> Result<Arc<NativeChat>, RvError> {
     let (session, opening) = match supervisor.open_counted(&info).map_err(RvError::local)? {
         (rv_core::provider::Chat::Native(session), opening) => (session, opening),
-        (rv_core::provider::Chat::Legacy(_), _) => return Err(RvError::local("not a RocketVibe account")),
+        (rv_core::provider::Chat::Legacy(_) | rv_core::provider::Chat::WhatsApp(_), _) => {
+            return Err(RvError::local("not a RocketVibe account"));
+        }
     };
     Ok(Arc::new(NativeChat {
         session,

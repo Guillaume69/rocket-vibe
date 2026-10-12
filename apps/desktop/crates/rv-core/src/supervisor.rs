@@ -156,6 +156,7 @@ pub fn badge(chat: &Chat) -> Badge {
     match chat {
         Chat::Legacy(session) => crate::rooms::badge(&session.store.rooms()),
         Chat::Native(session) => crate::rooms::badge(&session.room_rows().unwrap_or_default()),
+        Chat::WhatsApp(session) => crate::rooms::badge(&session.room_rows()),
     }
 }
 
@@ -175,6 +176,7 @@ fn closed(chat: &Chat) -> bool {
     match chat {
         Chat::Legacy(session) => session.is_closed(),
         Chat::Native(session) => session.is_closed(),
+        Chat::WhatsApp(session) => session.is_closed(),
     }
 }
 
@@ -182,6 +184,8 @@ fn shut(chat: &Chat) {
     match chat {
         Chat::Legacy(session) => session.shutdown(),
         Chat::Native(session) => session.shutdown(),
+        // Stops the helper; the link stays for the account's return.
+        Chat::WhatsApp(session) => session.shutdown(),
     }
 }
 

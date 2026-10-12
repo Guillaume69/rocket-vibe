@@ -377,7 +377,13 @@ function FactorScreen({ app }: { app: App }) {
         <Field
           label={nt("login.code_" + method)}
           type={method === "recovery_code" ? "password" : "text"}
-          placeholder={method === "recovery_code" ? "" : "123456"}
+          placeholder={
+            method === "recovery_code"
+              ? ""
+              : method === "email"
+                ? "12345678"
+                : "123456"
+          }
           inputMode={method === "recovery_code" ? "text" : "numeric"}
           autoComplete="one-time-code"
           autoFocus

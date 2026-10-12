@@ -908,6 +908,7 @@
   ],
   "login.server": ["Adresse du serveur", "Server address"],
   "login.user": ["Identifiant ou email", "Username or email"],
+  "login.username": ["Nom d'utilisateur", "Username"],
   "login.password": ["Mot de passe", "Password"],
   "login.sign_in": ["Se connecter", "Sign in"],
   "login.signing_in": ["Connexion…", "Signing in…"],
@@ -1808,8 +1809,12 @@
     "Set up an authenticator app"
   ],
   "security.setup_body": [
-    "Ajoutez cette clé dans votre application d’authentification, puis saisissez son code à six chiffres.",
-    "Add this key to your authenticator app, then enter its six-digit code."
+    "Scannez ce code QR ou ajoutez cette clé dans votre application d’authentification, puis saisissez son code à six chiffres.",
+    "Scan this QR code or add this key to your authenticator app, then enter its six-digit code."
+  ],
+  "security.qr": [
+    "Code QR à scanner avec votre application d’authentification",
+    "QR code to scan with your authenticator app"
   ],
   "security.copy_secret": ["Copier la clé de configuration", "Copy setup key"],
   "security.copy_uri": ["Copier le lien de configuration", "Copy setup link"],
@@ -1842,13 +1847,23 @@
     "Authenticator codes will stop working. Email codes and backups remain if that profile is active; otherwise sign-in will use only your password. Other devices will be signed out."
   ],
   "security.refresh": ["Reprendre ou actualiser", "Resume or refresh"],
+  "security.retry": ["Réessayer", "Try again"],
+  "security.continue": ["Continuer", "Continue"],
+  "security.cancel_pending": [
+    "Annuler cette modification",
+    "Cancel this change"
+  ],
+  "security.pending_body": [
+    "Vous avez commencé cette modification. Confirmez votre identité pour la poursuivre, ou annulez-la.",
+    "You started this change. Confirm your identity to continue it, or cancel it."
+  ],
   "security.rejected": [
     "Vérification refusée ou expirée. Actualisez pour reprendre la tentative.",
     "Verification rejected or expired. Refresh to resume the attempt."
   ],
   "security.failed": [
-    "Action non confirmée. Actualisez pour reprendre après une coupure réseau.",
-    "Action unconfirmed. Refresh to resume after a network interruption."
+    "Action non confirmée. Réessayez pour reprendre après une coupure réseau.",
+    "Action unconfirmed. Try again to resume after a network interruption."
   ],
   "security.stale": [
     "Cette opération a expiré ou la protection du compte a changé. Ce reçu ne contient plus de codes utilisables.",
@@ -1911,8 +1926,12 @@
     "The email address has been removed."
   ],
   "email.removal_pending": [
-    "Le retrait n’est pas encore confirmé. Actualisez pour reprendre ou annulez cette demande.",
-    "Removal is not confirmed yet. Refresh to resume or cancel this request."
+    "Le retrait n’est pas encore confirmé. Continuez pour le reprendre ou annulez cette demande.",
+    "Removal is not confirmed yet. Continue to resume it or cancel this request."
+  ],
+  "email.awaiting_proof": [
+    "Le code n’a pas encore été envoyé. Confirmez votre identité pour continuer.",
+    "The code has not been sent yet. Confirm your identity to continue."
   ],
   "email.cancel_removal": [
     "Annuler cette demande de retrait",
@@ -1952,6 +1971,10 @@
   "email.rejected": [
     "Code refusé ou vérification expirée. Actualisez pour reprendre.",
     "Code rejected or verification expired. Refresh to resume."
+  ],
+  "email.taken": [
+    "Cette adresse est déjà liée à un autre compte.",
+    "This address is already linked to another account."
   ],
   "email.limited": [
     "La limite d’envoi est atteinte. Attendez avant une nouvelle vérification ; vous pouvez reprendre celle en cours.",

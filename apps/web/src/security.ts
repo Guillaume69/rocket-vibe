@@ -37,6 +37,23 @@ function qrCode(uri: string): SVGSVGElement | null {
   svg.append(light, dark);
   return svg;
 }
+function accountStatus(
+  factors: FactorStatus,
+  proof: ReauthenticationStatus,
+): HTMLElement {
+  const [group, rows] = preferencesGroup();
+  group.classList.add("security-account-status");
+  const enabled = factors.totp || factors.email;
+  rows.append(
+    actionRow(
+      nt(enabled ? "security.enabled" : "security.disabled"),
+      enabled
+        ? nt("security.remaining", { n: factors.backup_codes_remaining })
+        : nt(proof.recent ? "security.ready" : "security.required"),
+    ),
+  );
+  return group;
+}
 export async function recentProof(
   app: App,
   target?: HTMLElement,
@@ -190,7 +207,17 @@ export function backupCodes(
         await securitySettings(app, page);
       }),
     );
-    page.replaceChildren(group);
+    const status = page.querySelector<HTMLElement>(".security-account-status");
+    page.replaceChildren(...(status ? [status] : []), group);
+    void Promise.all([
+      app.api.request<FactorStatus>("/api/v1/me/factors"),
+      app.api.request<ReauthenticationStatus>("/api/v1/me/reauth"),
+    ])
+      .then(([factors, proof]) => {
+        if (valid() && status?.parentElement === page)
+          status.replaceWith(accountStatus(factors, proof));
+      })
+      .catch(() => {});
     page.closest("dialog")?.addEventListener(
       "close",
       () => {
@@ -239,16 +266,7 @@ export async function securitySettings(
   const proof =
     await app.api.request<ReauthenticationStatus>("/api/v1/me/reauth");
   if (!valid()) return;
-  const [status, statusRows] = preferencesGroup();
-  const enabled = factors.totp || factors.email;
-  statusRows.append(
-    actionRow(
-      nt(enabled ? "security.enabled" : "security.disabled"),
-      enabled
-        ? nt("security.remaining", { n: factors.backup_codes_remaining })
-        : nt(proof.recent ? "security.ready" : "security.required"),
-    ),
-  );
+  const status = accountStatus(factors, proof);
   page.append(status);
   const refresh = async () => {
     if (!valid()) return;
@@ -315,7 +333,7 @@ export async function securitySettings(
             "",
           ),
         );
-        page.replaceChildren(group);
+        page.replaceChildren(status, group);
         page.closest("dialog")?.addEventListener(
           "close",
           () => {

@@ -18,9 +18,10 @@ All notable changes are documented here in English.
 - The sign-up and recovery-code forms label their username field "Username", since they do not take an email address.
 - The profile page and the add-member field label the username field "Username", not the sign-in label "Username or email".
 - Replace a stalled browser-storage upgrade with an actionable Retry screen, preserve saved drafts and accounts, and release database connections when another tab upgrades them.
+- Keep account security status visible during authenticator setup and backup-code acknowledgement.
 - Align the RocketVibe web screens with the running GTK client: login and verification steps, room groups and menus, conversation headers, timeline grouping, composers, threads, message actions, emoji, search, room information, members, profiles and scheduling calendars.
 - Restore GTK settings and administration layouts, preserve category drafts and scroll position, use grouped security and encryption ceremonies, and render profile bios and room descriptions with safe markdown.
-- Match voice controls, participant menus, incoming-call alerts and leave/rejoin navigation to GTK, including listen-only mute and connection states.
+- Match voice controls, participant menus, incoming-call alerts and leave/rejoin navigation to GTK, including listen-only mute, connection states and device/capture failure captions. Closing the screen chooser stays quiet and releases its claim.
 - Prevent a blank screen after second-factor login, repeated encryption warnings during refresh, and crypto settings becoming inactive after switching categories. Device reviews require the fingerprint to be typed before confirmation.
 - Keep private-thread composers visible and update their controls after an in-flight send completes, preserving the draft. Retire pending channel-image operations when membership is withdrawn, and use the personal read revision for room-information favourites.
 - Hydrate new DM, room and join receipts with personal membership state before opening them, preserving newer live state and preventing profile/encryption dialogs from closing during initial synchronization.

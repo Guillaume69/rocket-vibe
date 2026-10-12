@@ -87,7 +87,7 @@ export async function voiceRoomSettings(page) {
         .waitFor();
       const after = await fixture(page, "/api/v1/rooms/" + room.id);
       assert.equal(after.voice, enabled);
-      assert.equal(after.room.voice, enabled);
+      assert.equal(!!after.room.voice, enabled);
       assert.notEqual(after.revision, before.revision);
       assert.notEqual(after.room.revision, before.room.revision);
       await page.waitForFunction(

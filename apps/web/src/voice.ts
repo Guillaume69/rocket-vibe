@@ -23,6 +23,7 @@ import { sound } from "./sounds";
 import { quietNow } from "./quiet";
 import { t } from "./i18n";
 import { encryptedVoice, type EncryptedVoice } from "./crypto/voice";
+import { noteError } from "./diagnostics";
 export class Voice {
   private readonly lifetime = new AbortController();
   private readonly resize = new ResizeObserver(() => this.layout());
@@ -348,7 +349,7 @@ export class Voice {
         lifecycle === this.lifecycle &&
         account === this.app.account?.key &&
         !this.cancelled,
-      toast,
+      (error) => toast(this.deviceFailure("audiooutput", error)),
     );
     this.gain = new MicrophoneGain(
       volumeValue(Number(localStorage.getItem("rv-voice-input-volume") ?? 1)),
@@ -725,7 +726,12 @@ export class Voice {
       camera: async () => {
         if (!alive()) return;
         const next = !this.camera;
-        await this.setCamera(room, next, alive);
+        try {
+          await this.setCamera(room, next, alive);
+        } catch (error) {
+          if (alive()) throw this.deviceFailure("videoinput", error);
+          return;
+        }
         if (!alive()) return;
         this.camera = next;
         this.syncControls();
@@ -749,8 +755,14 @@ export class Voice {
               if (!alive()) return;
               this.sharing = room.localParticipant.isScreenShareEnabled;
             } catch (error) {
-              if (alive()) await this.screenRequest("DELETE");
-              throw error;
+              if (!alive()) return;
+              await this.screenRequest("DELETE");
+              if (
+                error instanceof DOMException &&
+                ["AbortError", "NotAllowedError"].includes(error.name)
+              )
+                return;
+              throw this.deviceFailure("screen", error);
             }
           } else {
             await room.localParticipant.setScreenShareEnabled(false);
@@ -1036,6 +1048,19 @@ export class Voice {
     this.microphoneWork = work;
     return work;
   }
+  private deviceFailure(
+    kind: "audioinput" | "audiooutput" | "videoinput" | "screen",
+    cause: unknown,
+  ): Error {
+    noteError(cause);
+    const key = {
+      audioinput: "voice_session.microphone_unavailable",
+      audiooutput: "voice_session.speakers_unavailable",
+      videoinput: "voice_session.camera_unavailable",
+      screen: "voice_session.screen_unavailable",
+    }[kind];
+    return new Error(nt(key), { cause });
+  }
   async applyMicrophone(
     room: import("livekit-client").Room,
     enabled: boolean,
@@ -1102,7 +1127,7 @@ export class Voice {
         await gain.destroy();
       }
       await room.localParticipant.setMicrophoneEnabled(false);
-      throw error;
+      throw this.deviceFailure("audioinput", error);
     } finally {
       if (this.room === room) {
         this.muted = !room.localParticipant.isMicrophoneEnabled;
@@ -1536,7 +1561,10 @@ export class Voice {
         void room
           .switchActiveDevice(kind, select.value)
           .then(() => localStorage.setItem("rv-" + kind, select.value))
-          .catch(toast);
+          .catch((error) => {
+            if (this.room === room && lifecycle === this.lifecycle)
+              toast(this.deviceFailure(kind, error));
+          });
       });
       row.append(el("span", "voice-menu-heading", nt(key)), select);
       menu.append(row);
@@ -1652,7 +1680,12 @@ export class Voice {
       select.value = localStorage.getItem("rv-" + kind) || "default";
       select.addEventListener("change", () => {
         localStorage.setItem("rv-" + kind, select.value);
-        void this.room?.switchActiveDevice(kind, select.value).catch(toast);
+        const room = this.room,
+          lifecycle = this.lifecycle;
+        void room?.switchActiveDevice(kind, select.value).catch((error) => {
+          if (this.room === room && lifecycle === this.lifecycle)
+            toast(this.deviceFailure(kind, error));
+        });
       });
       row.append(select);
       rows.append(row);

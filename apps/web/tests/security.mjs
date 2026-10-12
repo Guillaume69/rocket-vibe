@@ -75,6 +75,10 @@ try {
   await page
     .getByRole("img", { name: "QR code to scan with your authenticator app" })
     .waitFor();
+  await page
+    .locator(".security-account-status")
+    .getByText("Two-factor authentication disabled", { exact: true })
+    .waitFor();
   assert.equal(
     await page.locator("dialog").count(),
     1,
@@ -95,6 +99,10 @@ try {
     })
     .click();
   await page.locator(".backup-codes").waitFor();
+  await page
+    .locator(".security-account-status")
+    .getByText("Two-factor authentication enabled", { exact: true })
+    .waitFor();
   assert.equal(
     await page.locator("dialog").count(),
     1,

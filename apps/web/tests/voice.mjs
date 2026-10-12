@@ -978,10 +978,19 @@ try {
   await failedContext.addInitScript(() => {
     window.__capturedMicrophones = [];
     window.__peakMicrophones = 0;
+    window.__deviceToasts = [];
+    new MutationObserver((records) => {
+      for (const record of records)
+        for (const node of record.addedNodes)
+          if (node instanceof HTMLElement && node.classList.contains("toast"))
+            window.__deviceToasts.push(node.textContent);
+    }).observe(document, { childList: true, subtree: true });
     const capture = navigator.mediaDevices.getUserMedia.bind(
       navigator.mediaDevices,
     );
     navigator.mediaDevices.getUserMedia = async (options) => {
+      if (options.video)
+        throw new DOMException("Synthetic camera failure", "NotReadableError");
       const stream = await capture(options);
       window.__capturedMicrophones.push(...stream.getAudioTracks());
       window.__peakMicrophones = Math.max(
@@ -997,6 +1006,16 @@ try {
       throw new DOMException(
         "Synthetic microphone processor failure",
         "NotSupportedError",
+      );
+    };
+    AudioContext.prototype.setSinkId = () =>
+      Promise.reject(
+        new DOMException("Synthetic audio output failure", "NotFoundError"),
+      );
+    navigator.mediaDevices.getDisplayMedia = async () => {
+      throw new DOMException(
+        "Synthetic screen capture failure",
+        window.__displayFailure || "NotReadableError",
       );
     };
   });
@@ -1016,6 +1035,91 @@ try {
     .first()
     .click();
   await failurePage.locator(".voice-status.connected").waitFor();
+  await failurePage
+    .locator(".toast")
+    .filter({
+      hasText: "Couldn't open the microphone: nobody will hear you.",
+    })
+    .waitFor();
+  await failurePage
+    .locator(".toast")
+    .filter({
+      hasText: "Couldn't open the audio output: you won't hear the call.",
+    })
+    .waitFor();
+  assert.equal(
+    await failurePage
+      .locator(".toast")
+      .filter({
+        hasText: /Synthetic (microphone processor|audio output) failure/,
+      })
+      .count(),
+    0,
+    "device causes belong in diagnostics, while the native captions explain the failure",
+  );
+  await failurePage
+    .locator(".voice-controls")
+    .getByRole("button", { name: "Camera", exact: true })
+    .click();
+  await failurePage
+    .locator(".toast")
+    .filter({ hasText: "No camera available." })
+    .waitFor();
+  assert.equal(await failurePage.locator(".voice-card video").count(), 0);
+  const failedShare = failurePage
+    .locator(".voice-controls")
+    .getByRole("button", { name: "Share the screen", exact: true });
+  await failedShare.click();
+  await failurePage
+    .getByRole("dialog", { name: "Share your screen", exact: true })
+    .getByRole("button", { name: "Share", exact: true })
+    .click();
+  await failurePage
+    .locator(".toast")
+    .filter({ hasText: "Couldn't share the screen." })
+    .waitFor();
+  await failurePage.waitForFunction(() =>
+    [
+      ...document.querySelectorAll(
+        '.voice-controls [aria-label="Share the screen"]',
+      ),
+    ].every((button) => !button.disabled),
+  );
+  const beforeCancel = await failurePage.evaluate(() => {
+    window.__displayFailure = "NotAllowedError";
+    return window.__deviceToasts.length;
+  });
+  await failedShare.click();
+  await failurePage
+    .getByRole("dialog", { name: "Share your screen", exact: true })
+    .getByRole("button", { name: "Share", exact: true })
+    .click();
+  await failurePage.waitForFunction(() =>
+    [
+      ...document.querySelectorAll(
+        '.voice-controls [aria-label="Share the screen"]',
+      ),
+    ].every((button) => !button.disabled),
+  );
+  assert.equal(
+    await failurePage.evaluate(() => window.__deviceToasts.length),
+    beforeCancel,
+    "closing the browser capture chooser remains quiet",
+  );
+  assert.equal(
+    (await request("/api/v1/live", failureUser.token)).data.rooms
+      .find((item) => item.room_id === room.id)
+      ?.voice?.find((item) => item.user.id === failureUser.user.id)?.screen,
+    false,
+    "failed and cancelled capture must release the server screen claim",
+  );
+  assert.equal(
+    await failurePage.evaluate(() =>
+      window.__deviceToasts.some((text) => text?.includes("Synthetic")),
+    ),
+    false,
+    "raw device and capture causes never appear in the visible notices",
+  );
   await failurePage
     .locator('.voice-controls [aria-label="Microphone"][aria-pressed="true"]')
     .waitFor();
@@ -1057,7 +1161,7 @@ try {
     .click();
   await failurePage.locator(".voice-bar").waitFor({ state: "detached" });
   console.log(
-    "PASS a microphone processor failure really mutes capture before showing listening-only controls",
+    "PASS native device/capture captions, quiet chooser cancellation and released claims; microphone failures stop capture before listening-only controls",
   );
 } catch (error) {
   for (let i = 0; i < pages.length; i++) {

@@ -191,16 +191,49 @@ func (c *connector) download(cmd command) {
 	answer(path)
 }
 
-// A link preview's thumbnail, inline in the message: written out once.
-func (c *connector) linkImage(m message) string {
-	dir := filepath.Join(filepath.Dir(c.vault.path), "media")
-	path := filepath.Join(dir, mediaFile(m.ID+"-link", "image", "image/jpeg", ""))
-	if info, err := os.Stat(path); err == nil && info.Size() > 0 {
-		return path
-	}
-	if os.MkdirAll(dir, 0700) != nil || os.WriteFile(path+".part", m.Thumb, 0600) != nil || os.Rename(path+".part", path) != nil {
+func (c *connector) linkImagePath(id string) string {
+	return filepath.Join(filepath.Dir(c.vault.path), "media", mediaFile(id+"-link", "image", "image/jpeg", ""))
+}
+
+// Writes a link preview's picture where linkImage serves it from.
+func (c *connector) keepLinkImage(id string, data []byte) string {
+	path := c.linkImagePath(id)
+	if os.MkdirAll(filepath.Dir(path), 0700) != nil || os.WriteFile(path+".part", data, 0600) != nil ||
+		os.Rename(path+".part", path) != nil {
 		_ = os.Remove(path + ".part")
 		return ""
 	}
 	return path
+}
+
+// A link preview's picture: the large one the sender uploaded, else the
+// small one inline in the message. The small one is not kept when the large
+// one could not be had, so a later look tries again.
+func (c *connector) linkImage(m message) string {
+	path := c.linkImagePath(m.ID)
+	if info, err := os.Stat(path); err == nil && info.Size() > 0 {
+		return path
+	}
+	if len(m.MediaProto) > 0 && c.ready() {
+		var x waE2E.ExtendedTextMessage
+		if proto.Unmarshal(m.MediaProto, &x) == nil {
+			ctx, cancel := context.WithTimeout(c.ctx, time.Minute)
+			full, err := c.client.DownloadThumbnail(ctx, &x)
+			cancel()
+			if err == nil && len(full) > 0 {
+				return c.keepLinkImage(m.ID, full)
+			}
+		}
+	}
+	if len(m.Thumb) == 0 {
+		return ""
+	}
+	if len(m.MediaProto) > 0 {
+		inline := path + ".inline.jpg"
+		if os.MkdirAll(filepath.Dir(path), 0700) != nil || os.WriteFile(inline, m.Thumb, 0600) != nil {
+			return ""
+		}
+		return inline
+	}
+	return c.keepLinkImage(m.ID, m.Thumb)
 }

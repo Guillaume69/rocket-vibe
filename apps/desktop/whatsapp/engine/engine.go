@@ -132,6 +132,8 @@ type connector struct {
 	stopped    atomic.Bool
 	namesDirty atomic.Bool
 	avatarKick chan struct{}
+	// My text sends, sent one after the other.
+	outgoing chan command
 	// The opt-in diagnostic log (`RV_WHATSAPP_LOG`), a no-op otherwise.
 	log waLog.Logger
 	// Calls ringing here, to decline them.
@@ -179,7 +181,7 @@ func linkOf(m *waE2E.Message) (url, title, description string, thumb []byte) {
 	x := m.GetExtendedTextMessage()
 	url = x.GetMatchedText()
 	thumb = x.GetJPEGThumbnail()
-	if url == "" || (x.GetTitle() == "" && len(thumb) == 0) {
+	if url == "" || (x.GetTitle() == "" && len(thumb) == 0 && x.GetThumbnailDirectPath() == "") {
 		return "", "", "", nil
 	}
 	if !strings.Contains(url, "://") {
@@ -188,9 +190,15 @@ func linkOf(m *waE2E.Message) (url, title, description string, thumb []byte) {
 	return url, x.GetTitle(), x.GetDescription(), thumb
 }
 
+// The preview of a text message; a large thumbnail the sender uploaded is
+// kept as the message's media, fetched with DownloadThumbnail.
 func (m *message) setLink(from *waE2E.Message) {
 	m.LinkURL, m.LinkTitle, m.LinkDescription, m.Thumb = linkOf(from)
-	m.LinkImage = m.LinkURL != "" && len(m.Thumb) > 0
+	m.MediaProto = nil
+	if x := from.GetExtendedTextMessage(); m.LinkURL != "" && x.GetThumbnailDirectPath() != "" {
+		m.MediaProto = marshalled(x)
+	}
+	m.LinkImage = m.LinkURL != "" && (len(m.Thumb) > 0 || len(m.MediaProto) > 0)
 }
 
 // Stores a message; true when it is a new message of someone else.
@@ -313,13 +321,15 @@ func (c *connector) markDeleted(id string) {
 // An edit replaces the text and, for a text message, its link preview.
 func (c *connector) markEdited(id, text string, preview message) {
 	if _, err := c.vault.db.ExecContext(c.ctx, `UPDATE rv_messages SET text = ?, edited = 1,
- link_url = ?, link_title = ?, link_description = ?, thumb = CASE WHEN kind = '' THEN ? ELSE thumb END
- WHERE id = ? AND deleted = 0`, text, preview.LinkURL, preview.LinkTitle, preview.LinkDescription, preview.Thumb, id); err != nil {
+ link_url = ?, link_title = ?, link_description = ?, thumb = CASE WHEN kind = '' THEN ? ELSE thumb END,
+ media = CASE WHEN kind = '' THEN ? ELSE media END
+ WHERE id = ? AND deleted = 0`, text, preview.LinkURL, preview.LinkTitle, preview.LinkDescription, preview.Thumb,
+		preview.MediaProto, id); err != nil {
 		c.fail("local_storage_failed")
 		return
 	}
 	// The thumbnail written for the old preview goes with it.
-	_ = os.Remove(filepath.Join(filepath.Dir(c.vault.path), "media", mediaFile(id+"-link", "image", "image/jpeg", "")))
+	_ = os.Remove(c.linkImagePath(id))
 	c.emitStored(id)
 }
 
@@ -502,6 +512,19 @@ func (c *connector) connect() {
 func (c *connector) ready() bool {
 	return !c.stopped.Load() && c.client.IsLoggedIn() && c.client.IsConnected()
 }
+
+// Sends my texts in the order they were asked for.
+func (c *connector) sender() {
+	for {
+		select {
+		case <-c.ctx.Done():
+			return
+		case cmd := <-c.outgoing:
+			c.send(cmd)
+		}
+	}
+}
+
 func (c *connector) send(cmd command) {
 	if !c.ready() {
 		c.refuse(cmd.ID, "not_connected")
@@ -550,6 +573,7 @@ func (c *connector) send(cmd command) {
 		return
 	}
 	c.emit(wire{Type: "message", Message: &m})
+	c.attachPreview(content, &m)
 	ctx, cancel := context.WithTimeout(c.ctx, 45*time.Second)
 	defer cancel()
 	response, err := c.client.SendMessage(ctx, raw, content, whatsmeow.SendRequestExtra{ID: types.MessageID(cmd.ID)})
@@ -687,7 +711,8 @@ func open(path string, key []byte, sink func(wire)) (*connector, func(), error) 
 		device = devices[0]
 	}
 	diagnostics := openDiagnostics()
-	c := &connector{vault: v, ctx: ctx, cancel: cancel, sink: sink, avatarKick: make(chan struct{}, 1), log: diagnostics}
+	c := &connector{vault: v, ctx: ctx, cancel: cancel, sink: sink, avatarKick: make(chan struct{}, 1), log: diagnostics,
+		outgoing: make(chan command, 256)}
 	c.client = whatsmeow.NewClient(device, diagnostics.Sub("whatsmeow"))
 	c.diag("opened: paired=%v", device.ID != nil)
 	// whatsmeow calls its handlers while it may hold the database's only
@@ -710,6 +735,7 @@ func open(path string, key []byte, sink func(wire)) (*connector, func(), error) 
 	c.emit(wire{Type: "status", State: "loaded"})
 	done := make(chan struct{})
 	go c.avatarWorker()
+	go c.sender()
 	go func() {
 		defer close(done)
 		ticker := time.NewTicker(time.Second)
@@ -752,7 +778,12 @@ func (c *connector) handle(cmd command) bool {
 	case "connect":
 		go c.connect()
 	case "send":
-		c.send(cmd)
+		// In order, off the command loop: a link's preview takes seconds.
+		select {
+		case c.outgoing <- cmd:
+		default:
+			c.refuse(cmd.ID, "not_connected")
+		}
 	case "upload":
 		// Minutes for a large file: the other commands are not held behind it.
 		go c.upload(cmd)

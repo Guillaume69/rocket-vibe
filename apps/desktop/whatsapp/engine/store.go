@@ -85,7 +85,7 @@ func scanMessage(row interface{ Scan(...any) error }) (message, error) {
 		&m.ReplyTo, &m.QuoteSender, &m.QuoteText,
 		&m.Kind, &m.Mime, &m.FileName, &m.Size, &m.Width, &m.Height, &m.Seconds, &m.Thumb, &m.MediaProto,
 		&m.LinkURL, &m.LinkTitle, &m.LinkDescription)
-	m.LinkImage = m.Kind == "" && m.LinkURL != "" && len(m.Thumb) > 0
+	m.LinkImage = m.Kind == "" && m.LinkURL != "" && (len(m.Thumb) > 0 || len(m.MediaProto) > 0)
 	return m, err
 }
 
@@ -108,7 +108,9 @@ func (c *connector) remember(m message) {
 		return
 	}
 	_, err := c.vault.db.ExecContext(c.ctx, `INSERT INTO rv_messages(`+messageColumns+`)
- VALUES(`+messageValues+`) ON CONFLICT(id) DO UPDATE SET status=excluded.status,ts=excluded.ts
+ VALUES(`+messageValues+`) ON CONFLICT(id) DO UPDATE SET status=excluded.status,ts=excluded.ts,
+ link_url=excluded.link_url,link_title=excluded.link_title,link_description=excluded.link_description,
+ thumb=excluded.thumb,media=excluded.media
  WHERE rv_messages.status != ''`, m.values()...)
 	if err != nil {
 		c.fail("local_storage_failed")

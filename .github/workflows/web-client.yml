@@ -15,8 +15,9 @@ concurrency:
 jobs:
   browser:
     runs-on: ubuntu-24.04
-    # Includes real sealed-history paging beyond200 accepted MLS messages.
-    timeout-minutes: 90
+    # Real sealed-history paging beyond 200 accepted MLS messages seeds 205
+    # private sends through the UI: about an hour on a hosted runner.
+    timeout-minutes: 150
     outputs:
       version: ${{ steps.version.outputs.version }}
     services:

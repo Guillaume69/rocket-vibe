@@ -3,6 +3,7 @@ import { chromium, firefox } from "playwright";
 import { execFileSync } from "node:child_process";
 import { mkdir } from "node:fs/promises";
 import { privateQuoteSearch } from "./private-quote-search.mjs";
+import { publishRootBackup } from "./crypto-recovery-helper.mjs";
 import {
   base,
   fixture,
@@ -531,15 +532,14 @@ try {
     .locator(".crypto-code")
     .filter({ hasText: "rvk1-" })
     .innerText();
-  await page
-    .getByRole("button", {
-      name: "I have saved this code: publish backup",
-      exact: true,
-    })
-    .click();
-  await page
-    .getByRole("button", { name: "Review backup", exact: true })
-    .waitFor();
+  await publishRootBackup(page, () =>
+    page
+      .getByRole("button", {
+        name: "I have saved this code: publish backup",
+        exact: true,
+      })
+      .click(),
+  );
   await page.evaluate(async () => {
     const db = await new Promise((resolve) => {
       const r = indexedDB.open("rocket-vibe-private");

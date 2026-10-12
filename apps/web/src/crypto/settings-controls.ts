@@ -2,6 +2,7 @@ import { el, button, field, dialog } from "../dom";
 import { preferencesGroup, actionRow, buttonRow } from "../sidebar";
 import { nt } from "../native-i18n";
 import { t } from "../i18n";
+import { ApiError } from "../api";
 import type { CryptoAccess } from "./access";
 import type { CryptoIdentityStatus } from "./bridge-types";
 import {
@@ -58,6 +59,7 @@ export class EncryptionControls {
     private readonly access: CryptoAccess,
     private readonly alive: () => boolean,
     private readonly changed: () => Promise<void>,
+    private readonly renewProof: () => Promise<void>,
   ) {
     this.recovery = new CryptoRecoveryAccess(
       access.identity,
@@ -142,6 +144,25 @@ export class EncryptionControls {
     row.disabled = !visible || this.busy;
     rows.append(row);
   }
+  /** A refused publication still owns its protected original intention. Read
+   * that checkpoint before renewing proof, then resume it rather than prepare
+   * a replacement packet or require a new code acknowledgment. */
+  private async settleBackup(work: () => Promise<BackupStatus>): Promise<void> {
+    try {
+      this.backup = await work();
+    } catch (error) {
+      this.backup = await this.recovery.view();
+      this.secret.textContent = "";
+      if (!(
+        error instanceof ApiError && error.code === "reauthentication_required"
+      ))
+        throw error;
+      await this.renewProof();
+      if (!this.alive() || !this.access.current())
+        throw new ApiError(0, "session_closed");
+      this.backup = await this.recovery.resume();
+    }
+  }
   private review(
     title: string,
     explanation: string,
@@ -220,7 +241,13 @@ export class EncryptionControls {
         );
       rows.append(
         actionRow(
-          nt("crypto.backup_version"),
+          nt(
+            state.cancel_requested
+              ? "crypto.backup_cancelling"
+              : state.pending
+                ? "crypto.backup_pending"
+                : "crypto.backup_version",
+          ),
           state.receipt?.backup_revision ?? nt("crypto.backup_none"),
         ),
         this.secret,
@@ -255,7 +282,7 @@ export class EncryptionControls {
         rows,
         "crypto.backup_saved",
         async () => {
-          this.backup = await this.recovery.confirmSaved();
+          await this.settleBackup(() => this.recovery.confirmSaved());
           this.secret.textContent = "";
         },
         state.pending && !state.code_saved && !!this.secret.textContent,
@@ -264,7 +291,7 @@ export class EncryptionControls {
         rows,
         "crypto.backup_resume",
         async () => {
-          this.backup = await this.recovery.resume();
+          await this.settleBackup(() => this.recovery.resume());
         },
         state.pending && (state.code_saved || state.cancel_requested),
       );
@@ -278,7 +305,7 @@ export class EncryptionControls {
             [],
             "crypto.backup_cancel",
             async () => {
-              this.backup = await this.recovery.cancel();
+              await this.settleBackup(() => this.recovery.cancel());
               this.secret.textContent = "";
             },
           ),

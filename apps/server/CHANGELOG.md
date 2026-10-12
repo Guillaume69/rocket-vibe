@@ -8,6 +8,8 @@ everything before it is under that section.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-12
+
 ### Added
 
 - Admin-only, retry-safe account invitation creation, listing and revocation; secrets remain hashed in storage.
@@ -66,7 +68,8 @@ everything before it is under that section.
 
 - Preserve bot identity in live profile observations so author refreshes keep the BOT badge on bot and workflow messages.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/server-v0.4.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/server-v0.5.0...HEAD
+[0.5.0]: https://github.com/Guillaume69/rocket-vibe/compare/server-v0.4.0...server-v0.5.0
 [0.4.0]: https://github.com/Guillaume69/rocket-vibe/compare/server-v0.3.0...server-v0.4.0
 [0.3.0]: https://github.com/Guillaume69/rocket-vibe/compare/server-v0.2.0...server-v0.3.0
 [0.2.0]: https://github.com/Guillaume69/rocket-vibe/releases/tag/server-v0.2.0

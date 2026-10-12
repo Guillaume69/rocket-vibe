@@ -655,9 +655,44 @@ impl Audio {
     }
 }
 
+/// The sample formats `play` and `capture` convert.
+const WRITABLE: [SampleFormat; 5] =
+    [SampleFormat::F32, SampleFormat::I16, SampleFormat::I24, SampleFormat::I32, SampleFormat::U16];
+
+/// The stream a device opens with: its own channels and rate, in 32-bit float
+/// when it takes it, else in its own format when that is one this side converts.
+/// PulseAudio and PipeWire report the hardware's format (24-bit on many USB
+/// devices) and convert whatever a stream sends.
+fn choose(
+    default: Option<cpal::SupportedStreamConfig>,
+    ranges: Vec<cpal::SupportedStreamConfigRange>,
+    output: bool,
+) -> Option<cpal::SupportedStreamConfig> {
+    let (channels, rate) =
+        default.as_ref().map_or((if output { 2 } else { 1 }, RATE), |d| (d.channels(), d.sample_rate()));
+    ranges
+        .into_iter()
+        .filter(|r| r.channels() == channels && r.sample_format() == SampleFormat::F32)
+        .find_map(|r| r.try_with_sample_rate(rate))
+        .or(default.filter(|d| WRITABLE.contains(&d.sample_format())))
+}
+
+fn stream_config(device: &cpal::Device, output: bool) -> Result<cpal::SupportedStreamConfig, String> {
+    let (default, ranges) = if output {
+        (device.default_output_config(), device.supported_output_configs().map(Iterator::collect))
+    } else {
+        (device.default_input_config(), device.supported_input_configs().map(Iterator::collect))
+    };
+    let chosen = choose(default.as_ref().ok().copied(), ranges.unwrap_or_default(), output);
+    chosen.ok_or_else(|| match default {
+        Ok(d) => format!("unsupported sample format {:?}", d.sample_format()),
+        Err(e) => e.to_string(),
+    })
+}
+
 /// The speakers: 48 kHz stereo from the mix, to the device's own rate and channels.
 fn play(device: &cpal::Device, mix: Arc<Mix>) -> Result<cpal::Stream, String> {
-    let supported = device.default_output_config().map_err(|e| e.to_string())?;
+    let supported = stream_config(device, true)?;
     let config = supported.config();
     if std::env::var("RV_VOICE_DEBUG").as_deref() == Ok("1") {
         crate::diagnose(&format!("speakers {:?} {:?}", supported.sample_format(), config));
@@ -665,6 +700,7 @@ fn play(device: &cpal::Device, mix: Arc<Mix>) -> Result<cpal::Stream, String> {
     let stream = match supported.sample_format() {
         SampleFormat::F32 => play_as::<f32>(device, &config, mix),
         SampleFormat::I16 => play_as::<i16>(device, &config, mix),
+        SampleFormat::I24 => play_as::<cpal::I24>(device, &config, mix),
         SampleFormat::I32 => play_as::<i32>(device, &config, mix),
         SampleFormat::U16 => play_as::<u16>(device, &config, mix),
         other => return Err(format!("unsupported sample format {other:?}")),
@@ -732,7 +768,7 @@ fn capture(
     mix: Arc<Mix>,
     frames: mpsc::UnboundedSender<Vec<i16>>,
 ) -> Result<cpal::Stream, String> {
-    let supported = device.default_input_config().map_err(|e| e.to_string())?;
+    let supported = stream_config(device, false)?;
     let config = supported.config();
     if std::env::var("RV_VOICE_DEBUG").as_deref() == Ok("1") {
         crate::diagnose(&format!("microphone {:?} {:?}", supported.sample_format(), config));
@@ -740,6 +776,7 @@ fn capture(
     let stream = match supported.sample_format() {
         SampleFormat::F32 => capture_as::<f32>(device, &config, mix, frames),
         SampleFormat::I16 => capture_as::<i16>(device, &config, mix, frames),
+        SampleFormat::I24 => capture_as::<cpal::I24>(device, &config, mix, frames),
         SampleFormat::I32 => capture_as::<i32>(device, &config, mix, frames),
         SampleFormat::U16 => capture_as::<u16>(device, &config, mix, frames),
         other => return Err(format!("unsupported sample format {other:?}")),

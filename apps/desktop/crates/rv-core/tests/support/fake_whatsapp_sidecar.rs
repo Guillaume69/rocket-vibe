@@ -4,62 +4,81 @@ use serde_json::{Value, json};
 /// A 32x32 blue PNG: a photo the render shows plainly.
 const PHOTO: &str = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKklEQVR42mOQq7hDU8QwasGoBaMWjFowasGoBaMWjFowasGoBaMWDBULAKHFyEyREEL5AAAAAElFTkSuQmCC";
 use std::io::{self, BufRead};
+/// What a linked device receives once connected: conversations, names, a
+/// photo, a reaction, a reply, an unread count, the account.
+fn linked() {
+    println!(
+        "{}",
+        json!({"type":"message","message":{
+            "id":"alice@s.whatsapp.net:fake-received","chat":"alice@s.whatsapp.net","name":"Alice",
+            "sender":"alice@s.whatsapp.net","author":"Alice","text":"Bonjour ! On se retrouve ce soir ?",
+            "ts":1791810600000_i64,"mine":false
+        }})
+    );
+    println!(
+        "{}",
+        json!({"type":"message","message":{
+            "id":"friends@g.us:fake-group","chat":"friends@g.us","name":"Les amis",
+            "sender":"bob@s.whatsapp.net","author":"Bob","text":"Le groupe est prêt.",
+            "ts":1791810000000_i64,"mine":false
+        }})
+    );
+    println!(
+        "{}",
+        json!({"type":"names","names":{
+            "alice@s.whatsapp.net":"Alice Martin","friends@g.us":"Les amis","bob@s.whatsapp.net":"Bob"
+        }})
+    );
+    println!("{}", json!({"type":"avatar","jid":"alice@s.whatsapp.net","data":PHOTO}));
+    println!(
+        "{}",
+        json!({"type":"reaction","reaction":{
+            "message":"alice@s.whatsapp.net:fake-received","sender":"alice@s.whatsapp.net","emoji":"❤️","ts":1
+        }})
+    );
+    println!(
+        "{}",
+        json!({"type":"message","message":{
+            "id":"alice@s.whatsapp.net:fake-reply","chat":"alice@s.whatsapp.net","name":"Alice",
+            "sender":"alice@s.whatsapp.net","author":"Alice","text":"Vers 20 h ?",
+            "ts":1791810610000_i64,"mine":false,"reply_to":"alice@s.whatsapp.net:fake-received",
+            "quote_sender":"alice@s.whatsapp.net","quote_text":"Bonjour ! On se retrouve ce soir ?"
+        }})
+    );
+    println!("{}", json!({"type":"chat","jid":"friends@g.us","unread":2}));
+    println!("{}", json!({"type":"account","jid":"33600000000@s.whatsapp.net","name":"Moi-même"}));
+    println!("{}", json!({"type":"status","state":"connected"}));
+}
+fn now() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
+}
 fn main() {
     let mut input = io::stdin().lock().lines();
     let Some(Ok(first)) = input.next() else { return };
     let init: Value = serde_json::from_str(&first).expect("init");
     assert_eq!(init["type"], "start");
-    // Like the real helper: the replayed cache, then a pairing attempt.
+    // A state file reading "paired" is an account already linked: it connects
+    // at once, like the real helper; otherwise a pairing attempt.
+    let args: Vec<String> = std::env::args().collect();
+    let paired = args
+        .iter()
+        .position(|a| a == "--state")
+        .and_then(|i| std::fs::read_to_string(&args[i + 1]).ok())
+        .is_some_and(|content| content.starts_with("paired"));
     println!("{}", json!({"type":"status","state":"loaded"}));
     // A frame of a newer helper: the client skips it.
     println!("{}", json!({"type":"a_frame_from_a_newer_helper","value":1}));
     println!("{}", json!({"type":"status","state":"connecting"}));
-    println!("{}", json!({"type":"qr","code":"RV-WHATSAPP-TEST-NOT-A-LOGIN","expires_ms":60000}));
+    if paired {
+        linked();
+    } else {
+        println!("{}", json!({"type":"qr","code":"RV-WHATSAPP-TEST-NOT-A-LOGIN","expires_ms":60000}));
+    }
     for line in input {
         let command: Value = serde_json::from_str(&line.expect("line")).expect("command");
         match command["type"].as_str() {
             Some("connect") => {
-                println!(
-                    "{}",
-                    json!({"type":"message","message":{
-                        "id":"alice@s.whatsapp.net:fake-received","chat":"alice@s.whatsapp.net","name":"Alice",
-                        "sender":"alice@s.whatsapp.net","author":"Alice","text":"Bonjour ! On se retrouve ce soir ?",
-                        "ts":1791810600000_i64,"mine":false
-                    }})
-                );
-                println!(
-                    "{}",
-                    json!({"type":"message","message":{
-                        "id":"friends@g.us:fake-group","chat":"friends@g.us","name":"Les amis",
-                        "sender":"bob@s.whatsapp.net","author":"Bob","text":"Le groupe est prêt.",
-                        "ts":1791810000000_i64,"mine":false
-                    }})
-                );
-                println!(
-                    "{}",
-                    json!({"type":"names","names":{
-                        "alice@s.whatsapp.net":"Alice Martin","friends@g.us":"Les amis","bob@s.whatsapp.net":"Bob"
-                    }})
-                );
-                println!("{}", json!({"type":"avatar","jid":"alice@s.whatsapp.net","data":PHOTO}));
-                println!(
-                    "{}",
-                    json!({"type":"reaction","reaction":{
-                        "message":"alice@s.whatsapp.net:fake-received","sender":"alice@s.whatsapp.net","emoji":"❤️","ts":1
-                    }})
-                );
-                println!(
-                    "{}",
-                    json!({"type":"message","message":{
-                        "id":"alice@s.whatsapp.net:fake-reply","chat":"alice@s.whatsapp.net","name":"Alice",
-                        "sender":"alice@s.whatsapp.net","author":"Alice","text":"Vers 20 h ?",
-                        "ts":1791810610000_i64,"mine":false,"reply_to":"alice@s.whatsapp.net:fake-received",
-                        "quote_sender":"alice@s.whatsapp.net","quote_text":"Bonjour ! On se retrouve ce soir ?"
-                    }})
-                );
-                println!("{}", json!({"type":"chat","jid":"friends@g.us","unread":2}));
-                println!("{}", json!({"type":"account","jid":"33600000000@s.whatsapp.net","name":"Moi-même"}));
-                println!("{}", json!({"type":"status","state":"connected"}));
+                linked();
             }
             Some("read") => {
                 println!("{}", json!({"type":"chat","jid":command["chat"],"unread":0}));
@@ -83,6 +102,16 @@ fn main() {
                     }})
                 );
                 println!("{}", json!({"type":"sent","id":command["id"],"state":""}));
+                // A contact who answers at once: a new message to notify.
+                if command["chat"] == "ping@s.whatsapp.net" {
+                    println!(
+                        "{}",
+                        json!({"type":"message","message":{
+                            "id":"ping@s.whatsapp.net:pong","chat":"ping@s.whatsapp.net","name":"Ping",
+                            "sender":"ping@s.whatsapp.net","author":"Ping","text":"pong","ts":now(),"mine":false
+                        }})
+                    );
+                }
             }
             Some("logout") => {
                 println!("{}", json!({"type":"status","state":"logged_out"}));

@@ -85,3 +85,97 @@ async fn a_refused_send_names_its_id_and_keeps_the_connection() {
     c.stop();
     until(&c, |s| s.exited).await;
 }
+
+mod session {
+    use rv_core::whatsapp::{account_info, state_location, storage_key};
+    use rv_core::whatsapp_session::{KeySource, Notice, WaSession};
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    async fn until(s: &WaSession, condition: impl Fn(&WaSession) -> bool) {
+        let mut changes = s.subscribe();
+        tokio::time::timeout(Duration::from_secs(6), async {
+            while !condition(s) {
+                let _ = tokio::time::timeout(Duration::from_millis(50), changes.changed()).await;
+            }
+        })
+        .await
+        .expect("session state");
+    }
+
+    fn keys() -> KeySource {
+        Arc::new(|_entry, _has_state| Box::pin(async { storage_key() }))
+    }
+
+    #[tokio::test]
+    async fn a_linked_account_lists_reads_notifies_and_unlinks() {
+        let data = tempfile::tempdir().unwrap();
+        let (path, _) = state_location(data.path(), "t1");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "paired").unwrap();
+        let program = std::path::PathBuf::from(env!("CARGO_BIN_EXE_fake-whatsapp-sidecar"));
+        let info = account_info("t1", "33600000000@s.whatsapp.net", "Moi-même");
+        let s = WaSession::start(info, program, data.path().into(), keys());
+        let mut notices = s.notices();
+        until(&s, |s| s.snapshot().state == "connected" && s.room_rows().len() == 2).await;
+        let rows = s.room_rows();
+        let alice = rows.iter().find(|r| r.rid == "alice@s.whatsapp.net").unwrap();
+        assert_eq!((alice.name.as_str(), alice.kind.as_str()), ("Alice Martin", "d"));
+        assert!(alice.avatar_etag.is_some());
+        let friends = rows.iter().find(|r| r.rid == "friends@g.us").unwrap();
+        assert_eq!((friends.kind.as_str(), friends.unread), ("p", 2));
+        assert_eq!(s.timeline("alice@s.whatsapp.net").len(), 2);
+        // Opening the group reads it.
+        s.mark_read("friends@g.us");
+        until(&s, |s| s.room_rows().iter().all(|r| r.unread == 0)).await;
+        // Nothing was notified for what was there; an answer is.
+        s.send("ping@s.whatsapp.net", "ping", None).unwrap();
+        assert!(s.send("ping@s.whatsapp.net", "again", None).is_err() || !s.sending("ping@s.whatsapp.net"));
+        let notice = tokio::time::timeout(Duration::from_secs(6), async {
+            loop {
+                if let Ok(Notice::Incoming(incoming)) = notices.recv().await {
+                    return incoming;
+                }
+            }
+        })
+        .await
+        .expect("a notification");
+        assert_eq!((notice.rid.as_str(), notice.body.as_deref()), ("ping@s.whatsapp.net", Some("pong")));
+        until(&s, |s| !s.sending("ping@s.whatsapp.net")).await;
+        s.unlink().await.expect("unlinked");
+        assert!(s.is_closed());
+    }
+
+    #[tokio::test]
+    async fn a_state_gone_ends_the_account() {
+        let data = tempfile::tempdir().unwrap();
+        let program = std::path::PathBuf::from(env!("CARGO_BIN_EXE_fake-whatsapp-sidecar"));
+        let s = WaSession::start(account_info("gone", "1@s.whatsapp.net", ""), program, data.path().into(), keys());
+        let mut notices = s.notices();
+        let expired = tokio::time::timeout(Duration::from_secs(6), async {
+            loop {
+                if let Ok(Notice::Expired) = notices.recv().await {
+                    return;
+                }
+            }
+        })
+        .await;
+        assert!(expired.is_ok(), "no state, no account");
+    }
+
+    #[tokio::test]
+    async fn shutting_down_keeps_the_link() {
+        let data = tempfile::tempdir().unwrap();
+        let (path, _) = state_location(data.path(), "t2");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "paired").unwrap();
+        let program = std::path::PathBuf::from(env!("CARGO_BIN_EXE_fake-whatsapp-sidecar"));
+        let s =
+            WaSession::start(account_info("t2", "33600000000@s.whatsapp.net", ""), program, data.path().into(), keys());
+        until(&s, |s| s.snapshot().state == "connected").await;
+        s.shutdown();
+        s.exited(Duration::from_secs(6)).await;
+        assert!(s.snapshot().exited && s.snapshot().state == "stopped");
+        assert!(path.exists());
+    }
+}

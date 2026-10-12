@@ -27,6 +27,7 @@ All notable changes are documented here in English.
 - Confirm identity with the original proof operation and correct recovery-code labels, so expired-proof sensitive changes can continue after two-factor verification.
 - Replace a stalled browser-storage upgrade with an actionable Retry screen, preserve saved drafts and accounts, and release database connections when another tab upgrades them.
 - Keep account security status visible during authenticator setup and backup-code acknowledgement.
+- Publish an encryption identity backup after an expired identity proof: ask for the password, then resume the original backup instead of failing, and show GTK's pending and cancelling backup states.
 - Align the RocketVibe web screens with the running GTK client: login and verification steps, room groups and menus, conversation headers, timeline grouping, composers, threads, message actions, emoji, search, room information, members, profiles and scheduling calendars.
 - Restore GTK settings and administration layouts, preserve category drafts and scroll position, use grouped security and encryption ceremonies, and render profile bios and room descriptions with safe markdown.
 - Match voice controls, participant menus, incoming-call alerts and leave/rejoin navigation to GTK, including listen-only mute, connection states and device/capture failure captions. Closing the screen chooser stays quiet and releases its claim.

@@ -13,6 +13,7 @@ import type {
 } from "./bridge-types";
 import type { CryptoGroupView } from "./shared/cryptoGroups";
 import { EncryptionControls } from "./settings-controls";
+import { recentProof } from "../security";
 
 function fingerprint(title: string, value: string): HTMLElement {
   const row = actionRow(nt(title), value);
@@ -48,11 +49,20 @@ export async function encryptionSettings(
   let issuedGrant = false;
   code.autocomplete = "off";
   code.spellcheck = false;
-  controls = new EncryptionControls(access, active, async () => {
-    await refresh();
-    await controls!.refresh(status);
-    render();
-  });
+  controls = new EncryptionControls(
+    access,
+    active,
+    async () => {
+      await refresh();
+      await controls!.refresh(status);
+      render();
+    },
+    async () => {
+      if (!active()) throw Error("session_closed");
+      await recentProof(app);
+      if (!active()) throw Error("session_closed");
+    },
+  );
   const run = async (work: () => Promise<void>, refreshControls = true) => {
     if (busy || !active()) return;
     busy = true;

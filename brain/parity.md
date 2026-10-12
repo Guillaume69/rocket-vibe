@@ -25,7 +25,7 @@ beta does.
 | RocketVibe server: sign in with the account's verified email address in place of the username | done | done | done | done | The server resolves the address (`apps/server/src/auth.rs`); every app sends the field as typed and keys the account on the session's username. Recovery-code and invitation forms take a username and say "Username". SwiftUI checked by the macOS CI build only. |
 | 2FA: TOTP, password (SHA-256) | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | 2FA by email: send and resend the code | done | partial | partial | done | Desktop requests the code automatically when the server has not sent one, with no resend control. Web: Native provider: see [web-client](features/web-client.md). |
-| Personal WhatsApp account linked by QR, as an account of the app ([whatsapp](features/whatsapp.md)) | missing | partial | missing | n/a | GTK: rail, room list, timeline and composer, notifications, unlink; names, photos, reactions, replies, edits and deletions, unread counts and receipts, new conversations; live-tested on Windows. Owes media and voice notes, typing, presence, packaging of the helper. SwiftUI: the FFI filters the account out. Web: Serving native origin only; external providers are outside the accepted web scope. |
+| Personal WhatsApp account linked by QR, as an account of the app ([whatsapp](features/whatsapp.md)) | missing | partial | missing | n/a | GTK: rail, room list, timeline and composer, notifications, unlink; names, photos, reactions, replies, edits and deletions, unread counts and receipts, new conversations, received photos, voice notes, videos and documents; live-tested on Windows. Owes sending attachments, typing, presence, packaging of the helper. SwiftUI: the FFI filters the account out. Web: Serving native origin only; external providers are outside the accepted web scope. |
 | Session in the system keychain, resumed at launch; a 401 on an authenticated call signs out | done | done | done | mapped | Web: Native browser storage/HTTP/socket, HTTPS links, downloads and live-tab alerts; see web-client.md. |
 | Server probe before login (`/api/info`, `settings.public`) | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | Choose the server type at sign-in (automatic, Rocket.Chat, RocketVibe, Mattermost, kChat) | done | done | done | n/a | SwiftUI checked by the Linux build of RocketVibeKit and the macOS CI build only. Web: One account on the serving origin, explicit user decision. |
@@ -349,7 +349,7 @@ beta does.
 
 ## Open debt
 
-- **WhatsApp**: GTK owes media and voice notes, typing and presence, and shipping the helper in its packages. Mobile and SwiftUI owe the whole account (the Go engine is meant for a `gomobile` binding on Android). Web is `n/a` (serving origin only).
+- **WhatsApp**: GTK owes sending attachments and voice notes, typing and presence, and shipping the helper in its packages. Mobile and SwiftUI owe the whole account (the Go engine is meant for a `gomobile` binding on Android). Web is `n/a` (serving origin only).
 
 Mattermost/kChat protected-copy isolation and logout cleanup are implemented on mobile, GTK and SwiftUI. Automatic revocation of kChat's account-wide Infomaniak OAuth token remains unqualified on all three; local sign-out does not claim that token is invalidated.
 

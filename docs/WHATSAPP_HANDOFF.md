@@ -20,6 +20,7 @@ Do not manufacture an account, import a personal database, send messages to cont
 | Go photos | `apps/desktop/whatsapp/avatars.go` | Profile previews (mine first) fetched one at a time, cached sealed for a week |
 | Go read state | `apps/desktop/whatsapp/reads.go` | Unread counts per chat, receipts on my messages, read receipts when a chat is read |
 | Go search | `apps/desktop/whatsapp/search.go` | Contacts, groups and typed numbers for new conversations |
+| Go media | `apps/desktop/whatsapp/media.go` | Attachments kept with their metadata and thumbnail; `download` decrypts one into the account's private folder |
 | Go transport | `apps/desktop/whatsapp/main.go` | stdin/stdout JSON lines for the desktop |
 | Sealed state | `apps/desktop/whatsapp/vault.go` | In-memory SQLite, AES-GCM snapshots, atomic replace, revocation; restore through the backup API (a deserialized image cannot grow) |
 | Rust adapter | `apps/desktop/crates/rv-core/src/whatsapp.rs` | Spawn and reap the child, bounded IPC, snapshot, change signal, `whatsapp://` identity, state locations |
@@ -48,6 +49,8 @@ Subsequent commands:
 - `edit`: `id` of my own settled message, `text`; refused past WhatsApp's 15-minute window (`edit_expired`).
 - `delete`: `id` of my own settled message, deleted for everyone; refused past 48 hours (`delete_expired`).
 - `read`: `chat`; sends read receipts for its unread messages of others (at most 100, newest first; a private `read-self` when my privacy settings send no read receipts) and sets its count to zero, here and on my other devices.
+- `search`: `id`, `text`; answered by a `found` frame (`id`, `people`: `jid`, `name`) from the contacts, groups and a typed number WhatsApp knows.
+- `download`: `id` of a message with an attachment; answered by a `file` frame (`id`, `path`, empty on failure). Over 200 MB is refused.
 - `logout`: remotely unlink the device, delete encrypted state on success, then exit. Failure is visible; local removal alone is not a remote logout.
 - `stop`: close transport, checkpoint state and exit, preserving the association.
 
@@ -108,7 +111,7 @@ Update this record with actual commands and evidence, never with intended result
 ## Known limitations and next work
 
 1. Live-check the integrated account on Windows: adoption of the pilot's device, notifications in the background, unlink from the menu and from the phone, a restart with the phone offline, an interrupted send.
-2. Media: images, files, voice notes and stickers, received (download and decrypt on demand into the account's private cache, cleared on unlink, like the other accounts' attachment copies) then sent. The timeline's image and file rows need a third `media::Provider` for bytes from the helper.
+2. Media: receiving is done (`media.go`, `download`, `media::Provider::WhatsApp`); sending attachments and recording voice notes are not. Thumbnails are kept but not yet shown while the full file downloads; a caption shows above its image.
 3. Typing and presence (`SendPresence`, `SubscribePresence`, chat presence events), and the rail tile's photo for the account.
 4. Ship the helper in `desktop.yml` packages (Windows mingw cross-build or MSYS2, Linux, macOS), with whatsmeow's MPL-2.0 notice.
 5. The pilot excludes view-once and disappearing message content; outgoing behaviour in a disappearing chat is not handled.

@@ -281,6 +281,8 @@ func (c *connector) replay() error {
 	c.replayAvatars()
 	c.replayChats()
 	c.emitNames()
+	// The end of a replay: a client may now drop what it had and did not get again.
+	c.emit(wire{Type: "replayed"})
 	return nil
 }
 

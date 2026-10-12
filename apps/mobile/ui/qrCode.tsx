@@ -1,11 +1,21 @@
 import {useMemo} from 'react';
 import {PixelRatio,View} from 'react-native';
-import {qrRuns,totpQr} from './totpQr.ts';
+import {qrRuns,textQr,totpQr,type QrMatrix} from './totpQr.ts';
 
 const MODULE=4;
 
 export function TotpQrCode({uri,label}:{uri:string;label:string}) {
   const matrix=useMemo(()=>totpQr(uri),[uri]);
+  return <QrMatrixView matrix={matrix} label={label}/>;
+}
+
+/** Any text drawn as a QR, in native views. */
+export function TextQrCode({text,label}:{text:string;label:string}) {
+  const matrix=useMemo(()=>textQr(text),[text]);
+  return <QrMatrixView matrix={matrix} label={label}/>;
+}
+
+function QrMatrixView({matrix,label}:{matrix:QrMatrix|null;label:string}) {
   const runs=useMemo(()=>matrix?qrRuns(matrix):[],[matrix]);
   if(!matrix)return null;
   const module=PixelRatio.roundToNearestPixel(MODULE),side=module*matrix.size;

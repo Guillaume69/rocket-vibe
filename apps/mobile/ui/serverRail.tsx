@@ -38,6 +38,8 @@ async function accountUnread(session: Session): Promise<boolean> {
     return nativeRoomsUnread(await transportFor(fresh).rooms());
   }
   if (session.kind === 'mattermost' || session.kind === 'kchat') return mattermostUnread(session);
+  // No server to ask: its engine counts in the app itself, shown once open.
+  if (session.kind === 'whatsapp') return false;
   return subscriptionsUnread(await clientForSession(session, () => {}).get('subscriptions.get'));
 }
 
@@ -136,7 +138,7 @@ export function ServerRail({ c }: { c: Colors }) {
         {accounts.map((session) => {
           const host = serverHost(session.baseUrl);
           const isOpen = host === active;
-          const name = host.replace(/^www\./, '');
+          const name = session.kind === 'whatsapp' ? 'WhatsApp' : host.replace(/^www\./, '');
           return (
             <Tappable
               key={host}

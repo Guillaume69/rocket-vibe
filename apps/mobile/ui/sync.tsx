@@ -98,6 +98,12 @@ import { encryptLocalFile, hashedName } from './fileEncryption.ts';
 import { deleteIfTemporary } from './temporaryFiles.ts';
 import { transportExpo } from './transportUpload.ts';
 import { NativeStore } from '../providers/rocketvibe/store.ts';
+import { WhatsApp } from '../modules/whatsapp/index.ts';
+import { createWhatsAppProvider } from '../providers/whatsapp/index.ts';
+import type { TranslationKey } from './messages.ts';
+
+/** The attachment kinds the engine names and `wa.kind.*` labels. */
+const WHATSAPP_KINDS: ReadonlySet<string> = new Set(['image', 'gif', 'video', 'audio', 'voice', 'document', 'sticker']);
 import {createNativeFilesIO,mountNativeFiles} from './nativeFiles.ts';
 import { notify } from './toast.tsx';
 import { mountEmojiUsage } from './emojiUsage.ts';
@@ -181,6 +187,67 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     const { session, client } = state;
+    if (session.kind === 'whatsapp') {
+      clearCustomEmojis();
+      clearRealNames();
+      forgetIdentities();
+      forgetLoadedThreads();
+      releaseHotRooms();
+      forgetLoadedRooms();
+      forgetReplies();
+      setSync({phase:'preparing'});
+      let alive = true;
+      let stop: (() => void) | undefined;
+      let unmountUsage = (): void => {};
+      void (async () => {
+        if (WhatsApp === null) throw new Error('whatsapp_unavailable');
+        await migrateDatabase(session.baseUrl,session.userId);
+        const {base,raw,writeQueue} = openDatabase(session.baseUrl,session.userId);
+        if (!alive) return;
+        const store = createStore(raw,writeQueue);
+        const provider = createWhatsAppProvider(session,store,WhatsApp,{
+          me:translateCurrent('wa.me'), deleted:translateCurrent('wa.deleted'),
+          kind:(kind)=>WHATSAPP_KINDS.has(kind)?translateCurrent(`wa.kind.${kind}` as TranslationKey):kind,
+        },()=>Crypto.getRandomBytes(16));
+        const unmountEmoji = mountEmojiUsage(createEmojiUsageStore(raw,writeQueue)), unmountSearch = mountLocalSearch(createLocalSearch(raw));
+        unmountUsage = () => { unmountEmoji(); unmountSearch(); };
+        const engine = new SyncEngine(store,provider.translator);
+        const outbox = provider.createOutbox(createOutboxStore(raw,writeQueue),async () => {});
+        const files = provider.createUploadQueue(createUploadStore(raw,writeQueue),transportExpo,async()=>{});
+        // Passive read models the screens expect; WhatsApp has none of these.
+        const e2e = new E2EEngine({client,uid:session.userId,storage:{read:async () => null,save:async () => {},clear:async () => {}}});
+        const activity = new ActivityEngine();
+        const presence = new PresenceEngine();
+        const openRooms = createOpenRoomsStack();
+        const account = provider.whatsapp;
+        // Online only while the app is in front: WhatsApp holds the phone's
+        // notifications back while a linked device is online.
+        const present = (active: boolean) => { void account.command({type:'presence',text:active?'available':'unavailable'}).catch(() => {}); };
+        let connected = false, refused: string | null = null;
+        const unstatus = account.projection.subscribe(() => {
+          if (!alive) return;
+          const status = account.projection.status;
+          if (status.state === 'connected' && !connected) {
+            setSync(s => s.phase === 'ready' ? {...s,generation:s.generation+1} : s);
+            present(AppState.currentState === 'active');
+          }
+          connected = status.state === 'connected';
+          if (status.refused !== null && status.refused !== refused) notify(translateCurrent('wa.refused'));
+          refused = status.refused;
+        });
+        const appState = AppState.addEventListener('change',next => { if (connected) present(next === 'active'); });
+        stop = () => { unstatus(); appState.remove(); if (connected) present(false); provider.listener.close(); };
+        setSync({
+          phase:'ready',base,drafts:createDraftStore(raw,writeQueue),engine,outbox,files,
+          ddp:provider.listener,provider,actions:provider.actions,capabilities:provider.capabilities,
+          declareOpenRoom:openRooms.declare,presence,activity,e2e,
+          unlockE2E:async () => { throw new Error('Unsupported WhatsApp feature'); },lockE2E:async () => {},generation:0,
+          refreshCustomEmojis:async () => {},
+        });
+        await provider.listener.connect('');
+      })().catch(() => { if (alive) setSync({phase:'error',message:translateCurrent('native.error')}); });
+      return () => { alive = false; stop?.(); unmountUsage(); forgetSessionStores(); };
+    }
     if (session.kind === 'rocketvibe') {
       clearCustomEmojis();
       clearRealNames();

@@ -38,6 +38,28 @@ export function unicodeOfShortcode(code: string): string | null {
   return String.fromCodePoint(...points.split('-').map((p) => parseInt(p, 16)));
 }
 
+let byGlyph: Map<string, string> | null = null;
+
+/** Without variation selectors: WhatsApp sends `❤️` where the table has `❤`, or the reverse. */
+const bare = (glyph: string): string => glyph.replace(/️/g, '');
+
+/**
+ * The shortcode of a glyph (`👍` → `+1`), the first the table lists for it;
+ * `null` when it has none. For servers that speak glyphs (WhatsApp) while
+ * the reaction chips speak shortcodes.
+ */
+export function shortcodeOfUnicode(glyph: string): string | null {
+  table ??= JSON.parse(EMOJI_CODES) as Record<string, string>;
+  if (byGlyph === null) {
+    byGlyph = new Map();
+    for (const [code, points] of Object.entries(table)) {
+      const key = bare(String.fromCodePoint(...points.split('-').map((p) => parseInt(p, 16))));
+      if (!byGlyph.has(key)) byGlyph.set(key, code);
+    }
+  }
+  return byGlyph.get(bare(glyph)) ?? null;
+}
+
 let codes: readonly string[] | null = null;
 
 /**

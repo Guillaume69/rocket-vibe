@@ -29,5 +29,8 @@ export function createProvider(
     case 'mattermost':
     case 'kchat':
       return createMattermostProvider(session, client, generateId);
+    case 'whatsapp':
+      // Built by `ui/sync.tsx` with its database and the engine module.
+      throw new Error('WhatsApp provider requires its account store');
   }
 }

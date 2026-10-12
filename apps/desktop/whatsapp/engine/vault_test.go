@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -616,7 +617,7 @@ func TestDeviceOpensReplaysAndRefusesASecondHolder(t *testing.T) {
 		t.Fatal("the engine ended on a replay or an invalid command")
 	}
 	got := sink.types()
-	if len(got) < 2 || got[0] != "reload" || got[len(got)-1] != "error" {
+	if len(got) < 2 || got[0] != "reload" || !slices.Contains(got, "replayed") || got[len(got)-1] != "error" {
 		t.Fatalf("replay frames: %v", got)
 	}
 	if d.Handle(`{"type":"stop"}`) {

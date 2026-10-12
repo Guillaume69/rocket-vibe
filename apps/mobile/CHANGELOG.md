@@ -7,6 +7,10 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+### Added
+
+- Experimental WhatsApp accounts on Android: choose WhatsApp among the server types to link a personal account with a code typed in WhatsApp (or a QR for another phone). Its chats, names, messages, reactions, edits, deletions and unread counts appear like any account, and you can send, react, edit, delete and read. Media, photos, notifications and background reception come next.
+
 ### Fixed
 
 - Keep incoming calls visible until Accept or Decline. Tapping outside or pressing Back cannot dismiss the call, including the Android lock-screen prompt; remote cancellation, expiry and account teardown still close it.

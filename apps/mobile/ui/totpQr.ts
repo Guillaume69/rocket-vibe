@@ -6,7 +6,13 @@ export type QrRun={x:number;y:number;length:number};
 
 export function totpQr(uri:string):QrMatrix|null {
   if(!uri.startsWith('otpauth://totp/'))return null;
-  const qr=encode(uri,{ecc:'M',border:QUIET_ZONE});
+  return textQr(uri);
+}
+
+/** Any text as a QR (a WhatsApp linking code), medium error correction. */
+export function textQr(text:string):QrMatrix|null {
+  if(text==='')return null;
+  const qr=encode(text,{ecc:'M',border:QUIET_ZONE});
   return {version:qr.version,size:qr.size,dark:qr.data};
 }
 

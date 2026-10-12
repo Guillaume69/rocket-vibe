@@ -23,6 +23,7 @@ import { useT } from '../ui/i18n.ts';
 import { NativeEmailRecovery } from '../ui/nativeEmailRecovery.tsx';
 import { PrimaryButton, PillField, Brand, AvatarTile } from '../ui/kit.tsx';
 import { useSession } from '../ui/session.tsx';
+import { WhatsApp } from '../modules/whatsapp/index.ts';
 import { type Colors, FONTS, useColors } from '../ui/theme.ts';
 import { Icon } from '../ui/icon.tsx';
 
@@ -479,6 +480,14 @@ export default function LoginScreen() {
                   <Text style={[styles.kindText,{color:kind===value?c.text:c.dimmed}]}>{t(label)}</Text>
                 </Pressable>
               ))}
+              {/* A personal WhatsApp account has no server: the choice opens its linking sheet (Android, modules/whatsapp). */}
+              {WhatsApp !== null && (
+                <Pressable onPress={() => router.push('/whatsapp-link')} disabled={busy}
+                  accessibilityRole="button" accessibilityLabel={t('wa.connect')}
+                  style={[styles.kindOption,{borderColor:c.border,backgroundColor:'transparent'}]}>
+                  <Text style={[styles.kindText,{color:c.dimmed}]}>WhatsApp</Text>
+                </Pressable>
+              )}
             </View>
             <PrimaryButton c={c} busy={busy} onPress={() => void submitServer()} title={t('login.continue')} />
 

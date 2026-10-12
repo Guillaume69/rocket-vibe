@@ -26,10 +26,17 @@ export function resumeSession(client: RestClient, session: Session): Promise<Ses
     case 'mattermost':
     case 'kchat': return resumeMattermost(session);
     case 'rocketchat': return resumeRocketChatSession(client,session.authToken);
+    // Linked once by the phone: the engine holds the link, nothing to resume.
+    case 'whatsapp': return Promise.resolve(session);
   }
 }
 export async function logoutSession(client: RestClient, session: Session): Promise<boolean> {
   if (session.kind === 'rocketchat') return logOut(client);
+  if (session.kind === 'whatsapp') {
+    // Loaded here only: the engine module is native and Android-only.
+    const { unlinkWhatsApp } = await import('../providers/whatsapp/unlink.ts');
+    return unlinkWhatsApp(session);
+  }
   if (session.kind === 'mattermost' || session.kind === 'kchat') {
     try { return await logoutMattermost(session); } finally { client.auth = null; }
   }

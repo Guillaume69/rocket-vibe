@@ -233,7 +233,14 @@ impl Supervisor {
         let chat = {
             let mut entries = self.0.entries.lock().unwrap();
             match entries.get(&key).and_then(|e| e.chat.clone()).filter(|c| !closed(c)) {
-                Some(chat) => chat,
+                Some(chat) => {
+                    if let Chat::Native(session) = &chat
+                        && session.is_suspended()
+                    {
+                        session.reconnect();
+                    }
+                    chat
+                }
                 None => {
                     if let Some(mut stale) = entries.remove(&key) {
                         stale.abort();

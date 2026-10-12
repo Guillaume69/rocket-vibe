@@ -636,6 +636,9 @@ impl NativeSession {
     pub fn is_closed(&self) -> bool {
         self.closed.load(Ordering::SeqCst)
     }
+    pub fn is_suspended(&self) -> bool {
+        self.paused.load(Ordering::SeqCst) && !self.is_closed()
+    }
     async fn identity(&self) -> Result<(), Error> {
         let discovery = self.client.discover().await?;
         check(self.info.native.as_ref().unwrap(), &discovery)?;

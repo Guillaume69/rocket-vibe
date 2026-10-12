@@ -10,8 +10,7 @@
 import type { Session } from '../../lib/auth.ts';
 import { unicodeOfShortcode } from '../../lib/emojis.ts';
 import type { Capabilities, FileOutbox, Listener, Provider } from '../../lib/provider.ts';
-import type { FileToSend } from '../../lib/upload.ts';
-import { ValidationError } from '../../lib/uploadQueue.ts';
+import { WhatsAppFiles, type FilePreparer } from './files.ts';
 import { describeProviderError } from '../../lib/providerError.ts';
 import type { Store } from '../../lib/sync.ts';
 import type { WhatsAppNative } from '../../modules/whatsapp/index.ts';
@@ -19,6 +18,8 @@ import { fallbackName, parseFrame, type WaFrame } from './frames.ts';
 import type { DdpEvent } from '../../lib/ddp.ts';
 import { STREAM_NOTIFY_ROOM_TYPING, TYPING_ACTIVITY } from '../../lib/typing.ts';
 import { WhatsAppProjection, type WaLabels } from './projection.ts';
+
+export type { FilePreparer, PreparedFile } from './files.ts';
 
 export const WHATSAPP_CAPABILITIES: Capabilities = {
   editing: true, deletion: true, reactions: true, files: true, quotes: true, marks: false, threads: false,
@@ -67,14 +68,6 @@ function messageId(random: () => Uint8Array): string {
   return [...random()].map((b) => b.toString(16).padStart(2, '0')).join('').toUpperCase();
 }
 
-/** A file to send, made readable by the engine: a plain path, its type, its name, whether it is a voice note. */
-export type PreparedFile = { path: string; mime: string; name: string; voice: boolean };
-/** Copies (or converts, for a recorded voice note) a picked file where the engine can read it. */
-export type FilePreparer = (file: FileToSend & { size: number | null }, id: string) => Promise<PreparedFile>;
-
-/** The engine's own limit (`engine/upload.go` `maxUpload`). */
-const MAX_UPLOAD_MB = 100;
-
 /** Writes a profile photo the engine sent inline, before the rows name its version. */
 export type PhotoWriter = (jid: string, data: string) => Promise<void>;
 
@@ -102,6 +95,8 @@ export class WhatsAppAccount {
 
   /** Who types where, for the room screens (`lib/typing.ts` reads it as `user-activity`). */
   private readonly typing = new Set<(event: DdpEvent) => void>();
+  /** The file queue, told when an upload is recorded or refused. */
+  files: WhatsAppFiles | null = null;
 
   onTyping(listener: (event: DdpEvent) => void): () => void {
     this.typing.add(listener);
@@ -109,6 +104,12 @@ export class WhatsAppAccount {
   }
 
   private receive(frame: WaFrame): void {
+    if (frame.type === 'sent') void this.files?.settled(frame.id);
+    if (frame.type === 'error' && frame.id !== undefined) void this.files?.refused(frame.id, frame.code);
+    if (frame.type === 'message' && frame.message.mine) {
+      const id = frame.message.id;
+      void this.files?.settled(id.slice(id.lastIndexOf(':') + 1));
+    }
     if (frame.type === 'typing') {
       const { chat, sender, state } = frame.typing;
       const event: DdpEvent = { collection: STREAM_NOTIFY_ROOM_TYPING, eventKey: `${chat}/user-activity`,
@@ -225,23 +226,9 @@ export function createWhatsAppProvider(
     onLoss: (fn) => projection.subscribe(() => { if (projection.status.state !== 'connected') fn(); }),
     armedSubscriptions: async () => {}, reset: () => {},
   };
-  const validate = async (file: { type: string; size: number | null }) => {
-    if (file.size !== null && file.size > MAX_UPLOAD_MB * 1024 * 1024) throw new ValidationError({ code: 'size', maxMb: String(MAX_UPLOAD_MB) });
-  };
-  // The engine records a file once WhatsApp has it, then the timeline shows it.
-  const files: FileOutbox = prepareFile === undefined ? {
+  const noFiles: FileOutbox = {
     progress: new Map(), subscribe: noSubscription, validate: unsupported,
     send: unsupported, process: async () => {}, retry: unsupported, discard: async () => {},
-  } : {
-    progress: new Map(), subscribe: noSubscription, validate,
-    send: async (rid, file, caption) => {
-      await validate(file);
-      const id = messageId(random);
-      const ready = await prepareFile(file, id);
-      await run({ type: 'upload', id, chat: rid, path: ready.path, mime: ready.mime, name: ready.name,
-        text: caption ?? '', voice: ready.voice });
-    },
-    process: async () => {}, retry: async () => {}, discard: async () => {},
   };
   return {
     whatsapp: account,
@@ -281,7 +268,11 @@ export function createWhatsAppProvider(
       },
       process: async () => {}, retry: async () => {}, discard: async () => {},
     }),
-    createUploadQueue: () => files,
+    createUploadQueue: (store) => {
+      if (prepareFile === undefined) return noFiles;
+      account.files = new WhatsAppFiles(store, (value) => account.command(value), prepareFile, () => messageId(random));
+      return account.files;
+    },
     catchUpGlobal: async () => {}, catchUpRoom: async () => {}, reconcile: async () => {},
     searchPeople: async (query) => (await account.search(query)).map((person) => ({
       id: person.jid, name: person.name || fallbackName(person.jid),

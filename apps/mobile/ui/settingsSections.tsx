@@ -570,6 +570,12 @@ function AppCategory({ c, client }: { c: Colors; client: RestClient }) {
         <Pair c={c} label={t('settings.version')} value={Constants.expoConfig?.version ?? '?'} />
       </View>
       <AppUpdatesCard c={c} />
+      {/* What the app owes the libraries it ships: the WhatsApp engine's Go modules. */}
+      {WhatsApp !== null && (
+        <Link href="/licenses" style={[styles.link, { color: c.cyan }]} accessibilityHint={t('licenses.hint')}>
+          {t('licenses.title')}
+        </Link>
+      )}
       {client.kind !== 'rocketvibe' && <>
         <Text style={[styles.sectionTitle, { color: c.dimmed }]}>{t('settings.sectionDiagnostics')}</Text>
         <FcmTokenSection c={c} t={t} />

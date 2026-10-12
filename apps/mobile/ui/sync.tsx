@@ -263,6 +263,8 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
           if (status.state === 'connected' && !connected) {
             setSync(s => s.phase === 'ready' ? {...s,generation:s.generation+1} : s);
             present(AppState.currentState === 'active');
+            // Files a previous run left waiting go now.
+            void files.process();
           }
           connected = status.state === 'connected';
           // The account is shown under its WhatsApp name, which may change on the phone.

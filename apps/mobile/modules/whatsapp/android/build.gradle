@@ -14,6 +14,8 @@ android {
     testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
   }
   sourceSets.main.jniLibs.srcDir layout.buildDirectory.dir('generated/jniLibs')
+  // The engine's licence notice, written by build-android.mjs beside the libraries.
+  sourceSets.main.assets.srcDir layout.buildDirectory.dir('generated/assets')
   defaultConfig.consumerProguardFiles 'consumer-rules.pro'
 }
 
@@ -34,6 +36,7 @@ def buildWhatsApp = tasks.register('buildWhatsAppNative', Exec) {
   inputs.property 'abis', requestedAbis
   inputs.property 'minApi', android.defaultConfig.minSdkVersion.apiLevel
   outputs.dir layout.buildDirectory.dir('generated/jniLibs')
+  outputs.dir layout.buildDirectory.dir('generated/assets')
   doFirst {
     commandLine 'node', file('../build-android.mjs').absolutePath,
       '--ndk', android.ndkDirectory.absolutePath,

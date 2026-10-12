@@ -2,7 +2,7 @@
 // for each ABI with the NDK's clang: the same code as the desktop helper,
 // exported to C by its mobile/ package and loaded by Kotlin through JNA.
 import {spawnSync} from 'node:child_process';
-import {cpSync, mkdirSync, mkdtempSync, rmSync} from 'node:fs';
+import {cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -51,3 +51,31 @@ for (const abi of abis) {
   cpSync(library, path.join(destination, 'librv_whatsapp.so'));
   rmSync(out, {recursive: true, force: true});
 }
+
+// The licence notice the APK ships (assets/rv-whatsapp-licenses.txt, shown
+// from Settings > App): every Go module the engine is built from, whatsmeow
+// (MPL-2.0, our fork) first, as apps/desktop/whatsapp/licenses.sh writes it
+// for the desktop packages.
+const list = spawnSync('go', ['list', '-m', '-json', 'all'], {cwd: engine, encoding: 'utf8', maxBuffer: 64 << 20,
+  env: {...process.env, GOTOOLCHAIN: process.env.GOTOOLCHAIN ?? 'auto', GOFLAGS: '-mod=mod'}});
+if (list.error || list.status !== 0) throw new Error('Go module list failed for the licence notice');
+// One object per module, each closing on a line of its own.
+const modules = JSON.parse(`[${list.stdout.trim().replace(/\n}\r?\n{/g, '\n},\n{')}]`);
+const parts = [
+  'rv-whatsapp is built from these Go modules; their licences follow.',
+  'whatsmeow comes from https://github.com/boubou666/whatsmeow (branch rocketvibe), a fork of',
+  'https://github.com/tulir/whatsmeow, under the Mozilla Public License 2.0.',
+];
+// whatsmeow first, the module the notice is mostly about; the others in order.
+modules.sort((a, b) => Number(b.Path === 'go.mau.fi/whatsmeow') - Number(a.Path === 'go.mau.fi/whatsmeow'));
+for (const module of modules) {
+  if (module.Main) continue;
+  const dir = module.Replace?.Dir ?? module.Dir;
+  if (!dir || !existsSync(dir)) continue;
+  for (const name of readdirSync(dir).filter(n => /^(LICEN[CS]E|COPYING)/i.test(n)).sort()) {
+    parts.push('', `==== ${module.Path} ${module.Version ?? ''} (${name}) ====`, '', readFileSync(path.join(dir, name), 'utf8').trimEnd());
+  }
+}
+const assets = path.join(moduleDirectory, 'android/build/generated/assets');
+mkdirSync(assets, {recursive: true});
+writeFileSync(path.join(assets, 'rv-whatsapp-licenses.txt'), parts.join('\n') + '\n');

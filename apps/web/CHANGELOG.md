@@ -7,9 +7,12 @@ All notable changes are documented here in English.
 ### Added
 
 - RocketVibe administrators can create, copy, list and revoke account invitation codes.
+- Sign in with the verified email address of your account instead of your username.
 
 ### Fixed
 
+- Confirming an email address already linked to another account says so instead of showing a raw error code.
+- The sign-up and recovery-code forms label their username field "Username", since they do not take an email address.
 - The profile page and the add-member field label the username field "Username", not the sign-in label "Username or email".
 - Invitation signup and password recovery authenticate after receiving the account response, including second-factor challenges.
 - Typing /giphy opens a compact GIF grid immediately. Search updates as you type in both the command and sharing-menu pickers; choosing a GIF highlights it, and Enter or the shared Send button sends it. Search changes discard old selections and stale responses, and cancellation preserves the draft.

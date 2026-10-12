@@ -137,7 +137,7 @@ export function LoginScreen({ app }: { app: App }) {
           <div className="login-origin">{location.host}</div>
         </div>
         <Field
-          label={t("username")}
+          label={mode === "login" ? t("username") : t("handle")}
           value={username}
           onChange={(event) => setUsername(event.target.value)}
           autoComplete="username"

@@ -198,6 +198,9 @@ impl Remote for Server {
                 {
                     return Err(error(409, "operation_conflict"));
                 }
+                if !s.proof.load(Ordering::SeqCst) {
+                    return Err(error(403, "reauthentication_required"));
+                }
                 let result = EmailVerificationStep::Pending {
                     verification_id: input.verification_id.clone(),
                     operation_id: input.operation_id,
@@ -396,6 +399,40 @@ async fn unreceived_start_retries_exact_candidate_but_pruned_expiry_does_not_reo
         vault.email_start(&scope(), &server, "second@example.org", &server.status_value(), &guard).await.unwrap().state,
         State::Pending { .. }
     ));
+}
+#[tokio::test]
+async fn unproven_verification_keeps_its_address_until_a_confirmed_identity_sends_the_code() {
+    let (temp, memory, server, vault) = fixture();
+    let guard = Guard::new();
+    server.proof.store(false, Ordering::SeqCst);
+    let waiting =
+        vault.email_start(&scope(), &server, "new@example.org", &server.status_value(), &guard).await.unwrap();
+    assert!(matches!(waiting.state, State::AwaitingProof { ref address, .. } if address == "new@example.org"));
+    let reopened = Vault::new(temp.0.clone(), memory.clone());
+    let again = reopened.email_resume(&scope(), &server, &guard).await.unwrap();
+    assert!(matches!(again.state, State::AwaitingProof { .. }));
+    assert_eq!(receipt(&again.state), receipt(&waiting.state));
+    assert!(server.state.lock().unwrap().rows.is_empty());
+    server.proof.store(true, Ordering::SeqCst);
+    let sent = reopened.email_resume(&scope(), &server, &guard).await.unwrap();
+    assert!(matches!(sent.state, State::Pending { ref address, .. } if address == "new@example.org"));
+    assert_eq!(receipt(&sent.state), receipt(&waiting.state));
+    assert_eq!(server.state.lock().unwrap().rows.len(), 1);
+}
+#[tokio::test]
+async fn unproven_verification_can_be_cancelled_and_replaced() {
+    let (_temp, memory, server, vault) = fixture();
+    let guard = Guard::new();
+    server.proof.store(false, Ordering::SeqCst);
+    let waiting =
+        vault.email_start(&scope(), &server, "first@example.org", &server.status_value(), &guard).await.unwrap();
+    assert!(matches!(waiting.state, State::AwaitingProof { .. }));
+    let closed = vault.email_cancel(&scope(), &server, &receipt(&waiting.state), &guard).await.unwrap();
+    assert!(matches!(closed.state, State::Idle));
+    assert!(memory.values.lock().unwrap().is_empty());
+    server.proof.store(true, Ordering::SeqCst);
+    let next = vault.email_start(&scope(), &server, "second@example.org", &closed.status, &guard).await.unwrap();
+    assert!(matches!(next.state, State::Pending { ref address, .. } if address == "second@example.org"));
 }
 #[tokio::test]
 async fn stale_receipts_cannot_cancel_confirm_or_erase_a_replacement() {
@@ -674,6 +711,22 @@ async fn expired_proof_preserves_explicitly_cancelable_removal_intent() {
     assert!(memory.values.lock().unwrap().is_empty());
 }
 
+#[tokio::test]
+async fn pending_removal_completes_once_identity_is_confirmed() {
+    let (_temp, memory, server, vault) = fixture();
+    server.verified_contact();
+    server.proof.store(false, Ordering::SeqCst);
+    let guard = Guard::new();
+    let pending = vault.email_remove(&scope(), &server, &server.status_value(), &guard).await.unwrap();
+    assert!(matches!(pending.state, State::RemovalPending { .. }));
+    server.proof.store(true, Ordering::SeqCst);
+    let removed = vault.email_resume(&scope(), &server, &guard).await.unwrap();
+    assert!(matches!(removed.state, State::Removed { .. }));
+    assert_eq!(receipt(&removed.state), receipt(&pending.state));
+    assert!(removed.status.address.is_none());
+    vault.email_acknowledge(&scope(), &server, &receipt(&removed.state), &guard).await.unwrap();
+    assert!(memory.values.lock().unwrap().is_empty());
+}
 #[tokio::test]
 async fn private_write_failure_and_changed_displayed_contact_prevent_any_removal_request() {
     let (_temp, memory, server, vault) = fixture();

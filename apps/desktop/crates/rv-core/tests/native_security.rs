@@ -2,7 +2,8 @@ use rv_core::native::{
     Error,
     authentication_vault::{Storage, StorageFuture},
     security::{
-        EmailFactorExpectation, FactorAction, FactorState, Guard, ProofState, Remote, RemoteFuture, Scope, Vault,
+        EmailFactorExpectation, FactorAction, FactorState, Guard, PendingFactor, ProofState, Remote, RemoteFuture,
+        Scope, Vault,
     },
 };
 use rv_protocol::parity::*;
@@ -153,6 +154,75 @@ async fn email_enrollment_and_last_profile_removal_recover_the_same_private_oper
     assert!(memory.values.lock().unwrap().is_empty());
     let status = server.factor_status().await.unwrap();
     assert!(!status.email && !status.totp && status.factor_version.is_none());
+}
+fn pending(state: FactorState, expected: PendingFactor) -> String {
+    let FactorState::Pending { receipt_id, action } = state else { panic!("not pending") };
+    assert_eq!(action, expected);
+    receipt_id
+}
+#[tokio::test]
+async fn unproven_factor_changes_stay_pending_until_a_confirmed_identity_resumes_them() {
+    let temp = Temp::new();
+    let memory = Arc::new(Memory::default());
+    let server = Server::new(memory.clone());
+    let vault = Vault::new(temp.0.clone(), memory.clone());
+    let guard = Guard::new();
+    server.unproven.store(true, Ordering::SeqCst);
+    let receipt = pending(
+        vault.factor_start(&scope(), &server, FactorAction::Setup, &guard).await.unwrap(),
+        PendingFactor::Setup,
+    );
+    let reopened = Vault::new(temp.0.clone(), memory.clone());
+    assert_eq!(
+        pending(reopened.factor_resume(&scope(), &server, &guard).await.unwrap(), PendingFactor::Setup),
+        receipt
+    );
+    assert!(!server.factor_status().await.unwrap().totp);
+    server.unproven.store(false, Ordering::SeqCst);
+    let FactorState::Setup(setup) = reopened.factor_resume(&scope(), &server, &guard).await.unwrap() else { panic!() };
+    let FactorState::Codes { receipt_id, .. } =
+        reopened.factor_enable(&scope(), &server, &setup, "123456", &guard).await.unwrap()
+    else {
+        panic!()
+    };
+    reopened.factor_clear(&scope(), &receipt_id, &guard).await.unwrap();
+    server.unproven.store(true, Ordering::SeqCst);
+    pending(
+        vault.factor_start(&scope(), &server, FactorAction::Disable, &guard).await.unwrap(),
+        PendingFactor::Disable,
+    );
+    assert_eq!(server.disables.load(Ordering::SeqCst), 0);
+    assert!(server.factor_status().await.unwrap().totp);
+    server.unproven.store(false, Ordering::SeqCst);
+    assert!(matches!(vault.factor_resume(&scope(), &server, &guard).await.unwrap(), FactorState::Idle));
+    assert_eq!(server.disables.load(Ordering::SeqCst), 1);
+    assert!(memory.values.lock().unwrap().is_empty());
+}
+#[tokio::test]
+async fn a_pending_factor_change_can_be_cancelled_without_reaching_the_server() {
+    let temp = Temp::new();
+    let memory = Arc::new(Memory::default());
+    let server = Server::new(memory.clone());
+    server.email_available.store(true, Ordering::SeqCst);
+    server.state.lock().unwrap().factor_version = Some("totp-version".into());
+    let vault = Vault::new(temp.0.clone(), memory.clone());
+    let guard = Guard::new();
+    server.unproven.store(true, Ordering::SeqCst);
+    let receipt = pending(
+        vault.factor_start(&scope(), &server, FactorAction::Regenerate, &guard).await.unwrap(),
+        PendingFactor::Regenerate,
+    );
+    assert!(vault.factor_clear(&scope(), &receipt, &guard).await.unwrap());
+    assert!(matches!(vault.factor_resume(&scope(), &server, &guard).await.unwrap(), FactorState::Idle));
+    let receipt = pending(
+        vault.factor_email_start(&scope(), &server, &email_approval(&server, true).await, &guard).await.unwrap(),
+        PendingFactor::EmailEnable,
+    );
+    assert!(vault.factor_clear(&scope(), &receipt, &guard).await.unwrap());
+    assert_eq!(server.regenerations.load(Ordering::SeqCst), 0);
+    assert_eq!(server.changes.load(Ordering::SeqCst), 0);
+    assert!(memory.values.lock().unwrap().is_empty());
+    assert_eq!(server.factor_status().await.unwrap().factor_version.as_deref(), Some("totp-version"));
 }
 #[tokio::test]
 async fn email_enrollment_checks_the_displayed_contact_profile_and_scope_before_storage_or_http() {
@@ -393,6 +463,7 @@ struct Server {
     lose_mail: Arc<AtomicBool>,
     changes: Arc<AtomicUsize>,
     corrupt_email_change: Arc<AtomicBool>,
+    unproven: Arc<AtomicBool>,
 }
 impl Server {
     fn new(memory: Arc<Memory>) -> Self {
@@ -419,7 +490,14 @@ impl Server {
             lose_mail: Arc::default(),
             changes: Arc::default(),
             corrupt_email_change: Arc::default(),
+            unproven: Arc::default(),
         }
+    }
+    fn proof(&self) -> Result<(), Error> {
+        if self.unproven.load(Ordering::SeqCst) {
+            return Err(error(403, "reauthentication_required"));
+        }
+        Ok(())
     }
     fn status_value(&self) -> ReauthenticationStatus {
         let s = self.state.lock().unwrap();
@@ -603,6 +681,7 @@ impl Remote for Server {
             if let Some(receipt) = state.email_changes.get(&input.operation_id) {
                 return Ok(receipt.clone());
             }
+            s.proof()?;
             if state.factor_version != input.factor_version
                 || state.contact_version != input.email_version
                 || state.email_installed == enabled
@@ -651,6 +730,7 @@ impl Remote for Server {
         let s = self.clone();
         Box::pin(async move {
             assert!(s.has_operation(&input.operation_id));
+            s.proof()?;
             Ok(FactorSetup {
                 setup_id: "setup-id".into(),
                 secret: "PRIVATE-TOTP-SECRET".into(),
@@ -692,6 +772,7 @@ impl Remote for Server {
             if let Some(bag) = state.bags.get(&input.operation_id) {
                 return Ok(bag.clone());
             }
+            s.proof()?;
             assert_eq!(state.factor_version.as_deref(), Some(input.factor_version.as_str()));
             s.regenerations.fetch_add(1, Ordering::SeqCst);
             let bag = Self::bag(&mut state, &input.operation_id);
@@ -704,6 +785,7 @@ impl Remote for Server {
     fn disable(&self, _input: DisableFactor) -> RemoteFuture<()> {
         let s = self.clone();
         Box::pin(async move {
+            s.proof()?;
             s.disables.fetch_add(1, Ordering::SeqCst);
             s.state.lock().unwrap().factor_version = None;
             if s.lose_disable.swap(false, Ordering::SeqCst) {

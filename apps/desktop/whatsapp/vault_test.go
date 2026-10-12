@@ -32,7 +32,7 @@ func testVault(t *testing.T) (*vault, []byte) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { v.db.Close() })
+	t.Cleanup(func() { v.close() })
 	return v, key
 }
 func TestStateIsAuthenticatedEncryptedAndRestoresSQLite(t *testing.T) {
@@ -54,7 +54,7 @@ func TestStateIsAuthenticatedEncryptedAndRestoresSQLite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer restored.db.Close()
+	defer restored.close()
 	var value string
 	if err := restored.db.QueryRow("SELECT value FROM secrets").Scan(&value); err != nil || value != "a-private-session-and-message" {
 		t.Fatalf("restore failed: %v", err)
@@ -62,7 +62,7 @@ func TestStateIsAuthenticatedEncryptedAndRestoresSQLite(t *testing.T) {
 	wrong := append([]byte{}, key...)
 	wrong[0] ^= 1
 	if broken, err := openVault(v.path, wrong); err == nil {
-		broken.db.Close()
+		broken.close()
 		t.Fatal("wrong key accepted")
 	}
 	blob[len(blob)-1] ^= 1
@@ -70,7 +70,7 @@ func TestStateIsAuthenticatedEncryptedAndRestoresSQLite(t *testing.T) {
 		t.Fatal(err)
 	}
 	if broken, err := openVault(v.path, key); err == nil {
-		broken.db.Close()
+		broken.close()
 		t.Fatal("tampered state accepted")
 	}
 }
@@ -140,7 +140,7 @@ func TestFreshProtocolStoreCanInitializeAndRestore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer restored.db.Close()
+	defer restored.close()
 	if err := sqlstore.NewWithDB(restored.db, "sqlite3", waLog.Noop).Upgrade(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +173,7 @@ func TestCheckpointSkipsAnUnchangedDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer restored.db.Close()
+	defer restored.close()
 	if err := restored.checkpoint(); err != nil {
 		t.Fatal(err)
 	}
@@ -360,7 +360,7 @@ func TestARestoredStateGrows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer restored.db.Close()
+	defer restored.close()
 	if err := migrate(restored.db); err != nil {
 		t.Fatalf("migration on a restored state: %v", err)
 	}
@@ -377,7 +377,7 @@ func TestARestoredStateGrows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer again.db.Close()
+	defer again.close()
 	var n int
 	if err := again.db.QueryRow("SELECT count(*) FROM test").Scan(&n); err != nil || n != 2001 {
 		t.Fatalf("restored %d rows: %v", n, err)
@@ -437,5 +437,89 @@ func TestOutgoingFilesAreSentAsWhatWhatsAppAccepts(t *testing.T) {
 	binary.LittleEndian.PutUint64(page[10:], 48000*7)
 	if got := oggSeconds(page); got != 7 {
 		t.Fatalf("voice length %d", got)
+	}
+}
+
+// An event handled while the database's only connection is held elsewhere
+// (whatsmeow inside a transaction) must not wait for it: the queue returns
+// at once and handles it once the connection is free.
+func TestEventsWaitForTheConnectionOutsideWhatsmeow(t *testing.T) {
+	c := engineWithCache(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	q := newEventQueue()
+	handled := make(chan struct{})
+	go q.run(ctx, func(any) {
+		var n int
+		_ = c.vault.db.QueryRow("SELECT count(*) FROM rv_messages").Scan(&n)
+		close(handled)
+	})
+	tx, err := c.vault.db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pushed := make(chan struct{})
+	go func() {
+		q.push("an event")
+		close(pushed)
+	}()
+	select {
+	case <-pushed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("pushing an event waited for the database")
+	}
+	_ = tx.Rollback()
+	select {
+	case <-handled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the event was not handled once the connection was free")
+	}
+}
+
+// whatsmeow writes in a transaction and reads on another connection before it
+// commits (decrypting a first message from someone): that read must not wait.
+// A write on another connection waits for the commit instead of failing.
+func TestConnectionsDoNotWaitForEachOtherLikeWhatsmeowNeeds(t *testing.T) {
+	c := engineWithCache(t)
+	tx, err := c.vault.db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`INSERT INTO rv_chat_names(jid,name) VALUES('a@s.whatsapp.net','A')`); err != nil {
+		t.Fatal(err)
+	}
+	read := make(chan error, 1)
+	go func() {
+		var n int
+		read <- c.vault.db.QueryRow("SELECT count(*) FROM rv_chat_names").Scan(&n)
+	}()
+	select {
+	case err := <-read:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("a read waited for another connection's transaction")
+	}
+	wrote := make(chan error, 1)
+	go func() {
+		_, err := c.vault.db.Exec(`INSERT INTO rv_chat_names(jid,name) VALUES('b@s.whatsapp.net','B')`)
+		wrote <- err
+	}()
+	time.Sleep(200 * time.Millisecond)
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-wrote:
+		if err != nil {
+			t.Fatalf("a write failed instead of waiting: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("a write never went through")
+	}
+	var n int
+	if err := c.vault.db.QueryRow("SELECT count(*) FROM rv_chat_names").Scan(&n); err != nil || n != 2 {
+		t.Fatalf("%d names: %v", n, err)
 	}
 }

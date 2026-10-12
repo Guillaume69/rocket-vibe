@@ -108,6 +108,8 @@ type wire struct {
 	People []person `json:"people"`
 	// Where a downloaded attachment is (a `file` frame); empty on failure.
 	Path string `json:"path,omitempty"`
+	// Someone typing (a `typing` frame).
+	Typing *typing `json:"typing,omitempty"`
 }
 type connector struct {
 	client     *whatsmeow.Client
@@ -121,6 +123,8 @@ type connector struct {
 	stopped    atomic.Bool
 	namesDirty atomic.Bool
 	avatarKick chan struct{}
+	// The opt-in diagnostic log (`RV_WHATSAPP_LOG`), a no-op otherwise.
+	log waLog.Logger
 }
 
 func (c *connector) emit(event wire) {
@@ -130,7 +134,15 @@ func (c *connector) emit(event wire) {
 		c.sink(event)
 	}
 }
-func (c *connector) fail(code string) { c.emit(wire{Type: "error", Code: code}) }
+func (c *connector) fail(code string) {
+	c.diag("error %s", code)
+	c.emit(wire{Type: "error", Code: code})
+}
+func (c *connector) diag(msg string, args ...any) {
+	if c.log != nil {
+		c.log.Infof(msg, args...)
+	}
+}
 
 // A send that never reached the network: the client keeps its draft.
 func (c *connector) refuse(id, code string) { c.emit(wire{Type: "error", Code: code, ID: id}) }
@@ -337,6 +349,8 @@ func (c *connector) reload() {
 }
 
 func (c *connector) event(raw any) {
+	// Kinds only: no text, no key.
+	c.diag("event %T", raw)
 	switch evt := raw.(type) {
 	case *events.Connected:
 		c.emit(wire{Type: "status", State: "connected"})
@@ -365,6 +379,8 @@ func (c *connector) event(raw any) {
 		}
 	case *events.Receipt:
 		c.receipt(evt)
+	case *events.ChatPresence:
+		c.chatPresence(evt)
 	case *events.MarkChatAsRead:
 		c.markedRead(evt)
 	case *events.HistorySync:
@@ -438,6 +454,7 @@ func (c *connector) connect() {
 		}()
 	}
 	if err := c.client.ConnectContext(c.ctx); err != nil {
+		c.diag("connect failed: %v", err)
 		c.fail("connection_failed")
 	}
 }
@@ -606,7 +623,7 @@ func open(path string, key []byte, sink func(wire)) (*connector, func(), error) 
 	ctx, cancel := context.WithCancel(context.Background())
 	fail := func(err error) (*connector, func(), error) {
 		cancel()
-		v.db.Close()
+		v.close()
 		_ = lock.Unlock()
 		return nil, nil, err
 	}
@@ -628,9 +645,17 @@ func open(path string, key []byte, sink func(wire)) (*connector, func(), error) 
 	if len(devices) == 1 {
 		device = devices[0]
 	}
-	c := &connector{vault: v, ctx: ctx, cancel: cancel, sink: sink, avatarKick: make(chan struct{}, 1)}
-	c.client = whatsmeow.NewClient(device, waLog.Noop)
-	c.client.AddEventHandler(c.event)
+	diagnostics := openDiagnostics()
+	c := &connector{vault: v, ctx: ctx, cancel: cancel, sink: sink, avatarKick: make(chan struct{}, 1), log: diagnostics}
+	c.client = whatsmeow.NewClient(device, diagnostics.Sub("whatsmeow"))
+	c.diag("opened: paired=%v", device.ID != nil)
+	// whatsmeow calls its handlers while it may hold the database's only
+	// connection (decrypting in a transaction): an event that reads or writes
+	// the database there waits for itself. Events are queued and handled in
+	// order on their own goroutine once whatsmeow has let go.
+	queue := newEventQueue()
+	c.client.AddEventHandler(queue.push)
+	go queue.run(ctx, c.event)
 	// A crash while sending is an uncertain outcome, never an automatic retry.
 	if _, err := v.db.Exec(`UPDATE rv_messages SET status='uncertain' WHERE status='sending'`); err != nil {
 		return fail(err)
@@ -662,7 +687,8 @@ func open(path string, key []byte, sink func(wire)) (*connector, func(), error) 
 				if c.namesDirty.Swap(false) {
 					c.emitNames()
 				}
-				if v.checkpoint() != nil {
+				if err := v.checkpoint(); err != nil {
+					c.diag("checkpoint failed: %v", err)
 					c.stopOnStorageFailure()
 				}
 			}
@@ -673,7 +699,7 @@ func open(path string, key []byte, sink func(wire)) (*connector, func(), error) 
 		c.client.Disconnect()
 		<-done
 		_ = v.checkpoint()
-		v.db.Close()
+		v.close()
 		_ = lock.Unlock()
 	}
 	return c, closer, nil
@@ -701,6 +727,10 @@ func (c *connector) handle(cmd command) bool {
 		go c.search(cmd)
 	case "download":
 		go c.download(cmd)
+	case "presence":
+		go c.presence(cmd)
+	case "typing":
+		go c.typing(cmd)
 	case "logout":
 		if err := c.client.Logout(c.ctx); err != nil {
 			c.fail("logout_failed")

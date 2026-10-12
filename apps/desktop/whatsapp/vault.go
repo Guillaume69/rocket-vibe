@@ -5,8 +5,10 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -20,14 +22,38 @@ const maxStateBytes = 128 << 20
 var stateHeader = []byte("RVWA1")
 
 // SQLite lives in RAM. Only an authenticated ciphertext reaches disk.
+//
+// whatsmeow needs more than one connection: decrypting a message, it reads
+// the identity store outside the transaction it holds, and a one-connection
+// ":memory:" database waited for itself there (no message after the first
+// one received offline). The database is a shared in-memory cache across a
+// pool: reads are read-uncommitted, so they never wait for a transaction, and
+// a write waits for the writer before it (go-sqlite3's unlock notify, see
+// tags.go) instead of failing. One connection is kept for sealing; it keeps
+// the database alive.
 type vault struct {
 	db      *sql.DB
+	seal    *sql.Conn
 	path    string
 	aead    cipher.AEAD
 	mu      sync.Mutex
 	revoked bool
-	// SQLite's total_changes() at the last sealed snapshot, -1 before the first.
-	saved int64
+	// The digest of the image last sealed: an unchanged one is not rewritten.
+	sealed [32]byte
+}
+
+func (v *vault) close() {
+	_ = v.seal.Close()
+	_ = v.db.Close()
+}
+
+// The pool's driver: every connection reads without waiting for writers, and
+// checks foreign keys like whatsmeow's schema expects.
+func init() {
+	sql.Register("sqlite3_rv", &sqlite3.SQLiteDriver{ConnectHook: func(conn *sqlite3.SQLiteConn) error {
+		_, err := conn.Exec("PRAGMA read_uncommitted = 1; PRAGMA foreign_keys = ON;", nil)
+		return err
+	}})
 }
 
 func openVault(path string, key []byte) (*vault, error) {
@@ -42,38 +68,46 @@ func openVault(path string, key []byte) (*vault, error) {
 	if err != nil {
 		return nil, err
 	}
-	db, err := sql.Open("sqlite3", ":memory:?_foreign_keys=on")
+	name := make([]byte, 12)
+	if _, err := io.ReadFull(rand.Reader, name); err != nil {
+		return nil, err
+	}
+	db, err := sql.Open("sqlite3_rv", fmt.Sprintf("file:rvwa-%x?mode=memory&cache=shared&_busy_timeout=15000", name))
 	if err != nil {
 		return nil, err
 	}
-	db.SetMaxOpenConns(1)
-	v := &vault{db: db, path: path, aead: aead, saved: -1}
-	if info, statErr := os.Stat(path); statErr == nil && info.Size() > maxStateBytes {
+	db.SetMaxOpenConns(8)
+	db.SetConnMaxIdleTime(0)
+	seal, err := db.Conn(context.Background())
+	if err != nil {
 		db.Close()
+		return nil, err
+	}
+	v := &vault{db: db, seal: seal, path: path, aead: aead}
+	if info, statErr := os.Stat(path); statErr == nil && info.Size() > maxStateBytes {
+		v.close()
 		return nil, errors.New("state too large")
 	}
 	blob, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
-		db.Close()
+		v.close()
 		return nil, err
 	}
 	if len(blob) > 0 {
 		plain, err := v.unseal(blob)
 		if err != nil {
-			db.Close()
+			v.close()
 			return nil, err
 		}
 		err = v.restore(plain)
+		v.sealed = sha256.Sum256(plain)
 		clear(plain)
-		if err == nil {
-			v.saved, err = v.changes()
-		}
 		if err != nil {
-			db.Close()
+			v.close()
 			return nil, err
 		}
 	} else if err == nil {
-		db.Close()
+		v.close()
 		return nil, errors.New("empty state")
 	}
 	return v, nil
@@ -120,13 +154,9 @@ func (v *vault) restore(image []byte) error {
 	})
 }
 
+// Runs `f` on the sealing connection's driver.
 func (v *vault) raw(f func(*sqlite3.SQLiteConn) error) error {
-	conn, err := v.db.Conn(context.Background())
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	return conn.Raw(func(driver any) error {
+	return v.seal.Raw(func(driver any) error {
 		sqlite, ok := driver.(*sqlite3.SQLiteConn)
 		if !ok {
 			return errors.New("wrong database driver")
@@ -142,28 +172,14 @@ func (v *vault) unseal(blob []byte) ([]byte, error) {
 	return v.aead.Open(nil, blob[n:n+v.aead.NonceSize()], blob[n+v.aead.NonceSize():], stateHeader)
 }
 
-// The rows written on the single in-memory connection since it opened.
-func (v *vault) changes() (int64, error) {
-	var n int64
-	err := v.db.QueryRow("SELECT total_changes()").Scan(&n)
-	return n, err
-}
 func (v *vault) checkpoint() error {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	if v.revoked {
 		return nil
 	}
-	// Sealing serializes the whole database: skip it when nothing was written.
-	changes, err := v.changes()
-	if err != nil {
-		return err
-	}
-	if changes == v.saved {
-		return nil
-	}
 	var plain []byte
-	err = v.raw(func(c *sqlite3.SQLiteConn) error {
+	err := v.raw(func(c *sqlite3.SQLiteConn) error {
 		var err error
 		plain, err = c.Serialize("main")
 		return err
@@ -174,6 +190,11 @@ func (v *vault) checkpoint() error {
 	defer clear(plain)
 	if len(plain) > maxStateBytes-128 {
 		return errors.New("state too large")
+	}
+	// An image like the one sealed last is not written again.
+	digest := sha256.Sum256(plain)
+	if digest == v.sealed {
+		return nil
 	}
 	nonce := make([]byte, v.aead.NonceSize())
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
@@ -208,7 +229,7 @@ func (v *vault) checkpoint() error {
 	if err := os.Rename(name, v.path); err != nil {
 		return err
 	}
-	v.saved = changes
+	v.sealed = digest
 	return nil
 }
 func (v *vault) revoke() error {

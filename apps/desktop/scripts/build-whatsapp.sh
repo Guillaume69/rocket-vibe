@@ -12,14 +12,14 @@ case "${TARGET_OS:-linux}" in linux | windows) ;; *) echo "Unsupported TARGET_OS
 docker run --rm -e GOTOOLCHAIN=auto -v rv-whatsapp-go:/go -v "$repo:/src" -w /src/apps/desktop/whatsapp \
   -e OUTPUT="$output" -e TARGET_OS="${TARGET_OS:-linux}" golang:1.25-bookworm bash -ec '
     test -z "$(gofmt -l *.go)"
-    go vet ./...
-    go test -race ./...
+    go vet -tags sqlite_unlock_notify ./...
+    go test -race -tags sqlite_unlock_notify ./...
     mkdir -p "../target/$OUTPUT"
     if [ "$TARGET_OS" = windows ]; then
       apt-get update -qq >/dev/null && apt-get install -y -qq gcc-mingw-w64-x86-64 >/dev/null
       CGO_ENABLED=1 GOOS=windows GOARCH=amd64 CC=x86_64-w64-mingw32-gcc \
-        go build -trimpath -o "../target/$OUTPUT/rv-whatsapp.exe" .
+        go build -tags sqlite_unlock_notify -trimpath -o "../target/$OUTPUT/rv-whatsapp.exe" .
     else
-      go build -trimpath -o "../target/$OUTPUT/rv-whatsapp" .
+      go build -tags sqlite_unlock_notify -trimpath -o "../target/$OUTPUT/rv-whatsapp" .
     fi
   '

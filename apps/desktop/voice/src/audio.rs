@@ -956,6 +956,36 @@ mod tests {
         assert_eq!(mix.input_level(), 0.0, "the published microphone meter remains silent");
     }
 
+    fn range(channels: u16, format: SampleFormat) -> cpal::SupportedStreamConfigRange {
+        cpal::SupportedStreamConfigRange::new(channels, 1, 384_000, cpal::SupportedBufferSize::Unknown, format)
+    }
+
+    fn config(channels: u16, rate: u32, format: SampleFormat) -> cpal::SupportedStreamConfig {
+        cpal::SupportedStreamConfig::new(channels, rate, cpal::SupportedBufferSize::Unknown, format)
+    }
+
+    #[test]
+    fn a_24_bit_sink_opens_in_float_at_its_rate_and_channels() {
+        let ranges = vec![range(2, SampleFormat::I24), range(2, SampleFormat::F32), range(6, SampleFormat::F32)];
+        let chosen = choose(Some(config(2, 44_100, SampleFormat::I24)), ranges, true).unwrap();
+        assert_eq!(chosen, config(2, 44_100, SampleFormat::F32));
+    }
+
+    #[test]
+    fn without_float_the_device_format_opens_when_it_is_converted() {
+        let i24 = config(1, 48_000, SampleFormat::I24);
+        assert_eq!(choose(Some(i24), vec![range(1, SampleFormat::I24)], false), Some(i24));
+        assert_eq!(choose(Some(config(2, 48_000, SampleFormat::U8)), vec![range(2, SampleFormat::U8)], true), None);
+    }
+
+    #[test]
+    fn a_device_without_a_readable_default_opens_in_float_stereo_or_mono() {
+        let ranges = vec![range(1, SampleFormat::F32), range(2, SampleFormat::F32)];
+        assert_eq!(choose(None, ranges.clone(), true), Some(config(2, RATE, SampleFormat::F32)));
+        assert_eq!(choose(None, ranges, false), Some(config(1, RATE, SampleFormat::F32)));
+        assert_eq!(choose(None, vec![], true), None);
+    }
+
     #[test]
     fn remotes_mix_at_their_gain_and_speak_from_their_sound() {
         let mix = Mix::new();

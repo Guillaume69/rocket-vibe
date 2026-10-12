@@ -273,10 +273,47 @@ try {
       assert.equal(await message.textContent(), expected);
       assert.ok(!/\b(?:[a-z]+_){1,}[a-z]+\b/.test(await message.textContent()));
     }
+    // A future gateway/server code must not inherit Object members as a caption.
+    // This controls only error transport; all authentication/receipt cases below
+    // continue to exercise the real server and actual one-time codes.
+    for (const checkbox of await page.locator(".login-modes input").all())
+      await checkbox.uncheck();
+    await page.locator('input[autocomplete="username"]').fill(rejectedUser);
+    await page.locator('input[autocomplete="current-password"]').fill(password);
+    for (const code of ["constructor", "__proto__"]) {
+      const path = "**/api/v1/auth/start";
+      const refusal = (route) =>
+        route.fulfill({
+          status: 400,
+          contentType: "application/json",
+          body: JSON.stringify({
+            code,
+            request_id: "future-error-caption-fixture",
+          }),
+        });
+      await page.route(path, refusal);
+      await Promise.all([
+        page.waitForResponse(
+          (response) =>
+            response.url().endsWith("/api/v1/auth/start") &&
+            response.status() === 400,
+        ),
+        page.locator('button[type="submit"]').click(),
+      ]);
+      await message.waitFor();
+      assert.equal(
+        await message.textContent(),
+        language === "fr"
+          ? "Identifiant ou mot de passe refusé."
+          : "Username or password rejected.",
+      );
+      assert.ok(!(await message.textContent()).includes(code));
+      await page.unroute(path, refusal);
+    }
     await context.close();
   }
   pass(
-    "actual rejected password, invitation and recovery show native English/French captions without wire keys",
+    "actual rejected password, invitation and recovery plus unknown inherited codes show native English/French captions without wire keys",
   );
   const page = await startPage(names[0]);
   await openSecurity(page);

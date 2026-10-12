@@ -275,7 +275,7 @@ jobs:
               xvfb-run -a -s "-screen 0 1600x1000x24" cargo test --locked -p rocket-vibe-gtk incoming_calls_require_answers_and_keep_remote_and_account_closure -- --ignored --test-threads=1
               xvfb-run -a cargo test --locked -p rocket-vibe-gtk the_editor_and_the_form_card_follow_the_contract -- --ignored --test-threads=1
               xvfb-run -a cargo test --locked -p rocket-vibe-gtk new_direct_and_public_rooms_open_after_sync_without_stealing_later_navigation -- --ignored --test-threads=1
-              xvfb-run -a cargo test --locked -p rocket-vibe-gtk native_login_modes_fit_narrow_windows_and_scroll_to_their_submit -- --ignored --test-threads=1
+              xvfb-run -a -s "-screen 0 1600x1000x24" cargo test --locked -p rocket-vibe-gtk native_login_modes_fit_narrow_windows_and_scroll_to_their_submit -- --ignored --test-threads=1
               GSK_RENDERER=cairo xvfb-run -a cargo test --locked -p rocket-vibe-gtk windows_cairo_voice_to_room_keeps_zero_blur_speaking_and_button_feedback -- --ignored --test-threads=1
               cargo build --locked -p rv-core --example native-smoke --example native-files-smoke --example native-reload-peer
               cargo build --locked -p rocket-vibe-gtk

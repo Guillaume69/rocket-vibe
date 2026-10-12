@@ -233,25 +233,6 @@ pub async fn pages(rest: &RestClient, path: &str) -> Result<Vec<Value>, RestErro
     Ok(out)
 }
 
-/// Does an account that is not open have something unread?
-pub async fn unread(info: &SessionInfo) -> Result<bool, RestError> {
-    let base: Url = info.base_url.parse().map_err(|_| error("base URL"))?;
-    let rest = client(base, info.mattermost);
-    rest.set_credentials(Some(Credentials { auth_token: info.auth_token.clone(), user_id: info.user_id.clone() }));
-    let (channels, members) = tokio::try_join!(
-        rest.get("users/me/channels", CallOptions::default()),
-        pages(&rest, "users/me/channel_members")
-    )?;
-    let channels = channels.as_array().cloned().unwrap_or_default();
-    Ok(members.iter().any(|member| {
-        let id = member.get("channel_id").and_then(Value::as_str);
-        channels.iter().find(|c| c.get("id").and_then(Value::as_str) == id).is_some_and(|channel| {
-            let (unread, mentions) = translate::counts(channel, member);
-            unread > 0 || mentions > 0
-        })
-    }))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

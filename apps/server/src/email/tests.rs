@@ -835,3 +835,162 @@ async fn pruned_expired_challenge_never_reopens_its_claimed_head(pool: sqlx::PgP
         1
     );
 }
+async fn verify(app: &App, relay: &Relay, account: &Account, address: &str) -> Result<()> {
+    let input = start_input(app, account, address).await;
+    begin(app, account, input.clone(), None).await?;
+    email_delivery::drain(app).await?;
+    let normalized = crate::mail::normalized_address(address)?;
+    let code = relay.codes(&normalized).await.pop().expect("code was sent");
+    confirm(app, account, confirmation(&input, code)).await?;
+    Ok(())
+}
+async fn signed_in(app: &App, name: &str) -> Account {
+    auth::create_user(app, name, PASSWORD.into(), false)
+        .await
+        .unwrap();
+    let session = auth::login(app, name.into(), PASSWORD.into())
+        .await
+        .unwrap();
+    auth::authenticate(app, &auth::hash_token(&session.token))
+        .await
+        .unwrap()
+}
+fn refused(result: Result<rv_protocol::Session>) -> (axum::http::StatusCode, &'static str) {
+    match result {
+        Ok(_) => panic!("sign-in accepted"),
+        Err(error) => (error.status, error.code),
+    }
+}
+#[sqlx::test]
+async fn a_verified_address_signs_in_with_its_domain_in_any_case(pool: sqlx::PgPool) {
+    let relay = Relay::start(false).await;
+    let (app, account) = fixture(&pool, &relay).await;
+    verify(&app, &relay, &account, "Owner@Example.TEST")
+        .await
+        .unwrap();
+    for identifier in ["Owner@example.test", "Owner@EXAMPLE.test"] {
+        let session = auth::login(&app, identifier.into(), PASSWORD.into())
+            .await
+            .unwrap();
+        assert_eq!(session.user.id, account.id);
+        assert_eq!(session.user.username, "owner");
+    }
+    assert!(matches!(
+        auth::start_login(&app, "Owner@example.test".into(), PASSWORD.into(), None)
+            .await
+            .unwrap(),
+        rv_protocol::parity::AuthenticationStep::Session { session } if session.user.id == account.id
+    ));
+    let wrong = refused(
+        auth::login(
+            &app,
+            "Owner@example.test".into(),
+            "wrong-password-2026".into(),
+        )
+        .await,
+    );
+    assert_eq!(
+        wrong,
+        (axum::http::StatusCode::UNAUTHORIZED, "session_rejected")
+    );
+    assert_eq!(
+        refused(auth::login(&app, "owner@example.test".into(), PASSWORD.into()).await),
+        wrong
+    );
+    assert_eq!(
+        refused(auth::login(&app, "nobody@example.test".into(), PASSWORD.into()).await),
+        wrong
+    );
+    assert_eq!(
+        refused(auth::login(&app, "not an @ address".into(), PASSWORD.into()).await),
+        wrong
+    );
+    assert!(
+        auth::login(&app, "owner".into(), PASSWORD.into())
+            .await
+            .is_ok()
+    );
+}
+#[sqlx::test]
+async fn a_pending_or_disabled_address_never_signs_in(pool: sqlx::PgPool) {
+    let relay = Relay::start(false).await;
+    let (app, account) = fixture(&pool, &relay).await;
+    let input = start_input(&app, &account, "owner@example.test").await;
+    begin(&app, &account, input, None).await.unwrap();
+    email_delivery::drain(&app).await.unwrap();
+    let wrong = refused(auth::login(&app, "owner".into(), "wrong-password-2026".into()).await);
+    assert_eq!(
+        refused(auth::login(&app, "owner@example.test".into(), PASSWORD.into()).await),
+        wrong
+    );
+    let other = signed_in(&app, "other").await;
+    verify(&app, &relay, &other, "other@example.test")
+        .await
+        .unwrap();
+    assert!(
+        auth::login(&app, "other@example.test".into(), PASSWORD.into())
+            .await
+            .is_ok()
+    );
+    sqlx::query("UPDATE users SET disabled=true WHERE id=$1")
+        .bind(&other.id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        refused(auth::login(&app, "other@example.test".into(), PASSWORD.into()).await),
+        wrong
+    );
+}
+#[sqlx::test]
+async fn a_verified_address_belongs_to_one_account(pool: sqlx::PgPool) {
+    let relay = Relay::start(false).await;
+    let (app, account) = fixture(&pool, &relay).await;
+    verify(&app, &relay, &account, "shared@example.test")
+        .await
+        .unwrap();
+    let other = signed_in(&app, "other").await;
+    let taken = verify(&app, &relay, &other, "shared@EXAMPLE.test")
+        .await
+        .expect_err("address already held");
+    assert_eq!(
+        (taken.status, taken.code),
+        (axum::http::StatusCode::CONFLICT, "email_address_taken")
+    );
+    assert!(status(&app, &other).await.unwrap().address.is_none());
+    let session = auth::login(&app, "shared@example.test".into(), PASSWORD.into())
+        .await
+        .unwrap();
+    assert_eq!(session.user.id, account.id);
+    sqlx::query("DELETE FROM account_emails WHERE user_id=$1")
+        .bind(&account.id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO account_emails(user_id,address,verified_at,sign_in) VALUES($1,'legacy@example.test',clock_timestamp(),false),($2,'legacy@example.test',clock_timestamp(),false)")
+        .bind(&account.id)
+        .bind(&other.id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        refused(auth::login(&app, "legacy@example.test".into(), PASSWORD.into()).await),
+        (axum::http::StatusCode::UNAUTHORIZED, "session_rejected")
+    );
+    assert!(
+        sqlx::query("INSERT INTO account_emails(user_id,address,verified_at) VALUES($1,'unique@example.test',clock_timestamp()) ON CONFLICT(user_id) DO UPDATE SET address=excluded.address,sign_in=true")
+            .bind(&account.id)
+            .execute(&pool)
+            .await
+            .is_ok()
+    );
+    assert!(
+        sqlx::query(
+            "UPDATE account_emails SET address='unique@example.test',sign_in=true WHERE user_id=$1"
+        )
+        .bind(&other.id)
+        .execute(&pool)
+        .await
+        .is_err_and(|e| matches!(e, sqlx::Error::Database(e) if e.is_unique_violation()))
+    );
+}

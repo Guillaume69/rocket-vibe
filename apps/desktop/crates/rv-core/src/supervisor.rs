@@ -16,6 +16,7 @@
 //! nothing is announced twice.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
@@ -201,6 +202,8 @@ struct Inner {
     starter: Starter,
     entries: Mutex<HashMap<String, Entry>>,
     active: Mutex<Option<String>>,
+    /// Counts `open`: the latest opening owns the screen.
+    openings: AtomicU64,
     /// Refused tokens: not started again until the account is opened.
     expired: Mutex<HashSet<String>>,
     notices: mpsc::UnboundedSender<AccountNotice>,
@@ -219,6 +222,7 @@ impl Supervisor {
             starter,
             entries: Mutex::default(),
             active: Mutex::default(),
+            openings: AtomicU64::new(0),
             expired: Mutex::default(),
             notices,
         };
@@ -228,6 +232,11 @@ impl Supervisor {
     /// The account to show: its running session, else a new one. It becomes
     /// the open account, the previous one goes to the background.
     pub fn open(&self, info: &SessionInfo) -> Result<Chat, String> {
+        self.open_counted(info).map(|(chat, _)| chat)
+    }
+
+    /// `open`, and which opening it was, for `leave`.
+    pub fn open_counted(&self, info: &SessionInfo) -> Result<(Chat, u64), String> {
         let key = key(info);
         self.0.expired.lock().unwrap().remove(&key);
         let chat = {
@@ -258,14 +267,34 @@ impl Supervisor {
                 }
             }
         };
-        self.set_active(Some(&key));
-        Ok(chat)
+        let mut active = self.0.active.lock().unwrap();
+        let opening = self.0.openings.fetch_add(1, Ordering::SeqCst) + 1;
+        let previous = active.replace(key.clone());
+        drop(active);
+        self.left(previous, Some(&key));
+        Ok((chat, opening))
+    }
+
+    /// The screen that `opening` gave the account closes; nothing changes if
+    /// an account, even the same one, was opened since.
+    pub fn leave(&self, opening: u64) {
+        let mut active = self.0.active.lock().unwrap();
+        if self.0.openings.load(Ordering::SeqCst) != opening {
+            return;
+        }
+        let previous = active.take();
+        drop(active);
+        self.left(previous, None);
     }
 
     /// Which account is on screen; None while none is (the sign-in form).
     /// The one leaving it stops hearing its open room and leaves its voice session.
     pub fn set_active(&self, key: Option<&str>) {
         let previous = std::mem::replace(&mut *self.0.active.lock().unwrap(), key.map(str::to_owned));
+        self.left(previous, key);
+    }
+
+    fn left(&self, previous: Option<String>, key: Option<&str>) {
         let Some(previous) = previous.filter(|p| Some(p.as_str()) != key) else { return };
         let chat = self.0.entries.lock().unwrap().get(&previous).and_then(|e| e.chat.clone());
         match chat {

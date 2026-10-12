@@ -20,6 +20,7 @@ There is no authorization to claim a live pairing, merge this experimental pilot
 | Go cache | `apps/desktop/whatsapp/store.go` | The engine's tables (`rv_messages`, `rv_reactions`, `rv_chat_names`, `rv_avatars`), migrations, pruning, LID to phone-number re-keying, replay |
 | Go identities | `apps/desktop/whatsapp/identity.go` | Canonical JIDs, the name table, group subjects |
 | Go photos | `apps/desktop/whatsapp/avatars.go` | Profile previews fetched one at a time, cached sealed for a week |
+| Go read state | `apps/desktop/whatsapp/reads.go` | Unread counts per chat, receipts on my messages, read receipts when a chat is read |
 | Go transport | `apps/desktop/whatsapp/main.go` | stdin/stdout JSON lines for the desktop |
 | Encrypted state | `apps/desktop/whatsapp/vault.go` | In-memory SQLite, serialization, AES-GCM snapshots, atomic replace and revocation |
 | Rust adapter | `apps/desktop/crates/rv-core/src/whatsapp.rs` | Spawn and reap the child, bounded IPC, transient QR, in-memory native projection |
@@ -41,10 +42,11 @@ The first stdin object is `{"type":"start","key":"<base64-encoded 32-byte OS-key
 Subsequent commands:
 
 - `connect`: restart transport; obtain a fresh QR only if the device has not been paired.
-- `send`: includes `id` (a stable intent/message id), `chat` (WhatsApp JID), `text`. Text is bounded to 20,000 UTF-8 bytes. Only personal PN/LID and group JIDs are accepted.
+- `send`: includes `id` (a stable intent/message id), `chat` (WhatsApp JID), `text`, and `reply` (the scoped id of the message it answers, same chat) for a quoted reply. Text is bounded to 20,000 UTF-8 bytes. Only personal PN/LID and group JIDs are accepted.
 - `react`: `id` (a scoped message id), `text` (the emoji glyph; empty takes my reaction back).
 - `edit`: `id` of my own settled message, `text`; refused past WhatsApp's 15-minute window (`edit_expired`).
 - `delete`: `id` of my own settled message, deleted for everyone; refused past 48 hours (`delete_expired`).
+- `read`: `chat`; sends read receipts for its unread messages of others (at most 100, newest first; a private `read-self` when my privacy settings send no read receipts) and sets its count to zero, here and on my other devices.
 - `logout`: remotely unlink the device, delete encrypted state on success, then exit. Failure is visible; local removal alone is not a remote logout.
 - `stop`: close transport, checkpoint state and exit, preserving the association.
 
@@ -56,7 +58,11 @@ Output types:
 - `names`: `names`, the whole table JID to display name (address book, then push name, business name, group subject or history name, then `+<number>`); the client swaps it in and prefers it over a message's own `name`/`author`. Sent at most once a second, when contacts, push names, groups or the cache moved.
 - `avatar`: `jid`, `data` (a base64 JPEG preview; empty once the photo is gone).
 - `reaction`: nested `message, sender, emoji, ts`; an empty emoji takes that sender's reaction back. One reaction per sender per message, the newest wins.
-- `reload`: the cache was re-keyed (a LID mapped to a number); the client drops messages and reactions, a full replay follows.
+- `chat`: `jid`, `unread`: the chat's unread count. Seeded from the phone's own count in the first history sync, one more per new message of someone else, zero when a chat is read here or on the phone (`read-self` receipt or `MarkChatAsRead`), at least one when the phone marks it unread.
+- `message` also carries `receipt` on my messages (`delivered`, `read`, `played`, never moving back; only `delivered` in groups, where one reader is not everyone) and, on a reply, `reply_to`, `quote_sender` (`me` for mine) and `quote_text` as quoted.
+- `reload`: the cache was re-keyed (a LID mapped to a number); the client drops messages, reactions and counts, a full replay follows.
+
+Compatibility: the Rust adapter skips a frame whose type it does not know (a newer helper beside an older app), and stops only on a frame that is not JSON. New fields are optional on both sides.
 - `sent`: `id, state`; empty state is accepted by WhatsApp, `uncertain` is an ambiguous outcome. Acceptance is not a delivery/read receipt.
 - `error`: a stable non-sensitive `code`, plus `id` when it refuses one send before any record or network attempt (`not_connected`, `invalid_send`, `local_storage_failed`, `send_already_recorded`): the client gives that send's text back as a draft. Without `id`, `logout_failed`, `invalid_command` and `local_storage_failed` leave the connection state alone; `action_failed`, `edit_expired`, `delete_expired` refuse one reaction, edit or deletion; every other code (`connector_start_failed`, `secure_storage_failed`, `session_ended`, `pairing_failed`, `client_outdated`, `connection_failed`, `state_removal_failed`) ends it (`state: error`) and Refresh starts a new helper. Do not log upstream exception bodies.
 

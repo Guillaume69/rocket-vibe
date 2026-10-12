@@ -113,6 +113,28 @@ pub(crate) fn secret() -> Zeroizing<[u8; 20]> {
     secret
 }
 
+/// Key Uri Format: `issuer:account` label, `issuer=` repeated for older apps.
+pub(crate) fn provisioning_uri(issuer: &str, account: &str, secret: &str) -> String {
+    let issuer = uri_component(issuer);
+    format!(
+        "otpauth://totp/{issuer}:{}?secret={secret}&issuer={issuer}&algorithm=SHA1&digits=6&period=30",
+        uri_component(account)
+    )
+}
+
+fn uri_component(value: &str) -> String {
+    value
+        .bytes()
+        .map(|b| {
+            if b.is_ascii_alphanumeric() || b"-._~".contains(&b) {
+                (b as char).to_string()
+            } else {
+                format!("%{b:02X}")
+            }
+        })
+        .collect()
+}
+
 fn hotp(secret: &[u8], counter: u64, digits: u32) -> String {
     let mut mac = <Hmac<Sha1> as Mac>::new_from_slice(secret).expect("HMAC accepts every key size");
     mac.update(&counter.to_be_bytes());
@@ -180,6 +202,18 @@ mod tests {
             assert!(AuthKey::from_file(&path).is_err());
         }
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn provisioning_uri_follows_the_key_uri_format() {
+        assert_eq!(
+            provisioning_uri("RocketVibe-0a1b2c3d", "ada_l-1", "JBSWY3DPEHPK3PXP"),
+            "otpauth://totp/RocketVibe-0a1b2c3d:ada_l-1?secret=JBSWY3DPEHPK3PXP&issuer=RocketVibe-0a1b2c3d&algorithm=SHA1&digits=6&period=30"
+        );
+        assert_eq!(
+            provisioning_uri("Rocket Vibe", "a:b@c/é", "S"),
+            "otpauth://totp/Rocket%20Vibe:a%3Ab%40c%2F%C3%A9?secret=S&issuer=Rocket%20Vibe&algorithm=SHA1&digits=6&period=30"
+        );
     }
 
     #[test]

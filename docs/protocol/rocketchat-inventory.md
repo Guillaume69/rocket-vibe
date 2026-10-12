@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-630 production files scanned; 726 occurrences.
+634 production files scanned; 726 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -126,20 +126,20 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/i18n.rs:1237](../../apps/desktop/crates/rv-core/src/i18n.rs#L1237) | endpoint | rooms.new_channel |
 | [apps/desktop/crates/rv-core/src/i18n.rs:1238](../../apps/desktop/crates/rv-core/src/i18n.rs#L1238) | endpoint | rooms.account_menu |
 | [apps/desktop/crates/rv-core/src/i18n.rs:1241](../../apps/desktop/crates/rv-core/src/i18n.rs#L1241) | endpoint | rooms.back_to_room |
-| [apps/desktop/crates/rv-core/src/i18n.rs:1695](../../apps/desktop/crates/rv-core/src/i18n.rs#L1695) | endpoint | e2e.banner |
-| [apps/desktop/crates/rv-core/src/i18n.rs:1696](../../apps/desktop/crates/rv-core/src/i18n.rs#L1696) | endpoint | e2e.unlock |
-| [apps/desktop/crates/rv-core/src/i18n.rs:1697](../../apps/desktop/crates/rv-core/src/i18n.rs#L1697) | endpoint | e2e.lock |
-| [apps/desktop/crates/rv-core/src/i18n.rs:1698](../../apps/desktop/crates/rv-core/src/i18n.rs#L1698) | endpoint | e2e.title |
-| [apps/desktop/crates/rv-core/src/i18n.rs:1700](../../apps/desktop/crates/rv-core/src/i18n.rs#L1700) | endpoint | e2e.body |
-| [apps/desktop/crates/rv-core/src/i18n.rs:1704](../../apps/desktop/crates/rv-core/src/i18n.rs#L1704) | endpoint | e2e.password |
-| [apps/desktop/crates/rv-core/src/i18n.rs:1705](../../apps/desktop/crates/rv-core/src/i18n.rs#L1705) | endpoint | e2e.wrong |
-| [apps/desktop/crates/rv-core/src/i18n.rs:1706](../../apps/desktop/crates/rv-core/src/i18n.rs#L1706) | endpoint | e2e.no_keys |
-| [apps/desktop/crates/rv-core/src/i18n.rs:1707](../../apps/desktop/crates/rv-core/src/i18n.rs#L1707) | endpoint | e2e.failed |
-| [apps/desktop/crates/rv-core/src/i18n.rs:1708](../../apps/desktop/crates/rv-core/src/i18n.rs#L1708) | endpoint | e2e.read_only |
-| [apps/desktop/crates/rv-core/src/i18n.rs:1709](../../apps/desktop/crates/rv-core/src/i18n.rs#L1709) | endpoint | e2e.status |
-| [apps/desktop/crates/rv-core/src/i18n.rs:1710](../../apps/desktop/crates/rv-core/src/i18n.rs#L1710) | endpoint | e2e.locked |
-| [apps/desktop/crates/rv-core/src/i18n.rs:1711](../../apps/desktop/crates/rv-core/src/i18n.rs#L1711) | endpoint | e2e.unlocked |
-| [apps/desktop/crates/rv-core/src/i18n.rs:1810](../../apps/desktop/crates/rv-core/src/i18n.rs#L1810) | endpoint | rooms.quoted_message |
+| [apps/desktop/crates/rv-core/src/i18n.rs:1700](../../apps/desktop/crates/rv-core/src/i18n.rs#L1700) | endpoint | e2e.banner |
+| [apps/desktop/crates/rv-core/src/i18n.rs:1701](../../apps/desktop/crates/rv-core/src/i18n.rs#L1701) | endpoint | e2e.unlock |
+| [apps/desktop/crates/rv-core/src/i18n.rs:1702](../../apps/desktop/crates/rv-core/src/i18n.rs#L1702) | endpoint | e2e.lock |
+| [apps/desktop/crates/rv-core/src/i18n.rs:1703](../../apps/desktop/crates/rv-core/src/i18n.rs#L1703) | endpoint | e2e.title |
+| [apps/desktop/crates/rv-core/src/i18n.rs:1705](../../apps/desktop/crates/rv-core/src/i18n.rs#L1705) | endpoint | e2e.body |
+| [apps/desktop/crates/rv-core/src/i18n.rs:1709](../../apps/desktop/crates/rv-core/src/i18n.rs#L1709) | endpoint | e2e.password |
+| [apps/desktop/crates/rv-core/src/i18n.rs:1710](../../apps/desktop/crates/rv-core/src/i18n.rs#L1710) | endpoint | e2e.wrong |
+| [apps/desktop/crates/rv-core/src/i18n.rs:1711](../../apps/desktop/crates/rv-core/src/i18n.rs#L1711) | endpoint | e2e.no_keys |
+| [apps/desktop/crates/rv-core/src/i18n.rs:1712](../../apps/desktop/crates/rv-core/src/i18n.rs#L1712) | endpoint | e2e.failed |
+| [apps/desktop/crates/rv-core/src/i18n.rs:1713](../../apps/desktop/crates/rv-core/src/i18n.rs#L1713) | endpoint | e2e.read_only |
+| [apps/desktop/crates/rv-core/src/i18n.rs:1714](../../apps/desktop/crates/rv-core/src/i18n.rs#L1714) | endpoint | e2e.status |
+| [apps/desktop/crates/rv-core/src/i18n.rs:1715](../../apps/desktop/crates/rv-core/src/i18n.rs#L1715) | endpoint | e2e.locked |
+| [apps/desktop/crates/rv-core/src/i18n.rs:1716](../../apps/desktop/crates/rv-core/src/i18n.rs#L1716) | endpoint | e2e.unlocked |
+| [apps/desktop/crates/rv-core/src/i18n.rs:1815](../../apps/desktop/crates/rv-core/src/i18n.rs#L1815) | endpoint | rooms.quoted_message |
 | [apps/desktop/crates/rv-core/src/live.rs:8](../../apps/desktop/crates/rv-core/src/live.rs#L8) | stream | stream-notify-logged |
 | [apps/desktop/crates/rv-core/src/mattermost/actions.rs:32](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L32) | call:POST | "reactions" |
 | [apps/desktop/crates/rv-core/src/mattermost/actions.rs:34](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L34) | call:DELETE | &format!("users/{…}/posts/{…}/reactions/{…}") |
@@ -717,18 +717,18 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/ui/discussion.tsx:34](../../apps/mobile/ui/discussion.tsx#L34) | endpoint | rooms.info |
 | [apps/mobile/ui/discussion.tsx:36](../../apps/mobile/ui/discussion.tsx#L36) | call:POST | 'channels.join' |
 | [apps/mobile/ui/discussion.tsx:36](../../apps/mobile/ui/discussion.tsx#L36) | endpoint | channels.join |
-| [apps/mobile/ui/messages.ts:1217](../../apps/mobile/ui/messages.ts#L1217) | endpoint | e2e.title |
-| [apps/mobile/ui/messages.ts:1218](../../apps/mobile/ui/messages.ts#L1218) | endpoint | e2e.explanation |
-| [apps/mobile/ui/messages.ts:1220](../../apps/mobile/ui/messages.ts#L1220) | endpoint | e2e.field |
-| [apps/mobile/ui/messages.ts:1221](../../apps/mobile/ui/messages.ts#L1221) | endpoint | e2e.unlock |
-| [apps/mobile/ui/messages.ts:1222](../../apps/mobile/ui/messages.ts#L1222) | endpoint | e2e.wrongPassword |
-| [apps/mobile/ui/messages.ts:1223](../../apps/mobile/ui/messages.ts#L1223) | endpoint | e2e.genericError |
-| [apps/mobile/ui/messages.ts:2852](../../apps/mobile/ui/messages.ts#L2852) | endpoint | e2e.title |
-| [apps/mobile/ui/messages.ts:2853](../../apps/mobile/ui/messages.ts#L2853) | endpoint | e2e.explanation |
-| [apps/mobile/ui/messages.ts:2855](../../apps/mobile/ui/messages.ts#L2855) | endpoint | e2e.field |
-| [apps/mobile/ui/messages.ts:2856](../../apps/mobile/ui/messages.ts#L2856) | endpoint | e2e.unlock |
-| [apps/mobile/ui/messages.ts:2857](../../apps/mobile/ui/messages.ts#L2857) | endpoint | e2e.wrongPassword |
-| [apps/mobile/ui/messages.ts:2858](../../apps/mobile/ui/messages.ts#L2858) | endpoint | e2e.genericError |
+| [apps/mobile/ui/messages.ts:1220](../../apps/mobile/ui/messages.ts#L1220) | endpoint | e2e.title |
+| [apps/mobile/ui/messages.ts:1221](../../apps/mobile/ui/messages.ts#L1221) | endpoint | e2e.explanation |
+| [apps/mobile/ui/messages.ts:1223](../../apps/mobile/ui/messages.ts#L1223) | endpoint | e2e.field |
+| [apps/mobile/ui/messages.ts:1224](../../apps/mobile/ui/messages.ts#L1224) | endpoint | e2e.unlock |
+| [apps/mobile/ui/messages.ts:1225](../../apps/mobile/ui/messages.ts#L1225) | endpoint | e2e.wrongPassword |
+| [apps/mobile/ui/messages.ts:1226](../../apps/mobile/ui/messages.ts#L1226) | endpoint | e2e.genericError |
+| [apps/mobile/ui/messages.ts:2858](../../apps/mobile/ui/messages.ts#L2858) | endpoint | e2e.title |
+| [apps/mobile/ui/messages.ts:2859](../../apps/mobile/ui/messages.ts#L2859) | endpoint | e2e.explanation |
+| [apps/mobile/ui/messages.ts:2861](../../apps/mobile/ui/messages.ts#L2861) | endpoint | e2e.field |
+| [apps/mobile/ui/messages.ts:2862](../../apps/mobile/ui/messages.ts#L2862) | endpoint | e2e.unlock |
+| [apps/mobile/ui/messages.ts:2863](../../apps/mobile/ui/messages.ts#L2863) | endpoint | e2e.wrongPassword |
+| [apps/mobile/ui/messages.ts:2864](../../apps/mobile/ui/messages.ts#L2864) | endpoint | e2e.genericError |
 | [apps/mobile/ui/realNames.ts:47](../../apps/mobile/ui/realNames.ts#L47) | call:GET | 'settings.public' |
 | [apps/mobile/ui/realNames.ts:47](../../apps/mobile/ui/realNames.ts#L47) | endpoint | settings.public |
 | [apps/mobile/ui/serverRail.tsx:41](../../apps/mobile/ui/serverRail.tsx#L41) | endpoint | subscriptions.get |

@@ -1353,6 +1353,13 @@
 .card-field.short {
   width: calc(50% - 12px);
 }
+.totp-qr {
+  display: block;
+  width: min(240px, 100%);
+  height: auto;
+  margin: 14px auto 0;
+  border-radius: 6px;
+}
 .totp-secret {
   display: block;
   margin: 14px 0;

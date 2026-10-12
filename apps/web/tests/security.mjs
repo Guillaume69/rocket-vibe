@@ -72,6 +72,9 @@ try {
     .getByRole("button", { name: "Set up authenticator", exact: true })
     .click();
   await page.locator(".totp-secret").waitFor();
+  await page
+    .getByRole("img", { name: "QR code to scan with your authenticator" })
+    .waitFor();
   const secret = await page.locator(".totp-secret").textContent();
   await page
     .getByLabel("Verification code", { exact: true })

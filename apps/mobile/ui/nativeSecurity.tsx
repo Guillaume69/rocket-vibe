@@ -1,5 +1,5 @@
 import {useCallback,useEffect,useRef,useState} from 'react';
-import {ActivityIndicator,Alert,AppState,StyleSheet,Text,View} from 'react-native';
+import {ActivityIndicator,Alert,AppState,Linking,StyleSheet,Text,View} from 'react-native';
 import {dismissible} from './alerts.ts';
 import {useFocusEffect} from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
@@ -13,6 +13,7 @@ import {nativeEmailVault,nativeFactorVault,nativeReauthenticationVault} from '..
 import {Tappable} from './tappable.tsx';
 import {useT} from './i18n.ts';
 import {PillField} from './kit.tsx';
+import {TotpQrCode} from './qrCode.tsx';
 import type {TranslationKey} from './messages.ts';
 import {useSync} from './sync.tsx';
 import {FONTS,type Colors} from './theme.ts';
@@ -162,6 +163,11 @@ function NativeSecurity({c,chat,reauthOnly=false,onConfirmed}:{c:Colors;chat:Nat
     if(kind!=='codes' && latest.kind==='setup' && expected.kind==='setup' && latest.setup.setup_id===expected.setup.setup_id){await Clipboard.setStringAsync(kind==='secret'?latest.setup.secret:latest.setup.provisioning_uri);return;}
     throw new NativeError(409,'credentials_changed');
   });};
+  const openAuthenticator=()=>{const expected=view;void run(async(access,guard)=>{
+    const latest=await nativeFactorVault.resume(access.scope,access.remote,guard);if(!guard())return;setView(latest);
+    if(latest.kind!=='setup' || expected.kind!=='setup' || latest.setup.setup_id!==expected.setup.setup_id)throw new NativeError(409,'credentials_changed');
+    try{await Linking.openURL(latest.setup.provisioning_uri);}catch{if(guard())setError('security.noAuthenticator');}
+  });};
   const startEmail=()=>{const expected=emailView,entered=emailAddress;setEmailAddress('');setEmailCode('');
     if(expected?.kind==='idle')void run(async(access,guard)=>{const next=await nativeEmailVault.start(access.scope,access.email,entered,expected.status,guard);if(guard())publishEmail(next);});
   };
@@ -218,7 +224,9 @@ function NativeSecurity({c,chat,reauthOnly=false,onConfirmed}:{c:Colors;chat:Nat
       </>}
       {factorAvailable && view.kind==='setup' && <>
         <Text style={[styles.text,{color:c.secondaryText}]}>{t('security.setupBody')}</Text>
+        <TotpQrCode uri={view.setup.provisioning_uri} label={t('security.qr')}/>
         <Text selectable style={[styles.secret,{color:c.text}]}>{view.setup.secret}</Text>
+        <Action c={c} label="security.openAuthenticator" onPress={openAuthenticator} disabled={busy}/>
         <Action c={c} label="security.copySecret" onPress={()=>copy('secret')} disabled={busy}/>
         <Action c={c} label="security.copyUri" onPress={()=>copy('uri')} disabled={busy}/>
         <PillField c={c} label={t('login.labelTotp')} value={code} keyboardType="number-pad" autoCorrect={false} maxLength={6} editable={!busy} onChangeText={setCode}/>

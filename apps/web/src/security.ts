@@ -10,8 +10,35 @@ import { operation, secret } from "./api";
 import { button, dialog, el, field } from "./dom";
 import { t, language } from "./i18n";
 import { emailSettings } from "./email";
+import { qrPath, totpQr } from "./totp-qr";
 
 const phrase = (en: string, fr: string) => (language === "fr" ? fr : en);
+const SVG = "http://www.w3.org/2000/svg";
+function qrCode(uri: string): SVGSVGElement | null {
+  const matrix = totpQr(uri);
+  if (!matrix) return null;
+  const svg = document.createElementNS(SVG, "svg");
+  svg.classList.add("totp-qr");
+  svg.setAttribute("viewBox", `0 0 ${matrix.size} ${matrix.size}`);
+  svg.setAttribute("shape-rendering", "crispEdges");
+  svg.setAttribute("role", "img");
+  svg.setAttribute(
+    "aria-label",
+    phrase(
+      "QR code to scan with your authenticator",
+      "Code QR à scanner avec votre application d’authentification",
+    ),
+  );
+  const light = document.createElementNS(SVG, "rect");
+  light.setAttribute("width", String(matrix.size));
+  light.setAttribute("height", String(matrix.size));
+  light.setAttribute("fill", "#ffffff");
+  const dark = document.createElementNS(SVG, "path");
+  dark.setAttribute("d", qrPath(matrix));
+  dark.setAttribute("fill", "#000000");
+  svg.append(light, dark);
+  return svg;
+}
 export async function recentProof(app: App): Promise<void> {
   const status =
     await app.api.request<ReauthenticationStatus>("/api/v1/me/reauth");
@@ -154,8 +181,8 @@ export async function securitySettings(
               "p",
               "dim",
               phrase(
-                "Add this key to your authenticator, then enter its verification code.",
-                "Ajoutez cette clé dans votre application d’authentification, puis saisissez son code.",
+                "Scan this QR code or add this key to your authenticator, then enter its verification code.",
+                "Scannez ce code QR ou ajoutez cette clé dans votre application d’authentification, puis saisissez son code.",
               ),
             ),
           );
@@ -173,6 +200,8 @@ export async function securitySettings(
           const [wrap, code] = field(t("code"));
           code.autocomplete = "one-time-code";
           const id = operation();
+          const qr = qrCode(setup.provisioning_uri);
+          if (qr) body.append(qr);
           body.append(
             key,
             uri,

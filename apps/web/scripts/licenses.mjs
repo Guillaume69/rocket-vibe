@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-const queue = ["livekit-client", "mediabunny"],
+const queue = ["livekit-client", "mediabunny", "uqr"],
   seen = new Set(),
   entries = [];
 while (queue.length) {

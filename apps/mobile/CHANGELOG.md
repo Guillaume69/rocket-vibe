@@ -11,6 +11,7 @@ release, and its notes are that version's section here.
 
 - RocketVibe administrators can create, share, list and revoke account invitation codes.
 - RocketVibe servers accept a verified email address in place of the username at sign-in.
+- Setting up an authenticator on a RocketVibe account shows a QR code of the setup link to scan, next to the key for manual entry, and an "Open in authenticator app" action that hands the link to an authenticator on the same phone.
 
 ### Fixed
 

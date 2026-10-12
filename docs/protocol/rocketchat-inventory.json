@@ -273,6 +273,7 @@
     "apps/desktop/crates/rv-gtk/src/thread.rs",
     "apps/desktop/crates/rv-gtk/src/threads.rs",
     "apps/desktop/crates/rv-gtk/src/tile_grid.rs",
+    "apps/desktop/crates/rv-gtk/src/totp_qr.rs",
     "apps/desktop/crates/rv-gtk/src/unlock.rs",
     "apps/desktop/crates/rv-gtk/src/updater.rs",
     "apps/desktop/crates/rv-gtk/src/video.rs",
@@ -331,6 +332,7 @@
     "apps/desktop/macos/Sources/RocketVibe/Social.swift",
     "apps/desktop/macos/Sources/RocketVibe/Theme.swift",
     "apps/desktop/macos/Sources/RocketVibe/ThreadView.swift",
+    "apps/desktop/macos/Sources/RocketVibe/TotpQrCode.swift",
     "apps/desktop/macos/Sources/RocketVibe/Voice.swift",
     "apps/desktop/macos/Sources/RocketVibe/WorkflowsSection.swift",
     "apps/desktop/macos/Sources/RocketVibeKit/AdminModel.swift",
@@ -596,6 +598,7 @@
     "apps/mobile/ui/presence.ts",
     "apps/mobile/ui/privateNotes.tsx",
     "apps/mobile/ui/privateQuotes.ts",
+    "apps/mobile/ui/qrCode.tsx",
     "apps/mobile/ui/readReceipts.tsx",
     "apps/mobile/ui/realNames.ts",
     "apps/mobile/ui/reminders.ts",
@@ -630,6 +633,7 @@
     "apps/mobile/ui/theme.ts",
     "apps/mobile/ui/threadFollow.tsx",
     "apps/mobile/ui/toast.tsx",
+    "apps/mobile/ui/totpQr.ts",
     "apps/mobile/ui/transferBar.tsx",
     "apps/mobile/ui/transfers.ts",
     "apps/mobile/ui/transportUpload.ts",
@@ -1346,85 +1350,85 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1695,
+      "line": 1700,
       "kind": "endpoint",
       "surface": "e2e.banner"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1696,
+      "line": 1701,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1697,
+      "line": 1702,
       "kind": "endpoint",
       "surface": "e2e.lock"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1698,
+      "line": 1703,
       "kind": "endpoint",
       "surface": "e2e.title"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1700,
+      "line": 1705,
       "kind": "endpoint",
       "surface": "e2e.body"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1704,
+      "line": 1709,
       "kind": "endpoint",
       "surface": "e2e.password"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1705,
+      "line": 1710,
       "kind": "endpoint",
       "surface": "e2e.wrong"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1706,
+      "line": 1711,
       "kind": "endpoint",
       "surface": "e2e.no_keys"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1707,
+      "line": 1712,
       "kind": "endpoint",
       "surface": "e2e.failed"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1708,
+      "line": 1713,
       "kind": "endpoint",
       "surface": "e2e.read_only"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1709,
+      "line": 1714,
       "kind": "endpoint",
       "surface": "e2e.status"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1710,
+      "line": 1715,
       "kind": "endpoint",
       "surface": "e2e.locked"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1711,
+      "line": 1716,
       "kind": "endpoint",
       "surface": "e2e.unlocked"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1810,
+      "line": 1815,
       "kind": "endpoint",
       "surface": "rooms.quoted_message"
     },
@@ -4892,73 +4896,73 @@
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1217,
-      "kind": "endpoint",
-      "surface": "e2e.title"
-    },
-    {
-      "file": "apps/mobile/ui/messages.ts",
-      "line": 1218,
-      "kind": "endpoint",
-      "surface": "e2e.explanation"
-    },
-    {
-      "file": "apps/mobile/ui/messages.ts",
       "line": 1220,
       "kind": "endpoint",
-      "surface": "e2e.field"
+      "surface": "e2e.title"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
       "line": 1221,
       "kind": "endpoint",
-      "surface": "e2e.unlock"
-    },
-    {
-      "file": "apps/mobile/ui/messages.ts",
-      "line": 1222,
-      "kind": "endpoint",
-      "surface": "e2e.wrongPassword"
+      "surface": "e2e.explanation"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
       "line": 1223,
       "kind": "endpoint",
-      "surface": "e2e.genericError"
-    },
-    {
-      "file": "apps/mobile/ui/messages.ts",
-      "line": 2852,
-      "kind": "endpoint",
-      "surface": "e2e.title"
-    },
-    {
-      "file": "apps/mobile/ui/messages.ts",
-      "line": 2853,
-      "kind": "endpoint",
-      "surface": "e2e.explanation"
-    },
-    {
-      "file": "apps/mobile/ui/messages.ts",
-      "line": 2855,
-      "kind": "endpoint",
       "surface": "e2e.field"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2856,
+      "line": 1224,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2857,
+      "line": 1225,
       "kind": "endpoint",
       "surface": "e2e.wrongPassword"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
+      "line": 1226,
+      "kind": "endpoint",
+      "surface": "e2e.genericError"
+    },
+    {
+      "file": "apps/mobile/ui/messages.ts",
       "line": 2858,
+      "kind": "endpoint",
+      "surface": "e2e.title"
+    },
+    {
+      "file": "apps/mobile/ui/messages.ts",
+      "line": 2859,
+      "kind": "endpoint",
+      "surface": "e2e.explanation"
+    },
+    {
+      "file": "apps/mobile/ui/messages.ts",
+      "line": 2861,
+      "kind": "endpoint",
+      "surface": "e2e.field"
+    },
+    {
+      "file": "apps/mobile/ui/messages.ts",
+      "line": 2862,
+      "kind": "endpoint",
+      "surface": "e2e.unlock"
+    },
+    {
+      "file": "apps/mobile/ui/messages.ts",
+      "line": 2863,
+      "kind": "endpoint",
+      "surface": "e2e.wrongPassword"
+    },
+    {
+      "file": "apps/mobile/ui/messages.ts",
+      "line": 2864,
       "kind": "endpoint",
       "surface": "e2e.genericError"
     },

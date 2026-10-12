@@ -4,6 +4,7 @@ use crate::{
     i18n::{t, tn},
     on_tokio, secrets,
     sidebar_dialog::Host,
+    totp_qr,
 };
 use adw::prelude::*;
 use email::{EmailDeliveryState, EmailStatus};
@@ -59,6 +60,8 @@ pub fn page(host: &Host, session: Arc<NativeSession>) -> adw::PreferencesPage {
     page.add(&proof_group);
     let setup_group =
         adw::PreferencesGroup::builder().title(t("security.setup")).description(t("security.setup_body")).build();
+    let qr = totp_qr::area(t("security.qr"));
+    setup_group.add(&qr);
     let secret = private_label("native-security-secret");
     setup_group.add(&secret);
     let (copy_secret, copy_uri) = (
@@ -168,6 +171,7 @@ pub fn page(host: &Host, session: Arc<NativeSession>) -> adw::PreferencesPage {
         proof_mail_resend,
         proof_mail_status,
         setup_group,
+        qr,
         secret,
         setup_code,
         codes_group,
@@ -560,6 +564,7 @@ struct Controller {
     proof_mail_resend: adw::ButtonRow,
     proof_mail_status: adw::ActionRow,
     setup_group: adw::PreferencesGroup,
+    qr: gtk::DrawingArea,
     secret: gtk::Label,
     setup_code: adw::EntryRow,
     codes_group: adw::PreferencesGroup,
@@ -640,6 +645,7 @@ impl Controller {
         self.proof_mail_status.set_subtitle("");
         self.setup_code.set_text("");
         self.secret.set_text("");
+        totp_qr::show(&self.qr, None);
         self.codes.set_text("");
         self.proof.replace(ProofState::Password);
         self.factor.replace(FactorState::Idle);
@@ -704,6 +710,13 @@ impl Controller {
             FactorState::Setup(setup) => &setup.secret,
             _ => "",
         });
+        totp_qr::show(
+            &self.qr,
+            match &*factor {
+                FactorState::Setup(setup) => Some(setup.provisioning_uri.as_str()),
+                _ => None,
+            },
+        );
         self.codes.set_text(&match &*factor {
             FactorState::Codes { codes, .. } => codes.codes.join("\n"),
             _ => String::new(),

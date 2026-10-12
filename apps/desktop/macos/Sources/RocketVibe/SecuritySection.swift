@@ -53,6 +53,7 @@ struct SecuritySection: View {
                     if value.supportsFactors || value.supportsEmailFactors {
                         if value.factor == .setup {
                             Text(L("security.setup_body")).font(.caption).foregroundStyle(.secondary)
+                            if let uri = value.setupUri { TotpQrCode(uri: uri) }
                             Text(value.setupSecret ?? "").font(.system(.body, design: .monospaced))
                             Button(L("security.copy_secret")) { copy(model, .secret, value.viewRevision) }
                             Button(L("security.copy_uri")) { copy(model, .uri, value.viewRevision) }

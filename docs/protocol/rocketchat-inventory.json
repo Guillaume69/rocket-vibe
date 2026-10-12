@@ -331,6 +331,7 @@
     "apps/desktop/macos/Sources/RocketVibe/Social.swift",
     "apps/desktop/macos/Sources/RocketVibe/Theme.swift",
     "apps/desktop/macos/Sources/RocketVibe/ThreadView.swift",
+    "apps/desktop/macos/Sources/RocketVibe/TotpQrCode.swift",
     "apps/desktop/macos/Sources/RocketVibe/Voice.swift",
     "apps/desktop/macos/Sources/RocketVibe/WorkflowsSection.swift",
     "apps/desktop/macos/Sources/RocketVibeKit/AdminModel.swift",

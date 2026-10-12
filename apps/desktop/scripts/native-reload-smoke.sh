@@ -28,7 +28,7 @@ export G_MESSAGES_DEBUG=rocket-vibe-reload
 export GDK_BACKEND=x11 DISPLAY=:99 GSK_RENDERER=cairo GTK_A11Y=none
 status=0
 dbus-run-session -- bash -ec '
-  printf "\n" | gnome-keyring-daemon --unlock --components=secrets >/dev/null
+  bash scripts/unlock-keyring.sh
   Xvfb :99 -screen 0 1280x900x24 >/dev/null 2>&1 &
   for i in {1..50}; do if [ -S /tmp/.X11-unix/X99 ]; then break; fi; sleep 0.1; done
   exec timeout 300s target/debug/rocket-vibe-gtk

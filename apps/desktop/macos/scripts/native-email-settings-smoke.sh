@@ -9,7 +9,7 @@ chmod 700 "$XDG_RUNTIME_DIR"
 for phase in enable resume-disable resume-disabled; do
   export RV_NATIVE_EMAIL_SETTINGS_PHASE="$phase"
   dbus-run-session -- bash -ec '
-    printf "\n" | gnome-keyring-daemon --unlock --components=secrets >/dev/null
+    bash ../scripts/unlock-keyring.sh
     swift test --skip-build --scratch-path .build/linux --filter NativeEmailSettingsTests
   '
 done

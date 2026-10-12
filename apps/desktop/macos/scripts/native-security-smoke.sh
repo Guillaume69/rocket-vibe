@@ -10,7 +10,7 @@ chmod 700 "$XDG_RUNTIME_DIR"
 for phase in proof-regenerate restart-ack-disable removal-restart-ack-disable; do
   export RV_NATIVE_SECURITY_TEST_PHASE="$phase"
   dbus-run-session -- bash -ec '
-    printf "\n" | gnome-keyring-daemon --unlock --components=secrets >/dev/null
+    bash ../scripts/unlock-keyring.sh
     swift test --skip-build --scratch-path .build/linux --filter NativeSecurityTests
   '
 done

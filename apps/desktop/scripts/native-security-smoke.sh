@@ -15,7 +15,7 @@ run_with_keyring() {
   local log
   log=$(mktemp)
   if ! dbus-run-session -- bash -ec '
-    printf "\n" | gnome-keyring-daemon --unlock --components=secrets >/dev/null
+    bash scripts/unlock-keyring.sh
     target/debug/rocket-vibe-gtk
   ' > "$log" 2>&1; then
     cat "$log"

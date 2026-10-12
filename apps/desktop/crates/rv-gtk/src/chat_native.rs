@@ -82,6 +82,7 @@ impl ChatPage {
         self.set_session(None);
         self.native_edit.replace(None);
         self.native.replace(Some(session.clone()));
+        self.collapsed.replace(folded_sections(&session.info));
         self.list.set_native_provider(session.clone());
         self.native_features(&session);
         self.follow_voice(&session);

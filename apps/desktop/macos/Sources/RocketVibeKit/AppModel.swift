@@ -51,8 +51,8 @@ public final class AppModel {
     public private(set) var e2eUnlocked = false
     public private(set) var room: RoomModel?
     public private(set) var thread: RoomModel?
-    /// Folded sections, by `RoomGroup.key`.
-    public private(set) var collapsed: Set<String>
+    /// The open account's folded sections, by `RoomGroup.key`.
+    public private(set) var collapsed: Set<String> = []
     /// The user hid the server rail (Settings > Accounts), shared with GTK.
     public private(set) var railHidden: Bool
     /// Bumped when photos or custom emoji change: views reload their images.
@@ -117,7 +117,6 @@ public final class AppModel {
     public init(home: String) {
         client = Client(home: home)
         Strings.setUp(configDir: client.configDir())
-        collapsed = Self.loadCollapsed(client.configDir())
         railHidden = FileManager.default.fileExists(atPath: client.configDir() + "/hide-server-rail")
     }
 
@@ -257,7 +256,9 @@ public final class AppModel {
         if case let .rocketVibe(native) = provider { native.activateAccount() }
         end()
         self.provider = provider
-        account = provider.account()
+        let opened = provider.account()
+        account = opened
+        collapsed = Set(client.collapsedSections(account: opened.key))
         if let chat { media = MediaStore(chat: chat) }
         else if let native { media = MediaStore(native:native) }
         if let native, native.voiceSupported() {
@@ -304,6 +305,7 @@ public final class AppModel {
         thread = nil
         provider = nil
         account = nil
+        collapsed = []
         e2eUnlocked = false
         connection = .offline
         media?.close()
@@ -873,9 +875,8 @@ public final class AppModel {
     }
 
     public func toggle(_ key: String) {
-        if collapsed.contains(key) { collapsed.remove(key) } else { collapsed.insert(key) }
-        let lines = collapsed.sorted().joined(separator: "\n")
-        try? lines.write(toFile: client.configDir() + "/collapsed-sections", atomically: true, encoding: .utf8)
+        guard let account else { return }
+        collapsed = Set(client.toggleCollapsedSection(account: account.key, section: key))
     }
 
     /// GTK's convention: the file's presence hides the rail.
@@ -888,10 +889,5 @@ public final class AppModel {
         } else {
             try? FileManager.default.removeItem(atPath: path)
         }
-    }
-
-    static func loadCollapsed(_ configDir: String) -> Set<String> {
-        let text = (try? String(contentsOfFile: configDir + "/collapsed-sections", encoding: .utf8)) ?? ""
-        return Set(text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty })
     }
 }

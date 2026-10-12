@@ -50,6 +50,7 @@ beta does.
 | Encrypted rooms: padlock tile, "Encrypted message" preview | done | partial | partial | done | Desktop keeps the padlock tile once unlocked; mobile switches back to the room's tile. Web: Encrypted room notifications never include decrypted content. src/app.ts. |
 | Sync indicator while connecting or loading | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | Sections: Unread, Favourites, Channels, Direct messages | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
+| Folded sections remembered per account, not shared across servers | done | done | done | done | Mobile `ui/collapsedSections.ts`; GTK and SwiftUI share `rv-core/src/collapsed_sections.rs` (SwiftUI through `rv-ffi`, its `AppModel` checked by the Linux build of RocketVibeKit); web `src/folds.ts` (one account per browser at a time). |
 | Mattermost and kChat sidebar categories as sections, in my sidebar order | done | done | done | n/a | SwiftUI: the view is checked by the macOS CI build only. Within a category the order stays latest activity first, not the server's manual or alphabetical sort. Web: Serving native origin only; external providers are outside the accepted web scope. |
 | Presence dot on DMs (`users.presence`, `user-status`) | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | System and video-call messages translated in previews | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |

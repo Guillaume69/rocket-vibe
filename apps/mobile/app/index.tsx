@@ -23,6 +23,7 @@ import {
   type HomeEntry,
   collapseSections,
   type DisplayedSection,
+  foldAccount,
 } from '../ui/homeSections.ts';
 import { toggleCollapsedSection, useCollapsedSections } from '../ui/collapsedSections.ts';
 import { ServerRail } from '../ui/serverRail.tsx';
@@ -70,7 +71,7 @@ export default function HomeScreen() {
         {!railHidden && <ServerRail c={c} />}
         <View style={styles.full}>
           <ListHeader c={c} />
-          <RoomList c={c} client={state.client} />
+          <RoomList c={c} client={state.client} account={foldAccount(state.session.baseUrl, state.session.userId)} />
           <VoiceFooter c={c} />
           <AccountFooter c={c} />
         </View>
@@ -180,7 +181,7 @@ function VoiceFooterRooms({ c, base }: { c: Colors; base: LocalDatabase }) {
   return <VoiceBar c={c} title={title} />;
 }
 
-function RoomList({ c, client }: { c: Colors; client: RestClient }) {
+function RoomList({ c, client, account }: { c: Colors; client: RestClient; account: string }) {
   const sync = useSync();
 
   if (sync.phase === 'error') {
@@ -197,7 +198,7 @@ function RoomList({ c, client }: { c: Colors; client: RestClient }) {
       </View>
     );
   }
-  return <Rooms c={c} base={sync.base} client={client} e2e={sync.e2e} />;
+  return <Rooms c={c} base={sync.base} client={client} e2e={sync.e2e} account={account} />;
 }
 
 function Rooms({
@@ -205,11 +206,13 @@ function Rooms({
   base,
   client,
   e2e,
+  account,
 }: {
   c: Colors;
   base: LocalDatabase;
   client: RestClient;
   e2e: E2EEngine;
+  account: string;
 }) {
   const t = useT();
   const unlocked = useE2EUnlocked(e2e);
@@ -228,7 +231,7 @@ function Rooms({
 
   // Merging, hiding, unread lifting, splitting, empty sections removed: the
   // projection lives in `ui/homeSections.ts`, tested under Node.
-  const collapsed = useCollapsedSections();
+  const collapsed = useCollapsedSections(account);
   const built = buildSections(roomRows, subscriptionRows, {
     unread: t('home.sectionUnread'),
     favorites: t('home.sectionFavorites'),
@@ -263,7 +266,7 @@ function Rooms({
       )}
       // A lone header (only one populated section) tells nothing: we hide it.
       renderSectionHeader={({ section }) =>
-        sections.length > 1 ? <SectionHeader c={c} section={section} /> : null
+        sections.length > 1 ? <SectionHeader c={c} section={section} account={account} /> : null
       }
       stickySectionHeadersEnabled={false}
       ListHeaderComponent={
@@ -327,12 +330,12 @@ type RoomsSection = DisplayedSection<RoomEntry>;
  * List section title: "Unread", "Rooms", "Direct messages".
  * A tap collapses it; collapsed, it shows its count.
  */
-function SectionHeader({ c, section }: { c: Colors; section: RoomsSection }) {
+function SectionHeader({ c, section, account }: { c: Colors; section: RoomsSection; account: string }) {
   const t = useT();
   const count = t('home.sectionConversations', { n: section.total });
   return (
     <Tappable
-      onPress={() => toggleCollapsedSection(section.key)}
+      onPress={() => toggleCollapsedSection(account, section.key)}
       android_ripple={{ color: c.ripple }}
       accessibilityRole="button"
       accessibilityLabel={section.collapsed ? `${section.title}, ${count}` : section.title}

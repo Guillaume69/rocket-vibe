@@ -10,6 +10,7 @@ import { nt } from "./native-i18n";
 import { PrivateChat } from "./crypto/chat";
 import { Api, ApiError, operation, secret, segment } from "./api";
 import { finishPendingLogouts } from "./logouts";
+import { adoptFolds } from "./folds";
 import { note } from "./diagnostics";
 import {
   MESSAGES_KEPT_PER_ROOM,
@@ -463,6 +464,12 @@ export class App implements RowActions {
     this.account = account;
     this.api.token = account.session.token;
     localStorage.setItem("rv-active", account.key);
+    adoptFolds(localStorage, account.key, {
+      unread: t("unread"),
+      favorites: t("favorites"),
+      channels: t("channels"),
+      direct: t("direct"),
+    });
     const cache = await read<import("./protocol").Snapshot>(
       "cache",
       account.key,

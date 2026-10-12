@@ -134,7 +134,7 @@ language choice stays per UI, in the same `language` file.
 |---|---|
 | `login.rs` | `LoginView`: server probe, credentials, 2FA step |
 | `window.rs`, `chat.rs` (split view) | `NavigationSplitView`: sidebar and room |
-| room list, sections, badges | `List` with `Section(isExpanded:)`, folds kept in the same `collapsed-sections` file |
+| room list, sections, badges | `List` with `Section(isExpanded:)`, folds kept per account in the same `collapsed-sections.json` as GTK |
 | `message_list.rs`, `rows.rs` | `ScrollView` + `LazyVStack`, rows as views, `ScrollViewReader` for jumps and the latest-messages button |
 | `markdown_view.rs` | `AttributedString` built from rv-core's markdown blocks |
 | `composer.rs`, `staged.rs` | an `NSTextView` wrapper (the system spell checker, Return sends), chips above it |

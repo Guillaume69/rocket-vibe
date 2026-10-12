@@ -87,7 +87,7 @@ Fetched at packaging time, not committed: Hunspell dictionaries (`scripts/fetch-
 Both apps use GLib's XDG layout, macOS included (GLib has no macOS case for its user directories, and `rv-ffi` computes the same paths so the two apps share them):
 
 - `~/.local/share/rocket-vibe-rs/<host>[_<port>]-<user id>.sqlite`: one database per server and account (`database_path` in `rv-gtk/src/window.rs`).
-- `~/.config/rocket-vibe-rs/`: `active-account`, `accounts` (the keychain cannot list its items), `servers` (known servers), `last-server`, `language`, `collapsed-sections`, `dictionary` (personal spell-check words), `quit-on-close`, `no-update-check`.
+- `~/.config/rocket-vibe-rs/`: `active-account`, `accounts` (the keychain cannot list its items), `servers` (known servers), `last-server`, `language`, `collapsed-sections.json` (folded room-list sections per account, `rv-core/src/collapsed_sections.rs`), `dictionary` (personal spell-check words), `quit-on-close`, `no-update-check`.
 - `~/.cache/rocket-vibe-rs/`: logs and `crash.log` (`rv-gtk/src/crashlog.rs`; on Windows the local app data folder instead, since Disk Cleanup empties GLib's cache folder there), `update.json` and downloaded updates, the GStreamer registry on macOS.
 - The system keychain: one item per account under the service `me.barrut.RocketVibe` (the app's first id, kept so signed-in sessions survive the id change), keyed `<base URL>|<user id>`. The token is never written to disk.
 

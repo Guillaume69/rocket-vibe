@@ -133,8 +133,12 @@ fn section_header(title: &str, collapsed: bool, count: usize, add: Option<Sectio
     header
 }
 
-fn collapsed_file() -> std::path::PathBuf {
-    glib::user_config_dir().join("rocket-vibe-rs").join("collapsed-sections")
+fn config_dir() -> std::path::PathBuf {
+    glib::user_config_dir().join("rocket-vibe-rs")
+}
+
+fn folded_sections(info: &rv_core::session::SessionInfo) -> Vec<String> {
+    rv_core::collapsed_sections::load(&config_dir(), &rv_core::collapsed_sections::account(info))
 }
 
 /// A right click on a room offers to star it, or to take the star away, and
@@ -180,11 +184,6 @@ fn room_menu(widget: &gtk::Widget, session: Arc<Session>, room: &RoomRow, mark: 
         popover.popup();
     });
     widget.add_controller(click);
-}
-
-fn load_collapsed() -> Vec<String> {
-    let saved = std::fs::read_to_string(collapsed_file()).unwrap_or_default();
-    saved.lines().filter(|l| !l.is_empty()).map(str::to_owned).collect()
 }
 
 pub struct ChatPage {
@@ -592,7 +591,7 @@ impl ChatPage {
             rooms: RefCell::default(),
             switcher: glib::WeakRef::new(),
             slots: RefCell::default(),
-            collapsed: RefCell::new(load_collapsed()),
+            collapsed: RefCell::default(),
             on_unread: RefCell::default(),
             suppress_selection: Cell::new(false),
             content_page,
@@ -1613,6 +1612,7 @@ impl ChatPage {
             let tile = with_photo(tile, Some(s), Some(s.user_avatar(&s.info.username)));
             self.account_tile.append(&tile);
         }
+        self.collapsed.replace(session.as_ref().map(|s| folded_sections(&s.info)).unwrap_or_default());
         self.session.replace(session);
         self.current.replace(None);
         self.history.borrow_mut().clear();
@@ -2668,21 +2668,17 @@ impl ChatPage {
     }
 
     pub fn toggle_section(&self, section: Section) {
-        {
-            let mut collapsed = self.collapsed.borrow_mut();
-            let key = section.key();
-            match collapsed.iter().position(|s| *s == key) {
-                Some(at) => {
-                    collapsed.remove(at);
-                }
-                None => collapsed.push(key),
-            }
-            let file = collapsed_file();
-            if let Some(dir) = file.parent() {
-                let _ = std::fs::create_dir_all(dir);
-            }
-            let _ = std::fs::write(file, collapsed.join("\n"));
-        }
+        let account = self
+            .native_session()
+            .map(|s| s.info.clone())
+            .or_else(|| self.session.borrow().as_ref().map(|s| s.info.clone()));
+        let Some(info) = account else { return };
+        let folded = rv_core::collapsed_sections::toggle(
+            &config_dir(),
+            &rv_core::collapsed_sections::account(&info),
+            &section.key(),
+        );
+        self.collapsed.replace(folded);
         self.load_rooms(true);
     }
 

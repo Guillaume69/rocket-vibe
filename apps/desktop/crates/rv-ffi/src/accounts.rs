@@ -130,6 +130,7 @@ pub fn load_all(dirs: &Dirs) -> Vec<SessionInfo> {
         }
     }
     rv_core::server_rail::order(&mut found, &dirs.config);
+    rv_core::collapsed_sections::sync(&dirs.config, &found.iter().map(key).collect::<Vec<_>>());
     if let Some(active) = lines(&dirs.file("active-account")).into_iter().next() {
         found.sort_by_key(|info| key(info) != active);
     }

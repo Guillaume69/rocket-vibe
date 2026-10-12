@@ -16,6 +16,7 @@ Three searches, debounced: finding people and channels to start a conversation (
 - Mobile: `app/search.tsx`, reached from the room list. Users first, then channels. A DM goes through `actions.openOrCreateDm`, a channel through `channels.join`, then the screen is replaced by the room. A ref blocks double taps; errors share the screen's message line with the search.
 - GTK: the "New conversation" dialog (`rv-gtk/src/spotlight.rs`), results from `rooms::spotlight_results` (users first, then rooms, each marked when already joined). `Chat::go_to` opens a DM with `Session::open_dm`, joins a channel only if not already a member (`Session::join_channel`), catches up the room list, then opens the room.
 - SwiftUI: the sidebar's search field (`.searchable` in `ChatView.swift`) replaces the room sections with spotlight results while it holds text; a pick goes through `AppModel.go(to:)`.
+- Web RocketVibe: New message opens the same 420 by 480 spotlight, with a focused search entry, people before public channels, and a Create room button leading to the separate grouped conversation form. Empty text reads no directory; a 300 ms pause reads `/api/v1/users` and capability-gated `/api/v1/rooms/public?q=`, retaining at most 20 matching people. Sequence, account and dialog fences discard delayed answers. Picking a person opens or creates the real DM; picking an unjoined channel joins it. Creation and join receipts are personalized before navigation, with membership lifetime checks. Narrow windows use the native bottom-sheet arrangement. The sidebar Create a channel route opens the grouped form directly.
 
 This is the only place the apps call `spotlight`; `@` mention completion deliberately uses local recent authors instead ([composer](composer.md#mentions-and-emoji)).
 
@@ -53,6 +54,11 @@ All apps: spotlight for new conversations, `chat.search` in a room, jumping from
 - apps/desktop/macos/Sources/RocketVibe/LocalSearch.swift
 - apps/web/src/local-search.ts
 - apps/web/src/panels.ts
+- apps/web/src/new-conversation.ts
+- apps/web/src/room-state.ts
+- apps/web/src/conversation-parity.css
+- apps/web/tests/gtk-forms.mjs
+- apps/web/tests/shell-parity.mjs
 - apps/web/tests/global-search.mjs
 
 - apps/mobile/ui/debouncedSearch.ts

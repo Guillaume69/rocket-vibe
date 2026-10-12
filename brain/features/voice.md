@@ -174,6 +174,8 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
 
 ## Desktop
 
+On Windows with the actual Cairo renderer, GTK uses finite zero-blur green speaking rings instead of blurred halos, preserving the speaking border and the main window's pink button feedback. This avoids GTK's unchecked Win32 A8 mask-allocation failure during voice-to-text navigation. Other renderers retain the normal theme and the voice session, media transport and device choices are unchanged. The standalone Win32 rendering fault-injection helper and the actual GTK snapshot/navigation regression qualify the scoped fallback; Linux real-SFU voice-to-text switches independently cover no-media, camera and screen-share cases.
+
 - **Sidecar**: the audio runs in `rv-voice` (`apps/desktop/voice`, its own cargo workspace)
   on the `livekit` crate. It plays and captures the call's sound itself (`voice/src/audio.rs`)
   rather than through libwebrtc's device module, which leaves no way to change a person's
@@ -444,6 +446,8 @@ The browser uses the room's verified MLS voice exporter with LiveKit's encoded-t
 - apps/desktop/crates/rv-core/src/native/voice.rs
 - apps/desktop/crates/rv-core/src/native/store.rs
 - apps/desktop/crates/rv-gtk/src/chat_voice.rs
+- apps/desktop/crates/rv-gtk/src/tests/windows_cairo.rs
+- apps/desktop/scripts/windows-cairo-shadow-proof.py
 - apps/desktop/crates/rv-gtk/src/widgets.rs
 - apps/desktop/crates/rv-gtk/src/tile_grid.rs
 - apps/desktop/crates/rv-gtk/src/sounds.rs

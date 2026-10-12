@@ -2,6 +2,8 @@
 
 Date: 2026-10-12. Reference: the GTK client connected to a RocketVibe server. The browser retains the previously agreed single serving origin/account. The comparison covers structure, text, navigation, controls, defaults and dismissal, rather than palette similarity.
 
+The later [final verification record](WEB_GTK_FINAL_VERIFICATION.md) adds the unique-screen classification, actual native/browser execution and corrections found after the embedded C6 baseline. Evidence below remains tied to its original source/build; it does not qualify the later distribution automatically.
+
 ## Screen inventory and corrections
 
 | Screen or state | GTK reference | Browser correction |

@@ -11,7 +11,7 @@ On the RocketVibe native server (MLS end-to-end encryption, not Rocket.Chat E2EE
 - **Search** in an encrypted room uses the same search screen as an ordinary room, but runs on the device over its verified private history (recovered history included): edited text is found by its new wording, deleted messages never. Nothing is sent to the server.
 - Only the author edits or deletes. An edit by anyone else is refused before sending, by the server, and ignored by readers. A deletion is final; the latest edit wins; for one person and one emoji, the latest reaction or withdrawal wins.
 - Recovered history (path A share or path B backup) carries the amendments, so recovered messages show edited, reacted or disappear too.
-- **Not done**: editing quotes or cards of a private message (an edit changes text only), an edit history, deleting someone else's message as a moderator, reacting to a message only known from recovered history, jumping to a search result older than the loaded page.
+- **Not done**: editing quotes or cards of a private message (an edit changes text only), an edit history, deleting someone else's message as a moderator, reacting to a message only known from recovered history. Older-result navigation is implemented in GTK and web; mobile and SwiftUI still require separate qualification of results outside the loaded page.
 
 ## Engine and server
 
@@ -34,6 +34,7 @@ On the RocketVibe native server (MLS end-to-end encryption, not Rocket.Chat E2EE
 
 - `rv-core` `enrollment/rooms/messages.rs`: `Access::amend`, `react` and `search`; `refresh` applies edits (`edited`, re-rendered Markdown) and reactions (ordinary reaction JSON keyed by usernames, from `members` in `rooms.rs`), and shows an unsettled amendment on its target with the amendment's operation, so the existing retry and abandon reuse it. Emoji names go through `NativeSession::reaction_emoji` (`native.rs`), shared with ordinary reactions.
 - GTK: `chat_native.rs` adds quick reactions, Edit and Delete to the encrypted message menu and handles reaction chips and in-place save; `chat_crypto.rs` `start_crypto_edit` / `crypto_amend` / `crypto_react`, `thread.rs` `amend_private` / `react_private`; `chat.rs` `edit_last` takes the encrypted path and the search button opens `details::search_private`.
+- GTK `crypto_history(true)` passes its oldest accepted journal position to `Access::refresh`, inserts the older page ahead of the existing rows and removes duplicate message IDs or operations. `jump_to` follows this route for an older private search result. Account, room generation, membership and closed-access checks remain in place; rows exist only in the current private view. The real GTK/browser smoke seeds more than 200 accepted MLS messages, opens the bounded latest page, then follows an older result while retaining the newest row and checking that ordinary stored rows contain no private sentinel text.
 - SwiftUI: `RoomModel` (`macos/Sources/RocketVibeKit/RoomModel.swift`) offers `.react` on journaled private rows and `.edit` / `.delete` on own ones, routes them to `NativeCryptoMessages.react` / `amend`, and searches through `NativeCryptoMessages.search` (`crates/rv-ffi/src/native_crypto/messages.rs`); `supportsEditing` and `supportsSearch` follow `privateReady`, so Up in an empty composer works too.
 
 ## Web
@@ -65,6 +66,8 @@ On the RocketVibe native server (MLS end-to-end encryption, not Rocket.Chat E2EE
 - apps/desktop/crates/rv-core/src/native.rs
 - apps/desktop/crates/rv-gtk/src/chat_native.rs
 - apps/desktop/crates/rv-gtk/src/chat_crypto.rs
+- apps/desktop/crates/rv-gtk/src/smoke/native_crypto.rs
+- apps/web/tests/desktop-crypto.mjs
 - apps/desktop/crates/rv-gtk/src/details.rs
 - apps/desktop/crates/rv-ffi/src/native_crypto/messages.rs
 - apps/desktop/macos/Sources/RocketVibeKit/RoomModel.swift

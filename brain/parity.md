@@ -123,7 +123,7 @@ beta does.
 | Voice recording | done | done | done | done | Mobile and SwiftUI send AAC `.m4a`, GTK Ogg/Opus. Web: Browser MediaRecorder codec, GTK bar/clock/cancel/stop and inline staged replay; actual capture cancellation and constructor/start failures qualified in tests/features.mjs. |
 | Replay and caption a voice message before sending | done | done | done | done | SwiftUI checked by the macOS CI build only. Web: Native provider: see [web-client](features/web-client.md). |
 | Slash commands (`commands.list`, `commands.run`) and their private answers | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
-| Slash commands on a RocketVibe server (`/api/v1/commands`), text commands written by the client so they work in encrypted rooms | done | done | done | n/a | SwiftUI checked by the Linux build of RocketVibeKit and the macOS CI build only. Web: Rocket.Chat encryption is outside the native serving-origin scope; native MLS status is recorded below. |
+| Slash commands on a RocketVibe server (`/api/v1/commands`), text commands written by the client so they work in encrypted rooms | done | done | done | done | SwiftUI checked by the Linux build of RocketVibeKit and the macOS CI build only. Web: Offered commands use the current room catalogue; recognized text commands decorate before MLS encryption. Unknown names, paths and quoted commands remain literal messages, as in GTK. |
 | Every command listed after `/` in a titled panel, narrowed as one types, completed with a tap or Tab/Enter | done | done | done | done | SwiftUI checked by the macOS CI build only. Web: Native provider: see [web-client](features/web-client.md). |
 
 ## 5. Message actions - [message-actions](features/message-actions.md)
@@ -328,8 +328,8 @@ beta does.
 |---|---|---|---|---|---|
 | "Workflows" settings page: list (trigger in words, on or off, last run), create, edit, test now, turn off, delete, last 50 runs | done | done | done | done | Whoever may create a bot. SwiftUI views compiled by the macOS CI only. Web: GTK list/editor/run-history hierarchy and lazy dirty-state retention are audited. Real creation, command execution, disable/save at the successor revision and one-time webhook generation pass tests/workflows.mjs. |
 | Triggers: slash command, schedule (hour, day, chosen days of the week, IANA zone), someone joining, a reaction (any or one emoji), a message containing a text, webhook (URL shown once) | done | done | done | partial | The room triggers fire for people only. Web: All native trigger editors and their fields are audited. Command execution and one-time webhook generation pass tests/workflows.mjs; schedule/member/reaction/message/webhook firing still needs dedicated browser cases. |
-| Steps: message (trigger's room or a fixed one, in the thread), wait, HTTP call, form; variables offered per step | done | done | partial | partial | SwiftUI inserts a variable at the cursor in the message text and request body, but appends it to a GET or DELETE step's URL (a one-line field). The thread option shows for reaction and message triggers only, in all three. Web: Native message/wait/HTTP/form/poll editor domains, variables and ordering are audited. A real form and templated continuation pass tests/workflows.mjs; other continuation variants remain unqualified. |
-| Workflow commands in the composer's command list, per room | done | done | done | done | `GET /api/v1/commands?room=`. Web: Real hyphenated room-command completion, form execution and invalid-input refusal pass tests/workflows.mjs. |
+| Steps: message (trigger's room or a fixed one, in the thread), wait, HTTP call, form; variables offered per step | done | done | partial | partial | SwiftUI inserts a variable at the cursor in the message text and request body, but appends it to a GET or DELETE step's URL (a one-line field). The thread option shows for reaction and message triggers only, in all three. Web: The four native step buttons, editor domains, variables and ordering are audited. A real form and templated continuation pass tests/workflows.mjs; other continuation variants remain unqualified. |
+| Workflow commands in the composer's command list, per room | done | done | done | done | `GET /api/v1/commands?room=`. GTK refreshes the active room and thread after accepted workflow mutations without rebinding. Web: Real hyphenated room-command completion, form execution and literal unknown/path/quoted slash behavior pass tests/workflows.mjs. |
 | Form card in the room ("For @recipient", "Answered by ..."), the message's text not repeated above it | done | done | done | done | Web: Native recipient/answered-card presentation and a real command form with templated continuation pass tests/workflows.mjs. |
 | Answering a form: text, long text, number, choice, person (a list or the room's members), one answer or several (checkboxes) | done | done | done | partial | Mobile: a native sheet; GTK: an `adw::Dialog`; SwiftUI: an overlay; all three close on a backdrop click. Web: Native input/dialog hierarchy is audited; an actual required choice answer and continuation pass tests/workflows.mjs. Person/member and multiple-checkbox variants remain unqualified. |
 | Workflows on Rocket.Chat | n/a | n/a | n/a | n/a | Rocket.Chat has its own integrations. Web: Native-origin client; browser encryption and Rocket.Chat provider explicitly excluded. |
@@ -340,7 +340,7 @@ beta does.
 |---|---|---|---|---|---|
 | RocketVibe quick polls: single/multiple choices, withdrawal, expiry, author closure | done | done | done | done | Unencrypted rooms and thread replies. Mac GUI qualification still pending. |
 | RocketVibe game-night cards: local time, details, Going/Maybe/Can't make it, voice join | done | done | done | done | Unencrypted rooms. Mac GUI qualification still pending. |
-| Game-night pre-event reminder shortcut | done | partial | done | done | GTK uses the ordinary message reminder and owes the dedicated shortcut. |
+| Game-night pre-event reminder shortcut | done | partial | done | partial | GTK and web use the ordinary message reminder and owe the dedicated shortcut. The web card follows GTK's actual controls, the requested visual reference. |
 | Private sticker shelf: save, send, remove, custom HTTPS image links | done | done | done | done | RocketVibe syncs the shelf; Rocket.Chat stores it locally per account. Web is native-provider only. |
 | /giphy opens while typing; live search, compact selection grid, Enter/Send, thread reply and cancel-preserved draft | done | done | done | done | Rocket.Chat requires its installed GIPHY app; RocketVibe requires RV_GIPHY_CONFIG_FILE. Live provider qualification awaits a key. |
 | Ephemeral voice reactions on RocketVibe | done | done | done | done | Connected voice participants only, six emoji, rate-limited and expiring; unencrypted rooms. |
@@ -371,7 +371,7 @@ are product gaps, listed last.
   folder; new versions; running with the window closed and starting at login;
   the notification's photo, picture, quick reactions, mark as read and own sound;
   custom notification cards.
-- **Web**: custom notification cards and closed-tab Web Push remain missing.
+- **Web**: custom notification cards, closed-tab Web Push and the dedicated game-night pre-event reminder shortcut remain missing.
   Qualification debt is specific: mention navigation, generic link-preview and
   nested-quote variants, call outcomes/callback cards, upload refusal states,
   dead-socket timeouts and whole-room purge.

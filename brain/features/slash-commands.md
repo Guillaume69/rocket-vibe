@@ -48,6 +48,10 @@ The web client turns the keys into text with its own catalogue. Both apps carry 
 
 On a RocketVibe server the composer knows the list already (loaded when the room binds): a text command is rewritten and sent like the draft, encrypted or not; another goes to `NativeSession::run_command` (GTK `Chat::native_command`, SwiftUI `NativeChat.runCommand`, mobile `NativeChat.runSlashCommand`), and a refusal puts the text back if the field is still empty.
 
+GTK also reloads the active room and its thread catalogues after a workflow save, enable, disable or delete succeeds in Settings. The callback belongs to the same live native session; a per-request key prevents an older catalogue response from replacing a later refresh or a different account. Existing drafts and ordinary offline sends are retained. A name not offered by the server remains literal message text.
+
+Web reads the room catalogue when an ordinary room opens, on completion and before sending a slash draft. The successful list belongs to the current account and membership; each read owns its result so an older response cannot replace a later one. Failed or offline reads retain the last successful list. Only offered names run as commands. Paths, unknown names and quoted slash drafts use the ordinary room or private-message path. Recognized text commands are decorated before MLS encryption, and accepted server commands clear only the unchanged draft.
+
 Mobile only treats a draft as a command when no quote reply is armed (`ui/composer.tsx`); on desktop the quote link put in front of the text makes it no longer start with `/`, which has the same effect.
 
 ## GIF selection
@@ -67,6 +71,10 @@ Present in both apps (mobile 0.5.0, desktop 0.6.0 for GTK and SwiftUI), same rul
 
 ## Sources
 
+- apps/web/src/app.ts
+- apps/web/src/crypto/chat.ts
+- apps/web/tests/workflows.mjs
+- apps/web/tests/e2ee.mjs
 - crates/rv-protocol/src/commands.rs
 - apps/server/src/commands.rs
 - apps/server/tests/commands.rs

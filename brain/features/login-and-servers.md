@@ -53,6 +53,14 @@ How a user signs in to a Rocket.Chat server (password, then a second factor when
 
 ## Web
 
+The RocketVibe login and second-factor steps use actual GTK captions, including localized password, invitation and recovery refusals rather than wire error keys. The factor form offers Authenticator app, Email code or Backup code, a 34-pixel method selector, the method-specific introduction and code label, and the 62-pixel Confirm action. A refused code, expired or unavailable factor, unreachable server, exhausted retry budget or unavailable protected storage uses the native error caption. Unknown technical failures fall back to a native contextual caption. An unfinished sign-in displays GTK's hint that an already accepted sign-in can be confirmed without a code.
+
+`src/factor-auth.ts` saves the finish operation and successor token before verification, then always replays that exact pair. A blank-code replay retrieves a committed answer instead of consuming a second one-time code. Email is explicitly Send code, Resume delivery and Resend code: the original delivery/operation/challenge IDs are saved before sending, Resume probes their receipt, and Resend first resolves that original receipt and obeys its actual cooldown. The current delivery status remains visible. No new server route or protocol shape is involved.
+
+`src/factor-auth-vault.ts` seals those receipt intents with the existing AES-GCM nonextractable-key envelope. Its operations key starts with the full instance/epoch/user account prefix and includes the challenge ID; authenticated data also binds the origin, instance, epoch, user and login-factor purpose. Ordinary outbox and renewal pumps cannot interpret the record as a send intent. Entered passwords and factor codes are never persisted; successor tokens are ciphertext within the envelope. Named locks and challenge-object/account/token/generation checks fence delayed encryption, storage and HTTP answers. Back and accepted sign-in retire the exact challenge record and its key; normal account logout purges that account prefix. A legacy unsealed finish pair is validated and moved into the private envelope before it is used.
+
+`tests/factor-auth.mjs` qualifies real committed lost verification answers followed by blank original replay, one backup-code consumption, native refusal and saved-finish captions, account purge, Back retirement, real TLS email delivery with a lost response, exact Resume IDs, no duplicate mail and real resend cooldown. Model/vault units cover storage-before-side-effect, account/challenge binding and held encryption, commit, read and lock retirement fences. Render evidence is separately identified in `docs/WEB_GTK_SCREEN_MATRIX.md`.
+
 One account on the serving origin ([web-client](web-client.md)). Sign-out (`App.logout` in `apps/web/src/app.ts`, `logoutSession` in `src/session.ts`) finishes a pending session rotation, sends `POST /api/v1/auth/logout` with its own transport and then always purges the account from IndexedDB (`purge`). Its result is `revoked` (done, or a 401 `session_rejected`), `deferred` or `refused`. `deferred` is a server not reached (`logouts.ts#logoutOutcome`: no answer, a timeout, a 5xx, 408, 429, or a 401 without the server's `session_rejected` code, which a proxy could have sent): the session's token, plus the `next_token` of a rotation intent that may have committed, goes to the `logouts` store (IndexedDB version 6) as `{id, tokens, expires}`, nothing else, never purged with the account and never shown. The expiry is the session's, or 30 days from now for a successor (`SESSION_DAYS`, the server's session lifetime). A toast says the server will be told when reachable. `finishPendingLogouts` replays each entry at the start (`App.init`), on the browser's `online` event and when the sync socket opens: a settled token (success, `session_rejected`, any other refusal) leaves the entry, an unreached one keeps it, an entry past its expiry goes without a request; one run at a time per tab, and across tabs under the `rv-logout-replay` Web Lock. Unit tests: `tests/logouts.test.ts`, `tests/session.test.ts`; browser test `tests/logout-replay.mjs` (the request blocked by Playwright routing, then allowed: the token answers 401 after the replay, online and at the next start).
 
 ## Parity
@@ -67,6 +75,14 @@ Mobile keeps a labelled, 44-point server button in the home header. Settings mov
 
 ## Sources
 
+- apps/web/src/ui/login.tsx
+- apps/web/src/factor-auth.ts
+- apps/web/src/factor-auth-vault.ts
+- apps/web/src/crypto/vault.ts
+- apps/web/src/store.ts
+- apps/web/tests/factor-auth.test.ts
+- apps/web/tests/factor-auth-vault.test.ts
+- apps/web/tests/factor-auth.mjs
 - apps/mobile/app/login.tsx
 - apps/mobile/ui/settingsSections.tsx
 - apps/mobile/app/room/[rid].tsx

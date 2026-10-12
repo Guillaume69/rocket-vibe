@@ -30,6 +30,8 @@ RocketVibe accounts only: `Provider.scheduled` (`lib/scheduled.ts`) exists on th
 - Both sheets are formSheets declared in `app/_layout.tsx`: a tap outside closes them with nothing scheduled or cancelled.
 - Tests: `providers/rocketvibe/scheduled.test.ts` (routes, operation replay, list filter), `lib/scheduled.test.ts` (the offered times and bounds). Run on the emulator against a local RocketVibe server (2026-10-11): the chevron, "In 1 hour" stored an hour ahead, a due one delivered on time, Cancel from the list.
 
+The web Pick a time adapter (pps/web/src/time-picker.ts) follows the rendered GTK AlertDialog: headerless heading and bounds, separate month/year controls, a six-week calendar with adjacent dates and locale weekday order, wrapping hour/minute spin controls, and explicit Cancel/Schedule responses. Cancel retains the draft and creates no schedule. The actual browser fixture checks the thirty-day bound and the selected instant in the server receipt, then cancels it.
+
 ## Desktop
 
 GTK and SwiftUI, over rv-core; RocketVibe accounts only (Rocket.Chat, Mattermost and kChat sessions never arm it).
@@ -41,6 +43,8 @@ GTK and SwiftUI, over rv-core; RocketVibe accounts only (Rocket.Chat, Mattermost
 
 ## Sources
 
+- apps/web/src/time-picker.ts
+- apps/web/src/conversation-parity.css
 - crates/rv-protocol/src/scheduled.rs
 - apps/server/src/scheduled.rs
 - apps/server/src/main.rs

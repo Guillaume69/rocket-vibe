@@ -10,6 +10,8 @@ Context: [desktop-app.md](desktop-app.md) (workspace, build container), [desktop
 
 ## Structure
 
+`style::watch_window` checks each main or fullscreen voice window's actual renderer after realization. Only Windows windows using `GskCairoRenderer` receive `windows-cairo-shadows`: the separate scoped CSS keeps speaking borders, green rings and pink button feedback with zero blur. The normal stylesheet and GL/Vulkan selection remain unchanged. GTK 4.24's Cairo blur path can turn a failed Win32 A8 `CreateDIBSection` surface into an absent original context and call Cairo with null; the installed Windows DLL fault-injection proof reproduces the reported access violation. `scripts/windows-cairo-shadow-proof.py` patches only its own Cairo import table, proves the A8 refusal, then requires finite zero-blur feedback pixels and no mask allocations; the packaged Windows smoke runs its surviving case. `tests/windows_cairo.rs` traverses actual GTK render snapshots and exercises voice-page to ordinary-room navigation, with the profile scoped to Windows plus the Cairo renderer.
+
 | Module | What it holds |
 |---|---|
 | `window` | `AppWindow`: a `gtk::Stack` of the login page and the chat page; owns the current `Arc<Session>` and the `rv_core::supervisor::Supervisor` of every signed-in account, starts and stops sessions, account switching and adding, logout, deep links, the bridge described below, and what the accounts in the background announce (`on_notice`: their notifications, ring prompts, rail dots and badge) |
@@ -95,7 +97,13 @@ Every package carries the `rv-voice` sidecar next to the app's executable, else 
 
 From a checkout, `scripts/install-desktop.sh` registers the release build with the desktop. Release flow and CI gating: [../operations.md](../operations.md).
 
+New RocketVibe room navigation in `chat_native.rs` waits for the native store to list an accepted creation or join receipt. A receipt contains metadata and does not establish membership by itself. `on_native_change` and `on_native_rooms` finish the pending open after the authoritative sync batch or snapshot reaches the store. The pending target keeps a weak reference to the exact native session and the user's navigation generation; another room choice or account teardown invalidates it. New-conversation and create-room HTTP callbacks also retain that generation, so a delayed successful response cannot re-arm navigation after a newer choice.
+
+The application window's starting, login and chat stack measures only its visible page. A hidden room sidebar must not impose its minimum width on the login. The existing login scroller retains all fields and submit controls on short windows, including invitation and recovery modes. `tests/login_layout.rs` renders the actual `AppWindow` with anonymous fixture discovery in English and French, at 1170×760 and 390×844, and checks horizontal fit and scroll-to-submit without sending credentials.
+
 ## Sources
+
+- apps/desktop/crates/rv-gtk/src/tests/login_layout.rs
 
 - apps/desktop/crates/rv-gtk/Cargo.toml
 - apps/desktop/crates/rv-gtk/src/main.rs
@@ -111,6 +119,8 @@ From a checkout, `scripts/install-desktop.sh` registers the release build with t
 - apps/desktop/crates/rv-gtk/src/rail.rs
 - apps/desktop/crates/rv-gtk/src/widgets.rs
 - apps/desktop/crates/rv-gtk/src/style.rs
+- apps/desktop/crates/rv-gtk/src/tests/windows_cairo.rs
+- apps/desktop/scripts/windows-cairo-shadow-proof.py
 - apps/desktop/crates/rv-gtk/src/secrets.rs
 - apps/desktop/crates/rv-gtk/src/notifier.rs
 - apps/desktop/crates/rv-gtk/src/reminders.rs

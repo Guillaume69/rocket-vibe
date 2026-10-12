@@ -65,10 +65,15 @@ The same actions come from `rv-ffi` (`Chat::actions`, cached per message per lis
 
 ## Parity
 
+Web RocketVibe marked lists use the native 440 by 560 dialog, with Pinned and My starred in the header switcher, compact username/date/body rows, and native empty or refused-read status pages. Account, dialog, request and membership lifetime fences discard stale list reads. A row still jumps through the ordinary message navigation; no action controls are added to the previews.
+
 Same rule set in all three apps, delete confirmation included. Desktop adds Up-to-edit; mobile adds the ghost-delete purge and Share. Quick reactions (my top 5) and reacting with any emoji through the picker are in all three. Reporting a message is in all three ([parity](../parity.md) §5). Forwarding to another Rocket.Chat room: all three.
 
 ## Sources
 
+- apps/web/src/panels.ts
+- apps/web/src/conversation-parity.css
+- apps/web/tests/conversation-parity.mjs
 - apps/mobile/lib/messageActions.ts
 - apps/mobile/app/message-actions.tsx
 - apps/mobile/app/marked-messages.tsx

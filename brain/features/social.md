@@ -38,7 +38,7 @@ SwiftUI uses SocialPanel, SocialCardView and VoiceReactionsView through typed Un
 
 ## Web
 
-The composer menu opens poll, event, shelf and GIF dialogs. Cards show votes, progress, closure, local event times, RSVPs, a pre-event reminder and voice join. GIFs use native browser images. Requests/results are fenced to the account, current room and room opening. Menus are populated before positioning and open above the composer. Voice reactions float on participant tiles with reduced-motion support.
+The composer opens GTK's Share something dialog with ordinary full-width choices. Poll and game-night dialogs follow the native 600 by 560 layout, plain entry fields, local date/time strings and inline validation. Poll options use `|`; game nights default to tomorrow at 20:00. Poll cards use native check rows with counts and vertical Vote/Clear/Close actions; game cards use centered local timestamps and vertical RSVP controls. The image shelf keeps Search/Refresh and the native Image/title action row. GIFs use native browser images. Requests/results are fenced to the account, current room and room opening. Voice reactions float on participant tiles with reduced-motion support. The dedicated pre-event reminder shortcut is absent to follow the requested GTK reference; ordinary message reminders remain available and the shortcut is explicit parity debt.
 
 ## Verification
 
@@ -66,5 +66,6 @@ Server integration tests exercise create replay, answer changes, stale retries, 
 - apps/desktop/macos/Sources/RocketVibe/Social.swift
 - apps/desktop/macos/Sources/RocketVibeKit/SocialModel.swift
 - apps/web/src/social.tsx
+- apps/web/src/social-parity.css
 - apps/web/tests/social.mjs
 - apps/desktop/crates/rv-gtk/src/smoke/giphy.rs

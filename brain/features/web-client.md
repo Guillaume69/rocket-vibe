@@ -14,7 +14,7 @@ A real browser application served by the native server, with one account on that
 
 User decisions on 2026-10-08 explicitly exclude account/server switching. On 2026-10-09 the user superseded the temporary encryption exclusion and requested usable browser E2EE. Native encrypted rooms now use the shared Rust MLS engine in WebAssembly, with identity/device reviews, peer pins, group admission, private conversations/files and recovery/history controls; full state-by-state qualification remains tracked in parity. Browser vault protection differs from the native keyring; see [browser E2EE](../../docs/WEB_E2EE.md). Browser notifications map foreground desktop alerts while the tab lives, shown by the service worker with the author's photo, the message's picture, Mark as read and Like buttons acted on by a live tab, and the app's own sound ([notifications](notifications.md#web)); closed-tab delivery is missing. HTTPS room URLs replace the native custom scheme. Browser installation/public-shell updates replace binary updates; OS tray, autostart and native keyring are absent.
 
-The merged master bots and workflows are exposed in browser settings, with the bot-creation policy in administration. Message forms run through the same server engine, with room-scoped slash completion and guarded one-time secrets. Labels and refusal wording are generated from the desktop catalog.
+The merged master bots and workflows are exposed in browser settings, with the bot-creation policy in administration. Message forms run through the same server engine, with room-scoped slash completion and guarded one-time secrets. Labels and refusal wording are generated from the desktop catalog. Native general and slash-command refusal mappings are generated from the GTK controller and core command handler as well. The presentation boundary chooses translated copy for server/worker failures and safe native fallback for unknown codes or missing translations; protocol codes remain intact for recovery and diagnostics. Encrypted-room failures use the native trust/refusal taxonomy without showing a raw code paragraph.
 
 Settings follow the GTK category order and icons, with profile editing in a subpage and separate server administration. Display zoom and clock switches were removed because GTK exposes neither. Language supports automatic, French and English, saved to native preferences for the next launch. Device sessions expose renaming, dates and confirmed revocation. Audio attachments provide inline playback controls. Selecting a voice channel joins automatically and shows the main call page plus live room occupants.
 
@@ -28,7 +28,9 @@ The voice page ports GTK's centered 16:9 TileGrid, native circular call controls
 
 Speaking now uses the native PCM thresholds, decay and hangover instead of SFU hints. Deafen uses the GTK/server wire attribute. Screen sharing keeps GTK's quality choices, stage label/fullscreen placement and mini participant presentation, with the browser's consent picker for sources. Capture quality reaches both capture and encoder. Fullscreen follows takeover and closes on capture ending. Shared sound is processed before publication, rejects capture with unconfirmed own-audio exclusion and implements GTK's opt-in call mix. Browser/OS program-sound capture remains partial; see [voice](voice.md) for the actual bench evidence and fallback.
 
-The 2026-10-12 screen audit aligns the native-provider login/factor steps, shell, room groups, messages, composers, threads, previews, room information, profiles, settings/security/crypto, administration and calls with the running Fedora GTK reference. The inventory and regression evidence live in `docs/WEB_GTK_SCREEN_AUDIT.md`. Browser rasterization and native OS permissions remain platform mappings; closed-tab Web Push and exhaustive physical-device/platform qualification remain separate debt.
+The 2026-10-12 screen audit uses running Fedora GTK as the presentation and interaction reference. New message opens the native people/public-channel spotlight before the separate Create room form. Marked messages retain the Pinned/My starred header and narrow bottom sheet. Scheduling/reminders share the native headerless calendar, locale weekday order and wrapping time controls. Social forms/cards, image shelf, workflow steps and the complete room command catalogue follow their native counterparts. The final inventory and qualified execution evidence live in `docs/WEB_GTK_FINAL_VERIFICATION.md`, supplementing `docs/WEB_GTK_SCREEN_AUDIT.md`; its 41 route/control families are distinct from conditional source records. Browser rasterization and native OS permissions remain platform mappings; closed-tab Web Push and exhaustive physical-device/platform qualification remain separate debt.
+
+Quoting between ordinary and MLS conversations uses the existing protected reference contract in every direction. Reader-authorized private excerpts remain volatile and never enter the ordinary model, draft, outbox or snapshot. Passive cards render native Markdown and bounded nested quotes; only ordinary source attachments obtain public descriptors, matching GTK. Private search opens compact previews, loads older retained history and activates its room jump or thread. Account, room, membership, revision and admission fences retire stale readers. See [private message actions](e2ee-private-actions.md) and [search](search.md).
 
 Message avatars and author names open the GTK-sized profile card. Its native identity, BOT owner, live status, Message/Call/Report actions, own-card exclusions and narrow layout follow `details.rs`. Live revisions refresh the card, expired observations clear presence, and missing leases in a complete observation mean Offline. Browser presence renews every 20 seconds while connected and clears on orderly shutdown. Profile DM actions fetch the personal read/access state before navigation. Bios and room texts render safe Markdown; see [room info and profiles](room-info-and-profiles.md).
 
@@ -43,6 +45,13 @@ Media uses GTK-style inline controls, protected video posters and native human-r
 ## Sources
 
 - docs/WEB_GTK_SCREEN_AUDIT.md
+- docs/WEB_GTK_FINAL_VERIFICATION.md
+- apps/web/src/new-conversation.ts
+- apps/web/src/time-picker.ts
+- apps/web/src/crypto/ordinary-quotes.ts
+- apps/web/src/crypto/quote-sources.ts
+- apps/web/src/ui/quote-card.tsx
+- apps/web/tests/private-quote-search.mjs
 - apps/web/src/markdown-text.ts
 - apps/web/src/ui/format.tsx
 - apps/web/README.md
@@ -77,6 +86,10 @@ Media uses GTK-style inline controls, protected video posters and native human-r
 - apps/web/src/local-search.ts
 - apps/web/src/diagnostics.ts
 - apps/web/src/dom.ts
+- apps/web/src/ui-errors.ts
+- apps/web/src/native-i18n.ts
+- apps/web/tests/ui-errors.test.ts
+- apps/web/tests/translated-errors.mjs
 - apps/web/tests/media.mjs
 - docs/WEB_CLIENT_EXECUTION.md
 - docs/rfcs/0005-web-client.md

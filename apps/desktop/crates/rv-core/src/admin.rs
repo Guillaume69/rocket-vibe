@@ -6,6 +6,7 @@
 //! Admin rights never open a private conversation: a RocketVibe admin reads
 //! a message only through an open report, which its reporter disclosed.
 
+pub use rv_protocol::admin::{AccountInvitation, IssuedAccountInvitation};
 use std::sync::Arc;
 
 use serde_json::{Value, json};
@@ -315,6 +316,7 @@ impl From<crate::native::Error> for AdminError {
 /// desktop apps.
 pub fn error_key(code: &str) -> &'static str {
     match code {
+        "invitation_limit" => "admin.invitation_limit",
         "self_administration" => "admin.error_self",
         "self_report" => "report.error_self",
         "last_administrator" | "error-admin-required" => "admin.error_last_admin",
@@ -457,6 +459,28 @@ impl Admin {
         match self {
             Self::RocketChat(s) => &s.info.user_id,
             Self::Native(s) => &s.info.user_id,
+        }
+    }
+
+    pub fn invitations_supported(&self) -> bool {
+        matches!(self,Self::Native(s) if s.invitations_supported())
+    }
+    pub async fn invitations(&self) -> Result<Vec<AccountInvitation>, AdminError> {
+        match self {
+            Self::Native(s) => Ok(s.account_invitations().await?),
+            _ => Err(AdminError::new("unsupported_feature")),
+        }
+    }
+    pub async fn create_invitation(&self, hours: u32) -> Result<IssuedAccountInvitation, AdminError> {
+        match self {
+            Self::Native(s) => Ok(s.create_invitation(hours).await?),
+            _ => Err(AdminError::new("unsupported_feature")),
+        }
+    }
+    pub async fn revoke_invitation(&self, id: &str) -> Result<(), AdminError> {
+        match self {
+            Self::Native(s) => Ok(s.revoke_invitation(id).await?),
+            _ => Err(AdminError::new("unsupported_feature")),
         }
     }
 

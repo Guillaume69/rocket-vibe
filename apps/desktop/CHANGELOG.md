@@ -7,6 +7,10 @@ section here.
 
 ## [Unreleased]
 
+### Added
+
+- RocketVibe administrators can create, copy, list and revoke account invitation codes in GTK and SwiftUI.
+
 ### Fixed
 
 - Prevent duplicate screenshots and other Rocket.Chat attachments after a slow or lost confirmation response, including encrypted files and app restarts. Uncertain confirmations show "Checking delivery" and reconcile without posting again.

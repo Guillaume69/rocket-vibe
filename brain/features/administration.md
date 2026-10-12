@@ -119,6 +119,16 @@ Actual GTK Fedora captures in English and French use the same local native serve
 
 [parity.md](../parity.md) §5, §8 and §15: the dashboard, moderation, rooms list, users with actions, reporting a message or a user, the server icon and custom emoji (the two last §15 rows) are done in all three apps; the deleted-user label is partial in all three (the limits above).
 
+## Account invitations
+
+On RocketVibe servers advertising both `administration` and `admin_invitations`, the server administration has an Invitations category in Android, GTK, SwiftUI and Web. An administrator creates a seven-day code, copies it (Android and SwiftUI also offer system sharing), lists metadata and revokes a code after confirmation. No email is sent automatically. Each code creates one non-admin account; the recipient enters it under Create account and chooses credentials. Server operators retain the CLI.
+
+The additive routes are `GET/POST /api/v1/admin/invitations` and `POST /api/v1/admin/invitations/{id}/revoke`. They require an active administrator, check authority again under mutation locks, return no-store and name the actor in the audit. Creation takes `{operation_id,hours,token}`, where token is 32 CSPRNG bytes represented by 64 lowercase hexadecimal characters. Only its SHA-256 is persisted. Clients keep an unacknowledged request transiently and resend exactly that operation and token after a lost response; no second invitation is created. A successful code is shown in the current screen, never recovered by metadata listing. Revocation does not disable a created account.
+
+The web account-code flow first receives the User, then uses `auth/start` and handles a session or factor challenge. It fences server identity and generation and checks the authenticated UID before saving a session.
+
+Sources: `apps/server/src/admin_invitations.rs`, `apps/server/migrations/0061_admin_invitations.sql`, `crates/rv-protocol/src/admin.rs`, `apps/mobile/app/admin/invitations.tsx`, `apps/desktop/crates/rv-gtk/src/admin_invitations.rs`, `apps/desktop/macos/Sources/RocketVibe/AdminView.swift`, `apps/web/src/admin.ts`, `apps/web/src/account-code.ts`.
+
 ## Sources
 
 - apps/web/src/admin.ts

@@ -7,6 +7,10 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+### Added
+
+- RocketVibe administrators can create, share, list and revoke account invitation codes.
+
 ### Fixed
 
 - Scope Mattermost and kChat searches to the current channel, direct conversation or group before the server's result limit, so busy teams no longer hide older room matches.

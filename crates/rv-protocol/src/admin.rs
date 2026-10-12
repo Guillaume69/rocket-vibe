@@ -224,6 +224,30 @@ pub struct IconCommand {
     pub operation_id: String,
 }
 
+/// Invitation metadata. The secret is never included in lists.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct AccountInvitation {
+    pub id: String,
+    pub created_at: String,
+    pub expires_at: String,
+    pub consumed_at: Option<String>,
+    pub revoked_at: Option<String>,
+}
+/// A client-generated CSPRNG secret makes a lost creation response retryable
+/// without storing the plaintext secret on the server.
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CreateAccountInvitation {
+    pub operation_id: String,
+    pub hours: u32,
+    pub token: String,
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+pub struct IssuedAccountInvitation {
+    pub invitation: AccountInvitation,
+    pub token: String,
+}
+
 /// Export root of the administration fixture.
 #[derive(Serialize, Deserialize, JsonSchema)]
 pub struct AdminContract {
@@ -240,4 +264,10 @@ pub struct AdminContract {
     pub remove_emoji: crate::custom_emojis::RemoveEmoji,
     pub instance_icon: InstanceIcon,
     pub icon_command: IconCommand,
+    #[serde(default)]
+    pub account_invitation: Option<AccountInvitation>,
+    #[serde(default)]
+    pub create_account_invitation: Option<CreateAccountInvitation>,
+    #[serde(default)]
+    pub issued_account_invitation: Option<IssuedAccountInvitation>,
 }

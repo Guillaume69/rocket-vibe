@@ -1,3 +1,4 @@
+import type { NativeTypes } from './protocol.generated.ts';
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
@@ -132,4 +133,19 @@ describe('NativeAdmin', () => {
     assert.deepEqual(asked, ['reports', 'reports']);
     assert.deepEqual(sent, [['m1', { operation_id: 'op-1', reason: 'spam' }], ['u1', { operation_id: 'op-2', reason: 'rude' }]]);
   });
+});
+
+test('invitation creation retries exactly the same secret and operation after a lost response',async()=>{
+  const inputs:NativeTypes['CreateAccountInvitation'][]=[];
+  const item={id:'invite',created_at:'2026-10-12T10:00:00Z',expires_at:'2026-10-19T10:00:00Z',consumed_at:null,revoked_at:null};
+  const {chat,asked}=fakeChat({
+    adminInvitations:async()=>[item],
+    createAccountInvitation:async input=>{inputs.push({...input});if(inputs.length===1)throw Error('lost');return {invitation:item,token:input.token};},
+  },{administration:true,admin_invitations:true});
+  const admin=new NativeAdmin(chat);assert.equal(admin.canInviteAccounts(),true);
+  await assert.rejects(admin.createInvitation(168),/lost/);
+  const result=await admin.createInvitation(168);
+  assert.deepEqual(inputs[0],inputs[1]);assert.match(result.token,/^[a-f0-9]{64}$/);
+  await admin.createInvitation(168);assert.notEqual(inputs[1]!.token,inputs[2]!.token);
+  assert.equal((await admin.invitations()).length,1);assert.ok(asked.every(c=>c==='admin_invitations'));
 });

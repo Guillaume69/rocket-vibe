@@ -5,7 +5,7 @@ import RocketVibeCore
 /// A category of the server administration, in sidebar order: the GTK
 /// app's (`rv-gtk/src/admin.rs`). It opens on the Dashboard.
 public enum AdminCategory: String, CaseIterable, Identifiable, Sendable {
-    case dashboard, moderation, rooms, users, emoji
+    case dashboard, moderation, rooms, users, invitations, emoji
 
     public var id: String { rawValue }
     public var title: String { L("admin.cat.\(rawValue)") }
@@ -191,7 +191,7 @@ public final class AdminModel {
     public private(set) var icon: Data?
     public private(set) var settingIcon = false
     /// The categories this server offers, in sidebar order.
-    public var categories: [AdminCategory] { AdminCategory.allCases.filter { $0 != .emoji || emojiSupported } }
+    public var categories: [AdminCategory] { AdminCategory.allCases.filter { ($0 != .emoji || emojiSupported) && ($0 != .invitations || source.invitationsSupported()) } }
     /// The server's custom emoji, once read; `emojisError` when they could not be.
     public private(set) var emojis: [AdminEmoji]?
     public private(set) var emojisError: String?
@@ -246,6 +246,7 @@ public final class AdminModel {
         switch category {
         case .dashboard: if overview == nil && overviewError == nil { Task { await refreshOverview(refresh: false) } }
         case .moderation: reportedMessages.start(); reportedUsers.start()
+        case .invitations: break
         case .rooms: rooms.start()
         case .users: users.start()
         case .emoji: if emojis == nil { Task { await loadEmojis() } }
@@ -612,4 +613,12 @@ extension AppModel {
         reporting = nil
         notice = text
     }
+}
+
+public extension ServerAdminProtocol {
+    func invitationsSupported() -> Bool { false }
+    func serverUrl() -> String { "" }
+    func invitations() async throws -> [AdminInvitation] { [] }
+    func createInvitation(hours: UInt32) async throws -> String { throw NSError(domain: "unsupported_feature", code: 1) }
+    func revokeInvitation(id: String) async throws { throw NSError(domain: "unsupported_feature", code: 1) }
 }

@@ -10,8 +10,11 @@ import type {
   AdminReportedUserPage,
   EmojiCatalog,
   InstanceIcon,
+  AccountInvitation,
+  IssuedAccountInvitation,
+  CreateAccountInvitation,
 } from "./protocol";
-import { operation, segment } from "./api";
+import { operation, segment, secret } from "./api";
 import { button, dialog, el, field, tile, toast } from "./dom";
 import { sidebarDialog, preferencesGroup, actionRow } from "./sidebar";
 import { language, t } from "./i18n";
@@ -279,6 +282,105 @@ async function emojiPage(
   page.append(el("p", "dim", nt("admin.emoji_hint")), form, list);
   await render();
 }
+async function invitationPage(
+  app: App,
+  page: HTMLElement,
+  valid: () => boolean,
+): Promise<void> {
+  const current = () => valid() && page.isConnected;
+  const [form, controls] = preferencesGroup(nt("admin.cat.invitations"));
+  const output = el("div"),
+    list = el("div");
+  let pending: CreateAccountInvitation | undefined,
+    reading = 0;
+  const reload = async () => {
+    const expected = ++reading;
+    const rows = await app.api.request<AccountInvitation[]>(
+      "/api/v1/admin/invitations",
+    );
+    if (!current() || expected !== reading) return;
+    list.replaceChildren();
+    if (!rows.length) list.append(el("p", "dim", nt("admin.invitation_empty")));
+    for (const item of rows) {
+      const status = item.revoked_at
+        ? "revoked"
+        : item.consumed_at
+          ? "used"
+          : Date.parse(item.expires_at) <= Date.now()
+            ? "expired"
+            : "active";
+      const row = actionRow(
+        item.id,
+        nt("admin.invitation_" + status) +
+          " · " +
+          new Date(item.expires_at).toLocaleString(),
+      );
+      if (status === "active")
+        row.append(
+          button(
+            nt("admin.invitation_revoke"),
+            () =>
+              confirm(nt("admin.invitation_revoke"), async () => {
+                if (!current()) return;
+                await app.api.request(
+                  "/api/v1/admin/invitations/" + segment(item.id) + "/revoke",
+                  "POST",
+                  { operation_id: operation() },
+                );
+                if (current()) {
+                  output.replaceChildren();
+                  await reload();
+                }
+              }),
+            "destructive",
+          ),
+        );
+      list.append(row);
+    }
+  };
+  controls.append(
+    el("p", "dim", nt("admin.invitation_hint")),
+    button(
+      nt("admin.invitation_create"),
+      async () => {
+        if (!current()) return;
+        pending ??= { operation_id: operation(), hours: 168, token: secret() };
+        const issued = await app.api.request<IssuedAccountInvitation>(
+          "/api/v1/admin/invitations",
+          "POST",
+          pending,
+        );
+        pending = undefined;
+        if (!current()) return;
+        const code = el("input");
+        code.value = issued.token;
+        code.readOnly = true;
+        code.className = "pill-entry";
+        code.setAttribute("aria-label", nt("admin.invitation_code"));
+        output.replaceChildren(
+          el("p", "dim", nt("admin.invitation_secret")),
+          code,
+          button(nt("admin.invitation_copy"), async () => {
+            await navigator.clipboard.writeText(issued.token);
+            toast(nt("actions.copy"));
+          }),
+          el(
+            "p",
+            "dim",
+            new Date(issued.invitation.expires_at).toLocaleString(),
+          ),
+        );
+        await reload();
+      },
+      "cta",
+    ),
+    button(nt("admin.invitation_refresh"), reload),
+    output,
+  );
+  page.append(form, list);
+  await reload();
+}
+
 export async function administration(app: App): Promise<void> {
   const host = sidebarDialog(nt("admin.title"), "admin-dialog");
   const valid = accountFence(app);
@@ -703,6 +805,10 @@ export async function administration(app: App): Promise<void> {
     page.append(tabs, list);
     return reports(page, "messages");
   });
+  if (app.info?.capabilities.admin_invitations)
+    host.add("invitations", nt("admin.cat.invitations"), "users", (page) =>
+      invitationPage(app, page, valid),
+    );
   host.add("rooms", nt("admin.cat.rooms"), "rooms", (page) => rooms(page));
   host.add("users", nt("admin.cat.users"), "users", (page) => users(page));
   if (app.info?.capabilities.custom_emoji_admin)

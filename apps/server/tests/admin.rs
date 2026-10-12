@@ -148,7 +148,7 @@ async fn members_are_refused_and_the_overview_counts_the_instance(pool: PgPool) 
     let overview = root.admin_overview().await.unwrap();
     assert_eq!(overview.server_version, env!("CARGO_PKG_VERSION"));
     assert!(chrono::DateTime::parse_from_rfc3339(&overview.started_at).is_ok());
-    assert_eq!(overview.migration_version.as_deref(), Some("60"));
+    assert_eq!(overview.migration_version.as_deref(), Some("61"));
     assert!(!overview.postgres_version.is_empty());
     let users = overview.users;
     assert_eq!(
@@ -1124,4 +1124,157 @@ async fn root_id_of(pool: &PgPool) -> String {
         .fetch_one(pool)
         .await
         .unwrap()
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn account_invitations_are_admin_only_retry_safe_hashed_and_revocable(pool: PgPool) {
+    use rv_protocol::admin::{CreateAccountInvitation, IssuedAccountInvitation};
+    let bench = Bench::start(pool.clone()).await;
+    let (root, root_id) = bench.user("root", true).await;
+    let (member, _) = bench.user("member", false).await;
+    assert!(
+        root.discover()
+            .await
+            .unwrap()
+            .capabilities
+            .admin_invitations
+    );
+    let input = CreateAccountInvitation {
+        operation_id: "invite-alice".into(),
+        hours: 168,
+        token: auth::random_token(),
+    };
+    let http = reqwest::Client::new();
+    let url = format!("{}/api/v1/admin/invitations", bench.base);
+    let anonymous = http.post(&url).json(&input).send().await.unwrap();
+    assert_eq!(anonymous.status(), 401);
+    assert_eq!(anonymous.headers()["cache-control"], "no-store");
+    for response in [
+        http.get(&url)
+            .bearer_auth(member.saved_token().unwrap())
+            .send()
+            .await
+            .unwrap(),
+        http.post(&url)
+            .bearer_auth(member.saved_token().unwrap())
+            .json(&input)
+            .send()
+            .await
+            .unwrap(),
+    ] {
+        assert_eq!(response.status(), 403);
+    }
+    let response = http
+        .post(&url)
+        .bearer_auth(root.saved_token().unwrap())
+        .json(&input)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(response.headers()["cache-control"], "no-store");
+    let issued: IssuedAccountInvitation = response.json().await.unwrap();
+    let replay = root.create_account_invitation(&input).await.unwrap();
+    assert_eq!(issued.invitation.id, replay.invitation.id);
+    assert_eq!(issued.token, replay.token);
+    let (count,): (i64,) = sqlx::query_as("SELECT count(*) FROM account_invitations")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 1);
+    let (hash,): (String,) = sqlx::query_as("SELECT token_hash FROM account_invitations")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(hash, auth::hash_token(&input.token));
+    assert_ne!(hash, input.token);
+    let listed = root.admin_invitations().await.unwrap();
+    assert_eq!(listed.len(), 1);
+    assert!(
+        !serde_json::to_string(&listed)
+            .unwrap()
+            .contains(&input.token)
+    );
+    let mut conflict = input.clone();
+    conflict.hours = 24;
+    let response = http
+        .post(&url)
+        .bearer_auth(root.saved_token().unwrap())
+        .json(&conflict)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 409);
+    let mut invalid = input.clone();
+    invalid.operation_id = "invalid-hours".into();
+    invalid.hours = 0;
+    let response = http
+        .post(&url)
+        .bearer_auth(root.saved_token().unwrap())
+        .json(&invalid)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 400);
+    let user = root
+        .accept_invitation(&rv_protocol::parity::AcceptInvitation {
+            token: input.token.clone(),
+            username: "newbie".into(),
+            password: PASSWORD.into(),
+        })
+        .await
+        .unwrap();
+    let logged = bench.login("newbie").await.unwrap();
+    assert_eq!(logged.me().await.unwrap().id, user.id);
+    assert!(
+        !root
+            .admin_users(None, None, Some("newbie"))
+            .await
+            .unwrap()
+            .items[0]
+            .admin
+    );
+    let revoke = AdminOperation {
+        operation_id: "revoke-invite".into(),
+    };
+    assert_eq!(
+        refused(
+            member
+                .revoke_account_invitation(&issued.invitation.id, &revoke)
+                .await
+        )
+        .0,
+        403
+    );
+    root.revoke_account_invitation(&issued.invitation.id, &revoke)
+        .await
+        .unwrap();
+    root.revoke_account_invitation(&issued.invitation.id, &revoke)
+        .await
+        .unwrap();
+    assert!(
+        root.admin_invitations().await.unwrap()[0]
+            .revoked_at
+            .is_some()
+    );
+    let accepted = root
+        .accept_invitation(&rv_protocol::parity::AcceptInvitation {
+            token: input.token.clone(),
+            username: "newbie".into(),
+            password: PASSWORD.into(),
+        })
+        .await;
+    assert_eq!(refused(accepted).1, "invitation_rejected");
+    let rows: Vec<(Option<String>, String)> = sqlx::query_as(
+        "SELECT actor_id,details::text FROM operator_audit WHERE action LIKE 'invitation.%'",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(rows.len(), 2);
+    assert!(
+        rows.iter()
+            .all(|(actor, detail)| actor.as_deref() == Some(root_id.as_str())
+                && !detail.contains(&input.token))
+    );
 }

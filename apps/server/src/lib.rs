@@ -1,4 +1,5 @@
 mod admin;
+mod admin_invitations;
 pub mod auth;
 pub mod bots;
 pub mod client_address;

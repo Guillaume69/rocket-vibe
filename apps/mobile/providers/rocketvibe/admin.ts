@@ -26,6 +26,7 @@ import {
   type ReportedMessage,
   type ReportedUser,
 } from '../../lib/admin.ts';
+import {randomBytes} from 'crypto';
 import type { FileToSend } from '../../lib/upload.ts';
 import type { NativeChat } from './chat.ts';
 import type { NativeTypes } from './protocol.generated.ts';
@@ -129,6 +130,21 @@ const page = (after: string | null, query?: string) => ({
 });
 
 export class NativeAdmin implements ProviderAdmin {
+  private pendingInvitation: NativeTypes['CreateAccountInvitation'] | null = null;
+  canInviteAccounts(): boolean { return this.chat.capabilities?.admin_invitations === true; }
+  invitations() { return this.chat.administration('admin_invitations',t=>t.adminInvitations()); }
+  createInvitation(hours: number) {
+    return this.chat.administration('admin_invitations',async(t,operation)=> {
+      this.pendingInvitation ??= {operation_id:operation(),hours,token:randomBytes(32).toString('hex')};
+      const result=await t.createAccountInvitation(this.pendingInvitation);
+      this.pendingInvitation=null;
+      return result;
+    });
+  }
+  async revokeInvitation(id: string):Promise<void> {
+    await this.chat.administration('admin_invitations',(t,operation)=>t.revokeAccountInvitation(id,{operation_id:operation()}));
+  }
+
   readonly product = 'rocketvibe' as const;
   private readonly chat: NativeChat;
 

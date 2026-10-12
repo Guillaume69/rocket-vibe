@@ -1,6 +1,7 @@
+import { accountCodeLogin } from "../account-code";
 import { useEffect, useRef, useState, type InputHTMLAttributes } from "react";
 import type { App } from "../app";
-import type { AuthenticationStep, Discovery, Session } from "../protocol";
+import type { AuthenticationStep, Discovery } from "../protocol";
 import { t, language, setLanguage } from "../i18n";
 import { operation } from "../api";
 import { toast } from "../dom";
@@ -92,19 +93,19 @@ export function LoginScreen({ app }: { app: App }) {
         if (step.kind === "challenge") app.challenge(step.challenge, info);
         else await app.accept(step.session, info);
       } else {
-        const session = await app.api.request<Session>(
-          mode === "signup"
-            ? "/api/v1/auth/invitations/accept"
-            : "/api/v1/auth/recovery",
-          "POST",
-          mode === "signup"
-            ? { username, password, token }
-            : { username, token, new_password: password },
-          true,
+        const step = await accountCodeLogin(
+          app.api,
+          info,
+          username,
+          password,
+          token.trim(),
+          mode === "recovery",
         );
         if (!active.current) return;
         setPassword("");
-        await app.accept(session, info);
+        setToken("");
+        if (step.kind === "challenge") app.challenge(step.challenge, info);
+        else await app.accept(step.session, info);
       }
     } catch (reason) {
       if (active.current)

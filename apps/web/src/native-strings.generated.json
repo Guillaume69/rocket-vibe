@@ -1,4 +1,36 @@
 {
+  "admin.invitation_refresh": ["Actualiser", "Refresh"],
+  "admin.invitation_code": ["Code d’invitation", "Invitation code"],
+  "admin.cat.invitations": ["Invitations", "Invitations"],
+  "admin.invitation_hint": [
+    "Invitez une personne à créer son compte. Chaque code fonctionne une seule fois et expire après 7 jours. Aucun e-mail automatique.",
+    "Invite someone to create their account. Each code creates one account and expires after 7 days. No automatic email."
+  ],
+  "admin.invitation_create": ["Créer une invitation", "Create invitation"],
+  "admin.invitation_secret": [
+    "Copiez ce code maintenant. Il ne sera plus affiché après fermeture.",
+    "Copy this code now. It will not be shown again after closing."
+  ],
+  "admin.invitation_copy": ["Copier le code", "Copy code"],
+  "admin.invitation_share": ["Partager", "Share"],
+  "admin.invitation_share_text": [
+    "Sur ce serveur, choisissez Créer un compte et saisissez ce code :",
+    "On this server, choose Create account and enter this code:"
+  ],
+  "admin.invitation_empty": ["Aucune invitation", "No invitations"],
+  "admin.invitation_active": ["Disponible", "Available"],
+  "admin.invitation_used": ["Utilisée", "Used"],
+  "admin.invitation_expired": ["Expirée", "Expired"],
+  "admin.invitation_revoked": ["Révoquée", "Revoked"],
+  "admin.invitation_revoke": ["Révoquer", "Revoke"],
+  "admin.invitation_revoke_body": [
+    "Ce code ne permettra plus de créer un compte. Les comptes déjà créés restent actifs.",
+    "This code will no longer allow account creation. Accounts already created remain active."
+  ],
+  "admin.invitation_limit": [
+    "Trop d’invitations actives. Révoquez une invitation ou attendez son expiration.",
+    "Too many active invitations. Revoke one or wait for it to expire."
+  ],
   "social.could_not_complete_check_the_fields_or_try_again": [
     "Impossible de terminer. Vérifiez les champs ou réessayez.",
     "Could not complete. Check the fields or try again."

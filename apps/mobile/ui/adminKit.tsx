@@ -22,6 +22,8 @@ import { type Colors, FONTS, LIST_PRESS_DELAY } from './theme.ts';
 /** The sentence for a failed administration call, from both servers' errors. */
 export function adminErrorKey(e: ProviderError): TranslationKey {
   switch (e.code) {
+    case 'invitation_limit':
+      return 'admin.invitationLimit';
     case 'self_administration':
       return 'admin.errSelf';
     case 'last_administrator':

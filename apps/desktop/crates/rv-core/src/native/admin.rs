@@ -8,6 +8,49 @@ use rv_protocol::admin::*;
 const PAGE: u32 = 50;
 
 impl NativeSession {
+    pub fn invitations_supported(&self) -> bool {
+        self.capabilities.lock().unwrap().as_ref().is_some_and(|c| c.admin_invitations)
+    }
+    fn invitation_access(&self) -> Result<(), Error> {
+        self.admin_access()?;
+        if !self.invitations_supported() {
+            return Err(Error::Protocol("unsupported_feature"));
+        }
+        Ok(())
+    }
+    pub async fn account_invitations(&self) -> Result<Vec<AccountInvitation>, Error> {
+        self.invitation_access()?;
+        self.refresh_credentials().await?;
+        let rows = self.client.admin_invitations().await?;
+        self.ready()?;
+        Ok(rows)
+    }
+    pub async fn create_invitation(&self, hours: u32) -> Result<IssuedAccountInvitation, Error> {
+        self.invitation_access()?;
+        self.refresh_credentials().await?;
+        let input = {
+            let mut pending = self.pending_invitation.lock().unwrap();
+            if pending.is_none() {
+                *pending = Some(CreateAccountInvitation {
+                    operation_id: room_operation_id(),
+                    hours,
+                    token: super::credentials::token()?,
+                });
+            }
+            pending.as_ref().unwrap().clone()
+        };
+        let result = self.client.create_account_invitation(&input).await?;
+        self.ready()?;
+        *self.pending_invitation.lock().unwrap() = None;
+        Ok(result)
+    }
+    pub async fn revoke_invitation(&self, id: &str) -> Result<(), Error> {
+        self.invitation_access()?;
+        self.refresh_credentials().await?;
+        self.client.revoke_account_invitation(id, &AdminOperation { operation_id: room_operation_id() }).await?;
+        self.ready()
+    }
+
     /// The server offers the administration routes.
     pub fn administration_supported(&self) -> bool {
         self.capabilities.lock().unwrap().as_ref().is_some_and(|c| c.administration)

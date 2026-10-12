@@ -4,8 +4,13 @@ All notable changes are documented here in English.
 
 ## [Unreleased]
 
+### Added
+
+- RocketVibe administrators can create, copy, list and revoke account invitation codes.
+
 ### Fixed
 
+- Invitation signup and password recovery authenticate after receiving the account response, including second-factor challenges.
 - Typing /giphy opens a compact GIF grid immediately. Search updates as you type in both the command and sharing-menu pickers; choosing a GIF highlights it, and Enter or the shared Send button sends it. Search changes discard old selections and stale responses, and cancellation preserves the draft.
 
 ## [0.5.0] - 2026-10-11

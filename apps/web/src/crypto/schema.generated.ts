@@ -19,6 +19,29 @@ export const nativeSchema = {
       required: ["token", "username", "password"],
       type: "object",
     },
+    AccountInvitation: {
+      description:
+        "Invitation metadata. The secret is never included in lists.",
+      properties: {
+        consumed_at: {
+          type: ["string", "null"],
+        },
+        created_at: {
+          type: "string",
+        },
+        expires_at: {
+          type: "string",
+        },
+        id: {
+          type: "string",
+        },
+        revoked_at: {
+          type: ["string", "null"],
+        },
+      },
+      required: ["id", "created_at", "expires_at"],
+      type: "object",
+    },
     AccountPermissions: {
       properties: {
         create_bot: {
@@ -51,6 +74,28 @@ export const nativeSchema = {
     AdminContract: {
       description: "Export root of the administration fixture.",
       properties: {
+        account_invitation: {
+          anyOf: [
+            {
+              $ref: "#/$defs/AccountInvitation",
+            },
+            {
+              type: "null",
+            },
+          ],
+          default: null,
+        },
+        create_account_invitation: {
+          anyOf: [
+            {
+              $ref: "#/$defs/CreateAccountInvitation",
+            },
+            {
+              type: "null",
+            },
+          ],
+          default: null,
+        },
         create_emoji: {
           $ref: "#/$defs/CreateEmoji",
         },
@@ -62,6 +107,17 @@ export const nativeSchema = {
         },
         instance_icon: {
           $ref: "#/$defs/InstanceIcon",
+        },
+        issued_account_invitation: {
+          anyOf: [
+            {
+              $ref: "#/$defs/IssuedAccountInvitation",
+            },
+            {
+              type: "null",
+            },
+          ],
+          default: null,
         },
         operation: {
           $ref: "#/$defs/AdminOperation",
@@ -1297,6 +1353,12 @@ export const nativeSchema = {
           default: false,
           type: "boolean",
         },
+        admin_invitations: {
+          default: false,
+          description:
+            "Administrators can create, list and revoke account invitations.",
+          type: "boolean",
+        },
         administration: {
           default: false,
           description:
@@ -1733,6 +1795,26 @@ export const nativeSchema = {
         },
       },
       required: ["verification_id", "operation_id", "code", "context"],
+      type: "object",
+    },
+    CreateAccountInvitation: {
+      additionalProperties: false,
+      description:
+        "A client-generated CSPRNG secret makes a lost creation response retryable\nwithout storing the plaintext secret on the server.",
+      properties: {
+        hours: {
+          format: "uint32",
+          minimum: 0,
+          type: "integer",
+        },
+        operation_id: {
+          type: "string",
+        },
+        token: {
+          type: "string",
+        },
+      },
+      required: ["operation_id", "hours", "token"],
       type: "object",
     },
     CreateBot: {
@@ -3492,6 +3574,18 @@ export const nativeSchema = {
           type: ["string", "null"],
         },
       },
+      type: "object",
+    },
+    IssuedAccountInvitation: {
+      properties: {
+        invitation: {
+          $ref: "#/$defs/AccountInvitation",
+        },
+        token: {
+          type: "string",
+        },
+      },
+      required: ["invitation", "token"],
       type: "object",
     },
     JoinVoice: {

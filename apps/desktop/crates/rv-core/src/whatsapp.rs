@@ -89,7 +89,11 @@ pub struct Snapshot {
     pub unread: BTreeMap<String, u32>,
     /// The linked account: its JID and the name it shows, once paired.
     pub account: Option<(String, String)>,
+    /// Who types (or records) in each chat, and since when.
+    pub typing: BTreeMap<String, BTreeMap<String, (String, std::time::Instant)>>,
 }
+/// A "typing" WhatsApp does not end itself fades after this.
+const TYPING_FADE: Duration = Duration::from_secs(12);
 impl Snapshot {
     /// The name shown for a chat or a person, falling back on what the
     /// message itself carried.
@@ -98,6 +102,16 @@ impl Snapshot {
     }
     pub fn chat_name(&self, message: &WireMessage) -> String {
         self.name_of(&message.chat).map(str::to_owned).unwrap_or_else(|| fallback_name(&message.chat))
+    }
+    /// The names of who types in a chat now.
+    pub fn typing_names(&self, chat: &str) -> Vec<String> {
+        self.typing
+            .get(chat)
+            .into_iter()
+            .flatten()
+            .filter(|(_, (state, since))| state != "paused" && since.elapsed() < TYPING_FADE)
+            .map(|(sender, _)| self.name_of(sender).map(str::to_owned).unwrap_or_else(|| fallback_name(sender)))
+            .collect()
     }
     /// A message as the native timeline draws it.
     pub fn presentation(&self, m: &WireMessage) -> MessageRow {
@@ -345,6 +359,9 @@ enum Event {
         #[serde(default)]
         name: String,
     },
+    Typing {
+        typing: WireTyping,
+    },
     /// A downloaded attachment, by its message id; an empty path is a failure.
     File {
         id: String,
@@ -358,6 +375,13 @@ enum Event {
         people: Vec<Person>,
     },
 }
+#[derive(Deserialize)]
+struct WireTyping {
+    chat: String,
+    sender: String,
+    state: String,
+}
+
 /// A file to send to a chat.
 #[derive(Clone, Debug, Default)]
 pub struct OutgoingFile {
@@ -401,6 +425,8 @@ enum Request {
     Search { id: String, text: String },
     Download { id: String },
     Upload(Box<Upload>),
+    Typing { chat: String, composing: bool },
+    Presence { available: bool },
     Connect,
     Logout,
     Stop,
@@ -453,6 +479,10 @@ impl Snapshot {
                 self.error = None;
             }
             Event::Message { message } => {
+                // A message ends its author's typing.
+                if let Some(senders) = self.typing.get_mut(&message.chat) {
+                    senders.remove(&message.sender);
+                }
                 self.messages.insert(message.id.clone(), *message);
                 if self.messages.len() > CACHE_MESSAGES
                     && let Some(id) = self.messages.values().min_by_key(|m| (m.ts, &m.id)).map(|m| m.id.clone())
@@ -508,6 +538,11 @@ impl Snapshot {
                 self.unread.clear();
             }
             Event::Account { jid, name } => self.account = Some((jid, name)),
+            Event::Typing { typing } => {
+                let senders = self.typing.entry(typing.chat).or_default();
+                senders.insert(typing.sender, (typing.state, std::time::Instant::now()));
+                senders.retain(|_, (state, since)| state != "paused" && since.elapsed() < TYPING_FADE);
+            }
             // Answered to their askers by the reader, never kept.
             Event::Found { .. } | Event::File { .. } => {}
             Event::Chat { jid, unread } => {
@@ -616,6 +651,15 @@ impl Connector {
         self.request(Request::Act { kind: "delete", id, text: String::new() })
     }
     /// Reads a chat: its unread messages get their read receipts.
+    /// Tells a chat I am typing, or stopped.
+    pub fn set_typing(&self, chat: String, composing: bool) -> Result<(), String> {
+        self.request(Request::Typing { chat, composing })
+    }
+    /// Online while the app is in front (WhatsApp then sends who types, and
+    /// holds the phone's notifications back), offline otherwise.
+    pub fn set_presence(&self, available: bool) -> Result<(), String> {
+        self.request(Request::Presence { available })
+    }
     /// Sends a local file (a voice note when `voice`), uploaded by the helper;
     /// the id is the send's, like `send`'s.
     pub fn send_file(&self, file: OutgoingFile) -> Result<String, String> {
@@ -732,6 +776,12 @@ async fn worker(
                     Request::Read { chat } => json!({"type":"read","chat":chat}),
                     Request::Search { id, text } => json!({"type":"search","id":id,"text":text}),
                     Request::Download { id } => json!({"type":"download","id":id}),
+                    Request::Typing { chat, composing } => {
+                        json!({"type":"typing","chat":chat,"text":if composing { "composing" } else { "paused" }})
+                    }
+                    Request::Presence { available } => {
+                        json!({"type":"presence","text":if available { "available" } else { "unavailable" }})
+                    }
                     Request::Upload(u) => json!({
                         "type":"upload","id":u.id,"chat":u.chat,"text":u.caption,"reply":u.reply.unwrap_or_default(),
                         "path":u.path,"mime":u.mime,"name":u.name,"voice":u.voice,
@@ -893,6 +943,24 @@ mod tests {
             (path, key.as_str()),
             (Path::new("/data/whatsapp/ab12/state.bin").into(), "whatsapp-storage-v1|ab12")
         );
+    }
+    #[test]
+    fn typing_shows_until_paused_or_a_message() {
+        let mut s = Snapshot::default();
+        let wire = |value: serde_json::Value| serde_json::from_value::<Event>(value).unwrap();
+        s.apply(wire(json!({"type":"names","names":{"a@s.whatsapp.net":"Alice"}})));
+        s.apply(wire(json!({"type":"typing","typing":{"chat":"a@s.whatsapp.net","sender":"a@s.whatsapp.net","state":"composing"}})));
+        assert_eq!(s.typing_names("a@s.whatsapp.net"), vec!["Alice".to_owned()]);
+        s.apply(wire(
+            json!({"type":"typing","typing":{"chat":"a@s.whatsapp.net","sender":"a@s.whatsapp.net","state":"paused"}}),
+        ));
+        assert!(s.typing_names("a@s.whatsapp.net").is_empty());
+        s.apply(wire(json!({"type":"typing","typing":{"chat":"a@s.whatsapp.net","sender":"a@s.whatsapp.net","state":"composing"}})));
+        s.apply(wire(json!({"type":"message","message":{
+            "id":"a@s.whatsapp.net:1","chat":"a@s.whatsapp.net","name":"a","sender":"a@s.whatsapp.net",
+            "author":"","text":"hi","ts":1,"mine":false
+        }})));
+        assert!(s.typing_names("a@s.whatsapp.net").is_empty());
     }
     #[test]
     fn the_replayed_cache_marks_the_snapshot_loaded() {

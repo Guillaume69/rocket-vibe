@@ -67,7 +67,14 @@ struct Local {
     expired: bool,
     /// Conversations started here with no message yet: (name, when opened).
     started: BTreeMap<String, (String, i64)>,
+    /// The chat I last said I type in, and when (re-said every few seconds).
+    typing_sent: Option<(String, std::time::Instant)>,
+    /// Whether I last said I am online.
+    available: bool,
 }
+
+/// WhatsApp's typing fades unless repeated: re-said this often while typing.
+const TYPING_REPEAT: Duration = Duration::from_secs(8);
 
 pub struct WaSession {
     pub info: SessionInfo,
@@ -275,6 +282,35 @@ impl WaSession {
         self.local().rooms = None;
         self.bump();
     }
+    /// Who types in a chat now, by name.
+    pub fn typing(&self, chat: &str) -> Vec<String> {
+        self.snapshot().typing_names(chat)
+    }
+    /// My typing in a chat: said when it starts and every few seconds while it
+    /// lasts, and once when it stops.
+    pub fn set_typing(&self, chat: &str, composing: bool) {
+        let Some(connector) = self.connector() else { return };
+        let mut local = self.local();
+        let current = local.typing_sent.as_ref().is_some_and(|(c, _)| c == chat);
+        if composing {
+            let fresh = local.typing_sent.as_ref().is_some_and(|(c, at)| c == chat && at.elapsed() < TYPING_REPEAT);
+            if !fresh && connector.set_typing(chat.to_owned(), true).is_ok() {
+                local.typing_sent = Some((chat.to_owned(), std::time::Instant::now()));
+            }
+        } else if current {
+            local.typing_sent = None;
+            let _ = connector.set_typing(chat.to_owned(), false);
+        }
+    }
+    /// Online while the app shows this account in front, offline otherwise.
+    pub fn set_available(&self, available: bool) {
+        // Said once connected; a reconnection says it again.
+        let Some(connector) = self.connector().filter(|c| c.state() == "connected") else { return };
+        let mut local = self.local();
+        if local.available != available && connector.set_presence(available).is_ok() {
+            local.available = available;
+        }
+    }
     pub fn chat_name(&self, chat: &str) -> String {
         let s = self.snapshot();
         s.name_of(chat).map(str::to_owned).unwrap_or_else(|| whatsapp::fallback_name(chat))
@@ -434,6 +470,9 @@ impl WaSession {
     }
     fn replaced(&self) {
         let mut local = self.local();
+        // A new helper starts offline, whatever the last one was told.
+        local.available = false;
+        local.typing_sent = None;
         let pending = std::mem::take(&mut local.pending);
         local.orphans.extend(pending);
         local.read_sent = None;

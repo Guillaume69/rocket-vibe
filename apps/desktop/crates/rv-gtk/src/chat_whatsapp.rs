@@ -90,6 +90,28 @@ impl ChatPage {
         let sending = self.current_rid().is_some_and(|rid| session.sending(&rid));
         self.composer.root.set_sensitive(!sending);
         self.schedule_whatsapp_read();
+        self.whatsapp_presence();
+        if let Some(rid) = self.current_rid() {
+            self.on_typing(&rid);
+            // A typing WhatsApp never ends by itself fades: look again then.
+            if !session.typing(&rid).is_empty() {
+                let weak = Rc::downgrade(self);
+                glib::timeout_add_local_once(std::time::Duration::from_secs(13), move || {
+                    if let Some(this) = weak.upgrade()
+                        && let Some(rid) = this.current_rid()
+                    {
+                        this.on_typing(&rid);
+                    }
+                });
+            }
+        }
+    }
+
+    /// Online while this account is in front in the focused window.
+    pub fn whatsapp_presence(&self) {
+        let Some(session) = self.whatsapp_session() else { return };
+        let active = self.split.root().and_downcast::<gtk::Window>().is_some_and(|w| w.is_active());
+        session.set_available(active);
     }
 
     /// Decodes the photos that changed; true when any did.
@@ -187,6 +209,7 @@ impl ChatPage {
         if text.trim().is_empty() {
             return;
         }
+        session.set_typing(&rid, false);
         match session.send(&rid, &text, reply) {
             Ok(()) => {
                 self.composer.clear_reply();

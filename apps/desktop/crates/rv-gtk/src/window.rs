@@ -342,9 +342,10 @@ impl AppWindow {
         });
         let weak = Rc::downgrade(&this);
         this.window.connect_is_active_notify(move |window| {
-            if window.is_active()
-                && let Some(this) = weak.upgrade()
-            {
+            let Some(this) = weak.upgrade() else { return };
+            // WhatsApp: online while the window is in front.
+            this.chat.whatsapp_presence();
+            if window.is_active() {
                 this.chat.window_activated();
             }
         });

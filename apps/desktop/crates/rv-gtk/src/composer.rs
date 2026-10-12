@@ -124,6 +124,7 @@ impl Composer {
         self.connect_changed(move |text| {
             if let Some(session) = session.upgrade() {
                 session.set_draft(&rid, &text);
+                session.set_typing(&rid, !text.trim().is_empty());
             }
         });
     }

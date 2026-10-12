@@ -1638,7 +1638,10 @@ impl ChatPage {
         self.native_edit.replace(None);
         self.native_membership.replace(None);
         self.native.take();
-        self.whatsapp.take();
+        // Leaving a WhatsApp account: it goes offline in the background.
+        if let Some(previous) = self.whatsapp.take() {
+            previous.set_available(false);
+        }
         self.wa_error.replace(None);
         self.new_conversation.set_visible(true);
         self.search_button.set_visible(true);
@@ -2619,6 +2622,8 @@ impl ChatPage {
         }
         let names = if let Some(session) = self.native_session() {
             session.typing(rid, None)
+        } else if let Some(session) = self.whatsapp_session() {
+            session.typing(rid)
         } else if let Some(session) = self.session.borrow().clone() {
             session.typing(rid)
         } else {

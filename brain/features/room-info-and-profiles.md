@@ -80,7 +80,7 @@ The bottom avatar opens the four activity choices on GTK, SwiftUI, mobile and we
 - apps/mobile/providers/rocketvibe/chat.ts
 - apps/mobile/providers/rocketvibe/transport.ts
 - docs/protocol/ROOMS.md
-- apps/server/migrations/0062_room_authority_changes.sql
+- apps/server/migrations/0063_room_authority_changes.sql
 - apps/server/tests/room_details.rs
 - apps/mobile/app/profile.tsx
 - apps/mobile/app/my-profile.tsx

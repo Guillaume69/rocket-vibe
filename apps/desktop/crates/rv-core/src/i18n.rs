@@ -669,6 +669,7 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("voice_session.lost", "Le vocal a été interrompu.", "Voice was interrupted."),
     ("voice_session.incoming", "Appel entrant", "Incoming call"),
     ("voice_session.incoming_from", "{name} vous appelle", "{name} is calling you"),
+    ("voice_session.incoming_on", "{name} vous appelle sur {server}", "{name} is calling you on {server}"),
     ("voice_session.accept", "Accepter", "Accept"),
     ("voice_session.decline", "Refuser", "Decline"),
     ("voice_session.call", "📞 Appel", "📞 Call"),

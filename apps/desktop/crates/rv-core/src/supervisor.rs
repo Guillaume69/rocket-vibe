@@ -38,6 +38,49 @@ pub fn key(info: &SessionInfo) -> String {
     format!("{}|{}", info.base_url, info.user_id)
 }
 
+const NOTIFICATION_PREFIX: &str = "rv-account:";
+
+/// The notification key of a background Rocket.Chat, Mattermost or kChat
+/// account's room: the account and the room, hex-encoded since `|` separates
+/// the arguments of a Windows notification's buttons.
+pub fn notification_key(info: &SessionInfo, rid: &str) -> String {
+    let account: String = key(info).bytes().map(|b| format!("{b:02x}")).collect();
+    format!("{NOTIFICATION_PREFIX}{account}:{rid}")
+}
+
+/// The account key and the room of a `notification_key`.
+pub fn notification_target(notification: &str) -> Option<(String, String)> {
+    let (account, rid) = notification.strip_prefix(NOTIFICATION_PREFIX)?.split_once(':')?;
+    if rid.is_empty() || account.len() % 2 != 0 || !account.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    let bytes = (0..account.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&account[i..i + 2], 16).ok())
+        .collect::<Option<Vec<u8>>>()?;
+    Some((String::from_utf8(bytes).ok()?, rid.to_owned()))
+}
+
+/// The server's host, which names a background account in what it shows.
+pub fn server_label(info: &SessionInfo) -> String {
+    url::Url::parse(&info.base_url)
+        .ok()
+        .and_then(|u| u.host_str().map(|h| h.trim_start_matches("www.").to_owned()))
+        .unwrap_or_else(|| info.base_url.clone())
+}
+
+/// A background account's notification says which server it comes from:
+/// after the person of a direct message, else after the room.
+pub fn from_account(mut incoming: Incoming, info: &SessionInfo) -> Incoming {
+    let server = server_label(info);
+    if incoming.direct {
+        incoming.author = format!("{} ({server})", incoming.author);
+    } else {
+        incoming.room_name = format!("{} ({server})", incoming.room_name);
+    }
+    incoming
+}
+
 /// Opens an account's session; called inside the runtime.
 pub type Starter = Arc<dyn Fn(&SessionInfo) -> Result<Chat, String> + Send + Sync>;
 
@@ -461,6 +504,42 @@ mod tests {
         assert_eq!(start_delay(0), Duration::from_secs(1));
         assert_eq!(start_delay(3), Duration::from_secs(8));
         assert_eq!(start_delay(20), MAX_START_DELAY);
+    }
+
+    #[test]
+    fn a_notification_key_finds_its_account_and_room_again() {
+        let info = SessionInfo {
+            base_url: "https://chat.example:8443/team/".into(),
+            user_id: "u|1".into(),
+            username: "me".into(),
+            auth_token: "t".into(),
+            native: None,
+            mattermost: None,
+        };
+        let notification = notification_key(&info, "room:1");
+        assert!(!notification.contains('|'), "Windows splits its arguments on |");
+        assert_eq!(notification_target(&notification), Some((key(&info), "room:1".to_owned())));
+        assert_eq!(notification_target("rv-account:zz:r"), None);
+        assert_eq!(notification_target("rv-account:616:r"), None);
+        assert_eq!(notification_target("rv-account:61:"), None);
+        assert_eq!(notification_target("r1"), None);
+    }
+
+    #[test]
+    fn a_background_notification_names_its_server() {
+        let info = SessionInfo {
+            base_url: "https://www.chat.example/".into(),
+            user_id: "u".into(),
+            username: "me".into(),
+            auth_token: "t".into(),
+            native: None,
+            mattermost: None,
+        };
+        let dm = Incoming { author: "Ana".into(), room_name: "ana".into(), direct: true, ..Default::default() };
+        assert_eq!(from_account(dm, &info).author, "Ana (chat.example)");
+        let room = Incoming { author: "Ana".into(), room_name: "general".into(), ..Default::default() };
+        let room = from_account(room, &info);
+        assert_eq!((room.author.as_str(), room.room_name.as_str()), ("Ana", "general (chat.example)"));
     }
 
     #[test]

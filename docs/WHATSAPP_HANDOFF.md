@@ -50,6 +50,7 @@ Subsequent commands:
 - `delete`: `id` of my own settled message, deleted for everyone; refused past 48 hours (`delete_expired`).
 - `read`: `chat`; sends read receipts for its unread messages of others (at most 100, newest first; a private `read-self` when my privacy settings send no read receipts) and sets its count to zero, here and on my other devices.
 - `search`: `id`, `text`; answered by a `found` frame (`id`, `people`: `jid`, `name`) from the contacts, groups and a typed number WhatsApp knows.
+- `upload`: `id`, `chat`, `text` (caption), `reply`, `path` (a local file), `mime`, `name`, `voice`; uploaded before the message is recorded and sent, then like `send`. Over 100 MB is refused (`file_refused`), a failed upload is `upload_failed`, both naming the id.
 - `download`: `id` of a message with an attachment; answered by a `file` frame (`id`, `path`, empty on failure). Over 200 MB is refused.
 - `logout`: remotely unlink the device, delete encrypted state on success, then exit. Failure is visible; local removal alone is not a remote logout.
 - `stop`: close transport, checkpoint state and exit, preserving the association.
@@ -111,7 +112,7 @@ Update this record with actual commands and evidence, never with intended result
 ## Known limitations and next work
 
 1. Live-check the integrated account on Windows: adoption of the pilot's device, notifications in the background, unlink from the menu and from the phone, a restart with the phone offline, an interrupted send.
-2. Media: receiving is done (`media.go`, `download`, `media::Provider::WhatsApp`); sending attachments and recording voice notes are not. Thumbnails are kept but not yet shown while the full file downloads; a caption shows above its image.
+2. Media: receiving (`media.go`, `download`, `media::Provider::WhatsApp`) and sending (`upload.go`, `upload`, `attach::send_all_whatsapp`) are done; videos other than MP4 go as documents (no transcoding), and outgoing GIFs too. Thumbnails are kept but not yet shown while the full file downloads; a caption shows above its image.
 3. Typing and presence (`SendPresence`, `SubscribePresence`, chat presence events), and the rail tile's photo for the account.
 4. Ship the helper in `desktop.yml` packages (Windows mingw cross-build or MSYS2, Linux, macOS), with whatsmeow's MPL-2.0 notice.
 5. The pilot excludes view-once and disappearing message content; outgoing behaviour in a disappearing chat is not handled.

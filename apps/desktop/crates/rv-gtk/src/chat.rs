@@ -2482,6 +2482,16 @@ impl ChatPage {
             }
             return;
         }
+        if let Some(session) = self.whatsapp_session() {
+            let weak = Rc::downgrade(self);
+            let toast: Rc<dyn Fn(String)> = Rc::new(move |text| {
+                if let Some(this) = weak.upgrade() {
+                    this.toast(text);
+                }
+            });
+            crate::attach::send_all_whatsapp(session, rid, outgoing.items, outgoing.caption, !outgoing.original, toast);
+            return;
+        }
         let provider = if let Some(s) = self.native_session() {
             crate::media::Provider::RocketVibe(s)
         } else if let Some(s) = self.session() {
@@ -3469,6 +3479,11 @@ impl ChatPage {
     /// For the reload trace: is the open room encrypted, and how many rooms the list holds.
     pub fn reload_context(&self) -> (bool, usize) {
         (self.current.borrow().as_ref().is_some_and(|o| o.encrypted), self.rooms.borrow().len())
+    }
+
+    /// Sends files as the composer's send does, for the smoke checks.
+    pub(crate) fn send_files_now(self: &Rc<Self>, items: Vec<(crate::attach::Picked, String)>, caption: String) {
+        self.send_files(crate::composer::Outgoing { items, caption, original: false });
     }
 
     /// The main timeline, for the smoke checks.

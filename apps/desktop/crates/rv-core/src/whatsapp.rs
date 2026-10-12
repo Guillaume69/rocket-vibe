@@ -358,6 +358,29 @@ enum Event {
         people: Vec<Person>,
     },
 }
+/// A file to send to a chat.
+#[derive(Clone, Debug, Default)]
+pub struct OutgoingFile {
+    pub chat: String,
+    pub path: String,
+    pub name: String,
+    pub mime: String,
+    pub caption: String,
+    pub reply: Option<String>,
+    /// Recorded by the app: sent as a voice note.
+    pub voice: bool,
+}
+struct Upload {
+    id: String,
+    chat: String,
+    path: String,
+    name: String,
+    mime: String,
+    caption: String,
+    reply: Option<String>,
+    voice: bool,
+}
+
 /// Someone (or a group) a search found: a conversation to start.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 pub struct Person {
@@ -377,6 +400,7 @@ enum Request {
     Read { chat: String },
     Search { id: String, text: String },
     Download { id: String },
+    Upload(Box<Upload>),
     Connect,
     Logout,
     Stop,
@@ -592,6 +616,27 @@ impl Connector {
         self.request(Request::Act { kind: "delete", id, text: String::new() })
     }
     /// Reads a chat: its unread messages get their read receipts.
+    /// Sends a local file (a voice note when `voice`), uploaded by the helper;
+    /// the id is the send's, like `send`'s.
+    pub fn send_file(&self, file: OutgoingFile) -> Result<String, String> {
+        if self.state() != "connected" {
+            return Err("not_connected".into());
+        }
+        let mut random = [0_u8; 16];
+        getrandom::fill(&mut random).map_err(|_| failure())?;
+        let id: String = random.iter().map(|b| format!("{b:02X}")).collect();
+        self.request(Request::Upload(Box::new(Upload {
+            id: id.clone(),
+            chat: file.chat,
+            path: file.path,
+            name: file.name,
+            mime: file.mime,
+            caption: file.caption,
+            reply: file.reply,
+            voice: file.voice,
+        })))?;
+        Ok(id)
+    }
     /// A message's attachment, fetched and decrypted into the account's
     /// private folder by the helper: the file's path.
     pub async fn download(&self, id: String) -> Result<PathBuf, String> {
@@ -687,6 +732,10 @@ async fn worker(
                     Request::Read { chat } => json!({"type":"read","chat":chat}),
                     Request::Search { id, text } => json!({"type":"search","id":id,"text":text}),
                     Request::Download { id } => json!({"type":"download","id":id}),
+                    Request::Upload(u) => json!({
+                        "type":"upload","id":u.id,"chat":u.chat,"text":u.caption,"reply":u.reply.unwrap_or_default(),
+                        "path":u.path,"mime":u.mime,"name":u.name,"voice":u.voice,
+                    }),
                     Request::Connect => json!({"type":"connect"}),
                     Request::Logout => json!({"type":"logout"}),
                     Request::Stop => json!({"type":"stop"}),

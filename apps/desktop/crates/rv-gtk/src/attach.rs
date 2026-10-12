@@ -3,6 +3,7 @@
 
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 
 use adw::prelude::*;
 use gtk::{gdk, gdk_pixbuf, gio, glib};
@@ -101,6 +102,74 @@ fn refusal_text(refusal: &Refusal, name: &str) -> String {
         Refusal::TypeNotAllowed { mime } => tf("attach.type_refused", &[("name", name), ("type", mime)]),
         Refusal::EncryptedFilesOff => tf("attach.encrypted_off", &[("name", name)]),
     }
+}
+
+/// Files to a WhatsApp chat, one after the other (WhatsApp takes one send at a
+/// time per chat here): pictures reduced like elsewhere unless the original
+/// was asked for, a recording made here sent as a voice note, the caption on
+/// the first file that can carry one (a voice note cannot: it then follows as
+/// a text).
+pub fn send_all_whatsapp(
+    session: Arc<rv_core::whatsapp_session::WaSession>,
+    rid: String,
+    items: Vec<(Picked, String)>,
+    caption: String,
+    reduce_images: bool,
+    toast: Rc<dyn Fn(String)>,
+) {
+    glib::spawn_future_local(async move {
+        let mut caption = Some(caption).filter(|c| !c.trim().is_empty());
+        for (item, mime) in items {
+            let reduced = if reduce_images && reducible(&mime) { reduce(&item.path) } else { None };
+            let (path, name, mime, temporary) = match reduced {
+                Some(copy) => {
+                    if item.temporary {
+                        let _ = std::fs::remove_file(&item.path);
+                    }
+                    let stem = Path::new(&item.name)
+                        .file_stem()
+                        .map_or_else(String::new, |s| s.to_string_lossy().into_owned());
+                    (copy, format!("{stem}.jpg"), "image/jpeg".to_owned(), true)
+                }
+                None => (item.path.clone(), item.name.clone(), mime, item.temporary),
+            };
+            let voice = mime.starts_with("audio/ogg") && name.starts_with(t("voice.file_name"));
+            let file = rv_core::whatsapp::OutgoingFile {
+                chat: rid.clone(),
+                path: path.to_string_lossy().into_owned(),
+                name: name.clone(),
+                mime,
+                caption: if voice { String::new() } else { caption.take().unwrap_or_default() },
+                reply: None,
+                voice,
+            };
+            if !settled(&session, &rid).await || session.send_file(file).is_err() {
+                toast(tf("attach.failed", &[("name", &name)]));
+            } else if !settled(&session, &rid).await {
+                toast(t("wa.send_uncertain").to_owned());
+            }
+            if temporary {
+                let _ = std::fs::remove_file(&path);
+            }
+        }
+        if let Some(text) = caption
+            && settled(&session, &rid).await
+            && session.send(&rid, &text, None).is_err()
+        {
+            toast(t("wa.send_failed").to_owned());
+        }
+    });
+}
+
+/// Waits, up to three minutes, for the chat's send in flight to settle.
+async fn settled(session: &rv_core::whatsapp_session::WaSession, rid: &str) -> bool {
+    for _ in 0..1800 {
+        if !session.sending(rid) {
+            return true;
+        }
+        glib::timeout_future(std::time::Duration::from_millis(100)).await;
+    }
+    false
 }
 
 #[allow(clippy::too_many_arguments)] // The batch, where it goes, and how to report.

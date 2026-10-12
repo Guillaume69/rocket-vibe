@@ -106,6 +106,27 @@ fn main() {
                 linked();
             }
             // Bob in the contacts; any number WhatsApp "knows".
+            // A file sent: a voice note when recorded, a photo when an image.
+            Some("upload") => {
+                let mime = command["mime"].as_str().unwrap_or_default();
+                let kind = if command["voice"] == true {
+                    "voice"
+                } else if mime.starts_with("image/") {
+                    "image"
+                } else {
+                    "document"
+                };
+                println!(
+                    "{}",
+                    json!({"type":"message","message":{
+                        "id":format!("{}:{}",command["chat"].as_str().unwrap(),command["id"].as_str().unwrap()),
+                        "chat":command["chat"],"name":"Alice","sender":"me","author":"","text":command["text"],
+                        "ts":1791810670000_i64,"mine":true,"status":"","kind":kind,"mime":mime,
+                        "file_name":command["name"],"size":132,"width":32,"height":32
+                    }})
+                );
+                println!("{}", json!({"type":"sent","id":command["id"],"state":""}));
+            }
             // The photo is the PNG above; the voice note only needs to exist.
             Some("download") => {
                 let id = command["id"].as_str().unwrap_or_default();

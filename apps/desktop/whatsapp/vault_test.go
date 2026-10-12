@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/binary"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -414,5 +415,27 @@ func TestAnImageIsKeptWithItsCaptionAndThumbnail(t *testing.T) {
 	}
 	if name := mediaFile(m.ID, m.Kind, m.Mime, ""); !strings.HasSuffix(name, ".jpg") && !strings.HasSuffix(name, ".jpeg") || strings.ContainsAny(name, ":@/") {
 		t.Fatalf("file name %q", name)
+	}
+}
+
+func TestOutgoingFilesAreSentAsWhatWhatsAppAccepts(t *testing.T) {
+	for _, c := range []struct {
+		mime  string
+		voice bool
+		kind  string
+	}{
+		{"audio/ogg", true, "voice"}, {"audio/ogg", false, "audio"}, {"image/jpeg", false, "image"},
+		{"video/mp4", false, "video"}, {"video/webm", false, "document"}, {"application/pdf", false, "document"},
+		{"image/gif", false, "document"}, {"audio/mpeg", true, "audio"},
+	} {
+		if kind, _ := outgoingKind(c.mime, c.voice); kind != c.kind {
+			t.Fatalf("%s voice=%v sent as %s", c.mime, c.voice, kind)
+		}
+	}
+	// An Ogg page header: "OggS", version, flags, then the granule position.
+	page := append([]byte("xxxxOggS\x00\x04"), make([]byte, 8)...)
+	binary.LittleEndian.PutUint64(page[10:], 48000*7)
+	if got := oggSeconds(page); got != 7 {
+		t.Fatalf("voice length %d", got)
 	}
 }

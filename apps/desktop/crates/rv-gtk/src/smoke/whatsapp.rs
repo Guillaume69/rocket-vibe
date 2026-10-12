@@ -82,7 +82,7 @@ fn linked(window: Rc<AppWindow>, out: String) {
                     && list.row_widget("alice@s.whatsapp.net:fake-reply").is_some(),
                 list.len(),
             );
-            check("whatsapp composer is text only", !window.chat.composer_tools_shown(), ());
+            check("whatsapp composer offers files and voice notes", window.chat.composer_tools_shown(), ());
             check(
                 "whatsapp photo and voice note rows",
                 list.row_widget("alice@s.whatsapp.net:fake-photo").is_some()
@@ -125,9 +125,25 @@ fn new_conversation(window: Rc<AppWindow>, session: Arc<WaSession>) {
         glib::timeout_future(Duration::from_millis(1200)).await;
         let sent = session.snapshot().messages.values().any(|m| m.chat == "bob@s.whatsapp.net" && m.mine);
         check("whatsapp new conversation takes a message", sent, ());
+        // A photo through the composer's send of files.
+        let path = std::env::temp_dir().join("rv-smoke-whatsapp-photo.png");
+        let bytes = glib::base64_decode(PNG);
+        let _ = std::fs::write(&path, bytes);
+        let picked = crate::attach::Picked { path, name: "photo.png".into(), temporary: false };
+        window.chat.send_files_now(vec![(picked, "image/png".into())], "Une photo".into());
+        glib::timeout_future(Duration::from_millis(1500)).await;
+        let photo = session
+            .snapshot()
+            .messages
+            .values()
+            .any(|m| m.chat == "bob@s.whatsapp.net" && m.mine && m.kind == "image" && m.text == "Une photo");
+        check("whatsapp photo sent with its caption", photo, ());
         window.window.close();
     });
 }
+
+/// A 32x32 PNG for the photo sent.
+const PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKklEQVR42mOQq7hDU8QwasGoBaMWjFowasGoBaMWjFowasGoBaMWDBULAKHFyEyREEL5AAAAAElFTkSuQmCC";
 
 fn shot(window: &AppWindow, path: &str) {
     let paintable = gtk::WidgetPaintable::new(Some(&window.window));

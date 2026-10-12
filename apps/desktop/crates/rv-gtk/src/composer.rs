@@ -108,11 +108,11 @@ impl Composer {
         self.attach.is_visible() || self.mic.is_visible()
     }
 
-    /// A WhatsApp chat: text, replies, its own draft; no files, commands,
-    /// mentions or custom emoji.
+    /// A WhatsApp chat: text, replies, files and voice notes, its own draft;
+    /// no commands, mentions or custom emoji.
     pub fn bind_whatsapp(self: &Rc<Self>, session: &Arc<rv_core::whatsapp_session::WaSession>, rid: &str) {
         self.unbind_native();
-        self.show_tools(false);
+        self.show_tools(true);
         self.staged.switch(rid);
         self.on_changed.replace(None);
         self.set_text(&session.draft(rid));

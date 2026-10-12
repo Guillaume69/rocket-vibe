@@ -1285,6 +1285,7 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("attach.preview", "Aperçu", "Preview"),
     ("attach.remove", "Retirer", "Remove"),
     ("attach.too_large", "{name} dépasse {max} Mo", "{name} is over {max} MB"),
+    ("attach.failed", "{name} n’a pas été envoyé", "{name} was not sent"),
     (
         "attach.encrypted_off",
         "{name} : ce serveur n'accepte pas de fichiers dans un salon chiffré",

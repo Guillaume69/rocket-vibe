@@ -42,6 +42,12 @@ type command struct {
 	Text string `json:"text,omitempty"`
 	// For a send: the scoped id of the message it answers.
 	Reply string `json:"reply,omitempty"`
+	// For an upload: the local file, its type and name, and whether the app
+	// recorded it as a voice note.
+	Path  string `json:"path,omitempty"`
+	Mime  string `json:"mime,omitempty"`
+	Name  string `json:"name,omitempty"`
+	Voice bool   `json:"voice,omitempty"`
 }
 type message struct {
 	ID      string `json:"id"`
@@ -680,6 +686,9 @@ func (c *connector) handle(cmd command) bool {
 		go c.connect()
 	case "send":
 		c.send(cmd)
+	case "upload":
+		// Minutes for a large file: the other commands are not held behind it.
+		go c.upload(cmd)
 	case "react":
 		c.react(cmd)
 	case "edit":

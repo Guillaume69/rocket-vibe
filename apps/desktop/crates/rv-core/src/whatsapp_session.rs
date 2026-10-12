@@ -295,6 +295,20 @@ impl WaSession {
         self.bump();
         Ok(())
     }
+    /// Sends a file; one send in flight per chat, its caption given back if
+    /// it never left.
+    pub fn send_file(&self, file: whatsapp::OutgoingFile) -> Result<(), String> {
+        let chat = file.chat.clone();
+        if self.local().pending.contains_key(&chat) {
+            return Err("send_pending".into());
+        }
+        let caption = file.caption.clone();
+        let connector = self.connector().ok_or("not_connected")?;
+        let id = connector.send_file(file)?;
+        self.local().pending.insert(chat, (id, caption));
+        self.bump();
+        Ok(())
+    }
     pub fn sending(&self, chat: &str) -> bool {
         self.local().pending.contains_key(chat)
     }

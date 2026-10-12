@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -70,17 +71,23 @@ type message struct {
 	QuoteText   string `json:"quote_text,omitempty"`
 	// An attachment: image, gif, video, audio, voice, document or sticker;
 	// the text is then its caption. Fetched with `download`.
-	Kind       string `json:"kind,omitempty"`
-	Mime       string `json:"mime,omitempty"`
-	FileName   string `json:"file_name,omitempty"`
-	Size       int64  `json:"size,omitempty"`
-	Width      int    `json:"width,omitempty"`
-	Height     int    `json:"height,omitempty"`
-	Seconds    int    `json:"seconds,omitempty"`
-	Thumb      []byte `json:"thumb,omitempty"`
-	MediaProto []byte `json:"-"`
-	RawChat    string `json:"-"`
-	RawSender  string `json:"-"`
+	Kind     string `json:"kind,omitempty"`
+	Mime     string `json:"mime,omitempty"`
+	FileName string `json:"file_name,omitempty"`
+	Size     int64  `json:"size,omitempty"`
+	Width    int    `json:"width,omitempty"`
+	Height   int    `json:"height,omitempty"`
+	Seconds  int    `json:"seconds,omitempty"`
+	Thumb    []byte `json:"thumb,omitempty"`
+	// A link's preview, made by the sender's app (WhatsApp recipients never
+	// fetch the page); its thumbnail is the Thumb, fetched with `download`.
+	LinkURL         string `json:"link_url,omitempty"`
+	LinkTitle       string `json:"link_title,omitempty"`
+	LinkDescription string `json:"link_description,omitempty"`
+	LinkImage       bool   `json:"link_image,omitempty"`
+	MediaProto      []byte `json:"-"`
+	RawChat         string `json:"-"`
+	RawSender       string `json:"-"`
 }
 type reaction struct {
 	Message string `json:"message"`
@@ -167,6 +174,25 @@ func textOf(m *waE2E.Message) string {
 	return m.GetExtendedTextMessage().GetText()
 }
 
+// The preview the sender's app attached to a link of the text, if any.
+func linkOf(m *waE2E.Message) (url, title, description string, thumb []byte) {
+	x := m.GetExtendedTextMessage()
+	url = x.GetMatchedText()
+	thumb = x.GetJPEGThumbnail()
+	if url == "" || (x.GetTitle() == "" && len(thumb) == 0) {
+		return "", "", "", nil
+	}
+	if !strings.Contains(url, "://") {
+		url = "https://" + url
+	}
+	return url, x.GetTitle(), x.GetDescription(), thumb
+}
+
+func (m *message) setLink(from *waE2E.Message) {
+	m.LinkURL, m.LinkTitle, m.LinkDescription, m.Thumb = linkOf(from)
+	m.LinkImage = m.LinkURL != "" && len(m.Thumb) > 0
+}
+
 // Stores a message; true when it is a new message of someone else.
 func (c *connector) receive(evt *events.Message, name string) bool {
 	// Not kept: view-once and disappearing content must not outlive WhatsApp's own copy.
@@ -211,6 +237,8 @@ func (c *connector) receive(evt *events.Message, name string) bool {
 	if media != nil {
 		m.Kind, m.Mime, m.FileName, m.Size = media.Kind, media.Mime, media.FileName, media.Size
 		m.Width, m.Height, m.Seconds, m.Thumb, m.MediaProto = media.Width, media.Height, media.Seconds, media.Thumb, media.Proto
+	} else {
+		m.setLink(evt.Message)
 	}
 	c.quoted(&m, chat, contextOf(evt.Message))
 	c.remember(m)
@@ -264,7 +292,9 @@ func (c *connector) protocol(evt *events.Message, p *waE2E.ProtocolMessage) {
 		if !author || text == "" {
 			return
 		}
-		c.markEdited(id, text)
+		var edited message
+		edited.setLink(p.GetEditedMessage())
+		c.markEdited(id, text, edited)
 	}
 }
 
@@ -280,11 +310,16 @@ func (c *connector) markDeleted(id string) {
 	c.emitStored(id)
 }
 
-func (c *connector) markEdited(id, text string) {
-	if _, err := c.vault.db.ExecContext(c.ctx, `UPDATE rv_messages SET text = ?, edited = 1 WHERE id = ? AND deleted = 0`, text, id); err != nil {
+// An edit replaces the text and, for a text message, its link preview.
+func (c *connector) markEdited(id, text string, preview message) {
+	if _, err := c.vault.db.ExecContext(c.ctx, `UPDATE rv_messages SET text = ?, edited = 1,
+ link_url = ?, link_title = ?, link_description = ?, thumb = CASE WHEN kind = '' THEN ? ELSE thumb END
+ WHERE id = ? AND deleted = 0`, text, preview.LinkURL, preview.LinkTitle, preview.LinkDescription, preview.Thumb, id); err != nil {
 		c.fail("local_storage_failed")
 		return
 	}
+	// The thumbnail written for the old preview goes with it.
+	_ = os.Remove(filepath.Join(filepath.Dir(c.vault.path), "media", mediaFile(id+"-link", "image", "image/jpeg", "")))
 	c.emitStored(id)
 }
 
@@ -587,7 +622,7 @@ func (c *connector) edit(cmd command) {
 		c.fail("action_failed")
 		return
 	}
-	c.markEdited(m.ID, cmd.Text)
+	c.markEdited(m.ID, cmd.Text, message{})
 }
 
 // Deletes my message for everyone.

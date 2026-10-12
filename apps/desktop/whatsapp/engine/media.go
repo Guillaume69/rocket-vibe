@@ -149,6 +149,10 @@ func mediaFile(id, kind, mimeType, name string) string {
 func (c *connector) download(cmd command) {
 	answer := func(path string) { c.emit(wire{Type: "file", ID: cmd.ID, Path: path}) }
 	m, ok := c.load(cmd.ID)
+	if ok && m.LinkImage {
+		answer(c.linkImage(m))
+		return
+	}
 	if !ok || m.Kind == "" || len(m.MediaProto) == 0 || m.Size > maxDownload || !c.ready() {
 		answer("")
 		return
@@ -185,4 +189,18 @@ func (c *connector) download(cmd command) {
 		return
 	}
 	answer(path)
+}
+
+// A link preview's thumbnail, inline in the message: written out once.
+func (c *connector) linkImage(m message) string {
+	dir := filepath.Join(filepath.Dir(c.vault.path), "media")
+	path := filepath.Join(dir, mediaFile(m.ID+"-link", "image", "image/jpeg", ""))
+	if info, err := os.Stat(path); err == nil && info.Size() > 0 {
+		return path
+	}
+	if os.MkdirAll(dir, 0700) != nil || os.WriteFile(path+".part", m.Thumb, 0600) != nil || os.Rename(path+".part", path) != nil {
+		_ = os.Remove(path + ".part")
+		return ""
+	}
+	return path
 }

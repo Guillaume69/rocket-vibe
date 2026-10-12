@@ -271,7 +271,9 @@ pub fn link_previews(urls: Option<&str>, max: usize) -> Vec<LinkPreview> {
             Some(LinkPreview::Image { url: url.to_owned() })
         } else if let Some(meta) = entry.get("meta").and_then(Value::as_object) {
             let title = first(meta, &["ogTitle", "oembedTitle", "twitterTitle", "pageTitle"]);
-            let image = first(meta, &["ogImage", "twitterImage", "oembedThumbnailUrl"]).filter(|i| is_web_link(i));
+            // A WhatsApp preview's thumbnail comes from its message, through the helper.
+            let image = first(meta, &["ogImage", "twitterImage", "oembedThumbnailUrl"])
+                .filter(|i| is_web_link(i) || i.starts_with(crate::whatsapp::MEDIA_LINK));
             (title.is_some() || image.is_some()).then(|| LinkPreview::Card {
                 url: url.to_owned(),
                 description: first(meta, &["ogDescription", "twitterDescription", "description", "oembedAuthorName"]),
@@ -386,7 +388,15 @@ pub fn video_links(text: &str, urls: Option<&str>, max: usize) -> Vec<VideoLink>
                 (!image.is_empty()).then_some(image)
             })
         } else {
-            thumbnail
+            // A WhatsApp sender's own thumbnail beats asking the video site.
+            entries
+                .iter()
+                .find_map(|e| {
+                    let (_, found) = video_id(e.get("url")?.as_str()?)?;
+                    let image = e.pointer("/meta/ogImage")?.as_str()?;
+                    (found == id && image.starts_with(crate::whatsapp::MEDIA_LINK)).then(|| image.to_owned())
+                })
+                .or(thumbnail)
         };
         out.push(VideoLink { provider, id, url, thumbnail, title, author });
     }

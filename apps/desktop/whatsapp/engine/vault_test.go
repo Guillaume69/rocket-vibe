@@ -348,6 +348,33 @@ func TestAReplyKeepsItsQuote(t *testing.T) {
 	}
 }
 
+func TestALinkKeepsTheSendersPreview(t *testing.T) {
+	c := engineWithCache(t)
+	alice := types.NewJID("33600000001", types.DefaultUserServer)
+	received(c, alice, alice, "L1", &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{
+		Text: proto.String("look www.example.org/a"), MatchedText: proto.String("www.example.org/a"),
+		Title: proto.String("Example"), Description: proto.String("A page"), JPEGThumbnail: []byte{0xff, 0xd8, 1},
+	}})
+	received(c, alice, alice, "L2", &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{
+		Text: proto.String("bare https://example.org"), MatchedText: proto.String("https://example.org"),
+	}})
+	m, _ := c.load(alice.String() + ":L1")
+	if m.LinkURL != "https://www.example.org/a" || m.LinkTitle != "Example" || m.LinkDescription != "A page" || !m.LinkImage {
+		t.Fatalf("preview lost: %+v", m)
+	}
+	path := c.linkImage(m)
+	if data, err := os.ReadFile(path); err != nil || !bytes.Equal(data, []byte{0xff, 0xd8, 1}) {
+		t.Fatalf("thumbnail not served: %q %v", path, err)
+	}
+	if bare, _ := c.load(alice.String() + ":L2"); bare.LinkURL != "" {
+		t.Fatalf("a link without a preview got one: %+v", bare)
+	}
+	c.markEdited(m.ID, "no link now", message{})
+	if edited, _ := c.load(m.ID); edited.LinkURL != "" || edited.LinkImage {
+		t.Fatalf("an edit kept the old preview: %+v", edited)
+	}
+}
+
 // A restored state grows: the first session after a restart writes keys,
 // history and messages far past the size it was sealed at.
 func TestARestoredStateGrows(t *testing.T) {

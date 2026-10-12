@@ -251,6 +251,16 @@ pub struct WireMessage {
     pub height: i64,
     #[serde(default)]
     pub seconds: i64,
+    /// A link's preview as the sender's app made it; its thumbnail, when
+    /// `link_image`, is fetched like an attachment.
+    #[serde(default)]
+    pub link_url: String,
+    #[serde(default)]
+    pub link_title: String,
+    #[serde(default)]
+    pub link_description: String,
+    #[serde(default)]
+    pub link_image: bool,
 }
 /// The path a WhatsApp attachment is asked for by: `wa-media:<message id>`.
 pub const MEDIA_LINK: &str = "wa-media:";
@@ -324,8 +334,27 @@ impl WireMessage {
                 "uncertain" => Some("uncertain".into()),
                 _ => None,
             },
+            urls: self.link_preview(),
             ..Default::default()
         }
+    }
+    /// The preview in the shape of a Rocket.Chat `urls` entry, which the
+    /// timeline's link cards (and video-site cards) read.
+    fn link_preview(&self) -> Option<String> {
+        if self.link_url.is_empty() || self.deleted || !self.kind.is_empty() {
+            return None;
+        }
+        let mut meta = serde_json::Map::new();
+        if !self.link_title.is_empty() {
+            meta.insert("ogTitle".into(), self.link_title.clone().into());
+        }
+        if !self.link_description.is_empty() {
+            meta.insert("ogDescription".into(), self.link_description.clone().into());
+        }
+        if self.link_image {
+            meta.insert("ogImage".into(), format!("{MEDIA_LINK}{}", self.id).into());
+        }
+        Some(json!([{"url": self.link_url, "meta": meta}]).to_string())
     }
 }
 #[derive(Deserialize)]
@@ -870,6 +899,36 @@ async fn worker(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_link_preview_becomes_a_link_card_with_its_thumbnail_from_the_helper() {
+        let m: WireMessage = serde_json::from_value(json!({
+            "id":"a@s.whatsapp.net:L1","chat":"a@s.whatsapp.net","name":"a","sender":"a@s.whatsapp.net","author":"A",
+            "text":"see https://example.org/a","ts":1,"mine":false,"link_url":"https://example.org/a",
+            "link_title":"Example","link_description":"A page","link_image":true
+        }))
+        .unwrap();
+        let previews = crate::content::link_previews(m.presentation().urls.as_deref(), 3);
+        assert!(matches!(&previews[..], [crate::content::LinkPreview::Card { title: Some(t), image: Some(i), .. }]
+            if t == "Example" && i == "wa-media:a@s.whatsapp.net:L1"));
+        let video: WireMessage = serde_json::from_value(json!({
+            "id":"a@s.whatsapp.net:V1","chat":"a@s.whatsapp.net","name":"a","sender":"a@s.whatsapp.net","author":"A",
+            "text":"https://youtu.be/dQw4w9WgXcQ","ts":1,"mine":false,"link_url":"https://youtu.be/dQw4w9WgXcQ",
+            "link_title":"A song","link_image":true
+        }))
+        .unwrap();
+        let row = video.presentation();
+        let links = crate::content::video_links(row.text.as_deref().unwrap(), row.urls.as_deref(), 3);
+        assert_eq!(links[0].thumbnail.as_deref(), Some("wa-media:a@s.whatsapp.net:V1"));
+        assert_eq!(links[0].title.as_deref(), Some("A song"));
+        assert!(crate::content::link_previews(row.urls.as_deref(), 3).is_empty());
+        let deleted: WireMessage = serde_json::from_value(json!({
+            "id":"x","chat":"c","name":"c","sender":"s","author":"","text":"","ts":1,"mine":false,
+            "deleted":true,"link_url":"https://example.org"
+        }))
+        .unwrap();
+        assert!(deleted.presentation().urls.is_none());
+    }
     use super::*;
     #[test]
     fn qr_is_transient_and_revocation_erases_projection() {

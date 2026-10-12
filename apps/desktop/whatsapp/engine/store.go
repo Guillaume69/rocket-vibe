@@ -47,6 +47,9 @@ func migrate(db *sql.DB) error {
 		{"seconds", "INTEGER NOT NULL DEFAULT 0"},
 		{"thumb", "BLOB"},
 		{"media", "BLOB"},
+		{"link_url", "TEXT NOT NULL DEFAULT ''"},
+		{"link_title", "TEXT NOT NULL DEFAULT ''"},
+		{"link_description", "TEXT NOT NULL DEFAULT ''"},
 	} {
 		var present int
 		if err := db.QueryRow(`SELECT count(*) FROM pragma_table_info('rv_messages') WHERE name = ?`, column.name).Scan(&present); err != nil {
@@ -63,22 +66,26 @@ func migrate(db *sql.DB) error {
 }
 
 const messageColumns = `id,chat,name,sender,author,text,ts,mine,status,edited,deleted,raw_chat,raw_sender,receipt,
-reply_to,quote_sender,quote_text,kind,mime,file_name,size,width,height,seconds,thumb,media`
+reply_to,quote_sender,quote_text,kind,mime,file_name,size,width,height,seconds,thumb,media,
+link_url,link_title,link_description`
 
 // The values of messageColumns, in order.
-const messageValues = `?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?`
+const messageValues = `?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?`
 
 func (m *message) values() []any {
 	return []any{m.ID, m.Chat, m.Name, m.Sender, m.Author, m.Text, m.TS, m.Mine, m.Status, m.Edited, m.Deleted,
 		m.RawChat, m.RawSender, m.Receipt, m.ReplyTo, m.QuoteSender, m.QuoteText,
-		m.Kind, m.Mime, m.FileName, m.Size, m.Width, m.Height, m.Seconds, m.Thumb, m.MediaProto}
+		m.Kind, m.Mime, m.FileName, m.Size, m.Width, m.Height, m.Seconds, m.Thumb, m.MediaProto,
+		m.LinkURL, m.LinkTitle, m.LinkDescription}
 }
 
 func scanMessage(row interface{ Scan(...any) error }) (message, error) {
 	var m message
 	err := row.Scan(&m.ID, &m.Chat, &m.Name, &m.Sender, &m.Author, &m.Text, &m.TS, &m.Mine, &m.Status, &m.Edited, &m.Deleted, &m.RawChat, &m.RawSender, &m.Receipt,
 		&m.ReplyTo, &m.QuoteSender, &m.QuoteText,
-		&m.Kind, &m.Mime, &m.FileName, &m.Size, &m.Width, &m.Height, &m.Seconds, &m.Thumb, &m.MediaProto)
+		&m.Kind, &m.Mime, &m.FileName, &m.Size, &m.Width, &m.Height, &m.Seconds, &m.Thumb, &m.MediaProto,
+		&m.LinkURL, &m.LinkTitle, &m.LinkDescription)
+	m.LinkImage = m.Kind == "" && m.LinkURL != "" && len(m.Thumb) > 0
 	return m, err
 }
 

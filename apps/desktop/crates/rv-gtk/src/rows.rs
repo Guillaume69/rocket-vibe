@@ -764,6 +764,12 @@ fn message_from_provider(
         for file in content::files(row.attachments.as_deref()) {
             column.append(&cards::file_provider(provider.clone(), &file));
         }
+        for video in content::video_links(row.text.as_deref().unwrap_or_default(), row.urls.as_deref(), 3) {
+            column.append(&cards::video_link_provider(provider.clone(), &row.id, &video));
+        }
+        for preview in content::link_previews(row.urls.as_deref(), 3) {
+            column.append(&cards::link_preview_provider(provider.clone(), &preview));
+        }
     }
     if let Some(native) = native {
         let provider = media::Provider::RocketVibe(native.clone());

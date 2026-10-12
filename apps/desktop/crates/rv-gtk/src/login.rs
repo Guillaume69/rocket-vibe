@@ -129,6 +129,7 @@ impl LoginPage {
     pub fn new() -> Self {
         let (server_group, server) = widgets::pill_field(t("login.server"), "chat.example.com", false);
         let (user_group, user) = widgets::pill_field(t("login.user"), "jane.doe", false);
+        let user_caption = user_group.first_child().and_downcast::<gtk::Label>().expect("user caption");
         let (password_group, password) = widgets::pill_field(t("login.password"), "", true);
         let password_caption = password_group.first_child().and_downcast::<gtk::Label>().expect("password caption");
         let credentials = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(14).build();
@@ -244,6 +245,8 @@ impl LoginPage {
             #[weak]
             recovery,
             #[weak]
+            user_caption,
+            #[weak]
             invitation_caption,
             #[weak]
             password_caption,
@@ -266,11 +269,18 @@ impl LoginPage {
                 invitation_help.set_visible(button.is_active());
                 invitation.set_text("");
                 submit.set_label(t(if button.is_active() { "login.create_account" } else { "login.sign_in" }));
+                user_caption.set_label(t(if button.is_active() || recovery.is_active() {
+                    "login.username"
+                } else {
+                    "login.user"
+                }));
             }
         ));
         recovery.connect_toggled(glib::clone!(
             #[weak]
             signup,
+            #[weak]
+            user_caption,
             #[weak]
             invitation_group,
             #[weak]
@@ -294,6 +304,11 @@ impl LoginPage {
                 password_caption.set_label(t(if button.is_active() { "login.new_password" } else { "login.password" }));
                 invitation_help.set_label(t("login.recovery_help"));
                 submit.set_label(t(if button.is_active() { "login.reset_password" } else { "login.sign_in" }));
+                user_caption.set_label(t(if button.is_active() || signup.is_active() {
+                    "login.username"
+                } else {
+                    "login.user"
+                }));
             }
         ));
         let cancel = gtk::Button::builder().label(t("login.cancel_add")).css_classes(["flat"]).visible(false).build();

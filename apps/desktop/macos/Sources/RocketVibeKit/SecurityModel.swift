@@ -139,6 +139,7 @@ public final class SecurityModel {
             else if code == "reauthentication_rejected" || code == "factor_rejected" { key = "security.rejected" }
             else if code == "invalid_email_address" { key = "email.invalid" }
             else if code == "email_verification_rejected" { key = "email.rejected" }
+            else if code == "email_address_taken" { key = "email.taken" }
             else if code == "email_removal_rejected" { key = "email.removal_stale" }
             else if code == "email_queue_limit" || code == "email_delivery_limit" || code == "email_resend_cooldown" { key = "email.limited" }
         }

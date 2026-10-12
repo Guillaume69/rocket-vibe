@@ -765,6 +765,7 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("login.slogan", "Ton coin de chat magique ✨", "Your magical little chat corner ✨"),
     ("login.server", "Adresse du serveur", "Server address"),
     ("login.user", "Identifiant ou email", "Username or email"),
+    ("login.username", "Nom d'utilisateur", "Username"),
     ("login.password", "Mot de passe", "Password"),
     ("login.sign_in", "Se connecter", "Sign in"),
     ("login.signing_in", "Connexion…", "Signing in…"),
@@ -1656,6 +1657,11 @@ const CATALOG: &[(&str, &str, &str)] = &[
         "email.rejected",
         "Code refusé ou vérification expirée. Actualisez pour reprendre.",
         "Code rejected or verification expired. Refresh to resume.",
+    ),
+    (
+        "email.taken",
+        "Cette adresse est déjà liée à un autre compte.",
+        "This address is already linked to another account.",
     ),
     (
         "email.limited",

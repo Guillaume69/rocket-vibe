@@ -59,6 +59,7 @@ mod switcher;
 mod thread;
 mod threads;
 mod tile_grid;
+mod totp_qr;
 mod unlock;
 mod updater;
 mod video;

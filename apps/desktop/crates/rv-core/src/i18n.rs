@@ -1530,8 +1530,13 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("security.setup", "Configurer une application d’authentification", "Set up an authenticator app"),
     (
         "security.setup_body",
-        "Ajoutez cette clé dans votre application d’authentification, puis saisissez son code à six chiffres.",
-        "Add this key to your authenticator app, then enter its six-digit code.",
+        "Scannez ce code QR ou ajoutez cette clé dans votre application d’authentification, puis saisissez son code à six chiffres.",
+        "Scan this QR code or add this key to your authenticator app, then enter its six-digit code.",
+    ),
+    (
+        "security.qr",
+        "Code QR à scanner avec votre application d’authentification",
+        "QR code to scan with your authenticator app",
     ),
     ("security.copy_secret", "Copier la clé de configuration", "Copy setup key"),
     ("security.copy_uri", "Copier le lien de configuration", "Copy setup link"),

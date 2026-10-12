@@ -10,6 +10,7 @@ section here.
 ### Added
 
 - RocketVibe administrators can create, copy, list and revoke account invitation codes in GTK and SwiftUI.
+- Setting up an authenticator on a RocketVibe account shows a QR code of the setup link to scan, next to the key for manual entry, in GTK.
 
 ### Fixed
 

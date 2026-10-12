@@ -155,6 +155,25 @@ Resumption exposes `queued`, `sending`, `deferred`, `accepted` or `exhausted`.
 `accepted` means that the relay accepted the SMTP, not that the final mailbox received
 the message. No raw SMTP diagnostic, code or private content is logged.
 
+## Signing in with the verified address
+
+A verified address is also a sign-in identifier: `/auth/login` and `/auth/start`
+take it in `username` (see [AUTHENTICATION.md](AUTHENTICATION.md#identifier)).
+A pending verification never signs in. Migration 0062 gives `account_emails` a
+`sign_in` flag and a unique index on the address among the rows that have it, so
+one verified address names at most one account. The migration clears the flag
+on every address two accounts already shared: such an address stays a contact of
+both and signs in neither until one of them removes it and the other verifies it
+again.
+
+The first confirmation of an address another account already holds, flagged or
+not, answers `409 email_address_taken` once the code has matched, so only
+someone who reads that mailbox learns that the address is in use, never which
+account holds it. The pending verification stays as it was: the client offers to
+cancel it. Two confirmations racing for the same address meet the unique index
+and the loser gets the same answer. The comparison is exact on the normalized
+address (domain in lower case, local part as typed), as everywhere else.
+
 ## Contact removal
 
 The additive capability `email_removal` is independent of SMTP and of the delivery

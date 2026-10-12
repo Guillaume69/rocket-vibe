@@ -67,7 +67,7 @@ presence does not declare the corresponding endpoints available.
 | Method | Route | Use |
 |---|---|---|
 | GET | `/health/live`, `/health/ready` | State of the process and of the database |
-| POST | `/auth/login` | `{ username, password }` → session, expiry, user |
+| POST | `/auth/login` | `{ username, password }` → session, expiry, user; `username` may be a verified email address |
 | POST | `/auth/start` | Password → `AuthenticationStep`; no bearer before the factor for a protected account |
 | POST | `/auth/factors/verify` | `FinishFactor` → session with durable candidate; resumption of the same validation |
 | GET | `/me/factors` | Methods, version and remaining backup codes |

@@ -162,6 +162,21 @@ pin this generation and cannot be reused after a restore.
 The library is documented [here](https://docs.rs/aes-gcm-siv/0.11.1/aes_gcm_siv/).
 Its tests and the project's tests do not constitute an external cryptographic review.
 
+## Identifier
+
+`Login.username` is a username or, when it contains `@`, a verified email
+address. The server normalizes such an address like a contact (domain in lower
+case, local part as typed, `src/mail.rs`) and looks it up among the addresses
+flagged for sign-in ([EMAIL.md](EMAIL.md#signing-in-with-the-verified-address));
+an address that does not parse is looked up as typed and matches nothing. A
+pending address, an unknown one, a disabled account or a bot fail exactly like a
+wrong password: `401 session_rejected`, after the same Argon2 verification
+against a dummy hash. The identifier accepts up to 254 bytes. The per-identifier
+login quota keys on the normalized address, so an account has one window for its
+username and one for its address, under the shared global and per-client
+windows. Account recovery, the email recovery request and invitations still take
+the username.
+
 ## Anonymous flow
 
 `POST /auth/start` accepts the same strict `Login` as `/auth/login` and returns

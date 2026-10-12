@@ -37,6 +37,7 @@ struct Ctx {
     bots: Rc<RefCell<Vec<Bot>>>,
     /// The Security category, where a recent sign-in is made; None without one.
     security: Option<&'static str>,
+    commands_changed: Rc<dyn Fn()>,
 }
 
 fn confirm(host: &Host, heading: &str, body: &str, action: &str, run: impl Fn() + 'static) {
@@ -44,7 +45,12 @@ fn confirm(host: &Host, heading: &str, body: &str, action: &str, run: impl Fn() 
 }
 
 /// The Workflows category: my workflows, then "Create a workflow" when I may.
-pub(super) fn page(host: &Host, session: Arc<NativeSession>, security: Option<&'static str>) -> adw::PreferencesPage {
+pub(super) fn page(
+    host: &Host,
+    session: Arc<NativeSession>,
+    security: Option<&'static str>,
+    commands_changed: Rc<dyn Fn()>,
+) -> adw::PreferencesPage {
     let page = adw::PreferencesPage::new();
     page.add_css_class("native-workflows");
     let group = adw::PreferencesGroup::builder().title(t("workflows.title")).description(t("workflows.intro")).build();
@@ -56,7 +62,8 @@ pub(super) fn page(host: &Host, session: Arc<NativeSession>, security: Option<&'
         .build();
     group.set_header_suffix(Some(&refresh));
     page.add(&group);
-    let ctx = Ctx { host: host.clone(), session, list: Rows::new(&group), bots: Rc::default(), security };
+    let ctx =
+        Ctx { host: host.clone(), session, list: Rows::new(&group), bots: Rc::default(), security, commands_changed };
     let again = ctx.clone();
     refresh.connect_clicked(move |_| reload(&again));
     reload(&ctx);
@@ -1505,6 +1512,7 @@ fn actions_group(ed: &Ed, workflow: Option<&Workflow>) -> adw::PreferencesGroup 
                         }
                         button.set_visible(false);
                         e.ctx.host.toast(t("workflows.disabled"));
+                        (e.ctx.commands_changed)();
                         reload(&e.ctx);
                     }
                     Err(error) => {
@@ -1545,6 +1553,7 @@ fn save_workflow(ed: &Ed, button: &adw::ButtonRow) {
             button.set_sensitive(true);
             match result {
                 Ok(workflow) => {
+                    (e.ctx.commands_changed)();
                     e.ctx.host.toast(t(if e.id.is_some() { "workflows.saved" } else { "workflows.created" }));
                     close(&e);
                     reload(&e.ctx);
@@ -1615,6 +1624,7 @@ fn danger_group(ed: &Ed, name: &str) -> adw::PreferencesGroup {
             let (s, id, e) = (e.ctx.session.clone(), id.clone(), e.clone());
             spawn(&e.ctx.host.clone(), async move { s.delete_workflow(&id).await }, move |result| match result {
                 Ok(()) => {
+                    (e.ctx.commands_changed)();
                     close(&e);
                     reload(&e.ctx);
                 }

@@ -87,6 +87,21 @@ fn the_editor_and_the_form_card_follow_the_contract() {
             ("GET", "/api/v1/bots") => http::respond(200, &fixture["bots"]["bot_list"].to_string()),
             ("GET", "/api/v1/workflows") => http::respond(200, &flows["workflow_list"].to_string()),
             ("GET", "/api/v1/workflows/wf-id/runs") => http::respond(200, &flows["workflow_run_list"].to_string()),
+            ("GET", "/api/v1/commands") => {
+                let changed = log
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .any(|(method, path, _)| method == "PUT" && path == "/api/v1/workflows/wf-id");
+                http::respond(
+                    200,
+                    &serde_json::json!({"commands":[{
+                        "command":if changed { "qa-new" } else { "qa-old" },
+                        "params":"", "description":"QA workflow", "client_side":false, "literal":true
+                    }]})
+                    .to_string(),
+                )
+            }
             ("PUT", "/api/v1/workflows/wf-id") => http::respond(200, &flows["workflow"].to_string()),
             ("POST", "/api/v1/forms/message-id/answer") => http::respond(204, ""),
             _ => http::respond(404, r#"{"code":"not_found","request_id":"fixture"}"#),
@@ -114,17 +129,23 @@ fn the_editor_and_the_form_card_follow_the_contract() {
 
     let dialog = crate::sidebar_dialog::SidebarDialog::new("Settings", "settings-dialog");
     let host = dialog.host();
-    let list = page(&host, session.clone(), None);
+    let list = page(&host, session.clone(), None, Rc::new(|| {}));
     until(|| !find(list.upcast_ref(), "workflow-row").is_empty());
     assert_eq!(find(list.upcast_ref(), "workflow-create").len(), 1, "I may create one, and I have a bot");
 
     let workflow: Workflow = serde_json::from_value(fixture_workflow()).unwrap();
+    let composer = crate::composer::Composer::new();
+    composer.load_native_commands(&session, "room-id");
+    until(|| composer.knows_command("qa-old"));
+    assert!(!composer.knows_command("qa-new"));
+    let (commands_composer, commands_session) = (composer.clone(), session.clone());
     let ctx = Ctx {
         host: host.clone(),
         session: session.clone(),
         list: Rows::new(&adw::PreferencesGroup::new()),
         bots: Rc::new(RefCell::new(serde_json::from_value(fixture_bots()).unwrap())),
         security: None,
+        commands_changed: Rc::new(move || commands_composer.load_native_commands(&commands_session, "room-id")),
     };
     let ed = open_editor(&ctx, Some(workflow.clone()));
     let page = ed.page.upgrade().unwrap().upcast::<gtk::Widget>();
@@ -179,6 +200,12 @@ fn the_editor_and_the_form_card_follow_the_contract() {
     assert_eq!(put["revision"], "rev-1");
     assert_eq!(put["steps"].as_array().unwrap().len(), 5);
     assert_eq!(put["steps"][0]["fields"][2]["id"], "blockers");
+    until(|| composer.knows_command("qa-new"));
+    assert!(
+        !composer.knows_command("qa-old"),
+        "a renamed workflow replaces the previous command without binding the room again"
+    );
+    assert!(!composer.knows_command("qa-unknown"), "unoffered names remain ordinary message text");
 
     // The form card offers Answer to its recipient; the dialog sends the answers.
     let row = session.store.messages("room-id", 10).unwrap().remove(0).presentation("room-id", "alice-id");
@@ -217,7 +244,7 @@ fn the_editor_and_the_form_card_follow_the_contract() {
     window.destroy();
     // Widgets found above hold editor handlers, and so the session.
     drop((ups, labels, url, fields, picks));
-    drop((answer, card, other, window, ed, ctx, list, host, dialog, page));
+    drop((answer, card, other, window, ed, ctx, list, host, dialog, page, composer));
     until(|| Arc::strong_count(&session) == 1);
     runtime.block_on(http::close_native(session));
     let _ = std::fs::remove_file(path);

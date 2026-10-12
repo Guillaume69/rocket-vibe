@@ -860,12 +860,15 @@ impl Composer {
     /// workflow commands included; it checks rights when one runs, so none
     /// are left out here.
     pub fn load_native_commands(self: &Rc<Self>, session: &Arc<rv_core::native::NativeSession>, rid: &str) {
-        let key = format!("native:{rid}");
+        // Each request owns its answer, including another refresh of the same
+        // room and a different account that happens to have the same room ID.
+        let key = format!("native:{}:{rid}:{}", session.info.user_id, rv_core::native::room_operation_id());
         // Meanwhile, the room's list as last read, else the server's: a typed
         // `/leave` must never go out as text.
         let known = session.loaded_room_commands(rid);
         self.commands.replace(Commands { key: key.clone(), list: known, granted: None });
         let (weak, s, rid) = (Rc::downgrade(self), session.clone(), rid.to_owned());
+        let expected = session.clone();
         glib::spawn_future_local(async move {
             let list = on_tokio(async move {
                 match s.room_commands(&rid).await {
@@ -875,7 +878,7 @@ impl Composer {
             })
             .await;
             let Some(this) = weak.upgrade() else { return };
-            if this.commands.borrow().key != key {
+            if expected.is_closed() || this.commands.borrow().key != key {
                 return;
             }
             if let Ok(list) = list {

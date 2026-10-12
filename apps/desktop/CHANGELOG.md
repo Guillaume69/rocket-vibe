@@ -9,6 +9,7 @@ section here.
 
 ### Fixed
 
+- Saving, enabling, disabling or deleting a RocketVibe workflow refreshes the open GTK room and thread command catalogues immediately, so a new slash command is usable without switching rooms.
 - Incoming GTK and SwiftUI calls stay open until Accept or Decline is chosen; Escape and clicks outside no longer silence them. Calls ending remotely and account shutdown still close the prompt, including calls on background accounts.
 - SwiftUI closes a view's protected media access when switching accounts, including emoji, cached images and new downloads, while the previous account keeps running in the background.
 - Reopening a suspended RocketVibe account resumes its existing session and delivers queued offline messages without restarting healthy background accounts, on GTK and SwiftUI.

@@ -470,13 +470,32 @@ impl ChatPage {
             return;
         };
         let weak = Rc::downgrade(self);
-        crate::settings::open_native(&self.split, session, self.account_actions.borrow().clone(), move || {
-            if let Some(this) = weak.upgrade() {
-                for f in this.on_logout.borrow().iter() {
-                    f(());
+        let (commands_owner, expected) = (Rc::downgrade(self), session.clone());
+        crate::settings::open_native_with_commands(
+            &self.split,
+            session,
+            self.account_actions.borrow().clone(),
+            move || {
+                if let Some(this) = weak.upgrade() {
+                    for f in this.on_logout.borrow().iter() {
+                        f(());
+                    }
                 }
-            }
-        });
+            },
+            Rc::new(move || {
+                let Some(this) = commands_owner.upgrade() else { return };
+                if expected.is_closed() || this.native_session().is_none_or(|session| !Arc::ptr_eq(&session, &expected))
+                {
+                    return;
+                }
+                if let Some(rid) = this.current_rid() {
+                    this.composer.load_native_commands(&expected, &rid);
+                    if let Some(thread) = this.thread.borrow().as_ref().filter(|thread| thread.rid == rid) {
+                        thread.composer.load_native_commands(&expected, &rid);
+                    }
+                }
+            }),
+        );
     }
 
     pub(super) fn native_row_event(self: &Rc<Self>, event: RowEvent, in_thread: bool) {

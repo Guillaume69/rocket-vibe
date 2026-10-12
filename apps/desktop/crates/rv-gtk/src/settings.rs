@@ -102,6 +102,18 @@ pub fn open_native(
     accounts: Option<Rc<AccountActions>>,
     sign_out: impl Fn() + 'static,
 ) -> SidebarDialog {
+    open_native_with_commands(parent, session, accounts, sign_out, Rc::new(|| {}))
+}
+
+/// The room's composer refreshes its command catalogue after a workflow
+/// mutation succeeds, while the settings still cover the composer.
+pub(crate) fn open_native_with_commands(
+    parent: &impl IsA<gtk::Widget>,
+    session: Arc<rv_core::native::NativeSession>,
+    accounts: Option<Rc<AccountActions>>,
+    sign_out: impl Fn() + 'static,
+    commands_changed: Rc<dyn Fn()>,
+) -> SidebarDialog {
     let info = &session.info;
     let dialog = dialog(parent.as_ref(), rv_core::admin::Admin::Native(session.clone()), sign_out);
     dialog.dialog().add_css_class("native-profile-settings");
@@ -155,7 +167,7 @@ pub fn open_native(
     }
     if session.workflows_supported() {
         let (s, security) = (session.clone(), session.security_supported().then_some(SECURITY.0));
-        add_lazy(&dialog, WORKFLOWS, move |host| native_workflows::page(host, s, security));
+        add_lazy(&dialog, WORKFLOWS, move |host| native_workflows::page(host, s, security, commands_changed));
     }
     add(&dialog, ACCOUNTS, &accounts_page(&host, info, accounts));
     add(&dialog, APP, &app_page(&host));

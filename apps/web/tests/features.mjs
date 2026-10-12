@@ -196,7 +196,9 @@ try {
     .locator(".preferences-page")
     .getByText("Browser moderation " + tag, { exact: true })
     .waitFor();
-  await a.getByRole("button", { name: "Dismiss", exact: true }).click();
+  await a
+    .getByRole("button", { name: "Dismiss the reports", exact: true })
+    .click();
   await a.locator('.admin-reports[data-report-kind="messages"]').waitFor();
   assert.equal(await a.locator(".confirmation-dialog").count(), 0);
   await a.locator(".sidebar-dialog .preferences-close").click();

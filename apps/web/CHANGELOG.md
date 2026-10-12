@@ -7,6 +7,7 @@ All notable changes are documented here in English.
 ### Added
 
 - RocketVibe administrators can create, copy, list and revoke account invitation codes.
+- Setting up an authenticator on a RocketVibe account shows a QR code of the setup link to scan, next to the key for manual entry.
 
 ### Fixed
 

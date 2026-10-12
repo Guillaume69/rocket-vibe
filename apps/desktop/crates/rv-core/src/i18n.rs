@@ -641,6 +641,16 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("voice_session.camera_unavailable", "Aucune caméra disponible.", "No camera available."),
     ("voice_session.screen_unavailable", "Impossible de partager l’écran.", "Couldn't share the screen."),
     (
+        "voice_session.speakers_unavailable",
+        "Impossible d’ouvrir la sortie audio : vous n’entendrez pas l’appel.",
+        "Couldn't open the audio output: you won't hear the call.",
+    ),
+    (
+        "voice_session.microphone_unavailable",
+        "Impossible d’ouvrir le micro : personne ne vous entendra.",
+        "Couldn't open the microphone: nobody will hear you.",
+    ),
+    (
         "voice_session.screen_taken",
         "Quelqu’un partage déjà son écran ici.",
         "Someone is already sharing their screen here.",

@@ -190,7 +190,14 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
   default-device notification, which a virtual surround headset's driver sends in bursts
   (it reopened ten times a second and crackled); a real change of default is followed every
   3 s instead, and a stream that dies reopens the chosen devices at most every 2 s
-  (`device_lost`). It is a separate process because libwebrtc
+  (`device_lost`). A stream opens at the device's own channels and rate in 32-bit float
+  when the device takes it (`audio::choose`): PulseAudio and PipeWire report the hardware's
+  format, `s24le` on many USB outputs, and convert whatever a stream sends; the device's own
+  format is the fallback (F32, I16, I24, I32, U16 are converted). Opening a side ends as
+  `audio::Opened` (chosen, default in place of a vanished choice, failed): a failure sends
+  `speakers_unavailable` or `microphone_unavailable` and writes the reason through
+  `diagnose` (stderr, which rv-core passes to the app's own, or `RV_VOICE_LOG`); a vanished
+  choice sends `device_not_found`. GTK and SwiftUI show the first two as a notice. It is a separate process because libwebrtc
   exists only for MSVC on Windows (the GTK app builds with MSYS2) and must stay out of
   rv-ffi's static library. Linux builds it in ubuntu:22.04 with clang 21 (glibc floor
   2.35); Windows needs the static C runtime and a short target path
@@ -251,7 +258,8 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
   Video: `VoiceController` listens for each sidecar's frame stream and keeps the latest frame
   per track (`frame(identity, source)`); `set_camera`, `start_screen_share`,
   `stop_screen_share` and the snapshot's `camera` / `sharing` wishes (taken back when the
-  sidecar reports `camera_unavailable`, `screen_cancelled`, `screen_ended`...).
+  sidecar reports `camera_unavailable`, `screen_cancelled`, `screen_ended`...; the device
+  codes `speakers_unavailable` and `microphone_unavailable` only become a notice).
   `NativeSession::share_screen` claims the room's share first and gives it back however the
   share ends (a watch on the snapshot).
   The native store presents a call row's `Message.call` as mobile does: `rv-call-<state>`, the

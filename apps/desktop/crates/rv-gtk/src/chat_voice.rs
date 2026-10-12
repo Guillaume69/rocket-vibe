@@ -950,11 +950,13 @@ impl ChatPage {
         if connected(now) && before.room == now.room && now.muted_speech > before.muted_speech {
             self.toast(t("voice_session.muted_speech").to_owned());
         }
-        // A capture the sidecar could not start or keep; a closed picker says nothing.
+        // A device or capture the sidecar could not open or keep; a closed picker says nothing.
         if now.error != before.error
             && let Some(key) = match now.error.as_deref() {
                 Some("camera_unavailable") => Some("voice_session.camera_unavailable"),
                 Some("screen_unavailable") => Some("voice_session.screen_unavailable"),
+                Some("speakers_unavailable") => Some("voice_session.speakers_unavailable"),
+                Some("microphone_unavailable") => Some("voice_session.microphone_unavailable"),
                 _ => None,
             }
         {

@@ -20,6 +20,7 @@ section here.
 - Recover Mattermost and kChat sends by a persistent operation marker; keep ambiguous legacy matches visible for manual retry.
 - Scope GTK attachment and image caches by account, clear local attachment copies on sign-out, and reject late downloads from closed sessions.
 - Give SwiftUI attachment copies a private session directory and delete them when the session ends.
+- Play voice calls on Linux outputs whose native format is 24-bit, such as many USB headsets and dongles under PipeWire or PulseAudio: the speakers now open in 32-bit float and the sound server converts. Speakers or a microphone that cannot open now show a notice in GTK and SwiftUI and log the reason, instead of a silent call.
 
 ## [0.16.0] - 2026-10-11
 

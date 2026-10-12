@@ -7,6 +7,10 @@ section here.
 
 ## [Unreleased]
 
+### Added
+
+- Experimental GTK WhatsApp linked-device window with QR association, the existing native timeline and text composer, and a local encrypted session helper. Available only when the helper is installed; real-account qualification and release packaging are pending.
+
 ### Fixed
 
 - GTK keeps finite green speaking rings and button feedback on Windows when the Cairo renderer is active, avoiding a GTK shadow-blur crash after a failed Win32 mask allocation while switching from voice to a text channel.

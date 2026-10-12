@@ -1,0 +1,553 @@
+//! Experimental local WhatsApp window, reusing RocketVibe's timeline and composer.
+use std::cell::{Cell, RefCell};
+use std::collections::BTreeMap;
+use std::rc::Rc;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use adw::prelude::*;
+use gtk::glib;
+use rv_core::whatsapp::{Connector, Snapshot};
+
+use crate::composer::Composer;
+use crate::i18n::t;
+use crate::message_list::MessageList;
+
+thread_local! {
+    static PILOT: RefCell<Option<Rc<Pilot>>> = const { RefCell::new(None) };
+}
+pub fn enabled() -> bool {
+    std::env::var("RV_WHATSAPP_PILOT").as_deref() == Ok("1")
+}
+pub fn run() -> glib::ExitCode {
+    crate::i18n::init();
+    let app = adw::Application::builder().application_id("com.rocketvibe.whatsapp.pilot").build();
+    app.connect_startup(|_| {
+        crate::style::load();
+        crate::focus::install();
+        if let Some(display) = gtk::gdk::Display::default() {
+            crate::icon::register(&display);
+        }
+    });
+    app.connect_activate(|app| {
+        if let Some(pilot) = PILOT.with_borrow(Clone::clone) {
+            pilot.window.present();
+            return;
+        }
+        let pilot = Pilot::new(app);
+        pilot.window.present();
+        pilot.start();
+        pilot.smoke();
+        PILOT.with_borrow_mut(|slot| *slot = Some(pilot));
+    });
+    app.run()
+}
+pub fn show(app: &adw::Application) {
+    if let Some(pilot) = PILOT.with_borrow(Clone::clone) {
+        pilot.window.present();
+        return;
+    }
+    let pilot = Pilot::new(app);
+    pilot.window.present();
+    pilot.start();
+    pilot.smoke();
+    PILOT.with_borrow_mut(|slot| *slot = Some(pilot));
+}
+struct Pilot {
+    window: adw::ApplicationWindow,
+    stack: gtk::Stack,
+    qr: gtk::DrawingArea,
+    status: gtk::Label,
+    warning: gtk::Label,
+    title: gtk::Label,
+    list: gtk::ListBox,
+    messages: Rc<MessageList>,
+    composer: Rc<Composer>,
+    connector: RefCell<Option<Arc<Connector>>>,
+    revision: Cell<u64>,
+    selected: RefCell<String>,
+    drafts: RefCell<BTreeMap<String, String>>,
+    room_ids: RefCell<Vec<String>>,
+    room_signature: RefCell<Vec<(String, String)>>,
+    qr_value: RefCell<Option<String>>,
+    qr_deadline: RefCell<Option<Instant>>,
+    pending: RefCell<Option<(String, String, String)>>,
+    retry: gtk::Button,
+    logout: gtk::Button,
+    closing: Cell<bool>,
+}
+impl Pilot {
+    fn new(app: &adw::Application) -> Rc<Self> {
+        let window = adw::ApplicationWindow::builder()
+            .application(app)
+            .title(t("wa.title"))
+            .default_width(1040)
+            .default_height(760)
+            .build();
+        let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        let header = adw::HeaderBar::new();
+        header.set_title_widget(Some(&crate::widgets::brand("brand-header")));
+        let retry = gtk::Button::builder().label(t("wa.reconnect")).build();
+        let logout = gtk::Button::builder().label(t("wa.logout")).sensitive(false).build();
+        header.pack_start(&retry);
+        header.pack_end(&logout);
+        root.append(&header);
+        let status = gtk::Label::builder()
+            .label(t("wa.connecting"))
+            .css_classes(["step-intro"])
+            .margin_top(8)
+            .margin_bottom(8)
+            .build();
+        root.append(&status);
+        let warning = gtk::Label::builder()
+            .wrap(true)
+            .css_classes(["error"])
+            .margin_start(24)
+            .margin_end(24)
+            .visible(false)
+            .build();
+        root.append(&warning);
+        let stack = gtk::Stack::builder().vexpand(true).transition_type(gtk::StackTransitionType::Crossfade).build();
+        let pairing = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(20)
+            .valign(gtk::Align::Center)
+            .halign(gtk::Align::Center)
+            .margin_start(40)
+            .margin_end(40)
+            .build();
+        pairing.append(&gtk::Label::builder().label(t("wa.link_title")).css_classes(["step-title"]).build());
+        pairing.append(
+            &gtk::Label::builder()
+                .label(t("wa.link_help"))
+                .wrap(true)
+                .justify(gtk::Justification::Center)
+                .max_width_chars(54)
+                .build(),
+        );
+        let qr = gtk::DrawingArea::builder()
+            .content_width(280)
+            .content_height(280)
+            .halign(gtk::Align::Center)
+            .visible(false)
+            .build();
+        qr.update_property(&[gtk::accessible::Property::Label(t("wa.qr"))]);
+        pairing.append(&qr);
+        pairing.append(
+            &gtk::Label::builder()
+                .label(t("wa.local"))
+                .wrap(true)
+                .max_width_chars(58)
+                .css_classes(["step-intro"])
+                .build(),
+        );
+        if std::env::var_os("RV_WHATSAPP_SMOKE").is_some() {
+            pairing.append(&gtk::Label::new(Some(t("wa.demo"))));
+        }
+        stack.add_named(&pairing, Some("pairing"));
+        let body = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        let list = gtk::ListBox::builder()
+            .selection_mode(gtk::SelectionMode::Single)
+            .css_classes(["navigation-sidebar"])
+            .build();
+        let sidebar = gtk::ScrolledWindow::builder()
+            .width_request(270)
+            .child(&list)
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .build();
+        body.append(&sidebar);
+        body.append(&gtk::Separator::new(gtk::Orientation::Vertical));
+        let timeline = gtk::Box::builder().orientation(gtk::Orientation::Vertical).hexpand(true).build();
+        let title = gtk::Label::builder()
+            .label(t("wa.choose"))
+            .xalign(0.0)
+            .margin_start(24)
+            .margin_top(16)
+            .margin_bottom(16)
+            .css_classes(["step-title"])
+            .build();
+        timeline.append(&title);
+        let messages = MessageList::new(Rc::new(RefCell::new(None)));
+        timeline.append(&messages.root);
+        let composer = Composer::new();
+        composer.text_only();
+        composer.root.set_sensitive(false);
+        timeline.append(&composer.root);
+        body.append(&timeline);
+        stack.add_named(&body, Some("chat"));
+        root.append(&stack);
+        window.set_content(Some(&root));
+        let this = Rc::new(Self {
+            window,
+            stack,
+            qr,
+            status,
+            warning,
+            title,
+            list,
+            messages,
+            composer,
+            connector: RefCell::default(),
+            revision: Cell::new(u64::MAX),
+            selected: RefCell::default(),
+            drafts: RefCell::default(),
+            room_ids: RefCell::default(),
+            room_signature: RefCell::default(),
+            qr_value: RefCell::default(),
+            qr_deadline: RefCell::default(),
+            pending: RefCell::default(),
+            retry,
+            logout,
+            closing: Cell::new(false),
+        });
+        this.wire();
+        this
+    }
+    fn wire(self: &Rc<Self>) {
+        let weak = Rc::downgrade(self);
+        self.list.connect_row_selected(move |_, row| {
+            if let (Some(this), Some(row)) = (weak.upgrade(), row) {
+                let id = this.room_ids.borrow().get(row.index() as usize).cloned();
+                if let Some(id) = id {
+                    this.open(&id);
+                }
+            }
+        });
+        let weak = Rc::downgrade(self);
+        self.composer.connect_submit(move |text| {
+            let Some(this) = weak.upgrade() else { return };
+            let chat = this.selected.borrow().clone();
+            let result = this
+                .connector
+                .borrow()
+                .as_ref()
+                .ok_or("connector_unavailable".to_owned())
+                .and_then(|c| c.send(chat.clone(), text.clone()));
+            match result {
+                Ok(id) => {
+                    this.pending.replace(Some((chat, id, text)));
+                    this.composer.root.set_sensitive(false);
+                }
+                Err(_) => {
+                    this.composer.set_text(&text);
+                    this.problem(t("wa.send_failed"));
+                }
+            }
+        });
+        let weak = Rc::downgrade(self);
+        self.retry.connect_clicked(move |_| {
+            let Some(this) = weak.upgrade() else { return };
+            if let Some(connector) = this.connector.borrow().as_ref()
+                && !matches!(connector.snapshot().state.as_str(), "stopped" | "logged_out")
+            {
+                if connector.reconnect().is_err() {
+                    this.problem(t("wa.connection_failed"));
+                }
+                return;
+            }
+            this.start();
+        });
+        let weak = Rc::downgrade(self);
+        self.logout.connect_clicked(move |_| {
+            let Some(this) = weak.upgrade() else { return };
+            if let Some(connector) = this.connector.borrow().as_ref() {
+                if connector.logout().is_err() {
+                    this.problem(t("wa.connection_failed"));
+                }
+                this.logout.set_sensitive(false);
+            }
+        });
+        let weak = Rc::downgrade(self);
+        self.window.connect_close_request(move |_| {
+            let Some(this) = weak.upgrade() else { return glib::Propagation::Proceed };
+            if this.closing.replace(true) {
+                return glib::Propagation::Stop;
+            }
+            if let Some(connector) = this.connector.borrow().as_ref() {
+                connector.stop();
+                let connector = connector.clone();
+                let window = this.window.clone();
+                let app = this.window.application().expect("app");
+                glib::spawn_future_local(async move {
+                    for _ in 0..70 {
+                        if matches!(connector.snapshot().state.as_str(), "stopped" | "logged_out") {
+                            break;
+                        }
+                        glib::timeout_future(Duration::from_millis(100)).await;
+                    }
+                    window.destroy();
+                    PILOT.with_borrow_mut(|slot| *slot = None);
+                    if enabled() {
+                        app.quit();
+                    }
+                });
+                return glib::Propagation::Stop;
+            }
+            glib::Propagation::Proceed
+        });
+        let weak = Rc::downgrade(self);
+        glib::timeout_add_local(Duration::from_millis(100), move || {
+            let Some(this) = weak.upgrade() else { return glib::ControlFlow::Break };
+            if this.closing.get() {
+                return glib::ControlFlow::Continue;
+            }
+            let connector = this.connector.borrow().clone();
+            if let Some(connector) = connector
+                && connector.revision() != this.revision.get()
+            {
+                let snapshot = connector.snapshot();
+                this.revision.set(snapshot.revision);
+                this.paint(&snapshot);
+            }
+            if this.qr_deadline.borrow().is_some_and(|deadline| Instant::now() >= deadline) {
+                this.clear_qr();
+                this.status.set_label(t("wa.qr_expired"));
+                this.retry.set_sensitive(true);
+            }
+            glib::ControlFlow::Continue
+        });
+    }
+    fn problem(&self, message: &str) {
+        self.warning.set_label(message);
+        self.warning.set_visible(true);
+    }
+    fn start(self: &Rc<Self>) {
+        if self.closing.get() {
+            return;
+        }
+        self.retry.set_sensitive(false);
+        self.warning.set_visible(false);
+        self.status.set_label(t("wa.connecting"));
+        self.revision.set(u64::MAX);
+        let weak = Rc::downgrade(self);
+        glib::spawn_future_local(async move {
+            let fake = std::env::var("RV_WHATSAPP_SMOKE").ok();
+            let program = if fake.is_some() {
+                std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.join("fake-whatsapp-sidecar")))
+            } else {
+                rv_core::whatsapp::locate()
+            };
+            let state = glib::user_data_dir().join("rocket-vibe-rs").join("whatsapp-pilot").join("state.bin");
+            let key = if fake.is_some() {
+                rv_core::whatsapp::storage_key()
+            } else {
+                let exists = state.exists();
+                crate::on_tokio(crate::secrets::whatsapp_storage_key(exists)).await
+            };
+            let Some(this) = weak.upgrade().filter(|p| !p.closing.get()) else { return };
+            let result = match (program, key) {
+                (Some(program), Ok(key)) => {
+                    crate::on_tokio(async move { Connector::start(&program, &state, key).await }).await
+                }
+                _ => Err("connector_unavailable".into()),
+            };
+            match result {
+                Ok(connector) => {
+                    if this.closing.get() {
+                        connector.stop();
+                        return;
+                    }
+                    if fake.as_deref() == Some("chat") {
+                        let _ = connector.reconnect();
+                    }
+                    this.connector.replace(Some(connector));
+                }
+                Err(_) => {
+                    this.problem(t("wa.start_failed"));
+                    this.status.set_label(t("wa.connection_failed"));
+                    this.retry.set_sensitive(true);
+                }
+            }
+        });
+    }
+    fn clear_qr(&self) {
+        self.qr.set_visible(false);
+        self.qr.set_draw_func(|_, _, _, _| {});
+        self.qr_value.replace(None);
+        self.qr_deadline.replace(None);
+    }
+    fn paint(&self, s: &Snapshot) {
+        if s.state == "logged_out" {
+            self.drafts.borrow_mut().clear();
+            self.pending.replace(None);
+            self.selected.borrow_mut().clear();
+            self.composer.set_text("");
+        }
+        self.status.set_label(t(&format!("wa.{}", s.state)));
+        self.retry.set_sensitive(!matches!(s.state.as_str(), "connecting" | "paired"));
+        self.logout.set_sensitive(s.state == "connected");
+        self.warning.set_visible(s.error.is_some());
+        if let Some(code) = &s.error {
+            self.problem(if code == "send_uncertain" { t("wa.send_uncertain") } else { t("wa.connection_failed") });
+        }
+        if let Some((code, expiry)) = &s.qr {
+            if self.qr_value.borrow().as_deref() != Some(code) {
+                self.qr_value.replace(Some(code.clone()));
+                self.qr_deadline.replace(Some(Instant::now() + Duration::from_millis(*expiry)));
+                show_qr(&self.qr, code);
+            }
+            self.stack.set_visible_child_name("pairing");
+        } else {
+            self.clear_qr();
+            if !s.messages.is_empty() || s.state == "connected" {
+                self.stack.set_visible_child_name("chat");
+            } else {
+                self.stack.set_visible_child_name("pairing");
+            }
+        }
+        let mut rooms: BTreeMap<String, (String, i64)> = BTreeMap::new();
+        for m in s.messages.values() {
+            let entry = rooms.entry(m.chat.clone()).or_insert((m.name.clone(), m.ts));
+            if m.ts >= entry.1 {
+                *entry = (m.name.clone(), m.ts);
+            }
+        }
+        let mut rooms: Vec<_> = rooms.into_iter().collect();
+        rooms.sort_by(|a, b| b.1.1.cmp(&a.1.1).then(a.0.cmp(&b.0)));
+        let signature: Vec<_> = rooms.iter().map(|(id, (name, _))| (id.clone(), name.clone())).collect();
+        if *self.room_signature.borrow() != signature {
+            self.room_signature.replace(signature);
+            // Selection callbacks must not read a stale index while replacing the list.
+            self.room_ids.borrow_mut().clear();
+            while let Some(child) = self.list.first_child() {
+                self.list.remove(&child);
+            }
+            self.room_ids.replace(rooms.iter().map(|(id, _)| id.clone()).collect());
+            for (id, (name, _)) in &rooms {
+                let row = gtk::Box::builder()
+                    .spacing(12)
+                    .margin_start(12)
+                    .margin_end(12)
+                    .margin_top(12)
+                    .margin_bottom(12)
+                    .build();
+                row.append(&crate::rows::room_tile(
+                    name,
+                    if id.ends_with("@g.us") { "p" } else { "d" },
+                    false,
+                    crate::widgets::TileSize::Room,
+                ));
+                row.append(
+                    &gtk::Label::builder()
+                        .label(name)
+                        .xalign(0.0)
+                        .ellipsize(gtk::pango::EllipsizeMode::End)
+                        .hexpand(true)
+                        .build(),
+                );
+                self.list.append(&row);
+            }
+            let selected = self.selected.borrow().clone();
+            let index = self.room_ids.borrow().iter().position(|id| *id == selected).unwrap_or(0);
+            self.list.select_row(self.list.row_at_index(index as i32).as_ref());
+        }
+        let pending = self.pending.borrow().clone();
+        if let Some((chat, id, text)) = pending {
+            let record = s.messages.values().find(|m| m.id == format!("{chat}:{id}"));
+            if record.is_some_and(|m| m.status != "sending") {
+                self.pending.replace(None);
+            } else if record.is_none() && (s.error.is_some() || s.state == "stopped") {
+                self.drafts.borrow_mut().insert(chat.clone(), text.clone());
+                if *self.selected.borrow() == chat {
+                    self.composer.set_text(&text);
+                }
+                self.pending.replace(None);
+                self.problem(t("wa.send_failed"));
+            } else if s.state == "stopped" {
+                self.pending.replace(None);
+                self.problem(t("wa.send_uncertain"));
+            }
+        }
+        self.composer.root.set_sensitive(
+            s.state == "connected" && !self.selected.borrow().is_empty() && self.pending.borrow().is_none(),
+        );
+        self.paint_messages(s);
+    }
+    fn open(&self, chat: &str) {
+        let previous = self.selected.replace(chat.to_owned());
+        if previous != chat {
+            self.drafts.borrow_mut().insert(previous, self.composer.text());
+            self.composer.set_text(self.drafts.borrow().get(chat).map_or("", String::as_str));
+        }
+        if let Some(connector) = self.connector.borrow().as_ref() {
+            self.paint_messages(&connector.snapshot());
+        }
+    }
+    fn paint_messages(&self, s: &Snapshot) {
+        let chat = self.selected.borrow().clone();
+        let mut messages: Vec<_> = s.messages.values().filter(|m| m.chat == chat).collect();
+        messages.sort_by_key(|m| (m.ts, &m.id));
+        if let Some(message) = messages.last() {
+            self.title.set_label(&message.name);
+        } else {
+            self.title.set_label(t("wa.choose"));
+        }
+        let mut rows = crate::rows::group(messages.into_iter().map(|m| m.presentation()).collect());
+        for row in &mut rows {
+            if row.row.outbox_status.as_deref() == Some("uncertain") {
+                row.seen = Some(t("wa.send_uncertain").into());
+            }
+        }
+        self.messages.set_native_rows(rows, "me");
+    }
+    fn smoke(self: &Rc<Self>) {
+        let Some(mode) = std::env::var("RV_WHATSAPP_SMOKE").ok() else { return };
+        let weak = Rc::downgrade(self);
+        glib::timeout_add_local_once(Duration::from_secs(2), move || {
+            if let Some(this) = weak.upgrade()
+                && mode == "chat"
+            {
+                this.open("alice@s.whatsapp.net");
+                this.composer.set_text("Native pilot test");
+                this.composer.submit_now();
+            }
+        });
+        let weak = Rc::downgrade(self);
+        glib::timeout_add_local_once(Duration::from_secs(4), move || {
+            let Some(this) = weak.upgrade() else { return };
+            let mode = std::env::var("RV_WHATSAPP_SMOKE").unwrap_or_default();
+            let snapshot = this.connector.borrow().as_ref().map(|c| c.snapshot()).unwrap_or_default();
+            let good = if mode == "qr" {
+                this.qr.is_visible() && snapshot.qr.is_some()
+            } else {
+                snapshot.state == "connected"
+                    && snapshot.messages.values().any(|m| m.text == "Native pilot test" && m.status.is_empty())
+                    && this.messages.row_widget("alice@s.whatsapp.net:fake-received").is_some()
+            };
+            let shot = std::env::var("RV_WHATSAPP_SMOKE_SHOT").unwrap_or_default();
+            let paintable = gtk::WidgetPaintable::new(Some(&this.window));
+            let snapshot = gtk::Snapshot::new();
+            paintable.snapshot(&snapshot, this.window.width() as f64, this.window.height() as f64);
+            let saved = snapshot
+                .to_node()
+                .zip(this.window.renderer())
+                .is_some_and(|(node, renderer)| renderer.render_texture(&node, None).save_to_png(&shot).is_ok());
+            println!("whatsapp smoke: native flow={} screenshot={}", good, saved);
+            this.window.close();
+        });
+    }
+}
+fn show_qr(area: &gtk::DrawingArea, code: &str) {
+    let Ok(qr) = qrcode::QrCode::new(code.as_bytes()) else { return };
+    let width = qr.width();
+    area.set_visible(true);
+    area.set_draw_func(move |_, cr, w, h| {
+        cr.set_antialias(gtk::cairo::Antialias::None);
+        let module = (w.min(h) as f64 / (width + 8) as f64).floor().max(1.0);
+        let side = module * (width + 8) as f64;
+        let x = ((w as f64 - side) / 2.0).floor();
+        let y = ((h as f64 - side) / 2.0).floor();
+        cr.set_source_rgb(1.0, 1.0, 1.0);
+        cr.rectangle(x, y, side, side);
+        let _ = cr.fill();
+        cr.set_source_rgb(0.0, 0.0, 0.0);
+        for row in 0..width {
+            for col in 0..width {
+                if qr[(col, row)] == qrcode::Color::Dark {
+                    cr.rectangle(x + (col + 4) as f64 * module, y + (row + 4) as f64 * module, module, module);
+                }
+            }
+        }
+        let _ = cr.fill();
+    });
+}

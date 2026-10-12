@@ -44,3 +44,9 @@ zeroize = "1"
 [dev-dependencies]
 rv-crypto-public = { path = "../../../../crates/rv-crypto-public" }
 tempfile = "3"
+
+[[bin]]
+name = "fake-whatsapp-sidecar"
+path = "tests/support/fake_whatsapp_sidecar.rs"
+test = false
+doc = false

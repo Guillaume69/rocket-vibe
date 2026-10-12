@@ -1,0 +1,50 @@
+# Local WhatsApp desktop pilot
+
+Status: experimental GTK pilot on `codex/whatsapp-feasibility`. Real-account qualification is pending. Read [the handoff](../../../docs/WHATSAPP_HANDOFF.md) before extending it.
+
+This is a linked-device connector for a personal WhatsApp account, using [whatsmeow](https://github.com/tulir/whatsmeow), with RocketVibe's existing GTK message list and composer. It runs on the user's computer. There is no WhatsApp Web embed, Business API credential, Matrix bridge or RocketVibe server relay.
+
+## Build and launch
+
+From the repository root, in Bash:
+
+```bash
+# On Windows Git Bash, also set MSYS_NO_PATHCONV=1.
+apps/desktop/scripts/build-whatsapp.sh
+apps/desktop/scripts/build.sh
+
+RV_WHATSAPP_PILOT=1 apps/desktop/target/debug/rocket-vibe-gtk
+```
+
+The Go script builds a **Linux** sidecar in Docker. It pins whatsmeow and its dependencies in `go.mod` and `go.sum`; Go 1.26.0 is required and downloaded into the dedicated Docker volume through Go's toolchain mechanism. SQLite uses a compiled native driver (CGO). The Rust app still builds through the existing Fedora script.
+
+The installed executable locates `rv-whatsapp` (`rv-whatsapp.exe` on Windows) beside itself. If that file is present, the ordinary GTK login page also offers **Connect WhatsApp**, which opens a secondary native window. The pilot has one local WhatsApp slot, separate from the ordinary account rail.
+
+Windows sidecar compilation, Windows GTK packaging, macOS SwiftUI and Android embedding are not supplied by this script. Do not call this a Windows-ready integration solely because the Rust adapter has a Windows process flag.
+
+On Linux, an unlocked Secret Service is necessary for real linking. On Windows/macOS the GTK implementation uses the corresponding system keychain. Unavailable secure storage fails closed. Do not replace that with a plaintext key file or an environment variable.
+
+## State and privacy
+
+- The GTK system keychain stores a separate 32-byte wrapping key under `whatsapp-pilot-storage-v1`.
+- Initialization passes that key through the child's private stdin, never arguments or environment variables.
+- The child keeps its SQLite database in memory. It serializes and seals the database with AES-256-GCM, using a fresh nonce and an authenticated version header.
+- The persistent state is `<user-data>/rocket-vibe-rs/whatsapp-pilot/state.bin`. It contains encrypted device keys, protocol state and the text cache. A native OS lock prevents simultaneous writers.
+- The QR payload exists only in the current process and expires in the UI. It is never written to a log, documentation or a fixture.
+- Stop checkpoints the state; successful unlinking removes the ciphertext and clears the UI projection. The wrapping key may remain in the keychain for a later association.
+- Checkpoints run once per second and before an outbound request. Atomic replacement protects the previous file, but the last second of received protocol state can be lost in a crash.
+- A send intent is persisted before calling WhatsApp. An uncertain send stays uncertain across a restart and is **never automatically replayed**.
+- View-once, disappearing messages, media, edits and unsupported payloads are excluded from this text pilot. Do not represent its cache as a complete WhatsApp history.
+
+## Tests
+
+`build-whatsapp.sh` runs gofmt verification, vet, race-enabled tests and builds the connector. Tests exercise encrypted SQLite restoration, wrong keys, tampering, revocation, writer exclusion and recipient scope.
+
+`build.sh` exercises Rust projection tests and a synthetic child-process IPC peer. The peer never connects to WhatsApp.
+
+For rendered checks under Xvfb, see [the handoff](../../../docs/WHATSAPP_HANDOFF.md). Only synthetic QR codes and conversations may be automatically captured.
+
+## Dependencies
+
+whatsmeow is a third-party library, not an official Meta personal-account API. It is pinned to `v0.0.0-20261007111105-c386243a72ba`, under MPL-2.0. Follow dependency license obligations when distributing the helper. Future upstream protocol changes may require an update and renewed live qualification.
+

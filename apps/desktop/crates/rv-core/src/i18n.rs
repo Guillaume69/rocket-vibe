@@ -22,6 +22,53 @@ pub fn set(lang: Lang) {
 /// (key, French, English). A `{name}` is filled by `tf`; `a | b` is the
 /// singular and plural of `tn`.
 const CATALOG: &[(&str, &str, &str)] = &[
+    ("wa.title", "WhatsApp · RocketVibe", "WhatsApp · RocketVibe"),
+    ("wa.reconnect", "Actualiser la connexion", "Refresh connection"),
+    ("wa.logout", "Dissocier WhatsApp", "Unlink WhatsApp"),
+    ("wa.link_title", "Connecter WhatsApp", "Connect WhatsApp"),
+    (
+        "wa.link_help",
+        "Sur ton téléphone, ouvre WhatsApp > Appareils connectés > Connecter un appareil, puis scanne ce QR code.",
+        "On your phone, open WhatsApp > Linked devices > Link a device, then scan this QR code.",
+    ),
+    ("wa.qr", "Scanne le QR code depuis WhatsApp", "Scan the QR code from WhatsApp"),
+    (
+        "wa.local",
+        "La connexion reste sur cet ordinateur. Tes conversations ne transitent pas par le serveur RocketVibe.",
+        "The connection stays on this computer. Your conversations do not pass through the RocketVibe server.",
+    ),
+    ("wa.demo", "Démonstration avec des conversations fictives", "Demo with synthetic conversations"),
+    ("wa.choose", "Choisis une conversation", "Choose a conversation"),
+    ("wa.connecting", "Connexion à WhatsApp…", "Connecting to WhatsApp…"),
+    ("wa.loaded", "Conversations locales chargées", "Local conversations loaded"),
+    ("wa.paired", "Appareil associé, connexion en cours…", "Device linked, connecting…"),
+    ("wa.connected", "WhatsApp connecté · Messages texte", "WhatsApp connected · Text messages"),
+    ("wa.offline", "WhatsApp hors ligne · Reconnexion en cours", "WhatsApp offline · Reconnecting"),
+    ("wa.qr_expired", "Le QR code a expiré. Actualise la connexion.", "The QR code expired. Refresh the connection."),
+    ("wa.logged_out", "WhatsApp dissocié", "WhatsApp unlinked"),
+    ("wa.replaced", "La connexion est utilisée par un autre appareil.", "Another device is using this connection."),
+    ("wa.stopped", "Connexion WhatsApp arrêtée", "WhatsApp connection stopped"),
+    ("wa.error", "Connexion WhatsApp interrompue", "WhatsApp connection interrupted"),
+    (
+        "wa.send_failed",
+        "Le message n’a pas été envoyé. Ton texte est conservé.",
+        "The message was not sent. Your text has been kept.",
+    ),
+    (
+        "wa.send_uncertain",
+        "Envoi non confirmé. Vérifie dans WhatsApp avant de renvoyer.",
+        "Send unconfirmed. Check WhatsApp before sending again.",
+    ),
+    (
+        "wa.start_failed",
+        "Impossible de démarrer WhatsApp. Vérifie le connecteur et le stockage sécurisé de cet ordinateur.",
+        "WhatsApp could not start. Check this computer’s connector and secure storage.",
+    ),
+    (
+        "wa.connection_failed",
+        "Connexion WhatsApp impossible. Tu peux actualiser la connexion.",
+        "WhatsApp could not connect. You can refresh the connection.",
+    ),
     ("admin.invitation_refresh", "Actualiser", "Refresh"),
     ("admin.invitation_code", "Code d’invitation", "Invitation code"),
     ("admin.cat.invitations", "Invitations", "Invitations"),

@@ -1,0 +1,51 @@
+use rv_core::whatsapp::{Connector, storage_key};
+use std::path::Path;
+use std::time::Duration;
+
+async fn until(c: &Connector, condition: impl Fn(&rv_core::whatsapp::Snapshot) -> bool) {
+    tokio::time::timeout(Duration::from_secs(4), async {
+        loop {
+            if condition(&c.snapshot()) {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("connector state");
+}
+#[tokio::test]
+async fn native_connector_links_sends_and_revokes_without_a_server() {
+    let c = Connector::start(
+        Path::new(env!("CARGO_BIN_EXE_fake-whatsapp-sidecar")),
+        Path::new("synthetic"),
+        storage_key().unwrap(),
+    )
+    .await
+    .unwrap();
+    until(&c, |s| s.qr.is_some()).await;
+    c.reconnect().unwrap();
+    until(&c, |s| s.state == "connected").await;
+    assert!(c.snapshot().qr.is_none());
+    assert_eq!(c.snapshot().messages.len(), 2);
+    let id = c.send("alice@s.whatsapp.net".into(), "Native IPC test".into()).unwrap();
+    until(&c, |s| s.messages.values().any(|m| m.id.ends_with(&id) && m.text == "Native IPC test" && m.mine)).await;
+    c.logout().unwrap();
+    until(&c, |s| s.state == "logged_out").await;
+    assert!(c.snapshot().messages.is_empty());
+}
+#[tokio::test]
+async fn stopping_reaps_the_child() {
+    let c = Connector::start(
+        Path::new(env!("CARGO_BIN_EXE_fake-whatsapp-sidecar")),
+        Path::new("synthetic"),
+        storage_key().unwrap(),
+    )
+    .await
+    .unwrap();
+    until(&c, |s| s.qr.is_some()).await;
+    c.stop();
+    until(&c, |s| s.state == "stopped").await;
+    assert!(c.snapshot().qr.is_none());
+    assert!(c.send("alice@s.whatsapp.net".into(), "must not send".into()).is_err());
+}

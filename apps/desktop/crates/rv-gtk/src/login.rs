@@ -134,6 +134,20 @@ impl LoginPage {
         let password_caption = password_group.first_child().and_downcast::<gtk::Label>().expect("password caption");
         let credentials = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(14).build();
         credentials.append(&hero());
+        if rv_core::whatsapp::locate().is_some() {
+            let whatsapp = gtk::Button::builder().label(t("wa.link_title")).css_classes(["suggested-action"]).build();
+            whatsapp.connect_clicked(|button| {
+                if let Some(app) = button
+                    .root()
+                    .and_downcast::<gtk::Window>()
+                    .and_then(|w| w.application())
+                    .and_downcast::<adw::Application>()
+                {
+                    crate::whatsapp_pilot::show(&app);
+                }
+            });
+            credentials.append(&whatsapp);
+        }
         credentials.append(&server_group);
         // Found by probing; forced when the probe gets it wrong behind an
         // unusual proxy.

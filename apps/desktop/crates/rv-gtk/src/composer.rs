@@ -92,6 +92,15 @@ pub struct Outgoing {
 }
 
 impl Composer {
+    /// A provider pilot may expose only text while keeping the native field.
+    pub fn text_only(&self) {
+        self.attach.set_visible(false);
+        self.attach.set_sensitive(false);
+        self.mic.set_visible(false);
+        self.mic.set_sensitive(false);
+        self.social.set_visible(false);
+        self.social.set_sensitive(false);
+    }
     pub fn new() -> Rc<Self> {
         let text = gtk::TextView::builder()
             .wrap_mode(gtk::WrapMode::WordChar)

@@ -207,6 +207,8 @@ fn main() {
                 break;
             }
             Some("stop") => break,
+            // What the window says as it is used, with nothing to answer.
+            Some("presence" | "typing" | "reject_call") => {}
             _ => panic!("unexpected command"),
         }
     }

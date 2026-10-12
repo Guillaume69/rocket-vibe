@@ -9,7 +9,7 @@ section here.
 
 ### Added
 
-- Experimental WhatsApp accounts on GTK: link a personal account by scanning a QR or with a code typed on the phone (Connect WhatsApp on the sign-in page) and use it like any other account, in the rail, room list and timeline, with notifications in the background. Contact and group names, profile photos, reactions, quoted replies, editing or deleting your own messages for everyone, unread counts shared with the phone, delivered/read state, new conversations from your contacts or a number, photos, voice notes, videos and documents, received and sent, typing, reactions and replies from the notification, link previews and video cards, received and sent, and incoming calls that ring here (decline, or answer on the phone); the WhatsApp helper ships beside the app in the release packages.
+- Experimental WhatsApp accounts on GTK: link a personal account by scanning a QR or with a code typed on the phone (WhatsApp among the server types of the sign-in page) and use it like any other account, in the rail, room list and timeline, with notifications in the background. Contact and group names, profile photos, reactions, quoted replies, editing or deleting your own messages for everyone, unread counts shared with the phone, delivered/read state, new conversations from your contacts or a number, photos, voice notes, videos and documents, received and sent, typing, reactions and replies from the notification, link previews and video cards, received and sent, and incoming calls that ring here (decline, or answer on the phone); the WhatsApp helper ships beside the app in the release packages.
 
 ### Fixed
 

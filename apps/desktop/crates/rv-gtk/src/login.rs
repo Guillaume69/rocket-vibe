@@ -115,6 +115,9 @@ fn code_fields(code: &gtk::Entry, caption: &gtk::Label, intro: &gtk::Label, meth
     }
 }
 
+/// The kind list's WhatsApp entry, present when the helper is installed.
+const WHATSAPP_KIND: u32 = 5;
+
 fn server_kind(kind: &gtk::DropDown) -> rv_core::native::ServerKind {
     use rv_core::native::ServerKind;
     match kind.selected() {
@@ -135,23 +138,26 @@ impl LoginPage {
         let password_caption = password_group.first_child().and_downcast::<gtk::Label>().expect("password caption");
         let credentials = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(14).build();
         credentials.append(&hero());
-        // Shown when the WhatsApp helper is installed beside the app.
-        let whatsapp = gtk::Button::builder()
-            .label(t("wa.link_title"))
-            .css_classes(["pill", "whatsapp-link"])
-            .visible(crate::window::whatsapp_helper().is_some())
-            .build();
+        // Never shown: WhatsApp is chosen among the server kinds below, and
+        // that choice clicks this button, which the window listens to.
+        let whatsapp = gtk::Button::builder().label(t("wa.link_title")).visible(false).build();
         credentials.append(&whatsapp);
         credentials.append(&server_group);
         // Found by probing; forced when the probe gets it wrong behind an
         // unusual proxy.
-        let kind = gtk::DropDown::from_strings(&[
+        // WhatsApp last, when its helper is installed beside the app: a
+        // personal account with no server, linked by its own dialog.
+        let mut kinds = vec![
             t("login.kind_auto"),
             t("login.kind_rocketchat"),
             t("login.kind_rocketvibe"),
             t("login.kind_mattermost"),
             t("login.kind_kchat"),
-        ]);
+        ];
+        if crate::window::whatsapp_helper().is_some() {
+            kinds.push("WhatsApp");
+        }
+        let kind = gtk::DropDown::from_strings(&kinds);
         kind.set_tooltip_text(Some(t("login.kind")));
         let kind_row = gtk::Box::builder().spacing(10).margin_start(14).build();
         kind_row.append(&gtk::Label::builder().label(t("login.kind")).css_classes(["file-detail"]).build());
@@ -360,7 +366,12 @@ impl LoginPage {
         // Another kind asks the probe again, under that kind.
         // kChat: no address and no user, the token names the account and its
         // servers come from the kChat directory.
+        let previous_kind = std::rc::Rc::new(std::cell::Cell::new(0u32));
         kind.connect_selected_notify(glib::clone!(
+            #[weak]
+            whatsapp,
+            #[strong]
+            previous_kind,
             #[weak]
             server,
             #[weak]
@@ -372,6 +383,13 @@ impl LoginPage {
             #[weak]
             infomaniak,
             move |kind| {
+                if kind.selected() == WHATSAPP_KIND {
+                    // The dialog opens; the page keeps the kind it had.
+                    kind.set_selected(previous_kind.get());
+                    whatsapp.emit_clicked();
+                    return;
+                }
+                previous_kind.set(kind.selected());
                 let kchat = server_kind(kind) == rv_core::native::ServerKind::Kchat;
                 server_group.set_visible(!kchat);
                 user_group.set_visible(!kchat);
@@ -549,9 +567,9 @@ impl LoginPage {
         self.cancel.set_visible(visible);
     }
 
-    /// The smoke's click on Connect WhatsApp.
+    /// The smoke's choice of WhatsApp among the server kinds.
     pub fn press_whatsapp(&self) {
-        self.whatsapp.emit_clicked();
+        self.kind.set_selected(WHATSAPP_KIND);
     }
 
     /// Connect WhatsApp: the window opens the linking dialog.

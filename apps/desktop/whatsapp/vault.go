@@ -63,7 +63,7 @@ func openVault(path string, key []byte) (*vault, error) {
 			db.Close()
 			return nil, err
 		}
-		err = v.raw(func(c *sqlite3.SQLiteConn) error { return c.Deserialize(plain, "main") })
+		err = v.restore(plain)
 		clear(plain)
 		if err == nil {
 			v.saved, err = v.changes()
@@ -77,6 +77,47 @@ func openVault(path string, key []byte) (*vault, error) {
 		return nil, errors.New("empty state")
 	}
 	return v, nil
+}
+
+// Restores a serialized database. sqlite3_deserialize as go-sqlite3 calls
+// it makes a buffer that cannot grow ("database or disk is full" on the first
+// write past it), so the image goes to a scratch connection and SQLite's
+// backup copies it into the main in-memory database, which grows freely.
+func (v *vault) restore(image []byte) error {
+	scratch, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		return err
+	}
+	defer scratch.Close()
+	scratch.SetMaxOpenConns(1)
+	conn, err := scratch.Conn(context.Background())
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	return conn.Raw(func(driver any) error {
+		source, ok := driver.(*sqlite3.SQLiteConn)
+		if !ok {
+			return errors.New("wrong database driver")
+		}
+		if err := source.Deserialize(image, "main"); err != nil {
+			return err
+		}
+		return v.raw(func(target *sqlite3.SQLiteConn) error {
+			backup, err := target.Backup("main", source, "main")
+			if err != nil {
+				return err
+			}
+			done, err := backup.Step(-1)
+			if finish := backup.Finish(); err == nil {
+				err = finish
+			}
+			if err == nil && !done {
+				err = errors.New("incomplete restore")
+			}
+			return err
+		})
+	})
 }
 
 func (v *vault) raw(f func(*sqlite3.SQLiteConn) error) error {

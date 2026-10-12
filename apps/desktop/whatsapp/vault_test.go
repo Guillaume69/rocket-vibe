@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -341,5 +342,43 @@ func TestAReplyKeepsItsQuote(t *testing.T) {
 	m, _ := c.load(alice.String() + ":X2")
 	if m.ReplyTo != alice.String()+":X1" || m.QuoteSender != alice.String() || m.QuoteText != "question" {
 		t.Fatalf("quote lost: %+v", m)
+	}
+}
+
+// A restored state grows: the first session after a restart writes keys,
+// history and messages far past the size it was sealed at.
+func TestARestoredStateGrows(t *testing.T) {
+	v, key := testVault(t)
+	if _, err := v.db.Exec("CREATE TABLE test(value TEXT); INSERT INTO test VALUES ('seed')"); err != nil {
+		t.Fatal(err)
+	}
+	if err := v.checkpoint(); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := openVault(v.path, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restored.db.Close()
+	if err := migrate(restored.db); err != nil {
+		t.Fatalf("migration on a restored state: %v", err)
+	}
+	payload := strings.Repeat("x", 4096)
+	for i := 0; i < 2000; i++ {
+		if _, err := restored.db.Exec("INSERT INTO test VALUES (?)", payload); err != nil {
+			t.Fatalf("write %d after a restore: %v", i, err)
+		}
+	}
+	if err := restored.checkpoint(); err != nil {
+		t.Fatal(err)
+	}
+	again, err := openVault(v.path, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer again.db.Close()
+	var n int
+	if err := again.db.QueryRow("SELECT count(*) FROM test").Scan(&n); err != nil || n != 2001 {
+		t.Fatalf("restored %d rows: %v", n, err)
 	}
 }

@@ -2,7 +2,8 @@
 //! input codes never enter the trousseau; original intent survives lost ACKs.
 mod removal;
 use super::{
-    Access, Error, Guard, NativeSession, RemoteFuture, Scope, Vault, identifier, invalid, nonce, random_token,
+    Access, Error, Guard, NativeSession, RemoteFuture, Scope, Vault, identifier, invalid, nonce, proof_needed,
+    random_token,
 };
 use rv_protocol::parity::{
     BeginEmailVerification, ConfirmEmailVerification, EmailRemovalReceipt, EmailVerificationStep, RemoveVerifiedEmail,
@@ -151,6 +152,7 @@ pub struct View {
 pub enum State {
     Idle,
     Pending { receipt_id: String, address: String, expires_at: String, delivery: EmailDeliveryState },
+    AwaitingProof { receipt_id: String, address: String },
     Verified { receipt_id: String },
     Stale { receipt_id: String },
     RemovalPending { receipt_id: String },
@@ -162,6 +164,7 @@ impl State {
         match self {
             Self::Idle => None,
             Self::Pending { receipt_id, .. }
+            | Self::AwaitingProof { receipt_id, .. }
             | Self::Verified { receipt_id }
             | Self::Stale { receipt_id }
             | Self::RemovalPending { receipt_id }
@@ -424,6 +427,10 @@ impl Vault {
                     }
                     Err(error) => {
                         guard.check()?;
+                        if proof_needed(&error) {
+                            let (receipt_id, address) = (saved.input.operation_id, saved.input.address);
+                            return Ok(View { status, state: State::AwaitingProof { receipt_id, address } });
+                        }
                         if rejected(&error)
                             || conflict(&error)
                             || invalid_start(&error)
@@ -487,11 +494,16 @@ impl Vault {
             }
             Err(error) => {
                 guard.check()?;
-                if !invalid_start(&error) {
+                if !invalid_start(&error) && !proof_needed(&error) {
                     return Err(error);
                 }
                 let status = self.live_email(&scope, remote, guard).await?;
-                Ok(View { status, state: State::Stale { receipt_id: saved.input.operation_id } })
+                let state = if proof_needed(&error) {
+                    State::AwaitingProof { receipt_id: saved.input.operation_id, address: saved.input.address }
+                } else {
+                    State::Stale { receipt_id: saved.input.operation_id }
+                };
+                Ok(View { status, state })
             }
         }
     }

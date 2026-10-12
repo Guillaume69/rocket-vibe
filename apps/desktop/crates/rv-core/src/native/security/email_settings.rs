@@ -1,7 +1,8 @@
 //! Explicit email-factor changes share the proof/contact/TOTP OS lease and
 //! private receipt key. Pin the displayed contact and installed profile version.
 use super::{
-    Error, FactorIntent, FactorState, Guard, NativeSession, Remote, Scope, Vault, identifier, invalid, random_token,
+    Error, FactorIntent, FactorState, Guard, NativeSession, PendingFactor, Remote, Scope, Vault, identifier, invalid,
+    random_token,
 };
 use rv_protocol::parity::{ChangeEmailFactor, EmailStatus, FactorBackupCodes, FactorStatus};
 use std::{fs::File, sync::Arc};
@@ -92,6 +93,10 @@ impl Vault {
             Ok(receipt) => receipt,
             Err(Error::Network(rv_client::Error::Server { status: 409, .. })) => {
                 return Ok(FactorState::Stale { receipt_id: input.operation_id });
+            }
+            Err(error) if super::proof_needed(&error) => {
+                let action = if enabled { PendingFactor::EmailEnable } else { PendingFactor::EmailDisable };
+                return Ok(FactorState::Pending { receipt_id: input.operation_id, action });
             }
             Err(error) => return Err(error),
         };

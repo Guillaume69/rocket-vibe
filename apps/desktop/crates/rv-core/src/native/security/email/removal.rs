@@ -1,7 +1,8 @@
 //! Removing a contact uses the same private intent slot and OS lease as its
 //! verification. The record contains no former address or credential.
 use super::{
-    Accepted, Error, Guard, Remote, Scope, State, Vault, View, check_status, identifier, invalid, nonce, random_token,
+    Accepted, Error, Guard, Remote, Scope, State, Vault, View, check_status, identifier, invalid, nonce, proof_needed,
+    random_token,
 };
 use rv_protocol::parity::{
     EmailRemovalReceipt, EmailStatus, RemoveVerifiedEmail, ResumeEmailRemoval, RetireEmailRemoval,
@@ -52,9 +53,6 @@ fn missing(error: &Error) -> bool {
 }
 fn stale(error: &Error) -> bool {
     missing(error) || super::conflict(error) || super::invalid_start(error)
-}
-fn proof_needed(error: &Error) -> bool {
-    matches!(error,Error::Network(rv_client::Error::Server{status:403,code,..}) if code=="reauthentication_required")
 }
 fn unconfirmed(error: &Error) -> bool {
     proof_needed(error)

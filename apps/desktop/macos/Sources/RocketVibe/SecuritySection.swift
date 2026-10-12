@@ -65,6 +65,12 @@ struct SecuritySection: View {
                             Button(L("security.copy_codes")) { copy(model, .codes, value.viewRevision) }
                             Button(L("security.saved")) { Task { await model.acknowledge(revision: value.viewRevision) } }
                         }
+                        if value.factor == .pending {
+                            Text(pendingTitle(value.pendingFactor)).font(.headline)
+                            Text(L("security.pending_body")).font(.caption).foregroundStyle(.secondary)
+                            Button(L("security.continue")) { Task { await model.resume() } }
+                            Button(L("security.cancel_pending")) { Task { await model.acknowledge(revision: value.viewRevision) } }
+                        }
                         if value.factor == .stale {
                             Text(L("security.stale")).foregroundStyle(.secondary)
                             Button(L("security.discard")) { Task { await model.acknowledge(revision: value.viewRevision) } }
@@ -87,9 +93,11 @@ struct SecuritySection: View {
                     if value.supportsEmail, let email = value.email {
                         emailSettings(model, value, email)
                     }
-                } else if !model.busy { Text(L("security.loading")).foregroundStyle(.secondary) }
-                if let error = model.error { Text(error).foregroundStyle(.red) }
-                Button(L("security.refresh")) { Task { await model.refresh() } }
+                } else if !model.busy && model.error == nil { Text(L("security.loading")).foregroundStyle(.secondary) }
+                if let error = model.error {
+                    Text(error).foregroundStyle(.red)
+                    Button(L("security.retry")) { Task { await model.refresh() } }
+                }
             }
         }
         .disabled(model?.busy == true)
@@ -137,6 +145,15 @@ struct SecuritySection: View {
             }
         }
     }
+    private func pendingTitle(_ action: NativePendingFactor?) -> String {
+        switch action {
+        case .regenerate: return L("security.regenerate")
+        case .disable: return L("security.disable")
+        case .emailEnable: return L("email.factor_enable")
+        case .emailDisable: return L("email.factor_disable")
+        default: return L("security.setup")
+        }
+    }
     private func methodTitle(_ method: String) -> String {
         nativeFactorTitle(method)
     }
@@ -182,6 +199,13 @@ struct SecuritySection: View {
                 .disabled(value.proof != .ready)
             Button(L("email.cancel")) { Task { await model.cancelEmail(revision: value.viewRevision) } }
         }
+        if email.phase == .awaitingProof {
+            Text(L("email.pending")).font(.caption).foregroundStyle(.secondary)
+            Text(email.pendingAddress ?? "")
+            Text(L("email.awaiting_proof")).font(.caption).foregroundStyle(.secondary)
+            Button(L("security.continue")) { Task { await model.resume() } }
+            Button(L("email.cancel")) { Task { await model.cancelEmail(revision: value.viewRevision) } }
+        }
         if email.phase == .verified {
             Text(L("email.verified"))
             Button(L("email.done")) { Task { await model.acknowledgeEmail(revision: value.viewRevision) } }
@@ -192,6 +216,7 @@ struct SecuritySection: View {
         }
         if email.phase == .removalPending {
             Text(L("email.removal_pending")).foregroundStyle(.secondary)
+            Button(L("security.continue")) { Task { await model.resume() } }
             Button(L("email.cancel_removal")) { Task { await model.cancelEmail(revision: value.viewRevision) } }
         }
         if email.phase == .removed {

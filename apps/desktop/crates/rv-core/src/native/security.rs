@@ -357,6 +357,18 @@ pub enum FactorState {
     Setup(Box<FactorSetup>),
     Codes { receipt_id: String, codes: FactorBackupCodes },
     Stale { receipt_id: String },
+    Pending { receipt_id: String, action: PendingFactor },
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PendingFactor {
+    Setup,
+    Regenerate,
+    Disable,
+    EmailEnable,
+    EmailDisable,
+}
+pub(super) fn proof_needed(error: &Error) -> bool {
+    matches!(error, Error::Network(rv_client::Error::Server { status: 403, code, .. }) if code == "reauthentication_required")
 }
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
@@ -781,7 +793,16 @@ impl Vault {
                         return Ok(FactorState::Stale { receipt_id: operation_id });
                     }
                     guard.check()?;
-                    remote.disable(DisableFactor { factor_version }).await?;
+                    match remote.disable(DisableFactor { factor_version }).await {
+                        Err(e) if proof_needed(&e) => {
+                            guard.check()?;
+                            return Ok(FactorState::Pending {
+                                receipt_id: operation_id,
+                                action: PendingFactor::Disable,
+                            });
+                        }
+                        result => result?,
+                    }
                     guard.check()?;
                 }
                 self.storage.remove(format!("{key}-factors"), lease).await?;
@@ -825,6 +846,10 @@ impl Vault {
                             Err(Error::Protocol("credentials_changed"))
                         }
                     }
+                    Err(e) if proof_needed(&e) => {
+                        guard.check()?;
+                        Ok(FactorState::Pending { receipt_id: operation_id, action: PendingFactor::Regenerate })
+                    }
                     Err(e) => Err(e),
                 }
             }
@@ -850,13 +875,23 @@ impl Vault {
                                 guard.check()?;
                                 Ok(FactorState::Stale { receipt_id: operation_id })
                             }
+                            Err(e) if proof_needed(&e) => {
+                                guard.check()?;
+                                Ok(FactorState::Pending { receipt_id: operation_id, action: PendingFactor::Setup })
+                            }
                             Err(e) => Err(e),
                         };
                     }
                     return Ok(FactorState::Stale { receipt_id: operation_id });
                 }
                 guard.check()?;
-                let fresh = remote.setup(BeginFactorSetup { operation_id: operation_id.clone() }).await?;
+                let fresh = match remote.setup(BeginFactorSetup { operation_id: operation_id.clone() }).await {
+                    Err(e) if proof_needed(&e) => {
+                        guard.check()?;
+                        return Ok(FactorState::Pending { receipt_id: operation_id, action: PendingFactor::Setup });
+                    }
+                    result => result?,
+                };
                 guard.check()?;
                 let same = setup.as_ref().is_some_and(|s| s.setup_id == fresh.setup_id);
                 self.write_factor(

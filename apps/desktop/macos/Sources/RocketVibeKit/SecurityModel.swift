@@ -42,6 +42,11 @@ public final class SecurityModel {
         await refresh()
     }
     public func refresh() async { await run { try await $0.refresh() } }
+    public func resume() async {
+        guard let value, value.loaded, !busy else { return }
+        if value.proof != .ready { error = L("security.required"); return }
+        await refresh()
+    }
     public func confirmPassword() async {
         let input = password; password = ""
         await run { try await $0.confirmPassword(password: input) }

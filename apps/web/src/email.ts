@@ -7,7 +7,7 @@ import type {
   EmailFactorChange,
   RemoveVerifiedEmail,
 } from "./protocol";
-import { operation, secret } from "./api";
+import { ApiError, operation, secret } from "./api";
 import { read, write } from "./store";
 import { el, button, field, dialog } from "./dom";
 import { t, language } from "./i18n";
@@ -107,11 +107,59 @@ export async function emailSettings(
       }),
     );
   }
+  const removalKey = account + ":email-remove";
+  const sameContext = (value: { context: unknown } | undefined) =>
+    !!value && JSON.stringify(value.context) === JSON.stringify(status.context);
+  const removal = await read<RemoveVerifiedEmail>("operations", removalKey);
+  if (removal && sameContext(removal))
+    page.append(
+      el(
+        "p",
+        "dim",
+        phrase(
+          "Removing the email address is not finished.",
+          "Le retrait de l’adresse email n’est pas terminé.",
+        ),
+      ),
+      button(
+        phrase("Continue removing", "Poursuivre le retrait"),
+        async () => {
+          try {
+            await app.api.request("/api/v1/me/email/removal/resume", "POST", {
+              operation_id: removal.operation_id,
+              context: removal.context,
+            });
+          } catch (error) {
+            if (
+              !(error instanceof ApiError) ||
+              error.code !== "email_removal_rejected"
+            )
+              throw error;
+            await recentProof(app);
+            await app.api.request(
+              "/api/v1/me/email/removal/start",
+              "POST",
+              removal,
+            );
+          }
+          await write("operations", removalKey);
+          await write("operations", key);
+          await refresh();
+        },
+        "destructive",
+      ),
+      button(t("cancel"), async () => {
+        await app.api.request("/api/v1/me/email/removal/retire", "POST", {
+          context: removal.context,
+          expected_version: removal.expected_version,
+          verification_version: removal.verification_version,
+        });
+        await write("operations", removalKey);
+        await refresh();
+      }),
+    );
   const pending = await read<BeginEmailVerification>("operations", key);
-  if (
-    pending &&
-    JSON.stringify(pending.context) === JSON.stringify(status.context)
-  )
+  if (pending && sameContext(pending))
     page.append(
       button(
         phrase(
@@ -157,7 +205,6 @@ export async function emailSettings(
               t("delete"),
               async () => {
                 await recentProof(app);
-                const removalKey = account + ":email-remove";
                 let intent = await read<RemoveVerifiedEmail>(
                   "operations",
                   removalKey,

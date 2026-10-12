@@ -33,6 +33,8 @@ The immutable D5 error/authentication candidate is served on the task-owned stag
 
 The subsequent index-CuqJbBSR.js contains one further own-property guard for unknown authentication error names; it retains the exact same CSS bytes. Its format check, strict TypeScript build and 164 unit tests pass. Final delivery and a focused unknown-code replay qualify this last delta separately.
 
+The committed index-COv4Cf-K.js then adds identity-backup proof renewal: an expired proof during root-backup publication asks for the password and resumes the original encrypted packet. The enlarged E2EE run had failed its fresh-profile restoration for this reason. Strict TypeScript, 164 unit tests and the actual-server `tests/crypto-recovery.mjs` pilot (three scenarios, zero page errors) pass on this source.
+
 The required Fedora desktop gate passes all 715 tests. Thirteen display-dependent GTK cases run separately under Cairo/Xvfb with real mapped widgets, including native creation/navigation, narrow login forms, non-dismissible incoming calls and the Windows-shadow profile. Additional actual native pilots cover protected files, microphone recording through Send, account addition/cancel/refusal, two-account switching, per-account drafts and logout preserving another healthy account.
 
 Earlier C6 CI passed all 34 actual-server browser suites, the vault harness and native integration. It remains historical evidence. Final-source CI and the enlarged encrypted-history pilots are tracked separately; they are not silently relabeled as completed by that baseline.

@@ -3,6 +3,7 @@
 
 mod accounts;
 mod admin;
+mod background;
 mod context;
 mod links;
 pub mod markup;
@@ -132,6 +133,9 @@ pub trait Listener: Send + Sync {
 #[derive(uniffi::Object)]
 pub struct Client {
     dirs: Arc<Dirs>,
+    /// Every signed-in account's session, the open one and the others.
+    accounts: rv_core::supervisor::Supervisor,
+    notices: Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<rv_core::supervisor::AccountNotice>>>,
 }
 
 #[uniffi::export]
@@ -155,7 +159,7 @@ impl Client {
                 }
             }
         });
-        Arc::new(Client { dirs })
+        Arc::new(Client::with_dirs(dirs))
     }
 
     /// Where the apps keep their small preferences (language, folded sections).
@@ -246,19 +250,19 @@ impl Client {
 }
 
 impl Client {
+    pub(crate) fn with_dirs(dirs: Arc<Dirs>) -> Client {
+        let (accounts, notices) = background::supervise(dirs.clone());
+        Client { dirs, accounts, notices }
+    }
+
+    /// The account's session, running in the background already or new; it
+    /// becomes the open account.
     fn start(&self, info: SessionInfo) -> Result<Arc<Chat>, RvError> {
         let path = self.dirs.database(&info);
-        let session = {
-            let _guard = runtime().enter();
-            Session::start(info, &path).map_err(RvError::local)?
+        let session = match self.accounts.open(&info).map_err(RvError::local)? {
+            rv_core::provider::Chat::Legacy(session) => session,
+            rv_core::provider::Chat::Native(_) => return Err(RvError::local("not a Rocket.Chat account")),
         };
-        let resumed = session.clone();
-        runtime().spawn_blocking(move || {
-            if let Some(jwk) = accounts::e2e_key(&resumed.info) {
-                let _guard = runtime().enter();
-                resumed.e2e_resume(&jwk);
-            }
-        });
         Ok(Arc::new(Chat {
             session,
             dirs: self.dirs.clone(),
@@ -266,6 +270,7 @@ impl Client {
             forward: Mutex::default(),
             rules: Mutex::default(),
             commands: Mutex::default(),
+            accounts: self.accounts.clone(),
         }))
     }
 }
@@ -334,6 +339,7 @@ pub struct Chat {
     rules: Mutex<ActionRules>,
     /// The server's slash commands, for `suggestions`.
     commands: Mutex<Vec<rv_core::commands::Command>>,
+    accounts: rv_core::supervisor::Supervisor,
 }
 
 type ActionRules = (Option<rv_core::actions::ServerSettings>, std::collections::HashMap<String, Vec<String>>);
@@ -343,7 +349,6 @@ impl Drop for Chat {
         if let Some(f) = self.forward.lock().unwrap().take() {
             f.abort();
         }
-        self.session.shutdown();
     }
 }
 
@@ -382,12 +387,15 @@ fn event(e: SessionEvent) -> Event {
 
 #[uniffi::export]
 impl Chat {
-    /// Stop this account's event forwarding and transport when switching providers.
+    /// The account leaves the screen: its events stop coming here, it stays
+    /// connected in the background.
     pub fn shutdown(&self) {
         if let Some(task) = self.forward.lock().unwrap().take() {
             task.abort();
         }
-        self.session.shutdown();
+        if self.accounts.is_active(&accounts::key(&self.session.info)) {
+            self.accounts.set_active(None);
+        }
     }
     pub fn account(&self) -> Account {
         account(&self.session.info)
@@ -400,6 +408,7 @@ impl Chat {
         let mut events = self.session.events();
         let (dirs, info, database) = (self.dirs.clone(), self.session.info.clone(), self.database.clone());
         let session = Arc::downgrade(&self.session);
+        let supervisor = self.accounts.clone();
         let task = runtime().spawn(async move {
             loop {
                 let e = tokio::select! {
@@ -422,7 +431,9 @@ impl Chat {
                 }
                 if e == Event::Expired {
                     // Tasks still running hold the store: release the file first.
+                    supervisor.remove(&accounts::key(&info));
                     if let Some(s) = session.upgrade() {
+                        s.shutdown();
                         s.store.close();
                     }
                     let (dirs, info, database) = (dirs.clone(), info.clone(), database.clone());
@@ -842,6 +853,8 @@ impl Chat {
     pub async fn sign_out(&self) {
         let s = self.session.clone();
         let settled = on_tokio(async move { s.logout().await }).await;
+        self.accounts.remove(&accounts::key(&self.session.info));
+        self.session.shutdown();
         self.session.store.close();
         let (dirs, info, database) = (self.dirs.clone(), self.session.info.clone(), self.database.clone());
         blocking(move || {

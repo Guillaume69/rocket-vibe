@@ -13,6 +13,7 @@ use std::sync::{Arc, Mutex};
 #[derive(uniffi::Object)]
 pub struct NativeLoginAttempt {
     dirs: Arc<accounts::Dirs>,
+    accounts: rv_core::supervisor::Supervisor,
     state: Arc<Mutex<State>>,
     operation: Arc<tokio::sync::Mutex<()>>,
     committed: Mutex<Option<Arc<NativeChat>>>,
@@ -81,6 +82,7 @@ impl Client {
         .map_err(error)?;
         Ok(Arc::new(NativeLoginAttempt {
             dirs: self.dirs.clone(),
+            accounts: self.accounts.clone(),
             state: Arc::new(Mutex::new(state)),
             operation: Arc::new(tokio::sync::Mutex::new(())),
             committed: Mutex::default(),
@@ -235,7 +237,7 @@ impl NativeLoginAttempt {
         .await
         .map_err(error)?;
         self.guard.check().map_err(error)?;
-        let chat = Client { dirs: self.dirs.clone() }.start_native(record.info)?;
+        let chat = crate::native::open_native(&self.dirs, &self.accounts, record.info)?;
         *self.committed.lock().unwrap() = Some(chat.clone());
         Ok(chat)
     }

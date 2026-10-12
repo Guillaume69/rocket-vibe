@@ -22,10 +22,7 @@ struct ChatView: View {
         // Settings > Accounts lists these accounts: they stay fresh with the rail hidden.
         .task(id: app.account?.key) {
             await app.refreshAccounts()
-            while !Task.isCancelled {
-                await app.pollAccounts()
-                try? await Task.sleep(nanoseconds: 60_000_000_000)
-            }
+            await app.keepAccountsConnected()
         }
     }
 
@@ -63,6 +60,7 @@ struct ChatView: View {
         }
         .modifier(IncomingCall())
         .modifier(RingingCallPrompt())
+        .modifier(BackgroundCallPrompt())
         .navigationTitle(title)
         .toolbarBackground(Vibe.night, for: .windowToolbar)
         .toolbar {

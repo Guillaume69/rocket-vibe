@@ -35,10 +35,18 @@ public final class AppModel {
             return a == b ? left.offset < right.offset : a < b
         }.map(\.element)
     }
-    /// Accounts other than the open one with unread messages: the dots of the
-    /// server rail. Only the open account is connected; `pollAccounts` checks
-    /// the others with one read each.
+    /// Accounts with unread messages: the dots of the server rail on the
+    /// accounts not open. Every account stays connected (`keepAccountsConnected`).
     public private(set) var unreadAccounts: Set<String> = []
+    /// What calls for me on each account, for the dock's count.
+    @ObservationIgnored private var accountAttention: [String: Int64] = [:]
+    @ObservationIgnored private var watchingAccounts = false
+    /// A call ringing on an account not on screen.
+    public private(set) var backgroundCall: BackgroundCall?
+    /// A message of an account not on screen, with its notification's scope.
+    public var onBackgroundIncoming: ((Incoming, String) -> Void)?
+    /// The background call changed: the window's ringtone, dock and notification follow.
+    public var onBackgroundCall: ((BackgroundCall?) -> Void)?
     /// Each account's server icon (PNG or JPEG), when its server has one:
     /// the rail shows it instead of the host's initial.
     public private(set) var serverIcons: [String: Data] = [:]
@@ -220,20 +228,100 @@ public final class AppModel {
         }
     }
 
-    /// One read per account that is not the open one; an account it cannot
-    /// tell about (offline, refused) keeps its dot as it was.
-    public func pollAccounts() async {
-        for other in accounts where other.key != account?.key {
-            guard let unread = await client.accountUnread(key: other.key) else { continue }
-            if other.key == account?.key { continue }
-            if unread { unreadAccounts.insert(other.key) } else { unreadAccounts.remove(other.key) }
+    /// Every signed-in account connected, those not on screen heard here.
+    public func keepAccountsConnected() async {
+        if !watchingAccounts {
+            watchingAccounts = true
+            client.watchAccounts(listener: AccountRelay { [weak self] in self?.handleAccount($0) })
         }
+        await client.keepAccountsConnected()
+    }
+
+    func handleAccount(_ event: AccountEvent) {
+        switch event {
+        case let .unread(key, unread, attention):
+            if unread { unreadAccounts.insert(key) } else { unreadAccounts.remove(key) }
+            accountAttention[key] = attention
+            showAttention()
+        case let .incoming(key, scope, incoming):
+            guard key != account?.key else { return }
+            onBackgroundIncoming?(incoming, scope)
+        case let .call(key, call):
+            guard key != account?.key else { return }
+            if let call {
+                guard backgroundCall == nil, ringingCall == nil else { return }
+                backgroundCall = call
+            } else if backgroundCall?.account == key {
+                backgroundCall = nil
+            } else { return }
+            onBackgroundCall?(backgroundCall)
+        case let .expired(key):
+            unreadAccounts.remove(key)
+            accountAttention[key] = nil
+            showAttention()
+            if backgroundCall?.account == key { endBackgroundCall() }
+        }
+    }
+
+    /// The dock's count: the open account's rooms and what the others hold.
+    func showAttention() {
+        let others = accountAttention.filter { $0.key != account?.key }.values.reduce(0, +)
+        onAttention?((chat?.attention() ?? 0) + others)
+    }
+
+    private func endBackgroundCall() {
+        backgroundCall = nil
+        onBackgroundCall?(nil)
+    }
+
+    /// What the window's tone should be without the background call.
+    public var foregroundTone: VoiceTone? { voice?.tone ?? (ringingCall != nil ? .ringtone : nil) }
+
+    /// Accept: the account opens; a call's link to open, None for a voice
+    /// ring (its session joins) or when the server refused.
+    public func answerBackgroundCall(_ call: BackgroundCall) async -> String? {
+        endBackgroundCall()
+        guard let target = accounts.first(where: { $0.key == call.account }) else { return nil }
+        await switchAccount(target)
+        guard account?.key == call.account else { return nil }
+        if call.voice {
+            answer(VoiceCall(id: call.id, room: call.rid, callerId: "", callerName: call.caller,
+                             calleeId: account?.userId ?? "", state: "ringing"))
+            return nil
+        }
+        guard let chat else { return nil }
+        chat.dismissCall()
+        return try? await chat.joinCall(callId: call.id)
+    }
+
+    public func declineBackgroundCall(_ call: BackgroundCall) {
+        endBackgroundCall()
+        Task { await client.declineBackgroundCall(call: call) }
+    }
+
+    /// A click outside or Escape: it stops ringing here, nothing is declined.
+    public func ignoreBackgroundCall(_ call: BackgroundCall) {
+        endBackgroundCall()
+        client.ignoreBackgroundCall(call: call)
+    }
+
+    /// A background account's notification: that account opens on the message.
+    public func openBackgroundNotification(scope: String, message: String) async {
+        guard let target = client.backgroundTarget(scope: scope) else { return }
+        if account?.key != target.account {
+            guard let other = accounts.first(where: { $0.key == target.account }) else {
+                notice = L("links.unavailable")
+                return
+            }
+            await switchAccount(other)
+            guard account?.key == target.account else { return }
+        }
+        if message.isEmpty { open(target.rid) } else { await open(target.rid, message: message) }
     }
 
     /// From the server rail: the account opens, unless it is the open one.
     public func switchAccount(_ target: Account) async {
         guard target.key != account?.key else { return }
-        unreadAccounts.remove(target.key)
         await resume(target)
     }
 
@@ -278,6 +366,12 @@ public final class AppModel {
         reloadRooms()
         screen = .chat
         Task { await refreshAdministrator() }
+        if backgroundCall?.account == account?.key { endBackgroundCall() }
+        // A call that started ringing while the account was in the background.
+        if let call = chat?.incomingCall() {
+            ringingCall = call
+            onCallRing?(call)
+        }
     }
 
     func end() {
@@ -440,7 +534,7 @@ public final class AppModel {
                 closeThread(preserveNavigation:true)
             }
         }
-        onAttention?(chat?.attention() ?? 0)
+        showAttention()
         if let thread {
             if thread.membershipIsCurrent, let fresh = rooms.first(where: { $0.rid == thread.rid }) { thread.update(room: fresh) }
             else { closeThread(preserveNavigation:true) }

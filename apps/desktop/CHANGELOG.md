@@ -10,7 +10,7 @@ section here.
 ### Added
 
 - RocketVibe administrators can create, copy, list and revoke account invitation codes in GTK and SwiftUI.
-- Every signed-in account stays connected in the background on GTK: a message or a call on an account that is not on screen notifies at once, naming its server, and clicking it (or accepting the call) opens that account. The server bar's dots and the app badge follow every account live instead of a check once a minute.
+- Every signed-in account stays connected in the background on GTK and SwiftUI: a message or a call on an account that is not on screen notifies at once, naming its server, and clicking it (or accepting the call) opens that account. The server bar's dots and the app badge follow every account live instead of a check once a minute.
 
 ### Fixed
 

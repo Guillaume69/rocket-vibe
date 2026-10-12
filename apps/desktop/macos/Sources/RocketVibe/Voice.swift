@@ -840,6 +840,52 @@ struct RingingCallPrompt: ViewModifier {
     }
 }
 
+/// A call ringing on an account not on screen: the card names its server,
+/// Accept opens that account and joins, a click outside or Escape ignores it.
+struct BackgroundCallPrompt: ViewModifier {
+    @Environment(AppModel.self) var app
+
+    func body(content: Content) -> some View {
+        let call = app.backgroundCall
+        content.modalOverlay(
+            isPresented: Binding(get: { call != nil }, set: { shown in
+                if !shown, let call { app.ignoreBackgroundCall(call) }
+            }),
+            key: call.map { $0.account + $0.id }
+        ) {
+            if let call { BackgroundCallCard(call: call) }
+        }
+    }
+}
+
+struct BackgroundCallCard: View {
+    @Environment(AppModel.self) var app
+    let call: BackgroundCall
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(L("voice_session.incoming")).font(.headline)
+            Text(L("voice_session.incoming_on", ["name": call.caller, "server": call.server]))
+            HStack {
+                Spacer()
+                Button(L("voice_session.decline"), role: .destructive) { app.declineBackgroundCall(call) }
+                    .foregroundStyle(Color.red)
+                Button(L("voice_session.accept")) {
+                    let title = L("call.window_title", ["room": call.caller])
+                    Task {
+                        if let link = await app.answerBackgroundCall(call), let url = URL(string: link) {
+                            CallWindow.show(url, title: title)
+                        }
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 380)
+    }
+}
+
 struct RingingCallCard: View {
     @Environment(AppModel.self) var app
     let call: RingingCall

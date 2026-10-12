@@ -24,6 +24,9 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// The text cache keeps the newest messages, like the client's projection.
+const maxCached = 20000
+
 type command struct {
 	Type string `json:"type"`
 	Key  string `json:"key,omitempty"`
@@ -69,6 +72,9 @@ func (c *connector) emit(event wire) {
 	}
 }
 func (c *connector) fail(code string) { c.emit(wire{Type: "error", Code: code}) }
+
+// A send that never reached the network: the client keeps its draft.
+func (c *connector) refuse(id, code string) { c.emit(wire{Type: "error", Code: code, ID: id}) }
 func validChat(value string) (types.JID, error) {
 	jid, err := types.ParseJID(value)
 	if err != nil || jid.User == "" || jid.Device != 0 ||
@@ -167,6 +173,20 @@ func (c *connector) event(raw any) {
 				}
 			}
 		}
+		c.prune()
+	}
+}
+
+// Drops the oldest settled messages past the cache bound. An uncertain or
+// in-flight send stays until it is settled, whatever its age.
+func (c *connector) prune() {
+	if c.stopped.Load() {
+		return
+	}
+	_, err := c.vault.db.ExecContext(c.ctx, `DELETE FROM rv_messages WHERE status = '' AND id NOT IN
+ (SELECT id FROM rv_messages ORDER BY ts DESC, id DESC LIMIT ?)`, maxCached)
+	if err != nil {
+		c.fail("local_storage_failed")
 	}
 }
 func (c *connector) stopOnStorageFailure() {
@@ -202,13 +222,16 @@ func (c *connector) connect() {
 				if ctx.Err() != nil {
 					return
 				}
-				if item.Event == "code" {
+				switch item.Event {
+				case whatsmeow.QRChannelEventCode:
 					c.emit(wire{Type: "qr", Code: item.Code, ExpiresMS: item.Timeout.Milliseconds()})
-				}
-				if item.Event == "timeout" {
+				case whatsmeow.QRChannelSuccess.Event:
+				case whatsmeow.QRChannelTimeout.Event:
 					c.emit(wire{Type: "status", State: "qr_expired"})
-				}
-				if item.Event == "error" {
+				case whatsmeow.QRChannelClientOutdated.Event:
+					c.fail("client_outdated")
+				default:
+					// Scanned by a phone without multi-device, unexpected state, or a pairing error.
 					c.fail("pairing_failed")
 				}
 			}
@@ -220,12 +243,12 @@ func (c *connector) connect() {
 }
 func (c *connector) send(cmd command) {
 	if c.stopped.Load() || !c.client.IsLoggedIn() || !c.client.IsConnected() {
-		c.fail("not_connected")
+		c.refuse(cmd.ID, "not_connected")
 		return
 	}
 	jid, err := validChat(cmd.Chat)
 	if err != nil || len(cmd.Text) == 0 || len(cmd.Text) > 20000 || len(cmd.ID) < 8 || len(cmd.ID) > 64 {
-		c.fail("invalid_send")
+		c.refuse(cmd.ID, "invalid_send")
 		return
 	}
 	// Persist the send intent before the network request. Reopening never replays it.
@@ -235,12 +258,12 @@ func (c *connector) send(cmd command) {
 	result, err := c.vault.db.ExecContext(c.ctx, `INSERT INTO rv_messages(id,chat,name,sender,author,text,ts,mine,status)
  VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING`, m.ID, m.Chat, m.Name, m.Sender, m.Author, m.Text, m.TS, m.Mine, m.Status)
 	if err != nil {
-		c.fail("local_storage_failed")
+		c.refuse(cmd.ID, "local_storage_failed")
 		return
 	}
 	n, err := result.RowsAffected()
 	if err != nil || n != 1 {
-		c.fail("send_already_recorded")
+		c.refuse(cmd.ID, "send_already_recorded")
 		return
 	}
 	if c.vault.checkpoint() != nil {
@@ -336,6 +359,7 @@ func run(path string, scan *bufio.Scanner) error {
 	c := &connector{vault: v, ctx: ctx, cancel: cancel}
 	c.client = whatsmeow.NewClient(device, waLog.Noop)
 	c.client.AddEventHandler(c.event)
+	c.prune()
 	if err := c.replay(); err != nil {
 		return err
 	}

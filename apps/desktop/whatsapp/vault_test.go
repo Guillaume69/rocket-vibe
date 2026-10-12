@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -137,5 +138,72 @@ func TestFreshProtocolStoreCanInitializeAndRestore(t *testing.T) {
 	defer restored.db.Close()
 	if err := sqlstore.NewWithDB(restored.db, "sqlite3", waLog.Noop).Upgrade(context.Background()); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCheckpointSkipsAnUnchangedDatabase(t *testing.T) {
+	v, key := testVault(t)
+	if _, err := v.db.Exec("CREATE TABLE test(value); INSERT INTO test VALUES (1)"); err != nil {
+		t.Fatal(err)
+	}
+	if err := v.checkpoint(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(v.path); err != nil {
+		t.Fatal(err)
+	}
+	if err := v.checkpoint(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(v.path); !os.IsNotExist(err) {
+		t.Fatal("an unchanged database was sealed again")
+	}
+	if _, err := v.db.Exec("INSERT INTO test VALUES (2)"); err != nil {
+		t.Fatal(err)
+	}
+	if err := v.checkpoint(); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := openVault(v.path, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restored.db.Close()
+	if err := restored.checkpoint(); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := restored.db.QueryRow("SELECT count(*) FROM test").Scan(&n); err != nil || n != 2 {
+		t.Fatalf("restored %d rows: %v", n, err)
+	}
+}
+func TestPruneKeepsTheNewestAndUnsettledMessages(t *testing.T) {
+	v, _ := testVault(t)
+	if _, err := v.db.Exec(`CREATE TABLE rv_messages (
+ id TEXT PRIMARY KEY,chat TEXT NOT NULL,name TEXT NOT NULL,sender TEXT NOT NULL,author TEXT NOT NULL,
+ text TEXT NOT NULL,ts INTEGER NOT NULL,mine INTEGER NOT NULL,status TEXT NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	insert := func(id string, ts int64, status string) {
+		if _, err := v.db.Exec(`INSERT INTO rv_messages VALUES(?,?,?,?,?,?,?,?,?)`, id, "c", "", "", "", "x", ts, false, status); err != nil {
+			t.Fatal(err)
+		}
+	}
+	insert("oldest-uncertain", 0, "uncertain")
+	for i := int64(1); i <= maxCached+5; i++ {
+		insert(fmt.Sprintf("m%06d", i), i, "")
+	}
+	c := &connector{vault: v, ctx: context.Background()}
+	c.prune()
+	var n int
+	if err := v.db.QueryRow("SELECT count(*) FROM rv_messages WHERE status = ''").Scan(&n); err != nil || n != maxCached {
+		t.Fatalf("kept %d settled messages: %v", n, err)
+	}
+	var oldest int64
+	if err := v.db.QueryRow("SELECT min(ts) FROM rv_messages WHERE status = ''").Scan(&oldest); err != nil || oldest != 6 {
+		t.Fatalf("oldest kept %d: %v", oldest, err)
+	}
+	if err := v.db.QueryRow("SELECT count(*) FROM rv_messages WHERE id = 'oldest-uncertain'").Scan(&n); err != nil || n != 1 {
+		t.Fatal("an uncertain send was pruned")
 	}
 }

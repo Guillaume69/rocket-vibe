@@ -45,7 +45,27 @@ async fn stopping_reaps_the_child() {
     .unwrap();
     until(&c, |s| s.qr.is_some()).await;
     c.stop();
-    until(&c, |s| s.state == "stopped").await;
+    until(&c, |s| s.state == "stopped" && s.exited).await;
     assert!(c.snapshot().qr.is_none());
     assert!(c.send("alice@s.whatsapp.net".into(), "must not send".into()).is_err());
+}
+#[tokio::test]
+async fn a_refused_send_names_its_id_and_keeps_the_connection() {
+    let c = Connector::start(
+        Path::new(env!("CARGO_BIN_EXE_fake-whatsapp-sidecar")),
+        Path::new("synthetic"),
+        storage_key().unwrap(),
+    )
+    .await
+    .unwrap();
+    until(&c, |s| s.loaded && s.qr.is_some()).await;
+    c.reconnect().unwrap();
+    until(&c, |s| s.state == "connected").await;
+    let id = c.send("refused@s.whatsapp.net".into(), "Never leaves".into()).unwrap();
+    until(&c, |s| s.refused.as_deref() == Some(id.as_str())).await;
+    let s = c.snapshot();
+    assert_eq!(s.state, "connected");
+    assert!(!s.messages.keys().any(|key| key.ends_with(&id)));
+    c.stop();
+    until(&c, |s| s.exited).await;
 }

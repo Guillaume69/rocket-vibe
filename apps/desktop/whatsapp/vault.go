@@ -26,6 +26,8 @@ type vault struct {
 	aead    cipher.AEAD
 	mu      sync.Mutex
 	revoked bool
+	// SQLite's total_changes() at the last sealed snapshot, -1 before the first.
+	saved int64
 }
 
 func openVault(path string, key []byte) (*vault, error) {
@@ -45,7 +47,7 @@ func openVault(path string, key []byte) (*vault, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
-	v := &vault{db: db, path: path, aead: aead}
+	v := &vault{db: db, path: path, aead: aead, saved: -1}
 	if info, statErr := os.Stat(path); statErr == nil && info.Size() > maxStateBytes {
 		db.Close()
 		return nil, errors.New("state too large")
@@ -63,6 +65,9 @@ func openVault(path string, key []byte) (*vault, error) {
 		}
 		err = v.raw(func(c *sqlite3.SQLiteConn) error { return c.Deserialize(plain, "main") })
 		clear(plain)
+		if err == nil {
+			v.saved, err = v.changes()
+		}
 		if err != nil {
 			db.Close()
 			return nil, err
@@ -95,14 +100,29 @@ func (v *vault) unseal(blob []byte) ([]byte, error) {
 	}
 	return v.aead.Open(nil, blob[n:n+v.aead.NonceSize()], blob[n+v.aead.NonceSize():], stateHeader)
 }
+
+// The rows written on the single in-memory connection since it opened.
+func (v *vault) changes() (int64, error) {
+	var n int64
+	err := v.db.QueryRow("SELECT total_changes()").Scan(&n)
+	return n, err
+}
 func (v *vault) checkpoint() error {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	if v.revoked {
 		return nil
 	}
+	// Sealing serializes the whole database: skip it when nothing was written.
+	changes, err := v.changes()
+	if err != nil {
+		return err
+	}
+	if changes == v.saved {
+		return nil
+	}
 	var plain []byte
-	err := v.raw(func(c *sqlite3.SQLiteConn) error {
+	err = v.raw(func(c *sqlite3.SQLiteConn) error {
 		var err error
 		plain, err = c.Serialize("main")
 		return err
@@ -144,7 +164,11 @@ func (v *vault) checkpoint() error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(name, v.path)
+	if err := os.Rename(name, v.path); err != nil {
+		return err
+	}
+	v.saved = changes
+	return nil
 }
 func (v *vault) revoke() error {
 	v.mu.Lock()

@@ -69,6 +69,21 @@ const CATALOG: &[(&str, &str, &str)] = &[
         "Connexion WhatsApp impossible. Tu peux actualiser la connexion.",
         "WhatsApp could not connect. You can refresh the connection.",
     ),
+    (
+        "wa.client_outdated",
+        "WhatsApp refuse cette version du connecteur. Mets RocketVibe à jour.",
+        "WhatsApp refuses this connector version. Update RocketVibe.",
+    ),
+    (
+        "wa.logout_failed",
+        "WhatsApp n’a pas confirmé la dissociation. L’appareil reste associé ; réessaie ou retire-le depuis ton téléphone.",
+        "WhatsApp did not confirm the unlink. The device is still linked; try again or remove it from your phone.",
+    ),
+    (
+        "wa.helper_failed",
+        "Le connecteur WhatsApp n’a pas pu enregistrer une conversation sur cet ordinateur.",
+        "The WhatsApp connector could not save a conversation on this computer.",
+    ),
     ("admin.invitation_refresh", "Actualiser", "Refresh"),
     ("admin.invitation_code", "Code d’invitation", "Invitation code"),
     ("admin.cat.invitations", "Invitations", "Invitations"),

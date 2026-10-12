@@ -1,6 +1,6 @@
 # Local WhatsApp desktop pilot
 
-Status: experimental GTK pilot on `codex/whatsapp-feasibility`. Real-account qualification is pending. Read [the handoff](../../../docs/WHATSAPP_HANDOFF.md) before extending it.
+Status: experimental GTK pilot on `claude/whatsapp-feasibility` (continuing `codex/whatsapp-feasibility`). Real-account qualification is pending. Read [the handoff](../../../docs/WHATSAPP_HANDOFF.md) before extending it.
 
 This is a linked-device connector for a personal WhatsApp account, using [whatsmeow](https://github.com/tulir/whatsmeow), with RocketVibe's existing GTK message list and composer. It runs on the user's computer. There is no WhatsApp Web embed, Business API credential, Matrix bridge or RocketVibe server relay.
 
@@ -32,17 +32,18 @@ On Linux, an unlocked Secret Service is necessary for real linking. On Windows/m
 - The persistent state is `<user-data>/rocket-vibe-rs/whatsapp-pilot/state.bin`. It contains encrypted device keys, protocol state and the text cache. A native OS lock prevents simultaneous writers.
 - The QR payload exists only in the current process and expires in the UI. It is never written to a log, documentation or a fixture.
 - Stop checkpoints the state; successful unlinking removes the ciphertext and clears the UI projection. The wrapping key may remain in the keychain for a later association.
-- Checkpoints run once per second and before an outbound request. Atomic replacement protects the previous file, but the last second of received protocol state can be lost in a crash.
+- Checkpoints run once per second, when the database changed, and before an outbound request. Atomic replacement protects the previous file, but the last second of received protocol state can be lost in a crash.
+- The text cache keeps the newest 20,000 messages; unsettled sends stay until settled.
 - A send intent is persisted before calling WhatsApp. An uncertain send stays uncertain across a restart and is **never automatically replayed**.
 - View-once, disappearing messages, media, edits and unsupported payloads are excluded from this text pilot. Do not represent its cache as a complete WhatsApp history.
 
 ## Tests
 
-`build-whatsapp.sh` runs gofmt verification, vet, race-enabled tests and builds the connector. Tests exercise encrypted SQLite restoration, wrong keys, tampering, revocation, writer exclusion and recipient scope.
+`build-whatsapp.sh` runs gofmt verification, vet, race-enabled tests and builds the connector. Tests exercise encrypted SQLite restoration, wrong keys, tampering, revocation, skipped unchanged checkpoints, cache pruning, writer exclusion and recipient scope.
 
 `build.sh` exercises Rust projection tests and a synthetic child-process IPC peer. The peer never connects to WhatsApp.
 
-For rendered checks under Xvfb, see [the handoff](../../../docs/WHATSAPP_HANDOFF.md). Only synthetic QR codes and conversations may be automatically captured.
+`scripts/smoke-whatsapp.sh` renders the QR and chat screens under Xvfb with the synthetic peer (`RV_CARGO_TARGET=/cargo/target-desktop` when the binaries live in the `rv-cargo` volume); screenshots land in `.cache/whatsapp/`. See also [the handoff](../../../docs/WHATSAPP_HANDOFF.md). Only synthetic QR codes and conversations may be automatically captured.
 
 ## Dependencies
 

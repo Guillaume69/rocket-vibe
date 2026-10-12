@@ -72,6 +72,9 @@ struct Pilot {
     qr_value: RefCell<Option<String>>,
     qr_deadline: RefCell<Option<Instant>>,
     pending: RefCell<Option<(String, String, String)>>,
+    /// A send left pending by a helper that was restarted: settled once the
+    /// new helper has replayed its cache.
+    orphan: RefCell<Option<(String, String, String)>>,
     retry: gtk::Button,
     logout: gtk::Button,
     closing: Cell<bool>,
@@ -196,6 +199,7 @@ impl Pilot {
             qr_value: RefCell::default(),
             qr_deadline: RefCell::default(),
             pending: RefCell::default(),
+            orphan: RefCell::default(),
             retry,
             logout,
             closing: Cell::new(false),
@@ -237,15 +241,25 @@ impl Pilot {
         let weak = Rc::downgrade(self);
         self.retry.connect_clicked(move |_| {
             let Some(this) = weak.upgrade() else { return };
-            if let Some(connector) = this.connector.borrow().as_ref()
-                && !matches!(connector.snapshot().state.as_str(), "stopped" | "logged_out")
-            {
-                if connector.reconnect().is_err() {
-                    this.problem(t("wa.connection_failed"));
+            let connector = this.connector.borrow().clone();
+            match connector {
+                // A live helper only needs a new transport (and a new QR when unpaired).
+                Some(connector) if !matches!(connector.state().as_str(), "stopped" | "logged_out" | "error") => {
+                    if connector.reconnect().is_err() {
+                        this.problem(t("wa.connection_failed"));
+                    }
                 }
-                return;
+                // An ended session needs a new helper, once the old one released its state.
+                Some(connector) => {
+                    this.retry.set_sensitive(false);
+                    connector.stop();
+                    glib::spawn_future_local(async move {
+                        exit(&connector).await;
+                        this.start();
+                    });
+                }
+                None => this.start(),
             }
-            this.start();
         });
         let weak = Rc::downgrade(self);
         self.logout.connect_clicked(move |_| {
@@ -269,13 +283,9 @@ impl Pilot {
                 let window = this.window.clone();
                 let app = this.window.application().expect("app");
                 glib::spawn_future_local(async move {
-                    for _ in 0..70 {
-                        if matches!(connector.snapshot().state.as_str(), "stopped" | "logged_out") {
-                            break;
-                        }
-                        glib::timeout_future(Duration::from_millis(100)).await;
-                    }
+                    exit(&connector).await;
                     window.destroy();
+                    // Only now may a new window start a helper on the same state.
                     PILOT.with_borrow_mut(|slot| *slot = None);
                     if enabled() {
                         app.quit();
@@ -283,6 +293,8 @@ impl Pilot {
                 });
                 return glib::Propagation::Stop;
             }
+            // Closed while the helper starts: `start` stops it when it arrives.
+            PILOT.with_borrow_mut(|slot| *slot = None);
             glib::Propagation::Proceed
         });
         let weak = Rc::downgrade(self);
@@ -319,6 +331,11 @@ impl Pilot {
         self.warning.set_visible(false);
         self.status.set_label(t("wa.connecting"));
         self.revision.set(u64::MAX);
+        self.connector.replace(None);
+        self.composer.root.set_sensitive(false);
+        if let Some(pending) = self.pending.take() {
+            self.orphan.replace(Some(pending));
+        }
         let weak = Rc::downgrade(self);
         glib::spawn_future_local(async move {
             let fake = std::env::var("RV_WHATSAPP_SMOKE").ok();
@@ -378,7 +395,14 @@ impl Pilot {
         self.logout.set_sensitive(s.state == "connected");
         self.warning.set_visible(s.error.is_some());
         if let Some(code) = &s.error {
-            self.problem(if code == "send_uncertain" { t("wa.send_uncertain") } else { t("wa.connection_failed") });
+            self.problem(match code.as_str() {
+                "send_uncertain" => t("wa.send_uncertain"),
+                "client_outdated" => t("wa.client_outdated"),
+                "logout_failed" => t("wa.logout_failed"),
+                "invalid_send" | "not_connected" | "send_already_recorded" => t("wa.send_failed"),
+                _ if s.state == "error" => t("wa.connection_failed"),
+                _ => t("wa.helper_failed"),
+            });
         }
         if let Some((code, expiry)) = &s.qr {
             if self.qr_value.borrow().as_deref() != Some(code) {
@@ -441,27 +465,47 @@ impl Pilot {
             let index = self.room_ids.borrow().iter().position(|id| *id == selected).unwrap_or(0);
             self.list.select_row(self.list.row_at_index(index as i32).as_ref());
         }
+        // The helper records a send before its network attempt and emits the
+        // record first: no record once it refused the send, exited or replayed
+        // its cache means the text never left, and only then is it a draft again.
         let pending = self.pending.borrow().clone();
         if let Some((chat, id, text)) = pending {
-            let record = s.messages.values().find(|m| m.id == format!("{chat}:{id}"));
+            let record = s.messages.get(&format!("{chat}:{id}"));
             if record.is_some_and(|m| m.status != "sending") {
                 self.pending.replace(None);
-            } else if record.is_none() && (s.error.is_some() || s.state == "stopped") {
-                self.drafts.borrow_mut().insert(chat.clone(), text.clone());
-                if *self.selected.borrow() == chat {
-                    self.composer.set_text(&text);
-                }
+            } else if record.is_none() && (s.refused.as_deref() == Some(id.as_str()) || s.exited) {
                 self.pending.replace(None);
-                self.problem(t("wa.send_failed"));
-            } else if s.state == "stopped" {
+                self.keep_draft(&chat, &text);
+            } else if s.exited {
                 self.pending.replace(None);
                 self.problem(t("wa.send_uncertain"));
+            }
+        }
+        let orphan = self.orphan.borrow().clone();
+        if let Some((chat, id, text)) = orphan
+            && s.loaded
+        {
+            self.orphan.replace(None);
+            if !s.messages.contains_key(&format!("{chat}:{id}")) {
+                self.keep_draft(&chat, &text);
             }
         }
         self.composer.root.set_sensitive(
             s.state == "connected" && !self.selected.borrow().is_empty() && self.pending.borrow().is_none(),
         );
         self.paint_messages(s);
+    }
+    /// Gives back the text of a send that never left, without overwriting a
+    /// newer draft.
+    fn keep_draft(&self, chat: &str, text: &str) {
+        if *self.selected.borrow() == chat {
+            if self.composer.text().trim().is_empty() {
+                self.composer.set_text(text);
+            }
+        } else {
+            self.drafts.borrow_mut().entry(chat.to_owned()).or_insert_with(|| text.to_owned());
+        }
+        self.problem(t("wa.send_failed"));
     }
     fn open(&self, chat: &str) {
         let previous = self.selected.replace(chat.to_owned());
@@ -525,6 +569,15 @@ impl Pilot {
             println!("whatsapp smoke: native flow={} screenshot={}", good, saved);
             this.window.close();
         });
+    }
+}
+/// Waits for the helper process to end (the connector kills it after 5 s).
+async fn exit(connector: &Connector) {
+    for _ in 0..80 {
+        if connector.exited() {
+            return;
+        }
+        glib::timeout_future(Duration::from_millis(100)).await;
     }
 }
 fn show_qr(area: &gtk::DrawingArea, code: &str) {

@@ -27,6 +27,13 @@ pub struct Snapshot {
     /// Pairing material is transient and must never be logged or persisted.
     pub qr: Option<(String, u64)>,
     pub messages: BTreeMap<String, WireMessage>,
+    /// The helper replayed its cache: a send intent it does not list was never
+    /// recorded, so it never reached WhatsApp.
+    pub loaded: bool,
+    /// The last send the helper refused before any network attempt.
+    pub refused: Option<String>,
+    /// The helper process is gone; its state lock is free for a new one.
+    pub exited: bool,
 }
 #[derive(Clone, Deserialize)]
 pub struct WireMessage {
@@ -80,6 +87,9 @@ enum Event {
     },
     Error {
         code: String,
+        /// Set when the error refuses one send, which never left the computer.
+        #[serde(default)]
+        id: Option<String>,
     },
     Sent {
         id: String,
@@ -122,11 +132,11 @@ impl Snapshot {
                 self.error = None;
             }
             Event::Status { state } => {
-                if state != "connecting" && state != "qr_expired" {
+                if state != "connecting" {
                     self.qr = None;
                 }
-                if state == "qr_expired" {
-                    self.qr = None;
+                if state == "loaded" {
+                    self.loaded = true;
                 }
                 if state == "logged_out" {
                     self.messages.clear();
@@ -142,10 +152,15 @@ impl Snapshot {
                     self.messages.remove(&id);
                 }
             }
-            Event::Error { code } => {
+            Event::Error { code, id } => {
+                // A refused send or a failed unlink leaves the connection as it was.
+                if id.is_some() {
+                    self.refused = id;
+                } else if !matches!(code.as_str(), "logout_failed" | "invalid_command" | "local_storage_failed") {
+                    self.qr = None;
+                    self.state = "error".into();
+                }
                 self.error = Some(code);
-                self.qr = None;
-                self.state = "error".into();
             }
             Event::Sent { id, state } => {
                 let _ = id;
@@ -195,6 +210,12 @@ impl Connector {
     pub fn revision(&self) -> u64 {
         self.snapshot.lock().unwrap_or_else(|p| p.into_inner()).revision
     }
+    pub fn state(&self) -> String {
+        self.snapshot.lock().unwrap_or_else(|p| p.into_inner()).state.clone()
+    }
+    pub fn exited(&self) -> bool {
+        self.snapshot.lock().unwrap_or_else(|p| p.into_inner()).exited
+    }
     fn request(&self, request: Request) -> Result<(), String> {
         self.requests.try_send(request).map_err(|_| failure())
     }
@@ -208,7 +229,7 @@ impl Connector {
         let _ = self.requests.try_send(Request::Stop);
     }
     pub fn send(&self, chat: String, text: String) -> Result<String, String> {
-        if text.trim().is_empty() || text.len() > 20_000 || self.snapshot().state != "connected" {
+        if text.trim().is_empty() || text.len() > 20_000 || self.state() != "connected" {
             return Err("not_connected".into());
         }
         let mut random = [0_u8; 16];
@@ -262,6 +283,7 @@ async fn worker(
             snapshot.state = "stopped".into();
         }
         snapshot.qr = None;
+        snapshot.exited = true;
         snapshot.revision += 1;
     }
 }
@@ -285,6 +307,27 @@ mod tests {
         );
         s.apply(Event::Status { state: "logged_out".into() });
         assert!(s.messages.is_empty());
+    }
+    #[test]
+    fn a_refused_send_keeps_the_connection_and_a_fatal_error_ends_it() {
+        let mut s = Snapshot::default();
+        s.apply(Event::Status { state: "connected".into() });
+        s.apply(serde_json::from_value(json!({"type":"error","code":"invalid_send","id":"ABCDEF0123"})).unwrap());
+        assert_eq!(s.state, "connected");
+        assert_eq!(s.refused.as_deref(), Some("ABCDEF0123"));
+        s.apply(serde_json::from_value(json!({"type":"error","code":"logout_failed"})).unwrap());
+        assert_eq!(s.state, "connected");
+        s.apply(serde_json::from_value(json!({"type":"error","code":"secure_storage_failed"})).unwrap());
+        assert_eq!(s.state, "error");
+        assert_eq!(s.error.as_deref(), Some("secure_storage_failed"));
+    }
+    #[test]
+    fn the_replayed_cache_marks_the_snapshot_loaded() {
+        let mut s = Snapshot::default();
+        assert!(!s.loaded);
+        s.apply(Event::Status { state: "loaded".into() });
+        s.apply(Event::Status { state: "connecting".into() });
+        assert!(s.loaded);
     }
     #[test]
     fn outgoing_unknown_is_never_presented_as_delivered() {

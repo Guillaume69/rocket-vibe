@@ -6,6 +6,9 @@ fn main() {
     let Some(Ok(first)) = input.next() else { return };
     let init: Value = serde_json::from_str(&first).expect("init");
     assert_eq!(init["type"], "start");
+    // Like the real helper: the replayed cache, then a pairing attempt.
+    println!("{}", json!({"type":"status","state":"loaded"}));
+    println!("{}", json!({"type":"status","state":"connecting"}));
     println!("{}", json!({"type":"qr","code":"RV-WHATSAPP-TEST-NOT-A-LOGIN","expires_ms":60000}));
     for line in input {
         let command: Value = serde_json::from_str(&line.expect("line")).expect("command");
@@ -28,6 +31,9 @@ fn main() {
                     }})
                 );
                 println!("{}", json!({"type":"status","state":"connected"}));
+            }
+            Some("send") if command["chat"] == "refused@s.whatsapp.net" => {
+                println!("{}", json!({"type":"error","code":"invalid_send","id":command["id"]}));
             }
             Some("send") => {
                 println!(

@@ -1315,6 +1315,10 @@ impl ChatPage {
         crate::widgets::present(&dialog, Some(&self.split));
     }
 
+    pub(super) fn voice_ringing(&self) -> bool {
+        self.voice.ringing.borrow().is_some()
+    }
+
     /// Answers the ring and joins its room's voice session.
     pub(crate) fn accept_voice_ring(self: &Rc<Self>, ring: String, room: String) {
         let Some(session) = self.native_session() else { return };

@@ -1595,9 +1595,7 @@ impl ChatPage {
         self.native_unread_after.replace(None);
         self.native_edit.replace(None);
         self.native_membership.replace(None);
-        if let Some(native) = self.native.take() {
-            native.shutdown();
-        }
+        self.native.take();
         self.search_button.set_sensitive(true);
         self.marked_button.set_sensitive(true);
         self.local_search_button.set_visible(session.is_some());

@@ -32,6 +32,11 @@ impl ChatPage {
         self.voice.set_tone(call.map(|_| Sound::Ringtone));
     }
 
+    /// A call or voice ring prompt is on screen.
+    pub fn ringing(&self) -> bool {
+        self.incoming_call.borrow().is_some() || self.voice_ringing()
+    }
+
     /// The account is going: its call stops ringing here.
     pub fn end_call_ring(&self) {
         if self.incoming_call.borrow().is_some() {

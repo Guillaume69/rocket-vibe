@@ -1,7 +1,7 @@
 //! The server rail: a button per signed-in account down the window's left
 //! edge, the open one marked, a dot on another one with unread messages, and
-//! "+" to add an account. Only the open account is connected: the others are
-//! checked every minute with one cheap read (`rv_core::account_unread`).
+//! "+" to add an account. Every account stays connected in the background
+//! (`rv_core::supervisor`), whose unread state lights the dots.
 //! A right click or a long press on a button asks for its menu.
 //! Settings > Accounts can hide it (`hidden`, off by default); that page still
 //! switches and adds accounts.
@@ -9,7 +9,6 @@
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::time::Duration;
 
 use gtk::glib;
 use gtk::prelude::*;
@@ -19,8 +18,6 @@ use rv_core::session::SessionInfo;
 use crate::i18n::t;
 use crate::secrets::account_key;
 use crate::widgets::{self, TileSize};
-
-const POLL: Duration = Duration::from_secs(60);
 
 type Handler<T> = RefCell<Option<Rc<dyn Fn(T)>>>;
 /// A button's account, key, overlay and initial tile.
@@ -154,12 +151,6 @@ impl Rail {
                 f(());
             }
         });
-        let weak = Rc::downgrade(&this);
-        glib::timeout_add_local(POLL, move || {
-            let Some(this) = weak.upgrade() else { return glib::ControlFlow::Break };
-            this.poll();
-            glib::ControlFlow::Continue
-        });
         CURRENT.with_borrow_mut(|current| *current = Rc::downgrade(&this));
         this
     }
@@ -177,14 +168,10 @@ impl Rail {
         self.on_menu.replace(Some(Rc::new(f)));
     }
 
-    /// The signed-in accounts and the open one; the dots are checked at once.
+    /// The signed-in accounts and the open one.
     pub fn set_accounts(self: &Rc<Self>, accounts: Vec<SessionInfo>, active: Option<&SessionInfo>) {
         self.generation.set(self.generation.get().wrapping_add(1));
         let active = active.map(account_key);
-        // The open account's own unread shows in its room list, not here.
-        if let Some(key) = &active {
-            self.unread.borrow_mut().remove(key);
-        }
         self.active.replace(active.clone());
         while let Some(child) = self.buttons.first_child() {
             self.buttons.remove(&child);
@@ -255,7 +242,21 @@ impl Rail {
         }
         self.accounts.replace(accounts);
         self.apply_visibility();
-        self.poll();
+    }
+
+    /// Whether the account has unread rooms; the open account's own shows in
+    /// its room list, not here.
+    pub fn set_unread(&self, key: &str, unread: bool) {
+        self.unread.borrow_mut().insert(key.to_owned(), unread);
+        let open = self.active.borrow().as_deref() == Some(key);
+        if let Some(dot) = self.dots.borrow().get(key) {
+            dot.set_visible(unread && !open);
+        }
+    }
+
+    pub fn forget_unread(&self, key: &str) {
+        self.set_unread(key, false);
+        self.unread.borrow_mut().remove(key);
     }
 
     /// Reads the server's icon; it replaces the initial, a server that
@@ -313,38 +314,6 @@ impl Rail {
 
     fn apply_visibility(&self) {
         self.root.set_visible(!self.accounts.borrow().is_empty() && !hidden());
-    }
-
-    /// One read per account that is not the open one; a failure leaves the
-    /// dot as it was (offline, or a server that refuses for a moment).
-    fn poll(self: &Rc<Self>) {
-        let generation = self.generation.get();
-        let active = self.active.borrow().clone();
-        for info in self.accounts.borrow().iter().cloned() {
-            let key = account_key(&info);
-            if active.as_deref() == Some(key.as_str()) {
-                continue;
-            }
-            let weak = Rc::downgrade(self);
-            glib::spawn_future_local(async move {
-                let found = crate::on_tokio(async move {
-                    if info.native.is_some() {
-                        rv_core::account_unread::native(info, Some(crate::secrets::native_credentials())).await.ok()
-                    } else {
-                        rv_core::account_unread::rocket_chat(&info).await.ok()
-                    }
-                })
-                .await;
-                let (Some(this), Some(unread)) = (weak.upgrade(), found) else { return };
-                if this.generation.get() != generation {
-                    return;
-                }
-                this.unread.borrow_mut().insert(key.clone(), unread);
-                if let Some(dot) = this.dots.borrow().get(&key) {
-                    dot.set_visible(unread);
-                }
-            });
-        }
     }
 }
 

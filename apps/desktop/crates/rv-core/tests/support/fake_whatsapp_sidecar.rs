@@ -46,7 +46,11 @@ fn main() {
                         "message":"alice@s.whatsapp.net:fake-received","sender":"alice@s.whatsapp.net","emoji":"❤️","ts":1
                     }})
                 );
+                println!("{}", json!({"type":"chat","jid":"friends@g.us","unread":2}));
                 println!("{}", json!({"type":"status","state":"connected"}));
+            }
+            Some("read") => {
+                println!("{}", json!({"type":"chat","jid":command["chat"],"unread":0}));
             }
             Some("react") => {
                 println!(
@@ -63,7 +67,7 @@ fn main() {
                     json!({"type":"message","message":{
                         "id":format!("{}:{}",command["chat"].as_str().unwrap(),command["id"].as_str().unwrap()),
                         "chat":command["chat"],"name":"Alice","sender":"me","author":"",
-                        "text":command["text"],"ts":1791810660000_i64,"mine":true,"status":""
+                        "text":command["text"],"ts":1791810660000_i64,"mine":true,"status":"","receipt":"read"
                     }})
                 );
                 println!("{}", json!({"type":"sent","id":command["id"],"state":""}));

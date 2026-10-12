@@ -40,6 +40,8 @@ pub struct Snapshot {
     pub avatars: Arc<BTreeMap<String, Arc<[u8]>>>,
     /// Reactions by message id, then by sender ("me" for mine): the emoji.
     pub reactions: Arc<BTreeMap<String, BTreeMap<String, String>>>,
+    /// Unread messages by chat, as WhatsApp counts them (shared with the phone).
+    pub unread: BTreeMap<String, u32>,
 }
 impl Snapshot {
     /// The name shown for a chat or a person, falling back on what the
@@ -106,6 +108,9 @@ pub struct WireMessage {
     pub edited: bool,
     #[serde(default)]
     pub deleted: bool,
+    /// How far my message went: `delivered`, `read` or `played`.
+    #[serde(default)]
+    pub receipt: String,
 }
 impl WireMessage {
     pub fn presentation(&self) -> MessageRow {
@@ -170,6 +175,11 @@ enum Event {
     },
     /// The helper re-keyed its cache (a LID mapped to a number): it replays it whole.
     Reload,
+    Chat {
+        jid: String,
+        #[serde(default)]
+        unread: u32,
+    },
 }
 #[derive(Deserialize)]
 struct WireReaction {
@@ -181,6 +191,7 @@ struct WireReaction {
 enum Request {
     Send { id: String, chat: String, text: String },
     Act { kind: &'static str, id: String, text: String },
+    Read { chat: String },
     Connect,
     Logout,
     Stop,
@@ -279,6 +290,14 @@ impl Snapshot {
             Event::Reload => {
                 self.messages.clear();
                 self.reactions = Arc::default();
+                self.unread.clear();
+            }
+            Event::Chat { jid, unread } => {
+                if unread == 0 {
+                    self.unread.remove(&jid);
+                } else {
+                    self.unread.insert(jid, unread);
+                }
             }
             Event::Sent { id, state } => {
                 let _ = id;
@@ -370,6 +389,10 @@ impl Connector {
     pub fn delete(&self, id: String) -> Result<(), String> {
         self.request(Request::Act { kind: "delete", id, text: String::new() })
     }
+    /// Reads a chat: its unread messages get their read receipts.
+    pub fn mark_read(&self, chat: String) -> Result<(), String> {
+        self.request(Request::Read { chat })
+    }
 }
 async fn worker(
     weak: Weak<Connector>,
@@ -395,6 +418,7 @@ async fn worker(
                 let value = match request {
                     Request::Send { id, chat, text } => json!({"type":"send","id":id,"chat":chat,"text":text}),
                     Request::Act { kind, id, text } => json!({"type":kind,"id":id,"text":text}),
+                    Request::Read { chat } => json!({"type":"read","chat":chat}),
                     Request::Connect => json!({"type":"connect"}),
                     Request::Logout => json!({"type":"logout"}),
                     Request::Stop => json!({"type":"stop"}),
@@ -481,6 +505,10 @@ mod tests {
         assert_eq!(s.avatars.get("g@g.us").map(|a| a.len()), Some(3));
         s.apply(wire(json!({"type":"avatar","jid":"g@g.us","data":""})));
         assert!(s.avatars.is_empty());
+        s.apply(wire(json!({"type":"chat","jid":"g@g.us","unread":3})));
+        assert_eq!(s.unread.get("g@g.us"), Some(&3));
+        s.apply(wire(json!({"type":"chat","jid":"g@g.us","unread":0})));
+        assert!(s.unread.is_empty());
         s.apply(wire(json!({"type":"reload"})));
         assert!(s.messages.is_empty() && s.reactions.is_empty());
     }

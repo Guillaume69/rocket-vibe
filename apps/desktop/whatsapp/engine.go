@@ -16,6 +16,7 @@ import (
 	"github.com/gofrs/flock"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/proto/waHistorySync"
 	"go.mau.fi/whatsmeow/proto/waWeb"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types"
@@ -41,17 +42,19 @@ type command struct {
 	Text string `json:"text,omitempty"`
 }
 type message struct {
-	ID        string `json:"id"`
-	Chat      string `json:"chat"`
-	Name      string `json:"name"`
-	Sender    string `json:"sender"`
-	Author    string `json:"author"`
-	Text      string `json:"text"`
-	TS        int64  `json:"ts"`
-	Mine      bool   `json:"mine"`
-	Status    string `json:"status,omitempty"`
-	Edited    bool   `json:"edited,omitempty"`
-	Deleted   bool   `json:"deleted,omitempty"`
+	ID      string `json:"id"`
+	Chat    string `json:"chat"`
+	Name    string `json:"name"`
+	Sender  string `json:"sender"`
+	Author  string `json:"author"`
+	Text    string `json:"text"`
+	TS      int64  `json:"ts"`
+	Mine    bool   `json:"mine"`
+	Status  string `json:"status,omitempty"`
+	Edited  bool   `json:"edited,omitempty"`
+	Deleted bool   `json:"deleted,omitempty"`
+	// How far my message went: delivered, read or played.
+	Receipt   string `json:"receipt,omitempty"`
 	RawChat   string `json:"-"`
 	RawSender string `json:"-"`
 }
@@ -74,6 +77,7 @@ type wire struct {
 	// A photo in base64, empty when the person has none.
 	Data     *string   `json:"data,omitempty"`
 	Reaction *reaction `json:"reaction,omitempty"`
+	Unread   *int64    `json:"unread,omitempty"`
 }
 type connector struct {
 	client     *whatsmeow.Client
@@ -117,41 +121,45 @@ func textOf(m *waE2E.Message) string {
 	return m.GetExtendedTextMessage().GetText()
 }
 
-func (c *connector) receive(evt *events.Message, name string) {
+// Stores a message; true when it is a new message of someone else.
+func (c *connector) receive(evt *events.Message, name string) bool {
 	// Not kept: view-once and disappearing content must not outlive WhatsApp's own copy.
 	if evt.IsEphemeral || evt.IsViewOnce || evt.IsViewOnceV2 || evt.IsViewOnceV2Extension {
-		return
+		return false
 	}
 	if evt.Message.GetExtendedTextMessage().GetContextInfo().GetExpiration() != 0 {
-		return
+		return false
 	}
 	if r := evt.Message.GetReactionMessage(); r != nil {
 		chat := c.canonical(evt.Info.Chat)
 		c.storeReaction(chat.String()+":"+r.GetKey().GetID(), c.senderKey(evt.Info.IsFromMe, evt.Info.Sender),
 			r.GetText(), evt.Info.Timestamp.UnixMilli())
-		return
+		return false
 	}
 	if p := evt.Message.GetProtocolMessage(); p != nil {
 		c.protocol(evt, p)
-		return
+		return false
 	}
 	text := textOf(evt.Message)
 	if text == "" {
-		return
+		return false
 	}
 	raw := evt.Info.Chat.ToNonAD()
 	if _, err := validChat(raw.String()); err != nil {
-		return
+		return false
 	}
 	chat := c.canonical(raw)
 	if name != "" {
 		c.setChatName(chat, name)
 	}
-	c.remember(message{ID: chat.String() + ":" + evt.Info.ID, Chat: chat.String(), Name: chat.User,
+	id := chat.String() + ":" + evt.Info.ID
+	_, known := c.load(id)
+	c.remember(message{ID: id, Chat: chat.String(), Name: chat.User,
 		Sender: c.senderKey(evt.Info.IsFromMe, evt.Info.Sender), Author: evt.Info.PushName, Text: text,
 		TS: evt.Info.Timestamp.UnixMilli(), Mine: evt.Info.IsFromMe,
 		RawChat: raw.String(), RawSender: evt.Info.Sender.ToNonAD().String()})
 	c.namesDirty.Store(true)
+	return !known && !evt.Info.IsFromMe
 }
 
 // An edit or a revocation, accepted from the author only; in a group an
@@ -209,6 +217,14 @@ func (c *connector) history(evt *events.HistorySync) {
 		jid, err := validChat(conversation.GetID())
 		if err != nil {
 			continue
+		}
+		// The phone's own count, from the first full sync: newer than mine.
+		if evt.Data.GetSyncType() == waHistorySync.HistorySync_INITIAL_BOOTSTRAP || evt.Data.GetSyncType() == waHistorySync.HistorySync_FULL {
+			unread := int64(conversation.GetUnreadCount())
+			if conversation.GetMarkedAsUnread() && unread == 0 {
+				unread = 1
+			}
+			c.setUnread(c.canonical(jid).String(), unread, true)
 		}
 		entries := conversation.GetMessages()
 		for i := len(entries) - 1; i >= 0; i-- {
@@ -278,7 +294,13 @@ func (c *connector) event(raw any) {
 	case *events.StreamReplaced:
 		c.emit(wire{Type: "status", State: "replaced"})
 	case *events.Message:
-		c.receive(evt, "")
+		if c.receive(evt, "") {
+			c.setUnread(c.canonical(evt.Info.Chat).String(), 1, false)
+		}
+	case *events.Receipt:
+		c.receipt(evt)
+	case *events.MarkChatAsRead:
+		c.markedRead(evt)
 	case *events.HistorySync:
 		c.history(evt)
 	case *events.Contact, *events.PushName, *events.BusinessName, *events.AppStateSyncComplete:
@@ -363,8 +385,8 @@ func (c *connector) send(cmd command) {
 	m := message{ID: cmd.Chat + ":" + cmd.ID, Chat: cmd.Chat, Name: chat.User, Sender: "me", Text: cmd.Text,
 		TS: now(), Mine: true, Status: "sending", RawChat: raw.String()}
 	result, err := c.vault.db.ExecContext(c.ctx, `INSERT INTO rv_messages(`+messageColumns+`)
- VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING`,
-		m.ID, m.Chat, m.Name, m.Sender, m.Author, m.Text, m.TS, m.Mine, m.Status, m.Edited, m.Deleted, m.RawChat, m.RawSender)
+ VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING`,
+		m.ID, m.Chat, m.Name, m.Sender, m.Author, m.Text, m.TS, m.Mine, m.Status, m.Edited, m.Deleted, m.RawChat, m.RawSender, m.Receipt)
 	if err != nil {
 		c.refuse(cmd.ID, "local_storage_failed")
 		return
@@ -578,6 +600,8 @@ func (c *connector) handle(cmd command) bool {
 		c.edit(cmd)
 	case "delete":
 		c.revoke(cmd)
+	case "read":
+		c.read(cmd)
 	case "logout":
 		if err := c.client.Logout(c.ctx); err != nil {
 			c.fail("logout_failed")

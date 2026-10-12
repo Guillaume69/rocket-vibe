@@ -283,3 +283,48 @@ func TestReactionsReplaceAndRetract(t *testing.T) {
 		t.Fatal("a retracted reaction stayed")
 	}
 }
+
+func TestUnreadCountsAndReceipts(t *testing.T) {
+	c := engineWithCache(t)
+	alice := types.NewJID("33600000001", types.DefaultUserServer)
+	c.event(&events.Message{Info: types.MessageInfo{
+		MessageSource: types.MessageSource{Chat: alice, Sender: alice}, ID: "X1", Timestamp: time.UnixMilli(1000),
+	}, Message: &waE2E.Message{Conversation: proto.String("hello")}})
+	unread := func() (n int64) {
+		_ = c.vault.db.QueryRow(`SELECT unread FROM rv_chats WHERE jid = ?`, alice.String()).Scan(&n)
+		return
+	}
+	if unread() != 1 {
+		t.Fatalf("unread %d after one message", unread())
+	}
+	// The same message again (history after live) does not count twice.
+	c.event(&events.Message{Info: types.MessageInfo{
+		MessageSource: types.MessageSource{Chat: alice, Sender: alice}, ID: "X1", Timestamp: time.UnixMilli(1000),
+	}, Message: &waE2E.Message{Conversation: proto.String("hello")}})
+	if unread() != 1 {
+		t.Fatalf("unread %d after a duplicate", unread())
+	}
+	// Read on the phone.
+	c.event(&events.Receipt{MessageSource: types.MessageSource{Chat: alice, Sender: alice, IsFromMe: true},
+		MessageIDs: []types.MessageID{"X1"}, Type: types.ReceiptTypeReadSelf})
+	if unread() != 0 {
+		t.Fatal("reading on the phone left the chat unread")
+	}
+	// My message, then Alice's receipts: delivered then read, never back.
+	if _, err := c.vault.db.Exec(`INSERT INTO rv_messages(id,chat,name,sender,author,text,ts,mine,status)
+ VALUES(?,?,'','me','','mine',2000,1,'')`, alice.String()+":M1", alice.String()); err != nil {
+		t.Fatal(err)
+	}
+	receipt := func(kind types.ReceiptType) string {
+		c.event(&events.Receipt{MessageSource: types.MessageSource{Chat: alice, Sender: alice},
+			MessageIDs: []types.MessageID{"M1"}, Type: kind})
+		m, _ := c.load(alice.String() + ":M1")
+		return m.Receipt
+	}
+	if got := receipt(types.ReceiptTypeRead); got != "read" {
+		t.Fatalf("receipt %q", got)
+	}
+	if got := receipt(types.ReceiptTypeDelivered); got != "read" {
+		t.Fatalf("a delivery moved a read message back: %q", got)
+	}
+}

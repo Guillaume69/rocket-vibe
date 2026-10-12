@@ -40,6 +40,9 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("wa.demo", "Démonstration avec des conversations fictives", "Demo with synthetic conversations"),
     ("wa.choose", "Choisis une conversation", "Choose a conversation"),
     ("wa.me", "Moi", "Me"),
+    ("wa.delivered", "Distribué", "Delivered"),
+    ("wa.read", "Lu", "Read"),
+    ("wa.played", "Écouté", "Played"),
     ("wa.deleted", "Ce message a été supprimé", "This message was deleted"),
     (
         "wa.action_failed",

@@ -87,6 +87,8 @@ struct Pilot {
     /// The photo table last drawn, to rebuild rows and tiles when it moves.
     photo_table: RefCell<Option<PhotoTable>>,
     photo_version: Cell<u64>,
+    /// The chat and count last marked read, so a paint does not repeat it.
+    read_sent: RefCell<Option<(String, u32)>>,
 }
 impl Pilot {
     fn new(app: &adw::Application) -> Rc<Self> {
@@ -215,6 +217,7 @@ impl Pilot {
             photos: Rc::default(),
             photo_table: RefCell::default(),
             photo_version: Cell::default(),
+            read_sent: RefCell::default(),
         });
         let photos = this.photos.clone();
         this.messages
@@ -251,6 +254,13 @@ impl Pilot {
                     this.composer.set_text(&text);
                     this.problem(t("wa.send_failed"));
                 }
+            }
+        });
+        // Coming back to the window reads the open chat.
+        let weak = Rc::downgrade(self);
+        self.window.connect_is_active_notify(move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.revision.set(u64::MAX);
             }
         });
         let weak = Rc::downgrade(self);
@@ -452,9 +462,10 @@ impl Pilot {
         let mut rooms: Vec<_> = rooms.into_iter().collect();
         rooms.sort_by(|a, b| b.1.1.cmp(&a.1.1).then(a.0.cmp(&b.0)));
         let version = self.photo_version.get().to_string();
+        let unread = |id: &str| s.unread.get(id).copied().unwrap_or(0);
         let signature: Vec<_> = rooms
             .iter()
-            .map(|(id, (name, _))| (id.clone(), name.clone()))
+            .map(|(id, (name, _))| (id.clone(), format!("{name} {}", unread(id))))
             .chain(std::iter::once((String::new(), version)))
             .collect();
         if *self.room_signature.borrow() != signature {
@@ -483,14 +494,18 @@ impl Pilot {
                     crate::widgets::set_photo(&tile, photo);
                 }
                 row.append(&tile);
-                row.append(
-                    &gtk::Label::builder()
-                        .label(name)
-                        .xalign(0.0)
-                        .ellipsize(gtk::pango::EllipsizeMode::End)
-                        .hexpand(true)
-                        .build(),
-                );
+                let label = gtk::Label::builder()
+                    .label(name)
+                    .xalign(0.0)
+                    .ellipsize(gtk::pango::EllipsizeMode::End)
+                    .hexpand(true)
+                    .build();
+                row.append(&label);
+                let count = unread(id);
+                if count > 0 {
+                    label.add_css_class("unread");
+                    row.append(&crate::widgets::unread_badge(count.into(), 0));
+                }
                 self.list.append(&row);
             }
             let selected = self.selected.borrow().clone();
@@ -526,6 +541,28 @@ impl Pilot {
             s.state == "connected" && !self.selected.borrow().is_empty() && self.pending.borrow().is_none(),
         );
         self.paint_messages(s);
+        self.read_open_chat(s);
+    }
+    /// The open chat is read while the window has the focus.
+    fn read_open_chat(&self, s: &Snapshot) {
+        let chat = self.selected.borrow().clone();
+        let count = s.unread.get(&chat).copied().unwrap_or(0);
+        if count == 0 {
+            self.read_sent.replace(None);
+            return;
+        }
+        if chat.is_empty() || s.state != "connected" || !self.window.is_active() {
+            return;
+        }
+        let key = Some((chat.clone(), count));
+        if *self.read_sent.borrow() == key {
+            return;
+        }
+        if let Some(connector) = self.connector.borrow().as_ref()
+            && connector.mark_read(chat).is_ok()
+        {
+            self.read_sent.replace(key);
+        }
     }
     /// Gives back the text of a send that never left, without overwriting a
     /// newer draft.
@@ -546,7 +583,9 @@ impl Pilot {
             self.composer.set_text(self.drafts.borrow().get(chat).map_or("", String::as_str));
         }
         if let Some(connector) = self.connector.borrow().as_ref() {
-            self.paint_messages(&connector.snapshot());
+            let snapshot = connector.snapshot();
+            self.paint_messages(&snapshot);
+            self.read_open_chat(&snapshot);
         }
     }
     fn paint_messages(&self, s: &Snapshot) {
@@ -558,10 +597,21 @@ impl Pilot {
         } else {
             self.title.set_label(t("wa.choose"));
         }
+        // My latest settled message says how far it went, as WhatsApp's ticks do.
+        let receipt = messages
+            .iter()
+            .rev()
+            .find(|m| m.mine && m.status.is_empty() && !m.deleted)
+            .map(|m| (m.id.clone(), m.receipt.clone()));
         let mut rows = crate::rows::group(messages.into_iter().map(|m| s.presentation(m)).collect());
         for row in &mut rows {
             if row.row.outbox_status.as_deref() == Some("uncertain") {
                 row.seen = Some(t("wa.send_uncertain").into());
+            } else if let Some((id, state)) = &receipt
+                && *id == row.row.id
+                && !state.is_empty()
+            {
+                row.seen = Some(t(&format!("wa.{state}")).into());
             }
         }
         self.messages.set_photo_version(self.photo_version.get());

@@ -23,6 +23,7 @@ func migrate(db *sql.DB) error {
  message TEXT NOT NULL,sender TEXT NOT NULL,emoji TEXT NOT NULL,ts INTEGER NOT NULL,PRIMARY KEY(message,sender))`,
 		`CREATE TABLE IF NOT EXISTS rv_chat_names (jid TEXT PRIMARY KEY,name TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS rv_avatars (jid TEXT PRIMARY KEY,picture TEXT NOT NULL,data BLOB,checked INTEGER NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS rv_chats (jid TEXT PRIMARY KEY,unread INTEGER NOT NULL DEFAULT 0)`,
 	} {
 		if _, err := db.Exec(statement); err != nil {
 			return err
@@ -33,6 +34,7 @@ func migrate(db *sql.DB) error {
 		{"deleted", "INTEGER NOT NULL DEFAULT 0"},
 		{"raw_chat", "TEXT NOT NULL DEFAULT ''"},
 		{"raw_sender", "TEXT NOT NULL DEFAULT ''"},
+		{"receipt", "TEXT NOT NULL DEFAULT ''"},
 	} {
 		var present int
 		if err := db.QueryRow(`SELECT count(*) FROM pragma_table_info('rv_messages') WHERE name = ?`, column.name).Scan(&present); err != nil {
@@ -48,11 +50,11 @@ func migrate(db *sql.DB) error {
 	return err
 }
 
-const messageColumns = `id,chat,name,sender,author,text,ts,mine,status,edited,deleted,raw_chat,raw_sender`
+const messageColumns = `id,chat,name,sender,author,text,ts,mine,status,edited,deleted,raw_chat,raw_sender,receipt`
 
 func scanMessage(row interface{ Scan(...any) error }) (message, error) {
 	var m message
-	err := row.Scan(&m.ID, &m.Chat, &m.Name, &m.Sender, &m.Author, &m.Text, &m.TS, &m.Mine, &m.Status, &m.Edited, &m.Deleted, &m.RawChat, &m.RawSender)
+	err := row.Scan(&m.ID, &m.Chat, &m.Name, &m.Sender, &m.Author, &m.Text, &m.TS, &m.Mine, &m.Status, &m.Edited, &m.Deleted, &m.RawChat, &m.RawSender, &m.Receipt)
 	return m, err
 }
 
@@ -75,9 +77,9 @@ func (c *connector) remember(m message) {
 		return
 	}
 	_, err := c.vault.db.ExecContext(c.ctx, `INSERT INTO rv_messages(`+messageColumns+`)
- VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status,ts=excluded.ts
+ VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status,ts=excluded.ts
  WHERE rv_messages.status != ''`,
-		m.ID, m.Chat, m.Name, m.Sender, m.Author, m.Text, m.TS, m.Mine, m.Status, m.Edited, m.Deleted, m.RawChat, m.RawSender)
+		m.ID, m.Chat, m.Name, m.Sender, m.Author, m.Text, m.TS, m.Mine, m.Status, m.Edited, m.Deleted, m.RawChat, m.RawSender, m.Receipt)
 	if err != nil {
 		c.fail("local_storage_failed")
 		return
@@ -178,6 +180,9 @@ func (c *connector) normalize() bool {
 			`DELETE FROM rv_messages WHERE chat = ?3`,
 			`UPDATE OR IGNORE rv_reactions SET message = ?1 || substr(message, ?2) WHERE substr(message, 1, ?2) = ?3 || ':'`,
 			`DELETE FROM rv_reactions WHERE substr(message, 1, ?2) = ?3 || ':'`,
+			`INSERT INTO rv_chats(jid,unread) SELECT ?1, unread FROM rv_chats WHERE jid = ?3
+ ON CONFLICT(jid) DO UPDATE SET unread = max(rv_chats.unread, excluded.unread)`,
+			`DELETE FROM rv_chats WHERE jid = ?3`,
 		} {
 			if _, err := tx.ExecContext(c.ctx, statement, pn, prefix, old); err != nil {
 				_ = tx.Rollback()
@@ -242,8 +247,14 @@ func (c *connector) replay() error {
 		return err
 	}
 	c.replayAvatars()
+	c.replayChats()
 	c.emitNames()
 	return nil
+}
+
+// `<chat>:<WhatsApp id>` into its two parts.
+func cutID(id string) (string, string, bool) {
+	return strings.Cut(id, ":")
 }
 
 func now() int64 { return time.Now().UnixMilli() }
@@ -254,7 +265,7 @@ func (c *connector) target(id string) (message, types.JID, types.MessageID, bool
 	if !ok {
 		return m, types.JID{}, "", false
 	}
-	chat, waid, found := strings.Cut(m.ID, ":")
+	chat, waid, found := cutID(m.ID)
 	if !found || waid == "" {
 		return m, types.JID{}, "", false
 	}

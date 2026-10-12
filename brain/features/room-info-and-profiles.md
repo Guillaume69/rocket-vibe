@@ -47,6 +47,8 @@ Conversation avatars and author names open the same profile as the message menu 
 
 Room information is read-only with separate room settings, members and invitation dialogs. Membership roles use an explicit Apply action. Own-profile editing follows the native photo row suffix controls, name/username/read-only email/bio order and grouped Save. Selected profile photos become 512-pixel PNGs subject to the native size limit. These states are exercised by `tests/conversation-parity.mjs` and `tests/profiles.mjs`.
 
+The read-only email row uses GTK's verified-address tooltip directing changes to Security. It has no edit caret or focus stroke; Security owns entering and verifying a new address through the actual email flow. Profile fields retain floating captions and edit indicators, and Save is a separate solid-accent group. New conversation uses the native two-group form with 24-pixel spacing, private rooms selected initially, right-aligned switches and focus strokes rounded only at the outer group corners. `tests/gtk-forms.mjs` checks both creation paths, cancellation, profile email hints and real SMTP verification.
+
 The native room-information layout is 420 by 600, with filled actions in GTK order; a DM heading opens its peer profile. Owners change the channel image through a PNG/JPEG picker, with original bytes, command revision and nonce persisted in account/membership-scoped operation intents. A lost response resumes the identical command; Clear retires the local intent. Metadata responses preserve the model's personal read state, which also supplies the favourite command's actual revision. The roster uses native role combo rows and a separate Apply action; profile/removal remain available from its context menu.
 
 Live profile revisions reload the open card. A valid, complete live observation without a lease means Offline; expired or limited observations supply no presence. The browser renews its Online lease every 20 seconds while its authenticated socket remains open, respecting the server's chosen Away/Busy/Offline status. Shutdown serializes Offline after any in-flight publication. Profile responses/actions are fenced to the captured account, connection and room membership. Message/Call fetch the DM's personal read/access state before opening it, since creation returns a room without that personal state. Call uses the ordinary direct-call ringing path; Report replaces the card with the reason dialog. `tests/profiles.mjs` exercises these paths with two real fixture accounts, including expiry, signout, narrow layout and ringing/decline.
@@ -59,7 +61,13 @@ Room info, profile with Message and Call, my profile with password and 2FA, live
 
 The bottom avatar opens the four activity choices on GTK, SwiftUI, mobile and web. The badge on it shows my activity, separate from server connectivity. Choosing a status preserves the current status text and other profile fields; mobile uses a native form sheet, GTK and web use dismissible popovers, SwiftUI uses a platform menu. Native profile conflicts and pending operations retain the existing settings recovery paths.
 
+The web popover reuses GTK's 9-pixel `.presence` circles in 16-pixel icon slots: green Online, yellow Away, red Busy and gray Offline. `tests/shell-parity.mjs` measures the actual colors and geometry, then chooses Away and Online through real profile commands and verifies the account badge.
+
 ## Sources
+
+- apps/web/src/settings-parity.css
+- apps/web/src/new-conversation.ts
+- apps/web/tests/gtk-forms.mjs
 
 - apps/web/src/markdown-text.ts
 - apps/web/src/ui/profile.tsx

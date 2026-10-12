@@ -37,7 +37,27 @@ Date: 2026-10-12. Reference: the GTK client connected to a RocketVibe server. Th
 
 Source paths above are relative to `apps/desktop/crates/`. Browser implementation paths and executed checks are recorded below. Additional media, social, bot/workflow, encrypted-room and scheduling dialogs are included in the regression suites rather than inferred from matching colours.
 
-## Verification
+## Manual-test corrections
+
+The earlier inventory and regression results did not establish equivalence of every secondary dialog. Manual screenshots exposed real gaps in confirmations, invitation and emoji administration, shared EntryRow geometry, the code toolbar, read-only email hints, emoji completion and the account presence menu. Additional actual GTK captures cover account deletion, invitation creation/listing, emoji listing/addition, profile editing and New conversation, including focused rows. The local reference captures remain in `.cache/gtk-manual-reference`; browser suites regenerate the corresponding evidence in `.cache/web-shots`.
+
+- Confirmations use the native heading, explanation and explicit action label, with Cancel focused and no navigation headerbar or extra close button. Account activation, role changes and report dismissal remain immediate GTK actions.
+- Invitation creation keeps its description outside the group and Refresh beside the list heading. Custom emoji opens a catalogue and a separate add subpage, with an ordinary image chooser/preview and a compact Add action.
+- Shared EntryRows preserve floating captions, edit indicators, 54-pixel rows and focus outlines rounded only at the group edges. New conversation keeps two groups 24 pixels apart and switches in their suffix positions. Empty fields keep the complete row as their edit hit area.
+- The room and thread code glyph stays on one line at wide and 390-pixel widths. Profile email has the native read-only tooltip and no editable caret; entering and verifying an address belongs to Security and is exercised through real TLS SMTP.
+- Both completion lists show Unicode glyphs or protected canonical custom images beside shortcodes, including aliases. Keyboard and click selection preserve literal shortcode drafts and payloads, and delayed images cannot restore a retired result.
+- All four presence choices show GTK's exact 9-pixel green/yellow/red/gray circles. Actual Away and Online commands update the account badge.
+- Incoming calls are the requested dismissal exception: outside clicks and Escape/Back cannot silence a ringing prompt. Accept/Decline and remote/account teardown remain supported in web, GTK, SwiftUI and Android source.
+
+The final embedded browser entry is `index-C6nCCGdr.js`, SHA-256 `34114718db9094ca51c2748454a7fd1498d65860f4f84e79c6aebb22d27390e2`. Its served bytes match the committed distribution. Twenty-four focused actual-server groups pass against it: six shell/presence, five administration, four emoji completion, four GTK forms and five incoming-call groups. These include real room/DM writes, SMTP verification, protected emoji bytes, explicit call choices, bidirectional SFU audio and remote/account teardown, with zero page errors. Reference screenshots are inspected.
+
+The existing conversation, visual/settings, composer, profiles, Security and pending-security suites also pass against the final embedded distribution. The local encrypted suite passes its first ten groups, including the changed private deletion confirmation, then cannot connect Firefox's encrypted voice on the Windows virtual-adapter bench. This does not qualify the remaining encrypted voice/recovery groups locally; Linux browser CI retains the complete suite and normal Firefox ICE policy. Physical devices and unexecuted platform screens remain outside these claims.
+
+The current mandatory Fedora `apps/desktop/scripts/build.sh` gate passes formatting, clippy with warnings denied, the complete workspace test suite and the final binary build. The new GTK Xvfb incoming-call regression passes actual Escape bindings, backdrop events, Accept/Decline buttons, notification answers, remote/account force closure and ordinary Cancel dismissal. Mobile TypeScript and 45 existing voice/call/push tests pass; its current x86_64 debug APK builds, installs and launches to server selection. The emulator's provider-discovery failure leaves the React Native live incoming-call screen unqualified; this is not evidence of a completed ring flow.
+
+## Preceding baseline qualification
+
+The results below record the integrated baseline before the manual-test corrections above. They do not claim that the newly changed native or browser screens passed those earlier runs.
 
 The work uses disposable local PostgreSQL, TLS SMTP and LiveKit services and real RocketVibe API responses. Browser checks use the built production distribution rather than hot reload. A fresh GTK build passes its mandatory Fedora formatting, clippy and test gate; connected GTK captures supply the screen reference.
 
@@ -68,6 +88,16 @@ Browser-specific mappings remain browser storage, same-origin HTTPS links, nativ
 The follow-up Security correction closes the visible pending-state gap for authenticator setup/removal, backup-code replacement, email verification/removal and both email-code directions. Seven actual-server groups against the final embedded distribution deliberately commit and then abort responses, expire only dedicated fixture proof grants, reload and recover the same receipt. Continue/Cancel preserve current account status; accepted replay precedes proof, and original request IDs prevent replacement code bags. The proof form also keeps its original operation through second-factor confirmation and labels recovery codes correctly. Normal account signout purges the sealed pending receipt and its key material. Twenty-one model/vault cases qualify save-before-request, stale/refusal semantics, authenticated nonextractable storage and held-write/read/retirement fences. The existing six Security groups also pass with real TLS SMTP delivery. The disposable Windows SMTP helper retries transient mailbox rename locks for at most one second while preserving atomic complete JSON and acknowledgement after publication.
 
 ## Sources
+
+- apps/web/tests/admin-invitations.mjs
+- apps/web/tests/emoji-completion.mjs
+- apps/web/tests/gtk-forms.mjs
+- apps/web/tests/incoming-call.mjs
+- apps/web/src/ui/dialog.tsx
+- apps/desktop/crates/rv-gtk/src/widgets.rs
+- apps/desktop/macos/Sources/RocketVibeKit/Modals.swift
+- apps/mobile/ui/voice.tsx
+- apps/mobile/modules/voice/android/src/main/java/com/rocketvibe/voice/IncomingCallActivity.kt
 
 - apps/web/src/ui/application.tsx
 - apps/web/src/ui/login.tsx

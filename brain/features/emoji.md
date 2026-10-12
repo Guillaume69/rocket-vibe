@@ -35,6 +35,10 @@ Both tables come from `emoji-toolkit` 10.0.0 (JoyPixels' JSON, MIT; no artwork i
 - **GTK picker.** `rv-gtk/src/emoji_picker.rs`: a smiley menu button (`face-smile-symbolic`) with a search entry, category tabs, a tab for the server's emoji, and a grid; a search lists custom emoji containing the query, then up to 180 standard prefix matches. Glyphs the machine's fonts cannot draw as one emoji (unknown glyphs, or a sequence drawn as pieces) are left out (`drawable`). Picking inserts at the cursor and leaves the picker open. `emoji_picker::popover(pick, custom, once)` builds the same picker as a popover with a `Pick` callback (`once` pops it down after a pick, which the reaction menus use; `custom` `None` drops the server tab); `button` is the composer's.
 - **SwiftUI.** Its own `EmojiPicker` grid (categories, search, in `macos/Sources/RocketVibe/Details.swift`), opened from the composer and, with `custom:` false in a private conversation, from the message menu to react; the system's Emoji & Symbols panel also works in its composer.
 
+## Web completion
+
+`App.complete` serves separate room and thread lists. It detects a non-empty `:` prefix at the start or after whitespace, offers at most eight matching custom codes followed by standard codes in shortest-first order, and shows a Unicode glyph or canonical protected image beside each code. Aliases share the canonical file ID and checksum. Click, Arrow keys, Enter and Tab select; Escape hides the list. Both standard and custom picks preserve literal `:code: ` in the draft and message payload. Captured account, session token, room/thread, current editor text and catalogue identity fence asynchronous image publication. `tests/emoji-completion.mjs` exercises real emoji administration, protected aliases, both composers, keyboard insertion and late-image retirement.
+
 ## Quick reactions and reacting with any emoji
 
 The message menus of the three apps show the 5 emoji I react with most on this account (`QUICK_COUNT`), then "+" (or "React with another emoji…") opening the picker to react with any emoji, the server's custom ones included. Behaviour of the menus: [message-actions.md](message-actions.md).
@@ -54,6 +58,11 @@ The message menus of the three apps show the 5 emoji I react with most on this a
 [Parity](../parity.md) marks shortcode emoji ("6222 codes, same table as Android"), custom emoji images and completion done. Behavioural differences: mobile completion also matches substrings and shows up to 30, desktop matches prefixes and shows 8; mobile keeps custom emoji offline in SQLite, desktop refetches them each session; the GTK picker hides glyphs the fonts cannot draw. Quick reactions (top 5 of my own use) and reacting with any emoji are done in all three; the counts live per account on the device, in SQLite on mobile and in a file the two desktop apps share. On Rocket.Chat all three send an accepted code and hide the glyphs the server refuses.
 
 ## Sources
+
+- apps/web/src/app.ts
+- apps/web/src/ui/thread.tsx
+- apps/web/src/conversation-parity.css
+- apps/web/tests/emoji-completion.mjs
 
 - apps/mobile/lib/emojis.ts
 - apps/mobile/lib/emojis.generated.ts

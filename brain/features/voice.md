@@ -112,10 +112,11 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
   list ("Voice connected", mute, deafen, leave), `useJoinVoice` (asks the microphone,
   Bluetooth and notification permissions at the first join, opens the voice screen),
   `VoiceRingHost` mounted once in `_layout` (incoming ring modal with the ringtone, feeds
-  outgoing rings to the controller, says why a session ended). A tap outside the incoming
-  ring's card or Back IGNORES the call: the prompt hides and the ringtone stops, but nothing
-  is sent, so the caller hears it ring until it times out as a missed call; Decline stays an
-  explicit button. The voice alerts are dismissible (`ui/alerts.ts`). A voice channel shows a speaker icon and
+  outgoing rings to the controller, says why a session ended). The incoming ring uses a
+  non-interactive scrim and a no-op `Modal.onRequestClose`: tapping outside or pressing Back
+  leaves it ringing. Accept and Decline are explicit; remote cancellation, expiry and
+  account teardown remove the active ring. Other voice alerts stay dismissible
+  (`ui/alerts.ts`). A voice channel shows a speaker icon and
   joins on tap (`app/index.tsx`); the room header's call button joins the room's voice and rings in a
   DM (`ui/roomHeader.tsx`). `app/voice/[rid].tsx` is the call screen: a tile per person
   sharing all the screen (`lib/voiceGrid.ts`: the cells that hold the largest picture
@@ -138,7 +139,10 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
   a full-screen intent to `IncomingCallActivity`, shown over the lock screen; MainActivity
   never is. Accept opens `rocketvibe://voice-ring/<id>` (`app/voice-ring/[id].tsx` answers
   for the matching account only); Decline goes through `NativeVoiceReceiver` and a
-  WorkManager job. `voice_ring_end` cancels the ring.
+  WorkManager job. `IncomingCallActivity.kt` blocks legacy `onBackPressed` and registers
+  a no-op predictive Back callback on API 33 or later; remote `VoiceRinging.cancel`
+  still finishes the activity. `voice_ring_end` cancels the ring. The actual Android
+  full-screen launch and Back behavior require device qualification.
 - **Camera and screen**: `VoiceVideoView` (native view over LiveKit's renderer, laid out
   at the frame's proportions since the renderer stretches: letterboxed for `contain`,
   clipped for `cover`) shows a camera in the person's card. While someone shares, the
@@ -273,9 +277,11 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
   (mute, deafen, leave, a click opens the page). The header's call button joins the open room's
   voice and rings in a DM nobody is in yet; a profile's Call opens the DM and rings. An incoming
   ring opens an Accept / Decline dialog over the ringtone (the window is presented if hidden);
-  Escape or a click outside answers its close response `ignore` (`chat_voice.rs`): the dialog
-  and the ringtone stop, the call is not declined,
-  the caller hears the ringback, cues mark join, leave, mute and a missed call (`sounds.rs`
+  `widgets::incoming_call_alert` sets `can_close(false)`: Escape and backdrop clicks keep
+  the prompt and ringtone active. Accept and Decline remove the active ring before forcing
+  the dialog closed; remote endings and account teardown also force-close after retiring
+  the ring, without an answer. Background-account calls use the same factory in `window.rs`.
+  The caller hears the ringback; cues mark join, leave, mute and a missed call (`sounds.rs`
   plays `assets/sounds` through GStreamer). Call rows show the outcome (missed in red) with
   Join while the call goes on or Call back once it ended (rings in a DM), and the room list
   previews the outcome. Toasts say why a session ended (another device took it, removed,
@@ -322,9 +328,11 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
   the menu beside the microphone (devices, volumes, live level, noise remover, deafen,
   settings), the share picker (screens and windows with thumbnails, resolution, frame
   rate), the header's call button, the call rows' Join or Call back, the incoming call card
-  (`IncomingCall`, a modal overlay: Accept or Decline, while a click outside or Escape
-  ignores it through `VoiceModel.ignore`, hiding it and stopping the ringtone without
-  declining), a "Voice" category in the settings overlay, and room creation (`NewRoom.swift`, from
+  (`IncomingCall`, a modal overlay with `dismissible:false`: Accept or Decline, while
+  backdrop clicks and Escape keep it ringing). The same guard protects `RingingCallPrompt`
+  and `BackgroundCallPrompt`; remote/account removal still hides them. `ModalStack` guards
+  the actual Cancel callback, with a Kit regression and actual macOS screen qualification
+  still pending. A "Voice" category lives in the settings overlay, and room creation (`NewRoom.swift`, from
   the list's button: name, private, "Voice channel" where the server offers voice, through
   `AppModel.createRoom`, opened once listed) and the "Voice channel" switch in a room's edit
   form (`NativeRoomControls.swift`; rv-ffi's `NativeRoomFields.voice` is Some only for an
@@ -337,7 +345,7 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
 
 ## Web
 
-The server-delivered client uses the same ordinary-room voice grants, LiveKit SFU, live roster and room screen claim. Selecting a voice channel joins it automatically. The page ports GTK's TileGrid, circular microphone/deafen/camera/share/leave controls, the microphone menu and a reaction button when supported, audio/person popovers and two-second direct-call peer reconnection grace. Returning from the sidebar call panel restores the actual call room. Manual Leave keeps the room's voice page, its live participant preview and Join voice button; session expiry, access loss and failed connections remove it. Incoming calls use GTK's heading and caller sentence with Decline/Accept responses, accepting by default and ignoring on Escape or outside dismissal. Encryption adds the lock and secure connection status. Reactions occupy the same strip above the controls as GTK.
+The server-delivered client uses the same ordinary-room voice grants, LiveKit SFU, live roster and room screen claim. Selecting a voice channel joins it automatically. The page ports GTK's TileGrid, circular microphone/deafen/camera/share/leave controls, the microphone menu and a reaction button when supported, audio/person popovers and two-second direct-call peer reconnection grace. Returning from the sidebar call panel restores the actual call room. Manual Leave keeps the room's voice page, its live participant preview and Join voice button; session expiry, access loss and failed connections remove it. Incoming calls use GTK's heading and caller sentence with Decline/Accept responses, Accept focused by default. `createDialog({dismissible:false})` keeps them open through Escape and outside clicks; an explicit response, remote end or account/membership withdrawal closes them. Encryption adds the lock and secure connection status. Reactions occupy the same strip above the controls as GTK.
 
 An initial WebRTC failure emits `Disconnected` before the SDK rejects `connect`. The client lets the join's error handler report GTK's "Couldn't join voice" refusal and release the pending call/context; established-call disconnections still tear down immediately. Advancing the lifecycle during the initial event would swallow that error. `voice-connection.mjs` qualifies Firefox and Chromium with real bidirectional audio and a live two-person roster, then forces an ICE timeout and reconnects. Firefox keeps its normal ICE loopback policy. SFU candidates must be reachable from each browser; the Linux acceptance fixture uses a private Docker bridge and a disposable PulseAudio null sink. The Windows loopback/virtual-adapter fixture could not qualify Firefox with its default ICE policy.
 
@@ -401,6 +409,9 @@ The browser uses the room's verified MLS voice exporter with LiveKit's encoded-t
 - apps/desktop/crates/rv-ffi/src/native_voice.rs
 - apps/desktop/macos/Sources/RocketVibeKit/VoiceModel.swift
 - apps/desktop/macos/Sources/RocketVibe/Voice.swift
+- apps/desktop/macos/Sources/RocketVibe/Modals.swift
+- apps/desktop/macos/Sources/RocketVibeKit/Modals.swift
+- apps/desktop/macos/Tests/RocketVibeKitTests/ModalsTests.swift
 - apps/desktop/macos/Sources/RocketVibe/NewRoom.swift
 - apps/desktop/macos/Sources/RocketVibe/NativeRoomControls.swift
 - apps/desktop/crates/rv-ffi/src/native_rooms.rs
@@ -418,6 +429,7 @@ The browser uses the room's verified MLS voice exporter with LiveKit's encoded-t
 - apps/mobile/ui/roomManagement.tsx
 - apps/mobile/providers/rocketvibe/roomOperations.ts
 - apps/mobile/plugins/native-push-source.js
+- apps/mobile/modules/voice/android/src/main/java/com/rocketvibe/voice/IncomingCallActivity.kt
 - apps/mobile/providers/rocketvibe/chat.ts
 - apps/desktop/voice/src/main.rs
 - apps/desktop/voice/src/audio.rs
@@ -430,6 +442,7 @@ The browser uses the room's verified MLS voice exporter with LiveKit's encoded-t
 - apps/desktop/crates/rv-core/src/native/voice.rs
 - apps/desktop/crates/rv-core/src/native/store.rs
 - apps/desktop/crates/rv-gtk/src/chat_voice.rs
+- apps/desktop/crates/rv-gtk/src/widgets.rs
 - apps/desktop/crates/rv-gtk/src/tile_grid.rs
 - apps/desktop/crates/rv-gtk/src/sounds.rs
 - apps/desktop/crates/rv-gtk/src/cards.rs

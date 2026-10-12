@@ -16,6 +16,10 @@ Public same-origin shell/assets ignore HTTP Vary during cache lookup: crossorigi
 
 `sidebar.ts` caches categories within the owning dialog so switching categories preserves draft and scroll state. Explicit mutations invalidate affected cached pages. Crypto controls check the dialog/account lifetime rather than temporary DOM connectivity. The login factor step owns its captured challenge until account activation completes. See [screen inventory](../../docs/WEB_GTK_SCREEN_AUDIT.md).
 
+Shared EntryRows keep floating captions, native edit indicators, 54-pixel rows and focus strokes shaped by their position in the group. Switches occupy the suffix, and New conversation uses two groups separated by 24 pixels. The native account email row is read-only, without an edit caret or focus stroke; its tooltip directs changes to Security. `confirmationContents` separates AlertDialog message and response areas from navigation headerbars, with explicit action labels and Cancel focused. Immediate GTK administration actions keep their direct behavior.
+
+Room and thread completion use `App.complete` with separate lists and draft writers. Up to eight prefix matches show Unicode glyphs or protected custom-image previews beside literal codes; keyboard or click selection inserts the shortcode. Account, session, room, thread, editor text and catalogue identity checks discard late images and responses. `createDialog({dismissible:false})` protects only incoming-call prompts; ordinary dialogs retain Escape/backdrop cancellation.
+
 `room-avatar.ts` persists original image bytes, revision and nonce under account/membership-scoped operation intents, so uncertain delivery resumes the identical command. Room purges retire these intents along with other room-owned work. Private thread composers read a live canSend hook from the controller's view updates, disabling controls during a send without recreating the editor or losing its draft.
 
 `composer.ts` implements a browser DOM text editor using the GTK draft spans: bold/italic/strike, inline/fenced code, headings, quotes and muted markers hidden away from the cursor line. Text and UTF-16 selections survive restyling. It handles native line breaks, plain-text paste, composition, undo/redo and programmatic toolbar edits. Room selection keeps the editor disabled until its draft and staged files are restored; a selection generation excludes late reads from another opening or session.
@@ -47,6 +51,13 @@ The SFU's WebSocket origin being reachable does not prove its ICE candidates are
 `security.ts` and `email.ts` expose native TOTP, recovery codes, verified contact and email factors. Native RocketVibe encrypted rooms use the shared Rust MLS engine through a dedicated WASM worker. `crypto/shared` is generated from mobile orchestration; `crypto/vault.ts` seals the complete private worker snapshot with a non-extractable WebCrypto key in separate IndexedDB, under a cross-tab lock and durable revision check. Private messages/drafts never enter the ordinary model, cache or outbox. Files use the native encrypted-object format; decrypted media URLs stay in the live view. Calls require supported frame encryption and the native MLS voice key. Unsupported or unapproved devices remain locked. Browser storage has no independent OS-keystore anti-rollback anchor: see [browser E2EE](../../docs/WEB_E2EE.md) for the delivery trust model and qualification limits. Notifications require a live tab; closed-tab Web Push is not implemented.
 
 ## Sources
+
+- apps/web/src/ui/dialog.tsx
+- apps/web/src/dom.ts
+- apps/web/tests/gtk-forms.mjs
+- apps/web/tests/admin-invitations.mjs
+- apps/web/tests/emoji-completion.mjs
+- apps/web/tests/incoming-call.mjs
 
 - docs/WEB_GTK_SCREEN_AUDIT.md
 - apps/web/src/markdown-text.ts

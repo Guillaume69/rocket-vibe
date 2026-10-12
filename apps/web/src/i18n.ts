@@ -2,6 +2,7 @@ const phrases = {
   connect: ["Connect", "Connexion"],
   server: ["Server", "Serveur"],
   username: ["Username or email", "Identifiant ou email"],
+  handle: ["Username", "Nom d’utilisateur"],
   password: ["Password", "Mot de passe"],
   login: ["Sign in", "Se connecter"],
   code: ["Verification code", "Code de vérification"],

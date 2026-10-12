@@ -122,6 +122,8 @@ impl ChatPage {
             TileSize::Message,
             false,
         ));
+        // Connected already when switched back to: its next change may be far off.
+        self.set_connection(session.status().connection);
         self.reload_rooms();
     }
 

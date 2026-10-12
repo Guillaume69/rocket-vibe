@@ -206,6 +206,9 @@ pub struct Session {
     pub uploads: Arc<Uploads>,
     transport: Transport,
     events: broadcast::Sender<SessionEvent>,
+    /// The live connection as last announced: a window switching back to an
+    /// account already connected reads it, no change being announced then.
+    connection: Mutex<Connection>,
     current_room: Mutex<Option<(String, String)>>,
     tasks: Mutex<Vec<JoinHandle<()>>>,
     /// Set by `shutdown`: a reconnection timer never reopens a session closed
@@ -407,6 +410,7 @@ impl Session {
             uploads,
             transport,
             events,
+            connection: Mutex::new(Connection::Offline),
             current_room: Mutex::new(None),
             tasks: Mutex::default(),
             closed: AtomicBool::new(false),
@@ -452,6 +456,11 @@ impl Session {
         self.events.subscribe()
     }
 
+    /// The live connection now (`SessionEvent::Connection` announces its changes).
+    pub fn connection(&self) -> Connection {
+        *self.connection.lock().unwrap()
+    }
+
     pub fn current_room(&self) -> Option<(String, String)> {
         self.current_room.lock().unwrap().clone()
     }
@@ -468,6 +477,7 @@ impl Session {
                         State::Closed => Connection::Offline,
                         _ => Connection::Connecting,
                     };
+                    *s.connection.lock().unwrap() = c;
                     let _ = s.events.send(SessionEvent::Connection(c));
                 }
                 DdpEvent::Authenticated => {
@@ -503,6 +513,7 @@ impl Session {
                         State::Closed => Connection::Offline,
                         _ => Connection::Connecting,
                     };
+                    *s.connection.lock().unwrap() = c;
                     let _ = s.events.send(SessionEvent::Connection(c));
                 }
                 LiveEvent::Authenticated => {

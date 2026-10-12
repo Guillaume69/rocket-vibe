@@ -1670,7 +1670,8 @@ impl ChatPage {
         self.list.clear();
         self.content_stack.set_visible_child_name("empty");
         self.content_page.set_title("rocket-vibe");
-        self.set_connection(Connection::Offline);
+        // An account switched back to may be connected already: no change will say so.
+        self.set_connection(self.session().map_or(Connection::Offline, |s| s.connection()));
         self.reload_rooms();
         for f in self.on_room_changed.borrow().iter() {
             f(None);

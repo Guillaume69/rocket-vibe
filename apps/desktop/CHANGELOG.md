@@ -13,6 +13,7 @@ section here.
 
 ### Fixed
 
+- Switching back to a Rocket.Chat, Mattermost or RocketVibe account that was already connected showed it offline until its connection next changed, while sending worked.
 - GTK keeps finite green speaking rings and button feedback on Windows when the Cairo renderer is active, avoiding a GTK shadow-blur crash after a failed Win32 mask allocation while switching from voice to a text channel.
 - GTK sign-in, invitation and recovery forms fit narrow windows, with their existing scrollbar reaching the submit button; the hidden chat page no longer stretches the login beyond the window.
 - GTK follows older encrypted-room search results beyond the latest history page, keeping the newer rows in order without duplicates or plaintext in the ordinary message store.

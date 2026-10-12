@@ -13,6 +13,7 @@ release, and its notes are that version's section here.
 
 ### Fixed
 
+- The RocketVibe Security settings keep showing the account's status after a change that needed a fresh identity confirmation. The unfinished change (email address, authenticator, backup codes, email codes) appears with Continue and Cancel and completes once the identity is confirmed; "Try again" only appears after a failure.
 - Scope Mattermost and kChat searches to the current channel, direct conversation or group before the server's result limit, so busy teams no longer hide older room matches.
 - Mattermost and kChat protected media now belongs to its account and live session. Logout and account switching remove media credentials and cached copies, and late downloads cannot restore them.
 - Typing /giphy opens a compact GIF grid immediately. Search updates as you type in both the command and sharing-menu pickers; choosing a GIF highlights it, and Enter or the shared Send button sends it. Search changes discard old selections and stale responses, and cancellation preserves the draft.

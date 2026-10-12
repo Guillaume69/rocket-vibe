@@ -10,6 +10,7 @@ All notable changes are documented here in English.
 
 ### Fixed
 
+- The RocketVibe Security page shows an unfinished email address removal from this browser, with Continue (asking for the password only if the server needs it) and Cancel, instead of silently keeping it.
 - Invitation signup and password recovery authenticate after receiving the account response, including second-factor challenges.
 - Typing /giphy opens a compact GIF grid immediately. Search updates as you type in both the command and sharing-menu pickers; choosing a GIF highlights it, and Enter or the shared Send button sends it. Search changes discard old selections and stale responses, and cancellation preserves the draft.
 

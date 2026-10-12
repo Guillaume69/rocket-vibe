@@ -7,7 +7,8 @@ import {NativeError} from './transport.ts';
 
 const scope:SecurityScope={baseUrl:'https://example.org',user_id:'alice',device_id:'mobile',instance_id:'instance',data_epoch:'epoch'};
 function harness(){
-  const values=new Map<string,string>();let serial=0,version:string|null=null,enabled=false,enables=0,regenerations=0,disables=0,loseEnable=false,loseRegenerate=false,loseDisable=false;
+  const values=new Map<string,string>();let serial=0,version:string|null=null,enabled=false,enables=0,regenerations=0,disables=0,loseEnable=false,loseRegenerate=false,loseDisable=false,unproven=false;
+  const proof=()=>{if(unproven)throw new NativeError(403,'reauthentication_required');};
   let onEnable:()=>void=()=>{},afterRegenerate:()=>void=()=>{};
   const deps={hash:async(value:string)=>createHash('sha256').update(value).digest('hex'),token:async()=>String(++serial).padStart(64,'0'),
     storage:{read:async(key:string)=>values.get(key)??null,write:async(key:string,value:string)=>{values.set(key,value);},remove:async(key:string)=>{values.delete(key);}}};
@@ -16,16 +17,16 @@ function harness(){
   const bag=(op:string)=>{const result={codes:Array.from({length:10},(_,i)=>`PRIVATE-BACKUP-${op}-${i}`),factor_version:`revision-${op}`};bags.set(op,result);version=result.factor_version;return result;};
   const remote:FactorRemote={proof:{status:async()=>({...scope,proof_version:'proof',recent:true}),begin:async()=>{throw new Error();},resume:async()=>{throw new Error();},finish:async()=>{throw new Error();},removed:async()=>{throw new Error();}},
     status:async()=>({totp:enabled,email:false,backup_codes_remaining:enabled?10:0,factor_version:version}),
-    setup:async input=>{assertSaved(input.operation_id);return {setup_id:'setup-id',secret:'PRIVATE-TOTP-SECRET',provisioning_uri:'otpauth://totp/private',expires_at:new Date(Date.now()+600_000).toISOString()};},
+    setup:async input=>{assertSaved(input.operation_id);proof();return {setup_id:'setup-id',secret:'PRIVATE-TOTP-SECRET',provisioning_uri:'otpauth://totp/private',expires_at:new Date(Date.now()+600_000).toISOString()};},
     enable:async input=>{assertSaved(input.operation_id);assert(![...values.values()].some(raw=>raw.includes(input.code) && input.code));
       const saved=bags.get(input.operation_id);if(saved)return saved;
       enables++;enabled=true;const result=bag(input.operation_id);onEnable();if(loseEnable){loseEnable=false;throw new NativeError(0,'network_or_protocol_error');}return result;},
     regenerate:async input=>{assertSaved(input.operation_id);const saved=bags.get(input.operation_id);if(saved)return saved;
-      assert.equal(input.factor_version,version);regenerations++;const result=bag(input.operation_id);afterRegenerate();if(loseRegenerate){loseRegenerate=false;throw new NativeError(0,'network_or_protocol_error');}return result;},
-    disable:async()=>{disables++;enabled=false;version=null;if(loseDisable){loseDisable=false;throw new NativeError(0,'network_or_protocol_error');}},
+      proof();assert.equal(input.factor_version,version);regenerations++;const result=bag(input.operation_id);afterRegenerate();if(loseRegenerate){loseRegenerate=false;throw new NativeError(0,'network_or_protocol_error');}return result;},
+    disable:async()=>{proof();disables++;enabled=false;version=null;if(loseDisable){loseDisable=false;throw new NativeError(0,'network_or_protocol_error');}},
   };
   return {deps,values,remote,vault:()=>new FactorVault(deps),get enables(){return enables;},get regenerations(){return regenerations;},get disables(){return disables;},
-    set loseEnable(v:boolean){loseEnable=v;},set loseRegenerate(v:boolean){loseRegenerate=v;},set loseDisable(v:boolean){loseDisable=v;},set onEnable(v:()=>void){onEnable=v;},set afterRegenerate(v:()=>void){afterRegenerate=v;},changeVersion:()=>{version='another-revision';}};
+    set loseEnable(v:boolean){loseEnable=v;},set loseRegenerate(v:boolean){loseRegenerate=v;},set loseDisable(v:boolean){loseDisable=v;},set unproven(v:boolean){unproven=v;},set onEnable(v:()=>void){onEnable=v;},set afterRegenerate(v:()=>void){afterRegenerate=v;},changeVersion:()=>{version='another-revision';}};
 }
 test('setup and lost enable ACK survive recreation; original bag stays private until explicit acknowledgement',async()=>{
   const h=harness(),setup=await h.vault().start(scope,h.remote,'setup');if(setup.kind!=='setup')throw new Error();h.loseEnable=true;
@@ -58,4 +59,19 @@ test('cancelled factor completion retains only the original operation for later 
   let alive=true;h.onEnable=()=>{alive=false;};
   await assert.rejects(h.vault().enable(scope,h.remote,setup.setup,'123456',()=>alive),/session_closed/);
   assert(![...h.values.values()].some(raw=>raw.includes('PRIVATE-BACKUP')));assert.equal((await h.vault().resume(scope,h.remote)).kind,'codes');assert.equal(h.enables,1);
+});
+test('a factor change refused for want of a recent proof stays pending until resumed or cancelled',async()=>{
+  const h=harness();h.unproven=true;
+  const waiting=await h.vault().start(scope,h.remote,'setup');
+  assert.equal(waiting.kind,'pending');if(waiting.kind!=='pending')throw new Error();assert.equal(waiting.action,'setup');
+  assert.deepEqual(await h.vault().resume(scope,h.remote),waiting);
+  h.unproven=false;
+  const setup=await h.vault().resume(scope,h.remote);if(setup.kind!=='setup')throw new Error();
+  const bag=await h.vault().enable(scope,h.remote,setup.setup,'123456');if(bag.kind!=='codes')throw new Error();await h.vault().clear(scope,bag.receipt);
+  h.unproven=true;
+  const disable=await h.vault().start(scope,h.remote,'disable');
+  assert.equal(disable.kind,'pending');if(disable.kind!=='pending')throw new Error();assert.equal(disable.action,'disable');
+  const regenerate=await h.vault().start(scope,h.remote,'regenerate');assert.deepEqual(regenerate,disable);
+  assert.equal(await h.vault().clear(scope,disable.receipt),true);assert.equal(h.values.size,0);
+  assert.equal(h.disables,0);assert.equal((await h.remote.status()).totp,true);
 });

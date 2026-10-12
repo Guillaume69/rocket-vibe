@@ -20,6 +20,7 @@ export type EmailRemote={
 type ContactStatus=EmailStatus & {address:string|null;verified_at:string|null};
 export type EmailView={kind:'idle';status:ContactStatus}
   |{kind:'pending';status:ContactStatus;receipt:string;address:string;expires_at:string;delivery:EmailDeliveryState}
+  |{kind:'awaiting_proof';status:ContactStatus;receipt:string;address:string}
   |{kind:'verified'|'stale'|'removed'|'removal_pending'|'removal_stale';status:ContactStatus;receipt:string};
 type Accepted={version:string;head:string};
 type VerificationRecord={kind?:undefined;scope:SecurityScope;input:BeginEmailVerification;expires_at:string|null;accepted:Accepted|null};
@@ -70,6 +71,9 @@ function acceptedFor(value:Accepted|null,input:{expected_version:string;verifica
     exact(value,['version','head']);
     if(!identifier(value.version) || !identifier(value.head) || value.version===input.expected_version || value.head===input.verification_version)throw invalid();
   }
+}
+export function proofNeeded(error:unknown):boolean {
+  return error instanceof NativeError && error.status===403 && error.code==='reauthentication_required';
 }
 function removalMissing(error:unknown):boolean {
   return error instanceof NativeError && error.status===400 && error.code==='email_removal_rejected';
@@ -147,7 +151,7 @@ export class EmailVault {
       // The server's durable reservation forbids recreating a pruned challenge.
       if(record.expires_at!==null || status.version!==input.expected_version || status.verification_version!==input.verification_version)return {kind:'stale',status,receipt:input.operation_id};
       try {result=await remote.begin({...input,context:securityContext(scope)});securityAlive(guard);}
-      catch(error){securityAlive(guard);if(missing(error) || invalidStart(error) || verificationUnavailable(error) || (error instanceof NativeError && error.status===409 && error.code==='operation_conflict'))return {kind:'stale',status,receipt:input.operation_id};throw error;}
+      catch(error){securityAlive(guard);if(proofNeeded(error))return {kind:'awaiting_proof',status,receipt:input.operation_id,address:input.address};if(missing(error) || invalidStart(error) || verificationUnavailable(error) || (error instanceof NativeError && error.status===409 && error.code==='operation_conflict'))return {kind:'stale',status,receipt:input.operation_id};throw error;}
     }
     return this.result(key,saved,result,remote,guard);
   }
@@ -171,7 +175,9 @@ export class EmailVault {
         const result=await remote.begin({...input,context:securityContext(scope)});securityAlive(guard);
         return this.result(key,saved,result,remote,guard);
       } catch(error){
-        securityAlive(guard);if(!invalidStart(error))throw error;
+        securityAlive(guard);
+        if(proofNeeded(error))return {kind:'awaiting_proof',status:await this.live(scope,remote,guard),receipt:operation,address:value};
+        if(!invalidStart(error))throw error;
         return {kind:'stale',status:await this.live(scope,remote,guard),receipt:operation};
       }
     });
@@ -233,7 +239,7 @@ export class EmailVault {
       try {receipt=await endpoint.begin({...input,context:securityContext(record.scope)});securityAlive(guard);}
       catch(error){
         securityAlive(guard);
-        if(error instanceof NativeError && error.status===403 && error.code==='reauthentication_required')return {kind:'removal_pending',status,receipt:input.operation_id};
+        if(proofNeeded(error))return {kind:'removal_pending',status,receipt:input.operation_id};
         if(removalMissing(error) || invalidStart(error) || (error instanceof NativeError && error.status===409 && error.code==='operation_conflict'))return {kind:'removal_stale',status:await this.live(record.scope,remote,guard),receipt:input.operation_id};
         throw error;
       }
@@ -256,7 +262,7 @@ export class EmailVault {
       try {securityAlive(guard);receipt=await endpoint.begin({...input,context:securityContext(scope)});securityAlive(guard);}
       catch(error){
         securityAlive(guard);
-        if(error instanceof NativeError && (error.status===0 || error.status>=500 || (error.status===403 && error.code==='reauthentication_required')))return {kind:'removal_pending',status:await this.live(scope,remote,guard),receipt:operation};
+        if(error instanceof NativeError && (error.status===0 || error.status>=500 || proofNeeded(error)))return {kind:'removal_pending',status:await this.live(scope,remote,guard),receipt:operation};
         if(removalMissing(error) || invalidStart(error) || (error instanceof NativeError && error.status===409 && error.code==='operation_conflict'))return {kind:'removal_stale',status:await this.live(scope,remote,guard),receipt:operation};
         throw error;
       }

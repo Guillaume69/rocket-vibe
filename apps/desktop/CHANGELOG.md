@@ -13,6 +13,7 @@ section here.
 
 ### Fixed
 
+- The RocketVibe Security settings no longer stay stuck on "Loading security…" after a change that needed a fresh identity confirmation (adding or removing an email address, setting up or disabling the authenticator, replacing backup codes, email codes). The page always shows the account's status; the unfinished change appears with Continue and Cancel, and Continue asks for the password (or second factor) before completing it. "Try again" only appears after a failure, on GTK and SwiftUI.
 - Prevent duplicate screenshots and other Rocket.Chat attachments after a slow or lost confirmation response, including encrypted files and app restarts. Uncertain confirmations show "Checking delivery" and reconcile without posting again.
 
 - Scope Mattermost and kChat searches to the current channel, direct conversation or group before the server's result limit, on GTK and SwiftUI.

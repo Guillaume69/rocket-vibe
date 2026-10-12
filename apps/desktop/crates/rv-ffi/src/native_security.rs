@@ -6,7 +6,8 @@ use rv_core::native::{
     Error, NativeSession,
     authentication::{SecondFactor, method_name},
     security::{
-        Access, EmailFactorExpectation, FactorAction, FactorState, Guard, ProofState, Remote, Scope, Status, email,
+        Access, EmailFactorExpectation, FactorAction, FactorState, Guard, PendingFactor, ProofState, Remote, Scope,
+        Status, email,
     },
 };
 use std::sync::{Arc, Mutex};
@@ -23,6 +24,26 @@ pub enum NativeFactorPhase {
     Setup,
     Codes,
     Stale,
+    Pending,
+}
+#[derive(Clone, Copy, uniffi::Enum)]
+pub enum NativePendingFactor {
+    Setup,
+    Regenerate,
+    Disable,
+    EmailEnable,
+    EmailDisable,
+}
+impl From<PendingFactor> for NativePendingFactor {
+    fn from(value: PendingFactor) -> Self {
+        match value {
+            PendingFactor::Setup => Self::Setup,
+            PendingFactor::Regenerate => Self::Regenerate,
+            PendingFactor::Disable => Self::Disable,
+            PendingFactor::EmailEnable => Self::EmailEnable,
+            PendingFactor::EmailDisable => Self::EmailDisable,
+        }
+    }
 }
 #[derive(Clone, Copy, uniffi::Enum)]
 pub enum NativeFactorAction {
@@ -40,6 +61,7 @@ pub enum NativeSecurityCopy {
 pub enum NativeEmailPhase {
     Idle,
     Pending,
+    AwaitingProof,
     Verified,
     Stale,
     RemovalPending,
@@ -122,6 +144,10 @@ impl From<&email::View> for NativeEmailState {
             email::State::RemovalPending { .. } => NativeEmailPhase::RemovalPending,
             email::State::Removed { .. } => NativeEmailPhase::Removed,
             email::State::RemovalStale { .. } => NativeEmailPhase::RemovalStale,
+            email::State::AwaitingProof { address, .. } => {
+                value.pending_address = Some(address.clone());
+                NativeEmailPhase::AwaitingProof
+            }
             email::State::Pending { address, expires_at, delivery, .. } => {
                 value.pending_address = Some(address.clone());
                 value.expires_at = Some(expires_at.clone());
@@ -156,6 +182,7 @@ pub struct NativeSecurityState {
     pub methods: Vec<String>,
     pub proof_email: Option<NativeFactorEmailState>,
     pub factor: NativeFactorPhase,
+    pub pending_factor: Option<NativePendingFactor>,
     pub setup_secret: Option<String>,
     pub setup_uri: Option<String>,
     pub codes: Vec<String>,
@@ -200,8 +227,13 @@ impl State {
                     .unwrap_or_default(),
             ),
         };
+        let pending_factor = match &self.factor {
+            FactorState::Pending { action, .. } => Some((*action).into()),
+            _ => None,
+        };
         let (factor, secret, uri, codes) = match &self.factor {
             FactorState::Idle => (NativeFactorPhase::Idle, None, None, vec![]),
+            FactorState::Pending { .. } => (NativeFactorPhase::Pending, None, None, vec![]),
             FactorState::Stale { .. } => (NativeFactorPhase::Stale, None, None, vec![]),
             FactorState::Setup(setup) => {
                 (NativeFactorPhase::Setup, Some(setup.secret.clone()), Some(setup.provisioning_uri.clone()), vec![])
@@ -231,6 +263,7 @@ impl State {
                 _ => None,
             },
             factor,
+            pending_factor,
             setup_secret: secret,
             setup_uri: uri,
             codes,
@@ -500,7 +533,9 @@ impl Inner {
                     let state = self.state.lock().unwrap();
                     state.revision(revision)?;
                     match &state.factor {
-                        FactorState::Codes { receipt_id, .. } | FactorState::Stale { receipt_id } => receipt_id.clone(),
+                        FactorState::Codes { receipt_id, .. }
+                        | FactorState::Stale { receipt_id }
+                        | FactorState::Pending { receipt_id, .. } => receipt_id.clone(),
                         _ => return Err(Error::Protocol("credentials_changed")),
                     }
                 };
@@ -552,6 +587,12 @@ impl Inner {
                 email = Some(vault.email_acknowledge(scope, &access, &receipt, guard).await?);
             }
         }
+        if factor.is_none()
+            && matches!(proof, Some(ProofState::Ready))
+            && (self.session.factors_supported() || self.session.email_factors_supported())
+        {
+            factor = Some(vault.factor_resume(scope, &access, guard).await?);
+        }
         if email.is_none() && self.session.email_supported() {
             email = Some(vault.email_resume(scope, &access, guard).await?);
         }
@@ -590,7 +631,7 @@ impl Inner {
         let allowed = matches!(
             (&view.state, phase),
             (email::State::Pending { .. }, NativeEmailPhase::Pending | NativeEmailPhase::Stale)
-                | (email::State::Stale { .. }, NativeEmailPhase::Stale)
+                | (email::State::Stale { .. } | email::State::AwaitingProof { .. }, NativeEmailPhase::Stale)
                 | (email::State::Verified { .. }, NativeEmailPhase::Verified)
                 | (email::State::RemovalPending { .. } | email::State::RemovalStale { .. }, NativeEmailPhase::Stale)
                 | (email::State::Removed { .. }, NativeEmailPhase::Verified)

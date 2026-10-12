@@ -1568,6 +1568,14 @@ const CATALOG: &[(&str, &str, &str)] = &[
         "Authenticator codes will stop working. Email codes and backups remain if that profile is active; otherwise sign-in will use only your password. Other devices will be signed out.",
     ),
     ("security.refresh", "Reprendre ou actualiser", "Resume or refresh"),
+    ("security.retry", "Réessayer", "Try again"),
+    ("security.continue", "Continuer", "Continue"),
+    ("security.cancel_pending", "Annuler cette modification", "Cancel this change"),
+    (
+        "security.pending_body",
+        "Vous avez commencé cette modification. Confirmez votre identité pour la poursuivre, ou annulez-la.",
+        "You started this change. Confirm your identity to continue it, or cancel it.",
+    ),
     (
         "security.rejected",
         "Vérification refusée ou expirée. Actualisez pour reprendre la tentative.",
@@ -1575,8 +1583,8 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ),
     (
         "security.failed",
-        "Action non confirmée. Actualisez pour reprendre après une coupure réseau.",
-        "Action unconfirmed. Refresh to resume after a network interruption.",
+        "Action non confirmée. Réessayez pour reprendre après une coupure réseau.",
+        "Action unconfirmed. Try again to resume after a network interruption.",
     ),
     (
         "security.stale",
@@ -1628,8 +1636,13 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("email.removed", "L’adresse e-mail a été retirée.", "The email address has been removed."),
     (
         "email.removal_pending",
-        "Le retrait n’est pas encore confirmé. Actualisez pour reprendre ou annulez cette demande.",
-        "Removal is not confirmed yet. Refresh to resume or cancel this request.",
+        "Le retrait n’est pas encore confirmé. Continuez pour le reprendre ou annulez cette demande.",
+        "Removal is not confirmed yet. Continue to resume it or cancel this request.",
+    ),
+    (
+        "email.awaiting_proof",
+        "Le code n’a pas encore été envoyé. Confirmez votre identité pour continuer.",
+        "The code has not been sent yet. Confirm your identity to continue.",
     ),
     ("email.cancel_removal", "Annuler cette demande de retrait", "Cancel this removal request"),
     (

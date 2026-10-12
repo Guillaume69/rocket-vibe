@@ -12,8 +12,8 @@ use rv_core::native::{
     NativeSession,
     authentication::{SecondFactor, method_name},
     security::{
-        Access, EmailFactorExpectation, FactorAction, FactorState, Guard, ProofAttempt, ProofState, Remote, Scope,
-        Setup, email,
+        Access, EmailFactorExpectation, FactorAction, FactorState, Guard, PendingFactor, ProofAttempt, ProofState,
+        Remote, Scope, Setup, email,
     },
 };
 use std::{
@@ -86,6 +86,12 @@ pub fn page(host: &Host, session: Arc<NativeSession>) -> adw::PreferencesPage {
     codes_group.add(&copy_codes);
     codes_group.add(&ack);
     page.add(&codes_group);
+    let pending_group = adw::PreferencesGroup::builder().description(t("security.pending_body")).build();
+    let pending_continue = button("security.continue", "native-security-pending-continue");
+    let pending_cancel = button("security.cancel_pending", "native-security-pending-cancel");
+    pending_group.add(&pending_continue);
+    pending_group.add(&pending_cancel);
+    page.add(&pending_group);
     let stale_group = adw::PreferencesGroup::builder().description(t("security.stale")).build();
     let discard = button("security.discard", "native-security-discard");
     stale_group.add(&discard);
@@ -120,6 +126,7 @@ pub fn page(host: &Host, session: Arc<NativeSession>) -> adw::PreferencesPage {
         .css_classes(["entry", "native-security-email-code"])
         .build();
     let email_confirm = button("email.confirm", "native-security-email-confirm");
+    let email_continue = button("security.continue", "native-security-email-continue");
     let email_cancel = button("email.cancel", "native-security-email-cancel");
     let email_verified = adw::ActionRow::builder().title(t("email.verified")).build();
     let email_ack = button("email.done", "native-security-email-acknowledge");
@@ -134,6 +141,7 @@ pub fn page(host: &Host, session: Arc<NativeSession>) -> adw::PreferencesPage {
     email_group.add(&email_pending);
     email_group.add(&email_code);
     email_group.add(&email_confirm);
+    email_group.add(&email_continue);
     email_group.add(&email_cancel);
     email_group.add(&email_verified);
     email_group.add(&email_ack);
@@ -141,7 +149,7 @@ pub fn page(host: &Host, session: Arc<NativeSession>) -> adw::PreferencesPage {
     email_group.add(&email_retire);
     page.add(&email_group);
     let refresh_group = adw::PreferencesGroup::new();
-    let refresh = button("security.refresh", "native-security-refresh");
+    let refresh = button("security.retry", "native-security-refresh");
     refresh_group.add(&refresh);
     page.add(&refresh_group);
     let state = Rc::new(Controller {
@@ -164,6 +172,7 @@ pub fn page(host: &Host, session: Arc<NativeSession>) -> adw::PreferencesPage {
         setup_code,
         codes_group,
         codes,
+        pending_group,
         stale_group,
         actions,
         setup,
@@ -179,11 +188,14 @@ pub fn page(host: &Host, session: Arc<NativeSession>) -> adw::PreferencesPage {
         email_pending,
         email_code,
         email_confirm,
+        email_continue,
         email_cancel,
         email_verified,
         email_ack,
         email_stale,
         email_retire,
+        refresh: refresh_group,
+        failed: Cell::new(false),
         email: RefCell::new(None),
         email_revision: Cell::new(0),
         proof: RefCell::new(ProofState::Password),
@@ -456,6 +468,26 @@ pub fn page(host: &Host, session: Arc<NativeSession>) -> adw::PreferencesPage {
             }
         });
     }
+    for row in [&pending_continue, &state.email_continue] {
+        let weak = Rc::downgrade(&state);
+        row.connect_activated(move |_| {
+            if let Some(state) = weak.upgrade() {
+                state.resume();
+            }
+        });
+    }
+    let weak = Rc::downgrade(&state);
+    pending_cancel.connect_activated(move |_| {
+        if let Some(state) = weak.upgrade() {
+            let receipt = match &*state.factor.borrow() {
+                FactorState::Pending { receipt_id, .. } => Some(receipt_id.clone()),
+                _ => None,
+            };
+            if let Some(receipt) = receipt {
+                state.run(Work::Clear(receipt));
+            }
+        }
+    });
     let weak = Rc::downgrade(&state);
     refresh.connect_activated(move |_| {
         if let Some(state) = weak.upgrade() {
@@ -532,6 +564,7 @@ struct Controller {
     setup_code: adw::EntryRow,
     codes_group: adw::PreferencesGroup,
     codes: gtk::Label,
+    pending_group: adw::PreferencesGroup,
     stale_group: adw::PreferencesGroup,
     actions: adw::PreferencesGroup,
     setup: adw::ButtonRow,
@@ -547,11 +580,14 @@ struct Controller {
     email_pending: adw::ActionRow,
     email_code: adw::PasswordEntryRow,
     email_confirm: adw::ButtonRow,
+    email_continue: adw::ButtonRow,
     email_cancel: adw::ButtonRow,
     email_verified: adw::ActionRow,
     email_ack: adw::ButtonRow,
     email_stale: adw::ActionRow,
     email_retire: adw::ButtonRow,
+    refresh: adw::PreferencesGroup,
+    failed: Cell<bool>,
     email: RefCell<Option<email::View>>,
     email_revision: Cell<u64>,
     proof: RefCell<ProofState>,
@@ -582,6 +618,22 @@ impl Controller {
         self.guard.cancel();
         self.clear();
     }
+    fn resume(self: &Rc<Self>) {
+        match &*self.proof.borrow() {
+            ProofState::Ready => {}
+            ProofState::Password => {
+                self.host.toast(t("security.required"));
+                self.password.grab_focus();
+                return;
+            }
+            ProofState::Challenge(_) => {
+                self.host.toast(t("security.required"));
+                self.proof_code.grab_focus();
+                return;
+            }
+        }
+        self.run(Work::Refresh);
+    }
     fn clear(&self) {
         self.password.set_text("");
         self.proof_code.set_text("");
@@ -602,7 +654,8 @@ impl Controller {
     fn render(&self) {
         let proof = self.proof.borrow();
         let loaded = self.factor_status.borrow().is_some();
-        self.password_group.set_visible(loaded && matches!(*proof, ProofState::Password));
+        self.password_group.set_visible((loaded || self.failed.get()) && matches!(*proof, ProofState::Password));
+        self.refresh.set_visible(self.failed.get());
         self.proof_group.set_visible(matches!(*proof, ProofState::Challenge(_)));
         if let ProofState::Challenge(saved) = &*proof
             && let Some(challenge) = saved.challenge()
@@ -633,6 +686,16 @@ impl Controller {
         self.setup_group.set_visible(supported && matches!(*factor, FactorState::Setup(_)));
         self.codes_group.set_visible((supported || email_factors) && matches!(*factor, FactorState::Codes { .. }));
         self.stale_group.set_visible((supported || email_factors) && matches!(*factor, FactorState::Stale { .. }));
+        self.pending_group.set_visible(matches!(*factor, FactorState::Pending { .. }));
+        if let FactorState::Pending { action, .. } = &*factor {
+            self.pending_group.set_title(t(match action {
+                PendingFactor::Setup => "security.setup",
+                PendingFactor::Regenerate => "security.regenerate",
+                PendingFactor::Disable => "security.disable",
+                PendingFactor::EmailEnable => "email.factor_enable",
+                PendingFactor::EmailDisable => "email.factor_disable",
+            }));
+        }
         self.actions.set_visible(loaded && supported && matches!(*factor, FactorState::Idle));
         self.setup.set_visible(!totp);
         self.regenerate.set_visible(enabled);
@@ -645,7 +708,9 @@ impl Controller {
             FactorState::Codes { codes, .. } => codes.codes.join("\n"),
             _ => String::new(),
         });
-        self.status.set_title(t(if !loaded {
+        self.status.set_title(t(if !loaded && self.failed.get() {
+            "security.title"
+        } else if !loaded {
             "security.loading"
         } else if supported || email_factors {
             if enabled { "security.enabled" } else { "security.disabled" }
@@ -694,13 +759,25 @@ impl Controller {
                 && email.as_ref().is_some_and(|view| view.status.address.is_some()),
         );
         self.email_remove.set_sensitive(ready);
-        self.email_pending
-            .set_visible(matches!(phase, Some(email::State::Pending { .. } | email::State::RemovalPending { .. })));
+        self.email_pending.set_visible(matches!(
+            phase,
+            Some(
+                email::State::Pending { .. } | email::State::AwaitingProof { .. } | email::State::RemovalPending { .. }
+            )
+        ));
+        self.email_continue.set_visible(matches!(
+            phase,
+            Some(email::State::AwaitingProof { .. } | email::State::RemovalPending { .. })
+        ));
         self.email_code.set_visible(matches!(phase, Some(email::State::Pending { .. })));
         self.email_confirm.set_visible(matches!(phase, Some(email::State::Pending { .. })));
         self.email_confirm.set_sensitive(ready);
-        self.email_cancel
-            .set_visible(matches!(phase, Some(email::State::Pending { .. } | email::State::RemovalPending { .. })));
+        self.email_cancel.set_visible(matches!(
+            phase,
+            Some(
+                email::State::Pending { .. } | email::State::AwaitingProof { .. } | email::State::RemovalPending { .. }
+            )
+        ));
         self.email_cancel.set_title(t(if matches!(phase, Some(email::State::RemovalPending { .. })) {
             "email.cancel_removal"
         } else {
@@ -746,6 +823,9 @@ impl Controller {
                     EmailDeliveryState::Exhausted => "email.exhausted",
                 })
             ));
+        } else if let Some(email::State::AwaitingProof { address, .. }) = phase {
+            self.email_pending.set_title(t("email.pending"));
+            self.email_pending.set_subtitle(&format!("{address}\n{}", t("email.awaiting_proof")));
         } else {
             self.email_pending.set_title(t("email.removal_pending"));
             self.email_pending.set_subtitle("");
@@ -863,6 +943,12 @@ impl Controller {
                                 email = Some(vault.email_acknowledge(&scope, &access, &receipt, &guard).await?)
                             }
                         }
+                        if factor.is_none()
+                            && matches!(proof, Some(ProofState::Ready))
+                            && (session.factors_supported() || session.email_factors_supported())
+                        {
+                            factor = Some(vault.factor_resume(&scope, &access, &guard).await?);
+                        }
                         if email.is_none() && session.email_supported() {
                             email = Some(vault.email_resume(&scope, &access, &guard).await?);
                         }
@@ -909,6 +995,7 @@ impl Controller {
             }
             state.busy.set(false);
             state.page.set_sensitive(true);
+            state.failed.set(result.is_err());
             match result {
                 Ok(loaded) => {
                     if loaded.access.check().is_err() {

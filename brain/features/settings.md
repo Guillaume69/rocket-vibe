@@ -21,6 +21,10 @@ The settings gather my profile, the notification preference, the language, the e
 
 The three apps group the settings in one list of categories, in this order, each shown only when it has something for the open account and server: **My account** (profile card, edit profile, presence and status text), **Notifications**, **Language**, **Voice** (desktop only, RocketVibe accounts with voice: microphone, speakers, noise remover; mobile has no voice settings), **Encryption**, **Security**, **Devices**, **Bots** and **Workflows** (RocketVibe accounts only; Bots when the server announces `bots`, [bots.md](bots.md), Workflows when it announces `workflows`, [workflows.md](workflows.md)), **Accounts**, **App**. Under them: **Server administration**, for an administrator of the open server only ([administration.md](administration.md)), and **Sign out**. Desktop shows them as a large modal with the categories on the left (why: [decisions](../decisions.md#desktop)); mobile as a list of full pages.
 
+## Security: unfinished changes
+
+Every sensitive Security change (verify or remove the email address, set up or disable the authenticator, replace backup codes, enable or disable email codes) saves its intent privately on the device BEFORE its request, and every opening of the page replays it so a lost answer is recovered. The server checks an already accepted receipt before the recent-proof check, so a replay that answers 403 `reauthentication_required` proves the change was NOT applied (probed on 0.4.0). The replay therefore never fails the page: rv-core maps it to `FactorState::Pending { receipt_id, action: PendingFactor }` (`native/security.rs`, `security/email_settings.rs`) or `email::State::AwaitingProof { receipt_id, address }` (an unsent verification; a removal already uses `RemovalPending`, `security/email.rs`), and mobile mirrors it (`factorVault.ts` `{kind:'pending'}`, `emailVault.ts` `{kind:'awaiting_proof'}`). The page shows the status, then the unfinished change with **Continue** (asks for the identity first when the proof is not recent, then replays) and **Cancel** (clears the factor intent, or retires the email verification or removal). Confirming the identity also resumes the pending factor and email intents. "Try again" only shows after a failed load or action. Before this, GTK and SwiftUI failed the whole load and stayed on "Loading security…" with only "Resume or refresh", which replayed the same refused request.
+
 ## Mobile
 
 `app/settings/index.tsx` is the list, opened from the room list: my profile card on top, then one row per visible category (the desktop's Adwaita icon for it, `ui/settingsCategories.ts`; the label, a one-line hint, a chevron), then a "Reminders" card for every account (`app/reminders.tsx`, [reminders.md](reminders.md#mobile)), then the "Server administration" card when `useServerAdmin` (`ui/adminAccess.ts`) says so, and Sign out at the bottom. A row opens `app/settings/[category].tsx`, a full page (several categories have text fields; a `KeyboardAwareScrollView` from react-native-keyboard-controller keeps the field being typed in above the keyboard, which edge-to-edge no longer resizes the window for) rendering `SettingsCategoryContent` from `ui/settingsSections.tsx`, where the former single page's sections moved unchanged; an unknown category redirects to the list. Which categories show is decided by `ui/settingsCategories.ts` (`SETTINGS_CATEGORIES`, `hasContent`, `visibleCategories`, pure and tested), from the server's capabilities: Notifications when it delivers push (Rocket.Chat, RocketVibe taking registrations; not Mattermost nor kChat); Encryption on Rocket.Chat (`e2ee`), on RocketVibe with the encrypted identity block, never on Mattermost or kChat; Security and Devices on RocketVibe when offered; Bots on RocketVibe when the server announces `bots`, Workflows when it announces `workflows`.
@@ -73,6 +77,15 @@ The settings dialog (`settings` in `apps/web/src/panels.ts`) follows GTK's categ
 ## Sources
 
 - apps/desktop/crates/rv-gtk/src/chat.rs
+- apps/desktop/crates/rv-gtk/src/native_security.rs
+- apps/desktop/crates/rv-core/src/native/security.rs
+- apps/desktop/crates/rv-core/src/native/security/email.rs
+- apps/desktop/crates/rv-ffi/src/native_security.rs
+- apps/desktop/macos/Sources/RocketVibe/SecuritySection.swift
+- apps/mobile/ui/nativeSecurity.tsx
+- apps/mobile/providers/rocketvibe/factorVault.ts
+- apps/mobile/providers/rocketvibe/emailVault.ts
+- apps/web/src/email.ts
 
 - apps/mobile/app/settings/index.tsx
 - apps/mobile/app/settings/[category].tsx

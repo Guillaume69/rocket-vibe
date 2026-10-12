@@ -132,7 +132,7 @@ export function loginErrorKey(
       recovery_rejected: "login.recovery_rejected",
       invitation_rejected: "login.invitation_rejected",
     };
-    if (codes[error.code]) return codes[error.code];
+    if (Object.hasOwn(codes, error.code)) return codes[error.code];
     if (error.status === 0) return "login.unreachable";
     if (error.status === 429) return "login.too_many";
     if (error.status === 401) return "login.rejected";

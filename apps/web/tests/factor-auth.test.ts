@@ -376,6 +376,8 @@ test("login errors retain native mode captions without exposing unknown technica
       Error("raw_backend_key: private diagnostic"),
       new ApiError(400, "unknown_backend_key"),
       new ApiError(500, "unknown_backend_key"),
+      new ApiError(400, "constructor"),
+      new ApiError(400, "__proto__"),
       "raw_backend_key",
     ]) {
       assert.equal(loginErrorKey(error, mode), caption);
